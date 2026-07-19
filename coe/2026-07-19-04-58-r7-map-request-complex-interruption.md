@@ -1,7 +1,7 @@
 # Problem P-001: R7 map-request 复杂样本执行后未闭合 Map 并中断
-- Status: investigating
+- Status: fixed
 - Created: 2026-07-19 04:58
-- Updated: 2026-07-19 04:58
+- Updated: 2026-07-19 08:45
 - Objective: 证明复杂样本在 map-request 下只初始化 Map、持续执行普通工具却未闭合并中断的具体因果机制。
 - Symptoms:
   - `subscription-billing-repair` 的 Standard 臂 solved，R7 map-request 臂执行 18 个 provider request 和 34 个普通工具尝试后为 `interrupted`。
@@ -22,20 +22,24 @@
   - TaskSpace provider message prefix preservation 为 100%，不是已知的 projection 替换缓存断裂。
   - 第 18 次 provider request 正常完成；Agent 返回普通最终总结后，本地 R6 终局门禁产生 `taskspace_terminal_protocol_violation` 并以 exit 1 结束。
   - `plain_provider_final_is_nonterminal_and_does_not_retry` 集成测试明确冻结了“普通 final 非终局且不重试”的行为。
+  - Phase D 代码与 wire audit 证明 TaskSpace 当时没有 Agent 工作协议，只有 Map handle、tool schema 和 hard gate。
+  - 增加静态版本化核心工作协议后，`v1.0.0` 与 `v1.0.1` 的 complex `map-request` 均 solved 且 Map 完整闭合。
 - Ruled out:
   - provider、timeout 或预算先行中断。
 - Fix criteria:
   - 根因通过最后 provider response、interrupt source、终局判定和 Map trace 的一致证据确认。
   - 修复后同一复杂样本至少 1 次 solved、Map 闭合，且 Phase D 自动 projection 和硬门禁合同不回归。
-- Current conclusion: 直接失败机制已确认：Agent 未闭合 Map 就输出普通 final，R6 冻结终局门禁按设计 fatal 且不发起纠正请求。map-request 缺少持续可见当前 Map 是否导致 Agent 遗忘，仍只有相关性证据，不能据此设计修复。
+- Current conclusion: 直接失败机制仍是 Agent 未闭合 Map 后触发既有 terminal fatal；更上游的已确认设计缺陷是 TaskSpace 强制 Agent 使用 Map，却没有提供 Map 工作协议。静态协议接入后两个独立版本的 complex run 均主动完成 lifecycle 并闭合。持续 projection 不是必要条件：四个修复验证 run 均为 map-request、零 automatic projection，且 `v1.0.1` 零 read_map。same-response lifecycle batching 未发生，作为独立工具可表达性问题继续跟踪。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
-  - not satisfied
-- Close reason:
-  - not closed
+  - E-006
+  - E-007
+  - E-008
+- Close reason: fix validation passed on two versioned complex Docker runs
 
 ## Hypothesis H-001: 外部预算或 provider 中断终止了仍在正常推进的 Agent
 - Status: refuted
@@ -83,7 +87,7 @@
   - not closed
 
 ## Hypothesis H-002: map-request 缺少持续可见的机械 Map 事实，导致 Agent 初始化后遗忘生命周期
-- Status: unverified
+- Status: refuted
 - Parent: P-001
 - Claim: 普通请求完全不再携带当前 Map 事实，而初始化 control feedback 随历史后移，Agent 因上下文显著性不足停止维护 Map。
 - Layer: interaction
@@ -115,14 +119,16 @@
   - Instrumentation status: none
   - Instrumentation lifecycle:
     - none
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
   - E-003
   - E-004
-- Conclusion: unverified
-- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: 重建逐 request 上下文与动作表。
+  - E-007
+  - E-008
+- Conclusion: refuted as a necessary cause；协议修复后的 complex run 仍然没有 automatic projection，`v1.0.1` 也没有 read_map，但 Agent 持续维护并闭合 lifecycle。历史失败不能归因成“必须持续暴露当前 Map”。
+- Repair design readiness: not applicable
+- Next step: none；不为该假设恢复持续 projection 或 Runtime 提醒。
 - Blocker:
   - none
 - Close reason:
@@ -285,3 +291,144 @@
   ```
 - Interpretation: H-003 的机制和设计来源均被直接代码及测试证据确认；它不是 Phase D 新引入的行为。
 - Time: 2026-07-19 05:03
+
+## Hypothesis H-004: TaskSpace 缺少 Agent 工作协议，使硬绑定 Map 的使用方法未进入模型上下文
+- Status: confirmed
+- Parent: P-001
+- Claim: Phase D 只向 Agent 暴露 Map handle、`taskspace_control` schema 和违规 hard gate，没有说明 Map 在完整任务中的初始化、阶段维护、按需读取与显式终局工作方法；Agent 因而可能执行普通 coding 工作却不维护生命周期。
+- Layer: interaction
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 强制工具只能保证不可绕过，不能替代 Agent 工作协议；普通 Skill 又不是每轮稳定加载的强制载体。
+- Falsifiable predictions:
+  - If true: Phase D provider context 中没有静态 TaskSpace 工作协议；接入 policy-neutral 协议后，wire 可稳定识别其版本，Agent 在同一 complex 样本中会主动提交 lifecycle 和 `finish_end`。
+  - If false: 旧 context 已有完整工作协议，或接入协议后仍系统性只做 ordinary work、不维护 Map。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 工作协议在旧链路缺失，版本化协议可在最终 wire 精确观测，并改变 complex lifecycle 行为。
+  - Signal: base instructions、provider input、wire protocol identity、control sequence、terminal Map snapshot。
+  - Capture method: 代码审计加两个版本的同期 Docker paired run。
+  - Event name or marker:
+    - TaskSpaceCoreWorkingProtocolV1
+    - taskspace.working_protocol_injected
+    - provider.chat_wire_shape_recorded
+    - terminal_committed
+  - Correlation keys:
+    - protocol_version
+    - rules_sha256
+    - request_id
+    - map_id
+  - Differentiates from:
+    - H-002
+    - H-003
+  - Supports if:
+    - 旧链路无协议；新链路每个 TaskSpace request 恰好一份匹配协议；complex 主动闭合且不依赖 automatic projection。
+  - Refutes if:
+    - 旧链路已有协议，或修复后协议缺失/重复/不匹配，或 complex 仍以未闭合 plain final 结束。
+  - Instrumentation status: retained
+  - Instrumentation lifecycle:
+    - wire identity 与 benchmark summary 作为永久版本效果观测保留。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+  - E-008
+- Conclusion: confirmed；旧链路确实没有 Agent 工作协议，新协议在 wire 上精确交付，两个版本的 complex run 均主动闭合。它是已确认的设计缺陷和本次修复对象，但单次历史失败仍可能包含模型随机性，不能宣称它是唯一因素。
+- Repair design readiness: implemented and validated
+- Next step: 保持协议版本化；不要把该结论扩展成 Runtime 语义提醒。
+- Blocker:
+  - none
+- Close reason: fixed by versioned core working protocol
+
+## Evidence E-006: 旧 TaskSpace provider context 没有 Map 工作协议
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: code-location
+- Source: `core/src/session/mod.rs`、`core/src/session/turn.rs`、`tools/src/taskspace_tool.rs` 与 Phase D provider wire
+- Prediction or plan link:
+  - H-004：区分“Agent 不遵循既有协议”和“系统从未提供协议”。
+- Matched signal:
+  - base instructions 只有通用 Whale coding agent 说明；developer context 只有机械 Map handle；tool schema 说明单次 action 机械约束，没有完整任务的 Map 工作协议。
+- Correlation keys:
+  - Phase D commit `8202c3a1a`
+- Raw content:
+  ```text
+  base: You are Whale, a terminal coding agent optimized for DeepSeek...
+  handle: bootstrap_required / available_read_action / ordinary_tools_allowed
+  static TaskSpace working protocol: absent
+  ```
+- Interpretation: 直接确认 H-004 的缺失事实；Agent 被 hard gate 绑定，但没有得到如何持续使用 Map 的工作方法。
+- Time: 2026-07-19 07:55
+
+## Evidence E-007: 工作协议 v1.0.0 的 complex 修复验证
+- Related hypotheses:
+  - H-002
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r7-phase-d1-working-protocol/complex/subscription-billing-repair/20260719-082549-069/performance-observation.json`
+- Prediction or plan link:
+  - H-004：协议精确交付后 Agent 应主动维护 lifecycle；H-002：检查无持续 projection 时是否仍能闭合。
+- Matched signal:
+  - TaskSpace solved；21 requests；协议 21/21 present 且 contract match；7 controls；Root/Finish/3 Work 全部闭合；automatic projection=0；read_map=0。
+- Correlation keys:
+  - protocol `1.0.0`
+  - rules `d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa`
+  - commit `daf6b4787`
+- Raw content:
+  ```text
+  business_success=true
+  finish_end=1
+  open_leaf_nodes=0
+  protocol present/match=21/21
+  automatic projection=0; read_map=0
+  ```
+- Interpretation: 原始 complex 未闭合症状未复现，且不依赖持续 projection；单次结果提供修复信号但不足以单独证明稳定因果。
+- Time: 2026-07-19 08:28
+
+## Evidence E-008: 工作协议 v1.0.1 的 simple/complex 修复验证
+- Related hypotheses:
+  - H-002
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: `benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json`
+- Prediction or plan link:
+  - H-004：独立协议版本继续保持首轮初始化和显式终局；H-002：再次检查无持续 projection 的生命周期。
+- Matched signal:
+  - simple、complex TaskSpace 均 solved；首工具均为 initialize_map；22/22 TaskSpace requests 协议匹配；19/19 Standard requests 协议缺失；两组 Map 均 5 nodes/4 edges/open=0；零 automatic projection、零 read_map。
+- Correlation keys:
+  - protocol `1.0.1`
+  - rules `8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db`
+  - commit `deacc3405`
+- Raw content:
+  ```text
+  simple: Standard/TaskSpace requests=7/9, both solved
+  complex: Standard/TaskSpace requests=12/13, both solved
+  TaskSpace protocol present/match=22/22
+  finish_end=2/2; open_leaf_nodes=0/2
+  ```
+- Interpretation: 独立版本再次满足原问题 fix criteria，并 refute H-002 的必要性主张；协议效果仍处于低重复实验等级。
+- Time: 2026-07-19 08:42
+
+## Evidence E-009: 提示词没有促成 same-response lifecycle batching
+- Related hypotheses:
+  - H-004
+- Direction: neutral
+- Type: diagnostic-log
+- Source: `benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json` 与两个 TaskSpace rollout
+- Prediction or plan link:
+  - H-004 修复后的效率观察：协议明确 sibling calls 后，检查 Agent 是否采用。
+- Matched signal:
+  - simple、complex 均为 multiple control response=0、standalone nonterminal transition=3；`complete` 后下一请求才 bind 或 finish_end。
+- Correlation keys:
+  - protocol `1.0.1`
+- Raw content:
+  ```text
+  multiple_control_carrier_responses=0/2
+  nonterminal_transitions_without_follow_up=3/3 per sample
+  ```
+- Interpretation: 不否定核心工作协议，但否定“继续增强提示词即可消除 lifecycle request 卡点”的方向。后续应审视共享 tool schema 的结构化可表达性，Runtime 不得自动合并。
+- Time: 2026-07-19 08:42

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-taskspace-core-working-protocol",
-  "status": "active_candidate",
+  "status": "evaluated_active_candidate",
   "protocol": {
     "schema_version": "taskspace-core-working-protocol-v1",
     "protocol_version": "1.0.1",
@@ -19,9 +19,12 @@
     {
       "protocol_version": "1.0.1",
       "rules_sha256": "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db",
-      "status": "active_candidate",
-      "change": "explicit_same_response_lifecycle_batching_and_concise_rules",
-      "predecessor": "1.0.0"
+      "status": "evaluated_active_candidate",
+      "change": "explicit_same_response_lifecycle_batching",
+      "secondary_intent": "concise_rules_not_achieved",
+      "predecessor": "1.0.0",
+      "implementation_commit": "deacc3405",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json"
     }
   ],
   "scope": {

@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-19
 Version: v0.0.5 build-R7
-Status: Phase D Engineering Complete / Product Finding Open / Phase E Not Started
+Status: Phase D.1 Working Protocol Complete / Tool Cadence Finding Open / Phase E Not Started
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -350,6 +350,41 @@ TaskSpace bypass fixture 100% rejected，合法动作无新增 policy rejection�
 - Phase E 不自动启动。结果见 `08-r7-phase-d-result.md`，机器结果见
   `benchmarks/taskspace/r7/phase-d-result.json`，失败链见
   `coe/2026-07-19-04-58-r7-map-request-complex-interruption.md`。
+
+### 1.11.1 Phase D.1：内置核心工作协议
+
+**目标**：在不扩大 Runtime 责任、不污染 projection 的前提下，让 Agent 明确知道 TaskSpace Map 的工作方法。
+
+完成项：
+
+1. 增加三种 projection policy 共用的静态 TaskSpace developer 协议；Standard 零注入。
+2. 协议作为每次最终 provider input 的固定首项构造，不写入自然历史，不随 Map 状态动态变化。
+3. 协议声明 Agent 的 bootstrap、阶段维护、按需读 Map 和显式终局职责；Runtime 仍只负责硬规则。
+4. 建立 `schema_version + protocol_version + rules_sha256` 版本身份和可执行合同。
+5. provider wire trace v4 与性能报告逐请求记录版本、哈希、位置、角色和 estimated tokens。
+6. Docker simple/complex 分别验证 `v1.0.0`、`v1.0.1`，每轮均有同期 Standard。
+
+结果：
+
+- `v1.0.0`、`v1.0.1` 的两个 complex `map-request` 均完整闭合并 solved；Phase D 未闭合症状未复现；
+- `v1.0.1` 两个 TaskSpace run 都首工具初始化，22/22 请求协议身份匹配，Standard 19/19 零注入；
+- `v1.0.1` simple 为 7 vs 9 requests，complex 为 12 vs 13 requests；两组 ordinary tools 与 Standard 相同；
+- same-response lifecycle batching 指令没有产生 multiple control response，两组仍各有 3 次 standalone transition；
+- 不继续增加提示词压力。后续若解决该 cadence，应设计三策略共享、由 Agent 显式声明的组合 tool shape；
+  Runtime 只机械校验和执行；
+- `v1.0.1` 固定成本约 431 estimated tokens/request，后续文本压缩必须作为独立版本实验。
+
+证据：
+
+- `09-r7-working-protocol-v1-result.md`
+- `10-r7-working-protocol-v1-0-1-result.md`
+- `benchmarks/taskspace/r7/working-protocol-contract.json`
+- `benchmarks/taskspace/r7/working-protocol-v1.0.0-result.json`
+- `benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json`
+
+Phase E 前新增一个共享 tool contract 决策点，但不自动实施：是否把 Agent 已声明的
+`complete + next bind/finish` 收敛为一个结构化 lifecycle carrier。该决策不得改变三种 projection policy 的
+状态机、事件或工具集合等价性。
 
 ## 1.12 Phase E：生命周期与跨策略等价
 
