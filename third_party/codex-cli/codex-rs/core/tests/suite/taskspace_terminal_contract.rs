@@ -144,6 +144,11 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
     );
     for request in requests {
         let body = request.body_json();
+        assert_eq!(
+            body["instructions"].as_str(),
+            Some(codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            "TaskSpace request must carry the complete TaskSpace base instructions"
+        );
         let tool_choice = body["tool_choice"].clone();
         let tool_names = body["tools"]
             .as_array()
@@ -165,6 +170,10 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
             tool_names.first().copied(),
             Some("taskspace_control"),
             "the immutable TaskSpace tool surface must keep control first"
+        );
+        assert!(
+            !tool_names.contains(&"update_plan"),
+            "TaskSpace request must hide the linear plan tool"
         );
     }
 }

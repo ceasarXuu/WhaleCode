@@ -915,8 +915,6 @@ impl Session {
                     anyhow::bail!("required MCP servers failed to initialize: {details}");
                 }
             }
-            sess.schedule_startup_prewarm(session_configuration.base_instructions.clone())
-                .await;
             let session_start_source = match &initial_history {
                 InitialHistory::Resumed(_) => codex_hooks::SessionStartSource::Resume,
                 InitialHistory::New | InitialHistory::Forked(_) => {
@@ -945,6 +943,7 @@ impl Session {
                 .await;
                 return Err(anyhow::Error::new(error));
             }
+            sess.schedule_startup_prewarm().await;
             {
                 let mut state = sess.state.lock().await;
                 state.set_pending_session_start_source(Some(session_start_source));

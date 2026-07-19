@@ -25,6 +25,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::WarningEvent;
 use codex_protocol::user_input::UserInput;
 use core_test_support::context_snapshot;
@@ -795,6 +796,7 @@ async fn start_test_conversation(
         config.model_provider.name = "Non-OpenAI Model provider".to_string();
         config.model_provider.base_url = Some(base_url);
         config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_string());
+        config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAppend);
         if let Some(model) = model {
             config.model = Some(model);
         }

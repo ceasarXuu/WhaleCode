@@ -1023,6 +1023,19 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
         )
         .await;
     }
+    if outcome.mode.changed {
+        if let Some(startup_prewarm) = sess.take_session_startup_prewarm().await {
+            startup_prewarm.abort();
+        }
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "base_instructions.prewarm_replaced_after_mode_change",
+            previous_mode = %outcome.mode.previous_mode,
+            current_mode = %outcome.mode.current_mode,
+            "replaced startup prewarm after base instructions profile changed"
+        );
+        sess.schedule_startup_prewarm().await;
+    }
     sess.emit_action_map_checkpoint_for_turn(&turn_context, "mode_change")
         .await;
 

@@ -72,3 +72,44 @@ fn model_context_window_uses_model_value_without_override() {
 
     assert_eq!(updated, model);
 }
+
+#[test]
+fn deepseek_v4_uses_whalecode_standard_base_instructions() {
+    for slug in [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek/deepseek-v4-pro",
+    ] {
+        let model = model_info_from_slug(slug);
+        let updated = with_config_overrides(model, &ModelsManagerConfig::default());
+
+        assert_eq!(
+            updated.base_instructions,
+            BASE_INSTRUCTIONS_WHALECODE_STANDARD
+        );
+        assert_eq!(updated.model_messages, None);
+    }
+}
+
+#[test]
+fn explicit_base_instructions_override_wins_for_deepseek_v4() {
+    let model = model_info_from_slug("deepseek-v4-pro");
+    let config = ModelsManagerConfig {
+        base_instructions: Some("custom base instructions".to_string()),
+        ..Default::default()
+    };
+
+    let updated = with_config_overrides(model, &config);
+
+    assert_eq!(updated.base_instructions, "custom base instructions");
+    assert_eq!(updated.model_messages, None);
+}
+
+#[test]
+fn non_deepseek_model_keeps_its_model_base_instructions() {
+    let model = model_info_from_slug("other-model");
+
+    let updated = with_config_overrides(model.clone(), &ModelsManagerConfig::default());
+
+    assert_eq!(updated, model);
+}

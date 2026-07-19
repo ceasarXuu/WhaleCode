@@ -2391,8 +2391,13 @@ async fn recompute_token_usage_uses_session_base_instructions() {
     let expected_tokens = history
         .estimate_token_count_with_base_instructions(&session_base_instructions)
         .expect("estimate with session base instructions");
+    let model_base_instructions = BaseInstructions {
+        text: turn_context
+            .model_info
+            .get_model_instructions(turn_context.personality),
+    };
     let model_estimated_tokens = history
-        .estimate_token_count(&turn_context)
+        .estimate_token_count_with_base_instructions(&model_base_instructions)
         .expect("estimate with model instructions");
     assert_ne!(expected_tokens, model_estimated_tokens);
 
@@ -2407,6 +2412,37 @@ async fn recompute_token_usage_uses_session_base_instructions() {
         .last_token_usage
         .total_tokens;
     assert_eq!(actual_tokens, expected_tokens.max(0));
+}
+
+#[tokio::test]
+async fn runtime_mode_selects_the_matching_complete_base_instructions() {
+    let (session, _turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.base_instructions =
+            codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD.to_string();
+    }
+
+    let standard = session.get_resolved_base_instructions().await;
+    assert_eq!(standard.profile.as_str(), "standard");
+    assert_eq!(
+        standard.instructions.text,
+        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD
+    );
+
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode_for_session(MapRuntimeMode::Experiment, session.conversation_id);
+    }
+
+    let taskspace = session.get_resolved_base_instructions().await;
+    assert_eq!(taskspace.profile.as_str(), "taskspace");
+    assert_eq!(
+        taskspace.instructions.text,
+        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
+    );
 }
 
 #[tokio::test]

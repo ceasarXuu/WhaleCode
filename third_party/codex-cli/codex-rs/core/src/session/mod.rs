@@ -1996,15 +1996,32 @@ impl Session {
         state.token_info()
     }
 
-    pub(crate) async fn get_estimated_token_count(
-        &self,
-        turn_context: &TurnContext,
-    ) -> Option<i64> {
+    pub(crate) async fn get_estimated_token_count(&self) -> Option<i64> {
         let state = self.state.lock().await;
-        state.clone_history().estimate_token_count(turn_context)
+        let base_instructions = crate::context::resolve_base_instructions(
+            &state.session_configuration.base_instructions,
+            state.action_map_runtime.mode(),
+        );
+        state
+            .clone_history()
+            .estimate_token_count_with_base_instructions(&base_instructions.instructions)
     }
 
     pub(crate) async fn get_base_instructions(&self) -> BaseInstructions {
+        self.get_resolved_base_instructions().await.instructions
+    }
+
+    pub(crate) async fn get_resolved_base_instructions(
+        &self,
+    ) -> crate::context::ResolvedBaseInstructions {
+        let state = self.state.lock().await;
+        crate::context::resolve_base_instructions(
+            &state.session_configuration.base_instructions,
+            state.action_map_runtime.mode(),
+        )
+    }
+
+    pub(crate) async fn get_standard_base_instructions(&self) -> BaseInstructions {
         let state = self.state.lock().await;
         BaseInstructions {
             text: state.session_configuration.base_instructions.clone(),
@@ -3965,11 +3982,6 @@ impl Session {
                 .await;
         }
         Ok(projection)
-    }
-
-    pub(crate) async fn taskspace_mode_active(&self) -> bool {
-        let state = self.state.lock().await;
-        state.action_map_runtime.mode() == MapRuntimeMode::Experiment
     }
 
     pub(crate) async fn taskspace_event_id_for_call(

@@ -1,6 +1,8 @@
 use codex_api::ResponsesApiRequest;
 use codex_api::WireApi;
 use codex_api::build_chat_completions_body;
+use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD;
+use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE;
 use codex_protocol::protocol::TokenUsage;
 use serde::Serialize;
 use serde_json::Value;
@@ -13,11 +15,10 @@ use std::sync::Mutex;
 use tracing::info;
 use tracing::warn;
 
-use crate::context::TASKSPACE_WORKING_PROTOCOL_END;
-use crate::context::TASKSPACE_WORKING_PROTOCOL_RULES_SHA256;
-use crate::context::TASKSPACE_WORKING_PROTOCOL_SCHEMA_VERSION;
-use crate::context::TASKSPACE_WORKING_PROTOCOL_START;
-use crate::context::TASKSPACE_WORKING_PROTOCOL_VERSION;
+use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256;
+use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION;
+use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256;
+use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION;
 
 #[path = "provider_wire_sections.rs"]
 mod provider_wire_sections;
@@ -78,7 +79,7 @@ struct WireShapeEvent<'a> {
     tool_choice_name: Option<&'a str>,
     message_count: usize,
     message_shapes: &'a [WireMessageShape],
-    taskspace_working_protocol_identity: TaskSpaceWorkingProtocolWireIdentity,
+    base_instructions_identity: BaseInstructionsWireIdentity,
     previous_request_id: Option<&'a str>,
     lcp_message_count: usize,
     lcp_message_bytes: usize,
@@ -92,15 +93,15 @@ struct WireShapeEvent<'a> {
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
-struct TaskSpaceWorkingProtocolWireIdentity {
+struct BaseInstructionsWireIdentity {
     count: usize,
     message_index: Option<usize>,
     wire_role: Option<String>,
     message_bytes: Option<usize>,
     estimated_tokens: Option<usize>,
-    schema_version: Option<String>,
-    protocol_version: Option<String>,
-    rules_sha256: Option<String>,
+    profile: Option<&'static str>,
+    version: Option<&'static str>,
+    sha256: Option<&'static str>,
     matches_current_contract: bool,
     unavailable_reason: Option<&'static str>,
 }
@@ -201,7 +202,7 @@ impl ProviderWireTrace {
             None => "provider.chat_wire_shape_recorded",
         };
         let event = WireShapeEvent {
-            schema_version: "provider-chat-wire-trace-v4",
+            schema_version: "provider-chat-wire-trace-v5",
             event_name,
             request_id: &request_id,
             epoch_id,
@@ -219,7 +220,7 @@ impl ProviderWireTrace {
             tool_choice_name,
             message_count: message_shapes.len(),
             message_shapes: &message_shapes,
-            taskspace_working_protocol_identity: taskspace_working_protocol_identity(&messages),
+            base_instructions_identity: base_instructions_identity(&messages),
             previous_request_id,
             lcp_message_count: comparison
                 .as_ref()
@@ -287,7 +288,7 @@ impl ProviderWireTrace {
     }
 }
 
-fn taskspace_working_protocol_identity(messages: &[Value]) -> TaskSpaceWorkingProtocolWireIdentity {
+fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentity {
     let mut matches = Vec::new();
     for (index, message) in messages.iter().enumerate() {
         let Some(role @ ("developer" | "system")) = message.get("role").and_then(Value::as_str)
@@ -297,65 +298,70 @@ fn taskspace_working_protocol_identity(messages: &[Value]) -> TaskSpaceWorkingPr
         let mut strings = Vec::new();
         collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
         for text in strings {
-            let mut remainder = text;
-            while let Some(start) = remainder.find(TASKSPACE_WORKING_PROTOCOL_START) {
-                let candidate = &remainder[start..];
-                let Some(end) = candidate.find(TASKSPACE_WORKING_PROTOCOL_END) else {
-                    return unavailable_working_protocol_identity(
-                        matches.len() + 1,
-                        "working_protocol_unterminated",
-                    );
-                };
-                let end = end + TASKSPACE_WORKING_PROTOCOL_END.len();
-                matches.push((index, role, &candidate[..end], json_bytes(message).len()));
-                remainder = &candidate[end..];
+            let identity = if text == BASE_INSTRUCTIONS_WHALECODE_STANDARD {
+                Some((
+                    "standard",
+                    WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
+                    WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
+                ))
+            } else if text == BASE_INSTRUCTIONS_WHALECODE_TASKSPACE {
+                Some((
+                    "taskspace",
+                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
+                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
+                ))
+            } else {
+                None
+            };
+            if let Some((profile, version, sha256)) = identity {
+                matches.push((
+                    index,
+                    role,
+                    profile,
+                    version,
+                    sha256,
+                    json_bytes(message).len(),
+                ));
             }
         }
     }
     if matches.is_empty() {
-        return unavailable_working_protocol_identity(0, "working_protocol_missing");
+        return unavailable_base_instructions_identity(0, "base_instructions_unrecognized");
     }
     if matches.len() != 1 {
-        return unavailable_working_protocol_identity(
+        return unavailable_base_instructions_identity(
             matches.len(),
-            "working_protocol_count_invalid",
+            "base_instructions_count_invalid",
         );
     }
-    let (message_index, wire_role, protocol, message_bytes) = matches[0];
-    let schema_version = mechanical_field(protocol, "schema_version").map(str::to_string);
-    let protocol_version = mechanical_field(protocol, "protocol_version").map(str::to_string);
-    let rules_sha256 = mechanical_field(protocol, "rules_sha256").map(str::to_string);
-    let matches_current_contract = schema_version.as_deref()
-        == Some(TASKSPACE_WORKING_PROTOCOL_SCHEMA_VERSION)
-        && protocol_version.as_deref() == Some(TASKSPACE_WORKING_PROTOCOL_VERSION)
-        && rules_sha256.as_deref() == Some(TASKSPACE_WORKING_PROTOCOL_RULES_SHA256);
-    TaskSpaceWorkingProtocolWireIdentity {
+    let (message_index, wire_role, profile, version, sha256, message_bytes) = matches[0];
+    BaseInstructionsWireIdentity {
         count: 1,
         message_index: Some(message_index),
         wire_role: Some(wire_role.to_string()),
         message_bytes: Some(message_bytes),
         estimated_tokens: Some(message_bytes.div_ceil(4)),
-        schema_version,
-        protocol_version,
-        rules_sha256,
-        matches_current_contract,
-        unavailable_reason: (!matches_current_contract).then_some("working_protocol_mismatch"),
+        profile: Some(profile),
+        version: Some(version),
+        sha256: Some(sha256),
+        matches_current_contract: true,
+        unavailable_reason: None,
     }
 }
 
-fn unavailable_working_protocol_identity(
+fn unavailable_base_instructions_identity(
     count: usize,
     reason: &'static str,
-) -> TaskSpaceWorkingProtocolWireIdentity {
-    TaskSpaceWorkingProtocolWireIdentity {
+) -> BaseInstructionsWireIdentity {
+    BaseInstructionsWireIdentity {
         count,
         message_index: None,
         wire_role: None,
         message_bytes: None,
         estimated_tokens: None,
-        schema_version: None,
-        protocol_version: None,
-        rules_sha256: None,
+        profile: None,
+        version: None,
+        sha256: None,
         matches_current_contract: false,
         unavailable_reason: Some(reason),
     }
@@ -376,14 +382,6 @@ fn collect_strings<'a>(value: &'a Value, strings: &mut Vec<&'a str>) {
         }
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
-}
-
-fn mechanical_field<'a>(block: &'a str, field: &str) -> Option<&'a str> {
-    let prefix = format!("- {field}: ");
-    block
-        .lines()
-        .find_map(|line| line.strip_prefix(&prefix))
-        .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug)]
@@ -514,60 +512,49 @@ mod tests {
     }
 
     #[test]
-    fn working_protocol_identity_tracks_version_hash_and_position() {
+    fn standard_base_identity_tracks_version_hash_and_position() {
         let messages = vec![
-            message(
-                "developer",
-                &crate::context::render_taskspace_working_protocol(),
-            ),
+            message("developer", BASE_INSTRUCTIONS_WHALECODE_STANDARD),
             message("user", "task"),
         ];
 
-        let identity = taskspace_working_protocol_identity(&messages);
+        let identity = base_instructions_identity(&messages);
         assert_eq!(identity.count, 1);
         assert_eq!(identity.message_index, Some(0));
         assert_eq!(identity.wire_role.as_deref(), Some("developer"));
+        assert_eq!(identity.profile, Some("standard"));
         assert_eq!(
-            identity.schema_version.as_deref(),
-            Some(TASKSPACE_WORKING_PROTOCOL_SCHEMA_VERSION)
+            identity.version,
+            Some(WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION)
         );
         assert_eq!(
-            identity.protocol_version.as_deref(),
-            Some(TASKSPACE_WORKING_PROTOCOL_VERSION)
-        );
-        assert_eq!(
-            identity.rules_sha256.as_deref(),
-            Some(TASKSPACE_WORKING_PROTOCOL_RULES_SHA256)
+            identity.sha256,
+            Some(WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256)
         );
         assert!(identity.matches_current_contract);
         assert_eq!(identity.unavailable_reason, None);
     }
 
     #[test]
-    fn working_protocol_identity_accepts_chat_completions_system_role() {
-        let messages = vec![message(
-            "system",
-            &crate::context::render_taskspace_working_protocol(),
-        )];
+    fn taskspace_base_identity_accepts_chat_completions_system_role() {
+        let messages = vec![message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE)];
 
-        let identity = taskspace_working_protocol_identity(&messages);
+        let identity = base_instructions_identity(&messages);
         assert_eq!(identity.count, 1);
         assert_eq!(identity.wire_role.as_deref(), Some("system"));
+        assert_eq!(identity.profile, Some("taskspace"));
         assert!(identity.matches_current_contract);
     }
 
     #[test]
-    fn user_quoted_working_protocol_marker_is_not_counted() {
-        let messages = vec![message(
-            "user",
-            &format!("quoted {TASKSPACE_WORKING_PROTOCOL_START}"),
-        )];
+    fn unknown_or_user_quoted_base_is_not_counted() {
+        let messages = vec![message("user", BASE_INSTRUCTIONS_WHALECODE_STANDARD)];
 
-        let identity = taskspace_working_protocol_identity(&messages);
+        let identity = base_instructions_identity(&messages);
         assert_eq!(identity.count, 0);
         assert_eq!(
             identity.unavailable_reason,
-            Some("working_protocol_missing")
+            Some("base_instructions_unrecognized")
         );
     }
 

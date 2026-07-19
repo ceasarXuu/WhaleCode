@@ -54,8 +54,10 @@ impl ToolHandler for Handler {
             ));
         }
         prepare_taskspace_nested_spawn(&session, session.conversation_id, &session_source).await?;
-        let mut config =
-            build_agent_spawn_config(&session.get_base_instructions().await, turn.as_ref())?;
+        let mut config = build_agent_spawn_config(
+            &session.get_standard_base_instructions().await,
+            turn.as_ref(),
+        )?;
         if matches!(fork_mode, Some(SpawnAgentForkMode::FullHistory)) {
             reject_full_fork_spawn_overrides(
                 role_name,

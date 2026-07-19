@@ -137,7 +137,7 @@ enum TaskspaceProviderResponseActionability {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TaskspaceProviderToolVisibility {
+pub(crate) enum TaskspaceProviderToolVisibility {
     Standard,
     TaskspaceNative,
 }
@@ -515,8 +515,7 @@ pub(crate) async fn run_turn(
                 let total_usage_tokens = sess.get_total_token_usage().await;
                 let token_limit_reached = total_usage_tokens >= auto_compact_limit;
 
-                let estimated_token_count =
-                    sess.get_estimated_token_count(turn_context.as_ref()).await;
+                let estimated_token_count = sess.get_estimated_token_count().await;
 
                 trace!(
                     turn_id = %turn_context.sub_id,
@@ -1086,14 +1085,13 @@ fn apply_provider_tool_visibility(
     }
 }
 
-fn build_prompt_with_tool_visibility(
+pub(crate) fn build_prompt_with_tool_visibility(
     input: Vec<ResponseItem>,
     router: &ToolRouter,
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
     tool_visibility: TaskspaceProviderToolVisibility,
 ) -> Prompt {
-    let input = apply_taskspace_working_protocol(input, tool_visibility);
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
         .iter()
@@ -1123,29 +1121,6 @@ fn build_prompt_with_tool_visibility(
             &turn_context.session_source,
         ),
     }
-}
-
-fn apply_taskspace_working_protocol(
-    mut input: Vec<ResponseItem>,
-    tool_visibility: TaskspaceProviderToolVisibility,
-) -> Vec<ResponseItem> {
-    if tool_visibility != TaskspaceProviderToolVisibility::TaskspaceNative {
-        return input;
-    }
-    let removed_duplicates = crate::context::prepend_taskspace_working_protocol(&mut input);
-    let identity = crate::context::taskspace_working_protocol_identity();
-    info!(
-        target = "codex_core::taskspace",
-        event_name = "taskspace.working_protocol_injected",
-        schema_version = identity.schema_version,
-        protocol_version = identity.protocol_version,
-        rules_sha256 = identity.rules_sha256,
-        rendered_bytes = identity.rendered_bytes,
-        provider_input_index = 0,
-        removed_duplicates,
-        "injected stable TaskSpace working protocol developer prefix"
-    );
-    input
 }
 
 fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
@@ -1259,8 +1234,6 @@ async fn run_sampling_request(
     )
     .await?;
 
-    let base_instructions = sess.get_base_instructions().await;
-
     let tool_runtime = ToolCallRuntime::new(
         Arc::clone(&router),
         Arc::clone(&sess),
@@ -1288,7 +1261,19 @@ async fn run_sampling_request(
                 .await
                 .for_prompt(&turn_context.model_info.input_modalities)
         };
-        let taskspace_context_visible = sess.taskspace_mode_active().await;
+        let resolved_base_instructions = sess.get_resolved_base_instructions().await;
+        let taskspace_context_visible = resolved_base_instructions.profile.is_taskspace();
+        info!(
+            target = "codex_core::taskspace",
+            event_name = "base_instructions.profile_selected",
+            profile = resolved_base_instructions.profile.as_str(),
+            version = resolved_base_instructions.version,
+            sha256 = %resolved_base_instructions.sha256,
+            bytes = resolved_base_instructions.bytes,
+            matches_current_contract = resolved_base_instructions.matches_current_contract,
+            "selected provider base instructions profile"
+        );
+        let base_instructions = resolved_base_instructions.instructions;
         let prepared_prompt = sess
             .prepare_provider_visible_prompt_items(&turn_context, prompt_source)
             .await;
@@ -1339,7 +1324,7 @@ async fn run_sampling_request(
             prompt_input,
             router.as_ref(),
             turn_context.as_ref(),
-            base_instructions.clone(),
+            base_instructions,
             tool_visibility,
         );
         let err = match try_run_sampling_request(
@@ -1601,48 +1586,6 @@ mod active_context_replacement_tests {
         let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["update_plan"]);
-    }
-
-    #[test]
-    fn taskspace_protocol_is_stable_prefix_and_standard_has_zero_injection() {
-        let user = ResponseItem::Message {
-            id: None,
-            role: "user".into(),
-            content: vec![ContentItem::InputText {
-                text: "fix the issue".into(),
-            }],
-            end_turn: None,
-            phase: None,
-        };
-        let standard = apply_taskspace_working_protocol(
-            vec![user.clone()],
-            TaskspaceProviderToolVisibility::Standard,
-        );
-        assert_eq!(standard, vec![user.clone()]);
-
-        let taskspace = apply_taskspace_working_protocol(
-            vec![user.clone()],
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-        );
-        assert!(crate::context::is_taskspace_working_protocol_message(
-            &taskspace[0]
-        ));
-        assert_eq!(taskspace[1], user);
-
-        let repeated = apply_taskspace_working_protocol(
-            taskspace,
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-        );
-        assert_eq!(
-            repeated
-                .iter()
-                .filter(|item| crate::context::is_taskspace_working_protocol_message(item))
-                .count(),
-            1
-        );
-        assert!(crate::context::is_taskspace_working_protocol_message(
-            &repeated[0]
-        ));
     }
 
     fn terminal_control_state() -> ActionMapControlState {

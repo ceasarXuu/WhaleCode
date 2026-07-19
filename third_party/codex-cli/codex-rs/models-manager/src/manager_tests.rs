@@ -966,4 +966,17 @@ fn bundled_models_json_roundtrips() {
             .any(|model| model.slug == "deepseek-v4-pro"),
         "bundled models.json should include Whale's default DeepSeek model"
     );
+    for model in response
+        .models
+        .iter()
+        .filter(|model| model.slug == "deepseek-v4-flash" || model.slug == "deepseek-v4-pro")
+    {
+        assert_eq!(
+            model.base_instructions,
+            codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD,
+            "bundled DeepSeek model {} should use WhaleCode Standard base instructions",
+            model.slug
+        );
+        assert_eq!(model.model_messages, None);
+    }
 }

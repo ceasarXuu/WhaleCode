@@ -46,8 +46,10 @@ impl ToolHandler for Handler {
                 "Agent depth limit reached. Solve the task yourself.".to_string(),
             ));
         }
-        let mut config =
-            build_agent_spawn_config(&session.get_base_instructions().await, turn.as_ref())?;
+        let mut config = build_agent_spawn_config(
+            &session.get_standard_base_instructions().await,
+            turn.as_ref(),
+        )?;
         if args.fork_context {
             reject_full_fork_spawn_overrides(
                 role_name,

@@ -839,6 +839,10 @@ pub enum ResponseItem {
 }
 
 pub const BASE_INSTRUCTIONS_DEFAULT: &str = include_str!("prompts/base_instructions/default.md");
+pub const BASE_INSTRUCTIONS_WHALECODE_STANDARD: &str =
+    include_str!("prompts/base_instructions/whalecode_standard.md");
+pub const BASE_INSTRUCTIONS_WHALECODE_TASKSPACE: &str =
+    include_str!("prompts/base_instructions/whalecode_taskspace.md");
 
 /// Base instructions for the model in a thread. Corresponds to the `instructions` field in the ResponsesAPI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema, TS)]
