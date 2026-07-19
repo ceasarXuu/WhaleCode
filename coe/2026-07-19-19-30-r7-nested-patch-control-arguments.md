@@ -1,7 +1,7 @@
 # Problem P-001: R7 大型嵌套 patch control 参数畸形
 - Status: open
 - Created: 2026-07-19 19:30
-- Updated: 2026-07-19 20:07
+- Updated: 2026-07-19 20:51
 - Objective: 证明复杂样本中 `complete_then_continue` 参数尾随字符和下一次空参数调用的真实产生层，并在不让 Runtime 猜测语义的前提下确定修复点。
 - Symptoms:
   - `subscription-billing-repair` 首次大型 `patch_then_actions` control 参数末尾多一个 `}`，随后一次 `taskspace_control` 参数为 `{}`。
@@ -30,13 +30,15 @@
   - 单纯减少一层 `arguments` 包装即可解决问题。
 - Fix criteria:
   - 证明畸形字符首次出现的层；证明第二次空参数是否收到完整失败反馈；对可复现根因实施单点修复，并在 simple/complex Docker 样本中验证无 correctness、request 或缓存负回归。
-- Current conclusion: 根因已确认在 provider 生成层：DeepSeek V4 Flash 对“TaskSpace 多分支复合 function arguments 中嵌入大型多行 patch 字符串”的结构闭合和正文保真均不稳定；不是 patch 内容本身、SSE 拼接、Runtime parser 或反馈丢失。当前 Runtime 拒绝语义正确。仅扁平化字段可改善 JSON 合法率，但不能作为语义保真的生产修复；独立 `apply_patch` 是当前唯一同时通过结构与正文门禁的形态。
+- Current conclusion: 根因已确认是 provider 与过载 tool schema 的交互：`taskspace_control` 同时承载状态机、多分支 lifecycle、普通工具 schema 和大型 patch 正文时，既破坏外层 JSON 闭合，也降低同响应 direct patch 的正文保真；不是 SSE、Runtime parser 或反馈丢失。最小 control 双调用 6/6 exact，证明同 request 合并可保留。生产修复应删除 control 中所有 nested tool payload，只保留轻量 continuation 声明，并由 full-response preflight 与 control/patch barrier 机械执行顶层调用顺序。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
   - H-005
+  - H-006
+  - H-007
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -253,6 +255,89 @@
 - Close reason:
   - not closed
 
+## Hypothesis H-006: 多工具同响应本身导致 patch 正文损坏
+- Status: refuted
+- Parent: P-001
+- Claim: 只要同一 provider response 同时生成 lifecycle control 和 direct apply_patch，patch 正文就会失真；control schema 复杂度不是独立因素。
+- Layer: root-cause
+- Factor relation: any_of
+- Depends on:
+  - H-003
+- Rationale:
+  - 首轮 sibling probe 的 patch exact 只有 2/6，可能由多工具生成本身导致。
+- Falsifiable predictions:
+  - If true: 最小 control schema 与 direct patch 的双调用仍显著低于 direct-only。
+  - If false: 最小 control 双调用可达到与 direct-only 相同的顺序和正文保真。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 多调用与 schema 复杂度哪个因素决定正文保真。
+  - Signal: direct-only、完整 control 可见、完整 control 双调用、最小 control 双调用的 call order 和 patch hash。
+  - Capture method: 非流式 provider 消融，每臂 6 次。
+  - Event name or marker:
+    - r7.sibling_patch_sequence_observed
+  - Correlation keys:
+    - `sibling_minimal_control`
+    - `direct_only`
+  - Differentiates from:
+    - H-003 中未分离的复合 schema 交互。
+  - Supports if:
+    - 最小 control 双调用仍出现正文失真。
+  - Refutes if:
+    - 最小 control 双调用和 direct-only 都达到 6/6 patch exact。
+  - Instrumentation status: diagnostic-only
+  - Instrumentation lifecycle:
+    - probe 保留为 provider 能力回归工具，不进入生产请求。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+- Conclusion: refuted；direct-only 与最小 control 双调用均为 6/6 调用形状正确、6/6 patch exact。多工具同响应可以可靠工作，完整 TaskSpace schema 的认知负载才是独立风险因素。
+- Repair design readiness: not applicable
+- Next step: 修复应同时移除 patch 嵌套和普通工具 schema 的重复嵌套，不得只改执行顺序。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-007: 精简 control 可保留同 request 且避免正文改写
+- Status: confirmed
+- Parent: P-001
+- Claim: 保留完整状态字段、删除 nested ordinary/patch payload，并用轻量 continuation 枚举声明顶层后续调用后，实际生成出的 direct patch 可保持正文完整；遗漏 sibling 的风险可由执行前机械 preflight 零执行拒绝。
+- Layer: fix-validation
+- Factor relation: all_of
+- Depends on:
+  - H-006
+- Rationale:
+  - 最小 control 证明双调用可行，但生产仍需要完整 DAG 状态参数。
+- Falsifiable predictions:
+  - If true: lean production-shaped control 下所有实际生成出的 patch 都 hash 一致，且 control 参数稳定合法。
+  - If false: lean control 仍生成 patch 改写、截断或非法 JSON。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 删除 nested tool payload 是否足以让完整状态 schema 不再改写 patch。
+  - Signal: control shape、调用顺序、patch JSON 与 hash；单独统计未生成 sibling 的响应。
+  - Capture method: `sibling_lean_control` 非流式 6 次 probe。
+  - Event name or marker:
+    - r7.sibling_patch_sequence_observed
+  - Correlation keys:
+    - `sibling_lean_control`
+  - Differentiates from:
+    - 仅用最小 control 得出的不可生产结论。
+  - Supports if:
+    - 所有实际生成 patch 均 exact，control shape 全部合法；遗漏 sibling 单独暴露。
+  - Refutes if:
+    - 任一实际生成 patch 的 hash 不一致或 control 参数非法。
+  - Instrumentation status: diagnostic-only
+  - Instrumentation lifecycle:
+    - provider probe 保留；生产新增 preflight/segment 结构化日志，不记录 patch 正文。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+- Conclusion: confirmed；lean control 6/6 参数合法，5/6 生成声明的 sibling patch，且生成出的 patch 5/5 exact。剩余 1/6 是调用遗漏，不是正文改写，必须在任何状态提交前被 preflight 拒绝。
+- Repair design readiness: ready
+- Next step: 实施 lean continuation + top-level patch barrier + full-response preflight，并用真实 Docker 样本验证遗漏率是否造成不可接受的 request 放大。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
 ## Evidence E-001: Complex rollout 中连续两次参数协议失败且零提交
 - Related hypotheses:
   - H-001
@@ -399,3 +484,39 @@
   ```
 - Interpretation: 参数可解析不等于 patch 语义忠实。当前可证明的修复边界是让 patch 保持独立工具参数形态；如何与状态交接保持同一 request，需要下一阶段单独验证。
 - Time: 2026-07-19 20:05
+
+## Evidence E-006: 同响应 sibling patch 的 schema 复杂度消融
+- Related hypotheses:
+  - H-006
+  - H-007
+- Direction: refutes H-006; supports H-007
+- Type: provider-experiment
+- Source: `scripts/taskspace-benchmark/probe-r7-sibling-patch-sequence.ps1` 与 `benchmarks/taskspace/r7/sibling-patch-sequence-probe-result.json`
+- Prediction or plan link:
+  - H-006 预测最小 control 双调用仍损坏 patch；H-007 预测 lean control 的已生成 patch 保持 exact。
+- Matched signal:
+  - direct-only 为 6/6 形状正确、6/6 patch exact。
+  - 完整 control schema 可见但只调用 patch 为 6/6 调用正确、5/6 patch exact。
+  - 完整 control 双调用为 5/6 顺序正确、2/6 patch exact。
+  - patch-first 完整 control 双调用为 6/6 顺序正确、0/6 patch exact，调整顺序不能修复。
+  - 最小 control 双调用为 6/6 顺序正确、6/6 patch exact。
+  - lean production-shaped control 为 6/6 control 合法、5/6 双调用；实际生成 patch 5/5 exact，1/6 只生成 control。
+- Correlation keys:
+  - `direct_only`
+  - `direct_with_control_visible`
+  - `sibling_control_first`
+  - `sibling_patch_first`
+  - `sibling_minimal_control`
+  - `sibling_lean_control`
+- Raw content:
+  ```text
+  arm                           expected calls   patch JSON   patch exact
+  direct_only                       6/6              6/6          6/6
+  direct_with_control_visible       6/6              6/6          5/6
+  sibling_control_first             5/6              5/6          2/6
+  sibling_patch_first               6/6              6/6          0/6
+  sibling_minimal_control           6/6              6/6          6/6
+  sibling_lean_control              5/6              5/6          5/6
+  ```
+- Interpretation: 同 response 多工具不是根因。生产修复必须把 TaskSpace 从 nested tool orchestrator 收敛为状态工具，保留轻量 continuation 声明，并对遗漏的 sibling 在执行前机械拒绝；不能通过调整调用顺序或只移动 patch 字段解决。
+- Time: 2026-07-19 20:51
