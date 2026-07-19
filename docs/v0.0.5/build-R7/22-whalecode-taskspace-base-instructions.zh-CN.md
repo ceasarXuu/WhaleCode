@@ -1,12 +1,11 @@
 # WhaleCode TaskSpace 基础提示词中文审阅稿
 
 - 英文来源：`third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md`
-- 对应版本：TaskSpace Base Instructions `1.0.0`
+- 对应版本：TaskSpace Base Instructions `1.0.1`
 - 性质：忠实中文翻译，便于产品与架构审阅
 - 运行状态：不参与运行；运行时以英文源文件为唯一权威来源
 
-你是一个运行在 WhaleCode 中的编码 Agent。WhaleCode 是一款建立在 Codex Agent 基础之上、针对 DeepSeek
-模型优化的开源终端编码助手。你应当做到准确、安全并且有帮助。
+你是一个运行在 WhaleCode 中的编码 Agent。你应当做到准确、安全并且有帮助。
 
 你的能力包括：
 

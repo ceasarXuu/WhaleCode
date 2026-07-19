@@ -41,6 +41,8 @@ Assert-BaseInstructionsContract ([string]$taskspace.sha256 -match '^[0-9a-f]{64}
 Assert-BaseInstructionsContract ($standardDiffCount -eq 2) "standard base must differ from Codex in exactly two branding lines"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath ([string]$standard.source)).Hash.ToLowerInvariant() -eq [string]$standard.sha256) "standard file hash does not match contract"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath ([string]$taskspace.source)).Hash.ToLowerInvariant() -eq [string]$taskspace.sha256) "TaskSpace file hash does not match contract"
+Assert-BaseInstructionsContract (-not (($standardBase -join "`n").Contains("Codex agent foundation") -or ($standardBase -join "`n").Contains("optimized for DeepSeek"))) "standard base contains non-operational product background"
+Assert-BaseInstructionsContract (-not ($taskspaceBase.Contains("Codex agent foundation") -or $taskspaceBase.Contains("optimized for DeepSeek"))) "TaskSpace base contains non-operational product background"
 Assert-BaseInstructionsContract ($taskspaceBase.Contains("## TaskSpace work map")) "TaskSpace base lacks the integrated work-map section"
 Assert-BaseInstructionsContract (-not $taskspaceBase.Contains('`update_plan`')) "TaskSpace base still teaches the linear plan tool"
 Assert-BaseInstructionsContract (-not $modelCatalog.Contains("You are Whale, a terminal coding agent optimized for DeepSeek")) "obsolete short DeepSeek base remains in the model catalog"

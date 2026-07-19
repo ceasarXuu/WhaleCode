@@ -6,6 +6,9 @@
 - Scope: Standard / TaskSpace provider base instructions
 - Compatibility: none
 
+当前提示词版本：Standard `1.0.1`，TaskSpace `1.0.1`。`1.0.1` 删除了与实际工作无关的 Codex foundation
+和 DeepSeek 优化背景说明；`1.0.0` 的 Docker 结果继续作为历史基线保留。
+
 ## 1. 决策
 
 WhaleCode 不再使用“极简 Whale base + TaskSpace developer message”的组合。每个 provider request 必须且
@@ -35,8 +38,7 @@ developer message 追加点状规则，产生三个问题：
 ### 3.1 Standard
 
 Standard 直接继承 Codex 原生 `default.md` 的章节、规则和表达。当前只允许两处品牌级文本差异：把 Codex
-产品身份改为 WhaleCode，并说明 WhaleCode 建立在 Codex agent foundation 上、针对 DeepSeek 优化。其余
-工作方式保持不变。
+产品身份改为 WhaleCode，并移除与实际工作无关的产品背景说明。其余工作方式保持不变。
 
 源文件：
 `third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_standard.md`

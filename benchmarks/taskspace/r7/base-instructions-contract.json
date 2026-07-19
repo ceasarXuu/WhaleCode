@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-whalecode-dual-base-instructions",
-  "status": "diagnostic_validated",
+  "status": "contract_validated",
   "selection": {
     "standard_runtime_mode": "standard",
     "taskspace_runtime_mode": "experiment",
@@ -11,15 +11,15 @@
   },
   "profiles": {
     "standard": {
-      "version": "1.0.0",
-      "sha256": "7c27bcb65c43dcfc9eb38284e6968003f2cb3bbaff3568437740208e39cadf19",
+      "version": "1.0.1",
+      "sha256": "771ddae462f1f4df770892c85a90e7d20453baac153e2ca59cc0b75edca46551",
       "source": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_standard.md",
       "required_tool": "update_plan",
       "forbidden_tool": "taskspace_control"
     },
     "taskspace": {
-      "version": "1.0.0",
-      "sha256": "95f6cc4eac04af52fd052e23f63e5ba2ccffcca59b041b68ff4269f6b78d8d55",
+      "version": "1.0.1",
+      "sha256": "0cea4c521de4659b43b29e9ada83f836f84d92f5ae88e301f04860ec301106d2",
       "source": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md",
       "required_tool": "taskspace_control",
       "forbidden_tool": "update_plan"
@@ -42,7 +42,24 @@
     "wire_identity_field": "base_instructions_identity",
     "summary_field": "base_instructions_identity_summary"
   },
+  "version_history": [
+    {
+      "version": "1.0.0",
+      "standard_sha256": "7c27bcb65c43dcfc9eb38284e6968003f2cb3bbaff3568437740208e39cadf19",
+      "taskspace_sha256": "95f6cc4eac04af52fd052e23f63e5ba2ccffcca59b041b68ff4269f6b78d8d55",
+      "status": "diagnostic_validated",
+      "result": "benchmarks/taskspace/r7/dual-base-instructions-v1.0.0-result.json"
+    },
+    {
+      "version": "1.0.1",
+      "standard_sha256": "771ddae462f1f4df770892c85a90e7d20453baac153e2ca59cc0b75edca46551",
+      "taskspace_sha256": "0cea4c521de4659b43b29e9ada83f836f84d92f5ae88e301f04860ec301106d2",
+      "status": "contract_validated",
+      "change": "remove non-operational product foundation and model optimization description"
+    }
+  ],
   "diagnostic_validation": {
+    "validated_version": "1.0.0",
     "implementation_commit": "5ecfefbcd67c7b92e7a118555ce3b253b970d0d0",
     "observer_commit": "de7a8f547",
     "scenario": "single-file-fast-fix",

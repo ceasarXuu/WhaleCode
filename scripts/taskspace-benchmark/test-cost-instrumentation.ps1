@@ -908,8 +908,8 @@ $v5Shape.schema_version = "provider-chat-wire-trace-v5"
 $v5Shape.request_id = "wire-v5-1"
 $v5Shape | Add-Member -NotePropertyName base_instructions_identity -NotePropertyValue ([pscustomobject]@{
     count = 1; message_index = 0; wire_role = "system"; message_bytes = 21727; estimated_tokens = 5432
-    profile = "taskspace"; version = "1.0.0"
-    sha256 = "95f6cc4eac04af52fd052e23f63e5ba2ccffcca59b041b68ff4269f6b78d8d55"
+    profile = "taskspace"; version = "1.0.1"
+    sha256 = "0cea4c521de4659b43b29e9ada83f836f84d92f5ae88e301f04860ec301106d2"
     matches_current_contract = $true; unavailable_reason = $null
 })
 @(
@@ -920,7 +920,7 @@ $v5Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v
 $v5BaseEvent = @($v5Instrumentation.provider_cache_trace_events)[0].base_instructions_identity
 $v5BaseSummary = $v5Instrumentation.provider_cache_trace_summary.base_instructions_identity_summary
 $v5SectionSummary = $v5Instrumentation.provider_cache_trace_summary.section_cost_summary
-Assert-True ([string]$v5BaseEvent.profile -eq "taskspace" -and [string]$v5BaseEvent.version -eq "1.0.0" -and [string]$v5BaseEvent.wire_role -eq "system" -and [bool]$v5BaseEvent.matches_current_contract) "v5 cache event lost base instructions identity"
+Assert-True ([string]$v5BaseEvent.profile -eq "taskspace" -and [string]$v5BaseEvent.version -eq "1.0.1" -and [string]$v5BaseEvent.wire_role -eq "system" -and [bool]$v5BaseEvent.matches_current_contract) "v5 cache event lost base instructions identity"
 Assert-True ([int]$v5BaseSummary.present_count -eq 1 -and [int]$v5BaseSummary.current_contract_match_count -eq 1 -and [int64]$v5BaseSummary.estimated_tokens_total -eq 5432) "v5 base instructions summary is incorrect"
 Assert-True ([string]$v5SectionSummary.availability -eq "measured" -and [int]$v5SectionSummary.measured_request_count -eq 1) "v5 section cost was rejected as an unsupported wire schema"
 $mismatchShape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json

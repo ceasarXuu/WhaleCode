@@ -6,12 +6,12 @@ use codex_protocol::protocol::MapRuntimeMode;
 use sha2::Digest;
 use sha2::Sha256;
 
-pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.0";
+pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.1";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
-    "7c27bcb65c43dcfc9eb38284e6968003f2cb3bbaff3568437740208e39cadf19";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "1.0.0";
+    "771ddae462f1f4df770892c85a90e7d20453baac153e2ca59cc0b75edca46551";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "1.0.1";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "95f6cc4eac04af52fd052e23f63e5ba2ccffcca59b041b68ff4269f6b78d8d55";
+    "0cea4c521de4659b43b29e9ada83f836f84d92f5ae88e301f04860ec301106d2";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
