@@ -2,7 +2,7 @@ param(
     [string]$Model = 'deepseek-v4-flash',
     [string]$Endpoint = 'https://api.deepseek.com/chat/completions',
     [ValidateRange(1, 20)][int]$Repeat = 6,
-    [ValidateSet('sibling_control_first', 'direct_with_control_visible', 'sibling_minimal_control', 'sibling_lean_control', 'sibling_patch_first', 'direct_only')]
+    [ValidateSet('sibling_control_first', 'sibling_required_next_call', 'direct_with_control_visible', 'sibling_minimal_control', 'sibling_lean_control', 'sibling_patch_first', 'direct_only')]
     [string]$Arm = 'sibling_control_first',
     [string]$OutputPath = '',
     [string]$FixturePath = ''
@@ -101,6 +101,27 @@ function New-LeanControlTool {
     Copy-JsonValue $CurrentTool
 }
 
+function New-RequiredNextCallControlTool {
+    param($CurrentTool)
+    $control = Copy-JsonValue $CurrentTool
+    foreach ($actionVariant in @($control.function.parameters.anyOf)) {
+        $continuation = $actionVariant.properties.continuation
+        if ($null -eq $continuation) { continue }
+        $requiredNextCall = Copy-JsonValue $continuation
+        $requiredNextCall.enum = @($requiredNextCall.enum | ForEach-Object {
+                if ($_ -eq 'next_apply_patch') { 'apply_patch' } else { 'ordinary_tool' }
+            })
+        $requiredNextCall.description = 'Declaration only: emit the selected top-level sibling immediately after taskspace_control in this same response. This field does not execute or schedule that call.'
+        $actionVariant.properties | Add-Member -NotePropertyName 'required_next_call' -NotePropertyValue $requiredNextCall
+        $actionVariant.properties.PSObject.Properties.Remove('continuation')
+        $actionVariant.required = @($actionVariant.required | ForEach-Object {
+                if ($_ -eq 'continuation') { 'required_next_call' } else { $_ }
+            })
+    }
+    $control.function.description += ' required_next_call only declares the immediately following top-level sibling. It never executes or schedules that sibling; emit both calls in this response.'
+    $control
+}
+
 $largePatch = @'
 *** Begin Patch
 *** Update File: src/billing_service/usage.py
@@ -194,7 +215,9 @@ function Get-Observation {
     $control = ConvertFrom-JsonOrNull $controlArguments
     $patch = ConvertFrom-JsonOrNull $patchArguments
     $patchInput = if ($null -eq $patch) { '' } else { [string]$patch.input }
-    $continuationKind = if ($null -eq $control) { '' } elseif ($control.continuation -is [string]) {
+    $continuationKind = if ($null -eq $control) { '' } elseif ($null -ne $control.required_next_call) {
+        [string]$control.required_next_call
+    } elseif ($control.continuation -is [string]) {
         [string]$control.continuation
     } else { [string]$control.continuation.kind }
     $callNames = @($calls | ForEach-Object { [string]$_.function.name })
@@ -207,7 +230,7 @@ function Get-Observation {
         call_names = $callNames
         expected_call_names_match = $callNamesMatch
         control_json_valid = $null -ne $control
-        control_shape_valid = $null -ne $control -and [string]$control.action -eq 'complete_then_continue' -and $continuationKind -eq 'next_apply_patch'
+        control_shape_valid = $null -ne $control -and [string]$control.action -eq 'complete_then_continue' -and $continuationKind -in @('next_apply_patch', 'apply_patch')
         patch_json_valid = $null -ne $patch
         patch_exact = $patchInput -ceq $ExpectedPatch
         patch_bytes = Get-Utf8Bytes $patchInput
@@ -244,6 +267,13 @@ $armConfig = switch ($Arm) {
             tools = @($controlTool, $patchTool)
             expected_call_names = @('taskspace_control', 'apply_patch')
             prompt = "Call exactly two tools in this response and emit no prose.`nFirst call $controlInstruction.`nImmediately after it, call apply_patch and put the following exact patch in input.`n`n$largePatch"
+        }
+    }
+    'sibling_required_next_call' {
+        [ordered]@{
+            tools = @((New-RequiredNextCallControlTool $controlTool), $patchTool)
+            expected_call_names = @('taskspace_control', 'apply_patch')
+            prompt = "Call exactly two tools in this response and emit no prose.`nFirst call taskspace_control with action complete_then_continue, expected_revision 2, current_node_id explore, next_node_id fix, and required_next_call apply_patch.`nImmediately after it, call apply_patch and put the following exact patch in input.`n`n$largePatch"
         }
     }
     'direct_with_control_visible' {
