@@ -9,18 +9,18 @@ pub(crate) const TASKSPACE_WORKING_PROTOCOL_START: &str = "TaskSpaceCoreWorkingP
 pub(crate) const TASKSPACE_WORKING_PROTOCOL_END: &str = "TaskSpaceCoreWorkingProtocolV1 end.";
 pub(crate) const TASKSPACE_WORKING_PROTOCOL_SCHEMA_VERSION: &str =
     "taskspace-core-working-protocol-v1";
-pub(crate) const TASKSPACE_WORKING_PROTOCOL_VERSION: &str = "1.0.0";
+pub(crate) const TASKSPACE_WORKING_PROTOCOL_VERSION: &str = "1.0.1";
 pub(crate) const TASKSPACE_WORKING_PROTOCOL_RULES_SHA256: &str =
-    "d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa";
+    "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db";
 
 const TASKSPACE_WORKING_PROTOCOL_RULES: &str = concat!(
-    "1. Treat the TaskSpace Map as the mandatory authoritative ledger for task topology and lifecycle; natural conversation remains the detailed evidence and work history.\n",
-    "2. When bootstrap_required=true, your first top-level tool call must initialize_map. Put immediate ordinary work in initialize_map.continuation.\n",
-    "3. Keep the Map aligned at meaningful work boundaries, not after every ordinary tool call. All ordinary work must remain under a bound Work node.\n",
-    "4. You decide when a node goal is fulfilled. Complete it, select a Ready successor yourself, and bind that successor with immediate continuation actions. Mutate the graph when your task decomposition or dependencies change.\n",
-    "5. Use read_map when the current revision, binding, or Ready frontier is not established by the latest visible Map or control result, including after a state rejection or context recovery. Do not read on a fixed cadence.\n",
-    "6. Before a final answer, ensure all Work nodes are closed and commit the exact final summary through finish_end. Do not emit a plain final answer while the Map is open.\n",
-    "7. Runtime validates only hard graph and lifecycle rules. It will not infer task meaning, decide completion, choose a node, or rewrite your actions.\n",
+    "1. Use the TaskSpace Map as the mandatory ledger for task topology and lifecycle; natural conversation remains the detailed evidence and work history.\n",
+    "2. If bootstrap_required=true, the first top-level tool call must be initialize_map. Do not call an ordinary tool first; put immediate ordinary work in initialize_map.continuation.\n",
+    "3. Update the Map at meaningful task-phase boundaries, not after every ordinary tool result. Keep ordinary work under the bound Work node.\n",
+    "4. When completion is known to make another node Ready, emit complete for the current node and then bind for your chosen Ready node as ordered sibling taskspace_control calls in the same provider response. Use the current expected_revision for complete, the next revision for bind, and put immediate work in bind.continuation.\n",
+    "5. At the final boundary, emit complete for the last Work node and then finish_end with your exact summary in the same provider response, using consecutive expected revisions.\n",
+    "6. Use read_map only when the current revision, binding, or Ready frontier is not established by the latest visible Map or control result, including after rejection or context recovery. Do not read on a fixed cadence.\n",
+    "7. You choose task decomposition, completion, Ready nodes, and actions. Runtime only validates hard graph and lifecycle rules and never infers or rewrites those choices.\n",
 );
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,7 +105,7 @@ mod tests {
         let rendered = render_taskspace_working_protocol();
         assert!(rendered.starts_with(TASKSPACE_WORKING_PROTOCOL_START));
         assert!(rendered.ends_with(&format!("{TASKSPACE_WORKING_PROTOCOL_END}\n")));
-        assert!(rendered.contains("- protocol_version: 1.0.0\n"));
+        assert!(rendered.contains("- protocol_version: 1.0.1\n"));
         assert!(rendered.contains(TASKSPACE_WORKING_PROTOCOL_RULES_SHA256));
     }
 

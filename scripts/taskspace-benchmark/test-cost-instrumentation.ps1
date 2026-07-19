@@ -908,8 +908,8 @@ $v4Shape.schema_version = "provider-chat-wire-trace-v4"
 $v4Shape.request_id = "wire-v4-1"
 $v4Shape | Add-Member -NotePropertyName taskspace_working_protocol_identity -NotePropertyValue ([pscustomobject]@{
     count = 1; message_index = 1; wire_role = "system"; message_bytes = 840; estimated_tokens = 210
-    schema_version = "taskspace-core-working-protocol-v1"; protocol_version = "1.0.0"
-    rules_sha256 = "d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa"
+    schema_version = "taskspace-core-working-protocol-v1"; protocol_version = "1.0.1"
+    rules_sha256 = "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db"
     matches_current_contract = $true; unavailable_reason = $null
 })
 @(
@@ -919,7 +919,7 @@ $v4Shape | Add-Member -NotePropertyName taskspace_working_protocol_identity -Not
 $v4Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v4WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
 $v4ProtocolEvent = @($v4Instrumentation.provider_cache_trace_events)[0].taskspace_working_protocol_identity
 $v4ProtocolSummary = $v4Instrumentation.provider_cache_trace_summary.taskspace_working_protocol_identity_summary
-Assert-True ([string]$v4ProtocolEvent.protocol_version -eq "1.0.0" -and [string]$v4ProtocolEvent.wire_role -eq "system" -and [bool]$v4ProtocolEvent.matches_current_contract) "v4 cache event lost working protocol identity"
+Assert-True ([string]$v4ProtocolEvent.protocol_version -eq "1.0.1" -and [string]$v4ProtocolEvent.wire_role -eq "system" -and [bool]$v4ProtocolEvent.matches_current_contract) "v4 cache event lost working protocol identity"
 Assert-True ([int]$v4ProtocolSummary.present_count -eq 1 -and [int]$v4ProtocolSummary.current_contract_match_count -eq 1 -and [int64]$v4ProtocolSummary.estimated_tokens_total -eq 210) "v4 working protocol summary is incorrect"
 $mismatchShape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
 $mismatchShape.section_cost.section_bytes_total = 499

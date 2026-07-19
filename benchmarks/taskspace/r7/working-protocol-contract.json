@@ -1,13 +1,29 @@
 {
   "schema_version": 1,
   "contract_id": "r7-taskspace-core-working-protocol",
-  "status": "evaluated_candidate_not_accepted",
+  "status": "active_candidate",
   "protocol": {
     "schema_version": "taskspace-core-working-protocol-v1",
-    "protocol_version": "1.0.0",
-    "rules_sha256": "d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa",
+    "protocol_version": "1.0.1",
+    "rules_sha256": "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db",
     "source": "third_party/codex-cli/codex-rs/core/src/context/taskspace_working_protocol.rs"
   },
+  "version_history": [
+    {
+      "protocol_version": "1.0.0",
+      "rules_sha256": "d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa",
+      "status": "evaluated_not_accepted",
+      "implementation_commit": "daf6b4787",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.0-result.json"
+    },
+    {
+      "protocol_version": "1.0.1",
+      "rules_sha256": "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db",
+      "status": "active_candidate",
+      "change": "explicit_same_response_lifecycle_batching_and_concise_rules",
+      "predecessor": "1.0.0"
+    }
+  ],
   "scope": {
     "taskspace_projection_policies": [
       "map-always",
