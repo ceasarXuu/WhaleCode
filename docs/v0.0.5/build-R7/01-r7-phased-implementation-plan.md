@@ -447,6 +447,34 @@ Phase E 仍不得改变三种 projection policy 的状态机、事件或工具�
 - `benchmarks/taskspace/r7/nested-patch-control-probe-result.json`
 - `coe/2026-07-19-19-30-r7-nested-patch-control-arguments.md`
 
+### 1.11.4 Phase D.4：顶层 Patch 修复与采用率验证
+
+已完成：
+
+1. 删除产品 control 中的 nested ordinary/patch payload，不保留兼容 parser。
+2. 使用 `required_next_call=ordinary_tool|apply_patch` 声明紧邻顶层 sibling；该字段只声明，不执行或安排。
+3. 增加 full-response preflight、control/patch barrier 和原生顶层 patch 反馈。
+4. 升级 working protocol `v1.0.4`、observer、provider probe 和 Docker 对照证据。
+
+验收结果：
+
+- provider probe 6/6 生成 `control -> patch`，6/6 patch exact；合并 request 未被破坏；
+- simple/complex 与同期 Standard 都 solved，公开和隐藏验证通过，Map 全部闭合；
+- 两个自然 TaskSpace 样本仍各有 2 次首次 sibling 遗漏，收到明确 preflight 失败后才在下一请求纠正；
+- complex 另有错误 bind、patch 上下文失败、三 patch 同响应和过早 terminal 等独立 Agent 行为，不能混算为
+  patch carrier 回归。
+
+因此 Phase D.4 的 patch fidelity 与执行边界通过，但首次采用率/request 效率门禁未通过。Phase E 暂不启动，
+先单独收敛 provider-visible sibling 调用协议；禁止 Runtime 自动补调用或恢复 nested carrier。
+
+证据：
+
+- `14-r7-required-next-call-validation-result.md`
+- `benchmarks/taskspace/r7/working-protocol-v1.0.3-result.json`
+- `benchmarks/taskspace/r7/working-protocol-v1.0.4-result.json`
+- implementation commit `12e7f8e3e`
+- observer commit `04ac1ba24`
+
 ## 1.12 Phase E：生命周期与跨策略等价
 
 **目标**：证明三种策略只改变 provider context projection，不改变任何状态机、工具或事件结果。

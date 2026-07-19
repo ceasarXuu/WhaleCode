@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "experiment_id": "r7-working-protocol-v1.0.3-top-level-continuation",
+  "implementation_commit": "839832c5f",
+  "protocol": {
+    "schema_version": "taskspace-core-working-protocol-v1",
+    "protocol_version": "1.0.3",
+    "rules_sha256": "6d4dd3049120ac78dec8b4bfb6098c8c12416748606aa8be130551343a15aa97"
+  },
+  "projection_policy": "map-request",
+  "evidence_level": "E2-candidate",
+  "provider_probe": {
+    "artifact": "benchmarks/taskspace/r7/sibling-patch-sequence-production-result.json",
+    "requests": 6,
+    "expected_call_sequence": 5,
+    "control_shape_valid": 6,
+    "emitted_patch_exact": 5
+  },
+  "runs": [
+    {
+      "scenario": "single-file-fast-fix",
+      "run_root": "target/r7-lean-sequence-validation/simple/single-file-fast-fix/20260719-212540-364",
+      "standard": {
+        "outcome": "solved",
+        "requests": 8,
+        "runtime_tools": 11,
+        "wall_seconds": 15.94,
+        "input_tokens": 55389,
+        "cached_input_tokens": 53120,
+        "uncached_input_tokens": 2269,
+        "output_tokens": 1335,
+        "request_2_plus_cache_hit_rate": 0.9565
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "requests": 13,
+        "runtime_tools": 12,
+        "wall_seconds": 33.81,
+        "input_tokens": 138657,
+        "cached_input_tokens": 126720,
+        "uncached_input_tokens": 11937,
+        "output_tokens": 3188,
+        "request_2_plus_cache_hit_rate": 0.9654,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "required_call_declarations": 5,
+        "required_call_satisfied": 3,
+        "required_call_violations": 2
+      }
+    },
+    {
+      "scenario": "subscription-billing-repair",
+      "run_root": "target/r7-lean-sequence-validation/complex/subscription-billing-repair/20260719-212540-364",
+      "standard": {
+        "outcome": "solved",
+        "requests": 10,
+        "runtime_tools": 15,
+        "wall_seconds": 43.57,
+        "input_tokens": 100004,
+        "cached_input_tokens": 95616,
+        "uncached_input_tokens": 4388,
+        "output_tokens": 5191,
+        "request_2_plus_cache_hit_rate": 0.954
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "requests": 14,
+        "runtime_tools": 17,
+        "wall_seconds": 76.79,
+        "input_tokens": 221996,
+        "cached_input_tokens": 210688,
+        "uncached_input_tokens": 11308,
+        "output_tokens": 9048,
+        "request_2_plus_cache_hit_rate": 0.9481,
+        "map_nodes": 6,
+        "map_edges": 6,
+        "required_call_declarations": 8,
+        "required_call_satisfied": 6,
+        "required_call_violations": 2
+      }
+    }
+  ],
+  "conclusion": "Top-level patch calls restored patch fidelity and preserved same-response batching, but the continuation scalar produced two first-attempt sibling omissions in each live TaskSpace sample. Superseded by protocol 1.0.4."
+}

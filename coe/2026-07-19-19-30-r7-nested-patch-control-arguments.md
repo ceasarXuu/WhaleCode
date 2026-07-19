@@ -1,7 +1,7 @@
 # Problem P-001: R7 大型嵌套 patch control 参数畸形
 - Status: open
 - Created: 2026-07-19 19:30
-- Updated: 2026-07-19 20:51
+- Updated: 2026-07-19 22:05
 - Objective: 证明复杂样本中 `complete_then_continue` 参数尾随字符和下一次空参数调用的真实产生层，并在不让 Runtime 猜测语义的前提下确定修复点。
 - Symptoms:
   - `subscription-billing-repair` 首次大型 `patch_then_actions` control 参数末尾多一个 `}`，随后一次 `taskspace_control` 参数为 `{}`。
@@ -23,6 +23,8 @@
   - 非流式生产 schema probe 可复现 trailing characters，排除 Whale SSE assembler。
   - 同一大型 patch 直接调用顶层 `apply_patch` 为 6/6 JSON 合法且正文逐字节一致；当前 carrier 为 4/6 合法，减少一层包装为 5/6 合法。
   - continuation 直接携带 `patch_input` 和 control 顶层携带 `patch_input` 都达到 6/6 JSON 合法，但正文均为 0/6 逐字节一致；前者有 1 次只返回 3 字节。
+  - 生产 `required_next_call` probe 为 6/6 `control -> apply_patch` 且 6/6 patch exact，证明修复没有拆分合并 request。
+  - v1.0.4 simple/complex Docker 都 solved 且 Map 闭合，但各有 2 次首次 sibling 遗漏；字段改名不是该采用问题的充分修复。
 - Ruled out:
   - Runtime 在解析失败后部分推进 Map 状态。
   - Whale SSE 流式聚合重复追加 arguments 尾部。
@@ -30,7 +32,7 @@
   - 单纯减少一层 `arguments` 包装即可解决问题。
 - Fix criteria:
   - 证明畸形字符首次出现的层；证明第二次空参数是否收到完整失败反馈；对可复现根因实施单点修复，并在 simple/complex Docker 样本中验证无 correctness、request 或缓存负回归。
-- Current conclusion: 根因已确认是 provider 与过载 tool schema 的交互：`taskspace_control` 同时承载状态机、多分支 lifecycle、普通工具 schema 和大型 patch 正文时，既破坏外层 JSON 闭合，也降低同响应 direct patch 的正文保真；不是 SSE、Runtime parser 或反馈丢失。最小 control 双调用 6/6 exact，证明同 request 合并可保留。生产修复应删除 control 中所有 nested tool payload，只保留轻量 continuation 声明，并由 full-response preflight 与 control/patch barrier 机械执行顶层调用顺序。
+- Current conclusion: 原始大型 nested patch 根因已修复：control 只保留状态和调用种类声明，patch 恢复为顶层原生工具；生产 probe 6/6 合并调用且 6/6 exact，Runtime 无语义修补。剩余未通过项是自然 coding 中首次 sibling 采用率：v1.0.3 与 v1.0.4 的两个样本都各有 2 次遗漏，说明 `continuation` 歧义不是唯一原因。该效率问题必须在 provider-visible 协议层继续解决，不能让 Runtime 补调用，也不能恢复 nested carrier。
 - Related hypotheses:
   - H-001
   - H-002
@@ -39,6 +41,8 @@
   - H-005
   - H-006
   - H-007
+  - H-008
+  - H-009
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -520,3 +524,172 @@
   ```
 - Interpretation: 同 response 多工具不是根因。生产修复必须把 TaskSpace 从 nested tool orchestrator 收敛为状态工具，保留轻量 continuation 声明，并对遗漏的 sibling 在执行前机械拒绝；不能通过调整调用顺序或只移动 patch 字段解决。
 - Time: 2026-07-19 20:51
+
+## Hypothesis H-008: continuation 字段歧义是 sibling 遗漏的充分原因
+- Status: refuted
+- Parent: P-001
+- Claim: 模型把 `continuation` 标量误解为“control 已经安排下一动作”是首次 sibling 遗漏的充分原因；改成只声明种类的 `required_next_call` 后，自然 coding 样本应不再遗漏。
+- Layer: provider-contract
+- Factor relation: any_of
+- Depends on:
+  - H-007
+- Rationale:
+  - v1.0.3 simple/complex 都在 control 单独返回后，经明确失败反馈立即纠正；字段名与历史 nested carrier 语义可能形成错误先验。
+- Falsifiable predictions:
+  - If true: 使用 `required_next_call` 的 v1.0.4 自然 simple/complex 中 required call violation 为 0。
+  - If false: 字段和说明已明确“只声明、同响应 sibling”后，仍出现同类首次遗漏。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 字段语义改名是否足以消除自然采用失败。
+  - Signal: 定向 provider probe 的调用形状；Docker trace 中 declaration、satisfied、violation 和下一请求恢复路径。
+  - Capture method: 生产 schema 6 次非流式 probe；同 commit simple/complex 各一次 Standard/TaskSpace Docker pair。
+  - Event name or marker:
+    - r7.sibling_patch_sequence_observed
+    - taskspace.response_required_next_call_validated
+    - tool.response_preflight_rejected
+  - Correlation keys:
+    - protocol 1.0.4
+    - implementation `12e7f8e3e`
+  - Differentiates from:
+    - H-009 只判断 patch fidelity 与合并 request 能力，不判断自然首次采用率。
+  - Supports if:
+    - 两个自然样本 violation 均为 0。
+  - Refutes if:
+    - 任一样本继续出现字段合法但 sibling 缺失。
+  - Instrumentation status: permanent-observability
+  - Instrumentation lifecycle:
+    - observer 同时读取当前 `required_next_call` 和历史 artifact 的 `continuation`；产品 parser 不兼容旧字段。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-007
+  - E-008
+  - E-009
+- Conclusion: refuted；定向 probe 从 v1.0.3 的 5/6 提升到 6/6，但自然 simple/complex 仍各有 2 次首次遗漏。字段歧义存在，但不是充分根因；单个 function schema 不能结构化约束另一个顶层 tool call。
+- Repair design readiness: not ready
+- Next step: 把首次 sibling 采用率作为独立 provider-visible 协议问题设计，不允许 Runtime 推断或补调用。
+- Blocker:
+  - 尚无经自然任务 probe 证明的低成本调用合同。
+- Close reason:
+  - hypothesis refuted
+
+## Hypothesis H-009: 顶层原生 patch 可修复正文并保留合并 request
+- Status: confirmed
+- Parent: P-001
+- Claim: 删除 nested tool payload 后，`taskspace_control`、direct `apply_patch` 和后续普通工具仍可由一个 provider response 承载，且 patch 正文和原生反馈不被 control 改写。
+- Layer: fix-validation
+- Factor relation: all_of
+- Depends on:
+  - H-007
+- Rationale:
+  - 用户要求不能用 patch fidelity 换取每个动作一个 provider request。
+- Falsifiable predictions:
+  - If true: 生产 probe 与 Docker 都观察到同响应 control + patch；patch exact；sequence 单测保持后续普通工具同响应执行。
+  - If false: Runtime 或 provider 把 control、patch 强制拆成请求，或 patch 再次经 control carrier 改写。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 修复是否破坏合并 request 设计。
+  - Signal: provider tool call 数组顺序、patch hash、response batch、barrier trace、原生 patch output。
+  - Capture method: 生产 schema probe、sequence regression test、Docker rollout 逐 request 对账。
+  - Event name or marker:
+    - r7.sibling_patch_sequence_observed
+    - taskspace.response_required_next_call_validated
+    - tool.barrier_started
+    - tool.barrier_completed
+  - Correlation keys:
+    - protocol 1.0.4
+    - binary SHA-256 `d7f996618551d18aae9e66f6c208c39734e760d3e3af86d2b88c0a622456eea4`
+  - Differentiates from:
+    - H-008 的首次采用概率。
+  - Supports if:
+    - 6/6 probe 同响应且 exact，Docker 至少一次真实 control + patch 同响应成功。
+  - Refutes if:
+    - 任一已生成 patch 失真，或执行器强制新增 provider request。
+  - Instrumentation status: permanent-observability
+  - Instrumentation lifecycle:
+    - 不记录 patch 正文，只记录 hash、长度、调用顺序和 reason code。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-008
+  - E-009
+- Conclusion: confirmed；生产 probe 6/6 同响应且 6/6 exact，simple/complex 都成功执行同响应 `control -> patch`，sequence 回归还覆盖同响应后续普通工具。修复没有破坏合并 request。
+- Repair design readiness: implemented
+- Next step: 保持该边界，后续采用率优化不得恢复 nested carrier 或 Runtime 自动补调用。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-007: v1.0.3 生产实现保真但自然样本各有两次遗漏
+- Related hypotheses:
+  - H-007
+  - H-008
+- Direction: supports H-007; supports H-008 candidate
+- Type: fix-validation
+- Source: `benchmarks/taskspace/r7/working-protocol-v1.0.3-result.json`
+- Prediction or plan link:
+  - 分开观察已生成 patch 的正文保真与声明后 sibling 的自然采用率。
+- Matched signal:
+  - provider probe 5/6 生成预期调用，已生成 patch 5/5 exact。
+  - simple、complex 都 solved，分别为 5 次声明 3 次满足、8 次声明 6 次满足，各有 2 次 violation。
+  - complex 三次重试 patch 的 SHA-256 完全相同，失败反馈未导致 patch 语义漂移。
+- Correlation keys:
+  - implementation `839832c5f`
+  - protocol 1.0.3
+- Raw content:
+  ```text
+  simple: 5 declarations, 3 satisfied, 2 violations
+  complex: 8 declarations, 6 satisfied, 2 violations
+  emitted provider patches: exact
+  ```
+- Interpretation: 顶层 patch 修复有效，但 `continuation` 字段的首次 sibling 采用不足，触发稳定的请求重试。
+- Time: 2026-07-19 21:25
+
+## Evidence E-008: required_next_call 定向生产 schema probe 为 6/6
+- Related hypotheses:
+  - H-008
+  - H-009
+- Direction: supports
+- Type: provider-experiment
+- Source: `benchmarks/taskspace/r7/sibling-required-next-call-production-result.json`
+- Prediction or plan link:
+  - 验证新字段下 provider 是否具备同响应双调用和大型 patch exact 能力。
+- Matched signal:
+  - 6/6 HTTP 200、6/6 `taskspace_control -> apply_patch`、6/6 control shape、6/6 patch JSON、6/6 patch exact。
+  - 第 2 次及以后每次缓存 4096/4128 input tokens。
+- Correlation keys:
+  - arm `sibling_control_first`
+  - protocol 1.0.4 schema
+- Raw content:
+  ```text
+  expected_call_names_match=6/6
+  patch_exact=6/6
+  ```
+- Interpretation: 合并 request 能力和 patch 保真已确认；该 probe 明确要求 exactly two tools，不能单独证明自然采用率。
+- Time: 2026-07-19 21:43
+
+## Evidence E-009: v1.0.4 Docker 验证保留合并 request 但未消除首次遗漏
+- Related hypotheses:
+  - H-008
+  - H-009
+- Direction: refutes H-008; supports H-009
+- Type: fix-validation
+- Source: `benchmarks/taskspace/r7/working-protocol-v1.0.4-result.json`
+- Prediction or plan link:
+  - H-008 预测自然样本 violation 为 0；H-009 预测真实 control + patch 同响应且任务正确。
+- Matched signal:
+  - simple/complex 的 Standard 与 TaskSpace 均 solved，公开/隐藏验证通过；两个 TaskSpace Map 都闭合。
+  - simple 为 5 次声明、3 次满足、2 次 violation；complex 为 6/4/2。
+  - 每次 violation 后 Agent 都明确读取到“declaration does not execute or schedule”反馈，并在下一请求正确合并 sibling。
+  - simple 与 complex 均实际成功执行同响应 `complete_then_continue + apply_patch`；patch 使用原生输出。
+  - complex 的 25 请求还包含错误 bind、patch 上下文失败、三 patch preflight 和过早 terminal，不能全部归因于字段改名。
+- Correlation keys:
+  - simple `20260719-214716-333`
+  - complex `20260719-214822-447`
+  - binary SHA-256 `d7f996618551d18aae9e66f6c208c39734e760d3e3af86d2b88c0a622456eea4`
+- Raw content:
+  ```text
+  simple Standard/TaskSpace requests: 6/11
+  complex Standard/TaskSpace requests: 11/25
+  TaskSpace req2+ cache: 96.44% / 97.88%
+  same-shape zero: 0 / 0
+  ```
+- Interpretation: feedback 忠实且合并 request 设计保留；新字段不是首次采用问题的充分修复，P-001 的 request 效率退出门仍未满足。
+- Time: 2026-07-19 22:05
