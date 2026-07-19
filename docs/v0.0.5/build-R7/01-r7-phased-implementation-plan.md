@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-19
 Version: v0.0.5 build-R7
-Status: Phase D.3 Nested Patch Root Cause Confirmed / Repair Not Implemented / Phase E Not Started
+Status: Phase D.3 Lean Response Sequence Repair In Progress / Phase E Not Started
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -443,6 +443,7 @@ Phase E 仍不得改变三种 projection policy 的状态机、事件或工具�
 证据：
 
 - `12-r7-nested-patch-control-root-cause.md`
+- `13-r7-lean-response-sequence-repair-plan.md`
 - `benchmarks/taskspace/r7/nested-patch-control-probe-result.json`
 - `coe/2026-07-19-19-30-r7-nested-patch-control-arguments.md`
 
