@@ -400,3 +400,9 @@ do not treat the whitelist-based implicit detector as an integrity boundary. Rou
 R7 TaskSpace five-layer design v1.2 passed fresh blocking closure review. It may be used as a proposed implementation baseline,
 but no FLA implementation or performance benefit is claimed complete. The remaining risks are explicitly assigned to phase gates:
 wire composition, immutable Skill snapshots, result conformance, provider capability probes and statistically defensible evaluation.
+
+### Post-review Amendment
+
+- 2026-07-20: design v1.3 根据用户明确要求收敛 4.1 的 Agent 可见表述。删除“线性上下文表达不足”等开发者侧
+  设计动机，改为直接说明 Map 的作用和默认使用方式。该修订没有改变五层职责、wire carrier、Runtime 边界或
+  已闭合的 blocking contracts，因此不重新打开架构审查。

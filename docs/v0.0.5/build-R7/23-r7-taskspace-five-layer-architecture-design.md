@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层交互架构设计
 
 - Created: 2026-07-20
-- Version: 1.2
+- Version: 1.3
 - Status: Proposed after adversarial revision
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
@@ -144,9 +144,9 @@ projection 替换/追加/不注入、retry 去重和 payload 观测。跨层冲�
 TaskSpace Base 继续是 Codex 成熟 Base 的完整同构版本，而不是在 Standard 后追加的一段附件。TaskSpace 部分
 只回答四个宏观问题：
 
-1. Map 为什么存在，它如何补足线性上下文对复杂任务全局结构的表达不足。
+1. Map 是什么：它是任务目标、工作节点、依赖关系、当前进度和完成路径的全局工作视图。
 2. Root、Work、dependency edge、Finish 和 active binding 分别代表什么。
-3. Map 与自然上下文如何分工：Map 保存全局任务结构和状态，自然上下文保存详细交互与证据。
+3. 如何使用 Map：按 Map 组织和推进工作，并在真实工作边界同步其结构与状态。
 4. Agent 与 Runtime 的责任边界是什么。
 
 Base 可以说明“Map 应随真实工作同步推进”，但不列出每种 action、字段、组合响应或错误恢复步骤。Base 中
