@@ -225,7 +225,7 @@ canonical Map 和 Event Store 独立于 provider context，不能被 context com
 
 | 场景 | map-always | map-append | map-request |
 |---|---|---|---|
-| 普通 request | 替换为最新 projection | revision 变化时追加 | 不自动注入 |
+| 普通有效 request | 替换为最新 projection | 每次在末尾追加当时最新 projection；仅同 payload retry 去重 | 不自动注入 |
 | compaction 后首轮 | 注入最新 projection | 追加一份当前 revision 作为新 epoch 起点 | 仅保留机械 Map handle，Agent 按需读取 |
 | resume 后首轮 | 注入最新 projection | 若恢复历史已含当前 revision 则不重复，否则追加一次 | 仅保留机械 Map handle |
 | fork | 子 session 使用同一 canonical fork snapshot 和原策略 | 同左 | 同左 |
@@ -233,6 +233,10 @@ canonical Map 和 Event Store 独立于 provider context，不能被 context com
 `map-request` 的 Map handle 只能包含 `map_id`、当前 revision、TaskSpace active、可用读取 action 等机械
 身份信息，不得变成缩小版 projection，也不得包含 next action。它用于保持状态机存在性和工具参数可用性，
 不是对 Agent 的语义提醒。
+
+`map-request` 中某次 `read_map` 结果只证明读取当时的 revision；后续控制提交使其成为历史 projection。只有
+读取结果 revision 与 Map handle 或最新控制反馈报告的 canonical revision 相等时，才可称为 current。Runtime
+不得因视图过期自动读 Map 或拒绝本来符合硬约束的 ordinary action。
 
 R7 不把旧 projection 永久保留视为 compaction 的硬要求。compaction 可以按共享上下文机制淘汰历史消息，
 但必须记录裁剪事实，且不得影响 canonical Map。`map-append` 在新 epoch 从一份当前 snapshot 继续，旧

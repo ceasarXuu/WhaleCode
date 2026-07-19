@@ -1,8 +1,8 @@
 # R7 TaskSpace 五层交互架构设计
 
 - Created: 2026-07-20
-- Version: 1.0
-- Status: Proposed
+- Version: 1.2
+- Status: Proposed after adversarial revision
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
 - Related: [R7 三种 Projection 策略共享架构宪章](00-r7-three-projection-policy-charter.md)、
@@ -23,9 +23,11 @@ Agent 不是第六层。Agent 是五层能力的唯一语义使用者：任务�
 失败恢复和最终总结全部由 Agent 决定。五层架构的目的不是管理 Agent 的思考上限，而是让 Agent 获得清晰的
 工作模型、足够的能力、无歧义的机械合同和未经扭曲的事实。
 
-本设计保留 R7 已建立的双 Base、唯一 canonical Map、Rooted DAG、Event Store、共享 Runtime、共享工具链和
-三种 projection policy。三种策略之间唯一允许的差异仍是同一份 projection 如何进入 provider context；
-不得因五层重构而产生三套提示词、工具、状态机或反馈链。
+本设计保留 R7 已建立的“每个 profile 只选择一份完整 Base”、唯一 canonical Map、Rooted DAG、Event Store、
+共享 Runtime、共享工具链和三种 projection policy。L2 是从 TaskSpace Base 提取出的独立协议 artifact，不是
+第二份 Base；它对旧“双 Base”文档中“不得存在附加协议”的限制构成有条件后续修订，只有通过本设计的迁移
+门禁后才替代当前实现。三种策略之间唯一允许的差异仍是同一份 projection 如何进入 provider context；不得
+因五层重构而产生三套提示词、工具、状态机或反馈链。
 
 ## 2. 为什么需要重构
 
@@ -57,7 +59,11 @@ TaskSpace 的可见性，却把原本应该分层的信息重新集中到固定 
 
 ### 3.1 单一语义所有权
 
-同一规则只能有一个权威层。其他层可以引用其名称或版本，不得复制后换一种措辞重新解释。
+同一产品规则只能有一个权威层。其他产品层可以引用其名称或版本，不得复制后换一种措辞重新解释。
+
+该所有权只约束 WhaleCode 自己维护的版本化 artifact，包括 L1、L2、bundled L3、L4 和 L5 模板；不扫描或
+裁决用户输入、仓库 `AGENTS.md`、外部 Tool result 等动态自然语言。产品 artifact 之间相互矛盾是发布缺陷，
+必须在装配前失败或由合同测试阻止；动态内容仍按 provider 的角色/顺序忠实传递，Composer 不做语义检测。
 
 ### 3.2 Agent 负责语义，Runtime 负责底线
 
@@ -86,9 +92,10 @@ Tool 必须准确说明一个 action 会做什么、何时成功、返回什么�
 
 ### 3.6 静态合同优先，避免破坏缓存
 
-同一 TaskSpace profile 下的 Base、Core Protocol 和 tools schema 应保持稳定。不能按 Map revision 动态删改
-tool schema 或固定前缀。三种 projection policy 共享相同五层合同，只有 Layer 5 的 projection emission 行为
-按已冻结的 session policy 变化。
+同一 TaskSpace profile 和同一可见 capability set 下的 Base、Core Protocol 和 tools schema 应保持稳定。
+不能按 Map revision 动态删改 tool schema 或固定前缀。若权限、provider 能力或普通工具集合改变 schema，
+必须形成新的 `capability_set_hash + tools_hash` 并进入 request 身份，不能仍声称合同未变。三种 projection
+policy 共享相同五层合同，只有 Layer 5 的 projection emission 行为按已冻结的 session policy 变化。
 
 ### 3.7 一次只验证一个策略变更
 
@@ -97,13 +104,40 @@ Standard、冻结基线和单变量候选进行可归因对比。
 
 ## 4. 五层目标架构
 
+五层是 **Agent 可见信息的五种权威面**，不是五个按顺序调用的代码模块。Provider Context Composer 是共享、
+无语义的传输基础设施：它按显式 manifest 把五层内容放入 provider payload，但不拥有 TaskSpace 规则、事实或
+工作方法，因此不是隐藏的第六个语义层。Renderer、emission policy、history reducer 和 composer 可以是不同
+代码模块，不能因为产品上统称 L5 就混淆各自状态所有权。
+
 | 层 | 载体 | 生命周期 | 唯一职责 | 明确禁止 |
 |---|---|---|---|---|
 | L1 Base Instructions | TaskSpace 专用完整 base | profile 固定；每请求存在 | Agent 通用工程框架、TaskSpace 价值与宏观模型、责任边界 | 字段全集、动态状态、复杂案例、逐动作时序 |
-| L2 Core Working Protocol | versioned developer message | TaskSpace 会话固定；每请求存在 | 正常任务必需的 Map 工作循环、基础恢复方法和常见反模式 | 重复 Base、枚举参数、动态事实、高级 playbook |
+| L2 Core Working Protocol | versioned stable instruction section | TaskSpace 会话固定；每请求存在 | 正常任务必需的 Map 工作循环、基础恢复方法和常见反模式 | 重复 Base、枚举参数、动态事实、高级 playbook |
 | L3 Advanced Skills | 内置 versioned Skill | 仅目录描述常驻；正文按需加载 | 复杂 DAG、长任务、重规划、证据冲突等高级经验 | 成为正确性前提、覆盖硬合同、被 Runtime 强制加载 |
-| L4 Tool Contract | tools schema + output schema | profile 固定；每请求暴露 | 能力、action 语义、参数、返回值、副作用、机械调用形状 | 教授完整方法、推断工作语义、动态拼接 Map 状态 |
+| L4 Tool Contract | provider-visible tool definition + result algebra | profile/capability set 固定；每请求暴露 | 能力、action 语义、参数、返回值、副作用、机械调用形状 | 教授完整方法、推断工作语义、动态拼接 Map 状态 |
 | L5 Runtime and Factual Feedback | canonical state、validator、result、projection | 运行时动态 | 保存事实、执行硬约束、原子提交、忠实反馈、纯渲染 | 建议下一步、修复 Agent 参数、解释任务语义、隐藏失败 |
+
+### 4.0 Provider 暴露与装配合同
+
+架构中的“Base”“developer”“Skill”“Tool”首先是 provider-neutral 的逻辑载体，不能假设所有 provider 都有
+相同角色。DeepSeek Chat Completion 当前只公开 `system`、`user`、`assistant`、`tool`；WhaleCode 适配器会把
+内部 `developer` item 序列化为 `system`。因此 L1 与 L2 的职责差异不能依赖 provider 角色强弱，而必须依赖
+内容去重、固定顺序、版本身份和冲突测试。
+
+DeepSeek Chat 的目标 wire 顺序固定为：
+
+| 顺序 | 逻辑来源 | DeepSeek wire | 持久化/变化 | 约束 |
+|---:|---|---|---|---|
+| 1 | L1 TaskSpace Base | 第一条 `system` | profile 固定 | 每个请求恰好一份完整 Base |
+| 2 | L2 Core Protocol | 聚合 developer bundle 的首个稳定 section，最终为第二条 `system` | protocol 固定 | 独立 artifact/hash；不得与 L1 重复 |
+| 3 | 其他 developer sections 与 L3 Skill catalog | 同一聚合 bundle 的后续稳定 section，最终仍为第二条 `system` | 配置/目录固定 | 顺序确定；目录截断可观测 |
+| 4 | 用户输入、自然历史、已加载 L3 Skill body | `user`/`assistant`/`tool` 自然历史 | 追加；受 compaction | Skill body 使用明确边界标签，不获得更高权限 |
+| 5 | L4 Tool definitions | 顶层 `tools` | capability set 固定 | schema hash 与实际发送字节一致 |
+| 6 | L5 tool result / projection emission | 相邻 `tool` result 或策略指定的尾部 item | 动态 | 只含事实；位置由已冻结 policy 决定 |
+
+Composer 只接受已经渲染并带身份的 section，不读取任务语义。它负责固定顺序、载体映射、历史持久化、
+projection 替换/追加/不注入、retry 去重和 payload 观测。跨层冲突在进入 Composer 前由 ownership manifest 与
+合同测试消除；Composer 不做自然语言冲突判定。
 
 ### 4.1 L1：Base Instructions
 
@@ -139,6 +173,12 @@ TaskSpace 任务必须掌握的工作循环：
 Core Protocol 独立维护 `protocol_version + sha256`。它在三种 projection policy 中字节一致，不能根据
 policy 加入不同建议。当前 Base 中“使用 Map”的详细操作段落应在迁移期提取到这里，Base 只保留宏观内容。
 
+L2 在源码和版本管理上是独立 artifact，在 provider payload 中不承诺存在原生 `developer` role。当前
+DeepSeek Chat 接线把它固定放在聚合 developer bundle 的第一段，随后整个 bundle 映射为 `system`。这仍然只有
+一份 L1 Base；L2 不包含产品身份、通用编码框架或另一套 TaskSpace 心智模型。未来 provider 若原生支持
+developer role，只允许改变机械 carrier，L2 字节、顺序身份和语义所有权保持不变，并通过 provider payload
+snapshot 单独验证。
+
 把同一段文字从 Base 移到 developer message 本身不会节省 token：两者都属于每个请求的稳定前缀。L2 的
 直接收益是职责隔离、独立版本和可归因实验。固定输入成本只有在删除跨层重复、缩短正常任务协议，或把低频
 高级内容迁入 L3 后才会下降；不得把单纯搬迁报告为性能收益。
@@ -160,6 +200,40 @@ policy 加入不同建议。当前 Base 中“使用 Map”的详细操作段落
 Skill 只提供经验和示例，不新增 Runtime 规则。未加载 Skill 时，Agent 仍必须能依靠 L1、L2 和 L4 正确完成
 普通任务。Runtime 不得根据任务复杂度自动注入 Skill 正文；是否加载属于 Agent 的语义选择。
 
+第一版 Skill 使用现有 bundled system skill 管线，但 session catalog 不直接指向可热更新的 `current` 文件。
+启动时把已验证正文放入内容寻址快照
+`$CODEX_HOME/skills/.system/.snapshots/<bundle_sha>/taskspace-advanced/SKILL.md`，TaskSpace session 锁定
+`name + skill_version + body_sha256 + snapshot_path`。只在 TaskSpace profile 的 available-skills catalog 中暴露该
+不可变路径。新 session 可以选择新 bundle；存量 session、resume 和 fork 不静默换版。
+
+现有宿主有两条不同加载路径，设计不得把它们混称为同一种注入：
+
+1. **用户显式点名**：结构化 Skill input 或明确 `$taskspace-advanced` mention 在 provider request 前由宿主
+   resolver 命中 session 快照，并把正文作为带 `<skill>` 边界的 `user` item 注入。
+2. **Agent 自主选择**：Agent 根据 catalog 决定使用后，通过已有文件读取能力打开 catalog 的 snapshot path；
+   正文作为普通工具 result 忠实进入自然历史。现有 implicit invocation detector 只记录 telemetry，不额外注入
+   第二份 `<skill>` 正文。
+
+两条路径的 carrier 不同，但必须读取同一 snapshot bytes 并报告同一 body hash。禁止新增 Runtime 自动加载、
+根据任务语义选择 Skill，或在 Agent 读取后再次注入正文。生命周期合同：
+
+| 项目 | 合同 |
+|---|---|
+| 发现 | catalog 暴露稳定 `name + description + path`；描述只写适用条件、非适用条件和能力范围 |
+| 预算 | 沿用全局 Skill metadata budget；必须记录 kept/omitted/truncated、原始/发送字节和 catalog hash |
+| 冲突 | `taskspace-advanced` 名称保留给 bundled skill；同名用户/仓库 Skill 不能静默覆盖，resolver 返回显式冲突 |
+| 版本 | catalog 锁定内容寻址 snapshot；显式注入和 Agent 读取都校验 body hash；热更新只对新 session 生效 |
+| 触发 | 用户显式点名走宿主注入；Agent 根据 catalog 主动读取走普通文件 Tool；Runtime/policy/error 不自动加载 |
+| 载体 | 显式路径为 `<skill>` user item；Agent 路径为原始 tool result；两者记录同一 canonical skill identity |
+| 驻留 | 读取后的正文是自然历史的一部分，在当前 context epoch 中持续可见；不得每轮重新注入 |
+| 压缩/恢复 | 不保证正文永久存在；记录 identity/裁剪事实但不自动重载。Agent 需要时重读锁定 snapshot path |
+| resume/fork | 恢复父 session 的 snapshot identity；快照缺失返回 `skill_snapshot_missing`，不得解析为最新版 |
+| 失败 | 缺失、禁用、hash 不匹配或读取失败作为机械事实反馈；普通任务继续，不静默补内联手册或 fallback 最新版 |
+
+高级 Skill 不得承载 compaction/resume 的最低正确恢复步骤；这些步骤必须在 L2 和 L4 足够完成。L3 只能改善
+复杂 Map 设计质量。评测必须区分 `catalog_not_visible`、`description_truncated`、`not_selected`、`load_failed` 和
+`loaded`，不能只记录最终 Skill 名称。
+
 ### 4.4 L4：Tool Contract
 
 Tool contract 是 Agent 可执行能力的权威接口。每个 action 分支必须独立说明：
@@ -170,8 +244,10 @@ Tool contract 是 Agent 可执行能力的权威接口。每个 action 分支必
 - 成功与失败时稳定的结构化输出。
 - 只有机械规则需要时才说明与同一响应中其他 tool call 的顺序关系。
 
-Tool 顶层 description 只描述工具整体用途，具体语义下沉到对应 `oneOf` action 分支。禁止用一段超长顶层
-文本重复所有 action，也禁止使用“Mechanical action variant”这类无法帮助选择的占位描述。
+Tool 顶层 description 必须用足够但不重复的文字说明工具做什么、何时使用/不使用、读写范围、主要副作用和
+结果形态。复杂 Tool 以约 3 至 4 个高信息密度句子为起点，再把每个 action 的参数、前置条件、返回和边界
+下沉到对应分支。禁止用一段超长顶层文本复述全部 action，也禁止使用“Mechanical action variant”这类无法
+帮助选择的占位描述。结构敏感且文字仍不足以消歧的分支可以给最小输入示例，但示例必须计入固定 token 成本。
 
 目标工具面采用最小的职责拆分：
 
@@ -180,31 +256,55 @@ Tool 顶层 description 只描述工具整体用途，具体语义下沉到对�
 | `taskspace_control` | 修改 canonical Map 或节点可见状态 | initialize、mutate、complete/continue、complete/end、finish/end、expand |
 | `taskspace_read` | 只读获取当前 Map 或被引用的原始输出 | read_map、read_output_ref |
 
-拆分依据不是“每个 action 一个 Tool”，而是读写权限、副作用和输出合同存在本质差异。两个 Tool 继续共享同一
-TaskSpace service、Map、validator、result envelope 和日志，不得形成两套架构。该拆分必须作为独立候选验证；
-若实测增加选择错误或成本且不能改善合同清晰度，则保留单 Tool，但仍必须在 schema 内清晰区分读写分支。
+拆分依据不是“每个 action 一个 Tool”，而是读写意图、副作用和输出合同存在本质差异。命名或 MCP annotation
+本身不构成权限边界；只有 ordinary tool router、approval policy 和执行校验真正隔离写权限时，才能对用户声称
+read-only。两个 Tool 继续共享同一 TaskSpace service、Map、validator、result algebra 和日志，不得形成两套
+架构。该拆分必须作为独立候选验证；若实测增加选择错误或成本且不能改善合同清晰度，则保留单 Tool，但仍必须
+在 schema 内清晰区分读写分支。
 
 `complete_continue` 本身应表达“提交当前边界并继续”。若产品硬规则要求它不能成为响应末项，response
 preflight 可以在执行任何调用前检查后续 sibling 是否实际存在；不再要求 Agent 同时填写一个与真实 sibling
 重复的 `required_next_call` 声明。JSON Schema 无法单独约束另一个顶层 tool call 必须存在，不能假装该问题
 已经被 schema 解决。是否移除当前字段必须做单变量 A/B，不与 Tool 拆分同时实施。
 
-`read_output_ref` 的不同读取模式应使用互斥 `oneOf` 分支表达各自必填字段，而不是把所有字段设为 optional
-后交给 Runtime 猜测。`transition_node` 之类的二级判别字段如果与 action 重复，也应由唯一 action 名取代。
+`read_output_ref` 的不同读取模式应使用带明确 discriminator 的 `anyOf` 分支表达各自必填字段，而不是把所有
+字段设为 optional 后交给 Runtime 猜测。选择 `anyOf` 是因为 DeepSeek strict 当前公开支持集合不包含
+`oneOf`；每个分支使用 DeepSeek 支持的单值 `enum` discriminator 保证只有一个合法形状。`transition_node` 之类的二级判别字段
+如果与 action 重复，也应由唯一 action 名取代。
 
-所有 Tool schema 在同一 profile 内保持静态，记录 `tool_contract_version + tools_hash`。只有明确需要状态变化
-的参数值来自 projection 或反馈，不通过每轮修改 schema 表达状态。
+所有 Tool schema 在同一 `profile + provider_schema_profile + capability_set` 内保持静态，记录
+`tool_contract_version + capability_set_hash + tools_hash`。只有明确需要状态变化的参数值来自 projection 或
+反馈，不通过每轮修改 schema 表达状态。
+
+L4 还拥有 provider-neutral 的结果代数定义，但不假设 provider 能看到 `output_schema`。DeepSeek Chat 当前工具
+定义只接收 name、description 和 input parameters，WhaleCode 适配器也只转发这些字段；模型实际看到的是后续
+`tool` message 内容。完整 result algebra 必须先由 Runtime 全分支实现并做本地 schema conformance，再决定：
+
+- DeepSeek Chat：发送稳定、模型可读的 JSON result；`output_schema` 仅用于本地校验和观测，不虚报 provider 约束。
+- MCP 或未来原生支持的 carrier：可以暴露同一份 `outputSchema`，不得复制一套不同结果语义。
+- strict input：只有适配器真实转发 `strict`、使用 DeepSeek Beta endpoint、所有同时暴露的函数都兼容其 schema
+  子集，并通过 parallel tool probe 后，才可进入单变量候选。
 
 ### 4.5 L5：Runtime and Factual Feedback
 
-L5 包含三个紧密相连但责任清楚的子部件：
+L5 是动态事实和机械执行的权威面，内部不能压成一个职责不清的“大 Runtime”。共享实现至少拆清以下数据流：
 
-1. **Canonical state**：唯一 Rooted DAG、节点状态、边、revision、binding、Finish、Event Store 和引用数据。
-2. **Hard validator/executor**：校验图连通性、状态迁移、revision、readiness、binding、terminal、权限、
-   原子性及明确的工具调用顺序。
-3. **Factual feedback/projection**：返回提交结果和原始工具事实，从 canonical Map 纯构造全局 projection。
+| 子部件 | 输入 | 输出 | 可拥有状态 | 禁止拥有 |
+|---|---|---|---|---|
+| Canonical store/reducer | 已验证事件 | Rooted DAG snapshot、revision、Event Store | Map、事件、引用数据 | provider message、工作建议 |
+| Hard validator/executor | command、canonical snapshot、capability/permission snapshot | commit events 或机械 rejection | 无第二份 Map；只持事务临时态 | 任务意图、测试充分性 |
+| Projection renderer | canonical snapshot、renderer version | 确定性 projection bytes/hash | 无 | emission 时机、历史消息 |
+| Projection policy | session policy、projection identity、context epoch metadata | replace/append/no-auto-emission directive | 冻结 policy、最近 emission identity | Map 内容、自然语言改写 |
+| Context-history reducer | 已提交自然历史、compaction/resume/fork 事件 | 当前不可变历史 epoch | provider history 与裁剪事实 | canonical Map |
+| Provider Context Composer | L1-L4 已渲染 sections、history、L5 directive/result | 有序 provider payload 与 wire identity | 无领域事实 | 冲突消解、摘要、下一步建议 |
 
-控制结果使用稳定 envelope，至少包含：
+以上是 L5 背后的实现部件，不是新增 Agent 教学层。依赖方向固定为 canonical store -> renderer -> emission
+directive -> composer；history reducer 与 canonical store 分别维护 provider 历史和 Map 事实，不能互相替代。
+retry、resume、compaction 和 fork 必须能够从 canonical snapshot、事件与冻结 policy 重放出相同 emission
+decision；Composer 不能通过读取旧 projection 推断当前 Map。
+
+L4 先冻结完整 result algebra，L5 的 preflight、参数解析、状态拒绝、成功提交、普通工具失败和读取截断全部原子
+实现这一合同。控制结果的共同 envelope 至少包含：
 
 ```text
 schema_version
@@ -227,7 +327,13 @@ error { class, code, message, actual, expected }
 状态、引用和明确的裁剪事实，不加入下一步建议、重要性判断或对工具结果的再解释。
 
 `map-always`、`map-append`、`map-request` 只在 projection emission 上不同。它们共享完全相同的 canonical
-state、renderer、Tool contract、Runtime gate 和反馈格式。
+state、renderer、Tool contract、Runtime gate、result algebra、history reducer 和 Composer。
+
+`map-request` 下“最后一次读取到的 projection”不自动等于当前状态。任何模型可见 projection 必须携带自身
+revision；只有 `visible_projection_revision == latest_known_canonical_revision` 时才能称为 current。控制调用
+提交新 revision 后，先前读取结果立即成为历史事实，Runtime 不因 Agent 尚未重读而拒绝符合硬约束的 ordinary
+action，但 Tool description、Base 和反馈都不得把旧 projection 描述成当前。必须覆盖
+read(rev N) -> mutate(rev N+1) -> no read 的合同测试。
 
 ## 5. Agent 的主权边界
 
@@ -250,7 +356,8 @@ Runtime 可以指出“节点尚未 Ready”，不能指出“先修测试再修
 User request
    |
    v
-L1 Base + L2 Core Protocol + available Skill catalog
+Provider Context Composer mechanically assembles
+L1 Base + L2 Core Protocol + available Skill catalog + history + L4 tools
    |
    +---- Agent optionally loads L3 Advanced Skill
    |
@@ -264,18 +371,28 @@ L4 Tool call contract
 L5 Runtime hard validation -> canonical commit/tool execution
    |
    v
-L5 exact result + current projection according to session policy
+L5 exact result + projection emission directive according to session policy
+   |
+   v
+Composer emits the result/projection without reinterpretation
    |
    +----> Agent reads facts and decides again
 ```
 
-冲突优先级不按“哪段提示词更强”决定，而按职责决定：
+以下列表是内容所有权，不是让模型在冲突发生后执行的“优先级”：
 
 1. 当前事实以 L5 canonical state 和已提交结果为准。
 2. 合法调用形状以 L4 schema 为准。
 3. 正常工作方法以 L2 为准。
 4. 宏观工作模型与责任边界以 L1 为准。
 5. L3 只能补充经验，不能覆盖 L1、L2、L4 或 L5。
+
+实现必须维护机器可读的 product ownership manifest，至少为 WhaleCode 自有规范性规则记录稳定 rule id、owner
+layer、artifact、version 和允许的跨层引用。构建期检查同一 rule id 只有一个正文所有者；provider payload
+snapshot 检查 L1/L2 顺序、产品段落重复和禁止短语。用户输入、仓库 `AGENTS.md` 和外部 Tool result 不加入该
+manifest，也不由 Runtime/Composer 做自然语言冲突检测；它们按既有 instruction hierarchy 和 wire 顺序原样
+进入上下文。即使动态文本要求绕过 TaskSpace，Runtime 仍只在实际调用时执行既有硬不变量并忠实报错，不拒绝、
+改写或解释用户文本。
 
 ## 7. 内容归属判定表
 
@@ -311,13 +428,15 @@ L5 exact result + current projection according to session policy
 action。与此同时，若干 action 分支只有通用占位描述，具体 action 的局部可发现性不足。当前还存在：
 
 - 一个 Tool 同时返回控制事务 JSON、原始 Map 文本和原始 output slice，输出合同不统一。
-- `strict: false` 且没有 `output_schema`。
+- `strict: false` 且没有内部统一的 result schema；即使新增 `output_schema`，当前 DeepSeek Chat adapter 也不会
+  把它发送给 provider。
 - `read_output_ref` 的模式相关字段主要由 Runtime 二次校验。
 - action 与 `transition_node` 存在重复判别。
 - `required_next_call` 是声明值，真正的 sibling 是另一项顶层调用，两者可能不一致或缺失。
 
-优化方向：先重写 action-local 描述和条件 schema，再独立验证读写拆分、output schema、
-`required_next_call` 简化和 strict mode；不得一次混改。
+优化方向：先重写 action-local 描述和条件 schema；再冻结并实现全分支 result algebra；最后分别验证读写拆分、
+`required_next_call` 简化、MCP `outputSchema` 暴露和 DeepSeek strict mode。不得一次混改，也不得把本地 schema
+校验误报为 provider 能力。
 
 ### 8.3 Runtime 与反馈
 
@@ -338,10 +457,15 @@ Base 已有独立版本、SHA-256 和 wire identity；五层尚未形成统一�
 ```text
 base_profile/version/sha256
 core_protocol_version/sha256
-loaded_skill_names/versions/sha256
-tool_contract_version/tools_hash
-runtime_contract_version/result_schema_version/renderer_version
+developer_bundle_section_order/sha256
+skill_catalog_hash/kept/omitted/truncated
+skill_load_status/reason/names/versions/sha256/bytes
+tool_contract_version/provider_schema_profile/capability_set_hash/tools_hash
+runtime_contract_version/result_algebra_version/renderer_version
 projection_policy/projection_revision/projection_sha256
+visible_projection_revision/canonical_revision/projection_age
+history_epoch/emission_directive/retry_deduplicated
+wire_roles/wire_section_order/wire_prefix_hash
 ```
 
 ## 9. 外部 Tool 设计经验与反思
@@ -366,11 +490,14 @@ Anthropic 和 VS Code 的官方经验都强调：Tool 描述应准确说明用�
 输入应给出结构化示例。反思是 Tool 不能“无语义”，但语义必须局限于能力合同，不扩张为 Agent 工作手册。
 
 MCP 将 Tool 的 `inputSchema`、可选 `outputSchema`、结构化结果及 read-only/destructive/idempotent 等注解
-作为协议能力。TaskSpace 应利用这些结构表达机械事实，而不是把所有约束塞进自然语言顶层 description。
+作为协议能力，但 annotations 只是提示，不能替代宿主授权。TaskSpace 应在 carrier 支持时利用这些结构表达机械
+事实，而不是把所有约束塞进自然语言顶层 description；DeepSeek Chat 不支持的字段只用于本地合同，不能假装
+已经暴露给模型。
 
 OpenAI Structured Outputs 证明严格 schema 可以提升参数形状一致性，但 DeepSeek 当前 strict tool calls 位于
-Beta 路径，并要求对象属性全部 required、`additionalProperties: false` 等约束。R7 不能直接把现有复杂 schema
-切到 strict；必须先做 provider 兼容、并行工具、缓存和错误行为的独立实验。
+Beta 路径，并要求对象属性全部 required、`additionalProperties: false` 等约束，公开子集只列出 `anyOf` 而非
+`oneOf`。当前 WhaleCode Chat adapter 还没有转发 `strict`。R7 不能直接把现有复杂 schema 切到 strict；必须
+先完成 adapter wire probe，再做并行工具、缓存和错误行为的独立实验。
 
 ### 9.3 错误反馈
 
@@ -396,63 +523,86 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
 本节使用 `FLA`（Five-Layer Architecture）编号，是 R7 内部的专项迁移序列，不重编号或覆盖
 `01-r7-phased-implementation-plan.md` 中已有的 R7 Phase。
 
-### FLA-0：冻结五层基线
+### FLA-0：冻结 wire 与行为基线
 
-- 记录当前 Base、Tool、Runtime、projection 的字节身份和完整 provider payload。
+- 记录当前 Base、developer bundle、Skill catalog、Tool、Runtime、projection 和最终 provider payload 的字节身份。
 - 把当前缺失的 Core Protocol 和 Advanced Skill 标记为 `absent`，不伪造版本。
 - 跑 Standard + 当前 TaskSpace simple/complex 各 3 次，保存 request、token、cache、耗时、动作和 Map。
+- 在看到候选结果前冻结正确性、失败率和成本非劣阈值；三次仅作为接线诊断，不作为统计充分的收益证明。
 
-验收：任一结果都能关联到完整五层身份；不改变生产行为。
+验收：任一结果都能关联到完整合同身份；不改变生产行为；为后续确定配对重复数和置信区间方法。
 
-### FLA-1：提取 L2，收敛 L1
+### FLA-1：建立装配合同与 ownership manifest
 
-- 从 TaskSpace Base 提取日常工作循环和基础恢复到独立 Core Protocol。
+- 先实现 L1-L5 的 section identity、固定 wire 顺序、provider role mapping 和 payload snapshot，不移动正文。
+- 建立 rule ownership manifest 和重复/冲突 lint；把 capability set 纳入 Tool 身份。
+- 对 DeepSeek Chat 验证 base 第一条 system、developer bundle 第二条 system、tools 顶层字段和动态尾部位置。
+
+验收：不改变模型可见语义；同一 payload 可按来源重建；跨层冲突在构建/测试期失败；缓存前缀无意外漂移。
+
+### FLA-2：提取 L2，收敛 L1
+
+- 从 TaskSpace Base 等价提取日常工作循环和最低恢复步骤到独立 Core Protocol artifact。
 - Base 只保留价值、图模型、Map/对话分工和 Agent/Runtime 边界。
-- 做内容归属扫描，确保同一句机械规则不在 Base、Protocol 和 Tool 三处重复。
+- L2 固定进入 developer bundle 第一段；正式标记其对双 Base 文档相关限制的 supersession。
 
 验收：语义覆盖不减少；Standard 零注入；TaskSpace 行为不退化；只把搬迁记录为架构变化，不虚报降本。
 
-### FLA-2：建立 L3 Advanced Skill
+### FLA-3：建立 L3 Advanced Skill 生命周期
 
-- 创建 `taskspace-advanced`，只放复杂场景经验和示例。
-- 定义清晰触发描述，正文不自动注入。
+- 通过现有 bundled system skill 管线创建 `taskspace-advanced`，只放复杂场景经验和示例。
+- 生成内容寻址 snapshot，session catalog 锁定 snapshot path/hash；实现 TaskSpace profile gate、名称冲突、
+  预算截断、缺失快照和 compaction/resume/fork 观测。
+- 分别测试用户显式 mention 的 `<skill>` 注入与 Agent 自主文件读取，两者正文 hash 一致且不重复注入。
 - 选择确实需要高级方法的复杂样本和不需要 Skill 的简单样本分别验证。
 
-验收：简单任务不加载也正确；复杂任务由 Agent 主动加载后有可观察收益；Skill 不产生新硬规则。
+验收：简单任务不加载也正确；复杂任务主动加载后才讨论收益；hot update 不改变存量 session，缺失/截断可归因，
+Skill 不产生新硬规则。
 
-### FLA-3：重构 L4 描述与 action schema
+### FLA-4：重构 L4 描述与 input schema
 
-- 缩短顶层 description，补全 action-local 语义。
-- 用 `oneOf` 表达 read mode 和 action 的互斥必填字段。
-- 删除重复 discriminator，生成并记录 tools hash。
-- 本阶段不改变 Runtime 行为或 Tool 数量。
+- 将顶层 description 收敛为完整的工具选择信息，补全 action-local 语义。
+- 用 provider 兼容的 discriminator + `anyOf` 表达互斥必填字段，删除重复 discriminator。
+- 生成 `provider_schema_profile + capability_set_hash + tools_hash`；本阶段不改变 Runtime 行为、结果或 Tool 数量。
 
-验收：schema contract tests、provider wire identity、首次正确调用率和缓存均不退化。
+验收：schema contract tests、最终 DeepSeek wire、首次正确调用率和缓存均不退化；不声称 strict 已启用。
 
-### FLA-4：逐项验证 Tool 能力边界
+### FLA-5：冻结并原子实现 result algebra
 
-按独立实验依次验证，不叠加：
+- 先定义 success、preflight rejection、argument failure、state rejection、ordinary tool failure 和 truncated read 的
+  完整共同 envelope 与分支。
+- 在同一 feature version 内让 parser、preflight、handler、executor 和 read path 全部满足 conformance tests。
+- 模型实际收到的 JSON 与本地 schema 同版；任何分支不合规都阻止启用，不保留半新半旧 envelope。
 
-1. `taskspace_control` / `taskspace_read` 读写拆分。
-2. 稳定 `output_schema` 与 read result envelope。
-3. 移除冗余 `required_next_call` 声明，由 action 合同加原子 preflight 验证真实 sibling。
-4. DeepSeek strict mode 兼容实验。
+验收：所有结果进入上下文，state commit 无歧义；结果 schema 覆盖率 100%；本阶段不拆 Tool、不启用 strict。
+
+### FLA-6：逐项验证 Tool 能力候选
+
+按独立实验依次验证，每次从上一接受基线开始且不叠加未接受候选：
+
+1. `taskspace_control` / `taskspace_read` 读写拆分；权限收益只在 router/approval enforcement 通过后成立。
+2. 移除冗余 `required_next_call` 声明，由 action 合同加原子 preflight 验证真实 sibling。
+3. 对 MCP carrier 暴露与 FLA-5 同源的 `outputSchema`，并同时发送符合该 schema 的 `structuredContent`；
+   DeepSeek Chat 只验证模型可见 JSON，不做伪暴露。
+4. 先让 adapter 转发 `strict`，再用 Beta endpoint 对全部并行可见工具做兼容 probe，最后才运行 strict 候选。
 
 每项失败都回到上一冻结基线，不保留兼容分支。
 
-### FLA-5：L5 反馈与观测收口
+### FLA-7：L5 数据流、projection freshness 与恢复收口
 
-- 为 success、protocol failure、ordinary tool failure、截断读取补全稳定结构和日志。
-- 验证被拒批次、部分执行禁止、已提交控制加后续工具失败等边界。
-- 静态审计 Runtime 不含命令内容分类、Patch 意图判断、测试充分性判断或 next-action 建议。
+- 明确 store/reducer、validator/executor、renderer、policy、history reducer 和 Composer 的接口与重放不变量。
+- 修正 `map-request` 的 projection freshness 描述，验证 read -> mutate -> no-read 不会把旧视图称为 current。
+- 统一 `map-append` 每个有效 request 追加、retry 去重、compaction/resume 起点等唯一 oracle。
+- 静态审计 Runtime 不含命令内容分类、Patch 意图、测试充分性判断或 next-action 建议。
 
-验收：反馈完整进入模型上下文，state commit 无歧义，projection 字节可复现。
+验收：三策略共享实现；projection/历史/canonical state 不混淆；retry、resume、compaction、fork 可确定重放。
 
-### FLA-6：正式对照与决策
+### FLA-8：正式对照与决策
 
 - 对每个接受的单变量版本运行 Standard、冻结 TaskSpace 基线和当前候选。
-- simple、complex、held-out adversarial sample 各至少 3 次，Docker 环境统一并允许并行。
-- 逐 request 审计，而不是只看总均值。
+- 使用配对 seed/运行顺序、simple、complex 和 held-out adversarial 样本；Docker 环境统一并允许并行。
+- 报告成功率、非劣检验/置信区间、总和、均值、中位数、长尾和逐 request trace。
+- 样本数由 FLA-0 方差和预注册最小效应决定；每臂 3 次只允许作为 smoke，不得证明收益或“不退化”。
 
 验收后再决定合并；没有证据的层次优化不得进入生产。
 
@@ -464,6 +614,11 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
 - Map 唯一 Root/Finish、全节点可追溯、依赖和生命周期合法。
 - ordinary tool 始终归属有效 binding。
 - 控制失败、工具失败和状态提交语义完整进入上下文。
+- L1/L2/bundled L3/L4/L5 产品 artifact 出现故意冲突时，ownership lint 在发送前阻止重复权威规则。
+- 冲突性的 user/AGENTS 动态文本仍原样进入 payload；Composer 不解释它，实际非法调用只由硬不变量拒绝。
+- `map-append` 同 revision、retry、resume、compaction 和 `map-request` read -> mutate -> no-read 均符合唯一 oracle。
+- Skill catalog 截断、省略、同名冲突、禁用、读取失败、compaction/resume 均有明确行为和日志。
+- result algebra 覆盖所有 action、参数错误、preflight、状态拒绝、普通工具失败和截断读取分支。
 
 ### 11.2 行为质量
 
@@ -490,6 +645,8 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
 - 结果同时给出总和、均值、中位数，不用单一异常运行代表整体。
 - 失败样本先做 trace 根因分析，不能直接剔除。
 - 用 held-out 样本防止提示词和 Tool 描述迎合已知测试。
+- 基线完成后、候选运行前预注册主指标、置信水平、power、样本下限、非劣阈值、失败/异常处理和多候选校正。
+- 优先采用配对运行与 bootstrap 置信区间；三次 smoke 只能发现大回归，不能证明因果收益。
 
 ## 12. 验收标准
 
@@ -505,6 +662,10 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
 8. 三种 projection policy 除 emission 外共享完全相同的五层实现与版本。
 9. Standard 不注入 TaskSpace Base、Protocol、Tool 或 Skill 正文。
 10. simple 与 complex 正确性不退化，成本变化可归因，缓存没有因动态 schema 或前缀漂移受损。
+11. DeepSeek 最终 wire 角色、顺序和转发字段与设计一致；逻辑 developer 不被误认为 provider 原生权限层。
+12. Provider Context Composer 没有 TaskSpace 语义分支，只执行带身份 section 的顺序、carrier 和 emission directive。
+13. `visible_projection_revision` 与 canonical revision 的差值可观测，旧读取结果不会被描述成 current。
+14. Tool schema 的 capability 变体、strict 支持和 result schema 可见范围均按真实 provider 能力声明。
 
 ## 13. 非目标
 
@@ -515,6 +676,7 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
 - 本设计不要求每个 action 拆成一个 Tool，也不预设读写拆分一定获益。
 - 本设计不在同一阶段完成 Map 骨架最终超限的通用压缩方案。
 - 本设计不为旧 Working Protocol、旧 schema 或旧 session 增加兼容分支。
+- 本设计不把 Provider Context Composer 定义成新的语义层；它是可测试但无语义的共享装配基础设施。
 
 ## 14. 待独立验证的决策
 
@@ -522,12 +684,13 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
 
 1. L1/L2 去重及 L3 高级内容按需化后，能降低多少固定上下文成本；单纯提取 L2 不计为降本。
 2. 内置 Skill 的触发描述能否让 Agent 在复杂任务主动加载，同时不污染简单任务。
-3. 读写双 Tool 是否比单 Tool 更易选、更清晰，且不会增加 request 或选择错误。
+3. 读写双 Tool 是否比单 Tool 更易选、更清晰，且不会增加 request 或选择错误；拆分本身不计为权限收益。
 4. 移除 `required_next_call` 声明后，action-local 合同加 preflight 能否稳定保留合并 request。
-5. `output_schema` 对 DeepSeek 的结果稳定性、tool loop、并行调用和缓存是否有正收益。
-6. DeepSeek strict mode 是否适合当前复杂 union schema。
+5. 同源 result schema 用于本地 conformance 及 MCP `outputSchema` 后是否有收益；DeepSeek Chat 不预设支持
+   provider-visible output schema。
+6. WhaleCode adapter 转发 `strict` 后，DeepSeek Beta strict mode 是否适合当前 `anyOf` schema 和并行工具集。
 
-这些问题必须按 FLA-4 的单变量顺序回答，不能在设计文档中用直觉提前宣布成功。
+这些问题必须按 FLA-6 的单变量顺序回答，不能在设计文档中用直觉提前宣布成功。
 
 ## 15. 外部依据
 
@@ -561,3 +724,13 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
     展示 tool namespace、按需工具搜索和 docstring/schema 生成。
 15. [DeepSeek Tool Calls](https://api-docs.deepseek.com/guides/tool_calls)
     记录 strict mode 的 Beta 入口、支持范围和 schema 限制。
+16. [DeepSeek Chat Completion API](https://api-docs.deepseek.com/api/create-chat-completion/)
+    定义原生 Chat 的消息角色、Tool 输入字段和 non-strict 参数风险，是 wire carrier 判断的直接依据。
+17. [DeepSeek Context Caching](https://api-docs.deepseek.com/guides/kv_cache/)
+    说明自动前缀缓存按共同前缀命中，支持固定 section 顺序和动态内容后置的成本约束。
+18. [Claude Code Skills](https://code.claude.com/docs/en/slash-commands)
+    说明 Skill metadata 常驻、正文按需加载以及加载正文对后续上下文成本的影响。
+19. [OpenAI Agents SDK Context](https://openai.github.io/openai-agents-python/context/)
+    建议把始终需要的信息放入 instructions，把按需数据通过工具获取。
+20. [Anthropic Agent Skill authoring](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
+    强调触发描述、渐进暴露、正文和引用材料的职责边界。

@@ -6,6 +6,11 @@
 - Scope: Standard / TaskSpace provider base instructions
 - Compatibility: none
 
+> 后续设计说明：`23-r7-taskspace-five-layer-architecture-design.md` 提议在仍保持“每个 profile 只有一份完整
+> Base”的前提下，从 TaskSpace Base 等价提取一个独立、版本化的 Core Working Protocol artifact。该提议尚未
+> 实施；通过 FLA 迁移门禁后，它将 supersede 本文对“附加 developer protocol 一律不存在”的限制，但不会
+> 恢复旧“极简 Base + 点状附加规则”结构。当前生产状态仍以本文为准。
+
 当前提示词版本：Standard `1.0.1`，TaskSpace `1.0.1`。`1.0.1` 删除了与实际工作无关的 Codex foundation
 和 DeepSeek 优化背景说明；`1.0.0` 的 Docker 结果继续作为历史基线保留。
 
