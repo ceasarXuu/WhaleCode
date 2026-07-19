@@ -75,7 +75,11 @@ function Get-TaskspaceNativeCadenceFacts {
                     $action = [string]$arguments.action
                     $transitionProperty = $arguments.PSObject.Properties["transition"]
                     if ($null -ne $transitionProperty) { $transition = [string]$transitionProperty.Value }
-                    $continuationProperty = $arguments.PSObject.Properties["continuation"]
+                    $continuationProperty = $arguments.PSObject.Properties["required_next_call"]
+                    if ($null -eq $continuationProperty) {
+                        # Historical benchmark artifacts used continuation before protocol 1.0.4.
+                        $continuationProperty = $arguments.PSObject.Properties["continuation"]
+                    }
                     if ($null -ne $continuationProperty) {
                         $hasContinuation = $true
                         $continuation = $continuationProperty.Value
@@ -149,10 +153,10 @@ function Get-TaskspaceNativeCadenceFacts {
         if ($controls.Count -gt 1) { $multiControlCarrierResponses++ }
         for ($index = 0; $index -lt $calls.Count; $index++) {
             $continuationKind = [string]$calls[$index].continuation_kind
-            if ($continuationKind -in @("next_tool", "next_apply_patch")) {
+            if ($continuationKind -in @("ordinary_tool", "apply_patch", "next_tool", "next_apply_patch")) {
                 $continuationDeclarations++
                 $next = if ($index + 1 -lt $calls.Count) { $calls[$index + 1] } else { $null }
-                $satisfied = if ($continuationKind -eq "next_apply_patch") {
+                $satisfied = if ($continuationKind -in @("apply_patch", "next_apply_patch")) {
                     $null -ne $next -and $next.name -eq "apply_patch"
                 } else {
                     $null -ne $next -and $next.name -notin @("taskspace_control", "apply_patch")

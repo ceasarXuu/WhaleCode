@@ -238,18 +238,18 @@ $initializeArgs = @{
     additional_work_nodes = @(@{ node_id = "plan"; goal = "Plan" })
     finish_identity = @{ id = "finish" }
     edges = @(@{ from = "root"; to = "inspect" }, @{ from = "inspect"; to = "plan" }, @{ from = "plan"; to = "finish" })
-    continuation = "next_tool"
+    required_next_call = "ordinary_tool"
 } | ConvertTo-Json -Compress -Depth 10
 $mutationArgs = @{
     action = "mutate_graph"; expected_revision = 2
     add_nodes = @(@{ node_id = "verify"; goal = "Verify" })
     add_edges = @(@{ from = "plan"; to = "verify" }, @{ from = "verify"; to = "finish" })
     remove_edges = @(@{ from = "plan"; to = "finish" })
-    continuation = "next_tool"
+    required_next_call = "ordinary_tool"
 } | ConvertTo-Json -Compress -Depth 10
 $completeArgs = @{
     action = "complete_then_continue"; expected_revision = 3; current_node_id = "inspect"; next_node_id = "plan"
-    continuation = "next_apply_patch"
+    required_next_call = "apply_patch"
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
     action = "complete_then_end"; expected_revision = 4; current_node_id = "plan"; final_summary = "Agent final"
@@ -289,6 +289,19 @@ Assert-True ($cadence.multi_control_carrier_response_count -eq 0) "atomic handof
 Assert-True ($cadence.nonterminal_transition_without_follow_up_count -eq 0) "nonterminal transition lost its follow-up"
 Assert-True ($cadence.terminal_candidate_count -eq 1 -and $cadence.terminal_extra_request_count -eq 0) "terminal candidate cadence was not measured"
 Assert-True ($cadence.control_argument_parse_error_count -eq 0) "cadence argument parsing was incomplete"
+
+$cadenceLegacyFixture = Join-Path $RunRoot "cadence-legacy-fixture"
+Write-JsonLines @(
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
+            type = "function_call"; name = "taskspace_control"; call_id = "legacy-control"
+            arguments = '{"action":"complete_then_continue","expected_revision":2,"current_node_id":"inspect","next_node_id":"plan","continuation":"next_tool"}'
+        } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "legacy-tool"; arguments = '{"cmd":"pwd"}' } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "legacy-control"; output = "ok" } }
+) (Join-Path $cadenceLegacyFixture "rollout.jsonl")
+$legacyCadence = Get-TaskspaceNativeCadenceFacts $cadenceLegacyFixture $null
+Assert-True ($legacyCadence.continuation_declaration_count -eq 1) "historical continuation declaration was not preserved"
+Assert-True ($legacyCadence.continuation_satisfied_count -eq 1 -and $legacyCadence.continuation_violation_count -eq 0) "historical continuation sibling was not classified"
 
 $cadenceViolationFixture = Join-Path $RunRoot "cadence-violation-fixture"
 Write-JsonLines @(

@@ -18,7 +18,7 @@ function New-Response {
     }
 }
 
-$control = '{"action":"complete_then_continue","expected_revision":2,"current_node_id":"explore","next_node_id":"fix","continuation":"next_apply_patch"}'
+$control = '{"action":"complete_then_continue","expected_revision":2,"current_node_id":"explore","next_node_id":"fix","required_next_call":"apply_patch"}'
 $responses = @(
     [ordered]@{
         repeat = 1

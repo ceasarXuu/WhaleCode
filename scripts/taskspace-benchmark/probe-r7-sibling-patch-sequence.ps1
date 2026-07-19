@@ -260,7 +260,8 @@ if ($null -eq $fixture) {
     }
 }
 
-$controlInstruction = 'taskspace_control with action complete_then_continue, expected_revision 2, current_node_id explore, next_node_id fix, and continuation next_apply_patch'
+$controlInstruction = 'taskspace_control with action complete_then_continue, expected_revision 2, current_node_id explore, next_node_id fix, and required_next_call apply_patch'
+$legacyControlInstruction = 'taskspace_control with action complete_then_continue, expected_revision 2, current_node_id explore, next_node_id fix, and continuation next_apply_patch'
 $armConfig = switch ($Arm) {
     'sibling_control_first' {
         [ordered]@{
@@ -287,14 +288,14 @@ $armConfig = switch ($Arm) {
         [ordered]@{
             tools = @((New-MinimalControlTool), $patchTool)
             expected_call_names = @('taskspace_control', 'apply_patch')
-            prompt = "Call exactly two tools in this response and emit no prose.`nFirst call $controlInstruction.`nImmediately after it, call apply_patch and put the following exact patch in input.`n`n$largePatch"
+            prompt = "Call exactly two tools in this response and emit no prose.`nFirst call $legacyControlInstruction.`nImmediately after it, call apply_patch and put the following exact patch in input.`n`n$largePatch"
         }
     }
     'sibling_lean_control' {
         [ordered]@{
             tools = @((New-LeanControlTool $controlTool), $patchTool)
             expected_call_names = @('taskspace_control', 'apply_patch')
-            prompt = "Call exactly two tools in this response and emit no prose.`nFirst call taskspace_control with action complete_then_continue, expected_revision 2, current_node_id explore, next_node_id fix, and continuation next_apply_patch.`nImmediately after it, call apply_patch and put the following exact patch in input.`n`n$largePatch"
+            prompt = "Call exactly two tools in this response and emit no prose.`nFirst call $controlInstruction.`nImmediately after it, call apply_patch and put the following exact patch in input.`n`n$largePatch"
         }
     }
     'sibling_patch_first' {
