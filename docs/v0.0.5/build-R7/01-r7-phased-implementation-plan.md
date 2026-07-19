@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-19
 Version: v0.0.5 build-R7
-Status: Phase D.2 Atomic Completion Handoff Complete / Phase E Not Started
+Status: Phase D.3 Nested Patch Root Cause Confirmed / Repair Not Implemented / Phase E Not Started
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -415,8 +415,36 @@ TaskSpace bypass fixture 100% rejected，合法动作无新增 policy rejection�
 - `coe/2026-07-16-18-52-r6-phase-f-context-cost.md` 的 H-009 / E-022
 - implementation commit `26814f3f4`
 
-Phase D 的共享 tool contract 决策点已经关闭。Phase E 仍不得改变三种 projection policy 的状态机、事件或
-工具集合等价性。
+Phase D.2 的 completion action 决策点已经关闭；其共用嵌套 patch carrier 在 D.3 被确认为待修合同。
+Phase E 仍不得改变三种 projection policy 的状态机、事件或工具集合等价性。
+
+### 1.11.3 Phase D.3：嵌套 Patch Carrier 根因诊断
+
+**目标**：定位 complex 样本中大型 patch control 参数 trailing JSON 与后续空参数调用的真实产生层，
+避免以 Runtime 容错或 projection 注入掩盖 provider/tool contract 缺陷。
+
+诊断完成项：
+
+1. 对 54 次历史真实 `patch_then_actions` carrier 统计失败分布；15 次 JSON 非法，问题跨
+   `transition_node(bind)` 与 `complete_then_continue` 存在。
+2. 使用生产 schema 建立非流式六臂 provider probe，排除 Whale SSE assembler。
+3. 逐字节对账 Runtime failure 与后续 provider payload，排除 feedback 丢失、改写和 call id 错配。
+4. 证明减少嵌套或把 `patch_input` 提升到浅层只能改善 JSON 合法率，不能保证 patch 正文保真。
+5. 证明独立 `apply_patch` 是当前唯一达到 6/6 JSON 合法与 6/6 正文一致的形态。
+
+当前判定：
+
+- Runtime 严格拒绝和零提交语义正确，不得修 JSON、猜 patch 或自动推进状态；
+- 共用嵌套 patch carrier 是根因所在的产品合同，不能只修 completion action；
+- 优先修复候选为“同一 response 的小型 lifecycle control + direct patch sibling”，但该候选尚需
+  provider 双调用、sequence preflight 和真实 Docker 验证，不能以诊断 probe 代替生产验收；
+- Phase E 保持未启动，先关闭 D.3 的生产修复门。
+
+证据：
+
+- `12-r7-nested-patch-control-root-cause.md`
+- `benchmarks/taskspace/r7/nested-patch-control-probe-result.json`
+- `coe/2026-07-19-19-30-r7-nested-patch-control-arguments.md`
 
 ## 1.12 Phase E：生命周期与跨策略等价
 

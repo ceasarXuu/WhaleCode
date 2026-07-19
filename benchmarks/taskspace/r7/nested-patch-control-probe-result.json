@@ -1,0 +1,73 @@
+{
+  "schema_version": "r7-nested-patch-control-diagnosis-v1",
+  "status": "root_cause_confirmed_repair_not_implemented",
+  "model": "deepseek-v4-flash",
+  "transport": "non_streaming_chat_completions",
+  "production_schema_source": "codex-tools::create_taskspace_control_tool",
+  "live_artifact": "target/r7-nested-patch-control-probe/20260719-120146-077/provider-capability.json",
+  "repeat_per_arm": 6,
+  "historical_real_carriers": {
+    "total": 54,
+    "json_valid": 39,
+    "json_invalid": 15,
+    "trailing_characters": 14,
+    "other_invalid_json": 1,
+    "invalid_transition_node_bind": 13,
+    "invalid_complete_then_continue": 1,
+    "invalid_unparsed_action": 1
+  },
+  "arms": [
+    {
+      "arm": "current_large",
+      "json_valid": 4,
+      "trailing_characters": 2,
+      "patch_exact": 0
+    },
+    {
+      "arm": "flat_large",
+      "json_valid": 5,
+      "trailing_characters": 1,
+      "patch_exact": 0
+    },
+    {
+      "arm": "current_short",
+      "json_valid": 6,
+      "trailing_characters": 0,
+      "patch_exact": 0
+    },
+    {
+      "arm": "direct_large",
+      "json_valid": 6,
+      "trailing_characters": 0,
+      "patch_exact": 6
+    },
+    {
+      "arm": "continuation_patch_input_large",
+      "json_valid": 6,
+      "trailing_characters": 0,
+      "patch_exact": 0,
+      "expected_patch_bytes": 1471,
+      "observed_patch_bytes": [1455, 1455, 1455, 3, 1441, 1455]
+    },
+    {
+      "arm": "control_top_level_large",
+      "json_valid": 6,
+      "trailing_characters": 0,
+      "patch_exact": 0
+    }
+  ],
+  "feedback_integrity": {
+    "verdict": "exact",
+    "runtime_failure_sha256": "38ddd5bc7b09be3cd166665657333bfdf14a492a1c8b738862f69b578c8ad9c7",
+    "provider_request_7_message_sha256": "38ddd5bc7b09be3cd166665657333bfdf14a492a1c8b738862f69b578c8ad9c7",
+    "present_in_requests_6_through_11": [0, 1, 1, 1, 1, 1]
+  },
+  "verdicts": {
+    "provider_generated_invalid_json": true,
+    "sse_assembler_caused_failure": false,
+    "runtime_parser_caused_failure": false,
+    "feedback_was_lost_or_rewritten": false,
+    "field_flattening_is_sufficient": false,
+    "direct_apply_patch_passed_structure_and_fidelity": true
+  }
+}

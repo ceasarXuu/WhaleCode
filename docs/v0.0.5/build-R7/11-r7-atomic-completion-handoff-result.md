@@ -79,9 +79,10 @@ complex 首次尝试把大型四文件 patch 嵌入 `complete_then_continue` 时
 下一次又发出空 `{}`。Runtime 两次都返回 `protocol_failed`，且
 `state_commit=false/partial_commit=0`，Agent 随后自行改用合法 handoff 完成任务。
 
-这是“大型嵌套工具参数生成稳定性”问题，不是 completion handoff 状态合同失效。当前不应让 Runtime 容错解析、
-猜测 patch 或自动推进状态；后续应先通过更多复杂样本判断它是否稳定复现，再决定是否简化 continuation 的
-provider schema 表达。
+这是“大型嵌套工具参数生成稳定性”问题，不是 completion handoff 状态合同失效。后续专项诊断已经证明：
+问题由 provider 在 TaskSpace 复合 carrier 中生成长 patch 时产生，历史 54 次 carrier 中有 15 次 JSON
+非法；失败反馈完整进入后续上下文。仅扁平化字段虽能改善可解析性，却不能保证 patch 正文忠实。
+详细结论见 `12-r7-nested-patch-control-root-cause.md`。
 
 ## 6. 判定
 
