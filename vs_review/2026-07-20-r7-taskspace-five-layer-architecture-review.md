@@ -406,3 +406,7 @@ wire composition, immutable Skill snapshots, result conformance, provider capabi
 - 2026-07-20: design v1.3 根据用户明确要求收敛 4.1 的 Agent 可见表述。删除“线性上下文表达不足”等开发者侧
   设计动机，改为直接说明 Map 的作用和默认使用方式。该修订没有改变五层职责、wire carrier、Runtime 边界或
   已闭合的 blocking contracts，因此不重新打开架构审查。
+- 2026-07-20: design v1.4 根据用户对“抽象设计无法判断实际内容”的反馈，新增
+  [`24-r7-taskspace-five-layer-concrete-contract-draft.md`](../docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md)，
+  逐字展示 L1/L2、L3 Skill、L4 action description/schema、L5 result/projection 与端到端 trace。架构职责的 blocking
+  closure 仍有效，但产品内容改为 `concrete contract review required`；用户审阅前不得启动 FLA-2 之后的内容实施。

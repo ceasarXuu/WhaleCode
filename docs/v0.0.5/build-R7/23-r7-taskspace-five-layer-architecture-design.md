@@ -1,12 +1,13 @@
 # R7 TaskSpace 五层交互架构设计
 
 - Created: 2026-07-20
-- Version: 1.3
-- Status: Proposed after adversarial revision
+- Version: 1.4
+- Status: Proposed - concrete contract review required
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
 - Related: [R7 三种 Projection 策略共享架构宪章](00-r7-three-projection-policy-charter.md)、
-  [R7 双基础提示词设计](20-r7-dual-base-instructions-design.md)
+  [R7 双基础提示词设计](20-r7-dual-base-instructions-design.md)、
+  [R7 五层具体合同评审稿](24-r7-taskspace-five-layer-concrete-contract-draft.md)
 - Risk Level: High
 
 ## 1. 执行摘要
@@ -28,6 +29,11 @@ Agent 不是第六层。Agent 是五层能力的唯一语义使用者：任务�
 第二份 Base；它对旧“双 Base”文档中“不得存在附加协议”的限制构成有条件后续修订，只有通过本设计的迁移
 门禁后才替代当前实现。三种策略之间唯一允许的差异仍是同一份 projection 如何进入 provider context；不得
 因五层重构而产生三套提示词、工具、状态机或反馈链。
+
+本文件只定义架构与内容所有权，不能单独作为实施依据。L1/L2 的逐字提示词、L3 Skill 样例、L4 Tool schema、
+L5 result/projection 以及 TaskSpace 相关 provider payload 结构示例统一放在
+`24-r7-taskspace-five-layer-concrete-contract-draft.md`。具体合同未经过用户逐项审阅前，不得把本设计视为产品
+内容已冻结，也不得开始 FLA-2 之后的提示词、Skill 或 Tool 实施。
 
 ## 2. 为什么需要重构
 
