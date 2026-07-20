@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla2",
+  "status": "active_verified",
+  "source_commit": "2ea8b4d24c027e19507a22095fe065896d89453d",
+  "projection_policy": "map-request",
+  "binary": {
+    "path": "target/r7-five-layer/fla2/whale-candidate",
+    "sha256": "90bdaba699e58b80806fb3c200c03166f668001314bb6de225be4a7da4e2586f",
+    "attestation_path": "target/r7-five-layer/fla2/whale-candidate.build-attestation.json"
+  },
+  "contracts": {
+    "taskspace_base": {
+      "version": "2.0.0",
+      "sha256": "851e4bc36e9326b448d6d6979eef6fe71de3434f0fcb69870592cf30978be64e"
+    },
+    "taskspace_core_protocol": {
+      "version": "taskspace-core-v2",
+      "sha256": "02d8849e94b8ac15466a33d92ab17813c9cbe9c81fba2c7811fd98ea55ee8f24"
+    },
+    "production_manifest": {
+      "version": "1.0.0",
+      "sha256": "e51612bb651f54483a6b90580556ee567aab1d564e532bb289a0cdb67c43750d"
+    },
+    "wire_observation": {
+      "taskspace_request_count": 65,
+      "taskspace_l1_exact_match_count": 65,
+      "taskspace_l2_exact_match_count": 65,
+      "taskspace_l2_invalid_count": 0,
+      "standard_request_count": 56,
+      "standard_l2_absent_count": 56,
+      "standard_l2_present_count": 0
+    }
+  },
+  "fixed_context_cost": {
+    "fla0_taskspace_system_bytes_per_request": 22700,
+    "fla2_taskspace_system_bytes_per_request": 21666,
+    "delta_bytes_per_request": -1034,
+    "fla0_taskspace_system_estimated_tokens_per_request": 5675,
+    "fla2_taskspace_system_estimated_tokens_per_request": 5417,
+    "delta_estimated_tokens_per_request": -258,
+    "fla2_standard_system_bytes_per_request": 21534,
+    "fla2_standard_system_estimated_tokens_per_request": 5384
+  },
+  "runs": [
+    {
+      "sample": "single-file-fast-fix",
+      "repeats": 3,
+      "run_root": "target/r7-five-layer/fla2-smoke/single-file-fast-fix/20260720-190153-169",
+      "historical_baseline_run_root": "target/r7-five-layer/fla0-smoke/single-file-fast-fix/20260720-183056-155",
+      "score_valid": true,
+      "both_success": 3,
+      "engineering_unclean_count": 0,
+      "summary_hashes": {
+        "aggregate": "0ceb592ca73305ece40da39af3d7cd842923cf85231bbc3ea16f343fce6d6e1a",
+        "tokens": "753934ddb290cdd07e8c82bc496fd81b4d34a93737b5960c64f4deb56e7edad9",
+        "cache": "bdc6203cb9280f45a5444db68fe57b19b05173faa8006da6cb2181849cd36017",
+        "performance_observation": "15452d93efc60f3b99c95e8ee6252b87d953ef02b4397056c2b6ae5758358e3d"
+      },
+      "standard": {
+        "provider_requests": 23,
+        "ordinary_tools": 31,
+        "input_tokens": 265242,
+        "cached_input_tokens": 258944,
+        "uncached_input_tokens": 6298,
+        "output_tokens": 5665,
+        "wall_time_ms": 56947,
+        "request_2_plus_cache_hit_rate": 0.9748
+      },
+      "taskspace": {
+        "provider_requests": 29,
+        "ordinary_tools": 32,
+        "control_calls": 20,
+        "control_failures": 3,
+        "input_tokens": 402925,
+        "cached_input_tokens": 379648,
+        "uncached_input_tokens": 23277,
+        "output_tokens": 8651,
+        "wall_time_ms": 79398,
+        "request_2_plus_cache_hit_rate": 0.9676,
+        "map_count": 3,
+        "node_count": 15,
+        "edge_count": 12,
+        "open_leaf_nodes": 0
+      },
+      "taskspace_vs_standard": {
+        "provider_request_delta_ratio": 0.26087,
+        "input_token_delta_ratio": 0.519084,
+        "uncached_input_token_delta_ratio": 2.695935,
+        "wall_time_delta_ratio": 0.394244
+      }
+    },
+    {
+      "sample": "subscription-billing-repair",
+      "repeats": 3,
+      "run_root": "target/r7-five-layer/fla2-smoke/subscription-billing-repair/20260720-190210-285",
+      "historical_baseline_run_root": "target/r7-five-layer/fla0-smoke/subscription-billing-repair/20260720-183107-387",
+      "score_valid": true,
+      "both_success": 3,
+      "engineering_unclean_count": 0,
+      "summary_hashes": {
+        "aggregate": "ab605f556a72d28174191dc0c4f2db56cedcfb27dac76674beb5fd4c8c1ebab0",
+        "tokens": "e986589583f81871eaf7e4021183498f3e411c5da3ed907c3b686ca524de19b6",
+        "cache": "c2d5bdfc19f61f91c263b259a34156c1fd6a9daa78d5fa10905c49e1af01e3aa",
+        "performance_observation": "28c612d232ae8e006cfac853d4df01402296b01bef69f1129c868739d188a0e2"
+      },
+      "standard": {
+        "provider_requests": 33,
+        "ordinary_tools": 54,
+        "input_tokens": 473016,
+        "cached_input_tokens": 456960,
+        "uncached_input_tokens": 16056,
+        "output_tokens": 15110,
+        "wall_time_ms": 137775,
+        "request_2_plus_cache_hit_rate": 0.9642
+      },
+      "taskspace": {
+        "provider_requests": 36,
+        "ordinary_tools": 45,
+        "control_calls": 25,
+        "control_failures": 4,
+        "input_tokens": 575247,
+        "cached_input_tokens": 552448,
+        "uncached_input_tokens": 22799,
+        "output_tokens": 16343,
+        "wall_time_ms": 139678,
+        "request_2_plus_cache_hit_rate": 0.9693,
+        "map_count": 3,
+        "node_count": 16,
+        "edge_count": 13,
+        "open_leaf_nodes": 0
+      },
+      "taskspace_vs_standard": {
+        "provider_request_delta_ratio": 0.090909,
+        "input_token_delta_ratio": 0.216126,
+        "uncached_input_token_delta_ratio": 0.419968,
+        "wall_time_delta_ratio": 0.013812
+      }
+    }
+  ],
+  "protocol_failure_observation": {
+    "historical_fla0": {
+      "taskspace_required_next_call_missing": 11,
+      "no_task_path": 6,
+      "invalid_arguments": 3,
+      "state_machine_failed_without_error_code": 4
+    },
+    "fla2": {
+      "taskspace_required_next_call_missing": 11,
+      "no_task_path": 7,
+      "invalid_arguments": 5,
+      "state_machine_failed_without_error_code": 2
+    },
+    "interpretation": "FLA-2 established exact L1/L2 ownership and reduced fixed context size, but this six-run smoke does not show improved lifecycle protocol adherence. L4 remains unchanged and is the next planned contract layer."
+  },
+  "claim_limit": "This is a six-pair smoke comparison. It verifies production wiring and correctness and reports cost observations; it does not establish utility, causality for stochastic action-path changes, or statistical non-inferiority."
+}
