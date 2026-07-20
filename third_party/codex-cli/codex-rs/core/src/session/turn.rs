@@ -297,6 +297,7 @@ pub(crate) async fn run_turn(
     let SkillInjections {
         items: skill_injections,
         warnings: skill_warnings,
+        failures: skill_failures,
     } = build_skill_injections(
         &mentioned_skills,
         skills_outcome,
@@ -310,6 +311,7 @@ pub(crate) async fn run_turn(
         sess.send_event(&turn_context, EventMsg::Warning(WarningEvent { message }))
             .await;
     }
+    drop(skill_failures);
 
     let skill_items: Vec<ResponseItem> = skill_injections
         .iter()
