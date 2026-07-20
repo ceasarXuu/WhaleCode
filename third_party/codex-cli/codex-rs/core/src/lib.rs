@@ -112,6 +112,7 @@ mod stream_events_utils;
 pub mod taskspace_replay;
 #[cfg(test)]
 mod taskspace_replay_tests;
+mod taskspace_skill;
 pub mod test_support;
 mod unified_exec;
 pub mod windows_sandbox;

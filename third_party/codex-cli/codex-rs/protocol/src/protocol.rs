@@ -3162,6 +3162,26 @@ impl InitialHistory {
             }),
         }
     }
+
+    pub fn taskspace_skill_snapshot(&self) -> Option<TaskSpaceSkillSnapshotIdentity> {
+        match self {
+            InitialHistory::New | InitialHistory::Cleared => None,
+            InitialHistory::Resumed(resumed) => {
+                resumed.history.iter().find_map(|item| match item {
+                    RolloutItem::SessionMeta(meta_line) => {
+                        meta_line.meta.taskspace_skill_snapshot.clone()
+                    }
+                    _ => None,
+                })
+            }
+            InitialHistory::Forked(items) => items.iter().find_map(|item| match item {
+                RolloutItem::SessionMeta(meta_line) => {
+                    meta_line.meta.taskspace_skill_snapshot.clone()
+                }
+                _ => None,
+            }),
+        }
+    }
 }
 
 fn session_cwd_from_items(items: &[RolloutItem]) -> Option<PathBuf> {
@@ -3357,6 +3377,16 @@ pub struct SessionMeta {
     pub memory_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema, TS)]
+pub struct TaskSpaceSkillSnapshotIdentity {
+    pub name: String,
+    pub skill_version: String,
+    pub body_sha256: String,
+    pub immutable_snapshot_path: PathBuf,
 }
 
 impl Default for SessionMeta {
@@ -3377,6 +3407,7 @@ impl Default for SessionMeta {
             dynamic_tools: None,
             memory_mode: None,
             taskspace_projection_policy: None,
+            taskspace_skill_snapshot: None,
         }
     }
 }

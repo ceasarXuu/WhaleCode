@@ -311,7 +311,102 @@ pub(crate) async fn run_turn(
         sess.send_event(&turn_context, EventMsg::Warning(WarningEvent { message }))
             .await;
     }
-    drop(skill_failures);
+
+    let mut taskspace_skill_failure_items = Vec::new();
+    for failure in &skill_failures {
+        if failure.name != crate::skills::TASKSPACE_ADVANCED_SKILL_NAME {
+            continue;
+        }
+        let Some(skill) = mentioned_skills
+            .iter()
+            .find(|skill| skill.path_to_skills_md.to_string_lossy() == failure.path)
+        else {
+            continue;
+        };
+        let Some(body_sha256) =
+            skills_outcome.and_then(|outcome| outcome.expected_body_sha256(skill))
+        else {
+            continue;
+        };
+        let snapshot_missing = !std::path::Path::new(&failure.path).is_file();
+        let (status, reason_code, text) = if snapshot_missing {
+            (
+                "snapshot_missing",
+                "TASKSPACE_SKILL_SNAPSHOT_MISSING",
+                format!(
+                    "TaskSpace skill snapshot unavailable: name={} version={} sha256={} path={}",
+                    failure.name,
+                    crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
+                    body_sha256,
+                    failure.path
+                ),
+            )
+        } else {
+            (
+                "integrity_failed",
+                "TASKSPACE_SKILL_SNAPSHOT_INTEGRITY_FAILED",
+                format!(
+                    "TaskSpace skill snapshot integrity check failed: name={} version={} sha256={} path={} error={}",
+                    failure.name,
+                    crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
+                    body_sha256,
+                    failure.path,
+                    failure.message
+                ),
+            )
+        };
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.skill_load_completed",
+            load_trigger = "explicit_mention",
+            carrier = "host_skill_injection",
+            name = failure.name,
+            skill_version = crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
+            body_sha256,
+            immutable_snapshot_path = failure.path,
+            body_bytes = 0,
+            skill_load_status = status,
+            reason_code,
+            "TaskSpace advanced skill load failed"
+        );
+        taskspace_skill_failure_items.push(ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText { text }],
+            end_turn: None,
+            phase: None,
+        });
+    }
+    for injection in &skill_injections {
+        if injection.name != crate::skills::TASKSPACE_ADVANCED_SKILL_NAME {
+            continue;
+        }
+        let Some(skill) = mentioned_skills
+            .iter()
+            .find(|skill| skill.path_to_skills_md.to_string_lossy() == injection.path)
+        else {
+            continue;
+        };
+        let Some(body_sha256) =
+            skills_outcome.and_then(|outcome| outcome.expected_body_sha256(skill))
+        else {
+            continue;
+        };
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.skill_load_completed",
+            load_trigger = "explicit_mention",
+            carrier = "host_skill_injection",
+            name = injection.name,
+            skill_version = crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
+            body_sha256,
+            immutable_snapshot_path = injection.path,
+            body_bytes = injection.contents.len(),
+            skill_load_status = "loaded",
+            reason_code = "",
+            "TaskSpace advanced skill loaded"
+        );
+    }
 
     let skill_items: Vec<ResponseItem> = skill_injections
         .iter()
@@ -396,6 +491,10 @@ pub(crate) async fn run_turn(
     }
     if !skill_items.is_empty() {
         sess.record_conversation_items(&turn_context, &skill_items)
+            .await;
+    }
+    if !taskspace_skill_failure_items.is_empty() {
+        sess.record_conversation_items(&turn_context, &taskspace_skill_failure_items)
             .await;
     }
     if !plugin_items.is_empty() {

@@ -662,12 +662,23 @@ impl Session {
         let fs = environment
             .as_ref()
             .map(|environment| environment.get_filesystem());
-        let skills_outcome = Arc::new(
-            self.services
-                .skills_manager
-                .skills_for_config(&skills_input, fs)
-                .await,
-        );
+        let mut skills_outcome = self
+            .services
+            .skills_manager
+            .skills_for_config(&skills_input, fs)
+            .await;
+        if let Err(error) = crate::taskspace_skill::bind_catalog_snapshot(
+            &mut skills_outcome,
+            session_configuration.taskspace_skill_snapshot.as_ref(),
+        ) {
+            tracing::error!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.skill_catalog_bind_failed",
+                error = %error,
+                "failed to bind TaskSpace advanced skill catalog snapshot"
+            );
+        }
+        let skills_outcome = Arc::new(skills_outcome);
         let goal_tools_supported = !per_turn_config.ephemeral && self.state_db().is_some();
         let mut turn_context: TurnContext = Self::make_turn_context(
             self.conversation_id,

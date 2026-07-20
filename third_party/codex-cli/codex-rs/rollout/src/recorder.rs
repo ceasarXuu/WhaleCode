@@ -100,6 +100,7 @@ pub enum RolloutRecorderParams {
         base_instructions: BaseInstructions,
         dynamic_tools: Vec<DynamicToolSpec>,
         taskspace_projection_policy: Option<codex_protocol::protocol::TaskSpaceProjectionPolicy>,
+        taskspace_skill_snapshot: Option<codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity>,
         event_persistence_mode: EventPersistenceMode,
     },
     Resume {
@@ -177,6 +178,7 @@ impl RolloutRecorderParams {
         base_instructions: BaseInstructions,
         dynamic_tools: Vec<DynamicToolSpec>,
         taskspace_projection_policy: Option<codex_protocol::protocol::TaskSpaceProjectionPolicy>,
+        taskspace_skill_snapshot: Option<codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity>,
         event_persistence_mode: EventPersistenceMode,
     ) -> Self {
         Self::Create {
@@ -186,6 +188,7 @@ impl RolloutRecorderParams {
             base_instructions,
             dynamic_tools,
             taskspace_projection_policy,
+            taskspace_skill_snapshot,
             event_persistence_mode,
         }
     }
@@ -658,6 +661,7 @@ impl RolloutRecorder {
                     base_instructions,
                     dynamic_tools,
                     taskspace_projection_policy,
+                    taskspace_skill_snapshot,
                     event_persistence_mode,
                 } => {
                     let log_file_info = precompute_log_file_info(config, conversation_id)?;
@@ -694,6 +698,7 @@ impl RolloutRecorder {
                         memory_mode: (!config.generate_memories())
                             .then_some("disabled".to_string()),
                         taskspace_projection_policy,
+                        taskspace_skill_snapshot,
                     };
 
                     (

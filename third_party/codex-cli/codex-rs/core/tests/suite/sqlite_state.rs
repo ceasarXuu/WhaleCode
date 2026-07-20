@@ -151,6 +151,7 @@ async fn backfill_scans_existing_rollouts() -> Result<()> {
                     dynamic_tools: Some(dynamic_tools_for_hook),
                     memory_mode: None,
                     taskspace_projection_policy: None,
+                    taskspace_skill_snapshot: None,
                 },
                 git: None,
             };

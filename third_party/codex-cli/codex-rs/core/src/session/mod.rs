@@ -382,6 +382,7 @@ use codex_protocol::protocol::SkillToolDependency as ProtocolSkillToolDependency
 use codex_protocol::protocol::StreamErrorEvent;
 use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
+use codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity;
 use codex_protocol::protocol::TokenCountEvent;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
@@ -513,7 +514,24 @@ impl Codex {
         let plugin_outcome = plugins_manager.plugins_for_config(&config).await;
         let effective_skill_roots = plugin_outcome.effective_skill_roots();
         let skills_input = skills_load_input_from_config(&config, effective_skill_roots);
-        let loaded_skills = skills_manager.skills_for_config(&skills_input, fs).await;
+        let taskspace_projection_policy = match &conversation_history {
+            InitialHistory::New | InitialHistory::Cleared => config.taskspace_projection_policy,
+            InitialHistory::Resumed(_) | InitialHistory::Forked(_) => {
+                conversation_history.taskspace_projection_policy()
+            }
+        };
+        let taskspace_skill_snapshot = crate::taskspace_skill::resolve_session_snapshot(
+            taskspace_projection_policy,
+            &conversation_history,
+            &config.codex_home,
+        )
+        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+        let mut loaded_skills = skills_manager.skills_for_config(&skills_input, fs).await;
+        crate::taskspace_skill::bind_catalog_snapshot(
+            &mut loaded_skills,
+            taskspace_skill_snapshot.as_ref(),
+        )
+        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
 
         for err in &loaded_skills.errors {
             error!(
@@ -607,12 +625,6 @@ impl Codex {
         } else {
             dynamic_tools
         };
-        let taskspace_projection_policy = match &conversation_history {
-            InitialHistory::New | InitialHistory::Cleared => config.taskspace_projection_policy,
-            InitialHistory::Resumed(_) | InitialHistory::Forked(_) => {
-                conversation_history.taskspace_projection_policy()
-            }
-        };
         // TODO (aibrahim): Consolidate config.model and config.model_reasoning_effort into config.collaboration_mode
         // to avoid extracting these fields separately and constructing CollaborationMode here.
         let supported_reasoning_levels = model_info
@@ -656,6 +668,7 @@ impl Codex {
             model_reasoning_summary: config.model_reasoning_summary,
             service_tier,
             taskspace_projection_policy,
+            taskspace_skill_snapshot,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions,
             personality: config.personality,

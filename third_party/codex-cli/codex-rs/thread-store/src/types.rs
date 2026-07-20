@@ -12,6 +12,7 @@ use codex_protocol::protocol::RolloutItem;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
+use codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity;
 use codex_protocol::protocol::ThreadMemoryMode as MemoryMode;
 use codex_protocol::protocol::TokenUsage;
 use serde::Deserialize;
@@ -42,6 +43,8 @@ pub struct CreateThreadParams {
     pub dynamic_tools: Vec<DynamicToolSpec>,
     /// Immutable TaskSpace projection policy for the thread.
     pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
+    /// Immutable TaskSpace advanced-skill snapshot pinned to the thread.
+    pub taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>,
     /// Whether persistence should include the extended event surface.
     pub event_persistence_mode: ThreadEventPersistenceMode,
 }

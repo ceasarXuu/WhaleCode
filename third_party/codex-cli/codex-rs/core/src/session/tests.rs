@@ -3418,6 +3418,7 @@ async fn set_rate_limits_retains_previous_credits() {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3523,6 +3524,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3800,6 +3802,7 @@ async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
             base_instructions: BaseInstructions::default(),
             dynamic_tools: Vec::new(),
             taskspace_projection_policy: None,
+            taskspace_skill_snapshot: None,
             event_persistence_mode: ThreadEventPersistenceMode::Limited,
         },
     )
@@ -3976,6 +3979,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -4292,6 +4296,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -4399,6 +4404,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -4615,6 +4621,7 @@ async fn make_session_with_config_and_rx(
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -5765,6 +5772,7 @@ where
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions

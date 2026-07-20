@@ -1357,6 +1357,7 @@ mod tests {
                 dynamic_tools: None,
                 memory_mode: Some("polluted".to_string()),
                 taskspace_projection_policy: None,
+                taskspace_skill_snapshot: None,
             },
             git: None,
         })];
@@ -1416,6 +1417,7 @@ mod tests {
                 dynamic_tools: None,
                 memory_mode: None,
                 taskspace_projection_policy: None,
+                taskspace_skill_snapshot: None,
             },
             git: Some(GitInfo {
                 commit_hash: Some(codex_git_utils::GitSha::new("rollout-sha")),
