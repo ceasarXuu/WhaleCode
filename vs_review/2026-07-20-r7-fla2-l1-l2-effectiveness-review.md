@@ -1,7 +1,7 @@
 # Subagent VS Review: R7 FLA-2 L1/L2 Effectiveness
 
 - Created: 2026-07-20T20:46:49+08:00
-- Updated: 2026-07-20T21:08:13+08:00
+- Updated: 2026-07-21T03:49:57+08:00
 - Report schema: adversarial-v1
 - Task: 对 FLA-2 TaskSpace L1/L2 的实际有效性和 Whale Agent 执行路径进行独立对抗性审查
 - Report path: `vs_review/2026-07-20-r7-fla2-l1-l2-effectiveness-review.md`
@@ -325,3 +325,233 @@ model behavior.
 The adversarial review completed successfully, but FLA-2 cannot retain `active_verified` and must not serve as the FLA-3 entry
 baseline. Production remediation, targeted validation, regenerated evidence, and a new fresh closure review are required. This round
 did not modify production code because the user requested review; it records the blockers without silently choosing a repair design.
+
+## Round 2: FLA-2 Blocker-Repair Closure Review
+
+### Review Input
+
+#### Objective
+
+独立判断 Round 1 接受的阻塞项和观测缺口是否已经在真实生产路径中关闭，以及现有证据是否足以让 FLA-2 从
+`repair_smoke_verified_pending_adversarial_reacceptance` 恢复为 `active_verified`。本轮不评价 FLA-3 及后续层的
+完整实现，也不把 H-003 默认视为已关闭或默认视为 FLA-2 blocker。
+
+#### Review Target
+
+- Round 1 的 B1：完整 DeepSeek Chat carrier 是否只保留两条 system message，动态 Map handle 是否不再作为第三条
+  system message 注入或在提交后保留陈旧事实。
+- Round 1 的 B2：L2 恢复说明与 Agent 实际收到的统一 factual result 是否一致，preflight、ordinary gate、参数错误、
+  handler/state-machine rejection 是否都使用可机械对账的事实字段。
+- Round 1 的 N1、N2、ML1、ML2、ML3、ML4：请求、control attempt、preflight/handler failure、state commit、
+  projection 状态与 manifest 来源是否能够按 call/request lineage 对账。
+- 修复是否引入新的语义注入、Runtime 决策、Tool wire 重复暴露、Standard 污染或不可复现的 benchmark 口径。
+
+#### Target Locations
+
+- `third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_standard.md`
+- `third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md`
+- `third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md`
+- `third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json`
+- `third_party/codex-cli/codex-rs/core/src/context/taskspace_contract.rs`
+- `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/spec.rs`
+- `third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs`
+- `scripts/taskspace-benchmark/Observe-TaskspaceControlLineage.ps1`
+- `scripts/taskspace-benchmark/Test-R7FiveLayerContracts.ps1`
+- `scripts/taskspace-benchmark/Test-R7FiveLayerL4Discriminator.ps1`
+- `scripts/taskspace-benchmark/Test-R7FiveLayerL5Binding.ps1`
+- `docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md`
+- `docs/v0.0.5/build-R7/28-r7-five-layer-fla2-result.md`
+- `docs/v0.0.5/build-R7/29-r7-fla2-blockers-and-control-path-investigation.md`
+- `docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md`
+- `benchmarks/taskspace/r7/five-layer-fla2-blocker-repair-result.json`
+- `target/r7-five-layer/fla2-blocker-repair/runs/simple/single-file-fast-fix/20260721-012613-493/`
+- `target/r7-five-layer/fla2-blocker-repair/runs/complex/subscription-billing-repair/20260721-012942-254/`
+
+#### Change Introduction
+
+修复候选移除了第三条静态 system Map handle；将动态 handle 放入可替换的 user-tail carrier，并使用 handle identity
+避免历史 stale handle 继续作为 active 事实。L2 更新到 v2.1，只要求依据统一 factual result 对账。L4 Tool schema
+改为直接 lifecycle actions；L5 factual result、preflight/ordinary gate 与 handler 输出统一到 V2 事实字段；observer
+按 call/request lineage 统计 attempt、failure 与 commit。随后又移除了两份 Base 中的具体 Tool wire 示例，使调用语法
+只由顶层 Tool schema 暴露。
+
+#### Risk Focus
+
+- 两条 system message 的断言是否只检查计数，仍遗漏 role/order、相邻关系、内容 identity 或其他请求路径。
+- user-tail handle 的替换是否真的发生在 provider context，而非只在 observer 视图中成立；resume、history replay 或
+  compaction 是否可能重新出现 stale handle。
+- 统一 result 是否在所有错误分支都返回真实 action、submitted、canonical、revision、`state_commit`，还是用默认值
+  掩盖未知事实。
+- observer 是否从原始 artifact 可靠推导 lineage，还是依赖容易漂移的字符串/顺序猜测。
+- L1/L2、Tool schema 与 Runtime 是否职责清晰；修复不能通过增加 Runtime 语义判断替 Agent 决策。
+- H-003 的 `required_next_call` sibling 结构限制是否会阻断 FLA-2 的 L1/L2 有效性验收，还是应作为后续 L4 carrier
+  能力缺口独立跟踪；要求根据阶段合同和真实影响给出证据，不接受默认结论。
+- 最新简单/复杂 smoke 只有各一次，不得据此声明统计收益或整体非回归。
+
+#### User-Perspective Review Focus
+
+- Agent 是否收到一致的 Map 工作说明、唯一的 Tool 调用语法和忠实的操作结果。
+- 修复后的失败反馈是否让 Agent 能自主理解和纠正，而不是靠 Runtime 后置语义化惩罚。
+- Base、L2、Tool schema、handle 和 result 之间是否仍有容易诱导错误行动的冲突或重复。
+
+#### Implementation Completeness Focus
+
+- production owner、contract hash、manifest、provider trace、Tool schema、Runtime result 与 benchmark observer 是否形成
+  同一条可追溯事实链。
+- Standard 是否保持 TaskSpace 零注入；TaskSpace 两条 system identity 和唯一 user-tail handle 是否在真实请求中成立。
+- 32/32 TaskSpace 请求、V2 result 14/14、7 commit 与 7 preflight reject 的口径是否能从 raw rollout 独立重算。
+- 测试是否覆盖所有已声明错误类，并能在恢复旧实现时可靠失败。
+
+#### Target Benefit Focus
+
+- 本轮只允许证明 blocker closure、合同一致性、可观测性与两个样本未发现任务正确性回归。
+- 不把一次 simple/complex paired smoke 当作性能收益、统计稳定性或 H-003 关闭的证明。
+- 检查结果文档是否清楚区分“修复已验证”“阶段可重验”和“后续能力仍未完成”。
+
+#### Assumptions To Attack
+
+- system count 等于完整 carrier 正确。
+- V2 字段存在等于字段语义真实且所有失败分支完整覆盖。
+- observer 对账数值等于实现具备可靠 call lineage。
+- 两个样本成功足以恢复 FLA-2。
+- H-003 必然属于后续阶段，不影响当前阶段合同。
+- Base 中没有 JSON 片段就等于不存在 Tool wire 语义重复。
+
+#### Verification Status Presented For Falsification
+
+- 定向 Rust 与 PowerShell 合同测试通过；完整 workspace suite 未运行。
+- 最新 blocker-repair Docker smoke 为简单与复杂样本各一组 Standard/TaskSpace pair，四侧 validator 均通过。
+- 观测结果声明 TaskSpace provider 请求 32/32 为两条 system message，V2 result 14/14，7 次 commit 与 7 次 preflight
+  rejection 均可对账。
+- Base Tool wire 清理后的简单 paired smoke 两侧均通过，TaskSpace 仍出现 3 次已知 H-003 preflight rejection。
+- 当前机器结果状态仍为 `repair_smoke_verified_pending_adversarial_reacceptance`。
+
+#### Reviewer Instructions
+
+- 使用全新内部 subagent session，不继承主 Agent 对话、推理、草稿或结论。
+- 直接读取源码、合同、raw rollout、provider trace 和 observer 输出，独立重算关键数字。
+- 只读审查，不修改或提交任何文件。
+- 优先寻找足以阻止 FLA-2 恢复 `active_verified` 的反例，不把后续 phase 的未实现或纯风格偏好升级为 blocker。
+- 每个 finding 必须给出 broken assumption、触发条件、影响、证据路径/行号和关闭所需证明。
+- 明确给出 verdict：`pass_reacceptance` 或 `block_reacceptance`。
+- 输出包含：Summary、Verdict、Blocking Findings、Non-blocking Risks、User-Perspective Checks、
+  Implementation Completeness Checks、Target Benefit Checks、Required Fixes、Missing Tests、
+  Missing Logs / Observability、Evidence。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 15 minutes | one bounded 10-minute extension | 2 | accepted blocking finding requires fix and another fresh closure review |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| FLA-2 implementation-completeness adversary (`gpt-5.5`, low) | 项目约束优先使用 GPT-5.5 low；本轮目标是独立核验修复是否真的进入生产事实链 | blocker closure、跨层合同一致性、真实 trace 对账和阶段声明边界 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| FLA-2 implementation-completeness adversary | `multi_agent_v1.spawn_agent` | `019f8113-d913-7d90-b25d-562459f7625f` (`Pascal`) | spawn tool call and completion notification | `fork_context=false` | Round 2 Review Input | main-agent history, reasoning, drafts, conclusions and persuasive diff summary | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| `round2-pascal` | FLA-2 implementation-completeness adversary | 1 | `019f8113-d913-7d90-b25d-562459f7625f` | about 2 minutes | completed | reviewer completed inside initial timeout | completed |
+
+### Reviewer Outputs
+
+#### `round2-pascal`
+
+##### Summary And Verdict
+
+Round 1 的 B1、B2 对生成原 smoke 的二进制已经关闭：TaskSpace payload 为两条 system message 和一个 user-tail
+Map handle；raw rollout 可独立对账到 14 个 `TaskSpaceControlResultV2`、7 次 commit 和 7 次 preflight reject，
+且结果包含 L2 要求读取的事实字段。
+
+**Verdict：`block_reacceptance`。** 当前工作树的源码/合同 identity 已晚于现有 provider trace 和机器结果：现有证据
+验证的是 TaskSpace Base `2.0.0`、manifest `1.0.1`，当前源码则是 Base `2.0.1`、manifest `1.0.2`。因此当前
+production owner -> contract hash -> provider trace -> result 事实链没有闭合。
+
+##### Blocking Findings
+
+1. **当前生产合同 identity 不是现有 provider trace 验证的 identity。**
+   - Broken assumption：现有 blocker-repair smoke 能验证当前 FLA-2 production source 和合同链。
+   - Trigger：blocker-repair smoke 后，`6ebe2c679 fix(prompt): keep tool wire syntax out of base` 更新了 Base 和
+     manifest identity，但对应 smoke 和 result 没有重建。
+   - Impact：不能用 stale binary/contract identity 把 FLA-2 恢复为 `active_verified`。
+   - Evidence：当前 `base_instructions_profile.rs` 声明 TaskSpace Base `2.0.1` / `5da2664e...`；当前
+     `taskspace_contract.rs` 和 manifest 声明 `1.0.2` / `c887160...`；机器结果仍记录 `1.0.1` / `831a77...`；
+     旧 provider trace 仍记录 Base `2.0.0` / `851e4b...` 和 manifest `1.0.1` / `831a77...`。
+   - Close proof：用当前源码重建和运行，更新机器结果，并证明所有 TaskSpace payload 都匹配 Base `2.0.1`、
+     manifest `1.0.2`，同时 Standard 仍为 TaskSpace 零注入。
+
+##### Non-blocking Risks
+
+1. H-003 仍真实存在：simple 有 3 次、complex 有 4 次 missing-sibling preflight reject；由于 V2 factual feedback
+   已生效且文档明确保留该问题，reviewer 不将它视为 FLA-2 blocker。
+2. simple/complex 只有各一个 pair，只支持 blocker closure，不支持统计性能或广泛非回归结论。
+3. 当前证据仅覆盖 ChatCompletions；resume、fork、compaction 和 Responses carrier 仍不在本轮重验范围内。
+
+##### User-Perspective Checks
+
+被拒 control 已返回 `action`、`submitted_expected_revision`、`canonical_revision`、`state_commit=false`、
+`error.actual` 和 `error.expected`。Agent 在两个样本仍发生 standalone `required_next_call` 错误，但都能根据显式
+反馈自行纠正；Standard 和 TaskSpace 两侧 validator 均通过。
+
+##### Implementation Completeness Checks
+
+- TaskSpace provider payload：simple 20 + complex 12 = 32。
+- 旧被测 identity 的 carrier：32/32 为两条 system、L2 位于 system index 1、一个 user-tail Map handle。
+- Standard payload：simple 6 + complex 13 = 19；L2 和 Map handle 均不存在。
+- raw rollout V2 result：simple 7 + complex 7 = 14。
+- raw rollout commit：simple 4 + complex 3 = 7。
+- raw rollout preflight reject：simple 3 + complex 4 = 7。
+- observer 对 control call、preflight failure、committed control 和 `state_commit_count` 的汇总与 raw rollout 一致。
+- 唯一 completeness gap 是 identity freshness：这些数字证明的是旧 identity，而非当前源码 identity。
+
+##### Target Benefit Checks
+
+对旧被测 identity，本轮允许的 blocker repair、反馈一致性和观测对账证明成立；文档也正确限制了统计收益声明并
+保留 H-003。当前源码中的 Base Tool wire 清理尚未与 blocker-repair 的 simple/complex 正式证据绑定。
+
+##### Required Fixes
+
+1. 使用当前源码重新生成 blocker-repair 证据。
+2. 将 `five-layer-fla2-blocker-repair-result.json` 更新为当前 Base 和 manifest identity。
+3. 重跑 carrier、result 和 observer checks，保证 provider trace 的 current-contract match 对 `2.0.1` / `1.0.2`
+   全部为真。
+
+##### Missing Tests And Observability
+
+1. 缺少 provider trace identity 与当前源码常量不一致时必然失败的端到端 benchmark gate。
+2. 缺少把当前 Base Tool wire 清理提交绑定到正式 simple/complex smoke 的证据。
+3. 现有 trace 已记录 identity，但 result artifact 没有发现其相对当前源码已经 stale；应增加 source identity
+   freshness 检查，比较当前 source hash、binary attestation、provider trace identity 和 result identity。
+4. resume/fork/compaction carrier 测试仍缺失，但不升级为本轮 blocker。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Pascal | 当前源码 Base 2.0.1 / manifest 1.0.2 晚于正式 smoke 的 2.0.0 / 1.0.1 | blocking | accept | 当前 source constants、manifest、旧 provider trace 和机器结果可直接比对；身份链确实断裂 | FLA-2 继续保持 pending reacceptance，不提升状态 | 增加 evidence freshness gate；重建并 attest 当前二进制；重跑 simple/complex；fresh closure review |
+| Pascal | H-003 仍有 3+4 次 preflight reject | major, non-blocking for FLA-2 | accept classification | V2 factual feedback 已验证，问题属于 top-level sibling carrier 能力而非 L1/L2 blocker | 保持 H-003 open，不改 Runtime/提示词 | 在后续 L4 交互形状实验中独立处理 |
+| Pascal | 证据只覆盖两个单次样本和 Chat path | evidence limitation | accept | 现有样本和 trace 范围明确 | 不扩张结论 | FLA-8 再覆盖统计矩阵；resume/fork/compaction 在对应 phase 验证 |
+| Pascal | 缺少 source identity freshness gate | blocking coverage | accept | 后续 Base identity 变更没有使已有 result 失效 | 计划新增独立事实 gate | gate 必须在旧 evidence 上失败、在新 evidence 上通过 |
+
+### Round 2 Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: no
+- Blocking re-review completed: yes
+- Blocking re-review passed: no
+- Reviewer remained read-only: yes
+- Round 1 B1/B2 closure for the tested binary: independently confirmed
+- Current-source FLA-2 reacceptance: blocked on evidence freshness only
+- Allowed to proceed to FLA-3: no
