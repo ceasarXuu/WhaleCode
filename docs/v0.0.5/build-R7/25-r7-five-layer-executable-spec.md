@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 0.3
+- Version: 0.4
 - Status: Production active and verified through FLA-2; selected L4/L5 contracts are active as FLA-2 blocker repairs; FLA-3 through FLA-8 formal phase acceptance pending
 - Scope: FLA-0 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
@@ -34,7 +34,7 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 
 | 层 | 当前生产基线 | 已选目标 | 当前状态 |
 |---|---|---|---|
-| L1 | TaskSpace Base v2.0.0 仅保留宏观 Map 工作模型 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
+| L1 | TaskSpace Base v2.0.1；Map 段仅保留宏观模型，整份 Base 不携带 Tool wire 示例 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
 | L2 | `taskspace-core-v2.1` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | 无 `taskspace-advanced` 内置 Skill | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `selected_not_implemented` |
 | L4 | 单个 `taskspace_control`，直接 lifecycle actions | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)；仍为单 Tool | `active_repair_verified` |
@@ -73,6 +73,10 @@ tools                    content=<L4 schema + 普通工具 schema>
 
 这里没有新增第三条 system，也没有独立 developer 权限层。逻辑 developer 在 DeepSeek Chat adapter 中机械映射为
 第二条 system。Standard 不装配 L1、L2、L3 正文或 TaskSpace Tool。
+
+Standard 与 TaskSpace 完整 Base 都只能描述通用工具行为，不得内嵌 JSON 参数对象、patch 正文模板或其他
+provider Tool wire 示例。具体调用语法由请求顶层的 Tool schema 唯一负责；FLA-2 合同测试同时扫描两份 Base，
+任何命中都阻止验收。
 
 ### 3.2 L3 的载体
 

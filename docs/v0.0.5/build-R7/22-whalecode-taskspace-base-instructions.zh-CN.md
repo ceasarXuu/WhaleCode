@@ -1,7 +1,7 @@
 # WhaleCode TaskSpace 基础提示词中文审阅稿
 
 - 英文来源：`third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md`
-- 对应版本：TaskSpace Base Instructions `2.0.0`
+- 对应版本：TaskSpace Base Instructions `2.0.1`
 - 性质：忠实中文翻译，便于产品与架构审阅
 - 运行状态：不参与运行；运行时以英文源文件为唯一权威来源
 
@@ -91,7 +91,7 @@
 - 可以处理当前环境中的仓库，即使它们是专有仓库。
 - 可以分析代码中的漏洞。
 - 可以展示用户代码和工具调用细节。
-- 使用 `apply_patch` 工具修改文件；不要尝试 `applypatch` 或 `apply-patch`。
+- 修改文件时使用当前能力集合暴露的文件编辑工具；调用语法和参数只以 provider 可见的 Tool 合同为准。
 
 如果任务需要创建或修改文件，代码和最终回复应遵守以下编码准则，但用户指令（例如 `AGENTS.md`）可以
 覆盖这些准则：

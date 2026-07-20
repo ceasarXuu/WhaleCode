@@ -117,7 +117,7 @@ Standard、冻结基线和单变量候选进行可归因对比。
 
 | 层 | 载体 | 生命周期 | 唯一职责 | 明确禁止 |
 |---|---|---|---|---|
-| L1 Base Instructions | TaskSpace 专用完整 base | profile 固定；每请求存在 | Agent 通用工程框架、TaskSpace 价值与宏观模型、责任边界 | 字段全集、动态状态、复杂案例、逐动作时序 |
+| L1 Base Instructions | TaskSpace 专用完整 base | profile 固定；每请求存在 | Agent 通用工程框架、TaskSpace 价值与宏观模型、责任边界 | Tool wire 示例、字段全集、动态状态、复杂案例、逐动作时序 |
 | L2 Core Working Protocol | versioned stable instruction section | TaskSpace 会话固定；每请求存在 | 正常任务必需的 Map 工作循环、基础恢复方法和常见反模式 | 重复 Base、枚举参数、动态事实、高级 playbook |
 | L3 Advanced Skills | 内置 versioned Skill | 仅目录描述常驻；正文按需加载 | 复杂 DAG、长任务、重规划、证据冲突等高级经验 | 成为正确性前提、覆盖硬合同、被 Runtime 强制加载 |
 | L4 Tool Contract | provider-visible tool definition + result algebra | profile/capability set 固定；每请求暴露 | 能力、action 语义、参数、返回值、副作用、机械调用形状 | 教授完整方法、推断工作语义、动态拼接 Map 状态 |
@@ -157,6 +157,10 @@ TaskSpace Base 继续是 Codex 成熟 Base 的完整同构版本，而不是在 
 
 Base 可以说明“Map 应随真实工作同步推进”，但不列出每种 action、字段、组合响应或错误恢复步骤。Base 中
 保留成熟的编码、验证、沟通、工具使用和持久推进规则；TaskSpace 不应抛弃这些通用能力。
+
+这里的“工具使用规则”只允许表达通用选择原则和工程行为，不允许嵌入 JSON 参数对象、调用参数名、patch
+正文文法或其他 provider wire 示例。该边界约束整份 WhaleCode Standard/TaskSpace Base，而不只约束其中的
+TaskSpace 专属段。具体调用合同由 L4 唯一拥有；复制自上游 Base 的文字也不能豁免该检查。
 
 **目标体积**不是先验字数，而是“删除后会让所有 TaskSpace 请求失去共同认知”的最小稳定集合。任何新增
 内容必须证明对所有 TaskSpace 请求都必要。

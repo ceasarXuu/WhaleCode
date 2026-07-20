@@ -15,17 +15,17 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "3066cffbabcb41c300c844ef7de5673f76d81227fb1632580693fe3bb0bb0e87",
+      "sha256": "821e8af3eeb60229d591490b74716427801a3e1347ab8b1ed697811e1fc31bbe",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "663e2e2e449a0f50919c0a4c47c4ae0ff94db6cf0e5a3d1d80fb8f577f1e0476",
+      "sha256": "8f37ce5e671a0d98cc3fe10b2a236d9584c836e8e2d7051d015d11e69e1b2088",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "0ea939927d282d45a07f1cae8ce98e49db19f1de11d6ec1a62fdb2bfbe071fde",
+      "sha256": "f2da1358f86b058b069725b43c272067c0390f1fe6f26bc582b2e83203725e78",
       "role": "layer responsibilities, ownership and architectural boundaries"
     }
   ],

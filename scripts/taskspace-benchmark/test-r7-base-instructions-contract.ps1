@@ -42,13 +42,18 @@ Assert-BaseInstructionsContract (-not [bool]$contract.selection.projection_polic
 Assert-BaseInstructionsContract ($contract.shared_runtime.projection_policies.Count -eq 3) "dual base contract must cover all R7 projection policies"
 Assert-BaseInstructionsContract ([string]$standard.sha256 -match '^[0-9a-f]{64}$') "standard base hash is invalid"
 Assert-BaseInstructionsContract ([string]$taskspace.sha256 -match '^[0-9a-f]{64}$') "TaskSpace base hash is invalid"
-Assert-BaseInstructionsContract ($standardDiffCount -eq 2) "standard base must differ from Codex in exactly two branding lines"
+Assert-BaseInstructionsContract ($standardDiffCount -eq 3) "standard base must differ from Codex in exactly two branding lines plus one Tool-wire boundary line"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath ([string]$standard.source)).Hash.ToLowerInvariant() -eq [string]$standard.sha256) "standard file hash does not match contract"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath ([string]$taskspace.source)).Hash.ToLowerInvariant() -eq [string]$taskspace.sha256) "TaskSpace file hash does not match contract"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath $CoreProtocolPath).Hash.ToLowerInvariant() -eq [string]$contract.taskspace_core_protocol.sha256) "Core protocol hash does not match contract"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath $CoreProtocolPath).Hash.ToLowerInvariant() -eq (Get-FileHash -Algorithm SHA256 -LiteralPath $SelectedCoreProtocolPath).Hash.ToLowerInvariant()) "Production and selected core protocol bytes differ"
 Assert-BaseInstructionsContract (-not (($standardBase -join "`n").Contains("Codex agent foundation") -or ($standardBase -join "`n").Contains("optimized for DeepSeek"))) "standard base contains non-operational product background"
 Assert-BaseInstructionsContract (-not ($taskspaceBase.Contains("Codex agent foundation") -or $taskspaceBase.Contains("optimized for DeepSeek"))) "TaskSpace base contains non-operational product background"
+$forbiddenToolWireFragments = @('*** Begin Patch', '*** Update File:', '{"command"', '{"input"', '"arguments"')
+foreach ($fragment in $forbiddenToolWireFragments) {
+    Assert-BaseInstructionsContract (-not (($standardBase -join "`n").Contains($fragment))) "standard base embeds Tool wire syntax: $fragment"
+    Assert-BaseInstructionsContract (-not $taskspaceBase.Contains($fragment)) "TaskSpace base embeds Tool wire syntax: $fragment"
+}
 Assert-BaseInstructionsContract ($taskspaceBase.Contains("## TaskSpace work map")) "TaskSpace base lacks the integrated work-map section"
 Assert-BaseInstructionsContract (-not $taskspaceBase.Contains('`update_plan`')) "TaskSpace base still teaches the linear plan tool"
 Assert-BaseInstructionsContract (-not $modelCatalog.Contains("You are Whale, a terminal coding agent optimized for DeepSeek")) "obsolete short DeepSeek base remains in the model catalog"

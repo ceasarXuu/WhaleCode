@@ -84,11 +84,16 @@ TaskSpace 新增或改写的文字在后续章节逐字给出，不用占位符�
    和 Skill catalog。
 4. L3 Skill 正文只在加载时进入历史；L4 只在顶层 `tools` 中；L5 只出现在 Tool result 或
    当前 projection policy 规定的尾部位置。
-5. 上述区间以外的 Base 文字不随五层重构改写。现行完整中文对照见
+5. 上述区间以外的 Base 文字不因 TaskSpace 方法迁移而改写，但发现跨层合同泄漏时必须在 Standard 和
+   TaskSpace 两份 Base 中同步修正。现行完整中文对照见
    [TaskSpace Base 中文审阅稿](22-whalecode-taskspace-base-instructions.zh-CN.md)。
 
 因此，评审 L1/L2 时可以明确看到：原 Base 的通用编码能力、AGENTS、执行、验证、进度和最终
 回复规则仍在；TaskSpace 宏观模型不再在 Base 内同时承担完整操作教程。
+
+整份 WhaleCode Base 另受一条全局所有权规则约束：可以描述通用工具行为，但不得出现 JSON Tool 参数、
+provider 调用模板、patch 正文文法或其他 Tool wire 字节。这些内容只属于 L4 schema；从 Codex 默认 Base
+继承的内容不构成例外。Standard 与 TaskSpace 必须由同一合同测试检查该边界。
 
 ## 3. L1 Base Instructions 逐字选定文本
 
@@ -131,13 +136,16 @@ You decide how to decompose the task, which dependencies are meaningful, what ev
 > 任务如何拆解、哪些依赖有意义、证据是否充分以及工作何时完成，都由你决定。Runtime 维护 Map、执行机械
 > 不变量并准确报告状态变化或失败；它不替你选择计划、解释任务含义或决定下一步行动。
 
-### 3.3 L1 明确不出现的内容
+### 3.3 L1 与完整 Base 明确不出现的内容
 
 - `expected_revision`、`required_next_call` 等字段名。
 - `initialize_map`、`complete_then_continue` 等 action 枚举。
 - “线性上下文不适合复杂任务”等开发者设计动机。
 - 完整错误恢复步骤、JSON 示例和 Tool 调用模板。
 - 复杂 DAG、竞争假设、节点折叠等高级方法。
+
+其中 JSON 示例、Tool 调用模板和 patch 正文文法禁止出现在整份 WhaleCode Base；其余条目描述 TaskSpace
+专属 L1 段的边界。
 
 ## 4. L2 Core Working Protocol 逐字选定文本
 

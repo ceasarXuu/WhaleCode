@@ -6,12 +6,12 @@ use codex_protocol::protocol::MapRuntimeMode;
 use sha2::Digest;
 use sha2::Sha256;
 
-pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.1";
+pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
-    "771ddae462f1f4df770892c85a90e7d20453baac153e2ca59cc0b75edca46551";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "2.0.0";
+    "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "2.0.1";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "851e4bc36e9326b448d6d6979eef6fe71de3434f0fcb69870592cf30978be64e";
+    "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -106,6 +106,29 @@ mod tests {
             sha256(BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
             WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256
         );
+    }
+
+    #[test]
+    fn whalecode_base_prompts_do_not_embed_tool_wire_examples() {
+        const FORBIDDEN_TOOL_WIRE_FRAGMENTS: &[&str] = &[
+            "*** Begin Patch",
+            "*** Update File:",
+            "{\"command\"",
+            "{\"input\"",
+            "\"arguments\"",
+        ];
+
+        for (profile, prompt) in [
+            ("standard", BASE_INSTRUCTIONS_WHALECODE_STANDARD),
+            ("taskspace", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+        ] {
+            for fragment in FORBIDDEN_TOOL_WIRE_FRAGMENTS {
+                assert!(
+                    !prompt.contains(fragment),
+                    "{profile} Base embeds Tool wire syntax: {fragment}"
+                );
+            }
+        }
     }
 
     #[test]

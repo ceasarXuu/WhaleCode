@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.1",
+  "manifest_version": "1.0.2",
   "activation_through": "FLA-2",
   "repair_activation": ["L4", "L5-result"],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "7144c991856b47c5b29de1944bd6a90f913cc7832f909085194751fb75b10844"
+    "sha256": "1b38e4a4d46847e166d4aed259516071ec702b13935adf4baaa08ad8ead5075d"
   },
   "compatibility_policy": "none",
   "wire_order": {
