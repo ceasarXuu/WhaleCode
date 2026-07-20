@@ -6,7 +6,7 @@
   "projection_policy": "map-request",
   "product_source_commit": "6ebe2c6794d338d32f70dc6cf2d1ab60acf0fabd",
   "observer_source_commit": "30be4585e",
-  "evidence_gate_source_commit": "bbd396aa1b7b550b995ca3bc632775f6bb4f95b5",
+  "evidence_gate_source_commit": "4baec0710029187ef9a098dbf73174fefed44231",
   "binary": {
     "path": "target/r7-five-layer/fla2-current-identity-reacceptance/bin/whale",
     "sha256": "d8e20fe3eaac8b8fc25982debd09e2de17ce75d5efe2d4eb564e873876910222",

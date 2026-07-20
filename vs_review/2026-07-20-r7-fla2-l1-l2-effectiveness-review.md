@@ -695,3 +695,78 @@ result 逐项比较，并增加篡改 Standard request、TaskSpace request、con
 - Current production identity manually reconciled: yes
 - Gate raw-count reconciliation: repaired after review
 - Allowed to proceed to FLA-3: no
+
+## Round 4: Raw-Count Gate Closure
+
+### Review Input
+
+#### Objective
+
+独立判断 Round 3 的两个 gate completeness blocker 是否关闭：当前 evidence freshness gate 必须从 raw provider
+trace 和 raw TaskSpace rollout 重算关键计数，反向约束机器结果；任何关键 result count stale 都必须失败。
+
+#### Target Locations
+
+- `scripts/taskspace-benchmark/lib/r7-five-layer-evidence-freshness.ps1`
+- `scripts/taskspace-benchmark/test-r7-five-layer-evidence-freshness.ps1`
+- `scripts/taskspace-benchmark/verify-r7-five-layer-evidence-freshness.ps1`
+- `benchmarks/taskspace/r7/five-layer-fla2-blocker-repair-result.json`
+- `target/r7-five-layer/fla2-current-identity-reacceptance/evidence-freshness.json`
+- `target/r7-five-layer/fla2-current-identity-reacceptance/simple/single-file-fast-fix/20260721-040119-688/`
+- `target/r7-five-layer/fla2-current-identity-reacceptance/complex/subscription-billing-repair/20260721-040231-776/`
+
+#### Change Introduction
+
+gate 现在只把 `payload_captured` 计为 provider request，并对每个 TaskSpace side 直接解析 `rollout.jsonl` 中一次性
+记录的 task-context `function_call` / `function_call_output`。它重算 control call、V2 result、failure、preflight、
+ordinary gate、commit/state commit、initialize node-bound 和直接 lifecycle action，再与每个 result run 以及顶层
+repair acceptance 汇总逐项比较。测试新增 result request/control count 篡改负例。
+
+#### Evidence Presented For Falsification
+
+- gate 自测对完整合成 fixture 通过。
+- 修改 result Standard request、TaskSpace request、control call、control failure，或删除 ordinary gate 字段时，
+  分别产生稳定 failure code。
+- 修改 result TaskSpace Base identity 或 raw provider TaskSpace Base identity 时仍失败。
+- 当前真实 evidence gate 通过，逐 run 输出：simple `6/11 requests, 6 controls, 4 commits, 2 failures`；complex
+  `11/10 requests, 7 controls, 4 commits, 3 failures`，ordinary gate 均为 0。
+- 顶层 result 汇总为 21 TaskSpace requests、13 V2 controls、8 commits、5 failures/preflight、0 ordinary gate。
+- gate 生产实现提交为 `4baec0710029187ef9a098dbf73174fefed44231`；生产 Codex source 与 binary
+  identity 自 Round 3 未变化。
+
+#### Assumptions To Attack
+
+- rollout 的 task-context events 不会因自然历史重放重复计数；function call 与 output 的计数语义正确。
+- gate 对每个 run 的 Standard/TaskSpace request 和 control fields 都与唯一 result run 对账。
+- result 删除字段不会因 PowerShell 的 null-to-zero 转换而误通过。
+- 顶层 acceptance 汇总与 per-run raw totals 一致，不能单独 stale。
+- 测试确实覆盖 Round 3 指出的五个负例，而不是只断言任意失败。
+
+#### Reviewer Instructions
+
+- 使用全新内部 subagent session，不继承任何先前 reviewer 或主 Agent 上下文。
+- 只读审查；不得修改、创建或提交文件。
+- 直接运行自测和真实 gate，并至少自行构造一个额外 result count 篡改，证明 gate 会按预期失败。
+- 从 raw provider trace/rollout 独立抽查 simple 和 complex 计数。
+- 若 Round 3 两个 blocker 均关闭且没有新的 FLA-2 blocker，给出 `pass_reacceptance`；否则给出
+  `block_reacceptance`。
+- 输出包含 Summary、Verdict、Blocking Findings、Independent Recalculation、Negative Mutation Check、
+  Non-blocking Risks、Required Fixes、Evidence。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 15 minutes | one bounded 10-minute extension | 2 | accepted blocking finding requires fix and another fresh closure review |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Raw-count gate closure adversary (`gpt-5.5`, low) | 项目优先模型；本轮只核验机械 gate 和 raw artifact 对账 | stale count 漏检、rollout 重复计数、缺字段误通过和顶层/逐 run 不一致 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Raw-count gate closure adversary | `multi_agent_v1.spawn_agent` | pending | spawn tool call and completion notification | `fork_context=false` | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions and persuasive diff summary | yes |

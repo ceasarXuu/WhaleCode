@@ -4,7 +4,7 @@
 - 状态：`current_identity_repair_smoke_verified / pending_closure_review`
 - 当前产品源码提交：`6ebe2c679`
 - 观察器修复提交：`30be4585e`
-- 证据新鲜度 gate 提交：`bbd396aa1`
+- 证据新鲜度 gate 提交：`4baec0710`
 - 二进制 SHA256：`d8e20fe3eaac8b8fc25982debd09e2de17ce75d5efe2d4eb564e873876910222`
 - 机器结果：[`five-layer-fla2-blocker-repair-result.json`](../../../benchmarks/taskspace/r7/five-layer-fla2-blocker-repair-result.json)
 - COE：[`2026-07-20-21-24-r7-fla2-control-path-observability.md`](../../../coe/2026-07-20-21-24-r7-fla2-control-path-observability.md)
