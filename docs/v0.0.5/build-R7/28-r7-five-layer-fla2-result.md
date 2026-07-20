@@ -1,11 +1,16 @@
 # R7 五层架构 FLA-2 结果
 
 - 日期：2026-07-20
-- 状态：`active_verified`
+- 状态：`acceptance_blocked`（生产装配已激活，验收结论被 2026-07-20 对抗审查撤回）
 - 生产提交：`2ea8b4d24`
 - 候选二进制 SHA256：`90bdaba699e58b80806fb3c200c03166f668001314bb6de225be4a7da4e2586f`
 - Projection policy：`map-request`
 - 机器结果：[`five-layer-fla2-result.json`](../../../benchmarks/taskspace/r7/five-layer-fla2-result.json)
+- 阻塞调查：[`29-r7-fla2-blockers-and-control-path-investigation.md`](29-r7-fla2-blockers-and-control-path-investigation.md)
+
+> 更正：本文件最初把 FLA-2 标为 `active_verified`。后续请求级审查确认存在第三条静态 system Map handle、L2 与
+> 当前 Tool result 能力不一致，以及观测器漏报 preflight reject/真实 commit。以下运行数据继续保留，但原验收结论
+> 已撤回；在阻塞项关闭前不得将 FLA-2 作为 FLA-3 的已验证前置阶段。
 
 ## 1. 实施结果
 
@@ -77,10 +82,12 @@ TaskSpace 相对历史 TaskSpace 基线的绝对 Request 分别为 `29 vs 30`、
 初始化前触发 `no_task_path` 从 6 次变为 7 次。FLA-2 没有证明 Agent 对生命周期组合调用的遵循度提高，说明
 仅把方法从 Base 提取到 L2 并不足以解决现有 L4 调用形状问题。
 
-这不阻止 FLA-2 完成：生产 wire、语义 ownership、正确性和可观测性门禁均已通过，且 FLA-2 按计划不修改
-Tool schema。该观测应作为 FLA-4 action-local schema 重构的前置证据，不能通过 Runtime 增加语义干预来掩盖。
+这组数据不代表 FLA-2 验收通过。后续请求级调查证明生产 wire 与可观测性门禁没有完整通过；同时，当前 L2 的拒绝
+恢复说明依赖尚未实施的 L5 结果字段。详细根因和口径对账见 `29` 号调查。L4 的结构问题仍应由既定 FLA-4 处理，
+不能通过 Runtime 增加语义干预来掩盖。
 
 ## 6. 结论
 
-FLA-2 完成并可作为 FLA-3 的生产基线。确定性工程收益是 L1/L2 单一所有权、Standard 零污染、逐请求可验证，
-以及固定 system 上下文净减少约 4.6%。六组 smoke 证明正确性未回归，但不足以声明总体行为收益或统计非劣。
+FLA-2 代码已进入生产候选，六组 smoke 的任务正确性和固定成本数据仍有效；但完整 wire、L2/L5 一致性和观测门禁
+失败，因此状态为 `acceptance_blocked`，不能作为 FLA-3 的已验证基线。固定 system 上下文减少约 4.6% 只是一项
+局部成本事实，不抵消合同 blocker，也不足以声明总体行为收益或统计非劣。

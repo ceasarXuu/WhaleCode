@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "result_id": "r7-five-layer-fla2",
-  "status": "active_verified",
+  "status": "acceptance_blocked",
   "source_commit": "2ea8b4d24c027e19507a22095fe065896d89453d",
   "projection_policy": "map-request",
   "binary": {
@@ -24,6 +24,9 @@
     },
     "wire_observation": {
       "taskspace_request_count": 65,
+      "taskspace_system_message_count_per_request": 3,
+      "selected_contract_system_message_count_per_request": 2,
+      "undeclared_static_map_handle_message_count": 65,
       "taskspace_l1_exact_match_count": 65,
       "taskspace_l2_exact_match_count": 65,
       "taskspace_l2_invalid_count": 0,
@@ -153,5 +156,40 @@
     },
     "interpretation": "FLA-2 established exact L1/L2 ownership and reduced fixed context size, but this six-run smoke does not show improved lifecycle protocol adherence. L4 remains unchanged and is the next planned contract layer."
   },
-  "claim_limit": "This is a six-pair smoke comparison. It verifies production wiring and correctness and reports cost observations; it does not establish utility, causality for stochastic action-path changes, or statistical non-inferiority."
+  "adversarial_acceptance": {
+    "reviewed_at": "2026-07-20",
+    "production_activation": "active",
+    "acceptance": "blocked",
+    "blocking_findings": [
+      {
+        "id": "B1",
+        "code": "UNDECLARED_STATIC_MAP_HANDLE_SYSTEM_MESSAGE",
+        "summary": "All TaskSpace requests preserve a third static system Map handle that is absent from the selected two-system wire contract and becomes stale after initialization."
+      },
+      {
+        "id": "B2",
+        "code": "L2_RESULT_CAPABILITY_MISMATCH",
+        "summary": "The active L2 rejection-recovery protocol requires factual fields that current preflight, gate, and R6 handler result envelopes do not uniformly expose."
+      }
+    ],
+    "raw_taskspace_path_counts": {
+      "runs": 6,
+      "control_calls": 45,
+      "committed_results": 25,
+      "sequence_preflight_rejections": 11,
+      "control_handler_rejections": 7,
+      "ordinary_tool_gate_rejections": 7,
+      "raw_failure_total": 25,
+      "read_map_calls": 2
+    },
+    "observability_gaps": [
+      "control_failure_count excludes ToolSequencePreflightResultV1",
+      "state_commit_count counts an action name rather than state_commit=true results",
+      "failure-taxonomy-summary is pair-outcome taxonomy rather than raw protocol failure taxonomy",
+      "manifest identity does not assert the complete provider system-message shape"
+    ],
+    "investigation_document": "docs/v0.0.5/build-R7/29-r7-fla2-blockers-and-control-path-investigation.md",
+    "coe_case": "coe/2026-07-20-21-24-r7-fla2-control-path-observability.md"
+  },
+  "claim_limit": "This is a six-pair smoke comparison. It verifies task outcome correctness and reports cost observations, but adversarial review found that the selected production wire and observability contracts are not fully satisfied. It does not establish utility, causality for stochastic action-path changes, or statistical non-inferiority."
 }
