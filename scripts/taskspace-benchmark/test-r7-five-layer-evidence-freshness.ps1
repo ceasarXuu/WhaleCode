@@ -78,6 +78,30 @@ $responseCompleted = @{ status = "response_completed" } | ConvertTo-Json -Compre
 @(($standardTrace | ConvertTo-Json -Compress -Depth 100), $responseCompleted) | Set-Content -LiteralPath (Join-Path $pairDir "left/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
 @(($taskspaceTrace | ConvertTo-Json -Compress -Depth 100), $responseCompleted) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
 
+$controlArguments = @{ action = "initialize_map" } | ConvertTo-Json -Compress
+$controlOutput = [ordered]@{
+    schema_version = "TaskSpaceControlResultV2"; action = "initialize_map"; status = "committed"
+    success = $true; state_commit = $true; partial_commit = $false; canonical_revision = 2
+    steps = @(@{ kind = "map_initialized" }, @{ kind = "node_bound" }); error = $null
+} | ConvertTo-Json -Compress -Depth 20
+$rolloutEvents = @(
+    [ordered]@{
+        type = "event_msg"
+        payload = [ordered]@{
+            map_event_type = "task_context_event_recorded"; eventType = "function_call"
+            rawPayload = [ordered]@{ type = "function_call"; name = "taskspace_control"; call_id = "control-1"; arguments = $controlArguments }
+        }
+    },
+    [ordered]@{
+        type = "event_msg"
+        payload = [ordered]@{
+            map_event_type = "task_context_event_recorded"; eventType = "function_call_output"
+            rawPayload = [ordered]@{ type = "function_call_output"; call_id = "control-1"; output = $controlOutput }
+        }
+    }
+)
+@($rolloutEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 100 }) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") -Encoding UTF8
+
 $resultPath = Join-Path $fixtureRoot "result.json"
 $result = [ordered]@{
     binary = [ordered]@{ path = $binaryPath; sha256 = $binarySha; attested_codex_source_commit = $sourceCommit; attestation_path = $attestationPath }
@@ -87,7 +111,27 @@ $result = [ordered]@{
         taskspace_core_protocol = [ordered]@{ version = $baseContract.taskspace_core_protocol.version; sha256 = $baseContract.taskspace_core_protocol.sha256 }
         production_manifest = [ordered]@{ version = $manifest.manifest_version; sha256 = $manifestSha }
     }
-    runs = @([ordered]@{ run_root = $runDir })
+    repair_acceptance = [ordered]@{
+        b1_static_system_handle = [ordered]@{ taskspace_requests = 1 }
+        b2_result_capability_mismatch = [ordered]@{
+            control_results = 1; v2_control_results = 1; non_v2_control_results = 0
+            initialize_commits_with_node_bound = 1; rejected_results_with_state_commit_false = 0
+        }
+        h4_observability = [ordered]@{
+            control_calls = 1; control_failures = 0; preflight_failures = 0; ordinary_gate_failures = 0
+            committed_controls = 1; graph_revision_commits = 1; state_commit_count = 1
+        }
+        h6_direct_actions = [ordered]@{ nested_transition_calls = 0; direct_complete_then_continue_calls = 0; direct_complete_then_end_calls = 0 }
+        h7_binding_feedback = [ordered]@{ read_map_calls = 0; redundant_bind_calls = 0 }
+    }
+    runs = @([ordered]@{
+            run_root = $runDir
+            standard = [ordered]@{ provider_requests = 1 }
+            taskspace = [ordered]@{
+                provider_requests = 1; control_calls = 1; control_failures = 0; preflight_failures = 0
+                ordinary_gate_failures = 0; committed_controls = 1; state_commit_count = 1
+            }
+        })
 }
 Write-FixtureJson $resultPath $result
 
@@ -100,6 +144,22 @@ Write-FixtureJson $resultPath $staleResult
 $staleContract = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
 Assert-True ([string]$staleContract.status -eq "fail") "Stale result contract unexpectedly passed"
 Assert-True (@($staleContract.findings | Where-Object stable_code -eq "result_taskspace_base_identity_mismatch").Count -eq 1) "Stale result contract did not emit the stable finding"
+
+function Assert-ResultMutationFails([scriptblock]$Mutation, [string]$ExpectedCode) {
+    Write-FixtureJson $resultPath $result
+    $mutated = Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json -Depth 100
+    & $Mutation $mutated
+    Write-FixtureJson $resultPath $mutated
+    $checked = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
+    Assert-True ([string]$checked.status -eq "fail") "Mutated result unexpectedly passed for $ExpectedCode"
+    Assert-True (@($checked.findings | Where-Object stable_code -eq $ExpectedCode).Count -eq 1) "Mutation did not emit $ExpectedCode"
+}
+
+Assert-ResultMutationFails { param($value) $value.runs[0].standard.provider_requests = 2 } "result_standard_request_count_mismatch"
+Assert-ResultMutationFails { param($value) $value.runs[0].taskspace.provider_requests = 2 } "result_taskspace_request_count_mismatch"
+Assert-ResultMutationFails { param($value) $value.runs[0].taskspace.control_calls = 2 } "result_taskspace_control_calls_mismatch"
+Assert-ResultMutationFails { param($value) $value.runs[0].taskspace.control_failures = 1 } "result_taskspace_control_failures_mismatch"
+Assert-ResultMutationFails { param($value) $value.runs[0].taskspace.PSObject.Properties.Remove("ordinary_gate_failures") } "result_taskspace_ordinary_gate_failures_mismatch"
 
 Write-FixtureJson $resultPath $result
 $staleTrace = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") | Select-Object -First 1) | ConvertFrom-Json -Depth 100

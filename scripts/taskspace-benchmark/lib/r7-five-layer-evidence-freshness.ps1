@@ -71,6 +71,71 @@ function Read-R7EvidenceJsonLines {
     @($items.ToArray())
 }
 
+function Get-R7RolloutControlSummary {
+    param([string]$Path, [System.Collections.Generic.List[object]]$Findings)
+    $summary = [ordered]@{
+        control_calls = 0; v2_results = 0; control_failures = 0; preflight_failures = 0
+        ordinary_gate_failures = 0; committed_controls = 0; state_commit_count = 0
+        initialize_commits_with_node_bound = 0; rejected_without_commit = 0
+        complete_then_continue_calls = 0; complete_then_end_calls = 0
+        transition_node_calls = 0; read_map_calls = 0; bind_node_calls = 0
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Add-R7EvidenceFinding $Findings "rollout_missing" "TaskSpace rollout is missing." $Path
+        return [pscustomobject]$summary
+    }
+    $lineNumber = 0
+    foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $Path) {
+        $lineNumber++
+        if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+        try { $event = $line | ConvertFrom-Json -Depth 100 } catch {
+            Add-R7EvidenceFinding $Findings "rollout_invalid_json" "Invalid rollout JSON at line $lineNumber." $Path
+            continue
+        }
+        if ([string]$event.payload.map_event_type -ne "task_context_event_recorded") { continue }
+        $raw = $event.payload.rawPayload
+        if ([string]$event.payload.eventType -eq "function_call" -and [string]$raw.name -eq "taskspace_control") {
+            $summary.control_calls++
+            try {
+                $arguments = ([string]$raw.arguments) | ConvertFrom-Json -Depth 100
+                switch ([string]$arguments.action) {
+                    "complete_then_continue" { $summary.complete_then_continue_calls++ }
+                    "complete_then_end" { $summary.complete_then_end_calls++ }
+                    "transition_node" { $summary.transition_node_calls++ }
+                    "read_map" { $summary.read_map_calls++ }
+                    "bind_node" { $summary.bind_node_calls++ }
+                }
+            } catch {
+                Add-R7EvidenceFinding $Findings "control_arguments_invalid_json" "TaskSpace control arguments are invalid JSON at line $lineNumber." $Path
+            }
+            continue
+        }
+        if ([string]$event.payload.eventType -ne "function_call_output") { continue }
+        try { $output = ([string]$raw.output) | ConvertFrom-Json -Depth 100 } catch { continue }
+        if ([string]$output.schema_version -eq "TaskSpaceControlResultV2") {
+            $summary.v2_results++
+            if (-not [bool]$output.success) { $summary.control_failures++ }
+            if ([bool]$output.state_commit) {
+                $summary.committed_controls++
+                $summary.state_commit_count++
+            }
+            if (-not [bool]$output.success -and -not [bool]$output.state_commit) {
+                $summary.rejected_without_commit++
+            }
+            if ([string]$output.error.code -eq "TASKSPACE_REQUIRED_SIBLING_MISSING") {
+                $summary.preflight_failures++
+            }
+            if ([string]$output.action -eq "initialize_map" -and [bool]$output.success -and
+                @($output.steps | Where-Object { [string]$_.kind -eq "node_bound" }).Count -gt 0) {
+                $summary.initialize_commits_with_node_bound++
+            }
+        } elseif ([string]$output.schema_version -eq "TaskSpaceGateResultV1" -and -not [bool]$output.success) {
+            $summary.ordinary_gate_failures++
+        }
+    }
+    [pscustomobject]$summary
+}
+
 function Test-R7StandardTraceIdentity {
     param($Trace, $ExpectedBase, [string]$Path, [System.Collections.Generic.List[object]]$Findings)
     $base = $Trace.base_instructions_identity
@@ -180,6 +245,14 @@ function Test-R7FiveLayerEvidenceFreshness {
         }
     }
     $runSummaries = [System.Collections.Generic.List[object]]::new()
+    $totals = [ordered]@{
+        standard_provider_requests = 0; taskspace_provider_requests = 0
+        control_calls = 0; v2_results = 0; control_failures = 0; preflight_failures = 0
+        ordinary_gate_failures = 0; committed_controls = 0; state_commit_count = 0
+        initialize_commits_with_node_bound = 0; rejected_without_commit = 0
+        complete_then_continue_calls = 0; complete_then_end_calls = 0
+        transition_node_calls = 0; read_map_calls = 0; bind_node_calls = 0
+    }
     foreach ($runRootInput in $RunRoots) {
         $runRoot = Resolve-R7EvidencePath $repo $runRootInput
         $healthPath = Join-Path $runRoot "whale-binary-preflight-health.json"
@@ -190,6 +263,7 @@ function Test-R7FiveLayerEvidenceFreshness {
         }
         $standardRequests = 0
         $taskspaceRequests = 0
+        $control = $null
         foreach ($pairDir in @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter "pair-*" -ErrorAction SilentlyContinue)) {
             $modePath = Join-Path $pairDir.FullName "logical-mode-map.json"
             $modeMap = Read-R7EvidenceJson $modePath $findings "logical_mode_map_missing" "logical_mode_map_invalid"
@@ -214,18 +288,80 @@ function Test-R7FiveLayerEvidenceFreshness {
                     }
                 }
             }
+            $taskspaceSide = if ([string]$modeMap.left -eq "taskspace") { "left" } elseif ([string]$modeMap.right -eq "taskspace") { "right" } else { "" }
+            if (-not [string]::IsNullOrWhiteSpace($taskspaceSide)) {
+                $pairControl = Get-R7RolloutControlSummary (Join-Path $pairDir.FullName "$taskspaceSide/artifacts/rollout.jsonl") $findings
+                if ($null -eq $control) {
+                    $control = $pairControl
+                } else {
+                    foreach ($field in @($totals.Keys | Where-Object { $_ -notmatch "provider_requests" })) {
+                        $control.$field = [int]$control.$field + [int]$pairControl.$field
+                    }
+                }
+            }
         }
         if ($standardRequests -eq 0 -or $taskspaceRequests -eq 0) {
             Add-R7EvidenceFinding $findings "paired_trace_coverage_missing" "Run does not contain both Standard and TaskSpace provider traces." $runRoot
         }
-        if ($result -and @($result.runs | Where-Object { (Resolve-R7EvidencePath $repo ([string]$_.run_root)) -eq $runRoot }).Count -ne 1) {
+        if ($null -eq $control) { $control = [pscustomobject]@{} }
+        $matchingResultRuns = if ($result) { @($result.runs | Where-Object { (Resolve-R7EvidencePath $repo ([string]$_.run_root)) -eq $runRoot }) } else { @() }
+        if ($matchingResultRuns.Count -ne 1) {
             Add-R7EvidenceFinding $findings "result_run_root_mismatch" "Result does not reference this run root exactly once." $resultFullPath
+        } else {
+            $resultRun = $matchingResultRuns[0]
+            if ([int]$resultRun.standard.provider_requests -ne $standardRequests) {
+                Add-R7EvidenceFinding $findings "result_standard_request_count_mismatch" "Result Standard request count differs from raw provider trace." $resultFullPath
+            }
+            if ([int]$resultRun.taskspace.provider_requests -ne $taskspaceRequests) {
+                Add-R7EvidenceFinding $findings "result_taskspace_request_count_mismatch" "Result TaskSpace request count differs from raw provider trace." $resultFullPath
+            }
+            foreach ($field in @("control_calls", "control_failures", "preflight_failures", "ordinary_gate_failures", "committed_controls", "state_commit_count")) {
+                if ($null -eq $resultRun.taskspace.PSObject.Properties[$field] -or [int]$resultRun.taskspace.$field -ne [int]$control.$field) {
+                    Add-R7EvidenceFinding $findings "result_taskspace_${field}_mismatch" "Result TaskSpace $field differs from raw rollout." $resultFullPath
+                }
+            }
+        }
+        $totals.standard_provider_requests += $standardRequests
+        $totals.taskspace_provider_requests += $taskspaceRequests
+        foreach ($field in @($totals.Keys | Where-Object { $_ -notmatch "provider_requests" })) {
+            $totals.$field += [int]$control.$field
         }
         $runSummaries.Add([pscustomobject]@{
                 run_root = $runRootInput
                 standard_provider_requests = $standardRequests
                 taskspace_provider_requests = $taskspaceRequests
+                control = $control
             }) | Out-Null
+    }
+    if ($result) {
+        $acceptance = $result.repair_acceptance
+        $aggregateChecks = [ordered]@{
+            "b1_static_system_handle.taskspace_requests" = $totals.taskspace_provider_requests
+            "b2_result_capability_mismatch.control_results" = $totals.control_calls
+            "b2_result_capability_mismatch.v2_control_results" = $totals.v2_results
+            "b2_result_capability_mismatch.non_v2_control_results" = ($totals.control_calls - $totals.v2_results)
+            "b2_result_capability_mismatch.initialize_commits_with_node_bound" = $totals.initialize_commits_with_node_bound
+            "b2_result_capability_mismatch.rejected_results_with_state_commit_false" = $totals.rejected_without_commit
+            "h4_observability.control_calls" = $totals.control_calls
+            "h4_observability.control_failures" = $totals.control_failures
+            "h4_observability.preflight_failures" = $totals.preflight_failures
+            "h4_observability.ordinary_gate_failures" = $totals.ordinary_gate_failures
+            "h4_observability.committed_controls" = $totals.committed_controls
+            "h4_observability.graph_revision_commits" = $totals.committed_controls
+            "h4_observability.state_commit_count" = $totals.state_commit_count
+            "h6_direct_actions.nested_transition_calls" = $totals.transition_node_calls
+            "h6_direct_actions.direct_complete_then_continue_calls" = $totals.complete_then_continue_calls
+            "h6_direct_actions.direct_complete_then_end_calls" = $totals.complete_then_end_calls
+            "h7_binding_feedback.read_map_calls" = $totals.read_map_calls
+            "h7_binding_feedback.redundant_bind_calls" = $totals.bind_node_calls
+        }
+        foreach ($path in $aggregateChecks.Keys) {
+            $segments = $path -split "\."
+            $actual = $acceptance.($segments[0]).($segments[1])
+            if ($null -eq $actual -or [int]$actual -ne [int]$aggregateChecks[$path]) {
+                Add-R7EvidenceFinding $findings "result_aggregate_count_mismatch" "Result aggregate $path differs from raw evidence." $resultFullPath
+            }
+        }
     }
     [pscustomobject]@{
         schema_version = "r7-five-layer-evidence-freshness-v1"

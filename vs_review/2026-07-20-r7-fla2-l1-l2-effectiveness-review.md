@@ -555,3 +555,143 @@ production owner -> contract hash -> provider trace -> result 事实链没有闭
 - Round 1 B1/B2 closure for the tested binary: independently confirmed
 - Current-source FLA-2 reacceptance: blocked on evidence freshness only
 - Allowed to proceed to FLA-3: no
+
+## Round 3: Current-Identity Evidence Closure
+
+### Review Input
+
+#### Objective
+
+独立判断 Round 2 唯一接受的 blocker，即“当前 production identity 没有被正式 smoke 证据验证”，是否已关闭。
+只有当前源码、attested binary、机器结果、run health 和 raw provider trace 形成可独立重算的一致事实链时，才能给出
+`pass_reacceptance`。
+
+#### Review Target
+
+- 当前 production identity：Standard Base `1.0.2`、TaskSpace Base `2.0.1`、L2 `taskspace-core-v2.1`、
+  manifest `1.0.2`。
+- 当前候选二进制 SHA `d8e20fe3eaac8b8fc25982debd09e2de17ce75d5efe2d4eb564e873876910222` 与
+  attested Codex source commit `6ebe2c6794d338d32f70dc6cf2d1ab60acf0fabd`。
+- 新 simple/complex Docker paired smoke、机器结果和 evidence freshness gate 是否相互独立且完整对账。
+- gate 是否可能只比较同源声明而循环自证、错误审计 `response_completed`、漏掉 Standard 污染或漏掉某个 pair/run。
+
+#### Target Locations
+
+- `benchmarks/taskspace/r7/base-instructions-contract.json`
+- `benchmarks/taskspace/r7/five-layer-fla2-blocker-repair-result.json`
+- `third_party/codex-cli/codex-rs/core/src/context/base_instructions_profile.rs`
+- `third_party/codex-cli/codex-rs/core/src/context/taskspace_contract.rs`
+- `third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json`
+- `scripts/taskspace-benchmark/lib/r7-five-layer-evidence-freshness.ps1`
+- `scripts/taskspace-benchmark/verify-r7-five-layer-evidence-freshness.ps1`
+- `scripts/taskspace-benchmark/test-r7-five-layer-evidence-freshness.ps1`
+- `docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md`
+- `target/r7-five-layer/fla2-current-identity-reacceptance/bin/whale.build-attestation.json`
+- `target/r7-five-layer/fla2-current-identity-reacceptance/evidence-freshness.json`
+- `target/r7-five-layer/fla2-current-identity-reacceptance/simple/single-file-fast-fix/20260721-040119-688/`
+- `target/r7-five-layer/fla2-current-identity-reacceptance/complex/subscription-billing-repair/20260721-040231-776/`
+
+#### Evidence Presented For Falsification
+
+- 两组 pair 的四侧 public/hidden validator 均通过，run validity 均为 valid；重复数为 1，因此仅为 closure smoke。
+- raw provider trace 声明 Standard 6+11=17 个 payload、TaskSpace 11+10=21 个 payload。
+- 21 个 TaskSpace payload 声明两条 system、一个 user-tail Map handle，并匹配当前 Base/L2/manifest identity；17 个
+  Standard payload 声明当前 Standard Base 且 TaskSpace identity/handle 为零。
+- raw rollout/observer 声明 13 个 V2 control result、8 commit、5 preflight reject、0 ordinary gate failure。
+- freshness gate 报告 `status=pass`、`findings=[]`；旧证据在同一 gate 下失败。
+- simple 为 Standard/TaskSpace 6/11 requests；complex 为 11/10 requests；不据此声明统计性能收益。
+- H-003 仍 open：simple 2 次、complex 3 次 missing-sibling preflight reject。
+
+#### Assumptions To Attack
+
+- binary attestation 的 source commit、binary SHA 和 run health 确实对应运行时使用的同一二进制。
+- gate 从 current source artifact、attestation、result 和 raw trace 独立取值，而不是由 result 单向喂给所有 expected。
+- `payload_captured` 过滤准确，不会把 response event 当请求，也不会漏掉失败请求。
+- 17/21 请求数、13/8/5 control 数和每个样本指标可从 raw artifact 重算。
+- current production source 在 smoke 后没有再次变化，且机器结果引用的是正确 run root。
+- H-003 作为后续 L4 carrier 能力缺口保留，不会被本轮错误隐藏，也不必被误升为 FLA-2 L1/L2 blocker。
+
+#### Reviewer Instructions
+
+- 使用全新内部 subagent session；不继承主 Agent 对话、推理、草稿或结论。
+- 只读审查，不修改、创建或提交文件。
+- 直接从 git、binary attestation、run health、raw provider trace 和 raw rollout 独立重算，不接受文档表格作为唯一证据。
+- 若 gate 能在任一关键 identity、run coverage 或 raw count stale 时错误通过，视为 blocking。
+- 不把单次样本的成本波动、H-003 或后续 phase 未实现自动升级为本 identity closure blocker。
+- 明确给出 `pass_reacceptance` 或 `block_reacceptance`，并包含 Summary、Verdict、Blocking Findings、
+  Non-blocking Risks、Independent Recalculation、Gate Validity、Required Fixes、Missing Tests、Evidence。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 15 minutes | one bounded 10-minute extension | 2 | accepted blocking finding requires fix and another fresh closure review |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Current-identity closure adversary (`gpt-5.5`, low) | 延续项目的 GPT-5.5 low 优先策略；本轮范围已收敛为可机械复核的证据闭环 | identity freshness、gate 自证风险、raw trace 对账与阶段声明边界 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Current-identity closure adversary | `multi_agent_v1.spawn_agent` | `019f8126-764d-7602-8cc9-8f0ff5499cc5` (`Poincare`) | spawn tool call and completion notification | `fork_context=false` | Round 3 Review Input | main-agent history, reasoning, drafts, conclusions and persuasive diff summary | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| `round3-poincare` | Current-identity closure adversary | 1 | `019f8126-764d-7602-8cc9-8f0ff5499cc5` | about 2 minutes | completed | reviewer completed inside initial timeout | completed |
+
+### Reviewer Outputs
+
+#### `round3-poincare`
+
+##### Summary And Verdict
+
+**Verdict：`block_reacceptance`。** current identity 的人工对账成立：binary SHA、attested Codex source commit、当前
+production contract identities、run binary health 和 raw provider trace 均匹配 Standard `1.0.2`、TaskSpace
+`2.0.1`、L2 `taskspace-core-v2.1`、manifest `1.0.2`。但 freshness gate 只重算并输出 raw request 数，没有
+反向断言机器结果中的 per-run request/control 计数，篡改这些数值仍可通过。
+
+##### Blocking Findings
+
+1. gate 没有比较 raw provider request count 与 `result.runs[].standard/taskspace.provider_requests`。
+2. gate 没有从 raw rollout 对账并比较 `control_calls`、`control_failures`、`ordinary_gate_failures`，最好同时覆盖
+   commit/state-commit 等仍用于 closure 的声明。
+
+##### Independent Recalculation
+
+- binary SHA：`d8e20fe3...`；attested/current Codex source：`6ebe2c679...`。
+- manifest SHA：`c887160...`。
+- raw provider payload：simple Standard/TaskSpace `6/11`，complex `11/10`；response completed 数一一对应。
+- raw control：simple `6 calls / 4 commits / 2 preflight / 0 ordinary gate`；complex
+  `7 calls / 4 commits / 3 preflight / 0 ordinary gate`。
+- Standard 无 TaskSpace identity/handle；TaskSpace 的 Base、L2、manifest、两条 system 和 user-tail handle 均正确。
+
+##### Gate Validity And Required Fixes
+
+gate 的核心 identity 比较不是循环自证，它分别读取 current source contract、manifest hash、binary hash、git source
+commit、attestation、run health 和 raw trace。但 raw count freshness 不完整。必须将 raw request/control 重算值与
+result 逐项比较，并增加篡改 Standard request、TaskSpace request、control call/failure 和 ordinary gate 的负向测试。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Poincare | raw provider request 数没有反查机器结果 | blocking | accept | 旧 gate 只把 6/11、11/10 写入 output，修改 result 数值不会失败 | 增加 per-run Standard/TaskSpace request equality gate | 负向篡改测试和 fresh closure review |
+| Poincare | raw rollout control 数没有反查机器结果 | blocking | accept | 旧 gate 不解析 rollout V2/Gate output | 直接解析 task-context function call/output；对账 V2、failure、preflight、ordinary gate、commit/state commit 和 action counts | 负向篡改测试和 fresh closure review |
+| Poincare | attestation HEAD 早于当前 repo HEAD | non-blocking | accept classification | `third_party/codex-cli` 最新提交与 attested source 都是 `6ebe2c679`，差异仅来自 gate/docs/result 提交 | 不重建产品二进制 | 继续由 source path commit gate 约束 |
+| Poincare | H-003 仍为 2+3 | non-blocking for FLA-2 | accept classification | factual feedback 与自主纠正已验证 | 保持 open，不改 Runtime | 后续独立 L4 carrier 实验 |
+
+### Round 3 Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: implementation and negative tests completed locally; pending committed evidence and fresh review
+- Blocking re-review passed: no
+- Reviewer remained read-only: yes
+- Current production identity manually reconciled: yes
+- Gate raw-count reconciliation: repaired after review
+- Allowed to proceed to FLA-3: no
