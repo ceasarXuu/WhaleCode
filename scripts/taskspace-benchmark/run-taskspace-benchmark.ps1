@@ -8,6 +8,8 @@ param(
     [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120, [int]$ValidationTestTimeoutSeconds = 420,
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AdditionalConfigOverride = "",
+    [ValidateSet("map-always", "map-append", "map-request")]
+    [string]$TaskSpaceProjectionPolicy = "map-request",
     [ValidateSet("deferred_materialization_allowed", "hard_sandbox_only")]
     [string]$OracleIsolationPolicy = "deferred_materialization_allowed",
     [string]$AuditReviewRoot = "",
@@ -134,6 +136,7 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     approval_marker_sha256 = $ApprovalMarkerSha256
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
     run_side = $RunSide
+    taskspace_projection_policy = $TaskSpaceProjectionPolicy
 } | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
@@ -482,7 +485,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             Write-Text $stdinPath $sidePrompt
             $executionRepoDir = [string]$containerContract.paths.workspace
             $containerLastMessagePath = Join-Path ([string]$containerContract.paths.artifacts) "last-message.md"
-            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $effectiveConfigOverrides
+            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $effectiveConfigOverrides $TaskSpaceProjectionPolicy
             $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
             $childEnvironment = @{
                 WHALE_PROVIDER_WIRE_TRACE_PATH = "/artifacts/provider-wire-trace.jsonl"

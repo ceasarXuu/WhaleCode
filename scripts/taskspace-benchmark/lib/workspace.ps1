@@ -379,11 +379,18 @@ function New-TaskspaceWhaleArgv {
         [Parameter(Mandatory = $true)][string]$Model,
         [Parameter(Mandatory = $true)][string]$RepoDir,
         [Parameter(Mandatory = $true)][string]$LastMessagePath,
-        [string[]]$ConfigOverrides = @()
+        [string[]]$ConfigOverrides = @(),
+        [ValidateSet("map-always", "map-append", "map-request")]
+        [string]$TaskSpaceProjectionPolicy = "map-request"
     )
+    $projectionOverrides = @($ConfigOverrides | Where-Object { ([string]$_).Trim() -match '^taskspace_projection_policy\s*=' })
+    if ($projectionOverrides.Count -gt 0) {
+        throw "Use -TaskSpaceProjectionPolicy instead of a generic taskspace_projection_policy config override."
+    }
+    $effectiveConfigOverrides = @($ConfigOverrides) + @("taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`"")
     $args = @("exec", "--json")
     if ($LogicalMode -eq "taskspace") { $args += "--taskspace" }
-    foreach ($override in @($ConfigOverrides)) { $args += @("-c", $override) }
+    foreach ($override in $effectiveConfigOverrides) { $args += @("-c", $override) }
     $args += @("-m", $Model, "-C", $RepoDir)
     $args += "--dangerously-bypass-approvals-and-sandbox"
     $args += @("--output-last-message", $LastMessagePath, "-")

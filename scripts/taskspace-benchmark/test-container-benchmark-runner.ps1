@@ -12,6 +12,22 @@ $identity = New-TaskspaceContainerIdentity 'selftest' 'benchmark-runner' 'pair-0
 
 $bypassArgv = New-TaskspaceWhaleArgv 'standard' 'model-x' '/workspace' '/artifacts/last-message.md'
 Assert-TaskspaceDockerWhaleArgv $bypassArgv
+if ($bypassArgv -notcontains 'taskspace_projection_policy="map-request"') {
+    throw 'Container benchmark argv must carry the default TaskSpace projection policy.'
+}
+$appendArgv = New-TaskspaceWhaleArgv 'taskspace' 'model-x' '/workspace' '/artifacts/last-message.md' @() 'map-append'
+if ($appendArgv -notcontains 'taskspace_projection_policy="map-append"') {
+    throw 'Container benchmark argv did not preserve the selected TaskSpace projection policy.'
+}
+$duplicateProjectionRejected = $false
+try {
+    New-TaskspaceWhaleArgv 'taskspace' 'model-x' '/workspace' '/artifacts/last-message.md' @('taskspace_projection_policy="map-always"') | Out-Null
+} catch {
+    $duplicateProjectionRejected = $true
+}
+if (-not $duplicateProjectionRejected) {
+    throw 'Container benchmark argv accepted a generic projection-policy override.'
+}
 $nestedSandboxRejected = $false
 try {
     $nestedArgv = @($bypassArgv | Where-Object { $_ -ne '--dangerously-bypass-approvals-and-sandbox' }) + @('--full-auto')
