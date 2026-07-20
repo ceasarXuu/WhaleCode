@@ -198,10 +198,11 @@ function Test-R7FiveLayerEvidenceFreshness {
                 $mode = [string]$modeMap.$side
                 $tracePath = Join-Path $pairDir.FullName "$side/artifacts/provider-wire-trace.jsonl"
                 $traces = @(Read-R7EvidenceJsonLines $tracePath $findings)
-                if ($traces.Count -eq 0) {
+                $payloadTraces = @($traces | Where-Object { [string]$_.status -eq "payload_captured" })
+                if ($payloadTraces.Count -eq 0) {
                     Add-R7EvidenceFinding $findings "provider_trace_empty" "Provider trace contains no captured requests." $tracePath
                 }
-                foreach ($trace in $traces) {
+                foreach ($trace in $payloadTraces) {
                     if ($mode -eq "standard") {
                         $standardRequests++
                         Test-R7StandardTraceIdentity $trace $baseContract.profiles.standard $tracePath $findings
