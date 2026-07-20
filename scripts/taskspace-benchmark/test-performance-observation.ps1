@@ -153,9 +153,12 @@ function New-SideFixture {
                         type = "function_call"; name = "taskspace_control"; call_id = "init-control"
                         arguments = ([ordered]@{
                                 action = "initialize_map"
-                                initial_nodes = @([ordered]@{ node_id = "node-1"; kind = "inspect_code_context"; goal = "Inspect" })
-                                current_node_id = "node-1"
-                                continuation = "next_tool"
+                                root = [ordered]@{ node_id = "root"; goal = "Solve" }
+                                initial_work_node = [ordered]@{ node_id = "node-1"; goal = "Inspect" }
+                                finish_identity = [ordered]@{ id = "finish" }
+                                additional_work_nodes = @()
+                                edges = @([ordered]@{ from = "root"; to = "node-1" }, [ordered]@{ from = "node-1"; to = "finish" })
+                                required_next_call = "ordinary_tool"
                             } | ConvertTo-Json -Compress -Depth 10)
                     }
                 } },
@@ -168,10 +171,13 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call_output"; call_id = "init-control"
                     output = (@{
-                            schema_version = "TaskSpaceControlResultR6V1"; status = "committed"; success = $true
+                            schema_version = "TaskSpaceControlResultV2"; action = "initialize_map"; status = "committed"; success = $true
                             state_commit = $true; committed_revision = 2
                             delta = @{ map_id = "map-1"; committed_revision = 2; graph_event_refs = @(@{ revision = 1 }, @{ revision = 1 }, @{ revision = 2 }); node_detail_event_refs = @() }
-                            steps = @(@{ kind = "map_initialized"; map_id = "map-1"; revision = 2 })
+                            steps = @(
+                                @{ kind = "map_initialized"; map_id = "map-1"; revision = 2 },
+                                @{ kind = "node_bound"; map_id = "map-1"; node_id = "node-1"; status = "running"; revision = 2 }
+                            )
                         } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{
@@ -379,7 +385,7 @@ Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -an
 Assert-True (@($report.rows | Where-Object {
             $_.logical_mode -eq "taskspace" -and
             $_.duplication.cross_carrier_lineage.control_success_count -eq 2 -and
-            $_.duplication.cross_carrier_lineage.control_identity_step_count -eq 2 -and
+            $_.duplication.cross_carrier_lineage.control_identity_step_count -eq 3 -and
             $_.duplication.cross_carrier_lineage.control_identity_missing_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.control_continuation_action_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.control_delta_present_count -eq 2 -and
@@ -390,8 +396,8 @@ Assert-True (@($report.rows | Where-Object {
             $_.duplication.cross_carrier_lineage.control_output_init_node_id_echo_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.control_output_finished_node_id_echo_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.control_output_next_node_echo_count -eq 0 -and
-            $_.duplication.cross_carrier_lineage.control_output_current_node_echo_count -eq 0
-        }).Count -eq 2) "R6 control identity coverage was not measured"
+            $_.duplication.cross_carrier_lineage.control_output_current_node_echo_count -eq 1
+        }).Count -eq 2) "R6/V2 control identity coverage was not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.stale_blank_developer_marker_count -eq 1 -and $_.duplication.cross_carrier_lineage.stale_mode_developer_marker_count -eq 1 }).Count -eq 2) "stale developer marker counts were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout_storage.snapshot_updated_line_count -eq 1 -and $_.duplication.rollout_storage.snapshot_updated_payload_bytes -gt 0 -and $_.duplication.rollout_storage.snapshot_updated_payload_ratio -gt 0 }).Count -eq 2) "rollout storage snapshot byte ratio was not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout_storage.snapshot_delta_line_count -eq 1 -and $_.duplication.rollout_storage.snapshot_delta_payload_bytes -gt 0 -and $_.duplication.rollout_storage.internal_replay_payload_bytes -gt $_.duplication.rollout_storage.snapshot_updated_payload_bytes }).Count -eq 2) "rollout storage delta and aggregate replay bytes were not measured"

@@ -187,7 +187,8 @@ function Get-PerformanceCrossCarrierLineage {
             $output = Get-PerformanceProperty $payload "output"
             try {
                 $outputObject = if ($output -is [string]) { $output | ConvertFrom-Json } else { $output }
-                $isControlResult = [string](Get-PerformanceProperty $outputObject "schema_version") -eq "TaskSpaceControlResultR6V1"
+                $schemaVersion = [string](Get-PerformanceProperty $outputObject "schema_version")
+                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultR6V1", "TaskSpaceControlResultV2")
                 if ($isControlResult -and [bool](Get-PerformanceProperty $outputObject "success" $false)) { $controlSuccess++ }
                 if ($isControlResult) {
                     $delta = Get-PerformanceProperty $outputObject "delta"
@@ -212,6 +213,13 @@ function Get-PerformanceCrossCarrierLineage {
                     $next = Get-PerformanceProperty $step "next"
                     $nextNodeId = [string](Get-PerformanceProperty $next "node_id")
                     $currentNodeId = [string](Get-PerformanceProperty $step "current_node_id")
+                    if ($kind -eq "complete_then_continue") {
+                        if ([string]::IsNullOrWhiteSpace($finishedNodeId)) { $finishedNodeId = $currentNodeId }
+                        if ([string]::IsNullOrWhiteSpace($nextNodeId)) { $nextNodeId = [string](Get-PerformanceProperty $step "next_node_id") }
+                    }
+                    if ($kind -eq "node_bound" -and [string]::IsNullOrWhiteSpace($currentNodeId)) {
+                        $currentNodeId = [string](Get-PerformanceProperty $step "node_id")
+                    }
                     if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $finishedNodeId) { $finishedNodeEcho++ }
                     if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $nextNodeId) { $nextNodeEcho++ }
                     if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $currentNodeId) { $currentNodeEcho++ }
@@ -221,7 +229,11 @@ function Get-PerformanceCrossCarrierLineage {
                         }
                         if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $currentNodeId) { $initCurrentEcho++ }
                     }
-                    if ($isControlResult -and $kind -in @("map_initialized", "graph_mutation", "node_transition", "terminal_transition", "node_detail_expanded") -and
+                    if ($isControlResult -and $kind -in @(
+                            "map_initialized", "graph_mutation", "node_transition", "terminal_transition", "node_detail_expanded",
+                            "node_bound", "node_blocked", "node_unblocked", "node_reworked",
+                            "complete_then_continue", "finish_end", "complete_then_end"
+                        ) -and
                         -not ([bool](Get-PerformanceProperty $step "success" $true) -eq $false)) {
                         $identitySteps++
                         $complete = if ($kind -eq "map_initialized") {
@@ -232,6 +244,10 @@ function Get-PerformanceCrossCarrierLineage {
                             -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "node_id")) -and $null -ne (Get-PerformanceProperty $step "revision") -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "status"))
                         } elseif ($kind -eq "node_detail_expanded") {
                             -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "node_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "expansion_event_id"))
+                        } elseif ($kind -in @("node_bound", "node_blocked", "node_unblocked", "node_reworked")) {
+                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "node_id")) -and $null -ne (Get-PerformanceProperty $step "revision") -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "status"))
+                        } elseif ($kind -eq "complete_then_continue") {
+                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "current_node_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "next_node_id")) -and $null -ne (Get-PerformanceProperty $step "revision")
                         } else {
                             -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and $null -ne (Get-PerformanceProperty $step "revision") -and [bool](Get-PerformanceProperty $step "finish_closed" $false) -and [bool](Get-PerformanceProperty $step "root_closed" $false)
                         }
