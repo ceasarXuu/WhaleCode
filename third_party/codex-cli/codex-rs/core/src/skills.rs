@@ -180,16 +180,16 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
     turn_context: &TurnContext,
     command: &str,
     workdir: &AbsolutePathBuf,
-) {
+) -> Option<SkillMetadata> {
     let Some(candidate) = detect_implicit_skill_invocation_for_command(
         turn_context.turn_skills.outcome.as_ref(),
         command,
         workdir,
     ) else {
-        return;
+        return None;
     };
     let invocation = SkillInvocation {
-        skill_name: candidate.name,
+        skill_name: candidate.name.clone(),
         skill_scope: candidate.scope,
         skill_path: candidate.path_to_skills_md.to_path_buf(),
         invocation_type: InvocationType::Implicit,
@@ -212,7 +212,7 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
         seen_skills.insert(seen_key)
     };
     if !inserted {
-        return;
+        return Some(candidate);
     }
 
     turn_context.session_telemetry.counter(
@@ -234,4 +234,5 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
             ),
             vec![invocation],
         );
+    Some(candidate)
 }

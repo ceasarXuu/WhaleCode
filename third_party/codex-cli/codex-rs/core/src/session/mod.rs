@@ -3568,6 +3568,7 @@ impl Session {
             base_instructions,
             session_source,
             map_runtime_mode,
+            taskspace_skill_snapshot,
         ) = {
             let state = self.state.lock().await;
             let map_runtime_mode = state.action_map_runtime.mode();
@@ -3578,6 +3579,7 @@ impl Session {
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
                 map_runtime_mode,
+                state.session_configuration.taskspace_skill_snapshot.clone(),
             )
         };
         if let Some(core_protocol) = crate::context::taskspace_core_protocol(map_runtime_mode) {
@@ -3685,6 +3687,16 @@ impl Session {
             );
             if let Some(available_skills) = available_skills {
                 let warning_message = available_skills.warning_message.clone();
+                if let Some(identity) = taskspace_skill_snapshot.as_ref() {
+                    let rendered_catalog =
+                        AvailableSkillsInstructions::from(available_skills.clone()).render();
+                    crate::taskspace_skill::log_catalog_render(
+                        identity,
+                        &turn_context.turn_skills.outcome,
+                        Some(&available_skills),
+                        Some(&rendered_catalog),
+                    );
+                }
                 let skills_instructions = AvailableSkillsInstructions::from(available_skills);
                 if let Some(warning_message) = warning_message {
                     self.send_event_raw(Event {
@@ -3696,7 +3708,21 @@ impl Session {
                     .await;
                 }
                 developer_sections.push(skills_instructions.render());
+            } else if let Some(identity) = taskspace_skill_snapshot.as_ref() {
+                crate::taskspace_skill::log_catalog_render(
+                    identity,
+                    &turn_context.turn_skills.outcome,
+                    None,
+                    None,
+                );
             }
+        } else if let Some(identity) = taskspace_skill_snapshot.as_ref() {
+            crate::taskspace_skill::log_catalog_render(
+                identity,
+                &turn_context.turn_skills.outcome,
+                None,
+                None,
+            );
         }
         let loaded_plugins = self
             .services

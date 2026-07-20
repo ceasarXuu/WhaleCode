@@ -8,11 +8,155 @@ use codex_protocol::protocol::SkillScope;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity;
 use codex_utils_absolute_path::AbsolutePathBuf;
+use sha2::Digest;
+use sha2::Sha256;
 
 use crate::SkillLoadOutcome;
+use crate::SkillMetadata;
 use crate::skills::TASKSPACE_ADVANCED_SKILL_NAME;
 use crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION;
 use crate::skills::create_taskspace_advanced_snapshot;
+
+pub(crate) struct TaskSpaceSkillFailureFact {
+    pub(crate) status: &'static str,
+    pub(crate) reason_code: &'static str,
+    pub(crate) text: String,
+}
+
+struct TaskSpaceSkillCatalogObservation {
+    status: &'static str,
+    reason_code: &'static str,
+    original_description_bytes: usize,
+    rendered_skill_bytes: usize,
+    rendered_catalog_bytes: usize,
+    catalog_sha256: String,
+}
+
+pub(crate) fn explicit_load_failure_fact(
+    name: &str,
+    path: &str,
+    expected_sha256: &str,
+    error: &str,
+) -> TaskSpaceSkillFailureFact {
+    if !Path::new(path).is_file() {
+        return TaskSpaceSkillFailureFact {
+            status: "snapshot_missing",
+            reason_code: "TASKSPACE_SKILL_SNAPSHOT_MISSING",
+            text: format!(
+                "TaskSpace skill snapshot unavailable: name={name} version={TASKSPACE_ADVANCED_SKILL_VERSION} sha256={expected_sha256} path={path}"
+            ),
+        };
+    }
+
+    TaskSpaceSkillFailureFact {
+        status: "integrity_failed",
+        reason_code: "TASKSPACE_SKILL_SNAPSHOT_INTEGRITY_FAILED",
+        text: format!(
+            "TaskSpace skill snapshot integrity check failed: name={name} version={TASKSPACE_ADVANCED_SKILL_VERSION} sha256={expected_sha256} path={path} error={error}"
+        ),
+    }
+}
+
+pub(crate) fn log_catalog_render(
+    identity: &TaskSpaceSkillSnapshotIdentity,
+    outcome: &SkillLoadOutcome,
+    available: Option<&codex_core_skills::AvailableSkills>,
+    rendered_catalog: Option<&str>,
+) {
+    let observation = catalog_render_observation(outcome, available, rendered_catalog);
+    tracing::info!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace.skill_catalog_rendered",
+        load_trigger = "catalog",
+        carrier = "catalog",
+        name = identity.name,
+        skill_version = identity.skill_version,
+        body_sha256 = identity.body_sha256,
+        immutable_snapshot_path = %identity.immutable_snapshot_path.display(),
+        body_bytes = std::fs::metadata(&identity.immutable_snapshot_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0),
+        original_description_bytes = observation.original_description_bytes,
+        rendered_skill_bytes = observation.rendered_skill_bytes,
+        rendered_catalog_bytes = observation.rendered_catalog_bytes,
+        catalog_sha256 = observation.catalog_sha256,
+        skill_load_status = observation.status,
+        reason_code = observation.reason_code,
+        "rendered TaskSpace advanced skill catalog metadata"
+    );
+}
+
+fn catalog_render_observation(
+    outcome: &SkillLoadOutcome,
+    available: Option<&codex_core_skills::AvailableSkills>,
+    rendered_catalog: Option<&str>,
+) -> TaskSpaceSkillCatalogObservation {
+    let selected = outcome.skills.iter().find(|skill| {
+        skill.name == TASKSPACE_ADVANCED_SKILL_NAME && skill.scope == SkillScope::System
+    });
+    let line_prefix = format!("- {TASKSPACE_ADVANCED_SKILL_NAME}:");
+    let rendered_line = available.and_then(|available| {
+        available
+            .skill_lines
+            .iter()
+            .find(|line| line.starts_with(&line_prefix))
+    });
+    let (status, reason_code) = match (selected, rendered_line) {
+        (_, None) => ("catalog_not_visible", "metadata_budget"),
+        (Some(skill), Some(line)) if !line.contains(&format!(": {} (file:", skill.description)) => {
+            ("description_truncated", "metadata_budget")
+        }
+        _ => ("loaded", ""),
+    };
+    let original_description_bytes = selected.map_or(0, |skill| skill.description.len());
+    let rendered_skill_bytes = rendered_line.map_or(0, String::len);
+    let rendered_catalog_bytes = rendered_catalog.map_or(0, str::len);
+    let catalog_sha256 = rendered_catalog
+        .map(|catalog| format!("{:x}", Sha256::digest(catalog.as_bytes())))
+        .unwrap_or_default();
+
+    TaskSpaceSkillCatalogObservation {
+        status,
+        reason_code,
+        original_description_bytes,
+        rendered_skill_bytes,
+        rendered_catalog_bytes,
+        catalog_sha256,
+    }
+}
+
+pub(crate) fn log_agent_file_read(
+    outcome: &SkillLoadOutcome,
+    skill: &SkillMetadata,
+    success: bool,
+    response_bytes: usize,
+) {
+    if skill.name != TASKSPACE_ADVANCED_SKILL_NAME {
+        return;
+    }
+    let Some(body_sha256) = outcome.expected_body_sha256(skill) else {
+        return;
+    };
+    let status = if success { "loaded" } else { "load_failed" };
+    let reason_code = if success { "" } else { "TOOL_EXIT_NONZERO" };
+    tracing::info!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace.skill_load_completed",
+        load_trigger = "agent_selection",
+        carrier = "agent_file_read",
+        name = skill.name,
+        skill_version = TASKSPACE_ADVANCED_SKILL_VERSION,
+        body_sha256,
+        immutable_snapshot_path = %skill.path_to_skills_md.display(),
+        body_bytes = std::fs::metadata(skill.path_to_skills_md.as_path())
+            .map(|metadata| metadata.len())
+            .unwrap_or(0),
+        response_bytes,
+        skill_load_status = status,
+        reason_code,
+        "Agent read TaskSpace advanced skill through an ordinary file tool"
+    );
+}
 
 pub(crate) fn resolve_session_snapshot(
     policy: Option<TaskSpaceProjectionPolicy>,
@@ -163,244 +307,5 @@ fn validate_identity(identity: &TaskSpaceSkillSnapshotIdentity) -> Result<Absolu
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::SkillMetadata;
-    use codex_protocol::ThreadId;
-    use codex_protocol::protocol::ResumedHistory;
-    use codex_protocol::protocol::RolloutItem;
-    use codex_protocol::protocol::SessionMeta;
-    use codex_protocol::protocol::SessionMetaLine;
-    use sha2::Digest;
-    use std::fs;
-    use tempfile::tempdir;
-
-    fn identity_at(path: &Path, sha256: &str) -> TaskSpaceSkillSnapshotIdentity {
-        TaskSpaceSkillSnapshotIdentity {
-            name: TASKSPACE_ADVANCED_SKILL_NAME.to_string(),
-            skill_version: TASKSPACE_ADVANCED_SKILL_VERSION.to_string(),
-            body_sha256: sha256.to_string(),
-            immutable_snapshot_path: path
-                .join("skills/.system/.snapshots")
-                .join(sha256)
-                .join(TASKSPACE_ADVANCED_SKILL_NAME)
-                .join("SKILL.md"),
-        }
-    }
-
-    fn history_with_identity(
-        identity: TaskSpaceSkillSnapshotIdentity,
-        forked: bool,
-    ) -> InitialHistory {
-        let item = RolloutItem::SessionMeta(SessionMetaLine {
-            meta: SessionMeta {
-                id: ThreadId::new(),
-                taskspace_skill_snapshot: Some(identity),
-                ..Default::default()
-            },
-            git: None,
-        });
-        if forked {
-            InitialHistory::Forked(vec![item])
-        } else {
-            InitialHistory::Resumed(ResumedHistory {
-                conversation_id: ThreadId::new(),
-                history: vec![item],
-                rollout_path: None,
-            })
-        }
-    }
-
-    fn bundled_skill(path: AbsolutePathBuf, scope: SkillScope) -> SkillMetadata {
-        SkillMetadata {
-            name: TASKSPACE_ADVANCED_SKILL_NAME.to_string(),
-            description: "advanced TaskSpace guidance".to_string(),
-            short_description: None,
-            interface: None,
-            dependencies: None,
-            policy: None,
-            path_to_skills_md: path,
-            scope,
-        }
-    }
-
-    #[test]
-    fn new_taskspace_session_creates_exact_content_addressed_snapshot() {
-        let temp = tempdir().expect("temp dir");
-        let codex_home = AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf())
-            .expect("absolute temp path");
-
-        let identity = resolve_session_snapshot(
-            Some(TaskSpaceProjectionPolicy::MapRequest),
-            &InitialHistory::New,
-            &codex_home,
-        )
-        .expect("resolve snapshot")
-        .expect("TaskSpace snapshot identity");
-
-        assert!(identity.immutable_snapshot_path.is_file());
-        let body = fs::read(&identity.immutable_snapshot_path).expect("read snapshot");
-        assert_eq!(
-            format!("{:x}", sha2::Sha256::digest(body)),
-            identity.body_sha256
-        );
-    }
-
-    #[test]
-    fn standard_session_has_no_snapshot_or_catalog_entry() {
-        let temp = tempdir().expect("temp dir");
-        let codex_home = AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf())
-            .expect("absolute temp path");
-        assert_eq!(
-            resolve_session_snapshot(None, &InitialHistory::New, &codex_home)
-                .expect("resolve Standard snapshot"),
-            None
-        );
-        assert!(!temp.path().join("skills/.system/.snapshots").exists());
-
-        let source = AbsolutePathBuf::from_absolute_path(
-            temp.path()
-                .join("skills/.system/taskspace-advanced/SKILL.md"),
-        )
-        .expect("absolute source path");
-        let mut outcome = SkillLoadOutcome::default();
-        outcome
-            .skills
-            .push(bundled_skill(source, SkillScope::System));
-        bind_catalog_snapshot(&mut outcome, None).expect("bind Standard catalog");
-        assert!(
-            outcome
-                .skills
-                .iter()
-                .all(|skill| skill.name != TASKSPACE_ADVANCED_SKILL_NAME)
-        );
-    }
-
-    #[test]
-    fn resume_and_fork_restore_the_persisted_identity_without_materializing_latest() {
-        let temp = tempdir().expect("temp dir");
-        let codex_home = AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf())
-            .expect("absolute temp path");
-        let persisted = identity_at(temp.path(), &"a".repeat(64));
-
-        for history in [
-            history_with_identity(persisted.clone(), false),
-            history_with_identity(persisted.clone(), true),
-        ] {
-            assert_eq!(
-                resolve_session_snapshot(
-                    Some(TaskSpaceProjectionPolicy::MapAlways),
-                    &history,
-                    &codex_home,
-                )
-                .expect("restore snapshot"),
-                Some(persisted.clone())
-            );
-        }
-        assert!(!persisted.immutable_snapshot_path.exists());
-    }
-
-    #[test]
-    fn resumed_taskspace_session_without_identity_is_rejected() {
-        let temp = tempdir().expect("temp dir");
-        let codex_home = AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf())
-            .expect("absolute temp path");
-        let history = InitialHistory::Forked(vec![RolloutItem::SessionMeta(SessionMetaLine {
-            meta: SessionMeta {
-                id: ThreadId::new(),
-                ..Default::default()
-            },
-            git: None,
-        })]);
-
-        let error = resolve_session_snapshot(
-            Some(TaskSpaceProjectionPolicy::MapAppend),
-            &history,
-            &codex_home,
-        )
-        .expect_err("missing identity must fail");
-        assert!(error.to_string().contains("does not migrate pre-FLA-3"));
-    }
-
-    #[test]
-    fn catalog_binding_uses_missing_persisted_snapshot_without_latest_fallback() {
-        let temp = tempdir().expect("temp dir");
-        let source = AbsolutePathBuf::from_absolute_path(
-            temp.path()
-                .join("skills/.system/taskspace-advanced/SKILL.md"),
-        )
-        .expect("absolute source path");
-        let identity = identity_at(temp.path(), &"a".repeat(64));
-        let snapshot =
-            AbsolutePathBuf::from_absolute_path(identity.immutable_snapshot_path.clone())
-                .expect("absolute snapshot path");
-        let mut outcome = SkillLoadOutcome::default();
-        outcome
-            .skills
-            .push(bundled_skill(source.clone(), SkillScope::System));
-
-        bind_catalog_snapshot(&mut outcome, Some(&identity)).expect("bind snapshot");
-        assert_eq!(outcome.skills[0].path_to_skills_md, snapshot);
-        assert_eq!(
-            outcome.expected_body_sha256(&outcome.skills[0]),
-            Some(identity.body_sha256.as_str())
-        );
-        assert!(!outcome.skills[0].path_to_skills_md.exists());
-        assert!(
-            outcome
-                .skills
-                .iter()
-                .all(|skill| skill.path_to_skills_md != source)
-        );
-    }
-
-    #[test]
-    fn reserved_name_conflict_is_rejected_and_removed() {
-        let temp = tempdir().expect("temp dir");
-        let source = AbsolutePathBuf::from_absolute_path(
-            temp.path()
-                .join("skills/.system/taskspace-advanced/SKILL.md"),
-        )
-        .expect("absolute source path");
-        let conflict = AbsolutePathBuf::from_absolute_path(
-            temp.path().join("repo-skill/taskspace-advanced/SKILL.md"),
-        )
-        .expect("absolute conflict path");
-        let identity = identity_at(temp.path(), &"a".repeat(64));
-        let mut outcome = SkillLoadOutcome::default();
-        outcome
-            .skills
-            .push(bundled_skill(source, SkillScope::System));
-        outcome
-            .skills
-            .push(bundled_skill(conflict, SkillScope::Repo));
-
-        let error = bind_catalog_snapshot(&mut outcome, Some(&identity))
-            .expect_err("reserved name conflict must fail");
-        assert!(error.to_string().contains("reserved TaskSpace skill name"));
-        assert!(
-            outcome
-                .skills
-                .iter()
-                .all(|skill| skill.name != TASKSPACE_ADVANCED_SKILL_NAME)
-        );
-    }
-
-    #[test]
-    fn persisted_identity_requires_content_addressed_snapshot_suffix() {
-        let identity = TaskSpaceSkillSnapshotIdentity {
-            name: TASKSPACE_ADVANCED_SKILL_NAME.to_string(),
-            skill_version: TASKSPACE_ADVANCED_SKILL_VERSION.to_string(),
-            body_sha256: "a".repeat(64),
-            immutable_snapshot_path: Path::new("/tmp/.snapshots")
-                .join("a".repeat(64))
-                .join(TASKSPACE_ADVANCED_SKILL_NAME)
-                .join("SKILL.md"),
-        };
-        assert!(validate_identity(&identity).is_ok());
-
-        let mut mismatched = identity;
-        mismatched.body_sha256 = "b".repeat(64);
-        assert!(validate_identity(&mismatched).is_err());
-    }
-}
+#[path = "taskspace_skill_tests.rs"]
+mod tests;

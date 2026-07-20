@@ -328,33 +328,12 @@ pub(crate) async fn run_turn(
         else {
             continue;
         };
-        let snapshot_missing = !std::path::Path::new(&failure.path).is_file();
-        let (status, reason_code, text) = if snapshot_missing {
-            (
-                "snapshot_missing",
-                "TASKSPACE_SKILL_SNAPSHOT_MISSING",
-                format!(
-                    "TaskSpace skill snapshot unavailable: name={} version={} sha256={} path={}",
-                    failure.name,
-                    crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
-                    body_sha256,
-                    failure.path
-                ),
-            )
-        } else {
-            (
-                "integrity_failed",
-                "TASKSPACE_SKILL_SNAPSHOT_INTEGRITY_FAILED",
-                format!(
-                    "TaskSpace skill snapshot integrity check failed: name={} version={} sha256={} path={} error={}",
-                    failure.name,
-                    crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
-                    body_sha256,
-                    failure.path,
-                    failure.message
-                ),
-            )
-        };
+        let fact = crate::taskspace_skill::explicit_load_failure_fact(
+            &failure.name,
+            &failure.path,
+            body_sha256,
+            &failure.message,
+        );
         tracing::info!(
             target: "codex_core::taskspace",
             event_name = "taskspace.skill_load_completed",
@@ -365,14 +344,14 @@ pub(crate) async fn run_turn(
             body_sha256,
             immutable_snapshot_path = failure.path,
             body_bytes = 0,
-            skill_load_status = status,
-            reason_code,
+            skill_load_status = fact.status,
+            reason_code = fact.reason_code,
             "TaskSpace advanced skill load failed"
         );
         taskspace_skill_failure_items.push(ResponseItem::Message {
             id: None,
             role: "user".to_string(),
-            content: vec![ContentItem::InputText { text }],
+            content: vec![ContentItem::InputText { text: fact.text }],
             end_turn: None,
             phase: None,
         });
