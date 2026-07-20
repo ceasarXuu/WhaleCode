@@ -18,11 +18,15 @@ use tracing::warn;
 use crate::context::TASKSPACE_CONTRACT_MANIFEST_ID;
 use crate::context::TASKSPACE_CONTRACT_MANIFEST_SHA256;
 use crate::context::TASKSPACE_CONTRACT_MANIFEST_VERSION;
+use crate::context::TASKSPACE_CORE_PROTOCOL;
+use crate::context::TASKSPACE_CORE_PROTOCOL_SHA256;
+use crate::context::TASKSPACE_CORE_PROTOCOL_VERSION;
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256;
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION;
 use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256;
 use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION;
 use crate::context::taskspace_contract_manifest_matches;
+use crate::context::taskspace_core_protocol_matches;
 
 #[path = "provider_wire_sections.rs"]
 mod provider_wire_sections;
@@ -85,6 +89,7 @@ struct WireShapeEvent<'a> {
     message_shapes: &'a [WireMessageShape],
     base_instructions_identity: BaseInstructionsWireIdentity,
     taskspace_contract_manifest_identity: TaskspaceContractManifestWireIdentity,
+    taskspace_core_protocol_identity: TaskspaceCoreProtocolWireIdentity,
     previous_request_id: Option<&'a str>,
     lcp_message_count: usize,
     lcp_message_bytes: usize,
@@ -115,6 +120,20 @@ struct BaseInstructionsWireIdentity {
 struct TaskspaceContractManifestWireIdentity {
     count: usize,
     contract_id: Option<&'static str>,
+    version: Option<&'static str>,
+    sha256: Option<&'static str>,
+    matches_current_contract: bool,
+    unavailable_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct TaskspaceCoreProtocolWireIdentity {
+    count: usize,
+    message_index: Option<usize>,
+    wire_role: Option<String>,
+    section_order: Option<usize>,
+    bytes: Option<usize>,
+    estimated_tokens: Option<usize>,
     version: Option<&'static str>,
     sha256: Option<&'static str>,
     matches_current_contract: bool,
@@ -219,6 +238,8 @@ impl ProviderWireTrace {
         let base_instructions_identity = base_instructions_identity(&messages);
         let taskspace_contract_manifest_identity =
             taskspace_contract_manifest_identity(&base_instructions_identity);
+        let taskspace_core_protocol_identity =
+            taskspace_core_protocol_identity(&messages, &base_instructions_identity);
         let event = WireShapeEvent {
             schema_version: "provider-chat-wire-trace-v6",
             event_name,
@@ -240,6 +261,7 @@ impl ProviderWireTrace {
             message_shapes: &message_shapes,
             base_instructions_identity,
             taskspace_contract_manifest_identity,
+            taskspace_core_protocol_identity,
             previous_request_id,
             lcp_message_count: comparison
                 .as_ref()
@@ -411,6 +433,90 @@ fn taskspace_contract_manifest_identity(
         } else {
             "taskspace_base_identity_unavailable"
         }),
+    }
+}
+
+fn taskspace_core_protocol_identity(
+    messages: &[Value],
+    base_identity: &BaseInstructionsWireIdentity,
+) -> TaskspaceCoreProtocolWireIdentity {
+    let mut matches = Vec::new();
+    for (message_index, message) in messages.iter().enumerate() {
+        let Some(role @ ("developer" | "system")) = message.get("role").and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let mut strings = Vec::new();
+        collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
+        for text in strings {
+            for _ in 0..text.matches(TASKSPACE_CORE_PROTOCOL).count() {
+                matches.push((
+                    message_index,
+                    role,
+                    text.starts_with(TASKSPACE_CORE_PROTOCOL),
+                ));
+            }
+        }
+    }
+
+    if matches.is_empty() && base_identity.profile == Some("standard") {
+        return unavailable_taskspace_core_protocol_identity(0, "taskspace_profile_not_active");
+    }
+    if matches.len() != 1 {
+        return unavailable_taskspace_core_protocol_identity(
+            matches.len(),
+            if matches.is_empty() {
+                "taskspace_core_protocol_missing"
+            } else {
+                "taskspace_core_protocol_count_invalid"
+            },
+        );
+    }
+    if base_identity.profile != Some("taskspace") || !base_identity.matches_current_contract {
+        return unavailable_taskspace_core_protocol_identity(
+            1,
+            "taskspace_base_identity_unavailable",
+        );
+    }
+
+    let (message_index, wire_role, is_first_section) = matches[0];
+    let expected_message_index = base_identity.message_index.map(|index| index + 1);
+    if Some(message_index) != expected_message_index || !is_first_section {
+        return unavailable_taskspace_core_protocol_identity(
+            1,
+            "taskspace_core_protocol_position_invalid",
+        );
+    }
+
+    TaskspaceCoreProtocolWireIdentity {
+        count: 1,
+        message_index: Some(message_index),
+        wire_role: Some(wire_role.to_string()),
+        section_order: Some(0),
+        bytes: Some(TASKSPACE_CORE_PROTOCOL.len()),
+        estimated_tokens: Some(TASKSPACE_CORE_PROTOCOL.len().div_ceil(4)),
+        version: Some(TASKSPACE_CORE_PROTOCOL_VERSION),
+        sha256: Some(TASKSPACE_CORE_PROTOCOL_SHA256),
+        matches_current_contract: taskspace_core_protocol_matches(),
+        unavailable_reason: None,
+    }
+}
+
+fn unavailable_taskspace_core_protocol_identity(
+    count: usize,
+    reason: &'static str,
+) -> TaskspaceCoreProtocolWireIdentity {
+    TaskspaceCoreProtocolWireIdentity {
+        count,
+        message_index: None,
+        wire_role: None,
+        section_order: None,
+        bytes: None,
+        estimated_tokens: None,
+        version: None,
+        sha256: None,
+        matches_current_contract: false,
+        unavailable_reason: Some(reason),
     }
 }
 
@@ -618,6 +724,66 @@ mod tests {
         assert_eq!(identity.count, 0);
         assert_eq!(identity.contract_id, None);
         assert!(!identity.matches_current_contract);
+        assert_eq!(
+            identity.unavailable_reason,
+            Some("taskspace_profile_not_active")
+        );
+    }
+
+    #[test]
+    fn taskspace_core_protocol_is_the_second_system_message_first_section() {
+        let messages = vec![
+            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            message(
+                "system",
+                &format!("{TASKSPACE_CORE_PROTOCOL}\n<permissions>stable</permissions>"),
+            ),
+            message("user", "task"),
+        ];
+        let base_identity = base_instructions_identity(&messages);
+
+        let identity = taskspace_core_protocol_identity(&messages, &base_identity);
+
+        assert_eq!(identity.count, 1);
+        assert_eq!(identity.message_index, Some(1));
+        assert_eq!(identity.wire_role.as_deref(), Some("system"));
+        assert_eq!(identity.section_order, Some(0));
+        assert_eq!(identity.version, Some(TASKSPACE_CORE_PROTOCOL_VERSION));
+        assert_eq!(identity.sha256, Some(TASKSPACE_CORE_PROTOCOL_SHA256));
+        assert!(identity.matches_current_contract);
+        assert_eq!(identity.unavailable_reason, None);
+    }
+
+    #[test]
+    fn duplicate_taskspace_core_protocol_is_invalid() {
+        let messages = vec![
+            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            message("system", TASKSPACE_CORE_PROTOCOL),
+            message("system", TASKSPACE_CORE_PROTOCOL),
+        ];
+        let base_identity = base_instructions_identity(&messages);
+
+        let identity = taskspace_core_protocol_identity(&messages, &base_identity);
+
+        assert_eq!(identity.count, 2);
+        assert!(!identity.matches_current_contract);
+        assert_eq!(
+            identity.unavailable_reason,
+            Some("taskspace_core_protocol_count_invalid")
+        );
+    }
+
+    #[test]
+    fn standard_wire_has_no_taskspace_core_protocol() {
+        let messages = vec![
+            message("system", BASE_INSTRUCTIONS_WHALECODE_STANDARD),
+            message("system", "permissions"),
+        ];
+        let base_identity = base_instructions_identity(&messages);
+
+        let identity = taskspace_core_protocol_identity(&messages, &base_identity);
+
+        assert_eq!(identity.count, 0);
         assert_eq!(
             identity.unavailable_reason,
             Some("taskspace_profile_not_active")

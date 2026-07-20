@@ -2446,6 +2446,50 @@ async fn runtime_mode_selects_the_matching_complete_base_instructions() {
 }
 
 #[tokio::test]
+async fn taskspace_core_protocol_is_first_in_the_stable_developer_bundle() {
+    let (standard_session, standard_context) = make_session_and_context().await;
+    let standard_initial = standard_session
+        .build_initial_context(&standard_context)
+        .await;
+    assert!(
+        developer_input_texts(&standard_initial)
+            .iter()
+            .all(|text| !text.contains("<taskspace_core_protocol"))
+    );
+
+    let (taskspace_session, taskspace_context) = make_session_and_context().await;
+    {
+        let mut state = taskspace_session.state.lock().await;
+        state.action_map_runtime.set_mode_for_session(
+            MapRuntimeMode::Experiment,
+            taskspace_session.conversation_id,
+        );
+    }
+    let taskspace_initial = taskspace_session
+        .build_initial_context(&taskspace_context)
+        .await;
+    let developer_texts = developer_input_texts(&taskspace_initial);
+
+    assert_eq!(
+        developer_texts.first().copied(),
+        Some(crate::context::TASKSPACE_CORE_PROTOCOL)
+    );
+    assert_eq!(
+        developer_texts
+            .iter()
+            .filter(|text| text.contains("<taskspace_core_protocol"))
+            .count(),
+        1
+    );
+    assert!(
+        developer_texts
+            .iter()
+            .skip(1)
+            .all(|text| !text.contains("<taskspace_core_protocol"))
+    );
+}
+
+#[tokio::test]
 async fn recompute_token_usage_updates_model_context_window() {
     let (session, mut turn_context) = make_session_and_context().await;
 

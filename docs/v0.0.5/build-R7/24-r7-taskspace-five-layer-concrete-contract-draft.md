@@ -2,10 +2,10 @@
 
 - Created: 2026-07-20
 - Document Version: 0.4
-- Status: Frozen product content - production implementation pending
+- Status: L1/L2 production active; L3-L5 target content frozen and pending
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
-- Implementation Status: 现行 R7 基线已存在；本文件所示五层目标尚未实施
+- Implementation Status: FLA-0 至 FLA-2 已实施并验证；FLA-3 至 FLA-8 尚未实施
 - Authority: [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 与
   [`five-layer-contract-authority-v1.json`](../../../benchmarks/taskspace/r7/five-layer-contract-authority-v1.json)
 
@@ -856,6 +856,6 @@ Agent 使用旧 revision 3 调用 `complete_then_continue`，但 canonical revis
 
 ## 13. 落地方式
 
-L1-L5 已选内容和哈希记录在 authority manifest，但当前均未接入生产。实施按 `25` 号规格的 FLA-0 至 FLA-8
+L1-L5 已选内容和哈希记录在 authority manifest；L1/L2 已接入生产，L3-L5 仍待后续阶段实施。实施按 `25` 号规格的 FLA-0 至 FLA-8
 逐阶段进行；每层的英文文本和 schema 进入对应版本化生产 artifact，本 Markdown 不作为 Runtime 读取源。
 任何一层发生实质改写，都要先更新权威 artifact 与 hash，再作为独立变量测试，不能一次性整体替换。

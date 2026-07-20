@@ -3554,11 +3554,12 @@ impl Session {
             collaboration_mode,
             base_instructions,
             session_source,
+            map_runtime_mode,
             taskspace_map_handle,
         ) = {
             let state = self.state.lock().await;
-            let taskspace_map_handle = (state.action_map_runtime.mode()
-                == MapRuntimeMode::Experiment
+            let map_runtime_mode = state.action_map_runtime.mode();
+            let taskspace_map_handle = (map_runtime_mode == MapRuntimeMode::Experiment
                 && state.session_configuration.taskspace_projection_policy
                     == Some(TaskSpaceProjectionPolicy::MapRequest))
             .then(|| state.action_map_runtime.build_map_handle_context())
@@ -3569,9 +3570,13 @@ impl Session {
                 state.session_configuration.collaboration_mode.clone(),
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
+                map_runtime_mode,
                 taskspace_map_handle,
             )
         };
+        if let Some(core_protocol) = crate::context::taskspace_core_protocol(map_runtime_mode) {
+            developer_sections.push(core_protocol.to_string());
+        }
         if let Some(model_switch_message) =
             crate::context_manager::updates::build_model_instructions_update_item(
                 previous_turn_settings.as_ref(),

@@ -2,7 +2,7 @@
 
 - Created: 2026-07-20
 - Version: 0.2
-- Status: Frozen implementation baseline - production implementation pending
+- Status: Production active and verified through FLA-2; FLA-3 through FLA-8 pending
 - Scope: FLA-0 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -33,8 +33,8 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 
 | 层 | 当前生产基线 | 已选目标 | 当前状态 |
 |---|---|---|---|
-| L1 | TaskSpace Base v1.0.1 内含宏观与具体方法 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `selected_not_implemented` |
-| L2 | 旧独立协议实验已退出生产装配 | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `selected_not_implemented` |
+| L1 | TaskSpace Base v2.0.0 仅保留宏观 Map 工作模型 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
+| L2 | `taskspace-core-v2` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | 无 `taskspace-advanced` 内置 Skill | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `selected_not_implemented` |
 | L4 | 单个 `taskspace_control`，`transition_node + transition` | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)；仍为单 Tool | `selected_not_implemented` |
 | L5 Result | `TaskSpaceControlResultR6V1`，整数 `partial_commit` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `selected_not_implemented` |

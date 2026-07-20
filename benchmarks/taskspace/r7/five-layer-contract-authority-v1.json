@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "status": "frozen_design_target_not_implemented",
+  "status": "production_active_through_fla2",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "authority_order": [
@@ -15,17 +15,17 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "881187b9f5b9d9e787d5601f645e9d994054052b2172b3539fd2588d32765724",
+      "sha256": "fefcd8f01f70bb5c8576c132d0b8bf735da29a02dd73b725b2531facd1454436",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "d8d2966c9fda4de6054aef872f9e3e262207988ab6f28206dc74c91ba916795b",
+      "sha256": "663e2e2e449a0f50919c0a4c47c4ae0ff94db6cf0e5a3d1d80fb8f577f1e0476",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "a135bc271191cb1039dd9cfe5560838f4b57af729501d286883130abd56b6b93",
+      "sha256": "0ea939927d282d45a07f1cae8ce98e49db19f1de11d6ec1a62fdb2bfbe071fde",
       "role": "layer responsibilities, ownership and architectural boundaries"
     }
   ],
@@ -61,7 +61,7 @@
   "selected_targets": [
     {
       "layer": "L1",
-      "status": "selected",
+      "status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md",
       "sha256": "0f92283e162a2c4cc2021ac8a89be458a37616b3ff82b3876807918a02cb89fd",
@@ -69,7 +69,7 @@
     },
     {
       "layer": "L2",
-      "status": "selected",
+      "status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
       "sha256": "02d8849e94b8ac15466a33d92ab17813c9cbe9c81fba2c7811fd98ea55ee8f24",

@@ -30,6 +30,8 @@ use serde_json::json;
 
 const FINAL_SUMMARY: &str = "Exact Agent terminal summary.";
 const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without complete_then_end.";
+const TASKSPACE_CORE_PROTOCOL: &str =
+    include_str!("../../src/context/prompts/taskspace_core_protocol_v2.md");
 
 fn initialize_arguments() -> String {
     json!({
@@ -148,6 +150,20 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
             body["instructions"].as_str(),
             Some(codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
             "TaskSpace request must carry the complete TaskSpace base instructions"
+        );
+        let developer_texts = request.message_input_texts("developer");
+        assert_eq!(
+            developer_texts.first().map(String::as_str),
+            Some(TASKSPACE_CORE_PROTOCOL),
+            "TaskSpace core protocol must be the first stable developer section"
+        );
+        assert_eq!(
+            developer_texts
+                .iter()
+                .filter(|text| text.contains("<taskspace_core_protocol"))
+                .count(),
+            1,
+            "TaskSpace core protocol must appear exactly once"
         );
         let tool_choice = body["tool_choice"].clone();
         let tool_names = body["tools"]

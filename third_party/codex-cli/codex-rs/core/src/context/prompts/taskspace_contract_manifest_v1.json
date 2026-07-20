@@ -2,11 +2,11 @@
   "schema_version": 1,
   "contract_id": "r7-taskspace-five-layer-production-v1",
   "manifest_version": "1.0.0",
-  "activation_through": "FLA-1",
+  "activation_through": "FLA-2",
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "86ca78cb55ad2c2874eb42454ee23d69c7a937f2e74563a015cc9897cf840211"
+    "sha256": "67b88fd513f5b1a95f9604191dd00d733b5c7b6573e60da0a68b93b440874b20"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -24,7 +24,7 @@
       "id": "L1",
       "owner": "base_instructions_profile",
       "carrier": "first_system_message",
-      "status": "selected_not_active",
+      "status": "active",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md",
@@ -37,7 +37,7 @@
       "id": "L2",
       "owner": "taskspace_contract",
       "carrier": "stable_developer_bundle_first_section",
-      "status": "selected_not_active",
+      "status": "active",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",

@@ -9,6 +9,8 @@
 > [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 的 FLA-0 至 FLA-8 另行实施。涉及 L1-L5 的
 > 目标合同、生产入口和验收以 `25` 号规格及 authority manifest 为准；本计划中的 Phase E-H 继续描述 R7
 > projection 主线，不可替代五层专项的完成证据。
+> 截至 2026-07-20，五层专项 FLA-0、FLA-1 已完成，FLA-2 的 L1/L2 生产装配和合同测试已通过；
+> 阶段 smoke 与结果证据见后续 FLA-2 结果文档。
 
 ## 1.1 元数据
 
