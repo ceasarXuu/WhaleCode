@@ -97,7 +97,7 @@ $expectedMatrix = @{
         explicit_read = "return_as_shared_tool_result"
     }
     "map-request" = @{
-        provider_request = "no_direct_emission"
+        provider_request = "current_non_persistent_map_handle_only"
         explicit_read = "return_as_shared_tool_result"
     }
 }

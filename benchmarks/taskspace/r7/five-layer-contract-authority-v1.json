@@ -55,7 +55,7 @@
     },
     "projection_contract": {
       "path": "benchmarks/taskspace/r7/projection-policy-contract.json",
-      "sha256": "ef17861d478fc919439188c7f93b0e942945f99221bb990274d15047f068554e"
+      "sha256": "4185308aa9f157ff0fb0381c628a7cb63ab78861d55bc928f0827f57b497c0e3"
     }
   },
   "selected_targets": [
@@ -119,7 +119,7 @@
       "status": "selected_existing",
       "activation_phase": "already_active; FLA-7 adds lifecycle conformance only",
       "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
-      "sha256": "ef17861d478fc919439188c7f93b0e942945f99221bb990274d15047f068554e"
+      "sha256": "4185308aa9f157ff0fb0381c628a7cb63ab78861d55bc928f0827f57b497c0e3"
     },
     {
       "layer": "L5-lifecycle",

@@ -6,7 +6,7 @@ use codex_protocol::protocol::MapRuntimeMode;
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_ID: &str = "r7-taskspace-five-layer-production-v1";
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_VERSION: &str = "1.0.0";
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_SHA256: &str =
-    "e51612bb651f54483a6b90580556ee567aab1d564e532bb289a0cdb67c43750d";
+    "9186c2e7edf65068c8d8d563e98d4794b8e9b550db6a486aca496997ad295e16";
 
 const TASKSPACE_CONTRACT_MANIFEST: &str =
     include_str!("prompts/taskspace_contract_manifest_v1.json");

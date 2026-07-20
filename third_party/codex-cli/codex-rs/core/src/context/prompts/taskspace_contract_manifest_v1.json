@@ -6,7 +6,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "67b88fd513f5b1a95f9604191dd00d733b5c7b6573e60da0a68b93b440874b20"
+    "sha256": "eab26da85559c5d2ef1ddee8d722229f312041ebfc360fa7a3f6ea25be5121c8"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -85,7 +85,7 @@
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
-          "sha256": "ef17861d478fc919439188c7f93b0e942945f99221bb990274d15047f068554e",
+          "sha256": "4185308aa9f157ff0fb0381c628a7cb63ab78861d55bc928f0827f57b497c0e3",
           "activation_phase": "already_active; FLA-7 adds lifecycle conformance only"
         },
         {

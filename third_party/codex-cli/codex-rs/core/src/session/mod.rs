@@ -3555,15 +3555,9 @@ impl Session {
             base_instructions,
             session_source,
             map_runtime_mode,
-            taskspace_map_handle,
         ) = {
             let state = self.state.lock().await;
             let map_runtime_mode = state.action_map_runtime.mode();
-            let taskspace_map_handle = (map_runtime_mode == MapRuntimeMode::Experiment
-                && state.session_configuration.taskspace_projection_policy
-                    == Some(TaskSpaceProjectionPolicy::MapRequest))
-            .then(|| state.action_map_runtime.build_map_handle_context())
-            .flatten();
             (
                 state.reference_context_item(),
                 state.previous_turn_settings(),
@@ -3571,7 +3565,6 @@ impl Session {
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
                 map_runtime_mode,
-                taskspace_map_handle,
             )
         };
         if let Some(core_protocol) = crate::context::taskspace_core_protocol(map_runtime_mode) {
@@ -3708,11 +3701,6 @@ impl Session {
             )
         {
             developer_sections.push(commit_message_instruction);
-        }
-        // TaskSpace context changes frequently. Keep it in a separate developer
-        // item so legacy TaskSpace filtering cannot drop stable developer text.
-        if let Some(taskspace_map_handle) = taskspace_map_handle {
-            taskspace_developer_sections.push(taskspace_map_handle);
         }
         if let Some(action_map_transition_notice) = action_map_transition_notice {
             taskspace_developer_sections.push(action_map_transition_notice);
@@ -4022,7 +4010,7 @@ impl Session {
         turn_context: &TurnContext,
         mut items: Vec<ResponseItem>,
     ) -> PreparedProviderPromptItems {
-        let (policy, projection_item, projection_trace_events) = {
+        let (policy, projection_item, map_handle_item, projection_trace_events) = {
             let mut state = self.state.lock().await;
             if state.action_map_runtime.mode() != MapRuntimeMode::Experiment {
                 return PreparedProviderPromptItems {
@@ -4073,6 +4061,12 @@ impl Session {
                     unreachable!("provider request cannot select a non-provider emission")
                 }
             };
+            let map_handle_item = (policy == TaskSpaceProjectionPolicy::MapRequest)
+                .then(|| state.action_map_runtime.build_map_handle_context())
+                .flatten()
+                .and_then(|handle| {
+                    crate::context_manager::updates::build_contextual_user_message(vec![handle])
+                });
             tracing::debug!(
                 target: "codex_core::taskspace",
                 event_name = "taskspace.projection_emission_decided",
@@ -4085,7 +4079,7 @@ impl Session {
             let events = state
                 .action_map_runtime
                 .take_pending_projection_trace_events();
-            (policy, projection_item, events)
+            (policy, projection_item, map_handle_item, events)
         };
         if !projection_trace_events.is_empty() {
             self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
@@ -4131,6 +4125,20 @@ impl Session {
             }
             TaskSpaceProjectionPolicy::MapRequest => {
                 debug_assert!(projection_item.is_none());
+                items = remove_taskspace_map_handle_items(items);
+                if let Some(map_handle_item) = map_handle_item {
+                    let handle = taskspace_map_handle_context(Some(&map_handle_item))
+                        .expect("map-request handle item must contain a handle");
+                    tracing::info!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.map_handle_request_tail_emitted",
+                        carrier_role = "user",
+                        persistent = false,
+                        bytes = handle.len(),
+                        "emitted current non-persistent TaskSpace Map handle at provider request tail"
+                    );
+                    items.push(map_handle_item);
+                }
             }
         }
         let projection_identity = match policy {
@@ -4792,6 +4800,13 @@ fn remove_taskspace_projection_items(items: Vec<ResponseItem>) -> Vec<ResponseIt
         .collect()
 }
 
+fn remove_taskspace_map_handle_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    items
+        .into_iter()
+        .filter(|item| taskspace_map_handle_context(Some(item)).is_none())
+        .collect()
+}
+
 fn latest_taskspace_projection_context(items: &[ResponseItem]) -> Option<&str> {
     items
         .iter()
@@ -4809,6 +4824,23 @@ fn taskspace_projection_context(item: Option<&ResponseItem>) -> Option<&str> {
     content.iter().rev().find_map(|entry| match entry {
         ContentItem::InputText { text } | ContentItem::OutputText { text }
             if text.contains("TaskSpaceMapProjectionR7V1:") =>
+        {
+            Some(text.as_str())
+        }
+        _ => None,
+    })
+}
+
+fn taskspace_map_handle_context(item: Option<&ResponseItem>) -> Option<&str> {
+    let ResponseItem::Message { role, content, .. } = item? else {
+        return None;
+    };
+    if !matches!(role.as_str(), "developer" | "system" | "user") {
+        return None;
+    }
+    content.iter().rev().find_map(|entry| match entry {
+        ContentItem::InputText { text } | ContentItem::OutputText { text }
+            if text.contains("TaskSpaceMapHandleR7V1:") =>
         {
             Some(text.as_str())
         }

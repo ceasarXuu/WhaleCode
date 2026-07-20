@@ -1378,7 +1378,7 @@ async fn provider_map_append_persists_bootstrap_at_request_tail() {
 }
 
 #[tokio::test]
-async fn provider_map_request_exposes_only_initial_handle_until_explicit_read() {
+async fn provider_map_request_exposes_current_request_tail_handle_until_explicit_read() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1392,20 +1392,25 @@ async fn provider_map_request_exposes_only_initial_handle_until_explicit_read() 
 
     let initial_context = session.build_initial_context(&turn_context).await;
     let initial_text = developer_input_texts(&initial_context).join("\n");
-    assert!(initial_text.contains("TaskSpaceMapHandleR7V1:"));
-    assert!(initial_text.contains("- taskspace_active: true"));
-    assert!(initial_text.contains("- map_id: none"));
-    assert!(initial_text.contains("- revision: none"));
-    assert!(initial_text.contains("- bootstrap_required: true"));
-    assert!(initial_text.contains("- available_read_action: taskspace_control.read_map"));
+    assert!(!initial_text.contains("TaskSpaceMapHandleR7V1:"));
     assert!(!initial_text.contains("TaskSpaceMapProjectionR7V1:"));
-    assert!(!initial_text.contains("map_nodes"));
-    assert!(!initial_text.contains("map_edges"));
-    assert!(!initial_text.contains("active_frontier"));
 
     let provider = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
         .await;
+    let handle = taskspace_map_handle_context(provider.items.last())
+        .expect("provider request must end with the current map handle");
+    assert!(
+        matches!(provider.items.last(), Some(ResponseItem::Message { role, .. }) if role == "user")
+    );
+    assert!(handle.contains("- taskspace_active: true"));
+    assert!(handle.contains("- map_id: none"));
+    assert!(handle.contains("- revision: none"));
+    assert!(handle.contains("- bootstrap_required: true"));
+    assert!(handle.contains("- available_read_action: taskspace_control.read_map"));
+    assert!(!handle.contains("map_nodes"));
+    assert!(!handle.contains("map_edges"));
+    assert!(!handle.contains("active_frontier"));
     assert!(
         provider
             .items
@@ -1460,13 +1465,76 @@ async fn map_request_read_returns_shared_current_projection_without_auto_injecti
     }
 
     let initial_context = session.build_initial_context(&turn_context).await;
-    let handle = developer_input_texts(&initial_context).join("\n");
+    assert!(
+        developer_input_texts(&initial_context)
+            .iter()
+            .all(|text| !text.contains("TaskSpaceMapHandleR7V1:"))
+    );
+    let first_provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
+        .await;
+    let handle = taskspace_map_handle_context(first_provider.items.last())
+        .expect("provider request must end with a current map handle");
     assert!(handle.contains("TaskSpaceMapHandleR7V1:"));
     assert!(handle.contains("- map_id: map-1"));
     assert!(handle.contains("- revision: 2"));
     assert!(handle.contains("- bootstrap_required: false"));
     assert!(!handle.contains("map_nodes"));
     assert!(!handle.contains("map_edges"));
+    assert_eq!(
+        first_provider
+            .items
+            .iter()
+            .filter(|item| taskspace_map_handle_context(Some(item)).is_some())
+            .count(),
+        1
+    );
+
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .mutate_graph_for_main(
+                session.conversation_id,
+                crate::action_map::ActionMapGraphMutationInput {
+                    expected_revision: 2,
+                    add_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                        id: "verify".into(),
+                        goal: "Verify".into(),
+                    }],
+                    add_edges: vec![
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "work".into(),
+                            to: "verify".into(),
+                        },
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "verify".into(),
+                            to: "finish".into(),
+                        },
+                    ],
+                    remove_edges: vec![crate::action_map::ActionMapEdgeInput {
+                        from: "work".into(),
+                        to: "finish".into(),
+                    }],
+                },
+            )
+            .expect("mutate map");
+    }
+    let refreshed_provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, first_provider.items)
+        .await;
+    let refreshed_handle = taskspace_map_handle_context(refreshed_provider.items.last())
+        .expect("provider request must refresh the map handle");
+    assert!(refreshed_handle.contains("- revision: 3"));
+    assert!(!refreshed_handle.contains("- revision: 2\n"));
+    assert_eq!(
+        refreshed_provider
+            .items
+            .iter()
+            .filter(|item| taskspace_map_handle_context(Some(item)).is_some())
+            .count(),
+        1
+    );
 
     let projection = session
         .read_action_map_projection(&turn_context, "read-map-1")
@@ -1475,7 +1543,7 @@ async fn map_request_read_returns_shared_current_projection_without_auto_injecti
     assert!(projection.starts_with("TaskSpaceMapProjectionR7V1:\n"));
     assert!(projection.contains("- projection_kind: current_projection"));
     assert!(projection.contains("- map_id: map-1"));
-    assert!(projection.contains("- revision: 2"));
+    assert!(projection.contains("- revision: 3"));
     assert!(projection.contains("  map_nodes:\n"));
     assert!(projection.contains("  map_edges:\n"));
     assert!(projection.ends_with("TaskSpaceMapProjectionR7V1 end.\n"));

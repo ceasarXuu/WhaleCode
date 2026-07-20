@@ -2,7 +2,7 @@ function ConvertTo-WhaleCodeBaseInstructionsIdentity {
     param($Identity, [AllowEmptyString()][string]$TraceSchema = "")
 
     if ($null -eq $Identity) {
-        $reason = if ($TraceSchema -in @("provider-chat-wire-trace-v5", "provider-chat-wire-trace-v6")) {
+        $reason = if ($TraceSchema -in @("provider-chat-wire-trace-v5", "provider-chat-wire-trace-v6", "provider-chat-wire-trace-v7")) {
             "base_instructions_identity_missing"
         } else {
             "trace_without_base_instructions_identity"
