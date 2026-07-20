@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla3-advanced-skill",
+  "status": "active_verified",
+  "implementation_commit": "a42fcb12307882c0a61ec3a2c3cf97b0b3368c29",
+  "projection_policy": "map-request",
+  "binary": {
+    "path": "third_party/codex-cli/codex-rs/target/debug/whale",
+    "sha256": "6af8c67ab2a45512c65ca912946e8471e969b88dc73c2636b4ba34e7b0916c29",
+    "attestation_path": "third_party/codex-cli/codex-rs/target/debug/whale.build-attestation.json"
+  },
+  "contracts": {
+    "skill_name": "taskspace-advanced",
+    "skill_version": "1.0.0",
+    "body_sha256": "a6f93fce96f7763ab3c36cb192091a908d744c1ad44ed26f6b4f5adf3422d5b1",
+    "body_bytes": 2224,
+    "snapshot_pattern": "$CODEX_HOME/skills/.system/.snapshots/<body_sha256>/taskspace-advanced/SKILL.md",
+    "production_manifest_version": "1.0.3",
+    "production_manifest_sha256": "d2c5cc85aeac833b69e4affdeaec328bed159a25db87fd6211afd769fcf67513",
+    "authority_sha256": "7c882dbacfbe2f0cf7599b618b71dadab480501fbff2ea2488de98f88a588b59"
+  },
+  "verification": {
+    "five_layer_contract_fla3": "pass",
+    "five_layer_contract_all": "pass",
+    "taskspace_skill_unit_tests": "11/11 pass",
+    "explicit_snapshot_injection_integration": "1/1 pass",
+    "benchmark_harness_self_test": "pass",
+    "container_runner_self_test": "pass",
+    "cargo_check_codex_core": "pass",
+    "cargo_build_whale": "pass"
+  },
+  "carrier_observation": {
+    "explicit_mention": {
+      "status": "verified",
+      "evidence": "mock provider request contains the exact pinned snapshot body inside the skill carrier"
+    },
+    "agent_file_read": {
+      "status": "carrier_available_not_naturally_selected",
+      "evidence": "the Docker TaskSpace catalog points to a readable 2224-byte snapshot with the selected SHA; neither diagnostic sample chose to read it"
+    },
+    "standard_isolation": {
+      "status": "verified",
+      "evidence": "both Standard rollouts record null projection policy and null TaskSpace skill snapshot; only TaskSpace receives the L3 catalog entry"
+    }
+  },
+  "runs": [
+    {
+      "sample": "single-file-fast-fix",
+      "repeats": 1,
+      "run_root": "target/r7-five-layer/fla3-valid-v2/simple/single-file-fast-fix/20260721-061348-374",
+      "both_success": true,
+      "engineering_unclean": false,
+      "standard": {
+        "provider_requests": 5,
+        "ordinary_tools": 7,
+        "input_tokens": 60308,
+        "cached_input_tokens": 58880,
+        "output_tokens": 1593,
+        "wall_time_ms": 14631,
+        "cache_hit_rate": 0.976322
+      },
+      "taskspace": {
+        "provider_requests": 16,
+        "ordinary_tools": 13,
+        "control_calls": 7,
+        "control_failures": 3,
+        "input_tokens": 263860,
+        "cached_input_tokens": 248448,
+        "output_tokens": 4208,
+        "wall_time_ms": 42184,
+        "cache_hit_rate": 0.94159,
+        "map_count": 1,
+        "node_count": 5,
+        "edge_count": 4,
+        "open_leaf_nodes": 0,
+        "advanced_skill_selected": false
+      }
+    },
+    {
+      "sample": "subscription-billing-repair",
+      "repeats": 1,
+      "run_root": "target/r7-five-layer/fla3-valid-v2/complex/subscription-billing-repair/20260721-061348-391",
+      "both_success": true,
+      "engineering_unclean": false,
+      "standard": {
+        "provider_requests": 18,
+        "ordinary_tools": 24,
+        "input_tokens": 295278,
+        "cached_input_tokens": 289024,
+        "output_tokens": 5468,
+        "wall_time_ms": 50826,
+        "cache_hit_rate": 0.97882
+      },
+      "taskspace": {
+        "provider_requests": 18,
+        "ordinary_tools": 28,
+        "control_calls": 8,
+        "control_failures": 4,
+        "input_tokens": 358691,
+        "cached_input_tokens": 326656,
+        "output_tokens": 10713,
+        "wall_time_ms": 88615,
+        "cache_hit_rate": 0.910689,
+        "map_count": 1,
+        "node_count": 5,
+        "edge_count": 4,
+        "open_leaf_nodes": 0,
+        "advanced_skill_selected": false
+      }
+    }
+  ],
+  "invalidated_runs": {
+    "path_prefix": "target/r7-five-layer/fla3-smoke",
+    "reason": "the initial harness invocation omitted taskspace_projection_policy, so TaskSpace never activated",
+    "repair_commit": "71b884ddd"
+  },
+  "observations": [
+    "The simple TaskSpace run recovered from one malformed patch and three control preflight failures; its cost is an action-path observation, not an L3 causal effect.",
+    "The complex run used equal provider request counts on Standard and TaskSpace, but TaskSpace had higher input, uncached input, output, and wall time.",
+    "Natural advanced-Skill selection remains unproven and must be observed across later complex samples without forced prompts."
+  ],
+  "claim_limit": "This one-pair-per-sample diagnostic smoke verifies FLA-3 lifecycle, isolation, exact-byte identity, and task correctness. It does not establish utility, stable natural Skill selection, performance benefit, or statistical non-inferiority."
+}

@@ -2,7 +2,7 @@
 
 - Created: 2026-07-20
 - Version: 1.6
-- Status: Production active through FLA-2; FLA-3 through FLA-8 pending
+- Status: Production active through FLA-3; FLA-4 through FLA-8 formal phase acceptance pending
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
 - Related: [R7 三种 Projection 策略共享架构宪章](00-r7-three-projection-policy-charter.md)、

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-4", "FLA-5", "All")]
+    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-4", "FLA-5", "All")]
     [string]$Phase = "All"
 )
 
@@ -12,6 +12,8 @@ $standardBasePath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/protocol
 $l1Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md"
 $l2Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md"
 $productionL2Path = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md"
+$l3Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md"
+$productionL3Path = Join-Path $repoRoot "third_party/codex-cli/codex-rs/skills/src/assets/samples/taskspace-advanced/SKILL.md"
 $l4Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
 $l5ResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json"
 
@@ -129,10 +131,33 @@ if (Test-PhaseEnabled "FLA-2") {
     Assert-True $traceSource.Contains("taskspace_core_protocol_identity") "Provider wire trace lacks L2 identity"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal $manifest.activation_through "FLA-2" "Production manifest activation status drifted"
+    Assert-True (@("FLA-2", "FLA-3") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L1")[0].status)) "active" "L1 is not active"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L2")[0].status)) "active" "L2 is not active"
     Write-Output "FLA-2 L1/L2 production contracts passed."
+}
+
+if (Test-PhaseEnabled "FLA-3") {
+    $l3Target = @($authority.selected_targets | Where-Object layer -eq "L3")[0]
+    Assert-Equal ([string]$l3Target.status) "active_verified" "L3 activation status drifted"
+    Assert-True (Test-Path -LiteralPath $productionL3Path -PathType Leaf) "Production L3 Skill is missing"
+    Assert-Equal (Get-Sha256 $productionL3Path) (Get-Sha256 $l3Path) "Production L3 bytes differ from authority artifact"
+
+    $skillsSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/skills/src/lib.rs"))
+    $taskspaceSkillSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/taskspace_skill.rs"))
+    $turnContextSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/session/turn_context.rs"))
+    $protocolSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/protocol/src/protocol.rs"))
+    Assert-True $skillsSource.Contains('TASKSPACE_ADVANCED_SKILL_VERSION: &str = "1.0.0"') "Production L3 version identity drifted"
+    Assert-True $skillsSource.Contains('SYSTEM_SKILLS_SNAPSHOTS_DIR_NAME') "Production L3 lacks immutable snapshot storage"
+    Assert-True $taskspaceSkillSource.Contains('TASKSPACE_SKILL_SNAPSHOT_MISSING') "Production L3 lacks factual missing-snapshot failure"
+    Assert-True $taskspaceSkillSource.Contains('taskspace_active: bool') "L3 catalog binding is not gated by runtime mode"
+    Assert-True $turnContextSource.Contains('taskspace_active,') "Turn Skill catalog does not pass runtime activation state"
+    Assert-True $protocolSource.Contains('taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>') "Session metadata does not persist the L3 identity"
+
+    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    Assert-Equal $manifest.activation_through "FLA-3" "Production manifest has not activated FLA-3"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L3")[0].status)) "active" "L3 is not active"
+    Write-Output "FLA-3 advanced Skill lifecycle contracts passed."
 }
 
 if (Test-PhaseEnabled "FLA-4") {

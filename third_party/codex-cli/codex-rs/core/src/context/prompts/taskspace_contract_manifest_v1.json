@@ -1,13 +1,16 @@
 {
   "schema_version": 1,
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.2",
-  "activation_through": "FLA-2",
-  "repair_activation": ["L4", "L5-result"],
+  "manifest_version": "1.0.3",
+  "activation_through": "FLA-3",
+  "repair_activation": [
+    "L4",
+    "L5-result"
+  ],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "1b38e4a4d46847e166d4aed259516071ec702b13935adf4baaa08ad8ead5075d"
+    "sha256": "7c882dbacfbe2f0cf7599b618b71dadab480501fbff2ea2488de98f88a588b59"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -51,7 +54,7 @@
       "id": "L3",
       "owner": "bundled_skill_registry",
       "carrier": "skill_catalog_and_explicit_load",
-      "status": "selected_not_active",
+      "status": "active",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md",

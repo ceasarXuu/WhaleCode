@@ -2,10 +2,10 @@
 
 - Created: 2026-07-20
 - Document Version: 0.4
-- Status: L1/L2 production active; L3-L5 target content frozen and pending
+- Status: L1-L3 production active; L4/L5 blocker repairs active，formal phase acceptance pending
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
-- Implementation Status: FLA-0 至 FLA-2 已实施并验证；FLA-3 至 FLA-8 尚未实施
+- Implementation Status: FLA-0 至 FLA-3 已实施并验证；FLA-4 至 FLA-8 尚未正式验收
 - Authority: [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 与
   [`five-layer-contract-authority-v1.json`](../../../benchmarks/taskspace/r7/five-layer-contract-authority-v1.json)
 

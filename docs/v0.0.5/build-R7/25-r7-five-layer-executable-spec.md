@@ -1,8 +1,8 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 0.4
-- Status: Production active and verified through FLA-2; selected L4/L5 contracts are active as FLA-2 blocker repairs; FLA-3 through FLA-8 formal phase acceptance pending
+- Version: 0.5
+- Status: Production active and verified through FLA-3; selected L4/L5 contracts remain active as FLA-2 blocker repairs; FLA-4 through FLA-8 formal phase acceptance pending
 - Scope: FLA-0 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -36,7 +36,7 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 |---|---|---|---|
 | L1 | TaskSpace Base v2.0.1；Map 段仅保留宏观模型，整份 Base 不携带 Tool wire 示例 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
 | L2 | `taskspace-core-v2.1` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
-| L3 | 无 `taskspace-advanced` 内置 Skill | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `selected_not_implemented` |
+| L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
 | L4 | 单个 `taskspace_control`，直接 lifecycle actions | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)；仍为单 Tool | `active_repair_verified` |
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_repair_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | 维持 [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json)，补生命周期判定 | `selected_baseline` |
@@ -49,8 +49,8 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 
 FLA-2 对抗审查证明：已激活的 L2 恢复协议依赖统一的 L5 factual result，而旧 L4 嵌套 discriminator 又会造成
 Agent 可见能力歧义。为修复已上线层自身的合同断裂，生产路径提前接通选定 L4 input schema 和 L5 result schema。
-这是阻塞修复，不改变名义 phase 顺序：`activation_through` 仍为 `FLA-2`，L3 尚未实施，FLA-4/FLA-5 的完整
-阶段 smoke、三臂比较和接受决策仍需按后续 phase 执行。后续阶段以当前修复版本为基线验证，不得回退到旧
+这是阻塞修复，不改变名义 phase 顺序。FLA-3 现已独立验收，`activation_through` 为 `FLA-3`；L4/L5 仍只标记为
+repair active，其完整阶段 smoke、三臂比较和接受决策仍需按后续 phase 执行。后续阶段以当前修复版本为基线验证，不得回退到旧
 `transition_node` 或 R6 result。
 
 ## 3. Agent 实际看到的内容
