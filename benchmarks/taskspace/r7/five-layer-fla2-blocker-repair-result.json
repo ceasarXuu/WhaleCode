@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla2-blocker-repair",
+  "status": "repair_smoke_verified_pending_adversarial_reacceptance",
+  "date": "2026-07-21",
+  "projection_policy": "map-request",
+  "product_source_commit": "f3d07b824a3621da2ca15e265d36f35f71f438d7",
+  "observer_source_commit": "30be4585e",
+  "binary": {
+    "path": "target/r7-five-layer/fla2-blocker-repair/bin/whale",
+    "sha256": "ed5ca605d86911f13c7ec16196046e7f556a9f2ae00a6fb4e4ff34e1f4673e1d",
+    "attested_codex_source_commit": "c7399adb687f5e8469c5a25fe1a9ee830053b96b",
+    "attestation_path": "target/r7-five-layer/fla2-blocker-repair/bin/whale.build-attestation.json"
+  },
+  "contracts": {
+    "taskspace_core_protocol": {
+      "version": "taskspace-core-v2.1",
+      "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80"
+    },
+    "taskspace_control": {
+      "sha256": "53cad3b85cbf739d755520cffc0e3be9c5fd303900b0a7c8b6de2de19e7800ce"
+    },
+    "taskspace_result": {
+      "schema_version": "TaskSpaceControlResultV2",
+      "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8"
+    },
+    "production_manifest": {
+      "version": "1.0.1",
+      "sha256": "831a77d0baf158a27b09921526c02d561e777e50ea65b448864e695bc16f9230"
+    }
+  },
+  "repair_acceptance": {
+    "b1_static_system_handle": {
+      "status": "verified",
+      "taskspace_requests": 32,
+      "system_message_count_per_request": 2,
+      "map_handle_count_per_request": 1,
+      "map_handle_role": "user",
+      "map_handle_is_request_tail_for_all_requests": true,
+      "wire_contract_exact_for_all_requests": true
+    },
+    "b2_result_capability_mismatch": {
+      "status": "verified",
+      "control_results": 14,
+      "v2_control_results": 14,
+      "non_v2_control_results": 0,
+      "initialize_commits_with_node_bound": 2,
+      "rejected_results_with_state_commit_false": 7
+    },
+    "h4_observability": {
+      "status": "verified",
+      "control_calls": 14,
+      "control_failures": 7,
+      "preflight_failures": 7,
+      "handler_failures": 0,
+      "ordinary_gate_failures": 1,
+      "committed_controls": 7,
+      "graph_revision_commits": 7,
+      "state_commit_count": 7,
+      "state_commit_count_source": "control_result_state_commit"
+    },
+    "h6_direct_actions": {
+      "status": "verified",
+      "nested_transition_calls": 0,
+      "invalid_lifecycle_argument_calls": 0,
+      "direct_complete_then_continue_calls": 5,
+      "direct_complete_then_end_calls": 2
+    },
+    "h7_binding_feedback": {
+      "status": "mechanism_verified_behavior_observation_pending",
+      "redundant_bind_calls": 0,
+      "read_map_calls": 0
+    }
+  },
+  "runs": [
+    {
+      "sample": "single-file-fast-fix",
+      "repeats": 1,
+      "run_root": "target/r7-five-layer/fla2-blocker-repair/runs/simple/single-file-fast-fix/20260721-012613-493",
+      "performance_observation_sha256": "56a3bb341aecfefb42bbe122a35743dd134f5d2f0041be45d5b7c777c24a820f",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 6,
+        "ordinary_tools": 10,
+        "wall_time_ms": 14076,
+        "input_tokens": 67766,
+        "cached_input_tokens": 65664,
+        "uncached_input_tokens": 2102,
+        "output_tokens": 1284,
+        "request_2_plus_cache_hit_rate": 0.965746
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 20,
+        "ordinary_tools": 19,
+        "control_calls": 7,
+        "control_failures": 3,
+        "ordinary_gate_failures": 1,
+        "wall_time_ms": 61251,
+        "input_tokens": 319844,
+        "cached_input_tokens": 286336,
+        "uncached_input_tokens": 33508,
+        "output_tokens": 5244,
+        "request_2_plus_cache_hit_rate": 0.924855,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0
+      },
+      "behavior_observations": [
+        "one ordinary-tool-before-init rejection",
+        "three missing-sibling preflight rejections",
+        "four failed apply_patch attempts caused by invalid Agent-authored diffs"
+      ]
+    },
+    {
+      "sample": "subscription-billing-repair",
+      "repeats": 1,
+      "run_root": "target/r7-five-layer/fla2-blocker-repair/runs/complex/subscription-billing-repair/20260721-012942-254",
+      "performance_observation_sha256": "96e511f810bcf68eb5260e8aad340e8b348787411990e2700b957fcea540c321",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 13,
+        "ordinary_tools": 24,
+        "wall_time_ms": 60980,
+        "input_tokens": 217302,
+        "cached_input_tokens": 211328,
+        "uncached_input_tokens": 5974,
+        "output_tokens": 7075,
+        "request_2_plus_cache_hit_rate": 0.971478
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 12,
+        "ordinary_tools": 16,
+        "control_calls": 7,
+        "control_failures": 4,
+        "ordinary_gate_failures": 0,
+        "wall_time_ms": 57425,
+        "input_tokens": 187252,
+        "cached_input_tokens": 167936,
+        "uncached_input_tokens": 19316,
+        "output_tokens": 5826,
+        "request_2_plus_cache_hit_rate": 0.891783,
+        "map_nodes": 4,
+        "map_edges": 3,
+        "open_leaf_nodes": 0
+      },
+      "behavior_observations": [
+        "four missing-sibling preflight rejections",
+        "one valid multi-file patch",
+        "TaskSpace used one fewer provider request than Standard"
+      ]
+    }
+  ],
+  "remaining_issue": {
+    "id": "H-003",
+    "status": "confirmed_unresolved",
+    "summary": "The schema states that required_next_call is only a declaration and requires a separate top-level sibling, but JSON Schema cannot structurally require another provider tool call. Both samples still produced standalone control calls before correcting.",
+    "guardrail": "Do not add semantic Runtime repair or more L2 prompting without a separate product experiment."
+  },
+  "claim_limit": "This one-repeat simple and one-repeat complex paired smoke verifies the repaired wire, feedback, direct-action, and observability mechanisms. It does not establish statistical utility, eliminate stochastic Agent mistakes, close H-003, or replace an independent adversarial reacceptance review."
+}

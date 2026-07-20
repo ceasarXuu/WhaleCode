@@ -1,11 +1,12 @@
 # R7 FLA-2 阻塞与控制路径调查
 
 - 日期：2026-07-20
-- 状态：`diagnosed / acceptance_blocked`
+- 状态：`repaired / H-003 open / pending_adversarial_reacceptance`
 - 调查范围：FLA-2 的 L1/L2 有效性、TaskSpace 可疑执行路径与 benchmark 观测口径
 - 生产行为：本轮未修改
 - COE：[`2026-07-20-21-24-r7-fla2-control-path-observability.md`](../../../coe/2026-07-20-21-24-r7-fla2-control-path-observability.md)
 - 对抗审查：[`2026-07-20-r7-fla2-l1-l2-effectiveness-review.md`](../../../vs_review/2026-07-20-r7-fla2-l1-l2-effectiveness-review.md)
+- 修复结果：[`30-r7-fla2-blocker-repair-result.md`](30-r7-fla2-blocker-repair-result.md)
 
 ## 1. 验收结论
 
@@ -145,6 +146,19 @@ outcome。汇总层只能组合这些事实，不能用一个 `control_failure` 
 
 ## 7. 后续入口
 
-进入修复前需要用户确认。修复设计应按依赖顺序覆盖：完整 wire 形状与 authority 状态、L2/L5 合同一致性、观测口径，
-再继续既定 FLA-4 和 FLA-5；每项都要以原始 provider request/tool result 与汇总产物双重验证。未经确认，本调查不把
-任何根因转换成补丁方案。
+修复入口已经由用户批准并完成实施，结果见 30 号文档。原诊断的 B1、B2、H-004、H-006 和 H-007 反馈机制均已
+进入生产并通过真实请求验证；H-003 仍作为独立结构问题保留。
+
+## 8. 2026-07-21 修复回填
+
+| 原问题 | 修复 | 请求级结果 |
+|---|---|---|
+| B1 第三条静态 system handle | 每次请求从 canonical 状态构造 user-tail handle | 32/32 请求只有两条 system，handle 均唯一且位于末尾 |
+| B2 L2/Result 能力错位 | L2 升级至 v2.1，control 统一使用 Result V2 | 14/14 control 输出为 V2，7 个拒绝均明确 `state_commit=false` |
+| H-004 观测少报 | 拆分 preflight/handler/gate/commit 指标并支持 V2 lineage | 14 control = 7 commit + 7 preflight；7 graph commit 与 7 state commit 对齐 |
+| H-006 旧 discriminator | lifecycle 和状态变更改为直接 action | nested transition 和非法 lifecycle 参数均为 0 |
+| H-007 binding 事实缺失 | initialize 结果增加独立 `node_bound` step | 2/2 初始化提交包含 binding；两次运行均无 redundant bind/read |
+
+H-003 没有被伪装关闭。新样本仍有 7 次 standalone control 被 preflight 原子拒绝，说明文字合同和事实反馈已经
+正确，但当前函数调用 JSON Schema 无法结构性要求另一个 top-level sibling。该问题需要独立 Tool 交互形状实验，
+不能通过 Runtime 代替 Agent 选动作或追加语义纠正解决。

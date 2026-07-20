@@ -1,7 +1,7 @@
 # Problem P-001: R7 FLA-2 控制路径异常与观测失真
 - Status: open
 - Created: 2026-07-20 21:24
-- Updated: 2026-07-20 22:18
+- Updated: 2026-07-21 01:40
 - Objective: 证明 FLA-2 两个验收 blocker、控制执行异常和观测缺口各自的形成机制，区分合同缺陷、上下文传递缺陷、Agent 行为与统计缺陷。
 - Symptoms:
   - FLA-2 对抗性复审发现 TaskSpace 请求存在未纳入五层设计的第三条 `system` 消息。
@@ -14,7 +14,7 @@
   - Agent 在空 Map 时先初始化并携带真实首动作；节点完成时按合同携带后续动作或终结动作。
   - 性能与验收产物完整、准确地区分 control preflight、state handler、ordinary-tool gate 和 graph commit。
 - Actual behavior:
-  - 两个验收 blocker 已由请求级与代码级证据确认；控制路径还存在跨调用合同、旧 L4 调用形状和反馈信息不足等独立问题。
+  - 两个验收 blocker、旧 L4 调用形状、V2 反馈和观测缺口已经修复并完成请求级冒烟；跨 top-level sibling 合同仍存在结构表达限制。
 - Impact:
   - R7 FLA-2 不能标记为 `active_verified`；L1/L2 有效性结论、控制链路质量判断和后续优化优先级可能被错误观测误导。
 - Reproduction:
@@ -31,7 +31,7 @@
   - 初始静态 handle 的过时状态不能解释首请求 ordinary-before-init，因为首次提交尚未发生。
 - Fix criteria:
   - 两个 blocker 均有请求级和代码级证据；可疑执行路径被分解到可证伪机制；观测缺口的丢失位置和口径被定位；修复后由原始 trace 与汇总产物共同验证。
-- Current conclusion: H-001、H-002、H-003、H-004、H-005 和 H-006 已通过证据门。FLA-2 生产装配已生效，但验收状态必须降为 `acceptance_blocked`；H-007 仅为反馈导致冗余动作的候选机制，尚需受控实验。修复设计需用户确认后开始。
+- Current conclusion: H-001、H-002、H-004、H-006 的修复机制已通过代码和真实请求双重验证；H-007 的事实缺口已补全且两个冒烟样本未复现冗余 bind/read，但因样本量不足仍不声明行为因果。H-003 继续成立，是当前唯一未关闭的结构问题。FLA-2 状态为 `repair_smoke_verified / pending_adversarial_reacceptance`。
 - Related hypotheses:
   - H-001
   - H-002
@@ -41,12 +41,12 @@
   - H-006
   - H-007
 - Resolution basis:
-  - 诊断证据门已满足；原问题尚未修复。
+  - 修复提交 `9a0c37cd8`、`6fbfbdf68`、`f6d7346fd`、`c7399adb6`、`f3d07b824`、`30be4585e`；Docker 配对与 raw trace 见 E-014 至 E-019。
 - Close reason:
   - not closed
 
 ## Hypothesis H-001: Context composer 额外注入静态 Map handle
-- Status: confirmed
+- Status: resolved
 - Parent: P-001
 - Claim: `map-request` 初始化上下文把 Map handle 作为独立第三条高优先级消息注入，且该消息在 Map 提交后不替换，因而同时造成五层合同偏离和过时 bootstrap 状态长期驻留。
 - Layer: root-cause
@@ -84,15 +84,15 @@
   - E-002
   - E-003
 - Conclusion: initial context 把 Map handle 单独装配为第三条高优先级消息，后续请求保持该初始消息；Map 已提交后仍保留 `map_id:none/bootstrap_required:true`，同时违反两条 system 的冻结合同并产生过时状态。
-- Repair design readiness: ready; implementation requires user confirmation
-- Next step: 设计时统一消息所有权，并增加完整 provider message-shape 合同测试。
+- Repair design readiness: implemented and smoke verified
+- Next step: 独立对抗性复审完整 provider message shape。
 - Blocker:
   - none
 - Close reason:
   - not closed
 
 ## Hypothesis H-002: L2 拒绝恢复协议超出工具实际反馈能力
-- Status: confirmed
+- Status: resolved
 - Parent: P-001
 - Claim: L2 统一承诺的拒绝恢复字段没有由所有控制失败通道统一提供，尤其 sequence preflight 和 ordinary-tool gate 使用较弱的独立结果 schema，导致 Agent 无法按协议取得 canonical 差异和 commit 状态。
 - Layer: root-cause
@@ -130,8 +130,8 @@
   - E-004
   - E-005
 - Conclusion: FLA-2 激活的 L2 使用说明依赖尚未实施的 FLA-5 V2 result algebra；现行 preflight、gate 和 R6 handler 结果无法统一提供 L2 承诺的字段。
-- Repair design readiness: ready; implementation requires user confirmation
-- Next step: 修复设计必须先决定 L2 降级到现行事实，或提前实现统一结果合同，不得继续让提示文本超前于工具能力。
+- Repair design readiness: implemented and smoke verified
+- Next step: 独立复审 L2 v2.1 与所有 V2 失败通道的逐字段一致性。
 - Blocker:
   - none
 - Close reason:
@@ -182,7 +182,7 @@
   - not closed
 
 ## Hypothesis H-004: 观测器只识别 handler 结果而漏掉前置拒绝和 gate 事件
-- Status: confirmed
+- Status: resolved
 - Parent: P-001
 - Claim: 性能观察器按单一 control result schema 统计失败和 commit，没有统一解析 sequence preflight、ordinary-tool gate 与 graph revision 事件，导致 control failure、state commit 和 failure taxonomy 系统性少报。
 - Layer: root-cause
@@ -220,8 +220,8 @@
   - E-008
   - E-009
 - Conclusion: `control_failure_count` 只消费 R6/V1/V2 handler result，漏掉 11 次 preflight reject；ordinary gate 被排除虽符合 handler 口径，但缺少统一 protocol failure 指标。`state_commit_count` 按不存在的 action 名计数，不能表示 25 次真实提交；pair failure taxonomy 也不是 raw failure taxonomy。
-- Repair design readiness: ready; implementation requires user confirmation
-- Next step: 统一定义 raw protocol、handler、gate、commit 与 pair outcome 五类指标，并避免以模糊字段名互相替代。
+- Repair design readiness: implemented and smoke verified
+- Next step: 保持 raw trace 与五类汇总指标的持续对账测试。
 - Blocker:
   - none
 - Close reason:
@@ -273,7 +273,7 @@
   - not closed
 
 ## Hypothesis H-006: 旧 L4 嵌套 discriminator 诱发非法 transition 组合
-- Status: confirmed
+- Status: resolved
 - Parent: P-001
 - Claim: FLA-2 在激活新 L1/L2 后仍使用 `transition_node + transition` 的旧 L4 shape，Agent 会把目标 lifecycle action `complete_then_continue` 填入只接受 bind/block/unblock/rework 的嵌套 `transition`，形成 schema/语义错位。
 - Layer: root-cause
@@ -307,8 +307,8 @@
 - Related evidence:
   - E-012
 - Conclusion: 4 次 FLA-2 调用直接在 provider output 中使用非法嵌套 lifecycle 值；这是旧 L4 形状的结构性诱因，不是 projection 或反馈丢失。
-- Repair design readiness: FLA-4 already contains the selected direction; implementation requires user confirmation
-- Next step: FLA-4 同次删除旧 schema、parser 和 discriminator，不保留兼容分支。
+- Repair design readiness: implemented and smoke verified
+- Next step: 正式 FLA-4 阶段继续完成其余既定验收，不恢复旧 discriminator。
 - Blocker:
   - none
 - Close reason:
@@ -352,11 +352,11 @@
 - Evidence gate: pending
 - Related evidence:
   - E-013
-- Conclusion: 现有 trace 支持反馈不完整和后续冗余动作相关，但只有 2/6 样本出现，尚不足以确认因果。
-- Repair design readiness: blocked until controlled evidence gate is satisfied
-- Next step: 不单独为此加 Runtime 约束；在统一 L5 事实结果实验中测量。
+- Conclusion: V2 initialize 结果已明确返回独立 `node_bound` step；两个修复后冒烟样本均未出现 redundant bind 或 `read_map`。事实反馈缺口已关闭，但样本不足以确认行为下降的因果强度。
+- Repair design readiness: factual mechanism implemented; behavioral claim remains pending
+- Next step: 不增加 Runtime 约束；只在后续重复矩阵中继续观察 redundant bind/read。
 - Blocker:
-  - 需要用户批准进入修复/单变量实验。
+  - 行为因果需要更大重复样本；不阻塞事实合同修复。
 - Close reason:
   - not closed
 
@@ -437,3 +437,39 @@
 - Source: `taskspace_control_output.rs` 与六次 rollout request timeline。
 - Prediction or clause tested: H-007 的静态字段缺口与行为相关性。
 - Interpretation: weakly supports H-007，但样本与对照不足，不能通过证据门。
+
+## Evidence E-014: 修复后 wire 恢复两条 system 与动态 user-tail handle
+- Observed: 简单 20 个、复杂 12 个 TaskSpace provider request 均只有两条 system；每个请求恰有一个 Map handle，role 为 user，且 message index 始终等于 request 的最后一个 index。L1、L2、production manifest 和完整 wire contract 全部精确匹配。
+- Source: `target/r7-five-layer/fla2-blocker-repair/runs/{simple,complex}/.../right/artifacts/provider-wire-trace.jsonl`。
+- Prediction or clause tested: H-001 修复后的消息所有权、刷新与完整形状。
+- Interpretation: verifies H-001 repair；旧第三条静态 system handle 不再存在。
+
+## Evidence E-015: 所有 Control 反馈统一为 Result V2
+- Observed: 两次运行共 14 个 control output，schema 全为 `TaskSpaceControlResultV2`。7 个 preflight reject 均有 action、canonical/submitted revision 槽位、`state_commit=false`、actual 和 expected；7 个提交均有 committed revision 与 delta。
+- Source: 两次修复样本的 `rollout.jsonl`。
+- Prediction or clause tested: H-002 的 L2/Result 能力一致性。
+- Interpretation: verifies H-002 repair；Agent 可见原始反馈已具备 L2 v2.1 声明的事实字段。
+
+## Evidence E-016: 初始化结果明确暴露当前 binding
+- Observed: 两个有效 initialize output 均包含 `map_initialized` 与 `node_bound` 两个 step，后者给出 map id、node id、running status 和 revision。后续没有 redundant bind 或 `read_map`。
+- Source: 两次修复样本的 control output timeline 与 `taskspace-control-usage.json`。
+- Prediction or clause tested: H-007 的事实字段缺口和行为观察。
+- Interpretation: verifies feedback mechanism；零复现是正向观察，但两次样本不足以确认行为因果。
+
+## Evidence E-017: 直接 lifecycle action 消除旧 discriminator 错误面
+- Observed: 两次运行出现 5 次 `complete_then_continue` 和 2 次 `complete_then_end` 直接 action；旧 `transition_node`、nested transition failure 和 lifecycle invalid argument 均为 0。
+- Source: 两次修复样本的 rollout、`taskspace-control-usage.json` 与 provider Tool hash。
+- Prediction or clause tested: H-006 修复后的调用形状。
+- Interpretation: verifies H-006 repair；没有保留旧 schema/parser 兼容分支。
+
+## Evidence E-018: 新观测口径与 raw trace 精确对账
+- Observed: 14 control 被分为 7 commit 与 7 preflight reject；handler reject 为 0，ordinary gate 为 1。`committed_control_count=7`、`graph_revision_commit_count=7`、`state_commit_count=7`，且 V2 lineage 报告 7 个成功 delta、21 个 graph event refs、零 identity missing。
+- Source: 两次修复样本的 raw rollout、`taskspace-control-usage.json` 和重生成的 `performance-observation.json`。
+- Prediction or clause tested: H-004 的完整分类与 V2 lineage。
+- Interpretation: verifies H-004 repair；汇总不再用 handler-only failure 或不存在的 action 名代替完整事实。
+
+## Evidence E-019: Missing sibling 仍是独立结构问题
+- Observed: 简单样本有 3 次、复杂样本有 4 次 standalone control。每次参数包含 `required_next_call`，结果忠实返回 V2 protocol failure；Agent 后续自行生成合法 control+sibling。两轮 tool choice 全程为 auto，schema hash 不变。
+- Source: 两次修复样本的 provider wire trace 与 request timeline。
+- Prediction or clause tested: H-003 在其他 blocker 关闭后的独立性。
+- Interpretation: confirms H-003 remains unresolved；不能归因于静态 handle、旧 feedback、named tool choice、schema 漂移或 adapter 丢失。

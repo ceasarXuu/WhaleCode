@@ -9,15 +9,17 @@
 > [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 的 FLA-0 至 FLA-8 另行实施。涉及 L1-L5 的
 > 目标合同、生产入口和验收以 `25` 号规格及 authority manifest 为准；本计划中的 Phase E-H 继续描述 R7
 > projection 主线，不可替代五层专项的完成证据。
-> 截至 2026-07-20，FLA-2 生产装配已完成，但对抗审查确认两个合同 blocker 和观测缺口，验收状态已撤回为
-> `acceptance_blocked`。在 [阻塞与控制路径调查](29-r7-fla2-blockers-and-control-path-investigation.md) 记录的问题
-> 关闭前，不得进入 FLA-3；原 smoke 数据继续保留为行为证据，不再代表阶段完成。
+> 2026-07-21 更新：FLA-2 对抗审查确认的两个合同 blocker、旧 L4 discriminator、V2 binding 反馈和观测缺口
+> 已完成修复，并通过简单/复杂 Docker 配对冒烟，详见
+> [阻塞修复结果](30-r7-fla2-blocker-repair-result.md)。当前状态为
+> `repair_smoke_verified / pending_adversarial_reacceptance`；H-003 跨 top-level sibling 结构问题仍保持 open。在独立
+> 复审前不得把 FLA-2 恢复为正式 `active_verified`，也不得用额外 Runtime 语义干预掩盖 H-003。
 
 ## 1.1 元数据
 
 ```text
 Created: 2026-07-17
-Updated: 2026-07-20
+Updated: 2026-07-21
 Version: v0.0.5 build-R7
 Status: Phase D.5 Dual Base Instructions Completed / Phase E Not Started
 Owner / Responsible: WhaleCode core runtime / TaskSpace

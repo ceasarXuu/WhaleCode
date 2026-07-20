@@ -1,16 +1,21 @@
 # R7 五层架构 FLA-2 结果
 
 - 日期：2026-07-20
-- 状态：`acceptance_blocked`（生产装配已激活，验收结论被 2026-07-20 对抗审查撤回）
+- 状态：`historical_acceptance_blocked / blocker_repair_smoke_verified`
 - 生产提交：`2ea8b4d24`
 - 候选二进制 SHA256：`90bdaba699e58b80806fb3c200c03166f668001314bb6de225be4a7da4e2586f`
 - Projection policy：`map-request`
 - 机器结果：[`five-layer-fla2-result.json`](../../../benchmarks/taskspace/r7/five-layer-fla2-result.json)
 - 阻塞调查：[`29-r7-fla2-blockers-and-control-path-investigation.md`](29-r7-fla2-blockers-and-control-path-investigation.md)
+- 修复结果：[`30-r7-fla2-blocker-repair-result.md`](30-r7-fla2-blocker-repair-result.md)
 
 > 更正：本文件最初把 FLA-2 标为 `active_verified`。后续请求级审查确认存在第三条静态 system Map handle、L2 与
 > 当前 Tool result 能力不一致，以及观测器漏报 preflight reject/真实 commit。以下运行数据继续保留，但原验收结论
 > 已撤回；在阻塞项关闭前不得将 FLA-2 作为 FLA-3 的已验证前置阶段。
+
+> 2026-07-21 更新：B1、B2、旧 L4 discriminator、binding 事实反馈和观测少报已经完成修复，并通过一个简单
+> 样本和一个复杂样本的 Docker 配对冒烟。原始数据与撤回结论作为历史证据保留；最新状态以 30 号修复结果为准。
+> `H-003` 的跨 top-level sibling 结构问题仍未关闭，正式恢复 `active_verified` 还需要独立对抗性复审。
 
 ## 1. 实施结果
 
