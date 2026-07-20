@@ -36,7 +36,7 @@
     "difference_boundary": "base_instructions_and_plan_tool_visibility"
   },
   "observability": {
-    "wire_trace_schema": "provider-chat-wire-trace-v5",
+    "wire_trace_schema": "provider-chat-wire-trace-v6",
     "selection_event": "base_instructions.profile_selected",
     "prewarm_selection_event": "base_instructions.prewarm_profile_selected",
     "wire_identity_field": "base_instructions_identity",

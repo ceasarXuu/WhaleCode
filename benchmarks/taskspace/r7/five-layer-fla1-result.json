@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla1-ownership",
+  "status": "fla1_complete",
+  "production_behavior_changed": false,
+  "model_visible_bytes_changed": false,
+  "wire_trace_schema": "provider-chat-wire-trace-v6",
+  "artifacts": {
+    "manifest": {
+      "path": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json",
+      "sha256": "b698d5c8ed8ef74790252ecc2c452034bdd31137c99a80478238325721a9a095"
+    },
+    "context_owner": {
+      "path": "third_party/codex-cli/codex-rs/core/src/context/taskspace_contract.rs",
+      "sha256": "23c1dccfb35ba1e17af56028597d2b7e68183c3597ea605d5e18eb2faa2e3969"
+    },
+    "wire_observer": {
+      "path": "third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs",
+      "sha256": "791f7e85d3ef0c9ca935a709c29918b0c8699a3e3691746dc2ad06f9d0e7a21a"
+    },
+    "generator": {
+      "path": "scripts/taskspace-benchmark/sync-r7-five-layer-contract-manifest.ps1",
+      "sha256": "c0ab8e1dbe387be5aaaa91857d5beb711357aaa7b740a7d398b1fe17606da4e9"
+    }
+  },
+  "verification": {
+    "five_layer_contract_fla1": "pass",
+    "context_manifest_unit_tests": "1/1 pass",
+    "provider_wire_trace_unit_tests": "8/8 pass",
+    "rust_format": "pass"
+  },
+  "behavior_boundary": "Only observer output gained manifest identity. Provider request construction, prompt bytes, tools and Runtime state were not changed."
+}

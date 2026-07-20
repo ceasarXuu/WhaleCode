@@ -53,7 +53,7 @@ Assert-BaseInstructionsContract ($profileSource.Contains(('"{0}"' -f [string]$ta
 Assert-BaseInstructionsContract ($profileSource.Contains(('"{0}"' -f [string]$taskspace.sha256))) "TaskSpace hash constant does not match contract"
 Assert-BaseInstructionsContract ($turnSource.Contains("resolved_base_instructions.profile.is_taskspace()")) "base profile and tool visibility are not selected from one snapshot"
 Assert-BaseInstructionsContract (-not $turnSource.Contains("prepend_taskspace_working_protocol")) "obsolete TaskSpace developer protocol injection remains"
-Assert-BaseInstructionsContract ($wireTraceSource.Contains('schema_version: "provider-chat-wire-trace-v5"')) "wire trace v5 identity carrier is missing"
+Assert-BaseInstructionsContract ($wireTraceSource.Contains('schema_version: "provider-chat-wire-trace-v6"')) "wire trace v6 identity carrier is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("base_instructions_identity")) "wire trace base identity observer is missing"
 
 Write-Output "R7 dual base instructions contract tests passed."

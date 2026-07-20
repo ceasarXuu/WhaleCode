@@ -15,10 +15,14 @@ use std::sync::Mutex;
 use tracing::info;
 use tracing::warn;
 
+use crate::context::TASKSPACE_CONTRACT_MANIFEST_ID;
+use crate::context::TASKSPACE_CONTRACT_MANIFEST_SHA256;
+use crate::context::TASKSPACE_CONTRACT_MANIFEST_VERSION;
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256;
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION;
 use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256;
 use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION;
+use crate::context::taskspace_contract_manifest_matches;
 
 #[path = "provider_wire_sections.rs"]
 mod provider_wire_sections;
@@ -80,6 +84,7 @@ struct WireShapeEvent<'a> {
     message_count: usize,
     message_shapes: &'a [WireMessageShape],
     base_instructions_identity: BaseInstructionsWireIdentity,
+    taskspace_contract_manifest_identity: TaskspaceContractManifestWireIdentity,
     previous_request_id: Option<&'a str>,
     lcp_message_count: usize,
     lcp_message_bytes: usize,
@@ -100,6 +105,16 @@ struct BaseInstructionsWireIdentity {
     message_bytes: Option<usize>,
     estimated_tokens: Option<usize>,
     profile: Option<&'static str>,
+    version: Option<&'static str>,
+    sha256: Option<&'static str>,
+    matches_current_contract: bool,
+    unavailable_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct TaskspaceContractManifestWireIdentity {
+    count: usize,
+    contract_id: Option<&'static str>,
     version: Option<&'static str>,
     sha256: Option<&'static str>,
     matches_current_contract: bool,
@@ -201,8 +216,11 @@ impl ProviderWireTrace {
             Some(false) => "provider.chat_wire_prefix_broken",
             None => "provider.chat_wire_shape_recorded",
         };
+        let base_instructions_identity = base_instructions_identity(&messages);
+        let taskspace_contract_manifest_identity =
+            taskspace_contract_manifest_identity(&base_instructions_identity);
         let event = WireShapeEvent {
-            schema_version: "provider-chat-wire-trace-v5",
+            schema_version: "provider-chat-wire-trace-v6",
             event_name,
             request_id: &request_id,
             epoch_id,
@@ -220,7 +238,8 @@ impl ProviderWireTrace {
             tool_choice_name,
             message_count: message_shapes.len(),
             message_shapes: &message_shapes,
-            base_instructions_identity: base_instructions_identity(&messages),
+            base_instructions_identity,
+            taskspace_contract_manifest_identity,
             previous_request_id,
             lcp_message_count: comparison
                 .as_ref()
@@ -364,6 +383,34 @@ fn unavailable_base_instructions_identity(
         sha256: None,
         matches_current_contract: false,
         unavailable_reason: Some(reason),
+    }
+}
+
+fn taskspace_contract_manifest_identity(
+    base_identity: &BaseInstructionsWireIdentity,
+) -> TaskspaceContractManifestWireIdentity {
+    if base_identity.profile == Some("taskspace") && base_identity.matches_current_contract {
+        return TaskspaceContractManifestWireIdentity {
+            count: 1,
+            contract_id: Some(TASKSPACE_CONTRACT_MANIFEST_ID),
+            version: Some(TASKSPACE_CONTRACT_MANIFEST_VERSION),
+            sha256: Some(TASKSPACE_CONTRACT_MANIFEST_SHA256),
+            matches_current_contract: taskspace_contract_manifest_matches(),
+            unavailable_reason: None,
+        };
+    }
+
+    TaskspaceContractManifestWireIdentity {
+        count: 0,
+        contract_id: None,
+        version: None,
+        sha256: None,
+        matches_current_contract: false,
+        unavailable_reason: Some(if base_identity.profile == Some("standard") {
+            "taskspace_profile_not_active"
+        } else {
+            "taskspace_base_identity_unavailable"
+        }),
     }
 }
 
@@ -544,6 +591,37 @@ mod tests {
         assert_eq!(identity.wire_role.as_deref(), Some("system"));
         assert_eq!(identity.profile, Some("taskspace"));
         assert!(identity.matches_current_contract);
+    }
+
+    #[test]
+    fn taskspace_base_selects_one_matching_contract_manifest() {
+        let messages = vec![message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE)];
+        let base_identity = base_instructions_identity(&messages);
+
+        let identity = taskspace_contract_manifest_identity(&base_identity);
+
+        assert_eq!(identity.count, 1);
+        assert_eq!(identity.contract_id, Some(TASKSPACE_CONTRACT_MANIFEST_ID));
+        assert_eq!(identity.version, Some(TASKSPACE_CONTRACT_MANIFEST_VERSION));
+        assert_eq!(identity.sha256, Some(TASKSPACE_CONTRACT_MANIFEST_SHA256));
+        assert!(identity.matches_current_contract);
+        assert_eq!(identity.unavailable_reason, None);
+    }
+
+    #[test]
+    fn standard_base_does_not_select_a_taskspace_contract_manifest() {
+        let messages = vec![message("system", BASE_INSTRUCTIONS_WHALECODE_STANDARD)];
+        let base_identity = base_instructions_identity(&messages);
+
+        let identity = taskspace_contract_manifest_identity(&base_identity);
+
+        assert_eq!(identity.count, 0);
+        assert_eq!(identity.contract_id, None);
+        assert!(!identity.matches_current_contract);
+        assert_eq!(
+            identity.unavailable_reason,
+            Some("taskspace_profile_not_active")
+        );
     }
 
     #[test]
