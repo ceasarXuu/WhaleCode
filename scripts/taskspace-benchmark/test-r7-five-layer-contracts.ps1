@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "All")]
+    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-4", "FLA-5", "All")]
     [string]$Phase = "All"
 )
 
@@ -12,6 +12,8 @@ $standardBasePath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/protocol
 $l1Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md"
 $l2Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md"
 $productionL2Path = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md"
+$l4Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
+$l5ResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json"
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
@@ -127,6 +129,49 @@ if (Test-PhaseEnabled "FLA-2") {
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L1")[0].status)) "active" "L1 is not active"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L2")[0].status)) "active" "L2 is not active"
     Write-Output "FLA-2 L1/L2 production contracts passed."
+}
+
+if (Test-PhaseEnabled "FLA-4") {
+    $l4Target = @($authority.selected_targets | Where-Object layer -eq "L4")[0]
+    Assert-Equal ([string]$l4Target.status) "active_repair_verified" "L4 repair activation status drifted"
+    $selectedSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l4Path | ConvertFrom-Json -Depth 50
+    $selectedActions = @($selectedSchema.provider_tool.function.parameters.anyOf | ForEach-Object { [string]$_.properties.action.enum[0] })
+    foreach ($action in @("bind_node", "block_node", "unblock_node", "rework_node")) {
+        Assert-True ($selectedActions -contains $action) "Selected L4 schema omits direct action: $action"
+    }
+    Assert-True ($selectedActions -notcontains "transition_node") "Selected L4 schema retains transition_node"
+
+    $toolSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs"))
+    $wireSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"))
+    Assert-True (-not $toolSource.Contains('"transition_node"')) "Provider Tool still exposes transition_node"
+    Assert-True (-not $wireSource.Contains('TransitionNode')) "Argument wire still accepts transition_node"
+    foreach ($action in @("bind_node", "block_node", "unblock_node", "rework_node")) {
+        Assert-True ($toolSource.Contains('"' + $action + '"')) "Provider Tool source omits direct action: $action"
+    }
+    foreach ($variant in @("BindNode", "BlockNode", "UnblockNode", "ReworkNode")) {
+        Assert-True $wireSource.Contains("Action::$variant") "Argument wire omits direct action variant: $variant"
+    }
+    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].status)) "repair_active" "Production manifest does not expose the L4 repair"
+    Write-Output "FLA-4 selected input contract repair passed."
+}
+
+if (Test-PhaseEnabled "FLA-5") {
+    $l5Target = @($authority.selected_targets | Where-Object layer -eq "L5-result")[0]
+    Assert-Equal ([string]$l5Target.status) "active_repair_verified" "L5 result repair activation status drifted"
+    $resultSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l5ResultPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$resultSchema.properties.schema_version.const) "TaskSpaceControlResultV2" "Selected result schema version drifted"
+    Assert-Equal ([bool]$resultSchema.properties.partial_commit.const) $false "partial_commit must remain false"
+
+    $argsSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs"))
+    $outputSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_output.rs"))
+    $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
+    Assert-True $argsSource.Contains('TaskSpaceControlResultV2') "Production result version is not V2"
+    Assert-True $outputSource.Contains('"partial_commit": false') "Production result formatter does not emit boolean partial_commit=false"
+    Assert-True $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING') "Control preflight does not emit the selected factual error"
+    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].status)) "result_repair_active_projection_baseline" "Production manifest does not expose the L5 result repair"
+    Write-Output "FLA-5 selected result contract repair passed."
 }
 
 Write-Output "R7 five-layer contract validation passed for $Phase."

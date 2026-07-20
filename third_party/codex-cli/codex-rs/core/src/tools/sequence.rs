@@ -61,8 +61,9 @@ pub(crate) async fn execute_response_tool_sequence(
                 declared_tool_count = failure.declared_tool_count,
                 "tool.response_preflight_rejected"
             );
+            let canonical_revision = runtime.taskspace_canonical_revision().await;
             return Ok(ToolSequenceOutcome {
-                outputs: failure.outputs(&calls),
+                outputs: failure.outputs(&calls, canonical_revision),
                 terminal_completion: None,
             });
         }

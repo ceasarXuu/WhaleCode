@@ -20,7 +20,7 @@ fn every_message_is_classified_exactly_once() {
             {"role": "observer", "content": "other non-tool"},
             {
                 "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceControlResultR6V1\",\"ok\":true}"
+                "content": "{\"schema_version\":\"TaskSpaceControlResultV2\",\"ok\":true}"
             },
             {"role": "tool", "content": "ordinary result"}
         ]
@@ -83,7 +83,7 @@ fn tool_output_containing_control_marker_remains_ordinary_feedback() {
     let wire = json!({
         "messages": [{
             "role": "tool",
-            "content": "source text: {\"schema_version\":\"TaskSpaceControlResultR6V1\"}"
+                "content": "source text: {\"schema_version\":\"TaskSpaceControlResultV2\"}"
         }]
     });
 
@@ -104,7 +104,7 @@ fn section_bytes_reconcile_with_provider_payload_bytes() {
         "messages": [
             {"role": "developer", "content": "stable"},
             {"role": "developer", "content": "TaskSpaceMapProjectionR7V1"},
-            {"role": "tool", "content": "TaskSpaceControlResultR6V1"}
+            {"role": "tool", "content": "TaskSpaceControlResultV2"}
         ],
         "tools": [{"type": "function", "function": {"name": "taskspace_control"}}],
         "tool_choice": {"type": "function", "function": {"name": "taskspace_control"}}

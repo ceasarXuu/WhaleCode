@@ -1,4 +1,4 @@
-<taskspace_core_protocol version="taskspace-core-v2">
+<taskspace_core_protocol version="taskspace-core-v2.1">
 ## Working with the Map
 
 Use this loop for ordinary TaskSpace work:
@@ -12,7 +12,7 @@ Use this loop for ordinary TaskSpace work:
 ## Reading results and recovering
 
 - Treat each control result as the exact statement of whether state was committed. Do not infer success from intent or silently assume rollback.
-- On rejection, read the returned action, submitted values, observed canonical values, revision, and state_commit fields, then choose your own correction.
+- On a rejected control result, read action, submitted_expected_revision, canonical_revision, state_commit, error.actual, and error.expected, then choose your own correction.
 - A previously read projection is current only when its revision matches the latest canonical revision visible in TaskSpace feedback or the Map handle.
 - If evidence changes the plan, revise the Map before continuing under the new structure.
 </taskspace_core_protocol>

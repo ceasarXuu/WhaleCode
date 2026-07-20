@@ -17,8 +17,17 @@ pub(super) fn format_initialize_step(outcome: &ActionMapInitializeOutcome) -> Js
     })
 }
 
+pub(super) fn format_initialize_binding_step(outcome: &ActionMapInitializeOutcome) -> JsonValue {
+    serde_json::json!({
+        "kind": "node_bound",
+        "map_id": outcome.map_id,
+        "node_id": outcome.current_node_id,
+        "status": "running",
+        "revision": outcome.delta.committed_revision,
+    })
+}
+
 pub(super) fn format_node_detail_expansion_step(
-    index: usize,
     outcome: &ActionMapNodeDetailExpansionOutcome,
 ) -> JsonValue {
     let restored_details = outcome
@@ -41,7 +50,6 @@ pub(super) fn format_node_detail_expansion_step(
         .collect::<Vec<_>>();
     serde_json::json!({
         "kind": "node_detail_expanded",
-        "index": index,
         "node_id": outcome.node_id,
         "expansion_event_id": outcome.expansion_event_id,
         "detail_ref": outcome.detail_ref,
@@ -67,7 +75,7 @@ pub(super) fn format_state_batch(
         "status": if success { "committed" } else { "state_machine_failed" },
         "success": success,
         "state_commit": state_commit,
-        "partial_commit": 0,
+        "partial_commit": false,
         "committed_revision": committed_revision,
         "delta": delta,
         "steps": steps,
@@ -75,39 +83,171 @@ pub(super) fn format_state_batch(
     .to_string()
 }
 
-pub(super) fn rejected_control_result(error: &str) -> String {
-    let Ok(mut exact_error) = serde_json::from_str::<JsonValue>(error) else {
-        return format_state_batch(
-            vec![serde_json::json!({
-                "kind": "state_rejection",
-                "error": {"message": error},
-            })],
-            false,
-            false,
-            &[],
-        );
-    };
-    let is_rooted_rejection = exact_error
-        .get("schema_version")
-        .and_then(JsonValue::as_str)
+pub(super) fn normalize_control_result(
+    message: String,
+    action: &str,
+    submitted_expected_revision: Option<u64>,
+    canonical_revision: Option<u64>,
+    success: bool,
+) -> String {
+    let parsed = serde_json::from_str::<JsonValue>(&message).unwrap_or_else(|_| {
+        serde_json::json!({
+            "error": {
+                "message": message,
+            }
+        })
+    });
+    if parsed.get("schema_version").and_then(JsonValue::as_str)
         == Some(TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION)
-        && exact_error.get("status").and_then(JsonValue::as_str) == Some("state_machine_failed")
-        && exact_error.get("state_commit").and_then(JsonValue::as_bool) == Some(false);
-    if !is_rooted_rejection {
-        return format_state_batch(
-            vec![serde_json::json!({
-                "kind": "state_rejection",
-                "error": exact_error,
-            })],
-            false,
-            false,
-            &[],
-        );
+        && parsed.get("action").is_some()
+    {
+        return parsed.to_string();
     }
-    exact_error["partial_commit"] = JsonValue::from(0);
-    exact_error["committed_revision"] = JsonValue::Null;
-    exact_error["delta"] = JsonValue::Null;
-    exact_error.to_string()
+    if success {
+        let committed_revision = parsed.get("committed_revision").and_then(JsonValue::as_u64);
+        return serde_json::json!({
+            "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
+            "action": action,
+            "status": "committed",
+            "success": true,
+            "state_commit": true,
+            "partial_commit": false,
+            "canonical_revision": canonical_revision.or(committed_revision),
+            "submitted_expected_revision": submitted_expected_revision,
+            "committed_revision": committed_revision,
+            "delta": parsed.get("delta").cloned().unwrap_or(JsonValue::Null),
+            "steps": parsed.get("steps").cloned().unwrap_or_else(|| serde_json::json!([])),
+            "read": JsonValue::Null,
+            "error": JsonValue::Null,
+        })
+        .to_string();
+    }
+
+    let canonical_revision =
+        canonical_revision.or_else(|| parsed.get("current_revision").and_then(JsonValue::as_u64));
+    let violations = parsed
+        .get("violations")
+        .cloned()
+        .or_else(|| parsed.pointer("/error/violations").cloned())
+        .unwrap_or_else(|| serde_json::json!([]));
+    let stale_revision = violations.as_array().is_some_and(|violations| {
+        violations.iter().any(|violation| {
+            violation.get("code").and_then(JsonValue::as_str) == Some("stale_revision")
+        })
+    });
+    let graph_action = matches!(action, "initialize_map" | "mutate_graph");
+    let (code, message) = if stale_revision {
+        (
+            "TASKSPACE_STALE_REVISION",
+            "expected_revision does not match the current canonical revision",
+        )
+    } else if graph_action {
+        (
+            "TASKSPACE_GRAPH_INVARIANT",
+            "the submitted mutation violates a rooted DAG invariant",
+        )
+    } else {
+        (
+            "TASKSPACE_LIFECYCLE_INVARIANT",
+            "the submitted transition is not valid from the observed lifecycle state",
+        )
+    };
+    serde_json::json!({
+        "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
+        "action": action,
+        "status": "state_machine_failed",
+        "success": false,
+        "state_commit": false,
+        "partial_commit": false,
+        "canonical_revision": canonical_revision,
+        "submitted_expected_revision": submitted_expected_revision,
+        "committed_revision": JsonValue::Null,
+        "delta": JsonValue::Null,
+        "steps": [],
+        "read": JsonValue::Null,
+        "error": {
+            "class": "state_machine",
+            "code": code,
+            "message": message,
+            "actual": {
+                "canonical_revision": canonical_revision,
+                "violations": violations,
+                "condition": parsed.pointer("/error/message").cloned().unwrap_or(JsonValue::Null),
+            },
+            "expected": {
+                "action": action,
+                "submitted_expected_revision": submitted_expected_revision,
+            },
+        },
+    })
+    .to_string()
+}
+
+pub(super) fn format_read_result(
+    action: &str,
+    canonical_revision: Option<u64>,
+    read: JsonValue,
+) -> String {
+    serde_json::json!({
+        "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
+        "action": action,
+        "status": "read_ok",
+        "success": true,
+        "state_commit": false,
+        "partial_commit": false,
+        "canonical_revision": canonical_revision,
+        "submitted_expected_revision": JsonValue::Null,
+        "committed_revision": JsonValue::Null,
+        "delta": JsonValue::Null,
+        "steps": [],
+        "read": read,
+        "error": JsonValue::Null,
+    })
+    .to_string()
+}
+
+pub(crate) struct TaskSpaceFailureResult<'a> {
+    pub(crate) action: Option<&'a str>,
+    pub(crate) status: &'a str,
+    pub(crate) class: &'a str,
+    pub(crate) code: &'a str,
+    pub(crate) message: &'a str,
+    pub(crate) canonical_revision: Option<u64>,
+    pub(crate) submitted_expected_revision: Option<u64>,
+    pub(crate) actual: JsonValue,
+    pub(crate) expected: JsonValue,
+}
+
+pub(crate) fn format_failure_result(result: TaskSpaceFailureResult<'_>) -> String {
+    serde_json::json!({
+        "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
+        "action": result.action,
+        "status": result.status,
+        "success": false,
+        "state_commit": false,
+        "partial_commit": false,
+        "canonical_revision": result.canonical_revision,
+        "submitted_expected_revision": result.submitted_expected_revision,
+        "committed_revision": JsonValue::Null,
+        "delta": JsonValue::Null,
+        "steps": [],
+        "read": JsonValue::Null,
+        "error": {
+            "class": result.class,
+            "code": result.code,
+            "message": result.message,
+            "actual": result.actual,
+            "expected": result.expected,
+        },
+    })
+    .to_string()
+}
+
+pub(super) fn rejected_control_result(error: &str) -> String {
+    serde_json::from_str::<JsonValue>(error).map_or_else(
+        |_| serde_json::json!({"error": {"message": error}}).to_string(),
+        |exact_error| exact_error.to_string(),
+    )
 }
 
 pub(super) fn control_commit_observation(
@@ -177,58 +317,67 @@ pub(super) fn state_identity_coverage(message: &str) -> Option<(usize, bool)> {
     if value.get("schema_version")?.as_str()? != TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION {
         return None;
     }
+    if value.get("status")?.as_str()? != "committed" {
+        return None;
+    }
     let steps = value.get("steps")?.as_array()?;
     Some((steps.len(), steps.iter().all(step_has_required_identity)))
-}
-
-pub(super) fn hard_state_reason(message: &str) -> Option<&str> {
-    message
-        .split_once("hard_state:")?
-        .1
-        .trim_start()
-        .split(|character: char| character.is_whitespace() || ".,;".contains(character))
-        .next()
-        .filter(|reason| !reason.is_empty())
-}
-
-pub(super) fn state_machine_error(message: String) -> FunctionCallError {
-    let reason = hard_state_reason(&message)
-        .unwrap_or("transition_rejected")
-        .to_string();
-    gate_error(message, TaskSpaceHardGateClass::StateMachine, &reason)
 }
 
 pub(super) fn protocol_error(message: String, reason: &str) -> FunctionCallError {
     gate_error(message, TaskSpaceHardGateClass::Protocol, reason)
 }
 
-pub(super) fn resource_error(message: String, reason: &str) -> FunctionCallError {
-    gate_error(message, TaskSpaceHardGateClass::Resource, reason)
+pub(super) fn action_failure_error(
+    action: &str,
+    submitted_expected_revision: Option<u64>,
+    canonical_revision: Option<u64>,
+    class: &str,
+    code: &str,
+    status: &str,
+    message: String,
+) -> FunctionCallError {
+    FunctionCallError::RespondToModel(format_failure_result(TaskSpaceFailureResult {
+        action: Some(action),
+        status,
+        class,
+        code,
+        message: &message,
+        canonical_revision,
+        submitted_expected_revision,
+        actual: serde_json::json!({"condition": message.clone()}),
+        expected: serde_json::json!({
+            "action": action,
+            "submitted_expected_revision": submitted_expected_revision,
+        }),
+    }))
 }
 
 fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> FunctionCallError {
-    let result = serde_json::json!({
-        "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
-        "status": format!("{}_failed", class.as_str()),
-        "success": false,
-        "state_commit": false,
-        "partial_commit": 0,
-        "committed_revision": JsonValue::Null,
-        "delta": JsonValue::Null,
-        "error": {
-            "class": class.as_str(),
-            "code": reason,
-            "message": message,
-        },
-    });
-    FunctionCallError::RespondToModel(result.to_string())
+    let (status, code) = match class {
+        TaskSpaceHardGateClass::StateMachine => {
+            ("state_machine_failed", "TASKSPACE_LIFECYCLE_INVARIANT")
+        }
+        TaskSpaceHardGateClass::Protocol => ("protocol_failed", "TASKSPACE_PROTOCOL_FAILURE"),
+    };
+    FunctionCallError::RespondToModel(format_failure_result(TaskSpaceFailureResult {
+        action: None,
+        status,
+        class: class.as_str(),
+        code,
+        message: &message,
+        canonical_revision: None,
+        submitted_expected_revision: None,
+        actual: serde_json::json!({"condition": reason}),
+        expected: JsonValue::Null,
+    }))
 }
 
 pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
     match step.get("kind").and_then(JsonValue::as_str) {
         Some("map_initialized") => has_text(step, "map_id") && step.get("revision").is_some(),
         Some("graph_mutation") => has_text(step, "map_id") && step.get("revision").is_some(),
-        Some("node_transition") => {
+        Some("node_bound" | "node_blocked" | "node_unblocked" | "node_reworked") => {
             has_text(step, "map_id")
                 && has_text(step, "node_id")
                 && has_text(step, "status")
@@ -240,7 +389,7 @@ pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
                 && has_text(step, "next_node_id")
                 && step.get("revision").is_some()
         }
-        Some("terminal_transition" | "complete_then_end") => {
+        Some("finish_end" | "complete_then_end") => {
             has_text(step, "map_id")
                 && step.get("revision").is_some()
                 && step.get("finish_closed") == Some(&JsonValue::Bool(true))
@@ -296,7 +445,7 @@ mod tests {
             },
         };
 
-        let step = format_node_detail_expansion_step(0, &outcome);
+        let step = format_node_detail_expansion_step(&outcome);
 
         assert_eq!(step["restored_detail_count"], 1);
         assert_eq!(step["restored_details"][0]["event_id"], "node-event-read");

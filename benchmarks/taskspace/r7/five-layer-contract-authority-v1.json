@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "status": "production_active_through_fla2",
+  "status": "production_active_through_fla2_with_l4_l5_blocker_repairs",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "authority_order": [
@@ -15,7 +15,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "fefcd8f01f70bb5c8576c132d0b8bf735da29a02dd73b725b2531facd1454436",
+      "sha256": "3066cffbabcb41c300c844ef7de5673f76d81227fb1632580693fe3bb0bb0e87",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -72,7 +72,7 @@
       "status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "02d8849e94b8ac15466a33d92ab17813c9cbe9c81fba2c7811fd98ea55ee8f24",
+      "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -85,7 +85,7 @@
     },
     {
       "layer": "L4",
-      "status": "selected",
+      "status": "active_repair_verified",
       "activation_phase": "FLA-4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
       "sha256": "53cad3b85cbf739d755520cffc0e3be9c5fd303900b0a7c8b6de2de19e7800ce",
@@ -102,10 +102,10 @@
     },
     {
       "layer": "L5-result",
-      "status": "selected",
+      "status": "active_repair_verified",
       "activation_phase": "FLA-5",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "5c607ba517254d04f2e73d1a2fe88b135fa5d8c599a51cf277992715eb768db7",
+      "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
@@ -179,7 +179,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v2.1 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",

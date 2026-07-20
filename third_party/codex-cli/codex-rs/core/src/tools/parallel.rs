@@ -73,6 +73,13 @@ impl ToolCallRuntime {
         self.router.create_diff_consumer(tool_name)
     }
 
+    pub(crate) async fn taskspace_canonical_revision(&self) -> Option<u64> {
+        self.session
+            .action_map_control_state(None)
+            .await
+            .map(|state| state.revision)
+    }
+
     pub(crate) fn invalid_call_response(
         call: &ToolCall,
         message: impl Into<String>,

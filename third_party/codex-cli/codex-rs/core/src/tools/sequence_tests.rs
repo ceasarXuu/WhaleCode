@@ -149,7 +149,7 @@ fn multi_patch_preflight_closes_every_call_without_execution_claims() {
     let failure = validate_tool_sequence(&calls).expect_err("two patches must fail");
     assert_eq!(failure.reason_code, REQUEST_MULTIPLE_PATCHES_CODE);
 
-    let outputs = failure.outputs(&calls);
+    let outputs = failure.outputs(&calls, None);
     assert_eq!(outputs.len(), calls.len());
     for (output, call) in outputs.iter().zip(&calls) {
         assert_eq!(response_input_call_id(output), call.call_id);
@@ -217,12 +217,29 @@ fn declared_ordinary_tool_requirement_passes_in_the_same_response() {
 
 #[test]
 fn declared_next_call_requires_an_immediate_sibling() {
-    let failure = validate_tool_sequence(&[handoff_call("handoff", "ordinary_tool")])
-        .expect_err("missing sibling must fail");
+    let calls = [handoff_call("handoff", "ordinary_tool")];
+    let failure = validate_tool_sequence(&calls).expect_err("missing sibling must fail");
     assert_eq!(
         failure.reason_code,
         TASKSPACE_REQUIRED_NEXT_CALL_MISSING_CODE
     );
+    let output = failure.outputs(&calls, Some(2)).remove(0);
+    let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
+        panic!("expected function output");
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(output.body.to_text().as_deref().expect("control result"))
+            .expect("control result json");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
+    assert_eq!(value["action"], "complete_then_continue");
+    assert_eq!(value["canonical_revision"], 2);
+    assert_eq!(value["submitted_expected_revision"], 2);
+    assert_eq!(value["error"]["code"], "TASKSPACE_REQUIRED_SIBLING_MISSING");
+    assert_eq!(
+        value["error"]["expected"]["required_next_call"],
+        "ordinary_tool"
+    );
+    assert!(value["error"]["actual"]["observed_next_tool"].is_null());
 }
 
 #[test]
@@ -246,7 +263,7 @@ fn declared_patch_rejects_malformed_direct_arguments_before_execution() {
         failure.reason_code,
         TASKSPACE_REQUIRED_PATCH_ARGUMENTS_INVALID_CODE
     );
-    assert!(failure.outputs(&calls).iter().all(|output| {
+    assert!(failure.outputs(&calls, None).iter().all(|output| {
         !response_input_succeeded(output)
             && matches!(
                 output,

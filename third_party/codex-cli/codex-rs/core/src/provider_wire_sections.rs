@@ -8,7 +8,7 @@ use sha2::Sha256;
 
 const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
 const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
-const TASKSPACE_CONTROL_RESULT_MARKER: &str = "TaskSpaceControlResultR6V1";
+const TASKSPACE_CONTROL_RESULT_MARKER: &str = "TaskSpaceControlResultV2";
 
 #[derive(Debug, Serialize)]
 pub(super) struct ProviderWireSectionCost {

@@ -284,11 +284,13 @@ fn read_output_ref_modes_accept_only_their_direct_schema() {
 fn invalid_arguments_return_one_typed_json_payload() {
     let arguments = r#"{"action":"unknown"}"#;
     let value = invalid_payload(arguments);
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultR6V1");
-    assert_eq!(value["status"], "protocol_failed");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
+    assert!(value["action"].is_null());
+    assert_eq!(value["status"], "argument_failed");
     assert_eq!(value["success"], false);
-    assert_eq!(value["error"]["class"], "protocol");
-    assert_eq!(value["error"]["code"], "invalid_arguments");
+    assert_eq!(value["error"]["class"], "argument");
+    assert_eq!(value["error"]["code"], "TASKSPACE_INVALID_ARGUMENT");
+    assert_eq!(value["partial_commit"], false);
     let message = value["error"]["message"].as_str().expect("message");
     assert!(
         message.starts_with("invalid taskspace_control arguments at action:"),
@@ -304,10 +306,10 @@ fn rejects_trailing_json_instead_of_executing_the_first_value() {
         format!(r#"{valid} {{"action":"finish_end"}}"#),
     ] {
         let value = invalid_payload(&arguments);
-        assert_eq!(value["status"], "protocol_failed");
+        assert_eq!(value["status"], "argument_failed");
         assert_eq!(value["success"], false);
         assert_eq!(value["state_commit"], false);
-        assert_eq!(value["partial_commit"], 0);
+        assert_eq!(value["partial_commit"], false);
         let message = value["error"]["message"].as_str().expect("message");
         assert!(message.contains("trailing characters"), "{message}");
     }

@@ -98,7 +98,6 @@ use super::sentinel::warning_drafts_for_trace_event;
 pub(crate) enum TaskSpaceHardGateClass {
     StateMachine,
     Protocol,
-    Resource,
 }
 
 impl TaskSpaceHardGateClass {
@@ -106,7 +105,6 @@ impl TaskSpaceHardGateClass {
         match self {
             Self::StateMachine => "state_machine",
             Self::Protocol => "protocol",
-            Self::Resource => "resource",
         }
     }
 }
@@ -172,11 +170,11 @@ fn hard_state_reason_from_message(message: &str) -> Option<String> {
 
 fn rooted_rejection_message(rejection: Rejection) -> String {
     serde_json::json!({
-        "schema_version": "TaskSpaceControlResultR6V1",
+        "schema_version": "TaskSpaceStateRejectionV1",
         "status": "state_machine_failed",
         "success": false,
         "state_commit": rejection.state_commit,
-        "partial_commit": 0,
+        "partial_commit": false,
         "current_revision": rejection.current_revision,
         "violations": rejection
             .violations
@@ -3501,7 +3499,11 @@ impl ActionMapRuntimeState {
                     "TaskSpace node `{node_id}` is not the current binding."
                 ));
             }
-            self.validate_no_main_tool_reservations_for_node(&map_id, &node_id, "transition_node")?;
+            self.validate_no_main_tool_reservations_for_node(
+                &map_id,
+                &node_id,
+                transition.operation_name(),
+            )?;
         }
         let committed = {
             let map = self
@@ -3518,7 +3520,8 @@ impl ActionMapRuntimeState {
             .get(&node_id)
             .expect("transition target remains present")
             .status;
-        let graph_batch = graph_revision_committed_record(&committed.events, "transition_node");
+        let graph_batch =
+            graph_revision_committed_record(&committed.events, transition.operation_name());
         let mut events = vec![MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone())];
         let lease_id = match transition {
             NodeTransition::Bind => Some(self.next_lease_id()),

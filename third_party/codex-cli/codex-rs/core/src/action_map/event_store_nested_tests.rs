@@ -13,10 +13,7 @@ fn bootstrap_call(call_id: &str) -> ResponseItem {
             "additional_work_nodes": [],
             "finish_identity": {"id": "finish"},
             "edges": [{"from": "root", "to": "node-1"}, {"from": "node-1", "to": "finish"}],
-            "continuation": {
-                "kind": "actions",
-                "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
-            }
+            "required_next_call": "ordinary_tool"
         })
         .to_string(),
         call_id: call_id.into(),
@@ -28,10 +25,14 @@ fn committed_control_output(call_id: &str) -> ResponseItem {
         call_id: call_id.into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultR6V1",
+                "schema_version": "TaskSpaceControlResultV2",
+                "action": "initialize_map",
                 "status": "committed",
                 "success": true,
                 "state_commit": true,
+                "partial_commit": false,
+                "canonical_revision": 1,
+                "submitted_expected_revision": null,
                 "committed_revision": 1,
                 "delta": {
                     "map_id": "map-1",
@@ -43,7 +44,9 @@ fn committed_control_output(call_id: &str) -> ResponseItem {
                     "kind": "map_initialized",
                     "map_id": "map-1",
                     "revision": 1
-                }]
+                }],
+                "read": null,
+                "error": null
             })
             .to_string(),
         ),

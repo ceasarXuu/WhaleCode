@@ -19,6 +19,32 @@ pub(crate) enum NodeTransition {
     ReleaseLease,
 }
 
+impl NodeTransition {
+    pub(crate) fn operation_name(self) -> &'static str {
+        match self {
+            Self::Bind => "bind_node",
+            Self::Complete => "complete_node",
+            Self::Block => "block_node",
+            Self::Unblock => "unblock_node",
+            Self::Rework => "rework_node",
+            Self::ReleaseLease => "release_lease",
+        }
+    }
+}
+
+#[cfg(test)]
+mod operation_name_tests {
+    use super::NodeTransition;
+
+    #[test]
+    fn observable_operation_names_match_direct_control_actions() {
+        assert_eq!(NodeTransition::Bind.operation_name(), "bind_node");
+        assert_eq!(NodeTransition::Block.operation_name(), "block_node");
+        assert_eq!(NodeTransition::Unblock.operation_name(), "unblock_node");
+        assert_eq!(NodeTransition::Rework.operation_name(), "rework_node");
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReadinessChange {
     pub(super) node_id: NodeId,

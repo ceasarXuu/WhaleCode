@@ -1,6 +1,10 @@
 use codex_protocol::models::ResponseInputItem;
 
+use crate::tools::context::ToolPayload;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceRequiredNextCall;
+use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
+use crate::tools::handlers::taskspace_control_output::TaskSpaceFailureResult;
+use crate::tools::handlers::taskspace_control_output::format_failure_result;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_manifest::ToolSequenceManifest;
@@ -22,10 +26,17 @@ pub(crate) struct ToolSequencePreflightFailure {
     pub(crate) message: String,
     pub(crate) request_patch_count: Option<usize>,
     pub(crate) declared_tool_count: Option<usize>,
+    pub(crate) failed_call_id: Option<String>,
+    pub(crate) required_next_call: Option<TaskSpaceRequiredNextCall>,
+    pub(crate) observed_next_tool: Option<String>,
 }
 
 impl ToolSequencePreflightFailure {
-    pub(crate) fn outputs(&self, calls: &[ToolCall]) -> Vec<ResponseInputItem> {
+    pub(crate) fn outputs(
+        &self,
+        calls: &[ToolCall],
+        canonical_revision: Option<u64>,
+    ) -> Vec<ResponseInputItem> {
         let payload = serde_json::json!({
             "schema_version": "ToolSequencePreflightResultV1",
             "status": "protocol_failed",
@@ -44,7 +55,43 @@ impl ToolSequencePreflightFailure {
         .to_string();
         calls
             .iter()
-            .map(|call| ToolCallRuntime::invalid_call_response(call, payload.clone()))
+            .map(|call| {
+                let control_payload = self
+                    .failed_call_id
+                    .as_deref()
+                    .filter(|failed_call_id| *failed_call_id == call.call_id)
+                    .and_then(|_| taskspace_arguments(call))
+                    .and_then(|arguments| parse_taskspace_control_args(arguments).ok())
+                    .map(|arguments| {
+                        let action = arguments.action_name();
+                        let message = format!(
+                            "{action} requires a following top-level {} call in the same response",
+                            self.required_next_call
+                                .map_or("non-control", TaskSpaceRequiredNextCall::as_str)
+                        );
+                        format_failure_result(TaskSpaceFailureResult {
+                            action: Some(action),
+                            status: "protocol_failed",
+                            class: "protocol",
+                            code: "TASKSPACE_REQUIRED_SIBLING_MISSING",
+                            message: &message,
+                            canonical_revision,
+                            submitted_expected_revision: arguments
+                                .submitted_expected_revision(),
+                            actual: serde_json::json!({
+                                "observed_next_tool": self.observed_next_tool,
+                                "executed_tool_call_count": 0,
+                            }),
+                            expected: serde_json::json!({
+                                "required_next_call": self.required_next_call.map(TaskSpaceRequiredNextCall::as_str),
+                            }),
+                        })
+                    });
+                ToolCallRuntime::invalid_call_response(
+                    call,
+                    control_payload.unwrap_or_else(|| payload.clone()),
+                )
+            })
             .collect()
     }
 }
@@ -61,6 +108,9 @@ pub(crate) fn validate_tool_sequence(
                 manifest.request_patch_count
             ),
             &manifest,
+            None,
+            None,
+            None,
         ));
     }
     for (index, entry) in manifest.entries.iter().enumerate() {
@@ -71,11 +121,14 @@ pub(crate) fn validate_tool_sequence(
             return Err(failure(
                 TASKSPACE_REQUIRED_NEXT_CALL_MISSING_CODE,
                 format!(
-                    "taskspace_control call {} declares required_next_call={} but no immediately following top-level tool call exists; the declaration does not execute or schedule that call; no tool calls were executed",
+                    "taskspace_control call {} declares required_next_call={} but no immediately following top-level tool call exists; no tool calls were executed",
                     entry.call_id,
                     requirement.as_str()
                 ),
                 &manifest,
+                Some(entry.call_id.clone()),
+                Some(requirement),
+                None,
             ));
         };
         match requirement {
@@ -85,10 +138,13 @@ pub(crate) fn validate_tool_sequence(
                 return Err(failure(
                     TASKSPACE_REQUIRED_ORDINARY_TOOL_INVALID_CODE,
                     format!(
-                        "taskspace_control call {} declares required_next_call=ordinary_tool but the immediately following call is {}; use required_next_call=apply_patch for apply_patch; no tool calls were executed",
+                        "taskspace_control call {} declares required_next_call=ordinary_tool but the immediately following call is {}; no tool calls were executed",
                         entry.call_id, next.tool_name
                     ),
                     &manifest,
+                    Some(entry.call_id.clone()),
+                    Some(requirement),
+                    Some(next.tool_name.clone()),
                 ));
             }
             TaskSpaceRequiredNextCall::ApplyPatch if !next.is_apply_patch => {
@@ -99,6 +155,9 @@ pub(crate) fn validate_tool_sequence(
                         entry.call_id, next.tool_name
                     ),
                     &manifest,
+                    Some(entry.call_id.clone()),
+                    Some(requirement),
+                    Some(next.tool_name.clone()),
                 ));
             }
             TaskSpaceRequiredNextCall::ApplyPatch if !next.apply_patch_arguments_valid => {
@@ -109,6 +168,9 @@ pub(crate) fn validate_tool_sequence(
                         entry.call_id
                     ),
                     &manifest,
+                    Some(entry.call_id.clone()),
+                    Some(requirement),
+                    Some(next.tool_name.clone()),
                 ));
             }
             TaskSpaceRequiredNextCall::OrdinaryTool | TaskSpaceRequiredNextCall::ApplyPatch => {}
@@ -121,11 +183,27 @@ fn failure(
     reason_code: &'static str,
     message: String,
     manifest: &ToolSequenceManifest,
+    failed_call_id: Option<String>,
+    required_next_call: Option<TaskSpaceRequiredNextCall>,
+    observed_next_tool: Option<String>,
 ) -> ToolSequencePreflightFailure {
     ToolSequencePreflightFailure {
         reason_code,
         message,
         request_patch_count: Some(manifest.request_patch_count),
         declared_tool_count: Some(manifest.entries.len()),
+        failed_call_id,
+        required_next_call,
+        observed_next_tool,
     }
+}
+
+fn taskspace_arguments(call: &ToolCall) -> Option<&str> {
+    if call.tool_name.namespace.is_some() || call.tool_name.name != "taskspace_control" {
+        return None;
+    }
+    let ToolPayload::Function { arguments } = &call.payload else {
+        return None;
+    };
+    Some(arguments)
 }

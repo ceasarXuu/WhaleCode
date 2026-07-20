@@ -3,10 +3,16 @@ use std::collections::HashSet;
 use crate::function_tool::FunctionCallError;
 use serde::Deserialize;
 
+#[path = "taskspace_control_args_error.rs"]
+mod error;
+use error::invalid_argument_error;
+use error::normalize_invalid_arguments;
+pub(crate) use error::with_argument_error_canonical_revision;
+
 #[path = "taskspace_control_args_wire.rs"]
 mod wire;
 
-pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceControlResultR6V1";
+pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceControlResultV2";
 
 #[derive(Clone, Debug)]
 pub(crate) enum TaskSpaceControlArgs {
@@ -108,6 +114,56 @@ impl TaskSpaceRequiredNextCall {
 }
 
 impl TaskSpaceControlArgs {
+    pub(crate) fn action_name(&self) -> &'static str {
+        match self {
+            Self::InitializeMap { .. } => "initialize_map",
+            Self::MutateGraph { .. } => "mutate_graph",
+            Self::BindNode { .. } => "bind_node",
+            Self::BlockNode { .. } => "block_node",
+            Self::UnblockNode { .. } => "unblock_node",
+            Self::ReworkNode { .. } => "rework_node",
+            Self::CompleteThenContinue { .. } => "complete_then_continue",
+            Self::CompleteThenEnd { .. } => "complete_then_end",
+            Self::FinishEnd { .. } => "finish_end",
+            Self::ExpandNodes { .. } => "expand_nodes",
+            Self::ReadOutputRef { .. } => "read_output_ref",
+            Self::ReadMap => "read_map",
+        }
+    }
+
+    pub(crate) fn submitted_expected_revision(&self) -> Option<u64> {
+        match self {
+            Self::MutateGraph {
+                expected_revision, ..
+            }
+            | Self::BindNode {
+                expected_revision, ..
+            }
+            | Self::BlockNode {
+                expected_revision, ..
+            }
+            | Self::UnblockNode {
+                expected_revision, ..
+            }
+            | Self::ReworkNode {
+                expected_revision, ..
+            }
+            | Self::CompleteThenContinue {
+                expected_revision, ..
+            }
+            | Self::CompleteThenEnd {
+                expected_revision, ..
+            }
+            | Self::FinishEnd {
+                expected_revision, ..
+            } => Some(*expected_revision),
+            Self::InitializeMap { .. }
+            | Self::ExpandNodes { .. }
+            | Self::ReadOutputRef { .. }
+            | Self::ReadMap => None,
+        }
+    }
+
     pub(crate) fn required_next_call(&self) -> Option<TaskSpaceRequiredNextCall> {
         match self {
             Self::InitializeMap {
@@ -251,8 +307,10 @@ impl TaskSpaceControlArgs {
 pub(crate) fn parse_taskspace_control_args(
     arguments: &str,
 ) -> Result<TaskSpaceControlArgs, FunctionCallError> {
-    let args = wire::parse(arguments)?;
-    args.validate()?;
+    let args =
+        wire::parse(arguments).map_err(|error| normalize_invalid_arguments(arguments, error))?;
+    args.validate()
+        .map_err(|error| normalize_invalid_arguments(arguments, error))?;
     Ok(args)
 }
 
@@ -343,27 +401,11 @@ fn validate_node_id(action: &str, node_id: &str) -> Result<(), FunctionCallError
 }
 
 fn invalid<T>(message: impl Into<String>) -> Result<T, FunctionCallError> {
-    Err(invalid_error(message.into()))
+    Err(invalid_argument_error(message.into()))
 }
 
 fn invalid_error(message: String) -> FunctionCallError {
-    FunctionCallError::RespondToModel(
-        serde_json::json!({
-            "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
-            "status": "protocol_failed",
-            "success": false,
-            "state_commit": false,
-            "partial_commit": 0,
-            "committed_revision": serde_json::Value::Null,
-            "delta": serde_json::Value::Null,
-            "error": {
-                "class": "protocol",
-                "code": "invalid_arguments",
-                "message": message,
-            },
-        })
-        .to_string(),
-    )
+    invalid_argument_error(message)
 }
 
 #[cfg(test)]

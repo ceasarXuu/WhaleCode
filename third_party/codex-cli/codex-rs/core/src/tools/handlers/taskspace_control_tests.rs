@@ -59,15 +59,24 @@ fn mutation_continuation_requires_the_current_running_binding() {
 
 #[test]
 fn initialize_output_exposes_rooted_map_identity() {
-    let step = format_initialize_step(&ActionMapInitializeOutcome {
+    let outcome = ActionMapInitializeOutcome {
         task_id: "task-1".into(),
         map_id: "map-1".into(),
         node_ids: vec!["root".into(), "work".into(), "finish".into()],
         current_node_id: "work".into(),
         delta: control_delta(),
-    });
+    };
     let delta = control_delta();
-    let output = format_state_batch(vec![step], true, true, &[&delta]);
+    let intermediate = format_state_batch(
+        vec![
+            format_initialize_step(&outcome),
+            format_initialize_binding_step(&outcome),
+        ],
+        true,
+        true,
+        &[&delta],
+    );
+    let output = normalize_control_result(intermediate, "initialize_map", None, Some(3), true);
     let value: JsonValue = serde_json::from_str(&output).unwrap();
 
     assert_eq!(
@@ -79,13 +88,16 @@ fn initialize_output_exposes_rooted_map_identity() {
     assert_eq!(value["committed_revision"], 3);
     assert_eq!(value["delta"]["map_id"], "map-1");
     assert_eq!(value["steps"][0]["revision"], 3);
+    assert_eq!(value["steps"][1]["kind"], "node_bound");
+    assert_eq!(value["steps"][1]["node_id"], "work");
     assert!(value["steps"][0].get("created_node_ids").is_none());
-    assert_eq!(state_identity_coverage(&output), Some((1, true)));
+    assert_eq!(state_identity_coverage(&output), Some((2, true)));
+    assert_v2_envelope(&value);
 }
 
 #[test]
 fn rejected_output_cannot_report_partial_commit() {
-    let output = format_state_batch(
+    let intermediate = format_state_batch(
         vec![serde_json::json!({
             "kind": "state_rejection",
             "error": {"violations": [{"code": "node_unreachable"}]},
@@ -94,11 +106,12 @@ fn rejected_output_cannot_report_partial_commit() {
         false,
         &[],
     );
+    let output = normalize_control_result(intermediate, "mutate_graph", Some(3), Some(3), false);
     let value: JsonValue = serde_json::from_str(&output).unwrap();
 
     assert_eq!(value["status"], "state_machine_failed");
     assert_eq!(value["state_commit"], false);
-    assert_eq!(value["partial_commit"], 0);
+    assert_eq!(value["partial_commit"], false);
     assert_eq!(
         control_commit_observation(&output),
         Some((false, None, 0, 0))
@@ -122,7 +135,13 @@ fn committed_delta_references_canonical_events_without_copying_event_payloads() 
         }],
         node_detail_events: Vec::new(),
     };
-    let output = format_state_batch(Vec::new(), true, true, &[&delta]);
+    let output = normalize_control_result(
+        format_state_batch(Vec::new(), true, true, &[&delta]),
+        "mutate_graph",
+        Some(1),
+        Some(2),
+        true,
+    );
     let value: JsonValue = serde_json::from_str(&output).unwrap();
 
     assert_eq!(
@@ -141,8 +160,8 @@ fn committed_delta_references_canonical_events_without_copying_event_payloads() 
         Some((true, Some(2), 1, 0))
     );
     assert!(
-        output.len() <= 712,
-        "compact initialization feedback must stay at least 30% below the 1,018-byte E6 fixture, got {} bytes",
+        output.len() <= 900,
+        "typed control feedback grew beyond the compact V2 budget: {} bytes",
         output.len()
     );
 }
@@ -159,16 +178,26 @@ fn rooted_rejection_is_exposed_once_without_string_wrapping() {
     })
     .to_string();
 
-    let output = rejected_control_result(&error);
+    let output = normalize_control_result(
+        rejected_control_result(&error),
+        "bind_node",
+        Some(0),
+        Some(0),
+        false,
+    );
     let value: JsonValue = serde_json::from_str(&output).expect("one typed JSON result");
-    assert_eq!(value["current_revision"], 0);
-    assert_eq!(value["partial_commit"], 0);
-    assert_eq!(value["violations"][0]["subjects"][0], "work");
-    assert!(value.get("map_state").is_none());
+    assert_eq!(value["canonical_revision"], 0);
+    assert_eq!(value["partial_commit"], false);
+    assert_eq!(
+        value["error"]["actual"]["violations"][0]["subjects"][0],
+        "work"
+    );
+    assert_eq!(value["error"]["code"], "TASKSPACE_LIFECYCLE_INVARIANT");
     assert!(value["committed_revision"].is_null());
     assert!(value["delta"].is_null());
-    assert!(value.get("steps").is_none());
-    assert!(value.get("error").is_none());
+    assert_eq!(value["steps"], serde_json::json!([]));
+    assert!(value["error"].is_object());
+    assert_v2_envelope(&value);
 }
 
 #[test]
@@ -180,14 +209,14 @@ fn graph_and_terminal_steps_have_required_identity() {
             "revision": 4,
         }),
         serde_json::json!({
-            "kind": "node_transition",
+            "kind": "node_bound",
             "map_id": "map-1",
             "node_id": "work",
             "revision": 4,
-            "status": "completed",
+            "status": "running",
         }),
         serde_json::json!({
-            "kind": "terminal_transition",
+            "kind": "finish_end",
             "map_id": "map-1",
             "revision": 5,
             "finish_closed": true,
@@ -220,4 +249,25 @@ fn terminal_output_preserves_committed_map_revision_and_summary() {
     };
 
     assert_eq!(output.taskspace_terminal_carrier(), Some(&carrier));
+}
+
+fn assert_v2_envelope(value: &JsonValue) {
+    for field in [
+        "schema_version",
+        "action",
+        "status",
+        "success",
+        "state_commit",
+        "partial_commit",
+        "canonical_revision",
+        "submitted_expected_revision",
+        "committed_revision",
+        "delta",
+        "steps",
+        "read",
+        "error",
+    ] {
+        assert!(value.get(field).is_some(), "V2 result omits {field}");
+    }
+    assert_eq!(value["partial_commit"], false);
 }

@@ -1,8 +1,8 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 0.2
-- Status: Production active and verified through FLA-2; FLA-3 through FLA-8 pending
+- Version: 0.3
+- Status: Production active and verified through FLA-2; selected L4/L5 contracts are active as FLA-2 blocker repairs; FLA-3 through FLA-8 formal phase acceptance pending
 - Scope: FLA-0 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -20,6 +20,7 @@
 | `selected_baseline` | 当前生产实现和回滚基线 |
 | `selected_not_implemented` | 已确定产品合同，但生产代码尚未接通 |
 | `active_verified` | 生产路径、合同测试、日志和阶段 smoke 全部通过 |
+| `active_repair_verified` | 为修复已激活层的阻塞问题而提前接通选定合同，生产路径和定向回归已通过，但不代表其名义阶段已验收 |
 | `experimental_disabled` | 独立实验，不得混入主线或被称为已完成 |
 
 只有生产路径连通、定向测试通过、要求的日志可观测且阶段样本通过，阶段才能标为 `active_verified`。只有提示词、
@@ -34,15 +35,23 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | 层 | 当前生产基线 | 已选目标 | 当前状态 |
 |---|---|---|---|
 | L1 | TaskSpace Base v2.0.0 仅保留宏观 Map 工作模型 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
-| L2 | `taskspace-core-v2` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
+| L2 | `taskspace-core-v2.1` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | 无 `taskspace-advanced` 内置 Skill | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `selected_not_implemented` |
-| L4 | 单个 `taskspace_control`，`transition_node + transition` | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)；仍为单 Tool | `selected_not_implemented` |
-| L5 Result | `TaskSpaceControlResultR6V1`，整数 `partial_commit` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `selected_not_implemented` |
+| L4 | 单个 `taskspace_control`，直接 lifecycle actions | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)；仍为单 Tool | `active_repair_verified` |
+| L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_repair_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | 维持 [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json)，补生命周期判定 | `selected_baseline` |
 
 主线明确选择：一个 `taskspace_control` Tool、保留 `required_next_call`、`strict=false`、不向 DeepSeek 声称
 `output_schema`。读写拆 Tool、移除 `required_next_call`、MCP `outputSchema`、DeepSeek strict 是四个
 `experimental_disabled` 单变量实验。
+
+### 2.1 FLA-2 阻塞修复例外
+
+FLA-2 对抗审查证明：已激活的 L2 恢复协议依赖统一的 L5 factual result，而旧 L4 嵌套 discriminator 又会造成
+Agent 可见能力歧义。为修复已上线层自身的合同断裂，生产路径提前接通选定 L4 input schema 和 L5 result schema。
+这是阻塞修复，不改变名义 phase 顺序：`activation_through` 仍为 `FLA-2`，L3 尚未实施，FLA-4/FLA-5 的完整
+阶段 smoke、三臂比较和接受决策仍需按后续 phase 执行。后续阶段以当前修复版本为基线验证，不得回退到旧
+`transition_node` 或 R6 result。
 
 ## 3. Agent 实际看到的内容
 
@@ -205,7 +214,8 @@ feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产�
 - 修改：`tools/src/taskspace_tool.rs`、`taskspace_tool_simple_actions.rs`、
   `core/src/tools/handlers/taskspace_control_args.rs`、`taskspace_control_args_wire.rs`。
 - 删除：`transition_node + transition` discriminator；旧 parser 分支和 schema 构造器同次删除。
-- 保持：单 Tool、`required_next_call`、现有 Runtime 状态效果和 R6V1 结果，避免与 FLA-5 混变量。
+- 当前修复基线已接通：单 Tool、`required_next_call`、直接 lifecycle actions 和 V2 result；正式阶段负责补齐既定
+  smoke 与评估证据，不重新引入旧 discriminator 或 R6 result。
 - 定向测试：每个 action 一组 valid fixture、每个 required/extra/type 失败 fixture；最终 provider schema 等于权威 schema；
   `apply_patch` 不可见时只发生指定 enum 机械变化；旧 action 全部拒绝。
 - 日志：schema profile/hash、action、parser branch、validation code、visible tool set。
@@ -215,7 +225,8 @@ feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产�
 ### FLA-5：激活 L5 result algebra
 
 - 修改：`taskspace_control_output.rs`、`sequence_preflight.rs`、`sequence.rs`、control handler/read path。
-- 新增：Rust `TaskSpaceControlResultV2` 类型、错误码 enum、result schema conformance test、fixture freezer。
+- 当前修复基线已统一产生 `TaskSpaceControlResultV2`、错误码和布尔 `partial_commit=false`；正式阶段继续补齐完整
+  schema conformance、fixture freezer 和三臂评估证据。
 - 删除：R6V1 formatter、整数 `partial_commit`、旧自由文本 envelope；不保留版本协商。
 - 定向测试：结果 schema 每个 `oneOf` 分支 golden；LC-01 至 LC-05；control commit + ordinary failure 两结果不合并；
   Agent 可见 Tool result 字节等于已校验 JSON。

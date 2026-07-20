@@ -1,4 +1,5 @@
 use codex_utils_string::take_bytes_at_char_boundary;
+use serde_json::Value as JsonValue;
 use sha2::Digest;
 use sha2::Sha256;
 use std::path::Path;
@@ -39,6 +40,15 @@ pub(crate) enum OutputSliceMode {
 pub(crate) struct OutputSliceRequest {
     pub(crate) mode: OutputSliceMode,
     pub(crate) max_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OutputSliceResult {
+    pub(crate) mode: &'static str,
+    pub(crate) range: JsonValue,
+    pub(crate) truncated: bool,
+    pub(crate) continuation: Option<JsonValue>,
+    pub(crate) content: String,
 }
 
 impl OutputReferenceV1 {
@@ -162,6 +172,7 @@ fn session_store_root(rollout_path: &Path) -> &Path {
         .unwrap_or_else(|| Path::new("."))
 }
 
+#[cfg(test)]
 pub(crate) async fn read_output_artifact_slice(
     rollout_path: Option<&Path>,
     output_ref: &str,
@@ -179,6 +190,24 @@ pub(crate) async fn read_output_artifact_slice(
     read_output_bytes_slice(output_ref, &raw_output, request)
 }
 
+pub(crate) async fn read_output_artifact_slice_result(
+    rollout_path: Option<&Path>,
+    output_ref: &str,
+    request: OutputSliceRequest,
+) -> std::io::Result<OutputSliceResult> {
+    let Some(rollout_path) = rollout_path else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "output artifact rollout path is unavailable",
+        ));
+    };
+    let sha = parse_output_ref_sha(output_ref)?;
+    let artifact_path = output_artifact_dir(rollout_path).join(format!("{sha}.stdout"));
+    let raw_output = tokio::fs::read(&artifact_path).await?;
+    read_output_bytes_slice_result(output_ref, &raw_output, request)
+}
+
+#[cfg(test)]
 pub(crate) fn read_output_bytes_slice(
     output_ref: &str,
     raw_output: &[u8],
@@ -213,6 +242,134 @@ pub(crate) fn read_output_bytes_slice(
     ))
 }
 
+pub(crate) fn read_output_bytes_slice_result(
+    output_ref: &str,
+    raw_output: &[u8],
+    request: OutputSliceRequest,
+) -> std::io::Result<OutputSliceResult> {
+    let sha = parse_output_ref_sha(output_ref)?;
+    let actual_sha = format!("{:x}", Sha256::digest(raw_output));
+    if actual_sha != sha {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "output artifact sha256 mismatch for {output_ref}: expected {sha}, got {actual_sha}"
+            ),
+        ));
+    }
+    let text = String::from_utf8_lossy(raw_output);
+    let max_bytes = request.max_bytes.clamp(1, OUTPUT_SLICE_MAX_BYTES);
+    let total_lines = text.lines().count();
+    let (mode, content, range, truncated, continuation) = match request.mode {
+        OutputSliceMode::Head => {
+            let content = take_bytes_at_char_boundary(&text, max_bytes).to_string();
+            let returned_bytes = content.len();
+            (
+                "head",
+                content,
+                serde_json::json!({
+                    "start_byte": 0,
+                    "returned_bytes": returned_bytes,
+                    "total_bytes": raw_output.len(),
+                }),
+                returned_bytes < text.len(),
+                None,
+            )
+        }
+        OutputSliceMode::Tail => {
+            let content = take_tail_bytes_at_char_boundary(&text, max_bytes);
+            let returned_bytes = content.len();
+            (
+                "tail",
+                content,
+                serde_json::json!({
+                    "start_byte": text.len().saturating_sub(returned_bytes),
+                    "returned_bytes": returned_bytes,
+                    "total_bytes": raw_output.len(),
+                }),
+                returned_bytes < text.len(),
+                None,
+            )
+        }
+        OutputSliceMode::LineRange {
+            start_line,
+            end_line,
+        } => {
+            if start_line == 0 || end_line < start_line {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "line_range requires 1 <= start_line <= end_line",
+                ));
+            }
+            let selected = text
+                .lines()
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    let line_no = index + 1;
+                    (line_no >= start_line && line_no <= end_line).then_some(line)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let content = take_bytes_at_char_boundary(&selected, max_bytes).to_string();
+            let truncated = content.len() < selected.len();
+            let returned_lines = content.lines().count();
+            let continuation = truncated.then(|| {
+                serde_json::json!({
+                    "action": "read_output_ref",
+                    "output_ref": output_ref,
+                    "mode": "line_range",
+                    "start_line": start_line.saturating_add(returned_lines.max(1)),
+                    "end_line": end_line,
+                    "max_bytes": max_bytes,
+                })
+            });
+            (
+                "line_range",
+                content,
+                serde_json::json!({
+                    "requested_start_line": start_line,
+                    "requested_end_line": end_line,
+                    "returned_line_count": returned_lines,
+                    "total_lines": total_lines,
+                }),
+                truncated,
+                continuation,
+            )
+        }
+        OutputSliceMode::Grep { pattern } => {
+            let matching = text
+                .lines()
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    line.contains(&pattern)
+                        .then(|| format!("{}:{line}\n", index + 1))
+                })
+                .collect::<String>();
+            let content = take_bytes_at_char_boundary(&matching, max_bytes).to_string();
+            let truncated = content.len() < matching.len();
+            let returned_bytes = content.len();
+            (
+                "grep",
+                content,
+                serde_json::json!({
+                    "pattern": pattern,
+                    "returned_bytes": returned_bytes,
+                    "total_matching_bytes": matching.len(),
+                }),
+                truncated,
+                None,
+            )
+        }
+    };
+    Ok(OutputSliceResult {
+        mode,
+        range,
+        truncated,
+        continuation,
+        content: redact_sensitive_text(&content),
+    })
+}
+
 fn parse_output_ref_sha(output_ref: &str) -> std::io::Result<&str> {
     let Some(sha) = output_ref.strip_prefix("output-ref://sha256/") else {
         return Err(std::io::Error::new(
@@ -229,6 +386,7 @@ fn parse_output_ref_sha(output_ref: &str) -> std::io::Result<&str> {
     Ok(sha)
 }
 
+#[cfg(test)]
 fn bounded_line_range(text: &str, start_line: usize, end_line: usize, max_bytes: usize) -> String {
     if start_line == 0 || end_line < start_line {
         return String::new();
@@ -245,6 +403,7 @@ fn bounded_line_range(text: &str, start_line: usize, end_line: usize, max_bytes:
     take_bytes_at_char_boundary(&selected, max_bytes).to_string()
 }
 
+#[cfg(test)]
 fn bounded_grep(text: &str, pattern: &str, max_bytes: usize) -> String {
     let mut output = String::new();
     for (idx, line) in text.lines().enumerate() {

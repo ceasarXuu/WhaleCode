@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.0",
+  "manifest_version": "1.0.1",
   "activation_through": "FLA-2",
+  "repair_activation": ["L4", "L5-result"],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "c56da39adf3f55c525753254cfb0adcb2962dc34a08a8e72ac8a2d6811240087"
+    "sha256": "7144c991856b47c5b29de1944bd6a90f913cc7832f909085194751fb75b10844"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -41,7 +42,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "02d8849e94b8ac15466a33d92ab17813c9cbe9c81fba2c7811fd98ea55ee8f24",
+          "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
           "activation_phase": "FLA-2"
         }
       ]
@@ -63,7 +64,7 @@
       "id": "L4",
       "owner": "taskspace_tool",
       "carrier": "provider_tools",
-      "status": "baseline_active_target_pending",
+      "status": "repair_active",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
@@ -76,11 +77,11 @@
       "id": "L5",
       "owner": "taskspace_runtime",
       "carrier": "tool_result_and_projection",
-      "status": "baseline_active_target_pending",
+      "status": "result_repair_active_projection_baseline",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-          "sha256": "5c607ba517254d04f2e73d1a2fe88b135fa5d8c599a51cf277992715eb768db7",
+          "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8",
           "activation_phase": "FLA-5"
         },
         {

@@ -2,11 +2,7 @@ use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use serde_json::Value as JsonValue;
 
-use crate::action_map::ActionMapGraphMutationInput;
-use crate::action_map::ActionMapInitializeInput;
-use crate::action_map::NodeTransition;
 use crate::function_tool::FunctionCallError;
-use crate::session::FinishActionMapError;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::TaskSpaceTerminalCarrier;
@@ -15,28 +11,25 @@ use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
+use crate::tools::handlers::taskspace_control_args::with_argument_error_canonical_revision;
 use crate::tools::handlers::taskspace_control_output::control_commit_observation;
-use crate::tools::handlers::taskspace_control_output::format_initialize_step;
-use crate::tools::handlers::taskspace_control_output::format_node_detail_expansion_step;
-use crate::tools::handlers::taskspace_control_output::format_state_batch;
+use crate::tools::handlers::taskspace_control_output::normalize_control_result;
 use crate::tools::handlers::taskspace_control_output::protocol_error;
-use crate::tools::handlers::taskspace_control_output::rejected_control_result;
-use crate::tools::handlers::taskspace_control_output::resource_error;
 use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
-use crate::tools::handlers::taskspace_control_output::state_machine_error;
-use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
-use crate::tools::output_reference::OutputSliceMode;
-use crate::tools::output_reference::OutputSliceRequest;
-use crate::tools::output_reference::read_output_artifact_slice;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 
+#[path = "taskspace_control_graph_actions.rs"]
+mod graph_actions;
+#[path = "taskspace_control_lifecycle_actions.rs"]
+mod lifecycle_actions;
 #[path = "taskspace_control_mapping.rs"]
 mod mapping;
+#[path = "taskspace_control_read_actions.rs"]
+mod read_actions;
+
+#[cfg(test)]
 use mapping::control_state_has_active_binding;
-use mapping::map_edge_input;
-use mapping::map_finish_identity_input;
-use mapping::map_node_input;
 
 pub struct TaskSpaceControlHandler;
 
@@ -45,6 +38,8 @@ pub struct TaskSpaceControlOutput {
     success: bool,
     terminal_carrier: Option<TaskSpaceTerminalCarrier>,
 }
+
+pub(super) type ControlExecution = (String, bool, Option<TaskSpaceTerminalCarrier>);
 
 impl ToolOutput for TaskSpaceControlOutput {
     fn log_preview(&self) -> String {
@@ -109,495 +104,36 @@ impl ToolHandler for TaskSpaceControlHandler {
                     call_id,
                     "taskspace.control_arguments_rejected"
                 );
-                return Err(error);
+                let canonical_revision = session
+                    .action_map_control_state(None)
+                    .await
+                    .map(|state| state.revision);
+                return Err(with_argument_error_canonical_revision(
+                    error,
+                    canonical_revision,
+                ));
             }
         };
         let required_next_call = args
             .required_next_call()
             .map_or("none", |required| required.as_str());
+        let action = args.action_name();
+        let submitted_expected_revision = args.submitted_expected_revision();
 
-        let (message, success, terminal_carrier) = match args {
-            TaskSpaceControlArgs::InitializeMap {
-                root,
-                initial_work_node,
-                finish_identity,
-                additional_work_nodes,
-                edges,
-                required_next_call: _,
-            } => {
-                let source_event_ids = session
-                    .taskspace_initialization_source_event_ids(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                let outcome = session
-                    .initialize_action_map_for_main(
-                        &turn,
-                        ActionMapInitializeInput {
-                            root: map_node_input(root),
-                            current_work_node: map_node_input(initial_work_node),
-                            finish: map_finish_identity_input(finish_identity),
-                            work_nodes: additional_work_nodes
-                                .into_iter()
-                                .map(map_node_input)
-                                .collect(),
-                            edges: edges.into_iter().map(map_edge_input).collect(),
-                            source_event_ids,
-                        },
-                    )
-                    .await;
-                match outcome {
-                    Ok(outcome) => (
-                        format_state_batch(
-                            vec![format_initialize_step(&outcome)],
-                            true,
-                            true,
-                            &[&outcome.delta],
-                        ),
-                        true,
-                        None,
-                    ),
-                    Err(error) => {
-                        tracing::warn!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            "taskspace.map_initialization_rejected"
-                        );
-                        (rejected_control_result(&error), false, None)
-                    }
-                }
-            }
-            TaskSpaceControlArgs::MutateGraph {
-                expected_revision,
-                add_nodes,
-                add_edges,
-                remove_edges,
-                required_next_call,
-            } => {
-                let required_call_binding_valid = if required_next_call.is_some() {
-                    control_state_has_active_binding(
-                        session.action_map_control_state(None).await.as_ref(),
-                    )
-                } else {
-                    true
-                };
-                if !required_call_binding_valid {
-                    tracing::warn!(
-                        target: "codex_core::taskspace",
-                        call_id,
-                        expected_revision,
-                            "taskspace.graph_mutation_required_call_rejected_without_binding"
-                    );
-                    (
-                        rejected_control_result(
-                            "TaskSpace mutate_graph required_next_call requires an existing current node binding and lease. hard_state: no_current_node_binding.",
-                        ),
-                        false,
-                        None,
-                    )
-                } else {
-                    match session
-                        .mutate_action_map_graph(
-                            &turn,
-                            ActionMapGraphMutationInput {
-                                expected_revision,
-                                add_nodes: add_nodes.into_iter().map(map_node_input).collect(),
-                                add_edges: add_edges.into_iter().map(map_edge_input).collect(),
-                                remove_edges: remove_edges
-                                    .into_iter()
-                                    .map(map_edge_input)
-                                    .collect(),
-                            },
-                        )
-                        .await
-                    {
-                        Ok(outcome) => (
-                            format_state_batch(
-                                vec![serde_json::json!({
-                                    "kind": "graph_mutation",
-                                    "map_id": outcome.map_id,
-                                    "revision": outcome.revision,
-                                })],
-                                true,
-                                true,
-                                &[&outcome.delta],
-                            ),
-                            true,
-                            None,
-                        ),
-                        Err(error) => (rejected_control_result(&error), false, None),
-                    }
-                }
-            }
-            TaskSpaceControlArgs::BindNode {
-                expected_revision,
-                node_id,
-                required_next_call: _,
-            } => {
-                execute_node_transition(
-                    &session,
-                    &turn,
-                    &call_id,
-                    expected_revision,
-                    node_id,
-                    NodeTransition::Bind,
-                )
-                .await?
-            }
-            TaskSpaceControlArgs::BlockNode {
-                expected_revision,
-                node_id,
-            } => {
-                execute_node_transition(
-                    &session,
-                    &turn,
-                    &call_id,
-                    expected_revision,
-                    node_id,
-                    NodeTransition::Block,
-                )
-                .await?
-            }
-            TaskSpaceControlArgs::UnblockNode {
-                expected_revision,
-                node_id,
-            } => {
-                execute_node_transition(
-                    &session,
-                    &turn,
-                    &call_id,
-                    expected_revision,
-                    node_id,
-                    NodeTransition::Unblock,
-                )
-                .await?
-            }
-            TaskSpaceControlArgs::ReworkNode {
-                expected_revision,
-                node_id,
-            } => {
-                execute_node_transition(
-                    &session,
-                    &turn,
-                    &call_id,
-                    expected_revision,
-                    node_id,
-                    NodeTransition::Rework,
-                )
-                .await?
-            }
-            TaskSpaceControlArgs::CompleteThenContinue {
-                expected_revision,
-                current_node_id,
-                next_node_id,
-                required_next_call: _,
-            } => {
-                let source_event_ref = session
-                    .taskspace_event_id_for_call(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                match session
-                    .complete_then_bind_action_map_node(
-                        &turn,
-                        expected_revision,
-                        current_node_id.clone(),
-                        next_node_id.clone(),
-                        source_event_ref,
-                    )
-                    .await
-                {
-                    Ok(outcome) => {
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            map_id = outcome.map_id,
-                            revision = outcome.revision,
-                            current_node_id,
-                            next_node_id,
-                            required_next_call,
-                            "taskspace.complete_handoff_committed"
-                        );
-                        (
-                            format_state_batch(
-                                vec![serde_json::json!({
-                                    "kind": "complete_then_continue",
-                                    "map_id": outcome.map_id,
-                                    "current_node_id": outcome.current_node_id,
-                                    "next_node_id": outcome.next_node_id,
-                                    "revision": outcome.revision,
-                                })],
-                                true,
-                                true,
-                                &[&outcome.delta],
-                            ),
-                            true,
-                            None,
-                        )
-                    }
-                    Err(error) => {
-                        tracing::warn!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            expected_revision,
-                            current_node_id,
-                            next_node_id,
-                            required_next_call,
-                            "taskspace.complete_handoff_rejected"
-                        );
-                        (rejected_control_result(&error), false, None)
-                    }
-                }
-            }
-            TaskSpaceControlArgs::CompleteThenEnd {
-                expected_revision,
-                current_node_id,
-                final_summary,
-            } => {
-                let source_event_ref = session
-                    .taskspace_event_id_for_call(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                match session
-                    .complete_then_end_action_map(
-                        &turn,
-                        expected_revision,
-                        current_node_id.clone(),
-                        final_summary.clone(),
-                        source_event_ref,
-                    )
-                    .await
-                {
-                    Ok(outcome) => {
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            map_id = outcome.map_id,
-                            revision = outcome.revision,
-                            current_node_id,
-                            summary_bytes = outcome.final_summary.len(),
-                            "taskspace.complete_terminal_committed"
-                        );
-                        (
-                            format_state_batch(
-                                vec![serde_json::json!({
-                                    "kind": "complete_then_end",
-                                    "map_id": outcome.map_id,
-                                    "current_node_id": current_node_id,
-                                    "revision": outcome.revision,
-                                    "finish_closed": true,
-                                    "root_closed": true,
-                                })],
-                                true,
-                                true,
-                                &[&outcome.delta],
-                            ),
-                            true,
-                            Some(TaskSpaceTerminalCarrier {
-                                map_id: outcome.map_id,
-                                revision: outcome.revision,
-                                summary: outcome.final_summary,
-                            }),
-                        )
-                    }
-                    Err(FinishActionMapError::Rejected(error)) => {
-                        tracing::warn!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            expected_revision,
-                            current_node_id,
-                            "taskspace.complete_terminal_rejected"
-                        );
-                        (rejected_control_result(&error), false, None)
-                    }
-                    Err(FinishActionMapError::Persistence(error)) => {
-                        return Err(resource_error(error, "terminal_persistence_failed"));
-                    }
-                    Err(FinishActionMapError::Internal(error)) => {
-                        return Err(protocol_error(error, "terminal_transaction_invalid"));
-                    }
-                }
-            }
-            TaskSpaceControlArgs::FinishEnd {
-                expected_revision,
-                final_summary,
-            } => {
-                match session
-                    .finish_action_map(&turn, expected_revision, final_summary.clone())
-                    .await
-                {
-                    Ok(outcome) => (
-                        format_state_batch(
-                            vec![serde_json::json!({
-                                "kind": "terminal_transition",
-                                "map_id": outcome.map_id,
-                                "revision": outcome.revision,
-                                "finish_closed": true,
-                                "root_closed": true,
-                            })],
-                            true,
-                            true,
-                            &[&outcome.delta],
-                        ),
-                        true,
-                        Some(TaskSpaceTerminalCarrier {
-                            map_id: outcome.map_id,
-                            revision: outcome.revision,
-                            summary: outcome.final_summary,
-                        }),
-                    ),
-                    Err(FinishActionMapError::Rejected(error)) => {
-                        (rejected_control_result(&error), false, None)
-                    }
-                    Err(FinishActionMapError::Persistence(error)) => {
-                        return Err(resource_error(error, "terminal_persistence_failed"));
-                    }
-                    Err(FinishActionMapError::Internal(error)) => {
-                        return Err(protocol_error(error, "terminal_transaction_invalid"));
-                    }
-                }
-            }
-            TaskSpaceControlArgs::ExpandNodes { node_ids } => {
-                let source_event_id = session
-                    .taskspace_event_id_for_call(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                let requested_node_count = node_ids.len();
-                match session
-                    .expand_action_map_node_details(
-                        &turn,
-                        node_ids,
-                        call_id.clone(),
-                        source_event_id,
-                    )
-                    .await
-                {
-                    Ok(outcomes) => {
-                        let restored_detail_count = outcomes
-                            .iter()
-                            .map(|outcome| outcome.restored_details.len())
-                            .sum::<usize>();
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            requested_node_count,
-                            committed_node_count = outcomes.len(),
-                            restored_detail_count,
-                            "taskspace.node_details_expanded"
-                        );
-                        let steps = outcomes
-                            .iter()
-                            .enumerate()
-                            .map(|(index, outcome)| {
-                                format_node_detail_expansion_step(index, outcome)
-                            })
-                            .collect();
-                        let deltas = outcomes
-                            .iter()
-                            .map(|outcome| &outcome.delta)
-                            .collect::<Vec<_>>();
-                        (format_state_batch(steps, true, true, &deltas), true, None)
-                    }
-                    Err(error_message) => {
-                        tracing::warn!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            requested_node_count,
-                            "taskspace.node_details_expansion_rejected"
-                        );
-                        (rejected_control_result(&error_message), false, None)
-                    }
-                }
-            }
-            TaskSpaceControlArgs::ReadOutputRef {
-                output_ref,
-                mode,
-                start_line,
-                end_line,
-                pattern,
-                max_bytes,
-            } => {
-                let request = OutputSliceRequest {
-                    mode: parse_output_slice_mode(&mode, start_line, end_line, pattern)?,
-                    max_bytes: max_bytes.unwrap_or(OUTPUT_SLICE_MAX_BYTES),
-                };
-                let rollout_path = session.current_rollout_path().await.map_err(|error| {
-                    resource_error(error.to_string(), "output_reference_store_unavailable")
-                })?;
-                let slice =
-                    read_output_artifact_slice(rollout_path.as_deref(), &output_ref, request)
-                        .await
-                        .map_err(|error| {
-                            resource_error(error.to_string(), "output_reference_read_failed")
-                        })?;
-                session
-                    .record_action_map_output_ref_trace_event(
-                        &turn,
-                        "output_ref.slice_read",
-                        None,
-                        output_ref,
-                        vec![
-                            "output_ref".into(),
-                            "slice_read".into(),
-                            format!("mode:{mode}"),
-                        ],
-                    )
-                    .await;
-                (slice, true, None)
-            }
-            TaskSpaceControlArgs::ReadMap => {
-                tracing::info!(
-                    target: "codex_core::taskspace",
-                    call_id,
-                    "taskspace.map_read_requested"
-                );
-                match session.read_action_map_projection(&turn, &call_id).await {
-                    Ok(projection) => (projection, true, None),
-                    Err(error) => {
-                        tracing::warn!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            error,
-                            "taskspace.map_read_rejected"
-                        );
-                        (rejected_control_result(&error), false, None)
-                    }
-                }
-            }
-        };
-        if let Some((step_count, identity_complete)) = state_identity_coverage(&message) {
-            if success {
-                tracing::info!(
-                    target: "codex_core::taskspace",
-                    call_id,
-                    step_count,
-                    identity_complete,
-                    "taskspace.control_state_committed"
-                );
-            } else {
-                tracing::warn!(
-                    target: "codex_core::taskspace",
-                    call_id,
-                    step_count,
-                    "taskspace.control_state_rejected"
-                );
-            }
-        }
-        if let Some((
-            state_commit,
-            committed_revision,
-            graph_event_ref_count,
-            node_detail_event_ref_count,
-        )) = control_commit_observation(&message)
-        {
-            tracing::info!(
-                target: "codex_core::taskspace",
-                call_id,
-                state_commit,
-                committed_revision,
-                graph_event_ref_count,
-                node_detail_event_ref_count,
-                "taskspace.control_delta_exposed"
-            );
-        }
+        let (message, success, terminal_carrier) =
+            execute_action(&session, &turn, &call_id, required_next_call, args).await?;
+        let canonical_revision = session
+            .action_map_control_state(None)
+            .await
+            .map(|state| state.revision);
+        let message = normalize_control_result(
+            message,
+            action,
+            submitted_expected_revision,
+            canonical_revision,
+            success,
+        );
+        log_control_result(&call_id, &message, success);
         Ok(TaskSpaceControlOutput {
             message,
             success,
@@ -606,85 +142,174 @@ impl ToolHandler for TaskSpaceControlHandler {
     }
 }
 
-async fn execute_node_transition(
+async fn execute_action(
     session: &Session,
     turn: &TurnContext,
     call_id: &str,
-    expected_revision: u64,
-    node_id: String,
-    transition: NodeTransition,
-) -> Result<(String, bool, Option<TaskSpaceTerminalCarrier>), FunctionCallError> {
-    let source_event_ref = session
-        .taskspace_event_id_for_call(call_id)
-        .await
-        .map_err(state_machine_error)?;
-    match session
-        .transition_action_map_node(
-            turn,
+    required_next_call: &str,
+    args: TaskSpaceControlArgs,
+) -> Result<ControlExecution, FunctionCallError> {
+    match args {
+        TaskSpaceControlArgs::InitializeMap {
+            root,
+            initial_work_node,
+            finish_identity,
+            additional_work_nodes,
+            edges,
+            required_next_call: _,
+        } => {
+            graph_actions::initialize_map(
+                session,
+                turn,
+                call_id,
+                root,
+                initial_work_node,
+                finish_identity,
+                additional_work_nodes,
+                edges,
+            )
+            .await
+        }
+        TaskSpaceControlArgs::MutateGraph {
+            expected_revision,
+            add_nodes,
+            add_edges,
+            remove_edges,
+            required_next_call,
+        } => {
+            graph_actions::mutate_graph(
+                session,
+                turn,
+                call_id,
+                expected_revision,
+                add_nodes,
+                add_edges,
+                remove_edges,
+                required_next_call,
+            )
+            .await
+        }
+        TaskSpaceControlArgs::BindNode {
             expected_revision,
             node_id,
-            transition,
-            source_event_ref,
-        )
-        .await
-    {
-        Ok(outcome) => Ok((
-            format_state_batch(
-                vec![serde_json::json!({
-                    "kind": "node_transition",
-                    "map_id": outcome.map_id,
-                    "node_id": outcome.node_id,
-                    "revision": outcome.revision,
-                    "status": outcome.status,
-                })],
-                true,
-                true,
-                &[&outcome.delta],
-            ),
-            true,
-            None,
-        )),
-        Err(error) => Ok((rejected_control_result(&error), false, None)),
+            required_next_call: _,
+        } => lifecycle_actions::bind_node(session, turn, call_id, expected_revision, node_id).await,
+        TaskSpaceControlArgs::BlockNode {
+            expected_revision,
+            node_id,
+        } => {
+            lifecycle_actions::block_node(session, turn, call_id, expected_revision, node_id).await
+        }
+        TaskSpaceControlArgs::UnblockNode {
+            expected_revision,
+            node_id,
+        } => {
+            lifecycle_actions::unblock_node(session, turn, call_id, expected_revision, node_id)
+                .await
+        }
+        TaskSpaceControlArgs::ReworkNode {
+            expected_revision,
+            node_id,
+        } => {
+            lifecycle_actions::rework_node(session, turn, call_id, expected_revision, node_id).await
+        }
+        TaskSpaceControlArgs::CompleteThenContinue {
+            expected_revision,
+            current_node_id,
+            next_node_id,
+            required_next_call: _,
+        } => {
+            lifecycle_actions::complete_then_continue(
+                session,
+                turn,
+                call_id,
+                expected_revision,
+                current_node_id,
+                next_node_id,
+                required_next_call,
+            )
+            .await
+        }
+        TaskSpaceControlArgs::CompleteThenEnd {
+            expected_revision,
+            current_node_id,
+            final_summary,
+        } => {
+            lifecycle_actions::complete_then_end(
+                session,
+                turn,
+                call_id,
+                expected_revision,
+                current_node_id,
+                final_summary,
+            )
+            .await
+        }
+        TaskSpaceControlArgs::FinishEnd {
+            expected_revision,
+            final_summary,
+        } => lifecycle_actions::finish_end(session, turn, expected_revision, final_summary).await,
+        TaskSpaceControlArgs::ExpandNodes { node_ids } => {
+            graph_actions::expand_nodes(session, turn, call_id, node_ids).await
+        }
+        TaskSpaceControlArgs::ReadOutputRef {
+            output_ref,
+            mode,
+            start_line,
+            end_line,
+            pattern,
+            max_bytes,
+        } => {
+            read_actions::read_output_ref(
+                session,
+                turn,
+                output_ref,
+                mode,
+                start_line,
+                end_line,
+                pattern,
+                max_bytes.expect("validated read_output_ref max_bytes"),
+            )
+            .await
+        }
+        TaskSpaceControlArgs::ReadMap => read_actions::read_map(session, turn, call_id).await,
     }
 }
 
-fn parse_output_slice_mode(
-    mode: &str,
-    start_line: Option<usize>,
-    end_line: Option<usize>,
-    pattern: Option<String>,
-) -> Result<OutputSliceMode, FunctionCallError> {
-    match mode {
-        "head" => Ok(OutputSliceMode::Head),
-        "tail" => Ok(OutputSliceMode::Tail),
-        "line_range" => Ok(OutputSliceMode::LineRange {
-            start_line: start_line.ok_or_else(|| {
-                protocol_error(
-                    "read_output_ref requires start_line".into(),
-                    "missing_argument",
-                )
-            })?,
-            end_line: end_line.ok_or_else(|| {
-                protocol_error(
-                    "read_output_ref requires end_line".into(),
-                    "missing_argument",
-                )
-            })?,
-        }),
-        "grep" => Ok(OutputSliceMode::Grep {
-            pattern: pattern.ok_or_else(|| {
-                protocol_error(
-                    "read_output_ref requires pattern".into(),
-                    "missing_argument",
-                )
-            })?,
-        }),
-        _ => Err(protocol_error(
-            "read_output_ref mode must be head, tail, line_range, or grep".into(),
-            "invalid_argument_value",
-        )),
+fn log_control_result(call_id: &str, message: &str, success: bool) {
+    if let Some((step_count, identity_complete)) = state_identity_coverage(message) {
+        if success {
+            tracing::info!(
+                target: "codex_core::taskspace",
+                call_id,
+                step_count,
+                identity_complete,
+                "taskspace.control_state_committed"
+            );
+        } else {
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                call_id,
+                step_count,
+                "taskspace.control_state_rejected"
+            );
+        }
+    }
+    if let Some((state_commit, revision, graph_refs, detail_refs)) =
+        control_commit_observation(message)
+    {
+        tracing::info!(
+            target: "codex_core::taskspace",
+            call_id,
+            state_commit,
+            committed_revision = revision,
+            graph_event_ref_count = graph_refs,
+            node_detail_event_ref_count = detail_refs,
+            "taskspace.control_delta_exposed"
+        );
     }
 }
+
 #[cfg(test)]
 #[path = "taskspace_control_tests.rs"]
 mod tests;

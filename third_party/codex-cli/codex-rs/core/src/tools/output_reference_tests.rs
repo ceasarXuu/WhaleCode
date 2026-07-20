@@ -75,6 +75,35 @@ fn read_output_bytes_slice_verifies_content_addressed_archive_bytes() {
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
+#[test]
+fn detailed_line_range_reports_factual_truncation_and_continuation() {
+    let raw_output = b"one\ntwo\nthree\nfour\n";
+    let sha = format!("{:x}", Sha256::digest(raw_output));
+    let output_ref = format!("output-ref://sha256/{sha}");
+    let slice = read_output_bytes_slice_result(
+        &output_ref,
+        raw_output,
+        OutputSliceRequest {
+            mode: OutputSliceMode::LineRange {
+                start_line: 1,
+                end_line: 4,
+            },
+            max_bytes: 8,
+        },
+    )
+    .expect("detailed line range");
+
+    assert_eq!(slice.mode, "line_range");
+    assert!(slice.truncated);
+    assert_eq!(slice.range["requested_start_line"], 1);
+    assert_eq!(
+        slice.continuation.as_ref().unwrap()["action"],
+        "read_output_ref"
+    );
+    assert_eq!(slice.continuation.as_ref().unwrap()["start_line"], 3);
+    assert!(slice.content.starts_with("one\ntwo"));
+}
+
 #[tokio::test]
 async fn output_artifact_is_portable_across_rollout_paths() {
     let temp = tempfile::tempdir().expect("create temp dir");
