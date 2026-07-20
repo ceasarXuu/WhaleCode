@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "result_id": "r7-five-layer-fla2-blocker-repair",
-  "status": "current_identity_repair_smoke_verified_pending_closure_review",
+  "status": "active_verified_after_adversarial_reacceptance",
   "date": "2026-07-21",
   "projection_policy": "map-request",
   "product_source_commit": "6ebe2c6794d338d32f70dc6cf2d1ab60acf0fabd",
@@ -166,6 +166,15 @@
       ]
     }
   ],
+  "adversarial_reacceptance": {
+    "status": "pass_reacceptance",
+    "round": 4,
+    "reviewer": "Raw-count gate closure adversary",
+    "report": "vs_review/2026-07-20-r7-fla2-l1-l2-effectiveness-review.md",
+    "blocking_findings": 0,
+    "independent_mutation": "simple taskspace committed_controls 4 -> 5",
+    "mutation_result": "result_taskspace_committed_controls_mismatch"
+  },
   "remaining_issue": {
     "id": "H-003",
     "status": "confirmed_unresolved",

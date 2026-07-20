@@ -1,17 +1,18 @@
 # R7 FLA-2 阻塞与控制路径调查
 
 - 日期：2026-07-20
-- 状态：`repaired / H-003 open / pending_adversarial_reacceptance`
+- 状态：`repaired / adversarially_reaccepted / H-003 open`
 - 调查范围：FLA-2 的 L1/L2 有效性、TaskSpace 可疑执行路径与 benchmark 观测口径
 - 生产行为：本轮未修改
 - COE：[`2026-07-20-21-24-r7-fla2-control-path-observability.md`](../../../coe/2026-07-20-21-24-r7-fla2-control-path-observability.md)
 - 对抗审查：[`2026-07-20-r7-fla2-l1-l2-effectiveness-review.md`](../../../vs_review/2026-07-20-r7-fla2-l1-l2-effectiveness-review.md)
 - 修复结果：[`30-r7-fla2-blocker-repair-result.md`](30-r7-fla2-blocker-repair-result.md)
 
-## 1. 验收结论
+## 1. 历史验收结论
 
 FLA-2 的生产装配已经生效，六次 TaskSpace 样本也都完成了任务；但 `active_verified` 结论不成立。两个合同级
-blocker 已通过请求级和代码级证据门，观测产物又系统性少报 preflight reject 与真实 state commit。因此：
+blocker 已通过请求级和代码级证据门，观测产物又系统性少报 preflight reject 与真实 state commit。因此，当时的
+结论为：
 
 1. FLA-2 改为 `acceptance_blocked`，不能作为 FLA-3 的已验证前置阶段。
 2. 既有正确性、成本和缓存数据仍可保留为行为样本，不得用来证明五层 wire 合同完整或 L1/L2 提升了协议遵循。
@@ -153,12 +154,19 @@ outcome。汇总层只能组合这些事实，不能用一个 `control_failure` 
 
 | 原问题 | 修复 | 请求级结果 |
 |---|---|---|
-| B1 第三条静态 system handle | 每次请求从 canonical 状态构造 user-tail handle | 32/32 请求只有两条 system，handle 均唯一且位于末尾 |
-| B2 L2/Result 能力错位 | L2 升级至 v2.1，control 统一使用 Result V2 | 14/14 control 输出为 V2，7 个拒绝均明确 `state_commit=false` |
-| H-004 观测少报 | 拆分 preflight/handler/gate/commit 指标并支持 V2 lineage | 14 control = 7 commit + 7 preflight；7 graph commit 与 7 state commit 对齐 |
+| B1 第三条静态 system handle | 每次请求从 canonical 状态构造 user-tail handle | 当前 21/21 TaskSpace 请求只有两条 system，handle 均唯一且位于末尾；17/17 Standard 零注入 |
+| B2 L2/Result 能力错位 | L2 升级至 v2.1，control 统一使用 Result V2 | 当前 13/13 control 输出为 V2，5 个拒绝均明确 `state_commit=false` |
+| H-004 观测少报 | 拆分 preflight/handler/gate/commit 指标并支持 V2 lineage | 当前 13 control = 8 commit + 5 preflight；8 graph commit 与 8 state commit 对齐 |
 | H-006 旧 discriminator | lifecycle 和状态变更改为直接 action | nested transition 和非法 lifecycle 参数均为 0 |
 | H-007 binding 事实缺失 | initialize 结果增加独立 `node_bound` step | 2/2 初始化提交包含 binding；两次运行均无 redundant bind/read |
 
-H-003 没有被伪装关闭。新样本仍有 7 次 standalone control 被 preflight 原子拒绝，说明文字合同和事实反馈已经
+H-003 没有被伪装关闭。current-identity 新样本仍有 5 次 standalone control 被 preflight 原子拒绝，说明文字合同和事实反馈已经
 正确，但当前函数调用 JSON Schema 无法结构性要求另一个 top-level sibling。该问题需要独立 Tool 交互形状实验，
 不能通过 Runtime 代替 Agent 选动作或追加语义纠正解决。
+
+## 9. 最终复验
+
+Round 2 发现正式 smoke identity 晚于当前 Base/manifest，Round 3 又发现 freshness gate 没有反查机器结果计数；两项
+均作为证据链 blocker 接受并修复。Round 4 独立 reviewer 重跑自测和真实 gate，并额外篡改 simple
+`committed_controls: 4 -> 5`，gate 以 `result_taskspace_committed_controls_mismatch` 拒绝。最终 verdict 为
+`pass_reacceptance`，FLA-2 恢复 `active_verified`。完整记录见对抗审查报告。

@@ -1,13 +1,13 @@
 # Subagent VS Review: R7 FLA-2 L1/L2 Effectiveness
 
 - Created: 2026-07-20T20:46:49+08:00
-- Updated: 2026-07-21T03:49:57+08:00
+- Updated: 2026-07-21T04:23:07+08:00
 - Report schema: adversarial-v1
 - Task: 对 FLA-2 TaskSpace L1/L2 的实际有效性和 Whale Agent 执行路径进行独立对抗性审查
 - Report path: `vs_review/2026-07-20-r7-fla2-l1-l2-effectiveness-review.md`
 - Review mode: fresh internal subagent
 - Source session policy: no inherited main-agent context; reviewer receives only the neutral review packet
-- Status: open
+- Status: closed_passed
 
 ## Round 1: FLA-2 Production And Runtime Evidence Review
 
@@ -769,4 +769,68 @@ repair acceptance 汇总逐项比较。测试新增 result request/control count
 
 | Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
 |---|---|---|---|---|---|---|---|
-| Raw-count gate closure adversary | `multi_agent_v1.spawn_agent` | pending | spawn tool call and completion notification | `fork_context=false` | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions and persuasive diff summary | yes |
+| Raw-count gate closure adversary | `multi_agent_v1.spawn_agent` | `019f812d-a6ae-7931-bf3d-6786aff021ef` (`Epicurus`) | spawn tool call and completion notification | `fork_context=false` | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions and persuasive diff summary | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| `round4-epicurus` | Raw-count gate closure adversary | 1 | `019f812d-a6ae-7931-bf3d-6786aff021ef` | about 2 minutes | completed | reviewer completed inside initial timeout | completed |
+
+### Reviewer Outputs
+
+#### `round4-epicurus`
+
+##### Summary And Verdict
+
+**Verdict：`pass_reacceptance`。** reviewer 独立运行自测和真实 gate，执行额外内存中 result count 篡改，并从 raw
+provider trace/rollout 重算。Round 3 两个 blocker 均已关闭，没有新的 blocking finding。
+
+##### Independent Recalculation
+
+- simple：Standard/TaskSpace `6/11` requests；`6` controls、`6` V2、`2` failures/preflight、`0` ordinary gate、
+  `4` commits/state commits。
+- complex：Standard/TaskSpace `11/10` requests；`7` controls、`7` V2、`3` failures/preflight、`0` ordinary gate、
+  `4` commits/state commits。
+- aggregate：`21` TaskSpace requests、`13` V2 controls、`8` commits/state commits、`5` failures/preflight、
+  `0` ordinary gate，均与机器结果一致。
+
+##### Negative Mutation Check
+
+reviewer 额外把 simple `taskspace.committed_controls` 从 `4` 改为 `5`，只在内存临时文件中运行 gate。结果为
+`fail`，稳定码为 `result_taskspace_committed_controls_mismatch`。reviewer 没有修改仓库文件。
+
+##### Non-blocking Risks
+
+自测和 verifier 会在 `target/` 写生成 evidence/fixture，这是预期测试输出。审查期间工作树中已有本报告的 launch
+record 修改；reviewer 没有新增源码改动。H-003 继续按既定范围保持 open。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Epicurus | Round 3 raw request/result reconciliation blocker | blocking closure | pass | 独立重算 6/11 与 11/10，机器结果逐 run 一致；篡改会失败 | 标记关闭 | 无 |
+| Epicurus | Round 3 raw rollout/result reconciliation blocker | blocking closure | pass | 13 V2 = 8 commit + 5 reject，ordinary gate 0；额外 committed count 篡改被拒绝 | 标记关闭 | 无 |
+| Epicurus | H-003 仍 open | non-blocking for FLA-2 | accept classification | 5 次 factual preflight reject 可见，没有被隐藏 | 保持 open | 后续 L4 carrier 实验 |
+
+### Round 4 Closure Status
+
+- Blocking findings found: no
+- Accepted Round 1 blockers fixed: yes
+- Accepted Round 2 evidence-freshness blocker fixed: yes
+- Accepted Round 3 raw-count blockers fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Reviewer remained read-only: yes
+- Implementation completeness for FLA-2: accepted
+- Target benefit claims remain smoke-limited: yes
+- H-003 remains documented: yes
+- Allowed to restore FLA-2 `active_verified`: yes
+- Allowed to proceed to FLA-3: yes
+
+## Final Closure Conclusion
+
+FLA-2 的生产 L1/L2、为其合同闭环提前激活的 L4/L5 repair、完整 provider carrier、factual feedback、observer、
+binary/source identity 和 raw-count result chain 均已通过代码测试、current-identity Docker smoke、机械 freshness gate
+和 fresh adversarial closure review。FLA-2 恢复为 `active_verified`。本结论不关闭 H-003，也不把两个单次 sample
+解释为统计性能收益。

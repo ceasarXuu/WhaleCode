@@ -9,11 +9,11 @@
 > [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 的 FLA-0 至 FLA-8 另行实施。涉及 L1-L5 的
 > 目标合同、生产入口和验收以 `25` 号规格及 authority manifest 为准；本计划中的 Phase E-H 继续描述 R7
 > projection 主线，不可替代五层专项的完成证据。
-> 2026-07-21 更新：FLA-2 对抗审查确认的两个合同 blocker、旧 L4 discriminator、V2 binding 反馈和观测缺口
-> 已完成修复，并通过简单/复杂 Docker 配对冒烟，详见
-> [阻塞修复结果](30-r7-fla2-blocker-repair-result.md)。当前状态为
-> `repair_smoke_verified / pending_adversarial_reacceptance`；H-003 跨 top-level sibling 结构问题仍保持 open。在独立
-> 复审前不得把 FLA-2 恢复为正式 `active_verified`，也不得用额外 Runtime 语义干预掩盖 H-003。
+> 2026-07-21 更新：FLA-2 的合同 blocker、旧 L4 discriminator、V2 binding 反馈、观测缺口和后续发现的 evidence
+> freshness/raw-count gate 缺口均已关闭。当前 Base 2.0.1 / manifest 1.0.2 的简单、复杂 Docker 配对冒烟和四轮
+> 独立对抗性闭环已通过，FLA-2 恢复为 `active_verified`，详见
+> [阻塞修复结果](30-r7-fla2-blocker-repair-result.md)。H-003 跨 top-level sibling 结构问题仍保持 open，作为后续
+> L4 carrier 能力问题独立处理，不得用额外 Runtime 语义干预掩盖。
 
 ## 1.1 元数据
 

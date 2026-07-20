@@ -1,7 +1,7 @@
 # R7 五层架构 FLA-2 结果
 
 - 日期：2026-07-20
-- 状态：`historical_acceptance_blocked / blocker_repair_smoke_verified`
+- 状态：`historical_acceptance_blocked / superseded_by_active_verified_repair`
 - 生产提交：`2ea8b4d24`
 - 候选二进制 SHA256：`90bdaba699e58b80806fb3c200c03166f668001314bb6de225be4a7da4e2586f`
 - Projection policy：`map-request`
@@ -15,7 +15,11 @@
 
 > 2026-07-21 更新：B1、B2、旧 L4 discriminator、binding 事实反馈和观测少报已经完成修复，并通过一个简单
 > 样本和一个复杂样本的 Docker 配对冒烟。原始数据与撤回结论作为历史证据保留；最新状态以 30 号修复结果为准。
-> `H-003` 的跨 top-level sibling 结构问题仍未关闭，正式恢复 `active_verified` 还需要独立对抗性复审。
+> `H-003` 的跨 top-level sibling 结构问题仍未关闭。
+
+> 2026-07-21 最终更新：Base 2.0.1 / manifest 1.0.2 的 current-identity simple/complex smoke、证据新鲜度与 raw-count
+> gate、四轮独立对抗性闭环均已完成，Round 4 verdict 为 `pass_reacceptance`。FLA-2 已恢复 `active_verified`；本文件
+> 后续表格继续作为最初 FLA-2 候选的历史数据，不替代 30 号修复结果。
 
 ## 1. 实施结果
 
@@ -93,6 +97,6 @@ TaskSpace 相对历史 TaskSpace 基线的绝对 Request 分别为 `29 vs 30`、
 
 ## 6. 结论
 
-FLA-2 代码已进入生产候选，六组 smoke 的任务正确性和固定成本数据仍有效；但完整 wire、L2/L5 一致性和观测门禁
-失败，因此状态为 `acceptance_blocked`，不能作为 FLA-3 的已验证基线。固定 system 上下文减少约 4.6% 只是一项
-局部成本事实，不抵消合同 blocker，也不足以声明总体行为收益或统计非劣。
+本轮最初候选的完整 wire、L2/L5 一致性和观测门禁失败，因此其历史结论仍为 `acceptance_blocked`。这些 blocker
+随后已由 30 号修复结果关闭并通过 current-identity 独立复验，当前 FLA-2 已是 FLA-3 的已验证基线。这里的固定
+system 上下文减少约 4.6% 仍只是一项历史局部成本事实，不升级为总体行为收益或统计非劣声明。

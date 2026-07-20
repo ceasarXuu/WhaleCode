@@ -1,13 +1,14 @@
 # R7 FLA-2 阻塞修复结果
 
 - 日期：2026-07-21
-- 状态：`current_identity_repair_smoke_verified / pending_closure_review`
+- 状态：`active_verified / adversarially_reaccepted`
 - 当前产品源码提交：`6ebe2c679`
 - 观察器修复提交：`30be4585e`
 - 证据新鲜度 gate 提交：`4baec0710`
 - 二进制 SHA256：`d8e20fe3eaac8b8fc25982debd09e2de17ce75d5efe2d4eb564e873876910222`
 - 机器结果：[`five-layer-fla2-blocker-repair-result.json`](../../../benchmarks/taskspace/r7/five-layer-fla2-blocker-repair-result.json)
 - COE：[`2026-07-20-21-24-r7-fla2-control-path-observability.md`](../../../coe/2026-07-20-21-24-r7-fla2-control-path-observability.md)
+- 对抗审查：[`2026-07-20-r7-fla2-l1-l2-effectiveness-review.md`](../../../vs_review/2026-07-20-r7-fla2-l1-l2-effectiveness-review.md)
 
 ## 1. 修复范围
 
@@ -83,6 +84,6 @@ Schema 只能约束一个 control 参数对象，不能结构性要求 provider 
 
 ## 6. 结论
 
-B1、B2、旧 L4 discriminator、V2 binding 事实、观测少报和当前源码 identity 新鲜度均已通过代码测试、真实请求
-和机械 gate 验证。FLA-2 已从 `acceptance_blocked` 前进到 `current_identity_repair_smoke_verified`；正式恢复
-`active_verified` 仍需要新的独立 closure review，且不得把尚未关闭的 H-003 隐去。
+B1、B2、旧 L4 discriminator、V2 binding 事实、观测少报、当前源码 identity 和 raw-count 新鲜度均已通过代码
+测试、真实请求、机械 gate 和独立对抗性复验。Round 4 verdict 为 `pass_reacceptance`，FLA-2 已恢复
+`active_verified`，可以作为 FLA-3 的已验证前置阶段。H-003 仍明确保持 open，不属于本次 L1/L2 验收关闭范围。
