@@ -102,7 +102,8 @@ fn catalog_render_observation(
             .find(|line| line.starts_with(&line_prefix))
     });
     let (status, reason_code) = match (selected, rendered_line) {
-        (_, None) => ("catalog_not_visible", "metadata_budget"),
+        (None, _) => ("catalog_not_visible", "bundled_skill_unavailable"),
+        (Some(_), None) => ("catalog_not_visible", "metadata_budget"),
         (Some(skill), Some(line)) if !line.contains(&format!(": {} (file:", skill.description)) => {
             ("description_truncated", "metadata_budget")
         }
@@ -208,19 +209,11 @@ pub(crate) fn bind_catalog_snapshot(
         return Ok(());
     };
 
-    if bundled_paths.len() != 1 {
-        remove_reserved_name(outcome);
-        bail!(
-            "TaskSpace requires exactly one bundled `{TASKSPACE_ADVANCED_SKILL_NAME}` skill; found {}",
-            bundled_paths.len()
-        );
-    }
-    let source_path = &bundled_paths[0];
     let conflicts = outcome
         .skills
         .iter()
         .filter(|skill| {
-            skill.name == TASKSPACE_ADVANCED_SKILL_NAME && skill.path_to_skills_md != *source_path
+            skill.name == TASKSPACE_ADVANCED_SKILL_NAME && skill.scope != SkillScope::System
         })
         .map(|skill| skill.path_to_skills_md.display().to_string())
         .collect::<Vec<_>>();
@@ -231,6 +224,31 @@ pub(crate) fn bind_catalog_snapshot(
             conflicts.join(", ")
         );
     }
+    if bundled_paths.is_empty() {
+        let snapshot_path = validate_identity(identity)?;
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.skill_snapshot_bound",
+            load_trigger = "session_catalog",
+            carrier = "catalog",
+            name = identity.name,
+            skill_version = identity.skill_version,
+            body_sha256 = identity.body_sha256,
+            immutable_snapshot_path = %snapshot_path.display(),
+            status = "bundled_skill_unavailable",
+            reason_code = "BUNDLED_SKILLS_DISABLED_OR_UNAVAILABLE",
+            "TaskSpace advanced skill is optional and unavailable in this session"
+        );
+        return Ok(());
+    }
+    if bundled_paths.len() != 1 {
+        remove_reserved_name(outcome);
+        bail!(
+            "TaskSpace requires at most one bundled `{TASKSPACE_ADVANCED_SKILL_NAME}` skill; found {}",
+            bundled_paths.len()
+        );
+    }
+    let source_path = &bundled_paths[0];
 
     let snapshot_path = match validate_identity(identity) {
         Ok(path) => path,

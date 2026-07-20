@@ -33,9 +33,12 @@ try { Assert-TaskspaceContainerContract $invalid } catch { $failed = $true }
 if (-not $failed) { throw "Unpinned image contract was accepted" }
 
 $invalidOverrides = $contract | ConvertTo-Json -Depth 20 | ConvertFrom-Json
-$invalidOverrides.agent_config_overrides = @('features.plugins=false')
+$invalidOverrides.agent_config_overrides = @(
+    'features.plugins=false',
+    'skills.bundled.enabled=false'
+)
 $failed = $false
 try { Assert-TaskspaceContainerContract $invalidOverrides } catch { $failed = $true }
-if (-not $failed) { throw "Incomplete agent config isolation was accepted" }
+if (-not $failed) { throw "Product Skill suppression was accepted" }
 
 Write-Host "container contract tests passed"

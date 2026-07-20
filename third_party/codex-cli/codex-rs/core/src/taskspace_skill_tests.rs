@@ -109,6 +109,14 @@ fn catalog_observation_distinguishes_full_truncated_and_omitted_metadata() {
     let omitted_observation = catalog_render_observation(&outcome, None, None);
     assert_eq!(omitted_observation.status, "catalog_not_visible");
     assert_eq!(omitted_observation.reason_code, "metadata_budget");
+
+    let unavailable_observation =
+        catalog_render_observation(&SkillLoadOutcome::default(), None, None);
+    assert_eq!(unavailable_observation.status, "catalog_not_visible");
+    assert_eq!(
+        unavailable_observation.reason_code,
+        "bundled_skill_unavailable"
+    );
 }
 
 #[test]
@@ -199,6 +207,17 @@ fn standard_session_has_no_snapshot_or_catalog_entry() {
             .iter()
             .all(|skill| skill.name != TASKSPACE_ADVANCED_SKILL_NAME)
     );
+}
+
+#[test]
+fn taskspace_session_continues_when_bundled_skills_are_disabled() {
+    let temp = tempdir().expect("temp dir");
+    let identity = identity_at(temp.path(), &"a".repeat(64));
+    let mut outcome = SkillLoadOutcome::default();
+
+    bind_catalog_snapshot(&mut outcome, Some(&identity))
+        .expect("optional advanced skill must not block TaskSpace startup");
+    assert!(outcome.skills.is_empty());
 }
 
 #[test]

@@ -41,14 +41,18 @@ function Assert-TaskspaceContainerContract {
     if ([string]$Contract.mount_policy.oracle.oracle -ne 'ro') {
         throw "Oracle container requires a read-only oracle mount"
     }
-    $requiredAgentOverrides = @(
-        'features.plugins=false',
-        'skills.bundled.enabled=false',
-        'skills.include_instructions=false'
-    )
+    $requiredAgentOverrides = @('features.plugins=false')
     foreach ($override in $requiredAgentOverrides) {
         if (@($Contract.agent_config_overrides) -notcontains $override) {
             throw "Container agent config override is missing: $override"
+        }
+    }
+    foreach ($forbiddenOverride in @(
+            'skills.bundled.enabled=false',
+            'skills.include_instructions=false'
+        )) {
+        if (@($Contract.agent_config_overrides) -contains $forbiddenOverride) {
+            throw "Container benchmark must not disable product Skill behavior: $forbiddenOverride"
         }
     }
     $requiredCodes = @(

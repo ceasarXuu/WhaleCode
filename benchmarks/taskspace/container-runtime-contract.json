@@ -10,9 +10,7 @@
     "home": "/artifacts/home"
   },
   "agent_config_overrides": [
-    "features.plugins=false",
-    "skills.bundled.enabled=false",
-    "skills.include_instructions=false"
+    "features.plugins=false"
   ],
   "resources": {
     "cpus": 4.0,
