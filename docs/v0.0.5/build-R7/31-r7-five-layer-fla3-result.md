@@ -64,3 +64,7 @@ treatment delta；Standard 不再携带该配置。
 FLA-3 的生产正文、不可变 identity、两类载体、失败语义、Standard 隔离、日志、合同测试和两个 Docker 样本均已
 闭合，可以标记为 `active_verified`。阶段收益限于能力和边界正确性；自然选择率、请求成本和行为效用继续作为后续
 复杂样本观测项，不提前归入 FLA-4，也不通过 Runtime 自动加载或语义判断来补偿 Agent 没有选择 Skill。
+
+后续各 3 个 pair 的重复证据见
+[FLA-3 三轮重复对比](32-r7-five-layer-fla3-repeat-3-analysis.md)。该报告替代本页单次 smoke 作为成本与稳定性主证据，
+但不改变本页关于 FLA-3 能力边界的验收结论。

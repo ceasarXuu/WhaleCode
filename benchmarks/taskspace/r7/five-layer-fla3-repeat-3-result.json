@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla3-repeat-3",
+  "status": "completed",
+  "source_commit": "9b5038522ba36efd29938f58b659839c39d404c5",
+  "binary_sha256": "d15a54a5f47759580bb59a0e19b2a0b1d6c0a501b015dfb0d7615012eec8d514",
+  "execution": {
+    "substrate": "docker",
+    "model": "deepseek-v4-flash",
+    "reasoning_effort": "max",
+    "projection_policy": "map-request",
+    "repeats_per_sample": 3,
+    "logical_modes": [
+      "standard",
+      "taskspace"
+    ],
+    "bundled_skills_enabled": true,
+    "plugins_enabled": false
+  },
+  "run_roots": {
+    "simple": "target/r7-five-layer/fla3-repeat-3-valid-v2/simple/single-file-fast-fix/20260721-065450-877",
+    "complex": "target/r7-five-layer/fla3-repeat-3-valid-v2/complex/subscription-billing-repair/20260721-065450-860"
+  },
+  "eligibility": {
+    "pair_count": 6,
+    "side_count": 12,
+    "complete_side_count": 12,
+    "comparison_eligible_side_count": 12,
+    "standard_solved": "6/6",
+    "taskspace_solved": "6/6",
+    "public_validation_passed": "12/12",
+    "hidden_validation_passed": "12/12"
+  },
+  "aggregates": {
+    "simple": {
+      "standard": {
+        "solved": "3/3",
+        "requests": { "total": 19, "mean": 6.3333, "median": 7 },
+        "ordinary_tools": { "total": 19, "mean": 6.3333, "median": 6 },
+        "input_tokens": { "total": 227918, "mean": 75972.6667, "median": 83064 },
+        "cached_input_tokens": { "total": 223360, "mean": 74453.3333, "median": 81664 },
+        "uncached_input_tokens": { "total": 4558, "mean": 1519.3333, "median": 1400 },
+        "output_tokens": { "total": 3982, "mean": 1327.3333, "median": 1203 },
+        "wall_time_ms": { "total": 45822, "mean": 15274, "median": 15497 },
+        "full_cache_hit_rate": { "weighted": 0.98, "mean": 0.979933, "median": 0.979 },
+        "request_2_plus_cache_hit_rate": { "weighted": 0.978, "mean": 0.977773, "median": 0.975962 }
+      },
+      "taskspace": {
+        "solved": "3/3",
+        "requests": { "total": 33, "mean": 11, "median": 12 },
+        "ordinary_tools": { "total": 26, "mean": 8.6667, "median": 9 },
+        "controls": { "total": 24, "mean": 8, "median": 8 },
+        "control_failures": { "total": 10, "mean": 3.3333, "median": 3 },
+        "input_tokens": { "total": 516100, "mean": 172033.3333, "median": 189374 },
+        "cached_input_tokens": { "total": 481024, "mean": 160341.3333, "median": 178304 },
+        "uncached_input_tokens": { "total": 35076, "mean": 11692, "median": 11070 },
+        "output_tokens": { "total": 10375, "mean": 3458.3333, "median": 3306 },
+        "wall_time_ms": { "total": 100737, "mean": 33579, "median": 33493 },
+        "full_cache_hit_rate": { "weighted": 0.932, "mean": 0.931467, "median": 0.9268 },
+        "request_2_plus_cache_hit_rate": { "weighted": 0.9271, "mean": 0.926226, "median": 0.922127 },
+        "map": { "map_count": 3, "node_count": 15, "edge_count": 12, "open_leaf_nodes": 0 }
+      },
+      "taskspace_over_standard": {
+        "requests": 1.7368,
+        "input_tokens": 2.2644,
+        "uncached_input_tokens": 7.6955,
+        "output_tokens": 2.6055,
+        "wall_time_ms": 2.1984,
+        "request_2_plus_cache_hit_delta": -0.0509
+      }
+    },
+    "complex": {
+      "standard": {
+        "solved": "3/3",
+        "requests": { "total": 54, "mean": 18, "median": 19 },
+        "ordinary_tools": { "total": 80, "mean": 26.6667, "median": 25 },
+        "input_tokens": { "total": 1034441, "mean": 344813.6667, "median": 354651 },
+        "cached_input_tokens": { "total": 1011584, "mean": 337194.6667, "median": 347904 },
+        "uncached_input_tokens": { "total": 22857, "mean": 7619, "median": 6747 },
+        "output_tokens": { "total": 22756, "mean": 7585.3333, "median": 7821 },
+        "wall_time_ms": { "total": 209436, "mean": 69812, "median": 67544 },
+        "full_cache_hit_rate": { "weighted": 0.9779, "mean": 0.976933, "median": 0.9777 },
+        "request_2_plus_cache_hit_rate": { "weighted": 0.9773, "mean": 0.976007, "median": 0.977228 }
+      },
+      "taskspace": {
+        "solved": "3/3",
+        "requests": { "total": 61, "mean": 20.3333, "median": 21 },
+        "ordinary_tools": { "total": 67, "mean": 22.3333, "median": 21 },
+        "controls": { "total": 36, "mean": 12, "median": 14 },
+        "control_failures": { "total": 19, "mean": 6.3333, "median": 8 },
+        "input_tokens": { "total": 1247420, "mean": 415806.6667, "median": 443316 },
+        "cached_input_tokens": { "total": 1163136, "mean": 387712, "median": 416768 },
+        "uncached_input_tokens": { "total": 84284, "mean": 28094.6667, "median": 26548 },
+        "output_tokens": { "total": 27978, "mean": 9326, "median": 9580 },
+        "wall_time_ms": { "total": 259574, "mean": 86524.6667, "median": 88289 },
+        "full_cache_hit_rate": { "weighted": 0.9324, "mean": 0.931667, "median": 0.9324 },
+        "request_2_plus_cache_hit_rate": { "weighted": 0.9306, "mean": 0.92977, "median": 0.930797 },
+        "map": { "map_count": 3, "node_count": 17, "edge_count": 15, "open_leaf_nodes": 0 }
+      },
+      "taskspace_over_standard": {
+        "requests": 1.1296,
+        "input_tokens": 1.2059,
+        "uncached_input_tokens": 3.6874,
+        "output_tokens": 1.2295,
+        "wall_time_ms": 1.2394,
+        "request_2_plus_cache_hit_delta": -0.0467
+      }
+    },
+    "combined": {
+      "standard": {
+        "requests": 73,
+        "input_tokens": 1262359,
+        "cached_input_tokens": 1234944,
+        "uncached_input_tokens": 27415,
+        "output_tokens": 26738,
+        "wall_time_ms": 255258,
+        "weighted_cache_hit_rate": 0.978283
+      },
+      "taskspace": {
+        "requests": 94,
+        "input_tokens": 1763520,
+        "cached_input_tokens": 1644160,
+        "uncached_input_tokens": 119360,
+        "output_tokens": 38353,
+        "wall_time_ms": 360311,
+        "weighted_cache_hit_rate": 0.932317
+      },
+      "taskspace_over_standard": {
+        "requests": 1.287671,
+        "input_tokens": 1.397004,
+        "uncached_input_tokens": 4.353821,
+        "output_tokens": 1.4344,
+        "wall_time_ms": 1.411556,
+        "cache_hit_delta": -0.045966
+      }
+    }
+  },
+  "control_failure_distribution": {
+    "control_calls": 60,
+    "control_failures": 29,
+    "failure_rate": 0.483333,
+    "by_error_code": {
+      "TASKSPACE_REQUIRED_SIBLING_MISSING": 21,
+      "TASKSPACE_LIFECYCLE_INVARIANT": 4,
+      "TASKSPACE_GRAPH_INVARIANT": 2,
+      "TASKSPACE_INVALID_ARGUMENT": 1,
+      "TASKSPACE_PROTOCOL_FAILURE": 1
+    },
+    "ordinary_gate_no_task_path": 2,
+    "dominant_observation": "21 of 29 control failures followed a lifecycle call that did not carry the required ordinary sibling call."
+  },
+  "advanced_skill_observation": {
+    "catalog_present": "6/6 TaskSpace runs",
+    "body_loaded": "0/6 TaskSpace runs",
+    "interpretation": "FLA-3 availability and isolation remain verified, but natural selection and utility are still unproven."
+  },
+  "invalidated_preflight_runs": [
+    {
+      "path_prefix": "target/r7-five-layer/fla3-repeat-3",
+      "reason": "stale binary attestation after the FLA-3 test commit",
+      "provider_requests": 0
+    },
+    {
+      "path_prefix": "target/r7-five-layer/fla3-repeat-3-valid",
+      "reason": "DEEPSEEK_API_KEY was present in .env.local but not exported into the benchmark shell",
+      "provider_requests": 0
+    }
+  ],
+  "claim_limit": "The six paired repeats establish repeat-level task correctness and measured cost behavior for these two samples. They do not establish broad utility, advanced-Skill utility, or statistical generalization beyond the selected samples."
+}
