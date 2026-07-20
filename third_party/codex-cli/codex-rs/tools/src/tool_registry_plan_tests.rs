@@ -255,14 +255,19 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
         vec![
             "initialize_map",
             "mutate_graph",
-            "transition_node",
-            "transition_node",
+            "bind_node",
+            "block_node",
+            "unblock_node",
+            "rework_node",
             "complete_then_continue",
             "complete_then_end",
             "finish_end",
             "expand_nodes",
+            "read_map",
             "read_output_ref",
-            "read_map"
+            "read_output_ref",
+            "read_output_ref",
+            "read_output_ref"
         ]
     );
     let serialized = serde_json::to_string(parameters).expect("serialize parameters");

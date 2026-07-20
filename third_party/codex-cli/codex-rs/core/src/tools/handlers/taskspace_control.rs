@@ -4,8 +4,11 @@ use serde_json::Value as JsonValue;
 
 use crate::action_map::ActionMapGraphMutationInput;
 use crate::action_map::ActionMapInitializeInput;
+use crate::action_map::NodeTransition;
 use crate::function_tool::FunctionCallError;
 use crate::session::FinishActionMapError;
+use crate::session::session::Session;
+use crate::session::turn_context::TurnContext;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
@@ -34,7 +37,6 @@ use mapping::control_state_has_active_binding;
 use mapping::map_edge_input;
 use mapping::map_finish_identity_input;
 use mapping::map_node_input;
-use mapping::map_transition;
 
 pub struct TaskSpaceControlHandler;
 
@@ -226,44 +228,62 @@ impl ToolHandler for TaskSpaceControlHandler {
                     }
                 }
             }
-            TaskSpaceControlArgs::TransitionNode {
+            TaskSpaceControlArgs::BindNode {
                 expected_revision,
                 node_id,
-                transition,
                 required_next_call: _,
             } => {
-                let source_event_ref = session
-                    .taskspace_event_id_for_call(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                match session
-                    .transition_action_map_node(
-                        &turn,
-                        expected_revision,
-                        node_id,
-                        map_transition(transition),
-                        source_event_ref,
-                    )
-                    .await
-                {
-                    Ok(outcome) => (
-                        format_state_batch(
-                            vec![serde_json::json!({
-                                "kind": "node_transition",
-                                "map_id": outcome.map_id,
-                                "node_id": outcome.node_id,
-                                "revision": outcome.revision,
-                                "status": outcome.status,
-                            })],
-                            true,
-                            true,
-                            &[&outcome.delta],
-                        ),
-                        true,
-                        None,
-                    ),
-                    Err(error) => (rejected_control_result(&error), false, None),
-                }
+                execute_node_transition(
+                    &session,
+                    &turn,
+                    &call_id,
+                    expected_revision,
+                    node_id,
+                    NodeTransition::Bind,
+                )
+                .await?
+            }
+            TaskSpaceControlArgs::BlockNode {
+                expected_revision,
+                node_id,
+            } => {
+                execute_node_transition(
+                    &session,
+                    &turn,
+                    &call_id,
+                    expected_revision,
+                    node_id,
+                    NodeTransition::Block,
+                )
+                .await?
+            }
+            TaskSpaceControlArgs::UnblockNode {
+                expected_revision,
+                node_id,
+            } => {
+                execute_node_transition(
+                    &session,
+                    &turn,
+                    &call_id,
+                    expected_revision,
+                    node_id,
+                    NodeTransition::Unblock,
+                )
+                .await?
+            }
+            TaskSpaceControlArgs::ReworkNode {
+                expected_revision,
+                node_id,
+            } => {
+                execute_node_transition(
+                    &session,
+                    &turn,
+                    &call_id,
+                    expected_revision,
+                    node_id,
+                    NodeTransition::Rework,
+                )
+                .await?
             }
             TaskSpaceControlArgs::CompleteThenContinue {
                 expected_revision,
@@ -583,6 +603,48 @@ impl ToolHandler for TaskSpaceControlHandler {
             success,
             terminal_carrier,
         })
+    }
+}
+
+async fn execute_node_transition(
+    session: &Session,
+    turn: &TurnContext,
+    call_id: &str,
+    expected_revision: u64,
+    node_id: String,
+    transition: NodeTransition,
+) -> Result<(String, bool, Option<TaskSpaceTerminalCarrier>), FunctionCallError> {
+    let source_event_ref = session
+        .taskspace_event_id_for_call(call_id)
+        .await
+        .map_err(state_machine_error)?;
+    match session
+        .transition_action_map_node(
+            turn,
+            expected_revision,
+            node_id,
+            transition,
+            source_event_ref,
+        )
+        .await
+    {
+        Ok(outcome) => Ok((
+            format_state_batch(
+                vec![serde_json::json!({
+                    "kind": "node_transition",
+                    "map_id": outcome.map_id,
+                    "node_id": outcome.node_id,
+                    "revision": outcome.revision,
+                    "status": outcome.status,
+                })],
+                true,
+                true,
+                &[&outcome.delta],
+            ),
+            true,
+            None,
+        )),
+        Err(error) => Ok((rejected_control_result(&error), false, None)),
     }
 }
 

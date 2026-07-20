@@ -2,6 +2,63 @@ use super::*;
 use crate::create_apply_patch_freeform_tool;
 use crate::create_list_dir_tool;
 
+const SELECTED_CONTROL_V2: &str = include_str!(
+    "../../../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
+);
+
+#[test]
+fn provider_visible_schema_matches_the_selected_r7_contract() {
+    let selected: serde_json::Value =
+        serde_json::from_str(SELECTED_CONTROL_V2).expect("selected control contract");
+    let actual = serde_json::to_value(create_taskspace_control_tool(&[
+        create_list_dir_tool(),
+        create_apply_patch_freeform_tool(),
+    ]))
+    .expect("serialize provider tool");
+
+    assert_eq!(
+        actual["description"],
+        selected["provider_tool"]["function"]["description"]
+    );
+    assert_eq!(
+        actual["parameters"],
+        selected["provider_tool"]["function"]["parameters"]
+    );
+}
+
+#[test]
+fn hidden_patch_profile_only_removes_patch_from_next_call_enums() {
+    let selected: serde_json::Value =
+        serde_json::from_str(SELECTED_CONTROL_V2).expect("selected control contract");
+    let mut expected = selected["provider_tool"]["function"]["parameters"].clone();
+    remove_patch_capability(&mut expected);
+    let actual = serde_json::to_value(create_taskspace_control_tool(&[create_list_dir_tool()]))
+        .expect("serialize provider tool");
+
+    assert_eq!(actual["parameters"], expected);
+}
+
+fn remove_patch_capability(schema: &mut serde_json::Value) {
+    match schema {
+        serde_json::Value::Array(values) => {
+            for value in values {
+                remove_patch_capability(value);
+            }
+        }
+        serde_json::Value::Object(fields) => {
+            if let Some(required_next_call) = fields.get_mut("required_next_call")
+                && let Some(values) = required_next_call["enum"].as_array_mut()
+            {
+                values.retain(|value| value != "apply_patch");
+            }
+            for value in fields.values_mut() {
+                remove_patch_capability(value);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[test]
 fn lifecycle_schema_includes_initialization_with_required_next_call() {
     let list_dir = create_list_dir_tool();
@@ -10,16 +67,10 @@ fn lifecycle_schema_includes_initialization_with_required_next_call() {
     assert!(
         value["description"]
             .as_str()
-            .is_some_and(|description| description.contains(
-                "the first top-level tool call MUST be taskspace_control with action=initialize_map"
-            ))
+            .is_some_and(|description| description.contains("canonical TaskSpace Map"))
     );
     let description = value["description"].as_str().expect("tool description");
-    assert!(
-        description
-            .contains("current only when its revision matches the latest canonical revision")
-    );
-    assert!(!description.contains("the last visible projection is current"));
+    assert!(description.contains("never chooses nodes, repairs arguments, or decides"));
     assert_eq!(value["parameters"]["type"], json!("object"));
     let variants = value["parameters"]["anyOf"].as_array().expect("variants");
     let action_names = variants
@@ -31,14 +82,19 @@ fn lifecycle_schema_includes_initialization_with_required_next_call() {
         vec![
             "initialize_map",
             "mutate_graph",
-            "transition_node",
-            "transition_node",
+            "bind_node",
+            "block_node",
+            "unblock_node",
+            "rework_node",
             "complete_then_continue",
             "complete_then_end",
             "finish_end",
             "expand_nodes",
+            "read_map",
             "read_output_ref",
-            "read_map"
+            "read_output_ref",
+            "read_output_ref",
+            "read_output_ref"
         ]
     );
     assert_eq!(
@@ -55,12 +111,12 @@ fn lifecycle_schema_includes_initialization_with_required_next_call() {
     );
     assert!(variants[0]["properties"].get("current_node_id").is_none());
     assert_eq!(
-        variants[0]["properties"]["initial_work_node"]["description"],
-        "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before the required next top-level call executes."
+        variants[0]["properties"]["initial_work_node"]["properties"]["goal"]["description"],
+        "The first coherent Work goal."
     );
     assert_eq!(
-        variants[0]["properties"]["additional_work_nodes"]["description"],
-        "Zero or more Work nodes other than initial_work_node. Node IDs must be distinct across the entire graph."
+        variants[0]["properties"]["additional_work_nodes"]["items"]["properties"]["goal"]["description"],
+        "A coherent Work goal."
     );
     assert_eq!(
         variants[0]["properties"]["finish_identity"]["required"],
@@ -75,9 +131,10 @@ fn lifecycle_schema_includes_initialization_with_required_next_call() {
             .get("goal")
             .is_none()
     );
-    assert_eq!(
-        variants[0]["properties"]["finish_identity"]["description"],
-        "The unique terminal graph node identity. Reference id as the graph's only sink in edges; every node must reach it. All executable work, including validation, belongs to Work nodes."
+    assert!(
+        variants[0]["properties"]["finish_identity"]
+            .get("description")
+            .is_none()
     );
     assert!(variants[0]["properties"].get("finish").is_none());
     assert!(variants[0]["properties"].get("current_work_node").is_none());
@@ -127,7 +184,10 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
         .map(|variant| variant["properties"]["action"]["enum"][0].as_str().unwrap())
         .collect::<Vec<_>>();
     assert!(actions.contains(&"mutate_graph"));
-    assert!(actions.contains(&"transition_node"));
+    assert!(actions.contains(&"bind_node"));
+    assert!(actions.contains(&"block_node"));
+    assert!(actions.contains(&"unblock_node"));
+    assert!(actions.contains(&"rework_node"));
     assert!(actions.contains(&"complete_then_continue"));
     assert!(actions.contains(&"complete_then_end"));
     assert!(actions.contains(&"finish_end"));
@@ -141,10 +201,7 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
         .as_array()
         .expect("variants")
         .iter()
-        .find(|variant| {
-            variant["properties"]["action"]["enum"][0] == json!("transition_node")
-                && variant["properties"]["transition"]["enum"] == json!(["bind"])
-        })
+        .find(|variant| variant["properties"]["action"]["enum"][0] == json!("bind_node"))
         .expect("bind variant");
     assert_eq!(
         bind["required"],
@@ -152,31 +209,25 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
             "action",
             "expected_revision",
             "node_id",
-            "transition",
             "required_next_call"
         ])
     );
     assert!(bind["properties"].get("required_next_call").is_some());
 
-    let transition = value["parameters"]["anyOf"]
-        .as_array()
-        .expect("variants")
-        .iter()
-        .find(|variant| {
-            variant["properties"]["action"]["enum"][0] == json!("transition_node")
-                && variant["properties"]["transition"]["enum"]
-                    == json!(["block", "unblock", "rework"])
-        })
-        .expect("non-bind transition variant");
-    assert_eq!(
-        transition["required"],
-        json!(["action", "expected_revision", "node_id", "transition"])
-    );
-    assert!(transition["properties"].get("required_next_call").is_none());
-    assert_eq!(
-        transition["properties"]["transition"]["enum"],
-        json!(["block", "unblock", "rework"])
-    );
+    for action in ["block_node", "unblock_node", "rework_node"] {
+        let transition = value["parameters"]["anyOf"]
+            .as_array()
+            .expect("variants")
+            .iter()
+            .find(|variant| variant["properties"]["action"]["enum"][0] == json!(action))
+            .expect("direct transition variant");
+        assert_eq!(
+            transition["required"],
+            json!(["action", "expected_revision", "node_id"])
+        );
+        assert!(transition["properties"].get("required_next_call").is_none());
+        assert!(transition["properties"].get("transition").is_none());
+    }
     assert!(!value.to_string().contains("\"complete\""));
     let handoff = value["parameters"]["anyOf"]
         .as_array()
@@ -262,4 +313,33 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
         .expect("shared read_map variant");
     assert_eq!(read_map["required"], json!(["action"]));
     assert_eq!(read_map["additionalProperties"], false);
+
+    let read_variants = value["parameters"]["anyOf"]
+        .as_array()
+        .expect("variants")
+        .iter()
+        .filter(|variant| variant["properties"]["action"]["enum"][0] == json!("read_output_ref"))
+        .collect::<Vec<_>>();
+    assert_eq!(read_variants.len(), 4);
+    assert_eq!(
+        read_variants
+            .iter()
+            .map(|variant| variant["properties"]["mode"]["enum"][0].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["head", "tail", "line_range", "grep"]
+    );
+    assert_eq!(read_variants[0]["properties"]["max_bytes"]["minimum"], 1);
+    assert_eq!(
+        read_variants[2]["required"],
+        json!([
+            "action",
+            "output_ref",
+            "mode",
+            "start_line",
+            "end_line",
+            "max_bytes"
+        ])
+    );
+    assert!(read_variants[0]["properties"].get("pattern").is_none());
+    assert!(read_variants[3]["properties"].get("start_line").is_none());
 }

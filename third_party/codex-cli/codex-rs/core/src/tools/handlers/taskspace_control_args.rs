@@ -25,11 +25,22 @@ pub(crate) enum TaskSpaceControlArgs {
         remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
         required_next_call: Option<TaskSpaceRequiredNextCall>,
     },
-    TransitionNode {
+    BindNode {
         expected_revision: u64,
         node_id: String,
-        transition: TaskSpaceNodeTransition,
-        required_next_call: Option<TaskSpaceRequiredNextCall>,
+        required_next_call: TaskSpaceRequiredNextCall,
+    },
+    BlockNode {
+        expected_revision: u64,
+        node_id: String,
+    },
+    UnblockNode {
+        expected_revision: u64,
+        node_id: String,
+    },
+    ReworkNode {
+        expected_revision: u64,
+        node_id: String,
     },
     CompleteThenContinue {
         expected_revision: u64,
@@ -80,15 +91,6 @@ pub(crate) struct TaskSpaceGraphEdgeArgs {
     pub(crate) to: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum TaskSpaceNodeTransition {
-    Bind,
-    Block,
-    Unblock,
-    Rework,
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TaskSpaceRequiredNextCall {
@@ -111,25 +113,23 @@ impl TaskSpaceControlArgs {
             Self::InitializeMap {
                 required_next_call, ..
             }
+            | Self::BindNode {
+                required_next_call, ..
+            }
             | Self::CompleteThenContinue {
                 required_next_call, ..
             } => Some(*required_next_call),
             Self::MutateGraph {
                 required_next_call: Some(required_next_call),
                 ..
-            }
-            | Self::TransitionNode {
-                required_next_call: Some(required_next_call),
-                ..
             } => Some(*required_next_call),
             Self::MutateGraph {
                 required_next_call: None,
                 ..
             }
-            | Self::TransitionNode {
-                required_next_call: None,
-                ..
-            }
+            | Self::BlockNode { .. }
+            | Self::UnblockNode { .. }
+            | Self::ReworkNode { .. }
             | Self::CompleteThenEnd { .. }
             | Self::FinishEnd { .. }
             | Self::ExpandNodes { .. }
@@ -176,26 +176,10 @@ impl TaskSpaceControlArgs {
                 validate_unique_edges(remove_edges, "mutate_graph.remove_edges")?;
                 Ok(())
             }
-            Self::TransitionNode {
-                node_id,
-                transition,
-                required_next_call,
-                ..
-            } => {
-                if node_id.trim().is_empty() {
-                    return invalid("transition_node requires a non-empty node_id");
-                }
-                match (transition, required_next_call) {
-                    (TaskSpaceNodeTransition::Bind, Some(_)) => Ok(()),
-                    (TaskSpaceNodeTransition::Bind, None) => {
-                        invalid("transition_node bind requires required_next_call")
-                    }
-                    (_, Some(_)) => invalid(
-                        "transition_node required_next_call is only valid with the bind transition",
-                    ),
-                    (_, None) => Ok(()),
-                }
-            }
+            Self::BindNode { node_id, .. } => validate_node_id("bind_node", node_id),
+            Self::BlockNode { node_id, .. } => validate_node_id("block_node", node_id),
+            Self::UnblockNode { node_id, .. } => validate_node_id("unblock_node", node_id),
+            Self::ReworkNode { node_id, .. } => validate_node_id("rework_node", node_id),
             Self::CompleteThenContinue {
                 current_node_id,
                 next_node_id,
@@ -239,7 +223,27 @@ impl TaskSpaceControlArgs {
                 }
                 Ok(())
             }
-            Self::ReadOutputRef { .. } | Self::ReadMap => Ok(()),
+            Self::ReadOutputRef {
+                mode,
+                start_line,
+                end_line,
+                max_bytes,
+                ..
+            } => {
+                if max_bytes.is_none_or(|value| value == 0) {
+                    return invalid("read_output_ref requires max_bytes greater than zero");
+                }
+                if mode == "line_range"
+                    && (start_line.is_none_or(|value| value == 0)
+                        || end_line.is_none_or(|value| value == 0))
+                {
+                    return invalid(
+                        "read_output_ref line_range requires positive start_line and end_line",
+                    );
+                }
+                Ok(())
+            }
+            Self::ReadMap => Ok(()),
         }
     }
 }
@@ -325,6 +329,14 @@ fn require_non_empty<T>(items: &[T], field: &str) -> Result<(), FunctionCallErro
         invalid(format!(
             "taskspace_control {field} must contain at least one item"
         ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_node_id(action: &str, node_id: &str) -> Result<(), FunctionCallError> {
+    if node_id.trim().is_empty() {
+        invalid(format!("{action} requires a non-empty node_id"))
     } else {
         Ok(())
     }

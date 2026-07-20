@@ -10,10 +10,7 @@ mod simple_actions;
 use simple_actions::simple_action_schemas;
 
 fn action_tag(action: &str) -> JsonSchema {
-    JsonSchema::string_enum(
-        vec![json!(action)],
-        Some("Mechanical action variant.".into()),
-    )
+    JsonSchema::string_enum(vec![json!(action)], None)
 }
 
 fn object_variant(
@@ -27,109 +24,118 @@ fn object_variant(
 }
 
 fn object_any_of(variants: Vec<JsonSchema>, description: &str) -> JsonSchema {
-    let mut schema = JsonSchema::object(BTreeMap::new(), None, None);
+    JsonSchema::object_any_of(variants, Some(description.into()))
+}
+
+fn described_object_variant(
+    action: &str,
+    properties: BTreeMap<String, JsonSchema>,
+    required: Vec<String>,
+    description: &str,
+) -> JsonSchema {
+    let mut schema = object_variant(action, properties, required);
     schema.description = Some(description.into());
-    schema.any_of = Some(variants);
     schema
 }
 
-fn graph_node_schema(description: &str) -> JsonSchema {
-    let mut schema = JsonSchema::object(
+fn graph_node_schema(
+    node_id_description: Option<&str>,
+    goal_description: Option<&str>,
+) -> JsonSchema {
+    JsonSchema::object(
         BTreeMap::from([
             (
                 "node_id".into(),
-                JsonSchema::string(Some("Stable Agent-authored node identifier.".into())),
+                JsonSchema::string(node_id_description.map(str::to_owned)),
             ),
-            ("goal".into(), JsonSchema::string(Some("Node goal.".into()))),
+            (
+                "goal".into(),
+                JsonSchema::string(goal_description.map(str::to_owned)),
+            ),
         ]),
         Some(vec!["node_id".into(), "goal".into()]),
         Some(false.into()),
-    );
-    schema.description = Some(description.into());
-    schema
+    )
 }
 
 fn finish_identity_schema() -> JsonSchema {
-    let mut schema = JsonSchema::object(
+    JsonSchema::object(
         BTreeMap::from([(
             "id".into(),
             JsonSchema::string(Some("Stable Agent-authored Finish identifier.".into())),
         )]),
         Some(vec!["id".into()]),
         Some(false.into()),
-    );
-    schema.description = Some(
-        "The unique terminal graph node identity. Reference id as the graph's only sink in edges; every node must reach it. All executable work, including validation, belongs to Work nodes."
-            .into(),
-    );
-    schema
+    )
 }
 
-fn edge_schema(description: &str) -> JsonSchema {
-    let mut schema = JsonSchema::object(
+fn edge_schema(describe_fields: bool) -> JsonSchema {
+    JsonSchema::object(
         BTreeMap::from([
             (
                 "from".into(),
-                JsonSchema::string(Some("Source node identifier.".into())),
+                JsonSchema::string(describe_fields.then(|| "Source node identifier.".to_string())),
             ),
             (
                 "to".into(),
-                JsonSchema::string(Some("Target node identifier.".into())),
+                JsonSchema::string(describe_fields.then(|| "Target node identifier.".to_string())),
             ),
         ]),
         Some(vec!["from".into(), "to".into()]),
         Some(false.into()),
-    );
-    schema.description = Some(description.into());
-    schema
+    )
 }
 
-fn required_next_call_schema(has_patch: bool) -> JsonSchema {
+fn required_next_call_schema(has_patch: bool, description: Option<&str>) -> JsonSchema {
     let mut variants = vec![json!("ordinary_tool")];
     if has_patch {
         variants.push(json!("apply_patch"));
     }
-    JsonSchema::string_enum(
-        variants,
-        Some(
-            "Declaration only: emit the selected top-level sibling immediately after taskspace_control in this same response. ordinary_tool requires an ordinary non-control tool; apply_patch requires direct apply_patch. This field does not execute or schedule that call."
-                .into(),
-        ),
-    )
+    JsonSchema::string_enum(variants, description.map(str::to_owned))
+}
+
+fn revision_schema() -> JsonSchema {
+    JsonSchema::integer(None).with_minimum(0)
 }
 
 fn initialize_map_schema(has_patch: bool) -> JsonSchema {
-    object_variant(
+    described_object_variant(
         "initialize_map",
         BTreeMap::from([
-            ("root".into(), graph_node_schema("Root node.")),
+            (
+                "root".into(),
+                graph_node_schema(
+                    Some("Stable Agent-authored Root identifier."),
+                    Some("The user's overall task goal."),
+                ),
+            ),
             (
                 "initial_work_node".into(),
                 graph_node_schema(
-                    "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before the required next top-level call executes.",
+                    Some("Stable Agent-authored Work identifier."),
+                    Some("The first coherent Work goal."),
                 ),
             ),
             ("finish_identity".into(), finish_identity_schema()),
             (
                 "additional_work_nodes".into(),
                 JsonSchema::array(
-                    graph_node_schema("Additional Work node."),
-                    Some(
-                        "Zero or more Work nodes other than initial_work_node. Node IDs must be distinct across the entire graph."
-                            .into(),
+                    graph_node_schema(
+                        Some("Stable Agent-authored Work identifier."),
+                        Some("A coherent Work goal."),
                     ),
+                    None,
                 ),
             ),
-            (
-                "edges".into(),
-                JsonSchema::array(
-                    edge_schema("Graph edge."),
-                    Some("Directed graph edges.".into()),
-                ),
-            ),
+            ("edges".into(), JsonSchema::array(edge_schema(true), None)),
             (
                 "required_next_call".into(),
-                required_next_call_schema(has_patch),
+                required_next_call_schema(
+                    has_patch,
+                    Some(
+                        "Declare the immediately following top-level non-control sibling. This field does not execute or schedule that call.",
+                    ),
+                ),
             ),
         ]),
         vec![
@@ -140,38 +146,35 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
             "edges".into(),
             "required_next_call".into(),
         ],
+        "Create the initial rooted DAG, its unique Finish, and the first active Work binding. Emit the first real non-control action as the next top-level sibling in the same response.",
     )
 }
 
 fn mutate_graph_schema(has_patch: bool) -> JsonSchema {
-    object_variant(
+    described_object_variant(
         "mutate_graph",
         BTreeMap::from([
-            (
-                "expected_revision".into(),
-                JsonSchema::integer(Some("Expected graph revision.".into())),
-            ),
+            ("expected_revision".into(), revision_schema()),
             (
                 "add_nodes".into(),
-                JsonSchema::array(
-                    graph_node_schema("Node to add."),
-                    Some("Nodes to add.".into()),
-                ),
+                JsonSchema::array(graph_node_schema(None, None), None),
             ),
             (
                 "add_edges".into(),
-                JsonSchema::array(edge_schema("Edge to add."), Some("Edges to add.".into())),
+                JsonSchema::array(edge_schema(false), None),
             ),
             (
                 "remove_edges".into(),
-                JsonSchema::array(
-                    edge_schema("Edge to remove."),
-                    Some("Edges to remove.".into()),
-                ),
+                JsonSchema::array(edge_schema(false), None),
             ),
             (
                 "required_next_call".into(),
-                required_next_call_schema(has_patch),
+                required_next_call_schema(
+                    has_patch,
+                    Some(
+                        "Optional declaration of an immediately following top-level non-control sibling under the unchanged binding.",
+                    ),
+                ),
             ),
         ]),
         vec![
@@ -180,93 +183,52 @@ fn mutate_graph_schema(has_patch: bool) -> JsonSchema {
             "add_edges".into(),
             "remove_edges".into(),
         ],
+        "Atomically add Work nodes or dependency edges and remove eligible edges. Keep the existing binding unless the mutation is mechanically incompatible with it.",
     )
 }
 
 fn bind_node_schema(has_patch: bool) -> JsonSchema {
-    object_variant(
-        "transition_node",
+    described_object_variant(
+        "bind_node",
         BTreeMap::from([
-            (
-                "expected_revision".into(),
-                JsonSchema::integer(Some("Expected graph revision.".into())),
-            ),
-            (
-                "node_id".into(),
-                JsonSchema::string(Some("Target node.".into())),
-            ),
-            (
-                "transition".into(),
-                JsonSchema::string_enum(
-                    vec![json!("bind")],
-                    Some("Mechanical node transition.".into()),
-                ),
-            ),
+            ("expected_revision".into(), revision_schema()),
+            ("node_id".into(), JsonSchema::string(None)),
             (
                 "required_next_call".into(),
-                required_next_call_schema(has_patch),
+                required_next_call_schema(has_patch, None),
             ),
         ]),
         vec![
             "expected_revision".into(),
             "node_id".into(),
-            "transition".into(),
             "required_next_call".into(),
         ],
+        "Bind one Agent-selected Ready Work node before its first ordinary action. Emit that real action as the next top-level sibling.",
     )
 }
 
-fn transition_node_schema() -> JsonSchema {
-    object_variant(
-        "transition_node",
+fn node_transition_schema(action: &str, description: &str) -> JsonSchema {
+    described_object_variant(
+        action,
         BTreeMap::from([
-            (
-                "expected_revision".into(),
-                JsonSchema::integer(Some("Expected graph revision.".into())),
-            ),
-            (
-                "node_id".into(),
-                JsonSchema::string(Some("Target node.".into())),
-            ),
-            (
-                "transition".into(),
-                JsonSchema::string_enum(
-                    vec![json!("block"), json!("unblock"), json!("rework")],
-                    Some("Mechanical node transition.".into()),
-                ),
-            ),
+            ("expected_revision".into(), revision_schema()),
+            ("node_id".into(), JsonSchema::string(None)),
         ]),
-        vec![
-            "expected_revision".into(),
-            "node_id".into(),
-            "transition".into(),
-        ],
+        vec!["expected_revision".into(), "node_id".into()],
+        description,
     )
 }
 
 fn complete_then_continue_schema(has_patch: bool) -> JsonSchema {
-    object_variant(
+    described_object_variant(
         "complete_then_continue",
         BTreeMap::from([
-            (
-                "expected_revision".into(),
-                JsonSchema::integer(Some("Expected graph revision.".into())),
-            ),
-            (
-                "current_node_id".into(),
-                JsonSchema::string(Some(
-                    "Current bound Work node to complete atomically.".into(),
-                )),
-            ),
-            (
-                "next_node_id".into(),
-                JsonSchema::string(Some(
-                    "Agent-selected successor to bind after completion makes it Ready.".into(),
-                )),
-            ),
+            ("expected_revision".into(), revision_schema()),
+            ("current_node_id".into(), JsonSchema::string(None)),
+            ("next_node_id".into(), JsonSchema::string(None)),
             (
                 "required_next_call".into(),
-                required_next_call_schema(has_patch),
+                required_next_call_schema(has_patch, None),
             ),
         ]),
         vec![
@@ -275,50 +237,36 @@ fn complete_then_continue_schema(has_patch: bool) -> JsonSchema {
             "next_node_id".into(),
             "required_next_call".into(),
         ],
+        "Atomically complete the active Work node and bind one Agent-selected Ready successor. Emit the successor's first real action as the next top-level sibling.",
     )
 }
 
 fn complete_then_end_schema() -> JsonSchema {
-    object_variant(
+    described_object_variant(
         "complete_then_end",
         BTreeMap::from([
-            (
-                "expected_revision".into(),
-                JsonSchema::integer(Some("Expected graph revision.".into())),
-            ),
-            (
-                "current_node_id".into(),
-                JsonSchema::string(Some(
-                    "Current bound final Work node to complete atomically.".into(),
-                )),
-            ),
-            (
-                "final_summary".into(),
-                JsonSchema::string(Some("Exact Agent-authored final summary.".into())),
-            ),
+            ("expected_revision".into(), revision_schema()),
+            ("current_node_id".into(), JsonSchema::string(None)),
+            ("final_summary".into(), JsonSchema::string(None)),
         ]),
         vec![
             "expected_revision".into(),
             "current_node_id".into(),
             "final_summary".into(),
         ],
+        "Atomically complete the final active Work node, close the unique Finish and Root, and store the exact Agent-authored final summary.",
     )
 }
 
 fn finish_end_schema() -> JsonSchema {
-    object_variant(
+    described_object_variant(
         "finish_end",
         BTreeMap::from([
-            (
-                "expected_revision".into(),
-                JsonSchema::integer(Some("Expected graph revision.".into())),
-            ),
-            (
-                "final_summary".into(),
-                JsonSchema::string(Some("Exact Agent-authored final summary.".into())),
-            ),
+            ("expected_revision".into(), revision_schema()),
+            ("final_summary".into(), JsonSchema::string(None)),
         ]),
         vec!["expected_revision".into(), "final_summary".into()],
+        "Close a Map whose Finish is already Ready and no Work remains active. Store the exact Agent-authored final summary.",
     )
 }
 
@@ -332,17 +280,28 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
         initialize_map_schema(has_patch),
         mutate_graph_schema(has_patch),
         bind_node_schema(has_patch),
-        transition_node_schema(),
+        node_transition_schema(
+            "block_node",
+            "Mark the currently running Work node blocked. The Runtime does not select an alternative path.",
+        ),
+        node_transition_schema(
+            "unblock_node",
+            "Return a blocked Work node to Ready after the Agent has determined that its blocker is cleared.",
+        ),
+        node_transition_schema(
+            "rework_node",
+            "Return a completed Work node to Ready because the Agent has decided that more work is required.",
+        ),
         complete_then_continue_schema(has_patch),
         complete_then_end_schema(),
         finish_end_schema(),
     ];
     variants.extend(simple_action_schemas());
-    let parameters = object_any_of(variants, "One mechanical TaskSpace lifecycle operation.");
+    let parameters = object_any_of(variants, "One mechanical TaskSpace operation.");
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace lifecycle tool. When visible TaskSpace bootstrap state has bootstrap_required=true, the first top-level tool call MUST be taskspace_control with action=initialize_map. initialize_map declares and binds the initial rooted DAG. mutate_graph may continue only from an existing binding that remains valid. A running Work node cannot be completed alone: use complete_then_continue to atomically complete it and bind the Agent-selected next Ready node; use complete_then_end to atomically complete the final Work node and close the Map with the exact Agent-authored summary. initialize_map, bind, and complete_then_continue require an immediately following top-level sibling in the same provider response. required_next_call=ordinary_tool declares an ordinary non-control sibling; required_next_call=apply_patch declares direct apply_patch. required_next_call only declares the sibling: it never executes or schedules it, so emit both calls in this response. Never nest tool names, arguments, or patch content in taskspace_control. transition_node handles bind, block, unblock, and rework only. finish_end is reserved for a Map whose Finish is already Ready and cannot continue. read_map returns the exact current full Map projection through the shared renderer; expand_nodes and read_output_ref expose mechanically retained details. A visible projection is current only when its revision matches the latest canonical revision reported by TaskSpace feedback or the Map handle; earlier revisions are historical, and repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared provider order. It does not choose, infer, move, or rewrite actions.".into(),
+        description: "Use taskspace_control to initialize and change the canonical TaskSpace Map, bind Work nodes, commit lifecycle transitions, expand folded node details, and read retained TaskSpace facts. Each call selects one action schema. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. Use it only for Map state and retained TaskSpace data, not to wrap ordinary tool names, commands, patch content, or reasoning. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
         strict: false,
         defer_loading: None,
         parameters,

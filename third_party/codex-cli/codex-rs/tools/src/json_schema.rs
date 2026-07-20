@@ -48,6 +48,8 @@ pub struct JsonSchema {
     #[serde(rename = "minItems", skip_serializing_if = "Option::is_none")]
     pub min_items: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<BTreeMap<String, JsonSchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<String>>,
@@ -84,6 +86,15 @@ impl JsonSchema {
 
     pub fn any_of(variants: Vec<JsonSchema>, description: Option<String>) -> Self {
         Self {
+            description,
+            any_of: Some(variants),
+            ..Default::default()
+        }
+    }
+
+    pub fn object_any_of(variants: Vec<JsonSchema>, description: Option<String>) -> Self {
+        Self {
+            schema_type: Some(JsonSchemaType::Single(JsonSchemaPrimitiveType::Object)),
             description,
             any_of: Some(variants),
             ..Default::default()
@@ -130,6 +141,11 @@ impl JsonSchema {
 
     pub fn with_min_items(mut self, min_items: usize) -> Self {
         self.min_items = Some(min_items);
+        self
+    }
+
+    pub fn with_minimum(mut self, minimum: i64) -> Self {
+        self.minimum = Some(minimum);
         self
     }
 

@@ -6,45 +6,80 @@ use super::JsonSchema;
 use super::object_variant;
 
 pub(super) fn simple_action_schemas() -> Vec<JsonSchema> {
+    let mut expand_nodes = object_variant(
+        "expand_nodes",
+        BTreeMap::from([(
+            "node_ids".into(),
+            JsonSchema::array(JsonSchema::string(None), None).with_min_items(1),
+        )]),
+        vec!["node_ids".into()],
+    );
+    expand_nodes.description = Some(
+        "Mark folded node details for full inclusion in future projections. This changes only deterministic display state."
+            .into(),
+    );
+
+    let mut read_map = object_variant("read_map", BTreeMap::new(), Vec::new());
+    read_map.description = Some(
+        "Return the current full rendered Map and its canonical revision without changing state."
+            .into(),
+    );
+
     vec![
-        object_variant(
-            "expand_nodes",
-            BTreeMap::from([(
-                "node_ids".into(),
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some(
-                        "Currently folded node identifiers whose hidden event refs must be restored atomically."
-                            .into(),
-                    ),
-                )
-                .with_min_items(1),
-            )]),
-            vec!["node_ids".into()],
+        expand_nodes,
+        read_map,
+        read_output_ref_schema(
+            "head",
+            "Return the beginning of exact retained output by reference.",
+            BTreeMap::new(),
+            Vec::new(),
         ),
-        object_variant(
-            "read_output_ref",
+        read_output_ref_schema(
+            "tail",
+            "Return the end of exact retained output by reference.",
+            BTreeMap::new(),
+            Vec::new(),
+        ),
+        read_output_ref_schema(
+            "line_range",
+            "Return an exact retained output line range by reference.",
             BTreeMap::from([
-                ("output_ref".into(), JsonSchema::string(None)),
                 (
-                    "mode".into(),
-                    JsonSchema::string_enum(
-                        vec![
-                            json!("head"),
-                            json!("tail"),
-                            json!("line_range"),
-                            json!("grep"),
-                        ],
-                        None,
-                    ),
+                    "start_line".into(),
+                    JsonSchema::integer(None).with_minimum(1),
                 ),
-                ("start_line".into(), JsonSchema::integer(None)),
-                ("end_line".into(), JsonSchema::integer(None)),
-                ("pattern".into(), JsonSchema::string(None)),
-                ("max_bytes".into(), JsonSchema::integer(None)),
+                ("end_line".into(), JsonSchema::integer(None).with_minimum(1)),
             ]),
-            vec!["output_ref".into(), "mode".into()],
+            vec!["start_line".into(), "end_line".into()],
         ),
-        object_variant("read_map", BTreeMap::new(), Vec::new()),
+        read_output_ref_schema(
+            "grep",
+            "Return exact matching retained output ranges by reference and pattern.",
+            BTreeMap::from([("pattern".into(), JsonSchema::string(None))]),
+            vec!["pattern".into()],
+        ),
     ]
+}
+
+fn read_output_ref_schema(
+    mode: &str,
+    description: &str,
+    mut properties: BTreeMap<String, JsonSchema>,
+    mut required: Vec<String>,
+) -> JsonSchema {
+    properties.insert("output_ref".into(), JsonSchema::string(None));
+    properties.insert(
+        "mode".into(),
+        JsonSchema::string_enum(vec![json!(mode)], None),
+    );
+    properties.insert(
+        "max_bytes".into(),
+        JsonSchema::integer(None).with_minimum(1),
+    );
+    required.insert(0, "output_ref".into());
+    required.insert(1, "mode".into());
+    required.push("max_bytes".into());
+    let mut schema = object_variant("read_output_ref", properties, required);
+    schema.description = Some(description.into());
+    schema
 }

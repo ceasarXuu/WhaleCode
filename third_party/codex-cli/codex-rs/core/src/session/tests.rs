@@ -1796,7 +1796,7 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
                     name: "taskspace_control".to_string(),
                     namespace: None,
                     arguments:
-                        r#"{"action":"transition_node","transition":"bind","node_id":"implement"}"#
+                        r#"{"action":"bind_node","expected_revision":3,"node_id":"implement","required_next_call":"ordinary_tool"}"#
                             .to_string(),
                     call_id: "transition-control".to_string(),
                 },

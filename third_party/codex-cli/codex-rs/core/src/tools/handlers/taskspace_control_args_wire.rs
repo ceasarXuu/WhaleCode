@@ -2,7 +2,6 @@ use super::TaskSpaceControlArgs;
 use super::TaskSpaceFinishIdentityArgs;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
-use super::TaskSpaceNodeTransition;
 use super::TaskSpaceRequiredNextCall;
 use super::invalid_error;
 use crate::function_tool::FunctionCallError;
@@ -14,7 +13,10 @@ use serde::de::DeserializeOwned;
 enum Action {
     InitializeMap,
     MutateGraph,
-    TransitionNode,
+    BindNode,
+    BlockNode,
+    UnblockNode,
+    ReworkNode,
     CompleteThenContinue,
     CompleteThenEnd,
     FinishEnd,
@@ -56,14 +58,21 @@ struct MutateGraphArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct TransitionNodeArgs {
+struct BindNodeArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
     node_id: String,
-    transition: TaskSpaceNodeTransition,
-    #[serde(default)]
-    required_next_call: Option<TaskSpaceRequiredNextCall>,
+    required_next_call: TaskSpaceRequiredNextCall,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NodeTransitionArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    expected_revision: u64,
+    node_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,21 +113,62 @@ struct ExpandNodesArgs {
     node_ids: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ReadOutputMode {
+    Head,
+    Tail,
+    LineRange,
+    Grep,
+}
+
+impl ReadOutputMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Head => "head",
+            Self::Tail => "tail",
+            Self::LineRange => "line_range",
+            Self::Grep => "grep",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ReadOutputModeEnvelope {
+    mode: ReadOutputMode,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ReadOutputRefArgs {
+struct ReadOutputHeadOrTailArgs {
     #[serde(rename = "action")]
     _action: Action,
+    mode: ReadOutputMode,
     output_ref: String,
-    mode: String,
-    #[serde(default)]
-    start_line: Option<usize>,
-    #[serde(default)]
-    end_line: Option<usize>,
-    #[serde(default)]
-    pattern: Option<String>,
-    #[serde(default)]
-    max_bytes: Option<usize>,
+    max_bytes: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadOutputLineRangeArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    mode: ReadOutputMode,
+    output_ref: String,
+    start_line: usize,
+    end_line: usize,
+    max_bytes: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadOutputGrepArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    mode: ReadOutputMode,
+    output_ref: String,
+    pattern: String,
+    max_bytes: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,13 +201,33 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 required_next_call: parsed.required_next_call,
             })
         }
-        Action::TransitionNode => {
-            let parsed = deserialize_arguments::<TransitionNodeArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::TransitionNode {
+        Action::BindNode => {
+            let parsed = deserialize_arguments::<BindNodeArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::BindNode {
                 expected_revision: parsed.expected_revision,
                 node_id: parsed.node_id,
-                transition: parsed.transition,
                 required_next_call: parsed.required_next_call,
+            })
+        }
+        Action::BlockNode => {
+            let (expected_revision, node_id) = parse_node_transition(arguments)?;
+            Ok(TaskSpaceControlArgs::BlockNode {
+                expected_revision,
+                node_id,
+            })
+        }
+        Action::UnblockNode => {
+            let (expected_revision, node_id) = parse_node_transition(arguments)?;
+            Ok(TaskSpaceControlArgs::UnblockNode {
+                expected_revision,
+                node_id,
+            })
+        }
+        Action::ReworkNode => {
+            let (expected_revision, node_id) = parse_node_transition(arguments)?;
+            Ok(TaskSpaceControlArgs::ReworkNode {
+                expected_revision,
+                node_id,
             })
         }
         Action::CompleteThenContinue => {
@@ -191,21 +261,53 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
             })
         }
         Action::ReadOutputRef => {
-            let parsed = deserialize_arguments::<ReadOutputRefArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::ReadOutputRef {
-                output_ref: parsed.output_ref,
-                mode: parsed.mode,
-                start_line: parsed.start_line,
-                end_line: parsed.end_line,
-                pattern: parsed.pattern,
-                max_bytes: parsed.max_bytes,
-            })
+            let mode = deserialize_arguments::<ReadOutputModeEnvelope>(arguments)?.mode;
+            match mode {
+                ReadOutputMode::Head | ReadOutputMode::Tail => {
+                    let parsed = deserialize_arguments::<ReadOutputHeadOrTailArgs>(arguments)?;
+                    Ok(TaskSpaceControlArgs::ReadOutputRef {
+                        output_ref: parsed.output_ref,
+                        mode: parsed.mode.as_str().into(),
+                        start_line: None,
+                        end_line: None,
+                        pattern: None,
+                        max_bytes: Some(parsed.max_bytes),
+                    })
+                }
+                ReadOutputMode::LineRange => {
+                    let parsed = deserialize_arguments::<ReadOutputLineRangeArgs>(arguments)?;
+                    Ok(TaskSpaceControlArgs::ReadOutputRef {
+                        output_ref: parsed.output_ref,
+                        mode: parsed.mode.as_str().into(),
+                        start_line: Some(parsed.start_line),
+                        end_line: Some(parsed.end_line),
+                        pattern: None,
+                        max_bytes: Some(parsed.max_bytes),
+                    })
+                }
+                ReadOutputMode::Grep => {
+                    let parsed = deserialize_arguments::<ReadOutputGrepArgs>(arguments)?;
+                    Ok(TaskSpaceControlArgs::ReadOutputRef {
+                        output_ref: parsed.output_ref,
+                        mode: parsed.mode.as_str().into(),
+                        start_line: None,
+                        end_line: None,
+                        pattern: Some(parsed.pattern),
+                        max_bytes: Some(parsed.max_bytes),
+                    })
+                }
+            }
         }
         Action::ReadMap => {
             let _ = deserialize_arguments::<ReadMapArgs>(arguments)?;
             Ok(TaskSpaceControlArgs::ReadMap)
         }
     }
+}
+
+fn parse_node_transition(arguments: &str) -> Result<(u64, String), FunctionCallError> {
+    let parsed = deserialize_arguments::<NodeTransitionArgs>(arguments)?;
+    Ok((parsed.expected_revision, parsed.node_id))
 }
 
 fn deserialize_arguments<T: DeserializeOwned>(arguments: &str) -> Result<T, FunctionCallError> {

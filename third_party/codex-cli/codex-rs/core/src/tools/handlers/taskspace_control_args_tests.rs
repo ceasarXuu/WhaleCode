@@ -58,6 +58,10 @@ fn rejects_removed_active_actions() {
         r#"{"action":"finish_then_end","finish_node_ids":["finish"],"final_candidate":"answer"}"#
     )
     .is_err());
+    assert!(parse_taskspace_control_args(
+        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind","required_next_call":"ordinary_tool"}"#
+    )
+    .is_err());
 }
 
 #[test]
@@ -103,7 +107,7 @@ fn reports_array_index_when_additional_work_goal_is_missing() {
 }
 
 #[test]
-fn accepts_r6_active_actions() {
+fn accepts_direct_lifecycle_actions() {
     let mutation = parse_taskspace_control_args(
         r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[],"required_next_call":"ordinary_tool"}"#,
     )
@@ -113,19 +117,27 @@ fn accepts_r6_active_actions() {
         Some(TaskSpaceRequiredNextCall::OrdinaryTool)
     );
     let bind = parse_taskspace_control_args(
-        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind","required_next_call":"ordinary_tool"}"#,
+        r#"{"action":"bind_node","expected_revision":2,"node_id":"new","required_next_call":"ordinary_tool"}"#,
     )
-    .expect("valid transition");
+    .expect("valid bind");
     assert_eq!(
         bind.required_next_call(),
         Some(TaskSpaceRequiredNextCall::OrdinaryTool)
     );
     parse_taskspace_control_args(
-        r#"{"action":"transition_node","expected_revision":3,"node_id":"new","transition":"rework"}"#,
+        r#"{"action":"block_node","expected_revision":3,"node_id":"new"}"#,
     )
-    .expect("valid rework transition");
+    .expect("valid block");
+    parse_taskspace_control_args(
+        r#"{"action":"unblock_node","expected_revision":4,"node_id":"new"}"#,
+    )
+    .expect("valid unblock");
+    parse_taskspace_control_args(
+        r#"{"action":"rework_node","expected_revision":5,"node_id":"new"}"#,
+    )
+    .expect("valid rework");
     let handoff = parse_taskspace_control_args(
-        r#"{"action":"complete_then_continue","expected_revision":4,"current_node_id":"new","next_node_id":"verify","required_next_call":"ordinary_tool"}"#,
+        r#"{"action":"complete_then_continue","expected_revision":6,"current_node_id":"new","next_node_id":"verify","required_next_call":"ordinary_tool"}"#,
     )
     .expect("valid atomic handoff");
     assert_eq!(
@@ -133,21 +145,23 @@ fn accepts_r6_active_actions() {
         Some(TaskSpaceRequiredNextCall::OrdinaryTool)
     );
     parse_taskspace_control_args(
-        r#"{"action":"complete_then_end","expected_revision":5,"current_node_id":"verify","final_summary":"Done"}"#,
+        r#"{"action":"complete_then_end","expected_revision":7,"current_node_id":"verify","final_summary":"Done"}"#,
     )
     .expect("valid atomic terminal completion");
     parse_taskspace_control_args(
-        r#"{"action":"finish_end","expected_revision":6,"final_summary":"Done"}"#,
+        r#"{"action":"finish_end","expected_revision":8,"final_summary":"Done"}"#,
     )
     .expect("valid finish");
 }
 
 #[test]
 fn standalone_complete_is_unrepresentable_and_handoffs_require_next_call() {
-    assert!(parse_taskspace_control_args(
-        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind"}"#,
-    )
-    .is_err());
+    assert!(
+        parse_taskspace_control_args(
+            r#"{"action":"bind_node","expected_revision":2,"node_id":"new"}"#,
+        )
+        .is_err()
+    );
     assert!(parse_taskspace_control_args(
         r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"complete","required_next_call":"ordinary_tool"}"#,
     )
@@ -158,6 +172,14 @@ fn standalone_complete_is_unrepresentable_and_handoffs_require_next_call() {
     .is_err());
     assert!(parse_taskspace_control_args(
         r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"new","next_node_id":"verify"}"#,
+    )
+    .is_err());
+    assert!(parse_taskspace_control_args(
+        r#"{"action":"block_node","expected_revision":2,"node_id":"new","required_next_call":"ordinary_tool"}"#,
+    )
+    .is_err());
+    assert!(parse_taskspace_control_args(
+        r#"{"action":"bind_node","expected_revision":2,"node_id":"new","transition":"bind","required_next_call":"ordinary_tool"}"#,
     )
     .is_err());
 }
@@ -194,7 +216,7 @@ fn validates_non_empty_and_duplicate_ids_and_edges() {
     .is_err());
     assert!(
         parse_taskspace_control_args(
-            r#"{"action":"transition_node","expected_revision":2,"node_id":"","transition":"bind","required_next_call":"ordinary_tool"}"#
+            r#"{"action":"bind_node","expected_revision":2,"node_id":"","required_next_call":"ordinary_tool"}"#
         )
         .is_err()
     );
@@ -232,6 +254,30 @@ fn read_map_accepts_only_the_action_tag() {
     assert!(
         parse_taskspace_control_args(r#"{"action":"read_map","expected_revision":2}"#).is_err()
     );
+}
+
+#[test]
+fn read_output_ref_modes_accept_only_their_direct_schema() {
+    for arguments in [
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"head","max_bytes":64}"#,
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"tail","max_bytes":64}"#,
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"line_range","start_line":1,"end_line":3,"max_bytes":64}"#,
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"grep","pattern":"needle","max_bytes":64}"#,
+    ] {
+        parse_taskspace_control_args(arguments).expect("valid direct read mode");
+    }
+
+    for arguments in [
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"head"}"#,
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"head","pattern":"extra","max_bytes":64}"#,
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"line_range","start_line":0,"end_line":3,"max_bytes":64}"#,
+        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"grep","pattern":"needle","max_bytes":0}"#,
+    ] {
+        assert!(
+            parse_taskspace_control_args(arguments).is_err(),
+            "{arguments}"
+        );
+    }
 }
 
 #[test]
