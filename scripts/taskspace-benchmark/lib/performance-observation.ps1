@@ -177,9 +177,17 @@ function Get-PerformanceMapFacts {
         compaction_event_count = Get-PerformanceNumber (Get-PerformanceProperty $managed "compaction_event_count")
         control_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_control_count")
         control_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_failure_count")
+        control_preflight_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_preflight_failure_count")
+        control_handler_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_handler_failure_count")
         control_protocol_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_protocol_failure_count")
         control_state_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_state_failure_count")
+        control_argument_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_argument_failure_count")
+        control_resource_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_resource_failure_count")
         nested_action_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "nested_action_failure_count")
+        ordinary_gate_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "ordinary_gate_failure_count")
+        taskspace_boundary_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_boundary_failure_count")
+        committed_control_count = Get-PerformanceNumber (Get-PerformanceProperty $control "committed_control_count")
+        graph_revision_commit_count = Get-PerformanceNumber (Get-PerformanceProperty $control "graph_revision_commit_count")
         read_map_request_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_request_count")
         read_map_completion_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_completion_count")
         read_map_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_failure_count")
@@ -251,9 +259,17 @@ function Get-PerformanceSideObservation {
             nested_actions = $actions.nested_action_count
             shell = $actions.shell; patch = $actions.patch; taskspace_control = $map.control_count
             control_failures = $map.control_failure_count
+            control_preflight_failures = $map.control_preflight_failure_count
+            control_handler_failures = $map.control_handler_failure_count
             control_protocol_failures = $map.control_protocol_failure_count
             control_state_failures = $map.control_state_failure_count
+            control_argument_failures = $map.control_argument_failure_count
+            control_resource_failures = $map.control_resource_failure_count
             nested_action_failures = $map.nested_action_failure_count
+            ordinary_gate_failures = $map.ordinary_gate_failure_count
+            taskspace_boundary_failures = $map.taskspace_boundary_failure_count
+            committed_controls = $map.committed_control_count
+            graph_revision_commits = $map.graph_revision_commit_count
             provider_tool_responses = $cadence.provider_tool_response_count
             control_carrier_responses = $cadence.control_carrier_response_count
             direct_tool_mixed_responses = $cadence.direct_tool_mixed_response_count

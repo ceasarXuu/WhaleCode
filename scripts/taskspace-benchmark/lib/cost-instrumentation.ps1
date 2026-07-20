@@ -1366,9 +1366,16 @@ function New-TaskspaceControlUsageSummary {
     $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutControlPreflightFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutControlHandlerFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlProtocolFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlStateFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutControlArgumentFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutControlResourceFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutNestedActionFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutOrdinaryGateFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutCommittedControlCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutGraphRevisionCommitKeys = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutReadMapCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $readMapCompletionCount = 0
     $readMapRepeatedRevisionCount = 0
@@ -1383,81 +1390,106 @@ function New-TaskspaceControlUsageSummary {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             try { $row = $line | ConvertFrom-Json } catch { continue }
+            if ([string]$row.type -eq "event_msg" -and $null -ne $row.payload -and
+                [string]$row.payload.type -eq "map_runtime" -and
+                [string]$row.payload.map_event_type -eq "graph_revision_committed") {
+                $mapId = [string](Get-TaskspaceCostProperty $row.payload @("mapId", "map_id"))
+                $revision = Get-TaskspaceCostProperty $row.payload @("revision")
+                [void]$rolloutGraphRevisionCommitKeys.Add("${mapId}:${revision}")
+            }
             $payload = Get-TaskspaceCanonicalResponseItem $row
             if ($null -eq $payload) { continue }
             $rolloutResponseItemCount++
             $payloadType = [string](Get-TaskspaceCostProperty $payload @("type"))
             if ($payloadType -in @("function_call_output", "custom_tool_call_output")) {
                 $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
-                if (-not [string]::IsNullOrWhiteSpace($callId) -and
-                    ($rolloutNativeCallIds.Contains($callId) -or $rolloutActionContractCallIds.Contains($callId))) {
-                    $output = [string](Get-TaskspaceCostProperty $payload @("output"))
-                    $controlFailed = $false
-                    $failureClass = ""
-                    $batch = $null
-                    if (-not [string]::IsNullOrWhiteSpace($output)) {
-                        try {
-                            $batch = $output | ConvertFrom-Json
-                            $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
-                            $controlFailed = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2", "TaskSpaceControlResultR6V1") -and
-                                $batch.PSObject.Properties.Name -contains "success" -and
-                                [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
-                            if ($controlFailed) {
-                                $status = [string](Get-TaskspaceCostProperty $batch @("status"))
-                                $error = Get-TaskspaceCostProperty $batch @("error")
-                                $errorClass = [string](Get-TaskspaceCostProperty $error @("class"))
-                                $failureClass = if ($status -eq "partial") {
-                                    "nested_action"
-                                } elseif ($status -eq "state_machine_failed" -or $errorClass -eq "state_machine") {
-                                    "state"
-                                } else {
-                                    "protocol"
-                                }
-                            }
-                        } catch {}
+                $output = [string](Get-TaskspaceCostProperty $payload @("output"))
+                $batch = $null
+                if (-not [string]::IsNullOrWhiteSpace($output)) {
+                    try { $batch = $output | ConvertFrom-Json } catch {}
+                }
+                $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
+                if ($schemaVersion -eq "TaskSpaceGateResultV1" -and
+                    [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false -and
+                    -not [string]::IsNullOrWhiteSpace($callId)) {
+                    [void]$rolloutOrdinaryGateFailureCallIds.Add($callId)
+                }
+                $isControlCall = -not [string]::IsNullOrWhiteSpace($callId) -and
+                    ($rolloutNativeCallIds.Contains($callId) -or $rolloutActionContractCallIds.Contains($callId))
+                if (-not $isControlCall) { continue }
+
+                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2", "TaskSpaceControlResultR6V1")
+                $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV1"
+                $controlFailed = ($isControlResult -or $isControlPreflightResult) -and
+                    $batch.PSObject.Properties.Name -contains "success" -and
+                    [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
+                $error = Get-TaskspaceCostProperty $batch @("error")
+                $errorClass = [string](Get-TaskspaceCostProperty $error @("class"))
+                $errorCode = [string](Get-TaskspaceCostProperty $error @("code"))
+                $status = [string](Get-TaskspaceCostProperty $batch @("status"))
+                if ($controlFailed) {
+                    [void]$rolloutControlFailureCallIds.Add($callId)
+                    $isPreflight = $isControlPreflightResult -or
+                        $errorCode -eq "TASKSPACE_REQUIRED_SIBLING_MISSING"
+                    if ($isPreflight) {
+                        [void]$rolloutControlPreflightFailureCallIds.Add($callId)
+                    } else {
+                        [void]$rolloutControlHandlerFailureCallIds.Add($callId)
                     }
-                    if ($null -ne $batch -and
-                        $batch.PSObject.Properties.Name -contains "success" -and
-                        [bool](Get-TaskspaceCostProperty $batch @("success"))) {
-                        $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision")
-                        if ($null -ne $committedRevision) {
-                            $latestCommittedRevision = [int64]$committedRevision
-                        }
+                    if ($status -eq "partial") {
+                        [void]$rolloutNestedActionFailureCallIds.Add($callId)
+                    } elseif ($status -eq "state_machine_failed" -or $errorClass -eq "state_machine") {
+                        [void]$rolloutControlStateFailureCallIds.Add($callId)
+                    } elseif ($status -eq "argument_failed" -or $errorClass -eq "argument") {
+                        [void]$rolloutControlArgumentFailureCallIds.Add($callId)
+                    } elseif ($status -eq "resource_failed" -or $errorClass -eq "resource") {
+                        [void]$rolloutControlResourceFailureCallIds.Add($callId)
+                    } else {
+                        [void]$rolloutControlProtocolFailureCallIds.Add($callId)
                     }
-                    if ($rolloutReadMapCallIds.Contains($callId)) {
-                        $projectionComplete = $output.Contains("TaskSpaceMapProjectionR7V1:") -and
-                            $output.Contains("TaskSpaceMapProjectionR7V1 end.")
+                }
+                $stateCommitted = $isControlResult -and
+                    [bool](Get-TaskspaceCostProperty $batch @("success")) -and
+                    [bool](Get-TaskspaceCostProperty $batch @("state_commit"))
+                if ($stateCommitted) {
+                    [void]$rolloutCommittedControlCallIds.Add($callId)
+                    $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision")
+                    if ($null -ne $committedRevision) {
+                        $latestCommittedRevision = [int64]$committedRevision
+                    }
+                }
+                if ($rolloutReadMapCallIds.Contains($callId)) {
+                    $read = Get-TaskspaceCostProperty $batch @("read")
+                    $v2ProjectionComplete = $schemaVersion -eq "TaskSpaceControlResultV2" -and
+                        $status -eq "read_ok" -and
+                        [string](Get-TaskspaceCostProperty $read @("kind")) -eq "map_projection"
+                    $legacyProjectionComplete = $output.Contains("TaskSpaceMapProjectionR7V1:") -and
+                        $output.Contains("TaskSpaceMapProjectionR7V1 end.")
+                    $readRevision = if ($v2ProjectionComplete) {
+                        Get-TaskspaceCostProperty $read @("revision")
+                    } else {
                         $revisionMatch = [regex]::Match($output, "(?m)^- revision:\s*(\d+)\s*$")
-                        if ($projectionComplete) {
-                            $readMapCompletionCount++
-                            if ($revisionMatch.Success) {
-                                $readRevision = [int64]$revisionMatch.Groups[1].Value
-                                if ($null -ne $previousReadRevision -and $previousReadRevision -eq $readRevision) {
-                                    $readMapRepeatedRevisionCount++
-                                }
-                                $previousReadRevision = $readRevision
-                                if ($null -ne $latestCommittedRevision) {
-                                    $lag = [Math]::Max([int64]0, $latestCommittedRevision - $readRevision)
-                                    $readMapRevisionLagSampleCount++
-                                    $readMapRevisionLagTotal += $lag
-                                    if ($null -eq $readMapRevisionLagMax -or $lag -gt $readMapRevisionLagMax) {
-                                        $readMapRevisionLagMax = $lag
-                                    }
+                        if ($revisionMatch.Success) { [int64]$revisionMatch.Groups[1].Value } else { $null }
+                    }
+                    if ($v2ProjectionComplete -or $legacyProjectionComplete) {
+                        $readMapCompletionCount++
+                        if ($null -ne $readRevision) {
+                            $readRevision = [int64]$readRevision
+                            if ($null -ne $previousReadRevision -and $previousReadRevision -eq $readRevision) {
+                                $readMapRepeatedRevisionCount++
+                            }
+                            $previousReadRevision = $readRevision
+                            if ($null -ne $latestCommittedRevision) {
+                                $lag = [Math]::Max([int64]0, $latestCommittedRevision - $readRevision)
+                                $readMapRevisionLagSampleCount++
+                                $readMapRevisionLagTotal += $lag
+                                if ($null -eq $readMapRevisionLagMax -or $lag -gt $readMapRevisionLagMax) {
+                                    $readMapRevisionLagMax = $lag
                                 }
                             }
-                        } elseif ($output -match "stale_revision") {
-                            $readMapStaleRevisionErrorCount++
                         }
-                    }
-                    if ($controlFailed) {
-                        [void]$rolloutControlFailureCallIds.Add($callId)
-                        if ($failureClass -eq "state") {
-                            [void]$rolloutControlStateFailureCallIds.Add($callId)
-                        } elseif ($failureClass -eq "nested_action") {
-                            [void]$rolloutNestedActionFailureCallIds.Add($callId)
-                        } else {
-                            [void]$rolloutControlProtocolFailureCallIds.Add($callId)
-                        }
+                    } elseif ($errorCode -eq "TASKSPACE_STALE_REVISION" -or $output -match "stale_revision") {
+                        $readMapStaleRevisionErrorCount++
                     }
                 }
                 continue
@@ -1503,7 +1535,13 @@ function New-TaskspaceControlUsageSummary {
     } elseif ($parsed.source_status -eq "read") {
         $controlCountSource = "whale_exec_jsonl"
     }
-    $stateCommit = if ($actions.ContainsKey("state_commit")) { [int]$actions["state_commit"] } else { 0 }
+    $stateCommit = if ($rolloutControlTelemetryMeasured) {
+        [int]$rolloutCommittedControlCallIds.Count
+    } elseif ($actions.ContainsKey("state_commit")) {
+        [int]$actions["state_commit"]
+    } else {
+        0
+    }
     $readMapRequestCount = [int]$rolloutReadMapCallIds.Count
     $readMapFailureCount = [Math]::Max(0, $readMapRequestCount - $readMapCompletionCount)
     $readMapRevisionLagMean = if ($readMapRevisionLagSampleCount -gt 0) {
@@ -1580,7 +1618,7 @@ function New-TaskspaceControlUsageSummary {
         }
     }
     [pscustomobject]@{
-        schema_version = "taskspace-control-usage-v3"
+        schema_version = "taskspace-control-usage-v4"
         source_path = $JsonlPath
         observability_source_path = $ObservabilityJsonPath
         rollout_source_path = $RolloutJsonlPath
@@ -1603,9 +1641,17 @@ function New-TaskspaceControlUsageSummary {
         native_taskspace_control_count = [int]$nativeTotal
         action_contract_taskspace_control_count = [int]$actionContractTotal
         control_failure_count = [int]$rolloutControlFailureCallIds.Count
+        control_preflight_failure_count = [int]$rolloutControlPreflightFailureCallIds.Count
+        control_handler_failure_count = [int]$rolloutControlHandlerFailureCallIds.Count
         control_protocol_failure_count = [int]$rolloutControlProtocolFailureCallIds.Count
         control_state_failure_count = [int]$rolloutControlStateFailureCallIds.Count
+        control_argument_failure_count = [int]$rolloutControlArgumentFailureCallIds.Count
+        control_resource_failure_count = [int]$rolloutControlResourceFailureCallIds.Count
         nested_action_failure_count = [int]$rolloutNestedActionFailureCallIds.Count
+        ordinary_gate_failure_count = [int]$rolloutOrdinaryGateFailureCallIds.Count
+        taskspace_boundary_failure_count = [int]$rolloutControlFailureCallIds.Count + [int]$rolloutOrdinaryGateFailureCallIds.Count
+        committed_control_count = [int]$rolloutCommittedControlCallIds.Count
+        graph_revision_commit_count = [int]$rolloutGraphRevisionCommitKeys.Count
         read_map_request_count = $readMapRequestCount
         read_map_completion_count = [int]$readMapCompletionCount
         read_map_failure_count = [int]$readMapFailureCount
@@ -1615,6 +1661,7 @@ function New-TaskspaceControlUsageSummary {
         read_map_revision_lag_max = $readMapRevisionLagMax
         read_map_stale_revision_error_count = [int]$readMapStaleRevisionErrorCount
         state_commit_count = [int]$stateCommit
+        state_commit_count_source = if ($rolloutControlTelemetryMeasured) { "control_result_state_commit" } else { "legacy_exec_action" }
         runtime_state_commit_count = [int]$runtimeStateCommit
         runtime_output_ref_created_count = [int]$runtimeOutputRefCreated
         runtime_output_ref_slice_read_count = [int]$runtimeOutputRefSliceRead
