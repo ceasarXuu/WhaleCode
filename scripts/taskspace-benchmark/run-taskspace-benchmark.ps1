@@ -458,6 +458,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         container_resource_contract = $containerContract.resources
         provider_param_status = $providerParamStatus
         config_overrides = @($effectiveConfigOverrides)
+        taskspace_projection_policy = $TaskSpaceProjectionPolicy
         sandbox_mode = "docker_hard_boundary"
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
@@ -486,7 +487,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $executionRepoDir = [string]$containerContract.paths.workspace
             $containerLastMessagePath = Join-Path ([string]$containerContract.paths.artifacts) "last-message.md"
             $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $effectiveConfigOverrides $TaskSpaceProjectionPolicy
-            $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
+            $commonArgs = Get-TaskspaceCommonArgvWithoutTreatment $args
             $childEnvironment = @{
                 WHALE_PROVIDER_WIRE_TRACE_PATH = "/artifacts/provider-wire-trace.jsonl"
             }
@@ -494,7 +495,12 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
                 $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
             }
-            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
+            $treatmentDelta = if ($side.LogicalMode -eq "taskspace") {
+                @("--taskspace", "-c taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`"")
+            } else {
+                @()
+            }
+            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = $treatmentDelta; execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
             $started = Get-Date
             $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $TimeoutSeconds
             $exitCode = [int]$containerExec.exit_code

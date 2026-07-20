@@ -200,7 +200,31 @@ fn standard_session_has_no_snapshot_or_catalog_entry() {
     outcome
         .skills
         .push(bundled_skill(source, SkillScope::System));
-    bind_catalog_snapshot(&mut outcome, None).expect("bind Standard catalog");
+    bind_catalog_snapshot(&mut outcome, false, None).expect("bind Standard catalog");
+    assert!(
+        outcome
+            .skills
+            .iter()
+            .all(|skill| skill.name != TASKSPACE_ADVANCED_SKILL_NAME)
+    );
+}
+
+#[test]
+fn standard_catalog_ignores_a_configured_taskspace_policy_snapshot() {
+    let temp = tempdir().expect("temp dir");
+    let source = AbsolutePathBuf::from_absolute_path(
+        temp.path()
+            .join("skills/.system/taskspace-advanced/SKILL.md"),
+    )
+    .expect("absolute source path");
+    let identity = identity_at(temp.path(), &"a".repeat(64));
+    let mut outcome = SkillLoadOutcome::default();
+    outcome
+        .skills
+        .push(bundled_skill(source, SkillScope::System));
+
+    bind_catalog_snapshot(&mut outcome, false, Some(&identity))
+        .expect("Standard catalog filtering");
     assert!(
         outcome
             .skills
@@ -215,7 +239,7 @@ fn taskspace_session_continues_when_bundled_skills_are_disabled() {
     let identity = identity_at(temp.path(), &"a".repeat(64));
     let mut outcome = SkillLoadOutcome::default();
 
-    bind_catalog_snapshot(&mut outcome, Some(&identity))
+    bind_catalog_snapshot(&mut outcome, true, Some(&identity))
         .expect("optional advanced skill must not block TaskSpace startup");
     assert!(outcome.skills.is_empty());
 }
@@ -282,7 +306,7 @@ fn catalog_binding_uses_missing_persisted_snapshot_without_latest_fallback() {
         .skills
         .push(bundled_skill(source.clone(), SkillScope::System));
 
-    bind_catalog_snapshot(&mut outcome, Some(&identity)).expect("bind snapshot");
+    bind_catalog_snapshot(&mut outcome, true, Some(&identity)).expect("bind snapshot");
     assert_eq!(outcome.skills[0].path_to_skills_md, snapshot);
     assert_eq!(
         outcome.expected_body_sha256(&outcome.skills[0]),
@@ -318,7 +342,7 @@ fn reserved_name_conflict_is_rejected_and_removed() {
         .skills
         .push(bundled_skill(conflict, SkillScope::Repo));
 
-    let error = bind_catalog_snapshot(&mut outcome, Some(&identity))
+    let error = bind_catalog_snapshot(&mut outcome, true, Some(&identity))
         .expect_err("reserved name conflict must fail");
     assert!(error.to_string().contains("reserved TaskSpace skill name"));
     assert!(

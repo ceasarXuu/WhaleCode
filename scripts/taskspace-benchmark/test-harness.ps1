@@ -752,9 +752,9 @@ Assert-True ([int]$fallbackTokenSummary.modes.taskspace.fallback_model_request_c
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"
-$normalizedStandard = Get-NormalizedTaskspaceWhaleArgv $standardArgv
-$normalizedTaskspace = @(Get-NormalizedTaskspaceWhaleArgv $taskspaceArgv | Where-Object { $_ -ne "--taskspace" })
-Assert-True (($normalizedStandard -join "`n") -eq ($normalizedTaskspace -join "`n")) "standard/taskspace argv differ by more than --taskspace after path normalization"
+$normalizedStandard = Get-NormalizedTaskspaceWhaleArgv (Get-TaskspaceCommonArgvWithoutTreatment $standardArgv)
+$normalizedTaskspace = Get-NormalizedTaskspaceWhaleArgv (Get-TaskspaceCommonArgvWithoutTreatment $taskspaceArgv)
+Assert-True (($normalizedStandard -join "`n") -eq ($normalizedTaskspace -join "`n")) "standard/taskspace argv differ outside the declared treatment after path normalization"
 
 $promptGuardOk = Invoke-TaskspacePromptGuard "Please fix the failing tax calculation test."
 $evidenceRepeatOne = Get-TaskspaceEvidenceGate 1 $promptGuardOk "soft_denylist" "provider-default-or-unknown"

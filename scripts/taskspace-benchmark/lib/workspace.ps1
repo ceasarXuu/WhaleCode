@@ -387,7 +387,10 @@ function New-TaskspaceWhaleArgv {
     if ($projectionOverrides.Count -gt 0) {
         throw "Use -TaskSpaceProjectionPolicy instead of a generic taskspace_projection_policy config override."
     }
-    $effectiveConfigOverrides = @($ConfigOverrides) + @("taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`"")
+    $effectiveConfigOverrides = @($ConfigOverrides)
+    if ($LogicalMode -eq "taskspace") {
+        $effectiveConfigOverrides += "taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`""
+    }
     $args = @("exec", "--json")
     if ($LogicalMode -eq "taskspace") { $args += "--taskspace" }
     foreach ($override in $effectiveConfigOverrides) { $args += @("-c", $override) }
@@ -395,6 +398,24 @@ function New-TaskspaceWhaleArgv {
     $args += "--dangerously-bypass-approvals-and-sandbox"
     $args += @("--output-last-message", $LastMessagePath, "-")
     @($args)
+}
+
+function Get-TaskspaceCommonArgvWithoutTreatment {
+    param([Parameter(Mandatory = $true)][string[]]$Argv)
+    $common = @()
+    for ($index = 0; $index -lt $Argv.Count; $index++) {
+        if ($Argv[$index] -eq "--taskspace") {
+            continue
+        }
+        if ($Argv[$index] -eq "-c" -and
+            $index + 1 -lt $Argv.Count -and
+            $Argv[$index + 1] -match '^taskspace_projection_policy\s*=') {
+            $index++
+            continue
+        }
+        $common += $Argv[$index]
+    }
+    @($common)
 }
 
 function Get-NormalizedTaskspaceWhaleArgv {

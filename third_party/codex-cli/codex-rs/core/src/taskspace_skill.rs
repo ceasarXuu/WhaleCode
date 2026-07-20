@@ -191,6 +191,7 @@ pub(crate) fn resolve_session_snapshot(
 
 pub(crate) fn bind_catalog_snapshot(
     outcome: &mut SkillLoadOutcome,
+    taskspace_active: bool,
     identity: Option<&TaskSpaceSkillSnapshotIdentity>,
 ) -> Result<()> {
     let bundled_paths = outcome
@@ -202,10 +203,13 @@ pub(crate) fn bind_catalog_snapshot(
         .map(|skill| skill.path_to_skills_md.clone())
         .collect::<Vec<_>>();
 
-    let Some(identity) = identity else {
+    if !taskspace_active {
         for path in bundled_paths {
             outcome.remove_skill_at_path(&path);
         }
+        return Ok(());
+    }
+    let Some(identity) = identity else {
         return Ok(());
     };
 

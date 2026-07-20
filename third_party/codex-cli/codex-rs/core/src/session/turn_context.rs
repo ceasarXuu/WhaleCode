@@ -667,8 +667,11 @@ impl Session {
             .skills_manager
             .skills_for_config(&skills_input, fs)
             .await;
+        let taskspace_active = self.state.lock().await.action_map_runtime.mode()
+            == codex_protocol::protocol::MapRuntimeMode::Experiment;
         if let Err(error) = crate::taskspace_skill::bind_catalog_snapshot(
             &mut skills_outcome,
+            taskspace_active,
             session_configuration.taskspace_skill_snapshot.as_ref(),
         ) {
             tracing::error!(

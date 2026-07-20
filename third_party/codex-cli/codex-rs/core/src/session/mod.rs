@@ -526,13 +526,7 @@ impl Codex {
             &config.codex_home,
         )
         .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
-        let mut loaded_skills = skills_manager.skills_for_config(&skills_input, fs).await;
-        crate::taskspace_skill::bind_catalog_snapshot(
-            &mut loaded_skills,
-            taskspace_skill_snapshot.as_ref(),
-        )
-        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
-
+        let loaded_skills = skills_manager.skills_for_config(&skills_input, fs).await;
         for err in &loaded_skills.errors {
             error!(
                 "failed to load skill {}: {}",
@@ -3687,7 +3681,9 @@ impl Session {
             );
             if let Some(available_skills) = available_skills {
                 let warning_message = available_skills.warning_message.clone();
-                if let Some(identity) = taskspace_skill_snapshot.as_ref() {
+                if map_runtime_mode == MapRuntimeMode::Experiment
+                    && let Some(identity) = taskspace_skill_snapshot.as_ref()
+                {
                     let rendered_catalog =
                         AvailableSkillsInstructions::from(available_skills.clone()).render();
                     crate::taskspace_skill::log_catalog_render(
@@ -3708,7 +3704,9 @@ impl Session {
                     .await;
                 }
                 developer_sections.push(skills_instructions.render());
-            } else if let Some(identity) = taskspace_skill_snapshot.as_ref() {
+            } else if map_runtime_mode == MapRuntimeMode::Experiment
+                && let Some(identity) = taskspace_skill_snapshot.as_ref()
+            {
                 crate::taskspace_skill::log_catalog_render(
                     identity,
                     &turn_context.turn_skills.outcome,
@@ -3716,7 +3714,9 @@ impl Session {
                     None,
                 );
             }
-        } else if let Some(identity) = taskspace_skill_snapshot.as_ref() {
+        } else if map_runtime_mode == MapRuntimeMode::Experiment
+            && let Some(identity) = taskspace_skill_snapshot.as_ref()
+        {
             crate::taskspace_skill::log_catalog_render(
                 identity,
                 &turn_context.turn_skills.outcome,
