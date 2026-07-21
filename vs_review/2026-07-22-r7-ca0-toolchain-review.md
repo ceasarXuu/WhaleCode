@@ -182,3 +182,118 @@
 ## Final Conclusion
 
 CA-0 尚未收口。修复全部 accepted findings 并通过新的空白上下文 Round 2 前，不得创建 toolchain anchor 或进入 CA-1。
+
+## Round 2: accepted blockers 修复复审
+
+### Review Input
+
+- Objective: 判断 `54165032e` 是否可由下一提交建立 immutable toolchain anchor。
+- Review target: Round 1 的 11 个 blocker、candidate/evaluator/completion/rollback 全链和新增黑盒 lifecycle replay。
+- Target locations: CA-0 计划、v2 schemas、`r7-v2-*`、candidate/evaluator/completion scripts、Rust closure generator、required-check workflow、E-014/E-015。
+- Change introduction: history/identity/global state/atomic ref publication、462-entry closure、executable fixtures、sealed evaluator、pinned completion/revert 已实现；active authority/production 未激活。
+- Risk focus: candidate self-proof、production reachability、first-parent/concurrency、rollback、anchor transitive trust、GitHub run identity。
+- User perspective: 非法事件必须原子失败；合法 emergency revert 必须通过并可恢复。
+- Implementation completeness: 区分 schema/fixture 自洽与生产实现真实执行。
+- Target benefit: CA-0 不证明 Agent 收益，但必须提供可信的 correctness/cost measurement 基建。
+- Verification status: isolated lifecycle PASS；toolchain/strict/evaluator/five-layer/ownership/actionlint/registry/sequence 回归 PASS。
+- Reviewer instructions: 全新只读 session，直接检查仓库，不继承主 Agent 上下文，不修改文件。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| trust-boundary/state-machine reviewer | accepted blocking closure 需要重新攻击不可变信任根 | evaluator provenance、artifact execution、closure、rollback、Git/GitHub identity |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| trust-boundary/state-machine reviewer | `multi_agent_v1__spawn_agent`, `gpt-5.6-sol`, xhigh | `019f85f0-915f-71d0-bcbb-d9ffa793c2a0` | spawn tool call + completion notification | false | Round 2 neutral navigation packet | conversation、reasoning、drafts、main-agent conclusions | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| R2 | trust-boundary/state-machine reviewer | 1 | `019f85f0-915f-71d0-bcbb-d9ffa793c2a0` | within 30 minutes | completed | final report returned | completed |
+
+### Reviewer Outputs
+
+#### R2
+
+##### Summary
+
+Final verdict: `REJECT`。baseline 未漂移、formal anchor 不存在，但 evaluator/artifact/closure/rollback 仍允许生成者定义并证明自身，另有 successor、shared index、anchor path 和 workflow dispatch 身份缺口。
+
+##### Blocking Findings
+
+1. **CRITICAL：evaluation 仍由 candidate 自认证。** evaluator 信任 committed `verdict.correct` 和 candidate 提供的 events；未约束 `run_id`/artifact 复用，Holm 结果未进入最终 gate。要求 trusted runner invocation、typed raw event、oracle 重算、唯一 run/artifact 和 corrected decision gate。
+2. **CRITICAL：四类 executable artifact 仍是自洽 fixture。** verifier 只重算字段 hash/schema/标签，没有调用 production transition/parser/outcome/oracle。要求 pinned executor 对 candidate production code 计算 byte-exact state/output/trace，并固定允许的 source path/symbol。
+3. **CRITICAL：production entry closure 仍不完整且部分合成。** 472 个 root Rust source 仅 40 个进入 inventory；六个 profile 为合成组合，DeepSeek rows 手工转换而非调用真实 mapper。要求完整 source inventory、production config profiles 和真实 mapping pipeline。
+4. **CRITICAL：rollback/revert 未证明真实 production restoration。** rollback inventory 没有独立重算；现有集成候选全为 preserve，未执行 restore/remove；revert 复用 promotion success evidence。要求 candidate production commit 上重算全 inventory，真实覆盖 add/modify/delete/mode，并使用绑定 promoted commit 的独立 typed failure evidence。
+5. **HIGH：旧 terminal candidate 会阻断 successor promotion。** 每个 reverted/rejected candidate 都要求当前 authority 等于 baseline，即使已 superseded。要求 terminal record 只验证 causal history，由 global set verifier 检查当前 authority/pointer。
+6. **HIGH：Git ref 原子但 shared index/worktree 非事务。** prospective commit 使用共享 index，CAS 失败后按 stale head reset；candidate source 只要求普通 ancestry。要求 private index、exact tree delta、CAS 后安全恢复和 first-parent candidate chain。
+7. **HIGH：anchor 可自选 role path，执行依赖未固定。** launcher 只固定 role names，信任 anchor 自报 paths；closure 编译依赖未固定 workspace/toolchain/pwsh。要求 exact role-to-path map 与 digest-pinned execution image 或等价 transitive pin。
+8. **HIGH：`workflow_dispatch` completion identity 不明确。** 任意 target input 的 check run 不一定附着于 target；workflow ref 仅 substring 检查。要求 target-associated check，或 exact 绑定 `GITHUB_SHA`、workflow ref/SHA/blob。
+
+##### Non-blocking Risks
+
+- attestation 无独立 schema/签名，artifact 30 天过期。
+- PowerShell canonicalization 维护成本。
+- `sha2`/`syn` 增大 closure generator 依赖面。
+- CA-0 尚未证明 Agent 产品收益。
+
+##### Round 1 Closure Matrix
+
+| # | Status |
+|---|---|
+| 1 first-parent replay | reopened：candidate 普通 ancestry/transitive inputs |
+| 2 ID/promotion binding | closed |
+| 3 global pending/promoted | closed；新增 successor blocker |
+| 4 hollow artifacts | reopened |
+| 5 production closure | reopened |
+| 6 closure inventory | reopened |
+| 7 atomicity/rollback | reopened |
+| 8 self-signed completion | reopened |
+| 9 held-out/evaluator | held-out closed；provenance reopened |
+| 10 workflow/revert | action SHA closed；dispatch/evidence reopened |
+| 11 path/mode/I-JSON | strict JSON closed；anchor/run/rollback path-mode reopened |
+
+##### Missing Tests / Logs
+
+- successor lifecycle、forged verdict/event、duplicate run/artifact、oracle/Holm boundary。
+- restore/remove/delete/chmod/symlink rollback。
+- concurrent index/ref CAS/second-parent/merge。
+- invalid revert evidence 与真实 target-associated GitHub run。
+- exact `54165032e` lifecycle replay 与 branch-protection evidence。
+
+##### Final Gate
+
+Formal add-only anchor **不得执行**。
+
+### Main Agent Response
+
+| Finding | Severity | Decision | Evidence / Reason | Action | Follow-up |
+|---|---|---|---|---|---|
+| R2-1 evaluator self-authentication | critical | accept | 内容 hash 不能证明 runner/provenance；Holm 未参与 decision | 建立 trusted runner contract、typed events、oracle replay、unique artifact gate | Round 3 |
+| R2-2 self-consistent executable fixtures | critical | accept | 当前 semantic linter 未执行生产实现 | 增加 pinned production executor 与 exact oracle | Round 3 |
+| R2-3 synthetic/incomplete closure | critical | accept | binding-only inventory 与手工 DeepSeek projection 成立 | 全 source inventory + production profile/mappers | Round 3 |
+| R2-4 rollback/revert proof | critical | accept | integration 未覆盖 CA-3/4 runtime delta，revert evidence 类型错误 | production commit inventory 重算、真实 restore/remove、typed failure evidence | Round 3 |
+| R2-5 successor lifecycle | high | accept | per-candidate current authority check 职责越界 | terminal causal/local 与 global current state 分离 | Round 3 |
+| R2-6 shared index transaction | high | accept | CAS 不保护 index/worktree，stale recovery 成立 | private index + exact delta + first-parent | Round 3 |
+| R2-7 anchor path/transitive trust | high | accept | role-to-path 可替换；host toolchain 非确定 trust root | exact map + digest-pinned CA-0 image | Round 3 |
+| R2-8 workflow dispatch identity | high | accept | dispatch check 与 supplied target 不同一身份 | 移除任意 target dispatch，exact push identity | Round 3 |
+| attestation schema/retention | non-blocking | accept | 长期审计需要机械结构 | schema 化；retention 明确为 CI artifact 非永久 source | Round 3 |
+| canonicalization/dependency surface | non-blocking | accept | 需被 pinned image 与 tests 包住 | 纳入 image digest 与回归 | Round 3 |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: no
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Round 3: pending
+- Allowed to proceed: no
+
+## Updated Final Conclusion
+
+Round 2 `REJECT`。CA-0 仍不得创建正式 anchor；必须完成 R2-1 至 R2-8 并由新的空白 session 执行 Round 3。
