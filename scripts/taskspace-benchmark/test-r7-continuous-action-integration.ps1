@@ -41,7 +41,7 @@ function Invoke-Script {
 
 function Invoke-PinnedCompletion {
     param([string]$Repo, [string]$Launcher, [string]$Target, [string]$AnchorCommit, [string]$Attempt, [string]$Attestation)
-    & pwsh -NoLogo -NoProfile -File $Launcher -RepoRoot $Repo -TargetCommit $Target -ToolchainAddCommit $AnchorCommit -RequiredCheckRunId "70001" -RequiredCheckRunAttempt $Attempt -RequiredCheckName "r7-continuous-action-completion" -Repository "ceasarXuu/WhaleCode" -WorkflowRef "ceasarXuu/WhaleCode/.github/workflows/r7-continuous-action-completion.yml@refs/heads/whalecode-alpha" -WorkflowSha $Target -EventName "push" -AttestationPath $Attestation
+    & pwsh -NoLogo -NoProfile -File $Launcher -RepoRoot $Repo -TargetCommit $Target -ToolchainAddCommit $AnchorCommit -RequiredCheckRunId "70001" -RequiredCheckRunAttempt $Attempt -RequiredCheckName "r7-continuous-action-completion" -Repository "ceasarXuu/WhaleCode" -WorkflowRef "ceasarXuu/WhaleCode/.github/workflows/r7-continuous-action-completion.yml@refs/heads/whalecode-alpha" -WorkflowSha $Target -EventName "push" -GitSha $Target -GitRef "refs/heads/whalecode-alpha" -AttestationPath $Attestation
     if ($LASTEXITCODE -ne 0) { throw "R7_INTEGRATION_COMPLETION_FAILED attempt=$Attempt" }
 }
 

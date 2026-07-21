@@ -8,6 +8,8 @@ param(
     [Parameter(Mandatory = $true)][string]$WorkflowRef,
     [Parameter(Mandatory = $true)][string]$WorkflowSha,
     [Parameter(Mandatory = $true)][string]$EventName,
+    [Parameter(Mandatory = $true)][string]$GitSha,
+    [Parameter(Mandatory = $true)][string]$GitRef,
     [Parameter(Mandatory = $true)][string]$ExportManifestPath,
     [Parameter(Mandatory = $true)][string]$AttestationPath
 )
@@ -49,15 +51,19 @@ function Get-CandidateManifests {
     @(Invoke-R7Git @("ls-tree", "-r", "--name-only", $Commit, "--", $script:R7CandidateRoot) | Where-Object { $_ -match '/manifest\.json$' })
 }
 
-if ($TargetCommit -notmatch '^[0-9a-f]{40}$' -or $ToolchainAddCommit -notmatch '^[0-9a-f]{40}$' -or $WorkflowSha -notmatch '^[0-9a-f]{40}$') { throw "R7_COMPLETION_COMMIT_ID_INVALID" }
+if ($TargetCommit -notmatch '^[0-9a-f]{40}$' -or $ToolchainAddCommit -notmatch '^[0-9a-f]{40}$' -or $WorkflowSha -notmatch '^[0-9a-f]{40}$' -or $GitSha -notmatch '^[0-9a-f]{40}$') { throw "R7_COMPLETION_COMMIT_ID_INVALID" }
 if ($RequiredCheckRunId -notmatch '^[0-9]+$' -or $RequiredCheckRunAttempt -notmatch '^[0-9]+$') { throw "R7_COMPLETION_RUN_ID_INVALID" }
 Assert-Equal $RequiredCheckName "r7-continuous-action-completion" "R7_COMPLETION_CHECK_NAME"
 Assert-Equal $Repository "ceasarXuu/WhaleCode" "R7_COMPLETION_REPOSITORY"
-if ($EventName -notin @("push", "workflow_dispatch")) { throw "R7_COMPLETION_EVENT_INVALID event=$EventName" }
-if (-not $WorkflowRef.Contains(".github/workflows/r7-continuous-action-completion.yml@", [System.StringComparison]::Ordinal)) { throw "R7_COMPLETION_WORKFLOW_REF" }
+Assert-Equal $EventName "push" "R7_COMPLETION_EVENT"
+if (-not $GitRef.StartsWith("refs/heads/", [System.StringComparison]::Ordinal)) { throw "R7_COMPLETION_GIT_REF value=$GitRef" }
+Assert-Equal $GitSha $TargetCommit "R7_COMPLETION_GITHUB_SHA"
+Assert-Equal $WorkflowSha $TargetCommit "R7_COMPLETION_WORKFLOW_SHA"
+Assert-Equal $WorkflowRef "$Repository/.github/workflows/r7-continuous-action-completion.yml@$GitRef" "R7_COMPLETION_WORKFLOW_REF"
 foreach ($binding in @(
     @("GITHUB_REPOSITORY", $Repository), @("GITHUB_WORKFLOW_REF", $WorkflowRef), @("GITHUB_WORKFLOW_SHA", $WorkflowSha),
-    @("GITHUB_EVENT_NAME", $EventName), @("GITHUB_RUN_ID", $RequiredCheckRunId), @("GITHUB_RUN_ATTEMPT", $RequiredCheckRunAttempt)
+    @("GITHUB_EVENT_NAME", $EventName), @("GITHUB_SHA", $GitSha), @("GITHUB_REF", $GitRef),
+    @("GITHUB_RUN_ID", $RequiredCheckRunId), @("GITHUB_RUN_ATTEMPT", $RequiredCheckRunAttempt)
 )) {
     $actual = [Environment]::GetEnvironmentVariable($binding[0])
     if (-not [string]::IsNullOrWhiteSpace($actual)) { Assert-Equal $actual $binding[1] "R7_COMPLETION_GITHUB_BINDING name=$($binding[0])" }
@@ -159,7 +165,7 @@ if ($mode -eq "promotion") {
 $attestation = [pscustomobject][ordered]@{
     schema_version = 2; attestation_kind = "r7_continuous_action_completion"; verified = $true; event_kind = $mode
     target_commit = $TargetCommit; toolchain_add_commit = $ToolchainAddCommit; toolchain_parent_commit = $toolchain.parent_commit
-    required_check = [pscustomobject][ordered]@{name = $RequiredCheckName; repository = $Repository; workflow_ref = $WorkflowRef; workflow_sha = $WorkflowSha; event_name = $EventName; run_id = $RequiredCheckRunId; run_attempt = $RequiredCheckRunAttempt; target_commit = $TargetCommit}
+    required_check = [pscustomobject][ordered]@{name = $RequiredCheckName; repository = $Repository; workflow_ref = $WorkflowRef; workflow_sha = $WorkflowSha; git_sha = $GitSha; git_ref = $GitRef; event_name = $EventName; run_id = $RequiredCheckRunId; run_attempt = $RequiredCheckRunAttempt; target_commit = $TargetCommit}
     details = $attestationDetails
     exported_artifacts = @($exportManifest.artifacts | ForEach-Object { [pscustomobject][ordered]@{role = $_.role; source_path = $_.source_path; sha256 = $_.sha256} })
 }

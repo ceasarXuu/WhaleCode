@@ -17,6 +17,10 @@ param(
     [string]$WorkflowSha,
     [Parameter(Mandatory = $true)]
     [string]$EventName,
+    [Parameter(Mandatory = $true)]
+    [string]$GitSha,
+    [Parameter(Mandatory = $true)]
+    [string]$GitRef,
     [string]$RequiredCheckName = "r7-continuous-action-completion",
     [string]$ExportRoot = "",
     [string]$AttestationPath = ""
@@ -25,17 +29,44 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
 $anchorPath = "benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json"
-$requiredRoles = @(
-    "anchor_schema", "artifact_fixtures", "artifact_schema", "candidate_generator", "candidate_manifest_schema",
-    "candidate_set_verifier", "candidate_verifier", "carrier_validation_fixture",
-    "closure_generator_entry", "closure_generator_main", "closure_generator_sources",
-    "completion_evidence_schema", "completion_launcher", "completion_verifier",
-    "evaluation_contract", "evaluation_launcher", "evaluation_library", "evaluation_result_schema",
-    "evaluation_schema", "evaluation_test", "integration_test", "phase_ownership", "projection_ownership_inventory", "raw_run_set_schema",
-    "required_check_workflow", "strict_json_library", "strict_parser",
-    "toolchain_core", "toolchain_history", "toolchain_promotion", "toolchain_test",
-    "toolchain_transaction", "toolchain_transaction_test", "transition_command", "tools_cargo_lock", "tools_cargo_manifest"
-)
+$requiredArtifacts = [ordered]@{
+    anchor_schema = "benchmarks/taskspace/r7/immutable-anchor-v1.schema.json"
+    artifact_fixtures = "scripts/taskspace-benchmark/r7-v2-artifact-fixtures.ps1"
+    artifact_schema = "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json"
+    candidate_generator = "scripts/taskspace-benchmark/new-r7-continuous-action-candidate.ps1"
+    candidate_manifest_schema = "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json"
+    candidate_set_verifier = "scripts/taskspace-benchmark/test-r7-continuous-action-candidate-set.ps1"
+    candidate_verifier = "scripts/taskspace-benchmark/test-r7-continuous-action-candidate.ps1"
+    carrier_validation_fixture = "benchmarks/taskspace/r7/fixtures/carrier-validation-dev-v1/scenario.json"
+    closure_generator_entry = "third_party/codex-cli/codex-rs/tools/src/bin/r7_carrier_entry_closure/entry.rs"
+    closure_generator_main = "third_party/codex-cli/codex-rs/tools/src/bin/r7_carrier_entry_closure.rs"
+    closure_generator_sources = "third_party/codex-cli/codex-rs/tools/src/bin/r7_carrier_entry_closure/sources.rs"
+    completion_evidence_schema = "benchmarks/taskspace/r7/continuous-action-completion-evidence-v1.schema.json"
+    completion_launcher = "scripts/taskspace-benchmark/invoke-r7-continuous-action-completion.ps1"
+    completion_verifier = "scripts/taskspace-benchmark/verify-r7-continuous-action-completion.ps1"
+    evaluation_contract = "benchmarks/taskspace/r7/continuous-action-evaluation-v1.json"
+    evaluation_launcher = "scripts/taskspace-benchmark/evaluate-r7-continuous-action-runset.ps1"
+    evaluation_library = "scripts/taskspace-benchmark/lib/r7-continuous-action-evaluator.ps1"
+    evaluation_result_schema = "benchmarks/taskspace/r7/continuous-action-evaluation-result-v1.schema.json"
+    evaluation_schema = "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json"
+    evaluation_test = "scripts/taskspace-benchmark/test-r7-continuous-action-evaluator.ps1"
+    integration_test = "scripts/taskspace-benchmark/test-r7-continuous-action-integration.ps1"
+    phase_ownership = "benchmarks/taskspace/r7/r7-phase-ownership-v1.json"
+    projection_ownership_inventory = "benchmarks/taskspace/r7/phase-a-ownership-inventory.json"
+    raw_run_set_schema = "benchmarks/taskspace/r7/continuous-action-raw-run-set-v1.schema.json"
+    required_check_workflow = ".github/workflows/r7-continuous-action-completion.yml"
+    strict_json_library = "scripts/taskspace-benchmark/lib/r7-strict-json.ps1"
+    strict_parser = "scripts/taskspace-benchmark/invoke-r7-strict-json.ps1"
+    toolchain_core = "scripts/taskspace-benchmark/r7-v2-toolchain-core.ps1"
+    toolchain_history = "scripts/taskspace-benchmark/r7-v2-history.ps1"
+    toolchain_promotion = "scripts/taskspace-benchmark/r7-v2-promotion.ps1"
+    toolchain_test = "scripts/taskspace-benchmark/test-r7-continuous-action-toolchain.ps1"
+    toolchain_transaction = "scripts/taskspace-benchmark/r7-v2-git-transaction.ps1"
+    toolchain_transaction_test = "scripts/taskspace-benchmark/test-r7-git-transaction.ps1"
+    transition_command = "scripts/taskspace-benchmark/set-r7-continuous-action-candidate-status.ps1"
+    tools_cargo_lock = "third_party/codex-cli/codex-rs/Cargo.lock"
+    tools_cargo_manifest = "third_party/codex-cli/codex-rs/tools/Cargo.toml"
+}
 
 function Invoke-Git {
     param([string[]]$Arguments)
@@ -103,7 +134,13 @@ $anchor = Read-StrictAnchor $anchorBytes
 if ([string]$anchor.anchor_kind -cne "continuous_action_v2_toolchain") { throw "R7_BOOTSTRAP_ANCHOR_KIND" }
 if ([string]$anchor.anchored_parent_commit -cne $parent) { throw "R7_BOOTSTRAP_ANCHOR_PARENT" }
 $roles = @($anchor.artifacts | ForEach-Object { [string]$_.role } | Sort-Object)
-if (($roles -join "`n") -cne (($requiredRoles | Sort-Object) -join "`n")) { throw "R7_BOOTSTRAP_ROLE_SET" }
+if (($roles -join "`n") -cne ((@($requiredArtifacts.Keys) | Sort-Object) -join "`n")) { throw "R7_BOOTSTRAP_ROLE_SET" }
+foreach ($entry in $requiredArtifacts.GetEnumerator()) {
+    $matches = @($anchor.artifacts | Where-Object { [string]$_.role -ceq [string]$entry.Key })
+    if ($matches.Count -ne 1 -or [string]$matches[0].path -cne [string]$entry.Value) {
+        throw "R7_BOOTSTRAP_ROLE_PATH role=$($entry.Key) expected=$($entry.Value)"
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($ExportRoot)) { $ExportRoot = Join-Path $repo "target/r7-toolchain/pinned-export-$TargetCommit-$RequiredCheckRunId" }
 if ([string]::IsNullOrWhiteSpace($AttestationPath)) { $AttestationPath = Join-Path $repo "target/r7-toolchain/completion-attestation-$TargetCommit.json" }
@@ -143,5 +180,5 @@ $env:R7_EVALUATION_SCHEMA_PATH = $byRole.evaluation_schema
 $env:R7_RUN_SET_SCHEMA_PATH = $byRole.raw_run_set_schema
 $env:R7_EVALUATION_RESULT_SCHEMA_PATH = $byRole.evaluation_result_schema
 $env:R7_COMPLETION_EVIDENCE_SCHEMA_PATH = $byRole.completion_evidence_schema
-& pwsh -NoLogo -NoProfile -File $byRole.completion_verifier -TargetCommit $TargetCommit -ToolchainAddCommit $ToolchainAddCommit -RequiredCheckRunId $RequiredCheckRunId -RequiredCheckRunAttempt $RequiredCheckRunAttempt -RequiredCheckName $RequiredCheckName -Repository $Repository -WorkflowRef $WorkflowRef -WorkflowSha $WorkflowSha -EventName $EventName -ExportManifestPath $manifestPath -AttestationPath $AttestationPath
+& pwsh -NoLogo -NoProfile -File $byRole.completion_verifier -TargetCommit $TargetCommit -ToolchainAddCommit $ToolchainAddCommit -RequiredCheckRunId $RequiredCheckRunId -RequiredCheckRunAttempt $RequiredCheckRunAttempt -RequiredCheckName $RequiredCheckName -Repository $Repository -WorkflowRef $WorkflowRef -WorkflowSha $WorkflowSha -EventName $EventName -GitSha $GitSha -GitRef $GitRef -ExportManifestPath $manifestPath -AttestationPath $AttestationPath
 if ($LASTEXITCODE -ne 0) { throw "R7_BOOTSTRAP_COMPLETION_VERIFIER_FAILED" }
