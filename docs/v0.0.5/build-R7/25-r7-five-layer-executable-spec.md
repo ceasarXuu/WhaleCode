@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 0.9
+- Version: 1.0
 - Status: Production active through FLA-3; FLA-3.5 continuous-action repair selected and blocking FLA-4 through FLA-8
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
@@ -167,8 +167,10 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
 改为一个 call id 内的和类型：commit 前拒绝返回 `RejectedBeforeCommit + NotDispatched`；commit 后、runtime
 handoff 前取消或启动失败返回带 `CancellationFact/FunctionCallErrorFact` 的 `CommittedNotExecuted`；handoff
 成功后返回 `Executed`，其 execution 是 `Returned(output) | Failed(FunctionCallErrorFact) |
-CancelledAfterStart`。handoff 在任何 handler 工作前发生，不以副作用判断。PreToolUse、PostToolUse、retention 与
-delivery 都是独立 factual field；不得为未返回分支伪造 output，也不得覆盖冻结 execution outcome。
+CancelledAfterStart(CancellationFact)`。commit 原子失败单独使用 `CommitFailedNoState(TransactionFailureFact)`，
+证明 revision/reservation 均未改变。handoff 在任何 handler 工作前发生，不以副作用判断。PreToolUse、
+PostToolUse、retention 与 delivery 都是独立 factual field；不得为未返回分支伪造 output，也不得覆盖冻结 execution
+outcome。
 
 MCP 使用版本化 `McpToolOutputV1` 同时保存有 source index 的 policy-visible 原始 JSON block，以及 presence-aware
 structured content、isError、meta 与 sanitization facts；absent、显式 null 和 false 不得合并。安全策略、完整

@@ -20,7 +20,8 @@
     "contract_id": {"type": "string", "minLength": 1},
     "manifest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
     "contract_status": {"enum": ["production_active", "candidate_record"]},
-    "candidate_id": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+    "candidate_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "candidate_status": {
       "enum": ["evaluation_candidate", "promotion_pending", "rejected", "promoted", "reverted"]
     },
@@ -30,18 +31,36 @@
       "properties": {
         "contract_id": {"const": "r7-five-layer-contract-authority-v1"},
         "path": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"},
-        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       },
       "additionalProperties": false
     },
     "artifact_hashes": {
       "type": "object",
-      "minProperties": 1,
-      "propertyNames": {"type": "string", "minLength": 1},
-      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      "required": [
+        "l4_schema",
+        "transition_schema",
+        "typed_outcome",
+        "lifecycle_oracle_v2",
+        "capability_matrix",
+        "rollback_manifest",
+        "continuous_action_evaluation",
+        "fla8_evaluation_v2"
+      ],
+      "properties": {
+        "l4_schema": {"$ref": "#/$defs/candidateArtifact"},
+        "transition_schema": {"$ref": "#/$defs/candidateArtifact"},
+        "typed_outcome": {"$ref": "#/$defs/candidateArtifact"},
+        "lifecycle_oracle_v2": {"$ref": "#/$defs/candidateArtifact"},
+        "capability_matrix": {"$ref": "#/$defs/candidateArtifact"},
+        "rollback_manifest": {"$ref": "#/$defs/candidateArtifact"},
+        "continuous_action_evaluation": {"$ref": "#/$defs/candidateArtifact"},
+        "fla8_evaluation_v2": {"$ref": "#/$defs/candidateArtifact"}
+      },
+      "additionalProperties": false
     },
-    "promoted_candidate_id": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+    "promoted_candidate_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "runtime_status_enum": {
       "const": [
         "selected_not_active",
@@ -94,6 +113,7 @@
         "not": {
           "anyOf": [
             {"required": ["candidate_id"]},
+            {"required": ["candidate_commit"]},
             {"required": ["candidate_status"]},
             {"required": ["active_authority"]},
             {"required": ["artifact_hashes"]}
@@ -104,13 +124,27 @@
     {
       "if": {"properties": {"contract_status": {"const": "candidate_record"}}},
       "then": {
-        "required": ["candidate_id", "candidate_status", "active_authority", "artifact_hashes"],
+        "required": ["candidate_id", "candidate_commit", "candidate_status", "active_authority", "artifact_hashes"],
         "properties": {
-          "contract_id": {"pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{7,64}$"}
+          "contract_id": {"pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{64}$"}
         },
         "not": {"required": ["promoted_candidate_id"]}
       }
     }
   ],
+  "$defs": {
+    "candidateArtifact": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/[^/].*$"
+        },
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    }
+  },
   "additionalProperties": true
 }

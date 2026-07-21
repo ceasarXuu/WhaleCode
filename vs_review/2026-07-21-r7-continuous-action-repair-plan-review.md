@@ -107,5 +107,23 @@ ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
 
 ## 7. 第五轮复审
 
-第四轮仍含 Blocking finding。四次修订提交后必须由第五个空白 reviewer 逐项确认 Q1-Q5，不得以合同测试通过
-替代最终判定。
+- Target commit: `224697c3c`
+- Reviewer launch id: `019f8255-3bc0-7293-87d6-a4006c2402ea`
+- Reviewer nickname: Linnaeus
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第五个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第五轮确认 Q2、Q3、Q5 已关闭，后续计划 ownership/gate/decision 冲突检查为 PASS；Q1、Q4 仍 open：
+
+| # | 级别 | 第五轮发现 | 处置 | 五次修订 |
+|---|---|---|---|---|
+| P1 | Blocking | outcome 缺 commit 原子失败阶段，`CancelledAfterStart` 没有 CancellationFact | Accept | 增加 Commit stage 与 `CommitFailedNoState(TransactionFailureFact)`；所有取消带 generation/观测点/handler-start/partial-effects；latch/fault 每例唯一 variant |
+| P2 | High | candidate 可使用伪 commit、任意单 artifact、伪 source authority，并可直接 promoted/reverted | Accept | candidate id=active snapshot + 8 个角色 hash 的规范摘要，另有真实 candidate_commit；source/active authority 双向一致；artifact 限定 namespace/commit/hash；first-parent history 重放；补全反例 |
+
+主审同时将 production pointer 扫描移出“candidate 目录存在”条件：即使目录缺失，孤立 active pointer 也必须失败。
+
+## 8. 第六轮复审
+
+第五轮仍含 Blocking finding。五次修订提交后必须由第六个空白 reviewer 确认 P1/P2，并复核已关闭的 Q2/Q3/Q5
+未回归。

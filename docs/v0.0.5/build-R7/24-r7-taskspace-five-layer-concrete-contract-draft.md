@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层具体合同评审稿
 
 - Created: 2026-07-20
-- Document Version: 0.8
+- Document Version: 0.9
 - Status: L1-L3 production active; current L4 sibling contract is a regression baseline; FLA-3.5 replacement selected
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
@@ -553,8 +553,10 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 
 这是一个 provider call id 下的两个独立事实，不能合并成一条“整体失败”摘要，也不能伪造成两个不存在的 Tool calls。
 下面是 `Executed + Returned` 分支；完整和类型还包含 `RejectedBeforeCommit`、带 factual payload 的
-`CommittedNotExecuted`，以及 `Executed + Failed(FunctionCallErrorFact) | CancelledAfterStart`，不得为未返回
-分支伪造 Tool output。`execution_started` 由任何 handler 工作前的 runtime handoff 事件定义，不按副作用猜测：
+`CommittedNotExecuted`，以及 `Executed + Failed(FunctionCallErrorFact) | CancelledAfterStart(CancellationFact)`，
+不得为未返回分支伪造 Tool output。commit 原子失败使用 `CommitFailedNoState(TransactionFailureFact)`，必须证明
+revision/reservation 都未改变。`execution_started` 由任何 handler 工作前的 runtime handoff 事件定义，不按副作用
+猜测：
 
 ```text
 TaskSpaceCarrierOutcome {
