@@ -103,20 +103,22 @@ function New-PromotionContract {
     $productionL4 = Get-UniqueIndex @($Production.layers) { param($item) [string]$item.id -eq "L4" } "production L4"
     $productionL5 = Get-UniqueIndex @($Production.layers) { param($item) [string]$item.id -eq "L5" } "production L5"
     $resultTarget = Get-UniqueIndex @($Production.layers[$productionL5].selected_targets) { param($item) [string]$item.artifact -eq "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json" } "production L5-result"
-    foreach ($operation in @(
-        New-R7PatchOperation "replace" "/manifest_version" $Production.manifest_version "1.0.5",
-        New-R7PatchOperation "replace" "/activation_through" $Production.activation_through "FLA-3.5",
-        New-R7PatchOperation "replace" "/source_authority/sha256" $Production.source_authority.sha256 $expectedAuthorityHash,
-        New-R7PatchOperation "add" "/promoted_candidate_id" $null $CandidateId,
-        New-R7PatchOperation "replace" "/layers/$productionL4/runtime_status" $Production.layers[$productionL4].runtime_status "carrier_repair_active",
-        New-R7PatchOperation "replace" "/layers/$productionL4/selected_targets/0/artifact" $Production.layers[$productionL4].selected_targets[0].artifact $Artifacts.l4_schema.path,
-        New-R7PatchOperation "replace" "/layers/$productionL4/selected_targets/0/sha256" $Production.layers[$productionL4].selected_targets[0].sha256 $Artifacts.l4_schema.sha256,
-        New-R7PatchOperation "replace" "/layers/$productionL4/selected_targets/0/activation_phase" $Production.layers[$productionL4].selected_targets[0].activation_phase "FLA-3.5",
-        New-R7PatchOperation "replace" "/layers/$productionL5/runtime_status" $Production.layers[$productionL5].runtime_status "carrier_result_repair_active_projection_baseline",
-        New-R7PatchOperation "replace" "/layers/$productionL5/selected_targets/$resultTarget/artifact" $Production.layers[$productionL5].selected_targets[$resultTarget].artifact $Artifacts.typed_outcome.path,
-        New-R7PatchOperation "replace" "/layers/$productionL5/selected_targets/$resultTarget/sha256" $Production.layers[$productionL5].selected_targets[$resultTarget].sha256 $Artifacts.typed_outcome.sha256,
-        New-R7PatchOperation "replace" "/layers/$productionL5/selected_targets/$resultTarget/activation_phase" $Production.layers[$productionL5].selected_targets[$resultTarget].activation_phase "FLA-3.5"
-    )) { $productionOperations.Add($operation) }
+    foreach ($change in @(
+        @("replace", "/manifest_version", $Production.manifest_version, "1.0.5"),
+        @("replace", "/activation_through", $Production.activation_through, "FLA-3.5"),
+        @("replace", "/source_authority/sha256", $Production.source_authority.sha256, $expectedAuthorityHash),
+        @("add", "/promoted_candidate_id", $null, $CandidateId),
+        @("replace", "/layers/$productionL4/runtime_status", $Production.layers[$productionL4].runtime_status, "carrier_repair_active"),
+        @("replace", "/layers/$productionL4/selected_targets/0/artifact", $Production.layers[$productionL4].selected_targets[0].artifact, $Artifacts.l4_schema.path),
+        @("replace", "/layers/$productionL4/selected_targets/0/sha256", $Production.layers[$productionL4].selected_targets[0].sha256, $Artifacts.l4_schema.sha256),
+        @("replace", "/layers/$productionL4/selected_targets/0/activation_phase", $Production.layers[$productionL4].selected_targets[0].activation_phase, "FLA-3.5"),
+        @("replace", "/layers/$productionL5/runtime_status", $Production.layers[$productionL5].runtime_status, "carrier_result_repair_active_projection_baseline"),
+        @("replace", "/layers/$productionL5/selected_targets/$resultTarget/artifact", $Production.layers[$productionL5].selected_targets[$resultTarget].artifact, $Artifacts.typed_outcome.path),
+        @("replace", "/layers/$productionL5/selected_targets/$resultTarget/sha256", $Production.layers[$productionL5].selected_targets[$resultTarget].sha256, $Artifacts.typed_outcome.sha256),
+        @("replace", "/layers/$productionL5/selected_targets/$resultTarget/activation_phase", $Production.layers[$productionL5].selected_targets[$resultTarget].activation_phase, "FLA-3.5")
+    )) {
+        $productionOperations.Add((New-R7PatchOperation $change[0] $change[1] $change[2] $change[3]))
+    }
     [pscustomobject][ordered]@{
         changed_paths = @($script:R7AuthorityPath, $script:R7ProductionPath, "$script:R7CandidateRoot/$CandidateId/manifest.json")
         authority_patch = $authorityOperations.ToArray()
