@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 0.6
+- Version: 0.7
 - Status: Production active through FLA-3; FLA-3.5 continuous-action repair selected and blocking FLA-4 through FLA-8
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
@@ -13,7 +13,7 @@
 选择。本规格消除这类隐藏决策：它冻结唯一主线、完整机器合同、生产入口、删除项、生命周期判定、测试、日志、
 评估阈值和完成证据。
 
-实施状态只能使用以下五种值：
+selected target、experiment 和 blocking repair 的 `implementation_status` 只能使用以下五种值：
 
 | 状态 | 含义 |
 |---|---|
@@ -22,6 +22,10 @@
 | `active_verified` | 生产路径、合同测试、日志和阶段 smoke 全部通过 |
 | `active_repair_verified` | 为修复已激活层的阻塞问题而提前接通选定合同，生产路径和定向回归已通过，但不代表其名义阶段已验收 |
 | `experimental_disabled` | 独立实验，不得混入主线或被称为已完成 |
+
+顶层 `contract_status` 描述整份 authority/manifest 的角色，生产 layer 使用独立 `runtime_status`；三类字段不得再
+共用模糊的 `status`。机器约束由 `five-layer-contract-authority-v1.schema.json` 和
+`taskspace-contract-manifest-v1.schema.json` 执行。
 
 只有生产路径连通、定向测试通过、要求的日志可观测且阶段样本通过，阶段才能标为 `active_verified`。只有提示词、
 schema、mock、脚手架或文档的提交一律不算阶段完成。
@@ -160,8 +164,10 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
 | `TASKSPACE_RANGE_INVALID` | `argument_failed` | `the requested retained output range is invalid` | output_ref、submitted range、available range |
 
 当前 sibling 基线中的 control + ordinary Tool 使用两个 call id，因此是两份独立结果。FLA-3.5 单 carrier 目标
-改为一个 call id 内的 typed outcome：`transition_fact` 与 opaque `tool_output` 仍是两个独立事实，但由同一
-provider result transport，不能合并成整体 verdict。PostToolUse 与保真 hash 只观察原 Tool 子载体。
+改为一个 call id 内的和类型：commit 前拒绝返回 `RejectedBeforeCommit + NotStarted`；commit 后、执行前取消或
+启动失败返回 `CommittedNotExecuted`；真正执行才返回 `Executed + transition_fact + opaque tool_output +
+post_hook_fact`。不得为未执行分支伪造空 output。PostToolUse 观察不可变原 Tool outcome，其失败不能替换 output；
+保真 hash 只比较解 frame 后的原 Tool 子载体。
 
 Rust enum 常量使用上述大写值，JSON `error.code` 原样输出；日志也使用同一值。FLA-3.5 目标中不再存在
 missing-sibling 运行时形态；非法 transition carrier 使用同源参数/状态错误分类，不另造带下一步建议的错误。
@@ -192,6 +198,9 @@ CA-2 必须生成独立 lifecycle oracle v2：保留 canonical Map、projection 
 所有阶段从上一 `active_verified` commit 开始。阶段失败使用 `git revert <phase-commit>` 回到该 commit；不保留
 feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产改动和测试，再运行 smoke；失败时用新提交修正，
 不得改写已有证据。
+
+FLA-3.5 CA-0 新增的 `r7-phase-ownership-v1.json` 是阶段所有权机器权威：同一 production target、gate 或决策
+只能有一个 owner phase。R7 Phase E/F/G 只能引用 FLA-7/8 evidence，不得再次登记 production target 或 gate。
 
 ### FLA-0：冻结现行基线
 
@@ -294,6 +303,8 @@ FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 - 修改：`action_map/projection.rs`、`projection_policy.rs`、canonical store/reducer、session history reducer、
   `provider_wire_sections.rs` 及 resume/fork/compaction 入口。
 - 保持：三种 policy 共用状态、renderer、validator、Tool 和 result；只允许 emission 规则不同。
+- 唯一接管 R7 Phase E/F 的实现项：三策略 scripted differential、retry/provider/tool error、resume/fork/
+  compaction/subagent、context epoch、CLI/config/protocol/session、observer、Viewer、wire scanner 和旧 R6 路径删除。
 - 定向测试：LC-06 至 LC-12 全部 golden；event hash 从同一快照重放一致；`map-request` 不自动提醒；
   `map-append` 只对相同 provider request retry 去重。
 - 静态审计：Runtime 不读取命令正文、Patch 内容、测试名称或 reasoning 来生成状态/建议。
@@ -306,11 +317,14 @@ FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 执行
 [`five-layer-evaluation-contract-v1.json`](../../../benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json)：
 
-当前 v1 的 `combined_control_plus_next_rate` 只适用于 sibling 回归基线。FLA-3.5 CA-2 必须生成候选 v2，在不
+当前 v1 的 `combined_control_plus_next_rate` 只适用于 sibling 回归基线。FLA-3.5 CA-0 必须在 probe 前生成
+候选 v2，在不
 读取或改变 sealed held-out、重复、seed 和统计规则的前提下，将该指标替换为 transition carrier 指标；CA-6
 promotion 才能把 v2 激活为 FLA-8 authority。FLA-3.5 CA-5 使用另一份专用评估合同，不能借此提前执行 FLA-8。
 
 - shared change 使用 7 臂；单 policy 实验使用 3 臂。
+- 七臂中 Standard + 晋级后 map-always/map-append/map-request 是 R7 Phase G 唯一四臂子矩阵；benchmark skill、
+  report、默认值建议和产品取舍表全部由本阶段同一 raw artifacts 生成。
 - 5 个冻结样本，每个样本固定 30 次配对重复；候选矩阵封存前不查看聚合门槛，也不提前停止。
 - 两侧 95% paired bootstrap、10000 次重采样、按 sample 分层；同一决策族多候选用 Holm-Bonferroni。
 - 正确性、语义完整性、合同违规为硬 gate；request、token、cache、wall time、组合调用为预注册非劣 gate。
@@ -353,7 +367,7 @@ revision、projection hash、Tool call/result 顺序、错误码和 scenario ver
 | uncached input / total input mean | 增幅不超过 10% / 15% |
 | request 2+ cache hit | 下降不超过 2 个百分点 |
 | wall time mean | 增幅不超过 20% |
-| control + next 合并率 | 下降不超过 2 个百分点 |
+| required transition carrier rate | 候选为 100%；sibling 基线用已验证 control+next 事件机械归一化比较 |
 | init/bind/continue 单独 transition | 0 |
 
 缓存遥测缺失记为 unavailable，不得记零。价格没有冻结 artifact 时不计算金额，只比较 token。环境、鉴权和明确的

@@ -42,4 +42,26 @@
 
 ## 4. 复审
 
-待修订完成后由新的空白上下文 reviewer 填写。初审存在 Blocking finding，不能复用同一 reviewer 代替复审。
+- Target commit: `2d5ee3ac5`
+- Reviewer launch id: `019f8210-dfc2-7333-b7a7-8456f0c5d4d2`
+- Reviewer nickname: Harvey
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，新的空白上下文；只读审查
+- Verdict: `REJECT`
+
+复审确认 G（capability epoch）与 I（candidate/rollback 单轨）已关闭，Patch function 投影和 FLA-5 transport
+ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
+
+| # | 级别 | 复审发现 | 处置 | 二次修订 |
+|---|---|---|---|---|
+| R1 | Blocking | sandbox 首次执行后才知道 denial，升级审批仍可能落在 Map commit 后；上传类参数改写有副作用 | Accept | 冻结 commit 前一次性 escalation/network 预授权；commit 后禁止再次审批；上传/materialization 归 execute；PreparedToolCall 固定 grant/args/cancel 字段 |
+| R2 | Blocking | code-mode 顶层 `exec` 本身是 freeform，仍无法结构携带 transition | Accept | TaskSpace-only 同名 function 投影 `{source, taskspace_transition}`；同一 handler 同时接收 Standard Custom 与 TaskSpace Function；source byte exact gate |
+| R3 | Blocking | reject/cancel 时没有 ToolCallOutput，原 typed outcome 强制字段不成立；AfterToolUse 可替换 output | Accept | outcome 改为 `RejectedBeforeCommit` / `CommittedNotExecuted` / `Executed` 和类型；PostToolUse failure 独立，不能丢弃原 output |
+| R4 | High | 旧名称/source/命令 classifier 仍可能控制 attribution/reservation | Accept | CA-3 明确删除 gate/lease 上的旧 classifier；CA-4 静态审计 capability metadata 是唯一机械输入 |
+| R5 | High | Phase E/F/G 虽声明别名，仍保留独立实施项和 gate；lifecycle authority 仍写 FLA-5/7 | Accept | 删除 E/F/G 独立执行/gate；实现分别归 FLA-6/7/8；lifecycle activation 唯一归 FLA-7；新增 machine ownership lint |
+| R6 | High | 完整 CA-5 合同仍可能在 probe 后冻结；可执行规格摘要保留旧 combined 指标 | Accept | 完整样本/重复/seed/阈值/hash 全部移至 CA-0；CA-1/5 不挂载 FLA-8 held-out；candidate 旧指标 lint 失败；规格摘要改 carrier 指标 |
+| R7 | Medium | contract/implementation/runtime 状态仍共用不同含义的 `status`，且无 schema | Accept | 立即拆为三个字段，新增 authority 与 production-manifest JSON Schema，更新 generator 和合同测试 |
+
+## 5. 第三轮复审
+
+二次修订完成后必须再次使用新的空白 reviewer。R1-R3 属于 Blocking，不能以本报告作者自审替代最终复审。

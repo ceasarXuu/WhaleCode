@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
+  "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "status": "production_active_through_fla3_with_fla3_5_selected_and_l4_l5_regression_baseline",
+  "contract_status": "production_active_through_fla3_with_fla3_5_selected_and_l4_l5_regression_baseline",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -10,6 +11,11 @@
     "active_verified",
     "active_repair_verified",
     "experimental_disabled"
+  ],
+  "candidate_status_enum": [
+    "evaluation_candidate",
+    "rejected",
+    "promoted"
   ],
   "authority_order": [
     "this_manifest",
@@ -23,12 +29,12 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "2c6069da53531ff7ed07394477daff01ba35b8fe88019f10cf8dde590d3ed6b5",
+      "sha256": "f42553e771f07e0ea25a747c12fcf44a9c781de8a827c6666e20c4bb21fe0258",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "d1c83ba9d0d859b147e99d5e137daa8cee8d52d5165f19cdb09934fbe81354af",
+      "sha256": "75826a7fd9396e078039294ef8328cd24f61690ab85af0583cb3950e5ffbe0e9",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
@@ -38,12 +44,12 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "8d6272823042b85513ef37f7aebe7568e762af92714f67056aca586597635ade",
+      "sha256": "5e85c4b2f53d3a9a41885f44d89ff5ca719200752501b12ff90c2566f3834187",
       "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],
   "baseline": {
-    "status": "selected_rollback_baseline",
+    "role": "rollback_baseline",
     "commit": "48922ce9b",
     "taskspace_base": {
       "path": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md",
@@ -74,7 +80,7 @@
   "selected_targets": [
     {
       "layer": "L1",
-      "status": "active_verified",
+      "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md",
       "sha256": "0f92283e162a2c4cc2021ac8a89be458a37616b3ff82b3876807918a02cb89fd",
@@ -82,7 +88,7 @@
     },
     {
       "layer": "L2",
-      "status": "active_verified",
+      "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
       "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
@@ -90,7 +96,7 @@
     },
     {
       "layer": "L3",
-      "status": "active_verified",
+      "implementation_status": "active_verified",
       "activation_phase": "FLA-3",
       "artifact": "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md",
       "sha256": "a6f93fce96f7763ab3c36cb192091a908d744c1ad44ed26f6b4f5adf3422d5b1",
@@ -98,7 +104,7 @@
     },
     {
       "layer": "L4",
-      "status": "active_repair_verified",
+      "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
       "sha256": "53cad3b85cbf739d755520cffc0e3be9c5fd303900b0a7c8b6de2de19e7800ce",
@@ -115,7 +121,7 @@
     },
     {
       "layer": "L5-result",
-      "status": "active_repair_verified",
+      "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-5",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
       "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8",
@@ -129,15 +135,15 @@
     },
     {
       "layer": "L5-projection",
-      "status": "selected_baseline",
+      "implementation_status": "selected_baseline",
       "activation_phase": "already_active; FLA-7 adds lifecycle conformance only",
       "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
       "sha256": "4185308aa9f157ff0fb0381c628a7cb63ab78861d55bc928f0827f57b497c0e3"
     },
     {
       "layer": "L5-lifecycle",
-      "status": "selected_not_implemented",
-      "activation_phase": "FLA-5 and FLA-7",
+      "implementation_status": "selected_not_implemented",
+      "activation_phase": "FLA-7",
       "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
       "sha256": "be217df52b124bc0d1a2f0cdbab9d74a8ad6b1b7b7daf78e48ea8fa5dc4ee6fa",
       "production_targets": [
@@ -149,7 +155,7 @@
     },
     {
       "layer": "evaluation",
-      "status": "selected_not_implemented",
+      "implementation_status": "selected_not_implemented",
       "activation_phase": "FLA-0 smoke contract and FLA-8 formal decision",
       "artifact": "benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json",
       "sha256": "91abdac597b3a667eccdc289c0778765d819abfa0901948065c05e416031f430",
@@ -163,19 +169,19 @@
   "experiments": [
     {
       "id": "FLA-6-E1-read-write-tool-split",
-      "status": "experimental_disabled",
+      "implementation_status": "experimental_disabled",
       "baseline": "single taskspace_control tool",
       "acceptance": "independent A/B only; no merge unless correctness, requests, selection errors, cache, and schema cost pass"
     },
     {
       "id": "FLA-6-E2-mcp-output-schema",
-      "status": "experimental_disabled",
+      "implementation_status": "experimental_disabled",
       "baseline": "local result schema plus model-visible JSON",
       "acceptance": "MCP outputSchema and structuredContent must conform to the same selected L5 schema"
     },
     {
       "id": "FLA-6-E3-deepseek-strict",
-      "status": "experimental_disabled",
+      "implementation_status": "experimental_disabled",
       "baseline": "strict false",
       "acceptance": "adapter forwarding and all-visible-tool provider probe must pass before behavior A/B"
     }
@@ -183,14 +189,14 @@
   "blocking_repairs": [
     {
       "id": "FLA-3.5-continuous-action-regression-repair",
-      "status": "selected_not_implemented",
+      "implementation_status": "selected_not_implemented",
       "issue": "H-003",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": ["FLA-4", "FLA-5", "FLA-6", "FLA-7", "FLA-8", "R7-Phase-E"],
       "current_regression_baseline": "required_next_call declaration plus top-level sibling preflight",
       "selected_direction": "carrier-capable tool carries taskspace_transition through one registry capability source, shared decorator, prepare-commit-execute protocol, and typed outcome transport",
       "candidate_authority_policy": "CA-2 artifacts remain in a candidate namespace; active authority stays on the sibling baseline until the CA-6 promotion commit",
-      "evaluation_contract": "CA-2 must create continuous-action-evaluation-v1.json; FLA-8 held-out remains sealed",
+      "evaluation_contract": "CA-0 must freeze continuous-action-evaluation-v1.json and the mechanical FLA-8 v2 metric migration before probes; FLA-8 held-out remains unmounted and sealed",
       "required_next_call_disposition": "delete in the CA-3 candidate code; remove from active authority only in the CA-6 promotion commit; a rejected candidate restores the baseline with no compatibility path"
     }
   ],

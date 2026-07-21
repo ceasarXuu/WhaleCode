@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.0
+- Version: 1.2
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -86,7 +86,7 @@ CA-0 必须冻结并穷举 `WireApi × ToolSpec × invocation source`，至少�
 | DeepSeek Chat function Tool | 原参数对象增加 `taskspace_transition` | 动态 tool choice、另一个 sibling 声明 |
 | Responses function Tool | 与 Chat 同一逻辑 schema | provider 专属第二套 transition 语义 |
 | Responses/custom freeform `apply_patch` | TaskSpace wire 机械投影为同名 function，顶层字段仅 `input + taskspace_transition`；剥离后仍进入原 Patch handler | 把 transition 或 Patch 塞入 freeform 文本；复制 Patch handler |
-| Code mode | 顶层 code-mode Tool 携带 transition；cell 内 nested calls 继承提交后的 lease | nested call 自行提交 transition；绕过 turn barrier |
+| Code mode | TaskSpace wire 将同名 freeform `exec` 投影为 function `{source, taskspace_transition}`；剥离后同一 handler 接收 byte-exact source，cell 内 nested calls 继承新 lease | 把 transition 写进 pragma/source；复制 code handler；绕过 turn barrier |
 | MCP / dynamic Tool | 在 immutable capability epoch 中由同一 decorator 合并 reserved 字段，调用前剥离 | 把 reserved 字段发给 MCP server；延迟加载后漏装饰 |
 
 示意 Patch 形态：
@@ -123,37 +123,62 @@ ordinary call 必须携带初始化；未 binding 的 Ready Work 第一个 call 
 和执行阶段显式拆开，但不复制 handler：
 
 1. **parse**：解析 carrier，剥离 transition，校验原业务参数。
-2. **prepare**：运行现有 PreToolUse、参数改写、权限、sandbox 与 approval 流程，产出不可变
-   `PreparedToolCall`；此阶段不产生 Tool 业务副作用，不提交 Map。
-3. **commit + reserve**：在同一 action-map 临界区重新校验 revision/lease，原子提交 transition，并为目标新 lease
+2. **prepare**：运行 PreToolUse 的参数改写，计算权限、初始 sandbox、潜在升级 sandbox、网络权限和所有可能的
+   approval。任何文件上传、MCP attachment materialization 或其他有副作用的参数改写都归入 execute，不能在
+   prepare 发生。
+3. **pre-authorize**：若初始 sandbox 失败后可能升级，必须在 commit 前一次性申请并冻结升级 grant。Agent/user
+   拒绝升级不必拒绝初始 sandbox 执行，但 commit 后若初始 sandbox denial，只能按 Tool failure 返回，禁止再次
+   弹出 approval。网络和其他可预测审批遵守同一规则。
+4. **commit + reserve**：在同一 action-map 临界区重新校验 revision/lease、effective args hash、permission
+   snapshot、approval grant scope/expiry 和 cancellation generation；原子提交 transition，并为目标新 lease
    建立该 prepared call 的 reservation。旧 lease 不接收本次调用。
-4. **execute**：原 handler 的执行部分消费 prepared call，不再次请求 approval，也不重新解释参数。
-5. **post**：PostToolUse 只观察原 Tool outcome；随后 context mapper 附加 transition fact。
+5. **execute**：原 handler 的执行部分消费 prepared call，执行必要上传和业务副作用；初始 sandbox denial 只有
+   预授权 grant 存在时才自动升级，否则直接形成 Tool failure。commit 后不得再次请求 approval。
+6. **post**：PostToolUse 只观察不可变的原 Tool outcome；hook failure 作为独立 factual field 返回，不能替换或
+   丢弃 Tool output。随后 context mapper 附加 transition fact。
 
-取消与失败边界固定为：prepare/approval/hook/sandbox 拒绝或 commit 前取消均零提交零执行；commit 后、Tool 启动前
-取消记作“transition committed + tool cancelled”，不回滚；执行失败同样不回滚。任何无法安全拆出无副作用
-prepare 的 Tool 在候选中不能标记 carrier-capable，且 TaskSpace capability epoch 不能带着未知缺口激活。
+`PreparedToolCall` 至少冻结：effective args/source hash、capability epoch、Tool/source identity、目标 revision/lease、
+permission snapshot、initial/escalated sandbox plan、approval grant id/scope/expiry、network grant、PreToolUse outcome、
+cancellation generation。任一字段在 commit 前失效则回到 rejected-before-commit，不能静默重新 prepare。
+
+取消与失败边界固定为：prepare policy/approval/hook/grant 校验拒绝或 commit 前取消均零提交零执行；commit 后的
+实际 sandbox denial 属于 Tool failure，不再触发审批；commit 后、Tool 启动前取消记作“transition committed +
+tool cancelled”，不回滚。任何无法安全拆出无副作用 prepare 的 Tool 不能标记 carrier-capable，TaskSpace
+capability epoch 也不能带着未知缺口激活。
 
 ### 4.5 Carrier-neutral typed outcome
 
-一个 provider call 只能有一个 call id，但必须保留两个独立事实。内部唯一类型为：
+一个 provider call 只能有一个 call id，但必须区分“未开始”“已提交但未执行”“已执行”。内部唯一和类型为：
 
 ```text
-TaskSpaceCarrierOutcome {
-  transition_fact: TaskSpaceTransitionFact,
-  tool_output: Opaque<ToolCallOutput>
+TaskSpaceCarrierOutcome =
+  RejectedBeforeCommit {
+    stage: Parse | Prepare | Transition,
+    factual_error,
+    tool: NotStarted
+  }
+  | CommittedNotExecuted {
+      transition_fact,
+      tool: CancelledBeforeStart | StartFailure
+    }
+  | Executed {
+      transition_fact,
+      tool_output: Opaque<ToolCallOutput>,
+      post_hook_fact: Succeeded | Failed(factual_error)
+    }
 }
 ```
 
-`transition_fact` 只含 action、revision、commit/lease 和 factual error；`tool_output` 是 hooks 完成后的原始
-ToolCallOutput 子载体。不得把 Tool 输出塞入 `TaskSpaceControlResultV2`，也不得把两类事实压成“整体成功/失败”。
+`transition_fact` 只含 action、revision、commit/lease；`tool_output` 是 Tool 执行后、PostToolUse 前冻结的原始
+ToolCallOutput 子载体。不得为未执行分支伪造空 Tool output，不得把 Tool 输出塞入 `TaskSpaceControlResultV2`，
+也不得把多类事实压成“整体成功/失败”。
 provider mapper 按第 4.2 节载体生成一个合法 output：支持 content items 时增加独立 transition fact item 并原序
 保留 Tool items；只有 text output 时使用版本化 factual frame，但其 `tool_output` 子载体必须可逆恢复。
 
-保真门禁比较的是 frame 解码后的 `tool_output` 子载体与原 outcome，而不是比较必然增加 transition fact 的整个
-provider payload。文本字节、图片 URL/顺序、MCP structured content、截断引用、exit status 和 error class 分别
-计算 hash/conformance。任一 carrier 无法无损映射时阻塞。FLA-3.5 拥有 transport 实现；FLA-5 只冻结并验证其
-result conformance，不再次实现 envelope。
+保真门禁比较 frame 解码后的 `tool_output` 子载体与冻结 outcome，不比较必然增加 transition fact 的整个 payload。
+逐字段覆盖 text/items、图片 URL/顺序、MCP `content`、`structuredContent`、`isError`、`_meta`、success、截断
+引用、exit status 和 error class。任一 carrier 无法无损映射时阻塞。FLA-3.5 拥有 transport；FLA-5 只验证
+conformance，不再次实现 envelope。
 
 ### 4.6 Capability epoch、code mode 与多动作
 
@@ -176,10 +201,16 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 - 固定当前 sibling 生产 commit、L1-L5 identity、schema/source/wire hash 和 H-003 trace。
 - 从 R5、D.2、D.4、FLA-3 artifact 重算 standalone、拒绝、request 和 Patch exact。
 - 冻结第 4.2 节 wire matrix、`TaskSpaceCarrierCapability` 正负矩阵、reserved namespace 和 capability epoch 规则。
-- 冻结第 4.4 节 prepare/commit/execute 状态表，覆盖 hooks、approval、sandbox、取消和 reservation 归属。
+- 冻结第 4.4 节完整状态机，覆盖参数改写/上传、Pre/AfterToolUse、初始 sandbox、升级/network 预授权、grant
+  失效、commit 前后取消、start failure 和 reservation 归属；不得留“由实现决定”的分支。
 - 冻结 typed outcome 各 provider wire 映射与子载体 hash 公式。
-- 新建 authority JSON Schema，统一实施状态枚举；记录当前 production commit、source/wire hashes。
-- 预注册 FLA-3.5 专用评估合同的开发样本与独立 carrier-validation 样本；FLA-8 held-out 继续封存且本阶段不可见。
+- 扩展现有 authority/production-manifest JSON Schema 以覆盖 candidate/promotion 状态；补齐当前 production
+  commit、source/wire hashes，禁止重新合并 `contract_status`、`implementation_status` 和 `runtime_status`。
+- 冻结 `r7-phase-ownership-v1.json`，将 carrier transport、L4 schema、L5 conformance、Tool experiments、
+  lifecycle/recovery、产品面和正式评估各映射到唯一 owner phase；重复 owner 或无 owner 机器失败。
+- 在任何 CA-1 probe 前完整生成并冻结 `continuous-action-evaluation-v1.json`：样本、重复、seed、顺序、全部阈值、
+  指标和 SHA-256 均不可留到 CA-2；同时生成 FLA-8 v2 的机械指标迁移候选。FLA-8 held-out 只复制 identity/hash，
+  CA-0/CA-1 容器不挂载其内容路径，并用负向 mount assertion 证明不可见。
 
 完成证据：机器基线、状态表、wire/capability 矩阵和评估预注册均可独立检查；当前生产行为不变。
 
@@ -187,11 +218,12 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 
 只建隔离 probe，不接生产：
 
-1. 对全部 wire/ToolSpec/source 组合验证 schema 装饰、freeform Patch function 投影、reserved 字段剥离和
-   Standard 零变化。
+1. 对全部 wire/ToolSpec/source 组合验证 schema 装饰、freeform Patch 与 code-mode 同名 function 投影、reserved
+   字段剥离、Patch input/source byte exact 和 Standard 零变化。
 2. 用 fake Tool 验证 prepare denial、approval denial、sandbox denial、commit 前后取消、commit 后执行失败和
    新 lease reservation；任何 side effect 都有计数器。
-3. 验证 typed outcome 在 text、content items、image、MCP structured content、截断和错误结果上的可逆映射。
+3. 验证 typed outcome 三个分支，以及 text/items、image、MCP content/structuredContent/isError/_meta、截断和
+   hook error 的可逆映射。
 4. 验证 code-mode outer carrier、nested attribution、`Promise.all` barrier 和 turn-wide one-Patch gate。
 5. 使用真实 DeepSeek endpoint 对 exec、direct/freeform Patch、MCP 和多 Tool response 每臂至少 6 次 probe。
 
@@ -201,7 +233,7 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 ### CA-2：冻结候选机器合同，不提升 active authority
 
 - 候选 artifact 放入独立 candidate namespace：L4 schema、transition schema、typed outcome、lifecycle oracle v2、
-  capability matrix、rollback manifest、`continuous-action-evaluation-v1.json` 和 FLA-8 evaluation contract v2。
+  capability matrix、rollback manifest、CA-0 已冻结的 `continuous-action-evaluation-v1.json` 和 FLA-8 v2。
 - FLA-8 v2 只把旧 `combined_control_plus_next_rate` 机械替换为 transition carrier 指标；样本 identity、sealed
   held-out hash、重复和统计规则不变，生成过程中不得读取 held-out 内容或结果。
 - active authority 继续指向 sibling 回归基线；candidate registry 记录 artifact/hash/commit 与
@@ -226,6 +258,8 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
 ```
 
 - 实现一个 metadata source、decorator/parser、PreparedToolCall 协议和 typed outcome mapper。
+- 删除或降级所有参与 TaskSpace gate、attribution、reservation 的 Tool 名称/source/命令内容 classifier；这些路径
+  只能读取 registry capability metadata。若旧 classifier 仅供执行后 observer，必须有静态证明其结果不流入 gate/lease。
 - 在候选代码中删除 `required_next_call`、missing-sibling preflight 和三个独立非终态 control 分支；无双 parser。
 - 原业务 handler 只按 prepare/execute 拆分，不复制实现；Standard 不经过 transition decorator。
 - 候选 runtime manifest 使用独立 contract id，不能伪装成 active authority。
@@ -235,10 +269,13 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
 测试必须覆盖：
 
 - 全 wire/ToolSpec/capability epoch property matrix，未知 Tool 和 reserved collision 阻止 epoch 激活。
-- approval、PreToolUse、sandbox 拒绝及 commit 前取消均零提交；commit 后取消/失败不回滚；PostToolUse 看到原 outcome。
+- approval/PreToolUse/grant 失效及 commit 前取消均零提交；升级未预授权时 sandbox denial 不再请求 approval；
+  预授权升级、上传 execute 时点、commit 后取消/失败不回滚；PostToolUse error 不替换原 outcome。
 - reservation 原子归属新 lease，旧 lease 不记录 carrier；stale revision 发生在 commit 前。
 - code-mode cell barrier、nested attribution、并行、turn-wide one-Patch 和 nested output。
-- typed outcome 子载体的文本/图片/MCP/截断/error conformance；不比较整个 framed payload hash。
+- typed outcome 三分支及文本/图片/MCP 全字段/截断/error/post-hook conformance；不比较整个 framed payload hash。
+- 静态审计 action-map/lease gate 不读取 Tool 名、source 或参数内容；capability metadata 是唯一资格/归属输入。
+- 运行 phase ownership lint，Phase E/F/G 只能引用 FLA evidence，不能拥有 production target 或独立 gate。
 - Standard schema/wire/handler/cache identity 零变化；TaskSpace schema 只在 capability epoch 边界改变。
 - 在隔离 Docker worktree 中执行一次完整 rollback drill：代码、parser、runtime manifest、schema/hash 恢复
   sibling baseline，再重建候选；只记录 `rollback_drill_passed/failed`，不改变真实 candidate 状态或 active authority。
@@ -255,9 +292,9 @@ Patch 正文、密钥和私有 Tool 内容。
 2. CA-0 冻结的当前 sibling 回归基线；
 3. FLA-3.5 候选。
 
-simple/complex 每臂 3 次仅做接线诊断；独立 carrier-validation 样本的重复数、顺序、seed、门槛在看到候选结果前
-由评估合同冻结，不能根据前三次结果追加或停止。FLA-8 held-out 在整个 CA-5 保持 sealed，本阶段结果不得用于
-FLA-8 正式决策。
+simple/complex 每臂 3 次仅做接线诊断；独立 carrier-validation 的重复数、顺序、seed、门槛已在 CA-0 冻结，
+不能根据 probe 或前三次结果修改、追加或停止。CA-1/CA-5 容器都不挂载 FLA-8 held-out；本阶段结果不得用于
+FLA-8 正式决策。candidate report/schema 一旦出现旧 `combined_control_plus_next_rate` 即机器失败。
 
 专用指标：`transition_required_count`、`transition_carrier_count/rate`、standalone-schema-negative、H-003、
 prepare rejection、Patch/typed-output exact、request、token、cache by capability epoch、wall/provider/tool time。

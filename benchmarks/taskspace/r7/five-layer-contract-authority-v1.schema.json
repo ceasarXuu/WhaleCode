@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/five-layer-contract-authority-v1.schema.json",
+  "title": "R7 five-layer contract authority",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "schema_path",
+    "contract_id",
+    "contract_status",
+    "implementation_status_enum",
+    "candidate_status_enum",
+    "baseline",
+    "selected_targets",
+    "experiments",
+    "blocking_repairs"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema_path": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json"},
+    "contract_id": {"const": "r7-five-layer-contract-authority-v1"},
+    "contract_status": {"type": "string", "minLength": 1},
+    "implementation_status_enum": {
+      "const": [
+        "selected_baseline",
+        "selected_not_implemented",
+        "active_verified",
+        "active_repair_verified",
+        "experimental_disabled"
+      ]
+    },
+    "candidate_status_enum": {
+      "const": ["evaluation_candidate", "rejected", "promoted"]
+    },
+    "baseline": {
+      "type": "object",
+      "required": ["role", "commit"],
+      "properties": {
+        "role": {"const": "rollback_baseline"},
+        "commit": {"type": "string", "minLength": 7}
+      },
+      "additionalProperties": true
+    },
+    "selected_targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["layer", "implementation_status", "activation_phase", "artifact", "sha256"],
+        "properties": {
+          "layer": {"type": "string", "minLength": 1},
+          "implementation_status": {"$ref": "#/$defs/implementationStatus"},
+          "activation_phase": {"type": "string", "minLength": 1},
+          "artifact": {"type": "string", "minLength": 1},
+          "sha256": {"$ref": "#/$defs/sha256"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "experiments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "implementation_status", "baseline", "acceptance"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "implementation_status": {"const": "experimental_disabled"},
+          "baseline": {"type": "string", "minLength": 1},
+          "acceptance": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "blocking_repairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "implementation_status", "issue", "plan", "blocks"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "implementation_status": {"const": "selected_not_implemented"},
+          "issue": {"type": "string", "minLength": 1},
+          "plan": {"type": "string", "minLength": 1},
+          "blocks": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "implementationStatus": {
+      "enum": [
+        "selected_baseline",
+        "selected_not_implemented",
+        "active_verified",
+        "active_repair_verified",
+        "experimental_disabled"
+      ]
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

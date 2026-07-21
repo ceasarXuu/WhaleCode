@@ -538,68 +538,26 @@ Patch exact 与输入输出保真时不得进入生产。完整 CA-0 至 CA-6、
 
 **目标**：证明三种策略只改变 provider context projection，不改变任何状态机、工具或事件结果。
 
-**阶段所有权**：本节是 R7 产品里程碑，不再建立独立实现/gate。其代码、oracle、Docker 运行和接受结论全部由
-FLA-7 唯一产出；FLA-7 未完成时 Phase E 不能单独标记完成。
-
-实施项：
-
-1. 建立相同 scripted action sequence 的三策略 differential test。
-2. 对比 canonical event bytes/hash、Map revision、lease、ordinary tool dispatch 和 terminal summary。
-3. 覆盖 retry、provider error、tool error、resume、fork、rollback 和 compaction。
-4. 实现并验证新 context epoch 规则：always 注入最新、append 追加当前起点、request 只给 Map handle。
-5. compaction 只处理 provider history，canonical Map/Event Store hash 必须保持。
-6. subagent 继承 Map/node/lease 和 policy；不得因 policy 改变工具权限。
-
-退出门禁：
-
-```text
-同一合法 action sequence 的 canonical Map/event/terminal hash 三策略完全一致。
-唯一允许的 diff 位于 provider context projection items 与对应 observer events。
-resume/fork/compaction 后 policy、revision 和 state hash 精确恢复。
-simple + resume-compaction 快速三臂门禁通过。
-```
+**阶段所有权**：本节只保留产品里程碑名称。上述 differential、retry/error、resume/fork/compaction、subagent、
+context epoch 和 projection 等价实现及退出证据全部归 [五层可执行规格的 FLA-7](25-r7-five-layer-executable-spec.md)。
+Phase E 不再维护实施项、独立测试或第二套退出门禁；FLA-7 未 `active_verified` 时 Phase E 必须保持未完成。
 
 ## 1.13 Phase F：单架构审计与产品面收敛
 
 **目标**：删除所有临时接线和策略泄漏，使配置、工具、Runtime、observer、Viewer 只依赖一个共享合同。
 
-**阶段所有权**：Tool capability/权限审计归 FLA-6，Runtime/projection/recovery 审计归 FLA-7。本节只汇总两者
-证据并完成产品面文档/config/Viewer 收敛，不再运行一套平行 acceptance。
-
-实施项：
-
-1. 静态扫描 mode-specific Runtime/handler/renderer/schema，任何复制分支都必须删除或证明只是 emission decision。
-2. 三策略 `tools_hash`、tool count、system prompt 主体和 ordinary permissions 必须相同。
-3. CLI/config/protocol/session/rollout/Viewer 统一显示 canonical policy 名称。
-4. provider wire scanner 不再把 always 的唯一性断言误用到 append/request。
-5. benchmark skill/report 固定输出四臂表、request 明细、cache、projection 和 Map 指标。
-6. 运行所有 TaskSpace unit/integration/replay、benchmark harness self-test 和 Docker smoke。
-
-退出门禁：
-
-```text
-除 projection emission decision 外无 policy-specific 执行分支。
-三策略 tools_hash/system-prompt-hash/permission digest 相同。
-旧 R6 epoch marker/state/log/schema 扫描结果为零。
-observer 对缺失数据明确 unavailable，不产生误判。
-```
+**阶段所有权**：本节只汇总 FLA-6 的 Tool capability/权限结果和 FLA-7 的 Runtime、projection、CLI/config、
+protocol/session、observer、Viewer、wire scanner 与旧路径删除证据。所有实现与 gate 已分配到这两个 FLA 阶段，
+Phase F 不再修改代码、运行独立测试或形成另一份 acceptance。两者任一未完成时 Phase F 保持未完成。
 
 ## 1.14 Phase G：正式四臂矩阵
 
 **目标**：在同一生产 commit 上量化三种设计取舍，形成默认值建议，但保留全部策略。
 
-**阶段所有权**：四臂 projection 比较是 FLA-8 七臂正式矩阵的固定子矩阵，必须复用同一 raw runs、样本、重复、
-统计和 artifact。不得另跑三重复后提前给出默认值或 promotion；正式决策只由 FLA-8 产生。
-
-执行：
-
-1. 构建唯一 R7 Docker image，参数化运行三策略；Standard 使用同 image 的 Standard mode。
-2. simple、complex、branch-join、long-map 的重复、seed 和顺序完全复用 FLA-8 评估合同；阶段内 3 次 smoke
-   只诊断接线，不进入默认值或 promotion 决策。
-3. 对失败 side 先完成 trace、feedback、projection freshness 和 validator 分析，不能直接剔除。
-4. 分别报告 correctness、请求路径、输入/缓存/金额、Map 质量、读取行为和陈旧上下文影响。
-5. 把每个策略的已知特征与实现 bug 分栏，不用一个综合分数隐藏取舍。
-6. 基于证据提出推荐默认值；三种参数继续可用，不因推荐默认值删除其他策略。
+**阶段所有权**：本节只命名 FLA-8 七臂正式矩阵中的 Standard + 三种 projection policy 固定子矩阵。唯一 Docker
+image、样本、重复、seed、trace、统计、报告和默认值决策全部归
+[五层可执行规格的 FLA-8](25-r7-five-layer-executable-spec.md)。Phase G 不另跑三重复、不单独查看 held-out、
+不维护独立 gate；FLA-8 未完成时 Phase G 保持未完成。
 
 决策维度：
 
@@ -611,14 +569,7 @@ observer 对缺失数据明确 unavailable，不产生误判。
 | 陈旧状态干扰 | 最低 | 预期最高，需 trace 验证 | 取决于读取历史 |
 | Map 工作约束 | 相同 | 相同 | 相同且必须不可绕过 |
 
-退出门禁：
-
-```text
-所有有效 side correctness/terminal/Map invariant 通过。
-失败和 outlier 有逐 request 根因，不静默剔除。
-每项结论可追溯到 artifact、commit、image 和 policy。
-默认值建议建立在总和/均值/中位数和行为质量上，而非单样本直觉。
-```
+上表只保留产品解释，不构成另一份验收合同；机器门禁以 FLA-8 evaluation contract 为唯一权威。
 
 ## 1.15 Phase H：收口与经授权审查
 

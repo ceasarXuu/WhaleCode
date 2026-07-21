@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/taskspace-contract-manifest-v1.schema.json",
+  "title": "R7 TaskSpace production contract manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "schema_path",
+    "contract_id",
+    "manifest_version",
+    "contract_status",
+    "runtime_status_enum",
+    "activation_through",
+    "source_authority",
+    "layers"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema_path": {"const": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"},
+    "contract_id": {"const": "r7-taskspace-five-layer-production-v1"},
+    "manifest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "contract_status": {"enum": ["production_active", "candidate_under_evaluation"]},
+    "runtime_status_enum": {
+      "const": [
+        "selected_not_active",
+        "active",
+        "repair_active",
+        "result_repair_active_projection_baseline"
+      ]
+    },
+    "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3"]},
+    "source_authority": {
+      "type": "object",
+      "required": ["contract_id", "path", "sha256"],
+      "properties": {
+        "contract_id": {"const": "r7-five-layer-contract-authority-v1"},
+        "path": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "owner", "carrier", "runtime_status", "selected_targets"],
+        "properties": {
+          "id": {"enum": ["L1", "L2", "L3", "L4", "L5"]},
+          "owner": {"type": "string", "minLength": 1},
+          "carrier": {"type": "string", "minLength": 1},
+          "runtime_status": {
+            "enum": [
+              "selected_not_active",
+              "active",
+              "repair_active",
+              "result_repair_active_projection_baseline"
+            ]
+          },
+          "selected_targets": {"type": "array", "minItems": 1}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

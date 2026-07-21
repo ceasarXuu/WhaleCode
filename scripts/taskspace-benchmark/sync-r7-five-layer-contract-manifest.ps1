@@ -22,14 +22,14 @@ function New-Layer {
         [string]$Id,
         [string]$Owner,
         [string]$Carrier,
-        [string]$Status,
+        [string]$RuntimeStatus,
         [object[]]$Targets
     )
     [ordered]@{
         id = $Id
         owner = $Owner
         carrier = $Carrier
-        status = $Status
+        runtime_status = $RuntimeStatus
         selected_targets = @($Targets | ForEach-Object {
                 [ordered]@{
                     artifact = [string]$_.artifact
@@ -62,8 +62,16 @@ $layers = @(
 
 $manifest = [ordered]@{
     schema_version = 1
+    schema_path = "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"
     contract_id = "r7-taskspace-five-layer-production-v1"
-    manifest_version = "1.0.3"
+    manifest_version = "1.0.4"
+    contract_status = "production_active"
+    runtime_status_enum = @(
+        "selected_not_active",
+        "active",
+        "repair_active",
+        "result_repair_active_projection_baseline"
+    )
     activation_through = $ActivationThrough
     repair_activation = @("L4", "L5-result")
     source_authority = [ordered]@{

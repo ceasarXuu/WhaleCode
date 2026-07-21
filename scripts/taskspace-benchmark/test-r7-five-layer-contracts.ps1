@@ -6,7 +6,9 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $authorityPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
+$authoritySchemaPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json"
 $manifestPath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"
+$manifestSchemaPath = Join-Path $repoRoot "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"
 $taskspaceBasePath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md"
 $standardBasePath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_standard.md"
 $l1Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md"
@@ -54,7 +56,9 @@ function Test-PhaseEnabled {
     $Phase -eq "All" -or $Phase -eq $Name
 }
 
-$authority = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath | ConvertFrom-Json -Depth 50
+$authorityRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath
+Assert-True ($authorityRaw | Test-Json -SchemaFile $authoritySchemaPath -ErrorAction Stop) "Authority JSON does not match its schema"
+$authority = $authorityRaw | ConvertFrom-Json -Depth 50
 Assert-Equal $authority.contract_id "r7-five-layer-contract-authority-v1" "Unexpected authority contract"
 Assert-Equal $authority.compatibility_policy "none" "Five-layer migration must not keep compatibility paths"
 
@@ -84,7 +88,9 @@ if (Test-PhaseEnabled "FLA-0") {
 
 if (Test-PhaseEnabled "FLA-1") {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Production contract manifest is missing"
-    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    $manifestRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
+    Assert-True ($manifestRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Production manifest JSON does not match its schema"
+    $manifest = $manifestRaw | ConvertFrom-Json -Depth 50
     Assert-Equal $manifest.contract_id "r7-taskspace-five-layer-production-v1" "Unexpected production manifest"
     Assert-Equal $manifest.source_authority.contract_id $authority.contract_id "Manifest authority id drifted"
     Assert-Equal $manifest.source_authority.sha256 (Get-Sha256 $authorityPath) "Manifest authority hash drifted"
@@ -132,14 +138,14 @@ if (Test-PhaseEnabled "FLA-2") {
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
     Assert-True (@("FLA-2", "FLA-3") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L1")[0].status)) "active" "L1 is not active"
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L2")[0].status)) "active" "L2 is not active"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L1")[0].runtime_status)) "active" "L1 is not active"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L2")[0].runtime_status)) "active" "L2 is not active"
     Write-Output "FLA-2 L1/L2 production contracts passed."
 }
 
 if (Test-PhaseEnabled "FLA-3") {
     $l3Target = @($authority.selected_targets | Where-Object layer -eq "L3")[0]
-    Assert-Equal ([string]$l3Target.status) "active_verified" "L3 activation status drifted"
+    Assert-Equal ([string]$l3Target.implementation_status) "active_verified" "L3 activation status drifted"
     Assert-True (Test-Path -LiteralPath $productionL3Path -PathType Leaf) "Production L3 Skill is missing"
     Assert-Equal (Get-Sha256 $productionL3Path) (Get-Sha256 $l3Path) "Production L3 bytes differ from authority artifact"
 
@@ -156,13 +162,13 @@ if (Test-PhaseEnabled "FLA-3") {
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
     Assert-Equal $manifest.activation_through "FLA-3" "Production manifest has not activated FLA-3"
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L3")[0].status)) "active" "L3 is not active"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L3")[0].runtime_status)) "active" "L3 is not active"
     Write-Output "FLA-3 advanced Skill lifecycle contracts passed."
 }
 
 if (Test-PhaseEnabled "FLA-4") {
     $l4Target = @($authority.selected_targets | Where-Object layer -eq "L4")[0]
-    Assert-Equal ([string]$l4Target.status) "active_repair_verified" "L4 repair activation status drifted"
+    Assert-Equal ([string]$l4Target.implementation_status) "active_repair_verified" "L4 repair activation status drifted"
     $selectedSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l4Path | ConvertFrom-Json -Depth 50
     $selectedActions = @($selectedSchema.provider_tool.function.parameters.anyOf | ForEach-Object { [string]$_.properties.action.enum[0] })
     foreach ($action in @("bind_node", "block_node", "unblock_node", "rework_node")) {
@@ -181,13 +187,13 @@ if (Test-PhaseEnabled "FLA-4") {
         Assert-True $wireSource.Contains("Action::$variant") "Argument wire omits direct action variant: $variant"
     }
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].status)) "repair_active" "Production manifest does not expose the L4 repair"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "repair_active" "Production manifest does not expose the L4 repair"
     Write-Output "FLA-4 selected input contract repair passed."
 }
 
 if (Test-PhaseEnabled "FLA-5") {
     $l5Target = @($authority.selected_targets | Where-Object layer -eq "L5-result")[0]
-    Assert-Equal ([string]$l5Target.status) "active_repair_verified" "L5 result repair activation status drifted"
+    Assert-Equal ([string]$l5Target.implementation_status) "active_repair_verified" "L5 result repair activation status drifted"
     $resultSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l5ResultPath | ConvertFrom-Json -Depth 50
     Assert-Equal ([string]$resultSchema.properties.schema_version.const) "TaskSpaceControlResultV2" "Selected result schema version drifted"
     Assert-Equal ([bool]$resultSchema.properties.partial_commit.const) $false "partial_commit must remain false"
@@ -199,7 +205,7 @@ if (Test-PhaseEnabled "FLA-5") {
     Assert-True $outputSource.Contains('"partial_commit": false') "Production result formatter does not emit boolean partial_commit=false"
     Assert-True $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING') "Control preflight does not emit the selected factual error"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].status)) "result_repair_active_projection_baseline" "Production manifest does not expose the L5 result repair"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "result_repair_active_projection_baseline" "Production manifest does not expose the L5 result repair"
     Write-Output "FLA-5 selected result contract repair passed."
 }
 
