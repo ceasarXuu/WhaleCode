@@ -161,4 +161,24 @@ ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
 
 ## 10. 第八轮复审
 
-第七轮仍含 Blocking finding。七次修订提交后必须由第八个空白 reviewer 复核 U1-U4。
+- Target commit: `b45288ca8`
+- Reviewer launch id: `019f8291-e670-7bc0-98e8-136cd9356338`
+- Reviewer nickname: Anscombe
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第八个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第八轮确认 U2、U4 已关闭，后续计划冲突检查仍为 PASS；U1、U3 及两个执行合同歧义仍有 1 个 Blocking、3 个 High、
+1 个 Medium：
+
+| # | 级别 | 第八轮发现 | 处置 | 八次修订 |
+|---|---|---|---|---|
+| V1 | Blocking | promoted 的期望集合仍来自已修改 authority；终止 candidate 可因 manifest 不再变化而跳过当前 baseline 复验 | Accept | candidate 自有完整 L4/L5 activation targets 并纳入 content id；promoted 双侧精确对 candidate；所有状态持续复验当前 raw-byte baseline |
+| V2 | High | role schema 与正例仍允许空 object、任意单元素数组和空 held-out identity | Accept | 八个严格 `$defs` 规定嵌套字段、枚举、基数、sealed identity 和 `additionalProperties:false`；每个角色增加空载荷负例 |
+| V3 | High | denial 后才能得到动态 host scope，无法在 commit 前机械预授权且保持现有窄范围授权 | Accept | 可确定 scope 继续 pre-authorize；denial-derived managed-network host 使用唯一 deferred authorization，保留原窄 scope guardian/approval，不猜命令、不申请宽 grant |
+| V4 | High | “真实动作必须执行返回”与 `CommittedNotExecuted` 同时存在，指标口径矛盾 | Accept | 统一定义为完成 commit+reservation 的 ordinary dispatch；另报 `carrier_execution_started_rate`，不得把 carrier rate 当执行成功率 |
+| V5 | Medium | provider-native `ToolSearch/LocalShell/ImageGeneration/WebSearch` 未明确 carrier disposition | Accept | Wire matrix 穷举全部 ToolSpec/ToolPayload；native built-ins 明确 non-carrier，Namespace 为 container，function/freeform/MCP 走共享 carrier/projection |
+
+## 11. 第九轮复审
+
+第八轮仍含 Blocking/High finding。八次修订提交后必须由第九个空白 reviewer 复核 V1-V5，并重新检查阶段冲突。

@@ -19,63 +19,7 @@ $productionL3Path = Join-Path $repoRoot "third_party/codex-cli/codex-rs/skills/s
 $l4Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
 $l5ResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json"
 
-function Assert-True {
-    param([bool]$Condition, [string]$Message)
-    if (-not $Condition) { throw $Message }
-}
-
-function Assert-Equal {
-    param($Actual, $Expected, [string]$Message)
-    if ($Actual -cne $Expected) {
-        throw "$Message. expected=$Expected actual=$Actual"
-    }
-}
-
-function Get-Sha256 {
-    param([string]$Path)
-    (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
-}
-
-function Get-TextSha256 {
-    param([string]$Text)
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
-    [System.BitConverter]::ToString(
-        [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
-    ).Replace("-", "").ToLowerInvariant()
-}
-
-function Get-GitBlobText {
-    param([string]$Commit, [string]$Path)
-    $text = & git -C $repoRoot show "${Commit}:$Path" 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "Unable to read frozen blob ${Commit}:$Path" }
-    ([string]::Join("`n", @($text))) + "`n"
-}
-
-function Assert-Throws {
-    param([scriptblock]$Action, [string]$Message)
-    $threw = $false
-    try { & $Action } catch { $threw = $true }
-    Assert-True $threw $Message
-}
-
-function Get-CandidateContentId {
-    param([object]$Candidate)
-    $lines = @(
-        "r7-continuous-action-candidate-id-v1",
-        "active_contract=$([string]$Candidate.active_authority.contract_id)",
-        "active_path=$([string]$Candidate.active_authority.path)",
-        "active_commit=$([string]$Candidate.active_authority.git_commit)",
-        "active_sha256=$([string]$Candidate.active_authority.sha256)",
-        "production_contract=$([string]$Candidate.active_production_manifest.contract_id)",
-        "production_path=$([string]$Candidate.active_production_manifest.path)",
-        "production_commit=$([string]$Candidate.active_production_manifest.git_commit)",
-        "production_sha256=$([string]$Candidate.active_production_manifest.sha256)"
-    )
-    foreach ($artifact in @($Candidate.artifact_hashes.psobject.Properties | Sort-Object Name)) {
-        $lines += "$([string]$artifact.Name)=$([string]$artifact.Value.sha256)"
-    }
-    Get-TextSha256 (($lines -join "`n") + "`n")
-}
+. (Join-Path $PSScriptRoot "r7-contract-test-primitives.ps1")
 
 function Assert-CandidateStateHistory {
     param([object]$Candidate, [string]$PreviousStatus, [object]$Authority)
@@ -96,40 +40,38 @@ function Assert-CandidateActivationSnapshot {
         [string]$AuthorityRaw,
         [object]$AuthorityObject,
         [object]$ProductionManifest,
-        [string]$ProductionRaw = ""
+        [string]$ProductionRaw = "",
+        [string]$AuthorityByteHash = "",
+        [string]$ProductionByteHash = ""
     )
-    $authorityHash = Get-TextSha256 $AuthorityRaw
+    $authorityHash = if ([string]::IsNullOrWhiteSpace($AuthorityByteHash)) { Get-TextSha256 $AuthorityRaw } else { $AuthorityByteHash }
+    $productionHash = if ([string]::IsNullOrWhiteSpace($ProductionByteHash)) { Get-TextSha256 $ProductionRaw } else { $ProductionByteHash }
     $activeSnapshotHash = [string]$Candidate.active_authority.sha256
     Assert-Equal ([string]$ProductionManifest.source_authority.sha256) $authorityHash "Production manifest does not identify the authority in the same state event"
-    $authorityL4 = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer -eq "L4" })
-    $authorityL5 = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer.StartsWith("L5-", [System.StringComparison]::Ordinal) })
-    Assert-Equal $authorityL4.Count 1 "Authority must select exactly one L4 target"
-    Assert-Equal @($authorityL5 | Where-Object { [string]$_.layer -eq "L5-result" }).Count 1 "Authority must select exactly one L5-result target"
-    $expectedL4 = @($authorityL4 | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-    $expectedL5 = @($authorityL5 | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-    $productionL4 = @($ProductionManifest.layers | Where-Object { [string]$_.id -eq "L4" })
-    $productionL5 = @($ProductionManifest.layers | Where-Object { [string]$_.id -eq "L5" })
-    Assert-Equal $productionL4.Count 1 "Production manifest must contain exactly one L4 layer"
-    Assert-Equal $productionL5.Count 1 "Production manifest must contain exactly one L5 layer"
-    $actualL4 = @($productionL4[0].selected_targets | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-    $actualL5 = @($productionL5[0].selected_targets | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-    Assert-Equal ($actualL4 -join "`n") ($expectedL4 -join "`n") "Production L4 target set differs from authority"
-    Assert-Equal ($actualL5 -join "`n") ($expectedL5 -join "`n") "Production L5 target set differs from authority"
     if (@("evaluation_candidate", "promotion_pending", "rejected", "reverted") -contains $Status) {
         Assert-Equal $authorityHash $activeSnapshotHash "Non-promoted candidate event changed the active authority"
         Assert-True ([string]::IsNullOrWhiteSpace([string]$ProductionManifest.promoted_candidate_id)) "Non-promoted candidate event retained an active candidate pointer"
         Assert-True (-not [string]::IsNullOrWhiteSpace($ProductionRaw)) "Non-promoted candidate event omitted production manifest bytes"
-        Assert-Equal (Get-TextSha256 $ProductionRaw) ([string]$Candidate.active_production_manifest.sha256) "Non-promoted candidate event did not restore the active production manifest bytes"
+        Assert-Equal $productionHash ([string]$Candidate.active_production_manifest.sha256) "Non-promoted candidate event did not restore the active production manifest bytes"
         return
     }
     Assert-Equal $Status "promoted" "Unknown candidate activation status"
     Assert-Equal ([string]$ProductionManifest.promoted_candidate_id) ([string]$Candidate.candidate_id) "Promoted candidate pointer drifted"
-    $l4Target = $authorityL4[0]
-    $l5Target = @($authorityL5 | Where-Object { [string]$_.layer -eq "L5-result" })[0]
-    Assert-Equal ([string]$l4Target.artifact) ([string]$Candidate.artifact_hashes.l4_schema.path) "Promoted authority L4 path does not come from candidate"
-    Assert-Equal ([string]$l4Target.sha256) ([string]$Candidate.artifact_hashes.l4_schema.sha256) "Promoted authority L4 hash does not come from candidate"
-    Assert-Equal ([string]$l5Target.artifact) ([string]$Candidate.artifact_hashes.typed_outcome.path) "Promoted authority L5 path does not come from candidate"
-    Assert-Equal ([string]$l5Target.sha256) ([string]$Candidate.artifact_hashes.typed_outcome.sha256) "Promoted authority L5 hash does not come from candidate"
+    foreach ($layer in @("L4", "L5")) {
+        $candidateTargets = @($Candidate.activation_targets.$layer | ForEach-Object { "$([string]$_.path)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
+        $authorityTargets = @()
+        if ($layer -eq "L4") {
+            $authorityTargets = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer -eq "L4" })
+        } else {
+            $authorityTargets = @($AuthorityObject.selected_targets | Where-Object { ([string]$_.layer).StartsWith("L5-", [System.StringComparison]::Ordinal) })
+        }
+        $authorityLines = @($authorityTargets | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
+        $productionLayer = @($ProductionManifest.layers | Where-Object { [string]$_.id -eq $layer })
+        Assert-Equal $productionLayer.Count 1 "Production manifest must contain exactly one $layer layer"
+        $productionLines = @($productionLayer[0].selected_targets | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
+        Assert-Equal ($authorityLines -join "`n") ($candidateTargets -join "`n") "Promoted authority $layer target set differs from candidate declaration"
+        Assert-Equal ($productionLines -join "`n") ($candidateTargets -join "`n") "Promoted production $layer target set differs from candidate declaration"
+    }
 }
 
 function Assert-CandidateSetIntegrity {
@@ -219,7 +161,8 @@ if (Test-PhaseEnabled "FLA-1") {
     $validCandidate | Add-Member -NotePropertyName candidate_commit -NotePropertyValue $headCommit
     $validCandidate | Add-Member -NotePropertyName candidate_status -NotePropertyValue "evaluation_candidate"
     $activeAuthorityBlob = Get-GitBlobText $headCommit "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
-    $activeAuthorityHash = Get-TextSha256 $activeAuthorityBlob
+    $activeAuthorityHash = Get-GitBlobSha256 $headCommit "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
+    $activeAuthorityBody = $activeAuthorityBlob | ConvertFrom-Json -Depth 50
     $validCandidate | Add-Member -NotePropertyName active_authority -NotePropertyValue ([pscustomobject]@{
             contract_id = "r7-five-layer-contract-authority-v1"
             path = "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
@@ -232,7 +175,7 @@ if (Test-PhaseEnabled "FLA-1") {
             contract_id = "r7-taskspace-five-layer-production-v1"
             path = $activeProductionPath
             git_commit = $headCommit
-            sha256 = (Get-TextSha256 $activeProductionBlob)
+            sha256 = (Get-GitBlobSha256 $headCommit $activeProductionPath)
         })
     $validCandidate.source_authority.sha256 = $activeAuthorityHash
     $validCandidate | Add-Member -NotePropertyName artifact_hashes -NotePropertyValue ([pscustomobject]@{
@@ -244,6 +187,16 @@ if (Test-PhaseEnabled "FLA-1") {
             rollback_manifest = [pscustomobject]@{ artifact_role = "rollback_manifest"; path = ""; sha256 = (Get-TextSha256 "rollback_manifest fixture`n") }
             continuous_action_evaluation = [pscustomobject]@{ artifact_role = "continuous_action_evaluation"; path = ""; sha256 = (Get-TextSha256 "continuous_action_evaluation fixture`n") }
             fla8_evaluation_v2 = [pscustomobject]@{ artifact_role = "fla8_evaluation_v2"; path = ""; sha256 = (Get-TextSha256 "fla8_evaluation_v2 fixture`n") }
+        })
+    $projectionBaseline = @($activeAuthorityBody.selected_targets | Where-Object { [string]$_.layer -eq "L5-projection" })[0]
+    $lifecycleBaseline = @($activeAuthorityBody.selected_targets | Where-Object { [string]$_.layer -eq "L5-lifecycle" })[0]
+    $validCandidate | Add-Member -NotePropertyName activation_targets -NotePropertyValue ([pscustomobject]@{
+            L4 = @([pscustomobject]@{ artifact_role = "l4_schema"; path = ""; sha256 = $validCandidate.artifact_hashes.l4_schema.sha256; activation_phase = "FLA-3.5" })
+            L5 = @(
+                [pscustomobject]@{ artifact_role = "typed_outcome"; path = ""; sha256 = $validCandidate.artifact_hashes.typed_outcome.sha256; activation_phase = "FLA-3.5" },
+                [pscustomobject]@{ artifact_role = "projection_baseline"; path = $projectionBaseline.artifact; sha256 = $projectionBaseline.sha256; activation_phase = $projectionBaseline.activation_phase },
+                [pscustomobject]@{ artifact_role = "lifecycle_baseline"; path = $lifecycleBaseline.artifact; sha256 = $lifecycleBaseline.sha256; activation_phase = $lifecycleBaseline.activation_phase }
+            )
         })
     $candidateId = Get-CandidateContentId $validCandidate
     $validCandidate.contract_id = "r7-taskspace-five-layer-candidate-$candidateId"
@@ -262,31 +215,18 @@ if (Test-PhaseEnabled "FLA-1") {
     foreach ($artifact in $validCandidate.artifact_hashes.psobject.Properties) {
         $artifact.Value.path = "$candidatePrefix/$($artifactFileNames[[string]$artifact.Name])"
     }
+    $validCandidate.activation_targets.L4[0].path = $validCandidate.artifact_hashes.l4_schema.path
+    $typedActivation = @($validCandidate.activation_targets.L5 | Where-Object { [string]$_.artifact_role -eq "typed_outcome" })[0]
+    $typedActivation.path = $validCandidate.artifact_hashes.typed_outcome.path
     $validCandidateJson = $validCandidate | ConvertTo-Json -Depth 50
     Assert-True ($validCandidateJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Valid candidate manifest mode was rejected"
     Assert-CandidateManifestIntegrity $validCandidate
     Assert-CandidateSetIntegrity @($validCandidate) $manifest
     Assert-CandidateStateHistory $validCandidate "" $authority
+    Assert-CandidateActivationContract $validCandidate
 
     $artifactSchemaPath = Join-Path $repoRoot ([string]$authority.candidate_registry.artifact_schema)
-    $validArtifactBodies = @(
-        @{schema_version = 1; artifact_role = "l4_schema"; provider_tool = @{}},
-        @{schema_version = 1; artifact_role = "transition_schema"; transition_schema = @{}},
-        @{schema_version = 1; artifact_role = "typed_outcome"; outcome_variants = @("Executed")},
-        @{schema_version = 1; artifact_role = "lifecycle_oracle_v2"; oracles = @("carrier")},
-        @{schema_version = 1; artifact_role = "capability_matrix"; entries = @("exec")},
-        @{schema_version = 1; artifact_role = "rollback_manifest"; restore_targets = @("authority")},
-        @{schema_version = 1; artifact_role = "continuous_action_evaluation"; samples = @("simple"); metrics = @{rate = 1}; thresholds = @{rate = 1}},
-        @{schema_version = 1; artifact_role = "fla8_evaluation_v2"; held_out_identity = @{}; metrics = @{rate = 1}; thresholds = @{rate = 1}}
-    )
-    foreach ($artifactBody in $validArtifactBodies) {
-        $artifactJson = $artifactBody | ConvertTo-Json -Depth 20
-        Assert-True ($artifactJson | Test-Json -SchemaFile $artifactSchemaPath -ErrorAction Stop) "Role-specific artifact schema rejected $($artifactBody.artifact_role)"
-    }
-    $emptyArtifact = @{schema_version = 1; artifact_role = "l4_schema"} | ConvertTo-Json
-    Assert-True (-not ($emptyArtifact | Test-Json -SchemaFile $artifactSchemaPath -ErrorAction SilentlyContinue)) "Role-specific artifact schema accepted an empty L4 shell"
-    $wrongArtifactPayload = @{schema_version = 1; artifact_role = "l4_schema"; transition_schema = @{}} | ConvertTo-Json -Depth 5
-    Assert-True (-not ($wrongArtifactPayload | Test-Json -SchemaFile $artifactSchemaPath -ErrorAction SilentlyContinue)) "Role-specific artifact schema accepted another role's payload"
+    Assert-CandidateArtifactSchemaContract $artifactSchemaPath
 
     $mismatchedCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
     $mismatchedCandidate.contract_id = "r7-taskspace-five-layer-candidate-0000000000000000000000000000000000000000"
@@ -315,6 +255,11 @@ if (Test-PhaseEnabled "FLA-1") {
     $duplicateBlobCandidate.contract_id = "r7-taskspace-five-layer-candidate-$duplicateBlobId"
     foreach ($artifact in $duplicateBlobCandidate.artifact_hashes.psobject.Properties) {
         $artifact.Value.path = $artifact.Value.path.Replace($candidateId, $duplicateBlobId)
+    }
+    foreach ($layer in @("L4", "L5")) {
+        foreach ($target in @($duplicateBlobCandidate.activation_targets.$layer)) {
+            $target.path = $target.path.Replace($candidateId, $duplicateBlobId)
+        }
     }
     Assert-Throws { Assert-CandidateManifestIntegrity $duplicateBlobCandidate } "Candidate artifact roles sharing one blob were accepted"
 

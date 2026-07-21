@@ -47,6 +47,25 @@
       },
       "additionalProperties": false
     },
+    "activation_targets": {
+      "type": "object",
+      "required": ["L4", "L5"],
+      "properties": {
+        "L4": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/l4ActivationTarget"}
+        },
+        "L5": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/l5ActivationTarget"}
+        }
+      },
+      "additionalProperties": false
+    },
     "artifact_hashes": {
       "type": "object",
       "required": [
@@ -128,6 +147,7 @@
             {"required": ["candidate_status"]},
             {"required": ["active_authority"]},
             {"required": ["active_production_manifest"]},
+            {"required": ["activation_targets"]},
             {"required": ["artifact_hashes"]}
           ]
         }
@@ -136,7 +156,7 @@
     {
       "if": {"properties": {"contract_status": {"const": "candidate_record"}}},
       "then": {
-        "required": ["candidate_id", "candidate_commit", "candidate_status", "active_authority", "active_production_manifest", "artifact_hashes"],
+        "required": ["candidate_id", "candidate_commit", "candidate_status", "active_authority", "active_production_manifest", "activation_targets", "artifact_hashes"],
         "properties": {
           "contract_id": {"pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{64}$"}
         },
@@ -145,6 +165,53 @@
     }
   ],
   "$defs": {
+    "activationTarget": {
+      "type": "object",
+      "required": ["artifact_role", "path", "sha256", "activation_phase"],
+      "properties": {
+        "artifact_role": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "activation_phase": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "l4ActivationTarget": {
+      "allOf": [
+        {"$ref": "#/$defs/activationTarget"},
+        {
+          "properties": {
+            "artifact_role": {"const": "l4_schema"},
+            "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/l4-schema.json$"}
+          }
+        }
+      ]
+    },
+    "l5ActivationTarget": {
+      "allOf": [
+        {"$ref": "#/$defs/activationTarget"},
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "artifact_role": {"const": "typed_outcome"},
+                "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/typed-outcome.json$"}
+              }
+            },
+            {
+              "properties": {
+                "artifact_role": {"const": "projection_baseline"}
+              }
+            },
+            {
+              "properties": {
+                "artifact_role": {"const": "lifecycle_baseline"}
+              }
+            }
+          ]
+        }
+      ]
+    },
     "candidateArtifact": {
       "type": "object",
       "required": ["artifact_role", "path", "sha256"],
