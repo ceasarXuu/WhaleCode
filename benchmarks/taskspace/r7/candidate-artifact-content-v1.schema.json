@@ -7,21 +7,33 @@
     {"$ref": "#/$defs/transitionSchema"},
     {"$ref": "#/$defs/typedOutcome"},
     {"$ref": "#/$defs/lifecycleOracle"},
+    {"$ref": "#/$defs/entryClosure"},
     {"$ref": "#/$defs/capabilityMatrix"},
     {"$ref": "#/$defs/rollbackManifest"},
     {"$ref": "#/$defs/continuousActionEvaluation"},
     {"$ref": "#/$defs/fla8Evaluation"}
   ],
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
     "nonEmptyString": {"type": "string", "minLength": 1},
+    "metricDefinition": {
+      "type": "object",
+      "required": ["formula", "numerator", "denominator", "unit"],
+      "properties": {
+        "formula": {"type": "string", "minLength": 8},
+        "numerator": {"type": "string", "minLength": 3},
+        "denominator": {"type": "string", "minLength": 3},
+        "unit": {"enum": ["ratio", "count", "milliseconds", "tokens"]}
+      },
+      "additionalProperties": false
+    },
     "metricSet": {
       "type": "object",
       "required": ["transition_carrier_rate", "carrier_execution_started_rate", "correctness_rate"],
       "properties": {
-        "transition_carrier_rate": {"type": "number", "minimum": 0, "maximum": 1},
-        "carrier_execution_started_rate": {"type": "number", "minimum": 0, "maximum": 1},
-        "correctness_rate": {"type": "number", "minimum": 0, "maximum": 1}
+        "transition_carrier_rate": {"$ref": "#/$defs/metricDefinition"},
+        "carrier_execution_started_rate": {"$ref": "#/$defs/metricDefinition"},
+        "correctness_rate": {"$ref": "#/$defs/metricDefinition"}
       },
       "additionalProperties": false
     },
@@ -29,38 +41,44 @@
       "type": "object",
       "required": ["transition_carrier_rate_min", "correctness_rate_min"],
       "properties": {
-        "transition_carrier_rate_min": {"type": "number", "minimum": 0, "maximum": 1},
-        "correctness_rate_min": {"type": "number", "minimum": 0, "maximum": 1},
-        "request_amplification_max": {"type": "number", "minimum": 0}
+        "transition_carrier_rate_min": {"const": 1},
+        "correctness_rate_min": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "request_amplification_max": {"type": "number", "minimum": 1}
       },
       "additionalProperties": false
     },
     "l4Schema": {
       "type": "object",
-      "required": ["schema_version", "artifact_role", "provider_tool"],
+      "required": ["schema_version", "artifact_role", "provider_tools", "reserved_collision_policy"],
       "properties": {
         "schema_version": {"const": 1},
         "artifact_role": {"const": "l4_schema"},
-        "provider_tool": {
-          "type": "object",
-          "required": ["name", "wire_kind", "carrier_field", "business_parameters", "standard_unchanged"],
-          "properties": {
-            "name": {"$ref": "#/$defs/nonEmptyString"},
-            "wire_kind": {"enum": ["function", "taskspace_function_projection"]},
-            "carrier_field": {"const": "taskspace_transition"},
-            "business_parameters": {
-              "type": "object",
-              "required": ["type", "properties"],
-              "properties": {
-                "type": {"const": "object"},
-                "properties": {"type": "object", "minProperties": 1}
-              },
-              "additionalProperties": true
+        "provider_tools": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["name", "wire_api", "wire_kind", "carrier_field", "business_schema_sha256", "standard_wire_sha256", "parser_identity", "handler_identity"],
+            "properties": {
+              "name": {"$ref": "#/$defs/nonEmptyString"},
+              "wire_api": {"enum": ["deepseek_chat", "responses"]},
+              "wire_kind": {"enum": ["function", "taskspace_function_projection"]},
+              "carrier_field": {"const": "taskspace_transition"},
+              "business_schema_sha256": {"$ref": "#/$defs/sha256"},
+              "standard_wire_sha256": {"$ref": "#/$defs/sha256"},
+              "parser_identity": {"type": "string", "minLength": 8},
+              "handler_identity": {"type": "string", "minLength": 8}
             },
-            "standard_unchanged": {"const": true}
+            "additionalProperties": false
           },
-          "additionalProperties": false
-        }
+          "allOf": [
+            {"contains": {"properties": {"name": {"const": "exec_command"}}, "required": ["name"]}},
+            {"contains": {"properties": {"name": {"const": "apply_patch"}}, "required": ["name"]}},
+            {"contains": {"properties": {"name": {"const": "exec"}}, "required": ["name"]}}
+          ]
+        },
+        "reserved_collision_policy": {"const": "reject_epoch"}
       },
       "additionalProperties": false
     },
@@ -72,34 +90,50 @@
         "artifact_role": {"const": "transition_schema"},
         "transition_schema": {
           "type": "object",
-          "required": ["schema_id", "actions", "required_fields", "standalone_nonterminal_allowed"],
+          "required": ["schema_id", "action_contracts", "standalone_nonterminal_allowed"],
           "properties": {
             "schema_id": {"$ref": "#/$defs/nonEmptyString"},
-            "actions": {
-              "type": "array",
-              "minItems": 3,
-              "uniqueItems": true,
-              "items": {"enum": ["initialize_map", "bind_node", "complete_then_continue"]},
-              "allOf": [
-                {"contains": {"const": "initialize_map"}},
-                {"contains": {"const": "bind_node"}},
-                {"contains": {"const": "complete_then_continue"}}
-              ]
-            },
-            "required_fields": {
-              "type": "array",
-              "minItems": 2,
-              "uniqueItems": true,
-              "items": {"enum": ["action", "expected_revision", "current_node_id", "next_node_id", "root_goal"]},
-              "allOf": [
-                {"contains": {"const": "action"}},
-                {"contains": {"const": "expected_revision"}}
-              ]
+            "action_contracts": {
+              "type": "object",
+              "required": ["initialize_map", "bind_node", "complete_then_continue"],
+              "properties": {
+                "initialize_map": {"$ref": "#/$defs/initializeMapAction"},
+                "bind_node": {"$ref": "#/$defs/bindNodeAction"},
+                "complete_then_continue": {"$ref": "#/$defs/completeContinueAction"}
+              },
+              "additionalProperties": false
             },
             "standalone_nonterminal_allowed": {"const": false}
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "initializeMapAction": {
+      "type": "object",
+      "required": ["required_fields", "state_effect"],
+      "properties": {
+        "required_fields": {"const": ["action", "expected_revision", "root_goal", "next_node_id"]},
+        "state_effect": {"const": "create_root_and_bind_next"}
+      },
+      "additionalProperties": false
+    },
+    "bindNodeAction": {
+      "type": "object",
+      "required": ["required_fields", "state_effect"],
+      "properties": {
+        "required_fields": {"const": ["action", "expected_revision", "next_node_id"]},
+        "state_effect": {"const": "bind_ready_node"}
+      },
+      "additionalProperties": false
+    },
+    "completeContinueAction": {
+      "type": "object",
+      "required": ["required_fields", "state_effect"],
+      "properties": {
+        "required_fields": {"const": ["action", "expected_revision", "current_node_id", "next_node_id", "final_summary"]},
+        "state_effect": {"const": "complete_current_and_bind_next"}
       },
       "additionalProperties": false
     },
@@ -111,15 +145,20 @@
         "artifact_role": {"const": "typed_outcome"},
         "outcome_type": {"const": "TaskSpaceCarrierOutcome"},
         "outcome_variants": {
-          "type": "array",
-          "minItems": 3,
-          "uniqueItems": true,
-          "items": {"enum": ["RejectedBeforeCommit", "CommittedNotExecuted", "Executed"]},
-          "allOf": [
-            {"contains": {"const": "RejectedBeforeCommit"}},
-            {"contains": {"const": "CommittedNotExecuted"}},
-            {"contains": {"const": "Executed"}}
-          ]
+          "type": "object",
+          "required": ["RejectedBeforeCommit", "CommittedNotExecuted", "Executed"],
+          "properties": {
+            "RejectedBeforeCommit": {
+              "const": {"commit_state": "not_committed", "tool_state": "not_dispatched", "required_facts": ["pre_hook_fact", "failure"]}
+            },
+            "CommittedNotExecuted": {
+              "const": {"commit_state": "committed", "tool_state": "not_started", "required_facts": ["transition_fact", "pre_hook_fact", "cancellation_or_start_failure"]}
+            },
+            "Executed": {
+              "const": {"commit_state": "committed", "tool_state": "started", "required_facts": ["transition_fact", "pre_hook_fact", "execution", "post_hook_fact", "retention_fact", "deferred_authorization_fact", "delivery_fact"]}
+            }
+          },
+          "additionalProperties": false
         },
         "tool_output_preservation": {"const": "opaque"},
         "post_hook_separate": {"const": true}
@@ -130,10 +169,10 @@
       "type": "object",
       "required": ["id", "given", "when", "then"],
       "properties": {
-        "id": {"$ref": "#/$defs/nonEmptyString"},
-        "given": {"$ref": "#/$defs/nonEmptyString"},
-        "when": {"$ref": "#/$defs/nonEmptyString"},
-        "then": {"$ref": "#/$defs/nonEmptyString"}
+        "id": {"enum": ["empty_map_initialize", "ready_bind", "complete_continue", "commit_cancel_boundary", "resume_lease", "compaction_projection"]},
+        "given": {"type": "string", "minLength": 8},
+        "when": {"type": "string", "minLength": 8},
+        "then": {"type": "string", "minLength": 8}
       },
       "additionalProperties": false
     },
@@ -144,33 +183,96 @@
         "schema_version": {"const": 1},
         "artifact_role": {"const": "lifecycle_oracle_v2"},
         "oracle_version": {"const": 2},
-        "oracles": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/oracleEntry"}}
+        "oracles": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/oracleEntry"},
+          "allOf": [
+            {"contains": {"properties": {"id": {"const": "empty_map_initialize"}}, "required": ["id"]}},
+            {"contains": {"properties": {"id": {"const": "ready_bind"}}, "required": ["id"]}},
+            {"contains": {"properties": {"id": {"const": "complete_continue"}}, "required": ["id"]}},
+            {"contains": {"properties": {"id": {"const": "commit_cancel_boundary"}}, "required": ["id"]}},
+            {"contains": {"properties": {"id": {"const": "resume_lease"}}, "required": ["id"]}},
+            {"contains": {"properties": {"id": {"const": "compaction_projection"}}, "required": ["id"]}}
+          ]
+        }
       },
       "additionalProperties": false
     },
     "capabilityEntry": {
       "type": "object",
-      "required": ["wire_api", "tool_spec", "invocation_source", "disposition", "reason"],
+      "required": ["wire_api", "tool_spec", "tool_payload", "invocation_source", "route", "disposition", "reason"],
       "properties": {
         "wire_api": {"enum": ["deepseek_chat", "responses"]},
         "tool_spec": {"enum": ["Function", "Namespace", "ToolSearch", "LocalShell", "ImageGeneration", "WebSearch", "Freeform"]},
+        "tool_payload": {"enum": ["Function", "ToolSearch", "Custom", "LocalShell", "Mcp", "NotApplicable"]},
         "invocation_source": {"enum": ["builtin", "dynamic", "mcp", "code_mode", "nested"]},
+        "route": {"$ref": "#/$defs/nonEmptyString"},
         "disposition": {"enum": ["carrier", "projected_carrier", "non_carrier", "container"]},
         "reason": {"$ref": "#/$defs/nonEmptyString"}
       },
       "additionalProperties": false
     },
+    "entryClosure": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "generator_version", "generated", "source_inventory", "entries"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "entry_closure"},
+        "generator_version": {"const": 1},
+        "generated": {"const": true},
+        "source_inventory": {
+          "type": "object",
+          "required": ["tool_spec_source", "tool_payload_source", "tool_spec_variants", "tool_payload_variants"],
+          "properties": {
+            "tool_spec_source": {"const": "third_party/codex-cli/codex-rs/tools/src/tool_spec.rs"},
+            "tool_payload_source": {"const": "third_party/codex-cli/codex-rs/core/src/tools/context.rs"},
+            "tool_spec_variants": {"const": ["Function", "Namespace", "ToolSearch", "LocalShell", "ImageGeneration", "WebSearch", "Freeform"]},
+            "tool_payload_variants": {"const": ["Function", "ToolSearch", "Custom", "LocalShell", "Mcp"]}
+          },
+          "additionalProperties": false
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 8,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/capabilityEntry"},
+          "allOf": [
+            {"contains": {"properties": {"tool_payload": {"const": "Function"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "ToolSearch"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Custom"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "LocalShell"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Mcp"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"disposition": {"const": "carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "projected_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "non_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "container"}}, "required": ["disposition"]}}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "capabilityMatrix": {
       "type": "object",
-      "required": ["schema_version", "artifact_role", "matrix_id", "entry_closure_sha256", "entries"],
+      "required": ["schema_version", "artifact_role", "matrix_id", "entry_closure", "entries"],
       "properties": {
         "schema_version": {"const": 1},
         "artifact_role": {"const": "capability_matrix"},
         "matrix_id": {"$ref": "#/$defs/nonEmptyString"},
-        "entry_closure_sha256": {"$ref": "#/$defs/sha256"},
+        "entry_closure": {
+          "type": "object",
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": {"type": "string", "pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/entry-closure.json$"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": false
+        },
         "entries": {
           "type": "array",
-          "minItems": 7,
+          "minItems": 8,
           "uniqueItems": true,
           "items": {"$ref": "#/$defs/capabilityEntry"},
           "allOf": [
@@ -180,7 +282,16 @@
             {"contains": {"properties": {"tool_spec": {"const": "LocalShell"}}, "required": ["tool_spec"]}},
             {"contains": {"properties": {"tool_spec": {"const": "ImageGeneration"}}, "required": ["tool_spec"]}},
             {"contains": {"properties": {"tool_spec": {"const": "WebSearch"}}, "required": ["tool_spec"]}},
-            {"contains": {"properties": {"tool_spec": {"const": "Freeform"}}, "required": ["tool_spec"]}}
+            {"contains": {"properties": {"tool_spec": {"const": "Freeform"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Function"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "ToolSearch"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Custom"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "LocalShell"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Mcp"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"disposition": {"const": "carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "projected_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "non_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "container"}}, "required": ["disposition"]}}
           ]
         }
       },
@@ -188,9 +299,10 @@
     },
     "restoreTarget": {
       "type": "object",
-      "required": ["path", "sha256"],
+      "required": ["target_role", "path", "sha256"],
       "properties": {
-        "path": {"$ref": "#/$defs/nonEmptyString"},
+        "target_role": {"enum": ["authority", "production_manifest", "runtime_manifest", "schema_parser"]},
+        "path": {"type": "string", "minLength": 8},
         "sha256": {"$ref": "#/$defs/sha256"}
       },
       "additionalProperties": false
@@ -203,43 +315,82 @@
         "artifact_role": {"const": "rollback_manifest"},
         "baseline_authority_sha256": {"$ref": "#/$defs/sha256"},
         "baseline_production_sha256": {"$ref": "#/$defs/sha256"},
-        "restore_targets": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/restoreTarget"}},
-        "verification_commands": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonEmptyString"}}
+        "restore_targets": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/restoreTarget"},
+          "allOf": [
+            {"contains": {"properties": {"target_role": {"const": "authority"}}, "required": ["target_role"]}},
+            {"contains": {"properties": {"target_role": {"const": "production_manifest"}}, "required": ["target_role"]}},
+            {"contains": {"properties": {"target_role": {"const": "runtime_manifest"}}, "required": ["target_role"]}},
+            {"contains": {"properties": {"target_role": {"const": "schema_parser"}}, "required": ["target_role"]}}
+          ]
+        },
+        "verification_commands": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["id", "command"],
+            "properties": {
+              "id": {"enum": ["contract_tests", "rollback_drill"]},
+              "command": {"type": "string", "minLength": 10}
+            },
+            "additionalProperties": false
+          },
+          "allOf": [
+            {"contains": {"properties": {"id": {"const": "contract_tests"}}, "required": ["id"]}},
+            {"contains": {"properties": {"id": {"const": "rollback_drill"}}, "required": ["id"]}}
+          ]
+        }
       },
       "additionalProperties": false
     },
     "sampleIdentity": {
       "type": "object",
-      "required": ["id", "fixture_sha256", "repeats"],
+      "required": ["id", "category", "fixture_sha256", "repeats", "order"],
       "properties": {
         "id": {"$ref": "#/$defs/nonEmptyString"},
+        "category": {"enum": ["simple", "complex", "carrier_validation"]},
         "fixture_sha256": {"$ref": "#/$defs/sha256"},
-        "repeats": {"type": "integer", "minimum": 3}
+        "repeats": {"type": "integer", "minimum": 3},
+        "order": {"type": "integer", "minimum": 1}
       },
       "additionalProperties": false
     },
     "continuousActionEvaluation": {
       "type": "object",
-      "required": ["schema_version", "artifact_role", "evaluation_id", "sealed", "samples", "metrics", "thresholds"],
+      "required": ["schema_version", "artifact_role", "evaluation_id", "sealed", "seed", "arm_order", "samples", "metrics", "thresholds", "statistics"],
       "properties": {
         "schema_version": {"const": 1},
         "artifact_role": {"const": "continuous_action_evaluation"},
         "evaluation_id": {"$ref": "#/$defs/nonEmptyString"},
         "sealed": {"const": true},
+        "seed": {"type": "integer", "minimum": 1},
+        "arm_order": {"const": ["standard", "sibling_baseline", "fla3_5_candidate"]},
         "samples": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/sampleIdentity"}},
         "metrics": {"$ref": "#/$defs/metricSet"},
-        "thresholds": {"$ref": "#/$defs/thresholdSet"}
+        "thresholds": {"$ref": "#/$defs/thresholdSet"},
+        "statistics": {
+          "const": {"aggregates": ["total", "mean", "median"], "adaptive_stop": false}
+        }
       },
       "additionalProperties": false
     },
     "fla8Evaluation": {
       "type": "object",
-      "required": ["schema_version", "artifact_role", "evaluation_id", "sealed", "held_out_identity", "metrics", "thresholds"],
+      "required": ["schema_version", "artifact_role", "evaluation_id", "sealed", "seed", "repeats", "arm_order", "held_out_identity", "metrics", "thresholds", "statistics"],
       "properties": {
         "schema_version": {"const": 1},
         "artifact_role": {"const": "fla8_evaluation_v2"},
         "evaluation_id": {"$ref": "#/$defs/nonEmptyString"},
         "sealed": {"const": true},
+        "seed": {"type": "integer", "minimum": 1},
+        "repeats": {"type": "integer", "minimum": 3},
+        "arm_order": {"type": "array", "minItems": 7, "uniqueItems": true, "items": {"type": "string", "minLength": 3}},
         "held_out_identity": {
           "type": "object",
           "required": ["suite_id", "manifest_sha256", "content_mounted"],
@@ -251,7 +402,10 @@
           "additionalProperties": false
         },
         "metrics": {"$ref": "#/$defs/metricSet"},
-        "thresholds": {"$ref": "#/$defs/thresholdSet"}
+        "thresholds": {"$ref": "#/$defs/thresholdSet"},
+        "statistics": {
+          "const": {"aggregates": ["total", "mean", "median"], "adaptive_stop": false}
+        }
       },
       "additionalProperties": false
     }

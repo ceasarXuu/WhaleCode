@@ -61,6 +61,27 @@ function Assert-Throws {
     Assert-True $threw $Message
 }
 
+function Get-RustEnumVariants {
+    param([string]$Path, [string]$EnumName)
+    $source = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path
+    $marker = "pub enum $EnumName"
+    $markerIndex = $source.IndexOf($marker, [System.StringComparison]::Ordinal)
+    if ($markerIndex -lt 0) { throw "Rust enum not found: $EnumName in $Path" }
+    $braceStart = $source.IndexOf("{", $markerIndex)
+    $depth = 0
+    $braceEnd = -1
+    for ($index = $braceStart; $index -lt $source.Length; $index++) {
+        if ($source[$index] -eq '{') { $depth++ }
+        if ($source[$index] -eq '}') {
+            $depth--
+            if ($depth -eq 0) { $braceEnd = $index; break }
+        }
+    }
+    if ($braceEnd -lt 0) { throw "Rust enum is not balanced: $EnumName in $Path" }
+    $body = $source.Substring($braceStart + 1, $braceEnd - $braceStart - 1)
+    @([regex]::Matches($body, '(?m)^    ([A-Z][A-Za-z0-9_]*)\b') | ForEach-Object { $_.Groups[1].Value })
+}
+
 function Get-CandidateContentId {
     param([object]$Candidate)
     $lines = @(
@@ -72,11 +93,14 @@ function Get-CandidateContentId {
         "production_contract=$([string]$Candidate.active_production_manifest.contract_id)",
         "production_path=$([string]$Candidate.active_production_manifest.path)",
         "production_commit=$([string]$Candidate.active_production_manifest.git_commit)",
-        "production_sha256=$([string]$Candidate.active_production_manifest.sha256)"
+        "production_sha256=$([string]$Candidate.active_production_manifest.sha256)",
+        "activation_through=$([string]$Candidate.activation_targets.activation_through)",
+        "blocking_repair=$([string]$Candidate.activation_targets.blocking_repair.id)|$([string]$Candidate.activation_targets.blocking_repair.implementation_status)",
+        "runtime_status=L4:$([string]$Candidate.activation_targets.production_runtime_status.L4)|L5:$([string]$Candidate.activation_targets.production_runtime_status.L5)"
     )
     foreach ($layer in @("L4", "L5")) {
         foreach ($target in @($Candidate.activation_targets.$layer | Sort-Object artifact_role)) {
-            $lines += "target=$layer|$([string]$target.artifact_role)|$([string]$target.sha256)|$([string]$target.activation_phase)"
+            $lines += "target=$layer|$([string]$target.artifact_role)|$([string]$target.authority_layer)|$([string]$target.implementation_status)|$([string]$target.sha256)|$([string]$target.activation_phase)"
         }
     }
     foreach ($artifact in @($Candidate.artifact_hashes.psobject.Properties | Sort-Object Name)) {

@@ -181,4 +181,23 @@ ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
 
 ## 11. 第九轮复审
 
-第八轮仍含 Blocking/High finding。八次修订提交后必须由第九个空白 reviewer 复核 V1-V5，并重新检查阶段冲突。
+- Target commit: `b29e1398f`
+- Reviewer launch id: `019f82ad-0297-7d02-a81d-b5eb46454146`
+- Reviewer nickname: Heisenberg
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第九个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第九轮确认 V3、V4 已关闭；V1、V2、V5 仍 open，阶段冲突检查因 promotion metadata 可越权而为 FAIL，共 1 个
+Blocking、3 个 High：
+
+| # | 级别 | 第九轮发现 | 处置 | 九次修订 |
+|---|---|---|---|---|
+| W1 | Blocking | promotion 只比较 path/hash/phase，丢弃 role/layer/status；FLA-3.5 active 状态在 authority/manifest schema 中不可表达 | Accept | candidate 保存 role-keyed 完整 authority/production record；只激活 L4/result，保留 projection/lifecycle 原状态；schema 增加 FLA-3.5 activation 与 blocking repair active 状态 |
+| W2 | High | history 只枚举 manifest commit，漏掉中间 authority/production drift；candidate commit 无 ancestry；旧 terminal candidate 会永久阻塞后续合法 promotion | Accept | 重放 manifest/authority/production commit 并集；要求 candidate commit 是事件祖先；terminal candidate 通过 `superseded_by` 显式退出 authority claim，且与后继首次 `promotion_pending` 同 commit 绑定 |
+| W3 | High | 八类 schema 仍允许字段齐全但语义空洞的载荷 | Accept | schema 升级为 action-conditional transition、完整 outcome facts、具名 oracle、精确 rollback target 与完整评估预注册；增加 well-formed hollow 负例 |
+| W4 | High | capability matrix 没有 ToolPayload 维度，closure hash 未绑定实际生成产物与 Rust enum inventory | Accept | entry closure 成为第九个候选 artifact；矩阵覆盖 WireApi/ToolSpec/ToolPayload/source/route；测试从 Rust enum 源生成 inventory 并与 schema/closure 精确对账 |
+
+## 12. 第十轮复审
+
+第九轮仍含 Blocking/High finding。九次修订提交后必须由第十个空白 reviewer 复核 W1-W4 和阶段所有权。

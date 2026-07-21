@@ -25,6 +25,7 @@
     "candidate_status": {
       "enum": ["evaluation_candidate", "promotion_pending", "rejected", "promoted", "reverted"]
     },
+    "superseded_by": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "active_authority": {
       "type": "object",
       "required": ["contract_id", "path", "git_commit", "sha256"],
@@ -49,8 +50,27 @@
     },
     "activation_targets": {
       "type": "object",
-      "required": ["L4", "L5"],
+      "required": ["activation_through", "blocking_repair", "production_runtime_status", "L4", "L5"],
       "properties": {
+        "activation_through": {"const": "FLA-3.5"},
+        "blocking_repair": {
+          "type": "object",
+          "required": ["id", "implementation_status"],
+          "properties": {
+            "id": {"const": "FLA-3.5-continuous-action-regression-repair"},
+            "implementation_status": {"const": "active_verified"}
+          },
+          "additionalProperties": false
+        },
+        "production_runtime_status": {
+          "type": "object",
+          "required": ["L4", "L5"],
+          "properties": {
+            "L4": {"const": "active"},
+            "L5": {"const": "carrier_active_projection_baseline"}
+          },
+          "additionalProperties": false
+        },
         "L4": {
           "type": "array",
           "minItems": 1,
@@ -73,6 +93,7 @@
         "transition_schema",
         "typed_outcome",
         "lifecycle_oracle_v2",
+        "entry_closure",
         "capability_matrix",
         "rollback_manifest",
         "continuous_action_evaluation",
@@ -83,6 +104,7 @@
         "transition_schema": {"$ref": "#/$defs/transitionSchemaArtifact"},
         "typed_outcome": {"$ref": "#/$defs/typedOutcomeArtifact"},
         "lifecycle_oracle_v2": {"$ref": "#/$defs/lifecycleOracleArtifact"},
+        "entry_closure": {"$ref": "#/$defs/entryClosureArtifact"},
         "capability_matrix": {"$ref": "#/$defs/capabilityMatrixArtifact"},
         "rollback_manifest": {"$ref": "#/$defs/rollbackManifestArtifact"},
         "continuous_action_evaluation": {"$ref": "#/$defs/continuousActionEvaluationArtifact"},
@@ -96,10 +118,11 @@
         "selected_not_active",
         "active",
         "repair_active",
-        "result_repair_active_projection_baseline"
+        "result_repair_active_projection_baseline",
+        "carrier_active_projection_baseline"
       ]
     },
-    "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3"]},
+    "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3", "FLA-3.5"]},
     "source_authority": {
       "type": "object",
       "required": ["contract_id", "path", "sha256"],
@@ -126,7 +149,8 @@
               "selected_not_active",
               "active",
               "repair_active",
-              "result_repair_active_projection_baseline"
+              "result_repair_active_projection_baseline",
+              "carrier_active_projection_baseline"
             ]
           },
           "selected_targets": {"type": "array", "minItems": 1}
@@ -145,6 +169,7 @@
             {"required": ["candidate_id"]},
             {"required": ["candidate_commit"]},
             {"required": ["candidate_status"]},
+            {"required": ["superseded_by"]},
             {"required": ["active_authority"]},
             {"required": ["active_production_manifest"]},
             {"required": ["activation_targets"]},
@@ -162,14 +187,24 @@
         },
         "not": {"required": ["promoted_candidate_id"]}
       }
+    },
+    {
+      "if": {"required": ["superseded_by"]},
+      "then": {
+        "properties": {
+          "candidate_status": {"enum": ["rejected", "reverted"]}
+        }
+      }
     }
   ],
   "$defs": {
     "activationTarget": {
       "type": "object",
-      "required": ["artifact_role", "path", "sha256", "activation_phase"],
+      "required": ["artifact_role", "authority_layer", "implementation_status", "path", "sha256", "activation_phase"],
       "properties": {
         "artifact_role": {"type": "string", "minLength": 1},
+        "authority_layer": {"enum": ["L4", "L5-result", "L5-projection", "L5-lifecycle"]},
+        "implementation_status": {"enum": ["selected_baseline", "selected_not_implemented", "active_verified"]},
         "path": {"type": "string", "minLength": 1},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "activation_phase": {"type": "string", "minLength": 1}
@@ -182,6 +217,9 @@
         {
           "properties": {
             "artifact_role": {"const": "l4_schema"},
+            "authority_layer": {"const": "L4"},
+            "implementation_status": {"const": "active_verified"},
+            "activation_phase": {"const": "FLA-3.5"},
             "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/l4-schema.json$"}
           }
         }
@@ -195,17 +233,24 @@
             {
               "properties": {
                 "artifact_role": {"const": "typed_outcome"},
+                "authority_layer": {"const": "L5-result"},
+                "implementation_status": {"const": "active_verified"},
+                "activation_phase": {"const": "FLA-3.5"},
                 "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/typed-outcome.json$"}
               }
             },
             {
               "properties": {
-                "artifact_role": {"const": "projection_baseline"}
+                "artifact_role": {"const": "projection_baseline"},
+                "authority_layer": {"const": "L5-projection"},
+                "implementation_status": {"const": "selected_baseline"}
               }
             },
             {
               "properties": {
-                "artifact_role": {"const": "lifecycle_baseline"}
+                "artifact_role": {"const": "lifecycle_baseline"},
+                "authority_layer": {"const": "L5-lifecycle"},
+                "implementation_status": {"const": "selected_not_implemented"}
               }
             }
           ]
@@ -253,6 +298,12 @@
       "allOf": [
         {"$ref": "#/$defs/candidateArtifact"},
         {"properties": {"artifact_role": {"const": "capability_matrix"}, "path": {"pattern": "/capability-matrix.json$"}}}
+      ]
+    },
+    "entryClosureArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "entry_closure"}, "path": {"pattern": "/entry-closure.json$"}}}
       ]
     },
     "rollbackManifestArtifact": {

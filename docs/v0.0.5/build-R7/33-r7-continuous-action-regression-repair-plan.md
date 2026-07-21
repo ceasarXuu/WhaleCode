@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.8
+- Version: 1.9
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -268,33 +268,44 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   决定”的分支。
 - 冻结 typed outcome 全分支、runtime handoff 边界、McpToolOutputV1 presence/未知 block/安全处理各阶段、retention/
   delivery 失败、provider wire 映射与 hash 公式。
-- 生成而非手写 `r7-carrier-entry-closure-v1.json`：从全部生产可达 `ToolSpec`、`ToolPayload`、router/alias、deferred
+- 生成而非手写 `r7-carrier-entry-closure-v1.json`：它是候选第九个具名且不可缺失的 committed artifact；从 Rust
+  `ToolSpec`/`ToolPayload` enum、全部生产可达 router/alias、deferred
   MCP、dynamic registry 与 code-mode nested router 枚举 schema decorator、parser、capability epoch、handler 和
   outcome mapper；任何可达入口无且仅无一条完整链即失败。
 - 扩展 authority/production-manifest JSON Schema：candidate manifest 是独立 candidate namespace 中的实际实体，
   active authority 在 CA-6 前保持字节不变；状态机使用 `evaluation_candidate -> promotion_pending|rejected ->
   promoted|rejected`，并允许 post-promotion 全量复测失败时 `promoted -> reverted`。实现跨文件 linter，强制 candidate
-  id 等于由 active-authority/active-production snapshots、候选自有的完整 L4/L5 activation target 集合与八个具名
+  id 等于由 active-authority/active-production snapshots、候选自有的完整 L4/L5 activation target 集合与九个具名
   artifact 内容 hash 规范化计算的 SHA-256，另设真实
   `candidate_commit`；contract/path/hash/source-authority/active-authority snapshot 双向一致、ID 唯一、
   最多一个 pending/promoted、active pointer 与状态一致。artifact 使用具名且全部必需的角色：L4 schema、transition
-  schema、typed outcome、lifecycle oracle v2、capability matrix、rollback manifest、continuous-action evaluation、FLA-8
+  schema、typed outcome、lifecycle oracle v2、entry closure、capability matrix、rollback manifest、continuous-action evaluation、FLA-8
   evaluation v2；每个角色使用唯一规范文件名、统一版本化 artifact schema 的 role-specific 分支与 `artifact_role`，
-  路径不得重复。文件经 `GetFullPath` 和真实路径解析后必须仍位于该 candidate namespace；从 repo root 到叶文件的
+  路径不得重复。role schema 必须冻结 action-conditional transition fields、完整 outcome facts、具名 lifecycle
+  scenarios、source-generated ToolSpec/ToolPayload closure、精确 rollback roles，以及 sample/order/seed/repeats/
+  metric formula/threshold/statistics；字段齐全但语义空洞的 fixture 必须逐角色失败。文件经 `GetFullPath` 和真实路径
+  解析后必须仍位于该 candidate namespace；从 repo root 到叶文件的
   每个分量均拒绝 symlink/ReparsePoint，Git tree mode 只允许普通非执行 blob。文件必须存在于 candidate commit，
   当前 bytes/hash 与 role-specific schema 均匹配。activation target 必须明确区分候选 L4/typed-outcome 与保留的 active
   projection/lifecycle baselines；`lifecycle-oracle-v2` 只作本阶段测试 artifact，不提前取得 FLA-7 生产所有权。未声明
   target、额外旧 target 并存或同 role 重复均失败。linter 枚举 manifest
-  在完整 first-parent 历史中的全部变更 commit，每个历史版本先重跑 manifest schema、content id、candidate commit、
-  source/active snapshot 和八类 artifact 完整性，
+  在完整 first-parent 历史中枚举 candidate manifest、active authority、production manifest 三类路径的变更 commit
+  并集；manifest 出现后的每个事件都验证 raw bytes，且 `candidate_commit` 必须是该事件的 first-parent 祖先。每个历史
+  版本先重跑 manifest schema、content id、candidate commit、source/active snapshot 和九类 artifact 完整性，
   再从初始
   `evaluation_candidate` 顺序重放每次状态迁移，并把未提交 worktree 变更作为尾事件；不得用 HEAD/HEAD^ 单步近似。
   每个 evaluation/pending/rejected 事件在其 commit 验证 authority 仍等于 active snapshot；promoted 事件验证当时
-  production pointer、authority L4/L5 与 production target 全集合精确切换到 candidate 自有 activation target；
-  不允许未声明旧 target 并存。
+  production pointer、authority L4/L5 与 production target 全集合精确切换到 candidate 自有 role-keyed canonical
+  record；必须完整比较 role、authority layer、implementation/runtime status、phase、path、hash 与属性名集合，只有
+  L4/result 变为 FLA-3.5 `active_verified`，projection 保持 `selected_baseline`，lifecycle 保持
+  `selected_not_implemented`/FLA-7，并删除 `required_next_call` 等 sibling metadata。authority/manifest schema 必须
+  能表达 `activation_through=FLA-3.5` 与对应 runtime/blocking-repair active 状态。不允许未声明旧 target 并存。
   Candidate identity 同时保存 active production manifest 的 commit/byte hash；reverted 事件验证当时 authority 与
   production manifest bytes 精确恢复两个 active snapshot。加入 mismatch、duplicate promoted、伪 backlink、伪 commit、
-  direct promoted/reverted、后续无关提交掩盖非法初态、同 blob/重复路径、`<id>/../`、symlink/tree mode、缺角色/
+  rejected/reverted terminal candidate 在后继 candidate 首次进入 `promotion_pending` 时必须由同一状态事件写入
+  `superseded_by`，并机械验证后继
+  manifest 同事件存在；被 supersede 后不再声明 active baseline，但历史事件仍不可改写。direct promoted/reverted、
+  中间 authority/production drift 后恢复、伪 ancestry、伪 supersession、后续无关提交掩盖非法初态、同 blob/重复路径、`<id>/../`、symlink/tree mode、缺角色/
   文件、promoted 未切 authority、reverted 未恢复 baseline 和非法 revert 负例。
   补齐 production commit/source/wire hashes。CA-0 同时实现 candidate manifest generator、唯一 transition command 和
   schema/linter tests，未完成不得进入 CA-1。
@@ -330,7 +341,7 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 ### CA-2：冻结候选机器合同，不提升 active authority
 
 - 候选 artifact 放入独立 candidate namespace：L4 schema、transition schema、typed outcome、lifecycle oracle v2、
-  capability matrix、rollback manifest、CA-0 已冻结的 `continuous-action-evaluation-v1.json` 和 FLA-8 v2。
+  generated entry closure、capability matrix、rollback manifest、CA-0 已冻结的 `continuous-action-evaluation-v1.json` 和 FLA-8 v2。
 - FLA-8 v2 只把旧 `combined_control_plus_next_rate` 机械替换为 transition carrier 指标；样本 identity、sealed
   held-out hash、重复和统计规则不变，生成过程中不得读取 held-out 内容或结果。
 - active authority 与 production manifest 保持 sibling 回归基线且字节不变；CA-2 先生成全部具名 candidate artifact，
@@ -393,7 +404,8 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
 - 运行 candidate 跨文件/完整 first-parent event replay linter 全部反例；每个历史 manifest 版本先重跑 schema 与
   完整 artifact integrity；在 promoted/reverted 事件 commit 上读取并校验 authority/production byte snapshots、
   candidate 自有 L4/L5 精确 target 集合和 pointer；对 rejected/reverted 等终止状态仍检查当前 authority/production
-  baseline，不能因 manifest 不再变化跳过。所有 Git snapshot 使用原始 blob bytes 计算 SHA-256。candidate id 可机械重算；candidate commit 的八个
+  baseline，不能因 manifest 不再变化跳过；superseded terminal candidate 只验证因果引用，不与新 active authority
+  争权。所有 Git snapshot 使用原始 blob bytes 计算 SHA-256。candidate id 可机械重算；candidate commit 的九个
   role-specific artifact 必须路径唯一、规范化后不越界、非 symlink、Git tree mode 为普通文件，且均可从 Git 独立
   重建并通过各自 schema。promotion/revert drill 必须证明 active authority/pointer 与 candidate 状态不可能同时
   指向两个生产合同。

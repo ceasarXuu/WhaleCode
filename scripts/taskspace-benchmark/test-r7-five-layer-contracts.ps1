@@ -57,20 +57,32 @@ function Assert-CandidateActivationSnapshot {
     }
     Assert-Equal $Status "promoted" "Unknown candidate activation status"
     Assert-Equal ([string]$ProductionManifest.promoted_candidate_id) ([string]$Candidate.candidate_id) "Promoted candidate pointer drifted"
+    Assert-Equal ([string]$ProductionManifest.activation_through) ([string]$Candidate.activation_targets.activation_through) "Promoted production activation phase drifted"
+    $blockingRepair = @($AuthorityObject.blocking_repairs | Where-Object { [string]$_.id -eq [string]$Candidate.activation_targets.blocking_repair.id })
+    Assert-Equal $blockingRepair.Count 1 "Promoted authority must contain exactly one continuous-action repair record"
+    Assert-Equal ([string]$blockingRepair[0].implementation_status) ([string]$Candidate.activation_targets.blocking_repair.implementation_status) "Promoted repair status drifted"
     foreach ($layer in @("L4", "L5")) {
-        $candidateTargets = @($Candidate.activation_targets.$layer | ForEach-Object { "$([string]$_.path)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-        $authorityTargets = @()
-        if ($layer -eq "L4") {
-            $authorityTargets = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer -eq "L4" })
-        } else {
-            $authorityTargets = @($AuthorityObject.selected_targets | Where-Object { ([string]$_.layer).StartsWith("L5-", [System.StringComparison]::Ordinal) })
+        $candidateTargets = @($Candidate.activation_targets.$layer)
+        $authorityLines = @()
+        foreach ($target in $candidateTargets) {
+            $authorityTarget = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer -eq [string]$target.authority_layer })
+            Assert-Equal $authorityTarget.Count 1 "Promoted authority must contain exactly one $($target.authority_layer) target"
+            $propertyNames = @($authorityTarget[0].psobject.Properties.Name | Sort-Object) -join ","
+            Assert-Equal $propertyNames "activation_phase,artifact,implementation_status,layer,sha256" "Promoted authority target retained undeclared metadata"
+            $authorityLines += "$([string]$authorityTarget[0].layer)|$([string]$authorityTarget[0].implementation_status)|$([string]$authorityTarget[0].artifact)|$([string]$authorityTarget[0].sha256)|$([string]$authorityTarget[0].activation_phase)"
         }
-        $authorityLines = @($authorityTargets | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
+        $candidateAuthorityLines = @($candidateTargets | ForEach-Object { "$([string]$_.authority_layer)|$([string]$_.implementation_status)|$([string]$_.path)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
         $productionLayer = @($ProductionManifest.layers | Where-Object { [string]$_.id -eq $layer })
         Assert-Equal $productionLayer.Count 1 "Production manifest must contain exactly one $layer layer"
+        Assert-Equal ([string]$productionLayer[0].runtime_status) ([string]$Candidate.activation_targets.production_runtime_status.$layer) "Promoted production $layer runtime status drifted"
+        foreach ($productionTarget in @($productionLayer[0].selected_targets)) {
+            $propertyNames = @($productionTarget.psobject.Properties.Name | Sort-Object) -join ","
+            Assert-Equal $propertyNames "activation_phase,artifact,sha256" "Promoted production target retained undeclared metadata"
+        }
         $productionLines = @($productionLayer[0].selected_targets | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-        Assert-Equal ($authorityLines -join "`n") ($candidateTargets -join "`n") "Promoted authority $layer target set differs from candidate declaration"
-        Assert-Equal ($productionLines -join "`n") ($candidateTargets -join "`n") "Promoted production $layer target set differs from candidate declaration"
+        $candidateProductionLines = @($candidateTargets | ForEach-Object { "$([string]$_.path)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
+        Assert-Equal (($authorityLines | Sort-Object) -join "`n") ($candidateAuthorityLines -join "`n") "Promoted authority $layer target set differs from candidate declaration"
+        Assert-Equal ($productionLines -join "`n") ($candidateProductionLines -join "`n") "Promoted production $layer target set differs from candidate declaration"
     }
 }
 
@@ -80,6 +92,13 @@ function Assert-CandidateSetIntegrity {
     Assert-Equal @($ids | Sort-Object -Unique).Count $ids.Count "Candidate ids must be unique"
     $activeCandidates = @($Candidates | Where-Object { @("promotion_pending", "promoted") -contains [string]$_.candidate_status })
     Assert-True ($activeCandidates.Count -le 1) "At most one candidate may be promotion_pending or promoted"
+    foreach ($candidate in @($Candidates | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.superseded_by) })) {
+        Assert-True (@("rejected", "reverted") -contains [string]$candidate.candidate_status) "Only terminal candidates may have superseded_by"
+        Assert-True ($ids -contains [string]$candidate.superseded_by) "Candidate superseded_by does not identify a retained candidate"
+        Assert-True ([string]$candidate.superseded_by -cne [string]$candidate.candidate_id) "Candidate cannot supersede itself"
+        $successor = @($Candidates | Where-Object { [string]$_.candidate_id -eq [string]$candidate.superseded_by })[0]
+        Assert-True ([string]$successor.candidate_status -ne "evaluation_candidate") "Evaluation-only candidate cannot supersede a terminal authority claim"
+    }
     $promoted = @($Candidates | Where-Object { [string]$_.candidate_status -eq "promoted" })
     $activePointer = [string]$ProductionManifest.promoted_candidate_id
     if ($promoted.Count -eq 1) {
@@ -183,6 +202,7 @@ if (Test-PhaseEnabled "FLA-1") {
             transition_schema = [pscustomobject]@{ artifact_role = "transition_schema"; path = ""; sha256 = (Get-TextSha256 "transition_schema fixture`n") }
             typed_outcome = [pscustomobject]@{ artifact_role = "typed_outcome"; path = ""; sha256 = (Get-TextSha256 "typed_outcome fixture`n") }
             lifecycle_oracle_v2 = [pscustomobject]@{ artifact_role = "lifecycle_oracle_v2"; path = ""; sha256 = (Get-TextSha256 "lifecycle_oracle_v2 fixture`n") }
+            entry_closure = [pscustomobject]@{ artifact_role = "entry_closure"; path = ""; sha256 = (Get-TextSha256 "entry_closure fixture`n") }
             capability_matrix = [pscustomobject]@{ artifact_role = "capability_matrix"; path = ""; sha256 = (Get-TextSha256 "capability_matrix fixture`n") }
             rollback_manifest = [pscustomobject]@{ artifact_role = "rollback_manifest"; path = ""; sha256 = (Get-TextSha256 "rollback_manifest fixture`n") }
             continuous_action_evaluation = [pscustomobject]@{ artifact_role = "continuous_action_evaluation"; path = ""; sha256 = (Get-TextSha256 "continuous_action_evaluation fixture`n") }
@@ -191,11 +211,14 @@ if (Test-PhaseEnabled "FLA-1") {
     $projectionBaseline = @($activeAuthorityBody.selected_targets | Where-Object { [string]$_.layer -eq "L5-projection" })[0]
     $lifecycleBaseline = @($activeAuthorityBody.selected_targets | Where-Object { [string]$_.layer -eq "L5-lifecycle" })[0]
     $validCandidate | Add-Member -NotePropertyName activation_targets -NotePropertyValue ([pscustomobject]@{
-            L4 = @([pscustomobject]@{ artifact_role = "l4_schema"; path = ""; sha256 = $validCandidate.artifact_hashes.l4_schema.sha256; activation_phase = "FLA-3.5" })
+            activation_through = "FLA-3.5"
+            blocking_repair = [pscustomobject]@{ id = "FLA-3.5-continuous-action-regression-repair"; implementation_status = "active_verified" }
+            production_runtime_status = [pscustomobject]@{ L4 = "active"; L5 = "carrier_active_projection_baseline" }
+            L4 = @([pscustomobject]@{ artifact_role = "l4_schema"; authority_layer = "L4"; implementation_status = "active_verified"; path = ""; sha256 = $validCandidate.artifact_hashes.l4_schema.sha256; activation_phase = "FLA-3.5" })
             L5 = @(
-                [pscustomobject]@{ artifact_role = "typed_outcome"; path = ""; sha256 = $validCandidate.artifact_hashes.typed_outcome.sha256; activation_phase = "FLA-3.5" },
-                [pscustomobject]@{ artifact_role = "projection_baseline"; path = $projectionBaseline.artifact; sha256 = $projectionBaseline.sha256; activation_phase = $projectionBaseline.activation_phase },
-                [pscustomobject]@{ artifact_role = "lifecycle_baseline"; path = $lifecycleBaseline.artifact; sha256 = $lifecycleBaseline.sha256; activation_phase = $lifecycleBaseline.activation_phase }
+                [pscustomobject]@{ artifact_role = "typed_outcome"; authority_layer = "L5-result"; implementation_status = "active_verified"; path = ""; sha256 = $validCandidate.artifact_hashes.typed_outcome.sha256; activation_phase = "FLA-3.5" },
+                [pscustomobject]@{ artifact_role = "projection_baseline"; authority_layer = "L5-projection"; implementation_status = "selected_baseline"; path = $projectionBaseline.artifact; sha256 = $projectionBaseline.sha256; activation_phase = $projectionBaseline.activation_phase },
+                [pscustomobject]@{ artifact_role = "lifecycle_baseline"; authority_layer = "L5-lifecycle"; implementation_status = "selected_not_implemented"; path = $lifecycleBaseline.artifact; sha256 = $lifecycleBaseline.sha256; activation_phase = $lifecycleBaseline.activation_phase }
             )
         })
     $candidateId = Get-CandidateContentId $validCandidate
@@ -207,6 +230,7 @@ if (Test-PhaseEnabled "FLA-1") {
         transition_schema = "transition-schema.json"
         typed_outcome = "typed-outcome.json"
         lifecycle_oracle_v2 = "lifecycle-oracle-v2.json"
+        entry_closure = "entry-closure.json"
         capability_matrix = "capability-matrix.json"
         rollback_manifest = "rollback-manifest.json"
         continuous_action_evaluation = "continuous-action-evaluation.json"
@@ -224,6 +248,7 @@ if (Test-PhaseEnabled "FLA-1") {
     Assert-CandidateSetIntegrity @($validCandidate) $manifest
     Assert-CandidateStateHistory $validCandidate "" $authority
     Assert-CandidateActivationContract $validCandidate
+    Assert-CandidateHistoryMetaContract $validCandidate $manifest
 
     $artifactSchemaPath = Join-Path $repoRoot ([string]$authority.candidate_registry.artifact_schema)
     Assert-CandidateArtifactSchemaContract $artifactSchemaPath
