@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/taskspace-candidate-manifest-v2.schema.json",
+  "title": "R7 executable continuous-action candidate manifest",
+  "type": "object",
+  "required": [
+    "schema_version", "contract_id", "contract_status", "candidate_id", "candidate_commit",
+    "candidate_status", "baseline_anchor", "toolchain_anchor", "active_authority",
+    "active_production_manifest", "activation_targets", "artifact_hashes", "promotion",
+    "status_evidence"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "contract_id": {"type": "string", "pattern": "^r7-continuous-action-candidate-[0-9a-f]{64}$"},
+    "contract_status": {"const": "candidate_record"},
+    "candidate_id": {"$ref": "#/$defs/sha256"},
+    "candidate_commit": {"$ref": "#/$defs/commit"},
+    "candidate_status": {"enum": ["evaluation_candidate", "promotion_pending", "rejected", "promoted", "reverted"]},
+    "baseline_anchor": {"$ref": "#/$defs/anchorRef"},
+    "toolchain_anchor": {"$ref": "#/$defs/anchorRef"},
+    "active_authority": {"$ref": "#/$defs/snapshot"},
+    "active_production_manifest": {"$ref": "#/$defs/snapshot"},
+    "activation_targets": {
+      "type": "object",
+      "required": ["activation_through", "authority_contract_status", "production_manifest_version", "blocking_repair", "production_runtime_status", "L4", "L5"],
+      "properties": {
+        "activation_through": {"const": "FLA-3.5"},
+        "authority_contract_status": {"const": "production_active_through_fla3_5_with_carrier_repair"},
+        "production_manifest_version": {"const": "1.0.5"},
+        "blocking_repair": {
+          "const": {"id": "FLA-3.5-continuous-action-regression-repair", "implementation_status": "active_verified"}
+        },
+        "production_runtime_status": {
+          "const": {"L4": "carrier_repair_active", "L5": "carrier_result_repair_active_projection_baseline"}
+        },
+        "L4": {
+          "type": "array", "minItems": 1, "maxItems": 1,
+          "items": {"allOf": [{"$ref": "#/$defs/activationTarget"}, {"properties": {"artifact_role": {"const": "l4_schema"}, "authority_layer": {"const": "L4"}, "implementation_status": {"const": "active_repair_verified"}, "activation_phase": {"const": "FLA-3.5"}}}]}
+        },
+        "L5": {
+          "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,
+          "items": {
+            "allOf": [
+              {"$ref": "#/$defs/activationTarget"},
+              {"oneOf": [
+                {"properties": {"artifact_role": {"const": "typed_outcome"}, "authority_layer": {"const": "L5-result"}, "implementation_status": {"const": "active_repair_verified"}, "activation_phase": {"const": "FLA-3.5"}}},
+                {"properties": {"artifact_role": {"const": "projection_baseline"}, "authority_layer": {"const": "L5-projection"}, "implementation_status": {"const": "selected_baseline"}}},
+                {"properties": {"artifact_role": {"const": "lifecycle_baseline"}, "authority_layer": {"const": "L5-lifecycle"}, "implementation_status": {"const": "selected_not_implemented"}}}
+              ]}
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact_hashes": {
+      "type": "object",
+      "required": ["l4_schema", "transition_schema", "typed_outcome", "carrier_protocol_oracle", "entry_closure", "capability_matrix", "rollback_manifest", "continuous_action_evaluation"],
+      "properties": {
+        "l4_schema": {"$ref": "#/$defs/artifactRef"},
+        "transition_schema": {"$ref": "#/$defs/artifactRef"},
+        "typed_outcome": {"$ref": "#/$defs/artifactRef"},
+        "carrier_protocol_oracle": {"$ref": "#/$defs/artifactRef"},
+        "entry_closure": {"$ref": "#/$defs/artifactRef"},
+        "capability_matrix": {"$ref": "#/$defs/artifactRef"},
+        "rollback_manifest": {"$ref": "#/$defs/artifactRef"},
+        "continuous_action_evaluation": {"$ref": "#/$defs/artifactRef"}
+      },
+      "additionalProperties": false
+    },
+    "promotion": {
+      "type": "object",
+      "required": ["changed_paths", "authority_patch", "production_patch", "candidate_patch"],
+      "properties": {
+        "changed_paths": {
+          "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "authority_patch": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/jsonPatch"}},
+        "production_patch": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/jsonPatch"}},
+        "candidate_patch": {
+          "type": "array", "minItems": 1, "maxItems": 1,
+          "items": {
+            "allOf": [
+              {"$ref": "#/$defs/jsonPatch"},
+              {"properties": {"op": {"const": "replace"}, "path": {"const": "/candidate_status"}, "value": {"const": "promoted"}}}
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "status_evidence": {
+      "type": "object",
+      "required": ["event_kind", "evidence_path", "evidence_sha256"],
+      "properties": {
+        "event_kind": {"enum": ["candidate_created", "evaluation_passed", "evaluation_failed", "promotion_completed", "post_promotion_failed"]},
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "superseded_by": {
+      "type": "object",
+      "required": ["candidate_id"],
+      "properties": {"candidate_id": {"$ref": "#/$defs/sha256"}},
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["superseded_by"]},
+      "then": {"properties": {"candidate_status": {"enum": ["rejected", "reverted"]}}}
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "anchorRef": {
+      "type": "object",
+      "required": ["path", "first_add_commit", "anchored_parent_commit", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "first_add_commit": {"$ref": "#/$defs/commit"},
+        "anchored_parent_commit": {"$ref": "#/$defs/commit"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["contract_id", "path", "git_commit", "sha256", "git_mode"],
+      "properties": {
+        "contract_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "git_commit": {"$ref": "#/$defs/commit"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "git_mode": {"const": "100644"}
+      },
+      "additionalProperties": false
+    },
+    "activationTarget": {
+      "type": "object",
+      "required": ["artifact_role", "authority_layer", "implementation_status", "path", "sha256", "activation_phase"],
+      "properties": {
+        "artifact_role": {"enum": ["l4_schema", "typed_outcome", "projection_baseline", "lifecycle_baseline"]},
+        "authority_layer": {"enum": ["L4", "L5-result", "L5-projection", "L5-lifecycle"]},
+        "implementation_status": {"enum": ["selected_baseline", "selected_not_implemented", "active_repair_verified"]},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "activation_phase": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "artifactRef": {
+      "type": "object",
+      "required": ["artifact_role", "path", "sha256", "git_mode"],
+      "properties": {
+        "artifact_role": {"enum": ["l4_schema", "transition_schema", "typed_outcome", "carrier_protocol_oracle", "entry_closure", "capability_matrix", "rollback_manifest", "continuous_action_evaluation"]},
+        "path": {"type": "string", "pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/[^/]+\\.json$"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "git_mode": {"const": "100644"}
+      },
+      "additionalProperties": false
+    },
+    "jsonPatch": {
+      "type": "object",
+      "required": ["op", "path", "old_value_sha256"],
+      "properties": {
+        "op": {"enum": ["add", "replace", "remove"]},
+        "path": {"type": "string", "pattern": "^/(?!$).+"},
+        "old_value_sha256": {"$ref": "#/$defs/sha256"},
+        "value": {},
+        "new_value_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {"if": {"properties": {"op": {"enum": ["add", "replace"]}}}, "then": {"required": ["value", "new_value_sha256"]}},
+        {"if": {"properties": {"op": {"const": "remove"}}}, "then": {"not": {"anyOf": [{"required": ["value"]}, {"required": ["new_value_sha256"]}]}}}
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,7 +1,7 @@
 # Problem P-001: R7 大型嵌套 patch control 参数畸形
 - Status: open
 - Created: 2026-07-19 19:30
-- Updated: 2026-07-21 23:45
+- Updated: 2026-07-22 00:16
 - Objective: 证明复杂样本中 `complete_then_continue` 参数尾随字符和下一次空参数调用的真实产生层，并在不让 Runtime 猜测语义的前提下确定修复点。
 - Symptoms:
   - `subscription-billing-repair` 首次大型 `patch_then_actions` control 参数末尾多一个 `}`，随后一次 `taskspace_control` 参数为 `{}`。
@@ -26,6 +26,7 @@
   - 生产 `required_next_call` probe 为 6/6 `control -> apply_patch` 且 6/6 patch exact，证明修复没有拆分合并 request。
   - v1.0.4 simple/complex Docker 都 solved 且 Map 闭合，但各有 2 次首次 sibling 遗漏；字段改名不是该采用问题的充分修复。
   - FLA-3.5 carrier 修复计划经十五轮空白上下文审查后以 `ACCEPT` 收口；当前仍为 `selected_not_implemented`，不能视为修复完成。
+  - CA-0 executable-v2 工具链已完成预锚定实现与本地回归，仍须空白上下文审查和独立 anchor 后才可进入 CA-1。
 - Ruled out:
   - Runtime 在解析失败后部分推进 Map 状态。
   - Whale SSE 流式聚合重复追加 arguments 尾部。
@@ -748,3 +749,25 @@
   - paths `sync-r7-five-layer-contract-manifest.ps1`、`test-r7-five-layer-contracts.ps1`、production manifest
 - Interpretation: CA-0 可以从确定性 ownership 与 active baseline 门禁均通过的状态开始。
 - Time: 2026-07-21 23:52
+
+## Evidence E-013: CA-0 executable-v2 工具链通过预锚定回归
+- Related hypotheses:
+  - H-009
+- Direction: supports implementation readiness; does not satisfy production repair
+- Type: fix-validation
+- Source: `scripts/taskspace-benchmark/test-r7-continuous-action-toolchain.ps1`、Rust closure generator、required-check workflow
+- Prediction or plan link:
+  - CA-0 必须先形成可执行 schema、严格 parser、候选 generator/transition/verifier、源码生成 closure、completion bootstrap 和固定评估合同，再单独审查并锚定。
+- Matched signal:
+  - 预锚定自测通过 8 个 artifact role、302 条 closure entry、3 个严格 JSON 负例和 8 个 PowerShell 脚本语法检查。
+  - closure 由编译后的四类 registry profile 与 Rust AST source binding 生成，覆盖 33 个 `ToolHandlerKind`、两种 provider wire，并对 relevant source inventory 绑定 path/hash。
+  - `codex-tools` tool-registry 定向测试 41 passed、1 ignored；`codex-core` sequence 定向测试 16 passed。
+  - `test-r7-five-layer-contracts.ps1 -Phase All`、FLA-3.5 scaffold、projection ownership contract 均通过。
+  - workflow 由 Docker image `rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` 验证通过。
+  - 首次全 bin 测试发现 `src/bin` 辅助模块被误识别为独立 binary；已迁入专属模块目录并由同一全量命令验证修复。
+- Correlation keys:
+  - toolchain self-test `target/r7-toolchain/self-test/toolchain-test-result.json`
+  - closure entries `302`
+  - ownership items/marker files `35/27`
+- Interpretation: CA-0 代码实现已具备提交和独立审查条件；active authority/production 未修改，工具链 anchor 尚未创建，因此 FLA-3.5 仍未完成。
+- Time: 2026-07-22 00:16

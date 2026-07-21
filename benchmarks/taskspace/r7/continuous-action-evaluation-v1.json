@@ -1,0 +1,81 @@
+{
+  "schema_version": 2,
+  "artifact_role": "continuous_action_evaluation",
+  "evaluation_id": "r7-fla3-5-continuous-action-v1",
+  "sealed": true,
+  "seed": 73051,
+  "arm_order": ["standard", "sibling_baseline", "fla3_5_candidate"],
+  "sample_order": ["carrier_validation", "simple", "complex"],
+  "samples": {
+    "carrier_validation": {
+      "category": "carrier_validation",
+      "fixture_path": "benchmarks/taskspace/scenarios/multi-file-order-pipeline/scenario.json",
+      "fixture_sha256": "d451f65a2d390174e7cedab0c439ddd3f3c91851253fa1f5560c41f13173470b",
+      "repeats": 6
+    },
+    "simple": {
+      "category": "simple",
+      "fixture_path": "benchmarks/taskspace/scenarios/single-file-fast-fix/scenario.json",
+      "fixture_sha256": "a09de1f9ae40a40083fbb6de4e54c862ab2e9f819cc0b18ac286c490183c1069",
+      "repeats": 3
+    },
+    "complex": {
+      "category": "complex",
+      "fixture_path": "benchmarks/taskspace/scenarios/subscription-billing-repair/scenario.json",
+      "fixture_sha256": "36c9c1a64bb0a4843e0f7ed362f2505eb407d6529745f4d67477ca9ec05b6065",
+      "repeats": 3
+    }
+  },
+  "metrics": {
+    "transition_carrier_rate": {"formula": "committed_transition_with_reserved_tool / accepted_nonterminal_transition", "unit": "ratio"},
+    "carrier_execution_started_rate": {"formula": "handler_handoff_started / committed_transition_with_reserved_tool", "unit": "ratio"},
+    "carrier_conservation_rate": {"formula": "accounted_carrier_outcomes / committed_transition_with_reserved_tool", "unit": "ratio"},
+    "correctness_rate": {"formula": "correct_runs / attempted_runs", "unit": "ratio"},
+    "standalone_nonterminal_count": {"formula": "count(accepted_nonterminal_transition_without_reserved_tool)", "unit": "count"},
+    "h003_count": {"formula": "count(TASKSPACE_REQUIRED_SIBLING_MISSING)", "unit": "count"},
+    "patch_input_exact_rate": {"formula": "byte_exact_patch_inputs / patch_inputs", "unit": "ratio"},
+    "typed_output_exact_rate": {"formula": "schema_and_payload_exact_outputs / carrier_outputs", "unit": "ratio"},
+    "request_count": {"formula": "count(provider_requests)", "unit": "count"},
+    "input_tokens": {"formula": "sum(provider_input_tokens)", "unit": "tokens"},
+    "output_tokens": {"formula": "sum(provider_output_tokens)", "unit": "tokens"},
+    "cache_hit_rate": {"formula": "cached_input_tokens / input_tokens", "unit": "ratio"},
+    "wall_time_ms": {"formula": "run_finished_at_ms - run_started_at_ms", "unit": "milliseconds"},
+    "provider_time_ms": {"formula": "sum(provider_request_duration_ms)", "unit": "milliseconds"},
+    "tool_time_ms": {"formula": "sum(tool_execution_duration_ms)", "unit": "milliseconds"}
+  },
+  "thresholds": {
+    "transition_carrier_rate_min": 1,
+    "carrier_execution_started_or_accounted_rate_min": 1,
+    "carrier_conservation_rate_min": 1,
+    "correctness_rate_min": 1,
+    "standalone_nonterminal_count_max": 0,
+    "h003_count_max": 0,
+    "patch_input_exact_rate_min": 1,
+    "typed_output_exact_rate_min": 1,
+    "request_amplification_max": 1,
+    "input_token_amplification_max": 1,
+    "output_token_amplification_max": 1,
+    "wall_time_amplification_max": 1,
+    "cache_hit_rate_delta_min": 0
+  },
+  "statistics": {
+    "aggregates": ["total", "mean", "median"],
+    "paired_by": ["sample", "repeat"],
+    "adaptive_stop": false
+  },
+  "bootstrap": {
+    "method": "paired_percentile",
+    "resamples": 10000,
+    "confidence": 0.95,
+    "seed_offset": 1
+  },
+  "stopping": {
+    "adaptive": false,
+    "complete_all_preregistered_runs": true
+  },
+  "correction": {
+    "method": "holm",
+    "familywise_alpha": 0.05
+  },
+  "contract_digest": "5a555f5755a81b27e066fa22bd4200ec3ba45c156ee205c8d31a12ab38a5c639"
+}
