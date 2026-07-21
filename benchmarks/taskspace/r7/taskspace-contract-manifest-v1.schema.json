@@ -19,18 +19,29 @@
     "schema_path": {"const": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"},
     "contract_id": {"type": "string", "minLength": 1},
     "manifest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-    "contract_status": {"enum": ["production_active", "candidate_under_evaluation"]},
-    "candidate_id": {"type": "string", "minLength": 1},
-    "candidate_status": {"const": "evaluation_candidate"},
+    "contract_status": {"enum": ["production_active", "candidate_record"]},
+    "candidate_id": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+    "candidate_status": {
+      "enum": ["evaluation_candidate", "promotion_pending", "rejected", "promoted", "reverted"]
+    },
     "active_authority": {
       "type": "object",
-      "required": ["contract_id", "sha256"],
+      "required": ["contract_id", "path", "git_commit", "sha256"],
       "properties": {
         "contract_id": {"const": "r7-five-layer-contract-authority-v1"},
+        "path": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"},
+        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       },
       "additionalProperties": false
     },
+    "artifact_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"type": "string", "minLength": 1},
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "promoted_candidate_id": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
     "runtime_status_enum": {
       "const": [
         "selected_not_active",
@@ -84,18 +95,20 @@
           "anyOf": [
             {"required": ["candidate_id"]},
             {"required": ["candidate_status"]},
-            {"required": ["active_authority"]}
+            {"required": ["active_authority"]},
+            {"required": ["artifact_hashes"]}
           ]
         }
       }
     },
     {
-      "if": {"properties": {"contract_status": {"const": "candidate_under_evaluation"}}},
+      "if": {"properties": {"contract_status": {"const": "candidate_record"}}},
       "then": {
-        "required": ["candidate_id", "candidate_status", "active_authority"],
+        "required": ["candidate_id", "candidate_status", "active_authority", "artifact_hashes"],
         "properties": {
           "contract_id": {"pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{7,64}$"}
-        }
+        },
+        "not": {"required": ["promoted_candidate_id"]}
       }
     }
   ],

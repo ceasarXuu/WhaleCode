@@ -51,6 +51,53 @@ function Get-GitBlobText {
     ([string]::Join("`n", @($text))) + "`n"
 }
 
+function Assert-Throws {
+    param([scriptblock]$Action, [string]$Message)
+    $threw = $false
+    try { & $Action } catch { $threw = $true }
+    Assert-True $threw $Message
+}
+
+function Assert-CandidateManifestIntegrity {
+    param([object]$Candidate, [string]$ManifestPath = "")
+    $candidateId = [string]$Candidate.candidate_id
+    Assert-Equal ([string]$Candidate.contract_id) "r7-taskspace-five-layer-candidate-$candidateId" "Candidate contract id does not match candidate id"
+    Assert-Equal ([string]$Candidate.active_authority.contract_id) "r7-five-layer-contract-authority-v1" "Candidate active authority id drifted"
+    Assert-Equal ([string]$Candidate.active_authority.path) "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json" "Candidate active authority path drifted"
+    $authorityBlob = Get-GitBlobText ([string]$Candidate.active_authority.git_commit) ([string]$Candidate.active_authority.path)
+    Assert-Equal (Get-TextSha256 $authorityBlob) ([string]$Candidate.active_authority.sha256) "Candidate active authority snapshot hash drifted"
+    foreach ($artifact in $Candidate.artifact_hashes.psobject.Properties) {
+        $path = Join-Path $repoRoot ([string]$artifact.Name)
+        Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Candidate artifact missing: $($artifact.Name)"
+        Assert-Equal (Get-Sha256 $path) ([string]$artifact.Value) "Candidate artifact hash drifted: $($artifact.Name)"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
+        $expectedPath = Join-Path $repoRoot "benchmarks/taskspace/r7/candidates/$candidateId/manifest.json"
+        Assert-Equal ([System.IO.Path]::GetFullPath($ManifestPath)) ([System.IO.Path]::GetFullPath($expectedPath)) "Candidate manifest path does not match candidate id"
+    }
+}
+
+function Assert-CandidateSetIntegrity {
+    param([object[]]$Candidates, [object]$ProductionManifest)
+    $ids = @($Candidates | ForEach-Object { [string]$_.candidate_id })
+    Assert-Equal @($ids | Sort-Object -Unique).Count $ids.Count "Candidate ids must be unique"
+    $activeCandidates = @($Candidates | Where-Object { @("promotion_pending", "promoted") -contains [string]$_.candidate_status })
+    Assert-True ($activeCandidates.Count -le 1) "At most one candidate may be promotion_pending or promoted"
+    $promoted = @($Candidates | Where-Object { [string]$_.candidate_status -eq "promoted" })
+    $activePointer = [string]$ProductionManifest.promoted_candidate_id
+    if ($promoted.Count -eq 1) {
+        Assert-Equal $activePointer ([string]$promoted[0].candidate_id) "Production active pointer does not match promoted candidate"
+    } else {
+        Assert-True ([string]::IsNullOrWhiteSpace($activePointer)) "Production active pointer exists without one promoted candidate"
+    }
+}
+
+function Assert-CandidateTransition {
+    param([string]$From, [string]$To, [object]$Authority)
+    $allowed = @($Authority.candidate_status_transitions.$From)
+    Assert-True ($allowed -contains $To) "Illegal candidate status transition: $From -> $To"
+}
+
 function Test-PhaseEnabled {
     param([string]$Name)
     $Phase -eq "All" -or $Phase -eq $Name
@@ -104,22 +151,59 @@ if (Test-PhaseEnabled "FLA-1") {
     }
 
     $invalidCandidate = $manifestRaw | ConvertFrom-Json -Depth 50
-    $invalidCandidate.contract_status = "candidate_under_evaluation"
+    $invalidCandidate.contract_status = "candidate_record"
     $invalidCandidateJson = $invalidCandidate | ConvertTo-Json -Depth 50
     $invalidCandidateAccepted = $invalidCandidateJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction SilentlyContinue
     Assert-True (-not $invalidCandidateAccepted) "Candidate manifest without candidate identity was accepted"
 
     $validCandidate = $manifestRaw | ConvertFrom-Json -Depth 50
     $validCandidate.contract_id = "r7-taskspace-five-layer-candidate-deadbeef"
-    $validCandidate.contract_status = "candidate_under_evaluation"
+    $validCandidate.contract_status = "candidate_record"
     $validCandidate | Add-Member -NotePropertyName candidate_id -NotePropertyValue "deadbeef"
     $validCandidate | Add-Member -NotePropertyName candidate_status -NotePropertyValue "evaluation_candidate"
+    $headCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
+    $activeAuthorityBlob = Get-GitBlobText $headCommit "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
     $validCandidate | Add-Member -NotePropertyName active_authority -NotePropertyValue ([pscustomobject]@{
             contract_id = "r7-five-layer-contract-authority-v1"
-            sha256 = (Get-Sha256 $authorityPath)
+            path = "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
+            git_commit = $headCommit
+            sha256 = (Get-TextSha256 $activeAuthorityBlob)
+        })
+    $validCandidate | Add-Member -NotePropertyName artifact_hashes -NotePropertyValue ([pscustomobject]@{
+            "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md" = (Get-Sha256 $l1Path)
         })
     $validCandidateJson = $validCandidate | ConvertTo-Json -Depth 50
     Assert-True ($validCandidateJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Valid candidate manifest mode was rejected"
+    Assert-CandidateManifestIntegrity $validCandidate
+    Assert-CandidateSetIntegrity @($validCandidate) $manifest
+
+    $mismatchedCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $mismatchedCandidate.contract_id = "r7-taskspace-five-layer-candidate-cafebabe"
+    Assert-Throws { Assert-CandidateManifestIntegrity $mismatchedCandidate } "Candidate id/contract mismatch was accepted"
+
+    $promotedA = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $promotedA.candidate_status = "promoted"
+    $promotedB = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $promotedB.candidate_id = "cafebabe"
+    $promotedB.contract_id = "r7-taskspace-five-layer-candidate-cafebabe"
+    $promotedB.candidate_status = "promoted"
+    Assert-Throws { Assert-CandidateSetIntegrity @($promotedA, $promotedB) $manifest } "Duplicate promoted candidates were accepted"
+    Assert-CandidateTransition "evaluation_candidate" "promotion_pending" $authority
+    Assert-CandidateTransition "promoted" "reverted" $authority
+    Assert-Throws { Assert-CandidateTransition "promoted" "rejected" $authority } "Illegal promoted-to-rejected transition was accepted"
+
+    $candidateRoot = Join-Path $repoRoot ([string]$authority.candidate_registry.root)
+    if (Test-Path -LiteralPath $candidateRoot -PathType Container) {
+        $candidateManifests = @()
+        foreach ($candidateFile in @(Get-ChildItem -LiteralPath $candidateRoot -Recurse -File -Filter "manifest.json")) {
+            $candidateRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $candidateFile.FullName
+            Assert-True ($candidateRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Candidate manifest does not match schema: $($candidateFile.FullName)"
+            $candidate = $candidateRaw | ConvertFrom-Json -Depth 50
+            Assert-CandidateManifestIntegrity $candidate $candidateFile.FullName
+            $candidateManifests += $candidate
+        }
+        Assert-CandidateSetIntegrity $candidateManifests $manifest
+    }
 
     $contextModule = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/context/taskspace_contract.rs")
     $traceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs")

@@ -11,7 +11,7 @@
     "implementation_status_enum",
     "candidate_status_enum",
     "candidate_status_transitions",
-    "candidates",
+    "candidate_registry",
     "baseline",
     "selected_targets",
     "experiments",
@@ -32,41 +32,27 @@
       ]
     },
     "candidate_status_enum": {
-      "const": ["evaluation_candidate", "rejected", "promoted"]
+      "const": ["evaluation_candidate", "promotion_pending", "rejected", "promoted", "reverted"]
     },
     "candidate_status_transitions": {
       "const": {
-        "evaluation_candidate": ["rejected", "promoted"],
+        "evaluation_candidate": ["promotion_pending", "rejected"],
+        "promotion_pending": ["promoted", "rejected"],
         "rejected": [],
-        "promoted": []
+        "promoted": ["reverted"],
+        "reverted": []
       }
     },
-    "candidates": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": [
-          "candidate_id",
-          "candidate_status",
-          "contract_id",
-          "manifest_path",
-          "active_authority_sha256",
-          "artifact_hashes"
-        ],
-        "properties": {
-          "candidate_id": {"type": "string", "minLength": 1},
-          "candidate_status": {"enum": ["evaluation_candidate", "rejected", "promoted"]},
-          "contract_id": {"type": "string", "pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{7,64}$"},
-          "manifest_path": {"type": "string", "minLength": 1},
-          "active_authority_sha256": {"$ref": "#/$defs/sha256"},
-          "artifact_hashes": {
-            "type": "object",
-            "minProperties": 1,
-            "additionalProperties": {"$ref": "#/$defs/sha256"}
-          }
-        },
-        "additionalProperties": true
-      }
+    "candidate_registry": {
+      "type": "object",
+      "required": ["root", "manifest_schema", "linter", "active_authority_policy"],
+      "properties": {
+        "root": {"const": "benchmarks/taskspace/r7/candidates"},
+        "manifest_schema": {"const": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"},
+        "linter": {"const": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1"},
+        "active_authority_policy": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
     },
     "baseline": {
       "type": "object",

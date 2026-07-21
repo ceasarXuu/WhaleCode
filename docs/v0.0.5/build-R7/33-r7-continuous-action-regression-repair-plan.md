@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.3
+- Version: 1.4
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -115,59 +115,73 @@ Patch 正文仍是顶层 `input`，不得进入 transition。Standard 继续使�
 
 同一 active Work 内第二个及后续动作不重复 transition。Runtime 只检查 canonical state：空 Map 的第一个
 ordinary call 必须携带初始化；未 binding 的 Ready Work 第一个 call 必须携带绑定；切换后继必须携带完成交接。
-失败零状态提交、零 Tool 副作用。终态 action 继续由 control 单独表达。
+未成功 commit 的调用零 Map 提交、零 ordinary Tool handler 执行；PreToolUse 可能发生的外部效果按第 4.4 节独立
+记录，不能伪装成零副作用。终态 action 继续由 control 单独表达。
 
-### 4.4 `prepare -> commit -> execute` 机械协议
+### 4.4 `pre-hook -> prepare -> commit -> handoff -> execute` 机械协议
 
 不能在现有 handler 外简单前置 Map commit。FLA-3.5 选择一个共享 `PreparedToolCall` 协议，把现有 Tool 的准备
-和执行阶段显式拆开，但不复制 handler：
+和执行阶段显式拆开，但不复制 handler。现有 PreToolUse hook 可以执行任意用户命令，因此不是无副作用的 prepare；
+本阶段不改变其能力或另造 TaskSpace-only hook 分支，而是把它作为明确的 pre-commit 外部步骤并忠实记录：
 
 1. **parse**：解析 carrier，剥离 transition，校验原业务参数。
-2. **prepare**：运行当前 PreToolUse 的 allow/block 合同，完成无副作用参数解析/规范化，计算权限、初始 sandbox、
-   潜在升级 sandbox、网络权限和所有可能的 approval。当前 hook schema 不支持参数改写，本阶段不得虚构该能力；
-   文件上传、MCP attachment materialization 或其他有副作用转换都归入 execute。
-3. **pre-authorize**：若初始 sandbox 失败后可能升级，必须在 commit 前一次性申请并冻结升级 grant。Agent/user
+2. **pre-hook**：按现有语义运行 PreToolUse allow/block hook。它可能产生文件、网络或进程副作用；Runtime 不推断
+   这些副作用，也不声称可回滚，而是冻结 `PreHookFact {not_run|allowed|blocked|failed, hook_identity,
+   exit/error, external_effects_possible}`。block/failure 或随后 stale/cancel 都必须把该事实返回。
+3. **prepare**：完成无普通 Tool handler 副作用的参数解析/规范化，计算权限、初始 sandbox、潜在升级 sandbox、
+   网络权限和所有可能的 approval。当前 hook schema 不支持参数改写，本阶段不得虚构该能力；文件上传、MCP
+   attachment materialization 或其他有副作用转换都归入 execute。
+4. **pre-authorize**：若初始 sandbox 失败后可能升级，必须在 commit 前一次性申请并冻结升级 grant。Agent/user
    拒绝升级不必拒绝初始 sandbox 执行，但 commit 后若初始 sandbox denial，只能按 Tool failure 返回，禁止再次
    弹出 approval。网络和其他可预测审批遵守同一规则。
-4. **commit + reserve**：在同一 action-map 临界区重新校验 revision/lease、effective args hash、permission
+5. **commit + reserve**：在同一 action-map 临界区重新校验 revision/lease、effective args hash、permission
    snapshot、approval grant scope/expiry 和 cancellation generation；原子提交 transition，并为目标新 lease
    建立该 prepared call 的 reservation。旧 lease 不接收本次调用。
-5. **execute**：原 handler 的执行部分消费 prepared call，执行必要上传和业务副作用；初始 sandbox denial 只有
+6. **execution handoff**：orchestrator 在调用任何 handler 代码前，以一个原子事件裁决 cancellation generation 并
+   接管 prepared call。handoff 成功是唯一 `execution_started` 边界，与 Tool 是否只读、是否已经产生副作用无关。
+7. **execute**：原 handler 的执行部分消费 prepared call，执行必要上传和业务副作用；初始 sandbox denial 只有
    预授权 grant 存在时才自动升级，否则直接形成 Tool failure。commit 后不得再次请求 approval。
-6. **post**：PostToolUse 只观察不可变的原 Tool outcome；hook failure 作为独立 factual field 返回，不能替换或
+8. **post**：PostToolUse 只观察不可变的原 Tool outcome；hook failure 作为独立 factual field 返回，不能替换或
    丢弃 Tool output。随后 context mapper 附加 transition fact。
 
 `PreparedToolCall` 至少冻结：effective args/source hash、capability epoch、Tool/source identity、目标 revision/lease、
-permission snapshot、initial/escalated sandbox plan、approval grant id/scope/expiry、network grant、PreToolUse outcome、
+permission snapshot、initial/escalated sandbox plan、approval grant id/scope/expiry、network grant、`PreHookFact`、
 cancellation generation。任一字段在 commit 前失效则回到 rejected-before-commit，不能静默重新 prepare。
 
-取消与失败边界固定为：prepare policy/approval/hook/grant 校验拒绝或 commit 前取消均零提交零执行；commit 后的
-实际 sandbox denial 属于 Tool failure，不再触发审批；commit 后、Tool 启动前取消记作“transition committed +
-tool cancelled”，不回滚。任何无法安全拆出无副作用 prepare 的 Tool 不能标记 carrier-capable，TaskSpace
+取消与失败边界固定为：prepare policy/approval/grant 校验拒绝或 commit 前取消均零 Map 提交、零 ordinary Tool
+handler 执行；PreToolUse 已发生的外部效果不伪装成零副作用，始终随 `PreHookFact` 保留。commit 后的实际 sandbox
+denial 属于 Tool failure，不再触发审批；commit 后、handoff 前取消记作“transition committed + tool cancelled”，
+不回滚。任何无法安全拆出无 ordinary Tool handler 副作用 prepare 的 Tool 不能标记 carrier-capable，TaskSpace
 capability epoch 也不能带着未知缺口激活。
 
 ### 4.5 Carrier-neutral typed outcome
 
-一个 provider call 只能有一个 call id。`execution_started` 的唯一边界是 handler/orchestrator 开始第一项业务
-副作用，包括上传/materialization；此后即使没有 ToolCallOutput，也属于已开始。内部唯一和类型为：
+一个 provider call 只能有一个 call id。`execution_started` 的唯一边界是第 4.4 节的 runtime handoff 事件：它在
+任何 handler 工作前发生，并与是否已有业务副作用解耦。内部唯一和类型为：
 
 ```text
 TaskSpaceCarrierOutcome =
   RejectedBeforeCommit {
-    stage: Parse | Prepare | Transition,
+    stage: Parse | PreHook | Prepare | PreAuthorize | Transition,
+    pre_hook_fact,
     factual_error,
-    tool: NotStarted
+    tool: NotDispatched
   }
   | CommittedNotExecuted {
       transition_fact,
-      tool: CancelledBeforeStart | StartFailure
+      pre_hook_fact,
+      tool: CancelledBeforeStart(CancellationFact)
+            | StartFailure(FunctionCallErrorFact)
     }
   | Executed {
       transition_fact,
+      pre_hook_fact,
       execution: Returned(Opaque<ToolCallOutput>)
                  | Failed(FunctionCallErrorFact)
                  | CancelledAfterStart,
-      post_hook_fact: NotRun(reason) | Succeeded | Failed(factual_error)
+      post_hook_fact: NotRun(reason) | Succeeded | Failed(factual_error),
+      retention_fact: NotRequired | Stored(ref, hash) | Failed(factual_error),
+      delivery_fact: Pending | Delivered(wire_hash) | Failed(factual_error)
     }
 }
 ```
@@ -175,7 +189,9 @@ TaskSpaceCarrierOutcome =
 `transition_fact` 只含 action、revision、commit/lease。`Returned` 在 PostToolUse 前冻结原 ToolCallOutput；
 `Failed` 忠实保存 handler/upload/orchestrator 的结构化 error，不伪造 Tool output；`CancelledAfterStart` 明确可能
 已有部分副作用。PostToolUse 没有运行必须是 `NotRun`，legacy hook 的替换/丢弃结果只能作为独立 hook fact，
-不能覆盖冻结 execution outcome。不得把这些事实塞入 `TaskSpaceControlResultV2` 或压成整体 verdict。
+不能覆盖冻结 execution outcome。retained store 或 provider mapper 失败也不能覆盖 Tool outcome；delivery 失败时
+该内部事实进入 session event/trace，并由现有 provider retry/error 路径暴露，不能伪造已送达 output。不得把这些
+事实塞入 `TaskSpaceControlResultV2` 或压成整体 verdict。
 provider mapper 按第 4.2 节载体生成一个合法 output：支持 content items 时增加独立 transition fact item 并原序
 保留 Tool items；只有 text output 时使用版本化 factual frame，但其 `tool_output` 子载体必须可逆恢复。
 
@@ -186,20 +202,23 @@ MCP 必须先冻结独立版本化子载体，不能依赖当前二选一 mapper
 
 ```text
 McpToolOutputV1 {
-  content: ordered raw MCP content items,
-  structured_content: JSON | null,
-  is_error: bool,
-  meta: JSON | null,
+  content: ordered policy-visible raw JSON blocks with source_index,
+  structured_content: Absent | Present(JSON including explicit null),
+  is_error: Absent | Present(bool),
+  meta: Absent | Present(JSON including explicit null),
   sanitization_facts: [...]
 }
 ```
 
-顺序固定为：接收 raw MCP result 并计算私密 hash；执行既有安全/图片支持策略并逐项记录 sanitization fact；冻结
-policy-visible `McpToolOutputV1` 和各字段 hash；完整写入 retained output store；再做 context 截断并给 output ref；
-最后映射 provider wire。支持 content items 的 wire 以版本化 metadata item 加有序 text/image items 表达，并用
-稳定 index 重建原 `content`；text-only wire 使用可逆 JSON frame。`structured_content/is_error/meta` 不得因存在图片
-而丢失。CA-0 冻结每一步 schema/hash，CA-1 必须 round-trip；TaskSpace 层保证的是安全策略批准后的完整子载体，
-不绕过全局安全策略，也不静默摘要。FLA-3.5 拥有 transport；FLA-5 只验证 conformance。
+顺序固定为：接收包含未知 block 的原始有序 JSON 并计算私密 hash；执行既有安全/图片支持策略并逐项记录 source
+index、preserve/transform/remove fact；冻结 policy-visible `McpToolOutputV1` 和 presence-aware 字段 hash；完整写入
+retained output store；再做 context 截断并给 output ref；最后映射 provider wire。安全策略允许的未知 block 必须按
+原 JSON 保留；被移除的内容只保留安全 fact/hash，不绕过策略泄露原文。支持 content items 的 wire 以版本化 metadata
+item 加有序 text/image/items 表达，并用稳定 index 重建 policy-visible `content`；text-only wire 使用可逆 JSON frame。
+`structured_content/is_error/meta` 的 absent、显式 null、false/true 不得合并，也不得因存在图片而丢失。CA-0 冻结
+每一步 schema/hash，CA-1 从原始 MCP fixture 跨阶段 round-trip；retention/delivery fault 必须与已冻结 Tool outcome
+同时观测。TaskSpace 层保证的是安全策略批准后的完整子载体，不绕过全局安全策略，也不静默摘要。FLA-3.5
+拥有 transport；FLA-5 只验证 conformance。
 
 ### 4.6 Capability epoch、code mode 与多动作
 
@@ -222,13 +241,21 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 - 固定当前 sibling 生产 commit、L1-L5 identity、schema/source/wire hash 和 H-003 trace。
 - 从 R5、D.2、D.4、FLA-3 artifact 重算 standalone、拒绝、request 和 Patch exact。
 - 冻结第 4.2 节 wire matrix、`TaskSpaceCarrierCapability` 正负矩阵、reserved namespace 和 capability epoch 规则。
-- 冻结第 4.4 节完整状态机，覆盖参数改写/上传、Pre/AfterToolUse、初始 sandbox、升级/network 预授权、grant
-  失效、commit 前后取消、start failure 和 reservation 归属；不得留“由实现决定”的分支。
-- 冻结 typed outcome 全分支、execution-start 边界、McpToolOutputV1 各处理阶段、provider wire 映射与 hash 公式。
-- 扩展 authority/production-manifest JSON Schema：增加实际 candidate entity、`evaluation_candidate ->
-  rejected|promoted` 状态迁移、candidate contract id/manifest 模式、active authority backlink 和 promotion/revert
-  负例；补齐 production commit/source/wire hashes。CA-0 同时实现 candidate manifest generator 和 schema tests，
-  未完成不得进入 CA-1。
+- 冻结第 4.4 节完整状态机，覆盖 PreToolUse 外部副作用事实、参数解析/上传、AfterToolUse、初始 sandbox、
+  升级/network 预授权、grant 失效、commit 前后取消、handoff/start failure 和 reservation 归属；不得留“由实现
+  决定”的分支。
+- 冻结 typed outcome 全分支、runtime handoff 边界、McpToolOutputV1 presence/未知 block/安全处理各阶段、retention/
+  delivery 失败、provider wire 映射与 hash 公式。
+- 生成而非手写 `r7-carrier-entry-closure-v1.json`：从全部生产可达 `ToolSpec`、`ToolPayload`、router/alias、deferred
+  MCP、dynamic registry 与 code-mode nested router 枚举 schema decorator、parser、capability epoch、handler 和
+  outcome mapper；任何可达入口无且仅无一条完整链即失败。
+- 扩展 authority/production-manifest JSON Schema：candidate manifest 是独立 candidate namespace 中的实际实体，
+  active authority 在 CA-6 前保持字节不变；状态机使用 `evaluation_candidate -> promotion_pending|rejected ->
+  promoted|rejected`，并允许 post-promotion 全量复测失败时 `promoted -> reverted`。实现跨文件 linter，强制 candidate
+  id/contract/path/hash/active-authority snapshot 双向一致、ID 唯一、最多一个 pending/promoted、active pointer 与状态
+  一致、artifact 全部存在且 hash 匹配；加入 mismatch、duplicate promoted、伪 backlink、不存在文件和非法 revert
+  负例。补齐 production commit/source/wire hashes。CA-0 同时实现 candidate manifest generator、transition command
+  和 schema/linter tests，未完成不得进入 CA-1。
 - 冻结 `r7-phase-ownership-v1.json`，将 carrier transport、L4 schema、L5 conformance、Tool experiments、
   lifecycle/recovery、产品面和正式评估各映射到唯一 owner phase；重复 owner 或无 owner 机器失败。
 - 在任何 CA-1 probe 前完整生成并冻结 `continuous-action-evaluation-v1.json`：样本、重复、seed、顺序、全部阈值、
@@ -243,10 +270,12 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 
 1. 对全部 wire/ToolSpec/source 组合验证 schema 装饰、freeform Patch 与 code-mode 同名 function 投影、reserved
    字段剥离、Patch input/source byte exact 和 Standard 零变化。
-2. 用 fake Tool 验证 prepare denial、approval denial、sandbox denial、commit 前后取消、commit 后执行失败和
-   新 lease reservation；任何 side effect 都有计数器。
-3. 验证 typed outcome 的 execution `Returned/Failed/CancelledAfterStart`、post-hook 三态，以及 text/items、
-   image、McpToolOutputV1、截断和 hook error 的可逆映射。
+2. 用 fake Tool 与真实 hook command 验证 pre-hook 写文件/网络 allow/block/failure、prepare/approval denial、sandbox
+   denial、commit 前后取消、只读 handler 立即失败、dispatch/start failure、handoff 两侧取消竞态、commit 后执行失败
+   和新 lease reservation；pre-hook 与 ordinary Tool handler side effect 分别计数。
+3. 验证 typed outcome 的 start/cancellation facts、execution `Returned/Failed/CancelledAfterStart`、post-hook、retention、
+   delivery 全状态，以及 text/items、image、McpToolOutputV1、截断和 hook error 的可逆映射。MCP fixture 必须从原始
+   wire 覆盖 absent/false/true、显式 null、未知 block、图片 preserve/remove、store 写失败和 provider mapper 失败。
 4. 验证 code-mode outer carrier、nested attribution、`Promise.all` barrier 和 turn-wide one-Patch gate。
 5. 使用真实 DeepSeek endpoint 对 exec、direct/freeform Patch、MCP 和多 Tool response 每臂至少 6 次 probe。
 
@@ -259,8 +288,8 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   capability matrix、rollback manifest、CA-0 已冻结的 `continuous-action-evaluation-v1.json` 和 FLA-8 v2。
 - FLA-8 v2 只把旧 `combined_control_plus_next_rate` 机械替换为 transition carrier 指标；样本 identity、sealed
   held-out hash、重复和统计规则不变，生成过程中不得读取 held-out 内容或结果。
-- active authority 继续指向 sibling 回归基线；candidate registry 记录 artifact/hash/commit 与
-  `evaluation_candidate`，Runtime 不把它宣称为 active。
+- active authority 与 production manifest 保持 sibling 回归基线且字节不变；独立 candidate namespace 的 manifest
+  记录 artifact/hash/commit、active-authority snapshot 与 `evaluation_candidate`，Runtime 不把它宣称为 active。
 - `required_next_call`、missing-sibling error/oracle 只从候选合同删除；历史 v1/v2 artifact 不覆盖。
 - lifecycle v2 用 standalone-schema-negative、参数失败零提交、commit+Tool failure、code-mode 和恢复 fixtures
   替换 missing-sibling 场景。
@@ -273,8 +302,9 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 
 ```text
 tools/src/tool_spec.rs, tool_config.rs, apply_patch_tool.rs, taskspace_tool*.rs
+tools/src/tool_registry_plan*.rs
 core/src/tools/registry.rs, parallel.rs, sequence*.rs, code_mode/mod.rs
-core/src/tools/orchestrator.rs, hook_runtime.rs, hook_names.rs
+core/src/tools/router.rs, spec.rs, orchestrator.rs, hook_runtime.rs, hook_names.rs
 core/src/tools/handlers/apply_patch*.rs, taskspace_control_*.rs
 core/src/action_map/runtime.rs and reservation/lease paths
 core/src/mcp_tool_call.rs, mcp_openai_file.rs
@@ -296,14 +326,20 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
 测试必须覆盖：
 
 - 全 wire/ToolSpec/capability epoch property matrix，未知 Tool 和 reserved collision 阻止 epoch 激活。
-- approval/PreToolUse/grant 失效及 commit 前取消均零提交；升级未预授权时 sandbox denial 不再请求 approval；
-  所有上传只能出现在 execution-start 后；commit 后的 Returned/Failed/Cancelled 不回滚；PostToolUse NotRun/Failed
-  不替换冻结 outcome。
+- approval/grant 失效及 commit 前取消均零 Map 提交、零 ordinary Tool handler 执行；真实 PreToolUse 写文件/网络
+  副作用必须形成 pre-hook fact，不得被零副作用断言掩盖；升级未预授权时 sandbox denial 不再请求 approval。
+- 所有上传只能出现在 handoff 后；只读立即失败、dispatch/start failure、handoff 两侧取消竞态有唯一类型和 factual
+  payload；commit 后的 Returned/Failed/Cancelled 不回滚；PostToolUse NotRun/Failed 不替换冻结 outcome。
 - reservation 原子归属新 lease，旧 lease 不记录 carrier；stale revision 发生在 commit 前。
 - code-mode cell barrier、nested attribution、并行、turn-wide one-Patch 和 nested output。
-- typed outcome 全执行/Hook 分支及文本/图片/McpToolOutputV1/截断/error conformance；不比较整个 frame hash。
+- typed outcome 全 handoff/执行/Hook/retention/delivery 分支及文本/图片/McpToolOutputV1 presence/未知 block/截断/error
+  conformance；原始 MCP fixture 跨阶段比较，不比较整个 frame hash。
 - 静态/动态断言 commit 后不存在 approval 调用，prepare 阶段不存在上传/materialization；相关 owner 文件必须
   全部登记在 phase ownership contract。
+- 对 `r7-carrier-entry-closure-v1.json` 每个入口证明 decorator/parser/epoch/outcome mapper 精确命中一次；手写清单、
+  alias、deferred/dynamic/nested 漏项均失败。
+- 运行 candidate 跨文件 linter 全部反例；promotion/revert drill 必须证明 active authority/pointer 与 candidate 状态
+  不可能同时指向两个生产合同。
 - 静态审计 action-map/lease gate 不读取 Tool 名、source 或参数内容；capability metadata 是唯一资格/归属输入。
 - 运行 phase ownership lint，Phase E/F/G 只能引用 FLA evidence，不能拥有 production target 或独立 gate。
 - Standard schema/wire/handler/cache identity 零变化；TaskSpace schema 只在 capability epoch 边界改变。
@@ -337,11 +373,13 @@ prepare rejection、Patch/typed-output exact、request、token、cache by capabi
 ### CA-6：审查、晋级或完整回滚
 
 - 对候选生产 diff、rollback drill、trace 和三臂证据执行新的空白上下文对抗性审查。
-- 通过后一个 promotion commit 同时切换 active L4/L5 authority、production manifest、schema/parser、FLA-8
-  evaluation contract v2 和文档；
-  `required_next_call` 在 active 合同中彻底消失。
+- 通过后先由唯一 transition command 将 candidate 变为 `promotion_pending`；同一个 promotion commit 同时切换 active
+  L4/L5 authority、production manifest active pointer、schema/parser、FLA-8 evaluation contract v2 和文档，并将
+  candidate 原子变成 `promoted`。`required_next_call` 在 active 合同中彻底消失。
 - 失败则 revert CA-3/CA-4 候选代码与 runtime manifest；active authority 始终保持 sibling baseline。candidate
-  artifact 保留为 `rejected` 证据，不创建兼容生产路径。
+  artifact 保留为 `rejected` 证据，不创建兼容生产路径。若 promotion commit 后全量复测失败，必须用单个 revert
+  commit 同时恢复旧 active pointer/authority/runtime，并把 candidate 标记 `reverted`；禁止只回滚代码或留下
+  promoted 双权威。
 - promote 或 rollback 后重跑全量 hash/contract tests；只有 promotion 成功才将 FLA-3.5 标记 `active_verified`。
 
 ## 6. Phase Gate Matrix

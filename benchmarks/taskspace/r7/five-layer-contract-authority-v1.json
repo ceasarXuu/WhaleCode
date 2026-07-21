@@ -14,15 +14,24 @@
   ],
   "candidate_status_enum": [
     "evaluation_candidate",
+    "promotion_pending",
     "rejected",
-    "promoted"
+    "promoted",
+    "reverted"
   ],
   "candidate_status_transitions": {
-    "evaluation_candidate": ["rejected", "promoted"],
+    "evaluation_candidate": ["promotion_pending", "rejected"],
+    "promotion_pending": ["promoted", "rejected"],
     "rejected": [],
-    "promoted": []
+    "promoted": ["reverted"],
+    "reverted": []
   },
-  "candidates": [],
+  "candidate_registry": {
+    "root": "benchmarks/taskspace/r7/candidates",
+    "manifest_schema": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
+    "linter": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
+    "active_authority_policy": "candidate records stay outside this active authority; this file and the production manifest remain byte-identical from CA-2 until a CA-6 promotion or revert commit"
+  },
   "authority_order": [
     "this_manifest",
     "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
@@ -35,12 +44,12 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "38828d8e47c7ee44834a15202de1d734c0b3aff0c40e5a46ab8709674ea090bd",
+      "sha256": "e4635944fc04bfd31791dcaedcc8398b15a7f508f1467d40986ea8ff7df4b156",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "9f3a597a90967ce079080e135a2ecb6998a664eb7217a21d796181215b6142c9",
+      "sha256": "93e841c406e45c4d9d27506656b0142bfd4afe41cadf36eda98c9420cd69934d",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
@@ -50,7 +59,7 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "f434e14d4fb71e6db55d9f599c51c8acd9859db7657c175cdf09f5ca61b83999",
+      "sha256": "b95462eac184d40a229e0262a2b80d017943594fdb060f3968d7f3ab27762f09",
       "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],

@@ -84,4 +84,28 @@ ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
 
 ## 6. 最终复审
 
-第三轮仍含 Blocking finding，修订后必须由第四个空白 reviewer 做最终判定。
+- Target commit: `b0eafbba8`
+- Reviewer launch id: `019f823c-14e1-7683-9b5e-63eefea8a892`
+- Reviewer nickname: Gauss
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第四个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第四轮确认 T3 已关闭，连续动作结构方向、Runtime 语义边界、CA-0/2/5/6 顺序和 held-out 隔离均未被否定；
+仍发现 3 个 Blocking、1 个 High、1 个 Medium：
+
+| # | 级别 | 第四轮发现 | 处置 | 四次修订 |
+|---|---|---|---|---|
+| Q1 | Blocking | `execution_started` 以首个业务副作用定义，无法覆盖只读 Tool 立即失败、handoff 前取消和无 payload StartFailure | Accept | 改为任何 handler 工作前的原子 runtime handoff；StartFailure/CancelledBeforeStart 携带 factual payload；新增边界竞态 oracle |
+| Q2 | Blocking | MCP Optional 字段被 null/bool 降维，未知 block、retention/provider mapping failure 没有完整 outcome | Accept | presence-aware 字段、有 source index 的 policy-visible 原始 JSON block、retention/delivery facts；从原始 MCP fixture 做跨阶段 fault round-trip |
+| Q3 | Blocking | PreToolUse 会运行任意外部命令，不能被称为无副作用 prepare | Accept | 保持现有 hook 能力，不建 TaskSpace 分支；明确为 pre-commit 外部步骤并冻结 PreHookFact；零副作用保证只覆盖 ordinary Tool handler |
+| Q4 | High | candidate 单文件 schema 可接受 ID mismatch、重复 promoted、伪 backlink，且 promoted 无 revert | Accept | candidate 实体移至独立 namespace，避免 active authority/self-hash；新增 pending/reverted 状态和跨文件 linter/反例/active pointer 原子切换 |
+| Q5 | Medium | 生产入口清单漏 central router/spec/tool_registry_plan，手写 ownership 不能证明闭包 | Accept | CA-0 从 ToolSpec/ToolPayload/router 生成 entry closure；CA-4 每条路径要求 decorator/parser/epoch/outcome mapper 精确命中一次 |
+
+主审额外确认原 `candidates[] + active_authority_sha256` 会在 candidate 写回 active authority 时产生自引用风险；
+四次修订将 candidate record 移出 active authority，active authority 在 CA-6 前保持字节不变。
+
+## 7. 第五轮复审
+
+第四轮仍含 Blocking finding。四次修订提交后必须由第五个空白 reviewer 逐项确认 Q1-Q5，不得以合同测试通过
+替代最终判定。

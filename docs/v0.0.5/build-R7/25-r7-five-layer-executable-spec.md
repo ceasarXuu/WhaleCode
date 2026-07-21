@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 0.8
+- Version: 0.9
 - Status: Production active through FLA-3; FLA-3.5 continuous-action repair selected and blocking FLA-4 through FLA-8
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
@@ -164,13 +164,16 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
 | `TASKSPACE_RANGE_INVALID` | `argument_failed` | `the requested retained output range is invalid` | output_ref、submitted range、available range |
 
 当前 sibling 基线中的 control + ordinary Tool 使用两个 call id，因此是两份独立结果。FLA-3.5 单 carrier 目标
-改为一个 call id 内的和类型：commit 前拒绝返回 `RejectedBeforeCommit + NotStarted`；commit 后、执行前取消或
-启动失败返回 `CommittedNotExecuted`；execution-start 后返回 `Executed`，其 execution 是
-`Returned(output) | Failed(FunctionCallErrorFact) | CancelledAfterStart`，PostToolUse 是
-`NotRun | Succeeded | Failed`。不得为未返回分支伪造 output；hook 不能替换冻结 execution outcome。
+改为一个 call id 内的和类型：commit 前拒绝返回 `RejectedBeforeCommit + NotDispatched`；commit 后、runtime
+handoff 前取消或启动失败返回带 `CancellationFact/FunctionCallErrorFact` 的 `CommittedNotExecuted`；handoff
+成功后返回 `Executed`，其 execution 是 `Returned(output) | Failed(FunctionCallErrorFact) |
+CancelledAfterStart`。handoff 在任何 handler 工作前发生，不以副作用判断。PreToolUse、PostToolUse、retention 与
+delivery 都是独立 factual field；不得为未返回分支伪造 output，也不得覆盖冻结 execution outcome。
 
-MCP 使用版本化 `McpToolOutputV1` 同时保存有序 content、structured content、isError、meta 与 sanitization facts；
-安全策略、完整 retained store、context 截断和 provider frame 的顺序及分阶段 hash 由 FLA-3.5 CA-0 冻结。
+MCP 使用版本化 `McpToolOutputV1` 同时保存有 source index 的 policy-visible 原始 JSON block，以及 presence-aware
+structured content、isError、meta 与 sanitization facts；absent、显式 null 和 false 不得合并。安全策略、完整
+retained store、context 截断、retention/delivery failure 和 provider frame 的顺序及分阶段 hash 由 FLA-3.5 CA-0
+冻结。
 
 Rust enum 常量使用上述大写值，JSON `error.code` 原样输出；日志也使用同一值。FLA-3.5 目标中不再存在
 missing-sibling 运行时形态；非法 transition carrier 使用同源参数/状态错误分类，不另造带下一步建议的错误。
