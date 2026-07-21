@@ -21,7 +21,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "85afbcda9370587f538622eaa2387b1c9f59dfa1db67bd24e196a0a11ad8a5b0"
+    "sha256": "bb62d51046a3869eaece838ff26dbc2f399d5e56791d8a3575f2988391ecd281"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -105,7 +105,7 @@
         },
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
-          "sha256": "be217df52b124bc0d1a2f0cdbab9d74a8ad6b1b7b7daf78e48ea8fa5dc4ee6fa",
+          "sha256": "613a399fcbff055a8edfded42fe74915b16b07775c7c44997c8e39f74b9b698e",
           "activation_phase": "FLA-7"
         }
       ]

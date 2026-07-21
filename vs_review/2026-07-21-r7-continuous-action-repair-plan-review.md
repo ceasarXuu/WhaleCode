@@ -302,5 +302,24 @@ Phase owner 修正收口，Z9 由双 epoch 配对收口。现有 v1 anchor 不�
 
 ## 16. 第十四轮复审
 
-第十三轮仍含 Blocking finding。十三次修订与 superseding production baseline v2 独立提交后，必须由第十四个空白
-reviewer 复核 AA1-AA4、外部 bootstrap 可执行性、leaf-patch preservation、baseline supersession 和 Phase ownership。
+- Target commit: `28a206283`
+- Reviewer launch id: `019f832d-3cdf-70d3-bb0c-e53d91959819`
+- Reviewer nickname: Copernicus
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第十四个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第十四轮确认 AA1 与 AA4 已关闭、AA2 helper 不再丢 metadata、authority 已移除 FLA-8 越权，但仍发现 2 个 Blocking；
+phase-conflict 为 `FAIL`：
+
+| # | 级别 | 第十四轮发现 | 处置 | 十四次修订 |
+|---|---|---|---|---|
+| AB1 | Blocking | RFC 6902 operation 只有新值 hash，没有实际 `value`，无法由标准引擎直接执行 | Accept | `add/replace` 必须内嵌完整 `value` 并校验 canonical hash；`remove` 禁止 value；冻结 op 顺序并拒绝重复、祖先/后代重叠和容器 target |
+| AB2 | Blocking | machine lifecycle oracle 仍允许 FLA-5 或 FLA-7 运行 freezer | Accept | oracle gate 改为仅 FLA-7并更新 authority/production hash；v2 不改写，修正后用 immutable baseline v3 显式 supersede v2 |
+
+AA1/AA4 维持 Closed；AA2 由可直接执行的完整 leaf operation 收口；AA3 由 machine oracle 修正及 v3 baseline 收口。
+
+## 17. 第十五轮复审
+
+第十四轮仍含 Blocking finding。十四次修订与 superseding production baseline v3 独立提交后，必须由第十五个空白
+reviewer 复核 AB1/AB2、RFC 6902 可执行性、三代 baseline 审计链和 Phase ownership。

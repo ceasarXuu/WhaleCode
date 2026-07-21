@@ -308,7 +308,7 @@
     "event_hash": "Use fixture_event_chain.codec exactly",
     "projection_hash": "sha256(rendered projection UTF-8 bytes)",
     "freeze_command": "pwsh scripts/taskspace-benchmark/freeze-r7-five-layer-fixtures.ps1 -Contract benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
-    "activation_gate": "The fixture compiler must independently reproduce every frozen canonical and event hash and compare real provider payloads with each fixture's exact allowed differences before FLA-5 or FLA-7 production activation."
+    "activation_gate": "The fixture compiler must independently reproduce every frozen canonical and event hash and compare real provider payloads with each fixture's exact allowed differences before FLA-7 production activation."
   },
   "required_logs": [
     "session_id",

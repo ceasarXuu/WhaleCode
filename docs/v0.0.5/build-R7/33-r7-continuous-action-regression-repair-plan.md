@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.13
+- Version: 1.14
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -289,14 +289,16 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 ### CA-0：冻结基线与前置设计合同
 
 - 固定当前 sibling 生产 commit、L1-L5 identity、schema/source/wire hash 和 H-003 trace。
-- `continuous-action-ca0-baseline-v1.json` 已作为 first-add 历史记录保留，但第十三轮审查发现它锚定的 authority 仍含
-  FLA-8/FLA-7 所有权冲突，因此永不作为 candidate 或 completion 输入，也不得改写或删除。本轮修正 active authority、
-  production manifest 与治理文档后，以独立后续 commit 只新增 `continuous-action-ca0-baseline-v2.json`；v2 必须用
-  `supersedes` 精确绑定 v1 的 path、first-add commit 和 byte hash，并说明 `phase_ownership_conflict`。completion 只接受
-  v2，且机械证明 v1 first-add 是 v2 所锚父提交的 first-parent 祖先。v2 固定经审查后的起点 commit、active authority/
-  production manifest 的原始 byte hash 与普通 Git blob mode；创建后任何改写、删除或恢复都使门禁失败。candidate 只能
-  引用 v2，不能自选 snapshot commit/hash。两个 snapshot commit 必须等于 v2 anchored parent 且是 candidate/event 的
-  first-parent 祖先。历史重放从 v2 anchored parent 开始，而不是从 manifest 首次出现开始。
+- `continuous-action-ca0-baseline-v1.json` 与 `continuous-action-ca0-baseline-v2.json` 均作为 first-add 历史记录保留；v1
+  锚定了旧 authority 的 FLA-8/FLA-7 所有权冲突，v2 修正 authority 文本后仍遗漏 lifecycle oracle 自身的 FLA-5/7
+  二选一 gate，因此二者永不作为 candidate 或 completion 输入，也不得改写或删除。本轮同时修正 active authority、
+  production manifest、lifecycle oracle 与治理文档后，以独立后续 commit 只新增
+  `continuous-action-ca0-baseline-v3.json`。v2 已精确 supersede v1；v3 必须再用 `supersedes` 精确绑定 v2 的 path、
+  first-add commit 和 byte hash，并说明 `phase_ownership_conflict`。completion 只接受 v3，且机械验证 v1 <- v2 <- v3
+  每个 first-add/hash/父提交祖先关系。v3 固定经审查后的起点 commit、active authority/production manifest 的原始 byte
+  hash 与普通 Git blob mode；创建后任何改写、删除或恢复都使门禁失败。candidate 只能引用 v3，不能自选 snapshot
+  commit/hash。两个 snapshot commit 必须等于 v3 anchored parent 且是 candidate/event 的 first-parent 祖先。历史重放
+  从 v3 anchored parent 开始，而不是从 manifest 首次出现开始。
 - CA-0 executable v2 toolchain 先单独提交并完成一次空白上下文审查，再由下一提交只新增
   `continuous-action-v2-toolchain-anchor-v1.json`，锚定其父提交中的 strict parser、v2 manifest/artifact schemas、
   phase ownership、candidate generator、唯一 transition command、closure generator、completion launcher、completion
@@ -380,16 +382,21 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   包含 authority `contract_status` 和 production `manifest_version` 的预注册目标值；`repair_activation` 若现值已含
   L4/L5-result 则保持不变。FLA-8 target、governing document hashes、L1-L3、其他 repair 和 phase ownership 均不得变。
   v2 candidate manifest 必须保存这两个目标值，并冻结 promotion commit 的三路径 allowlist：active authority、production
-  manifest 和本 candidate manifest。它还必须保存按 baseline identity 解析后的完整 RFC 6902 leaf operation 数组，每项
-  固定 `op/path/old_hash/new_value_hash`；`path` 必须是绝对 JSON Pointer，禁止指向整个 object/array。CA-0 v2 schema
+  manifest 和本 candidate manifest。它还必须保存按 baseline identity 解析后的完整 RFC 6902 leaf operation 数组；
+  `op` 只能是 `add|replace|remove`，每项固定 `op/path/old_value_sha256`。`add|replace` 必须内嵌完整 JSON `value` 并保存
+  `new_value_sha256`，其值等于 canonical `value` hash；`remove` 禁止携带 `value/new_value_sha256`。`replace|remove` 的
+  `old_value_sha256` 必须等于 baseline leaf 的 canonical hash；`add` 使用冻结的 absent sentinel hash，并要求 baseline
+  path 确实不存在。`path` 必须是绝对 JSON Pointer，禁止指向整个 object/array。操作数组顺序冻结，禁止重复 path、
+  ancestor/descendant 重叠和一次操作依赖另一操作新建的容器。CA-0 v2 schema
   固定唯一允许的 pointer 集合：authority 的 `/contract_status`、designated repair `/implementation_status`、L4 与 L5-result
   的 `implementation_status/activation_phase/artifact/sha256` 以及明确列出的旧 sibling metadata remove leaf；production 的
   `/manifest_version`、`/activation_through`、`/source_authority/sha256`、`/promoted_candidate_id`、L4/L5 `runtime_status` 与
   L4/L5-result target 的 `artifact/sha256/activation_phase` leaf；candidate 的 `/candidate_status`。数组 index 由 baseline
   中冻结的 `id/layer/artifact_role` 唯一定位后写成具体数字，candidate 创建后不得重算或使用通配符。若 closure 要改变
   target 的 source list，CA-0 schema 必须事先逐 leaf 列全固定索引；否则该字段在 FLA-3.5 原样保留，不能替换整个数组。
-  promotion command 先对 baseline 做 byte-faithful deep clone，再逐项应用冻结 patch；随后对 baseline/expected/actual 做
-  canonical leaf diff，实际操作集合与预注册集合必须精确相等。projection/lifecycle target 及其全部未声明 metadata 必须
+  promotion command 先对 baseline 做 byte-faithful deep clone，使用标准 JSON Patch 引擎逐项应用冻结 `value`；随后对
+  baseline/expected/actual 做有序 canonical leaf diff，实际操作数组与预注册数组必须逐项精确相等。projection/lifecycle
+  target 及其全部未声明 metadata 必须
   从 baseline 原对象保留，不能重建成五字段记录。promotion commit 的 Git changed-path 集必须与三路径 allowlist
   精确相等；schema/parser/runtime
   候选代码已在 CA-3/4 提交并由 active contract 选择，CA-6 不再顺带修改任何源码。

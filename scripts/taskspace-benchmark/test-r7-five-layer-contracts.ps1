@@ -130,9 +130,12 @@ if (Test-PhaseEnabled "FLA-0") {
 }
 
 if ($Phase -eq "FLA-3.5") {
-    $baselineAnchorPath = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v2.json"
+    $baselineV1Path = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v1.json"
+    $baselineV2Path = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v2.json"
+    $baselineAnchorPath = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v3.json"
     $toolchainAnchorPath = "benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json"
-    [void](Get-ImmutableFirstAddAnchor $baselineAnchorPath "continuous_action_production_baseline" "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v1.json")
+    [void](Get-ImmutableFirstAddAnchor $baselineV2Path "continuous_action_production_baseline" $baselineV1Path)
+    [void](Get-ImmutableFirstAddAnchor $baselineAnchorPath "continuous_action_production_baseline" $baselineV2Path)
     $toolchainAnchor = Get-ImmutableFirstAddAnchor $toolchainAnchorPath "continuous_action_v2_toolchain"
     $verifiers = @($toolchainAnchor.artifacts | Where-Object { [string]$_.role -eq "completion_verifier" })
     $launchers = @($toolchainAnchor.artifacts | Where-Object { [string]$_.role -eq "completion_launcher" })
