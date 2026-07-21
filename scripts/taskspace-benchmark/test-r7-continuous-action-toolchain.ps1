@@ -136,7 +136,7 @@ foreach ($alias in @($ownership.forbidden_parallel_owners)) { Assert-True (@($do
 
 $scripts = @(
     "invoke-r7-strict-json.ps1", "r7-v2-toolchain-core.ps1", "r7-v2-history.ps1", "r7-v2-promotion.ps1",
-    "r7-v2-git-transaction.ps1", "r7-v2-artifact-fixtures.ps1", "test-r7-continuous-action-candidate-set.ps1",
+    "r7-v2-git-transaction.ps1", "test-r7-git-transaction.ps1", "r7-v2-artifact-fixtures.ps1", "test-r7-continuous-action-candidate-set.ps1",
     "evaluate-r7-continuous-action-runset.ps1", "test-r7-continuous-action-evaluator.ps1", "test-r7-continuous-action-integration.ps1",
     "new-r7-continuous-action-candidate.ps1",
     "test-r7-continuous-action-candidate.ps1", "set-r7-continuous-action-candidate-status.ps1",
@@ -156,6 +156,8 @@ foreach ($relative in $libraryScripts) {
 }
 & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-evaluator.ps1") | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "R7_TEST_EVALUATOR_SELFTEST_FAILED" }
+& pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-git-transaction.ps1") | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "R7_TEST_GIT_TRANSACTION_FAILED" }
 $workflow = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:R7RepoRoot ".github/workflows/r7-continuous-action-completion.yml")
 foreach ($marker in @("actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803", "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "git show", "completion_launcher", "RequiredCheckRunAttempt", "GITHUB_WORKFLOW_SHA")) { Assert-True $workflow.Contains($marker, [System.StringComparison]::Ordinal) "R7_TEST_WORKFLOW_MARKER marker=$marker" }
 if ($Mode -eq "PreAnchor") {
@@ -163,7 +165,7 @@ if ($Mode -eq "PreAnchor") {
 } else {
     [void](Assert-R7ToolchainWorktree)
 }
-$result = [pscustomobject][ordered]@{schema_version = 1; test = "r7_continuous_action_v2_toolchain"; mode = $Mode; passed = $true; artifact_roles = $script:R7ArtifactNames.Count; closure_entries = @($closure.entries).Count; strict_negative_cases = 6; evaluator_negative_cases = 5; git_scalar_cases = 1; scripts_parsed = $scripts.Count + $libraryScripts.Count}
+$result = [pscustomobject][ordered]@{schema_version = 1; test = "r7_continuous_action_v2_toolchain"; mode = $Mode; passed = $true; artifact_roles = $script:R7ArtifactNames.Count; closure_entries = @($closure.entries).Count; strict_negative_cases = 6; evaluator_negative_cases = 5; git_transaction_cases = 4; git_scalar_cases = 1; scripts_parsed = $scripts.Count + $libraryScripts.Count}
 $resultPath = Join-Path $scratch "toolchain-test-result.json"
 Write-R7JsonFile $resultPath $result
 Write-Output ($result | ConvertTo-Json -Compress)

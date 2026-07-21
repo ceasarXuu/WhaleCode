@@ -121,6 +121,7 @@ $identity = New-R7CandidateIdentity $baseline $toolchain $artifactHashValues $au
 $candidateId = Get-R7CandidateId $identity
 $candidatePath = Get-R7CandidatePath $candidateId
 if (Test-Path -LiteralPath $candidatePath.full) { throw "R7_CANDIDATE_ALREADY_EXISTS id=$candidateId" }
+$transaction = Start-R7GitTransaction $sourceHead "candidate-$candidateId"
 [System.IO.Directory]::CreateDirectory($candidatePath.full) | Out-Null
 $published = $false
 try {
@@ -139,8 +140,9 @@ try {
     }
     $creationEvidencePath = Join-Path $candidatePath.full "creation-evidence.json"
     Write-R7JsonFile $creationEvidencePath $creationEvidence
-    Invoke-R7Git @("add", "--", $candidatePath.relative) | Out-Null
-    $candidateCommit = New-R7ProspectiveCommit $sourceHead $sourceHead "$CommitMessagePrefix artifacts $candidateId"
+    $artifactPaths = @($script:R7ArtifactNames.Values | ForEach-Object { "$($candidatePath.relative)/$_" }) +
+        "$($candidatePath.relative)/creation-evidence.json"
+    $candidateCommit = New-R7ProspectiveCommit $transaction $sourceHead "$CommitMessagePrefix artifacts $candidateId" $artifactPaths
 
     $artifactRefs = New-R7ArtifactReferences $candidateId $artifactHashValues
     $activationTargets = New-R7ActivationTargets $candidateId $artifactRefs $authority
@@ -165,19 +167,18 @@ try {
     Write-R7JsonFile $manifestPath $manifest
     $manifestSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json"
     [void](Read-R7StrictJson $manifestPath $manifestSchema)
-    Invoke-R7Git @("add", "--", "$($candidatePath.relative)/manifest.json") | Out-Null
-    $manifestCommit = New-R7ProspectiveCommit $sourceHead $candidateCommit "$CommitMessagePrefix manifest $candidateId"
+    $manifestCommit = New-R7ProspectiveCommit $transaction $candidateCommit "$CommitMessagePrefix manifest $candidateId" @("$($candidatePath.relative)/manifest.json")
     & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate.ps1") -CandidateId $candidateId -TargetCommit $manifestCommit -RequireStatus evaluation_candidate | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "R7_CANDIDATE_PROSPECTIVE_VERIFY_FAILED" }
     & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate-set.ps1") -TargetCommit $manifestCommit | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "R7_CANDIDATE_SET_PROSPECTIVE_VERIFY_FAILED" }
-    Publish-R7ProspectiveCommit $manifestCommit $sourceHead
+    Publish-R7ProspectiveCommit $transaction $manifestCommit
     $published = $true
     Assert-R7CleanWorktree
     [pscustomobject][ordered]@{candidate_id = $candidateId; candidate_commit = $candidateCommit; manifest_commit = $manifestCommit; manifest_path = "$($candidatePath.relative)/manifest.json"} | ConvertTo-Json -Compress
 } finally {
     if (-not $published -and (Test-Path -LiteralPath $candidatePath.full)) {
-        Reset-R7IndexToCommit $sourceHead
         Backup-R7Path $candidatePath.relative "candidate-$candidateId-$(Get-Date -Format yyyyMMddHHmmss)"
     }
+    Stop-R7GitTransaction $transaction
 }

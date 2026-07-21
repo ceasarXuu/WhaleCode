@@ -90,6 +90,8 @@ if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_PREFLIGHT_FAILED" }
 & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate-set.ps1") -TargetCommit $head | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_SET_PREFLIGHT_FAILED" }
 
+$transactionId = "transition-$CandidateId-$ToStatus-$(Get-Date -Format yyyyMMddHHmmssfff)"
+$transaction = Start-R7GitTransaction $head $transactionId
 $expectedChanged = [System.Collections.Generic.List[string]]::new()
 $expectedChanged.Add("$($candidate.path.relative)/manifest.json")
 switch ($ToStatus) {
@@ -135,7 +137,7 @@ switch ($ToStatus) {
                 [System.IO.Directory]::CreateDirectory((Split-Path $full -Parent)) | Out-Null
                 [System.IO.File]::WriteAllBytes($full, (Get-R7GitBlobBytes ([string]$rollback.baseline_commit) $relative))
             } elseif ($action -eq "remove") {
-                Invoke-R7Git @("rm", "--", $relative) | Out-Null
+                Backup-R7Path $relative $transactionId
             } else {
                 throw "R7_ROLLBACK_ACTION_INVALID path=$relative action=$action"
             }
@@ -157,13 +159,12 @@ if (($actualChanged -join "`n") -cne ($expected -join "`n")) {
 }
 $published = $false
 try {
-    Invoke-R7Git (@("add", "-A", "--") + $expected) | Out-Null
-    $eventCommit = New-R7ProspectiveCommit $head $head "state(r7): $fromStatus to $ToStatus for $CandidateId"
+    $eventCommit = New-R7ProspectiveCommit $transaction $head "state(r7): $fromStatus to $ToStatus for $CandidateId" $expected
     & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate.ps1") -CandidateId $CandidateId -TargetCommit $eventCommit -RequireStatus $ToStatus | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_PROSPECTIVE_FAILED commit=$eventCommit" }
     & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate-set.ps1") -TargetCommit $eventCommit | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_SET_PROSPECTIVE_FAILED commit=$eventCommit" }
-    Publish-R7ProspectiveCommit $eventCommit $head
+    Publish-R7ProspectiveCommit $transaction $eventCommit
     $published = $true
     Assert-R7CleanWorktree
     [pscustomobject][ordered]@{candidate_id = $CandidateId; from = $fromStatus; to = $ToStatus; event_commit = $eventCommit; evidence_sha256 = $evidenceHash} | ConvertTo-Json -Compress
@@ -171,9 +172,8 @@ try {
     if (-not $published) {
         $changed = @(Invoke-R7Git @("diff", "--name-only", $head) | Sort-Object -Unique)
         if ($changed.Count -gt 0) {
-            Restore-R7PathsFromCommit $head $changed "transition-$CandidateId-$ToStatus-$(Get-Date -Format yyyyMMddHHmmss)"
-        } else {
-            Reset-R7IndexToCommit $head
+            Restore-R7PathsFromCommit $head $changed $transactionId
         }
     }
+    Stop-R7GitTransaction $transaction
 }

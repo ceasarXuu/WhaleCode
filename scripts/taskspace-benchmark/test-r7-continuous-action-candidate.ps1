@@ -256,8 +256,7 @@ $expectedActivation = New-R7ActivationTargets $CandidateId $expectedReferences $
 $expectedPromotion = New-R7ExpectedPromotionContract $baselineAuthority $baselineProduction $CandidateId $expectedReferences
 Assert-Equal (ConvertTo-R7CanonicalJson $manifest.activation_targets) (ConvertTo-R7CanonicalJson $expectedActivation) "R7_ACTIVATION_TARGETS_DRIFT"
 Assert-Equal (ConvertTo-R7CanonicalJson $manifest.promotion) (ConvertTo-R7CanonicalJson $expectedPromotion.promotion) "R7_PROMOTION_CONTRACT_DRIFT"
-Invoke-R7Git @("merge-base", "--is-ancestor", ([string]$manifest.candidate_commit), $target) -AllowFailure | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "R7_CANDIDATE_COMMIT_NOT_ANCESTOR" }
+Assert-R7FirstParentAncestor ([string]$manifest.candidate_commit) $target "R7_CANDIDATE_COMMIT_NOT_FIRST_PARENT_ANCESTOR"
 
 Assert-Equal (ConvertTo-R7CanonicalJson $artifactBodies.entry_closure.entries) (ConvertTo-R7CanonicalJson $artifactBodies.capability_matrix.entries) "R7_CAPABILITY_CLOSURE_ENTRY_DRIFT"
 Assert-Equal ([string]$artifactBodies.capability_matrix.entry_closure_sha256) ([string]$manifest.artifact_hashes.entry_closure.sha256) "R7_CAPABILITY_CLOSURE_HASH_DRIFT"
@@ -353,11 +352,7 @@ Assert-Equal ((@($manifest.promotion.changed_paths | Sort-Object)) -join "`n") (
 $status = [string]$manifest.candidate_status
 $authorityHash = Get-R7GitBlobSha256 $target $script:R7AuthorityPath
 $productionHash = Get-R7GitBlobSha256 $target $script:R7ProductionPath
-if (@("evaluation_candidate", "promotion_pending", "rejected", "reverted") -contains $status) {
-    Assert-Equal $authorityHash ([string]$manifest.active_authority.sha256) "R7_NONPROMOTED_AUTHORITY_DRIFT"
-    Assert-Equal $productionHash ([string]$manifest.active_production_manifest.sha256) "R7_NONPROMOTED_PRODUCTION_DRIFT"
-} else {
-    Assert-Equal $status "promoted" "R7_CANDIDATE_STATUS_UNKNOWN"
+if ($status -eq "promoted") {
     $expectedAuthority = Invoke-R7JsonPatch $baselineAuthority @($manifest.promotion.authority_patch)
     $expectedProduction = Invoke-R7JsonPatch $baselineProduction @($manifest.promotion.production_patch)
     $actualAuthority = (Get-R7GitBlobText $target $script:R7AuthorityPath) | ConvertFrom-Json -Depth 100
@@ -365,6 +360,13 @@ if (@("evaluation_candidate", "promotion_pending", "rejected", "reverted") -cont
     Assert-Equal (ConvertTo-R7CanonicalJson $actualAuthority) (ConvertTo-R7CanonicalJson $expectedAuthority) "R7_PROMOTED_AUTHORITY_DRIFT"
     Assert-Equal (ConvertTo-R7CanonicalJson $actualProduction) (ConvertTo-R7CanonicalJson $expectedProduction) "R7_PROMOTED_PRODUCTION_DRIFT"
     Assert-Equal ([string]$actualProduction.promoted_candidate_id) $CandidateId "R7_ACTIVE_POINTER_DRIFT"
+} elseif (@("evaluation_candidate", "promotion_pending", "rejected", "reverted") -contains $status) {
+    if ($null -eq $manifest.psobject.Properties["superseded_by"]) {
+        Assert-Equal $authorityHash ([string]$manifest.active_authority.sha256) "R7_NONPROMOTED_AUTHORITY_DRIFT"
+        Assert-Equal $productionHash ([string]$manifest.active_production_manifest.sha256) "R7_NONPROMOTED_PRODUCTION_DRIFT"
+    }
+} else {
+    throw "R7_CANDIDATE_STATUS_UNKNOWN status=$status"
 }
 
 Assert-Equal (Get-R7GitBlobSha256 $target ([string]$manifest.status_evidence.evidence_path)) ([string]$manifest.status_evidence.evidence_sha256) "R7_STATUS_EVIDENCE_DRIFT"

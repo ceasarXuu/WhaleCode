@@ -85,6 +85,7 @@ $roles = [ordered]@{
     toolchain_promotion = "scripts/taskspace-benchmark/r7-v2-promotion.ps1"
     toolchain_test = "scripts/taskspace-benchmark/test-r7-continuous-action-toolchain.ps1"
     toolchain_transaction = "scripts/taskspace-benchmark/r7-v2-git-transaction.ps1"
+    toolchain_transaction_test = "scripts/taskspace-benchmark/test-r7-git-transaction.ps1"
     transition_command = "scripts/taskspace-benchmark/set-r7-continuous-action-candidate-status.ps1"
     tools_cargo_lock = "third_party/codex-cli/codex-rs/Cargo.lock"
     tools_cargo_manifest = "third_party/codex-cli/codex-rs/tools/Cargo.toml"
@@ -159,10 +160,36 @@ $revertedCommit = Get-GitLine $clone @("rev-parse", "HEAD")
 $revertAttestation = Join-Path $clone "target/r7-toolchain/revert-attestation.json"
 Invoke-PinnedCompletion $clone $launcher $revertedCommit $anchorCommit "2" $revertAttestation
 
+$successorSource = Join-Path $clone "target/r7-toolchain/successor-source"
+[System.IO.Directory]::CreateDirectory($successorSource) | Out-Null
+Copy-Item -Path (Join-Path $clone "target/r7-toolchain/self-test/*") -Destination $successorSource -Recurse
+$successorTransitionPath = Join-Path $successorSource "transition-schema.json"
+$successorTransition = Get-Content -Raw -Encoding UTF8 -LiteralPath $successorTransitionPath | ConvertFrom-Json -Depth 100
+$successorTransition.positive_fixtures[0].id = "$($successorTransition.positive_fixtures[0].id)-successor"
+Write-Json $successorTransitionPath $successorTransition
+$successorOutput = @(Invoke-Script $clone "new-r7-continuous-action-candidate.ps1" @("-ArtifactSourceDirectory", $successorSource))
+$successorJson = ([string]$successorOutput[-1]) | ConvertFrom-Json
+$successorId = [string]$successorJson.candidate_id
+if ($successorId -ceq $candidateId) { throw "R7_INTEGRATION_SUCCESSOR_ID_REUSED" }
+$successorEvidenceRelative = "benchmarks/taskspace/r7/evidence/$successorId/lifecycle-evidence.json"
+$successorEvidencePath = Join-Path $clone $successorEvidenceRelative
+Write-Json $successorEvidencePath ([pscustomobject][ordered]@{schema_version = 1; candidate_id = $successorId; test_evidence = "successor_lifecycle"})
+[void](Invoke-Git $clone @("add", "--", $successorEvidenceRelative))
+[void](Invoke-Git $clone @("commit", "--quiet", "-m", "test(r7): add successor lifecycle evidence"))
+$successorEvidenceCommit = Get-GitLine $clone @("rev-parse", "HEAD")
+[void](Invoke-Script $clone "set-r7-continuous-action-candidate-status.ps1" @("-CandidateId", $successorId, "-ToStatus", "promotion_pending", "-EvidencePath", $successorEvidenceRelative, "-ExpectedHead", $successorEvidenceCommit))
+$successorPendingCommit = Get-GitLine $clone @("rev-parse", "HEAD")
+$predecessor = ((Invoke-Git $clone @("show", "$successorPendingCommit`:$candidateManifestPath")) -join [Environment]::NewLine) | ConvertFrom-Json -Depth 100
+if ([string]$predecessor.superseded_by.candidate_id -cne $successorId) { throw "R7_INTEGRATION_SUCCESSOR_BINDING_MISSING" }
+[void](Invoke-Script $clone "set-r7-continuous-action-candidate-status.ps1" @("-CandidateId", $successorId, "-ToStatus", "rejected", "-EvidencePath", $successorEvidenceRelative, "-ExpectedHead", $successorPendingCommit))
+$successorRejectedCommit = Get-GitLine $clone @("rev-parse", "HEAD")
+[void](Invoke-Script $clone "test-r7-continuous-action-candidate-set.ps1" @("-TargetCommit", $successorRejectedCommit))
+
 $result = [pscustomobject][ordered]@{
     schema_version = 1; test = "r7_continuous_action_integration"; passed = $true; clone = $clone
     source_commit = $sourceCommitId; anchor_commit = $anchorCommit; candidate_id = $candidateId
     promoted_commit = $promotedCommit; reverted_commit = $revertedCommit
+    successor_candidate_id = $successorId; successor_pending_commit = $successorPendingCommit; successor_rejected_commit = $successorRejectedCommit
     promotion_attestation_sha256 = Get-Hash $promotionAttestation; revert_attestation_sha256 = Get-Hash $revertAttestation
 }
 Write-Json (Join-Path $clone "target/r7-toolchain/integration-result.json") $result
