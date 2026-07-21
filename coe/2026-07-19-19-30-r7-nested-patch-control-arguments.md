@@ -797,3 +797,33 @@
   ```
 - Interpretation: Round 1 的 hollow artifact、self-reported evaluation 和 held-out 污染路径已被机械关闭；completion required-check 仍需单独绑定 evaluator 结果与 GitHub run identity。
 - Time: 2026-07-22 01:50
+
+## Evidence E-015: CA-0 全生命周期在独立 clone 中完成 pinned replay 与合法 revert
+- Related hypotheses:
+  - H-009
+- Direction: supports implementation readiness; does not satisfy production repair
+- Type: fix-validation
+- Source: scripts/taskspace-benchmark/test-r7-continuous-action-integration.ps1
+- Prediction or plan link:
+  - Round 1 finding 7、8、10 要求 prospective 原子发布、completion 原始事实重算、GitHub run identity 和合法 revert 路径形成端到端证据。
+- Matched signal:
+  - 独立 clone 从 source commit 4c6876d5e4b2ed7921817189e007afd1b846a1a2 创建临时 toolchain anchor，随后完成 candidate 生成、promotion_pending、promoted、reverted 全状态链。
+  - promotion completion 从 anchor 父提交导出 pinned launcher/verifier/schema/evaluator，重算 36-run evaluation result，并在第二个临时 clone 中真实执行 promoted 到 reverted rollback drill。
+  - 正式 revert commit 再由同一 pinned launcher 独立验证，authority 与 production 恢复 baseline，required-check 不再把合法 revert 判失败。
+  - promotion/revert attestation 分别绑定 repository、workflow ref/SHA、event、run id、run attempt、target commit 和完整导出 artifact hash。
+  - 黑盒过程中先后暴露并修复 Git 单行输出展开、directory manifest 排序、staged delete 漏计和工具链固定输入漏 pin；修复后从头重跑通过。
+- Correlation keys:
+  - candidate a1c273de9382c8b334581dfd0327bbfad08e7a3b58f32e442f0d8f4a7a5549bb
+  - synthetic anchor d4719ff5be42862f0d7ca4ce741e8d6bdc9d05d7
+  - promoted 544cdaff320ffb3ca575e3683c9bc643dfbc6451
+  - reverted cf32729b2118f3d0e1600b74396dea7861df0903
+  - promotion attestation 7e486d9b29cda4d8d7ff40c9d2d899b7c8cfbda152da659c1649fee79700f12e
+  - revert attestation 38baba7a9754226e60cff8b1a07cc0100abd197a2fcd2b6a44dd467c49e99038
+- Raw content:
+  ```text
+  r7_continuous_action_integration passed=true
+  promotion attestation verified=true event_kind=promotion
+  revert attestation verified=true event_kind=revert
+  ```
+- Interpretation: 原子 candidate 状态链、pinned completion 重算和合法 revert required-check 已具备可重放黑盒证据；正式 anchor 仍取决于 Round 2 空白上下文审查。
+- Time: 2026-07-22 02:25

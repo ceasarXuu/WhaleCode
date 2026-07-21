@@ -406,7 +406,8 @@
       "r7_owner": "continuous_action_candidate_activation_gate",
       "reason": "validate candidate-only activation status values without creating another projection policy or runtime",
       "covered_paths": [
-        "scripts/taskspace-benchmark/new-r7-continuous-action-candidate.ps1"
+        "scripts/taskspace-benchmark/new-r7-continuous-action-candidate.ps1",
+        "scripts/taskspace-benchmark/r7-v2-promotion.ps1"
       ]
     }
   ]
