@@ -103,7 +103,7 @@ function Assert-StrictJson {
 }
 
 function Get-ImmutableFirstAddAnchor {
-    param([string]$RelativePath, [string]$ExpectedKind)
+    param([string]$RelativePath, [string]$ExpectedKind, [string]$ExpectedSupersedesPath = "")
     $fullPath = Join-Path $repoRoot $RelativePath
     Assert-True (Test-Path -LiteralPath $fullPath -PathType Leaf) "Immutable anchor missing: $RelativePath"
     $history = @(& git -C $repoRoot log --first-parent --reverse --format=%H -- $RelativePath)
@@ -122,6 +122,16 @@ function Get-ImmutableFirstAddAnchor {
     Assert-Equal ([string]$anchor.anchor_kind) $ExpectedKind "Immutable anchor kind drifted: $RelativePath"
     $parentCommit = (& git -C $repoRoot rev-parse "$addCommit^1").Trim()
     Assert-Equal ([string]$anchor.anchored_parent_commit) $parentCommit "Immutable anchor does not bind its pre-existing parent commit: $RelativePath"
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSupersedesPath)) {
+        Assert-Equal ([string]$anchor.supersedes.path) $ExpectedSupersedesPath "Immutable anchor supersession path drifted: $RelativePath"
+        $supersededHistory = @(& git -C $repoRoot log --first-parent --reverse --format=%H -- $ExpectedSupersedesPath)
+        Assert-Equal $supersededHistory.Count 1 "Superseded anchor must remain an immutable first-add: $ExpectedSupersedesPath"
+        Assert-Equal ([string]$anchor.supersedes.first_add_commit) $supersededHistory[0] "Superseded anchor add commit drifted: $ExpectedSupersedesPath"
+        $supersededRaw = Get-GitBlobText $supersededHistory[0] $ExpectedSupersedesPath
+        Assert-Equal ([string]$anchor.supersedes.sha256) (Get-TextSha256 $supersededRaw) "Superseded anchor hash drifted: $ExpectedSupersedesPath"
+        & git -C $repoRoot merge-base --is-ancestor $supersededHistory[0] $parentCommit
+        Assert-Equal $LASTEXITCODE 0 "Superseded anchor is not an ancestor of the replacement baseline"
+    }
     foreach ($artifact in @($anchor.artifacts)) {
         Assert-Equal (Get-GitBlobSha256 $parentCommit ([string]$artifact.path)) ([string]$artifact.sha256) "Immutable anchor artifact hash drifted: $($artifact.path)"
         $artifactTreeEntry = (& git -C $repoRoot ls-tree $parentCommit -- ([string]$artifact.path)).Trim()

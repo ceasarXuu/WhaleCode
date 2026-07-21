@@ -192,8 +192,8 @@ missing-sibling 运行时形态；非法 transition carrier 使用同源参数/�
 - `map-always` 只替换 current projection。
 - resume、fork、compaction 在三种 policy 下的恢复。
 
-oracle 已冻结两份完整 canonical Map、对应 SHA256 和 event-chain head，并给出 projection hash 公式。FLA-5 或
-FLA-7 激活前必须实现 `freeze-r7-five-layer-fixtures.ps1`：先独立重算这些冻结 hash，再从现行共享 renderer 生成
+oracle 已冻结两份完整 canonical Map、对应 SHA256 和 event-chain head，并给出 projection hash 公式。只由
+FLA-7 在激活前实现 `freeze-r7-five-layer-fixtures.ps1`：先独立重算这些冻结 hash，再从现行共享 renderer 生成
 projection/provider payload golden 并按每个场景的允许差异比较。没有脚本和 golden 产物时只能称为 schema 已
 设计，不能称生命周期已验证；生成 golden 是机械固化现有 renderer 输出，不得成为改写 projection 语义的入口。
 

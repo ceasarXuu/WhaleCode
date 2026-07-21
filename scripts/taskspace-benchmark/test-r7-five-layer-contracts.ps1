@@ -130,18 +130,15 @@ if (Test-PhaseEnabled "FLA-0") {
 }
 
 if ($Phase -eq "FLA-3.5") {
-    $baselineAnchorPath = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v1.json"
+    $baselineAnchorPath = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v2.json"
     $toolchainAnchorPath = "benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json"
-    [void](Get-ImmutableFirstAddAnchor $baselineAnchorPath "continuous_action_production_baseline")
+    [void](Get-ImmutableFirstAddAnchor $baselineAnchorPath "continuous_action_production_baseline" "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v1.json")
     $toolchainAnchor = Get-ImmutableFirstAddAnchor $toolchainAnchorPath "continuous_action_v2_toolchain"
     $verifiers = @($toolchainAnchor.artifacts | Where-Object { [string]$_.role -eq "completion_verifier" })
+    $launchers = @($toolchainAnchor.artifacts | Where-Object { [string]$_.role -eq "completion_launcher" })
     Assert-Equal $verifiers.Count 1 "V2 toolchain anchor must bind exactly one completion verifier"
-    $verifierPath = Join-Path $repoRoot ([string]$verifiers[0].path)
-    Assert-Equal (Get-Sha256 $verifierPath) ([string]$verifiers[0].sha256) "Pinned completion verifier worktree hash drifted"
-    & pwsh -NoLogo -NoProfile -File $verifierPath -RepoRoot $repoRoot -BaselineAnchorPath $baselineAnchorPath -ToolchainAnchorPath $toolchainAnchorPath
-    Assert-Equal $LASTEXITCODE 0 "Pinned FLA-3.5 completion verifier failed"
-    Write-Output "FLA-3.5 completion contracts passed through the immutable v2 verifier."
-    exit 0
+    Assert-Equal $launchers.Count 1 "V2 toolchain anchor must bind exactly one completion launcher"
+    throw "FLA-3.5 local preflight cannot issue completion evidence; execute the pinned launcher exported from the toolchain anchor parent through the required external check"
 }
 
 if ((Test-PhaseEnabled "FLA-1") -or $Phase -eq "FLA-3.5-Scaffold") {

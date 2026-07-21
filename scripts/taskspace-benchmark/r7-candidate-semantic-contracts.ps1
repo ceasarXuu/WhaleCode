@@ -1,26 +1,18 @@
-function New-AuthorityTargetFromActivation {
-    param([object]$Target)
-    [pscustomobject][ordered]@{
-        layer = [string]$Target.authority_layer
-        implementation_status = [string]$Target.implementation_status
-        activation_phase = [string]$Target.activation_phase
-        artifact = [string]$Target.path
-        sha256 = [string]$Target.sha256
-    }
-}
-
 function Get-ExpectedPromotedAuthority {
     param([object]$Candidate)
     $expected = Get-GitBlobText ([string]$Candidate.active_authority.git_commit) ([string]$Candidate.active_authority.path) |
         ConvertFrom-Json -Depth 100
-    $replacements = @{}
     foreach ($target in @($Candidate.activation_targets.L4) + @($Candidate.activation_targets.L5 | Where-Object { [string]$_.artifact_role -eq "typed_outcome" })) {
-        $replacements[[string]$target.authority_layer] = New-AuthorityTargetFromActivation $target
+        $matches = @($expected.selected_targets | Where-Object { [string]$_.layer -eq [string]$target.authority_layer })
+        Assert-Equal $matches.Count 1 "Promoted baseline must contain exactly one target for $([string]$target.authority_layer)"
+        $matches[0].implementation_status = [string]$target.implementation_status
+        $matches[0].activation_phase = [string]$target.activation_phase
+        $matches[0].artifact = [string]$target.path
+        $matches[0].sha256 = [string]$target.sha256
+        if ([string]$target.authority_layer -eq "L4") {
+            $matches[0].psobject.Properties.Remove("required_next_call")
+        }
     }
-    $expected.selected_targets = @($expected.selected_targets | ForEach-Object {
-        $layer = [string]$_.layer
-        if ($replacements.ContainsKey($layer)) { $replacements[$layer] } else { $_ }
-    })
     $repairId = [string]$Candidate.activation_targets.blocking_repair.id
     $repairs = @($expected.blocking_repairs | Where-Object { [string]$_.id -eq $repairId })
     Assert-Equal $repairs.Count 1 "Promoted baseline must contain exactly one designated blocking repair"
@@ -45,16 +37,18 @@ function Get-ExpectedPromotedProduction {
         Assert-Equal $layers.Count 1 "Production baseline must contain exactly one $layerId layer"
         $layers[0].runtime_status = [string]$Candidate.activation_targets.production_runtime_status.$layerId
         if ($layerId -eq "L4") {
-            $layers[0].selected_targets = @($Candidate.activation_targets.L4 | ForEach-Object {
-                [pscustomobject][ordered]@{artifact = [string]$_.path; sha256 = [string]$_.sha256; activation_phase = [string]$_.activation_phase}
-            })
+            $carrierTarget = @($Candidate.activation_targets.L4)[0]
+            Assert-Equal @($layers[0].selected_targets).Count 1 "Production L4 baseline must contain exactly one selected target"
+            $layers[0].selected_targets[0].artifact = [string]$carrierTarget.path
+            $layers[0].selected_targets[0].sha256 = [string]$carrierTarget.sha256
+            $layers[0].selected_targets[0].activation_phase = [string]$carrierTarget.activation_phase
         } else {
             $typedTarget = @($Candidate.activation_targets.L5 | Where-Object { [string]$_.artifact_role -eq "typed_outcome" })[0]
-            $layers[0].selected_targets = @($layers[0].selected_targets | ForEach-Object {
-                if ([string]$_.artifact -eq $baselineResultArtifact) {
-                    [pscustomobject][ordered]@{artifact = [string]$typedTarget.path; sha256 = [string]$typedTarget.sha256; activation_phase = [string]$typedTarget.activation_phase}
-                } else { $_ }
-            })
+            $resultTargets = @($layers[0].selected_targets | Where-Object { [string]$_.artifact -eq $baselineResultArtifact })
+            Assert-Equal $resultTargets.Count 1 "Production L5 baseline must contain exactly one result target"
+            $resultTargets[0].artifact = [string]$typedTarget.path
+            $resultTargets[0].sha256 = [string]$typedTarget.sha256
+            $resultTargets[0].activation_phase = [string]$typedTarget.activation_phase
         }
     }
     $expected

@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.12
+- Version: 1.13
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -28,11 +28,15 @@
 phase ownership、candidate generator、唯一 transition command 和 source-derived closure generator 后，才允许创建真实
 candidate。
 
-`-Phase FLA-3.5` 是唯一阶段完成门禁：当前只负责验证两个 immutable first-add anchor，然后执行 toolchain anchor
-绑定的 completion verifier；baseline/toolchain anchor 缺失、被修改、父提交或任一 blob hash/mode 不符、verifier
-执行失败时均必须以稳定错误失败。它不得自行用 `Test-Path`、v1 schema 或 candidate status 拼装“近似完成”。只有
-一个 candidate 已实际 promoted、active authority/production pointer 已切换、八类 executable evidence 均可从 Git
-重建、生产测试/日志/三臂证据与 rollback drill 全部通过时，pinned verifier 才能返回成功。`-Phase All` 只表示当前
+当前工作树的 `test-r7-five-layer-contracts.ps1 -Phase FLA-3.5` 只能做本地 completion preflight，不能产生阶段完成
+证据。唯一权威门禁由 CA-0 固定的外部 bootstrap 命令执行：它从 immutable toolchain anchor 的父提交导出 pinned
+completion launcher、strict parser、schemas 和 verifier 到隔离临时目录，直接运行该 launcher，并把目标 promotion
+commit、toolchain add commit、导出 blob hashes 与 CI required-check run identity 写入 attestation。当前工作树 wrapper、
+candidate namespace 或 CA-3/4 代码不能选择、替换或跳过该执行路径；wrapper 即使返回 0 也不构成完成证据。toolchain
+anchor/launcher/verifier 缺失或被修改、父提交或任一 blob hash/mode 不符、required check 不是在同一目标 commit 上运行、
+verifier 执行失败时均必须失败。门禁不得用 `Test-Path`、v1 schema 或 candidate status 拼装“近似完成”。只有一个
+candidate 已实际 promoted、active authority/production pointer 已切换、八类 executable evidence 均可从 Git 重建、
+生产测试/日志/三臂证据与 rollback drill 全部通过时，pinned verifier 才能签发 attestation。`-Phase All` 只表示当前
 active baseline 的全量合同通过，绝不隐含未实施的 FLA-3.5 已完成。
 
 本阶段修复 H-003。当前 `required_next_call` 只是对另一个顶层调用的声明，JSON Schema 无法保证 sibling
@@ -285,17 +289,22 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 ### CA-0：冻结基线与前置设计合同
 
 - 固定当前 sibling 生产 commit、L1-L5 identity、schema/source/wire hash 和 H-003 trace。
-- 在 candidate namespace 之外生成一次性 `continuous-action-ca0-baseline-v1.json`，固定本计划经审查后的起点 commit、active
-  authority/production manifest 的原始 byte hash 与普通 Git blob mode。该记录必须在独立后续 commit 落盘，从而引用
-  一个已存在且 authority/production 不再变化的父 commit；创建后任何改写或删除都使门禁失败。candidate 只能引用该
-  baseline，不能自选 snapshot commit/hash；锚点文件必须是父提交之后唯一一次 Git add，历史中不得修改/删除/恢复。
-  两个 snapshot commit 必须等于 baseline commit 且是 candidate/event 的
-  first-parent 祖先。历史重放从 baseline commit 开始，而不是从 manifest 首次出现开始。
+- `continuous-action-ca0-baseline-v1.json` 已作为 first-add 历史记录保留，但第十三轮审查发现它锚定的 authority 仍含
+  FLA-8/FLA-7 所有权冲突，因此永不作为 candidate 或 completion 输入，也不得改写或删除。本轮修正 active authority、
+  production manifest 与治理文档后，以独立后续 commit 只新增 `continuous-action-ca0-baseline-v2.json`；v2 必须用
+  `supersedes` 精确绑定 v1 的 path、first-add commit 和 byte hash，并说明 `phase_ownership_conflict`。completion 只接受
+  v2，且机械证明 v1 first-add 是 v2 所锚父提交的 first-parent 祖先。v2 固定经审查后的起点 commit、active authority/
+  production manifest 的原始 byte hash 与普通 Git blob mode；创建后任何改写、删除或恢复都使门禁失败。candidate 只能
+  引用 v2，不能自选 snapshot commit/hash。两个 snapshot commit 必须等于 v2 anchored parent 且是 candidate/event 的
+  first-parent 祖先。历史重放从 v2 anchored parent 开始，而不是从 manifest 首次出现开始。
 - CA-0 executable v2 toolchain 先单独提交并完成一次空白上下文审查，再由下一提交只新增
   `continuous-action-v2-toolchain-anchor-v1.json`，锚定其父提交中的 strict parser、v2 manifest/artifact schemas、
-  phase ownership、candidate generator、唯一 transition command、closure generator 和 completion verifier 全部
-  path/hash/mode。anchor 同样只能 first-add 一次且不可改写。candidate 创建与 completion 必须晚于该 anchor；
-  candidate 不能提供或替换 bootstrap parser/verifier，因而不存在“用自己选择的 parser 验证自己的 pin”的循环。
+  phase ownership、candidate generator、唯一 transition command、closure generator、completion launcher、completion
+  verifier 和 required-check workflow 全部 path/hash/mode。anchor 同样只能 first-add 一次且不可改写。外部 bootstrap
+  只能从 anchor 父提交的 Git blobs 导出并执行 launcher/verifier，禁止调用工作树同名脚本；launcher 自校验完整 role
+  集合、target commit、toolchain add commit 与导出 hash，并输出 strict attestation。candidate 创建与 completion 必须
+  晚于该 anchor；candidate 不能提供或替换 bootstrap launcher/parser/verifier/workflow，CA-6 三路径也不能修改它们，
+  因而不存在“用自己选择的 launcher/parser 验证自己的 pin”的循环。
 - 从 R5、D.2、D.4、FLA-3 artifact 重算 standalone、拒绝、request 和 Patch exact。
 - 冻结第 4.2 节 wire matrix、`TaskSpaceCarrierCapability` 正负矩阵、reserved namespace 和 capability epoch 规则。
 - 冻结第 4.4 节完整状态机，覆盖 PreToolUse 外部副作用事实、参数解析/上传、AfterToolUse、初始 sandbox、
@@ -361,9 +370,9 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   `evaluation_candidate` 顺序重放每次状态迁移，并把未提交 worktree 变更作为尾事件；不得用 HEAD/HEAD^ 单步近似。
   每个 evaluation/pending/rejected 事件在其 commit 验证 authority 仍等于 active snapshot；promoted 事件验证当时
   production pointer、authority 与 production 全对象必须分别等于“候选冻结 baseline snapshot + 唯一允许 delta”；
-  delta 仅包括 designated repair status、L4/L5 target、L4/L5 runtime status、activation phase、authority hash 与 active
-  candidate pointer。L1-L3、其他 repair、phase gate、governing metadata、所有未列属性及顺序无关的规范化对象内容
-  必须原样保留；禁止通过 schema 允许的 extra metadata 偷渡后续阶段语义。候选 target 必须完整比较 role、authority
+  delta 仅包括 designated repair status、L4/L5 target 的预注册 leaf、L4/L5 runtime status、activation phase、authority
+  hash 与 active candidate pointer。L1-L3、其他 repair、phase gate、governing metadata、所有未列属性及顺序无关的
+  规范化对象内容必须原样保留；禁止通过 schema 允许的 extra metadata 偷渡后续阶段语义。候选 target 必须完整比较 role、authority
   layer、implementation/runtime status、phase、path 与 hash，只有 designated repair 变为 `active_verified`；L4/result
   在 FLA-3.5 只变为 `active_repair_verified`，对应 production 为 carrier repair-active 状态，待 FLA-4/5 分别完成完整
   input/conformance 后再升级为 active；projection 保持 `selected_baseline`，lifecycle 保持
@@ -371,11 +380,18 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   包含 authority `contract_status` 和 production `manifest_version` 的预注册目标值；`repair_activation` 若现值已含
   L4/L5-result 则保持不变。FLA-8 target、governing document hashes、L1-L3、其他 repair 和 phase ownership 均不得变。
   v2 candidate manifest 必须保存这两个目标值，并冻结 promotion commit 的三路径 allowlist：active authority、production
-  manifest 和本 candidate manifest。promotion command 对三个 JSON 做 canonical JSON-pointer diff：只允许 authority 的
-  `/contract_status`、designated repair status、L4 target、L5-result target；production 的 `/manifest_version`、
-  `/activation_through`、`/source_authority/sha256`、`/promoted_candidate_id`、L4/L5 runtime status 与 L4/L5-result target；
-  candidate 的 `/candidate_status`。projection/lifecycle target 及其全部未声明 metadata 必须从 baseline 原对象保留，
-  不能重建成五字段记录。promotion commit 的 Git changed-path 集必须与三路径 allowlist 精确相等；schema/parser/runtime
+  manifest 和本 candidate manifest。它还必须保存按 baseline identity 解析后的完整 RFC 6902 leaf operation 数组，每项
+  固定 `op/path/old_hash/new_value_hash`；`path` 必须是绝对 JSON Pointer，禁止指向整个 object/array。CA-0 v2 schema
+  固定唯一允许的 pointer 集合：authority 的 `/contract_status`、designated repair `/implementation_status`、L4 与 L5-result
+  的 `implementation_status/activation_phase/artifact/sha256` 以及明确列出的旧 sibling metadata remove leaf；production 的
+  `/manifest_version`、`/activation_through`、`/source_authority/sha256`、`/promoted_candidate_id`、L4/L5 `runtime_status` 与
+  L4/L5-result target 的 `artifact/sha256/activation_phase` leaf；candidate 的 `/candidate_status`。数组 index 由 baseline
+  中冻结的 `id/layer/artifact_role` 唯一定位后写成具体数字，candidate 创建后不得重算或使用通配符。若 closure 要改变
+  target 的 source list，CA-0 schema 必须事先逐 leaf 列全固定索引；否则该字段在 FLA-3.5 原样保留，不能替换整个数组。
+  promotion command 先对 baseline 做 byte-faithful deep clone，再逐项应用冻结 patch；随后对 baseline/expected/actual 做
+  canonical leaf diff，实际操作集合与预注册集合必须精确相等。projection/lifecycle target 及其全部未声明 metadata 必须
+  从 baseline 原对象保留，不能重建成五字段记录。promotion commit 的 Git changed-path 集必须与三路径 allowlist
+  精确相等；schema/parser/runtime
   候选代码已在 CA-3/4 提交并由 active contract 选择，CA-6 不再顺带修改任何源码。
   authority/manifest schema 必须
   能表达 `activation_through=FLA-3.5` 与对应 runtime/blocking-repair active 状态。不允许未声明旧 target 并存。
@@ -525,10 +541,13 @@ prepare rejection、Patch/typed-output exact、request、token、cache by capabi
 cache 使用 `cached_input_tokens / input_tokens` 并按 capability epoch 分组；Standard wire/schema/handler hash 必须从真实
 运行与源码重算而非由 candidate 提供；同 epoch tools hash 稳定；成本满足专用合同预注册非劣阈值。
 
-cache 配对公式固定为：每个 `(sample, repeat, capability_epoch)` 分别计算 candidate 与 sibling 的
-`cached_input_tokens / input_tokens`，再计算 pair delta `candidate_rate - sibling_rate`；先按 sample 求均值，再对 sample
-等权聚合。任一侧 provider 未返回 cache 字段记为 `unavailable` 并使该 pair/整臂门禁失败，不用 0 代替；`input_tokens=0`
-同样是无效观测并失败。跨 epoch 不合并分子分母，不能用高 token epoch 掩盖低命中 epoch。
+cache 以 `(sample, repeat)` 配对；每个 pair 同时记录不可为空的 `candidate_capability_epoch` 与
+`sibling_capability_epoch`，两者预期不同，不要求相等。两侧分别计算 `cached_input_tokens / input_tokens`，再计算 pair
+delta `candidate_rate - sibling_rate`；同一臂若在一次 run 内出现多个 epoch，先按 request 保留各 epoch 分子/分母与 rate，
+但整次 run 的 arm rate 使用该臂总 cached tokens / 总 input tokens，禁止跨不同 `(sample, repeat)` 池化。先按 sample 求
+pair delta 均值，再对 sample 等权聚合。任一侧 run 缺失、重复，provider 未返回 cache 字段，epoch identity 缺失或
+`input_tokens=0`，均记为 `unavailable` 并使该 pair/整臂门禁失败，不用 0 代替；报告必须同时展示两个 arm epoch，不能用
+高 token epoch 掩盖低命中 epoch。
 
 ### CA-6：审查、晋级或完整回滚
 

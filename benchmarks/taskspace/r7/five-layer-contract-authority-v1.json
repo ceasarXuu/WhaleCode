@@ -47,7 +47,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "6763441cacbb0dd94b4f207d0cee5b362c86643f3dc05c5cfb5598de5065ee9c",
+      "sha256": "95ab6972f23cc1fd763a38d6fb894b247f784005eaa14072e694b03bec17dda1",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -62,7 +62,7 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "7a9e703e1d28999fda1d15aefc7fa1c1430da88ecb538fab106216e25f5907ec",
+      "sha256": "9c61f2c8d08f22ca49db6463928be8020823104baae22c179994fcceca888ee3",
       "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],
@@ -214,7 +214,7 @@
       "current_regression_baseline": "required_next_call declaration plus top-level sibling preflight",
       "selected_direction": "carrier-capable tool carries taskspace_transition through one registry capability source, shared decorator, prepare-commit-execute protocol, and typed outcome transport",
       "candidate_authority_policy": "CA-2 artifacts remain in a candidate namespace; active authority stays on the sibling baseline until the CA-6 promotion commit",
-      "evaluation_contract": "CA-0 must freeze continuous-action-evaluation-v1.json and the mechanical FLA-8 v2 metric migration before probes; FLA-8 held-out remains unmounted and sealed",
+      "evaluation_contract": "CA-0 must freeze continuous-action-evaluation-v1.json before probes; FLA-8 alone generates and preregisters the FLA-8 v2 metric migration and keeps its held-out suite unmounted and sealed until that phase",
       "required_next_call_disposition": "delete in the CA-3 candidate code; remove from active authority only in the CA-6 promotion commit; a rejected candidate restores the baseline with no compatibility path"
     }
   ],

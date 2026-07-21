@@ -280,5 +280,27 @@ FLA-3.5 不夹带 FLA-4～8 的实现或所有权。连续动作仍是同一 pro
 
 ## 15. 第十三轮复审
 
-第十二轮仍含 Blocking/High finding。十二次修订和 production baseline first-add anchor 提交后，必须由第十三个空白
-reviewer 复核 Z1-Z9、bootstrap trust chain、exact-delta allowlist、完整 Tool pipeline closure 以及后续 Phase 所有权。
+- Target commit: `373db8757`
+- Reviewer launch id: `019f831b-9f81-7221-bdb3-3bcc1d87bcdd`
+- Reviewer nickname: Euclid
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第十三个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第十三轮验证 baseline first-add、baseline-only gate 与 closure 计划已收口，但仍发现 3 个 Blocking、1 个 Medium；
+phase-conflict 为 `FAIL`：
+
+| # | 级别 | 第十三轮发现 | 处置 | 十三次修订 |
+|---|---|---|---|---|
+| AA1 | Blocking | 当前工作树 launcher 可直接跳过 pinned verifier | Accept | 当前 wrapper 降为 preflight；toolchain anchor 增加 pinned launcher/workflow，外部 required check 从 anchor 父提交导出并直接执行，只有 attestation 是完成证据 |
+| AA2 | Blocking | CA-6 仍以语义名称替代绝对 leaf pointer，v1 helper 会重建并丢失 target metadata | Accept | v2 candidate 冻结完整 RFC 6902 leaf operations；baseline 深拷贝逐 leaf patch并 exact diff；v1 helper 改为原对象就地更新且增加 retained metadata 断言 |
+| AA3 | Blocking | machine authority 仍要求 CA-0 冻结 FLA-8 migration，规格又允许 FLA-5/7 二选一拥有 lifecycle freezer | Accept | authority 移除 FLA-8 migration；lifecycle/projection freezer 唯一归 FLA-7；旧 baseline v1 保留历史，修正后由 immutable v2 显式 supersede |
+| AA4 | Medium | 以相同 capability epoch 配对 sibling/candidate 不可实现 | Accept | 改用 `(sample, repeat)` 配对，同时记录两臂各自 epoch；分别计算 arm rate 与 pair delta，缺失/重复/零分母失败 |
+
+Z4/Z6/Z7/Z8 维持 Closed；Z1/Z5 由 pinned external launcher 收口，Z2 由 leaf patch 收口，Z3 由 authority 与
+Phase owner 修正收口，Z9 由双 epoch 配对收口。现有 v1 anchor 不改写，以 v2 的显式 supersession 保留审计链。
+
+## 16. 第十四轮复审
+
+第十三轮仍含 Blocking finding。十三次修订与 superseding production baseline v2 独立提交后，必须由第十四个空白
+reviewer 复核 AA1-AA4、外部 bootstrap 可执行性、leaf-patch preservation、baseline supersession 和 Phase ownership。

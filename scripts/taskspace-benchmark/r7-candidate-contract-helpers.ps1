@@ -166,6 +166,16 @@ function Assert-CandidateActivationContract {
     $promotedAuthorityRaw = $promotedAuthority | ConvertTo-Json -Depth 50
     $promotedProduction = Get-ExpectedPromotedProduction $Candidate (Get-TextSha256 $promotedAuthorityRaw)
     $promotedProductionRaw = $promotedProduction | ConvertTo-Json -Depth 50
+    foreach ($layerId in @("L4", "L5-result", "L5-projection", "L5-lifecycle")) {
+        $baselineTarget = @($activeAuthority.selected_targets | Where-Object { [string]$_.layer -eq $layerId })[0]
+        $promotedTarget = @($promotedAuthority.selected_targets | Where-Object { [string]$_.layer -eq $layerId })[0]
+        foreach ($propertyName in @("tool_count", "strict", "output_schema", "schema_version", "partial_commit_type", "production_targets")) {
+            $baselineProperty = $baselineTarget.psobject.Properties[$propertyName]
+            if ($null -ne $baselineProperty) {
+                Assert-Equal (ConvertTo-CanonicalJson $promotedTarget.$propertyName) (ConvertTo-CanonicalJson $baselineProperty.Value) "Promotion rebuilt or dropped retained metadata: $layerId/$propertyName"
+            }
+        }
+    }
     Assert-True ($promotedAuthorityRaw | Test-Json -SchemaFile $authoritySchemaPath -ErrorAction Stop) "Canonical promoted authority does not match authority schema"
     Assert-True ($promotedProductionRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Canonical promoted production manifest does not match schema"
     Assert-CandidateActivationSnapshot $Candidate "promoted" $promotedAuthorityRaw $promotedAuthority $promotedProduction
