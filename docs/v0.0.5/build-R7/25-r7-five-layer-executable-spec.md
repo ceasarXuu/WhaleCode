@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 0.7
+- Version: 0.8
 - Status: Production active through FLA-3; FLA-3.5 continuous-action repair selected and blocking FLA-4 through FLA-8
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
@@ -165,9 +165,12 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
 
 当前 sibling 基线中的 control + ordinary Tool 使用两个 call id，因此是两份独立结果。FLA-3.5 单 carrier 目标
 改为一个 call id 内的和类型：commit 前拒绝返回 `RejectedBeforeCommit + NotStarted`；commit 后、执行前取消或
-启动失败返回 `CommittedNotExecuted`；真正执行才返回 `Executed + transition_fact + opaque tool_output +
-post_hook_fact`。不得为未执行分支伪造空 output。PostToolUse 观察不可变原 Tool outcome，其失败不能替换 output；
-保真 hash 只比较解 frame 后的原 Tool 子载体。
+启动失败返回 `CommittedNotExecuted`；execution-start 后返回 `Executed`，其 execution 是
+`Returned(output) | Failed(FunctionCallErrorFact) | CancelledAfterStart`，PostToolUse 是
+`NotRun | Succeeded | Failed`。不得为未返回分支伪造 output；hook 不能替换冻结 execution outcome。
+
+MCP 使用版本化 `McpToolOutputV1` 同时保存有序 content、structured content、isError、meta 与 sanitization facts；
+安全策略、完整 retained store、context 截断和 provider frame 的顺序及分阶段 hash 由 FLA-3.5 CA-0 冻结。
 
 Rust enum 常量使用上述大写值，JSON `error.code` 原样输出；日志也使用同一值。FLA-3.5 目标中不再存在
 missing-sibling 运行时形态；非法 transition carrier 使用同源参数/状态错误分类，不另造带下一步建议的错误。
@@ -200,7 +203,7 @@ feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产�
 不得改写已有证据。
 
 FLA-3.5 CA-0 新增的 `r7-phase-ownership-v1.json` 是阶段所有权机器权威：同一 production target、gate 或决策
-只能有一个 owner phase。R7 Phase E/F/G 只能引用 FLA-7/8 evidence，不得再次登记 production target 或 gate。
+只能有一个 owner phase。R7 Phase E/F/G 只能只读引用 FLA-6/7/8 evidence，不得再次登记 production target 或 gate。
 
 ### FLA-0：冻结现行基线
 

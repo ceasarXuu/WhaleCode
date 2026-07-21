@@ -102,6 +102,25 @@ if (Test-PhaseEnabled "FLA-1") {
         Assert-True (-not [string]::IsNullOrWhiteSpace([string]$layer.owner)) "Layer owner missing: $($layer.id)"
         Assert-True (-not [string]::IsNullOrWhiteSpace([string]$layer.carrier)) "Layer carrier missing: $($layer.id)"
     }
+
+    $invalidCandidate = $manifestRaw | ConvertFrom-Json -Depth 50
+    $invalidCandidate.contract_status = "candidate_under_evaluation"
+    $invalidCandidateJson = $invalidCandidate | ConvertTo-Json -Depth 50
+    $invalidCandidateAccepted = $invalidCandidateJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction SilentlyContinue
+    Assert-True (-not $invalidCandidateAccepted) "Candidate manifest without candidate identity was accepted"
+
+    $validCandidate = $manifestRaw | ConvertFrom-Json -Depth 50
+    $validCandidate.contract_id = "r7-taskspace-five-layer-candidate-deadbeef"
+    $validCandidate.contract_status = "candidate_under_evaluation"
+    $validCandidate | Add-Member -NotePropertyName candidate_id -NotePropertyValue "deadbeef"
+    $validCandidate | Add-Member -NotePropertyName candidate_status -NotePropertyValue "evaluation_candidate"
+    $validCandidate | Add-Member -NotePropertyName active_authority -NotePropertyValue ([pscustomobject]@{
+            contract_id = "r7-five-layer-contract-authority-v1"
+            sha256 = (Get-Sha256 $authorityPath)
+        })
+    $validCandidateJson = $validCandidate | ConvertTo-Json -Depth 50
+    Assert-True ($validCandidateJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Valid candidate manifest mode was rejected"
+
     $contextModule = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/context/taskspace_contract.rs")
     $traceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs")
     Assert-True $contextModule.Contains("taskspace_contract_manifest_v1.json") "Context module does not own the production manifest"

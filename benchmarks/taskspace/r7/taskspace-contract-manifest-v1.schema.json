@@ -17,9 +17,20 @@
   "properties": {
     "schema_version": {"const": 1},
     "schema_path": {"const": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"},
-    "contract_id": {"const": "r7-taskspace-five-layer-production-v1"},
+    "contract_id": {"type": "string", "minLength": 1},
     "manifest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
     "contract_status": {"enum": ["production_active", "candidate_under_evaluation"]},
+    "candidate_id": {"type": "string", "minLength": 1},
+    "candidate_status": {"const": "evaluation_candidate"},
+    "active_authority": {
+      "type": "object",
+      "required": ["contract_id", "sha256"],
+      "properties": {
+        "contract_id": {"const": "r7-five-layer-contract-authority-v1"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
     "runtime_status_enum": {
       "const": [
         "selected_not_active",
@@ -64,5 +75,29 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {"properties": {"contract_status": {"const": "production_active"}}},
+      "then": {
+        "properties": {"contract_id": {"const": "r7-taskspace-five-layer-production-v1"}},
+        "not": {
+          "anyOf": [
+            {"required": ["candidate_id"]},
+            {"required": ["candidate_status"]},
+            {"required": ["active_authority"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"properties": {"contract_status": {"const": "candidate_under_evaluation"}}},
+      "then": {
+        "required": ["candidate_id", "candidate_status", "active_authority"],
+        "properties": {
+          "contract_id": {"pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{7,64}$"}
+        }
+      }
+    }
+  ],
   "additionalProperties": true
 }

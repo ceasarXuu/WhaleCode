@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层具体合同评审稿
 
 - Created: 2026-07-20
-- Document Version: 0.6
+- Document Version: 0.7
 - Status: L1-L3 production active; current L4 sibling contract is a regression baseline; FLA-3.5 replacement selected
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
@@ -552,13 +552,14 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 ### 7.4 目标 carrier 的交接已提交、普通工具随后失败
 
 这是一个 provider call id 下的两个独立事实，不能合并成一条“整体失败”摘要，也不能伪造成两个不存在的 Tool calls。
-下面是 `Executed` 分支；完整和类型还包含 `RejectedBeforeCommit { tool: NotStarted }` 和
-`CommittedNotExecuted { tool: CancelledBeforeStart | StartFailure }`，不得为未执行分支伪造 Tool output：
+下面是 `Executed + Returned` 分支；完整和类型还包含 `RejectedBeforeCommit`、`CommittedNotExecuted`，以及
+`Executed + Failed(FunctionCallErrorFact) | CancelledAfterStart`，不得为未返回分支伪造 Tool output：
 
 ```text
 TaskSpaceCarrierOutcome {
   transition_fact: {status: committed, committed_revision: 4, next_lease: implement, ...},
-  tool_output: Opaque({success: false, error: "patch context did not match", ...})
+  execution: Returned(Opaque({success: false, error: "patch context did not match", ...})),
+  post_hook_fact: Succeeded
 }
 ```
 
@@ -566,6 +567,10 @@ provider mapper 只为 transport 增加 factual transition item/frame，必须�
 子载体；PostToolUse 看到不可变的原 Tool outcome，其自身失败是独立 `post_hook_fact`，不能替换 output。Agent
 能据此知道 binding 已切到 `implement`，但 Patch 没有发生。Runtime 不自动回滚 Map，也不替 Agent 决定重试
 还是修订节点。逐 wire 映射和 hash 公式由 FLA-3.5 CA-0 冻结，FLA-5 负责 conformance，不重新实现 transport。
+
+MCP 结果不直接压进通用 content-items。FLA-3.5 先冻结 `McpToolOutputV1`，同时保留有序 `content`、
+`structured_content`、`is_error`、`meta` 和明确的 `sanitization_facts`；完整结果先进入 retained output store，
+随后才允许按上下文底线截断并给引用。图片、结构化内容和 metadata 不能互相覆盖。
 
 ### 7.5 截断读取
 

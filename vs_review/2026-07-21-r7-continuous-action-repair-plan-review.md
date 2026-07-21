@@ -64,4 +64,24 @@ ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
 
 ## 5. 第三轮复审
 
-二次修订完成后必须再次使用新的空白 reviewer。R1-R3 属于 Blocking，不能以本报告作者自审替代最终复审。
+- Target commit: `b739ea085`
+- Reviewer launch id: `019f8228-393f-76d2-a80e-b05f216f10e0`
+- Reviewer nickname: Kant
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第三个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第三轮确认 A、D、E、F、G 已关闭，Patch/code-mode 投影、评估隔离、classifier 删除和 capability epoch 已形成
+可执行门禁；继续发现 3 个 Blocking、2 个 High：
+
+| # | 级别 | 第三轮发现 | 处置 | 三次修订 |
+|---|---|---|---|---|
+| T1 | Blocking | execution 已开始后可能返回 FunctionCallError 或上传失败，没有 ToolCallOutput；原三分支无法表达 | Accept | 冻结 execution-start；Executed 内扩为 Returned/Failed/CancelledAfterStart，PostToolUse 扩为 NotRun/Succeeded/Failed；原 outcome 不可被 hook 覆盖 |
+| T2 | Blocking | 当前 MCP mapper 无法同时保留 content、structuredContent、isError、_meta | Accept | 新增 `McpToolOutputV1`，冻结安全处理、完整 retained store、截断、wire frame 顺序和逐阶段 hash；CA-1 强制 round-trip |
+| T3 | Blocking | `25` 将 Phase F 引用写成 FLA-7/8，`01/33` 写 FLA-6/7 | Accept | 统一为 Phase E/F/G 只读引用 FLA-6/7/8，并由 ownership JSON 唯一约束 |
+| T4 | High | candidate_status 只有枚举，没有 candidate entity；candidate manifest 与 active const 冲突 | Accept | authority/schema 增加 candidates 与状态迁移；manifest schema 增加 active/candidate 条件模式；合同测试加入合法/非法 candidate fixtures；CA-0 实现 generator |
+| T5 | High | CA-3 漏列 orchestrator、hook、MCP upload 等真实时序 owner | Accept | 补齐 orchestrator/hook events/parser/mcp_tool_call/mcp_openai_file/protocol models；增加 commit 后无 approval、prepare 无上传断言 |
+
+## 6. 最终复审
+
+第三轮仍含 Blocking finding，修订后必须由第四个空白 reviewer 做最终判定。

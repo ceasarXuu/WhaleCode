@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.2
+- Version: 1.3
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -123,9 +123,9 @@ ordinary call 必须携带初始化；未 binding 的 Ready Work 第一个 call 
 和执行阶段显式拆开，但不复制 handler：
 
 1. **parse**：解析 carrier，剥离 transition，校验原业务参数。
-2. **prepare**：运行 PreToolUse 的参数改写，计算权限、初始 sandbox、潜在升级 sandbox、网络权限和所有可能的
-   approval。任何文件上传、MCP attachment materialization 或其他有副作用的参数改写都归入 execute，不能在
-   prepare 发生。
+2. **prepare**：运行当前 PreToolUse 的 allow/block 合同，完成无副作用参数解析/规范化，计算权限、初始 sandbox、
+   潜在升级 sandbox、网络权限和所有可能的 approval。当前 hook schema 不支持参数改写，本阶段不得虚构该能力；
+   文件上传、MCP attachment materialization 或其他有副作用转换都归入 execute。
 3. **pre-authorize**：若初始 sandbox 失败后可能升级，必须在 commit 前一次性申请并冻结升级 grant。Agent/user
    拒绝升级不必拒绝初始 sandbox 执行，但 commit 后若初始 sandbox denial，只能按 Tool failure 返回，禁止再次
    弹出 approval。网络和其他可预测审批遵守同一规则。
@@ -148,7 +148,8 @@ capability epoch 也不能带着未知缺口激活。
 
 ### 4.5 Carrier-neutral typed outcome
 
-一个 provider call 只能有一个 call id，但必须区分“未开始”“已提交但未执行”“已执行”。内部唯一和类型为：
+一个 provider call 只能有一个 call id。`execution_started` 的唯一边界是 handler/orchestrator 开始第一项业务
+副作用，包括上传/materialization；此后即使没有 ToolCallOutput，也属于已开始。内部唯一和类型为：
 
 ```text
 TaskSpaceCarrierOutcome =
@@ -163,22 +164,42 @@ TaskSpaceCarrierOutcome =
     }
   | Executed {
       transition_fact,
-      tool_output: Opaque<ToolCallOutput>,
-      post_hook_fact: Succeeded | Failed(factual_error)
+      execution: Returned(Opaque<ToolCallOutput>)
+                 | Failed(FunctionCallErrorFact)
+                 | CancelledAfterStart,
+      post_hook_fact: NotRun(reason) | Succeeded | Failed(factual_error)
     }
 }
 ```
 
-`transition_fact` 只含 action、revision、commit/lease；`tool_output` 是 Tool 执行后、PostToolUse 前冻结的原始
-ToolCallOutput 子载体。不得为未执行分支伪造空 Tool output，不得把 Tool 输出塞入 `TaskSpaceControlResultV2`，
-也不得把多类事实压成“整体成功/失败”。
+`transition_fact` 只含 action、revision、commit/lease。`Returned` 在 PostToolUse 前冻结原 ToolCallOutput；
+`Failed` 忠实保存 handler/upload/orchestrator 的结构化 error，不伪造 Tool output；`CancelledAfterStart` 明确可能
+已有部分副作用。PostToolUse 没有运行必须是 `NotRun`，legacy hook 的替换/丢弃结果只能作为独立 hook fact，
+不能覆盖冻结 execution outcome。不得把这些事实塞入 `TaskSpaceControlResultV2` 或压成整体 verdict。
 provider mapper 按第 4.2 节载体生成一个合法 output：支持 content items 时增加独立 transition fact item 并原序
 保留 Tool items；只有 text output 时使用版本化 factual frame，但其 `tool_output` 子载体必须可逆恢复。
 
-保真门禁比较 frame 解码后的 `tool_output` 子载体与冻结 outcome，不比较必然增加 transition fact 的整个 payload。
-逐字段覆盖 text/items、图片 URL/顺序、MCP `content`、`structuredContent`、`isError`、`_meta`、success、截断
-引用、exit status 和 error class。任一 carrier 无法无损映射时阻塞。FLA-3.5 拥有 transport；FLA-5 只验证
-conformance，不再次实现 envelope。
+保真门禁比较 frame 解码后的 execution 子载体与冻结 outcome，不比较整个 payload。普通 Tool 逐字段覆盖
+text/items、图片 URL/顺序、success、截断引用、exit status 和 error class。任一 carrier 无法无损映射时阻塞。
+
+MCP 必须先冻结独立版本化子载体，不能依赖当前二选一 mapper：
+
+```text
+McpToolOutputV1 {
+  content: ordered raw MCP content items,
+  structured_content: JSON | null,
+  is_error: bool,
+  meta: JSON | null,
+  sanitization_facts: [...]
+}
+```
+
+顺序固定为：接收 raw MCP result 并计算私密 hash；执行既有安全/图片支持策略并逐项记录 sanitization fact；冻结
+policy-visible `McpToolOutputV1` 和各字段 hash；完整写入 retained output store；再做 context 截断并给 output ref；
+最后映射 provider wire。支持 content items 的 wire 以版本化 metadata item 加有序 text/image items 表达，并用
+稳定 index 重建原 `content`；text-only wire 使用可逆 JSON frame。`structured_content/is_error/meta` 不得因存在图片
+而丢失。CA-0 冻结每一步 schema/hash，CA-1 必须 round-trip；TaskSpace 层保证的是安全策略批准后的完整子载体，
+不绕过全局安全策略，也不静默摘要。FLA-3.5 拥有 transport；FLA-5 只验证 conformance。
 
 ### 4.6 Capability epoch、code mode 与多动作
 
@@ -203,9 +224,11 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 - 冻结第 4.2 节 wire matrix、`TaskSpaceCarrierCapability` 正负矩阵、reserved namespace 和 capability epoch 规则。
 - 冻结第 4.4 节完整状态机，覆盖参数改写/上传、Pre/AfterToolUse、初始 sandbox、升级/network 预授权、grant
   失效、commit 前后取消、start failure 和 reservation 归属；不得留“由实现决定”的分支。
-- 冻结 typed outcome 各 provider wire 映射与子载体 hash 公式。
-- 扩展现有 authority/production-manifest JSON Schema 以覆盖 candidate/promotion 状态；补齐当前 production
-  commit、source/wire hashes，禁止重新合并 `contract_status`、`implementation_status` 和 `runtime_status`。
+- 冻结 typed outcome 全分支、execution-start 边界、McpToolOutputV1 各处理阶段、provider wire 映射与 hash 公式。
+- 扩展 authority/production-manifest JSON Schema：增加实际 candidate entity、`evaluation_candidate ->
+  rejected|promoted` 状态迁移、candidate contract id/manifest 模式、active authority backlink 和 promotion/revert
+  负例；补齐 production commit/source/wire hashes。CA-0 同时实现 candidate manifest generator 和 schema tests，
+  未完成不得进入 CA-1。
 - 冻结 `r7-phase-ownership-v1.json`，将 carrier transport、L4 schema、L5 conformance、Tool experiments、
   lifecycle/recovery、产品面和正式评估各映射到唯一 owner phase；重复 owner 或无 owner 机器失败。
 - 在任何 CA-1 probe 前完整生成并冻结 `continuous-action-evaluation-v1.json`：样本、重复、seed、顺序、全部阈值、
@@ -222,8 +245,8 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
    字段剥离、Patch input/source byte exact 和 Standard 零变化。
 2. 用 fake Tool 验证 prepare denial、approval denial、sandbox denial、commit 前后取消、commit 后执行失败和
    新 lease reservation；任何 side effect 都有计数器。
-3. 验证 typed outcome 三个分支，以及 text/items、image、MCP content/structuredContent/isError/_meta、截断和
-   hook error 的可逆映射。
+3. 验证 typed outcome 的 execution `Returned/Failed/CancelledAfterStart`、post-hook 三态，以及 text/items、
+   image、McpToolOutputV1、截断和 hook error 的可逆映射。
 4. 验证 code-mode outer carrier、nested attribution、`Promise.all` barrier 和 turn-wide one-Patch gate。
 5. 使用真实 DeepSeek endpoint 对 exec、direct/freeform Patch、MCP 和多 Tool response 每臂至少 6 次 probe。
 
@@ -251,8 +274,12 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 ```text
 tools/src/tool_spec.rs, tool_config.rs, apply_patch_tool.rs, taskspace_tool*.rs
 core/src/tools/registry.rs, parallel.rs, sequence*.rs, code_mode/mod.rs
+core/src/tools/orchestrator.rs, hook_runtime.rs, hook_names.rs
 core/src/tools/handlers/apply_patch*.rs, taskspace_control_*.rs
 core/src/action_map/runtime.rs and reservation/lease paths
+core/src/mcp_tool_call.rs, mcp_openai_file.rs
+hooks/src/events/*.rs, hooks/src/engine/output_parser.rs
+protocol/src/models.rs and ToolCallOutput types
 codex-api/src/endpoint/responses.rs and every enabled provider wire mapper
 MCP/dynamic Tool registry and ToolCallOutput provider mappers
 ```
@@ -270,10 +297,13 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
 
 - 全 wire/ToolSpec/capability epoch property matrix，未知 Tool 和 reserved collision 阻止 epoch 激活。
 - approval/PreToolUse/grant 失效及 commit 前取消均零提交；升级未预授权时 sandbox denial 不再请求 approval；
-  预授权升级、上传 execute 时点、commit 后取消/失败不回滚；PostToolUse error 不替换原 outcome。
+  所有上传只能出现在 execution-start 后；commit 后的 Returned/Failed/Cancelled 不回滚；PostToolUse NotRun/Failed
+  不替换冻结 outcome。
 - reservation 原子归属新 lease，旧 lease 不记录 carrier；stale revision 发生在 commit 前。
 - code-mode cell barrier、nested attribution、并行、turn-wide one-Patch 和 nested output。
-- typed outcome 三分支及文本/图片/MCP 全字段/截断/error/post-hook conformance；不比较整个 framed payload hash。
+- typed outcome 全执行/Hook 分支及文本/图片/McpToolOutputV1/截断/error conformance；不比较整个 frame hash。
+- 静态/动态断言 commit 后不存在 approval 调用，prepare 阶段不存在上传/materialization；相关 owner 文件必须
+  全部登记在 phase ownership contract。
 - 静态审计 action-map/lease gate 不读取 Tool 名、source 或参数内容；capability metadata 是唯一资格/归属输入。
 - 运行 phase ownership lint，Phase E/F/G 只能引用 FLA evidence，不能拥有 production target 或独立 gate。
 - Standard schema/wire/handler/cache identity 零变化；TaskSpace schema 只在 capability epoch 边界改变。
@@ -342,7 +372,7 @@ FLA-3.5 -> FLA-4 -> FLA-5 -> FLA-6 -> FLA-7 -> FLA-8 -> R7 Phase H
 | FLA-5 | 冻结并验证 transition fact + opaque Tool output 的 conformance；transport 只由 FLA-3.5 实现 |
 | FLA-6 | 只做读写拆分、MCP output schema、DeepSeek strict 三个独立实验 |
 | FLA-7 / R7 Phase E | FLA-7 是 lifecycle/recovery/projection 唯一实现和验收阶段；Phase E 是其产品里程碑别名，不单独改代码或跑第二套 gate |
-| FLA-7 / R7 Phase F | FLA-6/7 共同产出单架构审计证据；Phase F 只汇总，不形成另一套 acceptance |
+| FLA-7 / R7 Phase F | FLA-6/7 共同产出单架构审计证据；Phase F 只读引用并汇总，不形成另一套 acceptance |
 | FLA-8 / R7 Phase G | Phase G 四臂是 FLA-8 七臂正式矩阵的 projection-policy 子集，共用 run/artifact；默认值与 promote 决策只由 FLA-8 给出 |
 | R7 Phase H | 仅在 FLA-8 完成后做发布收口和经授权审查 |
 

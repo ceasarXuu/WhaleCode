@@ -10,6 +10,8 @@
     "contract_status",
     "implementation_status_enum",
     "candidate_status_enum",
+    "candidate_status_transitions",
+    "candidates",
     "baseline",
     "selected_targets",
     "experiments",
@@ -31,6 +33,40 @@
     },
     "candidate_status_enum": {
       "const": ["evaluation_candidate", "rejected", "promoted"]
+    },
+    "candidate_status_transitions": {
+      "const": {
+        "evaluation_candidate": ["rejected", "promoted"],
+        "rejected": [],
+        "promoted": []
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "candidate_id",
+          "candidate_status",
+          "contract_id",
+          "manifest_path",
+          "active_authority_sha256",
+          "artifact_hashes"
+        ],
+        "properties": {
+          "candidate_id": {"type": "string", "minLength": 1},
+          "candidate_status": {"enum": ["evaluation_candidate", "rejected", "promoted"]},
+          "contract_id": {"type": "string", "pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{7,64}$"},
+          "manifest_path": {"type": "string", "minLength": 1},
+          "active_authority_sha256": {"$ref": "#/$defs/sha256"},
+          "artifact_hashes": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "additionalProperties": true
+      }
     },
     "baseline": {
       "type": "object",
