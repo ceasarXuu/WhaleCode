@@ -144,7 +144,7 @@ function Get-R7GitDirectoryManifestSha256 {
         })
     }
     if ($entries.Count -eq 0) { throw "R7_DIRECTORY_MANIFEST_EMPTY root=$Root" }
-    Get-R7JsonValueHash $entries.ToArray()
+    Get-R7JsonValueHash @($entries.ToArray() | Sort-Object path)
 }
 
 function Get-R7WorktreeDirectoryManifestSha256 {

@@ -96,6 +96,8 @@ $canonical = & pwsh -NoLogo -NoProfile -File $strictParser -Path $canonicalPath 
 Assert-True (($canonical -join "") -ceq '{"a":[1],"z":1}') "R7_TEST_CANONICAL_ARRAY_OR_ORDER"
 $coreCanonical = ConvertTo-R7CanonicalJson ([pscustomobject][ordered]@{z = 1; a = @(1)})
 Assert-True ($coreCanonical -ceq '{"a":[1],"z":1}') "R7_TEST_CORE_CANONICAL_ARRAY_OR_ORDER"
+$directoryFixture = "benchmarks/taskspace/scenarios/single-file-fast-fix"
+Assert-True ((Get-R7WorktreeDirectoryManifestSha256 $directoryFixture) -ceq (Get-R7GitDirectoryManifestSha256 HEAD $directoryFixture)) "R7_TEST_DIRECTORY_MANIFEST_ORDER"
 
 $artifactSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json"
 $manifestSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json"
