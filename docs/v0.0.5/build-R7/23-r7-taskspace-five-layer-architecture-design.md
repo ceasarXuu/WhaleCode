@@ -1,14 +1,15 @@
 # R7 TaskSpace 五层交互架构设计
 
 - Created: 2026-07-20
-- Version: 1.6
-- Status: Production active through FLA-3; FLA-4 through FLA-8 formal phase acceptance pending
+- Version: 1.7
+- Status: Production active through FLA-3; FLA-3.5 selected and blocking FLA-4 through FLA-8
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
 - Related: [R7 三种 Projection 策略共享架构宪章](00-r7-three-projection-policy-charter.md)、
   [R7 双基础提示词设计](20-r7-dual-base-instructions-design.md)、
   [R7 五层具体合同评审稿](24-r7-taskspace-five-layer-concrete-contract-draft.md)、
-  [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md)
+  [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md)、
+  [R7 连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md)
 - Risk Level: High
 
 ## 1. 执行摘要
@@ -30,6 +31,10 @@ Agent 不是第六层。Agent 是五层能力的唯一语义使用者：任务�
 第二份 Base；它对旧“双 Base”文档中“不得存在附加协议”的限制构成有条件后续修订，只有通过本设计的迁移
 门禁后才替代当前实现。三种策略之间唯一允许的差异仍是同一份 projection 如何进入 provider context；不得
 因五层重构而产生三套提示词、工具、状态机或反馈链。
+
+连续动作是 L4 的结构合同，不是 L1/L2 建议：初始化、绑定和完成后继续必须与至少一个真实动作处于同一个
+provider-visible Tool schema 中。当前 `required_next_call + top-level sibling` 只能事后验证另一个调用，已
+确认为 H-003 回归基线。FLA-3.5 必须先恢复结构保证，FLA-4 才能继续正式化 L4。
 
 本文件只定义架构与内容所有权，不能单独作为实施依据。Agent 可见内容示例见 `24` 号文档；唯一主线、完整
 机器合同、生产入口、删除项、生命周期 oracle、评估门槛和完成证据以 `25` 号可执行规格及其链接的 authority
@@ -269,9 +274,10 @@ Tool 顶层 description 必须用足够但不重复的文字说明工具做什�
 approval policy 和执行校验真正隔离写权限时，才能声称 read-only 权限收益。无论实验结果如何，所有 action
 共享同一 TaskSpace service、Map、validator、result algebra 和日志，不得形成两套架构。
 
-`complete_then_continue` 本身表达“提交当前边界并继续”。主线保留 `required_next_call`，response preflight
-同时在执行任何调用前检查真实 sibling 是否存在并匹配。JSON Schema 无法单独约束另一个顶层 tool call 必须
-存在；移除该字段只能作为 FLA-6 单变量实验，不能与 Tool 拆分同时实施。
+`complete_then_continue` 本身表达“提交当前边界并继续”。因此目标合同必须让交接与真实动作成为同一个
+结构化调用，不能依赖一个声明字段去约束另一个顶层 sibling。FLA-3.5 选择共享 Tool decorator 方向：真实动作
+携带小型 `taskspace_transition`，原 Tool 参数、router、权限和 handler 保持唯一；大型 Patch 正文不得重新嵌入
+control。当前 `required_next_call` 和 response preflight 只作为回归基线保留到候选通过后一次性替换。
 
 `read_output_ref` 的不同读取模式应使用带明确 discriminator 的 `anyOf` 分支表达各自必填字段，而不是把所有
 字段设为 optional 后交给 Runtime 猜测。选择 `anyOf` 是因为 DeepSeek strict 当前公开支持集合不包含
@@ -438,11 +444,12 @@ action。与此同时，若干 action 分支只有通用占位描述，具体 ac
   把它发送给 provider。
 - `read_output_ref` 的模式相关字段主要由 Runtime 二次校验。
 - action 与 `transition_node` 存在重复判别。
-- `required_next_call` 是声明值，真正的 sibling 是另一项顶层调用，两者可能不一致或缺失。
+- `required_next_call` 是声明值，真正的 sibling 是另一项顶层调用，两者可能不一致或缺失；这是 H-003 的
+  结构根因，不再作为 FLA-6 可选简化项。
 
-优化方向：先重写 action-local 描述和条件 schema；再冻结并实现全分支 result algebra；最后分别验证读写拆分、
-`required_next_call` 简化、MCP `outputSchema` 暴露和 DeepSeek strict mode。不得一次混改，也不得把本地 schema
-校验误报为 provider 能力。
+优化方向：先由 FLA-3.5 恢复连续动作结构合同；再重写 action-local 描述和条件 schema，并冻结全分支 result
+algebra；最后分别验证读写拆分、MCP `outputSchema` 暴露和 DeepSeek strict mode。不得一次混改，也不得把
+本地 schema 校验误报为 provider 能力。
 
 ### 8.3 Runtime 与反馈
 
@@ -565,8 +572,19 @@ trace 验证，不能为了让样本触发目标机制而构造自问自答式�
 验收：简单任务不加载也正确；复杂任务主动加载后才讨论收益；hot update 不改变存量 session，缺失/截断可归因，
 Skill 不产生新硬规则。
 
+### FLA-3.5：修复连续动作合同回归
+
+- 将初始化、绑定、完成后继续从可独立 control action 改为真实动作 Tool 的轻量交接前缀。
+- 先以真实 provider probe 验证 `exec_command`、原生 `apply_patch`、MCP、结果保真和多调用 barrier；失败即停止。
+- 使用一个共享 schema decorator/parser，继续复用原 router、权限、sandbox、hook、handler 和反馈载体。
+- 候选通过后三臂验证并一次性删除 `required_next_call` 与 missing-sibling preflight，不保留兼容分支。
+
+验收：standalone 非终态交接在 schema 中不可表达；Patch 与 Tool 输入输出 100% 保真；无额外 request；成本
+非劣；详细门禁以 `33` 号计划为准。该阶段阻塞 FLA-4。
+
 ### FLA-4：重构 L4 描述与 input schema
 
+- 以 FLA-3.5 晋级后的 carrier 为唯一基线，不正式化当前 sibling 合同。
 - 将顶层 description 收敛为完整的工具选择信息，补全 action-local 语义。
 - 用 provider 兼容的 discriminator + `anyOf` 表达互斥必填字段，删除重复 discriminator。
 - 生成 `provider_schema_profile + capability_set_hash + tools_hash`；本阶段不改变 Runtime 行为、结果或 Tool 数量。
@@ -587,10 +605,9 @@ Skill 不产生新硬规则。
 按独立实验依次验证，每次从上一接受基线开始且不叠加未接受候选：
 
 1. `taskspace_control` / `taskspace_read` 读写拆分；权限收益只在 router/approval enforcement 通过后成立。
-2. 移除冗余 `required_next_call` 声明，由 action 合同加原子 preflight 验证真实 sibling。
-3. 对 MCP carrier 暴露与 FLA-5 同源的 `outputSchema`，并同时发送符合该 schema 的 `structuredContent`；
+2. 对 MCP carrier 暴露与 FLA-5 同源的 `outputSchema`，并同时发送符合该 schema 的 `structuredContent`；
    DeepSeek Chat 只验证模型可见 JSON，不做伪暴露。
-4. 先让 adapter 转发 `strict`，再用 Beta endpoint 对全部并行可见工具做兼容 probe，最后才运行 strict 候选。
+3. 先让 adapter 转发 `strict`，再用 Beta endpoint 对全部并行可见工具做兼容 probe，最后才运行 strict 候选。
 
 每项失败都回到上一冻结基线，不保留兼容分支。
 
@@ -691,12 +708,13 @@ Skill 不产生新硬规则。
 1. L1/L2 去重及 L3 高级内容按需化后，能降低多少固定上下文成本；单纯提取 L2 不计为降本。
 2. 内置 Skill 的触发描述能否让 Agent 在复杂任务主动加载，同时不污染简单任务。
 3. 读写双 Tool 是否比单 Tool 更易选、更清晰，且不会增加 request 或选择错误；拆分本身不计为权限收益。
-4. 移除 `required_next_call` 声明后，action-local 合同加 preflight 能否稳定保留合并 request。
+4. FLA-3.5 的轻量 transition decorator 能否在所有真实 Tool 载体上保持结构与反馈保真，并消除额外 request。
 5. 同源 result schema 用于本地 conformance 及 MCP `outputSchema` 后是否有收益；DeepSeek Chat 不预设支持
    provider-visible output schema。
 6. WhaleCode adapter 转发 `strict` 后，DeepSeek Beta strict mode 是否适合当前 `anyOf` schema 和并行工具集。
 
-这些问题必须按 FLA-6 的单变量顺序回答，不能在设计文档中用直觉提前宣布成功。
+第 4 项必须按 FLA-3.5 的 probe 和三臂门禁回答；其余能力问题按 FLA-6 的单变量顺序回答，不能在设计文档中
+用直觉提前宣布成功。
 
 ## 15. 外部依据
 

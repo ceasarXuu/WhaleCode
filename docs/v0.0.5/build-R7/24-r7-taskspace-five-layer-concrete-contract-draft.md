@@ -1,11 +1,11 @@
 # R7 TaskSpace 五层具体合同评审稿
 
 - Created: 2026-07-20
-- Document Version: 0.4
-- Status: L1-L3 production active; L4/L5 blocker repairs active，formal phase acceptance pending
+- Document Version: 0.5
+- Status: L1-L3 production active; current L4 sibling contract is a regression baseline; FLA-3.5 replacement selected
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
-- Implementation Status: FLA-0 至 FLA-3 已实施并验证；FLA-4 至 FLA-8 尚未正式验收
+- Implementation Status: FLA-0 至 FLA-3 已实施并验证；FLA-3.5 阻塞 FLA-4 至 FLA-8
 - Authority: [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 与
   [`five-layer-contract-authority-v1.json`](../../../benchmarks/taskspace/r7/five-layer-contract-authority-v1.json)
 
@@ -22,6 +22,11 @@
 本文件把五层展开成可以逐字审阅的选定内容。它不是第二份架构真相：五层职责以 `23` 号文档为准，逐字文本、
 完整 schema 和实施验收以 authority manifest 与 `25` 号规格为准。若发生冲突，阶段必须停止并修正文档或
 权威 artifact，不能让实施者自行选择。
+
+> 2026-07-21 supersession：第 6 节的 `required_next_call + top-level sibling` schema 和示例仅记录当前生产
+> 回归基线，不再是待正式化的目标合同。目标连续动作合同及 CA-0 至 CA-6 见
+> [R7 连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md)。候选机器 schema 在 CA-2
+> probe 通过后冻结；在此之前不得篡改现行 authority artifact，也不得按本节示例继续扩展生产行为。
 
 ## 2. Agent 实际看到的总体结构
 
@@ -280,15 +285,15 @@ If reproduction and code inspection are tightly coupled in the actual task, comb
 Agent 自主判断需要时，调用现有文件读取工具打开 catalog path，正文作为普通 Tool result 返回。Runtime 不因为
 “任务看起来复杂”而自动加载，也不在 Agent 读取后再次注入 `<skill>`。
 
-## 6. L4 Tool Contract 选定主线
+## 6. L4 当前回归基线与已选替换方向
 
-### 6.1 `taskspace_control` 顶层 description
+### 6.1 当前 `taskspace_control` 顶层 description
 
 ```text
 Use taskspace_control to initialize and change the canonical TaskSpace Map, bind Work nodes, commit lifecycle transitions, expand folded node details, and read retained TaskSpace facts. Each call selects one action schema. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. Use it only for Map state and retained TaskSpace data, not to wrap ordinary tool names, commands, patch content, or reasoning. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.
 ```
 
-### 6.2 禁用实验：拆出 `taskspace_read`
+### 6.2 后续独立实验：拆出 `taskspace_read`
 
 ```text
 Use taskspace_read to retrieve the current rendered Map or exact retained output referenced by TaskSpace. It never changes canonical Map state. Results identify the Map revision, returned range, truncation, and continuation reference when applicable. Read results are factual snapshots: a projection is current only while its revision matches the latest canonical revision reported by TaskSpace.
@@ -297,9 +302,9 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 主线不暴露这个 Tool；`read_map` 和 `read_output_ref` 都属于 `taskspace_control`。只有 FLA-6-E1 独立 A/B
 接受后，才使用上面的逐字 description 拆分读 Tool。实验不得与 action 改名、result V2 或其他 Tool 候选叠加。
 
-### 6.3 Action-local 描述和字段
+### 6.3 当前 action-local 描述和字段
 
-下表使用目标 action 名。`bind_node` / `block_node` / `unblock_node` / `rework_node` 是删除现行
+下表记录当前生产 action 名。`bind_node` / `block_node` / `unblock_node` / `rework_node` 是删除旧
 `transition_node + transition` 重复判别后的选定结果，不是又增加一套状态机。所有分支当前属于同一个
 `taskspace_control`。
 
@@ -318,7 +323,7 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 | control | `read_map` | Return the current full rendered Map and its canonical revision. | action | 无写入 |
 | control | `read_output_ref` | Return an exact retained output range by reference. Select one discriminator branch for `head`、`tail`、`line_range` 或 `grep`. | output_ref + mode 对应字段 | 无写入 |
 
-### 6.4 Provider-visible schema 摘录与完整权威
+### 6.4 当前 provider-visible schema 摘录与完整权威
 
 完整、可直接生成 provider Tool definition 的权威文件是
 [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)。
@@ -407,10 +412,11 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 }
 ```
 
-主线保留 `required_next_call`，并由 response preflight 机械检查真正的后续 top-level sibling。移除字段是
-`FLA-6-E2` 禁用实验，不能把此摘录当作移除依据。
+当前生产保留 `required_next_call`，并由 response preflight 机械检查真正的后续 top-level sibling；该形态
+只用于复现和对照 H-003。目标合同在 FLA-3.5 中让真实动作自身携带轻量 `taskspace_transition`，使单独非终态
+交接在 schema 中不可表达。候选通过后一次性删除当前字段与 preflight，不保留兼容路径。
 
-### 6.5 正确的组合调用示例
+### 6.5 当前回归基线的组合调用示例
 
 ```json
 [
@@ -864,6 +870,7 @@ Agent 使用旧 revision 3 调用 `complete_then_continue`，但 canonical revis
 
 ## 13. 落地方式
 
-L1-L5 已选内容和哈希记录在 authority manifest；L1/L2 已接入生产，L3-L5 仍待后续阶段实施。实施按 `25` 号规格的 FLA-0 至 FLA-8
-逐阶段进行；每层的英文文本和 schema 进入对应版本化生产 artifact，本 Markdown 不作为 Runtime 读取源。
+L1-L5 当前生产内容和哈希记录在 authority manifest；L1-L3 已接入生产，L4/L5 的 sibling 形态只作为回归
+基线。实施按 `25` 号规格的 FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 逐阶段进行；每层的英文文本和 schema
+进入对应版本化生产 artifact，本 Markdown 不作为 Runtime 读取源。
 任何一层发生实质改写，都要先更新权威 artifact 与 hash，再作为独立变量测试，不能一次性整体替换。

@@ -6,7 +6,8 @@
 
 > 2026-07-20 后续专项：Phase D.5 是当前生产回滚基线；它删除的是旧版独立 Working Protocol 注入路径。
 > 五层重构选择的 L2 不是恢复该路径，而是作为现有 developer bundle 的首个版本化 section，按
-> [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 的 FLA-0 至 FLA-8 另行实施。涉及 L1-L5 的
+> [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 的 FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8
+> 另行实施。涉及 L1-L5 的
 > 目标合同、生产入口和验收以 `25` 号规格及 authority manifest 为准；本计划中的 Phase E-H 继续描述 R7
 > projection 主线，不可替代五层专项的完成证据。
 > 2026-07-21 更新：FLA-2 的合同 blocker、旧 L4 discriminator、V2 binding 反馈、观测缺口和后续发现的 evidence
@@ -14,6 +15,9 @@
 > 独立对抗性闭环已通过，FLA-2 恢复为 `active_verified`，详见
 > [阻塞修复结果](30-r7-fla2-blocker-repair-result.md)。H-003 跨 top-level sibling 结构问题仍保持 open，作为后续
 > L4 carrier 能力问题独立处理，不得用额外 Runtime 语义干预掩盖。
+> 2026-07-21 决策更新：H-003 已确认为连续动作产品合同的结构性回归，不再留到 FLA-6 作为可选实验。
+> 新增 [FLA-3.5 连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)，阻塞 FLA-4、
+> R7 Phase E 及后续收口。当前 `required_next_call + top-level sibling` 只保留为可复现回归基线，不是目标合同。
 
 ## 1.1 元数据
 
@@ -21,11 +25,12 @@
 Created: 2026-07-17
 Updated: 2026-07-21
 Version: v0.0.5 build-R7
-Status: Phase D.5 Dual Base Instructions Completed / Phase E Not Started
+Status: Phase D.5 Completed / FLA-3.5 Selected Not Implemented / Phase E Blocked
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
 Execution Order: A -> B -> C -> D -> E -> F -> G -> H
+Five-Layer Order: FLA-0 -> FLA-1 -> FLA-2 -> FLA-3 -> FLA-3.5 -> FLA-4 -> ... -> FLA-8
 R6 Frozen Baseline: e29810158
 Compatibility Policy: none
 ```
@@ -37,6 +42,7 @@ A. 冻结合同、盘点 R6 耦合点、固定 Standard/R6 基线
 B. 抽取共享 policy 核心，纵向切换 map-always，删除 epoch baseline
 C. 在同一核心上接入 map-append 与 supersession 合同
 D. 在同一核心上接入 map-request 与共享 read_map action
+FLA-3.5. 恢复“非终态交接 + 真实后续动作”同一 Tool schema 的结构保证
 E. 收敛 retry/resume/fork/compaction 和跨策略事件等价性
 F. 删除残留分叉，完成配置、工具、日志和 Viewer/observer 一致性
 G. 执行 Standard + 三策略正式四臂矩阵并冻结默认值建议
@@ -508,6 +514,26 @@ base identity 分别 6/6、7/7 匹配 v1.0.0 合同。该单次结果只证明�
 `benchmarks/taskspace/r7/base-instructions-contract.json` 与
 `benchmarks/taskspace/r7/dual-base-instructions-v1.0.0-result.json`。
 
+### 1.11.6 FLA-3.5：连续动作合同回归修复
+
+**目标**：恢复 R5 J6 与 R7 D.2 已验证的结构保证，使初始化、绑定和完成后继续不能脱离真实后续动作单独
+表达，同时保留 D.4 的原生 Patch 保真收益。
+
+选定方向是让真实动作 Tool 由共享 builder 机械增加轻量 `taskspace_transition` 前缀；状态交接和该动作属于
+同一个 provider tool call，Patch 正文仍保持原生顶层输入。Runtime 只校验并执行 Agent 明确给出的交接，
+不自动补动作、不推断下一节点，也不复制 ordinary Tool router/handler。
+
+实施必须先完成真实 provider、`apply_patch`、MCP、反馈保真和 barrier probe。probe 未满足 100% 结构合法、
+Patch exact 与输入输出保真时不得进入生产。完整 CA-0 至 CA-6、三臂验收、日志、回滚和冲突处理见
+[连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md)。
+
+阶段关系：
+
+- 当前 sibling 方案是回归基线，不再由 FLA-4 正式化；
+- FLA-3.5 未 `active_verified` 前，FLA-4、Phase E 及后续阶段保持阻塞；
+- 原 FLA-6 “移除 `required_next_call`”实验取消，该字段随回归修复一次性删除；
+- 历史 D.2-D.4 结果保持原样，继续分别证明连续动作收益和 Patch carrier 根因。
+
 ## 1.12 Phase E：生命周期与跨策略等价
 
 **目标**：证明三种策略只改变 provider context projection，不改变任何状态机、工具或事件结果。
@@ -606,6 +632,7 @@ observer 对缺失数据明确 unavailable，不产生误判。
 | policy 泄漏到 Runtime 语义 | 不同策略产生不同 Map/event hash | Phase E differential hard gate |
 | append 缺失或倒退 | request 末项不是 projection、revision 回退、末项 identity 不匹配 | cursor + wire scanner + fault tests |
 | request 退化成可选账本 | ordinary tool 可在空 Map/无 lease 执行 | 共享 hard gate 回归矩阵 |
+| 连续动作退化成跨 sibling 事后惩罚 | standalone transition、`TASKSPACE_REQUIRED_SIBLING_MISSING` | FLA-3.5 schema-first hard gate |
 | always 缓存被误判为 bug | correctness 正常但 uncached 偏高 | known-feature 分类 + raw cache trace |
 | mode-specific prompt 污染实验 | 三策略 system/tool hash 不同 | Phase F hash equality gate |
 | compaction 丢失 Map | provider history 缩短后 state hash 变化 | canonical store 独立 hash proof |

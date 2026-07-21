@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "status": "production_active_through_fla3_with_l4_l5_blocker_repairs",
+  "status": "production_active_through_fla3_with_fla3_5_selected_and_l4_l5_regression_baseline",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "authority_order": [
     "this_manifest",
+    "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
     "selected machine-readable schemas and exact-text artifacts listed here",
     "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
     "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
@@ -15,18 +16,23 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "cbf398a1c4dbc67b44384f52f217db25b686ae75487adb70a9c5be20893dfb43",
+      "sha256": "88a56ba96c0b9942b4dffdbc2b45b55624bac42ed25eff7f8415abf95ae9876b",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "4978f8522abfca9bf0e500acc1dfc43e4aa79a852c515c79bcd157492857bb21",
+      "sha256": "d8368f86a491a8604fb48c6e8c0cc63db790665d3860c7cdc25eaed2bc482f6e",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "91067c3a5080ebd985f121aecacd51a67153124be06005608ef4ea0acfd59ec2",
+      "sha256": "319601b7ea40cf0b9ade6a9cfa507ad34304e27173f623e07e1640c6082834f2",
       "role": "layer responsibilities, ownership and architectural boundaries"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
+      "sha256": "dcc7c9cf47e977ad951d965fbe059a51d605e386034bcbc75077cb6ff106484f",
+      "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],
   "baseline": {
@@ -155,22 +161,28 @@
       "acceptance": "independent A/B only; no merge unless correctness, requests, selection errors, cache, and schema cost pass"
     },
     {
-      "id": "FLA-6-E2-remove-required-next-call",
-      "status": "experimental_disabled",
-      "baseline": "required_next_call retained and preflight checks actual sibling",
-      "acceptance": "independent A/B only; combined-response rate and protocol rejection rate must not regress"
-    },
-    {
-      "id": "FLA-6-E3-mcp-output-schema",
+      "id": "FLA-6-E2-mcp-output-schema",
       "status": "experimental_disabled",
       "baseline": "local result schema plus model-visible JSON",
       "acceptance": "MCP outputSchema and structuredContent must conform to the same selected L5 schema"
     },
     {
-      "id": "FLA-6-E4-deepseek-strict",
+      "id": "FLA-6-E3-deepseek-strict",
       "status": "experimental_disabled",
       "baseline": "strict false",
       "acceptance": "adapter forwarding and all-visible-tool provider probe must pass before behavior A/B"
+    }
+  ],
+  "blocking_repairs": [
+    {
+      "id": "FLA-3.5-continuous-action-regression-repair",
+      "status": "selected_not_implemented",
+      "issue": "H-003",
+      "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
+      "blocks": ["FLA-4", "FLA-5", "FLA-6", "FLA-7", "FLA-8", "R7-Phase-E"],
+      "current_regression_baseline": "required_next_call declaration plus top-level sibling preflight",
+      "selected_direction": "real action tool carries a lightweight taskspace_transition through one shared schema decorator and the existing execution chain",
+      "required_next_call_disposition": "delete atomically after CA-1 probe and CA-5/CA-6 acceptance; no compatibility path"
     }
   ],
   "obsolete_after_activation": [
