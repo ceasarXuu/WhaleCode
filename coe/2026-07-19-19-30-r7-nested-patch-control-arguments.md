@@ -827,3 +827,46 @@
   ```
 - Interpretation: 原子 candidate 状态链、pinned completion 重算和合法 revert required-check 已具备可重放黑盒证据；正式 anchor 仍取决于 Round 2 空白上下文审查。
 - Time: 2026-07-22 02:25
+
+## Evidence E-016: Round 2 否定 CA-0 自认证证据链
+- Related hypotheses:
+  - H-009
+- Direction: contradicts E-014/E-015 对 production correctness 的解释；保留其 Git 生命周期证据
+- Type: adversarial-review
+- Source: `vs_review/2026-07-22-r7-ca0-toolchain-review.md`
+- Prediction or plan link:
+  - 正式 anchor 只能锚定能够独立验证后续 candidate production code 的工具链，不能锚定 candidate 自己提供的 verdict、fixture 或路径。
+- Matched signal:
+  - Round 2 以 `REJECT` 识别 8 个 blocking finding，其中 R2-1 至 R2-4 均指向“生成者定义并证明自身”。
+  - 四类 executable artifact 的 verifier 只重算 schema、hash 和标签，没有执行 production parser、transition、outcome 或 oracle。
+  - closure 只记录 binding source 子集，profile 与 DeepSeek rows 存在手工合成；rollback 未覆盖真实 add/modify/delete/mode。
+  - shared index、successor authority、anchor path、transitive environment 和 GitHub workflow identity 另有边界缺口。
+- Correlation keys:
+  - review session `019f85f0-915f-71d0-bcbb-d9ffa793c2a0`
+  - review target `54165032e`
+  - verdict `REJECT`
+- Interpretation: E-014/E-015 只能证明 artifact/Git 生命周期的内部一致性，不能证明 carrier production correctness。正式 anchor 继续禁止创建。
+- Time: 2026-07-22 02:50
+
+## Evidence E-017: R2-3 收敛后 R2-2 暴露前实现工具链矛盾
+- Related hypotheses:
+  - H-009
+- Direction: narrows remaining blocker; requires architecture decision
+- Type: root-cause-analysis
+- Source: Rust production source、R7 closure generator、固定容器 lifecycle
+- Prediction or plan link:
+  - R2-3 应由 production config 与真实 provider mapper 生成完整 closure；R2-2 executor 必须在 anchor 父提交固定，并在后续 candidate commit 上执行真实生产路径。
+- Matched signal:
+  - commit `918a49897` 将 source inventory 扩展为全部 production Rust 文件，并用新增/修改/删除回归证明 digest fail-closed。
+  - commit `dd2c8af4f` 使用 `ModelInfo + Features + ToolsConfig::new` 生成 7 个 production profile，并通过 `build_chat_completions_body` 的真实 DeepSeek mapper 生成 466 条双 wire entry；487 个 Rust source、48 个关键 binding 进入 inventory。
+  - 3 个 Rust 专项测试与 PreAnchor 工具链通过；R2-3 的手工 profile/mapper 缺口已关闭。
+  - 全仓搜索确认当前 production source 不存在 `taskspace_transition`、`TaskSpaceCarrierOutcome` 或 carrier executor；现有 L4/transition/outcome/oracle 由 PowerShell 手工构造，描述的是 anchor 之后才会实现的 candidate 行为。
+  - 因而在当前提交上增加“读取 fixture 后再输出相同结构”的 Rust binary 仍是自认证；此前 synthetic candidate lifecycle PASS 只能证明 Git 状态机，不可升级为 production executor 证据。
+  - digest-pinned Rust 容器的冷构建同时因 Cargo Git dependency `crossterm` 拉取超时失败，说明执行环境还需要 locked fetch + offline replay 或等价依赖供给协议；该次运行不得记为 PASS。
+- Correlation keys:
+  - R2-3 commits `918a49897`, `dd2c8af4f`
+  - closure entries/source/bindings `466/487/48`
+  - failed container `aba3d65dfe20`
+  - failure `R7_TEST_CLOSURE_GENERATION_FAILED` / locked crossterm fetch timeout
+- Interpretation: R2-2 的正确目标不是把合成 fixture 换一种语言重放，而是建立 pre-anchor 固定、可对 post-anchor candidate 使用的 production black-box runner。下一步必须在“完整 Agent mock-provider 黑盒 runner”与“预先冻结 production probe 接口”之间选择；前者架构更忠实、工作量更大，后者需要提前引入未激活的 carrier probe contract。
+- Time: 2026-07-22 03:49
