@@ -39,25 +39,47 @@ function Assert-CandidateActivationTargets {
 function Assert-CandidateArtifactSchemaContract {
     param([string]$SchemaPath)
     $sha = "1" * 64
-    $ratioMetric = @{formula = "numerator / denominator"; numerator = "matched"; denominator = "required"; unit = "ratio"}
-    $metrics = @{transition_carrier_rate = $ratioMetric; carrier_execution_started_rate = $ratioMetric; correctness_rate = $ratioMetric}
-    $thresholds = @{transition_carrier_rate_min = 1; correctness_rate_min = 1; request_amplification_max = 1}
-    $oracleIds = @("empty_map_initialize", "ready_bind", "complete_continue", "commit_cancel_boundary", "resume_lease", "compaction_projection")
-    $oracles = $oracleIds | ForEach-Object { @{id = $_; given = "known state for $_"; when = "mechanical event for $_"; then = "factual result for $_"} }
-    $capabilityEntries = @(
-        @{wire_api = "responses"; tool_spec = "Function"; tool_payload = "Function"; invocation_source = "builtin"; route = "function"; disposition = "carrier"; reason = "shared handler"},
-        @{wire_api = "responses"; tool_spec = "Namespace"; tool_payload = "NotApplicable"; invocation_source = "dynamic"; route = "namespace"; disposition = "container"; reason = "container only"},
-        @{wire_api = "responses"; tool_spec = "ToolSearch"; tool_payload = "ToolSearch"; invocation_source = "builtin"; route = "tool_search"; disposition = "non_carrier"; reason = "provider native"},
-        @{wire_api = "responses"; tool_spec = "LocalShell"; tool_payload = "LocalShell"; invocation_source = "builtin"; route = "local_shell"; disposition = "non_carrier"; reason = "provider native"},
-        @{wire_api = "responses"; tool_spec = "ImageGeneration"; tool_payload = "NotApplicable"; invocation_source = "builtin"; route = "image_generation"; disposition = "non_carrier"; reason = "provider native"},
-        @{wire_api = "responses"; tool_spec = "WebSearch"; tool_payload = "NotApplicable"; invocation_source = "builtin"; route = "web_search"; disposition = "non_carrier"; reason = "provider native"},
-        @{wire_api = "responses"; tool_spec = "Freeform"; tool_payload = "Custom"; invocation_source = "builtin"; route = "apply_patch"; disposition = "projected_carrier"; reason = "taskspace projection"},
-        @{wire_api = "responses"; tool_spec = "Function"; tool_payload = "Mcp"; invocation_source = "mcp"; route = "mcp"; disposition = "carrier"; reason = "decorated dynamic function"}
+    $metrics = [ordered]@{
+        transition_carrier_rate = @{formula = "committed_transition_with_reserved_tool / accepted_nonterminal_transition"; unit = "ratio"}
+        carrier_execution_started_rate = @{formula = "handler_handoff_started / committed_transition_with_reserved_tool"; unit = "ratio"}
+        correctness_rate = @{formula = "correct_runs / attempted_runs"; unit = "ratio"}
+        standalone_nonterminal_count = @{formula = "count(accepted_nonterminal_transition_without_reserved_tool)"; unit = "count"}
+        h003_count = @{formula = "count(TASKSPACE_REQUIRED_SIBLING_MISSING)"; unit = "count"}
+        patch_input_exact_rate = @{formula = "byte_exact_patch_inputs / patch_inputs"; unit = "ratio"}
+        typed_output_exact_rate = @{formula = "schema_and_payload_exact_outputs / carrier_outputs"; unit = "ratio"}
+        request_count = @{formula = "count(provider_requests)"; unit = "count"}
+        input_tokens = @{formula = "sum(provider_input_tokens)"; unit = "tokens"}
+        output_tokens = @{formula = "sum(provider_output_tokens)"; unit = "tokens"}
+        cache_hit_rate = @{formula = "cached_input_tokens / input_tokens"; unit = "ratio"}
+        wall_time_ms = @{formula = "run_finished_at_ms - run_started_at_ms"; unit = "milliseconds"}
+        provider_time_ms = @{formula = "sum(provider_request_duration_ms)"; unit = "milliseconds"}
+        tool_time_ms = @{formula = "sum(tool_execution_duration_ms)"; unit = "milliseconds"}
+    }
+    $thresholds = [ordered]@{transition_carrier_rate_min = 1; correctness_rate_min = 1; standalone_nonterminal_count_max = 0; h003_count_max = 0; patch_input_exact_rate_min = 1; typed_output_exact_rate_min = 1; request_amplification_max = 1; input_token_amplification_max = 1; output_token_amplification_max = 1; wall_time_amplification_max = 1; cache_hit_rate_delta_min = 0}
+    $oracles = @(
+        @{id = "empty_map_initialize"; pre_state = "empty_map"; transition = "initialize_map"; commit = "committed"; tool_state = "reserved"; lease_effect = "root_and_next_bound"},
+        @{id = "ready_bind"; pre_state = "ready_node"; transition = "bind_node"; commit = "committed"; tool_state = "reserved"; lease_effect = "ready_node_bound"},
+        @{id = "complete_continue"; pre_state = "active_node"; transition = "complete_then_continue"; commit = "committed"; tool_state = "reserved"; lease_effect = "current_completed_next_bound"},
+        @{id = "commit_cancel_boundary"; pre_state = "prepared_call"; transition = "complete_then_continue"; commit = "committed"; tool_state = "not_started"; lease_effect = "reservation_cancelled_with_fact"},
+        @{id = "resume_lease"; pre_state = "resumed_session"; transition = "bind_node"; commit = "committed"; tool_state = "reserved"; lease_effect = "persisted_generation_reused"},
+        @{id = "compaction_projection"; pre_state = "compacted_context"; transition = "complete_then_continue"; commit = "committed"; tool_state = "reserved"; lease_effect = "canonical_map_revision_preserved"}
     )
-    $samples = @(
-        @{id = "simple"; category = "simple"; fixture_sha256 = $sha; repeats = 3; order = 1},
-        @{id = "complex"; category = "complex"; fixture_sha256 = $sha; repeats = 3; order = 2}
-    )
+    $capabilityEntries = @()
+    foreach ($api in @("deepseek_chat", "responses")) {
+        $capabilityEntries += @(
+            @{wire_api = $api; tool_spec = "Function"; tool_payload = "Function"; registration_source = "builtin"; invocation_origin = "direct"; route = "function"; disposition = "carrier"; reason_code = "shared_function_handler"},
+            @{wire_api = $api; tool_spec = "Namespace"; tool_payload = "NotApplicable"; registration_source = "dynamic"; invocation_origin = "direct"; route = "namespace"; disposition = "container"; reason_code = "namespace_container"},
+            @{wire_api = $api; tool_spec = "ToolSearch"; tool_payload = "ToolSearch"; registration_source = "builtin"; invocation_origin = "direct"; route = "tool_search"; disposition = "non_carrier"; reason_code = "provider_native"},
+            @{wire_api = $api; tool_spec = "LocalShell"; tool_payload = "LocalShell"; registration_source = "builtin"; invocation_origin = "direct"; route = "local_shell"; disposition = "non_carrier"; reason_code = "provider_native"},
+            @{wire_api = $api; tool_spec = "ImageGeneration"; tool_payload = "NotApplicable"; registration_source = "builtin"; invocation_origin = "direct"; route = "image_generation"; disposition = "non_carrier"; reason_code = "provider_native"},
+            @{wire_api = $api; tool_spec = "WebSearch"; tool_payload = "NotApplicable"; registration_source = "builtin"; invocation_origin = "direct"; route = "web_search"; disposition = "non_carrier"; reason_code = "provider_native"},
+            @{wire_api = $api; tool_spec = "Freeform"; tool_payload = "Custom"; registration_source = "builtin"; invocation_origin = "direct"; route = "apply_patch"; disposition = "projected_carrier"; reason_code = "taskspace_function_projection"},
+            @{wire_api = $api; tool_spec = "Function"; tool_payload = "Mcp"; registration_source = "mcp"; invocation_origin = "nested"; route = "mcp"; disposition = "carrier"; reason_code = "decorated_mcp_function"}
+        )
+    }
+    $sourceInventory = @{tool_spec_source = "third_party/codex-cli/codex-rs/tools/src/tool_spec.rs"; tool_payload_source = "third_party/codex-cli/codex-rs/core/src/tools/context.rs"; router_source = "third_party/codex-cli/codex-rs/core/src/tools/router.rs"; registry_source = "third_party/codex-cli/codex-rs/core/src/tools/registry.rs"; code_mode_source = "third_party/codex-cli/codex-rs/tools/src/code_mode.rs"; tool_spec_variants = @("Function", "Namespace", "ToolSearch", "LocalShell", "ImageGeneration", "WebSearch", "Freeform"); tool_payload_variants = @("Function", "ToolSearch", "Custom", "LocalShell", "Mcp")}
+    $sourceHashes = @{tool_spec = $sha; tool_payload = $sha; router = $sha; registry = $sha; code_mode = $sha}
+    $samples = @{simple = @{category = "simple"; fixture_sha256 = $sha; repeats = 3}; complex = @{category = "complex"; fixture_sha256 = $sha; repeats = 3}}
     $toolIdentity = { param($name, $wire) @{name = $name; wire_api = "responses"; wire_kind = $wire; carrier_field = "taskspace_transition"; business_schema_sha256 = $sha; standard_wire_sha256 = $sha; parser_identity = "$name-parser"; handler_identity = "$name-handler"} }
     $outcomeVariants = @{
         RejectedBeforeCommit = @{commit_state = "not_committed"; tool_state = "not_dispatched"; required_facts = @("pre_hook_fact", "failure")}
@@ -68,13 +90,13 @@ function Assert-CandidateArtifactSchemaContract {
     $validBodies = @(
         @{schema_version = 1; artifact_role = "l4_schema"; provider_tools = @((& $toolIdentity "exec_command" "function"), (& $toolIdentity "apply_patch" "taskspace_function_projection"), (& $toolIdentity "exec" "taskspace_function_projection")); reserved_collision_policy = "reject_epoch"},
         @{schema_version = 1; artifact_role = "transition_schema"; transition_schema = @{schema_id = "r7-transition-v1"; action_contracts = @{initialize_map = @{required_fields = @("action", "expected_revision", "root_goal", "next_node_id"); state_effect = "create_root_and_bind_next"}; bind_node = @{required_fields = @("action", "expected_revision", "next_node_id"); state_effect = "bind_ready_node"}; complete_then_continue = @{required_fields = @("action", "expected_revision", "current_node_id", "next_node_id", "final_summary"); state_effect = "complete_current_and_bind_next"}}; standalone_nonterminal_allowed = $false}},
-        @{schema_version = 1; artifact_role = "typed_outcome"; outcome_type = "TaskSpaceCarrierOutcome"; outcome_variants = $outcomeVariants; tool_output_preservation = "opaque"; post_hook_separate = $true},
+        @{schema_version = 1; artifact_role = "typed_outcome"; outcome_type = "TaskSpaceCarrierOutcome"; outcome_variants = $outcomeVariants; deferred_authorization_contract = @{NotRequired = @{required_fields = @("decision")}; Requested = @{required_fields = @("kind", "discovered_scope", "denial_hash", "decision", "grant_id")}; Approved = @{required_fields = @("kind", "discovered_scope", "denial_hash", "decision", "grant_id")}; Denied = @{required_fields = @("kind", "discovered_scope", "denial_hash", "decision", "grant_id", "factual_error")}}; tool_output_preservation = "opaque"; post_hook_separate = $true},
         @{schema_version = 1; artifact_role = "lifecycle_oracle_v2"; oracle_version = 2; oracles = $oracles},
-        @{schema_version = 1; artifact_role = "entry_closure"; generator_version = 1; generated = $true; source_inventory = @{tool_spec_source = "third_party/codex-cli/codex-rs/tools/src/tool_spec.rs"; tool_payload_source = "third_party/codex-cli/codex-rs/core/src/tools/context.rs"; tool_spec_variants = @("Function", "Namespace", "ToolSearch", "LocalShell", "ImageGeneration", "WebSearch", "Freeform"); tool_payload_variants = @("Function", "ToolSearch", "Custom", "LocalShell", "Mcp")}; entries = $capabilityEntries},
+        @{schema_version = 1; artifact_role = "entry_closure"; generator_version = 1; generated = $true; source_inventory = $sourceInventory; source_hashes = $sourceHashes; generation_digest = $sha; entries = $capabilityEntries},
         @{schema_version = 1; artifact_role = "capability_matrix"; matrix_id = "r7-carrier-matrix-v1"; entry_closure = @{path = "benchmarks/taskspace/r7/candidates/$sha/entry-closure.json"; sha256 = $sha}; entries = $capabilityEntries},
-        @{schema_version = 1; artifact_role = "rollback_manifest"; baseline_authority_sha256 = $sha; baseline_production_sha256 = $sha; restore_targets = @(@{target_role = "authority"; path = "authority.json"; sha256 = $sha}, @{target_role = "production_manifest"; path = "production.json"; sha256 = $sha}, @{target_role = "runtime_manifest"; path = "runtime-manifest.json"; sha256 = $sha}, @{target_role = "schema_parser"; path = "schema-parser.json"; sha256 = $sha}); verification_commands = @(@{id = "contract_tests"; command = "pwsh contract-tests"}, @{id = "rollback_drill"; command = "pwsh rollback-drill"})},
-        @{schema_version = 1; artifact_role = "continuous_action_evaluation"; evaluation_id = "ca-eval-v1"; sealed = $true; seed = 7; arm_order = @("standard", "sibling_baseline", "fla3_5_candidate"); samples = $samples; metrics = $metrics; thresholds = $thresholds; statistics = $statistics},
-        @{schema_version = 1; artifact_role = "fla8_evaluation_v2"; evaluation_id = "fla8-v2"; sealed = $true; seed = 7; repeats = 3; arm_order = @("arm1", "arm2", "arm3", "arm4", "arm5", "arm6", "arm7"); held_out_identity = @{suite_id = "held-out"; manifest_sha256 = $sha; content_mounted = $false}; metrics = $metrics; thresholds = $thresholds; statistics = $statistics}
+        @{schema_version = 1; artifact_role = "rollback_manifest"; baseline_authority_sha256 = $sha; baseline_production_sha256 = $sha; restore_targets = @(@{target_role = "authority"; path = "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"; sha256 = $sha}, @{target_role = "production_manifest"; path = "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"; sha256 = $sha}, @{target_role = "runtime_manifest"; path = "runtime-manifest.json"; sha256 = $sha}, @{target_role = "schema_parser"; path = "schema-parser.json"; sha256 = $sha}); verification_commands = @(@{id = "contract_tests"; command = "pwsh contract-tests"}, @{id = "rollback_drill"; command = "pwsh rollback-drill"})},
+        @{schema_version = 1; artifact_role = "continuous_action_evaluation"; evaluation_id = "ca-eval-v1"; sealed = $true; seed = 7; arm_order = @("standard", "sibling_baseline", "fla3_5_candidate"); samples = $samples; sample_order = @("simple", "complex"); metrics = $metrics; thresholds = $thresholds; statistics = $statistics},
+        @{schema_version = 1; artifact_role = "fla8_evaluation_v2"; evaluation_id = "fla8-v2"; sealed = $true; seed = 7; repeats = 3; arm_order = @("standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate"); held_out_identity = @{suite_id = "held-out"; manifest_sha256 = $sha; sample_count = 2; sample_ids = @("held-simple", "held-complex"); content_mounted = $false; mount_assertion = "held_out_content_path_absent_in_ca0_ca1_ca5"}; metrics = $metrics; thresholds = $thresholds; statistics = $statistics}
     )
     foreach ($body in $validBodies) {
         $json = $body | ConvertTo-Json -Depth 30
@@ -102,11 +124,11 @@ function Assert-CandidateArtifactSchemaContract {
     $hollowBodies[0].provider_tools[0].name = "placeholder"
     $hollowBodies[1].transition_schema.action_contracts.complete_then_continue.state_effect = "placeholder"
     $hollowBodies[2].outcome_variants.Executed.required_facts = @("transition_fact")
-    $hollowBodies[3].oracles[0].given = "x"
+    $hollowBodies[3].oracles[0].pre_state = "arbitrary_state"
     foreach ($entry in @($hollowBodies[4].entries)) { $entry.disposition = "non_carrier" }
     foreach ($entry in @($hollowBodies[5].entries)) { $entry.disposition = "non_carrier" }
     foreach ($target in @($hollowBodies[6].restore_targets)) { $target.target_role = "authority" }
-    $hollowBodies[7].thresholds.transition_carrier_rate_min = 0
+    $hollowBodies[7].metrics.transition_carrier_rate.formula = "meaningless / formula"
     $hollowBodies[8].arm_order[1] = $hollowBodies[8].arm_order[0]
     foreach ($body in $hollowBodies) {
         $json = $body | ConvertTo-Json -Depth 40
@@ -134,28 +156,9 @@ function Assert-CandidateActivationContract {
         Assert-CandidateActivationSnapshot $Candidate "reverted" $activeAuthorityRaw $activeAuthority $driftedProduction $driftedProductionRaw ([string]$Candidate.active_authority.sha256) (Get-TextSha256 $driftedProductionRaw)
     } "Reverted candidate accepted a production manifest that was not byte-exact baseline"
 
-    $promotedAuthority = $activeAuthorityRaw | ConvertFrom-Json -Depth 50
-    $retainedTargets = @($promotedAuthority.selected_targets | Where-Object { [string]$_.layer -ne "L4" -and -not ([string]$_.layer).StartsWith("L5-", [System.StringComparison]::Ordinal) })
-    $candidateAuthorityTargets = @()
-    $candidateL4 = $Candidate.activation_targets.L4[0]
-    $candidateAuthorityTargets += [pscustomobject]@{layer = $candidateL4.authority_layer; implementation_status = $candidateL4.implementation_status; activation_phase = $candidateL4.activation_phase; artifact = $candidateL4.path; sha256 = $candidateL4.sha256}
-    foreach ($target in @($Candidate.activation_targets.L5)) {
-        $candidateAuthorityTargets += [pscustomobject]@{layer = $target.authority_layer; implementation_status = $target.implementation_status; activation_phase = $target.activation_phase; artifact = $target.path; sha256 = $target.sha256}
-    }
-    $promotedAuthority.selected_targets = @($retainedTargets) + @($candidateAuthorityTargets)
-    $promotedRepair = @($promotedAuthority.blocking_repairs | Where-Object { [string]$_.id -eq [string]$Candidate.activation_targets.blocking_repair.id })[0]
-    $promotedRepair.implementation_status = $Candidate.activation_targets.blocking_repair.implementation_status
+    $promotedAuthority = Get-ExpectedPromotedAuthority $Candidate
     $promotedAuthorityRaw = $promotedAuthority | ConvertTo-Json -Depth 50
-    $promotedProduction = $activeProductionRaw | ConvertFrom-Json -Depth 50
-    $promotedProduction.source_authority.sha256 = Get-TextSha256 $promotedAuthorityRaw
-    $promotedProduction | Add-Member -NotePropertyName promoted_candidate_id -NotePropertyValue ([string]$Candidate.candidate_id) -Force
-    $promotedProduction.activation_through = $Candidate.activation_targets.activation_through
-    $promotedProduction.runtime_status_enum = @("selected_not_active", "active", "repair_active", "result_repair_active_projection_baseline", "carrier_active_projection_baseline")
-    foreach ($layer in @("L4", "L5")) {
-        $productionLayer = @($promotedProduction.layers | Where-Object { [string]$_.id -eq $layer })[0]
-        $productionLayer.runtime_status = $Candidate.activation_targets.production_runtime_status.$layer
-        $productionLayer.selected_targets = @($Candidate.activation_targets.$layer | ForEach-Object { [pscustomobject]@{artifact = $_.path; sha256 = $_.sha256; activation_phase = $_.activation_phase} })
-    }
+    $promotedProduction = Get-ExpectedPromotedProduction $Candidate (Get-TextSha256 $promotedAuthorityRaw)
     $promotedProductionRaw = $promotedProduction | ConvertTo-Json -Depth 50
     Assert-True ($promotedAuthorityRaw | Test-Json -SchemaFile $authoritySchemaPath -ErrorAction Stop) "Canonical promoted authority does not match authority schema"
     Assert-True ($promotedProductionRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Canonical promoted production manifest does not match schema"
@@ -180,6 +183,18 @@ function Assert-CandidateActivationContract {
     Assert-Throws {
         Assert-CandidateActivationSnapshot $Candidate "promoted" $metadataAuthorityRaw $metadataAuthority $metadataProduction
     } "Promoted candidate accepted undeclared sibling metadata"
+    $unrelatedAuthority = $promotedAuthorityRaw | ConvertFrom-Json -Depth 50
+    $unrelatedL1 = @($unrelatedAuthority.selected_targets | Where-Object { [string]$_.layer -eq "L1" })[0]
+    $unrelatedL1.implementation_status = "selected_not_implemented"
+    $unrelatedL1 | Add-Member -NotePropertyName sibling_metadata -NotePropertyValue "forbidden"
+    $unrelatedRepair = @($unrelatedAuthority.blocking_repairs | Where-Object { [string]$_.id -eq [string]$Candidate.activation_targets.blocking_repair.id })[0]
+    $unrelatedRepair | Add-Member -NotePropertyName required_next_call -NotePropertyValue "retained"
+    $unrelatedAuthorityRaw = $unrelatedAuthority | ConvertTo-Json -Depth 50
+    $unrelatedProduction = $promotedProduction | ConvertTo-Json -Depth 50 | ConvertFrom-Json -Depth 50
+    $unrelatedProduction.source_authority.sha256 = Get-TextSha256 $unrelatedAuthorityRaw
+    Assert-Throws {
+        Assert-CandidateActivationSnapshot $Candidate "promoted" $unrelatedAuthorityRaw $unrelatedAuthority $unrelatedProduction
+    } "Promoted candidate accepted unrelated L1 or blocking-repair drift"
     $promotedProduction.layers[3].selected_targets += [pscustomobject]@{artifact = "old-target"; sha256 = ("0" * 64); activation_phase = "old"}
     Assert-Throws {
         Assert-CandidateActivationSnapshot $Candidate "promoted" $promotedAuthorityRaw $promotedAuthority $promotedProduction
@@ -213,7 +228,7 @@ function Assert-CandidateHistoryMetaContract {
 }
 
 function Assert-CandidateManifestIntegrity {
-    param([object]$Candidate, [string]$ManifestPath = "", [string]$EventCommit = "")
+    param([object]$Candidate, [string]$ManifestPath = "", [string]$EventCommit = "", [bool]$UseWorktree = $false)
     $candidateId = [string]$Candidate.candidate_id
     Assert-Equal ([string]$Candidate.contract_id) "r7-taskspace-five-layer-candidate-$candidateId" "Candidate contract id does not match candidate id"
     Assert-Equal (Get-CandidateContentId $Candidate) $candidateId "Candidate content id does not match active snapshot and artifact hashes"
@@ -243,6 +258,7 @@ function Assert-CandidateManifestIntegrity {
     $namespacePrefix = $namespaceRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
     $seenPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $seenHashes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $artifactBodies = @{}
     foreach ($artifact in $Candidate.artifact_hashes.psobject.Properties) {
         Assert-Equal ([string]$artifact.Value.artifact_role) ([string]$artifact.Name) "Candidate artifact role marker drifted"
         $relativePath = [string]$artifact.Value.path
@@ -250,39 +266,43 @@ function Assert-CandidateManifestIntegrity {
         Assert-True $relativePath.StartsWith($expectedPrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its namespace: $relativePath"
         $canonicalPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $relativePath))
         Assert-True $canonicalPath.StartsWith($namespacePrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its canonical namespace: $relativePath"
-        $pathCursor = [System.IO.Path]::GetFullPath($repoRoot)
-        foreach ($segment in $relativePath.Split([char[]]@('/', '\'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
-            $pathCursor = Join-Path $pathCursor $segment
-            if (Test-Path -LiteralPath $pathCursor) {
-                $pathItem = Get-Item -LiteralPath $pathCursor -Force
-                Assert-True (($pathItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) "Candidate artifact path contains a symlink: $relativePath"
-            }
-        }
         Assert-True ($seenPaths.Add($canonicalPath)) "Candidate artifact paths must be unique: $relativePath"
         Assert-True ($seenHashes.Add([string]$artifact.Value.sha256)) "Candidate artifact roles must not reuse one blob hash"
         if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
-            Assert-True (Test-Path -LiteralPath $canonicalPath -PathType Leaf) "Candidate artifact missing: $relativePath"
-            $resolvedArtifactPath = (Resolve-Path -LiteralPath $canonicalPath).Path
-            Assert-True $resolvedArtifactPath.StartsWith($namespacePrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its resolved namespace: $relativePath"
-            $item = Get-Item -LiteralPath $canonicalPath -Force
-            Assert-True (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) "Candidate artifact must not be a symlink: $relativePath"
-            Assert-Equal (Get-Sha256 $canonicalPath) ([string]$artifact.Value.sha256) "Candidate artifact hash drifted: $relativePath"
             Assert-Equal (Get-GitBlobSha256 $candidateCommit $relativePath) ([string]$artifact.Value.sha256) "Candidate artifact was not frozen by candidate commit: $relativePath"
-            $treeEntry = (& git -C $repoRoot ls-tree $candidateCommit -- $relativePath).Trim()
+            if ($UseWorktree) {
+                $pathCursor = [System.IO.Path]::GetFullPath($repoRoot)
+                foreach ($segment in $relativePath.Split([char[]]@('/', '\'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
+                    $pathCursor = Join-Path $pathCursor $segment
+                    if (Test-Path -LiteralPath $pathCursor) {
+                        $pathItem = Get-Item -LiteralPath $pathCursor -Force
+                        Assert-True (($pathItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) "Candidate artifact path contains a symlink: $relativePath"
+                    }
+                }
+                Assert-True (Test-Path -LiteralPath $canonicalPath -PathType Leaf) "Candidate artifact missing: $relativePath"
+                $resolvedArtifactPath = (Resolve-Path -LiteralPath $canonicalPath).Path
+                Assert-True $resolvedArtifactPath.StartsWith($namespacePrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its resolved namespace: $relativePath"
+                Assert-Equal (Get-Sha256 $canonicalPath) ([string]$artifact.Value.sha256) "Candidate artifact hash drifted: $relativePath"
+                $artifactRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $canonicalPath
+                $treeCommit = $candidateCommit
+            } else {
+                Assert-True (-not [string]::IsNullOrWhiteSpace($EventCommit)) "Historical artifact validation requires an event commit"
+                $artifactRaw = Get-GitBlobText $EventCommit $relativePath
+                Assert-Equal (Get-GitBlobSha256 $EventCommit $relativePath) ([string]$artifact.Value.sha256) "Historical candidate artifact hash drifted: $relativePath at $EventCommit"
+                $treeCommit = $EventCommit
+            }
+            $treeEntry = (& git -C $repoRoot ls-tree $treeCommit -- $relativePath).Trim()
             Assert-True $treeEntry.StartsWith("100644 blob ", [System.StringComparison]::Ordinal) "Candidate artifact must be a regular non-executable Git blob: $relativePath"
-            $artifactBody = Get-Content -Raw -Encoding UTF8 -LiteralPath $canonicalPath | ConvertFrom-Json -Depth 50
+            $artifactBody = $artifactRaw | ConvertFrom-Json -Depth 100
             Assert-Equal ([string]$artifactBody.artifact_role) ([string]$artifact.Name) "Candidate artifact content role drifted: $relativePath"
             Assert-True (-not [string]::IsNullOrWhiteSpace([string]$artifactBody.schema_version)) "Candidate artifact schema_version missing: $relativePath"
             $artifactSchemaPath = Join-Path $repoRoot ([string]$authority.candidate_registry.artifact_schema)
-            $artifactRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $canonicalPath
             Assert-True ($artifactRaw | Test-Json -SchemaFile $artifactSchemaPath -ErrorAction Stop) "Candidate artifact does not match its role-specific schema: $relativePath"
+            $artifactBodies[[string]$artifact.Name] = $artifactBody
         }
     }
     if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
-        $matrixPath = Join-Path $repoRoot ([string]$Candidate.artifact_hashes.capability_matrix.path)
-        $matrix = Get-Content -Raw -Encoding UTF8 -LiteralPath $matrixPath | ConvertFrom-Json -Depth 100
-        Assert-Equal ([string]$matrix.entry_closure.path) ([string]$Candidate.artifact_hashes.entry_closure.path) "Capability matrix entry closure path drifted"
-        Assert-Equal ([string]$matrix.entry_closure.sha256) ([string]$Candidate.artifact_hashes.entry_closure.sha256) "Capability matrix entry closure hash drifted"
+        Assert-CandidateArtifactSemantics $Candidate $artifactBodies $candidateCommit
         $expectedPath = Join-Path $repoRoot "benchmarks/taskspace/r7/candidates/$candidateId/manifest.json"
         Assert-Equal ([System.IO.Path]::GetFullPath($ManifestPath)) ([System.IO.Path]::GetFullPath($expectedPath)) "Candidate manifest path does not match candidate id"
     }
@@ -313,9 +333,10 @@ function Assert-CandidateSupersession {
 function Assert-CandidateHistoryIntegrity {
     param([string]$ManifestPath, [string]$CurrentRaw, [object]$Authority)
     $relativePath = [System.IO.Path]::GetRelativePath($repoRoot, $ManifestPath).Replace("\", "/")
+    $candidateRootRelative = [System.IO.Path]::GetDirectoryName($relativePath).Replace("\", "/")
     $authorityRelativePath = "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
     $productionRelativePath = "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"
-    $historyCommits = @(& git -C $repoRoot log --first-parent --reverse --format=%H -- $relativePath $authorityRelativePath $productionRelativePath)
+    $historyCommits = @(& git -C $repoRoot log --first-parent --reverse --format=%H -- $candidateRootRelative $authorityRelativePath $productionRelativePath)
     $previousStatus = ""
     $previousSupersedingId = ""
     $lastRaw = $null
@@ -330,17 +351,23 @@ function Assert-CandidateHistoryIntegrity {
         $candidateRaw = Get-GitBlobText $commit $relativePath
         Assert-True ($candidateRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Historical candidate manifest does not match schema: $relativePath at $commit"
         $candidate = $candidateRaw | ConvertFrom-Json -Depth 50
-        Assert-CandidateManifestIntegrity $candidate $ManifestPath $commit
+        Assert-CandidateManifestIntegrity $candidate $ManifestPath $commit $false
         Assert-CandidateStateHistory $candidate $previousStatus $Authority
         $authorityRawAtCommit = Get-GitBlobText $commit $authorityRelativePath
+        Assert-True ($authorityRawAtCommit | Test-Json -SchemaFile $authoritySchemaPath -ErrorAction Stop) "Historical authority does not match schema at $commit"
         $authorityAtCommit = $authorityRawAtCommit | ConvertFrom-Json -Depth 50
         $productionRawAtCommit = Get-GitBlobText $commit $productionRelativePath
+        Assert-True ($productionRawAtCommit | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Historical production manifest does not match schema at $commit"
         $productionAtCommit = $productionRawAtCommit | ConvertFrom-Json -Depth 50
         if ([string]::IsNullOrWhiteSpace([string]$candidate.superseded_by)) {
+            Assert-True ([string]::IsNullOrWhiteSpace($previousSupersedingId)) "Candidate superseded_by cannot be cleared after assignment"
             $authorityHashAtCommit = Get-GitBlobSha256 $commit $authorityRelativePath
             $productionHashAtCommit = Get-GitBlobSha256 $commit $productionRelativePath
             Assert-CandidateActivationSnapshot $candidate ([string]$candidate.candidate_status) $authorityRawAtCommit $authorityAtCommit $productionAtCommit $productionRawAtCommit $authorityHashAtCommit $productionHashAtCommit
         } else {
+            if (-not [string]::IsNullOrWhiteSpace($previousSupersedingId)) {
+                Assert-Equal ([string]$candidate.superseded_by) $previousSupersedingId "Candidate superseded_by changed after first assignment"
+            }
             Assert-CandidateSupersession $candidate $commit $false ([string]::IsNullOrWhiteSpace($previousSupersedingId))
         }
         $previousStatus = [string]$candidate.candidate_status
@@ -350,14 +377,18 @@ function Assert-CandidateHistoryIntegrity {
     if ($null -eq $lastRaw -or (Get-TextSha256 $lastRaw) -cne (Get-TextSha256 $CurrentRaw)) {
         Assert-True ($CurrentRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Worktree candidate manifest does not match schema: $relativePath"
         $candidate = $CurrentRaw | ConvertFrom-Json -Depth 50
-        Assert-CandidateManifestIntegrity $candidate $ManifestPath ((& git -C $repoRoot rev-parse HEAD).Trim())
+        Assert-CandidateManifestIntegrity $candidate $ManifestPath ((& git -C $repoRoot rev-parse HEAD).Trim()) $true
         Assert-CandidateStateHistory $candidate $previousStatus $Authority
         $currentAuthorityRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath
         $currentProductionRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
         $currentProduction = $currentProductionRaw | ConvertFrom-Json -Depth 50
         if ([string]::IsNullOrWhiteSpace([string]$candidate.superseded_by)) {
+            Assert-True ([string]::IsNullOrWhiteSpace($previousSupersedingId)) "Worktree candidate cleared superseded_by after assignment"
             Assert-CandidateActivationSnapshot $candidate ([string]$candidate.candidate_status) $currentAuthorityRaw $Authority $currentProduction $currentProductionRaw (Get-Sha256 $authorityPath) (Get-Sha256 $manifestPath)
         } else {
+            if (-not [string]::IsNullOrWhiteSpace($previousSupersedingId)) {
+                Assert-Equal ([string]$candidate.superseded_by) $previousSupersedingId "Worktree candidate rewrote superseded_by"
+            }
             Assert-CandidateSupersession $candidate ((& git -C $repoRoot rev-parse HEAD).Trim()) $true ([string]::IsNullOrWhiteSpace($previousSupersedingId))
         }
     }
@@ -368,6 +399,9 @@ function Assert-CandidateHistoryIntegrity {
     if ([string]::IsNullOrWhiteSpace([string]$currentCandidate.superseded_by)) {
         Assert-CandidateActivationSnapshot $currentCandidate ([string]$currentCandidate.candidate_status) $currentAuthorityRaw $Authority $currentProduction $currentProductionRaw (Get-Sha256 $authorityPath) (Get-Sha256 $manifestPath)
     } else {
+        if (-not [string]::IsNullOrWhiteSpace($previousSupersedingId)) {
+            Assert-Equal ([string]$currentCandidate.superseded_by) $previousSupersedingId "Current candidate rewrote superseded_by"
+        }
         Assert-CandidateSupersession $currentCandidate ((& git -C $repoRoot rev-parse HEAD).Trim()) $true
     }
 }

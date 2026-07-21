@@ -54,6 +54,36 @@ function Get-GitBlobSha256 {
     Get-BytesSha256 (Get-GitBlobBytes $Commit $Path)
 }
 
+function ConvertTo-CanonicalValue {
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [System.Collections.IDictionary]) {
+        $ordered = [ordered]@{}
+        foreach ($key in @($Value.Keys | ForEach-Object { [string]$_ } | Sort-Object)) {
+            $ordered[$key] = ConvertTo-CanonicalValue $Value[$key]
+        }
+        return [pscustomobject]$ordered
+    }
+    if ($Value -is [pscustomobject]) {
+        $ordered = [ordered]@{}
+        foreach ($property in @($Value.psobject.Properties | Sort-Object Name)) {
+            $ordered[$property.Name] = ConvertTo-CanonicalValue $property.Value
+        }
+        return [pscustomobject]$ordered
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        $items = @()
+        foreach ($item in $Value) { $items += ,(ConvertTo-CanonicalValue $item) }
+        return ,$items
+    }
+    $Value
+}
+
+function ConvertTo-CanonicalJson {
+    param($Value)
+    ConvertTo-CanonicalValue $Value | ConvertTo-Json -Depth 100 -Compress
+}
+
 function Assert-Throws {
     param([scriptblock]$Action, [string]$Message)
     $threw = $false

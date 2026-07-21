@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-4", "FLA-5", "All")]
+    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "All")]
     [string]$Phase = "All"
 )
 
@@ -56,34 +56,10 @@ function Assert-CandidateActivationSnapshot {
         return
     }
     Assert-Equal $Status "promoted" "Unknown candidate activation status"
-    Assert-Equal ([string]$ProductionManifest.promoted_candidate_id) ([string]$Candidate.candidate_id) "Promoted candidate pointer drifted"
-    Assert-Equal ([string]$ProductionManifest.activation_through) ([string]$Candidate.activation_targets.activation_through) "Promoted production activation phase drifted"
-    $blockingRepair = @($AuthorityObject.blocking_repairs | Where-Object { [string]$_.id -eq [string]$Candidate.activation_targets.blocking_repair.id })
-    Assert-Equal $blockingRepair.Count 1 "Promoted authority must contain exactly one continuous-action repair record"
-    Assert-Equal ([string]$blockingRepair[0].implementation_status) ([string]$Candidate.activation_targets.blocking_repair.implementation_status) "Promoted repair status drifted"
-    foreach ($layer in @("L4", "L5")) {
-        $candidateTargets = @($Candidate.activation_targets.$layer)
-        $authorityLines = @()
-        foreach ($target in $candidateTargets) {
-            $authorityTarget = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer -eq [string]$target.authority_layer })
-            Assert-Equal $authorityTarget.Count 1 "Promoted authority must contain exactly one $($target.authority_layer) target"
-            $propertyNames = @($authorityTarget[0].psobject.Properties.Name | Sort-Object) -join ","
-            Assert-Equal $propertyNames "activation_phase,artifact,implementation_status,layer,sha256" "Promoted authority target retained undeclared metadata"
-            $authorityLines += "$([string]$authorityTarget[0].layer)|$([string]$authorityTarget[0].implementation_status)|$([string]$authorityTarget[0].artifact)|$([string]$authorityTarget[0].sha256)|$([string]$authorityTarget[0].activation_phase)"
-        }
-        $candidateAuthorityLines = @($candidateTargets | ForEach-Object { "$([string]$_.authority_layer)|$([string]$_.implementation_status)|$([string]$_.path)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-        $productionLayer = @($ProductionManifest.layers | Where-Object { [string]$_.id -eq $layer })
-        Assert-Equal $productionLayer.Count 1 "Production manifest must contain exactly one $layer layer"
-        Assert-Equal ([string]$productionLayer[0].runtime_status) ([string]$Candidate.activation_targets.production_runtime_status.$layer) "Promoted production $layer runtime status drifted"
-        foreach ($productionTarget in @($productionLayer[0].selected_targets)) {
-            $propertyNames = @($productionTarget.psobject.Properties.Name | Sort-Object) -join ","
-            Assert-Equal $propertyNames "activation_phase,artifact,sha256" "Promoted production target retained undeclared metadata"
-        }
-        $productionLines = @($productionLayer[0].selected_targets | ForEach-Object { "$([string]$_.artifact)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-        $candidateProductionLines = @($candidateTargets | ForEach-Object { "$([string]$_.path)|$([string]$_.sha256)|$([string]$_.activation_phase)" } | Sort-Object)
-        Assert-Equal (($authorityLines | Sort-Object) -join "`n") ($candidateAuthorityLines -join "`n") "Promoted authority $layer target set differs from candidate declaration"
-        Assert-Equal ($productionLines -join "`n") ($candidateProductionLines -join "`n") "Promoted production $layer target set differs from candidate declaration"
-    }
+    $expectedAuthority = Get-ExpectedPromotedAuthority $Candidate
+    $expectedProduction = Get-ExpectedPromotedProduction $Candidate $authorityHash
+    Assert-Equal (ConvertTo-CanonicalJson $AuthorityObject) (ConvertTo-CanonicalJson $expectedAuthority) "Promoted authority differs from baseline plus the exact candidate delta"
+    Assert-Equal (ConvertTo-CanonicalJson $ProductionManifest) (ConvertTo-CanonicalJson $expectedProduction) "Promoted production manifest differs from baseline plus the exact candidate delta"
 }
 
 function Assert-CandidateSetIntegrity {
@@ -114,6 +90,7 @@ function Assert-CandidateTransition {
     Assert-True ($allowed -contains $To) "Illegal candidate status transition: $From -> $To"
 }
 
+. (Join-Path $PSScriptRoot "r7-candidate-semantic-contracts.ps1")
 . (Join-Path $PSScriptRoot "r7-candidate-contract-helpers.ps1")
 
 function Test-PhaseEnabled {
@@ -151,7 +128,7 @@ if (Test-PhaseEnabled "FLA-0") {
     Write-Output "FLA-0 frozen source contracts passed."
 }
 
-if (Test-PhaseEnabled "FLA-1") {
+if ((Test-PhaseEnabled "FLA-1") -or (Test-PhaseEnabled "FLA-3.5")) {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Production contract manifest is missing"
     $manifestRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
     Assert-True ($manifestRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Production manifest JSON does not match its schema"
@@ -348,7 +325,7 @@ if (Test-PhaseEnabled "FLA-1") {
             $candidateRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $candidateFile.FullName
             Assert-True ($candidateRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Candidate manifest does not match schema: $($candidateFile.FullName)"
             $candidate = $candidateRaw | ConvertFrom-Json -Depth 50
-            Assert-CandidateManifestIntegrity $candidate $candidateFile.FullName
+            Assert-CandidateManifestIntegrity $candidate $candidateFile.FullName ((& git -C $repoRoot rev-parse HEAD).Trim()) $true
             Assert-CandidateHistoryIntegrity $candidateFile.FullName $candidateRaw $authority
             $candidateManifests += $candidate
         }
@@ -359,7 +336,11 @@ if (Test-PhaseEnabled "FLA-1") {
     $traceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs")
     Assert-True $contextModule.Contains("taskspace_contract_manifest_v1.json") "Context module does not own the production manifest"
     Assert-True $traceSource.Contains("taskspace_contract_manifest_identity") "Provider wire trace lacks manifest identity"
-    Write-Output "FLA-1 ownership and observability contracts passed."
+    if ($Phase -eq "FLA-3.5") {
+        Write-Output "FLA-3.5 candidate, promotion and history contracts passed."
+    } else {
+        Write-Output "FLA-1 ownership and observability contracts passed."
+    }
 }
 
 if (Test-PhaseEnabled "FLA-2") {

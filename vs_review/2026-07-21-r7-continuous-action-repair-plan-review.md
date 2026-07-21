@@ -200,4 +200,30 @@ Blocking、3 个 High：
 
 ## 12. 第十轮复审
 
-第九轮仍含 Blocking/High finding。九次修订提交后必须由第十个空白 reviewer 复核 W1-W4 和阶段所有权。
+- Target commit: `6d4a5ff4e`
+- Reviewer launch id: `019f82d2-761d-7441-b8e2-44f1f4295adb`
+- Reviewer nickname: Boyle
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第十个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第十轮确认连续动作与单 pipeline 的方向未被否定，V4 的 dispatch/execution 口径已关闭；机器晋升与证据合同仍有
+2 个 Blocking、4 个 High、1 个 Medium：
+
+| # | 级别 | 第十轮发现 | 处置 | 十次修订 |
+|---|---|---|---|---|
+| X1 | Blocking | promotion 只校验 L4/L5 和 repair status，允许 L1、phase gate 或 repair metadata 越权漂移 | Accept | 从 candidate 冻结 baseline 派生完整 expected authority/production，只允许显式 delta，规范化后比较全对象；加入 L1 与 repair metadata exploit |
+| X2 | Blocking | lifecycle、metric、rollback、evaluation 仍可用语义空壳通过 | Accept | 生命周期改精确事实表；完整指标公式/单位/阈值改 const；sample identity/order 唯一；FLA-8 保存 sealed ids/mount 断言；rollback 与 candidate snapshots 交叉绑定 |
+| X3 | High | 历史 artifact 从当前 worktree/candidate commit 读取，无法发现中间污染后恢复 | Accept | history union 扩到 candidate namespace；每个事件 commit 重读九类 artifact、authority、production 并做 schema/hash/tree-mode/candidate-commit 双重校验 |
+| X4 | High | `superseded_by` 首次写入后仍可改写 | Accept | 首次写入绑定后继首个 `promotion_pending` commit，之后逐事件要求 id 不变且不得清除 |
+| X5 | High | entry closure 只有枚举名与 contains，缺源码派生的精确闭包 | Accept | 增加五类源码 hash、canonical generation digest、双 wire、registration/invocation 拆分、route/reason 枚举和 closure/matrix 精确集合校验 |
+| X6 | High | deferred managed-network terminal outcome 丢失 scope/denial/decision 等事实 | Accept | 四种 variant 全量保留 kind、scope、denial hash、decision、grant id；Denied 另保留 factual error |
+| X7 | Medium | baseline sync 与主 validator 没有真实 FLA-3.5 操作入口 | Accept | CA-0 明确新增 candidate 专用 generator/transition command，并登记 `-Phase FLA-3.5` 独立门禁；baseline generator 不扩成伪晋升器 |
+
+阶段冲突检查本轮为 `FAIL`，直接原因是 promotion 可夹带与 FLA-3.5 无关的 authority 变更；X1 将该问题升级为
+完整快照的 exact-delta 门禁。所有 finding 均接受，不改变连续动作产品合同，不进入生产实现。
+
+## 13. 第十一轮复审
+
+第十轮仍含 Blocking/High finding。十次修订提交后必须由第十一个空白 reviewer 复核 X1-X7、连续动作合同保持性及
+FLA-3.5 与 FLA-4 至 FLA-8 / Phase E-H 的所有权冲突。
