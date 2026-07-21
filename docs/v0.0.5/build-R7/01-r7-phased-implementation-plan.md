@@ -538,6 +538,9 @@ Patch exact 与输入输出保真时不得进入生产。完整 CA-0 至 CA-6、
 
 **目标**：证明三种策略只改变 provider context projection，不改变任何状态机、工具或事件结果。
 
+**阶段所有权**：本节是 R7 产品里程碑，不再建立独立实现/gate。其代码、oracle、Docker 运行和接受结论全部由
+FLA-7 唯一产出；FLA-7 未完成时 Phase E 不能单独标记完成。
+
 实施项：
 
 1. 建立相同 scripted action sequence 的三策略 differential test。
@@ -559,6 +562,9 @@ simple + resume-compaction 快速三臂门禁通过。
 ## 1.13 Phase F：单架构审计与产品面收敛
 
 **目标**：删除所有临时接线和策略泄漏，使配置、工具、Runtime、observer、Viewer 只依赖一个共享合同。
+
+**阶段所有权**：Tool capability/权限审计归 FLA-6，Runtime/projection/recovery 审计归 FLA-7。本节只汇总两者
+证据并完成产品面文档/config/Viewer 收敛，不再运行一套平行 acceptance。
 
 实施项：
 
@@ -582,10 +588,14 @@ observer 对缺失数据明确 unavailable，不产生误判。
 
 **目标**：在同一生产 commit 上量化三种设计取舍，形成默认值建议，但保留全部策略。
 
+**阶段所有权**：四臂 projection 比较是 FLA-8 七臂正式矩阵的固定子矩阵，必须复用同一 raw runs、样本、重复、
+统计和 artifact。不得另跑三重复后提前给出默认值或 promotion；正式决策只由 FLA-8 产生。
+
 执行：
 
 1. 构建唯一 R7 Docker image，参数化运行三策略；Standard 使用同 image 的 Standard mode。
-2. simple、complex、branch-join、long-map 每 arm 至少 3 次，运行顺序轮换。
+2. simple、complex、branch-join、long-map 的重复、seed 和顺序完全复用 FLA-8 评估合同；阶段内 3 次 smoke
+   只诊断接线，不进入默认值或 promotion 决策。
 3. 对失败 side 先完成 trace、feedback、projection freshness 和 validator 分析，不能直接剔除。
 4. 分别报告 correctness、请求路径、输入/缓存/金额、Map 质量、读取行为和陈旧上下文影响。
 5. 把每个策略的已知特征与实现 bug 分栏，不用一个综合分数隐藏取舍。

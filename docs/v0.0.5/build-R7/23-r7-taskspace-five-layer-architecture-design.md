@@ -107,6 +107,9 @@ Tool 必须准确说明一个 action 会做什么、何时成功、返回什么�
 不能按 Map revision 动态删改 tool schema 或固定前缀。若权限、provider 能力或普通工具集合改变 schema，
 必须形成新的 `capability_set_hash + tools_hash` 并进入 request 身份，不能仍声称合同未变。三种 projection
 policy 共享相同五层合同，只有 Layer 5 的 projection emission 行为按已冻结的 session policy 变化。
+这里的稳定单位是 immutable capability epoch：MCP deferred load、refresh 或 provider capability 变化只能在
+provider request 之间创建新 epoch；同一 epoch 内 schema 字节固定。不得把“会话静态”误写成禁止合法的工具发现，
+也不得让 Map revision 或 transition 状态触发 epoch。
 
 ### 3.7 一次只验证一个策略变更
 
@@ -574,9 +577,12 @@ Skill 不产生新硬规则。
 
 ### FLA-3.5：修复连续动作合同回归
 
-- 将初始化、绑定、完成后继续从可独立 control action 改为真实动作 Tool 的轻量交接前缀。
-- 先以真实 provider probe 验证 `exec_command`、原生 `apply_patch`、MCP、结果保真和多调用 barrier；失败即停止。
-- 使用一个共享 schema decorator/parser，继续复用原 router、权限、sandbox、hook、handler 和反馈载体。
+- 将初始化、绑定、完成后继续从可独立 control action 改为 carrier-capable Tool 的轻量交接前缀。
+- 先冻结 WireApi/ToolSpec/code-mode 矩阵，再以真实 provider probe 验证 exec、function/freeform Patch、MCP、
+  typed outcome 和 barrier；任一生产可达入口失败即停止。
+- 使用一个 registry capability source、schema decorator/parser 和 `prepare -> commit -> execute` 协议，继续复用
+  原 router、权限、sandbox、hook 和业务 handler。
+- 单 call 通过 carrier-neutral typed outcome 保留 transition fact 与 opaque Tool output；不把两类事实压成整体结果。
 - 候选通过后三臂验证并一次性删除 `required_next_call` 与 missing-sibling preflight，不保留兼容分支。
 
 验收：standalone 非终态交接在 schema 中不可表达；Patch 与 Tool 输入输出 100% 保真；无额外 request；成本
@@ -591,11 +597,12 @@ Skill 不产生新硬规则。
 
 验收：schema contract tests、最终 DeepSeek wire、首次正确调用率和缓存均不退化；不声称 strict 已启用。
 
-### FLA-5：冻结并原子实现 result algebra
+### FLA-5：冻结并验证 result algebra
 
 - 先定义 success、preflight rejection、argument failure、state rejection、ordinary tool failure 和 truncated read 的
   完整共同 envelope 与分支。
-- 在同一 feature version 内让 parser、preflight、handler、executor 和 read path 全部满足 conformance tests。
+- FLA-3.5 已拥有 carrier outcome transport；本阶段只冻结 transition fact + opaque Tool output 的 conformance，
+  并让 parser、preflight、handler、executor 和 read path 满足同一结果合同，不重复实现 transport。
 - 模型实际收到的 JSON 与本地 schema 同版；任何分支不合规都阻止启用，不保留半新半旧 envelope。
 
 验收：所有结果进入上下文，state commit 无歧义；结果 schema 覆盖率 100%；本阶段不拆 Tool、不启用 strict。

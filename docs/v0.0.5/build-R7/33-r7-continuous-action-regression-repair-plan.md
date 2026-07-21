@@ -63,13 +63,33 @@
 
 ## 4. 目标工程形态
 
-### 4.1 真实动作拥有轻量交接前缀
+### 4.1 一个 registry 能力合同，一个 decorator
 
-优先候选是由共享 Tool builder 在 TaskSpace profile 下，为可执行真实动作增加一个静态、可选的
-`taskspace_transition` 参数。该参数只承载小型状态交接，不承载普通 Tool 的参数或输出。原 Tool 参数继续由
-原 schema 校验和原 handler 消费。
+Tool registry 新增唯一机械元数据 `TaskSpaceCarrierCapability`。它只回答“这个 provider-visible Tool 调用是否
+进入共享 prepare/execute 链、能否携带 transition 并保真返回结果”，不判断命令、Patch 或 Tool 对任务是否有用。
+Runtime 不识别 no-op、不维护按 Tool 名推断的第二份 allowlist，也不评价 Agent 选择的动作质量。
 
-示意形态：
+共享 Tool builder 在 TaskSpace profile 下为 carrier-capable Tool 增加可选 `taskspace_transition`。原 Tool 名、
+业务参数、handler、router 和权限保持唯一；transition 字段在进入 handler 前机械剥离。`taskspace_control`、
+宿主内部控制项或不能进入共享执行链的调用明确标记为 non-carrier。候选激活前，所有 TaskSpace 可见 ordinary
+Tool 必须有确定元数据；未知状态、字段碰撞或无法保真装饰都阻止 capability epoch 激活。
+
+“真实动作”的机器含义止于一个实际执行并返回结果的 carrier-capable Tool call。Runtime 不阻止 Agent 用
+`exec_command(true)` 或等待类 Tool，因为判断其工作价值会越过语义边界。
+
+### 4.2 Wire 与 ToolSpec 矩阵
+
+CA-0 必须冻结并穷举 `WireApi × ToolSpec × invocation source`，至少覆盖：
+
+| 载体 | 目标形态 | 禁止的降级 |
+|---|---|---|
+| DeepSeek Chat function Tool | 原参数对象增加 `taskspace_transition` | 动态 tool choice、另一个 sibling 声明 |
+| Responses function Tool | 与 Chat 同一逻辑 schema | provider 专属第二套 transition 语义 |
+| Responses/custom freeform `apply_patch` | TaskSpace wire 机械投影为同名 function，顶层字段仅 `input + taskspace_transition`；剥离后仍进入原 Patch handler | 把 transition 或 Patch 塞入 freeform 文本；复制 Patch handler |
+| Code mode | 顶层 code-mode Tool 携带 transition；cell 内 nested calls 继承提交后的 lease | nested call 自行提交 transition；绕过 turn barrier |
+| MCP / dynamic Tool | 在 immutable capability epoch 中由同一 decorator 合并 reserved 字段，调用前剥离 | 把 reserved 字段发给 MCP server；延迟加载后漏装饰 |
+
+示意 Patch 形态：
 
 ```json
 {
@@ -83,186 +103,229 @@
 }
 ```
 
-这不是新的 Tool，也不是第二层调度架构。它是现有真实 Tool schema 的统一装饰规则：
+Patch 正文仍是顶层 `input`，不得进入 transition。Standard 继续使用原 ToolSpec 和 wire，字节必须不变。
+如果任一生产可达 wire 无法在不损失 Patch/Tool 输入的前提下完成投影，本方向直接阻塞，不以“DeepSeek Chat
+当前能用”掩盖其他已启用入口。
 
-- `apply_patch.input` 仍是顶层原生 Patch 字符串；
-- `exec_command`、文件工具和 MCP Tool 保持原名称、原业务参数、原 handler；
-- 装饰器、解析器和剥离逻辑只有一份，按 capability set 机械生成并计入 `tools_hash`；
-- schema 在会话内静态，不按 revision 或状态动态改写；
-- reserved 字段碰撞必须在 Tool 注册时确定性失败，不能静默改名或透传给第三方服务。
+### 4.3 结构保证
 
-### 4.2 结构保证
+目标 L4 不再向 Agent 暴露 `initialize_map`、`bind_node`、`complete_then_continue` 三个独立
+`taskspace_control` 分支；它们只存在于 carrier 的 `taskspace_transition` 中。因此状态交接没有 carrier action
+时在 provider-visible schema 中不可表达。
 
-目标 L4 不再向 Agent 暴露 `initialize_map`、`bind_node`、`complete_then_continue` 这三个可独立调用的
-`taskspace_control` 分支。它们只存在于真实动作的 `taskspace_transition` 分支中，因此“状态交接但没有真实
-动作”在 provider-visible schema 中不可表达。
+同一 active Work 内第二个及后续动作不重复 transition。Runtime 只检查 canonical state：空 Map 的第一个
+ordinary call 必须携带初始化；未 binding 的 Ready Work 第一个 call 必须携带绑定；切换后继必须携带完成交接。
+失败零状态提交、零 Tool 副作用。终态 action 继续由 control 单独表达。
 
-`taskspace_transition` 对普通连续动作保持可选：同一 active Work 内执行第二个及后续动作不需要重复交接。
-Runtime 只根据 canonical state 做机械校验：空 Map 的第一个真实动作必须携带初始化；尚未 binding 的 Ready
-节点必须先由该节点真实动作携带绑定；从 active Work 切换到后继必须携带完成交接。校验失败零提交、零执行。
+### 4.4 `prepare -> commit -> execute` 机械协议
 
-### 4.3 执行与反馈
+不能在现有 handler 外简单前置 Map commit。FLA-3.5 选择一个共享 `PreparedToolCall` 协议，把现有 Tool 的准备
+和执行阶段显式拆开，但不复制 handler：
 
-单个 carrier call 的固定顺序是：
+1. **parse**：解析 carrier，剥离 transition，校验原业务参数。
+2. **prepare**：运行现有 PreToolUse、参数改写、权限、sandbox 与 approval 流程，产出不可变
+   `PreparedToolCall`；此阶段不产生 Tool 业务副作用，不提交 Map。
+3. **commit + reserve**：在同一 action-map 临界区重新校验 revision/lease，原子提交 transition，并为目标新 lease
+   建立该 prepared call 的 reservation。旧 lease 不接收本次调用。
+4. **execute**：原 handler 的执行部分消费 prepared call，不再次请求 approval，也不重新解释参数。
+5. **post**：PostToolUse 只观察原 Tool outcome；随后 context mapper 附加 transition fact。
 
-1. 解析并独立校验交接参数和原 Tool 参数。
-2. 在执行任何副作用前完成 sequence、权限、sandbox 和 approval preflight。
-3. 原子提交 Agent 明确给出的 Map 交接。
-4. 使用剥离交接字段后的原始参数调用现有 Tool handler。
-5. 返回交接事实与未经摘要、改写或裁剪的原 Tool 结果。
+取消与失败边界固定为：prepare/approval/hook/sandbox 拒绝或 commit 前取消均零提交零执行；commit 后、Tool 启动前
+取消记作“transition committed + tool cancelled”，不回滚；执行失败同样不回滚。任何无法安全拆出无副作用
+prepare 的 Tool 在候选中不能标记 carrier-capable，且 TaskSpace capability epoch 不能带着未知缺口激活。
 
-若交接提交后普通 Tool 失败，Map 不回滚；反馈必须同时保留“交接已提交”和“Tool 失败”两个事实。文本、图片、
-MCP `structuredContent`、截断引用和 `apply_patch` 结果都必须有逐载体保真测试。若现有通用 ToolCallOutput 无法在
-不损失原结果的前提下承载两类事实，FLA-3.5 必须先补齐通用事实 envelope，不能通过丢弃交接反馈或包装成
-自由文本建议来绕过。
+### 4.5 Carrier-neutral typed outcome
 
-### 4.4 多动作与顺序
+一个 provider call 只能有一个 call id，但必须保留两个独立事实。内部唯一类型为：
 
-Agent 可在同一 assistant response 中继续发出其他独立 Tool calls。携带交接的真实动作是该序列的机械 barrier：
-交接和该动作先完成，再按现有并行/串行规则处理后续调用。依赖该动作未知结果的后续步骤自然进入下一次
-provider request；Runtime 不判断语义依赖。
+```text
+TaskSpaceCarrierOutcome {
+  transition_fact: TaskSpaceTransitionFact,
+  tool_output: Opaque<ToolCallOutput>
+}
+```
 
-现有“一次 response 最多一个 Patch”合同保持不变。本阶段不得借连续动作修复放宽多 Patch，也不得把后续
-普通动作强制串行化。
+`transition_fact` 只含 action、revision、commit/lease 和 factual error；`tool_output` 是 hooks 完成后的原始
+ToolCallOutput 子载体。不得把 Tool 输出塞入 `TaskSpaceControlResultV2`，也不得把两类事实压成“整体成功/失败”。
+provider mapper 按第 4.2 节载体生成一个合法 output：支持 content items 时增加独立 transition fact item 并原序
+保留 Tool items；只有 text output 时使用版本化 factual frame，但其 `tool_output` 子载体必须可逆恢复。
+
+保真门禁比较的是 frame 解码后的 `tool_output` 子载体与原 outcome，而不是比较必然增加 transition fact 的整个
+provider payload。文本字节、图片 URL/顺序、MCP structured content、截断引用、exit status 和 error class 分别
+计算 hash/conformance。任一 carrier 无法无损映射时阻塞。FLA-3.5 拥有 transport 实现；FLA-5 只冻结并验证其
+result conformance，不再次实现 envelope。
+
+### 4.6 Capability epoch、code mode 与多动作
+
+Tool schema 不要求整个 session 永不变化，而是要求在一个 immutable `capability_epoch` 内稳定。注册、MCP
+deferred load、refresh 或 provider capability 变化只能在 provider request 之间创建新 epoch；Map revision、
+transition 状态或 projection policy 不得触发 epoch。每个 epoch 记录全量 Tool 元数据、reserved collision、
+schema bytes/token、`capability_set_hash` 和 `tools_hash`。Code mode 枚举 nested tools 时必须使用同一 epoch snapshot。
+
+Code mode 的顶层 call 是 carrier；其 nested calls 全部归属新 lease。cell 内 sequence 必须复用 turn barrier，
+`Promise.all` 不能让 nested call 越过 carrier prepare/commit，Patch 计数是 turn-wide 而不是 top-level-call-wide。
+
+Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是机械 barrier：它完成 transition 与第一个 Tool
+后，再按现有规则处理后续调用。依赖未知结果的步骤自然进入下一 request，Runtime 不判断语义依赖。一次 response
+最多一个 Patch 的合同保持不变。
 
 ## 5. 分阶段实施
 
-### CA-0：冻结回归基线与验收口径
+### CA-0：冻结基线与前置设计合同
 
-实施：
+- 固定当前 sibling 生产 commit、L1-L5 identity、schema/source/wire hash 和 H-003 trace。
+- 从 R5、D.2、D.4、FLA-3 artifact 重算 standalone、拒绝、request 和 Patch exact。
+- 冻结第 4.2 节 wire matrix、`TaskSpaceCarrierCapability` 正负矩阵、reserved namespace 和 capability epoch 规则。
+- 冻结第 4.4 节 prepare/commit/execute 状态表，覆盖 hooks、approval、sandbox、取消和 reservation 归属。
+- 冻结 typed outcome 各 provider wire 映射与子载体 hash 公式。
+- 新建 authority JSON Schema，统一实施状态枚举；记录当前 production commit、source/wire hashes。
+- 预注册 FLA-3.5 专用评估合同的开发样本与独立 carrier-validation 样本；FLA-8 held-out 继续封存且本阶段不可见。
 
-- 固定当前生产 commit、L1-L5 identity、Tool schema hash 和 H-003 trace。
-- 从历史 artifact 重算 R5、D.2、D.4 与 FLA-3 的 standalone、拒绝、request、Patch exact 指标。
-- 冻结 simple、complex 和 held-out 样本，不为触发 carrier 改写任务答案或操作步骤。
+完成证据：机器基线、状态表、wire/capability 矩阵和评估预注册均可独立检查；当前生产行为不变。
 
-完成证据：一份机器基线 JSON 和逐 request 对账；当前行为不变。
+### CA-1：本地可行性与真实 Provider 探针
 
-### CA-1：Provider 与载体能力探针
+只建隔离 probe，不接生产：
 
-只建 probe，不改生产路径。使用真实 DeepSeek endpoint 和生产 adapter 分别验证：
+1. 对全部 wire/ToolSpec/source 组合验证 schema 装饰、freeform Patch function 投影、reserved 字段剥离和
+   Standard 零变化。
+2. 用 fake Tool 验证 prepare denial、approval denial、sandbox denial、commit 前后取消、commit 后执行失败和
+   新 lease reservation；任何 side effect 都有计数器。
+3. 验证 typed outcome 在 text、content items、image、MCP structured content、截断和错误结果上的可逆映射。
+4. 验证 code-mode outer carrier、nested attribution、`Promise.all` barrier 和 turn-wide one-Patch gate。
+5. 使用真实 DeepSeek endpoint 对 exec、direct/freeform Patch、MCP 和多 Tool response 每臂至少 6 次 probe。
 
-1. `taskspace_transition + exec_command` 的单调用生成、参数合法和执行顺序。
-2. `taskspace_transition + apply_patch` 的合法 JSON、逐字 Patch exact 和大 Patch 稳定性。
-3. `taskspace_transition + MCP Tool` 的 schema 合并、reserved 字段剥离、原始参数与结果保真。
-4. 交接成功 + Tool 成功、交接成功 + Tool 失败、参数失败零提交三类反馈。
-5. 多 Tool response 中 carrier barrier、独立 sibling 并行和结果依赖留到下一请求。
+准入：结构合法、Patch exact、原参数、typed 子载体、lease 归属均为 100%；拒绝/取消时 commit/side-effect 符合
+状态表；无 reserved 泄漏、无额外 provider request。任一生产可达组合失败即停止 CA-2。
 
-每臂至少 6 次定向 probe。准入条件为：结构合法率 100%、Patch exact 100%、原 Tool 参数与反馈逐字/结构等价、
-无第三方参数泄漏、无额外 provider request。任一核心载体失败即停止 CA-2，不用提示词或 Runtime fallback 掩盖。
+### CA-2：冻结候选机器合同，不提升 active authority
 
-### CA-2：冻结候选机器合同
+- 候选 artifact 放入独立 candidate namespace：L4 schema、transition schema、typed outcome、lifecycle oracle v2、
+  capability matrix、rollback manifest、`continuous-action-evaluation-v1.json` 和 FLA-8 evaluation contract v2。
+- FLA-8 v2 只把旧 `combined_control_plus_next_rate` 机械替换为 transition carrier 指标；样本 identity、sealed
+  held-out hash、重复和统计规则不变，生成过程中不得读取 held-out 内容或结果。
+- active authority 继续指向 sibling 回归基线；candidate registry 记录 artifact/hash/commit 与
+  `evaluation_candidate`，Runtime 不把它宣称为 active。
+- `required_next_call`、missing-sibling error/oracle 只从候选合同删除；历史 v1/v2 artifact 不覆盖。
+- lifecycle v2 用 standalone-schema-negative、参数失败零提交、commit+Tool failure、code-mode 和恢复 fixtures
+  替换 missing-sibling 场景。
 
-- 新建候选 L4 schema、transition schema、result envelope 和 lifecycle oracle v2；旧 v2 artifact 作为回归证据保留。
-- authority manifest 指向唯一候选；`required_next_call` 从目标合同、错误码和 oracle 中删除。
-- 为所有可见 Tool 生成 capability/collision 清单；不支持 carrier 的 Tool 必须在启用候选前解决，不能静默降级。
-- 冻结状态提交、Tool 失败、MCP、图片、截断读取、Patch 和多调用顺序的完整 fixtures。
+完成证据：同一 builder 可重算全部 schema；candidate 没有 placeholder；active production hash 不变。
 
-完成证据：schema 可从同一 builder 重算，所有负例证明 standalone 非终态交接不可表达，尚不改变生产行为。
+### CA-3：接入单一候选执行链
 
-### CA-3：接入生产执行链
-
-修改范围：
+修改范围至少包括：
 
 ```text
-third_party/codex-cli/codex-rs/tools/src/taskspace_tool*.rs
-third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_*.rs
-third_party/codex-cli/codex-rs/core/src/tools/sequence*.rs
-third_party/codex-cli/codex-rs/core/src/tools/router*.rs
-third_party/codex-cli/codex-rs/codex-api/src/endpoint/responses.rs
-MCP Tool schema 装配与 ToolCallOutput 共享入口
+tools/src/tool_spec.rs, tool_config.rs, apply_patch_tool.rs, taskspace_tool*.rs
+core/src/tools/registry.rs, parallel.rs, sequence*.rs, code_mode/mod.rs
+core/src/tools/handlers/apply_patch*.rs, taskspace_control_*.rs
+core/src/action_map/runtime.rs and reservation/lease paths
+codex-api/src/endpoint/responses.rs and every enabled provider wire mapper
+MCP/dynamic Tool registry and ToolCallOutput provider mappers
 ```
 
-- 用一个共享 decorator/parser 接入所有真实 Tool，不复制业务 schema 或 handler。
-- 删除生产 `required_next_call`、跨 sibling missing preflight 和对应 parser 分支，不保留兼容模式。
-- 保留 terminal control、纯 Map/read actions、原 router/approval/sandbox/hook 和 Tool 输出处理。
-- 先完成 deterministic tests，再启用生产 schema；不得出现半新半旧 wire。
+- 实现一个 metadata source、decorator/parser、PreparedToolCall 协议和 typed outcome mapper。
+- 在候选代码中删除 `required_next_call`、missing-sibling preflight 和三个独立非终态 control 分支；无双 parser。
+- 原业务 handler 只按 prepare/execute 拆分，不复制实现；Standard 不经过 transition decorator。
+- 候选 runtime manifest 使用独立 contract id，不能伪装成 active authority。
 
-### CA-4：测试与日志
+### CA-4：确定性测试、日志与回滚演练
 
-定向测试至少覆盖：
+测试必须覆盖：
 
-- 三种非终态交接 valid/invalid fixtures；standalone schema negative fixture。
-- 空 Map 普通动作无初始化、无 binding 普通动作、stale revision、非法 DAG、载体参数错误均零提交零执行。
-- 交接提交后 Tool 失败不回滚，反馈同时保留两类事实。
-- direct/freeform `apply_patch`、function Tool、MCP、图片和截断输出保真。
-- router、approval、sandbox、hook、one-Patch-per-response 与并行 Tool 行为不回归。
-- Standard schema、wire、Tool 行为和 cache identity 零变化。
+- 全 wire/ToolSpec/capability epoch property matrix，未知 Tool 和 reserved collision 阻止 epoch 激活。
+- approval、PreToolUse、sandbox 拒绝及 commit 前取消均零提交；commit 后取消/失败不回滚；PostToolUse 看到原 outcome。
+- reservation 原子归属新 lease，旧 lease 不记录 carrier；stale revision 发生在 commit 前。
+- code-mode cell barrier、nested attribution、并行、turn-wide one-Patch 和 nested output。
+- typed outcome 子载体的文本/图片/MCP/截断/error conformance；不比较整个 framed payload hash。
+- Standard schema/wire/handler/cache identity 零变化；TaskSpace schema 只在 capability epoch 边界改变。
+- 在隔离 Docker worktree 中执行一次完整 rollback drill：代码、parser、runtime manifest、schema/hash 恢复
+  sibling baseline，再重建候选；只记录 `rollback_drill_passed/failed`，不改变真实 candidate 状态或 active authority。
 
-新增结构化日志：`transition_carrier_tool`、`transition_kind`、`transition_commit`、`tool_execution_status`、
-`original_args_hash`、`stripped_args_hash`、`original_output_hash`、`delivered_output_hash`、barrier 序号和
-`standalone_nonterminal_transition`。日志不得记录 Patch 正文、密钥或私有 Tool 内容。
+日志增加：epoch id/hash/schema bytes/token、carrier capability/source、prepare/approval/hook/sandbox 状态、transition
+commit、reservation lease、Tool status、原/剥离参数 hash、typed 子载体各分量 hash、barrier/Patch 序号。禁止记录
+Patch 正文、密钥和私有 Tool 内容。
 
-### CA-5：Docker 三臂验证
+### CA-5：独立 Docker 三臂验证
 
-统一使用 bundled skills 已启用的 Docker harness，对 simple、complex、held-out 各运行：
+只使用 CA-2 冻结的 `continuous-action-evaluation-v1.json`：
 
 1. Standard；
-2. 当前 R7 `required_next_call` 回归基线；
+2. CA-0 冻结的当前 sibling 回归基线；
 3. FLA-3.5 候选。
 
-每个样本每臂先跑 3 次接线诊断；无环境异常后按冻结评估合同扩展。报告 solved、公开/隐藏验证、Map、逐 request
-动作、standalone、拒绝、Patch exact、input/output/reasoning token、cache、wall/provider/tool time 和长尾。
+simple/complex 每臂 3 次仅做接线诊断；独立 carrier-validation 样本的重复数、顺序、seed、门槛在看到候选结果前
+由评估合同冻结，不能根据前三次结果追加或停止。FLA-8 held-out 在整个 CA-5 保持 sealed，本阶段结果不得用于
+FLA-8 正式决策。
 
-硬门禁：
+专用指标：`transition_required_count`、`transition_carrier_count/rate`、standalone-schema-negative、H-003、
+prepare rejection、Patch/typed-output exact、request、token、cache by capability epoch、wall/provider/tool time。
+旧 `combined_control_plus_next_rate` 不适用于候选，不得作为门禁。
 
-- 候选 correctness 不低于 Standard 和 R7 基线；
-- 非终态 standalone 与 H-003 拒绝均为 0；
-- 交接 + 首个真实动作合并率 100%；
-- Patch/Tool 输入输出保真 100%；
-- 不因交接增加 provider request；
-- Standard wire hash 不变；TaskSpace schema 在会话内静态；
-- request、token、cache、wall time 满足 `25` 号规格的非劣阈值。
+硬门禁：correctness 不劣；所有 required transition carrier rate=100%；standalone/H-003=0；输入和 typed 子载体
+保真=100%；不因交接增加 request；Standard wire hash 不变；同 epoch tools hash 稳定；成本满足专用合同预注册
+非劣阈值。
 
-### CA-6：晋级与后续阶段解锁
+### CA-6：审查、晋级或完整回滚
 
-- 对生产 diff、trace 和三臂证据执行新的空白上下文对抗性审查。
-- 阻塞发现关闭后，候选一次性替换当前合同，更新 L4/L5 authority 和文档。
-- CA-5 任一硬门禁失败则 revert 候选生产 commit，保留 probe/结果，不进入 FLA-4。
-- 只有 CA-6 标记 `active_verified` 后，FLA-4 才能以新合同做 action-local 描述与 schema 收敛。
+- 对候选生产 diff、rollback drill、trace 和三臂证据执行新的空白上下文对抗性审查。
+- 通过后一个 promotion commit 同时切换 active L4/L5 authority、production manifest、schema/parser、FLA-8
+  evaluation contract v2 和文档；
+  `required_next_call` 在 active 合同中彻底消失。
+- 失败则 revert CA-3/CA-4 候选代码与 runtime manifest；active authority 始终保持 sibling baseline。candidate
+  artifact 保留为 `rejected` 证据，不创建兼容生产路径。
+- promote 或 rollback 后重跑全量 hash/contract tests；只有 promotion 成功才将 FLA-3.5 标记 `active_verified`。
 
 ## 6. Phase Gate Matrix
 
 | Phase | 独立验证 | 禁止依赖后续补证 | 退出条件 |
 |---|---|---|---|
-| CA-0 | 历史 artifact 与当前 trace 重算 | CA-1 probe | 回归基线可复现 |
-| CA-1 | 真实 provider 多载体 probe | 生产 sample | 全载体达到准入门槛 |
-| CA-2 | schema/oracle/golden/lint | CA-3 Runtime 容错 | standalone 在结构上不可表达 |
-| CA-3 | Rust/unit/integration/wire tests | CA-5 自然样本纠错 | 单一生产链完整接通 |
-| CA-4 | fault、反馈保真、日志自测 | CA-5 人工 trace 猜测 | 全分支可机器观测 |
-| CA-5 | Docker 三臂重复运行 | CA-6 审查意见补结果 | 所有硬门禁与非劣门禁通过 |
-| CA-6 | 空白 reviewer + 关闭阻塞项 | FLA-4 | promote 或 revert 决策落地 |
+| CA-0 | 基线、wire/capability、时序、outcome、评估预注册 | CA-1 试错 | 前置合同无 placeholder |
+| CA-1 | 本地 fault probe + 真实 provider 多载体 probe | 生产 sample | 所有生产可达组合通过 |
+| CA-2 | candidate schema/oracle/eval/rollback lint | CA-3 Runtime 容错 | standalone 不可表达且 active authority 未变 |
+| CA-3 | Rust/unit/integration/wire tests | CA-5 Agent 自纠 | 单一候选链完整接通 |
+| CA-4 | fault、code-mode、反馈保真、日志、rollback drill | CA-5 人工解释 | 全分支可机器观测且可完整回滚 |
+| CA-5 | 专用三臂预注册评估 | FLA-8 held-out | 所有硬门禁与非劣门禁通过 |
+| CA-6 | 空白 reviewer + promotion/rollback 全量复测 | FLA-4 | 唯一 active 合同确定 |
 
-## 7. 与既有后续计划的关系
+## 7. 后续阶段单一 DAG
 
-| 既有阶段 | 调整 | 冲突处理 |
-|---|---|---|
-| FLA-4 L4 input schema | 被 FLA-3.5 阻塞 | 不再正式化当前 sibling 合同；只在新 carrier 上优化 description/discriminator |
-| FLA-5 result algebra | 保留 | 将 carrier 的交接事实 + 原 Tool 结果纳入同源结果合同，删除 missing-sibling 分支 |
-| FLA-6-E1 读写拆分 | 保留为后续实验 | 不改变 carrier、router 或权限基线 |
-| 原 FLA-6-E2 移除 `required_next_call` | 删除 | 这不是实验，而是 H-003 回归修复的一部分 |
-| FLA-6 MCP output schema | 保留 | CA-1/CA-4 只保证 carrier 透传；是否暴露 MCP `outputSchema` 仍独立评估 |
-| FLA-6 DeepSeek strict | 保留 | 不把 strict 当作连续动作成立的前提 |
-| FLA-7 projection/recovery | 保留 | carrier 不改变 canonical Map、renderer 或三种 emission policy |
-| FLA-8 正式评估 | 保留 | 使用 FLA-3.5 晋级后的唯一 L4 基线 |
-| R7 Phase E-H | 顺延 | FLA-3.5 未晋级前不得宣称工具链或生命周期收口 |
+```text
+FLA-0 -> FLA-1 -> FLA-2 -> FLA-3 -> FLA-3.5
+FLA-3.5 -> FLA-4 -> FLA-5 -> FLA-6 -> FLA-7 -> FLA-8 -> R7 Phase H
+                                               |          |
+                                               |          +-- 包含 R7 Phase G 四臂 projection 子矩阵
+                                               +-- 完成 R7 Phase E 生命周期等价与 Phase F L5 单架构审计
+```
 
-历史 D.2、D.3、D.4、FLA-2 和 FLA-3 结果文档保持原样，分别作为当时版本的事实证据；不得回写成当前设计。
+| 既有阶段 | 唯一所有权与冲突处理 |
+|---|---|
+| FLA-4 | 只在晋级 carrier 上优化 L4 description/discriminator；不实现 carrier，不正式化 sibling |
+| FLA-5 | 冻结并验证 transition fact + opaque Tool output 的 conformance；transport 只由 FLA-3.5 实现 |
+| FLA-6 | 只做读写拆分、MCP output schema、DeepSeek strict 三个独立实验 |
+| FLA-7 / R7 Phase E | FLA-7 是 lifecycle/recovery/projection 唯一实现和验收阶段；Phase E 是其产品里程碑别名，不单独改代码或跑第二套 gate |
+| FLA-7 / R7 Phase F | FLA-6/7 共同产出单架构审计证据；Phase F 只汇总，不形成另一套 acceptance |
+| FLA-8 / R7 Phase G | Phase G 四臂是 FLA-8 七臂正式矩阵的 projection-policy 子集，共用 run/artifact；默认值与 promote 决策只由 FLA-8 给出 |
+| R7 Phase H | 仅在 FLA-8 完成后做发布收口和经授权审查 |
+
+历史 D.2-D.4、FLA-2/3 结果保持原样；FLA-8 held-out、旧评估 artifact 和历史拒绝不得回写。
 
 ## 8. 风险、回滚与完成定义
 
 | 风险 | 早期信号 | 控制 |
 |---|---|---|
-| decorator 使 Tool schema 膨胀 | 固定 input/tool schema token 明显上升 | CA-1 记录每 Tool 增量；CA-5 执行成本非劣门禁 |
-| Patch 再次被 JSON 结构破坏 | JSON 非法或 Patch hash 不等 | Patch 保持顶层 `input`；100% exact 硬门禁 |
-| Tool 结果包装导致语义丢失 | 原始与 delivered hash/结构不等 | 按载体 conformance；任一不等阻塞 |
-| MCP reserved 字段泄漏或冲突 | server 收到字段、注册冲突被忽略 | 注册期确定性失败 + router 剥离测试 |
-| 生命周期提交与权限顺序错误 | approval 拒绝后 Map 已提交 | 权限/sandbox preflight 必须先于状态提交 |
-| 中央 decorator 演变成第二 router | 分支按 Tool 名复制执行逻辑 | 只做 schema 装饰、字段剥离和交接；原 handler 唯一 |
-| 动态 schema 破坏缓存 | 同 capability 下 tools hash 逐 request 改变 | schema 仅由 profile/capability set 决定并在会话内冻结 |
+| freeform/code-mode 无 carrier | wire 矩阵缺项、nested call 绕 barrier | CA-0 矩阵 + CA-1/4 硬门禁 |
+| prepare 拆分复制 handler | 同一 Tool 出现两套业务执行逻辑 | PreparedToolCall 共享接口；源码重复审计 |
+| approval/hook 后提交顺序错误 | denial 后 revision 变化或旧 lease reservation | fault state table + 原子 commit/reserve |
+| Patch/Tool 结果被 frame 扭曲 | typed 子载体 hash/结构不等 | 按 carrier 子载体 conformance，任一失败阻塞 |
+| schema 膨胀或缓存漂移 | epoch schema token 超限、同 epoch hash 改变 | 预注册 byte/token 上限；只在 epoch 边界变化 |
+| MCP collision/泄漏 | server 收到 reserved 字段 | epoch 激活失败 + 剥离测试 |
+| authority 半切换 | candidate 被称为 active、回滚后 hash 不一致 | candidate namespace + promotion commit + rollback drill |
 
-回滚单位是 CA-3/CA-4 的候选生产提交；不使用 feature flag、双 parser 或兼容 session。计划、probe 和失败证据
-保留，生产回到 CA-0 冻结 baseline。
+回滚覆盖 CA-2 candidate registry、CA-3/4 代码、runtime manifest、schema/parser 和所有生成 hash。active authority
+在 CA-6 promotion 前不切换；失败证据保留但不能被生产读取。不得使用 feature flag、双 parser 或兼容 session。
 
-本修复只有同时满足以下条件才能称为完成：结构上不存在 standalone 非终态交接；所有真实 Tool 继续走原执行链；
-Patch 和反馈完全保真；自然样本不再出现 H-003；成本不劣；对抗性审查无未关闭 blocking finding；FLA-4 及
-后续计划已经以新合同为唯一基线。
+本修复只有同时满足以下条件才能完成：所有生产可达 carrier 结构成立；standalone 非终态交接不可表达；
+prepare/commit/execute 时序可证明；Patch 与 typed Tool 子载体保真；code mode/MCP/权限链无绕过；自然样本 H-003
+为零；成本非劣；rollback 可复现；对抗审查无 blocking finding；FLA-4 及后续只引用晋级合同。

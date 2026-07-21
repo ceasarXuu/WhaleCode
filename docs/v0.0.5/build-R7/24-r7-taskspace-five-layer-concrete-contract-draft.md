@@ -520,7 +520,7 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 `actual` 始终是 Runtime 观测到的 canonical 事实，`expected` 是调用者在输入中声明的条件；
 两者不得根据自然语言 message 的句式交换方向。
 
-### 7.3 Response preflight 拒绝
+### 7.3 当前回归基线的 Response preflight 拒绝
 
 ```json
 {
@@ -546,22 +546,24 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 }
 ```
 
-整个 batch 在执行前被拒绝，所以 `state_commit=false`，不能出现 control 已提交但 sibling 没执行的模糊状态。
+整个 batch 在执行前被拒绝，所以 `state_commit=false`。该示例只记录当前 sibling 回归基线；FLA-3.5 目标 schema
+不再允许单独非终态 transition，因此没有 missing-sibling 分支。
 
-### 7.4 Control 已提交、普通工具随后失败
+### 7.4 目标 carrier 的交接已提交、普通工具随后失败
 
-这是两个独立事实，不能合并成一条“整体失败”摘要：
+这是一个 provider call id 下的两个独立事实，不能合并成一条“整体失败”摘要，也不能伪造成两个不存在的 Tool calls：
 
 ```text
-tool(taskspace_control):
-{"status":"committed","success":true,"state_commit":true,"committed_revision":4,...}
-
-tool(apply_patch):
-{"success":false,"error":"patch context did not match","state_commit":"not_applicable",...}
+TaskSpaceCarrierOutcome {
+  transition_fact: {status: committed, committed_revision: 4, next_lease: implement, ...},
+  tool_output: Opaque({success: false, error: "patch context did not match", ...})
+}
 ```
 
-Agent 能据此知道 binding 已经切到 `implement`，但 Patch 没有发生。Runtime 不自动回滚 Map，也不替 Agent 决定
-重试还是修订节点。
+provider mapper 只为 transport 增加 factual transition item/frame，必须能逐载体恢复完全相同的 opaque Tool
+子载体；PostToolUse 看到的也是原 Tool outcome。Agent 能据此知道 binding 已切到 `implement`，但 Patch 没有
+发生。Runtime 不自动回滚 Map，也不替 Agent 决定重试还是修订节点。逐 wire 映射和 hash 公式由 FLA-3.5 CA-0
+冻结，FLA-5 负责 conformance，不重新实现 transport。
 
 ### 7.5 截断读取
 

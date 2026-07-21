@@ -13,7 +13,7 @@
 选择。本规格消除这类隐藏决策：它冻结唯一主线、完整机器合同、生产入口、删除项、生命周期判定、测试、日志、
 评估阈值和完成证据。
 
-实施状态只能使用以下四种值：
+实施状态只能使用以下五种值：
 
 | 状态 | 含义 |
 |---|---|
@@ -128,7 +128,8 @@ expand_nodes, read_map, read_output_ref
 真实动作 schema 统一增加轻量 `taskspace_transition`。Patch 正文继续是 `apply_patch.input` 顶层字段，原 Tool
 router、权限、sandbox、hook、handler 和输出链保持唯一。完整参数、结果和 capability/collision 合同必须由
 CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
-`provider_schema_profile + capability_set_hash + tools_hash`，且同一会话内静态。
+`provider_schema_profile + capability_set_hash + tools_hash`。FLA-3.5 后的稳定单位是 immutable capability epoch：
+同一 epoch 内静态，工具发现或 provider capability 变化只能在 request 之间创建新 epoch；Map revision 不得触发。
 
 ### 3.4 L5 的完整结果合同
 
@@ -142,7 +143,7 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
   `resource_failed`。
 - `actual` 是 Runtime 观测事实，`expected` 是调用合同要求或提交值；不得互换。
 - 错误不得携带 Agent 下一步动作建议。
-- control 成功后普通 Tool 失败时，输出两份独立结果；Map 不回滚。
+- 当前 sibling 基线中，control 成功后普通 Tool 失败时输出两份独立结果；Map 不回滚。
 - 截断的 `line_range` 读取若仍有后续行，`continuation` 是一份可直接再次调用的完整
   `read_output_ref` 参数对象；其他 mode 或无剩余内容时为 `null`。
 
@@ -157,6 +158,10 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
 | `TASKSPACE_LIFECYCLE_INVARIANT` | `state_machine_failed` | `the submitted transition is not valid from the observed lifecycle state` | action、node id、observed status、allowed source statuses |
 | `TASKSPACE_OUTPUT_REF_NOT_FOUND` | `resource_failed` | `the requested retained output reference does not exist` | output_ref、requested range |
 | `TASKSPACE_RANGE_INVALID` | `argument_failed` | `the requested retained output range is invalid` | output_ref、submitted range、available range |
+
+当前 sibling 基线中的 control + ordinary Tool 使用两个 call id，因此是两份独立结果。FLA-3.5 单 carrier 目标
+改为一个 call id 内的 typed outcome：`transition_fact` 与 opaque `tool_output` 仍是两个独立事实，但由同一
+provider result transport，不能合并成整体 verdict。PostToolUse 与保真 hash 只观察原 Tool 子载体。
 
 Rust enum 常量使用上述大写值，JSON `error.code` 原样输出；日志也使用同一值。FLA-3.5 目标中不再存在
 missing-sibling 运行时形态；非法 transition carrier 使用同源参数/状态错误分类，不另造带下一步建议的错误。
@@ -237,12 +242,14 @@ feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产�
 ### FLA-3.5：修复连续动作合同回归
 
 - 权威入口：`33-r7-continuous-action-regression-repair-plan.md` 的 CA-0 至 CA-6。
-- 先执行真实 provider 的 exec、原生 Patch、MCP、反馈保真和 barrier probe；未过门禁不改生产。
-- 目标实现：一个共享 decorator/parser 将小型状态交接附着到真实动作，复用原 Tool 执行链。
+- 先冻结 WireApi/ToolSpec/code-mode、capability epoch、prepare/commit/execute 和 typed outcome 合同，再执行真实
+  provider probe；未过门禁不改生产。
+- 目标实现：一个 registry capability source 和 decorator/parser 将小型状态交接附着到 carrier-capable Tool；
+  一个 PreparedToolCall 协议复用原权限、sandbox、hook、approval 和业务 handler。
 - 删除：生产 `required_next_call`、missing-sibling preflight、三个非终态独立 control 分支和对应兼容 parser。
-- 定向测试：standalone schema negative、零提交失败、commit + Tool failure、Patch exact、MCP/图片/截断反馈、
-  router/approval/sandbox/hook、Standard wire 零变化。
-- smoke：Standard、当前 sibling 基线、候选三臂，simple/complex/held-out 各至少 3 次。
+- 定向测试：standalone negative、拒绝/取消时序、新 lease reservation、function/freeform Patch、code-mode、
+  MCP/图片/截断 typed outcome、turn-wide Patch、capability epoch、Standard wire 和完整 rollback drill。
+- smoke：使用独立 FLA-3.5 评估合同运行 Standard、当前 sibling 基线、候选三臂；FLA-8 held-out 保持 sealed。
 - 完成证据：H-003 为 0，合并率与保真率 100%，无额外 request，成本非劣，空白 reviewer 无 blocking finding。
 
 FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
@@ -263,11 +270,12 @@ FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 ### FLA-5：激活 L5 result algebra
 
 - 修改：`taskspace_control_output.rs`、`sequence_preflight.rs`、`sequence.rs`、control handler/read path。
-- 当前修复基线已统一产生 `TaskSpaceControlResultV2`、错误码和布尔 `partial_commit=false`；正式阶段继续补齐完整
-  schema conformance、carrier 交接事实 + 原 Tool 结果保真、fixture freezer 和三臂评估证据。
+- 当前修复基线已统一产生 `TaskSpaceControlResultV2`、错误码和布尔 `partial_commit=false`；FLA-3.5 拥有
+  carrier typed outcome transport。正式阶段只补齐 transition fact + opaque Tool output conformance、fixture
+  freezer 和三臂评估证据，不重复实现 transport。
 - 删除：R6V1 formatter、整数 `partial_commit`、旧自由文本 envelope；不保留版本协商。
-- 定向测试：结果 schema 每个 `oneOf` 分支 golden；LC-01 至 LC-05；control commit + ordinary failure 两结果不合并；
-  Agent 可见 Tool result 字节等于已校验 JSON。
+- 定向测试：结果 schema 每个 `oneOf` 分支 golden；LC-01 至 LC-05；当前双 call 与目标单 carrier 都保持两个
+  独立事实；Agent 可见 transition fact 合规且 opaque Tool 子载体可逆等价。
 - 日志：第 3.4 节 envelope 字段和 oracle 要求字段，禁止只写人类摘要。
 - smoke：两个开发样本三臂各 3 次，错误调用仍计行为失败。
 - 完成证据：生产所有 control/read 路径 100% 通过 V2 schema，R6V1 搜索结果为零。
@@ -297,6 +305,10 @@ FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 
 执行
 [`five-layer-evaluation-contract-v1.json`](../../../benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json)：
+
+当前 v1 的 `combined_control_plus_next_rate` 只适用于 sibling 回归基线。FLA-3.5 CA-2 必须生成候选 v2，在不
+读取或改变 sealed held-out、重复、seed 和统计规则的前提下，将该指标替换为 transition carrier 指标；CA-6
+promotion 才能把 v2 激活为 FLA-8 authority。FLA-3.5 CA-5 使用另一份专用评估合同，不能借此提前执行 FLA-8。
 
 - shared change 使用 7 臂；单 policy 实验使用 3 臂。
 - 5 个冻结样本，每个样本固定 30 次配对重复；候选矩阵封存前不查看聚合门槛，也不提前停止。

@@ -4,6 +4,13 @@
   "status": "production_active_through_fla3_with_fla3_5_selected_and_l4_l5_regression_baseline",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
+  "implementation_status_enum": [
+    "selected_baseline",
+    "selected_not_implemented",
+    "active_verified",
+    "active_repair_verified",
+    "experimental_disabled"
+  ],
   "authority_order": [
     "this_manifest",
     "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
@@ -16,22 +23,22 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "88a56ba96c0b9942b4dffdbc2b45b55624bac42ed25eff7f8415abf95ae9876b",
+      "sha256": "2c6069da53531ff7ed07394477daff01ba35b8fe88019f10cf8dde590d3ed6b5",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "d8368f86a491a8604fb48c6e8c0cc63db790665d3860c7cdc25eaed2bc482f6e",
+      "sha256": "d1c83ba9d0d859b147e99d5e137daa8cee8d52d5165f19cdb09934fbe81354af",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "319601b7ea40cf0b9ade6a9cfa507ad34304e27173f623e07e1640c6082834f2",
+      "sha256": "abe9c867ad1ccabd0e42c29dfa7c0c8e060402127f99fbcbd97f9a67e4453e64",
       "role": "layer responsibilities, ownership and architectural boundaries"
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "dcc7c9cf47e977ad951d965fbe059a51d605e386034bcbc75077cb6ff106484f",
+      "sha256": "8d6272823042b85513ef37f7aebe7568e762af92714f67056aca586597635ade",
       "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],
@@ -122,14 +129,14 @@
     },
     {
       "layer": "L5-projection",
-      "status": "selected_existing",
+      "status": "selected_baseline",
       "activation_phase": "already_active; FLA-7 adds lifecycle conformance only",
       "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
       "sha256": "4185308aa9f157ff0fb0381c628a7cb63ab78861d55bc928f0827f57b497c0e3"
     },
     {
       "layer": "L5-lifecycle",
-      "status": "selected",
+      "status": "selected_not_implemented",
       "activation_phase": "FLA-5 and FLA-7",
       "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
       "sha256": "be217df52b124bc0d1a2f0cdbab9d74a8ad6b1b7b7daf78e48ea8fa5dc4ee6fa",
@@ -142,7 +149,7 @@
     },
     {
       "layer": "evaluation",
-      "status": "selected",
+      "status": "selected_not_implemented",
       "activation_phase": "FLA-0 smoke contract and FLA-8 formal decision",
       "artifact": "benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json",
       "sha256": "91abdac597b3a667eccdc289c0778765d819abfa0901948065c05e416031f430",
@@ -181,8 +188,10 @@
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": ["FLA-4", "FLA-5", "FLA-6", "FLA-7", "FLA-8", "R7-Phase-E"],
       "current_regression_baseline": "required_next_call declaration plus top-level sibling preflight",
-      "selected_direction": "real action tool carries a lightweight taskspace_transition through one shared schema decorator and the existing execution chain",
-      "required_next_call_disposition": "delete atomically after CA-1 probe and CA-5/CA-6 acceptance; no compatibility path"
+      "selected_direction": "carrier-capable tool carries taskspace_transition through one registry capability source, shared decorator, prepare-commit-execute protocol, and typed outcome transport",
+      "candidate_authority_policy": "CA-2 artifacts remain in a candidate namespace; active authority stays on the sibling baseline until the CA-6 promotion commit",
+      "evaluation_contract": "CA-2 must create continuous-action-evaluation-v1.json; FLA-8 held-out remains sealed",
+      "required_next_call_disposition": "delete in the CA-3 candidate code; remove from active authority only in the CA-6 promotion commit; a rejected candidate restores the baseline with no compatibility path"
     }
   ],
   "obsolete_after_activation": [
