@@ -34,7 +34,7 @@ $requiredRoles = @(
     "evaluation_schema", "evaluation_test", "integration_test", "phase_ownership", "projection_ownership_inventory", "raw_run_set_schema",
     "required_check_workflow", "strict_json_library", "strict_parser",
     "toolchain_core", "toolchain_history", "toolchain_promotion", "toolchain_test",
-    "toolchain_transaction", "transition_command", "tools_cargo_lock", "tools_cargo_manifest"
+    "toolchain_transaction", "toolchain_transaction_test", "transition_command", "tools_cargo_lock", "tools_cargo_manifest"
 )
 
 function Invoke-Git {
