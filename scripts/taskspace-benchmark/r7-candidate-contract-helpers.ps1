@@ -1,5 +1,13 @@
 function Assert-CandidateActivationTargets {
     param([object]$Candidate, [object]$ActiveAuthority)
+    Assert-Equal ([string]$Candidate.activation_targets.authority_contract_status) "production_active_through_fla3_5_with_carrier_repair" "Candidate authority contract status target drifted"
+    Assert-Equal ([string]$Candidate.activation_targets.production_manifest_version) "1.0.5" "Candidate production manifest version target drifted"
+    $expectedPromotionPaths = @(
+        "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
+        "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json",
+        "benchmarks/taskspace/r7/candidates/$([string]$Candidate.candidate_id)/manifest.json"
+    )
+    Assert-Equal ((@($Candidate.activation_targets.promotion_commit_paths | Sort-Object)) -join "`n") (($expectedPromotionPaths | Sort-Object) -join "`n") "Candidate promotion commit path allowlist drifted"
     $l4Targets = @($Candidate.activation_targets.L4)
     $l5Targets = @($Candidate.activation_targets.L5)
     Assert-Equal $l4Targets.Count 1 "Candidate must declare exactly one L4 activation target"
@@ -57,12 +65,13 @@ function Assert-CandidateArtifactSchemaContract {
     }
     $thresholds = [ordered]@{transition_carrier_rate_min = 1; correctness_rate_min = 1; standalone_nonterminal_count_max = 0; h003_count_max = 0; patch_input_exact_rate_min = 1; typed_output_exact_rate_min = 1; request_amplification_max = 1; input_token_amplification_max = 1; output_token_amplification_max = 1; wall_time_amplification_max = 1; cache_hit_rate_delta_min = 0}
     $oracles = @(
-        @{id = "empty_map_initialize"; pre_state = "empty_map"; transition = "initialize_map"; commit = "committed"; tool_state = "reserved"; lease_effect = "root_and_next_bound"},
-        @{id = "ready_bind"; pre_state = "ready_node"; transition = "bind_node"; commit = "committed"; tool_state = "reserved"; lease_effect = "ready_node_bound"},
-        @{id = "complete_continue"; pre_state = "active_node"; transition = "complete_then_continue"; commit = "committed"; tool_state = "reserved"; lease_effect = "current_completed_next_bound"},
-        @{id = "commit_cancel_boundary"; pre_state = "prepared_call"; transition = "complete_then_continue"; commit = "committed"; tool_state = "not_started"; lease_effect = "reservation_cancelled_with_fact"},
-        @{id = "resume_lease"; pre_state = "resumed_session"; transition = "bind_node"; commit = "committed"; tool_state = "reserved"; lease_effect = "persisted_generation_reused"},
-        @{id = "compaction_projection"; pre_state = "compacted_context"; transition = "complete_then_continue"; commit = "committed"; tool_state = "reserved"; lease_effect = "canonical_map_revision_preserved"}
+        @{id = "empty_map_initialize"; pre_state = "empty_map"; transition = "initialize_map"; commit = "committed"; tool_state = "reserved"; result = "root_and_next_bound"},
+        @{id = "ready_bind"; pre_state = "ready_node"; transition = "bind_node"; commit = "committed"; tool_state = "reserved"; result = "ready_node_bound"},
+        @{id = "complete_continue"; pre_state = "active_node"; transition = "complete_then_continue"; commit = "committed"; tool_state = "reserved"; result = "current_completed_next_bound"},
+        @{id = "standalone_negative"; pre_state = "active_node"; transition = "complete_only"; commit = "not_committed"; tool_state = "not_dispatched"; result = "schema_rejected"},
+        @{id = "argument_failure"; pre_state = "active_node"; transition = "complete_then_continue"; commit = "not_committed"; tool_state = "not_dispatched"; result = "business_args_rejected"},
+        @{id = "commit_tool_failure"; pre_state = "active_node"; transition = "complete_then_continue"; commit = "committed"; tool_state = "started_failed"; result = "transition_and_failure_returned"},
+        @{id = "code_mode_carrier"; pre_state = "active_node"; transition = "complete_then_continue"; commit = "committed"; tool_state = "reserved"; result = "outer_carrier_nested_attribution"}
     )
     $capabilityEntries = @()
     foreach ($api in @("deepseek_chat", "responses")) {
@@ -91,12 +100,11 @@ function Assert-CandidateArtifactSchemaContract {
         @{schema_version = 1; artifact_role = "l4_schema"; provider_tools = @((& $toolIdentity "exec_command" "function"), (& $toolIdentity "apply_patch" "taskspace_function_projection"), (& $toolIdentity "exec" "taskspace_function_projection")); reserved_collision_policy = "reject_epoch"},
         @{schema_version = 1; artifact_role = "transition_schema"; transition_schema = @{schema_id = "r7-transition-v1"; action_contracts = @{initialize_map = @{required_fields = @("action", "expected_revision", "root_goal", "next_node_id"); state_effect = "create_root_and_bind_next"}; bind_node = @{required_fields = @("action", "expected_revision", "next_node_id"); state_effect = "bind_ready_node"}; complete_then_continue = @{required_fields = @("action", "expected_revision", "current_node_id", "next_node_id", "final_summary"); state_effect = "complete_current_and_bind_next"}}; standalone_nonterminal_allowed = $false}},
         @{schema_version = 1; artifact_role = "typed_outcome"; outcome_type = "TaskSpaceCarrierOutcome"; outcome_variants = $outcomeVariants; deferred_authorization_contract = @{NotRequired = @{required_fields = @("decision")}; Requested = @{required_fields = @("kind", "discovered_scope", "denial_hash", "decision", "grant_id")}; Approved = @{required_fields = @("kind", "discovered_scope", "denial_hash", "decision", "grant_id")}; Denied = @{required_fields = @("kind", "discovered_scope", "denial_hash", "decision", "grant_id", "factual_error")}}; tool_output_preservation = "opaque"; post_hook_separate = $true},
-        @{schema_version = 1; artifact_role = "lifecycle_oracle_v2"; oracle_version = 2; oracles = $oracles},
+        @{schema_version = 1; artifact_role = "carrier_protocol_oracle"; oracle_version = 2; oracles = $oracles},
         @{schema_version = 1; artifact_role = "entry_closure"; generator_version = 1; generated = $true; source_inventory = $sourceInventory; source_hashes = $sourceHashes; generation_digest = $sha; entries = $capabilityEntries},
         @{schema_version = 1; artifact_role = "capability_matrix"; matrix_id = "r7-carrier-matrix-v1"; entry_closure = @{path = "benchmarks/taskspace/r7/candidates/$sha/entry-closure.json"; sha256 = $sha}; entries = $capabilityEntries},
         @{schema_version = 1; artifact_role = "rollback_manifest"; baseline_authority_sha256 = $sha; baseline_production_sha256 = $sha; restore_targets = @(@{target_role = "authority"; path = "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"; sha256 = $sha}, @{target_role = "production_manifest"; path = "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"; sha256 = $sha}, @{target_role = "runtime_manifest"; path = "runtime-manifest.json"; sha256 = $sha}, @{target_role = "schema_parser"; path = "schema-parser.json"; sha256 = $sha}); verification_commands = @(@{id = "contract_tests"; command = "pwsh contract-tests"}, @{id = "rollback_drill"; command = "pwsh rollback-drill"})},
-        @{schema_version = 1; artifact_role = "continuous_action_evaluation"; evaluation_id = "ca-eval-v1"; sealed = $true; seed = 7; arm_order = @("standard", "sibling_baseline", "fla3_5_candidate"); samples = $samples; sample_order = @("simple", "complex"); metrics = $metrics; thresholds = $thresholds; statistics = $statistics},
-        @{schema_version = 1; artifact_role = "fla8_evaluation_v2"; evaluation_id = "fla8-v2"; sealed = $true; seed = 7; repeats = 3; arm_order = @("standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate"); held_out_identity = @{suite_id = "held-out"; manifest_sha256 = $sha; sample_count = 2; sample_ids = @("held-simple", "held-complex"); content_mounted = $false; mount_assertion = "held_out_content_path_absent_in_ca0_ca1_ca5"}; metrics = $metrics; thresholds = $thresholds; statistics = $statistics}
+        @{schema_version = 1; artifact_role = "continuous_action_evaluation"; evaluation_id = "ca-eval-v1"; sealed = $true; seed = 7; arm_order = @("standard", "sibling_baseline", "fla3_5_candidate"); samples = $samples; sample_order = @("simple", "complex"); metrics = $metrics; thresholds = $thresholds; statistics = $statistics}
     )
     foreach ($body in $validBodies) {
         $json = $body | ConvertTo-Json -Depth 30
@@ -106,12 +114,11 @@ function Assert-CandidateArtifactSchemaContract {
         @{schema_version = 1; artifact_role = "l4_schema"; provider_tool = @{}},
         @{schema_version = 1; artifact_role = "transition_schema"; transition_schema = @{}},
         @{schema_version = 1; artifact_role = "typed_outcome"; outcome_variants = @("Executed")},
-        @{schema_version = 1; artifact_role = "lifecycle_oracle_v2"; oracles = @("carrier")},
+        @{schema_version = 1; artifact_role = "carrier_protocol_oracle"; oracles = @("carrier")},
         @{schema_version = 1; artifact_role = "entry_closure"; generated = $true; source_inventory = @{}; entries = @()},
         @{schema_version = 1; artifact_role = "capability_matrix"; entries = @("exec")},
         @{schema_version = 1; artifact_role = "rollback_manifest"; restore_targets = @("authority")},
-        @{schema_version = 1; artifact_role = "continuous_action_evaluation"; samples = @("simple"); metrics = @{}; thresholds = @{}},
-        @{schema_version = 1; artifact_role = "fla8_evaluation_v2"; held_out_identity = @{}; metrics = @{}; thresholds = @{}}
+        @{schema_version = 1; artifact_role = "continuous_action_evaluation"; samples = @("simple"); metrics = @{}; thresholds = @{}}
     )
     foreach ($body in $emptyPayloads) {
         $json = $body | ConvertTo-Json -Depth 20
@@ -129,7 +136,6 @@ function Assert-CandidateArtifactSchemaContract {
     foreach ($entry in @($hollowBodies[5].entries)) { $entry.disposition = "non_carrier" }
     foreach ($target in @($hollowBodies[6].restore_targets)) { $target.target_role = "authority" }
     $hollowBodies[7].metrics.transition_carrier_rate.formula = "meaningless / formula"
-    $hollowBodies[8].arm_order[1] = $hollowBodies[8].arm_order[0]
     foreach ($body in $hollowBodies) {
         $json = $body | ConvertTo-Json -Depth 40
         Assert-True (-not ($json | Test-Json -SchemaFile $SchemaPath -ErrorAction SilentlyContinue)) "Role-specific artifact schema accepted a well-formed hollow $($body.artifact_role) payload"

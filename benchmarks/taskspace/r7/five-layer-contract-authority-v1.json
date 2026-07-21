@@ -47,7 +47,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "2cc5271f6b7861d572cedc99a7351c67835f3515cb2c7f896ccfb2d13495c545",
+      "sha256": "6763441cacbb0dd94b4f207d0cee5b362c86643f3dc05c5cfb5598de5065ee9c",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -62,7 +62,7 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "f4b02e44270c47904352cc224bb9339e697030727a486cc49ad1f1a6f9bbbbc0",
+      "sha256": "7a9e703e1d28999fda1d15aefc7fa1c1430da88ecb538fab106216e25f5907ec",
       "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],

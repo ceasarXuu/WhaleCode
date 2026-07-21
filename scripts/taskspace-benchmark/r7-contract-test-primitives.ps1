@@ -102,6 +102,34 @@ function Assert-StrictJson {
     }
 }
 
+function Get-ImmutableFirstAddAnchor {
+    param([string]$RelativePath, [string]$ExpectedKind)
+    $fullPath = Join-Path $repoRoot $RelativePath
+    Assert-True (Test-Path -LiteralPath $fullPath -PathType Leaf) "Immutable anchor missing: $RelativePath"
+    $history = @(& git -C $repoRoot log --first-parent --reverse --format=%H -- $RelativePath)
+    Assert-Equal $history.Count 1 "Immutable anchor must be added once and never modified or restored: $RelativePath"
+    $addCommit = $history[0]
+    $changeStatus = (& git -C $repoRoot diff-tree --root --no-commit-id --name-status -r $addCommit -- $RelativePath).Trim()
+    Assert-True $changeStatus.StartsWith("A", [System.StringComparison]::Ordinal) "Immutable anchor first event is not an add: $RelativePath"
+    $treeEntry = (& git -C $repoRoot ls-tree $addCommit -- $RelativePath).Trim()
+    Assert-True $treeEntry.StartsWith("100644 blob ", [System.StringComparison]::Ordinal) "Immutable anchor is not a regular non-executable blob: $RelativePath"
+    $anchorRaw = Get-GitBlobText $addCommit $RelativePath
+    Assert-Equal (Get-Sha256 $fullPath) (Get-TextSha256 $anchorRaw) "Immutable anchor worktree bytes differ from first-add bytes: $RelativePath"
+    Assert-StrictJson $anchorRaw "immutable anchor $RelativePath"
+    $anchorSchemaPath = Join-Path $repoRoot "benchmarks/taskspace/r7/immutable-anchor-v1.schema.json"
+    Assert-True ($anchorRaw | Test-Json -SchemaFile $anchorSchemaPath -ErrorAction Stop) "Immutable anchor does not match schema: $RelativePath"
+    $anchor = $anchorRaw | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$anchor.anchor_kind) $ExpectedKind "Immutable anchor kind drifted: $RelativePath"
+    $parentCommit = (& git -C $repoRoot rev-parse "$addCommit^1").Trim()
+    Assert-Equal ([string]$anchor.anchored_parent_commit) $parentCommit "Immutable anchor does not bind its pre-existing parent commit: $RelativePath"
+    foreach ($artifact in @($anchor.artifacts)) {
+        Assert-Equal (Get-GitBlobSha256 $parentCommit ([string]$artifact.path)) ([string]$artifact.sha256) "Immutable anchor artifact hash drifted: $($artifact.path)"
+        $artifactTreeEntry = (& git -C $repoRoot ls-tree $parentCommit -- ([string]$artifact.path)).Trim()
+        Assert-True $artifactTreeEntry.StartsWith("$([string]$artifact.git_mode) blob ", [System.StringComparison]::Ordinal) "Immutable anchor artifact mode drifted: $($artifact.path)"
+    }
+    $anchor
+}
+
 function Get-RustEnumVariants {
     param([string]$Path, [string]$EnumName)
     $source = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path
@@ -136,6 +164,8 @@ function Get-CandidateContentId {
         "production_commit=$([string]$Candidate.active_production_manifest.git_commit)",
         "production_sha256=$([string]$Candidate.active_production_manifest.sha256)",
         "activation_through=$([string]$Candidate.activation_targets.activation_through)",
+        "authority_contract_status=$([string]$Candidate.activation_targets.authority_contract_status)",
+        "production_manifest_version=$([string]$Candidate.activation_targets.production_manifest_version)",
         "blocking_repair=$([string]$Candidate.activation_targets.blocking_repair.id)|$([string]$Candidate.activation_targets.blocking_repair.implementation_status)",
         "runtime_status=L4:$([string]$Candidate.activation_targets.production_runtime_status.L4)|L5:$([string]$Candidate.activation_targets.production_runtime_status.L5)"
     )

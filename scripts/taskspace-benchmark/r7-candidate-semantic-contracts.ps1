@@ -14,7 +14,7 @@ function Get-ExpectedPromotedAuthority {
     $expected = Get-GitBlobText ([string]$Candidate.active_authority.git_commit) ([string]$Candidate.active_authority.path) |
         ConvertFrom-Json -Depth 100
     $replacements = @{}
-    foreach ($target in @($Candidate.activation_targets.L4) + @($Candidate.activation_targets.L5)) {
+    foreach ($target in @($Candidate.activation_targets.L4) + @($Candidate.activation_targets.L5 | Where-Object { [string]$_.artifact_role -eq "typed_outcome" })) {
         $replacements[[string]$target.authority_layer] = New-AuthorityTargetFromActivation $target
     }
     $expected.selected_targets = @($expected.selected_targets | ForEach-Object {
@@ -25,6 +25,7 @@ function Get-ExpectedPromotedAuthority {
     $repairs = @($expected.blocking_repairs | Where-Object { [string]$_.id -eq $repairId })
     Assert-Equal $repairs.Count 1 "Promoted baseline must contain exactly one designated blocking repair"
     $repairs[0].implementation_status = [string]$Candidate.activation_targets.blocking_repair.implementation_status
+    $expected.contract_status = [string]$Candidate.activation_targets.authority_contract_status
     $expected
 }
 
@@ -35,17 +36,26 @@ function Get-ExpectedPromotedProduction {
     $expected.source_authority.sha256 = $AuthoritySha256
     $expected | Add-Member -NotePropertyName promoted_candidate_id -NotePropertyValue ([string]$Candidate.candidate_id) -Force
     $expected.activation_through = [string]$Candidate.activation_targets.activation_through
+    $expected.manifest_version = [string]$Candidate.activation_targets.production_manifest_version
+    $baselineAuthority = Get-GitBlobText ([string]$Candidate.active_authority.git_commit) ([string]$Candidate.active_authority.path) |
+        ConvertFrom-Json -Depth 100
+    $baselineResultArtifact = [string](@($baselineAuthority.selected_targets | Where-Object { [string]$_.layer -eq "L5-result" })[0].artifact)
     foreach ($layerId in @("L4", "L5")) {
         $layers = @($expected.layers | Where-Object { [string]$_.id -eq $layerId })
         Assert-Equal $layers.Count 1 "Production baseline must contain exactly one $layerId layer"
         $layers[0].runtime_status = [string]$Candidate.activation_targets.production_runtime_status.$layerId
-        $layers[0].selected_targets = @($Candidate.activation_targets.$layerId | ForEach-Object {
-            [pscustomobject][ordered]@{
-                artifact = [string]$_.path
-                sha256 = [string]$_.sha256
-                activation_phase = [string]$_.activation_phase
-            }
-        })
+        if ($layerId -eq "L4") {
+            $layers[0].selected_targets = @($Candidate.activation_targets.L4 | ForEach-Object {
+                [pscustomobject][ordered]@{artifact = [string]$_.path; sha256 = [string]$_.sha256; activation_phase = [string]$_.activation_phase}
+            })
+        } else {
+            $typedTarget = @($Candidate.activation_targets.L5 | Where-Object { [string]$_.artifact_role -eq "typed_outcome" })[0]
+            $layers[0].selected_targets = @($layers[0].selected_targets | ForEach-Object {
+                if ([string]$_.artifact -eq $baselineResultArtifact) {
+                    [pscustomobject][ordered]@{artifact = [string]$typedTarget.path; sha256 = [string]$typedTarget.sha256; activation_phase = [string]$typedTarget.activation_phase}
+                } else { $_ }
+            })
+        }
     }
     $expected
 }
@@ -95,7 +105,4 @@ function Assert-CandidateArtifactSemantics {
     Assert-Equal (@($evaluation.sample_order | Sort-Object -Unique).Count) @($evaluation.sample_order).Count "Continuous-action sample order is not unique"
     Assert-Equal ((@($evaluation.sample_order | Sort-Object)) -join ",") ((@($sampleIds | Sort-Object)) -join ",") "Continuous-action sample order does not cover frozen samples"
 
-    $fla8 = $Bodies.fla8_evaluation_v2
-    Assert-Equal @($fla8.held_out_identity.sample_ids).Count ([int]$fla8.held_out_identity.sample_count) "FLA-8 held-out sample count drifted"
-    Assert-Equal @($fla8.held_out_identity.sample_ids | Sort-Object -Unique).Count @($fla8.held_out_identity.sample_ids).Count "FLA-8 held-out sample identities are not unique"
 }

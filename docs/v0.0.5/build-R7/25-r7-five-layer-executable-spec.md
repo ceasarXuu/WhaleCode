@@ -197,8 +197,9 @@ FLA-7 激活前必须实现 `freeze-r7-five-layer-fixtures.ps1`：先独立重�
 projection/provider payload golden 并按每个场景的允许差异比较。没有脚本和 golden 产物时只能称为 schema 已
 设计，不能称生命周期已验证；生成 golden 是机械固化现有 renderer 输出，不得成为改写 projection 语义的入口。
 
-CA-2 必须生成独立 lifecycle oracle v2：保留 canonical Map、projection 和恢复场景，使用“standalone 在 schema
-中不可表达”“carrier 参数失败零提交”“transition commit + Tool failure 两事实保留”替换 missing-sibling 场景。
+FLA-3.5 CA-2 只生成 carrier protocol oracle：使用“standalone 在 schema 中不可表达”“carrier 参数失败零提交”
+“transition commit + Tool failure 两事实保留”和 code-mode carrier 等 executable fixtures 替换 missing-sibling 场景；
+不包含 canonical projection、resume、fork、compaction 或 recovery。后四类仍由 FLA-7 的 lifecycle oracle 独占。
 不得覆盖 v1 或把历史拒绝改写成未发生。
 
 ## 5. FLA 实施矩阵
@@ -267,11 +268,15 @@ FLA-3.5 CA-0 新增的 `r7-phase-ownership-v1.json` 是阶段所有权机器权�
 - 定向测试：standalone negative、拒绝/取消时序、新 lease reservation、function/freeform Patch、code-mode、
   MCP/图片/截断 typed outcome、turn-wide Patch、capability epoch、Standard wire 和完整 rollback drill。
 - smoke：使用独立 FLA-3.5 评估合同运行 Standard、当前 sibling 基线、候选三臂；FLA-8 held-out 保持 sealed。
+- 激活语义：FLA-3.5 只把 L4/L5-result 置为 `active_repair_verified`；FLA-4/5 各自完成后才升为 active。
 - 完成证据：H-003 为 0，合并率与保真率 100%，无额外 request，成本非劣，空白 reviewer 无 blocking finding。
 
 FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 
 ### FLA-4：激活 L4 input schema
+
+`FLA-4-Repair-Baseline` 只检查当前 repair baseline；名义 `FLA-4` 在 FLA-3.5 未完成时必须失败，不能用 baseline
+通过冒充阶段完成。
 
 - 修改：`tools/src/taskspace_tool.rs`、`taskspace_tool_simple_actions.rs`、
   `core/src/tools/handlers/taskspace_control_args.rs`、`taskspace_control_args_wire.rs`。
@@ -285,6 +290,8 @@ FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 - 完成证据：生产 Tool 和 parser 只接受新 action；所有 schema branches 100% covered。
 
 ### FLA-5：激活 L5 result algebra
+
+`FLA-5-Repair-Baseline` 只检查当前 result repair baseline；名义 `FLA-5` 在 FLA-4 未完成时必须失败。
 
 - 修改：`taskspace_control_output.rs`、`sequence_preflight.rs`、`sequence.rs`、control handler/read path。
 - 当前修复基线已统一产生 `TaskSpaceControlResultV2`、错误码和布尔 `partial_commit=false`；FLA-3.5 拥有
@@ -325,10 +332,10 @@ FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 执行
 [`five-layer-evaluation-contract-v1.json`](../../../benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json)：
 
-当前 v1 的 `combined_control_plus_next_rate` 只适用于 sibling 回归基线。FLA-3.5 CA-0 必须在 probe 前生成
-候选 v2，在不
-读取或改变 sealed held-out、重复、seed 和统计规则的前提下，将该指标替换为 transition carrier 指标；CA-6
-promotion 才能把 v2 激活为 FLA-8 authority。FLA-3.5 CA-5 使用另一份专用评估合同，不能借此提前执行 FLA-8。
+当前 v1 的 `combined_control_plus_next_rate` 只适用于 sibling 回归基线。FLA-3.5 的 candidate 与 CA-6 promotion
+不得包含或激活 FLA-8 v2，也不得读取 sealed held-out。FLA-3.5 CA-5 只使用独立 continuous-action 三臂合同。
+FLA-8 开始时再从已晋级 carrier 生成、预注册并激活自己的 v2，将旧指标替换为 transition carrier 指标，同时保持
+sealed held-out、30 repeats、bootstrap、顺序、停止和 correction 规则不变。
 
 - shared change 使用 7 臂；单 policy 实验使用 3 臂。
 - 七臂中 Standard + 晋级后 map-always/map-append/map-request 是 R7 Phase G 唯一四臂子矩阵；benchmark skill、

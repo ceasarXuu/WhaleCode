@@ -254,5 +254,31 @@ Blocking、3 个 High：
 
 ## 14. 第十二轮复审
 
-第十一轮仍含 Blocking/High finding。十一次修订提交后必须由第十二个空白 reviewer 复核 Y1-Y11、v1/v2 门禁分离、
-不可变 baseline、exact-delta 可实现性和 FLA-3.5/4/5/7/8 所有权。
+- Target commit: `61f2f4089`
+- Reviewer launch id: `019f8302-7e2e-7911-bd85-9f46b9f243d5`
+- Reviewer nickname: Dirac
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第十二个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第十二轮确认产品合同没有被降级，但发现 3 个 Blocking、5 个 High、1 个 Medium；phase-conflict 仍为 `FAIL`：
+
+| # | 级别 | 第十二轮发现 | 处置 | 十二次修订 |
+|---|---|---|---|---|
+| Z1 | Blocking | completion gate 仅检查文件存在，空壳 v1 artifact 也能推进 | Accept | completion 只信任 immutable toolchain anchor 固定的 v2 verifier；v1 scaffold 永不进入完成证据 |
+| Z2 | Blocking | CA-6 exact-delta 未绑定 authority status/manifest version，且重建会丢失未声明字段 | Accept | candidate 预注册目标 status/version；晋级只允许三个 Git path 和精确 JSON pointer，未指定字段逐字节保留 |
+| Z3 | Blocking | carrier oracle、lifecycle oracle 与 FLA-8 artifact 的 Phase 所有权仍冲突 | Accept | FLA-3.5 oracle 缩为 carrier transport；lifecycle/recovery 归 FLA-7，正式 evaluation-v2 归 FLA-8，v1 scaffold 同步移除越权 role |
+| Z4 | High | baseline 没有在 candidate 前形成可审计信任锚 | Accept | 先提交修订后的 active authority/production，再用只新增一次的独立 commit 锚定其父提交、hash 与 mode |
+| Z5 | High | 使用 candidate 自带 parser 验证 candidate，存在循环信任且事件 union 不完整 | Accept | 独立 toolchain anchor 固定 strict parser/schema/verifier；事件 union 覆盖 anchor、ownership、generator、transition、closure、verifier 全部类型 |
+| Z6 | High | closure 只绑定五个入口，未覆盖完整共享 Tool pipeline | Accept | closure 逐行绑定 decorator、parser、alias、router、approval、executor、handler、mapper 的 source path/hash，并由 source-derived generator 重建 |
+| Z7 | High | 名义 FLA-4/5 在 repair baseline 下仍可显示通过 | Accept | 单设 `FLA-4/5-Repair-Baseline`；名义 Phase 在前置完成和本 Phase executable evidence 激活前必须失败 |
+| Z8 | High | rollback 同时要求保留 candidate evidence 和恢复 candidate registry，语义矛盾 | Accept | 区分 production restore inventory 与 append-only rejected evidence inventory；两者非重叠且 rejected evidence 不回滚 |
+| Z9 | Medium | cache 成本公式没有完整定义配对、缺失值和零分母 | Accept | 固定 `(sample, repeat, capability_epoch)` 配对与 sample 等权聚合；缺失或零分母直接使门禁失败 |
+
+所有发现均接受。Z1/Z4 的信任链按“先修订生产事实、后独立 first-add anchor”落地；Z2/Z3/Z6/Z7 保证
+FLA-3.5 不夹带 FLA-4～8 的实现或所有权。连续动作仍是同一 provider-visible carrier Tool call 的硬合同。
+
+## 15. 第十三轮复审
+
+第十二轮仍含 Blocking/High finding。十二次修订和 production baseline first-add anchor 提交后，必须由第十三个空白
+reviewer 复核 Z1-Z9、bootstrap trust chain、exact-delta allowlist、完整 Tool pipeline closure 以及后续 Phase 所有权。

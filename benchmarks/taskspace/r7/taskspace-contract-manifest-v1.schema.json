@@ -51,9 +51,23 @@
     },
     "activation_targets": {
       "type": "object",
-      "required": ["activation_through", "blocking_repair", "production_runtime_status", "L4", "L5"],
+      "required": ["activation_through", "authority_contract_status", "production_manifest_version", "promotion_commit_paths", "blocking_repair", "production_runtime_status", "L4", "L5"],
       "properties": {
         "activation_through": {"const": "FLA-3.5"},
+        "authority_contract_status": {"const": "production_active_through_fla3_5_with_carrier_repair"},
+        "production_manifest_version": {"const": "1.0.5"},
+        "promotion_commit_paths": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1},
+          "allOf": [
+            {"contains": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"}},
+            {"contains": {"const": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"}},
+            {"contains": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/manifest.json$"}}
+          ]
+        },
         "blocking_repair": {
           "type": "object",
           "required": ["id", "implementation_status"],
@@ -93,23 +107,21 @@
         "l4_schema",
         "transition_schema",
         "typed_outcome",
-        "lifecycle_oracle_v2",
+        "carrier_protocol_oracle",
         "entry_closure",
         "capability_matrix",
         "rollback_manifest",
-        "continuous_action_evaluation",
-        "fla8_evaluation_v2"
+        "continuous_action_evaluation"
       ],
       "properties": {
         "l4_schema": {"$ref": "#/$defs/l4SchemaArtifact"},
         "transition_schema": {"$ref": "#/$defs/transitionSchemaArtifact"},
         "typed_outcome": {"$ref": "#/$defs/typedOutcomeArtifact"},
-        "lifecycle_oracle_v2": {"$ref": "#/$defs/lifecycleOracleArtifact"},
+        "carrier_protocol_oracle": {"$ref": "#/$defs/carrierProtocolOracleArtifact"},
         "entry_closure": {"$ref": "#/$defs/entryClosureArtifact"},
         "capability_matrix": {"$ref": "#/$defs/capabilityMatrixArtifact"},
         "rollback_manifest": {"$ref": "#/$defs/rollbackManifestArtifact"},
-        "continuous_action_evaluation": {"$ref": "#/$defs/continuousActionEvaluationArtifact"},
-        "fla8_evaluation_v2": {"$ref": "#/$defs/fla8EvaluationArtifact"}
+        "continuous_action_evaluation": {"$ref": "#/$defs/continuousActionEvaluationArtifact"}
       },
       "additionalProperties": false
     },
@@ -288,10 +300,10 @@
         {"properties": {"artifact_role": {"const": "typed_outcome"}, "path": {"pattern": "/typed-outcome.json$"}}}
       ]
     },
-    "lifecycleOracleArtifact": {
+    "carrierProtocolOracleArtifact": {
       "allOf": [
         {"$ref": "#/$defs/candidateArtifact"},
-        {"properties": {"artifact_role": {"const": "lifecycle_oracle_v2"}, "path": {"pattern": "/lifecycle-oracle-v2.json$"}}}
+        {"properties": {"artifact_role": {"const": "carrier_protocol_oracle"}, "path": {"pattern": "/carrier-protocol-oracle.json$"}}}
       ]
     },
     "capabilityMatrixArtifact": {
@@ -316,12 +328,6 @@
       "allOf": [
         {"$ref": "#/$defs/candidateArtifact"},
         {"properties": {"artifact_role": {"const": "continuous_action_evaluation"}, "path": {"pattern": "/continuous-action-evaluation.json$"}}}
-      ]
-    },
-    "fla8EvaluationArtifact": {
-      "allOf": [
-        {"$ref": "#/$defs/candidateArtifact"},
-        {"properties": {"artifact_role": {"const": "fla8_evaluation_v2"}, "path": {"pattern": "/fla8-evaluation-v2.json$"}}}
       ]
     }
   },

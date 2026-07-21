@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/immutable-anchor-v1.schema.json",
+  "title": "R7 immutable first-add anchor",
+  "type": "object",
+  "required": ["schema_version", "anchor_kind", "anchored_parent_commit", "artifacts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "anchor_kind": {"enum": ["continuous_action_production_baseline", "continuous_action_v2_toolchain"]},
+    "anchored_parent_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["role", "path", "sha256", "git_mode"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+          "git_mode": {"const": "100644"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
