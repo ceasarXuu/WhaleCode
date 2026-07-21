@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "r7-v2-toolchain-core.ps1")
+. (Join-Path $PSScriptRoot "r7-v2-artifact-fixtures.ps1")
 
 function Assert-True {
     param([bool]$Condition, [string]$Code)
@@ -21,95 +22,6 @@ function Assert-Throws {
 function New-Hash {
     param([object]$Seed)
     Get-R7Sha256Text ([string]$Seed)
-}
-
-function New-SourceBinding {
-    param([string]$Symbol)
-    [pscustomobject][ordered]@{
-        symbol = $Symbol
-        path = "third_party/codex-cli/codex-rs/core/src/tools/router.rs"
-        sha256 = Get-R7Sha256File (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/core/src/tools/router.rs")
-    }
-}
-
-function New-TransitionFixture {
-    param([string]$Id, [bool]$Accepted, [object]$Hash)
-    [pscustomobject][ordered]@{
-        id = $Id
-        input_sha256 = New-Hash "$Hash-input"
-        pre_state_sha256 = New-Hash "$Hash-pre"
-        expected_output_sha256 = New-Hash "$Hash-output"
-        post_state_sha256 = New-Hash "$Hash-post"
-        accepted = $Accepted
-    }
-}
-
-function New-ArtifactFixtures {
-    param($Closure)
-    $binding = New-SourceBinding "build_tool_call"
-    $hashA = New-Hash 'a'
-    $hashB = New-Hash 'b'
-    $carrierSpecs = @(
-        [pscustomobject]@{wire_api = "responses"; tool_spec = "Function"; business_schema_sha256 = $hashA; decorated_schema_sha256 = $hashB; parser = $binding; reserved_field_removed_before_handler = $true},
-        [pscustomobject]@{wire_api = "deepseek_chat"; tool_spec = "Freeform"; business_schema_sha256 = $hashB; decorated_schema_sha256 = (New-Hash 'c'); parser = $binding; reserved_field_removed_before_handler = $true},
-        [pscustomobject]@{wire_api = "responses"; tool_spec = "CodeModeOuter"; business_schema_sha256 = (New-Hash 'd'); decorated_schema_sha256 = (New-Hash 'e'); parser = $binding; reserved_field_removed_before_handler = $true}
-    )
-    $l4 = [pscustomobject][ordered]@{
-        schema_version = 2; artifact_role = "l4_schema"; reserved_field = "taskspace_transition"
-        collision_policy = "reject_capability_epoch"; carrier_specs = $carrierSpecs
-        standard_identity = [pscustomobject]@{tool_schema_sha256 = (New-Hash 'f'); wire_sha256 = (New-Hash '1'); handler_sha256 = (New-Hash '2')}
-    }
-    $transitionInput = [pscustomobject][ordered]@{
-        '$schema' = "https://json-schema.org/draft/2020-12/schema"
-        oneOf = @(
-            [pscustomobject]@{properties = [pscustomobject]@{action = [pscustomobject]@{const = "initialize_map"}}},
-            [pscustomobject]@{properties = [pscustomobject]@{action = [pscustomobject]@{const = "bind_node"}}},
-            [pscustomobject]@{properties = [pscustomobject]@{action = [pscustomobject]@{const = "complete_then_continue"}}}
-        )
-    }
-    $transition = [pscustomobject][ordered]@{
-        schema_version = 2; artifact_role = "transition_schema"; schema_id = "r7-taskspace-transition-v2"; input_schema = $transitionInput
-        positive_fixtures = @(
-            New-TransitionFixture "initialize" $true '3'
-            New-TransitionFixture "bind" $true '7'
-            New-TransitionFixture "complete_continue" $true 'b'
-        )
-        negative_fixtures = @(
-            New-TransitionFixture "standalone" $false 'f'
-            New-TransitionFixture "bad_args" $false 'j'
-            New-TransitionFixture "collision" $false 'n'
-        )
-    }
-    $outcomeIds = @("rejected", "cancelled", "returned", "failed", "cancelled_after_start", "mcp_absent", "mcp_null", "mcp_image")
-    $outcomes = for ($index = 0; $index -lt $outcomeIds.Count; $index++) {
-        $variant = if ($index -eq 0) { "RejectedBeforeCommit" } elseif ($index -eq 1) { "CommittedNotExecuted" } else { "Executed" }
-        $toolState = @("not_dispatched", "not_started", "returned", "failed", "cancelled_after_start", "returned", "returned", "returned")[$index]
-        [pscustomobject][ordered]@{id = $outcomeIds[$index]; variant = $variant; input_sha256 = New-Hash ([char](65 + $index)); output_sha256 = New-Hash ([char](75 + $index)); commit_state = if ($index -eq 0) { "not_committed" } else { "committed" }; tool_state = $toolState}
-    }
-    $typed = [pscustomobject][ordered]@{
-        schema_version = 2; artifact_role = "typed_outcome"; outcome_type = "TaskSpaceCarrierOutcome"
-        variants = @("RejectedBeforeCommit", "CommittedNotExecuted", "Executed")
-        deferred_authorization_variants = @("NotRequired", "Requested", "Approved", "Denied")
-        mcp_presence_fields = @("content", "structured_content", "is_error", "meta")
-        fixtures = @($outcomes)
-    }
-    $scenarios = foreach ($id in @("empty_map_initialize", "ready_bind", "complete_continue", "standalone_negative", "argument_failure", "commit_tool_failure", "code_mode_carrier")) {
-        [pscustomobject][ordered]@{id = $id; fixture_path = "benchmarks/taskspace/scenarios/single-file-fast-fix/scenario.json"; fixture_sha256 = (New-Hash '3'); expected_outcome_sha256 = Get-R7Sha256Text $id}
-    }
-    $oracle = [pscustomobject][ordered]@{schema_version = 2; artifact_role = "carrier_protocol_oracle"; oracle_version = 3; scenarios = @($scenarios)}
-    $matrix = [pscustomobject][ordered]@{schema_version = 2; artifact_role = "capability_matrix"; entry_closure_sha256 = Get-R7Sha256Text "closure"; entries = @($Closure.entries)}
-    $rollback = [pscustomobject][ordered]@{
-        schema_version = 2; artifact_role = "rollback_manifest"; baseline_commit = "1" * 40
-        baseline_authority_sha256 = New-Hash '4'; baseline_production_sha256 = New-Hash '5'
-        changed_paths = @("third_party/codex-cli/codex-rs/core/src/tools/router.rs")
-        changed_path_inventory = @([pscustomobject]@{path = "third_party/codex-cli/codex-rs/core/src/tools/router.rs"; rollback_action = "restore"; baseline_sha256 = (New-Hash '4'); candidate_sha256 = (New-Hash '5'); git_mode = "100644"})
-        restore_targets = @(
-            [pscustomobject]@{path = $script:R7AuthorityPath; sha256 = (New-Hash '4'); git_mode = "100644"},
-            [pscustomobject]@{path = $script:R7ProductionPath; sha256 = (New-Hash '5'); git_mode = "100644"}
-        )
-        commands = @("pwsh test-r7-continuous-action-candidate.ps1", "pwsh set-r7-continuous-action-candidate-status.ps1")
-    }
-    [ordered]@{l4_schema = $l4; transition_schema = $transition; typed_outcome = $typed; carrier_protocol_oracle = $oracle; entry_closure = $Closure; capability_matrix = $matrix; rollback_manifest = $rollback}
 }
 
 function Test-CandidateSchema {
@@ -169,25 +81,38 @@ Assert-True ($LASTEXITCODE -eq 0) "R7_TEST_STRICT_VALID_REJECTED"
 foreach ($invalid in @(
     [pscustomobject]@{name = "duplicate"; bytes = [System.Text.Encoding]::UTF8.GetBytes("{`"a`":1,`"a`":2}")},
     [pscustomobject]@{name = "trailing"; bytes = [System.Text.Encoding]::UTF8.GetBytes("{`"a`":1,}")},
-    [pscustomobject]@{name = "invalid-utf8"; bytes = [byte[]]@(0xff, 0xfe, 0xfd)}
+    [pscustomobject]@{name = "invalid-utf8"; bytes = [byte[]]@(0xff, 0xfe, 0xfd)},
+    [pscustomobject]@{name = "unsafe-integer"; bytes = [System.Text.Encoding]::UTF8.GetBytes("{`"n`":9007199254740992}")},
+    [pscustomobject]@{name = "isolated-surrogate"; bytes = [System.Text.Encoding]::UTF8.GetBytes("{`"s`":`"\uD800`"}")},
+    [pscustomobject]@{name = "overflow-float"; bytes = [System.Text.Encoding]::UTF8.GetBytes("{`"n`":1e400}")}
 )) {
     $path = Join-Path $scratch "$($invalid.name).json"
     [System.IO.File]::WriteAllBytes($path, $invalid.bytes)
     Assert-Throws { & pwsh -NoLogo -NoProfile -File $strictParser -Path $path 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { throw "rejected" } } "R7_TEST_STRICT_NEGATIVE_ACCEPTED name=$($invalid.name)"
 }
+$canonicalPath = Join-Path $scratch "canonical-array.json"
+[System.IO.File]::WriteAllText($canonicalPath, "{`"z`":1,`"a`":[1]}", [System.Text.UTF8Encoding]::new($false))
+$canonical = & pwsh -NoLogo -NoProfile -File $strictParser -Path $canonicalPath -EmitCanonical
+Assert-True (($canonical -join "") -ceq '{"a":[1],"z":1}') "R7_TEST_CANONICAL_ARRAY_OR_ORDER"
+$coreCanonical = ConvertTo-R7CanonicalJson ([pscustomobject][ordered]@{z = 1; a = @(1)})
+Assert-True ($coreCanonical -ceq '{"a":[1],"z":1}') "R7_TEST_CORE_CANONICAL_ARRAY_OR_ORDER"
 
 $artifactSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json"
 $manifestSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json"
+$evaluationSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json"
 [void](Read-R7StrictJson $artifactSchema)
 [void](Read-R7StrictJson $manifestSchema)
+[void](Read-R7StrictJson $evaluationSchema)
 $closurePath = Join-Path $scratch "entry-closure.json"
 & cargo run --locked -q -p codex-tools --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath
 if ($LASTEXITCODE -ne 0) { throw "R7_TEST_CLOSURE_GENERATION_FAILED" }
 $closure = Read-R7StrictJson $closurePath $artifactSchema
 & cargo run --locked -q -p codex-tools --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath --check
 if ($LASTEXITCODE -ne 0) { throw "R7_TEST_CLOSURE_EXACT_CHECK_FAILED" }
-$fixtures = New-ArtifactFixtures $closure
+$fixtures = New-R7ExecutableArtifactFixtures $closure
 $fixtures.continuous_action_evaluation = Read-R7StrictJson (Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.json") $artifactSchema
+[void](Read-R7StrictJson (Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.json") $evaluationSchema)
+Assert-R7GeneratedArtifactSemantics $fixtures (Join-Path $scratch "executable-semantics")
 foreach ($role in $script:R7ArtifactNames.Keys) {
     $path = Join-Path $scratch $script:R7ArtifactNames[$role]
     Write-R7JsonFile $path $fixtures[$role]
@@ -207,7 +132,8 @@ foreach ($alias in @($ownership.forbidden_parallel_owners)) { Assert-True (@($do
 
 $scripts = @(
     "invoke-r7-strict-json.ps1", "r7-v2-toolchain-core.ps1", "r7-v2-history.ps1", "r7-v2-promotion.ps1",
-    "r7-v2-git-transaction.ps1", "test-r7-continuous-action-candidate-set.ps1",
+    "r7-v2-git-transaction.ps1", "r7-v2-artifact-fixtures.ps1", "test-r7-continuous-action-candidate-set.ps1",
+    "evaluate-r7-continuous-action-runset.ps1", "test-r7-continuous-action-evaluator.ps1",
     "new-r7-continuous-action-candidate.ps1",
     "test-r7-continuous-action-candidate.ps1", "set-r7-continuous-action-candidate-status.ps1",
     "invoke-r7-continuous-action-completion.ps1", "verify-r7-continuous-action-completion.ps1",
@@ -218,6 +144,14 @@ foreach ($scriptName in $scripts) {
     [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $scriptName), [ref]$null, [ref]$errors)
     Assert-True ($errors.Count -eq 0) "R7_TEST_SCRIPT_SYNTAX name=$scriptName"
 }
+$libraryScripts = @("lib/r7-strict-json.ps1", "lib/r7-continuous-action-evaluator.ps1")
+foreach ($relative in $libraryScripts) {
+    $errors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $relative), [ref]$null, [ref]$errors)
+    Assert-True ($errors.Count -eq 0) "R7_TEST_SCRIPT_SYNTAX name=$relative"
+}
+& pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-evaluator.ps1") | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "R7_TEST_EVALUATOR_SELFTEST_FAILED" }
 $workflow = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:R7RepoRoot ".github/workflows/r7-continuous-action-completion.yml")
 foreach ($marker in @("actions/checkout@v6", "actions/upload-artifact@v7", "git show", "completion_launcher", "RequiredCheckRunId")) { Assert-True $workflow.Contains($marker, [System.StringComparison]::Ordinal) "R7_TEST_WORKFLOW_MARKER marker=$marker" }
 if ($Mode -eq "PreAnchor") {
@@ -225,7 +159,7 @@ if ($Mode -eq "PreAnchor") {
 } else {
     [void](Assert-R7ToolchainWorktree)
 }
-$result = [pscustomobject][ordered]@{schema_version = 1; test = "r7_continuous_action_v2_toolchain"; mode = $Mode; passed = $true; artifact_roles = $script:R7ArtifactNames.Count; closure_entries = @($closure.entries).Count; strict_negative_cases = 3; git_scalar_cases = 1; scripts_parsed = $scripts.Count}
+$result = [pscustomobject][ordered]@{schema_version = 1; test = "r7_continuous_action_v2_toolchain"; mode = $Mode; passed = $true; artifact_roles = $script:R7ArtifactNames.Count; closure_entries = @($closure.entries).Count; strict_negative_cases = 6; evaluator_negative_cases = 5; git_scalar_cases = 1; scripts_parsed = $scripts.Count + $libraryScripts.Count}
 $resultPath = Join-Path $scratch "toolchain-test-result.json"
 Write-R7JsonFile $resultPath $result
 Write-Output ($result | ConvertTo-Json -Compress)

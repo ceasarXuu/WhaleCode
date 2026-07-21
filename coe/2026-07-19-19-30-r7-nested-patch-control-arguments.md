@@ -771,3 +771,29 @@
   - ownership items/marker files `35/27`
 - Interpretation: CA-0 代码实现已具备提交和独立审查条件；active authority/production 未修改，工具链 anchor 尚未创建，因此 FLA-3.5 仍未完成。
 - Time: 2026-07-22 00:16
+
+## Evidence E-014: CA-0 artifact 与冻结评测合同可由原始事实独立重算
+- Related hypotheses:
+  - H-009
+- Direction: supports implementation readiness; does not satisfy production repair
+- Type: fix-validation
+- Source: scripts/taskspace-benchmark/test-r7-continuous-action-toolchain.ps1、test-r7-continuous-action-evaluator.ps1
+- Prediction or plan link:
+  - Round 1 finding 4、8、9 要求 artifact 不再是字段外形，评测结论不能由 candidate 自签，也不得借用 FLA-8 held-out 样本。
+- Matched signal:
+  - L4 schema、transition、typed outcome 与 carrier oracle 均携带实际 instance/value/trace，并由 verifier 重算 hash、schema decision 和 payload exactness。
+  - 冻结评测合同绑定三个 ca0_dev_only 非 held-out 样本的 scenario、完整目录、prompt、fixture 目录和 oracle 身份。
+  - pinned evaluator 忽略 summary 布尔值，从 requests/tools/map/verdict/cache 事件重算 36 个 run、12 个 pair，并执行固定种子 10,000 次分层 bootstrap 与 Holm 校正。
+  - duplicate、missing、artifact hash drift、cache unavailable、held-out 五类负例均被拒绝。
+  - 总工具链回归通过：462 closure entries、6 strict JSON negatives、5 evaluator negatives、17 scripts/libraries。
+- Correlation keys:
+  - evaluation id r7-fla3-5-continuous-action-v1
+  - contract digest 635e1bab4f2d9f7c4ef571281ae0ba3344a5ab297d341ab991dde383e21da4de
+  - fixture directory identity cb6d38348f592908e0e3c6bf897ecb0213198bb5519a210e24e7cb65c2ed4a55
+- Raw content:
+  ```text
+  evaluator: passed=true runs=36 negative_cases=5
+  toolchain: passed=true closure_entries=462 strict_negative_cases=6 scripts_parsed=17
+  ```
+- Interpretation: Round 1 的 hollow artifact、self-reported evaluation 和 held-out 污染路径已被机械关闭；completion required-check 仍需单独绑定 evaluator 结果与 GitHub run identity。
+- Time: 2026-07-22 01:50

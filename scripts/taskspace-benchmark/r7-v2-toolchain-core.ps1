@@ -22,6 +22,7 @@ $script:R7ArtifactNames = [ordered]@{
 . (Join-Path $PSScriptRoot "r7-v2-history.ps1")
 . (Join-Path $PSScriptRoot "r7-v2-promotion.ps1")
 . (Join-Path $PSScriptRoot "r7-v2-git-transaction.ps1")
+. (Join-Path $PSScriptRoot "lib/r7-strict-json.ps1")
 
 function Get-R7Sha256Bytes {
     param([byte[]]$Bytes)
@@ -40,38 +41,36 @@ function Get-R7Sha256Text {
     Get-R7Sha256Bytes ([System.Text.UTF8Encoding]::new($false).GetBytes($Text))
 }
 
-function ConvertTo-R7CanonicalValue {
-    param($Value)
-    if ($null -eq $Value) { return $null }
-    if ($Value -is [System.Collections.IDictionary]) {
-        $ordered = [ordered]@{}
-        $keys = [string[]]@($Value.Keys | ForEach-Object { [string]$_ })
-        [System.Array]::Sort($keys, [System.StringComparer]::Ordinal)
-        foreach ($key in $keys) {
-            $ordered[$key] = ConvertTo-R7CanonicalValue $Value[$key]
-        }
-        return [pscustomobject]$ordered
-    }
-    if ($Value -is [pscustomobject]) {
-        $ordered = [ordered]@{}
-        $names = [string[]]@($Value.psobject.Properties.Name)
+function ConvertTo-R7CanonicalToken {
+    param([Newtonsoft.Json.Linq.JToken]$Token)
+    if ($Token -is [Newtonsoft.Json.Linq.JObject]) {
+        $result = [Newtonsoft.Json.Linq.JObject]::new()
+        $names = [string[]]@($Token.Properties() | ForEach-Object { $_.Name })
         [System.Array]::Sort($names, [System.StringComparer]::Ordinal)
         foreach ($name in $names) {
-            $ordered[$name] = ConvertTo-R7CanonicalValue $Value.psobject.Properties[$name].Value
+            $child = ConvertTo-R7CanonicalToken $Token.Property($name).Value
+            $result.Add($name, $child)
         }
-        return [pscustomobject]$ordered
+        Write-Output -NoEnumerate $result
+        return
     }
-    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
-        $items = [System.Collections.Generic.List[object]]::new()
-        foreach ($item in $Value) { $items.Add((ConvertTo-R7CanonicalValue $item)) }
-        return ,$items.ToArray()
+    if ($Token -is [Newtonsoft.Json.Linq.JArray]) {
+        $result = [Newtonsoft.Json.Linq.JArray]::new()
+        foreach ($item in $Token.Children()) {
+            $result.Add((ConvertTo-R7CanonicalToken $item))
+        }
+        Write-Output -NoEnumerate $result
+        return
     }
-    $Value
+    Write-Output -NoEnumerate $Token.DeepClone()
 }
 
 function ConvertTo-R7CanonicalJson {
     param($Value)
-    ConvertTo-R7CanonicalValue $Value | ConvertTo-Json -Depth 100 -Compress
+    $raw = $Value | ConvertTo-Json -Depth 100 -Compress
+    $token = [Newtonsoft.Json.Linq.JToken]::Parse($raw)
+    $canonical = ConvertTo-R7CanonicalToken $token
+    $canonical.ToString([Newtonsoft.Json.Formatting]::None)
 }
 
 function Write-R7JsonFile {
@@ -129,13 +128,49 @@ function Get-R7GitBlobSha256 {
     Get-R7Sha256Bytes (Get-R7GitBlobBytes $Commit $Path)
 }
 
+function Get-R7GitDirectoryManifestSha256 {
+    param([string]$Commit, [string]$Root)
+    $entries = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in @(Invoke-R7Git @("ls-tree", "-r", $Commit, "--", $Root))) {
+        $match = [regex]::Match([string]$line, '^(?<mode>[0-9]{6}) (?<type>[^ ]+) [0-9a-f]{40}\t(?<path>.+)$')
+        if (-not $match.Success -or $match.Groups['mode'].Value -cne "100644" -or $match.Groups['type'].Value -cne "blob") {
+            throw "R7_DIRECTORY_ENTRY_INVALID root=$Root line=$line"
+        }
+        $path = $match.Groups['path'].Value
+        $entries.Add([pscustomobject][ordered]@{
+            path = $path.Substring($Root.TrimEnd('/').Length + 1)
+            git_mode = "100644"
+            sha256 = Get-R7GitBlobSha256 $Commit $path
+        })
+    }
+    if ($entries.Count -eq 0) { throw "R7_DIRECTORY_MANIFEST_EMPTY root=$Root" }
+    Get-R7JsonValueHash $entries.ToArray()
+}
+
+function Get-R7WorktreeDirectoryManifestSha256 {
+    param([string]$Root)
+    $paths = @(Invoke-R7Git @("ls-files", "--cached", "--others", "--exclude-standard", "--", $Root) | Sort-Object -Unique)
+    if ($paths.Count -eq 0) { throw "R7_DIRECTORY_MANIFEST_EMPTY root=$Root" }
+    $entries = foreach ($path in $paths) {
+        $full = Join-Path $script:R7RepoRoot $path
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf) -or (Get-Item -LiteralPath $full -Force).LinkType) {
+            throw "R7_DIRECTORY_ENTRY_INVALID root=$Root path=$path"
+        }
+        [pscustomobject][ordered]@{
+            path = $path.Substring($Root.TrimEnd('/').Length + 1)
+            git_mode = "100644"
+            sha256 = Get-R7Sha256File $full
+        }
+    }
+    Get-R7JsonValueHash @($entries)
+}
+
 function Read-R7StrictJson {
     param([string]$Path, [string]$SchemaPath = "")
-    $parser = if ([string]::IsNullOrWhiteSpace($env:R7_STRICT_PARSER_PATH)) {
-        Join-Path $script:R7RepoRoot "scripts/taskspace-benchmark/invoke-r7-strict-json.ps1"
-    } else {
-        $env:R7_STRICT_PARSER_PATH
+    if ([string]::IsNullOrWhiteSpace($env:R7_STRICT_PARSER_PATH)) {
+        return Read-R7StrictJsonInProcess $Path $SchemaPath
     }
+    $parser = $env:R7_STRICT_PARSER_PATH
     $arguments = @("-NoLogo", "-NoProfile", "-File", $parser, "-Path", $Path, "-EmitCanonical")
     if (-not [string]::IsNullOrWhiteSpace($SchemaPath)) { $arguments += @("-SchemaPath", $SchemaPath) }
     $canonical = & pwsh @arguments

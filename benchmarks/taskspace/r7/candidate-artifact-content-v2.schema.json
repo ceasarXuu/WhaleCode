@@ -35,18 +35,31 @@
         "reserved_field": {"const": "taskspace_transition"},
         "collision_policy": {"const": "reject_capability_epoch"},
         "carrier_specs": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/carrierSpec"}},
-        "standard_identity": {"type": "object", "required": ["tool_schema_sha256", "wire_sha256", "handler_sha256"], "properties": {"tool_schema_sha256": {"$ref": "#/$defs/sha256"}, "wire_sha256": {"$ref": "#/$defs/sha256"}, "handler_sha256": {"$ref": "#/$defs/sha256"}}, "additionalProperties": false}
+        "standard_identity": {
+          "type": "object",
+          "required": ["tool_schema", "wire_mapper", "handler"],
+          "properties": {
+            "tool_schema": {"$ref": "#/$defs/sourceBinding"},
+            "wire_mapper": {"$ref": "#/$defs/sourceBinding"},
+            "handler": {"$ref": "#/$defs/sourceBinding"}
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },
     "carrierSpec": {
       "type": "object",
-      "required": ["wire_api", "tool_spec", "business_schema_sha256", "decorated_schema_sha256", "parser", "reserved_field_removed_before_handler"],
+      "required": ["wire_api", "tool_spec", "business_schema", "business_schema_sha256", "decorated_schema", "decorated_schema_sha256", "business_fixture", "decorated_fixture", "parser", "reserved_field_removed_before_handler"],
       "properties": {
         "wire_api": {"enum": ["responses", "deepseek_chat"]},
         "tool_spec": {"enum": ["Function", "Namespace", "Freeform", "CodeModeOuter"]},
+        "business_schema": {"type": "object"},
         "business_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "decorated_schema": {"type": "object"},
         "decorated_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "business_fixture": {"type": "object"},
+        "decorated_fixture": {"type": "object"},
         "parser": {"$ref": "#/$defs/sourceBinding"},
         "reserved_field_removed_before_handler": {"const": true}
       },
@@ -54,12 +67,13 @@
     },
     "transitionSchema": {
       "type": "object",
-      "required": ["schema_version", "artifact_role", "schema_id", "input_schema", "positive_fixtures", "negative_fixtures"],
+      "required": ["schema_version", "artifact_role", "schema_id", "input_schema", "output_schema", "positive_fixtures", "negative_fixtures"],
       "properties": {
         "schema_version": {"const": 2},
         "artifact_role": {"const": "transition_schema"},
         "schema_id": {"const": "r7-taskspace-transition-v2"},
         "input_schema": {"type": "object", "required": ["$schema", "oneOf"], "properties": {"$schema": {"const": "https://json-schema.org/draft/2020-12/schema"}, "oneOf": {"type": "array", "minItems": 3}}, "additionalProperties": true},
+        "output_schema": {"type": "object", "required": ["$schema", "type", "required"]},
         "positive_fixtures": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/transitionFixture"}},
         "negative_fixtures": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/transitionFixture"}}
       },
@@ -67,20 +81,25 @@
     },
     "transitionFixture": {
       "type": "object",
-      "required": ["id", "input_sha256", "pre_state_sha256", "expected_output_sha256", "post_state_sha256", "accepted"],
+      "required": ["id", "input", "input_sha256", "pre_state", "pre_state_sha256", "expected_output", "expected_output_sha256", "post_state", "post_state_sha256", "schema_valid", "accepted"],
       "properties": {
         "id": {"type": "string", "minLength": 3},
+        "input": {"type": "object"},
         "input_sha256": {"$ref": "#/$defs/sha256"},
+        "pre_state": {"type": "object"},
         "pre_state_sha256": {"$ref": "#/$defs/sha256"},
+        "expected_output": {"type": "object"},
         "expected_output_sha256": {"$ref": "#/$defs/sha256"},
+        "post_state": {"type": "object"},
         "post_state_sha256": {"$ref": "#/$defs/sha256"},
+        "schema_valid": {"type": "boolean"},
         "accepted": {"type": "boolean"}
       },
       "additionalProperties": false
     },
     "typedOutcome": {
       "type": "object",
-      "required": ["schema_version", "artifact_role", "outcome_type", "variants", "deferred_authorization_variants", "mcp_presence_fields", "fixtures"],
+      "required": ["schema_version", "artifact_role", "outcome_type", "variants", "deferred_authorization_variants", "mcp_presence_fields", "outcome_schema", "fixtures"],
       "properties": {
         "schema_version": {"const": 2},
         "artifact_role": {"const": "typed_outcome"},
@@ -88,17 +107,20 @@
         "variants": {"const": ["RejectedBeforeCommit", "CommittedNotExecuted", "Executed"]},
         "deferred_authorization_variants": {"const": ["NotRequired", "Requested", "Approved", "Denied"]},
         "mcp_presence_fields": {"const": ["content", "structured_content", "is_error", "meta"]},
+        "outcome_schema": {"type": "object", "required": ["$schema", "oneOf"]},
         "fixtures": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/outcomeFixture"}}
       },
       "additionalProperties": false
     },
     "outcomeFixture": {
       "type": "object",
-      "required": ["id", "variant", "input_sha256", "output_sha256", "commit_state", "tool_state"],
+      "required": ["id", "variant", "input", "input_sha256", "output", "output_sha256", "commit_state", "tool_state"],
       "properties": {
         "id": {"type": "string", "minLength": 3},
         "variant": {"enum": ["RejectedBeforeCommit", "CommittedNotExecuted", "Executed"]},
+        "input": {"type": "object"},
         "input_sha256": {"$ref": "#/$defs/sha256"},
+        "output": {"type": "object"},
         "output_sha256": {"$ref": "#/$defs/sha256"},
         "commit_state": {"enum": ["not_committed", "committed"]},
         "tool_state": {"enum": ["not_dispatched", "not_started", "returned", "failed", "cancelled_after_start"]}
@@ -118,8 +140,16 @@
     },
     "oracleScenario": {
       "type": "object",
-      "required": ["id", "fixture_path", "fixture_sha256", "expected_outcome_sha256"],
-      "properties": {"id": {"type": "string", "minLength": 3}, "fixture_path": {"$ref": "#/$defs/path"}, "fixture_sha256": {"$ref": "#/$defs/sha256"}, "expected_outcome_sha256": {"$ref": "#/$defs/sha256"}},
+      "required": ["id", "fixture_path", "fixture_sha256", "request_fixture", "request_fixture_sha256", "expected_trace", "expected_outcome_sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 3},
+        "fixture_path": {"$ref": "#/$defs/path"},
+        "fixture_sha256": {"$ref": "#/$defs/sha256"},
+        "request_fixture": {"type": "object"},
+        "request_fixture_sha256": {"$ref": "#/$defs/sha256"},
+        "expected_trace": {"type": "object"},
+        "expected_outcome_sha256": {"$ref": "#/$defs/sha256"}
+      },
       "additionalProperties": false
     },
     "closureEntry": {
@@ -137,7 +167,7 @@
         "invocation_origin": {"enum": ["direct", "code_mode"]},
         "route": {"enum": ["function", "namespace", "tool_search", "local_shell", "image_generation", "web_search", "apply_patch", "code_exec"]},
         "disposition": {"enum": ["carrier", "projected_carrier", "non_carrier", "container"]},
-        "reason_code": {"enum": ["shared_function_handler", "namespace_container", "provider_native", "freeform_projection", "code_mode_outer", "state_tool_excluded", "decorated_namespace_function", "deferred_registry", "provider_wire_unsupported"]},
+        "reason_code": {"enum": ["shared_function_handler", "deepseek_projected_function", "namespace_container", "provider_native", "freeform_projection", "code_mode_outer", "state_tool_excluded", "decorated_namespace_function", "deferred_registry", "provider_wire_unsupported"]},
         "model_visible": {"type": "boolean"},
         "supports_parallel": {"type": "boolean"},
         "pipeline": {"type": "object", "minProperties": 8, "additionalProperties": {"$ref": "#/$defs/sourceBinding"}}
@@ -198,18 +228,49 @@
     },
     "evaluation": {
       "type": "object",
-      "required": ["schema_version", "artifact_role", "evaluation_id", "sealed", "seed", "arm_order", "sample_order", "samples", "metrics", "thresholds", "statistics", "bootstrap", "stopping", "correction", "contract_digest"],
+      "required": ["schema_version", "artifact_role", "evaluation_id", "sealed", "seed", "arm_order", "sample_order", "samples", "metrics", "thresholds", "statistics", "bootstrap", "stopping", "correction", "identity", "evaluator", "contract_digest"],
       "properties": {
-        "schema_version": {"const": 2}, "artifact_role": {"const": "continuous_action_evaluation"}, "evaluation_id": {"const": "r7-fla3-5-continuous-action-v1"}, "sealed": {"const": true},
-        "seed": {"type": "integer", "minimum": 1}, "arm_order": {"const": ["standard", "sibling_baseline", "fla3_5_candidate"]},
-        "sample_order": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "samples": {"type": "object", "minProperties": 3, "additionalProperties": {"type": "object", "required": ["category", "fixture_path", "fixture_sha256", "repeats"], "properties": {"category": {"enum": ["simple", "complex", "carrier_validation"]}, "fixture_path": {"$ref": "#/$defs/path"}, "fixture_sha256": {"$ref": "#/$defs/sha256"}, "repeats": {"type": "integer", "minimum": 3}}, "additionalProperties": false}},
-        "metrics": {"type": "object", "minProperties": 14, "additionalProperties": {"$ref": "#/$defs/metric"}},
+        "schema_version": {"const": 2},
+        "artifact_role": {"const": "continuous_action_evaluation"},
+        "evaluation_id": {"const": "r7-fla3-5-continuous-action-v1"},
+        "sealed": {"const": true},
+        "seed": {"type": "integer", "minimum": 1},
+        "arm_order": {"const": ["standard", "sibling_baseline", "fla3_5_candidate"]},
+        "sample_order": {"const": ["carrier_validation_dev", "single_file_fast_fix", "subscription_billing_repair"]},
+        "samples": {
+          "type": "object",
+          "required": ["carrier_validation_dev", "single_file_fast_fix", "subscription_billing_repair"],
+          "additionalProperties": {
+            "type": "object",
+            "required": ["category", "fixture_path", "fixture_sha256", "directory_root", "directory_manifest_sha256", "prompt_path", "prompt_sha256", "fixture_root", "fixture_manifest_sha256", "oracle_path", "oracle_sha256", "repeats", "held_out", "source_set", "identity_mode"],
+            "properties": {
+              "category": {"enum": ["simple", "complex", "carrier_validation"]},
+              "fixture_path": {"$ref": "#/$defs/path"},
+              "fixture_sha256": {"$ref": "#/$defs/sha256"},
+              "directory_root": {"$ref": "#/$defs/path"},
+              "directory_manifest_sha256": {"$ref": "#/$defs/sha256"},
+              "prompt_path": {"$ref": "#/$defs/path"},
+              "prompt_sha256": {"$ref": "#/$defs/sha256"},
+              "fixture_root": {"$ref": "#/$defs/path"},
+              "fixture_manifest_sha256": {"$ref": "#/$defs/sha256"},
+              "oracle_path": {"$ref": "#/$defs/path"},
+              "oracle_sha256": {"$ref": "#/$defs/sha256"},
+              "repeats": {"type": "integer", "minimum": 3},
+              "held_out": {"const": false},
+              "source_set": {"const": "ca0_dev_only"},
+              "identity_mode": {"const": "full_directory_manifest"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "metrics": {"type": "object", "minProperties": 17, "additionalProperties": {"$ref": "#/$defs/metric"}},
         "thresholds": {"type": "object", "minProperties": 10, "additionalProperties": {"type": "number"}},
-        "statistics": {"const": {"aggregates": ["total", "mean", "median"], "paired_by": ["sample", "repeat"], "adaptive_stop": false}},
-        "bootstrap": {"const": {"method": "paired_percentile", "resamples": 10000, "confidence": 0.95, "seed_offset": 1}},
-        "stopping": {"const": {"adaptive": false, "complete_all_preregistered_runs": true}},
-        "correction": {"const": {"method": "holm", "familywise_alpha": 0.05}},
+        "statistics": {"type": "object", "required": ["aggregates", "paired_by", "adaptive_stop", "paired_facts"]},
+        "bootstrap": {"type": "object", "required": ["method", "resamples", "confidence", "seed_offset", "statistics"]},
+        "stopping": {"type": "object", "required": ["adaptive", "complete_all_preregistered_runs", "extra_samples", "missing_runs", "held_out_policy"]},
+        "correction": {"type": "object", "required": ["method", "familywise_alpha", "family"]},
+        "identity": {"type": "object", "required": ["contract_directory_identity_sha256", "directory_identity_fields", "sealed_raw_run_set_schema"]},
+        "evaluator": {"type": "object", "required": ["pinned_script", "result_schema", "completion_evidence_schema", "summary_trust_policy"]},
         "contract_digest": {"$ref": "#/$defs/sha256"}
       },
       "additionalProperties": false

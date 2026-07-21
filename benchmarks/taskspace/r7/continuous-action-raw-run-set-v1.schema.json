@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/continuous-action-raw-run-set-v1.schema.json",
+  "title": "R7 sealed raw continuous-action run set",
+  "type": "object",
+  "required": ["schema_version", "artifact_role", "sealed", "evaluation_id", "evaluation_contract", "identity", "arm_order", "sample_order", "fixtures", "runs"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifact_role": {"const": "continuous_action_raw_run_set"},
+    "sealed": {"const": true},
+    "evaluation_id": {"const": "r7-fla3-5-continuous-action-v1"},
+    "evaluation_contract": {
+      "type": "object",
+      "required": ["path", "sha256", "contract_digest"],
+      "properties": {"path": {"type": "string", "minLength": 3}, "sha256": {"$ref": "#/$defs/sha256"}, "contract_digest": {"$ref": "#/$defs/sha256"}},
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "required": ["standard_commit", "sibling_baseline_commit", "candidate_commit", "docker_image_digest", "model", "provider_endpoint_family", "tool_profile", "standard_wire_sha256"],
+      "properties": {
+        "standard_commit": {"$ref": "#/$defs/commit"},
+        "sibling_baseline_commit": {"$ref": "#/$defs/commit"},
+        "candidate_commit": {"$ref": "#/$defs/commit"},
+        "docker_image_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "model": {"type": "string", "minLength": 3},
+        "provider_endpoint_family": {"const": "deepseek"},
+        "tool_profile": {"type": "string", "minLength": 3},
+        "standard_wire_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "arm_order": {"const": ["standard", "sibling_baseline", "fla3_5_candidate"]},
+    "sample_order": {"const": ["carrier_validation_dev", "single_file_fast_fix", "subscription_billing_repair"]},
+    "fixtures": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/fixture"}},
+    "runs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/run"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "artifactRef": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 3}, "sha256": {"$ref": "#/$defs/sha256"}}, "additionalProperties": false},
+    "fixture": {
+      "type": "object",
+      "required": ["sample", "held_out", "fixture_path", "fixture_sha256", "directory_root", "directory_manifest_sha256", "prompt_path", "prompt_sha256", "fixture_root", "fixture_manifest_sha256", "oracle_path", "oracle_sha256", "source_set", "identity_mode"],
+      "properties": {
+        "sample": {"enum": ["carrier_validation_dev", "single_file_fast_fix", "subscription_billing_repair"]},
+        "held_out": {"const": false},
+        "fixture_path": {"type": "string", "minLength": 3},
+        "fixture_sha256": {"$ref": "#/$defs/sha256"},
+        "directory_root": {"type": "string", "minLength": 3},
+        "directory_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_path": {"type": "string", "minLength": 3},
+        "prompt_sha256": {"$ref": "#/$defs/sha256"},
+        "fixture_root": {"type": "string", "minLength": 3},
+        "fixture_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "oracle_path": {"type": "string", "minLength": 3},
+        "oracle_sha256": {"$ref": "#/$defs/sha256"},
+        "source_set": {"const": "ca0_dev_only"},
+        "identity_mode": {"const": "full_directory_manifest"}
+      },
+      "additionalProperties": false
+    },
+    "run": {
+      "type": "object",
+      "required": ["run_id", "arm", "sample", "repeat", "attempt", "status", "held_out", "wire_sha256", "summary", "artifacts"],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 3},
+        "arm": {"enum": ["standard", "sibling_baseline", "fla3_5_candidate"]},
+        "sample": {"enum": ["carrier_validation_dev", "single_file_fast_fix", "subscription_billing_repair"]},
+        "repeat": {"type": "integer", "minimum": 1},
+        "attempt": {"const": 1},
+        "status": {"const": "complete"},
+        "held_out": {"const": false},
+        "wire_sha256": {"$ref": "#/$defs/sha256"},
+        "summary": {"type": "object"},
+        "artifacts": {
+          "type": "object",
+          "required": ["metrics", "requests", "tools", "map", "verdict", "cache"],
+          "properties": {"metrics": {"$ref": "#/$defs/artifactRef"}, "requests": {"$ref": "#/$defs/artifactRef"}, "tools": {"$ref": "#/$defs/artifactRef"}, "map": {"$ref": "#/$defs/artifactRef"}, "verdict": {"$ref": "#/$defs/artifactRef"}, "cache": {"$ref": "#/$defs/artifactRef"}},
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "fixture_id": "r7-carrier-validation-dev-v1",
+  "source_set": "ca0_dev_only",
+  "held_out": false,
+  "purpose": "Deterministically exercise continuous-action carrier conservation without consuming FLA-8 product held-out scenarios.",
+  "cases": [
+    {
+      "id": "initialize_then_tool",
+      "control_action": "initialize_map",
+      "required_next_call": "ordinary_tool",
+      "sibling_kind": "ordinary_tool",
+      "expected": "committed_and_executed"
+    },
+    {
+      "id": "complete_then_patch",
+      "control_action": "complete_then_continue",
+      "required_next_call": "apply_patch",
+      "sibling_kind": "apply_patch",
+      "expected": "committed_and_executed"
+    },
+    {
+      "id": "missing_sibling",
+      "control_action": "bind_node",
+      "required_next_call": "ordinary_tool",
+      "sibling_kind": "absent",
+      "expected": "rejected_before_commit"
+    }
+  ]
+}

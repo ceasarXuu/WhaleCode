@@ -27,6 +27,70 @@ function Assert-Equal {
     if ($Actual -cne $Expected) { throw "$Code expected=$Expected actual=$Actual" }
 }
 
+function Assert-R7ValueHash {
+    param($Value, [string]$Expected, [string]$Code)
+    Assert-Equal (Get-R7JsonValueHash $Value) $Expected $Code
+}
+
+function Test-R7SchemaInstance {
+    param($Schema, $Instance, [string]$Label)
+    $root = Join-Path $script:R7RepoRoot "target/r7-toolchain/schema-instances"
+    [System.IO.Directory]::CreateDirectory($root) | Out-Null
+    $schemaPath = Join-Path $root "$Label-schema.json"
+    Write-R7JsonFile $schemaPath $Schema
+    $json = $Instance | ConvertTo-Json -Depth 100 -Compress
+    [bool]($json | Test-Json -SchemaFile $schemaPath -ErrorAction SilentlyContinue)
+}
+
+function Assert-R7ExecutableArtifacts {
+    param($Bodies, [string]$CandidateCommit)
+    foreach ($source in @($Bodies.l4_schema.standard_identity.psobject.Properties)) {
+        Assert-SourceReference $source.Value $CandidateCommit "l4-standard-$($source.Name)"
+    }
+    foreach ($carrier in @($Bodies.l4_schema.carrier_specs)) {
+        $label = "$($carrier.wire_api)-$($carrier.tool_spec)"
+        Assert-R7ValueHash $carrier.business_schema ([string]$carrier.business_schema_sha256) "R7_L4_BUSINESS_SCHEMA_HASH label=$label"
+        Assert-R7ValueHash $carrier.decorated_schema ([string]$carrier.decorated_schema_sha256) "R7_L4_DECORATED_SCHEMA_HASH label=$label"
+        if (-not (Test-R7SchemaInstance $carrier.business_schema $carrier.business_fixture "l4-business-$label")) {
+            throw "R7_L4_BUSINESS_FIXTURE_INVALID label=$label"
+        }
+        if (-not (Test-R7SchemaInstance $carrier.decorated_schema $carrier.decorated_fixture "l4-decorated-$label")) {
+            throw "R7_L4_DECORATED_FIXTURE_INVALID label=$label"
+        }
+        $projected = (ConvertTo-R7CanonicalJson $carrier.decorated_fixture) | ConvertFrom-Json -Depth 100
+        $projected.psobject.Properties.Remove("taskspace_transition")
+        Assert-Equal (ConvertTo-R7CanonicalJson $projected) (ConvertTo-R7CanonicalJson $carrier.business_fixture) "R7_L4_HANDLER_INPUT_DRIFT label=$label"
+    }
+    foreach ($fixture in @($Bodies.transition_schema.positive_fixtures) + @($Bodies.transition_schema.negative_fixtures)) {
+        $label = [string]$fixture.id
+        foreach ($field in @("input", "pre_state", "expected_output", "post_state")) {
+            Assert-R7ValueHash $fixture.$field ([string]$fixture."${field}_sha256") "R7_TRANSITION_FIXTURE_HASH id=$label field=$field"
+        }
+        $inputValid = Test-R7SchemaInstance $Bodies.transition_schema.input_schema $fixture.input "transition-input-$label"
+        Assert-Equal $inputValid ([bool]$fixture.schema_valid) "R7_TRANSITION_SCHEMA_DECISION id=$label"
+        if (-not (Test-R7SchemaInstance $Bodies.transition_schema.output_schema $fixture.expected_output "transition-output-$label")) {
+            throw "R7_TRANSITION_OUTPUT_INVALID id=$label"
+        }
+        if ([bool]$fixture.accepted -and -not $inputValid) { throw "R7_TRANSITION_ACCEPTED_INVALID_INPUT id=$label" }
+    }
+    foreach ($fixture in @($Bodies.typed_outcome.fixtures)) {
+        $label = [string]$fixture.id
+        Assert-R7ValueHash $fixture.input ([string]$fixture.input_sha256) "R7_OUTCOME_INPUT_HASH id=$label"
+        Assert-R7ValueHash $fixture.output ([string]$fixture.output_sha256) "R7_OUTCOME_OUTPUT_HASH id=$label"
+        if (-not (Test-R7SchemaInstance $Bodies.typed_outcome.outcome_schema $fixture.output "typed-outcome-$label")) {
+            throw "R7_OUTCOME_SCHEMA_INVALID id=$label"
+        }
+        Assert-Equal ([string]$fixture.output.variant) ([string]$fixture.variant) "R7_OUTCOME_VARIANT_DRIFT id=$label"
+        Assert-Equal ([string]$fixture.output.commit_state) ([string]$fixture.commit_state) "R7_OUTCOME_COMMIT_DRIFT id=$label"
+        Assert-Equal ([string]$fixture.output.tool_state) ([string]$fixture.tool_state) "R7_OUTCOME_TOOL_DRIFT id=$label"
+    }
+    foreach ($scenario in @($Bodies.carrier_protocol_oracle.scenarios)) {
+        $label = [string]$scenario.id
+        Assert-R7ValueHash $scenario.request_fixture ([string]$scenario.request_fixture_sha256) "R7_ORACLE_REQUEST_HASH id=$label"
+        Assert-R7ValueHash $scenario.expected_trace ([string]$scenario.expected_outcome_sha256) "R7_ORACLE_TRACE_HASH id=$label"
+    }
+}
+
 function Assert-SourceReference {
     param($Reference, [string]$Commit, [string]$Label)
     $path = [string]$Reference.path
@@ -149,6 +213,7 @@ $candidatePath = Get-R7CandidatePath $CandidateId
 $manifestRelative = "$($candidatePath.relative)/manifest.json"
 $manifestSchema = if ([string]::IsNullOrWhiteSpace($env:R7_CANDIDATE_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json" } else { $env:R7_CANDIDATE_SCHEMA_PATH }
 $artifactSchema = if ([string]::IsNullOrWhiteSpace($env:R7_ARTIFACT_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json" } else { $env:R7_ARTIFACT_SCHEMA_PATH }
+$evaluationSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json"
 $manifest = Get-CommitJson $target $manifestRelative $manifestSchema "candidate-manifest-$CandidateId"
 Assert-Equal ([string]$manifest.candidate_id) $CandidateId "R7_CANDIDATE_ID_FIELD"
 Assert-Equal ([string]$manifest.contract_id) "r7-continuous-action-candidate-$CandidateId" "R7_CANDIDATE_CONTRACT_ID"
@@ -222,17 +287,35 @@ if ($LASTEXITCODE -ne 0) { throw "R7_CLOSURE_REGENERATION_FAILED" }
 Assert-Equal (Get-R7Sha256File $closureScratch) ([string]$manifest.artifact_hashes.entry_closure.sha256) "R7_CLOSURE_REGENERATION_DRIFT"
 
 $evaluation = $artifactBodies.continuous_action_evaluation
+$evaluationScratch = Write-GitBlobScratch ([string]$manifest.candidate_commit) ([string]$manifest.artifact_hashes.continuous_action_evaluation.path) "evaluation-contract-$CandidateId"
+[void](Read-R7StrictJson $evaluationScratch $evaluationSchema)
 if ($null -ne $evaluation.psobject.Properties["combined_control_plus_next_rate"]) { throw "R7_OLD_METRIC_FORBIDDEN" }
 $digestObject = $evaluation | ConvertTo-Json -Depth 100 | ConvertFrom-Json -Depth 100
 $digestObject.psobject.Properties.Remove("contract_digest")
 $digestText = (ConvertTo-R7CanonicalJson $digestObject) + "`n"
 Assert-Equal (Get-R7Sha256Text $digestText) ([string]$evaluation.contract_digest) "R7_EVALUATION_DIGEST_DRIFT"
+$identity = [ordered]@{}
+$identityFields = @($evaluation.identity.directory_identity_fields)
 foreach ($sample in @($evaluation.samples.psobject.Properties)) {
-    Assert-Equal (Get-R7GitBlobSha256 ([string]$manifest.candidate_commit) ([string]$sample.Value.fixture_path)) ([string]$sample.Value.fixture_sha256) "R7_EVALUATION_FIXTURE_DRIFT"
+    $name = [string]$sample.Name
+    $value = $sample.Value
+    Assert-Equal ([bool]$value.held_out) $false "R7_EVALUATION_HELD_OUT_FORBIDDEN sample=$name"
+    Assert-Equal ([string]$value.source_set) "ca0_dev_only" "R7_EVALUATION_SOURCE_SET sample=$name"
+    Assert-Equal ([string]$value.identity_mode) "full_directory_manifest" "R7_EVALUATION_IDENTITY_MODE sample=$name"
+    Assert-Equal (Get-R7GitBlobSha256 ([string]$manifest.candidate_commit) ([string]$value.fixture_path)) ([string]$value.fixture_sha256) "R7_EVALUATION_FIXTURE_DRIFT sample=$name"
+    Assert-Equal (Get-R7GitDirectoryManifestSha256 ([string]$manifest.candidate_commit) ([string]$value.directory_root)) ([string]$value.directory_manifest_sha256) "R7_EVALUATION_DIRECTORY_DRIFT sample=$name"
+    Assert-Equal (Get-R7GitBlobSha256 ([string]$manifest.candidate_commit) ([string]$value.prompt_path)) ([string]$value.prompt_sha256) "R7_EVALUATION_PROMPT_DRIFT sample=$name"
+    Assert-Equal (Get-R7GitDirectoryManifestSha256 ([string]$manifest.candidate_commit) ([string]$value.fixture_root)) ([string]$value.fixture_manifest_sha256) "R7_EVALUATION_FIXTURE_ROOT_DRIFT sample=$name"
+    Assert-Equal (Get-R7GitBlobSha256 ([string]$manifest.candidate_commit) ([string]$value.oracle_path)) ([string]$value.oracle_sha256) "R7_EVALUATION_ORACLE_DRIFT sample=$name"
+    $row = [ordered]@{}
+    foreach ($field in $identityFields) { $row[$field] = $value.$field }
+    $identity[$name] = $row
 }
+Assert-Equal (Get-R7JsonValueHash ([pscustomobject]$identity)) ([string]$evaluation.identity.contract_directory_identity_sha256) "R7_EVALUATION_DIRECTORY_IDENTITY_DRIFT"
 foreach ($scenario in @($artifactBodies.carrier_protocol_oracle.scenarios)) {
     Assert-Equal (Get-R7GitBlobSha256 ([string]$manifest.candidate_commit) ([string]$scenario.fixture_path)) ([string]$scenario.fixture_sha256) "R7_ORACLE_FIXTURE_DRIFT scenario=$($scenario.id)"
 }
+Assert-R7ExecutableArtifacts $artifactBodies ([string]$manifest.candidate_commit)
 
 $ownershipPath = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/r7-phase-ownership-v1.json"
 $ownership = Read-R7StrictJson $ownershipPath
