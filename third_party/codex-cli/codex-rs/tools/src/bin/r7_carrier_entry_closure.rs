@@ -73,7 +73,7 @@ fn main() -> Result<(), String> {
     assert_variants(&index, "ToolPayload", TOOL_PAYLOAD_VARIANTS)?;
     assert_variants(&index, "ToolHandlerKind", TOOL_HANDLER_VARIANTS)?;
     let bindings = pipeline_bindings(&repo_root, &index)?;
-    let scanned_sources = index.binding_source_hashes(&bindings);
+    let scanned_sources = index.all_source_hashes();
     let inventory_sha256 = canonical_hash(&(&bindings, &scanned_sources))?;
     let source_inventory = SourceInventory {
         roots: vec![
