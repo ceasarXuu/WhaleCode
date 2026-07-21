@@ -30,7 +30,7 @@ function New-ArtifactReference {
 function New-RollbackArtifact {
     param($Baseline, $Toolchain)
     $baselineCommit = [string]$Baseline.parent_commit
-    $head = (Invoke-R7Git @("rev-parse", "HEAD"))[0].Trim()
+    $head = Get-R7GitLine @("rev-parse", "HEAD")
     $changedPaths = @(Invoke-R7Git @("diff", "--name-only", "$baselineCommit..$head") | Sort-Object -Unique)
     if ($changedPaths.Count -eq 0) { throw "R7_ROLLBACK_INVENTORY_EMPTY" }
     $pinned = @($Toolchain.body.artifacts | ForEach-Object { [string]$_.path })
@@ -202,14 +202,14 @@ $creationEvidence = [pscustomobject][ordered]@{
     candidate_id = $candidateId
     baseline_anchor_first_add_commit = $baseline.add_commit
     toolchain_anchor_first_add_commit = $toolchain.add_commit
-    source_head = (Invoke-R7Git @("rev-parse", "HEAD"))[0].Trim()
+    source_head = Get-R7GitLine @("rev-parse", "HEAD")
     artifact_hashes = $identity.artifact_hashes
 }
 $creationEvidencePath = Join-Path $candidatePath.full "creation-evidence.json"
 Write-R7JsonFile $creationEvidencePath $creationEvidence
 Invoke-R7Git @("add", "--", $candidatePath.relative) | Out-Null
 Invoke-R7Git @("commit", "-m", "$CommitMessagePrefix artifacts $candidateId") | Out-Null
-$candidateCommit = (Invoke-R7Git @("rev-parse", "HEAD"))[0].Trim()
+$candidateCommit = Get-R7GitLine @("rev-parse", "HEAD")
 
 $authorityRaw = Get-R7GitBlobText $baseline.parent_commit $script:R7AuthorityPath
 $productionRaw = Get-R7GitBlobText $baseline.parent_commit $script:R7ProductionPath
@@ -255,4 +255,4 @@ $manifestSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspac
 Invoke-R7Git @("add", "--", "$($candidatePath.relative)/manifest.json") | Out-Null
 Invoke-R7Git @("commit", "-m", "$CommitMessagePrefix manifest $candidateId") | Out-Null
 
-[pscustomobject][ordered]@{candidate_id = $candidateId; candidate_commit = $candidateCommit; manifest_commit = (Invoke-R7Git @("rev-parse", "HEAD"))[0].Trim(); manifest_path = "$($candidatePath.relative)/manifest.json"} | ConvertTo-Json -Compress
+[pscustomobject][ordered]@{candidate_id = $candidateId; candidate_commit = $candidateCommit; manifest_commit = Get-R7GitLine @("rev-parse", "HEAD"); manifest_path = "$($candidatePath.relative)/manifest.json"} | ConvertTo-Json -Compress

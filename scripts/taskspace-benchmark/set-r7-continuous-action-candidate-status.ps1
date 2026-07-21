@@ -71,7 +71,7 @@ function Set-TerminalSupersessions {
 
 Assert-R7CleanWorktree
 [void](Assert-R7ToolchainWorktree)
-$head = (Invoke-R7Git @("rev-parse", "HEAD"))[0].Trim()
+$head = Get-R7GitLine @("rev-parse", "HEAD")
 if ($head -cne $ExpectedHead) { throw "R7_TRANSITION_HEAD_DRIFT expected=$ExpectedHead actual=$head" }
 $evidenceHash = Assert-Evidence $EvidencePath $head
 $candidate = Read-WorktreeCandidate $CandidateId
@@ -155,7 +155,7 @@ if (($actualChanged -join "`n") -cne ($expected -join "`n")) {
 }
 Invoke-R7Git (@("add", "-A", "--") + $expected) | Out-Null
 Invoke-R7Git @("commit", "-m", "state(r7): $fromStatus to $ToStatus for $CandidateId") | Out-Null
-$eventCommit = (Invoke-R7Git @("rev-parse", "HEAD"))[0].Trim()
+$eventCommit = Get-R7GitLine @("rev-parse", "HEAD")
 & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate.ps1") -CandidateId $CandidateId -TargetCommit $eventCommit -RequireStatus $ToStatus | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_POSTCOMMIT_FAILED commit=$eventCommit" }
 [pscustomobject][ordered]@{candidate_id = $CandidateId; from = $fromStatus; to = $ToStatus; event_commit = $eventCommit; evidence_sha256 = $evidenceHash} | ConvertTo-Json -Compress

@@ -36,7 +36,7 @@ Assert-Equal $RequiredCheckName "r7-continuous-action-completion" "R7_COMPLETION
 if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) { Assert-Equal $env:GITHUB_SHA $TargetCommit "R7_COMPLETION_GITHUB_SHA" }
 if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_RUN_ID)) { Assert-Equal $env:GITHUB_RUN_ID $RequiredCheckRunId "R7_COMPLETION_GITHUB_RUN_ID" }
 
-$head = (Invoke-R7Git @("rev-parse", "HEAD"))[0].Trim()
+$head = Get-R7GitLine @("rev-parse", "HEAD")
 Assert-Equal $head $TargetCommit "R7_COMPLETION_CHECKOUT_TARGET"
 Assert-R7CleanWorktree
 $toolchain = Get-R7FirstAddAnchor $script:R7ToolchainAnchorPath "continuous_action_v2_toolchain"

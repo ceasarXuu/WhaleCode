@@ -30,6 +30,13 @@ function Invoke-Git {
     @($output)
 }
 
+function Get-GitLine {
+    param([string[]]$Arguments)
+    $lines = @(Invoke-Git $Arguments)
+    if ($lines.Count -ne 1) { throw "R7_BOOTSTRAP_EXPECTED_ONE_LINE args=$($Arguments -join ' ') count=$($lines.Count)" }
+    ([string]$lines[0]).Trim()
+}
+
 function Get-GitBytes {
     param([string]$Commit, [string]$Path)
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -72,11 +79,11 @@ function Read-StrictAnchor {
 
 if ($TargetCommit -notmatch '^[0-9a-f]{40}$') { throw "R7_BOOTSTRAP_TARGET_INVALID" }
 if ($ToolchainAddCommit -notmatch '^[0-9a-f]{40}$') { throw "R7_BOOTSTRAP_TOOLCHAIN_COMMIT_INVALID" }
-$head = (Invoke-Git @("rev-parse", "HEAD"))[0].Trim()
+$head = Get-GitLine @("rev-parse", "HEAD")
 if ($head -cne $TargetCommit) { throw "R7_BOOTSTRAP_CHECKOUT_DRIFT expected=$TargetCommit actual=$head" }
 $history = @(Invoke-Git @("log", "--first-parent", "--reverse", "--format=%H", $TargetCommit, "--", $anchorPath))
 if ($history.Count -ne 1 -or [string]$history[0] -cne $ToolchainAddCommit) { throw "R7_BOOTSTRAP_ANCHOR_HISTORY_INVALID" }
-$parent = (Invoke-Git @("rev-parse", "$ToolchainAddCommit^1"))[0].Trim()
+$parent = Get-GitLine @("rev-parse", "$ToolchainAddCommit^1")
 $anchorBytes = Get-GitBytes $ToolchainAddCommit $anchorPath
 $anchor = Read-StrictAnchor $anchorBytes
 if ([string]$anchor.anchor_kind -cne "continuous_action_v2_toolchain") { throw "R7_BOOTSTRAP_ANCHOR_KIND" }

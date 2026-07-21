@@ -137,7 +137,7 @@ function Assert-SupersessionBinding {
 }
 
 if ($CandidateId -notmatch '^[0-9a-f]{64}$') { throw "R7_CANDIDATE_ID_INVALID" }
-$target = (Invoke-R7Git @("rev-parse", $TargetCommit))[0].Trim()
+$target = Get-R7GitLine @("rev-parse", $TargetCommit)
 $toolchain = Assert-R7ToolchainWorktree
 $baseline = Get-R7FirstAddAnchor $script:R7BaselineAnchorPath "continuous_action_production_baseline"
 Invoke-R7Git @("merge-base", "--is-ancestor", $baseline.add_commit, $target) -AllowFailure | Out-Null

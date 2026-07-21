@@ -81,6 +81,13 @@ function Invoke-R7Git {
     @($output)
 }
 
+function Get-R7GitLine {
+    param([string[]]$Arguments)
+    $lines = @(Invoke-R7Git $Arguments)
+    if ($lines.Count -ne 1) { throw "R7_GIT_EXPECTED_ONE_LINE args=$($Arguments -join ' ') count=$($lines.Count)" }
+    ([string]$lines[0]).Trim()
+}
+
 function Get-R7GitBlobBytes {
     param([string]$Commit, [string]$Path)
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -128,7 +135,7 @@ function Get-R7FirstAddAnchor {
     [System.IO.File]::WriteAllText($scratch, $raw, [System.Text.UTF8Encoding]::new($false))
     $anchor = Read-R7StrictJson $scratch
     if ([string]$anchor.anchor_kind -cne $Kind) { throw "R7_ANCHOR_KIND_MISMATCH path=$Path" }
-    $parent = (Invoke-R7Git @("rev-parse", "$addCommit^1"))[0].Trim()
+    $parent = Get-R7GitLine @("rev-parse", "$addCommit^1")
     if ([string]$anchor.anchored_parent_commit -cne $parent) { throw "R7_ANCHOR_PARENT_MISMATCH path=$Path" }
     [pscustomobject]@{body = $anchor; raw = $raw; add_commit = $addCommit; parent_commit = $parent}
 }

@@ -151,6 +151,7 @@ function Test-CandidateSchema {
 
 $scratch = Join-Path $script:R7RepoRoot "target/r7-toolchain/self-test"
 [System.IO.Directory]::CreateDirectory($scratch) | Out-Null
+Assert-True ((Get-R7GitLine @("rev-parse", "HEAD")) -match '^[0-9a-f]{40}$') "R7_TEST_GIT_SCALAR_LINE"
 $strictParser = Join-Path $PSScriptRoot "invoke-r7-strict-json.ps1"
 $validPath = Join-Path $scratch "valid.json"
 [System.IO.File]::WriteAllText($validPath, "{`"a`":1}`n", [System.Text.UTF8Encoding]::new($false))
@@ -213,7 +214,7 @@ if ($Mode -eq "PreAnchor") {
 } else {
     [void](Assert-R7ToolchainWorktree)
 }
-$result = [pscustomobject][ordered]@{schema_version = 1; test = "r7_continuous_action_v2_toolchain"; mode = $Mode; passed = $true; artifact_roles = $script:R7ArtifactNames.Count; closure_entries = @($closure.entries).Count; strict_negative_cases = 3; scripts_parsed = $scripts.Count}
+$result = [pscustomobject][ordered]@{schema_version = 1; test = "r7_continuous_action_v2_toolchain"; mode = $Mode; passed = $true; artifact_roles = $script:R7ArtifactNames.Count; closure_entries = @($closure.entries).Count; strict_negative_cases = 3; git_scalar_cases = 1; scripts_parsed = $scripts.Count}
 $resultPath = Join-Path $scratch "toolchain-test-result.json"
 Write-R7JsonFile $resultPath $result
 Write-Output ($result | ConvertTo-Json -Compress)
