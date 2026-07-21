@@ -8,6 +8,7 @@ $script:R7ToolchainAnchorPath = "benchmarks/taskspace/r7/continuous-action-v2-to
 $script:R7AuthorityPath = "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
 $script:R7ProductionPath = "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"
 $script:R7CandidateRoot = "benchmarks/taskspace/r7/candidates"
+$script:R7AnchorSchemaPath = "benchmarks/taskspace/r7/immutable-anchor-v1.schema.json"
 $script:R7ArtifactNames = [ordered]@{
     l4_schema = "l4-schema.json"
     transition_schema = "transition-schema.json"
@@ -18,6 +19,8 @@ $script:R7ArtifactNames = [ordered]@{
     rollback_manifest = "rollback-manifest.json"
     continuous_action_evaluation = "continuous-action-evaluation.json"
 }
+. (Join-Path $PSScriptRoot "r7-v2-history.ps1")
+. (Join-Path $PSScriptRoot "r7-v2-promotion.ps1")
 
 function Get-R7Sha256Bytes {
     param([byte[]]$Bytes)
@@ -41,15 +44,19 @@ function ConvertTo-R7CanonicalValue {
     if ($null -eq $Value) { return $null }
     if ($Value -is [System.Collections.IDictionary]) {
         $ordered = [ordered]@{}
-        foreach ($key in @($Value.Keys | ForEach-Object { [string]$_ } | Sort-Object)) {
+        $keys = [string[]]@($Value.Keys | ForEach-Object { [string]$_ })
+        [System.Array]::Sort($keys, [System.StringComparer]::Ordinal)
+        foreach ($key in $keys) {
             $ordered[$key] = ConvertTo-R7CanonicalValue $Value[$key]
         }
         return [pscustomobject]$ordered
     }
     if ($Value -is [pscustomobject]) {
         $ordered = [ordered]@{}
-        foreach ($property in @($Value.psobject.Properties | Sort-Object Name)) {
-            $ordered[$property.Name] = ConvertTo-R7CanonicalValue $property.Value
+        $names = [string[]]@($Value.psobject.Properties.Name)
+        [System.Array]::Sort($names, [System.StringComparer]::Ordinal)
+        foreach ($name in $names) {
+            $ordered[$name] = ConvertTo-R7CanonicalValue $Value.psobject.Properties[$name].Value
         }
         return [pscustomobject]$ordered
     }
@@ -121,25 +128,6 @@ function Get-R7GitBlobSha256 {
     Get-R7Sha256Bytes (Get-R7GitBlobBytes $Commit $Path)
 }
 
-function Get-R7FirstAddAnchor {
-    param([string]$Path, [string]$Kind)
-    $history = @(Invoke-R7Git @("log", "--first-parent", "--reverse", "--format=%H", "--", $Path))
-    if ($history.Count -ne 1) { throw "R7_ANCHOR_NOT_IMMUTABLE path=$Path events=$($history.Count)" }
-    $addCommit = [string]$history[0]
-    $status = (Invoke-R7Git @("diff-tree", "--root", "--no-commit-id", "--name-status", "-r", $addCommit, "--", $Path)) -join "`n"
-    if (-not $status.StartsWith("A", [System.StringComparison]::Ordinal)) { throw "R7_ANCHOR_NOT_FIRST_ADD path=$Path" }
-    $raw = Get-R7GitBlobText $addCommit $Path
-    $scratchRoot = Join-Path $script:R7RepoRoot "target/r7-toolchain/strict-inputs"
-    [System.IO.Directory]::CreateDirectory($scratchRoot) | Out-Null
-    $scratch = Join-Path $scratchRoot "$addCommit-$([System.IO.Path]::GetFileName($Path))"
-    [System.IO.File]::WriteAllText($scratch, $raw, [System.Text.UTF8Encoding]::new($false))
-    $anchor = Read-R7StrictJson $scratch
-    if ([string]$anchor.anchor_kind -cne $Kind) { throw "R7_ANCHOR_KIND_MISMATCH path=$Path" }
-    $parent = Get-R7GitLine @("rev-parse", "$addCommit^1")
-    if ([string]$anchor.anchored_parent_commit -cne $parent) { throw "R7_ANCHOR_PARENT_MISMATCH path=$Path" }
-    [pscustomobject]@{body = $anchor; raw = $raw; add_commit = $addCommit; parent_commit = $parent}
-}
-
 function Read-R7StrictJson {
     param([string]$Path, [string]$SchemaPath = "")
     $parser = if ([string]::IsNullOrWhiteSpace($env:R7_STRICT_PARSER_PATH)) {
@@ -152,20 +140,6 @@ function Read-R7StrictJson {
     $canonical = & pwsh @arguments
     if ($LASTEXITCODE -ne 0) { throw "R7_STRICT_JSON_CHILD_FAILED path=$Path" }
     ($canonical -join "`n") | ConvertFrom-Json -Depth 100
-}
-
-function Assert-R7ToolchainWorktree {
-    $anchor = Get-R7FirstAddAnchor $script:R7ToolchainAnchorPath "continuous_action_v2_toolchain"
-    $roles = @($anchor.body.artifacts | ForEach-Object { [string]$_.role })
-    if (($roles | Sort-Object -Unique).Count -ne $roles.Count) { throw "R7_TOOLCHAIN_DUPLICATE_ROLE" }
-    foreach ($artifact in @($anchor.body.artifacts)) {
-        $relative = [string]$artifact.path
-        $full = Join-Path $script:R7RepoRoot $relative
-        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "R7_TOOLCHAIN_FILE_MISSING role=$($artifact.role)" }
-        if ((Get-R7Sha256File $full) -cne [string]$artifact.sha256) { throw "R7_TOOLCHAIN_WORKTREE_DRIFT role=$($artifact.role)" }
-        if ((Get-R7GitBlobSha256 $anchor.parent_commit $relative) -cne [string]$artifact.sha256) { throw "R7_TOOLCHAIN_PARENT_DRIFT role=$($artifact.role)" }
-    }
-    $anchor
 }
 
 function Get-R7CandidateId {
@@ -249,6 +223,7 @@ function Invoke-R7JsonPatch {
             "add" {
                 if ($exists) { throw "R7_JSON_PATCH_ADD_EXISTS path=$($operation.path)" }
                 if ($parent -is [System.Collections.IList]) { throw "R7_JSON_PATCH_ARRAY_ADD_FORBIDDEN path=$($operation.path)" }
+                if ((Get-R7JsonValueHash $operation.value) -cne [string]$operation.new_value_sha256) { throw "R7_JSON_PATCH_NEW_VALUE_DRIFT path=$($operation.path)" }
                 $parent | Add-Member -NotePropertyName $leaf -NotePropertyValue $operation.value
             }
             "replace" {

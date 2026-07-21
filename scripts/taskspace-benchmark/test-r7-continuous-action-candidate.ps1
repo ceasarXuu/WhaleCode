@@ -138,8 +138,8 @@ function Assert-SupersessionBinding {
 
 if ($CandidateId -notmatch '^[0-9a-f]{64}$') { throw "R7_CANDIDATE_ID_INVALID" }
 $target = Get-R7GitLine @("rev-parse", $TargetCommit)
-$toolchain = Assert-R7ToolchainWorktree
-$baseline = Get-R7FirstAddAnchor $script:R7BaselineAnchorPath "continuous_action_production_baseline"
+$toolchain = Assert-R7ToolchainWorktree $target
+$baseline = Get-R7BaselineAnchor $target
 Invoke-R7Git @("merge-base", "--is-ancestor", $baseline.add_commit, $target) -AllowFailure | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "R7_BASELINE_NOT_ANCESTOR" }
 Invoke-R7Git @("merge-base", "--is-ancestor", $toolchain.add_commit, $target) -AllowFailure | Out-Null
@@ -182,15 +182,15 @@ foreach ($role in $script:R7ArtifactNames.Keys) {
 
 $identityHashes = [pscustomobject][ordered]@{}
 foreach ($role in $script:R7ArtifactNames.Keys) { $identityHashes | Add-Member -NotePropertyName $role -NotePropertyValue ([string]$manifest.artifact_hashes.$role.sha256) }
-$identity = [pscustomobject][ordered]@{
-    baseline_anchor_sha256 = Get-R7Sha256Text $baseline.raw
-    baseline_parent = $baseline.parent_commit
-    toolchain_anchor_sha256 = Get-R7Sha256Text $toolchain.raw
-    toolchain_parent = $toolchain.parent_commit
-    activation_contract = "FLA-3.5|carrier_repair|typed_outcome_repair"
-    artifact_hashes = $identityHashes
-}
+$baselineAuthority = (Get-R7GitBlobText $baseline.parent_commit $script:R7AuthorityPath) | ConvertFrom-Json -Depth 100
+$baselineProduction = (Get-R7GitBlobText $baseline.parent_commit $script:R7ProductionPath) | ConvertFrom-Json -Depth 100
+$identity = New-R7CandidateIdentity $baseline $toolchain $identityHashes $baselineAuthority $baselineProduction
 Assert-Equal (Get-R7CandidateId $identity) $CandidateId "R7_CANDIDATE_CONTENT_ID"
+$expectedReferences = New-R7ArtifactReferences $CandidateId $identityHashes
+$expectedActivation = New-R7ActivationTargets $CandidateId $expectedReferences $baselineAuthority
+$expectedPromotion = New-R7ExpectedPromotionContract $baselineAuthority $baselineProduction $CandidateId $expectedReferences
+Assert-Equal (ConvertTo-R7CanonicalJson $manifest.activation_targets) (ConvertTo-R7CanonicalJson $expectedActivation) "R7_ACTIVATION_TARGETS_DRIFT"
+Assert-Equal (ConvertTo-R7CanonicalJson $manifest.promotion) (ConvertTo-R7CanonicalJson $expectedPromotion.promotion) "R7_PROMOTION_CONTRACT_DRIFT"
 Invoke-R7Git @("merge-base", "--is-ancestor", ([string]$manifest.candidate_commit), $target) -AllowFailure | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "R7_CANDIDATE_COMMIT_NOT_ANCESTOR" }
 
@@ -275,8 +275,6 @@ if (@("evaluation_candidate", "promotion_pending", "rejected", "reverted") -cont
     Assert-Equal $productionHash ([string]$manifest.active_production_manifest.sha256) "R7_NONPROMOTED_PRODUCTION_DRIFT"
 } else {
     Assert-Equal $status "promoted" "R7_CANDIDATE_STATUS_UNKNOWN"
-    $baselineAuthority = (Get-R7GitBlobText $baseline.parent_commit $script:R7AuthorityPath) | ConvertFrom-Json -Depth 100
-    $baselineProduction = (Get-R7GitBlobText $baseline.parent_commit $script:R7ProductionPath) | ConvertFrom-Json -Depth 100
     $expectedAuthority = Invoke-R7JsonPatch $baselineAuthority @($manifest.promotion.authority_patch)
     $expectedProduction = Invoke-R7JsonPatch $baselineProduction @($manifest.promotion.production_patch)
     $actualAuthority = (Get-R7GitBlobText $target $script:R7AuthorityPath) | ConvertFrom-Json -Depth 100

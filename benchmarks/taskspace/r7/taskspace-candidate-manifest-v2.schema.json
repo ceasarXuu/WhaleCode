@@ -76,8 +76,8 @@
           "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
         },
-        "authority_patch": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/jsonPatch"}},
-        "production_patch": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/jsonPatch"}},
+        "authority_patch": {"type": "array", "minItems": 9, "maxItems": 9, "items": {"$ref": "#/$defs/jsonPatch"}},
+        "production_patch": {"type": "array", "minItems": 12, "maxItems": 12, "items": {"$ref": "#/$defs/jsonPatch"}},
         "candidate_patch": {
           "type": "array", "minItems": 1, "maxItems": 1,
           "items": {

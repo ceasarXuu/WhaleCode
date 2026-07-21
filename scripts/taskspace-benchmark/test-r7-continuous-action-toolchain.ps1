@@ -122,6 +122,12 @@ function Test-CandidateSchema {
         $artifactHashes | Add-Member -NotePropertyName $role -NotePropertyValue ([pscustomobject]@{artifact_role = $role; path = "$script:R7CandidateRoot/$id/$($script:R7ArtifactNames[$role])"; sha256 = New-Hash ([char](65 + $index)); git_mode = "100644"})
     }
     $patch = [pscustomobject]@{op = "replace"; path = "/candidate_status"; old_value_sha256 = (New-Hash 'b'); value = "promoted"; new_value_sha256 = (New-Hash 'c')}
+    $authorityPatches = @(0..8 | ForEach-Object {
+        [pscustomobject]@{op = "replace"; path = "/authority/$_"; old_value_sha256 = (New-Hash 'b'); value = $_; new_value_sha256 = (New-Hash 'c')}
+    })
+    $productionPatches = @(0..11 | ForEach-Object {
+        [pscustomobject]@{op = "replace"; path = "/production/$_"; old_value_sha256 = (New-Hash 'b'); value = $_; new_value_sha256 = (New-Hash 'c')}
+    })
     $candidate = [pscustomobject][ordered]@{
         schema_version = 2; contract_id = "r7-continuous-action-candidate-$id"; contract_status = "candidate_record"; candidate_id = $id; candidate_commit = "1" * 40; candidate_status = "evaluation_candidate"
         baseline_anchor = [pscustomobject]@{path = $script:R7BaselineAnchorPath; first_add_commit = "1" * 40; anchored_parent_commit = "2" * 40; sha256 = (New-Hash 'd')}
@@ -140,11 +146,14 @@ function Test-CandidateSchema {
             )
         }
         artifact_hashes = $artifactHashes
-        promotion = [pscustomobject]@{changed_paths = @($script:R7AuthorityPath, $script:R7ProductionPath, "$script:R7CandidateRoot/$id/manifest.json"); authority_patch = @($patch); production_patch = @($patch); candidate_patch = @($patch)}
+        promotion = [pscustomobject]@{changed_paths = @($script:R7AuthorityPath, $script:R7ProductionPath, "$script:R7CandidateRoot/$id/manifest.json"); authority_patch = $authorityPatches; production_patch = $productionPatches; candidate_patch = @($patch)}
         status_evidence = [pscustomobject]@{event_kind = "candidate_created"; evidence_path = "evidence.json"; evidence_sha256 = (New-Hash '4')}
     }
     $json = $candidate | ConvertTo-Json -Depth 100
     Assert-True ($json | Test-Json -SchemaFile $SchemaPath -ErrorAction Stop) "R7_TEST_VALID_CANDIDATE_REJECTED"
+    $candidate.promotion.authority_patch = @($authorityPatches | Select-Object -First 8)
+    Assert-True (-not (($candidate | ConvertTo-Json -Depth 100) | Test-Json -SchemaFile $SchemaPath -ErrorAction SilentlyContinue)) "R7_TEST_INCOMPLETE_PATCH_ACCEPTED"
+    $candidate.promotion.authority_patch = $authorityPatches
     $candidate.schema_version = 1
     Assert-True (-not (($candidate | ConvertTo-Json -Depth 100) | Test-Json -SchemaFile $SchemaPath -ErrorAction SilentlyContinue)) "R7_TEST_V1_CANDIDATE_ACCEPTED"
 }
@@ -197,7 +206,8 @@ Assert-True (($domains | ForEach-Object domain | Sort-Object -Unique).Count -eq 
 foreach ($alias in @($ownership.forbidden_parallel_owners)) { Assert-True (@($domains | Where-Object owner_phase -eq $alias).Count -eq 0) "R7_TEST_PHASE_ALIAS_OWNER" }
 
 $scripts = @(
-    "invoke-r7-strict-json.ps1", "r7-v2-toolchain-core.ps1", "new-r7-continuous-action-candidate.ps1",
+    "invoke-r7-strict-json.ps1", "r7-v2-toolchain-core.ps1", "r7-v2-history.ps1", "r7-v2-promotion.ps1",
+    "new-r7-continuous-action-candidate.ps1",
     "test-r7-continuous-action-candidate.ps1", "set-r7-continuous-action-candidate-status.ps1",
     "invoke-r7-continuous-action-completion.ps1", "verify-r7-continuous-action-completion.ps1",
     "test-r7-continuous-action-toolchain.ps1"

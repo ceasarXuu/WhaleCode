@@ -7,26 +7,6 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "r7-v2-toolchain-core.ps1")
 
-function Get-UniqueIndex {
-    param([object[]]$Items, [scriptblock]$Predicate, [string]$Label)
-    $matches = @()
-    for ($index = 0; $index -lt $Items.Count; $index++) {
-        if (& $Predicate $Items[$index]) { $matches += $index }
-    }
-    if ($matches.Count -ne 1) { throw "R7_CANDIDATE_INDEX_NOT_UNIQUE label=$Label count=$($matches.Count)" }
-    [int]$matches[0]
-}
-
-function New-ArtifactReference {
-    param([string]$Role, [string]$CandidateId, [string]$Hash)
-    [pscustomobject][ordered]@{
-        artifact_role = $Role
-        path = "$script:R7CandidateRoot/$CandidateId/$($script:R7ArtifactNames[$Role])"
-        sha256 = $Hash
-        git_mode = "100644"
-    }
-}
-
 function New-RollbackArtifact {
     param($Baseline, $Toolchain)
     $baselineCommit = [string]$Baseline.parent_commit
@@ -72,66 +52,9 @@ function New-RollbackArtifact {
     }
 }
 
-function New-PromotionContract {
-    param($Authority, $Production, [string]$CandidateId, $Artifacts)
-    $authorityOperations = [System.Collections.Generic.List[object]]::new()
-    $repairIndex = Get-UniqueIndex @($Authority.blocking_repairs) { param($item) [string]$item.id -eq "FLA-3.5-continuous-action-regression-repair" } "blocking repair"
-    $l4Index = Get-UniqueIndex @($Authority.selected_targets) { param($item) [string]$item.layer -eq "L4" } "authority L4"
-    $l5Index = Get-UniqueIndex @($Authority.selected_targets) { param($item) [string]$item.layer -eq "L5-result" } "authority L5-result"
-    $authorityOperations.Add((New-R7PatchOperation "replace" "/contract_status" $Authority.contract_status "production_active_through_fla3_5_with_carrier_repair"))
-    $authorityOperations.Add((New-R7PatchOperation "replace" "/blocking_repairs/$repairIndex/implementation_status" $Authority.blocking_repairs[$repairIndex].implementation_status "active_verified"))
-    foreach ($change in @(
-        @($l4Index, "activation_phase", $Authority.selected_targets[$l4Index].activation_phase, "FLA-3.5"),
-        @($l4Index, "artifact", $Authority.selected_targets[$l4Index].artifact, $Artifacts.l4_schema.path),
-        @($l4Index, "sha256", $Authority.selected_targets[$l4Index].sha256, $Artifacts.l4_schema.sha256),
-        @($l5Index, "activation_phase", $Authority.selected_targets[$l5Index].activation_phase, "FLA-3.5"),
-        @($l5Index, "artifact", $Authority.selected_targets[$l5Index].artifact, $Artifacts.typed_outcome.path),
-        @($l5Index, "sha256", $Authority.selected_targets[$l5Index].sha256, $Artifacts.typed_outcome.sha256)
-    )) {
-        $authorityOperations.Add((New-R7PatchOperation "replace" "/selected_targets/$($change[0])/$($change[1])" $change[2] $change[3]))
-    }
-    if ($null -ne $Authority.selected_targets[$l4Index].psobject.Properties["required_next_call"]) {
-        $authorityOperations.Add((New-R7PatchOperation "remove" "/selected_targets/$l4Index/required_next_call" $Authority.selected_targets[$l4Index].required_next_call $null))
-    }
-    $expectedAuthority = Invoke-R7JsonPatch $Authority $authorityOperations.ToArray()
-    $scratchAuthority = Join-Path $script:R7RepoRoot "target/r7-toolchain/expected-authority-$CandidateId.json"
-    [System.IO.Directory]::CreateDirectory((Split-Path $scratchAuthority -Parent)) | Out-Null
-    Write-R7JsonFile $scratchAuthority $expectedAuthority
-    $expectedAuthorityHash = Get-R7Sha256File $scratchAuthority
-
-    $productionOperations = [System.Collections.Generic.List[object]]::new()
-    $productionL4 = Get-UniqueIndex @($Production.layers) { param($item) [string]$item.id -eq "L4" } "production L4"
-    $productionL5 = Get-UniqueIndex @($Production.layers) { param($item) [string]$item.id -eq "L5" } "production L5"
-    $resultTarget = Get-UniqueIndex @($Production.layers[$productionL5].selected_targets) { param($item) [string]$item.artifact -eq "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json" } "production L5-result"
-    foreach ($change in @(
-        @("replace", "/manifest_version", $Production.manifest_version, "1.0.5"),
-        @("replace", "/activation_through", $Production.activation_through, "FLA-3.5"),
-        @("replace", "/source_authority/sha256", $Production.source_authority.sha256, $expectedAuthorityHash),
-        @("add", "/promoted_candidate_id", $null, $CandidateId),
-        @("replace", "/layers/$productionL4/runtime_status", $Production.layers[$productionL4].runtime_status, "carrier_repair_active"),
-        @("replace", "/layers/$productionL4/selected_targets/0/artifact", $Production.layers[$productionL4].selected_targets[0].artifact, $Artifacts.l4_schema.path),
-        @("replace", "/layers/$productionL4/selected_targets/0/sha256", $Production.layers[$productionL4].selected_targets[0].sha256, $Artifacts.l4_schema.sha256),
-        @("replace", "/layers/$productionL4/selected_targets/0/activation_phase", $Production.layers[$productionL4].selected_targets[0].activation_phase, "FLA-3.5"),
-        @("replace", "/layers/$productionL5/runtime_status", $Production.layers[$productionL5].runtime_status, "carrier_result_repair_active_projection_baseline"),
-        @("replace", "/layers/$productionL5/selected_targets/$resultTarget/artifact", $Production.layers[$productionL5].selected_targets[$resultTarget].artifact, $Artifacts.typed_outcome.path),
-        @("replace", "/layers/$productionL5/selected_targets/$resultTarget/sha256", $Production.layers[$productionL5].selected_targets[$resultTarget].sha256, $Artifacts.typed_outcome.sha256),
-        @("replace", "/layers/$productionL5/selected_targets/$resultTarget/activation_phase", $Production.layers[$productionL5].selected_targets[$resultTarget].activation_phase, "FLA-3.5")
-    )) {
-        $productionOperations.Add((New-R7PatchOperation $change[0] $change[1] $change[2] $change[3]))
-    }
-    [pscustomobject][ordered]@{
-        changed_paths = @($script:R7AuthorityPath, $script:R7ProductionPath, "$script:R7CandidateRoot/$CandidateId/manifest.json")
-        authority_patch = $authorityOperations.ToArray()
-        production_patch = $productionOperations.ToArray()
-        candidate_patch = @(
-            New-R7PatchOperation "replace" "/candidate_status" "promotion_pending" "promoted"
-        )
-    }
-}
-
 Assert-R7CleanWorktree
 $toolchain = Assert-R7ToolchainWorktree
-$baseline = Get-R7FirstAddAnchor $script:R7BaselineAnchorPath "continuous_action_production_baseline"
+$baseline = Get-R7BaselineAnchor
 Invoke-R7Git @("merge-base", "--is-ancestor", $toolchain.add_commit, "HEAD") -AllowFailure | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "R7_TOOLCHAIN_ANCHOR_NOT_ANCESTOR"
@@ -181,15 +104,15 @@ foreach ($role in $script:R7ArtifactNames.Keys) {
     $stageFiles[$role] = [pscustomobject]@{path = $path; sha256 = Get-R7Sha256File $path}
 }
 
-$identity = [pscustomobject][ordered]@{
-    baseline_anchor_sha256 = Get-R7Sha256Text $baseline.raw
-    baseline_parent = $baseline.parent_commit
-    toolchain_anchor_sha256 = Get-R7Sha256Text $toolchain.raw
-    toolchain_parent = $toolchain.parent_commit
-    activation_contract = "FLA-3.5|carrier_repair|typed_outcome_repair"
-    artifact_hashes = [pscustomobject][ordered]@{}
+$artifactHashValues = [pscustomobject][ordered]@{}
+foreach ($role in $stageFiles.Keys) {
+    $artifactHashValues | Add-Member -NotePropertyName $role -NotePropertyValue $stageFiles[$role].sha256
 }
-foreach ($role in $stageFiles.Keys) { $identity.artifact_hashes | Add-Member -NotePropertyName $role -NotePropertyValue $stageFiles[$role].sha256 }
+$authorityRaw = Get-R7GitBlobText $baseline.parent_commit $script:R7AuthorityPath
+$productionRaw = Get-R7GitBlobText $baseline.parent_commit $script:R7ProductionPath
+$authority = $authorityRaw | ConvertFrom-Json -Depth 100
+$production = $productionRaw | ConvertFrom-Json -Depth 100
+$identity = New-R7CandidateIdentity $baseline $toolchain $artifactHashValues $authority $production
 $candidateId = Get-R7CandidateId $identity
 $candidatePath = Get-R7CandidatePath $candidateId
 if (Test-Path -LiteralPath $candidatePath.full) { throw "R7_CANDIDATE_ALREADY_EXISTS id=$candidateId" }
@@ -205,7 +128,7 @@ $creationEvidence = [pscustomobject][ordered]@{
     baseline_anchor_first_add_commit = $baseline.add_commit
     toolchain_anchor_first_add_commit = $toolchain.add_commit
     source_head = Get-R7GitLine @("rev-parse", "HEAD")
-    artifact_hashes = $identity.artifact_hashes
+    artifact_hashes = $artifactHashValues
 }
 $creationEvidencePath = Join-Path $candidatePath.full "creation-evidence.json"
 Write-R7JsonFile $creationEvidencePath $creationEvidence
@@ -213,15 +136,9 @@ Invoke-R7Git @("add", "--", $candidatePath.relative) | Out-Null
 Invoke-R7Git @("commit", "-m", "$CommitMessagePrefix artifacts $candidateId") | Out-Null
 $candidateCommit = Get-R7GitLine @("rev-parse", "HEAD")
 
-$authorityRaw = Get-R7GitBlobText $baseline.parent_commit $script:R7AuthorityPath
-$productionRaw = Get-R7GitBlobText $baseline.parent_commit $script:R7ProductionPath
-$authority = $authorityRaw | ConvertFrom-Json -Depth 100
-$production = $productionRaw | ConvertFrom-Json -Depth 100
-$artifactRefs = [pscustomobject][ordered]@{}
-foreach ($role in $stageFiles.Keys) { $artifactRefs | Add-Member -NotePropertyName $role -NotePropertyValue (New-ArtifactReference $role $candidateId $stageFiles[$role].sha256) }
-$projection = @($authority.selected_targets | Where-Object layer -eq "L5-projection")[0]
-$lifecycle = @($authority.selected_targets | Where-Object layer -eq "L5-lifecycle")[0]
-$promotion = New-PromotionContract $authority $production $candidateId $artifactRefs
+$artifactRefs = New-R7ArtifactReferences $candidateId $artifactHashValues
+$activationTargets = New-R7ActivationTargets $candidateId $artifactRefs $authority
+$promotionContract = New-R7ExpectedPromotionContract $authority $production $candidateId $artifactRefs
 $manifest = [pscustomobject][ordered]@{
     schema_version = 2
     contract_id = "r7-continuous-action-candidate-$candidateId"
@@ -233,21 +150,9 @@ $manifest = [pscustomobject][ordered]@{
     toolchain_anchor = [pscustomobject][ordered]@{path = $script:R7ToolchainAnchorPath; first_add_commit = $toolchain.add_commit; anchored_parent_commit = $toolchain.parent_commit; sha256 = Get-R7Sha256Text $toolchain.raw}
     active_authority = [pscustomobject][ordered]@{contract_id = $authority.contract_id; path = $script:R7AuthorityPath; git_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $authorityRaw; git_mode = "100644"}
     active_production_manifest = [pscustomobject][ordered]@{contract_id = $production.contract_id; path = $script:R7ProductionPath; git_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $productionRaw; git_mode = "100644"}
-    activation_targets = [pscustomobject][ordered]@{
-        activation_through = "FLA-3.5"
-        authority_contract_status = "production_active_through_fla3_5_with_carrier_repair"
-        production_manifest_version = "1.0.5"
-        blocking_repair = [pscustomobject][ordered]@{id = "FLA-3.5-continuous-action-regression-repair"; implementation_status = "active_verified"}
-        production_runtime_status = [pscustomobject][ordered]@{L4 = "carrier_repair_active"; L5 = "carrier_result_repair_active_projection_baseline"}
-        L4 = @([pscustomobject][ordered]@{artifact_role = "l4_schema"; authority_layer = "L4"; implementation_status = "active_repair_verified"; path = $artifactRefs.l4_schema.path; sha256 = $artifactRefs.l4_schema.sha256; activation_phase = "FLA-3.5"})
-        L5 = @(
-            [pscustomobject][ordered]@{artifact_role = "typed_outcome"; authority_layer = "L5-result"; implementation_status = "active_repair_verified"; path = $artifactRefs.typed_outcome.path; sha256 = $artifactRefs.typed_outcome.sha256; activation_phase = "FLA-3.5"},
-            [pscustomobject][ordered]@{artifact_role = "projection_baseline"; authority_layer = "L5-projection"; implementation_status = $projection.implementation_status; path = $projection.artifact; sha256 = $projection.sha256; activation_phase = $projection.activation_phase},
-            [pscustomobject][ordered]@{artifact_role = "lifecycle_baseline"; authority_layer = "L5-lifecycle"; implementation_status = $lifecycle.implementation_status; path = $lifecycle.artifact; sha256 = $lifecycle.sha256; activation_phase = $lifecycle.activation_phase}
-        )
-    }
+    activation_targets = $activationTargets
     artifact_hashes = $artifactRefs
-    promotion = $promotion
+    promotion = $promotionContract.promotion
     status_evidence = [pscustomobject][ordered]@{event_kind = "candidate_created"; evidence_path = "$($candidatePath.relative)/creation-evidence.json"; evidence_sha256 = Get-R7Sha256File $creationEvidencePath}
 }
 $manifestPath = Join-Path $candidatePath.full "manifest.json"
