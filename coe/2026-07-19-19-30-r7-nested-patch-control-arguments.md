@@ -1,7 +1,7 @@
 # Problem P-001: R7 大型嵌套 patch control 参数畸形
 - Status: open
 - Created: 2026-07-19 19:30
-- Updated: 2026-07-19 22:05
+- Updated: 2026-07-21 23:45
 - Objective: 证明复杂样本中 `complete_then_continue` 参数尾随字符和下一次空参数调用的真实产生层，并在不让 Runtime 猜测语义的前提下确定修复点。
 - Symptoms:
   - `subscription-billing-repair` 首次大型 `patch_then_actions` control 参数末尾多一个 `}`，随后一次 `taskspace_control` 参数为 `{}`。
@@ -25,6 +25,7 @@
   - continuation 直接携带 `patch_input` 和 control 顶层携带 `patch_input` 都达到 6/6 JSON 合法，但正文均为 0/6 逐字节一致；前者有 1 次只返回 3 字节。
   - 生产 `required_next_call` probe 为 6/6 `control -> apply_patch` 且 6/6 patch exact，证明修复没有拆分合并 request。
   - v1.0.4 simple/complex Docker 都 solved 且 Map 闭合，但各有 2 次首次 sibling 遗漏；字段改名不是该采用问题的充分修复。
+  - FLA-3.5 carrier 修复计划经十五轮空白上下文审查后以 `ACCEPT` 收口；当前仍为 `selected_not_implemented`，不能视为修复完成。
 - Ruled out:
   - Runtime 在解析失败后部分推进 Map 状态。
   - Whale SSE 流式聚合重复追加 arguments 尾部。
@@ -32,7 +33,7 @@
   - 单纯减少一层 `arguments` 包装即可解决问题。
 - Fix criteria:
   - 证明畸形字符首次出现的层；证明第二次空参数是否收到完整失败反馈；对可复现根因实施单点修复，并在 simple/complex Docker 样本中验证无 correctness、request 或缓存负回归。
-- Current conclusion: 原始大型 nested patch 根因已修复：control 只保留状态和调用种类声明，patch 恢复为顶层原生工具；生产 probe 6/6 合并调用且 6/6 exact，Runtime 无语义修补。剩余未通过项是自然 coding 中首次 sibling 采用率：v1.0.3 与 v1.0.4 的两个样本都各有 2 次遗漏，说明 `continuation` 歧义不是唯一原因。该效率问题必须在 provider-visible 协议层继续解决，不能让 Runtime 补调用，也不能恢复 nested carrier。
+- Current conclusion: 原始大型 nested patch 根因已修复，但自然 coding 的 sibling 首次采用率仍未通过。FLA-3.5 已选定由普通 Tool 携带机械 `taskspace_transition` 的单 provider-call 方案，Runtime 不推断后续动作且复用唯一 Tool 执行链；方案审查已通过，生产修复仍须完成 CA-0 至 CA-6 并取得自然样本验证证据。
 - Related hypotheses:
   - H-001
   - H-002
@@ -693,3 +694,57 @@
   ```
 - Interpretation: feedback 忠实且合并 request 设计保留；新字段不是首次采用问题的充分修复，P-001 的 request 效率退出门仍未满足。
 - Time: 2026-07-19 22:05
+
+## Evidence E-010: FLA-3.5 carrier 修复计划通过空白上下文审查
+- Related hypotheses:
+  - H-008
+  - H-009
+- Direction: supports repair design; does not satisfy fix validation
+- Type: design-review
+- Source: `docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md`、`vs_review/2026-07-21-r7-continuous-action-repair-plan-review.md`
+- Prediction or plan link:
+  - 首次采用问题必须由一个 provider-visible Tool schema 内的连续动作合同解决，不能由 Runtime 自动补 sibling。
+- Matched signal:
+  - 第十五轮审查为 `ACCEPT`，Blocking/High/Medium/Low 均为 none，Phase conflict 为 PASS。
+  - 计划要求 ordinary Tool 携带 transition、复用现有 router/permission/sandbox/hook/MCP/handler/result pipeline。
+  - 计划状态仍为 `selected_not_implemented`，没有把 scaffold 或 baseline 门禁当成生产完成。
+- Correlation keys:
+  - target commit `2165b5065`
+  - review launch `019f8337-0ce1-78d3-84eb-ef83e071048c`
+- Interpretation: repair design gate 已满足；Problem 仍保持 open，直到 CA-3 实现和 CA-5 自然样本验证通过。
+- Time: 2026-07-21 23:40
+
+## Evidence E-011: CA-0 启动前 projection ownership 门禁复现遗漏项
+- Related hypotheses:
+  - H-009
+- Direction: neutral to root cause; blocks clean implementation baseline
+- Type: regression-test
+- Source: `scripts/taskspace-benchmark/test-r7-projection-policy-contract.ps1`
+- Prediction or plan link:
+  - CA-0 应从全套确定性门禁通过的干净基线开始。
+- Matched signal:
+  - 测试稳定失败并指出 `scripts/taskspace-benchmark/sync-r7-five-layer-contract-manifest.ps1` 未被 ownership inventory 覆盖。
+  - 该脚本只生成共享五层 manifest，包含 projection 状态枚举文本但不拥有 projection Runtime。
+- Correlation keys:
+  - baseline commit `48ca37597`
+  - missing inventory path `scripts/taskspace-benchmark/sync-r7-five-layer-contract-manifest.ps1`
+- Interpretation: 应登记为独立五层 manifest generation gate；不得把它误归为 projection 语义实现。
+- Time: 2026-07-21 23:45
+
+## Evidence E-012: projection ownership inventory 恢复完整覆盖
+- Related hypotheses:
+  - H-009
+- Direction: neutral to root cause; satisfies clean implementation baseline gate
+- Type: fix-validation
+- Source: `benchmarks/taskspace/r7/phase-a-ownership-inventory.json`
+- Prediction or plan link:
+  - 把后续新增的五层 generator、production manifest 和 machine gate 按真实职责登记后，marker coverage 与五层合同应同时通过。
+- Matched signal:
+  - `test-r7-projection-policy-contract.ps1` PASS，34 个 inventory item 覆盖 25 个 marker 文件。
+  - `test-r7-five-layer-contracts.ps1 -Phase All` 同次 PASS。
+  - 新增项均为 `retain_shared` 的五层生成/门禁职责，没有归入 projection Runtime。
+- Correlation keys:
+  - inventory `r7-phase-a-projection-policy-ownership`
+  - paths `sync-r7-five-layer-contract-manifest.ps1`、`test-r7-five-layer-contracts.ps1`、production manifest
+- Interpretation: CA-0 可以从确定性 ownership 与 active baseline 门禁均通过的状态开始。
+- Time: 2026-07-21 23:52

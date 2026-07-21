@@ -374,6 +374,28 @@
         "benchmarks/taskspace/r7/phase-a-baseline-result.json",
         "scripts/taskspace-benchmark/verify-r7-phase-a-baseline.ps1"
       ]
+    },
+    {
+      "id": "five_layer_production_manifest_generator",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/sync-r7-five-layer-contract-manifest.ps1",
+      "classification": "retain_shared",
+      "target_phase": "FLA-1+",
+      "r7_owner": "five_layer_manifest_generation_gate",
+      "reason": "generate the shared five-layer production identity; projection marker strings are contract enum values, not a separate projection runtime",
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"
+      ]
+    },
+    {
+      "id": "five_layer_machine_contract_gate",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
+      "classification": "retain_shared",
+      "target_phase": "FLA-0+",
+      "r7_owner": "five_layer_phase_gate",
+      "reason": "validate selected layer identities and statuses; projection marker strings are assertions over the shared contract, not policy implementation",
+      "covered_paths": []
     }
   ]
 }
