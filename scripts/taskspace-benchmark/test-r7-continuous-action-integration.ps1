@@ -98,7 +98,8 @@ Write-Json $anchorPath ([pscustomobject][ordered]@{schema_version = 1; anchor_ki
 $anchorCommit = Get-GitLine $clone @("rev-parse", "HEAD")
 [void](Invoke-Script $clone "test-r7-continuous-action-toolchain.ps1" @("-Mode", "Anchored"))
 
-$candidateJson = (Invoke-Script $clone "new-r7-continuous-action-candidate.ps1" @("-ArtifactSourceDirectory", (Join-Path $clone "target/r7-toolchain/self-test")))[-1] | ConvertFrom-Json
+$candidateOutput = @(Invoke-Script $clone "new-r7-continuous-action-candidate.ps1" @("-ArtifactSourceDirectory", (Join-Path $clone "target/r7-toolchain/self-test")))
+$candidateJson = ([string]$candidateOutput[-1]) | ConvertFrom-Json
 $candidateId = [string]$candidateJson.candidate_id
 $candidateManifestPath = "benchmarks/taskspace/r7/candidates/$candidateId/manifest.json"
 $candidate = ((Invoke-Git $clone @("show", "HEAD:$candidateManifestPath")) -join [Environment]::NewLine) | ConvertFrom-Json -Depth 100
