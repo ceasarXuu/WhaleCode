@@ -1,7 +1,7 @@
 use super::Entry;
 use super::SourceInventory;
-use codex_protocol::openai_models::ApplyPatchToolType;
-use codex_protocol::openai_models::ConfigShellToolType;
+use super::profiles::Profile;
+use super::profiles::production_profiles;
 use codex_tools::DiscoverablePluginInfo;
 use codex_tools::DiscoverableTool;
 use codex_tools::ResponsesApiNamespaceTool;
@@ -11,16 +11,10 @@ use codex_tools::ToolRegistryPlanDeferredTool;
 use codex_tools::ToolRegistryPlanMcpTool;
 use codex_tools::ToolRegistryPlanParams;
 use codex_tools::ToolSpec;
-use codex_tools::ToolsConfig;
 use codex_tools::WaitAgentTimeoutOptions;
 use codex_tools::build_tool_registry_plan;
+use codex_tools::create_tools_json_for_responses_api;
 use std::collections::BTreeMap;
-
-struct Profile {
-    id: &'static str,
-    config: ToolsConfig,
-    nested: bool,
-}
 
 pub fn build_entries(inventory: &SourceInventory) -> Result<Vec<Entry>, String> {
     let mcp = rmcp::model::Tool {
@@ -58,7 +52,8 @@ pub fn build_entries(inventory: &SourceInventory) -> Result<Vec<Entry>, String> 
     .into_iter()
     .collect();
     let mut entries = Vec::new();
-    for profile in profiles() {
+    for profile in production_profiles() {
+        let profile_start = entries.len();
         let plan = build_tool_registry_plan(
             &profile.config,
             ToolRegistryPlanParams {
@@ -80,7 +75,12 @@ pub fn build_entries(inventory: &SourceInventory) -> Result<Vec<Entry>, String> 
             .iter()
             .map(|item| (item.name.display(), item.kind))
             .collect::<BTreeMap<_, _>>();
-        for configured in plan.specs {
+        let response_specs = plan
+            .specs
+            .iter()
+            .map(|configured| configured.spec.clone())
+            .collect::<Vec<_>>();
+        for configured in &plan.specs {
             add_spec_entries(
                 &mut entries,
                 profile.id,
@@ -91,9 +91,13 @@ pub fn build_entries(inventory: &SourceInventory) -> Result<Vec<Entry>, String> 
                 inventory,
             )?;
         }
-        add_handler_only_entries(&mut entries, profile, plan.handlers, inventory);
+        add_handler_only_entries(&mut entries, &profile, plan.handlers, inventory);
+        let response_tools = create_tools_json_for_responses_api(&response_specs)
+            .map_err(|error| error.to_string())?;
+        let mapped_names = super::provider::deepseek_function_names(response_tools)?;
+        let response_entries = entries[profile_start..].to_vec();
+        add_deepseek_entries(&mut entries, response_entries, mapped_names, inventory)?;
     }
-    add_deepseek_entries(&mut entries, inventory);
     Ok(entries)
 }
 
@@ -177,69 +181,6 @@ pub fn spec_shape(
     }
 }
 
-fn profiles() -> [Profile; 6] {
-    [
-        profile(
-            "function",
-            ConfigShellToolType::UnifiedExec,
-            Some(ApplyPatchToolType::Function),
-            false,
-            false,
-        ),
-        profile(
-            "freeform_code",
-            ConfigShellToolType::Default,
-            Some(ApplyPatchToolType::Freeform),
-            true,
-            false,
-        ),
-        profile(
-            "local_shell",
-            ConfigShellToolType::Local,
-            None,
-            false,
-            false,
-        ),
-        profile(
-            "code_nested",
-            ConfigShellToolType::Default,
-            Some(ApplyPatchToolType::Freeform),
-            false,
-            true,
-        ),
-        toggled_profile("multi_agent_v2", |config| config.multi_agent_v2 = true),
-        toggled_profile("tool_suggest", |config| config.tool_suggest = true),
-    ]
-}
-
-fn profile(
-    id: &'static str,
-    shell_type: ConfigShellToolType,
-    patch: Option<ApplyPatchToolType>,
-    code: bool,
-    nested: bool,
-) -> Profile {
-    Profile {
-        id,
-        config: super::base_config(shell_type, patch, code),
-        nested,
-    }
-}
-
-fn toggled_profile(id: &'static str, apply: fn(&mut ToolsConfig)) -> Profile {
-    let mut config = super::base_config(
-        ConfigShellToolType::UnifiedExec,
-        Some(ApplyPatchToolType::Function),
-        false,
-    );
-    apply(&mut config);
-    Profile {
-        id,
-        config,
-        nested: false,
-    }
-}
-
 fn discoverable_fixtures() -> [DiscoverableTool; 1] {
     [DiscoverableTool::Plugin(Box::new(DiscoverablePluginInfo {
         id: "fixture-plugin".into(),
@@ -298,7 +239,7 @@ pub fn make_entry(
 
 fn add_handler_only_entries(
     entries: &mut Vec<Entry>,
-    profile: Profile,
+    profile: &Profile,
     handlers: Vec<codex_tools::ToolHandlerSpec>,
     inventory: &SourceInventory,
 ) {
@@ -332,10 +273,29 @@ fn add_handler_only_entries(
     }
 }
 
-fn add_deepseek_entries(entries: &mut Vec<Entry>, inventory: &SourceInventory) {
-    for mut entry in entries.clone() {
+fn add_deepseek_entries(
+    entries: &mut Vec<Entry>,
+    response_entries: Vec<Entry>,
+    mapped_names: std::collections::BTreeSet<String>,
+    inventory: &SourceInventory,
+) -> Result<(), String> {
+    let response_names = response_entries
+        .iter()
+        .map(|entry| entry.tool_name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let missing = mapped_names
+        .iter()
+        .filter(|name| !response_names.contains(name.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "DeepSeek mapper produced tools absent from closure: {missing:?}"
+        ));
+    }
+    for mut entry in response_entries {
         entry.wire_api = "deepseek_chat".into();
-        if deepseek_drops_entry(&entry) {
+        if !entry.model_visible || !mapped_names.contains(&entry.tool_name) {
             entry.model_visible = false;
             entry.disposition = "non_carrier".into();
             entry.reason_code = "provider_wire_unsupported".into();
@@ -351,6 +311,7 @@ fn add_deepseek_entries(entries: &mut Vec<Entry>, inventory: &SourceInventory) {
         );
         entries.push(entry);
     }
+    Ok(())
 }
 
 fn add_spec_entries(
@@ -431,16 +392,6 @@ fn add_spec_entries(
     Ok(())
 }
 
-fn deepseek_drops_entry(entry: &Entry) -> bool {
-    if entry.namespace.is_some() || entry.tool_spec == "Namespace" {
-        return true;
-    }
-    matches!(
-        entry.tool_spec.as_str(),
-        "ToolSearch" | "LocalShell" | "ImageGeneration"
-    ) || (entry.tool_spec == "Freeform" && entry.tool_name != "apply_patch")
-}
-
 fn base_pipeline_roles(
     origin: &str,
     spec: &str,
@@ -448,6 +399,8 @@ fn base_pipeline_roles(
 ) -> Vec<&'static str> {
     let mut roles = vec![
         "registry_plan",
+        "tools_config",
+        "model_profile",
         "core_registration",
         "invocation_parser",
         "alias_router",
@@ -458,6 +411,7 @@ fn base_pipeline_roles(
     ];
     if origin == "code_mode" {
         roles.push("code_mode_decorator");
+        roles.push("nested_tools_config");
     }
     if kind == Some(ToolHandlerKind::DynamicTool) {
         roles.push("dynamic_registry");

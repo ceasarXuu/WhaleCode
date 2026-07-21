@@ -281,7 +281,7 @@ foreach ($carrier in @($artifactBodies.l4_schema.carrier_specs)) {
     Assert-SourceReference $carrier.parser ([string]$manifest.candidate_commit) "l4-parser-$($carrier.wire_api)-$($carrier.tool_spec)"
 }
 $closureScratch = Join-Path $script:R7RepoRoot "target/r7-toolchain/regenerated-$CandidateId.json"
-& cargo run --locked -q -p codex-tools --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closureScratch
+& cargo run --locked -q -p codex-tools --features r7-toolchain --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closureScratch
 if ($LASTEXITCODE -ne 0) { throw "R7_CLOSURE_REGENERATION_FAILED" }
 Assert-Equal (Get-R7Sha256File $closureScratch) ([string]$manifest.artifact_hashes.entry_closure.sha256) "R7_CLOSURE_REGENERATION_DRIFT"
 

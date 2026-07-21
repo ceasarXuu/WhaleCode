@@ -111,10 +111,10 @@ $executionEnvironment = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/ca
 [void](Read-R7StrictJson $completionEvidenceSchema)
 [void](Read-R7StrictJson $executionEnvironment $executionEnvironmentSchema)
 $closurePath = Join-Path $scratch "entry-closure.json"
-& cargo run --locked -q -p codex-tools --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath
+& cargo run --locked -q -p codex-tools --features r7-toolchain --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath
 if ($LASTEXITCODE -ne 0) { throw "R7_TEST_CLOSURE_GENERATION_FAILED" }
 $closure = Read-R7StrictJson $closurePath $artifactSchema
-& cargo run --locked -q -p codex-tools --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath --check
+& cargo run --locked -q -p codex-tools --features r7-toolchain --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath --check
 if ($LASTEXITCODE -ne 0) { throw "R7_TEST_CLOSURE_EXACT_CHECK_FAILED" }
 $fixtures = New-R7ExecutableArtifactFixtures $closure
 $fixtures.continuous_action_evaluation = Read-R7StrictJson (Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.json") $artifactSchema

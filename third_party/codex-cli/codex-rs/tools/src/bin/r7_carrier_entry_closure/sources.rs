@@ -54,6 +54,12 @@ pub const TOOL_HANDLER_VARIANTS: &[&str] = &[
     "WaitAgentV1",
     "WaitAgentV2",
 ];
+pub const SOURCE_ROOTS: &[&str] = &[
+    "third_party/codex-cli/codex-rs/tools/src",
+    "third_party/codex-cli/codex-rs/core/src",
+    "third_party/codex-cli/codex-rs/codex-api/src",
+    "third_party/codex-cli/codex-rs/models-manager/src",
+];
 
 #[derive(Serialize, Clone)]
 pub struct SourceBinding {
@@ -144,11 +150,7 @@ impl AstIndex {
 
 pub fn index_sources(root: &Path) -> Result<AstIndex, String> {
     let mut files = Vec::new();
-    for relative in [
-        "third_party/codex-cli/codex-rs/tools/src",
-        "third_party/codex-cli/codex-rs/core/src",
-        "third_party/codex-cli/codex-rs/codex-api/src",
-    ] {
+    for relative in SOURCE_ROOTS {
         collect_rs_files(&root.join(relative), &mut files)?;
     }
     files.sort();
@@ -210,6 +212,17 @@ pub fn pipeline_bindings(
             "registry_plan",
             "build_tool_registry_plan",
             "tools/src/tool_registry_plan.rs",
+        ),
+        ("tools_config", "new", "tools/src/tool_config.rs"),
+        (
+            "nested_tools_config",
+            "for_code_mode_nested_tools",
+            "tools/src/tool_config.rs",
+        ),
+        (
+            "model_profile",
+            "model_info_from_slug",
+            "models-manager/src/model_info.rs",
         ),
         (
             "code_mode_decorator",
@@ -438,55 +451,5 @@ pub fn canonical_hash<T: Serialize>(value: &T) -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ROOTS: [&str; 3] = [
-        "third_party/codex-cli/codex-rs/tools/src",
-        "third_party/codex-cli/codex-rs/core/src",
-        "third_party/codex-cli/codex-rs/codex-api/src",
-    ];
-
-    #[test]
-    fn source_inventory_tracks_every_rust_file_change() {
-        let temp = tempfile::tempdir().expect("temporary repository");
-        for (index, root) in ROOTS.iter().enumerate() {
-            let directory = temp.path().join(root);
-            fs::create_dir_all(&directory).expect("source root");
-            fs::write(directory.join(format!("root_{index}.rs")), "pub fn root() {}\n")
-                .expect("source fixture");
-        }
-
-        let initial = index_sources(temp.path()).expect("initial inventory");
-        let initial_sources = initial.all_source_hashes();
-        assert_eq!(initial_sources.len(), ROOTS.len());
-        let initial_hash = canonical_hash(&initial_sources).expect("initial hash");
-
-        let modified_path = temp.path().join(ROOTS[0]).join("root_0.rs");
-        fs::write(&modified_path, "pub fn changed() {}\n").expect("modify source");
-        let modified_sources = index_sources(temp.path())
-            .expect("modified inventory")
-            .all_source_hashes();
-        assert_ne!(
-            canonical_hash(&modified_sources).expect("modified hash"),
-            initial_hash
-        );
-
-        let added_path = temp.path().join(ROOTS[1]).join("added.rs");
-        fs::write(&added_path, "pub struct Added;\n").expect("add source");
-        let added_sources = index_sources(temp.path())
-            .expect("added inventory")
-            .all_source_hashes();
-        assert_eq!(added_sources.len(), ROOTS.len() + 1);
-        assert_ne!(
-            canonical_hash(&added_sources).expect("added hash"),
-            canonical_hash(&modified_sources).expect("modified hash")
-        );
-
-        fs::remove_file(added_path).expect("remove source");
-        let removed_sources = index_sources(temp.path())
-            .expect("removed inventory")
-            .all_source_hashes();
-        assert_eq!(removed_sources, modified_sources);
-    }
-}
+#[path = "sources_tests.rs"]
+mod tests;

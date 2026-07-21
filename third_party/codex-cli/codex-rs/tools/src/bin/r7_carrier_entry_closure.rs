@@ -1,11 +1,4 @@
-use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
-use codex_protocol::openai_models::ApplyPatchToolType;
-use codex_protocol::openai_models::ConfigShellToolType;
-use codex_protocol::openai_models::WebSearchToolType;
-use codex_tools::ToolsConfig;
-use codex_tools::UnifiedExecShellMode;
-use codex_tools::WebSearchToolManifest;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::env;
@@ -13,9 +6,14 @@ use std::fs;
 use std::path::PathBuf;
 #[path = "r7_carrier_entry_closure/entry.rs"]
 mod entry;
+#[path = "r7_carrier_entry_closure/profiles.rs"]
+mod profiles;
+#[path = "r7_carrier_entry_closure/provider.rs"]
+mod provider;
 #[path = "r7_carrier_entry_closure/sources.rs"]
 mod sources;
 use entry::build_entries;
+use sources::SOURCE_ROOTS;
 use sources::SourceBinding;
 use sources::TOOL_HANDLER_VARIANTS;
 use sources::TOOL_PAYLOAD_VARIANTS;
@@ -76,11 +74,7 @@ fn main() -> Result<(), String> {
     let scanned_sources = index.all_source_hashes();
     let inventory_sha256 = canonical_hash(&(&bindings, &scanned_sources))?;
     let source_inventory = SourceInventory {
-        roots: vec![
-            "third_party/codex-cli/codex-rs/tools/src".into(),
-            "third_party/codex-cli/codex-rs/core/src".into(),
-            "third_party/codex-cli/codex-rs/codex-api/src".into(),
-        ],
+        roots: SOURCE_ROOTS.iter().map(ToString::to_string).collect(),
         tool_spec_variants: index.enum_variants("ToolSpec")?,
         tool_payload_variants: index.enum_variants("ToolPayload")?,
         tool_handler_variants: index.enum_variants("ToolHandlerKind")?,
@@ -147,46 +141,6 @@ fn parse_args() -> Result<(PathBuf, PathBuf, bool), String> {
         root.join(output)
     };
     Ok((root, output, check))
-}
-
-fn base_config(
-    shell_type: ConfigShellToolType,
-    patch: Option<ApplyPatchToolType>,
-    code: bool,
-) -> ToolsConfig {
-    ToolsConfig {
-        available_models: Vec::new(),
-        shell_type,
-        shell_command_backend: codex_tools::ShellCommandBackendConfig::Classic,
-        unified_exec_shell_mode: UnifiedExecShellMode::Direct,
-        has_environment: true,
-        allow_login_shell: true,
-        apply_patch_tool_type: patch,
-        web_search_mode: Some(WebSearchMode::Live),
-        web_search_config: None,
-        web_search_tool_manifest: WebSearchToolManifest::Generic,
-        web_search_tool_type: WebSearchToolType::Text,
-        image_gen_tool: true,
-        search_tool: true,
-        tool_suggest: false,
-        exec_permission_approvals_enabled: true,
-        request_permissions_tool_enabled: true,
-        code_mode_enabled: code,
-        code_mode_only_enabled: false,
-        can_request_original_image_detail: true,
-        collab_tools: true,
-        goal_tools: true,
-        multi_agent_v2: false,
-        hide_spawn_agent_metadata: false,
-        spawn_agent_usage_hint: true,
-        spawn_agent_usage_hint_text: None,
-        max_concurrent_threads_per_session: None,
-        default_mode_request_user_input: true,
-        experimental_supported_tools: vec!["list_dir".into(), "test_sync_tool".into()],
-        agent_jobs_tools: true,
-        agent_jobs_worker_tools: true,
-        agent_type_description: String::new(),
-    }
 }
 
 fn dynamic_fixtures() -> [DynamicToolSpec; 3] {

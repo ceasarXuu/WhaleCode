@@ -81,7 +81,7 @@ foreach ($role in @("l4_schema", "transition_schema", "typed_outcome", "carrier_
 }
 
 $closurePath = Join-Path $stageRoot "entry-closure.json"
-& cargo run --locked -q -p codex-tools --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath
+& cargo run --locked -q -p codex-tools --features r7-toolchain --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath
 if ($LASTEXITCODE -ne 0) { throw "R7_CLOSURE_GENERATION_FAILED" }
 $closure = Read-R7StrictJson $closurePath $schemaPath
 $bodies.entry_closure = $closure
