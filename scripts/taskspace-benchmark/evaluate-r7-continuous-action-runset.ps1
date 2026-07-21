@@ -13,7 +13,7 @@ if ([string]::IsNullOrWhiteSpace($EvaluationContractPath)) {
     $EvaluationContractPath = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.json"
 }
 $result = Invoke-R7ContinuousActionEvaluation $RunSetPath $EvaluationContractPath $RunArtifactRoot
-$schema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-result-v1.schema.json"
+$schema = if ([string]::IsNullOrWhiteSpace($env:R7_EVALUATION_RESULT_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-result-v1.schema.json" } else { $env:R7_EVALUATION_RESULT_SCHEMA_PATH }
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $json = $result | ConvertTo-Json -Depth 100
     [void]($json | Test-Json -SchemaFile $schema -ErrorAction Stop)

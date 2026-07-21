@@ -24,7 +24,7 @@ jobs:
       TARGET_COMMIT: ${{ inputs.target_commit || github.sha }}
       ANCHOR_PATH: benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           ref: ${{ inputs.target_commit || github.sha }}
@@ -56,11 +56,16 @@ jobs:
             -TargetCommit "$env:TARGET_COMMIT" `
             -ToolchainAddCommit "${{ steps.bootstrap.outputs.toolchain_add }}" `
             -RequiredCheckRunId "$env:GITHUB_RUN_ID" `
+            -RequiredCheckRunAttempt "$env:GITHUB_RUN_ATTEMPT" `
             -RequiredCheckName "r7-continuous-action-completion" `
+            -Repository "$env:GITHUB_REPOSITORY" `
+            -WorkflowRef "$env:GITHUB_WORKFLOW_REF" `
+            -WorkflowSha "$env:GITHUB_WORKFLOW_SHA" `
+            -EventName "$env:GITHUB_EVENT_NAME" `
             -AttestationPath "$env:RUNNER_TEMP/r7-continuous-action-attestation.json"
 
       - name: Publish attestation
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: r7-continuous-action-attestation-${{ github.run_id }}
           path: ${{ runner.temp }}/r7-continuous-action-attestation.json

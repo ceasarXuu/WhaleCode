@@ -236,8 +236,10 @@ function Get-R7HolmResult {
 function Invoke-R7ContinuousActionEvaluation {
     param([string]$RunSetPath, [string]$ContractPath, [string]$RunArtifactRoot)
     $gates = [System.Collections.Generic.List[object]]::new()
-    $contract = Read-R7StrictJson $ContractPath (Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json")
-    $runSet = Read-R7StrictJson $RunSetPath (Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-raw-run-set-v1.schema.json")
+    $contractSchema = if ([string]::IsNullOrWhiteSpace($env:R7_EVALUATION_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json" } else { $env:R7_EVALUATION_SCHEMA_PATH }
+    $runSetSchema = if ([string]::IsNullOrWhiteSpace($env:R7_RUN_SET_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-raw-run-set-v1.schema.json" } else { $env:R7_RUN_SET_SCHEMA_PATH }
+    $contract = Read-R7StrictJson $ContractPath $contractSchema
+    $runSet = Read-R7StrictJson $RunSetPath $runSetSchema
     Assert-R7RunSetIdentity $runSet $contract $ContractPath $gates
     Assert-R7ExpectedRunSet $runSet $contract $gates
     if (@($gates | Where-Object { -not $_.passed }).Count -gt 0) {

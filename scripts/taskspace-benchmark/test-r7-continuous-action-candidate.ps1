@@ -213,7 +213,7 @@ $candidatePath = Get-R7CandidatePath $CandidateId
 $manifestRelative = "$($candidatePath.relative)/manifest.json"
 $manifestSchema = if ([string]::IsNullOrWhiteSpace($env:R7_CANDIDATE_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json" } else { $env:R7_CANDIDATE_SCHEMA_PATH }
 $artifactSchema = if ([string]::IsNullOrWhiteSpace($env:R7_ARTIFACT_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json" } else { $env:R7_ARTIFACT_SCHEMA_PATH }
-$evaluationSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json"
+$evaluationSchema = if ([string]::IsNullOrWhiteSpace($env:R7_EVALUATION_SCHEMA_PATH)) { Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json" } else { $env:R7_EVALUATION_SCHEMA_PATH }
 $manifest = Get-CommitJson $target $manifestRelative $manifestSchema "candidate-manifest-$CandidateId"
 Assert-Equal ([string]$manifest.candidate_id) $CandidateId "R7_CANDIDATE_ID_FIELD"
 Assert-Equal ([string]$manifest.contract_id) "r7-continuous-action-candidate-$CandidateId" "R7_CANDIDATE_CONTRACT_ID"

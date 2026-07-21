@@ -7,6 +7,16 @@ param(
     [string]$ToolchainAddCommit,
     [Parameter(Mandatory = $true)]
     [string]$RequiredCheckRunId,
+    [Parameter(Mandatory = $true)]
+    [string]$RequiredCheckRunAttempt,
+    [Parameter(Mandatory = $true)]
+    [string]$Repository,
+    [Parameter(Mandatory = $true)]
+    [string]$WorkflowRef,
+    [Parameter(Mandatory = $true)]
+    [string]$WorkflowSha,
+    [Parameter(Mandatory = $true)]
+    [string]$EventName,
     [string]$RequiredCheckName = "r7-continuous-action-completion",
     [string]$ExportRoot = "",
     [string]$AttestationPath = ""
@@ -16,11 +26,15 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
 $anchorPath = "benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json"
 $requiredRoles = @(
-    "artifact_schema", "candidate_generator", "candidate_manifest_schema", "candidate_verifier",
+    "artifact_fixtures", "artifact_schema", "candidate_generator", "candidate_manifest_schema",
+    "candidate_set_verifier", "candidate_verifier",
     "closure_generator_entry", "closure_generator_main", "closure_generator_sources",
-    "completion_launcher", "completion_verifier",
-    "evaluation_contract", "phase_ownership", "required_check_workflow", "strict_parser",
-    "toolchain_core", "toolchain_test", "transition_command", "tools_cargo_lock", "tools_cargo_manifest"
+    "completion_evidence_schema", "completion_launcher", "completion_verifier",
+    "evaluation_contract", "evaluation_launcher", "evaluation_library", "evaluation_result_schema",
+    "evaluation_schema", "evaluation_test", "phase_ownership", "raw_run_set_schema",
+    "required_check_workflow", "strict_json_library", "strict_parser",
+    "toolchain_core", "toolchain_history", "toolchain_promotion", "toolchain_test",
+    "toolchain_transaction", "transition_command", "tools_cargo_lock", "tools_cargo_manifest"
 )
 
 function Invoke-Git {
@@ -102,8 +116,9 @@ foreach ($artifact in @($anchor.artifacts | Sort-Object role)) {
     $bytes = Get-GitBytes $parent $path
     $hash = Get-Sha256 $bytes
     if ($hash -cne [string]$artifact.sha256) { throw "R7_BOOTSTRAP_HASH role=$($artifact.role)" }
-    $exported = Join-Path $ExportRoot ([System.IO.Path]::GetFileName($path))
-    if (Test-Path -LiteralPath $exported) { throw "R7_BOOTSTRAP_EXPORT_NAME_COLLISION path=$path" }
+    $exported = Join-Path $ExportRoot $path
+    [System.IO.Directory]::CreateDirectory((Split-Path $exported -Parent)) | Out-Null
+    if (Test-Path -LiteralPath $exported) { throw "R7_BOOTSTRAP_EXPORT_COLLISION path=$path" }
     [System.IO.File]::WriteAllBytes($exported, $bytes)
     $exports.Add([pscustomobject][ordered]@{role = [string]$artifact.role; source_path = $path; sha256 = $hash; git_mode = "100644"; exported_path = $exported})
 }
@@ -123,5 +138,9 @@ $env:R7_REPO_ROOT = $repo
 $env:R7_STRICT_PARSER_PATH = $byRole.strict_parser
 $env:R7_CANDIDATE_SCHEMA_PATH = $byRole.candidate_manifest_schema
 $env:R7_ARTIFACT_SCHEMA_PATH = $byRole.artifact_schema
-& pwsh -NoLogo -NoProfile -File $byRole.completion_verifier -TargetCommit $TargetCommit -ToolchainAddCommit $ToolchainAddCommit -RequiredCheckRunId $RequiredCheckRunId -RequiredCheckName $RequiredCheckName -ExportManifestPath $manifestPath -AttestationPath $AttestationPath
+$env:R7_EVALUATION_SCHEMA_PATH = $byRole.evaluation_schema
+$env:R7_RUN_SET_SCHEMA_PATH = $byRole.raw_run_set_schema
+$env:R7_EVALUATION_RESULT_SCHEMA_PATH = $byRole.evaluation_result_schema
+$env:R7_COMPLETION_EVIDENCE_SCHEMA_PATH = $byRole.completion_evidence_schema
+& pwsh -NoLogo -NoProfile -File $byRole.completion_verifier -TargetCommit $TargetCommit -ToolchainAddCommit $ToolchainAddCommit -RequiredCheckRunId $RequiredCheckRunId -RequiredCheckRunAttempt $RequiredCheckRunAttempt -RequiredCheckName $RequiredCheckName -Repository $Repository -WorkflowRef $WorkflowRef -WorkflowSha $WorkflowSha -EventName $EventName -ExportManifestPath $manifestPath -AttestationPath $AttestationPath
 if ($LASTEXITCODE -ne 0) { throw "R7_BOOTSTRAP_COMPLETION_VERIFIER_FAILED" }

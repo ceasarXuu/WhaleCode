@@ -100,9 +100,11 @@ Assert-True ($coreCanonical -ceq '{"a":[1],"z":1}') "R7_TEST_CORE_CANONICAL_ARRA
 $artifactSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json"
 $manifestSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json"
 $evaluationSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json"
+$completionEvidenceSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/continuous-action-completion-evidence-v1.schema.json"
 [void](Read-R7StrictJson $artifactSchema)
 [void](Read-R7StrictJson $manifestSchema)
 [void](Read-R7StrictJson $evaluationSchema)
+[void](Read-R7StrictJson $completionEvidenceSchema)
 $closurePath = Join-Path $scratch "entry-closure.json"
 & cargo run --locked -q -p codex-tools --bin r7_carrier_entry_closure --manifest-path (Join-Path $script:R7RepoRoot "third_party/codex-cli/codex-rs/Cargo.toml") -- --repo-root $script:R7RepoRoot --output $closurePath
 if ($LASTEXITCODE -ne 0) { throw "R7_TEST_CLOSURE_GENERATION_FAILED" }
@@ -153,7 +155,7 @@ foreach ($relative in $libraryScripts) {
 & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-evaluator.ps1") | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "R7_TEST_EVALUATOR_SELFTEST_FAILED" }
 $workflow = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $script:R7RepoRoot ".github/workflows/r7-continuous-action-completion.yml")
-foreach ($marker in @("actions/checkout@v6", "actions/upload-artifact@v7", "git show", "completion_launcher", "RequiredCheckRunId")) { Assert-True $workflow.Contains($marker, [System.StringComparison]::Ordinal) "R7_TEST_WORKFLOW_MARKER marker=$marker" }
+foreach ($marker in @("actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803", "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", "git show", "completion_launcher", "RequiredCheckRunAttempt", "GITHUB_WORKFLOW_SHA")) { Assert-True $workflow.Contains($marker, [System.StringComparison]::Ordinal) "R7_TEST_WORKFLOW_MARKER marker=$marker" }
 if ($Mode -eq "PreAnchor") {
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $script:R7RepoRoot $script:R7ToolchainAnchorPath))) "R7_TEST_PREANCHOR_UNEXPECTED_ANCHOR"
 } else {
