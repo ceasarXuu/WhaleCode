@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "anchor_kind": "continuous_action_production_baseline",
+  "anchored_parent_commit": "fbf189c0a56723aedac68d13c47b2659849da31e",
+  "artifacts": [
+    {
+      "role": "active_authority",
+      "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
+      "sha256": "30cb478fa9cabf4416a74c8bc512ea7b8d0920902f1fd562aa1fcba8ae2f8b42",
+      "git_mode": "100644"
+    },
+    {
+      "role": "active_production_manifest",
+      "path": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json",
+      "sha256": "8828dd113d0c1912f922416adf2673f479ec264b137cf33447280b7c190199cf",
+      "git_mode": "100644"
+    }
+  ]
+}
