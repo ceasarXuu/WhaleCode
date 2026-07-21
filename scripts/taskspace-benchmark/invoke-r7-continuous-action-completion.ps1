@@ -21,6 +21,10 @@ param(
     [string]$GitSha,
     [Parameter(Mandatory = $true)]
     [string]$GitRef,
+    [Parameter(Mandatory = $true)]
+    [string]$ExecutionImage,
+    [Parameter(Mandatory = $true)]
+    [string]$PowerShellArchivePath,
     [string]$RequiredCheckName = "r7-continuous-action-completion",
     [string]$ExportRoot = "",
     [string]$AttestationPath = ""
@@ -50,6 +54,8 @@ $requiredArtifacts = [ordered]@{
     evaluation_result_schema = "benchmarks/taskspace/r7/continuous-action-evaluation-result-v1.schema.json"
     evaluation_schema = "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json"
     evaluation_test = "scripts/taskspace-benchmark/test-r7-continuous-action-evaluator.ps1"
+    execution_environment = "benchmarks/taskspace/r7/ca0-execution-environment-v1.json"
+    execution_environment_schema = "benchmarks/taskspace/r7/ca0-execution-environment-v1.schema.json"
     integration_test = "scripts/taskspace-benchmark/test-r7-continuous-action-integration.ps1"
     phase_ownership = "benchmarks/taskspace/r7/r7-phase-ownership-v1.json"
     projection_ownership_inventory = "benchmarks/taskspace/r7/phase-a-ownership-inventory.json"
@@ -171,6 +177,21 @@ $manifestPath = Join-Path $ExportRoot "export-manifest.json"
 [System.IO.File]::WriteAllText($manifestPath, "$(ConvertTo-Json $exportManifest -Depth 20)`n", [System.Text.UTF8Encoding]::new($false))
 $byRole = @{}
 foreach ($entry in $exports) { $byRole[[string]$entry.role] = [string]$entry.exported_path }
+$execution = Read-StrictAnchor ([System.IO.File]::ReadAllBytes($byRole.execution_environment))
+if ($ExecutionImage -cne "$($execution.container.image)@$($execution.container.manifest_digest)") { throw "R7_BOOTSTRAP_EXECUTION_IMAGE" }
+if (-not (Test-Path -LiteralPath $PowerShellArchivePath -PathType Leaf)) { throw "R7_BOOTSTRAP_POWERSHELL_ARCHIVE_MISSING" }
+if ((Get-Sha256 ([System.IO.File]::ReadAllBytes($PowerShellArchivePath))) -cne [string]$execution.powershell_archive.sha256) { throw "R7_BOOTSTRAP_POWERSHELL_ARCHIVE_HASH" }
+$actualTools = [ordered]@{
+    rustc = ((& rustc --version) -join "`n").Trim()
+    cargo = ((& cargo --version) -join "`n").Trim()
+    git = ((& git --version) -join "`n").Trim()
+    python = ((& python3 --version) -join "`n").Trim()
+}
+foreach ($tool in $actualTools.Keys) {
+    if ([string]$actualTools[$tool] -cne [string]$execution.tools.$tool) { throw "R7_BOOTSTRAP_TOOL_VERSION tool=$tool actual=$($actualTools[$tool])" }
+}
+$pwshVersion = ((& pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()') -join "`n").Trim()
+if ($pwshVersion -cne [string]$execution.powershell_archive.version) { throw "R7_BOOTSTRAP_POWERSHELL_VERSION actual=$pwshVersion" }
 $env:R7_REPO_ROOT = $repo
 $env:R7_ANCHOR_SCHEMA_PATH = $byRole.anchor_schema
 $env:R7_STRICT_PARSER_PATH = $byRole.strict_parser
@@ -180,5 +201,5 @@ $env:R7_EVALUATION_SCHEMA_PATH = $byRole.evaluation_schema
 $env:R7_RUN_SET_SCHEMA_PATH = $byRole.raw_run_set_schema
 $env:R7_EVALUATION_RESULT_SCHEMA_PATH = $byRole.evaluation_result_schema
 $env:R7_COMPLETION_EVIDENCE_SCHEMA_PATH = $byRole.completion_evidence_schema
-& pwsh -NoLogo -NoProfile -File $byRole.completion_verifier -TargetCommit $TargetCommit -ToolchainAddCommit $ToolchainAddCommit -RequiredCheckRunId $RequiredCheckRunId -RequiredCheckRunAttempt $RequiredCheckRunAttempt -RequiredCheckName $RequiredCheckName -Repository $Repository -WorkflowRef $WorkflowRef -WorkflowSha $WorkflowSha -EventName $EventName -GitSha $GitSha -GitRef $GitRef -ExportManifestPath $manifestPath -AttestationPath $AttestationPath
+& pwsh -NoLogo -NoProfile -File $byRole.completion_verifier -TargetCommit $TargetCommit -ToolchainAddCommit $ToolchainAddCommit -RequiredCheckRunId $RequiredCheckRunId -RequiredCheckRunAttempt $RequiredCheckRunAttempt -RequiredCheckName $RequiredCheckName -Repository $Repository -WorkflowRef $WorkflowRef -WorkflowSha $WorkflowSha -EventName $EventName -GitSha $GitSha -GitRef $GitRef -ExecutionImage $ExecutionImage -PowerShellVersion $pwshVersion -ExportManifestPath $manifestPath -AttestationPath $AttestationPath
 if ($LASTEXITCODE -ne 0) { throw "R7_BOOTSTRAP_COMPLETION_VERIFIER_FAILED" }

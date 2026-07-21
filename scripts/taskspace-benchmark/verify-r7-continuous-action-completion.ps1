@@ -10,6 +10,8 @@ param(
     [Parameter(Mandatory = $true)][string]$EventName,
     [Parameter(Mandatory = $true)][string]$GitSha,
     [Parameter(Mandatory = $true)][string]$GitRef,
+    [Parameter(Mandatory = $true)][string]$ExecutionImage,
+    [Parameter(Mandatory = $true)][string]$PowerShellVersion,
     [Parameter(Mandatory = $true)][string]$ExportManifestPath,
     [Parameter(Mandatory = $true)][string]$AttestationPath
 )
@@ -165,7 +167,7 @@ if ($mode -eq "promotion") {
 $attestation = [pscustomobject][ordered]@{
     schema_version = 2; attestation_kind = "r7_continuous_action_completion"; verified = $true; event_kind = $mode
     target_commit = $TargetCommit; toolchain_add_commit = $ToolchainAddCommit; toolchain_parent_commit = $toolchain.parent_commit
-    required_check = [pscustomobject][ordered]@{name = $RequiredCheckName; repository = $Repository; workflow_ref = $WorkflowRef; workflow_sha = $WorkflowSha; git_sha = $GitSha; git_ref = $GitRef; event_name = $EventName; run_id = $RequiredCheckRunId; run_attempt = $RequiredCheckRunAttempt; target_commit = $TargetCommit}
+    required_check = [pscustomobject][ordered]@{name = $RequiredCheckName; repository = $Repository; workflow_ref = $WorkflowRef; workflow_sha = $WorkflowSha; git_sha = $GitSha; git_ref = $GitRef; event_name = $EventName; run_id = $RequiredCheckRunId; run_attempt = $RequiredCheckRunAttempt; target_commit = $TargetCommit; execution_image = $ExecutionImage; powershell_version = $PowerShellVersion}
     details = $attestationDetails
     exported_artifacts = @($exportManifest.artifacts | ForEach-Object { [pscustomobject][ordered]@{role = $_.role; source_path = $_.source_path; sha256 = $_.sha256} })
 }

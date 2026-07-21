@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/ca0-execution-environment-v1.schema.json",
+  "title": "R7 CA-0 pinned execution environment",
+  "type": "object",
+  "required": ["schema_version", "artifact_role", "platform", "container", "tools", "powershell_archive"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifact_role": {"const": "execution_environment"},
+    "platform": {"const": "linux/amd64"},
+    "container": {
+      "type": "object",
+      "required": ["image", "manifest_digest"],
+      "properties": {
+        "image": {"const": "docker.io/library/rust"},
+        "manifest_digest": {"const": "sha256:7274e0edb5b47eda8053b350ebf3d489f7e0f65d2d7e77b16076299c7c047c28"}
+      },
+      "additionalProperties": false
+    },
+    "tools": {
+      "type": "object",
+      "required": ["rustc", "cargo", "git", "python"],
+      "properties": {
+        "rustc": {"const": "rustc 1.93.0 (254b59607 2026-01-19)"},
+        "cargo": {"const": "cargo 1.93.0 (083ac5135 2025-12-15)"},
+        "git": {"const": "git version 2.39.5"},
+        "python": {"const": "Python 3.11.2"}
+      },
+      "additionalProperties": false
+    },
+    "powershell_archive": {
+      "type": "object",
+      "required": ["version", "url", "sha256", "size_bytes"],
+      "properties": {
+        "version": {"const": "7.5.4"},
+        "url": {"const": "https://github.com/PowerShell/PowerShell/releases/download/v7.5.4/powershell-7.5.4-linux-x64.tar.gz"},
+        "sha256": {"const": "1fd7983fe56ca9e6233f126925edb24bf6b6b33e356b69996d925c4db94e2fef"},
+        "size_bytes": {"const": 75396784}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

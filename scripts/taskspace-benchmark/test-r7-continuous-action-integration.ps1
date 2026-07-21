@@ -41,7 +41,7 @@ function Invoke-Script {
 
 function Invoke-PinnedCompletion {
     param([string]$Repo, [string]$Launcher, [string]$Target, [string]$AnchorCommit, [string]$Attempt, [string]$Attestation)
-    & pwsh -NoLogo -NoProfile -File $Launcher -RepoRoot $Repo -TargetCommit $Target -ToolchainAddCommit $AnchorCommit -RequiredCheckRunId "70001" -RequiredCheckRunAttempt $Attempt -RequiredCheckName "r7-continuous-action-completion" -Repository "ceasarXuu/WhaleCode" -WorkflowRef "ceasarXuu/WhaleCode/.github/workflows/r7-continuous-action-completion.yml@refs/heads/whalecode-alpha" -WorkflowSha $Target -EventName "push" -GitSha $Target -GitRef "refs/heads/whalecode-alpha" -AttestationPath $Attestation
+    & pwsh -NoLogo -NoProfile -File $Launcher -RepoRoot $Repo -TargetCommit $Target -ToolchainAddCommit $AnchorCommit -RequiredCheckRunId "70001" -RequiredCheckRunAttempt $Attempt -RequiredCheckName "r7-continuous-action-completion" -Repository "ceasarXuu/WhaleCode" -WorkflowRef "ceasarXuu/WhaleCode/.github/workflows/r7-continuous-action-completion.yml@refs/heads/whalecode-alpha" -WorkflowSha $Target -EventName "push" -GitSha $Target -GitRef "refs/heads/whalecode-alpha" -ExecutionImage $env:R7_EXECUTION_IMAGE -PowerShellArchivePath $env:R7_POWERSHELL_ARCHIVE_PATH -AttestationPath $Attestation
     if ($LASTEXITCODE -ne 0) { throw "R7_INTEGRATION_COMPLETION_FAILED attempt=$Attempt" }
 }
 
@@ -73,6 +73,8 @@ $roles = [ordered]@{
     evaluation_result_schema = "benchmarks/taskspace/r7/continuous-action-evaluation-result-v1.schema.json"
     evaluation_schema = "benchmarks/taskspace/r7/continuous-action-evaluation-v1.schema.json"
     evaluation_test = "scripts/taskspace-benchmark/test-r7-continuous-action-evaluator.ps1"
+    execution_environment = "benchmarks/taskspace/r7/ca0-execution-environment-v1.json"
+    execution_environment_schema = "benchmarks/taskspace/r7/ca0-execution-environment-v1.schema.json"
     integration_test = "scripts/taskspace-benchmark/test-r7-continuous-action-integration.ps1"
     phase_ownership = "benchmarks/taskspace/r7/r7-phase-ownership-v1.json"
     projection_ownership_inventory = "benchmarks/taskspace/r7/phase-a-ownership-inventory.json"
