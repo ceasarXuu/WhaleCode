@@ -13,6 +13,13 @@ function Invoke-Git {
     @($output)
 }
 
+function Get-GitLine {
+    param([string]$Repo, [string[]]$Arguments)
+    $lines = @(Invoke-Git $Repo $Arguments)
+    if ($lines.Count -ne 1) { throw "R7_INTEGRATION_GIT_LINE_COUNT count=$($lines.Count)" }
+    ([string]$lines[0]).Trim()
+}
+
 function Get-Hash {
     param([string]$Path)
     [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($Path))).Replace("-", "").ToLowerInvariant()
@@ -80,7 +87,7 @@ $roles = [ordered]@{
     tools_cargo_lock = "third_party/codex-cli/codex-rs/Cargo.lock"
     tools_cargo_manifest = "third_party/codex-cli/codex-rs/tools/Cargo.toml"
 }
-$anchorParent = (Invoke-Git $clone @("rev-parse", "HEAD"))[0].Trim()
+$anchorParent = Get-GitLine $clone @("rev-parse", "HEAD")
 $artifacts = foreach ($entry in $roles.GetEnumerator()) {
     [pscustomobject][ordered]@{role = $entry.Key; path = $entry.Value; sha256 = Get-Hash (Join-Path $clone $entry.Value); git_mode = "100644"}
 }
@@ -88,7 +95,7 @@ $anchorPath = Join-Path $clone "benchmarks/taskspace/r7/continuous-action-v2-too
 Write-Json $anchorPath ([pscustomobject][ordered]@{schema_version = 1; anchor_kind = "continuous_action_v2_toolchain"; anchored_parent_commit = $anchorParent; artifacts = @($artifacts)})
 [void](Invoke-Git $clone @("add", "--", "benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json"))
 [void](Invoke-Git $clone @("commit", "--quiet", "-m", "test(r7): add synthetic toolchain anchor"))
-$anchorCommit = (Invoke-Git $clone @("rev-parse", "HEAD"))[0].Trim()
+$anchorCommit = Get-GitLine $clone @("rev-parse", "HEAD")
 [void](Invoke-Script $clone "test-r7-continuous-action-toolchain.ps1" @("-Mode", "Anchored"))
 
 $candidateJson = (Invoke-Script $clone "new-r7-continuous-action-candidate.ps1" @("-ArtifactSourceDirectory", (Join-Path $clone "target/r7-toolchain/self-test")))[-1] | ConvertFrom-Json
@@ -133,11 +140,11 @@ $completion = [pscustomobject][ordered]@{
 Write-Json $completionPath $completion
 [void](Invoke-Git $clone @("add", "--", $evidenceRelative))
 [void](Invoke-Git $clone @("commit", "--quiet", "-m", "test(r7): add integration completion evidence"))
-$evidenceCommit = (Invoke-Git $clone @("rev-parse", "HEAD"))[0].Trim()
+$evidenceCommit = Get-GitLine $clone @("rev-parse", "HEAD")
 [void](Invoke-Script $clone "set-r7-continuous-action-candidate-status.ps1" @("-CandidateId", $candidateId, "-ToStatus", "promotion_pending", "-EvidencePath", "$evidenceRelative/completion-evidence.json", "-ExpectedHead", $evidenceCommit))
-$pendingCommit = (Invoke-Git $clone @("rev-parse", "HEAD"))[0].Trim()
+$pendingCommit = Get-GitLine $clone @("rev-parse", "HEAD")
 [void](Invoke-Script $clone "set-r7-continuous-action-candidate-status.ps1" @("-CandidateId", $candidateId, "-ToStatus", "promoted", "-EvidencePath", "$evidenceRelative/completion-evidence.json", "-ExpectedHead", $pendingCommit))
-$promotedCommit = (Invoke-Git $clone @("rev-parse", "HEAD"))[0].Trim()
+$promotedCommit = Get-GitLine $clone @("rev-parse", "HEAD")
 
 $launcher = Join-Path $clone "target/r7-toolchain/pinned-launcher.ps1"
 $launcherText = ((Invoke-Git $clone @("show", "$($anchorParent):$($roles.completion_launcher)")) -join [Environment]::NewLine) + [Environment]::NewLine
@@ -145,7 +152,7 @@ $launcherText = ((Invoke-Git $clone @("show", "$($anchorParent):$($roles.complet
 $promotionAttestation = Join-Path $clone "target/r7-toolchain/promotion-attestation.json"
 Invoke-PinnedCompletion $clone $launcher $promotedCommit $anchorCommit "1" $promotionAttestation
 [void](Invoke-Script $clone "set-r7-continuous-action-candidate-status.ps1" @("-CandidateId", $candidateId, "-ToStatus", "reverted", "-EvidencePath", "$evidenceRelative/completion-evidence.json", "-ExpectedHead", $promotedCommit))
-$revertedCommit = (Invoke-Git $clone @("rev-parse", "HEAD"))[0].Trim()
+$revertedCommit = Get-GitLine $clone @("rev-parse", "HEAD")
 $revertAttestation = Join-Path $clone "target/r7-toolchain/revert-attestation.json"
 Invoke-PinnedCompletion $clone $launcher $revertedCommit $anchorCommit "2" $revertAttestation
 
