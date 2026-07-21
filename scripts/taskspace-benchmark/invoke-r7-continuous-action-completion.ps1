@@ -27,11 +27,11 @@ $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
 $anchorPath = "benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json"
 $requiredRoles = @(
     "anchor_schema", "artifact_fixtures", "artifact_schema", "candidate_generator", "candidate_manifest_schema",
-    "candidate_set_verifier", "candidate_verifier",
+    "candidate_set_verifier", "candidate_verifier", "carrier_validation_fixture",
     "closure_generator_entry", "closure_generator_main", "closure_generator_sources",
     "completion_evidence_schema", "completion_launcher", "completion_verifier",
     "evaluation_contract", "evaluation_launcher", "evaluation_library", "evaluation_result_schema",
-    "evaluation_schema", "evaluation_test", "integration_test", "phase_ownership", "raw_run_set_schema",
+    "evaluation_schema", "evaluation_test", "integration_test", "phase_ownership", "projection_ownership_inventory", "raw_run_set_schema",
     "required_check_workflow", "strict_json_library", "strict_parser",
     "toolchain_core", "toolchain_history", "toolchain_promotion", "toolchain_test",
     "toolchain_transaction", "transition_command", "tools_cargo_lock", "tools_cargo_manifest"

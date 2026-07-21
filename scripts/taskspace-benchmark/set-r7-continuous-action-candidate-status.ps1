@@ -150,7 +150,7 @@ switch ($ToStatus) {
     }
 }
 
-$actualChanged = @(Invoke-R7Git @("diff", "--name-only") | Sort-Object)
+$actualChanged = @(Invoke-R7Git @("diff", "--name-only", "HEAD") | Sort-Object)
 $expected = @($expectedChanged.ToArray() | Sort-Object -Unique)
 if (($actualChanged -join "`n") -cne ($expected -join "`n")) {
     throw "R7_TRANSITION_CHANGED_PATHS expected=$($expected -join ',') actual=$($actualChanged -join ',')"
