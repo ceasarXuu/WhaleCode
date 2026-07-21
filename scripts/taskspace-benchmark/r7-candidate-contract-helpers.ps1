@@ -7,7 +7,7 @@ function Assert-CandidateActivationTargets {
     $l4 = $l4Targets[0]
     Assert-Equal ([string]$l4.artifact_role) "l4_schema" "Candidate L4 activation role drifted"
     Assert-Equal ([string]$l4.authority_layer) "L4" "Candidate L4 authority layer drifted"
-    Assert-Equal ([string]$l4.implementation_status) "active_verified" "Candidate L4 implementation status drifted"
+    Assert-Equal ([string]$l4.implementation_status) "active_repair_verified" "Candidate L4 implementation status drifted"
     Assert-Equal ([string]$l4.path) ([string]$Candidate.artifact_hashes.l4_schema.path) "Candidate L4 activation path is not identity-bound"
     Assert-Equal ([string]$l4.sha256) ([string]$Candidate.artifact_hashes.l4_schema.sha256) "Candidate L4 activation hash is not identity-bound"
     $typed = @($l5Targets | Where-Object { [string]$_.artifact_role -eq "typed_outcome" })
@@ -19,7 +19,7 @@ function Assert-CandidateActivationTargets {
     Assert-Equal ([string]$typed[0].path) ([string]$Candidate.artifact_hashes.typed_outcome.path) "Candidate typed outcome activation path is not identity-bound"
     Assert-Equal ([string]$typed[0].sha256) ([string]$Candidate.artifact_hashes.typed_outcome.sha256) "Candidate typed outcome activation hash is not identity-bound"
     Assert-Equal ([string]$typed[0].authority_layer) "L5-result" "Candidate typed outcome authority layer drifted"
-    Assert-Equal ([string]$typed[0].implementation_status) "active_verified" "Candidate typed outcome implementation status drifted"
+    Assert-Equal ([string]$typed[0].implementation_status) "active_repair_verified" "Candidate typed outcome implementation status drifted"
     $baselineProjection = @($ActiveAuthority.selected_targets | Where-Object { [string]$_.layer -eq "L5-projection" })
     $baselineLifecycle = @($ActiveAuthority.selected_targets | Where-Object { [string]$_.layer -eq "L5-lifecycle" })
     Assert-Equal $baselineProjection.Count 1 "Active authority must contain exactly one projection baseline"
@@ -293,6 +293,7 @@ function Assert-CandidateManifestIntegrity {
             }
             $treeEntry = (& git -C $repoRoot ls-tree $treeCommit -- $relativePath).Trim()
             Assert-True $treeEntry.StartsWith("100644 blob ", [System.StringComparison]::Ordinal) "Candidate artifact must be a regular non-executable Git blob: $relativePath"
+            Assert-StrictJson $artifactRaw "candidate artifact $relativePath"
             $artifactBody = $artifactRaw | ConvertFrom-Json -Depth 100
             Assert-Equal ([string]$artifactBody.artifact_role) ([string]$artifact.Name) "Candidate artifact content role drifted: $relativePath"
             Assert-True (-not [string]::IsNullOrWhiteSpace([string]$artifactBody.schema_version)) "Candidate artifact schema_version missing: $relativePath"
@@ -327,6 +328,21 @@ function Assert-CandidateSupersession {
     Assert-True ([string]$superseding.candidate_status -ne "evaluation_candidate") "Evaluation-only candidate cannot supersede a terminal authority claim"
     if ($RequirePending) {
         Assert-Equal ([string]$superseding.candidate_status) "promotion_pending" "First supersession event must match successor promotion_pending"
+        $pendingCommits = @(& git -C $repoRoot log $EventCommit --first-parent --reverse --format=%H -- $supersedingPath)
+        $firstPendingCommit = ""
+        foreach ($pendingCommit in $pendingCommits) {
+            & git -C $repoRoot cat-file -e "${pendingCommit}:$supersedingPath" 2>$null
+            if ($LASTEXITCODE -ne 0) { continue }
+            $pendingRaw = Get-GitBlobText $pendingCommit $supersedingPath
+            Assert-StrictJson $pendingRaw "superseding candidate at $pendingCommit"
+            $pendingCandidate = $pendingRaw | ConvertFrom-Json -Depth 50
+            if ([string]$pendingCandidate.candidate_status -eq "promotion_pending") {
+                $firstPendingCommit = $pendingCommit
+                break
+            }
+        }
+        Assert-True (-not [string]::IsNullOrWhiteSpace($firstPendingCommit)) "Superseding candidate has no historical promotion_pending event"
+        Assert-Equal $EventCommit $firstPendingCommit "First supersession assignment must share the successor's first promotion_pending commit"
     }
 }
 
@@ -348,15 +364,22 @@ function Assert-CandidateHistoryIntegrity {
             continue
         }
         $manifestSeen = $true
+        $manifestTreeEntry = (& git -C $repoRoot ls-tree $commit -- $relativePath).Trim()
+        Assert-True $manifestTreeEntry.StartsWith("100644 blob ", [System.StringComparison]::Ordinal) "Historical candidate manifest must be a regular non-executable Git blob: $relativePath at $commit"
         $candidateRaw = Get-GitBlobText $commit $relativePath
+        Assert-StrictJson $candidateRaw "historical candidate manifest $relativePath at $commit"
         Assert-True ($candidateRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Historical candidate manifest does not match schema: $relativePath at $commit"
         $candidate = $candidateRaw | ConvertFrom-Json -Depth 50
         Assert-CandidateManifestIntegrity $candidate $ManifestPath $commit $false
         Assert-CandidateStateHistory $candidate $previousStatus $Authority
         $authorityRawAtCommit = Get-GitBlobText $commit $authorityRelativePath
+        Assert-True ((& git -C $repoRoot ls-tree $commit -- $authorityRelativePath).Trim().StartsWith("100644 blob ", [System.StringComparison]::Ordinal)) "Historical authority must be a regular non-executable Git blob at $commit"
+        Assert-StrictJson $authorityRawAtCommit "historical authority at $commit"
         Assert-True ($authorityRawAtCommit | Test-Json -SchemaFile $authoritySchemaPath -ErrorAction Stop) "Historical authority does not match schema at $commit"
         $authorityAtCommit = $authorityRawAtCommit | ConvertFrom-Json -Depth 50
         $productionRawAtCommit = Get-GitBlobText $commit $productionRelativePath
+        Assert-True ((& git -C $repoRoot ls-tree $commit -- $productionRelativePath).Trim().StartsWith("100644 blob ", [System.StringComparison]::Ordinal)) "Historical production manifest must be a regular non-executable Git blob at $commit"
+        Assert-StrictJson $productionRawAtCommit "historical production manifest at $commit"
         Assert-True ($productionRawAtCommit | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Historical production manifest does not match schema at $commit"
         $productionAtCommit = $productionRawAtCommit | ConvertFrom-Json -Depth 50
         if ([string]::IsNullOrWhiteSpace([string]$candidate.superseded_by)) {
@@ -376,6 +399,7 @@ function Assert-CandidateHistoryIntegrity {
     }
     if ($null -eq $lastRaw -or (Get-TextSha256 $lastRaw) -cne (Get-TextSha256 $CurrentRaw)) {
         Assert-True ($CurrentRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Worktree candidate manifest does not match schema: $relativePath"
+        Assert-StrictJson $CurrentRaw "worktree candidate manifest $relativePath"
         $candidate = $CurrentRaw | ConvertFrom-Json -Depth 50
         Assert-CandidateManifestIntegrity $candidate $ManifestPath ((& git -C $repoRoot rev-parse HEAD).Trim()) $true
         Assert-CandidateStateHistory $candidate $previousStatus $Authority

@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.10
+- Version: 1.11
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -19,6 +19,19 @@
 3. Runtime 只校验并执行 Agent 明确提交的结构，不推断、补齐、改写或选择后续动作。
 4. 后续动作仍走原有 Tool router、权限、sandbox、approval、hook、MCP 和原始反馈链。
 5. Patch 正文保持原生 `apply_patch` 输入形态，不重新嵌入大型 control JSON。
+
+### 1.1 计划脚手架与完成门禁
+
+当前 `candidate-artifact-content-v1.schema.json`、candidate synthetic fixtures 和
+`-Phase FLA-3.5-Scaffold` 只验证计划数据结构可表达，不是 CA-0、候选实现或阶段完成证据。它们不得创建 candidate、
+改变 active authority，也不得让 `FLA-3.5` 或 `All` 输出“完成”。CA-0 必须产出 executable v2 schema、不可变 baseline、
+phase ownership、candidate generator、唯一 transition command 和 source-derived closure generator 后，才允许创建真实
+candidate。
+
+`-Phase FLA-3.5` 是唯一阶段完成门禁：在当前未实施状态下必须以稳定错误失败；只有一个 candidate 已实际 promoted、
+active authority/production pointer 已切换、八类 executable evidence 均可从 Git 重建、生产测试/日志/三臂证据与
+rollback drill 全部通过时才能返回成功。`-Phase All` 只表示当前 active baseline 的全量合同通过，绝不隐含未实施的
+FLA-3.5 已完成。
 
 本阶段修复 H-003。当前 `required_next_call` 只是对另一个顶层调用的声明，JSON Schema 无法保证 sibling
 存在。自然样本反复出现先提交单独 control、被 Runtime 拒绝、再下一轮补动作，说明 D.4 修复了 Patch
@@ -150,9 +163,12 @@ ordinary call 必须携带初始化；未 binding 的 Ready Work 第一个 call 
    接管 prepared call。handoff 成功是唯一 `execution_started` 边界，与 Tool 是否只读、是否已经产生副作用无关。
 7. **execute**：原 handler 的执行部分消费 prepared call，执行必要上传和业务副作用。若现有 managed-network
    sandbox 只有在 factual denial payload 中才能给出 host scope，则保留现有窄范围 deferred approval：先冻结
-   `DeferredAuthorizationFact {kind, discovered_scope, denial_hash, decision, grant_id}`，暂停 retry，沿同一 approval/
-   guardian 路径请求该精确 scope；批准后只重试同一 prepared call，拒绝、超时或无可验证 scope 都形成 Tool failure，
-   transition 不回滚。该例外不得扩展到可在 prepare 阶段确定的授权，也不得产生宽泛 grant 或重复 prompt。
+   `DeferredAuthorizationFact {kind=managed_network, normalized_scope, denial_hash, decision, grant_id,
+   attempts[], partial_effects}`，沿同一 approval/guardian 路径只申请该精确 scope。首次 attempt 的 start/end、sandbox、
+   denial、已知/可能/未知副作用必须保留；批准只形成可供后续动作使用的窄 grant，不自动重放已经开始的 handler。
+   Runtime 将“transition 已提交 + ordinary Tool 首次尝试失败 + grant/denial 事实”忠实返回，是否再次调用由 Agent 决定。
+   拒绝、超时、scope 非法或不可验证均形成 Tool failure，transition 不回滚。该例外不得扩展到 prepare 阶段可确定的
+   授权，不得产生宽泛 grant、重复 prompt 或把“已批准”伪装成“原 Tool 已成功”。
 8. **post**：PostToolUse 只观察不可变的原 Tool outcome；hook failure 作为独立 factual field 返回，不能替换或
    丢弃 Tool output。随后 context mapper 附加 transition fact。
 
@@ -198,10 +214,12 @@ TaskSpaceCarrierOutcome =
       retention_fact: NotRequired | Stored(ref, hash) | Failed(factual_error),
       deferred_authorization_fact:
         NotRequired {decision: not_required}
-        | Requested {kind, discovered_scope, denial_hash, decision: pending, grant_id: null}
-        | Approved {kind, discovered_scope, denial_hash, decision: approved, grant_id}
-        | Denied {kind, discovered_scope, denial_hash, decision: denied|timeout,
-                  grant_id: null, factual_error},
+        | Requested {kind: managed_network, normalized_scope, denial_hash, decision: pending,
+                     grant_id: null, attempts, partial_effects}
+        | Approved {kind: managed_network, normalized_scope, denial_hash, decision: approved,
+                    grant_id, grant_scope, attempts, partial_effects, automatic_replay: false}
+        | Denied {kind: managed_network, normalized_scope, denial_hash, decision: denied|timeout|invalid_scope,
+                  grant_id: null, attempts, partial_effects, factual_error},
       delivery_fact: Pending | Delivered(wire_hash) | Failed(factual_error)
     }
 }
@@ -265,6 +283,11 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 ### CA-0：冻结基线与前置设计合同
 
 - 固定当前 sibling 生产 commit、L1-L5 identity、schema/source/wire hash 和 H-003 trace。
+- 在 candidate namespace 之外生成一次性 `continuous-action-ca0-baseline-v1.json`，固定 CA-0 起点 commit、active
+  authority/production manifest 的原始 byte hash 与普通 Git blob mode。该记录必须在独立后续 commit 落盘，从而引用
+  一个已存在且 authority/production 不再变化的父 commit；创建后任何改写或删除都使门禁失败。candidate 只能引用该
+  baseline，不能自选 snapshot commit/hash；两个 snapshot commit 必须等于 baseline commit 且是 candidate/event 的
+  first-parent 祖先。历史重放从 baseline commit 开始，而不是从 manifest 首次出现开始。
 - 从 R5、D.2、D.4、FLA-3 artifact 重算 standalone、拒绝、request 和 Patch exact。
 - 冻结第 4.2 节 wire matrix、`TaskSpaceCarrierCapability` 正负矩阵、reserved namespace 和 capability epoch 规则。
 - 冻结第 4.4 节完整状态机，覆盖 PreToolUse 外部副作用事实、参数解析/上传、AfterToolUse、初始 sandbox、
@@ -273,45 +296,56 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   决定”的分支。
 - 冻结 typed outcome 全分支、runtime handoff 边界、McpToolOutputV1 presence/未知 block/安全处理各阶段、retention/
   delivery 失败、provider wire 映射与 hash 公式。
-- 生成而非手写 `r7-carrier-entry-closure-v1.json`：它是候选第九个具名且不可缺失的 committed artifact；从 Rust
-  `ToolSpec`/`ToolPayload` enum、全部生产可达 router/alias、deferred
-  MCP、dynamic registry 与 code-mode nested router 枚举 schema decorator、parser、capability epoch、handler 和
+- 生成而非手写 `r7-carrier-entry-closure-v1.json`：它是候选具名且不可缺失的 committed artifact；CA-0 实现 Rust
+  AST/编译后 registry-plan 生成器，逐 provider/profile 枚举 `ToolSpec`/`ToolPayload`、core Tool spec/registry、全部
+  生产可达 router/alias、deferred MCP、approval/execution、provider mapper、dynamic registry 与 code-mode nested
+  router 的 schema decorator、parser、capability epoch、handler 和
   outcome mapper；入口记录分别保存 `registration_source` 与 `invocation_origin`，不能再用一个 source 字段混合注册
   来源和 direct/code-mode/nested 调用来源。生成物绑定 `tool_spec/context/router/registry/code_mode` 五个源码 blob hash，
   并按固定 canonical JSON 公式生成 digest；DeepSeek Chat 与 Responses 两种 wire 都必须出现。capability matrix 的
   entry 集合必须与 generated closure 规范化后精确相等，route/reason 只能取冻结枚举。任何可达入口不是恰好一条
-  完整链，或人工补行、漏行、重复行，均失败。
+  完整链，或人工补行、漏行、重复行，均失败。completion linter 必须重新运行生成器并对生成 bytes 做 exact diff；
+  `generated:true`、自填 entries/hash 或 matrix 自洽不能作为证据。
 - 扩展 authority/production-manifest JSON Schema：candidate manifest 是独立 candidate namespace 中的实际实体，
   active authority 在 CA-6 前保持字节不变；状态机使用 `evaluation_candidate -> promotion_pending|rejected ->
   promoted|rejected`，并允许 post-promotion 全量复测失败时 `promoted -> reverted`。实现跨文件 linter，强制 candidate
-  id 等于由 active-authority/active-production snapshots、候选自有的完整 L4/L5 activation target 集合与九个具名
-  artifact 内容 hash 规范化计算的 SHA-256，另设真实
-  `candidate_commit`；contract/path/hash/source-authority/active-authority snapshot 双向一致、ID 唯一、
-  最多一个 pending/promoted、active pointer 与状态一致。artifact 使用具名且全部必需的角色：L4 schema、transition
-  schema、typed outcome、lifecycle oracle v2、entry closure、capability matrix、rollback manifest、continuous-action evaluation、FLA-8
-  evaluation v2；每个角色使用唯一规范文件名、统一版本化 artifact schema 的 role-specific 分支与 `artifact_role`，
-  路径不得重复。role schema 必须冻结 action-conditional transition fields、完整 outcome facts、具名 lifecycle
-  scenarios 的精确事实表、presence-complete deferred authorization variants、source-generated
+  id 等于由 CA-0 baseline、候选自有的完整 L4/L5 activation target 集合、contract-toolchain identity 与八个具名
+  artifact 内容 hash 规范化计算的 SHA-256，另设真实 `candidate_commit`。candidate 必须固定 executable v2 manifest/
+  artifact schemas、generator、transition command 和 core linter 的 candidate-commit blob path/hash；历史验证从这些
+  pinned blobs 执行或在隔离进程调用其不可变 verifier，不得用当前 worktree schema 重新解释旧事件。contract/path/hash/
+  source-authority/active-authority snapshot 双向一致、ID 唯一、
+  最多一个 pending/promoted、active pointer 与状态一致。artifact 使用具名且全部必需的八个角色：provider-visible
+  L4 schemas/wire goldens、可执行 transition schema+正反实例、真实 typed-outcome `oneOf` schema+分支 fixtures、
+  carrier protocol oracles、entry closure、capability matrix、完整 rollback manifest、continuous-action evaluation；
+  不包含 FLA-7 lifecycle/recovery 或 FLA-8 held-out/evaluation。每个角色使用唯一规范文件名、executable v2 artifact schema
+  的 role-specific 分支与 `artifact_role`，路径不得重复。v1 descriptor schema 只允许 scaffold，不得被 candidate 引用。
+  v2 必须冻结 action-conditional transition instance validation、typed outcome 字段类型/值域、standalone-negative、
+  argument-failure、commit+Tool failure、code-mode 等 carrier scenarios 的真实 input/pre-state/expected output/post-state
+  canonical hash、presence-complete deferred authorization variants、source-generated
   ToolSpec/ToolPayload closure、绑定 active authority/production snapshot 的精确 rollback targets，以及
-  sample identity/order/seed/repeats/完整 metric formula/threshold/statistics；指标必须同时覆盖 carrier dispatch、
+  baseline 到 candidate 的全部 changed-path rollback inventory/命令，以及 sample identity/order/seed/repeats/完整 metric
+  formula/threshold/statistics；指标必须同时覆盖 carrier dispatch、
   execution handoff、correctness、standalone/H-003、Patch/typed output 保真、request/token/cache 与三段耗时，公式和
-  单位是 schema `const`，不能是任意字符串。FLA-8 保存 sealed manifest hash、sample count、唯一 sample ids 和
-  mount-absent assertion。字段齐全但语义空洞、重复顺序、无意义公式或未绑定回滚 hash 的 fixture 必须逐角色失败。
+  单位是 executable evaluator 的固定公式，不能是任意字符串。字段齐全但语义空洞、虚构 identity、重复顺序、
+  无意义公式、漏 changed path 或未绑定回滚 hash 的 fixture 必须逐角色失败。
   文件经 `GetFullPath` 和真实路径
   解析后必须仍位于该 candidate namespace；从 repo root 到叶文件的
   每个分量均拒绝 symlink/ReparsePoint，Git tree mode 只允许普通非执行 blob。文件必须存在于 candidate commit，
-  当前 bytes/hash 与 role-specific schema 均匹配。CA-0 新增 candidate 专用 generator/transition command，并让
-  `test-r7-five-layer-contracts.ps1 -Phase FLA-3.5` 真实执行候选 schema、空壳反例、晋升/回滚和历史重放合同；现有
+  当前 bytes/hash 与 role-specific schema 均匹配。CA-0 新增 candidate 专用 generator/transition command；
+  `-Phase FLA-3.5-Scaffold` 只测计划结构，`-Phase FLA-3.5` 必须在未 promoted 时失败，并在晋级后执行候选 schema、
+  executable fixtures、晋升/回滚、生产 trace 和完整历史重放合同。现有
   FLA-1..3 production manifest generator 保持 baseline-only，不允许假装能直接生成候选晋升。activation target
   必须明确区分候选 L4/typed-outcome 与保留的 active
-  projection/lifecycle baselines；`lifecycle-oracle-v2` 只作本阶段测试 artifact，不提前取得 FLA-7 生产所有权。未声明
+  projection/lifecycle baselines；carrier oracle 只验证 FLA-3.5 的交接/dispatch/失败合同，不声明 resume、compaction、
+  projection 或 recovery，这些仍由 FLA-7 独占。未声明
   target、额外旧 target 并存或同 role 重复均失败。linter 枚举 manifest
   在完整 first-parent 历史中枚举整个 candidate namespace、active authority、production manifest 的变更 commit
-  并集；manifest 出现后的每个事件都从该事件 commit 读取并验证 authority、production 和九类 artifact 原始 blob、
+  以及 pinned schemas/generator/verifier 的变更 commit 并集；从 CA-0 baseline 开始的每个事件都从该事件 commit 读取
+  并验证 authority、production 和八类 artifact 原始 blob、
   schema、tree mode 与 hash，且每个 artifact 必须同时与 immutable `candidate_commit` blob 精确相等；禁止借用 HEAD、
   当前 worktree 或后来恢复的文件替代当时证据。`candidate_commit` 必须是该事件的 first-parent 祖先。每个历史
-  版本先重跑 manifest schema、authority/production schema、content id、candidate commit、source/active snapshot 和
-  九类 artifact 完整性，
+  版本先用 pinned strict I-JSON parser 拒绝重复 key，再重跑 pinned manifest schema、authority/production schema、
+  content id、candidate commit、source/active snapshot 和八类 artifact 完整性，
   再从初始
   `evaluation_candidate` 顺序重放每次状态迁移，并把未提交 worktree 变更作为尾事件；不得用 HEAD/HEAD^ 单步近似。
   每个 evaluation/pending/rejected 事件在其 commit 验证 authority 仍等于 active snapshot；promoted 事件验证当时
@@ -319,9 +353,13 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   delta 仅包括 designated repair status、L4/L5 target、L4/L5 runtime status、activation phase、authority hash 与 active
   candidate pointer。L1-L3、其他 repair、phase gate、governing metadata、所有未列属性及顺序无关的规范化对象内容
   必须原样保留；禁止通过 schema 允许的 extra metadata 偷渡后续阶段语义。候选 target 必须完整比较 role、authority
-  layer、implementation/runtime status、phase、path 与 hash，只有
-  L4/result 变为 FLA-3.5 `active_verified`，projection 保持 `selected_baseline`，lifecycle 保持
-  `selected_not_implemented`/FLA-7，并删除 `required_next_call` 等 sibling metadata。authority/manifest schema 必须
+  layer、implementation/runtime status、phase、path 与 hash，只有 designated repair 变为 `active_verified`；L4/result
+  在 FLA-3.5 只变为 `active_repair_verified`，对应 production 为 carrier repair-active 状态，待 FLA-4/5 分别完成完整
+  input/conformance 后再升级为 active；projection 保持 `selected_baseline`，lifecycle 保持
+  `selected_not_implemented`/FLA-7，并删除 `required_next_call` 等 sibling metadata。promotion 的允许 delta 还必须显式
+  包含 authority `contract_status` 和 production `manifest_version` 的预注册目标值；`repair_activation` 若现值已含
+  L4/L5-result 则保持不变。FLA-8 target、governing document hashes、L1-L3、其他 repair 和 phase ownership 均不得变。
+  authority/manifest schema 必须
   能表达 `activation_through=FLA-3.5` 与对应 runtime/blocking-repair active 状态。不允许未声明旧 target 并存。
   Candidate identity 同时保存 active production manifest 的 commit/byte hash；reverted 事件验证当时 authority 与
   production manifest bytes 精确恢复两个 active snapshot。加入 mismatch、duplicate promoted、伪 backlink、伪 commit、
@@ -330,15 +368,16 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   manifest 同事件存在；`superseded_by` 首次写入后永久冻结为同一 candidate id，必须绑定到后继第一次
   `promotion_pending` 的确切 commit，后续 rejected/reverted/无关事件都不得改写或清除。被 supersede 后不再声明
   active baseline，但历史事件仍不可改写。direct promoted/reverted、
-  中间 authority/production drift 后恢复、伪 ancestry、伪 supersession、后续无关提交掩盖非法初态、同 blob/重复路径、`<id>/../`、symlink/tree mode、缺角色/
+  pre-baseline/manifest-before drift、baseline 改写、中间 authority/production/schema/verifier drift 后恢复、伪 ancestry、
+  伪 supersession、后续无关提交掩盖非法初态、同 blob/重复路径、`<id>/../`、symlink/tree mode、缺角色/
   文件、promoted 未切 authority、reverted 未恢复 baseline 和非法 revert 负例。
   补齐 production commit/source/wire hashes。CA-0 同时实现 candidate manifest generator、唯一 transition command 和
   schema/linter tests，未完成不得进入 CA-1。
 - 冻结 `r7-phase-ownership-v1.json`，将 carrier transport、L4 schema、L5 conformance、Tool experiments、
   lifecycle/recovery、产品面和正式评估各映射到唯一 owner phase；重复 owner 或无 owner 机器失败。
 - 在任何 CA-1 probe 前完整生成并冻结 `continuous-action-evaluation-v1.json`：样本、重复、seed、顺序、全部阈值、
-  指标和 SHA-256 均不可留到 CA-2；同时生成 FLA-8 v2 的机械指标迁移候选。FLA-8 held-out 只复制 identity/hash，
-  CA-0/CA-1 容器不挂载其内容路径，并用负向 mount assertion 证明不可见。
+  指标、bootstrap/stopping/correction 规则和 SHA-256 均不可留到 CA-2。FLA-8 evaluation 与 held-out 完全不进入
+  FLA-3.5 candidate、容器或 promotion delta，继续由 FLA-8 独立预注册和激活。
 
 完成证据：机器基线、状态表、wire/capability 矩阵和评估预注册均可独立检查；当前生产行为不变。
 
@@ -365,18 +404,17 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 
 ### CA-2：冻结候选机器合同，不提升 active authority
 
-- 候选 artifact 放入独立 candidate namespace：L4 schema、transition schema、typed outcome、lifecycle oracle v2、
-  generated entry closure、capability matrix、rollback manifest、CA-0 已冻结的 `continuous-action-evaluation-v1.json` 和 FLA-8 v2。
-- FLA-8 v2 只把旧 `combined_control_plus_next_rate` 机械替换为 transition carrier 指标；样本 identity、sealed
-  held-out hash、重复和统计规则不变，生成过程中不得读取 held-out 内容或结果。
+- 候选 artifact 放入独立 candidate namespace：provider-visible L4 schemas/wire goldens、executable transition schema、
+  typed outcome oneOf、carrier protocol oracles、generated entry closure、capability matrix、rollback manifest 和 CA-0
+  已冻结的 `continuous-action-evaluation-v1.json`，共八类。FLA-7 lifecycle/recovery 与 FLA-8 evaluation/held-out 不进入。
 - active authority 与 production manifest 保持 sibling 回归基线且字节不变；CA-2 先生成全部具名 candidate artifact，
   由 generator 用 active-authority/active-production snapshots + 排序后的 `role=content_sha256`（不含路径和 commit）计算 candidate id，
   写入对应 namespace 并提交；随后 manifest 单独记录 `candidate_commit`、逐角色 hash、source/active-authority snapshot
   与 `evaluation_candidate`。ID 与 commit 分离以避免“目录名依赖包含自身目录的 commit hash”自引用。Runtime 不把
   candidate 宣称为 active。
 - `required_next_call`、missing-sibling error/oracle 只从候选合同删除；历史 v1/v2 artifact 不覆盖。
-- lifecycle v2 用 standalone-schema-negative、参数失败零提交、commit+Tool failure、code-mode 和恢复 fixtures
-  替换 missing-sibling 场景。
+- carrier oracle 用 standalone-schema-negative、参数失败零提交、commit+Tool failure 和 code-mode fixtures 替换
+  missing-sibling 场景；resume/compaction/projection/recovery fixtures 留在 FLA-7。
 
 完成证据：同一 builder 可重算全部 schema；candidate 没有 placeholder；active production hash 不变。
 
@@ -412,8 +450,8 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
 - 全 wire/ToolSpec/capability epoch property matrix，未知 Tool 和 reserved collision 阻止 epoch 激活。
 - approval/grant 失效及 commit 前取消均零 Map 提交、零 ordinary Tool handler 执行；真实 PreToolUse 写文件/网络
   副作用必须形成 pre-hook fact，不得被零副作用断言掩盖。可预测 scope 未预授权时 denial 直接失败；只有 managed-
-  network factual denial 首次发现精确 host scope 时允许一次延迟审批，并验证 scope、guardian、拒绝/超时、无 retry
-  前副作用、无重复 prompt 及 transition 不回滚。
+  network factual denial 首次发现精确 host scope 时允许一次延迟审批，并验证 normalized/grant scope、guardian、
+  attempt history、partial effects、拒绝/超时、`automatic_replay=false`、无重复 prompt 及 transition 不回滚。
 - 所有上传只能出现在 handoff 后；commit 原子失败、只读立即失败、dispatch/start failure、commit/handoff 两侧及
   handler 进入后取消有唯一类型和完整 factual payload；用 latch/fault injection 证明每例只命中一个 variant，并
   校验 revision/reservation/generation/handler-start/partial-effects。commit 后的 Returned/Failed/Cancelled 不回滚；
@@ -431,7 +469,7 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
   完整 artifact integrity；在 promoted/reverted 事件 commit 上读取并校验 authority/production byte snapshots、
   candidate 自有 L4/L5 精确 target 集合和 pointer；对 rejected/reverted 等终止状态仍检查当前 authority/production
   baseline，不能因 manifest 不再变化跳过；superseded terminal candidate 只验证因果引用，不与新 active authority
-  争权。所有 Git snapshot 使用原始 blob bytes 计算 SHA-256。candidate id 可机械重算；candidate commit 的九个
+  争权。所有 Git snapshot 使用原始 blob bytes 计算 SHA-256。candidate id 可机械重算；candidate commit 的八个
   role-specific artifact 必须路径唯一、规范化后不越界、非 symlink、Git tree mode 为普通文件，且均可从每个历史
   event commit 独立重建、与 candidate commit 精确一致并通过各自 schema/semantic linter。promotion/revert drill
   必须证明 active authority/pointer 与 candidate 状态不可能同时
@@ -459,20 +497,24 @@ simple/complex 每臂 3 次仅做接线诊断；独立 carrier-validation 的重
 FLA-8 正式决策。candidate report/schema 一旦出现旧 `combined_control_plus_next_rate` 即机器失败。
 
 专用指标：`transition_required_count`、`transition_carrier_count/rate`、`carrier_execution_started_count/rate`、
-standalone-schema-negative、H-003、
+`committed_not_executed_count`、`carrier_conservation_rate`、standalone-schema-negative、H-003、
 prepare rejection、Patch/typed-output exact、request、token、cache by capability epoch、wall/provider/tool time。
 旧 `combined_control_plus_next_rate` 不适用于候选，不得作为门禁。
 
-硬门禁：correctness 不劣；所有 required transition carrier rate=100%；standalone/H-003=0；输入和 typed 子载体
-保真=100%；不因交接增加 request；Standard wire hash 不变；同 epoch tools hash 稳定；成本满足专用合同预注册
-非劣阈值。
+硬门禁：correctness 不劣；所有 required transition carrier rate=100%；每个 committed carrier 必须且只能守恒到
+`execution_started` 或 `committed_not_executed`，conservation rate=100%，任何 unexplained 状态失败；standalone/H-003=0；
+输入和 typed 子载体保真=100%；request/token/time amplification 均使用 `candidate / paired sibling baseline` 固定公式；
+cache 使用 `cached_input_tokens / input_tokens` 并按 capability epoch 分组；Standard wire/schema/handler hash 必须从真实
+运行与源码重算而非由 candidate 提供；同 epoch tools hash 稳定；成本满足专用合同预注册非劣阈值。
 
 ### CA-6：审查、晋级或完整回滚
 
 - 对候选生产 diff、rollback drill、trace 和三臂证据执行新的空白上下文对抗性审查。
 - 通过后先由唯一 transition command 将 candidate 变为 `promotion_pending`；同一个 promotion commit 同时切换 active
-  L4/L5 authority、production manifest active pointer、schema/parser、FLA-8 evaluation contract v2 和文档，并将
-  candidate 原子变成 `promoted`。`required_next_call` 在 active 合同中彻底消失。
+  L4/L5 authority、production manifest active pointer、schema/parser、authority `contract_status` 和 production
+  `manifest_version` 到 candidate 预注册值，并将 candidate 原子变成 `promoted`。FLA-8 target、governing document
+  hashes、L1-L3、其他 repair、projection/lifecycle 和 phase ownership bytes 保持 baseline；本阶段不激活 FLA-8，也不在
+  promotion commit 顺带修改文档。`required_next_call` 在 active 合同中彻底消失。
 - 失败则 revert CA-3/CA-4 候选代码与 runtime manifest；active authority 始终保持 sibling baseline。candidate
   artifact 保留为 `rejected` 证据，不创建兼容生产路径。若 promotion commit 后全量复测失败，必须用单个 revert
   commit 同时恢复旧 active pointer/authority/runtime，并把 candidate 标记 `reverted`；禁止只回滚代码或留下
@@ -483,7 +525,7 @@ prepare rejection、Patch/typed-output exact、request、token、cache by capabi
 
 | Phase | 独立验证 | 禁止依赖后续补证 | 退出条件 |
 |---|---|---|---|
-| CA-0 | 基线、wire/capability、时序、outcome、评估预注册 | CA-1 试错 | 前置合同无 placeholder |
+| CA-0 | 不可变基线、executable-v2、ownership、generator/transition command、wire/capability、时序、outcome、评估预注册 | CA-1 试错 | v1 scaffold 不可作为证据；所有命令存在且可独立执行 |
 | CA-1 | 本地 fault probe + 真实 provider 多载体 probe | 生产 sample | 所有生产可达组合通过 |
 | CA-2 | candidate schema/oracle/eval/rollback lint | CA-3 Runtime 容错 | standalone 不可表达且 active authority 未变 |
 | CA-3 | Rust/unit/integration/wire tests | CA-5 Agent 自纠 | 单一候选链完整接通 |
@@ -503,8 +545,9 @@ FLA-3.5 -> FLA-4 -> FLA-5 -> FLA-6 -> FLA-7 -> FLA-8 -> R7 Phase H
 
 | 既有阶段 | 唯一所有权与冲突处理 |
 |---|---|
-| FLA-4 | 只在晋级 carrier 上优化 L4 description/discriminator；不实现 carrier，不正式化 sibling |
-| FLA-5 | 冻结并验证 transition fact + opaque Tool output 的 conformance；transport 只由 FLA-3.5 实现 |
+| FLA-3.5 | 唯一拥有 carrier envelope、prepare/commit/reserve/handoff transport、typed outcome transport 与 H-003 删除；L4/L5-result 仅进入 `active_repair_verified`，不占有 lifecycle/projection/recovery/evaluation-v2 |
+| FLA-4 | 在晋级 carrier 上完成 L4 action schema/description/discriminator 并把 L4 从 repair-active 升到 active；不实现 transport，不正式化 sibling |
+| FLA-5 | 完成 transition fact + opaque Tool output conformance 并把 L5-result 从 repair-active 升到 active；transport 只由 FLA-3.5 实现 |
 | FLA-6 | 只做读写拆分、MCP output schema、DeepSeek strict 三个独立实验 |
 | FLA-7 / R7 Phase E | FLA-7 是 lifecycle/recovery/projection 唯一实现和验收阶段；Phase E 是其产品里程碑别名，不单独改代码或跑第二套 gate |
 | FLA-7 / R7 Phase F | FLA-6/7 共同产出单架构审计证据；Phase F 只读引用并汇总，不形成另一套 acceptance |
@@ -519,7 +562,7 @@ FLA-3.5 -> FLA-4 -> FLA-5 -> FLA-6 -> FLA-7 -> FLA-8 -> R7 Phase H
 |---|---|---|
 | freeform/code-mode 无 carrier | wire 矩阵缺项、nested call 绕 barrier | CA-0 矩阵 + CA-1/4 硬门禁 |
 | prepare 拆分复制 handler | 同一 Tool 出现两套业务执行逻辑 | PreparedToolCall 共享接口；源码重复审计 |
-| approval/hook 后提交顺序错误 | denial 后 revision 变化或旧 lease reservation | 可预测 scope 预授权；动态 host scope 使用唯一 deferred fact + 原子 commit/reserve |
+| approval/hook 后提交顺序错误 | denial 后 revision 变化、旧 lease reservation 或 handler 副作用被重放 | 可预测 scope 预授权；动态 host 只记录窄 grant、attempt/partial-effects 且不自动 replay |
 | Patch/Tool 结果被 frame 扭曲 | typed 子载体 hash/结构不等 | 按 carrier 子载体 conformance，任一失败阻塞 |
 | schema 膨胀或缓存漂移 | epoch schema token 超限、同 epoch hash 改变 | 预注册 byte/token 上限；只在 epoch 边界变化 |
 | MCP collision/泄漏 | server 收到 reserved 字段 | epoch 激活失败 + 剥离测试 |

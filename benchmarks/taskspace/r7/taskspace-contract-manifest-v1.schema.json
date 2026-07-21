@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://whalecode.dev/schemas/r7/taskspace-contract-manifest-v1.schema.json",
   "title": "R7 TaskSpace production contract manifest",
+  "$comment": "candidate_record in v1 is planning scaffold only; FLA-3.5 completion requires the CA-0 executable v2 candidate toolchain",
   "type": "object",
   "required": [
     "schema_version",
@@ -66,8 +67,8 @@
           "type": "object",
           "required": ["L4", "L5"],
           "properties": {
-            "L4": {"const": "active"},
-            "L5": {"const": "carrier_active_projection_baseline"}
+            "L4": {"const": "carrier_repair_active"},
+            "L5": {"const": "carrier_result_repair_active_projection_baseline"}
           },
           "additionalProperties": false
         },
@@ -114,12 +115,9 @@
     },
     "promoted_candidate_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "runtime_status_enum": {
-      "const": [
-        "selected_not_active",
-        "active",
-        "repair_active",
-        "result_repair_active_projection_baseline",
-        "carrier_active_projection_baseline"
+      "oneOf": [
+        {"const": ["selected_not_active", "active", "repair_active", "result_repair_active_projection_baseline", "carrier_active_projection_baseline"]},
+        {"const": ["selected_not_active", "active", "repair_active", "result_repair_active_projection_baseline", "carrier_active_projection_baseline", "carrier_repair_active", "carrier_result_repair_active_projection_baseline"]}
       ]
     },
     "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3", "FLA-3.5"]},
@@ -150,7 +148,9 @@
               "active",
               "repair_active",
               "result_repair_active_projection_baseline",
-              "carrier_active_projection_baseline"
+              "carrier_active_projection_baseline",
+              "carrier_repair_active",
+              "carrier_result_repair_active_projection_baseline"
             ]
           },
           "selected_targets": {"type": "array", "minItems": 1}
@@ -204,7 +204,7 @@
       "properties": {
         "artifact_role": {"type": "string", "minLength": 1},
         "authority_layer": {"enum": ["L4", "L5-result", "L5-projection", "L5-lifecycle"]},
-        "implementation_status": {"enum": ["selected_baseline", "selected_not_implemented", "active_verified"]},
+        "implementation_status": {"enum": ["selected_baseline", "selected_not_implemented", "active_verified", "active_repair_verified"]},
         "path": {"type": "string", "minLength": 1},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "activation_phase": {"type": "string", "minLength": 1}
@@ -218,7 +218,7 @@
           "properties": {
             "artifact_role": {"const": "l4_schema"},
             "authority_layer": {"const": "L4"},
-            "implementation_status": {"const": "active_verified"},
+            "implementation_status": {"const": "active_repair_verified"},
             "activation_phase": {"const": "FLA-3.5"},
             "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/l4-schema.json$"}
           }
@@ -234,7 +234,7 @@
               "properties": {
                 "artifact_role": {"const": "typed_outcome"},
                 "authority_layer": {"const": "L5-result"},
-                "implementation_status": {"const": "active_verified"},
+                "implementation_status": {"const": "active_repair_verified"},
                 "activation_phase": {"const": "FLA-3.5"},
                 "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/typed-outcome.json$"}
               }

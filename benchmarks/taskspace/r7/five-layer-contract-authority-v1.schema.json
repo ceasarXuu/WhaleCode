@@ -50,6 +50,8 @@
         "root": {"const": "benchmarks/taskspace/r7/candidates"},
         "manifest_schema": {"const": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"},
         "artifact_schema": {"const": "benchmarks/taskspace/r7/candidate-artifact-content-v1.schema.json"},
+        "artifact_schema_status": {"const": "plan_scaffold_not_candidate_evidence"},
+        "required_completion_artifact_schema": {"const": "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json"},
         "linter": {"const": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1"},
         "active_authority_policy": {"type": "string", "minLength": 1}
       },

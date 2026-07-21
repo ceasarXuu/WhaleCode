@@ -91,6 +91,17 @@ function Assert-Throws {
     Assert-True $threw $Message
 }
 
+function Assert-StrictJson {
+    param([string]$Text, [string]$Label)
+    $settings = [Newtonsoft.Json.Linq.JsonLoadSettings]::new()
+    $settings.DuplicatePropertyNameHandling = [Newtonsoft.Json.Linq.DuplicatePropertyNameHandling]::Error
+    try {
+        [void][Newtonsoft.Json.Linq.JToken]::Parse($Text, $settings)
+    } catch {
+        throw "Strict JSON rejected $Label`: $($_.Exception.Message)"
+    }
+}
+
 function Get-RustEnumVariants {
     param([string]$Path, [string]$EnumName)
     $source = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path

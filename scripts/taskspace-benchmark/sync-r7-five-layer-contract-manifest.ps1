@@ -71,7 +71,9 @@ $manifest = [ordered]@{
         "active",
         "repair_active",
         "result_repair_active_projection_baseline",
-        "carrier_active_projection_baseline"
+        "carrier_active_projection_baseline",
+        "carrier_repair_active",
+        "carrier_result_repair_active_projection_baseline"
     )
     activation_through = $ActivationThrough
     repair_activation = @("L4", "L5-result")

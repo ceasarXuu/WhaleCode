@@ -225,5 +225,34 @@ Blocking、3 个 High：
 
 ## 13. 第十一轮复审
 
-第十轮仍含 Blocking/High finding。十次修订提交后必须由第十一个空白 reviewer 复核 X1-X7、连续动作合同保持性及
-FLA-3.5 与 FLA-4 至 FLA-8 / Phase E-H 的所有权冲突。
+- Target commit: `d47fb73c3`
+- Reviewer launch id: `019f82ea-9820-7162-aa50-e4fda58eb1c7`
+- Reviewer nickname: Popper
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第十一个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第十一轮确认连续动作、Runtime 语义中立和单 Tool pipeline 的产品方向未被否定，但发现 4 个 Blocking、5 个 High、
+2 个 Medium；phase-conflict 为 `FAIL`：
+
+| # | 级别 | 第十一轮发现 | 处置 | 十一次修订 |
+|---|---|---|---|---|
+| Y1 | Blocking | `-Phase FLA-3.5` 在零 candidate/零实现时误报通过 | Accept | 分离 `FLA-3.5-Scaffold` 与唯一 completion gate；当前 completion 必须失败，`All` 只验证 active baseline |
+| Y2 | Blocking | candidate 可选择已经漂移的 authority/production 作为 baseline | Accept | CA-0 在 candidate 外创建不可变 baseline，独立 commit 固定父 commit/hash/mode；candidate 只能引用它，历史从该 commit 重放 |
+| Y3 | Blocking | CA-6 要同时改 FLA-8/文档，却被 exact-delta 拒绝 | Accept | FLA-8 与文档完全移出 CA-6；只预注册并改变 repair、L4/L5、authority status、manifest version/pointer/hash |
+| Y4 | Blocking | v1 artifact 是 descriptor，不是 executable evidence | Accept | 明确 v1 仅为 plan scaffold；CA-0 必须生成 executable v2，八类真实 schema/golden/fixtures/diff-derived rollback/evaluation 才可建 candidate |
+| Y5 | High | 历史事件使用当前 schema/linter 重新解释 | Accept | candidate pin v2 schemas/generator/transition/verifier blobs；从 baseline 枚举其变更，历史使用 pinned verifier；manifest mode 也校验 |
+| Y6 | High | supersession 可晚于后继第一次 pending | Accept | 计算后继最早 `promotion_pending` commit，要求首次 backlink 与其同 commit，之后 id 永久不变 |
+| Y7 | High | entry closure 仍是自证 generated | Accept | CA-0 使用 Rust AST/compiled registry-plan generator 覆盖 provider/profile/alias/MCP/code-mode/mapper；completion 重新生成并 exact diff |
+| Y8 | High | denial 后自动重跑 handler 可能重复首次副作用 | Accept | 增加 attempt/partial-effects/narrow grant facts；批准不自动 replay，失败与 grant 忠实返回，由 Agent 决定是否重试 |
+| Y9 | High | FLA-3.5 提前占有 FLA-4/5/7 | Accept | L4/L5-result 在 3.5 仅 repair-active，4/5 分别升 active；carrier oracle 不含 lifecycle/recovery；FLA-7/8 独占原范围 |
+| Y10 | Medium | execution-start、request/cache/Standard hash 观测不闭合 | Accept | 增加 carrier conservation=100%、paired amplification 公式、epoch cache 分组和运行时重算 Standard hashes |
+| Y11 | Medium | PowerShell JSON 接受重复 key | Accept | 增加 strict I-JSON duplicate-key rejection，并纳入 candidate/history/artifact 读取 |
+
+所有发现均接受。Y8 不削弱连续动作合同：第一次 ordinary Tool 已与 transition 同 call dispatch；执行失败后 Runtime
+不替 Agent 决定重试。Y9 只修正阶段所有权和状态语义，不撤回 carrier transport。
+
+## 14. 第十二轮复审
+
+第十一轮仍含 Blocking/High finding。十一次修订提交后必须由第十二个空白 reviewer 复核 Y1-Y11、v1/v2 门禁分离、
+不可变 baseline、exact-delta 可实现性和 FLA-3.5/4/5/7/8 所有权。

@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://whalecode.dev/schemas/r7/candidate-artifact-content-v1.schema.json",
-  "title": "R7 continuous-action candidate artifacts",
+  "title": "R7 continuous-action plan scaffold artifacts (not candidate completion evidence)",
+  "description": "Planning-only v1 structure. FLA-3.5 completion requires candidate-artifact-content-v2.schema.json and executable evidence.",
   "oneOf": [
     {"$ref": "#/$defs/l4Schema"},
     {"$ref": "#/$defs/transitionSchema"},

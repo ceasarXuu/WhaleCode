@@ -9,7 +9,9 @@
     "active",
     "repair_active",
     "result_repair_active_projection_baseline",
-    "carrier_active_projection_baseline"
+    "carrier_active_projection_baseline",
+    "carrier_repair_active",
+    "carrier_result_repair_active_projection_baseline"
   ],
   "activation_through": "FLA-3",
   "repair_activation": [
@@ -19,7 +21,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "8c7854b94ba7820626dbac22b6c2c9b411afcfb8357bb8e802b43ba4e9e71c5b"
+    "sha256": "8c7f616422b6e8b23a7862bdaf7a2c8efede1e644c8efa13f18c2b54e6b5a677"
   },
   "compatibility_policy": "none",
   "wire_order": {

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "All")]
+    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5-Scaffold", "FLA-3.5", "FLA-4", "FLA-5", "All")]
     [string]$Phase = "All"
 )
 
@@ -99,6 +99,7 @@ function Test-PhaseEnabled {
 }
 
 $authorityRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath
+Assert-StrictJson $authorityRaw "active authority"
 Assert-True ($authorityRaw | Test-Json -SchemaFile $authoritySchemaPath -ErrorAction Stop) "Authority JSON does not match its schema"
 $authority = $authorityRaw | ConvertFrom-Json -Depth 50
 Assert-Equal $authority.contract_id "r7-five-layer-contract-authority-v1" "Unexpected authority contract"
@@ -128,9 +129,10 @@ if (Test-PhaseEnabled "FLA-0") {
     Write-Output "FLA-0 frozen source contracts passed."
 }
 
-if ((Test-PhaseEnabled "FLA-1") -or (Test-PhaseEnabled "FLA-3.5")) {
+if ((Test-PhaseEnabled "FLA-1") -or $Phase -eq "FLA-3.5-Scaffold" -or $Phase -eq "FLA-3.5") {
     Assert-True (Test-Path -LiteralPath $manifestPath -PathType Leaf) "Production contract manifest is missing"
     $manifestRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
+    Assert-StrictJson $manifestRaw "production manifest"
     Assert-True ($manifestRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Production manifest JSON does not match its schema"
     $manifest = $manifestRaw | ConvertFrom-Json -Depth 50
     Assert-Equal $manifest.contract_id "r7-taskspace-five-layer-production-v1" "Unexpected production manifest"
@@ -190,10 +192,10 @@ if ((Test-PhaseEnabled "FLA-1") -or (Test-PhaseEnabled "FLA-3.5")) {
     $validCandidate | Add-Member -NotePropertyName activation_targets -NotePropertyValue ([pscustomobject]@{
             activation_through = "FLA-3.5"
             blocking_repair = [pscustomobject]@{ id = "FLA-3.5-continuous-action-regression-repair"; implementation_status = "active_verified" }
-            production_runtime_status = [pscustomobject]@{ L4 = "active"; L5 = "carrier_active_projection_baseline" }
-            L4 = @([pscustomobject]@{ artifact_role = "l4_schema"; authority_layer = "L4"; implementation_status = "active_verified"; path = ""; sha256 = $validCandidate.artifact_hashes.l4_schema.sha256; activation_phase = "FLA-3.5" })
+            production_runtime_status = [pscustomobject]@{ L4 = "carrier_repair_active"; L5 = "carrier_result_repair_active_projection_baseline" }
+            L4 = @([pscustomobject]@{ artifact_role = "l4_schema"; authority_layer = "L4"; implementation_status = "active_repair_verified"; path = ""; sha256 = $validCandidate.artifact_hashes.l4_schema.sha256; activation_phase = "FLA-3.5" })
             L5 = @(
-                [pscustomobject]@{ artifact_role = "typed_outcome"; authority_layer = "L5-result"; implementation_status = "active_verified"; path = ""; sha256 = $validCandidate.artifact_hashes.typed_outcome.sha256; activation_phase = "FLA-3.5" },
+                [pscustomobject]@{ artifact_role = "typed_outcome"; authority_layer = "L5-result"; implementation_status = "active_repair_verified"; path = ""; sha256 = $validCandidate.artifact_hashes.typed_outcome.sha256; activation_phase = "FLA-3.5" },
                 [pscustomobject]@{ artifact_role = "projection_baseline"; authority_layer = "L5-projection"; implementation_status = "selected_baseline"; path = $projectionBaseline.artifact; sha256 = $projectionBaseline.sha256; activation_phase = $projectionBaseline.activation_phase },
                 [pscustomobject]@{ artifact_role = "lifecycle_baseline"; authority_layer = "L5-lifecycle"; implementation_status = "selected_not_implemented"; path = $lifecycleBaseline.artifact; sha256 = $lifecycleBaseline.sha256; activation_phase = $lifecycleBaseline.activation_phase }
             )
@@ -229,6 +231,7 @@ if ((Test-PhaseEnabled "FLA-1") -or (Test-PhaseEnabled "FLA-3.5")) {
 
     $artifactSchemaPath = Join-Path $repoRoot ([string]$authority.candidate_registry.artifact_schema)
     Assert-CandidateArtifactSchemaContract $artifactSchemaPath
+    Assert-Throws { Assert-StrictJson '{"schema_version":1,"schema_version":999}' "duplicate-key fixture" } "Strict JSON accepted duplicate property names"
 
     $mismatchedCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
     $mismatchedCandidate.contract_id = "r7-taskspace-five-layer-candidate-0000000000000000000000000000000000000000"
@@ -323,6 +326,7 @@ if ((Test-PhaseEnabled "FLA-1") -or (Test-PhaseEnabled "FLA-3.5")) {
     if (Test-Path -LiteralPath $candidateRoot -PathType Container) {
         foreach ($candidateFile in @(Get-ChildItem -LiteralPath $candidateRoot -Recurse -File -Filter "manifest.json")) {
             $candidateRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $candidateFile.FullName
+            Assert-StrictJson $candidateRaw "candidate manifest $($candidateFile.FullName)"
             Assert-True ($candidateRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Candidate manifest does not match schema: $($candidateFile.FullName)"
             $candidate = $candidateRaw | ConvertFrom-Json -Depth 50
             Assert-CandidateManifestIntegrity $candidate $candidateFile.FullName ((& git -C $repoRoot rev-parse HEAD).Trim()) $true
@@ -332,12 +336,35 @@ if ((Test-PhaseEnabled "FLA-1") -or (Test-PhaseEnabled "FLA-3.5")) {
     }
     Assert-CandidateSetIntegrity $candidateManifests $manifest
 
+    if ($Phase -eq "FLA-3.5") {
+        $completionPaths = @(
+            "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v1.json",
+            "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json",
+            "benchmarks/taskspace/r7/r7-phase-ownership-v1.json",
+            "scripts/taskspace-benchmark/new-r7-continuous-action-candidate.ps1",
+            "scripts/taskspace-benchmark/set-r7-continuous-action-candidate-status.ps1",
+            "scripts/taskspace-benchmark/generate-r7-carrier-entry-closure.ps1"
+        )
+        foreach ($completionPath in $completionPaths) {
+            Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot $completionPath) -PathType Leaf) "FLA-3.5 completion prerequisite missing: $completionPath"
+        }
+        $promotedCandidates = @($candidateManifests | Where-Object { [string]$_.candidate_status -eq "promoted" })
+        Assert-Equal $promotedCandidates.Count 1 "FLA-3.5 completion requires exactly one promoted candidate"
+        Assert-Equal ([string]$manifest.activation_through) "FLA-3.5" "FLA-3.5 production manifest is not active"
+        Assert-Equal ([string]$manifest.promoted_candidate_id) ([string]$promotedCandidates[0].candidate_id) "FLA-3.5 production pointer is not the promoted candidate"
+        $repair = @($authority.blocking_repairs | Where-Object { [string]$_.id -eq "FLA-3.5-continuous-action-regression-repair" })
+        Assert-Equal $repair.Count 1 "FLA-3.5 blocking repair record is missing"
+        Assert-Equal ([string]$repair[0].implementation_status) "active_verified" "FLA-3.5 repair is not active_verified"
+    }
+
     $contextModule = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/context/taskspace_contract.rs")
     $traceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs")
     Assert-True $contextModule.Contains("taskspace_contract_manifest_v1.json") "Context module does not own the production manifest"
     Assert-True $traceSource.Contains("taskspace_contract_manifest_identity") "Provider wire trace lacks manifest identity"
     if ($Phase -eq "FLA-3.5") {
         Write-Output "FLA-3.5 candidate, promotion and history contracts passed."
+    } elseif ($Phase -eq "FLA-3.5-Scaffold") {
+        Write-Output "FLA-3.5 plan scaffold contracts passed; this is not a completion gate."
     } else {
         Write-Output "FLA-1 ownership and observability contracts passed."
     }
