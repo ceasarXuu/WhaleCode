@@ -125,5 +125,23 @@ ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
 
 ## 8. 第六轮复审
 
-第五轮仍含 Blocking finding。五次修订提交后必须由第六个空白 reviewer 确认 P1/P2，并复核已关闭的 Q2/Q3/Q5
-未回归。
+- Target commit: `c2aeb4ae2`
+- Reviewer launch id: `019f8269-2144-74f0-b9a2-089e132ff7bf`
+- Reviewer nickname: Kuhn
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第六个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第六轮确认 P1、Q2、Q3、Q5 已关闭，后续计划冲突检查继续为 PASS；P2 仍有 1 个 Blocking、3 个 High：
+
+| # | 级别 | 第六轮发现 | 处置 | 六次修订 |
+|---|---|---|---|---|
+| S1 | Blocking | promoted/reverted 只校验 pointer，未与迁移 commit 当时的 authority L4/L5/runtime 加密绑定 | Accept | 完整 first-parent 事件重放；在每个 promoted/reverted 事件 commit 读取 authority/production manifest，校验 candidate L4/L5 hash、active pointer 或 baseline byte hash |
+| S2 | High | 只看 HEAD/HEAD^，非法初态可被后续无关提交掩盖 | Accept | 枚举 manifest 全部 first-parent 变更 commit，从初始 evaluation 顺序重放每次状态迁移，并补 worktree 未提交尾事件 |
+| S3 | High | 八个角色可复用同一路径/任意 blob，测试 fixture 正在这样做 | Accept | 角色专属文件名/schema/artifact_role，路径必须唯一；fixture 使用不同 role hash；实际文件逐 role 解析验证 |
+| S4 | High | 字符串前缀允许 `<id>/../`，未拒绝 symlink/Git tree mode | Accept | `GetFullPath` 后验证仍位于 namespace；拒绝 symlink；candidate commit tree mode 仅允许普通文件；修正边界反例 |
+
+## 9. 第七轮复审
+
+第六轮仍含 Blocking finding。六次修订提交后必须由第七个空白 reviewer 复核 P2 的历史、authority 绑定、角色与
+规范路径四项门禁。

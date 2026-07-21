@@ -73,39 +73,6 @@ function Get-CandidateContentId {
     Get-TextSha256 (($lines -join "`n") + "`n")
 }
 
-function Assert-CandidateManifestIntegrity {
-    param([object]$Candidate, [string]$ManifestPath = "")
-    $candidateId = [string]$Candidate.candidate_id
-    Assert-Equal ([string]$Candidate.contract_id) "r7-taskspace-five-layer-candidate-$candidateId" "Candidate contract id does not match candidate id"
-    Assert-Equal (Get-CandidateContentId $Candidate) $candidateId "Candidate content id does not match active snapshot and artifact hashes"
-    $candidateCommit = [string]$Candidate.candidate_commit
-    & git -C $repoRoot cat-file -e "$candidateCommit^{commit}" 2>$null
-    Assert-True ($LASTEXITCODE -eq 0) "Candidate commit is unavailable: $candidateCommit"
-    Assert-Equal ([string]$Candidate.active_authority.contract_id) "r7-five-layer-contract-authority-v1" "Candidate active authority id drifted"
-    Assert-Equal ([string]$Candidate.active_authority.path) "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json" "Candidate active authority path drifted"
-    $authorityBlob = Get-GitBlobText ([string]$Candidate.active_authority.git_commit) ([string]$Candidate.active_authority.path)
-    Assert-Equal (Get-TextSha256 $authorityBlob) ([string]$Candidate.active_authority.sha256) "Candidate active authority snapshot hash drifted"
-    Assert-Equal ([string]$Candidate.source_authority.contract_id) ([string]$Candidate.active_authority.contract_id) "Candidate source and active authority ids differ"
-    Assert-Equal ([string]$Candidate.source_authority.path) ([string]$Candidate.active_authority.path) "Candidate source and active authority paths differ"
-    Assert-Equal ([string]$Candidate.source_authority.sha256) ([string]$Candidate.active_authority.sha256) "Candidate source and active authority hashes differ"
-    foreach ($artifact in $Candidate.artifact_hashes.psobject.Properties) {
-        $relativePath = [string]$artifact.Value.path
-        $expectedPrefix = "benchmarks/taskspace/r7/candidates/$candidateId/"
-        Assert-True $relativePath.StartsWith($expectedPrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its namespace: $relativePath"
-        if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
-            $path = Join-Path $repoRoot $relativePath
-            Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Candidate artifact missing: $relativePath"
-            Assert-Equal (Get-Sha256 $path) ([string]$artifact.Value.sha256) "Candidate artifact hash drifted: $relativePath"
-            $artifactBlob = Get-GitBlobText $candidateCommit $relativePath
-            Assert-Equal (Get-TextSha256 $artifactBlob) ([string]$artifact.Value.sha256) "Candidate artifact was not frozen by candidate commit: $relativePath"
-        }
-    }
-    if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
-        $expectedPath = Join-Path $repoRoot "benchmarks/taskspace/r7/candidates/$candidateId/manifest.json"
-        Assert-Equal ([System.IO.Path]::GetFullPath($ManifestPath)) ([System.IO.Path]::GetFullPath($expectedPath)) "Candidate manifest path does not match candidate id"
-    }
-}
-
 function Assert-CandidateStateHistory {
     param([object]$Candidate, [string]$PreviousStatus, [object]$Authority)
     $currentStatus = [string]$Candidate.candidate_status
@@ -118,20 +85,34 @@ function Assert-CandidateStateHistory {
     }
 }
 
-function Get-PreviousCandidateStatus {
-    param([string]$ManifestPath, [string]$CurrentRaw)
-    $relativePath = [System.IO.Path]::GetRelativePath($repoRoot, $ManifestPath).Replace("\", "/")
-    $headRaw = $null
-    & git -C $repoRoot cat-file -e "HEAD:$relativePath" 2>$null
-    if ($LASTEXITCODE -eq 0) { $headRaw = Get-GitBlobText "HEAD" $relativePath }
-    $previousCommit = "HEAD"
-    if ($null -ne $headRaw -and (Get-TextSha256 $headRaw) -ceq (Get-TextSha256 $CurrentRaw)) {
-        $previousCommit = "HEAD^1"
+function Assert-CandidateActivationSnapshot {
+    param(
+        [object]$Candidate,
+        [string]$Status,
+        [string]$AuthorityRaw,
+        [object]$AuthorityObject,
+        [object]$ProductionManifest
+    )
+    $authorityHash = Get-TextSha256 $AuthorityRaw
+    $activeSnapshotHash = [string]$Candidate.active_authority.sha256
+    Assert-Equal ([string]$ProductionManifest.source_authority.sha256) $authorityHash "Production manifest does not identify the authority in the same state event"
+    if (@("evaluation_candidate", "promotion_pending", "rejected", "reverted") -contains $Status) {
+        Assert-Equal $authorityHash $activeSnapshotHash "Non-promoted candidate event changed the active authority"
+        Assert-True ([string]::IsNullOrWhiteSpace([string]$ProductionManifest.promoted_candidate_id)) "Non-promoted candidate event retained an active candidate pointer"
+        return
     }
-    & git -C $repoRoot cat-file -e "${previousCommit}:$relativePath" 2>$null
-    if ($LASTEXITCODE -ne 0) { return "" }
-    $previousRaw = Get-GitBlobText $previousCommit $relativePath
-    [string](($previousRaw | ConvertFrom-Json -Depth 50).candidate_status)
+    Assert-Equal $Status "promoted" "Unknown candidate activation status"
+    Assert-Equal ([string]$ProductionManifest.promoted_candidate_id) ([string]$Candidate.candidate_id) "Promoted candidate pointer drifted"
+    $l4Target = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer -eq "L4" })[0]
+    $l5Target = @($AuthorityObject.selected_targets | Where-Object { [string]$_.layer -eq "L5-result" })[0]
+    Assert-Equal ([string]$l4Target.artifact) ([string]$Candidate.artifact_hashes.l4_schema.path) "Promoted authority L4 path does not come from candidate"
+    Assert-Equal ([string]$l4Target.sha256) ([string]$Candidate.artifact_hashes.l4_schema.sha256) "Promoted authority L4 hash does not come from candidate"
+    Assert-Equal ([string]$l5Target.artifact) ([string]$Candidate.artifact_hashes.typed_outcome.path) "Promoted authority L5 path does not come from candidate"
+    Assert-Equal ([string]$l5Target.sha256) ([string]$Candidate.artifact_hashes.typed_outcome.sha256) "Promoted authority L5 hash does not come from candidate"
+    $productionL4 = @($ProductionManifest.layers | Where-Object { [string]$_.id -eq "L4" })[0]
+    $productionL5 = @($ProductionManifest.layers | Where-Object { [string]$_.id -eq "L5" })[0]
+    Assert-True (@($productionL4.selected_targets | Where-Object { [string]$_.artifact -eq [string]$Candidate.artifact_hashes.l4_schema.path -and [string]$_.sha256 -eq [string]$Candidate.artifact_hashes.l4_schema.sha256 }).Count -eq 1) "Production L4 does not identify the promoted candidate"
+    Assert-True (@($productionL5.selected_targets | Where-Object { [string]$_.artifact -eq [string]$Candidate.artifact_hashes.typed_outcome.path -and [string]$_.sha256 -eq [string]$Candidate.artifact_hashes.typed_outcome.sha256 }).Count -eq 1) "Production L5 does not identify the promoted candidate"
 }
 
 function Assert-CandidateSetIntegrity {
@@ -154,6 +135,8 @@ function Assert-CandidateTransition {
     $allowed = @($Authority.candidate_status_transitions.$From)
     Assert-True ($allowed -contains $To) "Illegal candidate status transition: $From -> $To"
 }
+
+. (Join-Path $PSScriptRoot "r7-candidate-contract-helpers.ps1")
 
 function Test-PhaseEnabled {
     param([string]$Name)
@@ -227,23 +210,32 @@ if (Test-PhaseEnabled "FLA-1") {
             sha256 = $activeAuthorityHash
         })
     $validCandidate.source_authority.sha256 = $activeAuthorityHash
-    $fixtureHash = Get-Sha256 $l1Path
     $validCandidate | Add-Member -NotePropertyName artifact_hashes -NotePropertyValue ([pscustomobject]@{
-            l4_schema = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
-            transition_schema = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
-            typed_outcome = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
-            lifecycle_oracle_v2 = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
-            capability_matrix = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
-            rollback_manifest = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
-            continuous_action_evaluation = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
-            fla8_evaluation_v2 = [pscustomobject]@{ path = ""; sha256 = $fixtureHash }
+            l4_schema = [pscustomobject]@{ artifact_role = "l4_schema"; path = ""; sha256 = (Get-TextSha256 "l4_schema fixture`n") }
+            transition_schema = [pscustomobject]@{ artifact_role = "transition_schema"; path = ""; sha256 = (Get-TextSha256 "transition_schema fixture`n") }
+            typed_outcome = [pscustomobject]@{ artifact_role = "typed_outcome"; path = ""; sha256 = (Get-TextSha256 "typed_outcome fixture`n") }
+            lifecycle_oracle_v2 = [pscustomobject]@{ artifact_role = "lifecycle_oracle_v2"; path = ""; sha256 = (Get-TextSha256 "lifecycle_oracle_v2 fixture`n") }
+            capability_matrix = [pscustomobject]@{ artifact_role = "capability_matrix"; path = ""; sha256 = (Get-TextSha256 "capability_matrix fixture`n") }
+            rollback_manifest = [pscustomobject]@{ artifact_role = "rollback_manifest"; path = ""; sha256 = (Get-TextSha256 "rollback_manifest fixture`n") }
+            continuous_action_evaluation = [pscustomobject]@{ artifact_role = "continuous_action_evaluation"; path = ""; sha256 = (Get-TextSha256 "continuous_action_evaluation fixture`n") }
+            fla8_evaluation_v2 = [pscustomobject]@{ artifact_role = "fla8_evaluation_v2"; path = ""; sha256 = (Get-TextSha256 "fla8_evaluation_v2 fixture`n") }
         })
     $candidateId = Get-CandidateContentId $validCandidate
     $validCandidate.contract_id = "r7-taskspace-five-layer-candidate-$candidateId"
     $validCandidate | Add-Member -NotePropertyName candidate_id -NotePropertyValue $candidateId
     $candidatePrefix = "benchmarks/taskspace/r7/candidates/$candidateId"
+    $artifactFileNames = @{
+        l4_schema = "l4-schema.json"
+        transition_schema = "transition-schema.json"
+        typed_outcome = "typed-outcome.json"
+        lifecycle_oracle_v2 = "lifecycle-oracle-v2.json"
+        capability_matrix = "capability-matrix.json"
+        rollback_manifest = "rollback-manifest.json"
+        continuous_action_evaluation = "continuous-action-evaluation.json"
+        fla8_evaluation_v2 = "fla8-evaluation-v2.json"
+    }
     foreach ($artifact in $validCandidate.artifact_hashes.psobject.Properties) {
-        $artifact.Value.path = "$candidatePrefix/$($artifact.Name).json"
+        $artifact.Value.path = "$candidatePrefix/$($artifactFileNames[[string]$artifact.Name])"
     }
     $validCandidateJson = $validCandidate | ConvertTo-Json -Depth 50
     Assert-True ($validCandidateJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Valid candidate manifest mode was rejected"
@@ -264,8 +256,22 @@ if (Test-PhaseEnabled "FLA-1") {
     Assert-Throws { Assert-CandidateManifestIntegrity $sourceMismatchCandidate } "Candidate source/active authority mismatch was accepted"
 
     $pathEscapeCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
-    $pathEscapeCandidate.artifact_hashes.l4_schema.path = "benchmarks/taskspace/r7/candidates/../escape.json"
+    $pathEscapeCandidate.artifact_hashes.l4_schema.path = "$candidatePrefix/../escape.json"
     Assert-Throws { Assert-CandidateManifestIntegrity $pathEscapeCandidate } "Candidate artifact path escape was accepted"
+
+    $duplicatePathCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $duplicatePathCandidate.artifact_hashes.transition_schema.path = $duplicatePathCandidate.artifact_hashes.l4_schema.path
+    Assert-Throws { Assert-CandidateManifestIntegrity $duplicatePathCandidate } "Candidate artifact roles sharing one path were accepted"
+
+    $duplicateBlobCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $duplicateBlobCandidate.artifact_hashes.transition_schema.sha256 = $duplicateBlobCandidate.artifact_hashes.l4_schema.sha256
+    $duplicateBlobId = Get-CandidateContentId $duplicateBlobCandidate
+    $duplicateBlobCandidate.candidate_id = $duplicateBlobId
+    $duplicateBlobCandidate.contract_id = "r7-taskspace-five-layer-candidate-$duplicateBlobId"
+    foreach ($artifact in $duplicateBlobCandidate.artifact_hashes.psobject.Properties) {
+        $artifact.Value.path = $artifact.Value.path.Replace($candidateId, $duplicateBlobId)
+    }
+    Assert-Throws { Assert-CandidateManifestIntegrity $duplicateBlobCandidate } "Candidate artifact roles sharing one blob were accepted"
 
     $missingArtifactCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
     $missingArtifactCandidate.artifact_hashes.psobject.Properties.Remove("rollback_manifest")
@@ -273,12 +279,34 @@ if (Test-PhaseEnabled "FLA-1") {
     $missingArtifactAccepted = $missingArtifactJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction SilentlyContinue
     Assert-True (-not $missingArtifactAccepted) "Candidate missing a required artifact role was accepted"
 
+    $wrongRoleCandidate = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $wrongRoleCandidate.artifact_hashes.l4_schema.artifact_role = "transition_schema"
+    $wrongRoleJson = $wrongRoleCandidate | ConvertTo-Json -Depth 50
+    $wrongRoleAccepted = $wrongRoleJson | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction SilentlyContinue
+    Assert-True (-not $wrongRoleAccepted) "Candidate artifact with the wrong role marker was accepted"
+
     $directPromoted = $validCandidateJson | ConvertFrom-Json -Depth 50
     $directPromoted.candidate_status = "promoted"
     Assert-Throws { Assert-CandidateStateHistory $directPromoted "" $authority } "A new directly promoted candidate was accepted"
     $directReverted = $validCandidateJson | ConvertFrom-Json -Depth 50
     $directReverted.candidate_status = "reverted"
     Assert-Throws { Assert-CandidateStateHistory $directReverted "" $authority } "A new directly reverted candidate was accepted"
+
+    $promotedWithoutAuthority = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $promotedWithoutAuthority.candidate_status = "promoted"
+    $productionWithPointer = $manifestRaw | ConvertFrom-Json -Depth 50
+    $productionWithPointer | Add-Member -NotePropertyName promoted_candidate_id -NotePropertyValue $candidateId
+    $currentAuthorityRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath
+    Assert-Throws { Assert-CandidateActivationSnapshot $promotedWithoutAuthority "promoted" $currentAuthorityRaw $authority $productionWithPointer } "Promoted candidate without authority cutover was accepted"
+
+    $revertedWithoutBaseline = $validCandidateJson | ConvertFrom-Json -Depth 50
+    $revertedWithoutBaseline.candidate_status = "reverted"
+    $revertedWithoutBaseline.active_authority.sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    Assert-Throws { Assert-CandidateActivationSnapshot $revertedWithoutBaseline "reverted" $currentAuthorityRaw $authority $manifest } "Reverted candidate without baseline restoration was accepted"
+
+    $orphanPointerManifest = $manifestRaw | ConvertFrom-Json -Depth 50
+    $orphanPointerManifest | Add-Member -NotePropertyName promoted_candidate_id -NotePropertyValue $candidateId
+    Assert-Throws { Assert-CandidateSetIntegrity @() $orphanPointerManifest } "Production pointer without candidate directory was accepted"
 
     $promotedA = $validCandidateJson | ConvertFrom-Json -Depth 50
     $promotedA.candidate_status = "promoted"
@@ -295,14 +323,18 @@ if (Test-PhaseEnabled "FLA-1") {
 
     $candidateRoot = Join-Path $repoRoot ([string]$authority.candidate_registry.root)
     $candidateManifests = @()
+    $historicalCandidatePaths = @(& git -C $repoRoot log --first-parent --name-only --format= -- ([string]$authority.candidate_registry.root) |
+            Where-Object { $_ -match "/manifest\.json$" } | Sort-Object -Unique)
+    foreach ($historicalCandidatePath in $historicalCandidatePaths) {
+        Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot $historicalCandidatePath) -PathType Leaf) "Candidate manifest history must not be deleted: $historicalCandidatePath"
+    }
     if (Test-Path -LiteralPath $candidateRoot -PathType Container) {
         foreach ($candidateFile in @(Get-ChildItem -LiteralPath $candidateRoot -Recurse -File -Filter "manifest.json")) {
             $candidateRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $candidateFile.FullName
             Assert-True ($candidateRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Candidate manifest does not match schema: $($candidateFile.FullName)"
             $candidate = $candidateRaw | ConvertFrom-Json -Depth 50
             Assert-CandidateManifestIntegrity $candidate $candidateFile.FullName
-            $previousStatus = Get-PreviousCandidateStatus $candidateFile.FullName $candidateRaw
-            Assert-CandidateStateHistory $candidate $previousStatus $authority
+            Assert-CandidateHistoryIntegrity $candidateFile.FullName $candidateRaw $authority
             $candidateManifests += $candidate
         }
     }

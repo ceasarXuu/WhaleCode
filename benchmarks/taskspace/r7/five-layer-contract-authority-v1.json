@@ -59,7 +59,7 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "9a86340e2ff5cdbb123a8c8e3fb9658121821258c4b2c4911a133d9a107257b3",
+      "sha256": "9a22ee69adc378a8b4ccdc315b16ec7b7139ef2a3d86e535805ec97d762ed82c",
       "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],
