@@ -144,6 +144,13 @@ impl AstIndex {
             })
             .collect()
     }
+
+    pub fn enum_variants(&self, name: &str) -> Result<Vec<String>, String> {
+        self.enums
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("enum missing: {name}"))
+    }
 }
 
 pub fn index_sources(root: &Path) -> Result<AstIndex, String> {

@@ -3,20 +3,10 @@ use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::WebSearchToolType;
-use codex_tools::ResponsesApiNamespaceTool;
-use codex_tools::ToolHandlerKind;
-use codex_tools::ToolName;
-use codex_tools::ToolRegistryPlanDeferredTool;
-use codex_tools::ToolRegistryPlanMcpTool;
-use codex_tools::ToolRegistryPlanParams;
-use codex_tools::ToolSpec;
 use codex_tools::ToolsConfig;
 use codex_tools::UnifiedExecShellMode;
-use codex_tools::WaitAgentTimeoutOptions;
 use codex_tools::WebSearchToolManifest;
-use codex_tools::build_tool_registry_plan;
 use serde::Serialize;
-use serde_json::json;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -25,10 +15,7 @@ use std::path::PathBuf;
 mod entry;
 #[path = "r7_carrier_entry_closure/sources.rs"]
 mod sources;
-use entry::make_entry;
-use entry::payload_for_handler;
-use entry::source_for_handler;
-use entry::spec_shape;
+use entry::build_entries;
 use sources::SourceBinding;
 use sources::TOOL_HANDLER_VARIANTS;
 use sources::TOOL_PAYLOAD_VARIANTS;
@@ -79,12 +66,6 @@ struct SourceInventory {
     inventory_sha256: String,
 }
 
-struct Profile {
-    id: &'static str,
-    config: ToolsConfig,
-    nested: bool,
-}
-
 fn main() -> Result<(), String> {
     let (repo_root, output, check) = parse_args()?;
     let index = index_sources(&repo_root)?;
@@ -100,23 +81,18 @@ fn main() -> Result<(), String> {
             "third_party/codex-cli/codex-rs/core/src".into(),
             "third_party/codex-cli/codex-rs/codex-api/src".into(),
         ],
-        tool_spec_variants: TOOL_SPEC_VARIANTS.iter().map(ToString::to_string).collect(),
-        tool_payload_variants: TOOL_PAYLOAD_VARIANTS
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
-        tool_handler_variants: TOOL_HANDLER_VARIANTS
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        tool_spec_variants: index.enum_variants("ToolSpec")?,
+        tool_payload_variants: index.enum_variants("ToolPayload")?,
+        tool_handler_variants: index.enum_variants("ToolHandlerKind")?,
         bindings,
         scanned_sources,
         inventory_sha256,
     };
     let mut entries = build_entries(&source_inventory)?;
     entries.sort_by_key(entry_key);
-    entries.dedup_by(|left, right| entry_key(left) == entry_key(right));
+    assert_unique_entry_keys(&entries)?;
     assert_matrix_coverage(&entries)?;
+    assert_handler_gate(&source_inventory, &entries)?;
     let generation_digest = canonical_hash(&(source_inventory.inventory_sha256.clone(), &entries))?;
     let closure = Closure {
         schema_version: 2,
@@ -213,255 +189,30 @@ fn base_config(
     }
 }
 
-fn build_entries(inventory: &SourceInventory) -> Result<Vec<Entry>, String> {
-    let profiles = [
-        Profile {
-            id: "function",
-            config: base_config(
-                ConfigShellToolType::UnifiedExec,
-                Some(ApplyPatchToolType::Function),
-                false,
-            ),
-            nested: false,
-        },
-        Profile {
-            id: "freeform_code",
-            config: base_config(
-                ConfigShellToolType::Default,
-                Some(ApplyPatchToolType::Freeform),
-                true,
-            ),
-            nested: false,
-        },
-        Profile {
-            id: "local_shell",
-            config: base_config(ConfigShellToolType::Local, None, false),
-            nested: false,
-        },
-        Profile {
-            id: "code_nested",
-            config: base_config(
-                ConfigShellToolType::Default,
-                Some(ApplyPatchToolType::Freeform),
-                false,
-            ),
-            nested: true,
-        },
-    ];
-    let mcp = rmcp::model::Tool {
-        name: "lookup".to_string().into(),
-        title: None,
-        description: Some("closure fixture".to_string().into()),
-        input_schema: std::sync::Arc::new(rmcp::model::object(
-            json!({"type":"object","properties":{}}),
-        )),
-        output_schema: None,
-        annotations: None,
-        execution: None,
-        icons: None,
-        meta: None,
-    };
-    let mcp_tools = [ToolRegistryPlanMcpTool {
-        name: ToolName::new(Some("fixture".into()), "lookup"),
-        tool: &mcp,
-    }];
-    let deferred = [ToolRegistryPlanDeferredTool {
-        name: ToolName::new(Some("deferred".into()), "lookup"),
-        server_name: "deferred",
-        connector_name: None,
-        connector_description: None,
-    }];
-    let dynamic = [
+fn dynamic_fixtures() -> [DynamicToolSpec; 3] {
+    [
         DynamicToolSpec {
             namespace: None,
             name: "dynamic_plain".into(),
             description: "fixture".into(),
-            input_schema: json!({"type":"object"}),
+            input_schema: serde_json::json!({"type":"object"}),
             defer_loading: false,
         },
         DynamicToolSpec {
             namespace: Some("dynamic".into()),
             name: "lookup".into(),
             description: "fixture".into(),
-            input_schema: json!({"type":"object"}),
+            input_schema: serde_json::json!({"type":"object"}),
             defer_loading: false,
         },
         DynamicToolSpec {
             namespace: Some("deferred_dynamic".into()),
             name: "lookup".into(),
             description: "fixture".into(),
-            input_schema: json!({"type":"object"}),
+            input_schema: serde_json::json!({"type":"object"}),
             defer_loading: true,
         },
-    ];
-    let namespaces = BTreeMap::from([(
-        "fixture".to_string(),
-        codex_tools::ToolNamespace {
-            name: "fixture".into(),
-            description: None,
-        },
-    )]);
-    let namespaces = namespaces.into_iter().collect();
-    let mut entries = Vec::new();
-    for profile in profiles {
-        let plan = build_tool_registry_plan(
-            &profile.config,
-            ToolRegistryPlanParams {
-                mcp_tools: Some(&mcp_tools),
-                deferred_mcp_tools: Some(&deferred),
-                tool_namespaces: Some(&namespaces),
-                discoverable_tools: None,
-                dynamic_tools: &dynamic,
-                default_agent_type_description: "closure fixture",
-                wait_agent_timeouts: WaitAgentTimeoutOptions {
-                    default_timeout_ms: 30_000,
-                    min_timeout_ms: 1_000,
-                    max_timeout_ms: 300_000,
-                },
-            },
-        );
-        let handlers = plan
-            .handlers
-            .iter()
-            .map(|item| (item.name.display(), item.kind))
-            .collect::<BTreeMap<_, _>>();
-        for configured in plan.specs {
-            add_spec_entries(
-                &mut entries,
-                profile.id,
-                profile.nested,
-                &configured.spec,
-                configured.supports_parallel_tool_calls,
-                &handlers,
-                inventory,
-            )?;
-        }
-        for handler in plan.handlers {
-            if !entries.iter().any(|entry| {
-                entry.profile_id == profile.id && entry.tool_name == handler.name.display()
-            }) {
-                entries.push(make_entry(
-                    profile.id,
-                    "responses",
-                    &handler.name.display(),
-                    handler.name.namespace.clone(),
-                    "Function",
-                    payload_for_handler(handler.kind),
-                    Some(handler.kind),
-                    source_for_handler(handler.kind),
-                    if profile.nested {
-                        "code_mode"
-                    } else {
-                        "direct"
-                    },
-                    "function",
-                    "carrier",
-                    "deferred_registry",
-                    false,
-                    false,
-                    inventory,
-                ));
-            }
-        }
-    }
-    let response_entries = entries.clone();
-    for mut entry in response_entries {
-        entry.wire_api = "deepseek_chat".into();
-        if entry.namespace.is_some()
-            || matches!(
-                entry.tool_spec.as_str(),
-                "Namespace" | "ToolSearch" | "LocalShell" | "ImageGeneration"
-            )
-        {
-            entry.model_visible = false;
-            entry.disposition = "non_carrier".into();
-            entry.reason_code = "provider_wire_unsupported".into();
-        }
-        entry.pipeline.insert(
-            "provider_mapper".into(),
-            inventory.bindings["deepseek_mapper"].clone(),
-        );
-        entries.push(entry);
-    }
-    Ok(entries)
-}
-
-fn add_spec_entries(
-    output: &mut Vec<Entry>,
-    profile: &str,
-    nested: bool,
-    spec: &ToolSpec,
-    parallel: bool,
-    handlers: &BTreeMap<String, ToolHandlerKind>,
-    inventory: &SourceInventory,
-) -> Result<(), String> {
-    let origin = if nested { "code_mode" } else { "direct" };
-    match spec {
-        ToolSpec::Namespace(namespace) => {
-            output.push(make_entry(
-                profile,
-                "responses",
-                &namespace.name,
-                None,
-                "Namespace",
-                "NotApplicable",
-                None,
-                "mcp",
-                origin,
-                "namespace",
-                "container",
-                "namespace_container",
-                true,
-                parallel,
-                inventory,
-            ));
-            for tool in &namespace.tools {
-                let ResponsesApiNamespaceTool::Function(tool) = tool;
-                let name = ToolName::new(Some(namespace.name.clone()), tool.name.clone());
-                let kind = handlers.get(&name.display()).copied();
-                output.push(make_entry(
-                    profile,
-                    "responses",
-                    &name.display(),
-                    name.namespace,
-                    "Function",
-                    kind.map(payload_for_handler).unwrap_or("Function"),
-                    kind,
-                    kind.map(source_for_handler).unwrap_or("dynamic"),
-                    origin,
-                    "namespace",
-                    "carrier",
-                    "decorated_namespace_function",
-                    true,
-                    parallel,
-                    inventory,
-                ));
-            }
-        }
-        _ => {
-            let name = spec.name().to_string();
-            let kind = handlers.get(&name).copied();
-            let (variant, payload, route, disposition, reason, visible) = spec_shape(spec, kind);
-            output.push(make_entry(
-                profile,
-                "responses",
-                &name,
-                None,
-                variant,
-                payload,
-                kind,
-                kind.map(source_for_handler).unwrap_or("builtin"),
-                origin,
-                route,
-                disposition,
-                reason,
-                visible,
-                parallel,
-                inventory,
-            ));
-        }
-    }
-    Ok(())
+    ]
 }
 
 fn entry_key(entry: &Entry) -> String {
@@ -469,6 +220,23 @@ fn entry_key(entry: &Entry) -> String {
         "{}|{}|{}|{}|{}",
         entry.profile_id, entry.wire_api, entry.invocation_origin, entry.tool_spec, entry.tool_name
     )
+}
+
+fn assert_unique_entry_keys(entries: &[Entry]) -> Result<(), String> {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for entry in entries {
+        *counts.entry(entry_key(entry)).or_default() += 1;
+    }
+    let duplicates = counts
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(key, count)| format!("{key} x{count}"))
+        .collect::<Vec<_>>();
+    if duplicates.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("duplicate entry keys: {}", duplicates.join(", ")))
+    }
 }
 
 fn assert_matrix_coverage(entries: &[Entry]) -> Result<(), String> {
@@ -493,4 +261,29 @@ fn assert_matrix_coverage(entries: &[Entry]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn assert_handler_gate(inventory: &SourceInventory, entries: &[Entry]) -> Result<(), String> {
+    let inventory_handlers = inventory
+        .tool_handler_variants
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let entry_handlers = entries
+        .iter()
+        .filter_map(|entry| entry.handler_kind.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    if inventory_handlers == entry_handlers {
+        Ok(())
+    } else {
+        Err(format!(
+            "handler closure mismatch: inventory_only={:?} entry_only={:?}",
+            inventory_handlers
+                .difference(&entry_handlers)
+                .collect::<Vec<_>>(),
+            entry_handlers
+                .difference(&inventory_handlers)
+                .collect::<Vec<_>>()
+        ))
+    }
 }
