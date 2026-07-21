@@ -207,6 +207,7 @@ foreach ($alias in @($ownership.forbidden_parallel_owners)) { Assert-True (@($do
 
 $scripts = @(
     "invoke-r7-strict-json.ps1", "r7-v2-toolchain-core.ps1", "r7-v2-history.ps1", "r7-v2-promotion.ps1",
+    "r7-v2-git-transaction.ps1", "test-r7-continuous-action-candidate-set.ps1",
     "new-r7-continuous-action-candidate.ps1",
     "test-r7-continuous-action-candidate.ps1", "set-r7-continuous-action-candidate-status.ps1",
     "invoke-r7-continuous-action-completion.ps1", "verify-r7-continuous-action-completion.ps1",

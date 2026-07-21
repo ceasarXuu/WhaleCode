@@ -21,6 +21,7 @@ $script:R7ArtifactNames = [ordered]@{
 }
 . (Join-Path $PSScriptRoot "r7-v2-history.ps1")
 . (Join-Path $PSScriptRoot "r7-v2-promotion.ps1")
+. (Join-Path $PSScriptRoot "r7-v2-git-transaction.ps1")
 
 function Get-R7Sha256Bytes {
     param([byte[]]$Bytes)

@@ -87,6 +87,8 @@ if ($allowed[$fromStatus] -notcontains $ToStatus) { throw "R7_TRANSITION_ILLEGAL
 
 & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate.ps1") -CandidateId $CandidateId -TargetCommit $head -RequireStatus $fromStatus | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_PREFLIGHT_FAILED" }
+& pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate-set.ps1") -TargetCommit $head | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_SET_PREFLIGHT_FAILED" }
 
 $expectedChanged = [System.Collections.Generic.List[string]]::new()
 $expectedChanged.Add("$($candidate.path.relative)/manifest.json")
@@ -105,7 +107,7 @@ switch ($ToStatus) {
             [string]$candidate.body.status_evidence.evidence_sha256 -cne $evidenceHash) {
             throw "R7_PROMOTION_EVIDENCE_NOT_PENDING_EVIDENCE"
         }
-        $baseline = Get-R7FirstAddAnchor $script:R7BaselineAnchorPath "continuous_action_production_baseline"
+        $baseline = Get-R7BaselineAnchor
         $authority = (Get-R7GitBlobText $baseline.parent_commit $script:R7AuthorityPath) | ConvertFrom-Json -Depth 100
         $production = (Get-R7GitBlobText $baseline.parent_commit $script:R7ProductionPath) | ConvertFrom-Json -Depth 100
         $promotedAuthority = Invoke-R7JsonPatch $authority @($candidate.body.promotion.authority_patch)
@@ -118,7 +120,7 @@ switch ($ToStatus) {
         $expectedChanged.Add($script:R7ProductionPath)
     }
     "reverted" {
-        $baseline = Get-R7FirstAddAnchor $script:R7BaselineAnchorPath "continuous_action_production_baseline"
+        $baseline = Get-R7BaselineAnchor
         $artifactSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json"
         $rollbackPath = Join-Path $script:R7RepoRoot ([string]$candidate.body.artifact_hashes.rollback_manifest.path)
         $rollback = Read-R7StrictJson $rollbackPath $artifactSchema
@@ -153,9 +155,25 @@ $expected = @($expectedChanged.ToArray() | Sort-Object -Unique)
 if (($actualChanged -join "`n") -cne ($expected -join "`n")) {
     throw "R7_TRANSITION_CHANGED_PATHS expected=$($expected -join ',') actual=$($actualChanged -join ',')"
 }
-Invoke-R7Git (@("add", "-A", "--") + $expected) | Out-Null
-Invoke-R7Git @("commit", "-m", "state(r7): $fromStatus to $ToStatus for $CandidateId") | Out-Null
-$eventCommit = Get-R7GitLine @("rev-parse", "HEAD")
-& pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate.ps1") -CandidateId $CandidateId -TargetCommit $eventCommit -RequireStatus $ToStatus | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_POSTCOMMIT_FAILED commit=$eventCommit" }
-[pscustomobject][ordered]@{candidate_id = $CandidateId; from = $fromStatus; to = $ToStatus; event_commit = $eventCommit; evidence_sha256 = $evidenceHash} | ConvertTo-Json -Compress
+$published = $false
+try {
+    Invoke-R7Git (@("add", "-A", "--") + $expected) | Out-Null
+    $eventCommit = New-R7ProspectiveCommit $head $head "state(r7): $fromStatus to $ToStatus for $CandidateId"
+    & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate.ps1") -CandidateId $CandidateId -TargetCommit $eventCommit -RequireStatus $ToStatus | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_PROSPECTIVE_FAILED commit=$eventCommit" }
+    & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate-set.ps1") -TargetCommit $eventCommit | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "R7_TRANSITION_SET_PROSPECTIVE_FAILED commit=$eventCommit" }
+    Publish-R7ProspectiveCommit $eventCommit $head
+    $published = $true
+    Assert-R7CleanWorktree
+    [pscustomobject][ordered]@{candidate_id = $CandidateId; from = $fromStatus; to = $ToStatus; event_commit = $eventCommit; evidence_sha256 = $evidenceHash} | ConvertTo-Json -Compress
+} finally {
+    if (-not $published) {
+        $changed = @(Invoke-R7Git @("diff", "--name-only", $head) | Sort-Object -Unique)
+        if ($changed.Count -gt 0) {
+            Restore-R7PathsFromCommit $head $changed "transition-$CandidateId-$ToStatus-$(Get-Date -Format yyyyMMddHHmmss)"
+        } else {
+            Reset-R7IndexToCommit $head
+        }
+    }
+}

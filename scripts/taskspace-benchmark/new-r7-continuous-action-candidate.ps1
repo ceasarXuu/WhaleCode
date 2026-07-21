@@ -13,16 +13,20 @@ function New-RollbackArtifact {
     $head = Get-R7GitLine @("rev-parse", "HEAD")
     $changedPaths = @(Invoke-R7Git @("diff", "--name-only", "$baselineCommit..$head") | Sort-Object -Unique)
     if ($changedPaths.Count -eq 0) { throw "R7_ROLLBACK_INVENTORY_EMPTY" }
-    $pinned = @($Toolchain.body.artifacts | ForEach-Object { [string]$_.path })
+    $pinned = @($Toolchain.body.artifacts | ForEach-Object { [string]$_.path }) + @(
+        "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v1.json",
+        "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v2.json",
+        $script:R7BaselineAnchorPath,
+        $script:R7ToolchainAnchorPath
+    )
     $inventory = foreach ($path in $changedPaths) {
         $candidateHash = Get-R7GitBlobSha256 $head $path
         $baselineProbe = Invoke-R7Git @("cat-file", "-e", "${baselineCommit}:$path") -AllowFailure
         $existsAtBaseline = $LASTEXITCODE -eq 0
         $preserve = $pinned -contains $path -or
             $path.StartsWith("docs/", [System.StringComparison]::Ordinal) -or
-            $path.StartsWith("benchmarks/", [System.StringComparison]::Ordinal) -or
-            $path.StartsWith("scripts/", [System.StringComparison]::Ordinal) -or
-            $path.StartsWith(".github/", [System.StringComparison]::Ordinal)
+            $path.StartsWith("coe/", [System.StringComparison]::Ordinal) -or
+            $path.StartsWith("vs_review/", [System.StringComparison]::Ordinal)
         $entry = [ordered]@{
             path = $path
             rollback_action = if ($preserve) { "preserve" } elseif ($existsAtBaseline) { "restore" } else { "remove" }
@@ -53,6 +57,7 @@ function New-RollbackArtifact {
 }
 
 Assert-R7CleanWorktree
+$sourceHead = Get-R7GitLine @("rev-parse", "HEAD")
 $toolchain = Assert-R7ToolchainWorktree
 $baseline = Get-R7BaselineAnchor
 Invoke-R7Git @("merge-base", "--is-ancestor", $toolchain.add_commit, "HEAD") -AllowFailure | Out-Null
@@ -117,49 +122,62 @@ $candidateId = Get-R7CandidateId $identity
 $candidatePath = Get-R7CandidatePath $candidateId
 if (Test-Path -LiteralPath $candidatePath.full) { throw "R7_CANDIDATE_ALREADY_EXISTS id=$candidateId" }
 [System.IO.Directory]::CreateDirectory($candidatePath.full) | Out-Null
-foreach ($role in $stageFiles.Keys) {
-    [System.IO.File]::WriteAllBytes((Join-Path $candidatePath.full $script:R7ArtifactNames[$role]), [System.IO.File]::ReadAllBytes($stageFiles[$role].path))
-}
+$published = $false
+try {
+    foreach ($role in $stageFiles.Keys) {
+        $destination = Join-Path $candidatePath.full $script:R7ArtifactNames[$role]
+        [System.IO.File]::WriteAllBytes($destination, [System.IO.File]::ReadAllBytes($stageFiles[$role].path))
+    }
+    $creationEvidence = [pscustomobject][ordered]@{
+        schema_version = 1
+        event_kind = "candidate_created"
+        candidate_id = $candidateId
+        baseline_anchor_first_add_commit = $baseline.add_commit
+        toolchain_anchor_first_add_commit = $toolchain.add_commit
+        source_head = $sourceHead
+        artifact_hashes = $artifactHashValues
+    }
+    $creationEvidencePath = Join-Path $candidatePath.full "creation-evidence.json"
+    Write-R7JsonFile $creationEvidencePath $creationEvidence
+    Invoke-R7Git @("add", "--", $candidatePath.relative) | Out-Null
+    $candidateCommit = New-R7ProspectiveCommit $sourceHead $sourceHead "$CommitMessagePrefix artifacts $candidateId"
 
-$creationEvidence = [pscustomobject][ordered]@{
-    schema_version = 1
-    event_kind = "candidate_created"
-    candidate_id = $candidateId
-    baseline_anchor_first_add_commit = $baseline.add_commit
-    toolchain_anchor_first_add_commit = $toolchain.add_commit
-    source_head = Get-R7GitLine @("rev-parse", "HEAD")
-    artifact_hashes = $artifactHashValues
+    $artifactRefs = New-R7ArtifactReferences $candidateId $artifactHashValues
+    $activationTargets = New-R7ActivationTargets $candidateId $artifactRefs $authority
+    $promotionContract = New-R7ExpectedPromotionContract $authority $production $candidateId $artifactRefs
+    $manifest = [pscustomobject][ordered]@{
+        schema_version = 2
+        contract_id = "r7-continuous-action-candidate-$candidateId"
+        contract_status = "candidate_record"
+        candidate_id = $candidateId
+        candidate_commit = $candidateCommit
+        candidate_status = "evaluation_candidate"
+        baseline_anchor = [pscustomobject][ordered]@{path = $script:R7BaselineAnchorPath; first_add_commit = $baseline.add_commit; anchored_parent_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $baseline.raw}
+        toolchain_anchor = [pscustomobject][ordered]@{path = $script:R7ToolchainAnchorPath; first_add_commit = $toolchain.add_commit; anchored_parent_commit = $toolchain.parent_commit; sha256 = Get-R7Sha256Text $toolchain.raw}
+        active_authority = [pscustomobject][ordered]@{contract_id = $authority.contract_id; path = $script:R7AuthorityPath; git_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $authorityRaw; git_mode = "100644"}
+        active_production_manifest = [pscustomobject][ordered]@{contract_id = $production.contract_id; path = $script:R7ProductionPath; git_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $productionRaw; git_mode = "100644"}
+        activation_targets = $activationTargets
+        artifact_hashes = $artifactRefs
+        promotion = $promotionContract.promotion
+        status_evidence = [pscustomobject][ordered]@{event_kind = "candidate_created"; evidence_path = "$($candidatePath.relative)/creation-evidence.json"; evidence_sha256 = Get-R7Sha256File $creationEvidencePath}
+    }
+    $manifestPath = Join-Path $candidatePath.full "manifest.json"
+    Write-R7JsonFile $manifestPath $manifest
+    $manifestSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json"
+    [void](Read-R7StrictJson $manifestPath $manifestSchema)
+    Invoke-R7Git @("add", "--", "$($candidatePath.relative)/manifest.json") | Out-Null
+    $manifestCommit = New-R7ProspectiveCommit $sourceHead $candidateCommit "$CommitMessagePrefix manifest $candidateId"
+    & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate.ps1") -CandidateId $candidateId -TargetCommit $manifestCommit -RequireStatus evaluation_candidate | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "R7_CANDIDATE_PROSPECTIVE_VERIFY_FAILED" }
+    & pwsh -NoLogo -NoProfile -File (Join-Path $PSScriptRoot "test-r7-continuous-action-candidate-set.ps1") -TargetCommit $manifestCommit | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "R7_CANDIDATE_SET_PROSPECTIVE_VERIFY_FAILED" }
+    Publish-R7ProspectiveCommit $manifestCommit $sourceHead
+    $published = $true
+    Assert-R7CleanWorktree
+    [pscustomobject][ordered]@{candidate_id = $candidateId; candidate_commit = $candidateCommit; manifest_commit = $manifestCommit; manifest_path = "$($candidatePath.relative)/manifest.json"} | ConvertTo-Json -Compress
+} finally {
+    if (-not $published -and (Test-Path -LiteralPath $candidatePath.full)) {
+        Reset-R7IndexToCommit $sourceHead
+        Backup-R7Path $candidatePath.relative "candidate-$candidateId-$(Get-Date -Format yyyyMMddHHmmss)"
+    }
 }
-$creationEvidencePath = Join-Path $candidatePath.full "creation-evidence.json"
-Write-R7JsonFile $creationEvidencePath $creationEvidence
-Invoke-R7Git @("add", "--", $candidatePath.relative) | Out-Null
-Invoke-R7Git @("commit", "-m", "$CommitMessagePrefix artifacts $candidateId") | Out-Null
-$candidateCommit = Get-R7GitLine @("rev-parse", "HEAD")
-
-$artifactRefs = New-R7ArtifactReferences $candidateId $artifactHashValues
-$activationTargets = New-R7ActivationTargets $candidateId $artifactRefs $authority
-$promotionContract = New-R7ExpectedPromotionContract $authority $production $candidateId $artifactRefs
-$manifest = [pscustomobject][ordered]@{
-    schema_version = 2
-    contract_id = "r7-continuous-action-candidate-$candidateId"
-    contract_status = "candidate_record"
-    candidate_id = $candidateId
-    candidate_commit = $candidateCommit
-    candidate_status = "evaluation_candidate"
-    baseline_anchor = [pscustomobject][ordered]@{path = $script:R7BaselineAnchorPath; first_add_commit = $baseline.add_commit; anchored_parent_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $baseline.raw}
-    toolchain_anchor = [pscustomobject][ordered]@{path = $script:R7ToolchainAnchorPath; first_add_commit = $toolchain.add_commit; anchored_parent_commit = $toolchain.parent_commit; sha256 = Get-R7Sha256Text $toolchain.raw}
-    active_authority = [pscustomobject][ordered]@{contract_id = $authority.contract_id; path = $script:R7AuthorityPath; git_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $authorityRaw; git_mode = "100644"}
-    active_production_manifest = [pscustomobject][ordered]@{contract_id = $production.contract_id; path = $script:R7ProductionPath; git_commit = $baseline.parent_commit; sha256 = Get-R7Sha256Text $productionRaw; git_mode = "100644"}
-    activation_targets = $activationTargets
-    artifact_hashes = $artifactRefs
-    promotion = $promotionContract.promotion
-    status_evidence = [pscustomobject][ordered]@{event_kind = "candidate_created"; evidence_path = "$($candidatePath.relative)/creation-evidence.json"; evidence_sha256 = Get-R7Sha256File $creationEvidencePath}
-}
-$manifestPath = Join-Path $candidatePath.full "manifest.json"
-Write-R7JsonFile $manifestPath $manifest
-$manifestSchema = Join-Path $script:R7RepoRoot "benchmarks/taskspace/r7/taskspace-candidate-manifest-v2.schema.json"
-[void](Read-R7StrictJson $manifestPath $manifestSchema)
-Invoke-R7Git @("add", "--", "$($candidatePath.relative)/manifest.json") | Out-Null
-Invoke-R7Git @("commit", "-m", "$CommitMessagePrefix manifest $candidateId") | Out-Null
-
-[pscustomobject][ordered]@{candidate_id = $candidateId; candidate_commit = $candidateCommit; manifest_commit = Get-R7GitLine @("rev-parse", "HEAD"); manifest_path = "$($candidatePath.relative)/manifest.json"} | ConvertTo-Json -Compress
