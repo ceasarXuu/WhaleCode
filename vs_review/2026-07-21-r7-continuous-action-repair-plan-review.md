@@ -143,5 +143,22 @@ ownership 方向成立；仍发现 3 个 Blocking、3 个 High、1 个 Medium：
 
 ## 9. 第七轮复审
 
-第六轮仍含 Blocking finding。六次修订提交后必须由第七个空白 reviewer 复核 P2 的历史、authority 绑定、角色与
-规范路径四项门禁。
+- Target commit: `ff85e5c32`
+- Reviewer launch id: `019f8281-b3ba-7110-bb7a-d81da777b2c2`
+- Reviewer nickname: Parfit
+- Model: `gpt-5.6-sol`, reasoning `xhigh`
+- Context: `fork_context=false`，第七个空白上下文；只读审查
+- Verdict: `REJECT`
+
+第七轮确认 P1、Q2、Q3、Q5 已关闭，后续计划冲突检查继续为 PASS；P2 仍有 1 个 Blocking、3 个 High：
+
+| # | 级别 | 第七轮发现 | 处置 | 七次修订 |
+|---|---|---|---|---|
+| U1 | Blocking | promoted 只检查 candidate target 存在，允许旧 target 并存；reverted 不检查 production L4/L5 精确恢复 | Accept | candidate 增加 active production manifest byte snapshot；authority/production target 集合要求规范化后精确相等；promoted 的 L4/L5 单值精确来自 candidate，reverted bytes 精确回 baseline |
+| U2 | High | 历史事件只验状态/activation，未对每版重跑 schema、ID、commit、source 和 artifact | Accept | history loop 对每个 manifest 版本执行 schema + 完整 manifest/artifact integrity，再执行状态和 activation |
+| U3 | High | manifest 的 role/path/hash 约束不等于 artifact 内容 schema | Accept | 新增版本化 candidate artifact schema，八个 role-specific 条件分支要求各自结构；实际文件逐个 `Test-Json`，空壳反例失败 |
+| U4 | High | 只检查叶文件 symlink，父目录 symlink 可逃逸 | Accept | 从 repo root 到 artifact 的每个现存路径分量拒绝 ReparsePoint，并对最终 resolved path 再做 namespace containment |
+
+## 10. 第八轮复审
+
+第七轮仍含 Blocking finding。七次修订提交后必须由第八个空白 reviewer 复核 U1-U4。

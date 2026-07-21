@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/candidate-artifact-content-v1.schema.json",
+  "title": "R7 continuous-action candidate artifact",
+  "type": "object",
+  "required": ["schema_version", "artifact_role"],
+  "oneOf": [
+    {
+      "properties": {"artifact_role": {"const": "l4_schema"}},
+      "required": ["provider_tool"]
+    },
+    {
+      "properties": {"artifact_role": {"const": "transition_schema"}},
+      "required": ["transition_schema"]
+    },
+    {
+      "properties": {"artifact_role": {"const": "typed_outcome"}},
+      "required": ["outcome_variants"]
+    },
+    {
+      "properties": {"artifact_role": {"const": "lifecycle_oracle_v2"}},
+      "required": ["oracles"]
+    },
+    {
+      "properties": {"artifact_role": {"const": "capability_matrix"}},
+      "required": ["entries"]
+    },
+    {
+      "properties": {"artifact_role": {"const": "rollback_manifest"}},
+      "required": ["restore_targets"]
+    },
+    {
+      "properties": {"artifact_role": {"const": "continuous_action_evaluation"}},
+      "required": ["samples", "metrics", "thresholds"]
+    },
+    {
+      "properties": {"artifact_role": {"const": "fla8_evaluation_v2"}},
+      "required": ["held_out_identity", "metrics", "thresholds"]
+    }
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifact_role": {
+      "enum": [
+        "l4_schema",
+        "transition_schema",
+        "typed_outcome",
+        "lifecycle_oracle_v2",
+        "capability_matrix",
+        "rollback_manifest",
+        "continuous_action_evaluation",
+        "fla8_evaluation_v2"
+      ]
+    },
+    "provider_tool": {"type": "object"},
+    "transition_schema": {"type": "object"},
+    "outcome_variants": {"type": "array", "minItems": 1},
+    "oracles": {"type": "array", "minItems": 1},
+    "entries": {"type": "array", "minItems": 1},
+    "restore_targets": {"type": "array", "minItems": 1},
+    "samples": {"type": "array", "minItems": 1},
+    "held_out_identity": {"type": "object"},
+    "metrics": {"type": "object", "minProperties": 1},
+    "thresholds": {"type": "object", "minProperties": 1}
+  },
+  "additionalProperties": true
+}

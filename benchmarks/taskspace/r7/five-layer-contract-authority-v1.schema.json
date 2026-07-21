@@ -45,10 +45,11 @@
     },
     "candidate_registry": {
       "type": "object",
-      "required": ["root", "manifest_schema", "linter", "active_authority_policy"],
+      "required": ["root", "manifest_schema", "artifact_schema", "linter", "active_authority_policy"],
       "properties": {
         "root": {"const": "benchmarks/taskspace/r7/candidates"},
         "manifest_schema": {"const": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"},
+        "artifact_schema": {"const": "benchmarks/taskspace/r7/candidate-artifact-content-v1.schema.json"},
         "linter": {"const": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1"},
         "active_authority_policy": {"type": "string", "minLength": 1}
       },

@@ -1,7 +1,7 @@
 # R7 连续动作合同回归修复计划
 
 - Created: 2026-07-21
-- Version: 1.6
+- Version: 1.7
 - Status: `selected_not_implemented`
 - Phase: FLA-3.5，阻塞 FLA-4 及后续阶段
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
@@ -263,13 +263,17 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
   `candidate_commit`；contract/path/hash/source-authority/active-authority snapshot 双向一致、ID 唯一、
   最多一个 pending/promoted、active pointer 与状态一致。artifact 使用具名且全部必需的角色：L4 schema、transition
   schema、typed outcome、lifecycle oracle v2、capability matrix、rollback manifest、continuous-action evaluation、FLA-8
-  evaluation v2；每个角色使用唯一规范文件名、独立 schema 与 `artifact_role`，路径不得重复。文件经 `GetFullPath`
-  后必须仍位于该 candidate namespace，拒绝 symlink/非普通 Git tree mode，并且存在于 candidate commit、当前 bytes/
-  hash 与 role schema 均匹配。linter 枚举 manifest 在完整 first-parent 历史中的全部变更 commit，从初始
+  evaluation v2；每个角色使用唯一规范文件名、统一版本化 artifact schema 的 role-specific 分支与 `artifact_role`，
+  路径不得重复。文件经 `GetFullPath` 和真实路径解析后必须仍位于该 candidate namespace；从 repo root 到叶文件的
+  每个分量均拒绝 symlink/ReparsePoint，Git tree mode 只允许普通非执行 blob。文件必须存在于 candidate commit，
+  当前 bytes/hash 与 role-specific schema 均匹配。linter 枚举 manifest 在完整 first-parent 历史中的全部变更 commit，
+  每个历史版本先重跑 manifest schema、content id、candidate commit、source/active snapshot 和八类 artifact 完整性，
+  再从初始
   `evaluation_candidate` 顺序重放每次状态迁移，并把未提交 worktree 变更作为尾事件；不得用 HEAD/HEAD^ 单步近似。
   每个 evaluation/pending/rejected 事件在其 commit 验证 authority 仍等于 active snapshot；promoted 事件验证当时
-  production pointer 和 authority/production L4/L5 target 精确指向 candidate artifact；reverted 事件验证当时
-  authority/production bytes 恢复 active snapshot。加入 mismatch、duplicate promoted、伪 backlink、伪 commit、
+  production pointer、authority L4/L5 单值和 production target 全集合精确切换到 candidate；不允许旧 target 并存。
+  Candidate identity 同时保存 active production manifest 的 commit/byte hash；reverted 事件验证当时 authority 与
+  production manifest bytes 精确恢复两个 active snapshot。加入 mismatch、duplicate promoted、伪 backlink、伪 commit、
   direct promoted/reverted、后续无关提交掩盖非法初态、同 blob/重复路径、`<id>/../`、symlink/tree mode、缺角色/
   文件、promoted 未切 authority、reverted 未恢复 baseline 和非法 revert 负例。
   补齐 production commit/source/wire hashes。CA-0 同时实现 candidate manifest generator、唯一 transition command 和
@@ -309,7 +313,7 @@ Agent 可在同一 response 中发出更多独立 Tool calls。carrier call 是�
 - FLA-8 v2 只把旧 `combined_control_plus_next_rate` 机械替换为 transition carrier 指标；样本 identity、sealed
   held-out hash、重复和统计规则不变，生成过程中不得读取 held-out 内容或结果。
 - active authority 与 production manifest 保持 sibling 回归基线且字节不变；CA-2 先生成全部具名 candidate artifact，
-  由 generator 用 active-authority snapshot + 排序后的 `role=content_sha256`（不含路径和 commit）计算 candidate id，
+  由 generator 用 active-authority/active-production snapshots + 排序后的 `role=content_sha256`（不含路径和 commit）计算 candidate id，
   写入对应 namespace 并提交；随后 manifest 单独记录 `candidate_commit`、逐角色 hash、source/active-authority snapshot
   与 `evaluation_candidate`。ID 与 commit 分离以避免“目录名依赖包含自身目录的 commit hash”自引用。Runtime 不把
   candidate 宣称为 active。
@@ -363,8 +367,9 @@ MCP/dynamic Tool registry and ToolCallOutput provider mappers
   全部登记在 phase ownership contract。
 - 对 `r7-carrier-entry-closure-v1.json` 每个入口证明 decorator/parser/epoch/outcome mapper 精确命中一次；手写清单、
   alias、deferred/dynamic/nested 漏项均失败。
-- 运行 candidate 跨文件/完整 first-parent event replay linter 全部反例；在 promoted/reverted 事件 commit 上读取并
-  校验 authority/production bytes、L4/L5 targets 和 pointer。candidate id 可机械重算；candidate commit 的八个
+- 运行 candidate 跨文件/完整 first-parent event replay linter 全部反例；每个历史 manifest 版本先重跑 schema 与
+  完整 artifact integrity；在 promoted/reverted 事件 commit 上读取并校验 authority/production byte snapshots、
+  L4/L5 精确 target 集合和 pointer。candidate id 可机械重算；candidate commit 的八个
   role-specific artifact 必须路径唯一、规范化后不越界、非 symlink、Git tree mode 为普通文件，且均可从 Git 独立
   重建并通过各自 schema。promotion/revert drill 必须证明 active authority/pointer 与 candidate 状态不可能同时
   指向两个生产合同。

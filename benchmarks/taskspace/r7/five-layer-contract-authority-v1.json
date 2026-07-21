@@ -29,6 +29,7 @@
   "candidate_registry": {
     "root": "benchmarks/taskspace/r7/candidates",
     "manifest_schema": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
+    "artifact_schema": "benchmarks/taskspace/r7/candidate-artifact-content-v1.schema.json",
     "linter": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
     "active_authority_policy": "candidate records stay outside this active authority; this file and the production manifest remain byte-identical from CA-2 until a CA-6 promotion or revert commit"
   },
@@ -59,7 +60,7 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "9a22ee69adc378a8b4ccdc315b16ec7b7139ef2a3d86e535805ec97d762ed82c",
+      "sha256": "d53934617c73385b4be43ee4752a3def37aece0d782011832a968e6af5ee11c1",
       "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
     }
   ],

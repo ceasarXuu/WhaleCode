@@ -36,6 +36,17 @@
       },
       "additionalProperties": false
     },
+    "active_production_manifest": {
+      "type": "object",
+      "required": ["contract_id", "path", "git_commit", "sha256"],
+      "properties": {
+        "contract_id": {"const": "r7-taskspace-five-layer-production-v1"},
+        "path": {"const": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"},
+        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
     "artifact_hashes": {
       "type": "object",
       "required": [
@@ -116,6 +127,7 @@
             {"required": ["candidate_commit"]},
             {"required": ["candidate_status"]},
             {"required": ["active_authority"]},
+            {"required": ["active_production_manifest"]},
             {"required": ["artifact_hashes"]}
           ]
         }
@@ -124,7 +136,7 @@
     {
       "if": {"properties": {"contract_status": {"const": "candidate_record"}}},
       "then": {
-        "required": ["candidate_id", "candidate_commit", "candidate_status", "active_authority", "artifact_hashes"],
+        "required": ["candidate_id", "candidate_commit", "candidate_status", "active_authority", "active_production_manifest", "artifact_hashes"],
         "properties": {
           "contract_id": {"pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{64}$"}
         },

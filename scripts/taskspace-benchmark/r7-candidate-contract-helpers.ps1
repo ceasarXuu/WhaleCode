@@ -13,6 +13,12 @@ function Assert-CandidateManifestIntegrity {
     Assert-Equal ([string]$Candidate.source_authority.contract_id) ([string]$Candidate.active_authority.contract_id) "Candidate source and active authority ids differ"
     Assert-Equal ([string]$Candidate.source_authority.path) ([string]$Candidate.active_authority.path) "Candidate source and active authority paths differ"
     Assert-Equal ([string]$Candidate.source_authority.sha256) ([string]$Candidate.active_authority.sha256) "Candidate source and active authority hashes differ"
+    $productionSnapshot = $Candidate.active_production_manifest
+    $productionBlob = Get-GitBlobText ([string]$productionSnapshot.git_commit) ([string]$productionSnapshot.path)
+    Assert-Equal (Get-TextSha256 $productionBlob) ([string]$productionSnapshot.sha256) "Candidate active production snapshot hash drifted"
+    $productionSnapshotBody = $productionBlob | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$productionSnapshotBody.contract_id) ([string]$productionSnapshot.contract_id) "Candidate active production contract id drifted"
+    Assert-Equal ([string]$productionSnapshotBody.source_authority.sha256) ([string]$Candidate.active_authority.sha256) "Candidate production snapshot does not use the active authority snapshot"
     $namespaceRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot "benchmarks/taskspace/r7/candidates/$candidateId"))
     $namespacePrefix = $namespaceRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
     $seenPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
@@ -24,10 +30,20 @@ function Assert-CandidateManifestIntegrity {
         Assert-True $relativePath.StartsWith($expectedPrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its namespace: $relativePath"
         $canonicalPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $relativePath))
         Assert-True $canonicalPath.StartsWith($namespacePrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its canonical namespace: $relativePath"
+        $pathCursor = [System.IO.Path]::GetFullPath($repoRoot)
+        foreach ($segment in $relativePath.Split([char[]]@('/', '\'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
+            $pathCursor = Join-Path $pathCursor $segment
+            if (Test-Path -LiteralPath $pathCursor) {
+                $pathItem = Get-Item -LiteralPath $pathCursor -Force
+                Assert-True (($pathItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) "Candidate artifact path contains a symlink: $relativePath"
+            }
+        }
         Assert-True ($seenPaths.Add($canonicalPath)) "Candidate artifact paths must be unique: $relativePath"
         Assert-True ($seenHashes.Add([string]$artifact.Value.sha256)) "Candidate artifact roles must not reuse one blob hash"
         if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
             Assert-True (Test-Path -LiteralPath $canonicalPath -PathType Leaf) "Candidate artifact missing: $relativePath"
+            $resolvedArtifactPath = (Resolve-Path -LiteralPath $canonicalPath).Path
+            Assert-True $resolvedArtifactPath.StartsWith($namespacePrefix, [System.StringComparison]::Ordinal) "Candidate artifact escaped its resolved namespace: $relativePath"
             $item = Get-Item -LiteralPath $canonicalPath -Force
             Assert-True (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) "Candidate artifact must not be a symlink: $relativePath"
             Assert-Equal (Get-Sha256 $canonicalPath) ([string]$artifact.Value.sha256) "Candidate artifact hash drifted: $relativePath"
@@ -38,6 +54,9 @@ function Assert-CandidateManifestIntegrity {
             $artifactBody = Get-Content -Raw -Encoding UTF8 -LiteralPath $canonicalPath | ConvertFrom-Json -Depth 50
             Assert-Equal ([string]$artifactBody.artifact_role) ([string]$artifact.Name) "Candidate artifact content role drifted: $relativePath"
             Assert-True (-not [string]::IsNullOrWhiteSpace([string]$artifactBody.schema_version)) "Candidate artifact schema_version missing: $relativePath"
+            $artifactSchemaPath = Join-Path $repoRoot ([string]$authority.candidate_registry.artifact_schema)
+            $artifactRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $canonicalPath
+            Assert-True ($artifactRaw | Test-Json -SchemaFile $artifactSchemaPath -ErrorAction Stop) "Candidate artifact does not match its role-specific schema: $relativePath"
         }
     }
     if (-not [string]::IsNullOrWhiteSpace($ManifestPath)) {
@@ -56,26 +75,33 @@ function Assert-CandidateHistoryIntegrity {
         & git -C $repoRoot cat-file -e "${commit}:$relativePath" 2>$null
         Assert-True ($LASTEXITCODE -eq 0) "Candidate manifest history contains a deletion: $relativePath at $commit"
         $candidateRaw = Get-GitBlobText $commit $relativePath
+        Assert-True ($candidateRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Historical candidate manifest does not match schema: $relativePath at $commit"
         $candidate = $candidateRaw | ConvertFrom-Json -Depth 50
+        Assert-CandidateManifestIntegrity $candidate $ManifestPath
         Assert-CandidateStateHistory $candidate $previousStatus $Authority
         $authorityRawAtCommit = Get-GitBlobText $commit "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"
         $authorityAtCommit = $authorityRawAtCommit | ConvertFrom-Json -Depth 50
-        $productionAtCommit = Get-GitBlobText $commit "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json" | ConvertFrom-Json -Depth 50
-        Assert-CandidateActivationSnapshot $candidate ([string]$candidate.candidate_status) $authorityRawAtCommit $authorityAtCommit $productionAtCommit
+        $productionRawAtCommit = Get-GitBlobText $commit "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"
+        $productionAtCommit = $productionRawAtCommit | ConvertFrom-Json -Depth 50
+        Assert-CandidateActivationSnapshot $candidate ([string]$candidate.candidate_status) $authorityRawAtCommit $authorityAtCommit $productionAtCommit $productionRawAtCommit
         $previousStatus = [string]$candidate.candidate_status
         $lastRaw = $candidateRaw
     }
     if ($null -eq $lastRaw -or (Get-TextSha256 $lastRaw) -cne (Get-TextSha256 $CurrentRaw)) {
+        Assert-True ($CurrentRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Worktree candidate manifest does not match schema: $relativePath"
         $candidate = $CurrentRaw | ConvertFrom-Json -Depth 50
+        Assert-CandidateManifestIntegrity $candidate $ManifestPath
         Assert-CandidateStateHistory $candidate $previousStatus $Authority
         $currentAuthorityRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath
-        $currentProduction = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-        Assert-CandidateActivationSnapshot $candidate ([string]$candidate.candidate_status) $currentAuthorityRaw $Authority $currentProduction
+        $currentProductionRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
+        $currentProduction = $currentProductionRaw | ConvertFrom-Json -Depth 50
+        Assert-CandidateActivationSnapshot $candidate ([string]$candidate.candidate_status) $currentAuthorityRaw $Authority $currentProduction $currentProductionRaw
     }
     $currentCandidate = $CurrentRaw | ConvertFrom-Json -Depth 50
     if (@("evaluation_candidate", "promotion_pending", "promoted") -contains [string]$currentCandidate.candidate_status) {
         $currentAuthorityRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath
-        $currentProduction = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-        Assert-CandidateActivationSnapshot $currentCandidate ([string]$currentCandidate.candidate_status) $currentAuthorityRaw $Authority $currentProduction
+        $currentProductionRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
+        $currentProduction = $currentProductionRaw | ConvertFrom-Json -Depth 50
+        Assert-CandidateActivationSnapshot $currentCandidate ([string]$currentCandidate.candidate_status) $currentAuthorityRaw $Authority $currentProduction $currentProductionRaw
     }
 }
