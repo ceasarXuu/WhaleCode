@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "anchor_kind": "continuous_action_production_baseline",
+  "anchored_parent_commit": "33a659ce08089b0a27c8ed89bf2ff83f3d09f8b2",
+  "supersedes": {
+    "path": "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v2.json",
+    "first_add_commit": "28a2062836ae079a2399d763c63dae552449e3b5",
+    "sha256": "1cbb32c761b93c792ce5f1bf8e193ff0528d213a24de2718c56d1e2018bf9748",
+    "reason": "phase_ownership_conflict"
+  },
+  "artifacts": [
+    {
+      "role": "active_authority",
+      "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
+      "sha256": "bb62d51046a3869eaece838ff26dbc2f399d5e56791d8a3575f2988391ecd281",
+      "git_mode": "100644"
+    },
+    {
+      "role": "active_production_manifest",
+      "path": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json",
+      "sha256": "99b2a251eea504f92cdd6f7b2b2488d9f0a132f19381c61f75bc0a5252497847",
+      "git_mode": "100644"
+    }
+  ]
+}
