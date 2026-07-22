@@ -346,7 +346,7 @@ fn close_finish_with_no_active_work_is_agent_explicit_and_closes_root_and_finish
     );
     let running_snapshot = state.snapshot();
     let rejection = state
-        .close_finish_with_no_active_work_for_main(owner, 2, "Too early".into())
+        .close_finish_with_no_active_work_for_main(owner, 2, "finish".into(), "Too early".into())
         .expect_err("close_finish_with_no_active_work must not complete a running Work node");
     let rejection: serde_json::Value =
         serde_json::from_str(&rejection).expect("typed terminal rejection");
@@ -390,7 +390,7 @@ fn close_finish_with_no_active_work_is_agent_explicit_and_closes_root_and_finish
 
     let summary = "Implemented and verified exactly as requested.".to_string();
     let (outcome, events) = state
-        .close_finish_with_no_active_work_for_main(owner, 3, summary.clone())
+        .close_finish_with_no_active_work_for_main(owner, 3, "finish".into(), summary.clone())
         .expect("ready finish closes explicitly");
     assert_eq!(outcome.final_summary, summary);
     assert_eq!(outcome.delta.committed_revision, 4);

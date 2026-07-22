@@ -32,8 +32,7 @@ fn standalone_control_excludes_action_carrying_transitions() {
         "block_node",
         "unblock_node",
         "rework_node",
-        "complete_last_running_work_then_end",
-        "close_finish_with_no_active_work",
+        "finish_map",
         "expand_nodes",
         "read_map",
         "read_output_ref",
@@ -44,10 +43,12 @@ fn standalone_control_excludes_action_carrying_transitions() {
     assert!(!actions.contains(&"complete_then_end".to_string()));
     assert!(!actions.contains(&"complete_active_work_then_end".to_string()));
     assert!(!actions.contains(&"close_ready_finish".to_string()));
+    assert!(!actions.contains(&"complete_last_running_work_then_end".to_string()));
+    assert!(!actions.contains(&"close_finish_with_no_active_work".to_string()));
 }
 
 #[test]
-fn last_running_work_closure_requires_exact_state_declarations() {
+fn finish_map_uses_one_uniform_terminal_state_contract() {
     let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
         panic!("taskspace_control must be a function tool");
     };
@@ -59,80 +60,32 @@ fn last_running_work_closure_requires_exact_state_declarations() {
                 .enum_values
                 .as_ref()
                 .expect("action enum")[0]
-                == json!("complete_last_running_work_then_end")
+                == json!("finish_map")
         })
-        .expect("last Running Work closure");
+        .expect("unified Map closure");
 
     assert_eq!(
         closure.required.as_ref().expect("required"),
         &[
             "action",
             "expected_revision",
-            "current_node_id",
-            "other_incomplete_work_status",
-            "finish_status",
+            "terminal_state",
+            "terminal_node_id",
             "final_summary",
         ]
     );
     let properties = closure.properties.as_ref().expect("properties");
     assert_eq!(
-        properties["other_incomplete_work_status"]
+        properties["terminal_state"]
             .enum_values
             .as_ref()
-            .expect("other incomplete Work enum"),
-        &[json!("none")]
-    );
-    assert_eq!(
-        properties["finish_status"]
-            .enum_values
-            .as_ref()
-            .expect("Finish enum"),
-        &[json!("pending")]
-    );
-}
-
-#[test]
-fn ready_finish_closure_requires_exact_state_declarations() {
-    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
-        panic!("taskspace_control must be a function tool");
-    };
-    let variants = tool.parameters.any_of.expect("control variants");
-    let closure = variants
-        .iter()
-        .find(|variant| {
-            variant.properties.as_ref().expect("properties")["action"]
-                .enum_values
-                .as_ref()
-                .expect("action enum")[0]
-                == json!("close_finish_with_no_active_work")
-        })
-        .expect("Ready Finish closure");
-
-    assert_eq!(
-        closure.required.as_ref().expect("required"),
+            .expect("terminal state enum"),
         &[
-            "action",
-            "expected_revision",
-            "active_work_status",
-            "finish_status",
-            "final_summary",
+            json!("last_running_work"),
+            json!("no_active_work_ready_finish"),
         ]
     );
-    let properties = closure.properties.as_ref().expect("properties");
-    assert_eq!(
-        properties["active_work_status"]
-            .enum_values
-            .as_ref()
-            .expect("active Work enum"),
-        &[json!("none")]
-    );
-    assert_eq!(
-        properties["finish_status"]
-            .enum_values
-            .as_ref()
-            .expect("Finish enum"),
-        &[json!("ready")]
-    );
+    assert!(properties["terminal_node_id"].enum_values.is_none());
 }
 
 #[test]

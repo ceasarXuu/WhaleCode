@@ -34,13 +34,10 @@ pub(crate) enum TaskSpaceControlArgs {
         expected_revision: u64,
         node_id: String,
     },
-    CompleteLastRunningWorkThenEnd {
+    FinishMap {
         expected_revision: u64,
-        current_node_id: String,
-        final_summary: String,
-    },
-    CloseFinishWithNoActiveWork {
-        expected_revision: u64,
+        terminal_state: TaskSpaceTerminalState,
+        terminal_node_id: String,
         final_summary: String,
     },
     ExpandNodes {
@@ -55,6 +52,12 @@ pub(crate) enum TaskSpaceControlArgs {
         max_bytes: Option<usize>,
     },
     ReadMap,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TaskSpaceTerminalState {
+    LastRunningWork,
+    NoActiveWorkReadyFinish,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -84,8 +87,7 @@ impl TaskSpaceControlArgs {
             Self::BlockNode { .. } => "block_node",
             Self::UnblockNode { .. } => "unblock_node",
             Self::ReworkNode { .. } => "rework_node",
-            Self::CompleteLastRunningWorkThenEnd { .. } => "complete_last_running_work_then_end",
-            Self::CloseFinishWithNoActiveWork { .. } => "close_finish_with_no_active_work",
+            Self::FinishMap { .. } => "finish_map",
             Self::ExpandNodes { .. } => "expand_nodes",
             Self::ReadOutputRef { .. } => "read_output_ref",
             Self::ReadMap => "read_map",
@@ -106,10 +108,7 @@ impl TaskSpaceControlArgs {
             | Self::ReworkNode {
                 expected_revision, ..
             }
-            | Self::CompleteLastRunningWorkThenEnd {
-                expected_revision, ..
-            }
-            | Self::CloseFinishWithNoActiveWork {
+            | Self::FinishMap {
                 expected_revision, ..
             } => Some(*expected_revision),
             Self::ExpandNodes { .. } | Self::ReadOutputRef { .. } | Self::ReadMap => None,
@@ -139,29 +138,19 @@ impl TaskSpaceControlArgs {
             Self::BlockNode { node_id, .. } => validate_node_id("block_node", node_id),
             Self::UnblockNode { node_id, .. } => validate_node_id("unblock_node", node_id),
             Self::ReworkNode { node_id, .. } => validate_node_id("rework_node", node_id),
-            Self::CompleteLastRunningWorkThenEnd {
-                current_node_id,
+            Self::FinishMap {
+                terminal_node_id,
                 final_summary,
                 ..
             } => {
-                if current_node_id.trim().is_empty() {
-                    return invalid(
-                        "complete_last_running_work_then_end requires a non-empty current_node_id",
-                    );
+                if terminal_node_id.trim().is_empty() {
+                    return invalid("finish_map requires a non-empty terminal_node_id");
                 }
                 if final_summary.trim().is_empty() {
-                    return invalid(
-                        "complete_last_running_work_then_end requires a non-empty final_summary",
-                    );
+                    return invalid("finish_map requires a non-empty final_summary");
                 }
                 Ok(())
             }
-            Self::CloseFinishWithNoActiveWork { final_summary, .. }
-                if final_summary.trim().is_empty() =>
-            {
-                invalid("close_finish_with_no_active_work requires a non-empty final_summary")
-            }
-            Self::CloseFinishWithNoActiveWork { .. } => Ok(()),
             Self::ExpandNodes { node_ids } => {
                 require_non_empty(node_ids, "node_ids")?;
                 let mut unique_node_ids = HashSet::with_capacity(node_ids.len());

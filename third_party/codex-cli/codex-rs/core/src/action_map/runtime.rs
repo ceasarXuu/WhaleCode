@@ -3951,12 +3951,14 @@ impl ActionMapRuntimeState {
         &mut self,
         owner_session_id: ThreadId,
         expected_revision: u64,
+        finish_node_id: String,
         final_summary: String,
     ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
         let mut candidate = self.clone();
         let outcome = candidate.close_finish_with_no_active_work_for_main_inner(
             owner_session_id,
             expected_revision,
+            finish_node_id,
             final_summary,
         )?;
         *self = candidate;
@@ -3967,6 +3969,7 @@ impl ActionMapRuntimeState {
         &mut self,
         owner_session_id: ThreadId,
         expected_revision: u64,
+        finish_node_id: String,
         final_summary: String,
     ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
         self.validate_routing_complete()?;
@@ -3982,8 +3985,13 @@ impl ActionMapRuntimeState {
             if map.owner_session_id != Some(owner_session_id) {
                 return Err("TaskSpace rooted map owner mismatch.".to_string());
             }
-            close_finish_with_no_active_work(map, expected_revision, final_summary.clone())
-                .map_err(rooted_rejection_message)?
+            close_finish_with_no_active_work(
+                map,
+                expected_revision,
+                finish_node_id.clone(),
+                final_summary.clone(),
+            )
+            .map_err(rooted_rejection_message)?
         };
         let revision = committed.map.revision;
         let graph_batch =
@@ -4009,6 +4017,7 @@ impl ActionMapRuntimeState {
             vec![
                 "schema:taskspace-rooted-terminal-event-v1".to_string(),
                 "operation:close_finish_with_no_active_work".to_string(),
+                format!("finish_node_id:{finish_node_id}"),
                 format!("revision:{revision}"),
                 "state_commit:true".to_string(),
                 "summary_source:agent".to_string(),

@@ -1,4 +1,4 @@
-<taskspace_core_protocol version="taskspace-core-v2.6">
+<taskspace_core_protocol version="taskspace-core-v2.7">
 ## Working with the Map
 
 Use this loop for ordinary TaskSpace work:
@@ -9,7 +9,7 @@ Use this loop for ordinary TaskSpace work:
 4. When a Ready Work node needs its first action, put `bind_node` in that action Tool's `taskspace_action`.
 5. When the active Work node is complete and work continues, put `complete_then_continue` in the successor's first real action Tool. This atomically completes the current node, binds the Agent-selected Ready successor, and executes that action in one call.
 6. On later actions under the same active binding, use `continue_current`; do not repeat the transition. Use `taskspace_control` directly for standalone graph mutations, block/unblock/rework, Map reads, expansion, and terminal closure.
-7. Include validation inside the Work graph. After sufficient evidence, use `complete_last_running_work_then_end` only when the current node is the last Running Work and every other Work node is completed; provide that node as `current_node_id`, then declare `other_incomplete_work_status=none` and `finish_status=pending`. Use `close_finish_with_no_active_work` only when the exact current TaskSpace state already shows no active Work node and Finish Ready; declare `active_work_status=none` and `finish_status=ready`. `close_finish_with_no_active_work` does not complete a Work node. Both actions explicitly close the unique Finish and provide the final summary.
+7. Include validation inside the Work graph. After sufficient evidence, close the Map with one `finish_map` call. Choose `terminal_state=last_running_work` and name that Work as `terminal_node_id` only when it is the last Running Work, every other Work is completed, and Finish is Pending on it. Choose `terminal_state=no_active_work_ready_finish` and name the unique Finish as `terminal_node_id` only when no Work is active, every Work is completed, and Finish is Ready. The first state completes the named Work before closing Finish and Root; the second closes the already Ready Finish and Root without completing a Work node. Provide the final summary in the same call.
 
 ## Reading results and recovering
 

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.11",
+  "manifest_version": "1.0.12",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -22,7 +22,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "b03fb280eb9873451fc88b8ddf4a262822664b81b2e5847d833cbfe9e184fedd"
+    "sha256": "09204cf37f229501bcee86bcea1d2c03602c1e090f41ac736f086a1f6cecb850"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -57,7 +57,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "1faf64648dbf31237d1eabc0153470023b48f225df5daf9d6d313fd05e3f035d",
+          "sha256": "316fb3f4bef12f3d78a7c2d75c0f2e81daea2500ce3d70d280caf97acc8d4c90",
           "activation_phase": "FLA-2; FLA-3.5 terminal action contract repair"
         }
       ]
@@ -83,7 +83,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-          "sha256": "9b250027994503a00a0ca9f03307ee1337133871098be8a46163b06283cec5a8",
+          "sha256": "51cf670b7fe2efa26ef7a99586c822fb51063c5ea809b4596612037215846c71",
           "activation_phase": "FLA-3.5 carrier and terminal action contract repairs; FLA-4 formalizes L4",
           "carrier_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
           "transition_parser": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"
@@ -98,7 +98,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-          "sha256": "cd706c329ea7d6c8a9aa4d71d686557eeb8bd9875474d915d069526bb676e415",
+          "sha256": "3e9e25e79f35f1892a957dddff510a1b7868792f9ccfb730f101442410a88a02",
           "activation_phase": "FLA-3.5 result and terminal action contract repairs; FLA-5 formalizes L5 result"
         },
         {

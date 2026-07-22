@@ -1757,7 +1757,8 @@ mod active_context_replacement_tests {
         assert!(tool_contract.contains("mutate_graph"));
         assert!(!tool_contract.contains("bind_node"));
         assert!(!tool_contract.contains("transition_node"));
-        assert!(tool_contract.contains("close_finish_with_no_active_work"));
+        assert!(tool_contract.contains("finish_map"));
+        assert!(tool_contract.contains("no_active_work_ready_finish"));
         assert!(!tool_contract.contains("\"finish_end\""));
 
         let bootstrap_mode = taskspace_provider_control_mode(true, None);

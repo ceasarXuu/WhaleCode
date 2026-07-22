@@ -53,6 +53,7 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         expected_revision: u64,
+        finish_node_id: String,
         final_summary: String,
     ) -> Result<ActionMapTerminalOutcome, FinishActionMapError> {
         let (outcome, terminal_event, candidate) = {
@@ -62,6 +63,7 @@ impl Session {
                 .close_finish_with_no_active_work_for_main(
                     self.conversation_id,
                     expected_revision,
+                    finish_node_id,
                     final_summary,
                 )
                 .map_err(FinishActionMapError::Rejected)?;

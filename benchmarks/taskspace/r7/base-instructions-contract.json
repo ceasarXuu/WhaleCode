@@ -26,8 +26,8 @@
     }
   },
   "taskspace_core_protocol": {
-    "version": "taskspace-core-v2.6",
-    "sha256": "1faf64648dbf31237d1eabc0153470023b48f225df5daf9d6d313fd05e3f035d",
+    "version": "taskspace-core-v2.7",
+    "sha256": "316fb3f4bef12f3d78a7c2d75c0f2e81daea2500ce3d70d280caf97acc8d4c90",
     "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
     "wire_role": "system",
     "message_index": 1,
@@ -154,6 +154,17 @@
       "core_protocol_sha256": "1faf64648dbf31237d1eabc0153470023b48f225df5daf9d6d313fd05e3f035d",
       "status": "production_active",
       "change": "require the terminal Work action to declare that no other incomplete Work remains"
+    },
+    {
+      "version": "2.0.8",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.7",
+      "core_protocol_sha256": "316fb3f4bef12f3d78a7c2d75c0f2e81daea2500ce3d70d280caf97acc8d4c90",
+      "status": "production_active",
+      "change": "replace competing terminal actions with one finish_map state discriminator"
     }
   ],
   "diagnostic_validation": {

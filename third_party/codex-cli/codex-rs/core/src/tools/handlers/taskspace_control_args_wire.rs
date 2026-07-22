@@ -1,6 +1,7 @@
 use super::TaskSpaceControlArgs;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
+use super::TaskSpaceTerminalState;
 use super::invalid_error;
 use crate::function_tool::FunctionCallError;
 use serde::Deserialize;
@@ -13,8 +14,7 @@ enum Action {
     BlockNode,
     UnblockNode,
     ReworkNode,
-    CompleteLastRunningWorkThenEnd,
-    CloseFinishWithNoActiveWork,
+    FinishMap,
     ExpandNodes,
     ReadOutputRef,
     ReadMap,
@@ -47,53 +47,29 @@ struct NodeTransitionArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CompleteLastRunningWorkThenEndArgs {
+struct FinishMapArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
-    current_node_id: String,
-    #[serde(rename = "other_incomplete_work_status")]
-    _other_incomplete_work_status: OtherIncompleteWorkStatus,
-    #[serde(rename = "finish_status")]
-    _finish_status: PendingFinishStatus,
+    terminal_state: TerminalState,
+    terminal_node_id: String,
     final_summary: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum ActiveWorkStatus {
-    None,
+enum TerminalState {
+    LastRunningWork,
+    NoActiveWorkReadyFinish,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum OtherIncompleteWorkStatus {
-    None,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum PendingFinishStatus {
-    Pending,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ReadyFinishStatus {
-    Ready,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CloseFinishWithNoActiveWorkArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    expected_revision: u64,
-    #[serde(rename = "active_work_status")]
-    _active_work_status: ActiveWorkStatus,
-    #[serde(rename = "finish_status")]
-    _finish_status: ReadyFinishStatus,
-    final_summary: String,
+impl From<TerminalState> for TaskSpaceTerminalState {
+    fn from(value: TerminalState) -> Self {
+        match value {
+            TerminalState::LastRunningWork => Self::LastRunningWork,
+            TerminalState::NoActiveWorkReadyFinish => Self::NoActiveWorkReadyFinish,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,18 +177,12 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 node_id,
             })
         }
-        Action::CompleteLastRunningWorkThenEnd => {
-            let parsed = deserialize_arguments::<CompleteLastRunningWorkThenEndArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::CompleteLastRunningWorkThenEnd {
+        Action::FinishMap => {
+            let parsed = deserialize_arguments::<FinishMapArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::FinishMap {
                 expected_revision: parsed.expected_revision,
-                current_node_id: parsed.current_node_id,
-                final_summary: parsed.final_summary,
-            })
-        }
-        Action::CloseFinishWithNoActiveWork => {
-            let parsed = deserialize_arguments::<CloseFinishWithNoActiveWorkArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::CloseFinishWithNoActiveWork {
-                expected_revision: parsed.expected_revision,
+                terminal_state: parsed.terminal_state.into(),
+                terminal_node_id: parsed.terminal_node_id,
                 final_summary: parsed.final_summary,
             })
         }

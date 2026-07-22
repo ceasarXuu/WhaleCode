@@ -156,26 +156,21 @@ pub(super) async fn complete_then_continue(
     })
 }
 
-pub(super) async fn complete_last_running_work_then_end(
+pub(super) async fn finish_map_from_last_running_work(
     session: &Session,
     turn: &TurnContext,
     call_id: &str,
     expected_revision: u64,
-    current_node_id: String,
+    terminal_node_id: String,
     final_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
-    let source_event_ref = source_event_ref(
-        session,
-        call_id,
-        "complete_last_running_work_then_end",
-        expected_revision,
-    )
-    .await?;
+    let source_event_ref =
+        source_event_ref(session, call_id, "finish_map", expected_revision).await?;
     let outcome = session
         .complete_last_running_work_then_end_action_map(
             turn,
             expected_revision,
-            current_node_id.clone(),
+            terminal_node_id.clone(),
             final_summary,
             source_event_ref,
         )
@@ -187,59 +182,47 @@ pub(super) async fn complete_last_running_work_then_end(
                 call_id,
                 map_id = outcome.map_id,
                 revision = outcome.revision,
-                current_node_id,
+                terminal_node_id,
                 summary_bytes = outcome.final_summary.len(),
                 "taskspace.complete_terminal_committed"
             );
-            Ok(terminal_execution(
-                "complete_last_running_work_then_end",
-                outcome,
-            ))
+            Ok(terminal_execution("last_running_work", outcome))
         }
         Err(FinishActionMapError::Rejected(error)) => {
             tracing::warn!(
                 target: "codex_core::taskspace",
                 call_id,
                 expected_revision,
-                current_node_id,
+                terminal_node_id,
                 "taskspace.complete_terminal_rejected"
             );
             Ok((rejected_control_result(&error), false, None))
         }
-        Err(error) => Err(terminal_failure(
-            session,
-            "complete_last_running_work_then_end",
-            expected_revision,
-            error,
-        )
-        .await),
+        Err(error) => Err(terminal_failure(session, "finish_map", expected_revision, error).await),
     }
 }
 
-pub(super) async fn close_finish_with_no_active_work(
+pub(super) async fn finish_map_from_ready_finish(
     session: &Session,
     turn: &TurnContext,
     expected_revision: u64,
+    finish_node_id: String,
     final_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
     match session
-        .close_finish_with_no_active_work_action_map(turn, expected_revision, final_summary)
+        .close_finish_with_no_active_work_action_map(
+            turn,
+            expected_revision,
+            finish_node_id,
+            final_summary,
+        )
         .await
     {
-        Ok(outcome) => Ok(terminal_execution(
-            "close_finish_with_no_active_work",
-            outcome,
-        )),
+        Ok(outcome) => Ok(terminal_execution("no_active_work_ready_finish", outcome)),
         Err(FinishActionMapError::Rejected(error)) => {
             Ok((rejected_control_result(&error), false, None))
         }
-        Err(error) => Err(terminal_failure(
-            session,
-            "close_finish_with_no_active_work",
-            expected_revision,
-            error,
-        )
-        .await),
+        Err(error) => Err(terminal_failure(session, "finish_map", expected_revision, error).await),
     }
 }
 
@@ -308,13 +291,14 @@ async fn source_event_ref(
 }
 
 fn terminal_execution(
-    step_kind: &'static str,
+    terminal_state: &'static str,
     outcome: crate::action_map::ActionMapTerminalOutcome,
 ) -> ControlExecution {
     (
         format_state_batch(
             vec![serde_json::json!({
-                "kind": step_kind,
+                "kind": "finish_map",
+                "terminal_state": terminal_state,
                 "map_id": outcome.map_id,
                 "revision": outcome.revision,
                 "finish_closed": true,

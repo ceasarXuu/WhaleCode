@@ -247,9 +247,17 @@ pub(crate) fn complete_last_running_work_then_end(
 pub(crate) fn close_finish_with_no_active_work(
     current: &TaskSpaceMap,
     expected_revision: Revision,
+    finish_node_id: NodeId,
     final_summary: String,
 ) -> Result<Commit, Rejection> {
     require_revision(current, expected_revision)?;
+    if current.finish_node_id != finish_node_id {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::FinishIdMismatch,
+            finish_node_id,
+        ));
+    }
     validate_terminal_state(current, &final_summary)?;
     let revision = next_revision(current)?;
     commit(

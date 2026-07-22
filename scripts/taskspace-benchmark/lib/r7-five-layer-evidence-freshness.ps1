@@ -77,7 +77,7 @@ function Get-R7RolloutControlSummary {
         control_calls = 0; v2_results = 0; control_failures = 0; preflight_failures = 0
         ordinary_gate_failures = 0; committed_controls = 0; state_commit_count = 0
         initialize_commits_with_node_bound = 0; rejected_without_commit = 0
-        complete_then_continue_calls = 0; complete_last_running_work_then_end_calls = 0
+        complete_then_continue_calls = 0; finish_map_calls = 0
         transition_node_calls = 0; read_map_calls = 0; bind_node_calls = 0
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -100,7 +100,7 @@ function Get-R7RolloutControlSummary {
                 $arguments = ([string]$raw.arguments) | ConvertFrom-Json -Depth 100
                 switch ([string]$arguments.action) {
                     "complete_then_continue" { $summary.complete_then_continue_calls++ }
-                    "complete_last_running_work_then_end" { $summary.complete_last_running_work_then_end_calls++ }
+                    "finish_map" { $summary.finish_map_calls++ }
                     "transition_node" { $summary.transition_node_calls++ }
                     "read_map" { $summary.read_map_calls++ }
                     "bind_node" { $summary.bind_node_calls++ }
@@ -250,7 +250,7 @@ function Test-R7FiveLayerEvidenceFreshness {
         control_calls = 0; v2_results = 0; control_failures = 0; preflight_failures = 0
         ordinary_gate_failures = 0; committed_controls = 0; state_commit_count = 0
         initialize_commits_with_node_bound = 0; rejected_without_commit = 0
-        complete_then_continue_calls = 0; complete_last_running_work_then_end_calls = 0
+        complete_then_continue_calls = 0; finish_map_calls = 0
         transition_node_calls = 0; read_map_calls = 0; bind_node_calls = 0
     }
     foreach ($runRootInput in $RunRoots) {
@@ -351,7 +351,7 @@ function Test-R7FiveLayerEvidenceFreshness {
             "h4_observability.state_commit_count" = $totals.state_commit_count
             "h6_direct_actions.nested_transition_calls" = $totals.transition_node_calls
             "h6_direct_actions.direct_complete_then_continue_calls" = $totals.complete_then_continue_calls
-            "h6_direct_actions.direct_complete_last_running_work_then_end_calls" = $totals.complete_last_running_work_then_end_calls
+            "h6_direct_actions.direct_finish_map_calls" = $totals.finish_map_calls
             "h7_binding_feedback.read_map_calls" = $totals.read_map_calls
             "h7_binding_feedback.redundant_bind_calls" = $totals.bind_node_calls
         }

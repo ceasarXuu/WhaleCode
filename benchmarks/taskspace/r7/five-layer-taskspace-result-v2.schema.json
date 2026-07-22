@@ -16,8 +16,7 @@
         "unblock_node",
         "rework_node",
         "complete_then_continue",
-        "complete_last_running_work_then_end",
-        "close_finish_with_no_active_work",
+        "finish_map",
         "expand_nodes",
         "read_map",
         "read_output_ref",
@@ -120,13 +119,14 @@
           {
             "type": "object",
             "properties": {
-              "kind": {"enum": ["complete_last_running_work_then_end", "close_finish_with_no_active_work"]},
+              "kind": {"const": "finish_map"},
+              "terminal_state": {"enum": ["last_running_work", "no_active_work_ready_finish"]},
               "map_id": {"type": "string"},
               "finish_closed": {"const": true},
               "root_closed": {"const": true},
               "revision": {"type": "integer", "minimum": 0}
             },
-            "required": ["kind", "map_id", "finish_closed", "root_closed", "revision"],
+            "required": ["kind", "terminal_state", "map_id", "finish_closed", "root_closed", "revision"],
             "additionalProperties": false
           },
           {

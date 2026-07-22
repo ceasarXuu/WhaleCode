@@ -138,7 +138,7 @@ function New-SideFixture {
             }) (Join-Path $artifactDir "map-management-summary.json")
         Write-Json ([pscustomobject]@{
                 taskspace_control_count = 3
-                action_counts = [pscustomobject]@{ initialize_map = 1; transition_node = 1; close_finish_with_no_active_work = 1 }
+                action_counts = [pscustomobject]@{ initialize_map = 1; transition_node = 1; finish_map = 1 }
                 control_failure_count = 1
                 control_protocol_failure_count = 0; control_state_failure_count = 0; nested_action_failure_count = 1
                 read_map_request_count = 2; read_map_completion_count = 2; read_map_failure_count = 0
@@ -209,7 +209,7 @@ function New-SideFixture {
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"; call_id = "terminal-failure-control"
-                    arguments = (@{ action = "close_finish_with_no_active_work"; expected_revision = 3; active_work_status = "none"; finish_status = "ready"; final_summary = "Rejected candidate" } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "finish_map"; expected_revision = 3; terminal_state = "no_active_work_ready_finish"; terminal_node_id = "finish"; final_summary = "Rejected candidate" } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call_output"; call_id = "terminal-failure-control"
@@ -223,7 +223,7 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
-                    arguments = (@{ action = "close_finish_with_no_active_work"; expected_revision = 3; active_work_status = "none"; finish_status = "ready"; final_summary = "done" } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "finish_map"; expected_revision = 3; terminal_state = "no_active_work_ready_finish"; terminal_node_id = "finish"; final_summary = "done" } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "done" }) } }
         )
@@ -258,7 +258,7 @@ $completeArgs = @{
     required_next_call = "apply_patch"
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
-    action = "complete_last_running_work_then_end"; expected_revision = 4; current_node_id = "plan"; other_incomplete_work_status = "none"; finish_status = "pending"; final_summary = "Agent final"
+    action = "finish_map"; expected_revision = 4; terminal_state = "last_running_work"; terminal_node_id = "plan"; final_summary = "Agent final"
 } | ConvertTo-Json -Compress -Depth 10
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
@@ -285,9 +285,8 @@ Assert-True ($cadence.initialize_continuation_count -eq 1) "init continuation wa
 Assert-True ($cadence.mutation_continuation_count -eq 1) "mutation continuation was not observed"
 Assert-True ($cadence.bind_continuation_count -eq 0) "unexpected standalone bind continuation was observed"
 Assert-True ($cadence.complete_handoff_count -eq 1 -and $cadence.complete_handoff_continuation_count -eq 1) "atomic handoff was not observed"
-Assert-True ($cadence.complete_terminal_count -eq 1 -and $cadence.standalone_complete_count -eq 0) "atomic terminal or standalone completion count is incorrect"
+Assert-True ($cadence.finish_map_count -eq 1 -and $cadence.finish_map_last_running_work_count -eq 1 -and $cadence.finish_map_ready_finish_count -eq 0 -and $cadence.standalone_complete_count -eq 0) "finish_map state counts or standalone completion count is incorrect"
 Assert-True ($cadence.state_only_control_count -eq 1) "state-only control count is incorrect"
-Assert-True ($cadence.close_finish_with_no_active_work_count -eq 0) "close_finish_with_no_active_work should not be counted for complete_last_running_work_then_end"
 Assert-True ($cadence.direct_tool_mixed_response_count -eq 3) "control continuation siblings were not observed as top-level calls"
 Assert-True ($cadence.continuation_declaration_count -eq 3) "top-level continuation declarations were not counted"
 Assert-True ($cadence.continuation_satisfied_count -eq 3 -and $cadence.continuation_violation_count -eq 0) "top-level continuation siblings were not paired correctly"

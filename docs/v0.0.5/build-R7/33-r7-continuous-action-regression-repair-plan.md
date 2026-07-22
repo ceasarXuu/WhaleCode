@@ -36,8 +36,7 @@ Standard 模式、普通 Tool handler、权限、sandbox、approval、hook、MCP
 | `initialize_map` | 第一个真实动作的 `taskspace_action` | 否 |
 | `bind_node` | 该节点第一个真实动作的 `taskspace_action` | 否 |
 | `complete_then_continue` | 后继节点第一个真实动作的 `taskspace_action` | 否 |
-| `complete_last_running_work_then_end` | 终态 `taskspace_control` | 是 |
-| `close_finish_with_no_active_work` | 仅在 Finish 已 Ready 且没有 active Work 时使用的终态 `taskspace_control` | 是 |
+| `finish_map` | 终态 `taskspace_control`；用 `terminal_state` 区分最后 Running Work 与无 active Work 的 Ready Finish | 是 |
 
 `mutate_graph`、`block_node`、`unblock_node`、`rework_node`、`expand_nodes`、`read_map` 和
 `read_output_ref` 仍是独立 Map 操作。Runtime 不根据命令、Patch、reasoning 或任务内容选择节点、补动作或改写交接。
@@ -180,3 +179,16 @@ Agent 已拥有 `verify` Running 事实，失败原因不是状态反馈丢失�
 - L2 `taskspace-core-v2.6` 给出相同的互斥状态决策，避免宏观协议与 Tool 合同脱节；
 - Runtime 继续只校验 canonical state，不动态删减 schema、不自动代选动作、不根据任务语义改写调用；
 - 终态 operation、回放识别和性能观测统一使用 `close_finish_with_no_active_work`，使误选与合法专用闭合可直接审计。
+
+第三轮的 3 次复验全部在 `verify` Running 时先选择参数更短的 Ready-Finish action，并伪造 `none/ready`，收到
+`finish_not_ready` 后才改用正确 action。由此确认继续增加两个分支的说明或固定枚举不能消除竞争入口。
+
+第四轮收敛 Agent 可见合同，不改变底层 DAG 事务：
+
+- 两个并列终态 action 合并为唯一 `finish_map`，旧 action 不保留解析入口；
+- `terminal_state` 只允许 `last_running_work` 或 `no_active_work_ready_finish`，两种状态共用
+  `expected_revision`、`terminal_node_id` 和 `final_summary` 的同一字段形状；
+- 前一种状态下 `terminal_node_id` 必须是最后 Running Work；后一种状态下必须是唯一 Ready Finish；
+- Runtime 只按 Agent 显式提交的 `terminal_state` 机械分派既有事务，并校验 revision、节点身份和 canonical state，
+  不动态改变 schema、不代选状态、不修复参数；
+- L2 升级为 `taskspace-core-v2.7`，性能 observer 分别记录 `finish_map` 总数和两个 terminal-state 分支。

@@ -10,6 +10,7 @@ use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceTerminalState;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::handlers::taskspace_control_args::with_argument_error_canonical_revision;
 use crate::tools::handlers::taskspace_control_output::control_commit_observation;
@@ -188,33 +189,34 @@ async fn execute_action(
         } => {
             lifecycle_actions::rework_node(session, turn, call_id, expected_revision, node_id).await
         }
-        TaskSpaceControlArgs::CompleteLastRunningWorkThenEnd {
+        TaskSpaceControlArgs::FinishMap {
             expected_revision,
-            current_node_id,
+            terminal_state,
+            terminal_node_id,
             final_summary,
-        } => {
-            lifecycle_actions::complete_last_running_work_then_end(
-                session,
-                turn,
-                call_id,
-                expected_revision,
-                current_node_id,
-                final_summary,
-            )
-            .await
-        }
-        TaskSpaceControlArgs::CloseFinishWithNoActiveWork {
-            expected_revision,
-            final_summary,
-        } => {
-            lifecycle_actions::close_finish_with_no_active_work(
-                session,
-                turn,
-                expected_revision,
-                final_summary,
-            )
-            .await
-        }
+        } => match terminal_state {
+            TaskSpaceTerminalState::LastRunningWork => {
+                lifecycle_actions::finish_map_from_last_running_work(
+                    session,
+                    turn,
+                    call_id,
+                    expected_revision,
+                    terminal_node_id,
+                    final_summary,
+                )
+                .await
+            }
+            TaskSpaceTerminalState::NoActiveWorkReadyFinish => {
+                lifecycle_actions::finish_map_from_ready_finish(
+                    session,
+                    turn,
+                    expected_revision,
+                    terminal_node_id,
+                    final_summary,
+                )
+                .await
+            }
+        },
         TaskSpaceControlArgs::ExpandNodes { node_ids } => {
             graph_actions::expand_nodes(session, turn, call_id, node_ids).await
         }

@@ -389,8 +389,12 @@ pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
                 && has_text(step, "next_node_id")
                 && step.get("revision").is_some()
         }
-        Some("close_finish_with_no_active_work" | "complete_last_running_work_then_end") => {
+        Some("finish_map") => {
             has_text(step, "map_id")
+                && matches!(
+                    step.get("terminal_state").and_then(JsonValue::as_str),
+                    Some("last_running_work" | "no_active_work_ready_finish")
+                )
                 && step.get("revision").is_some()
                 && step.get("finish_closed") == Some(&JsonValue::Bool(true))
                 && step.get("root_closed") == Some(&JsonValue::Bool(true))
@@ -464,7 +468,8 @@ mod tests {
             "revision": 3,
         });
         let terminal = serde_json::json!({
-            "kind": "complete_last_running_work_then_end",
+            "kind": "finish_map",
+            "terminal_state": "last_running_work",
             "map_id": "map-1",
             "revision": 4,
             "finish_closed": true,

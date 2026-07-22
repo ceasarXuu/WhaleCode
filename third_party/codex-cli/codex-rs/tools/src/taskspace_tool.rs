@@ -218,70 +218,40 @@ fn complete_then_continue_schema() -> JsonSchema {
     )
 }
 
-fn complete_last_running_work_then_end_schema() -> JsonSchema {
+fn finish_map_schema() -> JsonSchema {
     described_object_variant(
-        "complete_last_running_work_then_end",
+        "finish_map",
         BTreeMap::from([
             ("expected_revision".into(), revision_schema()),
-            ("current_node_id".into(), JsonSchema::string(None)),
             (
-                "other_incomplete_work_status".into(),
+                "terminal_state".into(),
                 JsonSchema::string_enum(
-                    vec![json!("none")],
+                    vec![
+                        json!("last_running_work"),
+                        json!("no_active_work_ready_finish"),
+                    ],
                     Some(
-                        "Caller-declared exact current state: every Work node other than current_node_id is completed."
+                        "Choose last_running_work when terminal_node_id is the only incomplete Work and is Running while Finish is Pending. Choose no_active_work_ready_finish when terminal_node_id is the unique Ready Finish and every Work is completed."
                             .into(),
                     ),
                 ),
             ),
             (
-                "finish_status".into(),
-                JsonSchema::string_enum(
-                    vec![json!("pending")],
-                    Some("Caller-declared exact current state: the unique Finish is Pending on the current Work node.".into()),
-                ),
+                "terminal_node_id".into(),
+                JsonSchema::string(Some(
+                    "The last Running Work node for last_running_work, or the unique Ready Finish node for no_active_work_ready_finish."
+                        .into(),
+                )),
             ),
             ("final_summary".into(), JsonSchema::string(None)),
         ]),
         vec![
             "expected_revision".into(),
-            "current_node_id".into(),
-            "other_incomplete_work_status".into(),
-            "finish_status".into(),
+            "terminal_state".into(),
+            "terminal_node_id".into(),
             "final_summary".into(),
         ],
-        "Use only when current_node_id is the last Running Work and every other Work node is completed. Declare other_incomplete_work_status=none and finish_status=pending, then atomically complete the current Work, close the unique Finish and Root, and store the exact Agent-authored final summary.",
-    )
-}
-
-fn close_finish_with_no_active_work_schema() -> JsonSchema {
-    described_object_variant(
-        "close_finish_with_no_active_work",
-        BTreeMap::from([
-            ("expected_revision".into(), revision_schema()),
-            (
-                "active_work_status".into(),
-                JsonSchema::string_enum(
-                    vec![json!("none")],
-                    Some("Caller-declared exact current state: no Work node is active.".into()),
-                ),
-            ),
-            (
-                "finish_status".into(),
-                JsonSchema::string_enum(
-                    vec![json!("ready")],
-                    Some("Caller-declared exact current state: the unique Finish is Ready.".into()),
-                ),
-            ),
-            ("final_summary".into(), JsonSchema::string(None)),
-        ]),
-        vec![
-            "expected_revision".into(),
-            "active_work_status".into(),
-            "finish_status".into(),
-            "final_summary".into(),
-        ],
-        "Use only when the exact current state already has no active Work and the unique Finish is Ready. Declare active_work_status=none and finish_status=ready, then close the Finish and Root. This action does not complete a Work node; when the final Work node is Running, use complete_last_running_work_then_end instead.",
+        "Close the Map from one explicitly declared terminal lifecycle state. last_running_work atomically completes terminal_node_id, Finish, and Root. no_active_work_ready_finish closes the named Ready Finish and Root without completing a Work node. The Runtime validates the declared node and exact canonical state; it never selects the state.",
     )
 }
 
@@ -312,8 +282,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
             "rework_node",
             "Return a completed Work node to Ready because the Agent has decided that more work is required.",
         ),
-        complete_last_running_work_then_end_schema(),
-        close_finish_with_no_active_work_schema(),
+        finish_map_schema(),
     ];
     variants.extend(simple_action_schemas());
     let parameters = object_any_of(variants, "One mechanical TaskSpace operation.");

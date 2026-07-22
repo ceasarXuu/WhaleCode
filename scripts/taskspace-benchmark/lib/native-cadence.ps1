@@ -17,8 +17,9 @@ function Get-TaskspaceNativeCadenceFacts {
             initialize_continuation_count = $null; mutation_continuation_count = $null
             bind_continuation_count = $null; state_only_control_count = $null
             complete_handoff_count = $null; complete_handoff_continuation_count = $null
-            complete_terminal_count = $null; standalone_complete_count = $null
-            close_finish_with_no_active_work_count = $null; nonterminal_transition_without_follow_up_count = $null
+            finish_map_count = $null; finish_map_last_running_work_count = $null
+            finish_map_ready_finish_count = $null; standalone_complete_count = $null
+            nonterminal_transition_without_follow_up_count = $null
             terminal_candidate_count = $null
             terminal_extra_request_count = $null
             control_argument_parse_error_count = $null
@@ -41,9 +42,10 @@ function Get-TaskspaceNativeCadenceFacts {
     $bindContinuationCount = 0
     $completeHandoffCount = 0
     $completeHandoffContinuationCount = 0
-    $completeTerminalCount = 0
+    $finishMapCount = 0
+    $finishMapLastWorkCount = 0
     $standaloneCompleteCount = 0
-    $closeReadyFinishCount = 0
+    $finishMapReadyFinishCount = 0
     $controlArgumentParseErrors = 0
     foreach ($line in [System.IO.File]::ReadLines($rolloutPath)) {
         $rowIndex++
@@ -97,10 +99,14 @@ function Get-TaskspaceNativeCadenceFacts {
                         if ($action -eq "complete_then_continue") { $completeHandoffContinuationCount++ }
                     }
                     if ($action -eq "complete_then_continue") { $completeHandoffCount++ }
-                    if ($action -eq "complete_last_running_work_then_end") { $completeTerminalCount++ }
+                    if ($action -eq "finish_map") {
+                        $finishMapCount++
+                        $terminalStateProperty = $arguments.PSObject.Properties["terminal_state"]
+                        if ($null -ne $terminalStateProperty -and [string]$terminalStateProperty.Value -eq "last_running_work") { $finishMapLastWorkCount++ }
+                        if ($null -ne $terminalStateProperty -and [string]$terminalStateProperty.Value -eq "no_active_work_ready_finish") { $finishMapReadyFinishCount++ }
+                    }
                     if ($action -eq "transition_node" -and $transition -eq "complete") { $standaloneCompleteCount++ }
-                    if ($action -eq "close_finish_with_no_active_work") { $closeReadyFinishCount++ }
-                    if ($action -in @("close_finish_with_no_active_work", "complete_last_running_work_then_end")) {
+                    if ($action -eq "finish_map") {
                         $candidateProperty = $arguments.PSObject.Properties["final_summary"]
                         $hasTerminalCandidate = $null -ne $candidateProperty -and -not [string]::IsNullOrWhiteSpace([string]$candidateProperty.Value)
                     }
@@ -116,7 +122,7 @@ function Get-TaskspaceNativeCadenceFacts {
                 }
                 $nestedActionCount = [int]$nestedActionCount + [int]$nestedCount
                 if (-not $hasContinuation) { $stateOnlyControlCount++ }
-                if ($action -in @("close_finish_with_no_active_work", "complete_last_running_work_then_end")) { $lastFinishIndex = $rowIndex }
+                if ($action -eq "finish_map") { $lastFinishIndex = $rowIndex }
                 if ($hasTerminalCandidate) { $terminalCandidateCount++ }
             }
                 $current.Add([pscustomobject]@{
@@ -188,10 +194,11 @@ function Get-TaskspaceNativeCadenceFacts {
         bind_continuation_count = [int]$bindContinuationCount
         complete_handoff_count = [int]$completeHandoffCount
         complete_handoff_continuation_count = [int]$completeHandoffContinuationCount
-        complete_terminal_count = [int]$completeTerminalCount
+        finish_map_count = [int]$finishMapCount
+        finish_map_last_running_work_count = [int]$finishMapLastWorkCount
+        finish_map_ready_finish_count = [int]$finishMapReadyFinishCount
         standalone_complete_count = [int]$standaloneCompleteCount
         state_only_control_count = [int]$stateOnlyControlCount
-        close_finish_with_no_active_work_count = [int]$closeReadyFinishCount
         nonterminal_transition_without_follow_up_count = [int]$nonterminalTransitionWithoutFollowUp
         terminal_candidate_count = [int]$terminalCandidateCount
         terminal_extra_request_count = $terminalExtra

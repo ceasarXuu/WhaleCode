@@ -216,7 +216,8 @@ fn graph_and_terminal_steps_have_required_identity() {
             "status": "running",
         }),
         serde_json::json!({
-            "kind": "close_finish_with_no_active_work",
+            "kind": "finish_map",
+            "terminal_state": "no_active_work_ready_finish",
             "map_id": "map-1",
             "revision": 5,
             "finish_closed": true,
