@@ -321,6 +321,64 @@
 - Close reason:
   - not closed
 
+## Hypothesis H-009: 两个并列终态入口允许先选业务动作再补写虚假状态
+- Status: confirmed
+- Parent: P-002
+- Claim: 即使两个终态 action 都要求调用方声明互斥状态，顶层 `anyOf` 仍先向模型暴露两个竞争的业务动作。
+  `close_finish_with_no_active_work` 参数更少，且固定枚举允许模型在没有核对 Map 时直接补写 `none/ready`；因此
+  状态声明没有成为选择条件，只成为错误动作选定后的配套参数。
+- Layer: tool-contract-shape
+- Factor relation: single
+- Depends on:
+  - H-007
+  - H-008
+- Rationale:
+  - 第三轮已将普通动作改为 `complete_last_running_work_then_end`，并要求显式提交“其他未完成 Work 为零”和
+    “Finish Pending”。如果问题只是不知道最后 Work 状态，Agent 在 `verify` Running 时应直接选择该动作。
+- Falsifiable predictions:
+  - If true: 多次运行会在完整可见 `verify` Running 状态下稳定先选参数更短的 Ready-Finish 分支，并同时填入
+    与真实状态矛盾的固定枚举；收到 canonical state 拒绝后会立即改用正确动作。
+  - If false: 首次选择会随机分布，或错误调用前缺少 active owner/revision，或拒绝后仍无法选择正确动作。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 区分状态事实缺失与并列 action 入口的选择竞争。
+  - Signal: 每次终态调用的 owner、arguments、canonical revision、拒绝 violation 和下一次终态调用。
+  - Capture method: 读取第三轮三次 paired Docker rollout 的 `taskspace_control` function call/output 事件。
+  - Event name or marker:
+    - `taskspace.complete_terminal_rejected`
+    - `taskspace.complete_terminal_committed`
+  - Correlation keys:
+    - pair-001/right
+    - pair-002/left
+    - pair-003/right
+    - revision 4
+    - owner `verify`
+  - Differentiates from:
+    - projection 或反馈丢失
+    - Runtime 接受非法状态
+    - 普通终态动作仍缺少 last-Work 前态
+  - Supports if:
+    - 三次都由 `verify` owner 先提交虚假 `none/ready`，均收到 `finish_not_ready`，随后均正确完成 `verify` 并终结。
+  - Refutes if:
+    - owner/revision 不完整，或首次调用已使用正确动作，或错误分支被非法提交。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 将终态候选、状态失败和 terminal-state 分支计数保留为长期 benchmark 观测。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-017
+- Conclusion: 第三轮三次运行都在 owner=`verify`、revision=4 时先调用
+  `close_finish_with_no_active_work(active_work_status=none, finish_status=ready)`，均被 canonical state 以
+  `finish_not_ready` 拒绝；下一次终态调用均为正确的 `complete_last_running_work_then_end` 并提交成功。
+  这是稳定的合同选择问题，不是上下文或状态机问题。两个状态互斥的终态操作应收敛为一个 Agent 可见动作，
+  由等形的显式 `terminal_state` 判别前态；Runtime 只机械分派并继续校验真实状态。
+- Repair design readiness: ready
+- Next step: 用单一 `finish_map` 替换两个 Agent 可见 action；要求 `terminal_state` 的两个分支具有相同字段形状，
+  并删除旧 action 解析入口，不保留兼容分支。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
 ## Hypothesis H-001: 失败由上下文或 Map 反馈丢失导致
 - Status: refuted
 - Parent: P-001
@@ -836,3 +894,36 @@
 - Interpretation: 第二次修复证明把互斥状态写进专用分支有效，但普通终态分支仍以不完整的 `active_work` 状态
   暴露。必须继续把“唯一剩余 Work”写进 discriminator 和参数形状，而不能依赖 Runtime 拒绝后教学。
 - Time: 2026-07-23 00:45
+
+## Evidence E-017: 第三轮三次均先伪造 Ready-Finish 状态再纠正
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: fix-validation-and-diagnostic
+- Source: `target/r7-terminal-action-contract-v3/single-file-fast-fix/20260723-005132-870`
+- Prediction or plan link:
+  - H-009 检查两个并列终态入口是否允许模型先按业务意图选择较短分支，再补写与真实 Map 矛盾的固定枚举。
+- Matched signal:
+  - 三次 TaskSpace 均 solved，且调用前 owner 均为 `verify`、canonical revision 均为 4。
+  - 三次首次终态调用均为
+    `close_finish_with_no_active_work(active_work_status=none, finish_status=ready)`，均收到
+    `TASKSPACE_LIFECYCLE_INVARIANT / finish_not_ready`，revision 保持 4。
+  - 三次随后均调用
+    `complete_last_running_work_then_end(current_node_id=verify, other_incomplete_work_status=none,
+    finish_status=pending)` 并在 revision 5 原子提交 Work、Finish 与 Root 闭合。
+  - pair-002 在准确拒绝后额外 `read_map` 一次；另外两次无需重读即可纠正，进一步排除状态事实丢失。
+- Correlation keys:
+  - pair-001/right call `call_00_aj78oLJ9Ukgqf9hK0uvc5825`
+  - pair-002/left call `call_00_mOAaxKYhFGEFO6r86ot54764`
+  - pair-003/right call `call_00_8GrulFNStnK7dc5pShcX5686`
+- Raw content:
+  ```text
+  first terminal choice: close_finish_with_no_active_work = 3/3
+  submitted state: active_work_status=none, finish_status=ready
+  canonical rejection: finish_not_ready = 3/3
+  corrected action: complete_last_running_work_then_end(current_node_id=verify) = 3/3
+  illegal state commit: 0/3
+  ```
+- Interpretation: Tool 结果和 Map 状态正确进入上下文，Runtime 也忠实拒绝了非法动作。失败来自 Agent 可见
+  Tool schema 同时提供两个竞争终态 action，且固定枚举可以在选定较短分支后机械补齐，未真正迫使模型先判断状态。
+- Time: 2026-07-23 01:15
