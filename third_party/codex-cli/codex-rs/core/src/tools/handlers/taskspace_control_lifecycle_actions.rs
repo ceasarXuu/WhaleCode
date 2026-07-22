@@ -156,7 +156,7 @@ pub(super) async fn complete_then_continue(
     })
 }
 
-pub(super) async fn complete_active_work_then_end(
+pub(super) async fn complete_last_running_work_then_end(
     session: &Session,
     turn: &TurnContext,
     call_id: &str,
@@ -167,12 +167,12 @@ pub(super) async fn complete_active_work_then_end(
     let source_event_ref = source_event_ref(
         session,
         call_id,
-        "complete_active_work_then_end",
+        "complete_last_running_work_then_end",
         expected_revision,
     )
     .await?;
     let outcome = session
-        .complete_active_work_then_end_action_map(
+        .complete_last_running_work_then_end_action_map(
             turn,
             expected_revision,
             current_node_id.clone(),
@@ -191,7 +191,10 @@ pub(super) async fn complete_active_work_then_end(
                 summary_bytes = outcome.final_summary.len(),
                 "taskspace.complete_terminal_committed"
             );
-            Ok(terminal_execution("complete_active_work_then_end", outcome))
+            Ok(terminal_execution(
+                "complete_last_running_work_then_end",
+                outcome,
+            ))
         }
         Err(FinishActionMapError::Rejected(error)) => {
             tracing::warn!(
@@ -205,7 +208,7 @@ pub(super) async fn complete_active_work_then_end(
         }
         Err(error) => Err(terminal_failure(
             session,
-            "complete_active_work_then_end",
+            "complete_last_running_work_then_end",
             expected_revision,
             error,
         )

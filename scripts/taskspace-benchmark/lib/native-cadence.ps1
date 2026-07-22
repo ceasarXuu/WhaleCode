@@ -97,10 +97,10 @@ function Get-TaskspaceNativeCadenceFacts {
                         if ($action -eq "complete_then_continue") { $completeHandoffContinuationCount++ }
                     }
                     if ($action -eq "complete_then_continue") { $completeHandoffCount++ }
-                    if ($action -eq "complete_active_work_then_end") { $completeTerminalCount++ }
+                    if ($action -eq "complete_last_running_work_then_end") { $completeTerminalCount++ }
                     if ($action -eq "transition_node" -and $transition -eq "complete") { $standaloneCompleteCount++ }
                     if ($action -eq "close_finish_with_no_active_work") { $closeReadyFinishCount++ }
-                    if ($action -in @("close_finish_with_no_active_work", "complete_active_work_then_end")) {
+                    if ($action -in @("close_finish_with_no_active_work", "complete_last_running_work_then_end")) {
                         $candidateProperty = $arguments.PSObject.Properties["final_summary"]
                         $hasTerminalCandidate = $null -ne $candidateProperty -and -not [string]::IsNullOrWhiteSpace([string]$candidateProperty.Value)
                     }
@@ -116,7 +116,7 @@ function Get-TaskspaceNativeCadenceFacts {
                 }
                 $nestedActionCount = [int]$nestedActionCount + [int]$nestedCount
                 if (-not $hasContinuation) { $stateOnlyControlCount++ }
-                if ($action -in @("close_finish_with_no_active_work", "complete_active_work_then_end")) { $lastFinishIndex = $rowIndex }
+                if ($action -in @("close_finish_with_no_active_work", "complete_last_running_work_then_end")) { $lastFinishIndex = $rowIndex }
                 if ($hasTerminalCandidate) { $terminalCandidateCount++ }
             }
                 $current.Add([pscustomobject]@{

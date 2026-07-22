@@ -20,7 +20,7 @@ pub(crate) enum FinishActionMapError {
 }
 
 impl Session {
-    pub(crate) async fn complete_active_work_then_end_action_map(
+    pub(crate) async fn complete_last_running_work_then_end_action_map(
         &self,
         turn_context: &TurnContext,
         expected_revision: u64,
@@ -32,7 +32,7 @@ impl Session {
             let state = self.state.lock().await;
             let mut candidate = state.action_map_runtime.clone();
             let (outcome, events) = candidate
-                .complete_active_work_then_end_for_main(
+                .complete_last_running_work_then_end_for_main(
                     self.conversation_id,
                     expected_revision,
                     current_node_id,
@@ -135,7 +135,7 @@ impl Session {
                 MapRuntimeEvent::GraphRevisionCommitted(event)
                     if matches!(
                         event.operation.as_str(),
-                        "close_finish_with_no_active_work" | "complete_active_work_then_end"
+                        "close_finish_with_no_active_work" | "complete_last_running_work_then_end"
                     ) && graph_revision.is_none() =>
                 {
                     graph_revision = Some(event);

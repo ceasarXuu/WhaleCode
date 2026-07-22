@@ -121,7 +121,7 @@ $result = [ordered]@{
             control_calls = 1; control_failures = 0; preflight_failures = 0; ordinary_gate_failures = 0
             committed_controls = 1; graph_revision_commits = 1; state_commit_count = 1
         }
-        h6_direct_actions = [ordered]@{ nested_transition_calls = 0; direct_complete_then_continue_calls = 0; direct_complete_active_work_then_end_calls = 0 }
+        h6_direct_actions = [ordered]@{ nested_transition_calls = 0; direct_complete_then_continue_calls = 0; direct_complete_last_running_work_then_end_calls = 0 }
         h7_binding_feedback = [ordered]@{ read_map_calls = 0; redundant_bind_calls = 0 }
     }
     runs = @([ordered]@{

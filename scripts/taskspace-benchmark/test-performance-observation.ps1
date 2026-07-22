@@ -258,7 +258,7 @@ $completeArgs = @{
     required_next_call = "apply_patch"
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
-    action = "complete_active_work_then_end"; expected_revision = 4; current_node_id = "plan"; final_summary = "Agent final"
+    action = "complete_last_running_work_then_end"; expected_revision = 4; current_node_id = "plan"; other_incomplete_work_status = "none"; finish_status = "pending"; final_summary = "Agent final"
 } | ConvertTo-Json -Compress -Depth 10
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
@@ -287,7 +287,7 @@ Assert-True ($cadence.bind_continuation_count -eq 0) "unexpected standalone bind
 Assert-True ($cadence.complete_handoff_count -eq 1 -and $cadence.complete_handoff_continuation_count -eq 1) "atomic handoff was not observed"
 Assert-True ($cadence.complete_terminal_count -eq 1 -and $cadence.standalone_complete_count -eq 0) "atomic terminal or standalone completion count is incorrect"
 Assert-True ($cadence.state_only_control_count -eq 1) "state-only control count is incorrect"
-Assert-True ($cadence.close_finish_with_no_active_work_count -eq 0) "close_finish_with_no_active_work should not be counted for complete_active_work_then_end"
+Assert-True ($cadence.close_finish_with_no_active_work_count -eq 0) "close_finish_with_no_active_work should not be counted for complete_last_running_work_then_end"
 Assert-True ($cadence.direct_tool_mixed_response_count -eq 3) "control continuation siblings were not observed as top-level calls"
 Assert-True ($cadence.continuation_declaration_count -eq 3) "top-level continuation declarations were not counted"
 Assert-True ($cadence.continuation_satisfied_count -eq 3 -and $cadence.continuation_violation_count -eq 0) "top-level continuation siblings were not paired correctly"

@@ -36,7 +36,7 @@ Standard 模式、普通 Tool handler、权限、sandbox、approval、hook、MCP
 | `initialize_map` | 第一个真实动作的 `taskspace_action` | 否 |
 | `bind_node` | 该节点第一个真实动作的 `taskspace_action` | 否 |
 | `complete_then_continue` | 后继节点第一个真实动作的 `taskspace_action` | 否 |
-| `complete_active_work_then_end` | 终态 `taskspace_control` | 是 |
+| `complete_last_running_work_then_end` | 终态 `taskspace_control` | 是 |
 | `close_finish_with_no_active_work` | 仅在 Finish 已 Ready 且没有 active Work 时使用的终态 `taskspace_control` | 是 |
 
 `mutate_graph`、`block_node`、`unblock_node`、`rework_node`、`expand_nodes`、`read_map` 和
@@ -147,7 +147,7 @@ sequence barrier、terminal closure、compact/resume 回归、Standard schema �
 ### 5.3 独立残留观测
 
 三次 TaskSpace 中有两次在 `verify` 仍为 Running 时先选择当时名为 `finish_end` 的专用动作，被现有硬状态约束准确拒绝后改用
-`complete_active_work_then_end`；另一次直接选择正确动作。此时 Patch、测试和 Map revision 已全程同步，因此该现象不再能
+`complete_then_end`；另一次直接选择正确动作。此时 Patch、测试和 Map revision 已全程同步，因此该现象不再能
 由 H-003 的静默漂移解释。它属于终态 Tool action 选择的独立问题，不在本次修复中通过 Runtime 猜测或自动改写。
 
 ## 6. 完成结论
@@ -158,19 +158,25 @@ H-003、H-004 和 H-005 的结构根因已经消除：每个 TaskSpace 普通动
 
 FLA-4 可以从当前 carrier 基线继续，但不得重新引入 sibling、中央 nested action carrier 或 Runtime 语义控制。
 
-## 7. H-006/H-007 终态动作合同修复
+## 7. H-006/H-007/H-008 终态动作合同修复
 
 FLA-3.5 验证暴露出一个独立的 L2/L4 合同歧义：最终 Work 仍为 Running 时，Agent 经常把原先的
-`finish_end` 当成通用结束动作，而不是选择能够同时完成当前 Work 的 `complete_active_work_then_end`。工具结果完整且状态机拒绝
+`finish_end` 当成通用结束动作，而不是选择当时能够同时完成当前 Work 的 `complete_then_end`。工具结果完整且状态机拒绝
 准确，问题不在反馈丢失，也不应由 Runtime 替 Agent 选择动作。
 
 第一轮把专用动作改为 `close_ready_finish` 并补充 L2 状态决策，三次运行仍全部先误选该动作。Trace 证明
 Agent 已拥有 `verify` Running 事实，失败原因不是状态反馈丢失，而是顶层 action discriminator 仍按“关闭任务”
-业务意图产生更强匹配。第二轮保持既有状态机不变，只进一步收敛 Agent 可见合同：
+业务意图产生更强匹配。第二轮将普通终态动作改为 `complete_active_work_then_end`，专用动作改为
+`close_finish_with_no_active_work` 并要求后者声明精确状态。5 次扩展运行不再误选专用动作，但其中 1 次在
+`fix` Running、`verify` Pending 时过早选择普通终态动作，证明 `active_work` 仍没有表达“唯一剩余 Work”。
 
-- 最终 Work 仍 Running 的动作命名为 `complete_active_work_then_end`，并要求 `current_node_id`；
+第三轮保持既有状态机不变，只进一步收敛 Agent 可见合同：
+
+- 最终 Work 仍 Running 的动作命名为 `complete_last_running_work_then_end`，并要求 `current_node_id`、
+  `other_incomplete_work_status=none` 与 `finish_status=pending`；
 - 只适用于“Finish 已 Ready 且没有 active Work”的动作命名为 `close_finish_with_no_active_work`，并要求调用方显式提交
-  `active_work_status=none` 与 `finish_status=ready`；`finish_end`、`complete_then_end`、`close_ready_finish` 均不保留兼容入口；
-- L2 `taskspace-core-v2.5` 给出相同的互斥状态决策，避免宏观协议与 Tool 合同脱节；
+  `active_work_status=none` 与 `finish_status=ready`；`finish_end`、`complete_then_end`、`close_ready_finish`、
+  `complete_active_work_then_end` 均不保留兼容入口；
+- L2 `taskspace-core-v2.6` 给出相同的互斥状态决策，避免宏观协议与 Tool 合同脱节；
 - Runtime 继续只校验 canonical state，不动态删减 schema、不自动代选动作、不根据任务语义改写调用；
 - 终态 operation、回放识别和性能观测统一使用 `close_finish_with_no_active_work`，使误选与合法专用闭合可直接审计。

@@ -218,20 +218,39 @@ fn complete_then_continue_schema() -> JsonSchema {
     )
 }
 
-fn complete_active_work_then_end_schema() -> JsonSchema {
+fn complete_last_running_work_then_end_schema() -> JsonSchema {
     described_object_variant(
-        "complete_active_work_then_end",
+        "complete_last_running_work_then_end",
         BTreeMap::from([
             ("expected_revision".into(), revision_schema()),
             ("current_node_id".into(), JsonSchema::string(None)),
+            (
+                "other_incomplete_work_status".into(),
+                JsonSchema::string_enum(
+                    vec![json!("none")],
+                    Some(
+                        "Caller-declared exact current state: every Work node other than current_node_id is completed."
+                            .into(),
+                    ),
+                ),
+            ),
+            (
+                "finish_status".into(),
+                JsonSchema::string_enum(
+                    vec![json!("pending")],
+                    Some("Caller-declared exact current state: the unique Finish is Pending on the current Work node.".into()),
+                ),
+            ),
             ("final_summary".into(), JsonSchema::string(None)),
         ]),
         vec![
             "expected_revision".into(),
             "current_node_id".into(),
+            "other_incomplete_work_status".into(),
+            "finish_status".into(),
             "final_summary".into(),
         ],
-        "Use when the final Work node is still Running. Atomically complete that Work node, close the unique Finish and Root, and store the exact Agent-authored final summary.",
+        "Use only when current_node_id is the last Running Work and every other Work node is completed. Declare other_incomplete_work_status=none and finish_status=pending, then atomically complete the current Work, close the unique Finish and Root, and store the exact Agent-authored final summary.",
     )
 }
 
@@ -262,7 +281,7 @@ fn close_finish_with_no_active_work_schema() -> JsonSchema {
             "finish_status".into(),
             "final_summary".into(),
         ],
-        "Use only when the exact current state already has no active Work and the unique Finish is Ready. Declare active_work_status=none and finish_status=ready, then close the Finish and Root. This action does not complete a Work node; when the final Work node is Running, use complete_active_work_then_end instead.",
+        "Use only when the exact current state already has no active Work and the unique Finish is Ready. Declare active_work_status=none and finish_status=ready, then close the Finish and Root. This action does not complete a Work node; when the final Work node is Running, use complete_last_running_work_then_end instead.",
     )
 }
 
@@ -293,7 +312,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
             "rework_node",
             "Return a completed Work node to Ready because the Agent has decided that more work is required.",
         ),
-        complete_active_work_then_end_schema(),
+        complete_last_running_work_then_end_schema(),
         close_finish_with_no_active_work_schema(),
     ];
     variants.extend(simple_action_schemas());

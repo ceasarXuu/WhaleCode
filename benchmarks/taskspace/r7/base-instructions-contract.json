@@ -26,8 +26,8 @@
     }
   },
   "taskspace_core_protocol": {
-    "version": "taskspace-core-v2.5",
-    "sha256": "1f45e18d84c9d0310519256f85eebb20d4ee56e1f7752d481b20d985cb43a66e",
+    "version": "taskspace-core-v2.6",
+    "sha256": "1faf64648dbf31237d1eabc0153470023b48f225df5daf9d6d313fd05e3f035d",
     "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
     "wire_role": "system",
     "message_index": 1,
@@ -143,6 +143,17 @@
       "core_protocol_sha256": "1f45e18d84c9d0310519256f85eebb20d4ee56e1f7752d481b20d985cb43a66e",
       "status": "production_active",
       "change": "encode mutually exclusive terminal states in action names and required state declarations"
+    },
+    {
+      "version": "2.0.7",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.6",
+      "core_protocol_sha256": "1faf64648dbf31237d1eabc0153470023b48f225df5daf9d6d313fd05e3f035d",
+      "status": "production_active",
+      "change": "require the terminal Work action to declare that no other incomplete Work remains"
     }
   ],
   "diagnostic_validation": {

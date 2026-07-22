@@ -13,7 +13,7 @@ enum Action {
     BlockNode,
     UnblockNode,
     ReworkNode,
-    CompleteActiveWorkThenEnd,
+    CompleteLastRunningWorkThenEnd,
     CloseFinishWithNoActiveWork,
     ExpandNodes,
     ReadOutputRef,
@@ -47,11 +47,15 @@ struct NodeTransitionArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CompleteActiveWorkThenEndArgs {
+struct CompleteLastRunningWorkThenEndArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
     current_node_id: String,
+    #[serde(rename = "other_incomplete_work_status")]
+    _other_incomplete_work_status: OtherIncompleteWorkStatus,
+    #[serde(rename = "finish_status")]
+    _finish_status: PendingFinishStatus,
     final_summary: String,
 }
 
@@ -63,7 +67,19 @@ enum ActiveWorkStatus {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum FinishStatus {
+enum OtherIncompleteWorkStatus {
+    None,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum PendingFinishStatus {
+    Pending,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ReadyFinishStatus {
     Ready,
 }
 
@@ -76,7 +92,7 @@ struct CloseFinishWithNoActiveWorkArgs {
     #[serde(rename = "active_work_status")]
     _active_work_status: ActiveWorkStatus,
     #[serde(rename = "finish_status")]
-    _finish_status: FinishStatus,
+    _finish_status: ReadyFinishStatus,
     final_summary: String,
 }
 
@@ -185,9 +201,9 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 node_id,
             })
         }
-        Action::CompleteActiveWorkThenEnd => {
-            let parsed = deserialize_arguments::<CompleteActiveWorkThenEndArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::CompleteActiveWorkThenEnd {
+        Action::CompleteLastRunningWorkThenEnd => {
+            let parsed = deserialize_arguments::<CompleteLastRunningWorkThenEndArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::CompleteLastRunningWorkThenEnd {
                 expected_revision: parsed.expected_revision,
                 current_node_id: parsed.current_node_id,
                 final_summary: parsed.final_summary,

@@ -255,7 +255,7 @@ fn rejected_complete_handoff_preserves_the_entire_prestate() {
 }
 
 #[test]
-fn complete_active_work_then_end_closes_last_work_root_and_finish_in_one_revision() {
+fn complete_last_running_work_then_end_closes_last_work_root_and_finish_in_one_revision() {
     let (mut state, owner, _) = initialized_state(
         &[("work", "Implement and verify")],
         &[("root", "work"), ("work", "finish")],
@@ -264,7 +264,7 @@ fn complete_active_work_then_end_closes_last_work_root_and_finish_in_one_revisio
     let summary = "Implemented and verified.".to_string();
 
     let (outcome, events) = state
-        .complete_active_work_then_end_for_main(
+        .complete_last_running_work_then_end_for_main(
             owner,
             2,
             "work".into(),
@@ -278,7 +278,7 @@ fn complete_active_work_then_end_closes_last_work_root_and_finish_in_one_revisio
     assert!(matches!(
         events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(graph))
-            if graph.operation == "complete_active_work_then_end" && graph.revision == 3
+            if graph.operation == "complete_last_running_work_then_end" && graph.revision == 3
     ));
     let map = state
         .snapshot()
@@ -308,7 +308,7 @@ fn complete_active_work_then_end_closes_last_work_root_and_finish_in_one_revisio
 }
 
 #[test]
-fn rejected_complete_active_work_then_end_reports_live_revision_and_preserves_prestate() {
+fn rejected_complete_last_running_work_then_end_reports_live_revision_and_preserves_prestate() {
     let (mut state, owner, _) = initialized_state(
         &[("first", "First branch"), ("second", "Second branch")],
         &[
@@ -322,7 +322,7 @@ fn rejected_complete_active_work_then_end_reports_live_revision_and_preserves_pr
     let before = state.snapshot();
 
     let error = state
-        .complete_active_work_then_end_for_main(
+        .complete_last_running_work_then_end_for_main(
             owner,
             2,
             "first".into(),

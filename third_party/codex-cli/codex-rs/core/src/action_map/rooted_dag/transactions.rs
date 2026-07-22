@@ -219,7 +219,7 @@ pub(crate) fn complete_then_bind(
     )
 }
 
-pub(crate) fn complete_active_work_then_end(
+pub(crate) fn complete_last_running_work_then_end(
     current: &TaskSpaceMap,
     expected_revision: Revision,
     current_node_id: NodeId,

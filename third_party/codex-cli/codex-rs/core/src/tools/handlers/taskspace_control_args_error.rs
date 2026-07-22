@@ -118,7 +118,7 @@ fn supported_action(action: &str) -> bool {
             | "unblock_node"
             | "rework_node"
             | "complete_then_continue"
-            | "complete_active_work_then_end"
+            | "complete_last_running_work_then_end"
             | "close_finish_with_no_active_work"
             | "expand_nodes"
             | "read_map"

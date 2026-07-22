@@ -317,7 +317,7 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 | control | `unblock_node` | Return a blocked Work node to the mechanically derived lifecycle state after its blocker is cleared. | expected_revision、node_id | 节点回到 pending/ready |
 | control | `rework_node` | Reopen a completed Work node because the Agent has decided more work is required. | expected_revision、node_id | 节点进入 rework/ready |
 | ordinary carrier | `complete_then_continue` | Atomically complete the active Work node, bind one Agent-selected Ready successor, and execute its first real action. | expected_revision、current_node_id、next_node_id | 当前 completed；后继 running；当前 ordinary Tool 同 call 执行 |
-| control | `complete_active_work_then_end` | Use when the final Work node is still Running. Atomically complete that Work node, close the unique Finish and Root, and store the exact Agent-authored final summary. | expected_revision、current_node_id、final_summary | 完成最终 Work，Map 进入 terminal |
+| control | `complete_last_running_work_then_end` | Use only when the current node is the last Running Work and every other Work node is completed. | expected_revision、current_node_id、other_incomplete_work_status=`none`、finish_status=`pending`、final_summary | 完成最终 Work，Map 进入 terminal |
 | control | `close_finish_with_no_active_work` | Use only when the exact current state already has no active Work and Finish Ready. This action does not complete a Work node. | expected_revision、active_work_status=`none`、finish_status=`ready`、final_summary | 闭合已 Ready 的 Finish，Map 进入 terminal |
 | control | `expand_nodes` | Mark previously folded node details for full inclusion in future projections. It does not change graph lifecycle state. | node_ids | 更新显示状态，不改变任务判断 |
 | control | `read_map` | Return the current full rendered Map and its canonical revision. | action | 无写入 |
@@ -767,9 +767,11 @@ Agent 调用 `read_map` 后，projection 作为 Tool result 追加。若随后�
 {
   "name": "taskspace_control",
   "arguments": {
-    "action": "complete_active_work_then_end",
+    "action": "complete_last_running_work_then_end",
     "expected_revision": 3,
     "current_node_id": "verify",
+    "other_incomplete_work_status": "none",
+    "finish_status": "pending",
     "final_summary": "修复订阅状态提交后的缓存失效路径，并新增覆盖状态更新的回归测试；定向测试通过。"
   }
 }

@@ -188,12 +188,12 @@ async fn execute_action(
         } => {
             lifecycle_actions::rework_node(session, turn, call_id, expected_revision, node_id).await
         }
-        TaskSpaceControlArgs::CompleteActiveWorkThenEnd {
+        TaskSpaceControlArgs::CompleteLastRunningWorkThenEnd {
             expected_revision,
             current_node_id,
             final_summary,
         } => {
-            lifecycle_actions::complete_active_work_then_end(
+            lifecycle_actions::complete_last_running_work_then_end(
                 session,
                 turn,
                 call_id,
