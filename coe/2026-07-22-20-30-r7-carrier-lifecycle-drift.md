@@ -1,7 +1,7 @@
 # Problem P-001: R7 action carrier 生命周期与实际工作错位
 - Status: fixed
 - Created: 2026-07-22 20:30
-- Updated: 2026-07-22 21:30
+- Updated: 2026-07-22 21:55
 - Objective: 解释 FLA-3.5 后 Agent 偶发过早终结以及更频繁的节点推进滞后，区分上下文丢失、Tool 能力缺位、Runtime 顺序错误与 Agent/Tool 合同结构问题。
 - Symptoms:
   - `single-file-fast-fix` 原始运行在 `fix` 节点过早调用最终 `complete_then_end`，被 Runtime 拒绝后纠正。
@@ -43,7 +43,7 @@
 # Problem P-002: verify 运行时 Agent 偶发误选 finish_end
 - Status: open
 - Created: 2026-07-22 21:30
-- Updated: 2026-07-22 21:30
+- Updated: 2026-07-22 21:55
 - Objective: 解释生命周期已同步时，Agent 为何仍在最后一个 Work 节点 Running 状态下选择只适用于 Finish Ready 的 `finish_end`。
 - Symptoms:
   - 三次修复后 TaskSpace 运行中两次先调用 `finish_end`，收到 `finish_not_ready` 后改用 `complete_then_end`。
@@ -54,18 +54,19 @@
 - Impact:
   - 产生 1 次或 2 次额外 provider request；不破坏 Map，Runtime 拒绝事实准确。
 - Known facts:
-  - 三次 Patch、测试和 revision 均全程同步，H-003 不再复现。
+  - 五次 Patch、测试和 revision 均全程同步，H-003 不再复现。
   - `finish_end` 与 `complete_then_end` 的 schema 描述分别准确陈述适用前置状态。
 - Ruled out:
   - 不是 carrier 字段遗漏造成的 Map 滞后。
   - 不是 Runtime 接受了非法终态。
 - Fix criteria:
   - 在不引入 Runtime 语义判断、动态 schema 或缓存破坏的前提下，使 Agent 稳定选择与当前机械状态匹配的终态动作。
-- Current conclusion: 这是与 P-001 独立的终态 action 选择问题；现有证据只证明它仍然存在，尚不足以确认是命名显著性、L2/L4 重复、action 集合组织还是其他机制导致。
+- Current conclusion: 这是与 P-001 独立的 L2/L4 终态合同可辨识性问题。两个前置状态互斥的 action 在静态 schema 中始终同时暴露，L2 没有给出终态状态到 action 的决策规则；`finish_end` 名称更像通用结束动作且参数更少，使 Agent 在业务工作已完成但 Work 机械状态仍 Running 时稳定偏向错误 action。
 - Related hypotheses:
   - H-006
 - Resolution basis:
-  - E-011。
+  - H-006。
+  - E-011、E-014。
 - Close reason:
   - not closed
 
@@ -161,9 +162,9 @@
   - fixed and verified by E-012
 
 ## Hypothesis H-006: 两个终态 action 的选择合同仍存在显著性歧义
-- Status: open
+- Status: confirmed
 - Parent: P-002
-- Claim: 当测试成功后，`finish_end` 的名称或位置比 `complete_then_end` 更容易被模型选择，即使当前 Work 仍为 Running；现有静态描述不足以稳定映射当前机械状态到正确 action。
+- Claim: L4 在所有状态下同时暴露两个前置状态互斥、但名称语义重叠的终态 action；L2 又没有给出从当前机械状态到两者的明确选择规则。Agent 因而容易把业务语义上的“任务完成”映射为名字更像通用结束动作、参数也更少的 `finish_end`，即使最后一个 Work 仍为 Running。
 - Layer: tool-contract-selection
 - Factor relation: single
 - Depends on:
@@ -193,12 +194,13 @@
   - Instrumentation status: existing
   - Instrumentation lifecycle:
     - 保留 provider trace 和 control rejection 日志。
-- Evidence gate: not satisfied
+- Evidence gate: satisfied
 - Related evidence:
   - E-011
-- Conclusion: 尚未确认。
-- Repair design readiness: not ready
-- Next step: 用户确认是否将该独立问题进入诊断阶段后，再做静态合同审计和重复实验。
+  - E-014
+- Conclusion: 五次相同终态中四次在完整 transition 反馈后误选 `finish_end`，一次正确选择 `complete_then_end`。错误前 reasoning 均把“测试通过”直接表述为“关闭任务”，说明 Agent 依据业务完成语义选择 action；拒绝后又能准确识别 Work 仍 Running 并纠正，排除了状态事实被扭曲或 Runtime 状态错误。静态 schema 始终同时暴露两个互斥动作，`finish_end` 缺少 `current_node_id` 且名称像通用结束动作；正确动作虽然排在它之前，但 L2 没有终态决策规则。结构根因是终态 Tool 合同的可辨识性不足，而不是 Agent 不知道测试结果或 Map 链路丢失。
+- Repair design readiness: ready; requires product decision on terminal action naming/shape
+- Next step: 在不采用动态 schema、不让 Runtime 自动选择 action 的前提下，收敛终态 action 的名称和 L2/L4 决策合同。
 - Blocker:
   - none
 - Close reason:
@@ -622,3 +624,33 @@
   ```
 - Interpretation: 最终生产合同接线保持本次结构修复；P-002 的终态误选可稳定地与 carrier 漂移区分。
 - Time: 2026-07-22 21:40
+
+## Evidence E-014: 终态误选发生在状态事实完整但 action 合同可辨识性不足时
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: diagnostic-trace-and-contract
+- Source: 五次 TaskSpace rollout、L2 core protocol 与 provider-visible `taskspace_control` schema
+- Prediction or plan link:
+  - 区分状态反馈缺失、action 顺序偏差和终态合同选择歧义。
+- Matched signal:
+  - 五次验证 Tool 输出都明确提交 `complete_then_continue(... -> verify/run_tests)`、revision 4 和对应
+    `node_bound` 事件；4/5 随后 reasoning 表达“tests passed, close task”并调用 `finish_end`。准确拒绝后 Agent
+    立即说明最后 Work 仍 Running，并改用 `complete_then_end`。唯一成功首选也处于相同状态。
+  - L4 每次同时暴露 `complete_then_end` 和 `finish_end`；前者需要 `current_node_id`，后者参数更少且名称更像
+    通用结束动作。正确动作位于 schema 前面，排除“仅因顺序靠后”。L2 只要求显式关闭 Finish，没有写明终态
+    状态到 action 的选择规则。
+- Correlation keys:
+  - formal repeats 1-3
+  - final smoke
+  - post-commit smoke
+- Raw content:
+  ```text
+  reasoning: All 3 tests passed. Let me close the task properly.
+  selected: finish_end(expected_revision=4)
+  exact rejection: finish_not_ready
+  correction: complete_then_end(current_node_id=run_tests, expected_revision=4)
+  ```
+- Interpretation: 事实链没有丢失或扭曲；问题是两个状态互斥动作被无差别同时暴露，且名称、参数形状和 L2
+  说明没有让 Agent 稳定区分“完成 Running Work 后终结”与“只关闭已经 Ready 的 Finish”。
+- Time: 2026-07-22 21:55
