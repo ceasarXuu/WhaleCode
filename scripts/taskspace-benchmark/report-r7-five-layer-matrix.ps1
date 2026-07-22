@@ -1,0 +1,188 @@
+param(
+    [Parameter(Mandatory = $true)][string]$RunRoot
+)
+
+$ErrorActionPreference = "Stop"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+if (-not [IO.Path]::IsPathRooted($RunRoot)) { $RunRoot = Join-Path $repoRoot $RunRoot }
+$manifestPath = Join-Path $RunRoot "run-manifest.json"
+$manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+
+function Get-Value {
+    param($Object, [string]$Name, $Default = $null)
+    if ($null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name) { return $Object.$Name }
+    $Default
+}
+
+function Get-Median {
+    param([object[]]$Values)
+    $numbers = @($Values | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ } | Sort-Object)
+    if ($numbers.Count -eq 0) { return $null }
+    $middle = [Math]::Floor($numbers.Count / 2)
+    if ($numbers.Count % 2 -eq 1) { return $numbers[$middle] }
+    ($numbers[$middle - 1] + $numbers[$middle]) / 2
+}
+
+function Get-AggregateRow {
+    param([object[]]$Rows, [string]$Scope, [string]$Sample, [string]$Arm)
+    $requestTotal = ($Rows | Measure-Object -Property provider_requests -Sum).Sum
+    $inputTotal = ($Rows | Measure-Object -Property input_tokens -Sum).Sum
+    $cachedTotal = ($Rows | Measure-Object -Property cached_input_tokens -Sum).Sum
+    $uncachedTotal = ($Rows | Measure-Object -Property uncached_input_tokens -Sum).Sum
+    $outputTotal = ($Rows | Measure-Object -Property output_tokens -Sum).Sum
+    $wallTotal = ($Rows | Measure-Object -Property wall_time_ms -Sum).Sum
+    $request2Input = ($Rows | Measure-Object -Property request_2_plus_input_tokens -Sum).Sum
+    $request2Cached = ($Rows | Measure-Object -Property request_2_plus_cached_input_tokens -Sum).Sum
+    [pscustomobject]@{
+        scope = $Scope
+        sample = $Sample
+        arm = $Arm
+        runs = $Rows.Count
+        successes = @($Rows | Where-Object { [bool]$_.business_success }).Count
+        requests_total = $requestTotal
+        requests_mean = if ($Rows.Count) { [Math]::Round($requestTotal / $Rows.Count, 3) } else { $null }
+        requests_median = Get-Median @($Rows.provider_requests)
+        input_tokens_total = $inputTotal
+        input_tokens_mean = if ($Rows.Count) { [Math]::Round($inputTotal / $Rows.Count, 3) } else { $null }
+        input_tokens_median = Get-Median @($Rows.input_tokens)
+        cached_input_tokens_total = $cachedTotal
+        uncached_input_tokens_total = $uncachedTotal
+        output_tokens_total = $outputTotal
+        output_tokens_mean = if ($Rows.Count) { [Math]::Round($outputTotal / $Rows.Count, 3) } else { $null }
+        output_tokens_median = Get-Median @($Rows.output_tokens)
+        request_2_plus_cache_hit_rate = if ($request2Input -gt 0) { [Math]::Round($request2Cached / $request2Input, 6) } else { $null }
+        wall_time_ms_total = $wallTotal
+        wall_time_ms_mean = if ($Rows.Count) { [Math]::Round($wallTotal / $Rows.Count, 3) } else { $null }
+        wall_time_ms_median = Get-Median @($Rows.wall_time_ms)
+        tool_calls_total = ($Rows | Measure-Object -Property ordinary_tools -Sum).Sum
+        failed_tools_total = ($Rows | Measure-Object -Property failed_tools -Sum).Sum
+        taskspace_control_total = ($Rows | Measure-Object -Property taskspace_control -Sum).Sum
+        control_failures_total = ($Rows | Measure-Object -Property control_failures -Sum).Sum
+        map_nodes_mean = [Math]::Round((($Rows | Measure-Object -Property map_nodes -Average).Average), 3)
+        map_edges_mean = [Math]::Round((($Rows | Measure-Object -Property map_edges -Average).Average), 3)
+    }
+}
+
+if ([string]$manifest.status -ne "completed") { throw "Matrix run is not completed: $($manifest.status)" }
+$expectedRuns = [int]$manifest.repeats_per_arm_per_sample * @($manifest.samples).Count * 4
+if ([int]$manifest.completed_run_count -ne $expectedRuns) { throw "Matrix run count is incomplete" }
+
+$rows = [Collections.Generic.List[object]]::new()
+$traceRuns = [Collections.Generic.List[object]]::new()
+$imageDigests = [Collections.Generic.List[string]]::new()
+foreach ($run in @($manifest.runs)) {
+    $observationPath = Join-Path ([string]$run.run_dir) "performance-observation.json"
+    if (-not (Test-Path -LiteralPath $observationPath -PathType Leaf)) {
+        & (Join-Path $PSScriptRoot "write-performance-observation.ps1") -RunRoot ([string]$run.run_dir) | Out-Null
+    }
+    $observation = Get-Content -Raw -Encoding UTF8 -LiteralPath $observationPath | ConvertFrom-Json -Depth 100
+    $actualRows = @($observation.rows | Where-Object { [string]$_.observation_status -eq "complete" -and [string]$_.logical_mode -eq [string]$run.logical_mode })
+    if ($actualRows.Count -ne 1) { throw "Expected one complete row for $($run.sample) repeat $($run.repeat) $($run.arm)" }
+    $row = $actualRows[0]
+    $request2Input = [double](Get-Value $row.cache "request_2_plus_cached_input_tokens" 0) + [double](Get-Value $row.cache "request_2_plus_uncached_input_tokens" 0)
+    $finishNode = @((Get-Value $row.map "nodes" @()) | Where-Object { [string]$_.role -eq "finish" } | Select-Object -First 1)
+    $resolvedPath = Join-Path ([string]$run.run_dir) "pair-001/manifest.resolved.json"
+    $resolved = Get-Content -Raw -Encoding UTF8 -LiteralPath $resolvedPath | ConvertFrom-Json -Depth 50
+    $imageDigests.Add([string]$resolved.container_image_digest)
+    $flat = [pscustomobject]@{
+        sample = [string]$run.sample
+        repeat = [int]$run.repeat
+        arm = [string]$run.arm
+        logical_mode = [string]$run.logical_mode
+        projection_policy = [string]$run.projection_policy
+        observation_status = [string]$row.observation_status
+        business_success = [bool]$row.result.business_success
+        agent_completion_status = [string]$row.result.agent_completion_status
+        provider_requests = [double](Get-Value $row.actions "provider_requests" 0)
+        ordinary_tools = [double](Get-Value $row.actions "ordinary_tools" 0)
+        failed_tools = [double](Get-Value $row.actions "failed_tools" 0)
+        taskspace_control = [double](Get-Value $row.actions "taskspace_control" 0)
+        control_failures = [double](Get-Value $row.actions "control_failures" 0)
+        input_tokens = [double](Get-Value $row.cost "input_tokens" 0)
+        cached_input_tokens = [double](Get-Value $row.cost "cached_input_tokens" 0)
+        uncached_input_tokens = [double](Get-Value $row.cost "uncached_input_tokens" 0)
+        output_tokens = [double](Get-Value $row.cost "output_tokens" 0)
+        wall_time_ms = [double](Get-Value $row.cost "wall_time_ms" 0)
+        request_2_plus_input_tokens = $request2Input
+        request_2_plus_cached_input_tokens = [double](Get-Value $row.cache "request_2_plus_cached_input_tokens" 0)
+        request_2_plus_cache_hit_rate = Get-Value $row.cache "request_2_plus_hit_rate"
+        cache_prefix_preserved_rate = Get-Value $row.cache "prefix_preserved_rate"
+        same_shape_zero_hit_count = [double](Get-Value $row.cache "same_shape_zero_hit_count" 0)
+        map_count = [double](Get-Value $row.map "map_count" 0)
+        map_nodes = [double](Get-Value $row.map "node_count" 0)
+        map_edges = [double](Get-Value $row.map "edge_count" 0)
+        map_open_leaves = [double](Get-Value $row.map "open_leaf_nodes" 0)
+        map_root_status = [string](Get-Value $row.map "root_task_status" "")
+        map_finish_status = if ($finishNode.Count) { [string]$finishNode[0].status } else { "" }
+        artifact_dir = [string]$row.artifact_dir
+        run_dir = [string]$run.run_dir
+    }
+    $rows.Add($flat)
+    $anomalies = [Collections.Generic.List[string]]::new()
+    if (-not $flat.business_success) { $anomalies.Add("scenario_failed") }
+    if ($flat.control_failures -gt 0) { $anomalies.Add("taskspace_control_failure") }
+    if ($flat.failed_tools -gt 0) { $anomalies.Add("ordinary_tool_failure") }
+    if ($flat.same_shape_zero_hit_count -gt 0) { $anomalies.Add("same_shape_zero_cache_hit") }
+    $traceRuns.Add([pscustomobject]@{
+            sample = $flat.sample
+            repeat = $flat.repeat
+            arm = $flat.arm
+            provider_requests = $flat.provider_requests
+            anomalies = @($anomalies)
+            observation_json = $observationPath
+            provider_wire_trace = Join-Path $flat.artifact_dir "provider-wire-trace.jsonl"
+            rollout = Join-Path $flat.artifact_dir "rollout.jsonl"
+            whale_exec = Join-Path $flat.artifact_dir "whale-exec.jsonl"
+        })
+}
+
+$uniqueImages = @($imageDigests | Sort-Object -Unique)
+if ($uniqueImages.Count -ne 1) { throw "Four-arm matrix used multiple Docker image digests" }
+$rowsPath = Join-Path $RunRoot "summary.csv"
+$rows | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $rowsPath
+
+$aggregates = [Collections.Generic.List[object]]::new()
+foreach ($group in @($rows | Group-Object sample, arm)) {
+    $first = @($group.Group)[0]
+    $aggregates.Add((Get-AggregateRow @($group.Group) "sample_arm" $first.sample $first.arm))
+}
+foreach ($group in @($rows | Group-Object arm)) {
+    $first = @($group.Group)[0]
+    $aggregates.Add((Get-AggregateRow @($group.Group) "all_samples_arm" "all" $first.arm))
+}
+$aggregatePath = Join-Path $RunRoot "aggregate.csv"
+$aggregates | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $aggregatePath
+
+$traceAnalysis = [ordered]@{
+    schema_version = 1
+    contract_id = [string]$manifest.contract_id
+    status = "initial_observation_only_no_policy_claim"
+    docker_image_digest = $uniqueImages[0]
+    run_count = $rows.Count
+    runs = @($traceRuns)
+}
+$tracePath = Join-Path $RunRoot "trace-analysis.json"
+[IO.File]::WriteAllText($tracePath, (($traceAnalysis | ConvertTo-Json -Depth 50) + "`n"), [Text.UTF8Encoding]::new($false))
+
+$overall = @($aggregates | Where-Object scope -eq "all_samples_arm")
+$lines = [Collections.Generic.List[string]]::new()
+$lines.Add("# R7 五层改造后四臂首轮观测")
+$lines.Add("")
+$lines.Add("- 运行：$($rows.Count)/$expectedRuns")
+$lines.Add("- Docker image：``$($uniqueImages[0])``")
+$lines.Add("- 结论边界：repeat 3 只用于发现回归和执行路径差异，不选择默认 policy。")
+$lines.Add("")
+$lines.Add("| arm | 成功 | request 总/均/中位 | input 总/均/中位 | cached | uncached | req2+ cache | output 总/均 | wall ms 总/均/中位 |")
+$lines.Add("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+foreach ($row in $overall) {
+    $cacheRate = if ($null -eq $row.request_2_plus_cache_hit_rate) { "N/A" } else { "{0:P2}" -f [double]$row.request_2_plus_cache_hit_rate }
+    $lines.Add("| $($row.arm) | $($row.successes)/$($row.runs) | $($row.requests_total) / $($row.requests_mean) / $($row.requests_median) | $($row.input_tokens_total) / $($row.input_tokens_mean) / $($row.input_tokens_median) | $($row.cached_input_tokens_total) | $($row.uncached_input_tokens_total) | $cacheRate | $($row.output_tokens_total) / $($row.output_tokens_mean) | $($row.wall_time_ms_total) / $($row.wall_time_ms_mean) / $($row.wall_time_ms_median) |")
+}
+$lines.Add("")
+$lines.Add("逐运行明细：``summary.csv``；分样本和全局聚合：``aggregate.csv``；trace 索引与初筛异常：``trace-analysis.json``。")
+$reportPath = Join-Path $RunRoot "report.md"
+$lines | Set-Content -Encoding UTF8 -LiteralPath $reportPath
+Write-Output "R7FiveLayerReport: $reportPath"
+Write-Output "R7FiveLayerSummary: $rowsPath"
+Write-Output "R7FiveLayerAggregate: $aggregatePath"
+Write-Output "R7FiveLayerTraceAnalysis: $tracePath"
