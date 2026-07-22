@@ -1,11 +1,11 @@
 # R7 TaskSpace 五层具体合同评审稿
 
 - Created: 2026-07-20
-- Document Version: 0.9
-- Status: L1-L3 production active; current L4 sibling contract is a regression baseline; FLA-3.5 replacement selected
+- Document Version: 1.0
+- Status: L1-L3 production active; FLA-3.5 action-carried lifecycle repair active
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
-- Implementation Status: FLA-0 至 FLA-3 已实施并验证；FLA-3.5 阻塞 FLA-4 至 FLA-8
+- Implementation Status: FLA-0 至 FLA-3.5 已实施并验证；FLA-4 为下一阶段
 - Authority: [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 与
   [`five-layer-contract-authority-v1.json`](../../../benchmarks/taskspace/r7/five-layer-contract-authority-v1.json)
 
@@ -23,10 +23,10 @@
 完整 schema 和实施验收以 authority manifest 与 `25` 号规格为准。若发生冲突，阶段必须停止并修正文档或
 权威 artifact，不能让实施者自行选择。
 
-> 2026-07-21 supersession：第 6 节的 `required_next_call + top-level sibling` schema 和示例仅记录当前生产
-> 回归基线，不再是待正式化的目标合同。目标连续动作合同及 CA-0 至 CA-6 见
-> [R7 连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md)。候选机器 schema 在 CA-2
-> probe 通过后冻结；在此之前不得篡改现行 authority artifact，也不得按本节示例继续扩展生产行为。
+> 2026-07-22 supersession：第 6 节的 `required_next_call + top-level sibling` schema 和调用示例仅保留为
+> H-003 历史复现材料，不代表当前生产合同。当前合同是普通动作 Tool 携带 `taskspace_transition`；旧字段、
+> missing-sibling preflight 和非终态独立 control 已删除。实现与结果见
+> [R7 连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)。
 
 ## 2. Agent 实际看到的总体结构
 
@@ -202,7 +202,7 @@ Use this loop for ordinary TaskSpace work:
 |---|---|---|
 | 初始化并开始真实动作 | 普通任务都需要的工作顺序 | L1 不讲动作时序；Tool 只讲调用合同 |
 | 独立调用可一起执行 | 避免把 TaskSpace 退化成一步一请求 | Runtime 不判断工具语义依赖 |
-| 完成并继续时携带后继真实动作 | 避免单独 transition request | L4 只校验 sibling 是否存在 |
+| 完成并继续时携带后继真实动作 | 避免单独 transition request | L4 由普通动作 Tool 的 transition 字段保证同一调用 |
 | 验证属于 Work graph | 防止把 verify 与 Finish 混为一体 | Runtime 不判断测试是否充分 |
 | 按 state_commit 和 revision 恢复 | 所有普通失败都需要 | Tool result 提供实际值，不教重规划 |
 
@@ -285,7 +285,7 @@ If reproduction and code inspection are tightly coupled in the actual task, comb
 Agent 自主判断需要时，调用现有文件读取工具打开 catalog path，正文作为普通 Tool result 返回。Runtime 不因为
 “任务看起来复杂”而自动加载，也不在 Agent 读取后再次注入 `<skill>`。
 
-## 6. L4 当前回归基线与已选替换方向
+## 6. L4 当前生产 carrier 与历史回归
 
 ### 6.1 当前 `taskspace_control` 顶层 description
 
@@ -304,26 +304,25 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 
 ### 6.3 当前 action-local 描述和字段
 
-下表记录当前生产 action 名。`bind_node` / `block_node` / `unblock_node` / `rework_node` 是删除旧
-`transition_node + transition` 重复判别后的选定结果，不是又增加一套状态机。所有分支当前属于同一个
-`taskspace_control`。
+下表记录当前生产 action。`initialize_map`、`bind_node`、`complete_then_continue` 只作为普通动作 Tool 的
+`taskspace_transition` 出现；其余独立 Map 操作仍属于 `taskspace_control`。
 
 | Tool | Action | Agent 可见描述 | 核心必填字段 | 成功副作用 |
 |---|---|---|---|---|
-| control | `initialize_map` | Create the initial rooted DAG, its unique Finish, and the first active Work binding. Emit the first real non-control action as the next top-level sibling in the same response. | root、initial_work_node、finish_identity、additional_work_nodes、edges、required_next_call | revision 0→1，初始 Work 进入 running |
+| ordinary carrier | `initialize_map` | Create the initial rooted DAG and execute this first real action under its initial binding. | root、initial_work_node、finish_identity、additional_work_nodes、edges | 初始化 Map；当前 ordinary Tool 同 call 执行 |
 | control | `mutate_graph` | Atomically add Work nodes or dependency edges and remove eligible edges from the current Map. It does not choose or bind a node. | expected_revision、add_nodes、add_edges、remove_edges | revision +1；图结构原子变更 |
-| control | `bind_node` | Bind one Agent-selected Ready Work node before its first ordinary action. Emit that real action as the next top-level sibling. | expected_revision、node_id、required_next_call | 目标节点进入 running 并成为 binding |
+| ordinary carrier | `bind_node` | Bind one Agent-selected Ready Work node and execute this node's first real action. | expected_revision、node_id | 目标节点进入 running；当前 ordinary Tool 同 call 执行 |
 | control | `block_node` | Mark a Work node blocked. It does not select an alternative path. | expected_revision、node_id | 节点进入 blocked |
 | control | `unblock_node` | Return a blocked Work node to the mechanically derived lifecycle state after its blocker is cleared. | expected_revision、node_id | 节点回到 pending/ready |
 | control | `rework_node` | Reopen a completed Work node because the Agent has decided more work is required. | expected_revision、node_id | 节点进入 rework/ready |
-| control | `complete_then_continue` | Atomically complete the active Work node and bind one Agent-selected Ready successor. Emit the successor's first real action as the next top-level sibling. | expected_revision、current_node_id、next_node_id、required_next_call | 当前 completed；后继 running；revision +1 |
+| ordinary carrier | `complete_then_continue` | Atomically complete the active Work node, bind one Agent-selected Ready successor, and execute its first real action. | expected_revision、current_node_id、next_node_id | 当前 completed；后继 running；当前 ordinary Tool 同 call 执行 |
 | control | `complete_then_end` | Atomically complete the final active Work node, close the unique Finish and Root, and store the exact Agent-authored final summary. | expected_revision、current_node_id、final_summary | Map 进入 terminal |
 | control | `finish_end` | Close a Map whose Finish is already Ready and no Work remains active. Store the exact Agent-authored final summary. | expected_revision、final_summary | Map 进入 terminal |
 | control | `expand_nodes` | Mark previously folded node details for full inclusion in future projections. It does not change graph lifecycle state. | node_ids | 更新显示状态，不改变任务判断 |
 | control | `read_map` | Return the current full rendered Map and its canonical revision. | action | 无写入 |
 | control | `read_output_ref` | Return an exact retained output range by reference. Select one discriminator branch for `head`、`tail`、`line_range` 或 `grep`. | output_ref + mode 对应字段 | 无写入 |
 
-### 6.4 当前 provider-visible schema 摘录与完整权威
+### 6.4 历史 sibling schema 摘录
 
 完整、可直接生成 provider Tool definition 的权威文件是
 [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)。
@@ -412,11 +411,10 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 }
 ```
 
-当前生产保留 `required_next_call`，并由 response preflight 机械检查真正的后续 top-level sibling；该形态
-只用于复现和对照 H-003。目标合同在 FLA-3.5 中让真实动作自身携带轻量 `taskspace_transition`，使单独非终态
-交接在 schema 中不可表达。候选通过后一次性删除当前字段与 preflight，不保留兼容路径。
+以上是 H-003 的历史回归 schema，仅用于解释根因。当前生产让真实动作自身携带轻量
+`taskspace_transition`；`required_next_call` 和 sibling preflight 已删除，不保留兼容路径。
 
-### 6.5 当前回归基线的组合调用示例
+### 6.5 历史 sibling 组合调用示例
 
 ```json
 [
@@ -488,7 +486,7 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 }
 ```
 
-这里不出现“现在请修改文件”或“建议运行测试”。后续动作由 Agent 已经发出的 sibling 或下一次语义决策决定。
+这里不出现“现在请修改文件”或“建议运行测试”。后续动作由 Agent 已提交的 carrier action 或下一次语义决策决定。
 
 ### 7.2 状态机拒绝
 
@@ -520,7 +518,7 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 `actual` 始终是 Runtime 观测到的 canonical 事实，`expected` 是调用者在输入中声明的条件；
 两者不得根据自然语言 message 的句式交换方向。
 
-### 7.3 当前回归基线的 Response preflight 拒绝
+### 7.3 历史回归基线的 Response preflight 拒绝
 
 ```json
 {
@@ -546,38 +544,24 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 }
 ```
 
-整个 batch 在执行前被拒绝，所以 `state_commit=false`。该示例只记录当前 sibling 回归基线；FLA-3.5 目标 schema
-不再允许单独非终态 transition，因此没有 missing-sibling 分支。
+整个 batch 在执行前被拒绝，所以 `state_commit=false`。该示例只记录旧 sibling 回归；当前 schema 不再允许
+单独非终态 transition，因此没有 missing-sibling 分支。
 
-### 7.4 目标 carrier 的交接已提交、普通工具随后失败
+### 7.4 carrier 的交接已提交、普通工具随后失败
 
-这是一个 provider call id 下的两个独立事实，不能合并成一条“整体失败”摘要，也不能伪造成两个不存在的 Tool calls。
-下面是 `Executed + Returned` 分支；完整和类型还包含 `RejectedBeforeCommit`、带 factual payload 的
-`CommittedNotExecuted`，以及 `Executed + Failed(FunctionCallErrorFact) | CancelledAfterStart(CancellationFact)`，
-不得为未返回分支伪造 Tool output。commit 原子失败使用 `CommitFailedNoState(TransactionFailureFact)`，必须证明
-revision/reservation 都未改变。`execution_started` 由任何 handler 工作前的 runtime handoff 事件定义，不按副作用
-猜测：
+这是同一个 provider call id 下的两个独立事实。当前实现先返回短 `TaskSpaceCarrierResultV1` 头，再原样附加
+普通 Tool 输出：
 
 ```text
-TaskSpaceCarrierOutcome {
-  transition_fact: {status: committed, committed_revision: 4, next_lease: implement, ...},
-  pre_hook_fact: {status: allowed, external_effects_possible: true, ...},
-  execution: Returned(Opaque({success: false, error: "patch context did not match", ...})),
-  post_hook_fact: Succeeded,
-  retention_fact: NotRequired,
-  delivery_fact: Delivered(...)
-}
+{"schema_version":"TaskSpaceCarrierResultV1",
+ "transition":{"status":"committed","state_commit":true,"canonical_revision":4},
+ "tool_dispatched":true}
+<原 Tool 失败输出保持不变>
 ```
 
-provider mapper 只为 transport 增加 factual transition item/frame，必须能逐载体恢复完全相同的 opaque Tool
-子载体；PostToolUse 看到不可变的原 Tool outcome，其自身失败是独立 `post_hook_fact`，不能替换 output。Agent
-能据此知道 binding 已切到 `implement`，但 Patch 没有发生。Runtime 不自动回滚 Map，也不替 Agent 决定重试
-还是修订节点。逐 wire 映射和 hash 公式由 FLA-3.5 CA-0 冻结，FLA-5 负责 conformance，不重新实现 transport。
-
-MCP 结果不直接压进通用 content-items。FLA-3.5 先冻结 `McpToolOutputV1`，同时保留带 source index 的有序
-policy-visible JSON block、presence-aware `structured_content`、`is_error`、`meta` 和明确的
-`sanitization_facts`；absent、显式 null、false/true 不能合并。完整结果先进入 retained output store，随后才允许
-按上下文底线截断并给引用；retention 或 provider delivery 失败是独立事实，不能覆盖原 Tool outcome。
+Agent 能据此知道 binding 已切换，但普通动作失败。Runtime 不自动回滚 Map，也不替 Agent 决定重试或修订节点。
+transition 失败时 `tool_dispatched=false`，普通 Tool 不进入执行链。FLA-5 再正式化全载体结果一致性，不在
+FLA-3.5 增加 prepare、reservation 或新的结果代数层。
 
 ### 7.5 截断读取
 
@@ -709,13 +693,15 @@ Agent 调用 `read_map` 后，projection 作为 Tool result 追加。若随后�
 修复订阅状态更新后缓存没有失效的问题，并补充回归测试。
 ```
 
-### 9.2 Agent 首次响应中的并列调用
+### 9.2 Agent 首次响应中的 carrier 调用
 
 ```json
-[
-  {
-    "name": "taskspace_control",
-    "arguments": {
+{
+  "name": "exec_command",
+  "arguments": {
+    "cmd": "rg -n \"subscription|cache|invalidate\" src tests",
+    "workdir": "/workspace",
+    "taskspace_transition": {
       "action": "initialize_map",
       "root": { "node_id": "subscription-cache-fix", "goal": "修复订阅状态更新后的缓存失效并验证" },
       "initial_work_node": { "node_id": "investigate", "goal": "定位状态更新与缓存失效链路" },
@@ -729,18 +715,10 @@ Agent 调用 `read_map` 后，projection 作为 Tool result 追加。若随后�
         { "from": "investigate", "to": "implement" },
         { "from": "implement", "to": "verify" },
         { "from": "verify", "to": "finish" }
-      ],
-      "required_next_call": "ordinary_tool"
-    }
-  },
-  {
-    "name": "exec_command",
-    "arguments": {
-      "cmd": "rg -n \"subscription|cache|invalidate\" src tests",
-      "workdir": "/workspace"
+      ]
     }
   }
-]
+}
 ```
 
 这体现三个关键行为：先建立 Map；初始化与第一个真实动作在同一请求；节点粒度按实际连贯工作划分，没有为了
@@ -749,46 +727,36 @@ Agent 调用 `read_map` 后，projection 作为 Tool result 追加。若随后�
 ### 9.3 调查完成后继续
 
 ```json
-[
-  {
-    "name": "taskspace_control",
-    "arguments": {
+{
+  "name": "apply_patch",
+  "arguments": {
+    "input": "*** Begin Patch\n<一个连贯 Patch>\n*** End Patch",
+    "taskspace_transition": {
       "action": "complete_then_continue",
       "expected_revision": 1,
       "current_node_id": "investigate",
-      "next_node_id": "implement",
-      "required_next_call": "apply_patch"
+      "next_node_id": "implement"
     }
-  },
-  {
-    "name": "apply_patch",
-    "arguments": "*** Begin Patch\n<一个连贯 Patch>\n*** End Patch"
   }
-]
+}
 ```
 
 ### 9.4 实现完成后进入验证
 
 ```json
-[
-  {
-    "name": "taskspace_control",
-    "arguments": {
+{
+  "name": "exec_command",
+  "arguments": {
+    "cmd": "cargo test subscription_cache",
+    "workdir": "/workspace",
+    "taskspace_transition": {
       "action": "complete_then_continue",
       "expected_revision": 2,
       "current_node_id": "implement",
-      "next_node_id": "verify",
-      "required_next_call": "ordinary_tool"
-    }
-  },
-  {
-    "name": "exec_command",
-    "arguments": {
-      "cmd": "cargo test subscription_cache",
-      "workdir": "/workspace"
+      "next_node_id": "verify"
     }
   }
-]
+}
 ```
 
 ### 9.5 最终闭合
@@ -886,7 +854,7 @@ Agent 使用旧 revision 3 调用 `complete_then_continue`，但 canonical revis
 
 ## 13. 落地方式
 
-L1-L5 当前生产内容和哈希记录在 authority manifest；L1-L3 已接入生产，L4/L5 的 sibling 形态只作为回归
-基线。实施按 `25` 号规格的 FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 逐阶段进行；每层的英文文本和 schema
+L1-L5 当前生产内容和哈希记录在 authority manifest；L1-L3 与 FLA-3.5 carrier 已接入生产，旧 sibling 形态只作
+历史回归材料。实施按 `25` 号规格的 FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 逐阶段进行；每层的英文文本和 schema
 进入对应版本化生产 artifact，本 Markdown 不作为 Runtime 读取源。
 任何一层发生实质改写，都要先更新权威 artifact 与 hash，再作为独立变量测试，不能一次性整体替换。

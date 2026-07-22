@@ -15,9 +15,9 @@
 > 独立对抗性闭环已通过，FLA-2 恢复为 `active_verified`，详见
 > [阻塞修复结果](30-r7-fla2-blocker-repair-result.md)。H-003 跨 top-level sibling 结构问题仍保持 open，作为后续
 > L4 carrier 能力问题独立处理，不得用额外 Runtime 语义干预掩盖。
-> 2026-07-21 决策更新：H-003 已确认为连续动作产品合同的结构性回归，不再留到 FLA-6 作为可选实验。
-> 新增 [FLA-3.5 连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)，阻塞 FLA-4、
-> R7 Phase E 及后续收口。当前 `required_next_call + top-level sibling` 只保留为可复现回归基线，不是目标合同。
+> 2026-07-22 实施更新：H-003 已由普通动作 Tool 的 `taskspace_transition` carrier 修复并通过定向回归、构建和
+> Docker paired smoke。旧 `required_next_call + top-level sibling` 路径已删除；FLA-4 可以从单一 carrier
+> 生产基线继续。
 
 ## 1.1 元数据
 
@@ -25,7 +25,7 @@
 Created: 2026-07-17
 Updated: 2026-07-21
 Version: v0.0.5 build-R7
-Status: Phase D.5 Completed / FLA-3.5 Selected Not Implemented / Phase E Blocked
+Status: Phase D.5 Completed / FLA-3.5 Active Verified / FLA-4 Next
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -523,14 +523,14 @@ base identity 分别 6/6、7/7 匹配 v1.0.0 合同。该单次结果只证明�
 同一个 provider tool call，Patch 正文仍保持原生顶层输入。Runtime 只校验并执行 Agent 明确给出的交接，
 不自动补动作、不推断下一节点，也不复制 ordinary Tool router/handler。
 
-实施必须先完成真实 provider、`apply_patch`、MCP、反馈保真和 barrier probe。probe 未满足 100% 结构合法、
-Patch exact 与输入输出保真时不得进入生产。完整 CA-0 至 CA-6、三臂验收、日志、回滚和冲突处理见
-[连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md)。
+当前实现由共享 Tool decorator/parser 和现有 router 完成，不建立候选、晋级或平行执行链。定向 Rust 回归、
+FLA-3.5 gate、CLI build 和单组 Docker paired smoke 已通过；完整实现边界与 trace 见
+[连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)。
 
 阶段关系：
 
-- 当前 sibling 方案是回归基线，不再由 FLA-4 正式化；
-- FLA-3.5 未 `active_verified` 前，FLA-4、Phase E 及后续阶段保持阻塞；
+- carrier 方案是当前唯一生产基线，FLA-4 不得重新正式化 sibling；
+- FLA-3.5 已 `active_verified`，H-003 不再阻塞 FLA-4；
 - 原 FLA-6 “移除 `required_next_call`”实验取消，该字段随回归修复一次性删除；
 - 历史 D.2-D.4 结果保持原样，继续分别证明连续动作收益和 Patch carrier 根因。
 

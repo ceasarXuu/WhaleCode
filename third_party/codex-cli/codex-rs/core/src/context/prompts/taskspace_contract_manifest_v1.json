@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.5",
+  "manifest_version": "1.0.6",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -13,7 +13,7 @@
     "carrier_repair_active",
     "carrier_result_repair_active_projection_baseline"
   ],
-  "activation_through": "FLA-3",
+  "activation_through": "FLA-3.5",
   "repair_activation": [
     "L4",
     "L5-result"
@@ -21,7 +21,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "29cf884454846784b86b8b2f676c34853b615b62d86308f656d8cd52a31bc10f"
+    "sha256": "572e7652a2a33ff222304348c4a389b42576a3269689b78e3011835d7dd30792"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -78,12 +78,14 @@
       "id": "L4",
       "owner": "taskspace_tool",
       "carrier": "provider_tools",
-      "runtime_status": "repair_active",
+      "runtime_status": "carrier_repair_active",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-          "sha256": "53cad3b85cbf739d755520cffc0e3be9c5fd303900b0a7c8b6de2de19e7800ce",
-          "activation_phase": "FLA-4"
+          "sha256": "8fd0a3845d894580d1d10fb19b7b9297428ab6336e5013b1daedbcbd575f07bf",
+          "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
+          "carrier_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
+          "transition_parser": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"
         }
       ]
     },
@@ -91,12 +93,12 @@
       "id": "L5",
       "owner": "taskspace_runtime",
       "carrier": "tool_result_and_projection",
-      "runtime_status": "result_repair_active_projection_baseline",
+      "runtime_status": "carrier_result_repair_active_projection_baseline",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
           "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8",
-          "activation_phase": "FLA-5"
+          "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",

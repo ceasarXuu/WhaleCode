@@ -1,8 +1,8 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 1.0
-- Status: Production active through FLA-3; FLA-3.5 continuous-action repair selected and blocking FLA-4 through FLA-8
+- Version: 1.1
+- Status: Production active through FLA-3.5; FLA-4 is next
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -39,9 +39,9 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | 层 | 当前生产基线 | 已选目标 | 当前状态 |
 |---|---|---|---|
 | L1 | TaskSpace Base v2.0.1；Map 段仅保留宏观模型，整份 Base 不携带 Tool wire 示例 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
-| L2 | `taskspace-core-v2.1` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
+| L2 | `taskspace-core-v2.2` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
-| L4 | 单个 `taskspace_control` + `required_next_call` sibling 回归基线 | FLA-3.5 真实动作 `taskspace_transition` carrier；候选 schema 在 CA-2 冻结 | 当前 `active_repair_verified`；替换目标 `selected_not_implemented` |
+| L4 | 普通动作 Tool 的 `taskspace_transition` carrier；纯 Map/read/terminal 使用 `taskspace_control` | FLA-4 在该单一基线上正式化描述与 input schema | `active_repair_verified` |
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_repair_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | 维持 [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json)，补生命周期判定 | `selected_baseline` |
 
@@ -63,9 +63,9 @@ repair active，其完整阶段 smoke、三臂比较和接受决策仍需按后�
 FLA-3 重复运行证明当前 L4 仍允许 Agent 先发单独 lifecycle control，再因缺少 sibling 被拒绝。连续动作已经在
 R5 J6 与 R7 D.2 证明有明确 request 和执行路径收益，不能降级成提示词建议或 FLA-6 可选实验。
 
-[连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md) 是 FLA-3.5 的权威入口。当前 v2
-schema、result 和 lifecycle oracle 在 CA-2 前保持不变，作为可复现回归基线；probe 通过后生成新候选 artifact，
-经 CA-5/CA-6 晋级后一次性替换，不保留双 parser、feature flag 或旧 session 兼容。
+[连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md) 是 FLA-3.5 的权威入口。修复已直接接入
+现有 Tool builder、router 和状态机路径；旧 sibling 字段与 preflight 已删除，不存在候选晋级、双 parser、
+feature flag 或旧 session 兼容路径。
 
 ## 3. Agent 实际看到的内容
 
@@ -111,29 +111,23 @@ Skill 失败不创建新的 TaskSpace Tool result。显式 mention 缺少快照�
 `skill_load_status=snapshot_missing, reason_code=TASKSPACE_SKILL_SNAPSHOT_MISSING` 及 name/version/hash/path/carrier，
 不追加“加载最新版”或下一步建议。
 
-### 3.3 L4 当前回归合同与替换目标
+### 3.3 L4 当前 carrier 合同
 
-当前 provider-visible 回归基线以
+独立 `taskspace_control` action 以
 [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)
-为准，不再由文档表格补完。当前 action 是：
+为准。三个非终态 lifecycle action 已从该 Tool 删除；当前独立 action 是：
 
 ```text
-initialize_map, mutate_graph, bind_node, block_node, unblock_node,
-rework_node, complete_then_continue, complete_then_end, finish_end,
+mutate_graph, block_node, unblock_node, rework_node, complete_then_end, finish_end,
 expand_nodes, read_map, read_output_ref
 ```
 
 `read_output_ref` 的 `head`、`tail`、`line_range`、`grep` 四种分支均已在 schema 中内联。`block_node` 和
 `rework_node` 不接收 `reason`，因为当前 Rooted DAG 领域模型没有该字段；五层重构不得暗中扩展领域状态。
-当 `apply_patch` 对当前模型不可见时，当前基线只允许从所有 `required_next_call` enum 中机械删除
-`apply_patch`，其他 schema 字节不得变化。该规则随 FLA-3.5 晋级一并删除。
-
-目标合同不再暴露可独立调用的 `initialize_map`、`bind_node`、`complete_then_continue` control 分支；由原生
-真实动作 schema 统一增加轻量 `taskspace_transition`。Patch 正文继续是 `apply_patch.input` 顶层字段，原 Tool
-router、权限、sandbox、hook、handler 和输出链保持唯一。完整参数、结果和 capability/collision 合同必须由
-CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
-`provider_schema_profile + capability_set_hash + tools_hash`。FLA-3.5 后的稳定单位是 immutable capability epoch：
-同一 epoch 内静态，工具发现或 provider capability 变化只能在 request 之间创建新 epoch；Map revision 不得触发。
+`initialize_map`、`bind_node`、`complete_then_continue` 只存在于普通动作 Tool 的轻量
+`taskspace_transition`。Patch 正文继续是 `apply_patch.input` 顶层字段，原 Tool router、权限、sandbox、hook、
+handler 和输出链保持唯一。Tool 身份继续包含
+`provider_schema_profile + capability_set_hash + tools_hash`；Map revision 不触发 schema 变化。
 
 ### 3.4 L5 的完整结果合同
 
@@ -147,7 +141,7 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
   `resource_failed`。
 - `actual` 是 Runtime 观测事实，`expected` 是调用合同要求或提交值；不得互换。
 - 错误不得携带 Agent 下一步动作建议。
-- 当前 sibling 基线中，control 成功后普通 Tool 失败时输出两份独立结果；Map 不回滚。
+- carrier transition 成功后普通 Tool 失败时保留两份事实；Map 不自动回滚。
 - 截断的 `line_range` 读取若仍有后续行，`continuation` 是一份可直接再次调用的完整
   `read_output_ref` 参数对象；其他 mode 或无剩余内容时为 `null`。
 
@@ -156,26 +150,15 @@ CA-1 probe 证明后在 CA-2 冻结。Tool 身份继续包含
 | code | status | 固定 message 模板 | 必须携带事实 |
 |---|---|---|---|
 | `TASKSPACE_INVALID_ARGUMENT` | `argument_failed` | `arguments do not match the selected action schema` | action、字段路径、submitted value、schema requirement |
-| `TASKSPACE_REQUIRED_SIBLING_MISSING` | `protocol_failed` | `{action} requires a following top-level {required_next_call} call in the same response` | 仅当前回归基线；FLA-3.5 晋级后删除 |
 | `TASKSPACE_STALE_REVISION` | `state_machine_failed` | `expected_revision does not match the current canonical revision` | submitted revision、canonical revision |
 | `TASKSPACE_GRAPH_INVARIANT` | `state_machine_failed` | `the submitted mutation violates a rooted DAG invariant` | invariant id、submitted node/edge ids、canonical revision |
 | `TASKSPACE_LIFECYCLE_INVARIANT` | `state_machine_failed` | `the submitted transition is not valid from the observed lifecycle state` | action、node id、observed status、allowed source statuses |
 | `TASKSPACE_OUTPUT_REF_NOT_FOUND` | `resource_failed` | `the requested retained output reference does not exist` | output_ref、requested range |
 | `TASKSPACE_RANGE_INVALID` | `argument_failed` | `the requested retained output range is invalid` | output_ref、submitted range、available range |
 
-当前 sibling 基线中的 control + ordinary Tool 使用两个 call id，因此是两份独立结果。FLA-3.5 单 carrier 目标
-改为一个 call id 内的和类型：commit 前拒绝返回 `RejectedBeforeCommit + NotDispatched`；commit 后、runtime
-handoff 前取消或启动失败返回带 `CancellationFact/FunctionCallErrorFact` 的 `CommittedNotExecuted`；handoff
-成功后返回 `Executed`，其 execution 是 `Returned(output) | Failed(FunctionCallErrorFact) |
-CancelledAfterStart(CancellationFact)`。commit 原子失败单独使用 `CommitFailedNoState(TransactionFailureFact)`，
-证明 revision/reservation 均未改变。handoff 在任何 handler 工作前发生，不以副作用判断。PreToolUse、
-PostToolUse、retention 与 delivery 都是独立 factual field；不得为未返回分支伪造 output，也不得覆盖冻结 execution
-outcome。
-
-MCP 使用版本化 `McpToolOutputV1` 同时保存有 source index 的 policy-visible 原始 JSON block，以及 presence-aware
-structured content、isError、meta 与 sanitization facts；absent、显式 null 和 false 不得合并。安全策略、完整
-retained store、context 截断、retention/delivery failure 和 provider frame 的顺序及分阶段 hash 由 FLA-3.5 CA-0
-冻结。
+carrier 使用一个 call id。transition 失败返回 `TaskSpaceCarrierResultV1` 且 `tool_dispatched=false`；提交成功后
+设置 `tool_dispatched=true`，随后原样附加普通 Tool 输出。普通 Tool 失败不会覆盖 transition 事实，Runtime 也不
+自动回滚。FLA-5 负责继续形式化全载体结果一致性，不在本阶段增加 prepare/reservation 或第二套结果代数。
 
 Rust enum 常量使用上述大写值，JSON `error.code` 原样输出；日志也使用同一值。FLA-3.5 目标中不再存在
 missing-sibling 运行时形态；非法 transition carrier 使用同源参数/状态错误分类，不另造带下一步建议的错误。
@@ -183,9 +166,9 @@ missing-sibling 运行时形态；非法 transition carrier 使用同源参数/�
 ## 4. 生命周期的确定性判定
 
 [`five-layer-lifecycle-oracles-v1.json`](../../../benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json)
-冻结当前 sibling 回归基线的 12 个场景，覆盖：
+保留 FLA-3.5 前的 12 个历史场景，供 FLA-7 重建等价性基线，覆盖：
 
-- 初始化与真实 sibling；stale revision；缺少 sibling。
+- 历史初始化/sibling 路径；stale revision；历史 missing-sibling 拒绝。
 - control 已提交后普通 Tool 失败；同一 response 多个 control 独立提交。
 - `map-append` 精确 retry 去重与不同 request 同 revision 仍追加。
 - `map-request` read rev4、mutate rev5 后不自动提醒或再读。
@@ -197,10 +180,9 @@ FLA-7 在激活前实现 `freeze-r7-five-layer-fixtures.ps1`：先独立重算�
 projection/provider payload golden 并按每个场景的允许差异比较。没有脚本和 golden 产物时只能称为 schema 已
 设计，不能称生命周期已验证；生成 golden 是机械固化现有 renderer 输出，不得成为改写 projection 语义的入口。
 
-FLA-3.5 CA-2 只生成 carrier protocol oracle：使用“standalone 在 schema 中不可表达”“carrier 参数失败零提交”
-“transition commit + Tool failure 两事实保留”和 code-mode carrier 等 executable fixtures 替换 missing-sibling 场景；
-不包含 canonical projection、resume、fork、compaction 或 recovery。后四类仍由 FLA-7 的 lifecycle oracle 独占。
-不得覆盖 v1 或把历史拒绝改写成未发生。
+FLA-3.5 定向测试已覆盖“standalone 在 schema 中不可表达”“carrier 参数失败零提交”“transition commit + Tool
+failure 两事实保留”和 code-mode carrier。canonical projection、resume、fork、compaction 与 recovery 仍由
+FLA-7 的 lifecycle oracle 独占，不得把历史拒绝改写成未发生。
 
 ## 5. FLA 实施矩阵
 
@@ -208,8 +190,8 @@ FLA-3.5 CA-2 只生成 carrier protocol oracle：使用“standalone 在 schema 
 feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产改动和测试，再运行 smoke；失败时用新提交修正，
 不得改写已有证据。
 
-FLA-3.5 CA-0 新增的 `r7-phase-ownership-v1.json` 是阶段所有权机器权威：同一 production target、gate 或决策
-只能有一个 owner phase。R7 Phase E/F/G 只能只读引用 FLA-6/7/8 evidence，不得再次登记 production target 或 gate。
+同一 production target、gate 或决策只能有一个 owner phase。R7 Phase E/F/G 只能只读引用 FLA-6/7/8 evidence，
+不得再次登记 production target 或 gate。
 
 ### FLA-0：冻结现行基线
 
@@ -259,19 +241,15 @@ FLA-3.5 CA-0 新增的 `r7-phase-ownership-v1.json` 是阶段所有权机器权�
 
 ### FLA-3.5：修复连续动作合同回归
 
-- 权威入口：`33-r7-continuous-action-regression-repair-plan.md` 的 CA-0 至 CA-6。
-- 先冻结 WireApi/ToolSpec/code-mode、capability epoch、prepare/commit/execute 和 typed outcome 合同，再执行真实
-  provider probe；未过门禁不改生产。
-- 目标实现：一个 registry capability source 和 decorator/parser 将小型状态交接附着到 carrier-capable Tool；
-  一个 PreparedToolCall 协议复用原权限、sandbox、hook、approval 和业务 handler。
+- 权威入口：`33-r7-continuous-action-regression-repair-plan.md`。
+- 实现：共享 decorator/parser 将小型状态交接附着到普通动作 Tool，Runtime 提交交接后复用原 router、权限、
+  sandbox、hook、approval 和业务 handler。
 - 删除：生产 `required_next_call`、missing-sibling preflight、三个非终态独立 control 分支和对应兼容 parser。
-- 定向测试：standalone negative、拒绝/取消时序、新 lease reservation、function/freeform Patch、code-mode、
-  MCP/图片/截断 typed outcome、turn-wide Patch、capability epoch、Standard wire 和完整 rollback drill。
-- smoke：使用独立 FLA-3.5 评估合同运行 Standard、当前 sibling 基线、候选三臂；FLA-8 held-out 保持 sealed。
-- 激活语义：FLA-3.5 只把 L4/L5-result 置为 `active_repair_verified`；FLA-4/5 各自完成后才升为 active。
-- 完成证据：H-003 为 0，合并率与保真率 100%，无额外 request，成本非劣，空白 reviewer 无 blocking finding。
+- 反馈：同一 call 返回 transition factual header，原 Tool 输出保持不变；transition 失败则不 dispatch 普通 Tool。
+- 验证：Rust 定向回归、FLA-3.5 gate、CLI build 和 Docker paired smoke 已通过。
+- 激活语义：FLA-3.5 为 `active_verified`；L4/L5-result 维持 `active_repair_verified`，由 FLA-4/5 正式完成各层。
 
-FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
+FLA-3.5 已完成，FLA-4 可以开始。
 
 ### FLA-4：激活 L4 input schema
 
@@ -332,9 +310,8 @@ FLA-3.5 未达到 `active_verified` 前禁止执行 FLA-4。
 执行
 [`five-layer-evaluation-contract-v1.json`](../../../benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json)：
 
-当前 v1 的 `combined_control_plus_next_rate` 只适用于 sibling 回归基线。FLA-3.5 的 candidate 与 CA-6 promotion
-不得包含或激活 FLA-8 v2，也不得读取 sealed held-out。FLA-3.5 CA-5 只使用独立 continuous-action 三臂合同。
-FLA-8 开始时再从已晋级 carrier 生成、预注册并激活自己的 v2，将旧指标替换为 transition carrier 指标，同时保持
+当前 v1 的 `combined_control_plus_next_rate` 只适用于历史 sibling 回归基线。FLA-8 开始时从已激活 carrier
+生成、预注册并激活自己的 v2，将旧指标替换为 transition carrier 指标，同时保持
 sealed held-out、30 repeats、bootstrap、顺序、停止和 correction 规则不变。
 
 - shared change 使用 7 臂；单 policy 实验使用 3 臂。
@@ -362,7 +339,7 @@ scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1
 统一 artifact 根目录：
 
 ```text
-artifacts/taskspace/r7/five-layer/<contract-id>/<candidate-commit>/<run-id>/
+artifacts/taskspace/r7/five-layer/<contract-id>/<subject-commit>/<run-id>/
 ```
 
 每次 provider request 至少记录：`session_id`、`request_id`、`attempt`、arm/sample/pair、输入/缓存/输出/reasoning
@@ -376,13 +353,13 @@ revision、projection hash、Tool call/result 顺序、错误码和 scenario ver
 
 | 指标 | 晋级条件 |
 |---|---|
-| scenario success | 候选失败数不高于基线，成功率不低于基线 |
+| scenario success | TaskSpace arm 失败数不高于基线，成功率不低于基线 |
 | 语义完整性/硬合同违规 | 均为 0 |
 | request mean / median / p95 | 增幅不超过 10% / 1 次 / 2 次 |
 | uncached input / total input mean | 增幅不超过 10% / 15% |
 | request 2+ cache hit | 下降不超过 2 个百分点 |
 | wall time mean | 增幅不超过 20% |
-| required transition carrier rate | 候选为 100%；sibling 基线用已验证 control+next 事件机械归一化比较 |
+| required transition carrier rate | 当前 TaskSpace arm 为 100%；历史 sibling 仅作机械归一化参考 |
 | init/bind/continue 单独 transition | 0 |
 
 缓存遥测缺失记为 unavailable，不得记零。价格没有冻结 artifact 时不计算金额，只比较 token。环境、鉴权和明确的
@@ -393,7 +370,7 @@ provider capacity 故障使配对无效并原序重跑；Agent 参数错误、�
 每阶段只允许一个生产合同。若阶段失败，revert 阶段 commit 并重新生成 authority hash；不得保留运行时选择旧/新
 parser、旧/新 result 或旧/新 prompt 的兼容开关。已有 session 和数据无需迁移，可丢弃并重新开始。
 
-阶段报告必须逐项列出：生产入口、删除项、测试命令与结果、日志样例、smoke 指标、未解决风险、候选 commit 和
+阶段报告必须逐项列出：生产入口、删除项、测试命令与结果、日志样例、smoke 指标、未解决风险、实施 commit 和
 回滚 commit。缺少任一项时状态仍为 `selected_not_implemented`。整个五层重构只有在 FLA-0 至 FLA-3、FLA-3.5、
 FLA-4 至 FLA-8 均有完成证据、
 且正式决策为 promote 后，才能称为实现完成或取得收益。

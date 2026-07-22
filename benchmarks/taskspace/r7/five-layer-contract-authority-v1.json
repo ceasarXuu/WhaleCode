@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla3_with_fla3_5_selected_and_l4_l5_regression_baseline",
+  "contract_status": "production_active_through_fla3_5_with_carrier_repair",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -31,9 +31,8 @@
     "manifest_schema": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
     "artifact_schema": "benchmarks/taskspace/r7/candidate-artifact-content-v1.schema.json",
     "artifact_schema_status": "plan_scaffold_not_candidate_evidence",
-    "required_completion_artifact_schema": "benchmarks/taskspace/r7/candidate-artifact-content-v2.schema.json",
     "linter": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
-    "active_authority_policy": "candidate records stay outside this active authority; this file and the production manifest remain byte-identical from CA-2 until a CA-6 promotion or revert commit"
+    "active_authority_policy": "candidate scaffold is dormant and was not used by FLA-3.5; production activation is recorded directly in this authority"
   },
   "authority_order": [
     "this_manifest",
@@ -47,23 +46,23 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "95ab6972f23cc1fd763a38d6fb894b247f784005eaa14072e694b03bec17dda1",
+      "sha256": "ee75563b7726bd533baaba68e9ffa48bbe3056362bc1fcff7ffb96cd391867d1",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "63242f818e66357c5813efa914e281fb815bbf3821b7fc068f91dc6aed77d931",
+      "sha256": "2597a7ceaa5ce815a1ae1c187126725486f1da6691bac16e2ecf89a62cd18089",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "abe9c867ad1ccabd0e42c29dfa7c0c8e060402127f99fbcbd97f9a67e4453e64",
+      "sha256": "402ad5de429bc69e234338e9404eb6daa264cf97d0f10257c19cf2fdd2677196",
       "role": "layer responsibilities, ownership and architectural boundaries"
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "c0a0d09dc6292b251bab4bc8b7838eee48b5ecabec21cfcd4c75f25b61ca5442",
-      "role": "FLA-3.5 continuous-action regression repair, probe gates, production cutover and conflict resolution"
+      "sha256": "d614bcf75936b9f3cfee8645e8661739375301ab0f2e2c2d9c91295a549f3ffc",
+      "role": "FLA-3.5 minimal continuous-action contract, implementation boundary and verification result"
     }
   ],
   "baseline": {
@@ -123,24 +122,36 @@
     {
       "layer": "L4",
       "implementation_status": "active_repair_verified",
-      "activation_phase": "FLA-4",
+      "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "53cad3b85cbf739d755520cffc0e3be9c5fd303900b0a7c8b6de2de19e7800ce",
+      "sha256": "8fd0a3845d894580d1d10fb19b7b9297428ab6336e5013b1daedbcbd575f07bf",
       "tool_count": 1,
-      "required_next_call": "retained",
+      "required_next_call": "removed",
+      "taskspace_transition": "active_on_ordinary_action_tools",
+      "carrier_schema_source": {
+        "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
+        "sha256": "17eaa01bf41af068bfbf7af1c3d98b2f270a69a895166fb75ab3ceae94249c42"
+      },
+      "transition_parser": {
+        "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
+        "sha256": "fc3ef409b4908e85d20fa245a3e4dcd4b40076f478b058ff850b67340386458f"
+      },
       "strict": false,
       "output_schema": null,
       "production_targets": [
         "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
         "third_party/codex-cli/codex-rs/tools/src/taskspace_tool_simple_actions.rs",
+        "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"
+        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier.rs"
       ]
     },
     {
       "layer": "L5-result",
       "implementation_status": "active_repair_verified",
-      "activation_phase": "FLA-5",
+      "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
       "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8",
       "schema_version": "TaskSpaceControlResultV2",
@@ -207,15 +218,13 @@
   "blocking_repairs": [
     {
       "id": "FLA-3.5-continuous-action-regression-repair",
-      "implementation_status": "selected_not_implemented",
+      "implementation_status": "active_verified",
       "issue": "H-003",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "blocks": ["FLA-4", "FLA-5", "FLA-6", "FLA-7", "FLA-8", "R7-Phase-E"],
-      "current_regression_baseline": "required_next_call declaration plus top-level sibling preflight",
-      "selected_direction": "carrier-capable tool carries taskspace_transition through one registry capability source, shared decorator, prepare-commit-execute protocol, and typed outcome transport",
-      "candidate_authority_policy": "CA-2 artifacts remain in a candidate namespace; active authority stays on the sibling baseline until the CA-6 promotion commit",
-      "evaluation_contract": "CA-0 must freeze continuous-action-evaluation-v1.json before probes; FLA-8 alone generates and preregisters the FLA-8 v2 metric migration and keeps its held-out suite unmounted and sealed until that phase",
-      "required_next_call_disposition": "delete in the CA-3 candidate code; remove from active authority only in the CA-6 promotion commit; a rejected candidate restores the baseline with no compatibility path"
+      "blocks": [],
+      "current_regression_baseline": "removed; ordinary action tools carry taskspace_transition in the active production path",
+      "selected_direction": "shared schema decorator and parser execute the Agent-submitted lifecycle transition before dispatching the same ordinary Tool through the existing router",
+      "required_next_call_disposition": "removed with missing-sibling preflight and standalone nonterminal lifecycle actions"
     }
   ],
   "obsolete_after_activation": [

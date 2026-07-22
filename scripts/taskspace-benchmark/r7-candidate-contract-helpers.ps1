@@ -1,7 +1,7 @@
 function Assert-CandidateActivationTargets {
     param([object]$Candidate, [object]$ActiveAuthority)
     Assert-Equal ([string]$Candidate.activation_targets.authority_contract_status) "production_active_through_fla3_5_with_carrier_repair" "Candidate authority contract status target drifted"
-    Assert-Equal ([string]$Candidate.activation_targets.production_manifest_version) "1.0.5" "Candidate production manifest version target drifted"
+    Assert-Equal ([string]$Candidate.activation_targets.production_manifest_version) "1.0.6" "Candidate production manifest version target drifted"
     $expectedPromotionPaths = @(
         "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
         "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json",

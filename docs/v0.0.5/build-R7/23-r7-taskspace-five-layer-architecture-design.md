@@ -1,8 +1,8 @@
 # R7 TaskSpace 五层交互架构设计
 
 - Created: 2026-07-20
-- Version: 1.7
-- Status: Production active through FLA-3; FLA-3.5 selected and blocking FLA-4 through FLA-8
+- Version: 1.8
+- Status: Production active through FLA-3.5; FLA-4 is next
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
 - Related: [R7 三种 Projection 策略共享架构宪章](00-r7-three-projection-policy-charter.md)、
@@ -33,12 +33,13 @@ Agent 不是第六层。Agent 是五层能力的唯一语义使用者：任务�
 因五层重构而产生三套提示词、工具、状态机或反馈链。
 
 连续动作是 L4 的结构合同，不是 L1/L2 建议：初始化、绑定和完成后继续必须与至少一个真实动作处于同一个
-provider-visible Tool schema 中。当前 `required_next_call + top-level sibling` 只能事后验证另一个调用，已
-确认为 H-003 回归基线。FLA-3.5 必须先恢复结构保证，FLA-4 才能继续正式化 L4。
+provider-visible Tool schema 中。FLA-3.5 已删除 `required_next_call + top-level sibling` 回归路径，由普通动作
+Tool 的轻量 `taskspace_transition` 恢复结构保证；FLA-4 从该单一生产基线继续正式化 L4。
 
 本文件只定义架构与内容所有权，不能单独作为实施依据。Agent 可见内容示例见 `24` 号文档；唯一主线、完整
 机器合同、生产入口、删除项、生命周期 oracle、评估门槛和完成证据以 `25` 号可执行规格及其链接的 authority
-manifest 为准。当前只是已选设计目标，尚未接入生产；不得把 schema、提示词或测试脚手架误报为实现完成。
+manifest 为准。FLA-0 至 FLA-3.5 已接入生产并通过各自定向验证；后续层仍不得把 schema、提示词或测试脚手架
+误报为实现完成。
 
 ## 2. 为什么需要重构
 
@@ -267,20 +268,20 @@ Tool 顶层 description 必须用足够但不重复的文字说明工具做什�
 下沉到对应分支。禁止用一段超长顶层文本复述全部 action，也禁止使用“Mechanical action variant”这类无法
 帮助选择的占位描述。结构敏感且文字仍不足以消歧的分支可以给最小输入示例，但示例必须计入固定 token 成本。
 
-当前主线保持一个 Tool，避免在五层重构中同时改变工具选择面：
+当前主线保持一套 Tool registry 和执行链，避免为 TaskSpace 复制普通工具：
 
 | Tool | 职责 | Action 范围 |
 |---|---|---|
-| `taskspace_control` | 修改 canonical Map、节点可见状态，或读取 Map/原始输出 | initialize、mutate、bind/lifecycle、complete、finish、expand、read_map、read_output_ref |
+| `taskspace_control` | 独立修改/读取 canonical Map 或执行终态闭合 | mutate、block/unblock/rework、complete/end、finish/end、expand、read_map、read_output_ref |
+| 普通动作 Tool | 执行真实工作，并在需要时携带轻量状态交接 | `taskspace_transition=initialize_map|bind_node|complete_then_continue` |
 
 读写拆分仅作为 FLA-6 独立实验。命名或 MCP annotation 本身不构成权限边界；只有 ordinary tool router、
 approval policy 和执行校验真正隔离写权限时，才能声称 read-only 权限收益。无论实验结果如何，所有 action
 共享同一 TaskSpace service、Map、validator、result algebra 和日志，不得形成两套架构。
 
-`complete_then_continue` 本身表达“提交当前边界并继续”。因此目标合同必须让交接与真实动作成为同一个
-结构化调用，不能依赖一个声明字段去约束另一个顶层 sibling。FLA-3.5 选择共享 Tool decorator 方向：真实动作
-携带小型 `taskspace_transition`，原 Tool 参数、router、权限和 handler 保持唯一；大型 Patch 正文不得重新嵌入
-control。当前 `required_next_call` 和 response preflight 只作为回归基线保留到候选通过后一次性替换。
+`complete_then_continue` 本身表达“提交当前边界并继续”。交接与真实动作现在是同一个结构化调用，不再依赖
+顶层 sibling。共享 Tool decorator 让真实动作携带小型 `taskspace_transition`，原 Tool 参数、router、权限和
+handler 保持唯一；大型 Patch 正文不嵌入 control。旧 `required_next_call` 和 response preflight 已删除。
 
 `read_output_ref` 的不同读取模式应使用带明确 discriminator 的 `anyOf` 分支表达各自必填字段，而不是把所有
 字段设为 optional 后交给 Runtime 猜测。选择 `anyOf` 是因为 DeepSeek strict 当前公开支持集合不包含
@@ -418,7 +419,7 @@ manifest，也不由 Runtime/Composer 做自然语言冲突检测；它们按既
 | 初始化后开始真实工作 | L2 | 常规工作循环 |
 | 节点切换时携带下一真实动作 | L2 | 日常方法；L4 只描述合法形状 |
 | `expected_revision` 类型和必填条件 | L4 | 机械输入合同 |
-| `complete_continue` 后必须有 sibling | L4 | L4 定义合同，L5 只机械执行原子预检 |
+| 非终态交接必须携带真实动作 | L4 | 普通动作 Tool schema 承载 transition，L5 只机械执行提交与 dispatch |
 | 当前 revision、binding、Ready frontier | L5 | 动态事实 |
 | 多父依赖的设计经验 | L3 | 低频高级方法 |
 | stale revision 错误的实际值和期望值 | L5 | 本次执行事实 |
@@ -439,19 +440,18 @@ manifest，也不由 Runtime/Composer 做自然语言冲突检测；它们按既
 
 ### 8.2 Tool schema
 
-当前 `taskspace_control` schema 约 10 KB，描述文本约 4.5 KB；顶层 description 约 1.6 KB，并集中复述多个
-action。与此同时，若干 action 分支只有通用占位描述，具体 action 的局部可发现性不足。当前还存在：
+FLA-3.5 已完成连续动作载体修复，但 `taskspace_control` 仍包含较多 action，若干分支的局部可发现性仍不足。
+当前待后续正式化的内容包括：
 
 - 一个 Tool 同时返回控制事务 JSON、原始 Map 文本和原始 output slice，输出合同不统一。
 - `strict: false` 且没有内部统一的 result schema；即使新增 `output_schema`，当前 DeepSeek Chat adapter 也不会
   把它发送给 provider。
 - `read_output_ref` 的模式相关字段主要由 Runtime 二次校验。
 - action 与 `transition_node` 存在重复判别。
-- `required_next_call` 是声明值，真正的 sibling 是另一项顶层调用，两者可能不一致或缺失；这是 H-003 的
-  结构根因，不再作为 FLA-6 可选简化项。
+- 普通动作 Tool 的 transition 描述仍需在 FLA-4 做完整 schema/文案审计，但不得改变已接通的 carrier 结构。
 
-优化方向：先由 FLA-3.5 恢复连续动作结构合同；再重写 action-local 描述和条件 schema，并冻结全分支 result
-algebra；最后分别验证读写拆分、MCP `outputSchema` 暴露和 DeepSeek strict mode。不得一次混改，也不得把
+优化方向：从 FLA-3.5 carrier 基线重写 action-local 描述和条件 schema，并冻结全分支 result algebra；最后
+分别验证读写拆分、MCP `outputSchema` 暴露和 DeepSeek strict mode。不得一次混改，也不得把
 本地 schema 校验误报为 provider 能力。
 
 ### 8.3 Runtime 与反馈
@@ -577,20 +577,17 @@ Skill 不产生新硬规则。
 
 ### FLA-3.5：修复连续动作合同回归
 
-- 将初始化、绑定、完成后继续从可独立 control action 改为 carrier-capable Tool 的轻量交接前缀。
-- 先冻结 WireApi/ToolSpec/code-mode 矩阵，再以真实 provider probe 验证 exec、function/freeform Patch、MCP、
-  typed outcome 和 barrier；任一生产可达入口失败即停止。
-- 使用一个 registry capability source、schema decorator/parser 和 `prepare -> commit -> execute` 协议，继续复用
-  原 router、权限、sandbox、hook 和业务 handler。
-- 单 call 通过 carrier-neutral typed outcome 保留 transition fact 与 opaque Tool output；不把两类事实压成整体结果。
-- 候选通过后三臂验证并一次性删除 `required_next_call` 与 missing-sibling preflight，不保留兼容分支。
+- 已将初始化、绑定、完成后继续从独立 control action 移到普通动作 Tool 的轻量 `taskspace_transition`。
+- 共享 decorator/parser 只做参数投影与剥离；原 router、权限、sandbox、hook 和业务 handler 保持唯一。
+- 同一 call 的短事实头保留 transition 结果，后接未经改写的原 Tool 输出。
+- 已一次性删除 `required_next_call`、missing-sibling preflight 和三个非终态独立 control 分支。
 
-验收：standalone 非终态交接在 schema 中不可表达；Patch 与 Tool 输入输出 100% 保真；无额外 request；成本
-非劣；详细门禁以 `33` 号计划为准。该阶段阻塞 FLA-4。
+验收：定向 Rust 回归、FLA-3.5 contract gate、CLI 构建和 Docker paired smoke 均通过；详细边界与证据见 `33`
+号文档。该阶段已完成，FLA-4 不再被 H-003 阻塞。
 
 ### FLA-4：重构 L4 描述与 input schema
 
-- 以 FLA-3.5 晋级后的 carrier 为唯一基线，不正式化当前 sibling 合同。
+- 以 FLA-3.5 已激活的 carrier 为唯一基线，不恢复 sibling 合同。
 - 将顶层 description 收敛为完整的工具选择信息，补全 action-local 语义。
 - 用 provider 兼容的 discriminator + `anyOf` 表达互斥必填字段，删除重复 discriminator。
 - 生成 `provider_schema_profile + capability_set_hash + tools_hash`；本阶段不改变 Runtime 行为、结果或 Tool 数量。

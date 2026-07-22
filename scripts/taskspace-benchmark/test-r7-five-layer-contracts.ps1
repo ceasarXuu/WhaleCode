@@ -129,7 +129,7 @@ if (Test-PhaseEnabled "FLA-0") {
     Write-Output "FLA-0 frozen source contracts passed."
 }
 
-if ($Phase -eq "FLA-3.5") {
+if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     $carrierSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs"))
     $controlSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs"))
     $controlWireSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"))
@@ -145,6 +145,12 @@ if ($Phase -eq "FLA-3.5") {
     Assert-True (-not $controlSource.Contains('required_next_call')) "Tool schema retains required_next_call"
     Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING')) "Response preflight retains sibling enforcement"
     Assert-Equal (Get-Sha256 $productionL2Path) (Get-Sha256 $l2Path) "Production L2 bytes differ from authority artifact"
+    $repair = @($authority.blocking_repairs | Where-Object id -eq "FLA-3.5-continuous-action-regression-repair")[0]
+    Assert-Equal ([string]$repair.implementation_status) "active_verified" "FLA-3.5 authority is not active_verified"
+    Assert-Equal @($repair.blocks).Count 0 "FLA-3.5 still blocks later phases"
+    $carrierManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$carrierManifest.activation_through) "FLA-3.5" "Production manifest has not activated FLA-3.5"
+    Assert-Equal ([string](@($carrierManifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "carrier_repair_active" "L4 carrier is not active"
     Write-Output "FLA-3.5 action-carried lifecycle contracts passed."
 }
 
@@ -210,7 +216,7 @@ if ((Test-PhaseEnabled "FLA-1") -or $Phase -eq "FLA-3.5-Scaffold") {
     $validCandidate | Add-Member -NotePropertyName activation_targets -NotePropertyValue ([pscustomobject]@{
             activation_through = "FLA-3.5"
             authority_contract_status = "production_active_through_fla3_5_with_carrier_repair"
-            production_manifest_version = "1.0.5"
+            production_manifest_version = "1.0.6"
             promotion_commit_paths = @()
             blocking_repair = [pscustomobject]@{ id = "FLA-3.5-continuous-action-regression-repair"; implementation_status = "active_verified" }
             production_runtime_status = [pscustomobject]@{ L4 = "carrier_repair_active"; L5 = "carrier_result_repair_active_projection_baseline" }
@@ -400,7 +406,7 @@ if (Test-PhaseEnabled "FLA-2") {
     Assert-True $traceSource.Contains("taskspace_core_protocol_identity") "Provider wire trace lacks L2 identity"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-True (@("FLA-2", "FLA-3") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
+    Assert-True (@("FLA-2", "FLA-3", "FLA-3.5") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L1")[0].runtime_status)) "active" "L1 is not active"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L2")[0].runtime_status)) "active" "L2 is not active"
     Write-Output "FLA-2 L1/L2 production contracts passed."
@@ -424,13 +430,13 @@ if (Test-PhaseEnabled "FLA-3") {
     Assert-True $protocolSource.Contains('taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>') "Session metadata does not persist the L3 identity"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal $manifest.activation_through "FLA-3" "Production manifest has not activated FLA-3"
+    Assert-True (@("FLA-3", "FLA-3.5") -contains [string]$manifest.activation_through) "Production manifest has not activated FLA-3"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L3")[0].runtime_status)) "active" "L3 is not active"
     Write-Output "FLA-3 advanced Skill lifecycle contracts passed."
 }
 
 if ($Phase -eq "FLA-4") {
-    throw "FLA-4 is blocked until FLA-3.5 completion and its own executable evidence are active; use FLA-4-Repair-Baseline only to inspect the current baseline"
+    throw "FLA-4 has not been implemented; use FLA-4-Repair-Baseline to inspect the active FLA-3.5 carrier baseline"
 }
 
 if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline") {
@@ -438,24 +444,27 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline") {
     Assert-Equal ([string]$l4Target.implementation_status) "active_repair_verified" "L4 repair activation status drifted"
     $selectedSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l4Path | ConvertFrom-Json -Depth 50
     $selectedActions = @($selectedSchema.provider_tool.function.parameters.anyOf | ForEach-Object { [string]$_.properties.action.enum[0] })
-    foreach ($action in @("bind_node", "block_node", "unblock_node", "rework_node")) {
+    foreach ($action in @("block_node", "unblock_node", "rework_node")) {
         Assert-True ($selectedActions -contains $action) "Selected L4 schema omits direct action: $action"
     }
+    Assert-True ($selectedActions -notcontains "bind_node") "Selected L4 control schema still exposes standalone bind_node"
     Assert-True ($selectedActions -notcontains "transition_node") "Selected L4 schema retains transition_node"
 
     $toolSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs"))
     $wireSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"))
     Assert-True (-not $toolSource.Contains('"transition_node"')) "Provider Tool still exposes transition_node"
     Assert-True (-not $wireSource.Contains('TransitionNode')) "Argument wire still accepts transition_node"
-    foreach ($action in @("bind_node", "block_node", "unblock_node", "rework_node")) {
+    foreach ($action in @("block_node", "unblock_node", "rework_node")) {
         Assert-True ($toolSource.Contains('"' + $action + '"')) "Provider Tool source omits direct action: $action"
     }
-    foreach ($variant in @("BindNode", "BlockNode", "UnblockNode", "ReworkNode")) {
+    foreach ($variant in @("BlockNode", "UnblockNode", "ReworkNode")) {
         Assert-True $wireSource.Contains("Action::$variant") "Argument wire omits direct action variant: $variant"
     }
+    $carrierTransitionSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"))
+    Assert-True $carrierTransitionSource.Contains("BindNode") "Carrier transition parser omits bind_node"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "repair_active" "Production manifest does not expose the L4 repair"
-    Write-Output "FLA-4 repair baseline contracts passed; FLA-4 completion remains blocked."
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "carrier_repair_active" "Production manifest does not expose the L4 carrier repair"
+    Write-Output "FLA-4 carrier repair baseline contracts passed; FLA-4 formalization remains pending."
 }
 
 if ($Phase -eq "FLA-5") {
@@ -474,9 +483,9 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline") {
     $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
     Assert-True $argsSource.Contains('TaskSpaceControlResultV2') "Production result version is not V2"
     Assert-True $outputSource.Contains('"partial_commit": false') "Production result formatter does not emit boolean partial_commit=false"
-    Assert-True $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING') "Control preflight does not emit the selected factual error"
+    Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING')) "Control preflight retains the removed sibling error"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "result_repair_active_projection_baseline" "Production manifest does not expose the L5 result repair"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "carrier_result_repair_active_projection_baseline" "Production manifest does not expose the carrier-aware L5 result repair"
     Write-Output "FLA-5 result repair baseline contracts passed; FLA-5 completion remains blocked."
 }
 
