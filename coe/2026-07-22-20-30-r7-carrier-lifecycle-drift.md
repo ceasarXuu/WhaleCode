@@ -43,7 +43,7 @@
 # Problem P-002: verify 运行时 Agent 误选只关闭 Ready Finish 的动作
 - Status: open
 - Created: 2026-07-22 21:30
-- Updated: 2026-07-23 00:15
+- Updated: 2026-07-23 00:45
 - Objective: 解释生命周期已同步时，Agent 为何仍在最后一个 Work 节点 Running 状态下选择只适用于 Finish Ready 的 `finish_end`。
 - Symptoms:
   - 三次修复后 TaskSpace 运行中两次先调用 `finish_end`，收到 `finish_not_ready` 后改用 `complete_then_end`。
@@ -52,6 +52,8 @@
 - Actual behavior:
   - 旧合同观察合计 4/5 先误选 `finish_end`；首次修复改名并补 L2 决策规则后，3/3 仍先选择
     `close_ready_finish`，没有一轮首选正确终态动作。
+  - 第二次修复后 5 次 TaskSpace 运行未再选择 Ready-Finish 专用动作，但 1 次在仍有 `verify` Pending 时
+    过早选择 `complete_active_work_then_end`，另 1 次绕过终态 Tool 直接输出 final。
 - Impact:
   - 产生 1 次或 2 次额外 provider request；不破坏 Map，Runtime 拒绝事实准确。
 - Known facts:
@@ -62,15 +64,17 @@
   - 不是 Runtime 接受了非法终态。
 - Fix criteria:
   - 在不引入 Runtime 语义判断、动态 schema 或缓存破坏的前提下，使 Agent 稳定选择与当前机械状态匹配的终态动作。
-- Current conclusion: 这是与 P-001 独立的 L4 discriminator 可辨识性问题。补足 L2 和 branch description 后仍
-  3/3 误选，证明 DeepSeek 在“测试完成 -> 关闭任务”边界优先按顶层 action 名匹配意图，没有稳定执行 branch
-  描述中的状态判别。下一修复必须让 action 名和必填参数本身表达互斥机械状态，不能依赖 Runtime 拒绝后教学。
+- Current conclusion: 这是与 P-001 独立的 L4 discriminator 可辨识性问题。第二次修复已消除 Ready-Finish
+  专用动作误选，但 `complete_active_work_then_end` 仍只表达“有 active Work”，没有表达“该 Work 是唯一剩余
+  Work”。Agent 在业务验证已完成但自建 `verify` 节点仍 Pending 时仍会按结束意图过早选择它。终态 Tool 的两条
+  分支都必须在 action 名和必填参数中表达完整、互斥的机械前置状态。
 - Related hypotheses:
   - H-006
   - H-007
+  - H-008
 - Resolution basis:
-  - H-006、H-007。
-  - E-011、E-014、E-015。
+  - H-006、H-007、H-008。
+  - E-011、E-014、E-015、E-016。
 - Close reason:
   - not closed
 
@@ -258,6 +262,60 @@
 - Repair design readiness: ready
 - Next step: 让两个顶层 action 名直接表达“完成 active Work 后结束”与“没有 active Work 时关闭”，并要求后者
   显式提交 `active_work_status=none`、`finish_status=ready`；Runtime 仍只做机械校验。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-008: 普通终态 action 未表达当前 Work 必须是唯一剩余 Work
+- Status: confirmed
+- Parent: P-002
+- Claim: `complete_active_work_then_end` 虽消除了 Ready-Finish 分支歧义，但任何 Running Work 都符合名称中的
+  `active_work`。当 Agent 已经在 `fix` 节点执行了测试、同时自己创建的 `verify` 节点仍 Pending 时，业务意图
+  已完成会使它过早选择该 action。完整前置状态必须表达“当前 Work 是最后一个未完成 Work”。
+- Layer: tool-contract-discriminator
+- Factor relation: single
+- Depends on:
+  - H-007 second repair
+- Rationale:
+  - 第二次修复后的扩展重复中，Agent 在 revision 3、`fix` Running、`verify` Pending、Finish Pending 时调用
+    `complete_active_work_then_end`，收到 `finish_not_ready` 后还尝试破坏依赖边，读取 Map 后才恢复正确路径。
+- Falsifiable predictions:
+  - If true: action 名与参数只要求 active current node，不要求其他 incomplete Work 为零；错误调用前上下文已经
+    包含 `fix -> verify -> finish`，拒绝后的 `read_map` 只重复这一事实。
+  - If false: `verify` 不存在/已完成，或调用时状态事实未进入上下文。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 区分状态事实缺失与普通终态分支前置状态表达不完整。
+  - Signal: 初始化图、revision 3 projection、首次终态调用、拒绝和纠正路径。
+  - Capture method: 读取提交 `1111c3f07` 的 TaskSpace-only 扩展重复 rollout。
+  - Event name or marker:
+    - `taskspace.complete_terminal_rejected`
+    - `taskspace.control_rejected`
+  - Correlation keys:
+    - pair-003 taskspace
+    - revision 3
+    - current node `fix`
+  - Differentiates from:
+    - Map 节点或边丢失
+    - Ready-Finish 专用动作歧义
+    - Runtime 接受非法终态
+  - Supports if:
+    - 完整图已可见仍过早选择，且 Runtime 以 `finish_not_ready` 忠实拒绝。
+  - Refutes if:
+    - `verify` 事实不可见或 canonical Map 已无其他 incomplete Work。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 保留终态 action 计数、状态失败分类与 Map read trace。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-016
+- Conclusion: 初始化调用明确创建 `explore -> fix -> verify -> finish`。Agent 在 `fix` 下执行测试成功后调用
+  `complete_active_work_then_end`，其参数结构无需声明 `verify` 是否仍 Pending；Runtime 准确拒绝且 revision
+  不变。随后 `read_map` 显示的只是原有 `verify` Pending 事实，证明不是反馈丢失。根因是普通终态 action 合同只
+  表达 active Work，没有表达 last remaining Work。
+- Repair design readiness: ready
+- Next step: 将普通终态 discriminator 改为 `complete_last_running_work_then_end`，并要求调用方提交
+  `other_incomplete_work_status=none` 与 `finish_status=pending`；canonical 状态仍由原事务校验。
 - Blocker:
   - none
 - Close reason:
@@ -743,3 +801,38 @@
   Map 事实丢失；branch 描述不足以抵消顶层 action 名对“关闭任务”业务意图的吸引。互斥机械状态必须进入
   discriminator 和必填参数结构。
 - Time: 2026-07-23 00:15
+
+## Evidence E-016: 第二次修复消除专用动作误选但暴露普通终态动作前置状态不完整
+- Related hypotheses:
+  - H-007
+  - H-008
+- Direction: supports
+- Type: fix-validation-and-diagnostic
+- Source:
+  - `target/r7-terminal-action-contract-v2/single-file-fast-fix/20260723-003214-028`
+  - `target/r7-terminal-action-contract-v2-repeat/single-file-fast-fix/20260723-003633-112`
+- Prediction or plan link:
+  - H-007 第二次修复应消除 Ready-Finish 专用动作误选。
+  - H-008 检查普通终态动作是否仍缺少“唯一剩余 Work”判别。
+- Matched signal:
+  - 5 次 TaskSpace 运行中 `close_finish_with_no_active_work` 误选为 0；4 次实际终态调用均最终使用
+    `complete_active_work_then_end`，说明 H-007 的专用分支歧义已收敛。
+  - 其中 1 次在 `fix` Running、`verify` Pending 时过早调用 `complete_active_work_then_end`，收到
+    `finish_not_ready`；Agent 随后错误尝试删除依赖边，读取 Map 后才用 `complete_then_continue` 进入 `verify`。
+  - 另 1 次没有调用任何终态 action，直接输出 final，被 `taskspace_terminal_protocol_violation` 终止；该现象与
+    action 误选分开记录，不作为 H-008 的因果证据。
+- Correlation keys:
+  - paired repeats 1-3
+  - taskspace-only repeats pair-001/pair-003
+  - premature call revision 3 / current node `fix`
+- Raw content:
+  ```text
+  initialized edge: fix -> verify -> finish
+  selected: complete_active_work_then_end(current_node_id=fix, expected_revision=3)
+  rejection: finish_not_ready
+  read_map: verify role=work status=pending
+  Ready-Finish specialized misselection: 0/5
+  ```
+- Interpretation: 第二次修复证明把互斥状态写进专用分支有效，但普通终态分支仍以不完整的 `active_work` 状态
+  暴露。必须继续把“唯一剩余 Work”写进 discriminator 和参数形状，而不能依赖 Runtime 拒绝后教学。
+- Time: 2026-07-23 00:45
