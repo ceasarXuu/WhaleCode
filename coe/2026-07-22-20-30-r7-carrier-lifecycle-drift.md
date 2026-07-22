@@ -40,17 +40,18 @@
 - Close reason:
   - 根因修复已通过定向测试和三组 Docker 配对回归验证。
 
-# Problem P-002: verify 运行时 Agent 偶发误选 finish_end
+# Problem P-002: verify 运行时 Agent 误选只关闭 Ready Finish 的动作
 - Status: open
 - Created: 2026-07-22 21:30
-- Updated: 2026-07-22 21:55
+- Updated: 2026-07-23 00:15
 - Objective: 解释生命周期已同步时，Agent 为何仍在最后一个 Work 节点 Running 状态下选择只适用于 Finish Ready 的 `finish_end`。
 - Symptoms:
   - 三次修复后 TaskSpace 运行中两次先调用 `finish_end`，收到 `finish_not_ready` 后改用 `complete_then_end`。
 - Expected behavior:
   - 最后一个 Work 节点仍 Running 时直接调用 `complete_then_end(current_node_id=verify)`。
 - Actual behavior:
-  - 当前观察合计 4/5 先误选 `finish_end`；1/5 直接选择正确动作。
+  - 旧合同观察合计 4/5 先误选 `finish_end`；首次修复改名并补 L2 决策规则后，3/3 仍先选择
+    `close_ready_finish`，没有一轮首选正确终态动作。
 - Impact:
   - 产生 1 次或 2 次额外 provider request；不破坏 Map，Runtime 拒绝事实准确。
 - Known facts:
@@ -61,12 +62,15 @@
   - 不是 Runtime 接受了非法终态。
 - Fix criteria:
   - 在不引入 Runtime 语义判断、动态 schema 或缓存破坏的前提下，使 Agent 稳定选择与当前机械状态匹配的终态动作。
-- Current conclusion: 这是与 P-001 独立的 L2/L4 终态合同可辨识性问题。两个前置状态互斥的 action 在静态 schema 中始终同时暴露，L2 没有给出终态状态到 action 的决策规则；`finish_end` 名称更像通用结束动作且参数更少，使 Agent 在业务工作已完成但 Work 机械状态仍 Running 时稳定偏向错误 action。
+- Current conclusion: 这是与 P-001 独立的 L4 discriminator 可辨识性问题。补足 L2 和 branch description 后仍
+  3/3 误选，证明 DeepSeek 在“测试完成 -> 关闭任务”边界优先按顶层 action 名匹配意图，没有稳定执行 branch
+  描述中的状态判别。下一修复必须让 action 名和必填参数本身表达互斥机械状态，不能依赖 Runtime 拒绝后教学。
 - Related hypotheses:
   - H-006
+  - H-007
 - Resolution basis:
-  - H-006。
-  - E-011、E-014。
+  - H-006、H-007。
+  - E-011、E-014、E-015。
 - Close reason:
   - not closed
 
@@ -199,8 +203,61 @@
   - E-011
   - E-014
 - Conclusion: 五次相同终态中四次在完整 transition 反馈后误选 `finish_end`，一次正确选择 `complete_then_end`。错误前 reasoning 均把“测试通过”直接表述为“关闭任务”，说明 Agent 依据业务完成语义选择 action；拒绝后又能准确识别 Work 仍 Running 并纠正，排除了状态事实被扭曲或 Runtime 状态错误。静态 schema 始终同时暴露两个互斥动作，`finish_end` 缺少 `current_node_id` 且名称像通用结束动作；正确动作虽然排在它之前，但 L2 没有终态决策规则。结构根因是终态 Tool 合同的可辨识性不足，而不是 Agent 不知道测试结果或 Map 链路丢失。
-- Repair design readiness: ready; requires product decision on terminal action naming/shape
-- Next step: 在不采用动态 schema、不让 Runtime 自动选择 action 的前提下，收敛终态 action 的名称和 L2/L4 决策合同。
+- Repair design readiness: first repair attempted; insufficient and superseded by H-007
+- Next step: 使用 E-015 验证的更深层 discriminator 假设继续收敛静态 Tool 合同。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-007: branch 描述无法抵消顶层 action 名的意图匹配
+- Status: confirmed
+- Parent: P-002
+- Claim: 即使 L2 与 branch description 已准确给出状态决策，`close_ready_finish` 仍在顶层 discriminator 中把
+  “close”与“finish”作为最显著词暴露；Agent 在测试通过后按业务意图匹配该名称，而没有先核对 Ready/Running。
+  只改说明文字不能稳定修复，互斥状态必须进入 action 名和必填参数结构。
+- Layer: tool-contract-discriminator
+- Factor relation: single
+- Depends on:
+  - H-006 first repair
+- Rationale:
+  - v2.4 三次运行都完整暴露新 L2 和新 schema，三次仍首先生成 `close_ready_finish`。
+- Falsifiable predictions:
+  - If true: 误选前 reasoning 只表达业务完成/关闭意图，不表达 Finish 已 Ready；准确拒绝或任意解析失败后，Agent
+    能从已有上下文恢复 Running 状态并改用 `complete_then_end`。
+  - If false: 新协议未进入上下文、branch 描述未进入实际 schema，或误选前状态反馈缺失。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 区分说明未送达与 discriminator 显著性仍错误。
+  - Signal: provider-visible L2、验证 Tool feedback、终态 reasoning/call、首次失败内容与下一次纠正。
+  - Capture method: 读取提交 `a0fd9e80a` 的三次 Docker 配对 rollout。
+  - Event name or marker:
+    - `taskspace.control_rejected`
+    - `TASKSPACE_INVALID_ARGUMENT`
+  - Correlation keys:
+    - repeat 1-3
+    - canonical revision 4
+    - current node `verify`
+  - Differentiates from:
+    - L2 未注入
+    - Tool feedback丢失
+    - Runtime 状态错误
+  - Supports if:
+    - 新文本完整可见仍 3/3 同向误选，且失败后无需新 Map 信息即可纠正。
+  - Refutes if:
+    - 新文本或 Running 反馈缺失，或误选不形成同向偏差。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 保留 action 计数、参数解析失败和终态 operation 日志。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-015
+- Conclusion: 三次都在 revision 4、`verify` Running 且测试成功反馈完整时先表达“close the task”，随后选择
+  `close_ready_finish`。repeat 1/2 收到 `finish_not_ready` 后立即纠正；repeat 3 的首次调用仅因 action 值缺引号
+  而解析失败，错误反馈没有提供 Finish 状态，但 Agent 下一轮仍自行指出 verify Running 并正确调用
+  `complete_then_end`。因此状态事实一直存在，失败的区分点是顶层 action 名和参数结构仍允许按关闭意图走最短路径。
+- Repair design readiness: ready
+- Next step: 让两个顶层 action 名直接表达“完成 active Work 后结束”与“没有 active Work 时关闭”，并要求后者
+  显式提交 `active_work_status=none`、`finish_status=ready`；Runtime 仍只做机械校验。
 - Blocker:
   - none
 - Close reason:
@@ -654,3 +711,35 @@
 - Interpretation: 事实链没有丢失或扭曲；问题是两个状态互斥动作被无差别同时暴露，且名称、参数形状和 L2
   说明没有让 Agent 稳定区分“完成 Running Work 后终结”与“只关闭已经 Ready 的 Finish”。
 - Time: 2026-07-22 21:55
+
+## Evidence E-015: v2.4 说明完整可见时仍在三次运行中误选终态动作
+- Related hypotheses:
+  - H-006
+  - H-007
+- Direction: supports
+- Type: fix-validation-and-diagnostic
+- Source: `target/r7-terminal-action-fix/single-file-fast-fix/20260723-000158-444`
+- Prediction or plan link:
+  - H-006 首次修复应使 Agent 根据 Running/Ready 状态直接选择正确终态动作。
+  - H-007 区分说明未送达与顶层 discriminator 仍按业务关闭意图产生错误匹配。
+- Matched signal:
+  - 三次 TaskSpace rollout 都完整携带 L2 v2.4；验证反馈都已提交
+    `complete_then_continue(... -> verify)`，当前 revision 为 4，`verify` 为 node-bound Running Work。
+  - 三次首次终态选择均为 `close_ready_finish`，没有一轮直接选择 `complete_then_end`。
+  - repeat 1/2 收到准确的 `finish_not_ready` 后改用 `complete_then_end`；repeat 3 的首次调用仅因 action 值
+    缺少引号而参数解析失败，反馈未提供任何 Map 状态，但下一轮仍自行指出 `verify` Running 并正确纠正。
+- Correlation keys:
+  - repeats 1-3
+  - canonical revision 4
+  - current node `verify`
+- Raw content:
+  ```text
+  reasoning: All 3 tests pass. Let me close the task.
+  first selected action: close_ready_finish
+  first-choice mismatch: 3/3
+  solved: 3/3
+  ```
+- Interpretation: 首次命名与说明修复没有消除误选。Agent 已拥有并能自行恢复当前状态，因而不是上下文、反馈或
+  Map 事实丢失；branch 描述不足以抵消顶层 action 名对“关闭任务”业务意图的吸引。互斥机械状态必须进入
+  discriminator 和必填参数结构。
+- Time: 2026-07-23 00:15
