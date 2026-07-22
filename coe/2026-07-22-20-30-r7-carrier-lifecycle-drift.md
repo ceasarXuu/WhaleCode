@@ -379,6 +379,61 @@
 - Close reason:
   - not closed
 
+## Hypothesis H-010: 统一 action 时过度压缩状态字段重新放大了过早终结
+- Status: confirmed
+- Parent: P-002
+- Claim: 单一 `finish_map` 消除了两个顶层 action 的竞争，但第一版只保留 `terminal_state` 和
+  `terminal_node_id`，把 H-008 已证明必要的“其他未完成 Work”声明压缩进一个枚举词。Agent 可以在未枚举实际
+  incomplete Work 的情况下直接声称 `last_running_work`，从而在业务结果已满足但 Map 仍有 Pending 后继时过早终结。
+- Layer: tool-contract-state-snapshot
+- Factor relation: single
+- Depends on:
+  - H-008
+  - H-009 first repair
+- Rationale:
+  - 第一版统一合同的三次复验不再选择 Ready-Finish 分支，但其中一次在 `fix` Running、`verify` Pending 时调用
+    `finish_map(last_running_work, terminal_node_id=fix)`。
+- Falsifiable predictions:
+  - If true: 错误调用前完整图已包含 Pending 后继，且 action 只要求抽象状态枚举，没有要求提交实际 incomplete
+    Work 列表或 Finish 身份/状态快照。
+  - If false: 错误调用时 `verify` 已完成或不可见，或 schema 仍要求具体列出全部 incomplete Work。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查统一 action 是否因删除具体状态字段而重现 H-008。
+  - Signal: revision 3 Map、首次 `finish_map` arguments、canonical rejection、后续 read/continue/finish 路径。
+  - Capture method: 读取 v4 paired Docker rollout 和当前 provider-visible schema。
+  - Event name or marker:
+    - `taskspace.complete_terminal_rejected`
+    - `taskspace.complete_handoff_committed`
+  - Correlation keys:
+    - pair-001/right
+    - revision 3
+    - owner `fix`
+  - Differentiates from:
+    - Ready-Finish 分支误选
+    - projection/反馈丢失
+    - Runtime 非法提交
+  - Supports if:
+    - 初始化图和 read_map 都显示 `verify` Pending，错误调用仍声明 `last_running_work`，且 Runtime 零提交拒绝。
+  - Refutes if:
+    - canonical Map 中没有其他 incomplete Work。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 保留 terminal-state 分支、状态失败和 exact incomplete Work mismatch 观测。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+- Conclusion: pair-001 在 revision 3 的 `fix` 节点已运行测试，但初始化图仍有 `verify` Pending；Agent 调用
+  `finish_map(last_running_work)` 后收到 `finish_not_ready`，read_map 只是重现既有图，随后正确 handoff 到
+  `verify` 并终结。H-009 的单入口修复有效，回归点是第一版统一合同没有要求 Agent 提交具体 incomplete Work
+  集合。应在同一 `finish_map` 中恢复为等形终态快照，而不是重新拆分 action。
+- Repair design readiness: ready
+- Next step: `finish_map` 继续保持唯一入口，新增必填 `incomplete_work_node_ids`、`finish_node_id` 和
+  `finish_status`；parser 校验它们与 Agent 选择的 `terminal_state` 自洽，状态机校验节点身份和 canonical state。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
 ## Hypothesis H-001: 失败由上下文或 Map 反馈丢失导致
 - Status: refuted
 - Parent: P-001
@@ -927,3 +982,37 @@
 - Interpretation: Tool 结果和 Map 状态正确进入上下文，Runtime 也忠实拒绝了非法动作。失败来自 Agent 可见
   Tool schema 同时提供两个竞争终态 action，且固定枚举可以在选定较短分支后机械补齐，未真正迫使模型先判断状态。
 - Time: 2026-07-23 01:15
+
+## Evidence E-018: 单一终态 action 消除分支误选但出现一次抽象 last-work 误报
+- Related hypotheses:
+  - H-009
+  - H-010
+- Direction: supports
+- Type: fix-validation-and-diagnostic
+- Source: `target/r7-terminal-action-contract-v4/single-file-fast-fix/20260723-012048-340`
+- Prediction or plan link:
+  - H-009 验证单一 action 是否消除 Ready-Finish 竞争入口。
+  - H-010 检查压缩后的状态字段是否足以阻止有 Pending 后继时声称 last Running Work。
+- Matched signal:
+  - Standard 与 TaskSpace 均 3/3 solved；TaskSpace 三次合法终态都使用
+    `finish_map(terminal_state=last_running_work, terminal_node_id=verify)`。
+  - `no_active_work_ready_finish` 调用为 0/3，相比 v3 的错误 Ready-Finish 首选 3/3，H-009 修复方向成立。
+  - pair-001 在 revision 3、owner=`fix` 时额外调用一次
+    `finish_map(last_running_work, terminal_node_id=fix)`；canonical Map 中 `verify` 仍 Pending，调用被
+    `finish_not_ready` 零提交拒绝。Agent read_map 后 handoff 到 `verify`，再正确终结。
+  - pair-003 首次 `finish_map` 把 action 值输出为未加引号的裸标识符，parser 以 `argument_failed` 零提交拒绝；
+    这是独立 JSON 生成错误，不是 terminal-state 选择或反馈扭曲。
+- Correlation keys:
+  - pair-001/right call `call_00_XOMcle90R7c8MHHDoq6Z1303`
+  - pair-003/right call `call_00_QFZePHqGyD7L7HqgbQST3555`
+- Raw content:
+  ```text
+  Ready-Finish state selections: 0/3
+  pair-001 canonical graph: fix(running) -> verify(pending) -> finish(pending)
+  pair-001 submitted: terminal_state=last_running_work, terminal_node_id=fix
+  pair-001 result: finish_not_ready, state_commit=false
+  pair-003 malformed: {"action": finish_map, ...}
+  ```
+- Interpretation: 单一 action 已修复原始竞争入口，但状态合同不能只用一个抽象 enum 代替具体 Map 快照。
+  Runtime 和反馈均按设计工作；下一轮只补齐 Tool 输入的机械事实，不增加 Runtime 语义选择。
+- Time: 2026-07-23 01:30
