@@ -50,7 +50,7 @@
 - Expected behavior:
   - 最后一个 Work 节点仍 Running 时直接调用 `complete_then_end(current_node_id=verify)`。
 - Actual behavior:
-  - 当前观察合计 3/4 先误选 `finish_end`；1/4 直接选择正确动作。
+  - 当前观察合计 4/5 先误选 `finish_end`；1/5 直接选择正确动作。
 - Impact:
   - 产生 1 次或 2 次额外 provider request；不破坏 Map，Runtime 拒绝事实准确。
 - Known facts:
@@ -596,26 +596,28 @@
 - Interpretation: 未执行普通 Tool 时不再伪造第二份工具事实，反馈语义和长度均已收敛。
 - Time: 2026-07-22 21:30
 
-## Evidence E-013: 最终 manifest 1.0.8 二进制配对冒烟通过
+## Evidence E-013: 提交后 manifest 1.0.8 二进制配对冒烟通过
 - Related hypotheses:
   - H-003
   - H-004
   - H-006
 - Direction: supports
 - Type: fix-validation
-- Source: `target/r7-action-final-smoke/single-file-fast-fix/20260722-213735-189`
+- Source: `target/r7-action-postcommit-smoke/single-file-fast-fix/20260722-214106-772`
 - Prediction or plan link:
   - 验证最终合同哈希和二进制接线未偏离三组行为验证。
 - Matched signal:
-  - Standard 与 TaskSpace 均 solved，公开和隐藏验证均通过；provider trace 识别 manifest `1.0.8` 且哈希
+  - 提交 `3d29e3916` 后重新构建和 attestation；Standard 与 TaskSpace 均 solved，公开和隐藏验证均通过；
+    provider trace 识别 manifest `1.0.8` 且哈希
     `c97bb1c7...` 匹配。TaskSpace 初始化、Patch、验证均由正确动作携带，最终 5 nodes / 4 edges / 0 open。
     Standard trace 中无 `taskspace_action` 或 `TASKSPACE_ACTION_*`。终态再次先误选一次 `finish_end` 后纠正。
 - Correlation keys:
-  - session `019f8a0c-0b3f-7f31-8ef7-e99f73d10937`
+  - session `019f8a0f-3fcd-7141-9819-77b7f0c5d96b`
 - Raw content:
   ```text
-  standard: solved, 5 requests, 6 tools, 15.83s
-  taskspace: solved, 8 requests, 9 tools, 27.51s
+  standard: solved, 6 requests, 8 tools, 14.25s
+  taskspace: solved, 8 requests, 6 ordinary tools, 3 controls, 22.79s
+  build attestation source: 3d29e39168a2362d01ea4c5ac45a33078f4ccd53
   manifest identity: 1.0.8 / matches_current_contract=true
   ```
 - Interpretation: 最终生产合同接线保持本次结构修复；P-002 的终态误选可稳定地与 carrier 漂移区分。
