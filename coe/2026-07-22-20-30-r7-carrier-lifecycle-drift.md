@@ -41,9 +41,9 @@
   - 根因修复已通过定向测试和三组 Docker 配对回归验证。
 
 # Problem P-002: verify 运行时 Agent 误选只关闭 Ready Finish 的动作
-- Status: open
+- Status: fixed
 - Created: 2026-07-22 21:30
-- Updated: 2026-07-23 01:50
+- Updated: 2026-07-23 02:20
 - Objective: 解释生命周期已同步时，Agent 为何仍在最后一个 Work 节点 Running 状态下选择只适用于 Finish Ready 的 `finish_end`。
 - Symptoms:
   - 三次修复后 TaskSpace 运行中两次先调用 `finish_end`，收到 `finish_not_ready` 后改用 `complete_then_end`。
@@ -64,12 +64,11 @@
   - 不是 Runtime 接受了非法终态。
 - Fix criteria:
   - 在不引入 Runtime 语义判断、动态 schema 或缓存破坏的前提下，使 Agent 稳定选择与当前机械状态匹配的终态动作。
-- Current conclusion: 这是与 P-001 独立的 L4 discriminator 可辨识性问题。第二次修复已消除 Ready-Finish
-  专用动作误选，但 `complete_active_work_then_end` 仍只表达“有 active Work”，没有表达“该 Work 是唯一剩余
-  Work”。后续复验进一步证明，即使把两个动作合成 `finish_map` 并要求 Agent 提交完整、内部自洽的终态快照，
-  `terminal_state` 仍然向模型暴露了两个竞争分支；模型会先按业务完成意图选择 Ready-Finish，再配套生成自洽但
-  不真实的 `[]/ready` 断言。终态 Tool 必须收敛为一个没有前态分支选择的 Agent 可见操作；Runtime 只执行该
-  操作定义内的确定性状态迁移和硬校验。
+- Current conclusion: 根因是 Agent 可见的终态 Tool 合同反复暴露了两个互斥前态分支；模型会先按业务完成意图
+  选择 Ready-Finish，再生成与该分支内部自洽但不真实的状态断言。现已将公共合同收敛为一个无前态分支的
+  `finish_map`：Agent 只选择终态入口节点并提供总结，状态机依据该节点的规范角色和状态执行确定性事务及硬校验。
+  三次 Docker 配对复验中，Agent 均首次选择 `verify`，规范结果均为 `terminal_node_role=work`，没有终态拒绝、
+  重试或解析错误。
 - Related hypotheses:
   - H-006
   - H-007
@@ -78,11 +77,11 @@
   - H-010
   - H-011
 - Resolution basis:
-  - H-006、H-007、H-008。
+  - H-006、H-007、H-008、H-009、H-010、H-011。
   - E-011、E-014、E-015、E-016。
-  - E-017、E-018、E-019。
+  - E-017、E-018、E-019、E-020。
 - Close reason:
-  - not closed
+  - 分支无关的单一终态合同已通过定向测试、子 Agent 终态路径测试和三组 Docker 配对回归验证。
 
 ## Hypothesis H-004: carrier schema 按 Collab 开关装饰导致 Standard 污染
 - Status: confirmed
@@ -441,7 +440,7 @@
   - not closed
 
 ## Hypothesis H-011: Agent 自报快照不能消除同一 action 内的前态分支竞争
-- Status: confirmed
+- Status: fixed
 - Parent: P-002
 - Claim: `finish_map` 虽然只有一个 action 名，但 `terminal_state` enum 仍要求 Agent 在两个互斥前态之间做一次
   工具分支选择。`incomplete_work_node_ids` 与 `finish_status` 只约束所选分支内部自洽，不能证明它们来自 canonical
@@ -483,19 +482,18 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-019
+  - E-020
 - Conclusion: v5 三次都在 `verify` Running 时先提交了内部自洽但不真实的 Ready-Finish 快照；其中一次还在
   `fix` Running、`verify` Pending 时过早提交 last-work 快照。自报字段没有把状态断言变成证据，只增加了错误
   分支的填写成本。根因仍是 Agent 可见合同要求选择底层前态事务。公共合同应只有一个 `finish_map` 语义，由
   Agent 明确发起并提供节点身份和原样 summary；Runtime 在同一状态机 transition 内机械校验并执行当前合法终态
   frontier，不向 Agent 暴露内部事务分支。
-- Repair design readiness: ready
-- Next step: 删除 Agent 可见 `terminal_state`、自报 incomplete/status 快照和两个分支；用单一终态操作表达
-  “显式闭合当前 Map”，保留 revision、Finish 身份、Agent 选择的终态 Work 身份与 final summary，并由一个
-  canonical transaction 校验合法 frontier。
+- Repair design readiness: implemented and verified
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed and verified by E-020
 
 ## Hypothesis H-001: 失败由上下文或 Map 反馈丢失导致
 - Status: refuted
@@ -1117,3 +1115,38 @@
   拒绝和反馈仍然正确；继续增加字段或提示词只会扩大 schema 与请求成本。应删除 Agent 可见前态分支，让
   `finish_map` 成为一个显式、单义的状态机操作。
 - Time: 2026-07-23 01:50
+
+## Evidence E-020: 分支无关 finish_map 三次首次选择正确终态入口
+- Related hypotheses:
+  - H-011
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r7-terminal-action-contract-v6/single-file-fast-fix/20260723-021426-795`
+- Prediction or plan link:
+  - H-011 验证删除 Agent 可见前态分支和自报快照后，是否还会在 `verify` Running 时误选 Ready Finish。
+- Matched signal:
+  - Standard 与 TaskSpace 均 3/3 solved；TaskSpace 三次都只调用一次 `finish_map`。
+  - 三次参数均为 `expected_revision=4, terminal_node_id=verify`；不存在 `terminal_state`、
+    `incomplete_work_node_ids` 或 `finish_status`。
+  - 三次规范反馈均为 `status=committed`、`canonical_revision=5`、`terminal_node_role=work`，并在同一图修订中
+    完成 `verify`、使 Finish Ready 并提交最终闭合。
+  - 终态 state failure、重试和参数解析错误均为 0；没有调用 `terminal_node_id=finish`。
+  - pair-001 的一次失败是初始化前 `read_map` 返回 `map_id missing`，发生在终态之前且不属于终态合同。
+- Correlation keys:
+  - pair-001/right call `call_00_Hq4FRDHoC4UZ7b9f5MCL3286`
+  - pair-002/left call `call_00_wbG1Ia9agxikJ50TOAMl1837`
+  - pair-003/right call `call_00_30ks72JVREC5ezM94sZZ8287`
+- Raw content:
+  ```text
+  taskspace solved: 3/3
+  finish_map calls: 1, 1, 1
+  terminal_node_id=verify: 3/3
+  canonical terminal_node_role=work: 3/3
+  Finish-entry commit: 0/3
+  terminal state failures: 0/3
+  terminal parse errors: 0/3
+  ```
+- Interpretation: 删除前态分支后，Agent 不再被要求猜测底层终态事务，也无法先选 Ready-Finish 再补写伪快照。
+  Runtime 没有替 Agent 选择节点或解释任务语义，只根据 Agent 明确提交的节点身份执行状态机硬规则。原问题的
+  结构根因已消除。
+- Time: 2026-07-23 02:20
