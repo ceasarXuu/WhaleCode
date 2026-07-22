@@ -46,7 +46,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "8b6ac7808baa48ebc9befde582eb10d0cc417c57ea644dd0e327e04bea956a48",
+      "sha256": "98bf354133718eab4a2a084fd663f19591509c3c9b5727aea8428c596ce51d1b",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -188,7 +188,7 @@
       "implementation_status": "selected_not_implemented",
       "activation_phase": "FLA-0 smoke contract and FLA-8 formal decision",
       "artifact": "benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json",
-      "sha256": "91abdac597b3a667eccdc289c0778765d819abfa0901948065c05e416031f430",
+      "sha256": "f628217a775fe0eed26f4a38329695bd58a352b4f7ca9083fa26411d7303f380",
       "production_targets": [
         "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
         "scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1",

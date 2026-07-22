@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
   "contract_id": "r7-five-layer-evaluation-contract-v1",
-  "status": "selected_design_target_not_implemented",
+  "status": "selected_four_arm_design_target_not_implemented",
   "environment": {
     "runner": "scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1",
     "base_runner": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
     "execution": "Docker only",
     "image_identity": "record immutable image digest, WhaleCode commit, model identifier, provider endpoint family and tool profile in every run",
     "api_key_source": ".env.local DEEPSEEK_API_KEY; never copy the value into artifacts or logs",
-    "concurrency": "parallelize repeats across isolated containers; serialize arms within each paired repeat unless the provider returns an explicit rate-limit-free capacity reservation",
+    "concurrency": "parallelize repeats across isolated containers; keep every arm isolated and record the actual execution order",
     "timeout_seconds_per_run": 1800
   },
   "samples": {
     "development_smoke": ["single-file-fast-fix", "subscription-billing-repair"],
     "held_out_formal": ["multi-file-order-pipeline", "count-call-stack", "large-output-ref-smoke"],
-    "held_out_rule": "Do not inspect candidate outcomes on held_out_formal before the FLA-8 decision run. Environment validation may execute fixtures without a model and may not score candidate behavior.",
+    "held_out_rule": "The initial observation uses only development_smoke. Do not run held_out_formal or extend repeats without a separate user decision after the initial report.",
     "frozen_artifacts": [
       {
         "id": "single-file-fast-fix",
@@ -50,69 +50,65 @@
     "directory_hash_rule": "From the repository root, sort all repository-relative file paths under the scenario directory bytewise, concatenate sha256sum lines in that order, then sha256 the resulting UTF-8 LF manifest. Prompt, fixture and validator bytes are therefore frozen together."
   },
   "arms": {
-    "shared_change_formal": [
+    "post_refactor_four_arm": [
       "standard",
-      "map-always-frozen-baseline",
-      "map-always-candidate",
-      "map-append-frozen-baseline",
-      "map-append-candidate",
-      "map-request-frozen-baseline",
-      "map-request-candidate"
+      "map-always",
+      "map-append",
+      "map-request"
     ],
-    "single_policy_experiment": ["standard", "affected-policy-frozen-baseline", "affected-policy-candidate"],
-    "baseline_identity": "The frozen baseline is commit 48922ce9b plus the exact environment and provider identities recorded by the run manifest.",
-    "candidate_identity": "One FLA phase commit or one FLA-6 experiment commit. Unrelated changes are forbidden."
+    "identity": "All four arms use the same post-five-layer-refactor commit, WhaleCode binary, Docker image, model, provider endpoint family, tool capability profile and scenario bytes. The only TaskSpace-arm difference is taskspace_projection_policy; Standard does not activate TaskSpace.",
+    "forbidden_comparators": [
+      "pre-five-layer commit",
+      "frozen baseline binary",
+      "candidate binary",
+      "R6 runtime"
+    ]
   },
   "run_design": {
-    "smoke": {
+    "initial_observation": {
       "samples": "development_smoke",
-      "paired_repeats": 3,
+      "repeats_per_arm_per_sample": 3,
       "arm_order": [
-        ["standard", "frozen-baseline", "candidate"],
-        ["frozen-baseline", "candidate", "standard"],
-        ["candidate", "standard", "frozen-baseline"]
+        ["standard", "map-always", "map-append", "map-request"],
+        ["map-always", "map-append", "map-request", "standard"],
+        ["map-append", "map-request", "standard", "map-always"]
       ],
-      "claim_limit": "Smoke may detect regressions but may not establish benefit or non-regression."
+      "stopping_rule": "Complete all three repeats for all four arms on both development samples, then stop and report. Do not automatically continue to ten repeats.",
+      "claim_limit": "The initial observation detects regressions and exposes execution-path differences. It does not establish statistical benefit, non-inferiority or a production default."
     },
-    "formal": {
+    "extended_observation": {
       "samples": "development_smoke plus held_out_formal",
-      "paired_repeats_per_sample": 30,
-      "shared_change_arm_order_cycle": [
-        ["standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate"],
-        ["map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard"],
-        ["map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline"],
-        ["map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate"],
-        ["map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline"],
-        ["map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate"],
-        ["map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline"]
+      "repeats_per_arm_per_sample": 10,
+      "activation": "disabled_until_explicit_user_approval_after_initial_observation",
+      "arm_order_cycle": [
+        ["standard", "map-always", "map-append", "map-request"],
+        ["map-always", "map-append", "map-request", "standard"],
+        ["map-append", "map-request", "standard", "map-always"],
+        ["map-request", "standard", "map-always", "map-append"]
       ],
-      "single_policy_arm_order_cycle": [
-        ["standard", "affected-policy-frozen-baseline", "affected-policy-candidate"],
-        ["affected-policy-frozen-baseline", "affected-policy-candidate", "standard"],
-        ["affected-policy-candidate", "standard", "affected-policy-frozen-baseline"]
-      ],
-      "randomization": "Choose and record one seed before any candidate run. The seed determines sample order; arm order uses the applicable cycle by paired repeat index modulo cycle length.",
-      "stopping_rule": "Run all 30 complete paired repeats per sample. Do not inspect candidate aggregate gates or stop early. Evaluate once after the matrix is sealed; an interval crossing a threshold is inconclusive and does not promote.",
-      "confidence": "two-sided 95% paired bootstrap confidence interval with 10000 resamples, stratified by sample ID",
-      "multiple_candidates": "Holm-Bonferroni correction across candidates tested against the same frozen baseline within one FLA decision family"
+      "randomization": "Record one seed before execution. The seed determines sample order; arm order follows the cycle by repeat index.",
+      "stopping_rule": "When explicitly approved, run all ten repeats for every selected sample and arm. Do not stop based on visible outcomes.",
+      "confidence": "descriptive totals, means and medians are mandatory; inferential intervals are added only after the product decision defines the comparison claim"
     }
   },
   "hard_gates": [
-    {"metric": "scenario_success", "rule": "candidate failures <= frozen-baseline failures and candidate success rate >= frozen-baseline success rate"},
-    {"metric": "semantic_integrity_violations", "rule": "candidate total equals 0"},
-    {"metric": "hard_contract_violations", "rule": "candidate total equals 0"},
+    {"metric": "scenario_success", "rule": "report every arm independently; any failure is retained and analyzed"},
+    {"metric": "semantic_integrity_violations", "rule": "every arm total equals 0"},
+    {"metric": "hard_contract_violations", "rule": "every arm total equals 0"},
     {"metric": "schema_and_lifecycle_oracles", "rule": "100% pass"},
     {"metric": "solo_nonterminal_transition", "rule": "0 for initialize_map, bind_node and complete_then_continue"}
   ],
-  "non_inferiority_gates": [
-    {"metric": "provider_request_count_mean", "threshold": "candidate increase <= 10% versus paired frozen baseline"},
-    {"metric": "provider_request_count_median", "threshold": "candidate increase <= 1 request"},
-    {"metric": "provider_request_count_p95", "threshold": "candidate increase <= 2 requests"},
-    {"metric": "uncached_input_tokens_mean", "threshold": "candidate increase <= 10%"},
-    {"metric": "total_input_tokens_mean", "threshold": "candidate increase <= 15%"},
-    {"metric": "request_2_plus_cache_hit_rate", "threshold": "candidate decrease <= 2 percentage points"},
-    {"metric": "wall_time_mean", "threshold": "candidate increase <= 20%"},
-    {"metric": "combined_control_plus_next_rate", "threshold": "candidate decrease <= 2 percentage points"}
+  "observation_metrics": [
+    "provider_request_count",
+    "total_input_tokens",
+    "cached_input_tokens",
+    "uncached_input_tokens",
+    "output_tokens",
+    "request_2_plus_cache_hit_rate",
+    "wall_time",
+    "carrier_transition_counts",
+    "control_failure_taxonomy",
+    "map_nodes_edges_and_terminal_state"
   ],
   "metric_definitions": {
     "provider_request_count": "Count provider HTTP attempts excluding exact transport retries; report retries separately.",
@@ -145,24 +141,23 @@
     "No run may be deleted as an outlier after outcomes are visible. Exclusions must match the taxonomy and remain in the raw manifest."
   ],
   "required_artifacts": [
-    "run-manifest.json with sample, pair, arm order, seed, commits, image digest, model and provider identities",
+    "run-manifest.json with sample, repeat, four-arm order, commit, binary hash, image digest, model and provider identities",
     "requests.jsonl with one record per provider request and transport retry",
     "tool-events.jsonl with ordered call/result envelopes and TaskSpace revisions",
     "map-events.jsonl with canonical event hashes and projection emissions",
     "scenario-verdict.json",
-    "summary.csv containing per-run and aggregate totals, means, medians, p95 and cache rates",
-    "paired-bootstrap.json containing confidence intervals and stopping decision"
+    "summary.csv containing per-run and aggregate totals, means, medians and cache rates",
+    "trace-analysis.json containing request paths and classified anomalies for every run"
   ],
   "commands": {
     "validate_contracts": "pwsh scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
-    "smoke": "pwsh scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1 -Stage smoke -Candidate <commit> -Baseline 48922ce9b",
-    "formal": "pwsh scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1 -Stage formal -Candidate <commit> -Baseline 48922ce9b -Seed <recorded-int>",
+    "initial_observation": "pwsh scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1 -Stage initial -Repeats 3",
+    "extended_observation": "pwsh scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1 -Stage extended -Repeats 10 -Seed <recorded-int>",
     "report": "pwsh scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1 -RunRoot <artifact-directory>"
   },
   "promotion_decision": {
-    "promote": "All hard gates pass and all corrected confidence bounds satisfy every non-inferiority threshold.",
-    "reject": "Any hard gate fails or a non-inferiority confidence bound is entirely outside its threshold after 30 repeats.",
-    "inconclusive": "Required telemetry is unavailable or a confidence interval crosses a threshold after 30 repeats; do not promote.",
-    "benefit_claim": "A positive benefit may be claimed only for a preregistered superiority metric whose corrected 95% interval excludes zero. Passing non-inferiority is not a benefit claim."
+    "initial": "Stop after the four-arm repeat-3 report. The report may identify defects and candidate follow-up questions but may not select a default policy.",
+    "extended": "A product decision is made only after explicit approval of the repeat-10 stage and a separately frozen decision rule.",
+    "benefit_claim": "No benefit or non-inferiority claim is permitted from the initial observation."
   }
 }

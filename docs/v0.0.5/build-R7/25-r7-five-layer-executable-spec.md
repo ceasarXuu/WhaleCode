@@ -310,20 +310,18 @@ FLA-3.5 已完成，FLA-4 可以开始。
 执行
 [`five-layer-evaluation-contract-v1.json`](../../../benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json)：
 
-当前 v1 的 `combined_control_plus_next_rate` 只适用于历史 sibling 回归基线。FLA-8 开始时从已激活 carrier
-生成、预注册并激活自己的 v2，将旧指标替换为 transition carrier 指标，同时保持
-sealed held-out、30 repeats、bootstrap、顺序、停止和 correction 规则不变。
+FLA-8 不再比较五层改造前版本，也不存在冻结版/候选版产品线。四臂必须来自同一五层改造后提交、同一二进制、
+同一 Docker image、同一模型与能力集；差异只允许是 Standard 不启用 TaskSpace，以及三种 TaskSpace projection policy
+的 emission 规则。
 
-- shared change 使用 7 臂；单 policy 实验使用 3 臂。
-- 七臂中 Standard + 晋级后 map-always/map-append/map-request 是 R7 Phase G 唯一四臂子矩阵；benchmark skill、
-  report、默认值建议和产品取舍表全部由本阶段同一 raw artifacts 生成。
-- 5 个冻结样本，每个样本固定 30 次配对重复；候选矩阵封存前不查看聚合门槛，也不提前停止。
-- 两侧 95% paired bootstrap、10000 次重采样、按 sample 分层；同一决策族多候选用 Holm-Bonferroni。
-- 正确性、语义完整性、合同违规为硬 gate；request、token、cache、wall time、组合调用为预注册非劣 gate。
-- held-out 结果只在本阶段解封；30 次仍不确定则不晋级。
+- 固定四臂：Standard、map-always、map-append、map-request。
+- 首轮只运行两个开发样本，每臂每样本 3 次；完成后立即停止并汇报，不自动扩展。
+- 首轮只用于发现回归、比较执行路径并建立成本观测，不声明收益、非劣或默认策略。
+- 每臂 10 次及 held-out 样本属于后续扩展阶段，必须在用户审阅首轮结果并明确批准后启动。
+- 正确性、语义完整性、合同违规仍为硬 gate；request、token、cache、wall time、carrier、Map 形态和逐 request trace
+  作为完整观察项报告。
 
-完成证据是 raw manifests、requests/tool/map JSONL、逐运行 verdict、汇总 CSV、bootstrap 结果和明确的
-promote/reject/inconclusive 决策。非劣通过不等于证明收益。
+首轮完成证据是 raw manifests、requests/tool/map JSONL、逐运行 verdict、四臂汇总 CSV 和逐 trace 异常分类。
 
 ## 6. 测试与日志落地清单
 
