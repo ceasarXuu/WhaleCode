@@ -25,8 +25,8 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
-use crate::tools::taskspace_carrier::CarrierTransition;
-use crate::tools::taskspace_carrier::commit_carried_transition;
+use crate::tools::taskspace_carrier::CarrierAction;
+use crate::tools::taskspace_carrier::prepare_carried_action;
 use crate::tools::taskspace_carrier::wrap_carrier_response;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
@@ -100,18 +100,20 @@ impl ToolCallRuntime {
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
         async move {
-            let transition = if cancellation_token.is_cancelled() {
-                CarrierTransition::Rejected("tool call cancelled before transition commit".into())
+            let action = if cancellation_token.is_cancelled() {
+                CarrierAction::Rejected("tool call cancelled before TaskSpace action".into())
             } else {
-                commit_carried_transition(&self.session, &self.turn_context, &call).await
+                prepare_carried_action(&self.session, &self.turn_context, &call).await
             };
-            if matches!(transition, CarrierTransition::Rejected(_)) {
-                let message = match &transition {
-                    CarrierTransition::Rejected(message) => message.clone(),
-                    CarrierTransition::None | CarrierTransition::Committed(_) => unreachable!(),
+            if matches!(action, CarrierAction::Rejected(_)) {
+                let message = match &action {
+                    CarrierAction::Rejected(message) => message.clone(),
+                    CarrierAction::None
+                    | CarrierAction::ContinueValidated
+                    | CarrierAction::TransitionCommitted(_) => unreachable!(),
                 };
                 let mut response = Self::invalid_call_response(&call, message);
-                wrap_carrier_response(&mut response, &transition, false);
+                wrap_carrier_response(&mut response, &action, false);
                 return Ok(ToolCallExecution {
                     response,
                     taskspace_terminal_carrier: None,
@@ -124,7 +126,7 @@ impl ToolCallRuntime {
                 Ok(response) => {
                     let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
                     let mut response = response.into_response();
-                    wrap_carrier_response(&mut response, &transition, true);
+                    wrap_carrier_response(&mut response, &action, true);
                     Ok(ToolCallExecution {
                         response,
                         taskspace_terminal_carrier,
@@ -133,7 +135,7 @@ impl ToolCallRuntime {
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
                 Err(other) => {
                     let mut response = Self::failure_response(error_call, other);
-                    wrap_carrier_response(&mut response, &transition, true);
+                    wrap_carrier_response(&mut response, &action, true);
                     Ok(ToolCallExecution {
                         response,
                         taskspace_terminal_carrier: None,
@@ -858,7 +860,7 @@ mod tests {
             payload: ToolPayload::Function {
                 arguments: "{}".to_string(),
             },
-            taskspace_transition: None,
+            taskspace_action: None,
         };
         let response = ToolCallRuntime::failure_response_for_error(&call, &err);
         response_input_model_visible_preview(&response)

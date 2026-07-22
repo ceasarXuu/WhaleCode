@@ -18,7 +18,6 @@ use crate::ToolRegistryPlanDeferredTool;
 use crate::ToolRegistryPlanMcpTool;
 use crate::ToolsConfigParams;
 use crate::WaitAgentTimeoutOptions;
-use crate::decorate_taskspace_carrier_tool;
 use crate::mcp_call_tool_result_output_schema;
 use codex_app_server_protocol::AppInfo;
 use codex_features::Feature;
@@ -147,9 +146,6 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
     if config.collab_tools {
         let spec = create_taskspace_control_tool();
         expected.insert(spec.name().to_string(), spec);
-        for spec in expected.values_mut() {
-            *spec = decorate_taskspace_carrier_tool(spec.clone());
-        }
     }
 
     assert_eq!(
@@ -280,24 +276,6 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     assert!(!serialized.contains("initialize_then_actions"));
     assert!(!serialized.contains("output_contracts"));
     assert!(!serialized.contains("output_contract_id"));
-
-    let carrier = tools
-        .iter()
-        .find(|configured| {
-            configured.name() != "taskspace_control"
-                && matches!(&configured.spec, ToolSpec::Function(_))
-        })
-        .expect("ordinary function carrier");
-    let ToolSpec::Function(carrier) = &carrier.spec else {
-        panic!("shell_command should be a function tool");
-    };
-    let transition =
-        &carrier.parameters.properties.as_ref().expect("properties")["taskspace_transition"];
-    let transition_text = serde_json::to_string(transition).expect("serialize transition");
-    assert!(transition_text.contains("initialize_map"));
-    assert!(transition_text.contains("bind_node"));
-    assert!(transition_text.contains("complete_then_continue"));
-    assert!(!transition_text.contains("required_next_call"));
 }
 
 #[test]

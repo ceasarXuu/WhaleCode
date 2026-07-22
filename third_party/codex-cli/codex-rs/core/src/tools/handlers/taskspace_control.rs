@@ -16,7 +16,7 @@ use crate::tools::handlers::taskspace_control_output::control_commit_observation
 use crate::tools::handlers::taskspace_control_output::normalize_control_result;
 use crate::tools::handlers::taskspace_control_output::protocol_error;
 use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
-use crate::tools::handlers::taskspace_transition_args::TaskSpaceTransitionArgs;
+use crate::tools::handlers::taskspace_transition_args::TaskSpaceActionArgs;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 
@@ -238,12 +238,17 @@ pub(crate) async fn execute_taskspace_transition(
     session: &Session,
     turn: &TurnContext,
     call_id: &str,
-    args: TaskSpaceTransitionArgs,
+    args: TaskSpaceActionArgs,
 ) -> Result<TaskSpaceTransitionExecution, FunctionCallError> {
     let action = args.action_name();
     let submitted_expected_revision = args.submitted_expected_revision();
     let (message, success, _) = match args {
-        TaskSpaceTransitionArgs::InitializeMap {
+        TaskSpaceActionArgs::ContinueCurrent { .. } => {
+            return Err(FunctionCallError::RespondToModel(
+                "continue_current is a binding assertion, not a lifecycle transition".into(),
+            ));
+        }
+        TaskSpaceActionArgs::InitializeMap {
             root,
             initial_work_node,
             finish_identity,
@@ -262,13 +267,13 @@ pub(crate) async fn execute_taskspace_transition(
             )
             .await?
         }
-        TaskSpaceTransitionArgs::BindNode {
+        TaskSpaceActionArgs::BindNode {
             expected_revision,
             node_id,
         } => {
             lifecycle_actions::bind_node(session, turn, call_id, expected_revision, node_id).await?
         }
-        TaskSpaceTransitionArgs::CompleteThenContinue {
+        TaskSpaceActionArgs::CompleteThenContinue {
             expected_revision,
             current_node_id,
             next_node_id,

@@ -46,22 +46,22 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "ee75563b7726bd533baaba68e9ffa48bbe3056362bc1fcff7ffb96cd391867d1",
+      "sha256": "a8b305b39907b2bc4332dc269789be9c04f2f3f540783f5f8de1c25691850370",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "2597a7ceaa5ce815a1ae1c187126725486f1da6691bac16e2ecf89a62cd18089",
+      "sha256": "41dd76b6f07206d1467e4c027606ae7269d29d017a4791a010562bd43607753c",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "402ad5de429bc69e234338e9404eb6daa264cf97d0f10257c19cf2fdd2677196",
+      "sha256": "61da2d211c941542c66493516810c486764c0ced1b23542e26801acbbe7cdee7",
       "role": "layer responsibilities, ownership and architectural boundaries"
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "d614bcf75936b9f3cfee8645e8661739375301ab0f2e2c2d9c91295a549f3ffc",
+      "sha256": "ee31c0b484a9e442de09792f9d84282b9115c4ed317723ffa76ef82955f41954",
       "role": "FLA-3.5 minimal continuous-action contract, implementation boundary and verification result"
     }
   ],
@@ -108,7 +108,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "9b0f04354026f81f23b9e4570e2f321caf204050c0068d77dfb65a65f393717b",
+      "sha256": "60e9ecf495edd694997512b0b997ecbe02b1e65b9704a2fed02d3384b86dcfcb",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -124,17 +124,17 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "8fd0a3845d894580d1d10fb19b7b9297428ab6336e5013b1daedbcbd575f07bf",
+      "sha256": "07bc82c1da90a1bc986109fb5047159bd987f4680461e9889767c9a679a8bc6b",
       "tool_count": 1,
       "required_next_call": "removed",
-      "taskspace_transition": "active_on_ordinary_action_tools",
+      "taskspace_action": "required_on_ordinary_action_tools",
       "carrier_schema_source": {
         "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
-        "sha256": "17eaa01bf41af068bfbf7af1c3d98b2f270a69a895166fb75ab3ceae94249c42"
+        "sha256": "e6b5a554e3342eea1783e513990c579e4c41daf9793806d4b5c2ed365c8dd48d"
       },
       "transition_parser": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
-        "sha256": "fc3ef409b4908e85d20fa245a3e4dcd4b40076f478b058ff850b67340386458f"
+        "sha256": "4e1522170836d00ea61500fafb553190a73a66d7707ae0f81686422170b5fe0f"
       },
       "strict": false,
       "output_schema": null,
@@ -145,7 +145,8 @@
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier.rs"
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/turn.rs"
       ]
     },
     {
@@ -153,7 +154,7 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8",
+      "sha256": "fabd016964b7999690a0f74baeec4f774f63c415ff20de0a630942f697a5a1ce",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
@@ -222,8 +223,8 @@
       "issue": "H-003",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
-      "current_regression_baseline": "removed; ordinary action tools carry taskspace_transition in the active production path",
-      "selected_direction": "shared schema decorator and parser execute the Agent-submitted lifecycle transition before dispatching the same ordinary Tool through the existing router",
+      "current_regression_baseline": "removed; ordinary action tools explicitly carry taskspace_action in the active production path",
+      "selected_direction": "shared schema decorator and parser require an Agent-submitted continuation or lifecycle action before dispatching the same ordinary Tool through the existing router",
       "required_next_call_disposition": "removed with missing-sibling preflight and standalone nonterminal lifecycle actions"
     }
   ],
@@ -233,7 +234,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2.2 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v2.3 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",

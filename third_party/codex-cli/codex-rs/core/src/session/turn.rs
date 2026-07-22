@@ -1160,6 +1160,7 @@ fn apply_provider_tool_visibility(
             tools
                 .into_iter()
                 .filter(|spec| spec.name() != "update_plan")
+                .map(codex_tools::decorate_taskspace_carrier_tool)
                 .collect()
         }
     }
@@ -1652,6 +1653,51 @@ mod active_context_replacement_tests {
         let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["taskspace_control"]);
+    }
+
+    #[test]
+    fn carrier_schema_is_visible_only_in_taskspace_mode() {
+        let ordinary = codex_tools::create_exec_command_tool(codex_tools::CommandToolOptions {
+            allow_login_shell: true,
+            exec_permission_approvals_enabled: false,
+        });
+        let standard = apply_provider_tool_visibility(
+            vec![ordinary.clone()],
+            TaskspaceProviderToolVisibility::Standard,
+        );
+        let taskspace = apply_provider_tool_visibility(
+            vec![ordinary],
+            TaskspaceProviderToolVisibility::TaskspaceNative,
+        );
+
+        let ToolSpec::Function(standard) = &standard[0] else {
+            panic!("exec_command should be a function Tool");
+        };
+        assert!(
+            !standard
+                .parameters
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.contains_key("taskspace_action"))
+        );
+
+        let ToolSpec::Function(taskspace) = &taskspace[0] else {
+            panic!("decorated exec_command should remain a function Tool");
+        };
+        assert!(
+            taskspace
+                .parameters
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.contains_key("taskspace_action"))
+        );
+        assert!(
+            taskspace
+                .parameters
+                .required
+                .as_ref()
+                .is_some_and(|required| required.iter().any(|field| field == "taskspace_action"))
+        );
     }
 
     #[test]

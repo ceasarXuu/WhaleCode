@@ -7,18 +7,21 @@
   "strict": false,
   "output_schema_sent_to_deepseek": false,
   "capability_profiles": {
-    "taskspace_transition": [
+    "taskspace_action": [
+      "continue_current",
       "initialize_map",
       "bind_node",
       "complete_then_continue"
     ],
-    "mechanical_transform": "Decorate TaskSpace ordinary action Tools with taskspace_transition; Standard schemas remain unchanged."
+    "required_on_decorated_tools": true,
+    "mechanical_transform": "Build raw Tool schemas in the shared registry, then decorate only TaskSpace provider-visible ordinary action Tools with required taskspace_action; Standard schemas remain unchanged.",
+    "continuation_contract": "continue_current validates the submitted revision and active binding without changing Map state or interpreting task semantics."
   },
   "provider_tool": {
     "type": "function",
     "function": {
       "name": "taskspace_control",
-      "description": "Use taskspace_control for standalone Map mutations, lifecycle states that do not begin a new action, terminal closure, expansion, and retained-data reads. Initialization, binding, and complete-then-continue are carried by the next real action Tool through taskspace_transition. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.",
+      "description": "Use taskspace_control for standalone Map mutations, lifecycle states that do not begin a new action, terminal closure, expansion, and retained-data reads. Every ordinary action Tool explicitly declares taskspace_action: continue the current binding, or carry initialization, binding, or complete-then-continue into the action. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.",
       "parameters": {
         "type": "object",
         "description": "One mechanical TaskSpace operation.",
@@ -420,7 +423,11 @@
     }
   },
   "invariants": [
-    "initialize_map, bind_node, and complete_then_continue are available only through an ordinary action Tool taskspace_transition",
+    "every decorated ordinary action Tool requires taskspace_action",
+    "the shared registry retains raw Tool schemas and carrier decoration occurs only at the TaskSpace provider visibility boundary",
+    "Standard provider-visible Tool schemas never contain taskspace_action",
+    "continue_current requires the exact canonical revision and current Work binding and never mutates Map state",
+    "initialize_map, bind_node, and complete_then_continue are available only through an ordinary action Tool taskspace_action",
     "all control mutations compare expected_revision before commit and commit atomically",
     "read and expand actions never change graph lifecycle state",
     "one provider response may contain multiple independent control calls, and each call produces its own result envelope"

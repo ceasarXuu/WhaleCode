@@ -172,6 +172,23 @@ fn bind_node_schema() -> JsonSchema {
     )
 }
 
+fn continue_current_schema() -> JsonSchema {
+    described_object_variant(
+        "continue_current",
+        BTreeMap::from([
+            ("expected_revision".into(), revision_schema()),
+            (
+                "current_node_id".into(),
+                JsonSchema::string(Some(
+                    "The active Work node that this Tool action continues to serve.".into(),
+                )),
+            ),
+        ]),
+        vec!["expected_revision".into(), "current_node_id".into()],
+        "Explicitly continue the current Work binding without changing lifecycle state before executing the carrying Tool.",
+    )
+}
+
 fn node_transition_schema(action: &str, description: &str) -> JsonSchema {
     described_object_variant(
         action,
@@ -230,14 +247,15 @@ fn finish_end_schema() -> JsonSchema {
     )
 }
 
-pub(crate) fn taskspace_transition_schema() -> JsonSchema {
+pub(crate) fn taskspace_action_schema() -> JsonSchema {
     object_any_of(
         vec![
+            continue_current_schema(),
             initialize_map_schema(),
             bind_node_schema(),
             complete_then_continue_schema(),
         ],
-        "A lifecycle transition committed before this Tool executes.",
+        "The explicit TaskSpace binding action applied before this Tool executes. Choose continue_current when the Tool still serves the active Work node; otherwise choose the lifecycle transition that binds the Work node served by this Tool.",
     )
 }
 
@@ -264,7 +282,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Use taskspace_control for standalone Map mutations, lifecycle states that do not begin a new action, terminal closure, expansion, and retained-data reads. Initialization, binding, and complete-then-continue are carried by the next real action Tool through taskspace_transition. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
+        description: "Use taskspace_control for standalone Map mutations, lifecycle states that do not begin a new action, terminal closure, expansion, and retained-data reads. Every ordinary action Tool explicitly declares taskspace_action: continue the current binding, or carry initialization, binding, or complete-then-continue into the action. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
         strict: false,
         defer_loading: None,
         parameters,

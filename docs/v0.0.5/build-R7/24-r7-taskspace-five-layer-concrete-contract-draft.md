@@ -24,7 +24,7 @@
 权威 artifact，不能让实施者自行选择。
 
 > 2026-07-22 supersession：第 6 节的 `required_next_call + top-level sibling` schema 和调用示例仅保留为
-> H-003 历史复现材料，不代表当前生产合同。当前合同是普通动作 Tool 携带 `taskspace_transition`；旧字段、
+> H-003 历史复现材料，不代表当前生产合同。当前合同是普通动作 Tool 携带必填 `taskspace_action`；旧字段、
 > missing-sibling preflight 和非终态独立 control 已删除。实现与结果见
 > [R7 连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)。
 
@@ -305,7 +305,8 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 ### 6.3 当前 action-local 描述和字段
 
 下表记录当前生产 action。`initialize_map`、`bind_node`、`complete_then_continue` 只作为普通动作 Tool 的
-`taskspace_transition` 出现；其余独立 Map 操作仍属于 `taskspace_control`。
+`taskspace_action` 出现；普通动作继续服务当前节点时使用 `continue_current`，其余独立 Map 操作仍属于
+`taskspace_control`。
 
 | Tool | Action | Agent 可见描述 | 核心必填字段 | 成功副作用 |
 |---|---|---|---|---|
@@ -412,7 +413,8 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 ```
 
 以上是 H-003 的历史回归 schema，仅用于解释根因。当前生产让真实动作自身携带轻量
-`taskspace_transition`；`required_next_call` 和 sibling preflight 已删除，不保留兼容路径。
+`taskspace_action`；该字段必须显式选择 `continue_current` 或生命周期动作。`required_next_call` 和 sibling
+preflight 已删除，不保留兼容路径。
 
 ### 6.5 历史 sibling 组合调用示例
 
@@ -549,12 +551,12 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 
 ### 7.4 carrier 的交接已提交、普通工具随后失败
 
-这是同一个 provider call id 下的两个独立事实。当前实现先返回短 `TaskSpaceCarrierResultV1` 头，再原样附加
+这是同一个 provider call id 下的两个独立事实。当前实现先返回短 `TaskSpaceCarrierResultV2` 头，再原样附加
 普通 Tool 输出：
 
 ```text
-{"schema_version":"TaskSpaceCarrierResultV1",
- "transition":{"status":"committed","state_commit":true,"canonical_revision":4},
+{"schema_version":"TaskSpaceCarrierResultV2",
+ "action_result":{"status":"committed","state_commit":true,"canonical_revision":4},
  "tool_dispatched":true}
 <原 Tool 失败输出保持不变>
 ```
@@ -701,7 +703,7 @@ Agent 调用 `read_map` 后，projection 作为 Tool result 追加。若随后�
   "arguments": {
     "cmd": "rg -n \"subscription|cache|invalidate\" src tests",
     "workdir": "/workspace",
-    "taskspace_transition": {
+    "taskspace_action": {
       "action": "initialize_map",
       "root": { "node_id": "subscription-cache-fix", "goal": "修复订阅状态更新后的缓存失效并验证" },
       "initial_work_node": { "node_id": "investigate", "goal": "定位状态更新与缓存失效链路" },
@@ -731,7 +733,7 @@ Agent 调用 `read_map` 后，projection 作为 Tool result 追加。若随后�
   "name": "apply_patch",
   "arguments": {
     "input": "*** Begin Patch\n<一个连贯 Patch>\n*** End Patch",
-    "taskspace_transition": {
+    "taskspace_action": {
       "action": "complete_then_continue",
       "expected_revision": 1,
       "current_node_id": "investigate",
@@ -749,7 +751,7 @@ Agent 调用 `read_map` 后，projection 作为 Tool result 追加。若随后�
   "arguments": {
     "cmd": "cargo test subscription_cache",
     "workdir": "/workspace",
-    "taskspace_transition": {
+    "taskspace_action": {
       "action": "complete_then_continue",
       "expected_revision": 2,
       "current_node_id": "implement",

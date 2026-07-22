@@ -34,7 +34,7 @@ Agent 不是第六层。Agent 是五层能力的唯一语义使用者：任务�
 
 连续动作是 L4 的结构合同，不是 L1/L2 建议：初始化、绑定和完成后继续必须与至少一个真实动作处于同一个
 provider-visible Tool schema 中。FLA-3.5 已删除 `required_next_call + top-level sibling` 回归路径，由普通动作
-Tool 的轻量 `taskspace_transition` 恢复结构保证；FLA-4 从该单一生产基线继续正式化 L4。
+Tool 的必填 `taskspace_action` 恢复结构保证；FLA-4 从该单一生产基线继续正式化 L4。
 
 本文件只定义架构与内容所有权，不能单独作为实施依据。Agent 可见内容示例见 `24` 号文档；唯一主线、完整
 机器合同、生产入口、删除项、生命周期 oracle、评估门槛和完成证据以 `25` 号可执行规格及其链接的 authority
@@ -273,14 +273,14 @@ Tool 顶层 description 必须用足够但不重复的文字说明工具做什�
 | Tool | 职责 | Action 范围 |
 |---|---|---|
 | `taskspace_control` | 独立修改/读取 canonical Map 或执行终态闭合 | mutate、block/unblock/rework、complete/end、finish/end、expand、read_map、read_output_ref |
-| 普通动作 Tool | 执行真实工作，并在需要时携带轻量状态交接 | `taskspace_transition=initialize_map|bind_node|complete_then_continue` |
+| 普通动作 Tool | 执行真实工作，并明确声明当前 Map 绑定或携带状态交接 | `taskspace_action=continue_current|initialize_map|bind_node|complete_then_continue` |
 
 读写拆分仅作为 FLA-6 独立实验。命名或 MCP annotation 本身不构成权限边界；只有 ordinary tool router、
 approval policy 和执行校验真正隔离写权限时，才能声称 read-only 权限收益。无论实验结果如何，所有 action
 共享同一 TaskSpace service、Map、validator、result algebra 和日志，不得形成两套架构。
 
 `complete_then_continue` 本身表达“提交当前边界并继续”。交接与真实动作现在是同一个结构化调用，不再依赖
-顶层 sibling。共享 Tool decorator 让真实动作携带小型 `taskspace_transition`，原 Tool 参数、router、权限和
+顶层 sibling。共享 Tool decorator 让真实动作携带必填 `taskspace_action`，原 Tool 参数、router、权限和
 handler 保持唯一；大型 Patch 正文不嵌入 control。旧 `required_next_call` 和 response preflight 已删除。
 
 `read_output_ref` 的不同读取模式应使用带明确 discriminator 的 `anyOf` 分支表达各自必填字段，而不是把所有
@@ -577,7 +577,7 @@ Skill 不产生新硬规则。
 
 ### FLA-3.5：修复连续动作合同回归
 
-- 已将初始化、绑定、完成后继续从独立 control action 移到普通动作 Tool 的轻量 `taskspace_transition`。
+- 已将显式继续、初始化、绑定、完成后继续统一为普通动作 Tool 的必填 `taskspace_action`。
 - 共享 decorator/parser 只做参数投影与剥离；原 router、权限、sandbox、hook 和业务 handler 保持唯一。
 - 同一 call 的短事实头保留 transition 结果，后接未经改写的原 Tool 输出。
 - 已一次性删除 `required_next_call`、missing-sibling preflight 和三个非终态独立 control 分支。

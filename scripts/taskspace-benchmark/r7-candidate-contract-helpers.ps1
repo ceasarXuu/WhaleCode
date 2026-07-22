@@ -1,7 +1,7 @@
 function Assert-CandidateActivationTargets {
     param([object]$Candidate, [object]$ActiveAuthority)
     Assert-Equal ([string]$Candidate.activation_targets.authority_contract_status) "production_active_through_fla3_5_with_carrier_repair" "Candidate authority contract status target drifted"
-    Assert-Equal ([string]$Candidate.activation_targets.production_manifest_version) "1.0.6" "Candidate production manifest version target drifted"
+    Assert-Equal ([string]$Candidate.activation_targets.production_manifest_version) "1.0.8" "Candidate production manifest version target drifted"
     $expectedPromotionPaths = @(
         "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
         "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json",
@@ -78,7 +78,7 @@ function Assert-CandidateArtifactSchemaContract {
         $capabilityEntries += @(
             @{wire_api = $api; tool_spec = "Function"; tool_payload = "Function"; registration_source = "builtin"; invocation_origin = "direct"; route = "function"; disposition = "carrier"; reason_code = "shared_function_handler"},
             @{wire_api = $api; tool_spec = "Namespace"; tool_payload = "NotApplicable"; registration_source = "dynamic"; invocation_origin = "direct"; route = "namespace"; disposition = "container"; reason_code = "namespace_container"},
-            @{wire_api = $api; tool_spec = "ToolSearch"; tool_payload = "ToolSearch"; registration_source = "builtin"; invocation_origin = "direct"; route = "tool_search"; disposition = "non_carrier"; reason_code = "provider_native"},
+            @{wire_api = $api; tool_spec = "ToolSearch"; tool_payload = "ToolSearch"; registration_source = "builtin"; invocation_origin = "direct"; route = "tool_search"; disposition = "carrier"; reason_code = "decorated_provider_tool"},
             @{wire_api = $api; tool_spec = "LocalShell"; tool_payload = "LocalShell"; registration_source = "builtin"; invocation_origin = "direct"; route = "local_shell"; disposition = "non_carrier"; reason_code = "provider_native"},
             @{wire_api = $api; tool_spec = "ImageGeneration"; tool_payload = "NotApplicable"; registration_source = "builtin"; invocation_origin = "direct"; route = "image_generation"; disposition = "non_carrier"; reason_code = "provider_native"},
             @{wire_api = $api; tool_spec = "WebSearch"; tool_payload = "NotApplicable"; registration_source = "builtin"; invocation_origin = "direct"; route = "web_search"; disposition = "non_carrier"; reason_code = "provider_native"},
@@ -89,7 +89,7 @@ function Assert-CandidateArtifactSchemaContract {
     $sourceInventory = @{tool_spec_source = "third_party/codex-cli/codex-rs/tools/src/tool_spec.rs"; tool_payload_source = "third_party/codex-cli/codex-rs/core/src/tools/context.rs"; router_source = "third_party/codex-cli/codex-rs/core/src/tools/router.rs"; registry_source = "third_party/codex-cli/codex-rs/core/src/tools/registry.rs"; code_mode_source = "third_party/codex-cli/codex-rs/tools/src/code_mode.rs"; tool_spec_variants = @("Function", "Namespace", "ToolSearch", "LocalShell", "ImageGeneration", "WebSearch", "Freeform"); tool_payload_variants = @("Function", "ToolSearch", "Custom", "LocalShell", "Mcp")}
     $sourceHashes = @{tool_spec = $sha; tool_payload = $sha; router = $sha; registry = $sha; code_mode = $sha}
     $samples = @{simple = @{category = "simple"; fixture_sha256 = $sha; repeats = 3}; complex = @{category = "complex"; fixture_sha256 = $sha; repeats = 3}}
-    $toolIdentity = { param($name, $wire) @{name = $name; wire_api = "responses"; wire_kind = $wire; carrier_field = "taskspace_transition"; business_schema_sha256 = $sha; standard_wire_sha256 = $sha; parser_identity = "$name-parser"; handler_identity = "$name-handler"} }
+    $toolIdentity = { param($name, $wire) @{name = $name; wire_api = "responses"; wire_kind = $wire; carrier_field = "taskspace_action"; business_schema_sha256 = $sha; standard_wire_sha256 = $sha; parser_identity = "$name-parser"; handler_identity = "$name-handler"} }
     $outcomeVariants = @{
         RejectedBeforeCommit = @{commit_state = "not_committed"; tool_state = "not_dispatched"; required_facts = @("pre_hook_fact", "failure")}
         CommittedNotExecuted = @{commit_state = "committed"; tool_state = "not_started"; required_facts = @("transition_fact", "pre_hook_fact", "cancellation_or_start_failure")}

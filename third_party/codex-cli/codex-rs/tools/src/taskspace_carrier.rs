@@ -5,9 +5,9 @@ use crate::JsonSchema;
 use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use crate::ToolSpec;
-use crate::taskspace_tool::taskspace_transition_schema;
+use crate::taskspace_tool::taskspace_action_schema;
 
-const TRANSITION_FIELD: &str = "taskspace_transition";
+const ACTION_FIELD: &str = "taskspace_action";
 
 pub fn decorate_taskspace_carrier_tool(spec: ToolSpec) -> ToolSpec {
     match spec {
@@ -24,20 +24,40 @@ pub fn decorate_taskspace_carrier_tool(spec: ToolSpec) -> ToolSpec {
             }
             ToolSpec::Namespace(namespace)
         }
+        ToolSpec::ToolSearch {
+            execution,
+            description,
+            mut parameters,
+        } => {
+            decorate_parameters(&mut parameters, "tool_search");
+            ToolSpec::ToolSearch {
+                execution,
+                description,
+                parameters,
+            }
+        }
         ToolSpec::Freeform(tool) => project_freeform(tool),
         other => other,
     }
 }
 
 fn decorate_function(mut tool: ResponsesApiTool) -> ResponsesApiTool {
-    let properties = tool.parameters.properties.get_or_insert_default();
-    assert!(
-        !properties.contains_key(TRANSITION_FIELD),
-        "reserved TaskSpace field collision in {}",
-        tool.name
-    );
-    properties.insert(TRANSITION_FIELD.into(), taskspace_transition_schema());
+    decorate_parameters(&mut tool.parameters, &tool.name);
     tool
+}
+
+fn decorate_parameters(parameters: &mut JsonSchema, tool_name: &str) {
+    let properties = parameters.properties.get_or_insert_default();
+    assert!(
+        !properties.contains_key(ACTION_FIELD),
+        "reserved TaskSpace field collision in {}",
+        tool_name
+    );
+    properties.insert(ACTION_FIELD.into(), taskspace_action_schema());
+    let required = parameters.required.get_or_insert_default();
+    if !required.iter().any(|field| field == ACTION_FIELD) {
+        required.push(ACTION_FIELD.into());
+    }
 }
 
 fn project_freeform(tool: FreeformTool) -> ToolSpec {
@@ -52,9 +72,9 @@ fn project_freeform(tool: FreeformTool) -> ToolSpec {
                 input_field.into(),
                 JsonSchema::string(Some(format!("The original raw {} input.", tool.name))),
             ),
-            (TRANSITION_FIELD.into(), taskspace_transition_schema()),
+            (ACTION_FIELD.into(), taskspace_action_schema()),
         ]),
-        Some(vec![input_field.into()]),
+        Some(vec![input_field.into(), ACTION_FIELD.into()]),
         Some(false.into()),
     );
     ToolSpec::Function(ResponsesApiTool {

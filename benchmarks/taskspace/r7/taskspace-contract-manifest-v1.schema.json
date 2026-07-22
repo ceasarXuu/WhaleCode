@@ -55,7 +55,7 @@
       "properties": {
         "activation_through": {"const": "FLA-3.5"},
         "authority_contract_status": {"const": "production_active_through_fla3_5_with_carrier_repair"},
-        "production_manifest_version": {"const": "1.0.6"},
+        "production_manifest_version": {"const": "1.0.8"},
         "promotion_commit_paths": {
           "type": "array",
           "minItems": 3,

@@ -656,9 +656,6 @@ pub fn build_tool_registry_plan(
             .find(|configured| configured.name() == "taskspace_control")
             .expect("collab tools must register taskspace_control");
         configured.spec = taskspace_spec;
-        for configured in &mut plan.specs {
-            configured.spec = crate::decorate_taskspace_carrier_tool(configured.spec.clone());
-        }
     }
 
     plan

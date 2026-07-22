@@ -4,7 +4,7 @@ use crate::create_apply_patch_freeform_tool;
 use crate::create_exec_command_tool;
 
 #[test]
-fn function_tool_gets_optional_transition_without_changing_business_fields() {
+fn function_tool_requires_explicit_taskspace_action_without_changing_business_fields() {
     let original = create_exec_command_tool(CommandToolOptions {
         allow_login_shell: false,
         exec_permission_approvals_enabled: false,
@@ -19,14 +19,14 @@ fn function_tool_gets_optional_transition_without_changing_business_fields() {
     let mut expected = original_tool.parameters.properties.unwrap();
     let actual = decorated.parameters.properties.unwrap();
     assert_eq!(actual.get("cmd"), expected.get("cmd"));
-    expected.insert("taskspace_transition".into(), taskspace_transition_schema());
+    expected.insert("taskspace_action".into(), taskspace_action_schema());
     assert_eq!(actual, expected);
     assert!(
-        !decorated
+        decorated
             .parameters
             .required
             .unwrap_or_default()
-            .contains(&"taskspace_transition".to_string())
+            .contains(&"taskspace_action".to_string())
     );
 }
 
@@ -39,10 +39,38 @@ fn taskspace_patch_projection_keeps_raw_patch_as_top_level_input() {
     };
 
     assert_eq!(projected.name, "apply_patch");
-    assert_eq!(projected.parameters.required, Some(vec!["input".into()]));
+    assert_eq!(
+        projected.parameters.required,
+        Some(vec!["input".into(), "taskspace_action".into()])
+    );
     let properties = projected.parameters.properties.unwrap();
     assert!(properties.contains_key("input"));
-    assert!(properties.contains_key("taskspace_transition"));
+    assert!(properties.contains_key("taskspace_action"));
+}
+
+#[test]
+fn tool_search_requires_explicit_taskspace_action() {
+    let original = ToolSpec::ToolSearch {
+        execution: "client".into(),
+        description: "search tools".into(),
+        parameters: JsonSchema::object(BTreeMap::new(), Some(Vec::new()), Some(false.into())),
+    };
+    let ToolSpec::ToolSearch { parameters, .. } = decorate_taskspace_carrier_tool(original) else {
+        panic!("tool_search must remain a tool_search spec");
+    };
+
+    assert!(
+        parameters
+            .required
+            .unwrap_or_default()
+            .contains(&"taskspace_action".to_string())
+    );
+    assert!(
+        parameters
+            .properties
+            .unwrap_or_default()
+            .contains_key("taskspace_action")
+    );
 }
 
 #[test]

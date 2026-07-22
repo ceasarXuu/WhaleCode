@@ -15,14 +15,22 @@ fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> T
         payload: ToolPayload::Function {
             arguments: arguments.to_string(),
         },
-        taskspace_transition: None,
+        taskspace_action: None,
     }
 }
 
 fn call_with_transition(name: &str, call_id: &str) -> ToolCall {
     let mut call = function_call(name, call_id);
-    call.taskspace_transition = Some(
+    call.taskspace_action = Some(
         r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"edit","next_node_id":"verify"}"#.into(),
+    );
+    call
+}
+
+fn call_continuing_current(name: &str, call_id: &str) -> ToolCall {
+    let mut call = function_call(name, call_id);
+    call.taskspace_action = Some(
+        r#"{"action":"continue_current","expected_revision":2,"current_node_id":"edit"}"#.into(),
     );
     call
 }
@@ -177,7 +185,7 @@ fn carried_transition_and_follow_up_tools_stay_in_one_valid_response() {
         vec![
             SequenceSegment::Barrier {
                 index: 0,
-                kind: BarrierKind::TaskSpaceTransition,
+                kind: BarrierKind::TaskSpaceAction,
             },
             SequenceSegment::Parallel { start: 1, end: 3 },
         ]
@@ -197,9 +205,22 @@ fn carried_transition_is_a_barrier_even_on_an_ordinary_tool() {
             SequenceSegment::Parallel { start: 0, end: 1 },
             SequenceSegment::Barrier {
                 index: 1,
-                kind: BarrierKind::TaskSpaceTransition,
+                kind: BarrierKind::TaskSpaceAction,
             },
             SequenceSegment::Parallel { start: 2, end: 3 },
         ]
+    );
+}
+
+#[test]
+fn explicit_continue_current_preserves_parallel_segments() {
+    let calls = vec![
+        call_continuing_current("read_file", "read-1"),
+        call_continuing_current("exec_command", "read-2"),
+    ];
+
+    assert_eq!(
+        sequence_segments(&calls),
+        vec![SequenceSegment::Parallel { start: 0, end: 2 }]
     );
 }

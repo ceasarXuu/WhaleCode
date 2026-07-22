@@ -293,7 +293,6 @@
     "read_continuation": "A non-null continuation is a complete valid read_output_ref line_range argument object for the next exact range. It is non-null only when a line_range result was truncated and more retained lines exist; otherwise it is null.",
     "error_contracts": {
       "TASKSPACE_INVALID_ARGUMENT": {"status": "argument_failed", "class": "argument", "message": "arguments do not match the selected action schema"},
-      "TASKSPACE_REQUIRED_SIBLING_MISSING": {"status": "protocol_failed", "class": "protocol", "message_template": "{action} requires a following top-level {required_next_call} call in the same response"},
       "TASKSPACE_PROTOCOL_FAILURE": {"status": "protocol_failed", "class": "protocol", "message": "the TaskSpace control protocol could not complete mechanically"},
       "TASKSPACE_STALE_REVISION": {"status": "state_machine_failed", "class": "state_machine", "message": "expected_revision does not match the current canonical revision"},
       "TASKSPACE_GRAPH_INVARIANT": {"status": "state_machine_failed", "class": "state_machine", "message": "the submitted mutation violates a rooted DAG invariant"},
@@ -301,6 +300,30 @@
       "TASKSPACE_OUTPUT_REF_NOT_FOUND": {"status": "resource_failed", "class": "resource", "message": "the requested retained output reference does not exist"},
       "TASKSPACE_RANGE_INVALID": {"status": "argument_failed", "class": "argument", "message": "the requested retained output range is invalid"},
       "TASKSPACE_RESOURCE_FAILURE": {"status": "resource_failed", "class": "resource", "message": "a required TaskSpace resource operation failed"}
+    }
+  },
+  "x-taskspace-action-carrier": {
+    "required_field": "taskspace_action",
+    "continuation_success": "A validated continue_current dispatches the ordinary Tool without adding a redundant carrier header to its result.",
+    "transition_result": {
+      "schema_version": "TaskSpaceCarrierResultV2",
+      "fields": ["action_result", "tool_dispatched"],
+      "action_result_schema": "TaskSpaceControlResultV2"
+    },
+    "validation_failure": {
+      "schema_version": "TaskSpaceActionValidationResultV1",
+      "state_commit": false,
+      "tool_dispatched": false,
+      "feedback_contract": "The carrier envelope replaces the internal failure placeholder; the same action failure is not appended as a second body.",
+      "error_codes": [
+        "TASKSPACE_ACTION_REQUIRED",
+        "TASKSPACE_ACTION_FORBIDDEN",
+        "TASKSPACE_ACTION_MODE_MISMATCH",
+        "TASKSPACE_ACTION_INVALID",
+        "TASKSPACE_NO_ACTIVE_MAP",
+        "TASKSPACE_REVISION_MISMATCH",
+        "TASKSPACE_BINDING_MISMATCH"
+      ]
     }
   }
 }

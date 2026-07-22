@@ -7,7 +7,11 @@ use crate::tools::handlers::taskspace_control_args::validate_node_id;
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub(crate) enum TaskSpaceTransitionArgs {
+pub(crate) enum TaskSpaceActionArgs {
+    ContinueCurrent {
+        expected_revision: u64,
+        current_node_id: String,
+    },
     InitializeMap {
         root: TaskSpaceGraphNodeArgs,
         initial_work_node: TaskSpaceGraphNodeArgs,
@@ -29,6 +33,7 @@ pub(crate) enum TaskSpaceTransitionArgs {
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Action {
+    ContinueCurrent,
     InitializeMap,
     BindNode,
     CompleteThenContinue,
@@ -37,6 +42,15 @@ enum Action {
 #[derive(Deserialize)]
 struct Envelope {
     action: Action,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContinueCurrentArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    expected_revision: u64,
+    current_node_id: String,
 }
 
 #[derive(Deserialize)]
@@ -70,9 +84,10 @@ struct CompleteThenContinueArgs {
     next_node_id: String,
 }
 
-impl TaskSpaceTransitionArgs {
+impl TaskSpaceActionArgs {
     pub(crate) fn action_name(&self) -> &'static str {
         match self {
+            Self::ContinueCurrent { .. } => "continue_current",
             Self::InitializeMap { .. } => "initialize_map",
             Self::BindNode { .. } => "bind_node",
             Self::CompleteThenContinue { .. } => "complete_then_continue",
@@ -82,7 +97,10 @@ impl TaskSpaceTransitionArgs {
     pub(crate) fn submitted_expected_revision(&self) -> Option<u64> {
         match self {
             Self::InitializeMap { .. } => None,
-            Self::BindNode {
+            Self::ContinueCurrent {
+                expected_revision, ..
+            }
+            | Self::BindNode {
                 expected_revision, ..
             }
             | Self::CompleteThenContinue {
@@ -93,6 +111,12 @@ impl TaskSpaceTransitionArgs {
 
     fn validate(&self) -> Result<(), FunctionCallError> {
         match self {
+            Self::ContinueCurrent {
+                current_node_id, ..
+            } if current_node_id.trim().is_empty() => Err(FunctionCallError::RespondToModel(
+                "continue_current requires non-empty current_node_id".into(),
+            )),
+            Self::ContinueCurrent { .. } => Ok(()),
             Self::InitializeMap {
                 root,
                 initial_work_node,
@@ -122,17 +146,25 @@ impl TaskSpaceTransitionArgs {
     }
 }
 
-pub(crate) fn parse_taskspace_transition_args(
+pub(crate) fn parse_taskspace_action_args(
     arguments: &str,
-) -> Result<TaskSpaceTransitionArgs, FunctionCallError> {
+) -> Result<TaskSpaceActionArgs, FunctionCallError> {
     let action = serde_json::from_str::<Envelope>(arguments)
-        .map_err(invalid_transition)?
+        .map_err(invalid_action)?
         .action;
     let args = match action {
+        Action::ContinueCurrent => {
+            let parsed =
+                serde_json::from_str::<ContinueCurrentArgs>(arguments).map_err(invalid_action)?;
+            TaskSpaceActionArgs::ContinueCurrent {
+                expected_revision: parsed.expected_revision,
+                current_node_id: parsed.current_node_id,
+            }
+        }
         Action::InitializeMap => {
             let parsed =
-                serde_json::from_str::<InitializeMapArgs>(arguments).map_err(invalid_transition)?;
-            TaskSpaceTransitionArgs::InitializeMap {
+                serde_json::from_str::<InitializeMapArgs>(arguments).map_err(invalid_action)?;
+            TaskSpaceActionArgs::InitializeMap {
                 root: parsed.root,
                 initial_work_node: parsed.initial_work_node,
                 finish_identity: parsed.finish_identity,
@@ -141,17 +173,16 @@ pub(crate) fn parse_taskspace_transition_args(
             }
         }
         Action::BindNode => {
-            let parsed =
-                serde_json::from_str::<BindNodeArgs>(arguments).map_err(invalid_transition)?;
-            TaskSpaceTransitionArgs::BindNode {
+            let parsed = serde_json::from_str::<BindNodeArgs>(arguments).map_err(invalid_action)?;
+            TaskSpaceActionArgs::BindNode {
                 expected_revision: parsed.expected_revision,
                 node_id: parsed.node_id,
             }
         }
         Action::CompleteThenContinue => {
             let parsed = serde_json::from_str::<CompleteThenContinueArgs>(arguments)
-                .map_err(invalid_transition)?;
-            TaskSpaceTransitionArgs::CompleteThenContinue {
+                .map_err(invalid_action)?;
+            TaskSpaceActionArgs::CompleteThenContinue {
                 expected_revision: parsed.expected_revision,
                 current_node_id: parsed.current_node_id,
                 next_node_id: parsed.next_node_id,
@@ -162,8 +193,14 @@ pub(crate) fn parse_taskspace_transition_args(
     Ok(args)
 }
 
-fn invalid_transition(error: serde_json::Error) -> FunctionCallError {
-    FunctionCallError::RespondToModel(format!("invalid taskspace_transition arguments: {error}"))
+pub(crate) fn taskspace_action_requires_barrier(arguments: &str) -> bool {
+    serde_json::from_str::<Envelope>(arguments)
+        .map(|envelope| !matches!(envelope.action, Action::ContinueCurrent))
+        .unwrap_or(true)
+}
+
+fn invalid_action(error: serde_json::Error) -> FunctionCallError {
+    FunctionCallError::RespondToModel(format!("invalid taskspace_action arguments: {error}"))
 }
 
 #[cfg(test)]

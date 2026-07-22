@@ -135,11 +135,21 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     $controlWireSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"))
     $transitionSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"))
     $routerSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/router.rs"))
+    $carrierRuntimeSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier.rs"))
+    $registrySource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/tool_registry_plan.rs"))
+    $turnSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/session/turn.rs"))
     $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
-    Assert-True $carrierSource.Contains('taskspace_transition') "Action Tool decorator does not expose taskspace_transition"
-    Assert-True $routerSource.Contains('extract_taskspace_transition') "Router does not strip the transition before ordinary Tool dispatch"
+    Assert-True $carrierSource.Contains('taskspace_action') "Action Tool decorator does not expose taskspace_action"
+    Assert-True $carrierSource.Contains('required.push(ACTION_FIELD') "Action Tool decorator does not require taskspace_action"
+    Assert-True $routerSource.Contains('extract_taskspace_action') "Router does not strip the action before ordinary Tool dispatch"
+    Assert-True (-not $registrySource.Contains('decorate_taskspace_carrier_tool')) "Shared Tool registry still decorates Standard schemas"
+    Assert-True $turnSource.Contains('.map(codex_tools::decorate_taskspace_carrier_tool)') "TaskSpace provider visibility does not decorate action Tools"
+    Assert-True $carrierRuntimeSource.Contains('session.taskspace_active().await') "Runtime action contract is not scoped to canonical TaskSpace mode"
+    Assert-True $carrierRuntimeSource.Contains('replace_function_output(response, header)') "Rejected action feedback does not replace the duplicate failure body"
+    foreach ($variant in @("ContinueCurrent", "InitializeMap", "BindNode", "CompleteThenContinue")) {
+        Assert-True $transitionSource.Contains($variant) "Carrier parser omits action variant: $variant"
+    }
     foreach ($variant in @("InitializeMap", "BindNode", "CompleteThenContinue")) {
-        Assert-True $transitionSource.Contains($variant) "Carrier parser omits transition variant: $variant"
         Assert-True (-not $controlWireSource.Contains("Action::$variant")) "Standalone control still accepts transition variant: $variant"
     }
     Assert-True (-not $controlSource.Contains('required_next_call')) "Tool schema retains required_next_call"
@@ -216,7 +226,7 @@ if ((Test-PhaseEnabled "FLA-1") -or $Phase -eq "FLA-3.5-Scaffold") {
     $validCandidate | Add-Member -NotePropertyName activation_targets -NotePropertyValue ([pscustomobject]@{
             activation_through = "FLA-3.5"
             authority_contract_status = "production_active_through_fla3_5_with_carrier_repair"
-            production_manifest_version = "1.0.6"
+            production_manifest_version = "1.0.8"
             promotion_commit_paths = @()
             blocking_repair = [pscustomobject]@{ id = "FLA-3.5-continuous-action-regression-repair"; implementation_status = "active_verified" }
             production_runtime_status = [pscustomobject]@{ L4 = "carrier_repair_active"; L5 = "carrier_result_repair_active_projection_baseline" }
@@ -461,7 +471,8 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline") {
         Assert-True $wireSource.Contains("Action::$variant") "Argument wire omits direct action variant: $variant"
     }
     $carrierTransitionSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"))
-    Assert-True $carrierTransitionSource.Contains("BindNode") "Carrier transition parser omits bind_node"
+    Assert-True $carrierTransitionSource.Contains("ContinueCurrent") "Carrier action parser omits continue_current"
+    Assert-True $carrierTransitionSource.Contains("BindNode") "Carrier action parser omits bind_node"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "carrier_repair_active" "Production manifest does not expose the L4 carrier repair"
     Write-Output "FLA-4 carrier repair baseline contracts passed; FLA-4 formalization remains pending."

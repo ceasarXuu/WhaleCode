@@ -109,12 +109,12 @@ async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
     }
 }
 
-fn carrier_arguments(test: &TestCodex, transition: String) -> String {
+fn carrier_arguments(test: &TestCodex, action: String) -> String {
     json!({
         "cmd": "pwd",
         "workdir": test.cwd_path().display().to_string(),
-        "taskspace_transition": serde_json::from_str::<serde_json::Value>(&transition)
-            .expect("transition json")
+        "taskspace_action": serde_json::from_str::<serde_json::Value>(&action)
+            .expect("action json")
     })
     .to_string()
 }
@@ -201,7 +201,7 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
         let output = responses
             .function_call_output_text(call_id)
             .unwrap_or_else(|| panic!("missing carrier output for {call_id}"));
-        assert!(output.contains("TaskSpaceCarrierResultV1"), "{output}");
+        assert!(output.contains("TaskSpaceCarrierResultV2"), "{output}");
         assert!(output.contains("\"tool_dispatched\":true"), "{output}");
     }
 }

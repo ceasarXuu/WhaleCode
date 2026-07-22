@@ -3952,6 +3952,11 @@ impl Session {
         state.action_map_runtime.snapshot()
     }
 
+    pub(crate) async fn taskspace_active(&self) -> bool {
+        let state = self.state.lock().await;
+        state.action_map_runtime.mode() == MapRuntimeMode::Experiment
+    }
+
     pub(crate) async fn read_action_map_projection(
         &self,
         turn_context: &TurnContext,

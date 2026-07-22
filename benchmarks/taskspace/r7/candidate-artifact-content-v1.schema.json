@@ -66,7 +66,7 @@
               "name": {"$ref": "#/$defs/nonEmptyString"},
               "wire_api": {"enum": ["deepseek_chat", "responses"]},
               "wire_kind": {"enum": ["function", "taskspace_function_projection"]},
-              "carrier_field": {"const": "taskspace_transition"},
+              "carrier_field": {"const": "taskspace_action"},
               "business_schema_sha256": {"$ref": "#/$defs/sha256"},
               "standard_wire_sha256": {"$ref": "#/$defs/sha256"},
               "parser_identity": {"type": "string", "minLength": 8},
@@ -218,7 +218,7 @@
         "invocation_origin": {"enum": ["direct", "code_mode", "nested"]},
         "route": {"enum": ["function", "namespace", "tool_search", "local_shell", "image_generation", "web_search", "apply_patch", "code_exec", "mcp"]},
         "disposition": {"enum": ["carrier", "projected_carrier", "non_carrier", "container"]},
-        "reason_code": {"enum": ["shared_function_handler", "namespace_container", "provider_native", "taskspace_function_projection", "decorated_mcp_function"]}
+        "reason_code": {"enum": ["shared_function_handler", "namespace_container", "provider_native", "decorated_provider_tool", "taskspace_function_projection", "decorated_mcp_function"]}
       },
       "additionalProperties": false
     },

@@ -10,7 +10,7 @@ use codex_tools::ToolName;
 use super::ToolCall;
 use super::ToolRouter;
 use super::ToolRouterParams;
-use super::extract_taskspace_transition;
+use super::extract_taskspace_action;
 
 #[tokio::test]
 #[expect(
@@ -47,7 +47,7 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
                 payload: ToolPayload::Function {
                     arguments: "{}".to_string(),
                 },
-                taskspace_transition: None,
+                taskspace_action: None,
             })
         })
         .expect("test session should expose a parallel shell-like tool");
@@ -58,7 +58,7 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
         payload: ToolPayload::Function {
             arguments: "{}".to_string(),
         },
-        taskspace_transition: None,
+        taskspace_action: None,
     }));
 
     Ok(())
@@ -194,7 +194,7 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
             tool: "query_with_delay".to_string(),
             raw_arguments: "{}".to_string(),
         },
-        taskspace_transition: None,
+        taskspace_action: None,
     };
     assert!(router.tool_supports_parallel(&deferred_call));
 
@@ -206,7 +206,7 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
             tool: "query_with_delay".to_string(),
             raw_arguments: "{}".to_string(),
         },
-        taskspace_transition: None,
+        taskspace_action: None,
     };
     assert!(!router.tool_supports_parallel(&different_server_call));
 
@@ -214,11 +214,11 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
 }
 
 #[test]
-fn extracts_transition_without_forwarding_it_to_the_tool() -> anyhow::Result<()> {
+fn extracts_taskspace_action_without_forwarding_it_to_the_tool() -> anyhow::Result<()> {
     let original_input = "*** Begin Patch\n*** End Patch";
     let arguments = serde_json::json!({
         "input": original_input,
-        "taskspace_transition": {
+        "taskspace_action": {
             "action": "bind_node",
             "expected_revision": 2,
             "node_id": "edit"
@@ -226,15 +226,15 @@ fn extracts_transition_without_forwarding_it_to_the_tool() -> anyhow::Result<()>
     })
     .to_string();
 
-    let (tool_arguments, transition) = extract_taskspace_transition(arguments)?;
+    let (tool_arguments, action) = extract_taskspace_action(arguments)?;
     let tool_arguments: serde_json::Value = serde_json::from_str(&tool_arguments)?;
     assert_eq!(
         tool_arguments,
         serde_json::json!({ "input": original_input })
     );
-    let transition: serde_json::Value =
-        serde_json::from_str(transition.as_deref().expect("transition"))?;
-    assert_eq!(transition["action"], "bind_node");
-    assert_eq!(transition["node_id"], "edit");
+    let action: serde_json::Value =
+        serde_json::from_str(action.as_deref().expect("taskspace action"))?;
+    assert_eq!(action["action"], "bind_node");
+    assert_eq!(action["node_id"], "edit");
     Ok(())
 }

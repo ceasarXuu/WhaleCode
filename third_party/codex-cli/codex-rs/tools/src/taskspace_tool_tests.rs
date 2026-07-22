@@ -43,8 +43,8 @@ fn standalone_control_excludes_action_carrying_transitions() {
 }
 
 #[test]
-fn transition_schema_contains_only_action_carrying_lifecycle_changes() {
-    let actions = taskspace_transition_schema()
+fn action_schema_requires_explicit_continuation_or_lifecycle_change() {
+    let actions = taskspace_action_schema()
         .any_of
         .expect("transition variants")
         .into_iter()
@@ -61,21 +61,26 @@ fn transition_schema_contains_only_action_carrying_lifecycle_changes() {
 
     assert_eq!(
         actions,
-        ["initialize_map", "bind_node", "complete_then_continue"]
+        [
+            "continue_current",
+            "initialize_map",
+            "bind_node",
+            "complete_then_continue"
+        ]
     );
 }
 
 #[test]
-fn transition_schema_has_no_sibling_declaration() {
-    let serialized = serde_json::to_string(&taskspace_transition_schema()).expect("serialize");
+fn action_schema_has_no_sibling_declaration() {
+    let serialized = serde_json::to_string(&taskspace_action_schema()).expect("serialize");
     assert!(!serialized.contains("required_next_call"));
     assert!(!serialized.contains("sibling"));
 }
 
 #[test]
 fn initialization_keeps_explicit_rooted_graph_contract() {
-    let schema = taskspace_transition_schema();
-    let initialize = &schema.any_of.expect("variants")[0];
+    let schema = taskspace_action_schema();
+    let initialize = &schema.any_of.expect("variants")[1];
     assert_eq!(
         initialize.required.as_ref().expect("required"),
         &[

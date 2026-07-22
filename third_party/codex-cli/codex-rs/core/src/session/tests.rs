@@ -1327,13 +1327,14 @@ async fn provider_composer_injects_one_blank_map_projection() {
         );
         assert!(developer_text.contains("- map: none"));
         assert!(developer_text.contains("- bootstrap_required: true"));
-        assert!(developer_text.contains("- bootstrap_transition: initialize_map"));
+        assert!(developer_text.contains("- bootstrap_action: initialize_map"));
+        assert!(developer_text.contains("- action_carrier: ordinary_tool.taskspace_action"));
         assert!(
-            developer_text.contains("- transition_carrier: ordinary_tool.taskspace_transition")
+            developer_text.contains("- ordinary_tools_allowed: with_explicit_taskspace_action")
         );
-        assert!(developer_text.contains("- ordinary_tools_allowed: with_bootstrap_transition"));
         assert!(
-            developer_text.contains("- ordinary_tool_without_transition_failure: no_task_path")
+            developer_text
+                .contains("- ordinary_tool_without_action_failure: TASKSPACE_ACTION_REQUIRED")
         );
         assert!(!developer_text.contains("active_task_path_without_nodes"));
         if let Some(previous_context) = previous_context.as_ref() {
@@ -1798,7 +1799,7 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
                     id: None,
                     name: "shell_command".to_string(),
                     namespace: None,
-                    arguments: r#"{"command":"pwd","taskspace_transition":{"action":"bind_node","expected_revision":3,"node_id":"implement"}}"#.to_string(),
+                    arguments: r#"{"command":"pwd","taskspace_action":{"action":"bind_node","expected_revision":3,"node_id":"implement"}}"#.to_string(),
                     call_id: "transition-control".to_string(),
                 },
                 ResponseItem::FunctionCallOutput {

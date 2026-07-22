@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.6",
+  "manifest_version": "1.0.8",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -21,7 +21,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "572e7652a2a33ff222304348c4a389b42576a3269689b78e3011835d7dd30792"
+    "sha256": "ee2d69a1de842dc8668b9efff007a2bdc6ade8af83c0346eaaeba07a703af6a4"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -56,7 +56,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "9b0f04354026f81f23b9e4570e2f321caf204050c0068d77dfb65a65f393717b",
+          "sha256": "60e9ecf495edd694997512b0b997ecbe02b1e65b9704a2fed02d3384b86dcfcb",
           "activation_phase": "FLA-2"
         }
       ]
@@ -82,7 +82,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-          "sha256": "8fd0a3845d894580d1d10fb19b7b9297428ab6336e5013b1daedbcbd575f07bf",
+          "sha256": "07bc82c1da90a1bc986109fb5047159bd987f4680461e9889767c9a679a8bc6b",
           "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
           "carrier_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
           "transition_parser": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"
@@ -97,7 +97,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-          "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8",
+          "sha256": "fabd016964b7999690a0f74baeec4f774f63c415ff20de0a630942f697a5a1ce",
           "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result"
         },
         {

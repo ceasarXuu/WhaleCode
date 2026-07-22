@@ -15,7 +15,7 @@
 > 独立对抗性闭环已通过，FLA-2 恢复为 `active_verified`，详见
 > [阻塞修复结果](30-r7-fla2-blocker-repair-result.md)。H-003 跨 top-level sibling 结构问题仍保持 open，作为后续
 > L4 carrier 能力问题独立处理，不得用额外 Runtime 语义干预掩盖。
-> 2026-07-22 实施更新：H-003 已由普通动作 Tool 的 `taskspace_transition` carrier 修复并通过定向回归、构建和
+> 2026-07-22 实施更新：H-003 已由普通动作 Tool 的必填 `taskspace_action` carrier 修复并通过定向回归、构建和
 > Docker paired smoke。旧 `required_next_call + top-level sibling` 路径已删除；FLA-4 可以从单一 carrier
 > 生产基线继续。
 
@@ -519,7 +519,7 @@ base identity 分别 6/6、7/7 匹配 v1.0.0 合同。该单次结果只证明�
 **目标**：恢复 R5 J6 与 R7 D.2 已验证的结构保证，使初始化、绑定和完成后继续不能脱离真实后续动作单独
 表达，同时保留 D.4 的原生 Patch 保真收益。
 
-选定方向是让真实动作 Tool 由共享 builder 机械增加轻量 `taskspace_transition` 前缀；状态交接和该动作属于
+选定方向是让真实动作 Tool 由共享 builder 机械增加必填 `taskspace_action`；显式继续或状态交接和该动作属于
 同一个 provider tool call，Patch 正文仍保持原生顶层输入。Runtime 只校验并执行 Agent 明确给出的交接，
 不自动补动作、不推断下一节点，也不复制 ordinary Tool router/handler。
 

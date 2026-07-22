@@ -1,7 +1,7 @@
 # Problem P-001: R7 action carrier 生命周期与实际工作错位
-- Status: open
+- Status: fixed
 - Created: 2026-07-22 20:30
-- Updated: 2026-07-22 20:30
+- Updated: 2026-07-22 21:30
 - Objective: 解释 FLA-3.5 后 Agent 偶发过早终结以及更频繁的节点推进滞后，区分上下文丢失、Tool 能力缺位、Runtime 顺序错误与 Agent/Tool 合同结构问题。
 - Symptoms:
   - `single-file-fast-fix` 原始运行在 `fix` 节点过早调用最终 `complete_then_end`，被 Runtime 拒绝后纠正。
@@ -27,13 +27,180 @@
   - 不是 Runtime 在 Tool 之后才执行 carried transition。
 - Fix criteria:
   - Tool 合同让每个普通动作显式声明“继续当前 binding”或“先转换到 successor”，且不要求 Runtime 推断动作语义；真实重复样本不再出现实际工作领先 Map 的静默漂移。
-- Current conclusion: 直接触发是 Agent 在已理解节点边界时漏填 `taskspace_transition`；结构性根因是普通 Tool 将该字段设计为可选，字段缺失会被静默解释为“继续当前 binding”，没有要求 Agent 在“继续当前节点”和“进入后继节点”之间作显式选择。Runtime 因而无法区分有意继续与无意遗漏，只能在后续非法跳转或终结时机械拒绝。过早终结是该漂移累积到尾部后的偶发表现。
+- Current conclusion: 已以必填 `taskspace_action` 判别联合消除遗漏歧义；`continue_current` 只机械核对 revision 与 binding，生命周期动作继续由 Agent 显式选择。装饰边界已从共享 registry 移到 TaskSpace provider 投影，Standard 保持原始 schema；未 dispatch 的拒绝只返回一份事实。三次 TaskSpace 重复均在 Patch 和测试动作边界同步推进，未再出现实际工作领先 Map 的静默漂移。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
+  - H-005
 - Resolution basis:
-  - E-001 至 E-005。
+  - H-003、H-004、H-005。
+  - E-009、E-010、E-012、E-013。
+- Close reason:
+  - 根因修复已通过定向测试和三组 Docker 配对回归验证。
+
+# Problem P-002: verify 运行时 Agent 偶发误选 finish_end
+- Status: open
+- Created: 2026-07-22 21:30
+- Updated: 2026-07-22 21:30
+- Objective: 解释生命周期已同步时，Agent 为何仍在最后一个 Work 节点 Running 状态下选择只适用于 Finish Ready 的 `finish_end`。
+- Symptoms:
+  - 三次修复后 TaskSpace 运行中两次先调用 `finish_end`，收到 `finish_not_ready` 后改用 `complete_then_end`。
+- Expected behavior:
+  - 最后一个 Work 节点仍 Running 时直接调用 `complete_then_end(current_node_id=verify)`。
+- Actual behavior:
+  - 当前观察合计 3/4 先误选 `finish_end`；1/4 直接选择正确动作。
+- Impact:
+  - 产生 1 次或 2 次额外 provider request；不破坏 Map，Runtime 拒绝事实准确。
+- Known facts:
+  - 三次 Patch、测试和 revision 均全程同步，H-003 不再复现。
+  - `finish_end` 与 `complete_then_end` 的 schema 描述分别准确陈述适用前置状态。
+- Ruled out:
+  - 不是 carrier 字段遗漏造成的 Map 滞后。
+  - 不是 Runtime 接受了非法终态。
+- Fix criteria:
+  - 在不引入 Runtime 语义判断、动态 schema 或缓存破坏的前提下，使 Agent 稳定选择与当前机械状态匹配的终态动作。
+- Current conclusion: 这是与 P-001 独立的终态 action 选择问题；现有证据只证明它仍然存在，尚不足以确认是命名显著性、L2/L4 重复、action 集合组织还是其他机制导致。
+- Related hypotheses:
+  - H-006
+- Resolution basis:
+  - E-011。
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: carrier schema 按 Collab 开关装饰导致 Standard 污染
+- Status: confirmed
+- Parent: P-001
+- Claim: 生产 Tool registry 以 `collab_tools` 作为 carrier 装饰条件；该开关在 Standard 也启用。可选 carrier
+  时代只产生隐性 schema 成本，改为必填后则使 Standard 普通 Tool 也被要求提交 TaskSpace action，而 Session 的
+  canonical Map 仍处于 Standard 模式，因而初始化永远无法取得 TaskSpace event source。
+- Layer: regression-root-cause
+- Factor relation: single
+- Depends on:
+  - H-003 repair
+- Rationale:
+  - 失败 trace 使用 Standard base、无 TaskSpace protocol/Map event，却暴露必填 `taskspace_action`。
+- Falsifiable predictions:
+  - If true: 失败物理 right 轮的 logical mode 为 standard，provider identity 为 Standard，但 Tool schema 要求
+    `taskspace_action`；所有 history 以普通 response item 持久化，`initialize_map` 无 canonical event source。
+  - If false: 失败轮实际为 TaskSpace，或 Standard Tool schema 不含 carrier。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 比对 logical mode、base identity、Map event storage 与 Tool call contract。
+  - Signal: `logical-mode-map.json`、`provider-wire-trace.jsonl`、`rollout.jsonl` 和 registry 装饰条件。
+  - Capture method: 关联 repeat 2 的 physical right 运行并静态检查 `tool_registry_plan.rs`。
+  - Event name or marker:
+    - `provider.chat_wire_shape_recorded`
+  - Correlation keys:
+    - repeat 2
+    - session `019f89ee-478e-7113-b1fb-c53076252ddc`
+  - Differentiates from:
+    - TaskSpace 初始化 source 记录竞态
+    - Agent 初始化参数错误
+  - Supports if:
+    - Standard profile 与 required TaskSpace carrier 同时出现。
+  - Refutes if:
+    - 失败轮为 TaskSpace 或 schema 未被装饰。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 保留 provider wire identity 与 logical-mode map。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+- Conclusion: repeat 2 明确为 Standard，却获得 TaskSpace carrier schema；代码中的装饰条件是
+  `config.collab_tools`。这完整解释了为何 history 不进入 Map event store、合法初始化仍缺 source，并排除了
+  TaskSpace 状态机自身损坏。
+- Repair design readiness: implemented and verified
+- Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - fixed and verified by E-010
+
+## Hypothesis H-005: action 拒绝反馈被 carrier 重复包装
+- Status: confirmed
+- Parent: P-001
+- Claim: action 拒绝路径先把失败 JSON 作为普通 Tool failure body，再把同一个 JSON 放进
+  `TaskSpaceCarrierResultV2.action_result` 前置，造成一次失败在 Agent 上下文中出现两遍。
+- Layer: feedback-regression
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - trace 中每个拒绝 output 均由相同 JSON 的 outer 与 raw body 两份组成。
+- Falsifiable predictions:
+  - If true: `tool_dispatched=false` 时输出同时包含 outer action_result 与同值 body。
+  - If false: 两份内容分别表达 action 和真实工具的独立结果。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 未 dispatch 时是否存在真实工具结果。
+  - Signal: rejection output 和 `ToolCallRuntime::invalid_call_response`/`wrap_carrier_response` 调用顺序。
+  - Capture method: 对照 trace 与执行代码。
+  - Event name or marker:
+    - `taskspace.carrier_action_rejected`
+  - Correlation keys:
+    - rejected call_id
+  - Differentiates from:
+    - 合法的 transition 事实加普通 Tool 输出。
+  - Supports if:
+    - 未 dispatch 却出现两份同一失败。
+  - Refutes if:
+    - 第二份来自已执行普通 Tool。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 保留单一结构化拒绝和 rejection log。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-008
+- Conclusion: 代码和 trace 均证明是同一 action failure 的重复表达，不是两个独立事实。
+- Repair design readiness: implemented and verified
+- Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - fixed and verified by E-012
+
+## Hypothesis H-006: 两个终态 action 的选择合同仍存在显著性歧义
+- Status: open
+- Parent: P-002
+- Claim: 当测试成功后，`finish_end` 的名称或位置比 `complete_then_end` 更容易被模型选择，即使当前 Work 仍为 Running；现有静态描述不足以稳定映射当前机械状态到正确 action。
+- Layer: tool-contract-selection
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - 错误发生在完整同步的 verify 节点，且 2/3 都是同一方向的误选；Runtime 返回准确状态失败后 Agent 能立即纠正。
+- Falsifiable predictions:
+  - If true: 更多同构运行会在状态完整、无漂移时继续偏向 `finish_end`，且错误集中在最终 Work Running 到终态的边界。
+  - If false: 重复运行不再出现该偏向，或错误由缺失/扭曲的当前状态事实解释。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 区分随机 Agent 失误与 Tool action 可辨识性问题。
+  - Signal: 终态请求前可见状态、reasoning、完整 Tool schema、所选 action 和拒绝后的纠正路径。
+  - Capture method: 先静态对比 L2/L4 终态文本及 provider-visible 顺序，再运行足够重复的复杂样本；不先改代码。
+  - Event name or marker:
+    - `taskspace.control_rejected`
+  - Correlation keys:
+    - session id
+    - canonical revision
+    - current node id/status
+  - Differentiates from:
+    - carrier 生命周期漂移
+    - Map projection 状态丢失
+  - Supports if:
+    - 完整状态下持续出现同向误选，并在准确拒绝后立刻纠正。
+  - Refutes if:
+    - 误选与状态不可见或 Map 漂移严格相关，或扩展重复中不形成偏向。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 保留 provider trace 和 control rejection 日志。
+- Evidence gate: not satisfied
+- Related evidence:
+  - E-011
+- Conclusion: 尚未确认。
+- Repair design readiness: not ready
+- Next step: 用户确认是否将该独立问题进入诊断阶段后，再做静态合同审计和重复实验。
+- Blocker:
+  - none
 - Close reason:
   - not closed
 
@@ -161,12 +328,12 @@
   - E-003
   - E-005
 - Conclusion: 四次运行中三次 Patch 不携带 transition；这三次实际修复均发生在 `explore` binding 下，随后分别以跳过 `fix`、补记 transition 或过早终结表现出来。可选字段将漏填静默等同于有意继续，是问题能够形成并延后暴露的结构原因。
-- Repair design readiness: ready; implementation requires user confirmation
-- Next step: 设计语义无关的显式 action-binding 联合合同，避免 Runtime 推断 Patch/pytest 属于哪个节点。
+- Repair design readiness: implemented and verified
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed and verified by E-009
 
 ## Evidence E-001: L2 在三次重复运行中均进入 provider-visible history
 - Related hypotheses:
@@ -272,3 +439,184 @@
   ```
 - Interpretation: 过早终结是偶发表现；由 carrier 漏填造成的实际工作/Map 错位是重复出现的共同机制。
 - Time: 2026-07-22 20:30
+
+## Evidence E-006: 新合同下两次真实 TaskSpace 运行均在动作边界同步推进
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: fix-validation-partial
+- Source: `target/r7-action-fix/single-file-fast-fix/20260722-210449-752/pair-001` 与 `pair-003`
+- Prediction or plan link:
+  - H-003 显式 action 合同应消除静默 Patch 漂移。
+- Matched signal:
+  - 两轮 logical TaskSpace 均 solved；Patch 携带 `complete_then_continue(explore -> fix_impl)`，测试携带
+    `complete_then_continue(fix_impl -> verify)`，最终 5 nodes / 4 edges / 0 open leaves。
+- Correlation keys:
+  - repeat 1
+  - repeat 3
+- Raw content:
+  ```text
+  TaskSpace solved: 2/2
+  silent Patch/lifecycle drift: 0/2
+  ```
+- Interpretation: 目标结构在实际 TaskSpace 路径生效，但尚需修复 Standard 污染后重新做平衡重复验证。
+- Time: 2026-07-22 21:15
+
+## Evidence E-007: 失败 repeat 2 是被 carrier 污染的 Standard
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: diagnostic-trace
+- Source: `target/r7-action-fix/single-file-fast-fix/20260722-210449-752/pair-002`
+- Prediction or plan link:
+  - H-004 模式与 schema 装饰条件不一致。
+- Matched signal:
+  - `logical-mode-map.json` 指定 right=`standard`；provider base identity profile=`standard`、无 TaskSpace core
+    protocol；但 `exec_command` schema 要求 `taskspace_action`，遗漏即返回 `TASKSPACE_ACTION_REQUIRED`。
+- Correlation keys:
+  - repeat 2
+- Raw content:
+  ```text
+  right logical_mode: standard
+  base profile: standard
+  TaskSpace event Map: absent
+  ordinary Tool rejection: TASKSPACE_ACTION_REQUIRED
+  ```
+- Interpretation: 合法 `initialize_map` 缺 source 是 Standard 上不存在 Map event store 的必然结果，不是
+  TaskSpace 初始化随机失效。
+- Time: 2026-07-22 21:15
+
+## Evidence E-008: 未 dispatch 的 action failure 在一次反馈中重复两遍
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: diagnostic-trace
+- Source: repeat 2 `rollout.jsonl` 与 `core/src/tools/parallel.rs`
+- Prediction or plan link:
+  - H-005 rejection feedback 组合检查。
+- Matched signal:
+  - output 先含 `TaskSpaceCarrierResultV2.action_result=<failure>`，换行后再次出现同一 failure；同时
+    `tool_dispatched=false`，不存在普通工具事实。
+- Correlation keys:
+  - `call_00_znQM8v0heu00UqQFP1Yo5675`
+- Raw content:
+  ```text
+  TaskSpaceCarrierResultV2(action_result=TaskSpaceActionValidationResultV1, tool_dispatched=false)
+  TaskSpaceActionValidationResultV1
+  ```
+- Interpretation: 反馈层重复会放大输入并削弱错误显著性，应收敛为一个准确 envelope。
+- Time: 2026-07-22 21:15
+
+## Evidence E-009: 显式 action 合同三次消除静默生命周期漂移
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r7-action-scope-fix/single-file-fast-fix/20260722-212237-506` 三次 logical TaskSpace rollout
+- Prediction or plan link:
+  - H-003 fix criteria：每个动作显式声明 continuation 或 lifecycle action，实际工作不再领先 Map。
+- Matched signal:
+  - 三次均由首个真实命令携带 `initialize_map`；全部读取携带 `continue_current(explore)`；全部 Patch 携带
+    `complete_then_continue(explore -> fix)`；全部测试携带 `complete_then_continue(fix -> verify)`。
+- Correlation keys:
+  - pair-001 taskspace
+  - pair-002 taskspace
+  - pair-003 taskspace
+- Raw content:
+  ```text
+  solved: 3/3
+  silent Patch/lifecycle drift: 0/3
+  final Map: 5 nodes / 4 edges / 0 open leaves (each run)
+  ```
+- Interpretation: 在原问题同构真实样本中，必填判别联合消除了遗漏与有意继续使用相同空值的结构歧义。
+- Time: 2026-07-22 21:30
+
+## Evidence E-010: Standard 与 TaskSpace carrier schema 已按模式隔离
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: 同一三组配对运行的 `provider-wire-trace.jsonl` 和 core 定向测试
+- Prediction or plan link:
+  - H-004 repair：共享 registry 保留原 schema，只在 TaskSpace provider visibility 投影 carrier。
+- Matched signal:
+  - Standard 三次 Tool hash 均为 `84911a77...`、12 tools、每请求 21,669 tool bytes；TaskSpace 三次 Tool hash
+    均为 `02cddab3...`、13 tools、每请求 60,747 tool bytes。Standard rollout 中 `taskspace_action` 与
+    `TASKSPACE_ACTION_` 均为 0；`carrier_schema_is_visible_only_in_taskspace_mode` 通过。
+- Correlation keys:
+  - pair-001 至 pair-003
+- Raw content:
+  ```text
+  Standard solved: 3/3; taskspace_action occurrences: 0
+  TaskSpace solved: 3/3; required taskspace_action active
+  ```
+- Interpretation: Standard 污染已消除，且两个模式仍共享 registry 与 router，没有建立平行工具实现。
+- Time: 2026-07-22 21:30
+
+## Evidence E-011: 生命周期同步后仍存在独立终态 action 误选
+- Related hypotheses:
+  - H-006
+- Direction: neutral
+- Type: observation
+- Source: 同一三次 TaskSpace rollout 与性能观察报告
+- Prediction or plan link:
+  - P-002 初始观测，尚未执行区分性实验。
+- Matched signal:
+  - pair-001 与 pair-003 在 verify Running 时先调用 `finish_end`，被 `finish_not_ready` 拒绝后分别通过
+    `read_map + complete_then_end` 和直接 `complete_then_end` 纠正；pair-002 直接调用 `complete_then_end`。
+- Correlation keys:
+  - pair-001 taskspace
+  - pair-002 taskspace
+  - pair-003 taskspace
+- Raw content:
+  ```text
+  premature finish_end selection: 2/3
+  illegal terminal state commit: 0/3
+  ```
+- Interpretation: 该现象与已修复的 carrier 漂移可分离；样本量和现有 trace 尚不足以确认其具体根因。
+- Time: 2026-07-22 21:30
+
+## Evidence E-012: 未 dispatch 拒绝反馈已收敛为单一事实
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: `core/src/tools/taskspace_carrier_tests.rs` 与 FLA-3.5 executable contract
+- Prediction or plan link:
+  - H-005 repair：`tool_dispatched=false` 时 envelope 替换内部 failure body。
+- Matched signal:
+  - 定向测试构造拒绝响应并断言失败文本只出现一次；合同 gate 静态断言拒绝分支调用
+    `replace_function_output(response, header)`。
+- Correlation keys:
+  - unit fixture call id `call`
+- Raw content:
+  ```text
+  assert_eq!(text.matches("stale revision").count(), 1)
+  ```
+- Interpretation: 未执行普通 Tool 时不再伪造第二份工具事实，反馈语义和长度均已收敛。
+- Time: 2026-07-22 21:30
+
+## Evidence E-013: 最终 manifest 1.0.8 二进制配对冒烟通过
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-006
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r7-action-final-smoke/single-file-fast-fix/20260722-213735-189`
+- Prediction or plan link:
+  - 验证最终合同哈希和二进制接线未偏离三组行为验证。
+- Matched signal:
+  - Standard 与 TaskSpace 均 solved，公开和隐藏验证均通过；provider trace 识别 manifest `1.0.8` 且哈希
+    `c97bb1c7...` 匹配。TaskSpace 初始化、Patch、验证均由正确动作携带，最终 5 nodes / 4 edges / 0 open。
+    Standard trace 中无 `taskspace_action` 或 `TASKSPACE_ACTION_*`。终态再次先误选一次 `finish_end` 后纠正。
+- Correlation keys:
+  - session `019f8a0c-0b3f-7f31-8ef7-e99f73d10937`
+- Raw content:
+  ```text
+  standard: solved, 5 requests, 6 tools, 15.83s
+  taskspace: solved, 8 requests, 9 tools, 27.51s
+  manifest identity: 1.0.8 / matches_current_contract=true
+  ```
+- Interpretation: 最终生产合同接线保持本次结构修复；P-002 的终态误选可稳定地与 carrier 漂移区分。
+- Time: 2026-07-22 21:40
