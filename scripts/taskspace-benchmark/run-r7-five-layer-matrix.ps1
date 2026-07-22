@@ -2,6 +2,7 @@ param(
     [ValidateSet("initial", "extended")][string]$Stage = "initial",
     [int]$Repeats = 0,
     [string]$RunRoot = "",
+    [string]$ExecutionRoot = "",
     [string]$WhaleBin = "third_party/codex-cli/codex-rs/target/debug/whale",
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 1800,
@@ -69,8 +70,19 @@ if ([string]::IsNullOrWhiteSpace($RunRoot)) {
     $RunRoot = Join-Path $repoRoot $RunRoot
 }
 New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
+if ([string]::IsNullOrWhiteSpace($ExecutionRoot)) {
+    $ExecutionRoot = if ($PlanOnly) {
+        Join-Path $RunRoot "_execution-plan"
+    } else {
+        Join-Path $repoRoot "artifacts/r7-five-layer-eval-data/$commit/$runId"
+    }
+} elseif (-not [IO.Path]::IsPathRooted($ExecutionRoot)) {
+    $ExecutionRoot = Join-Path $repoRoot $ExecutionRoot
+}
+New-Item -ItemType Directory -Force -Path $ExecutionRoot | Out-Null
 
 $plans = [Collections.Generic.List[object]]::new()
+$armCodes = @{ standard = "a0"; "map-always" = "a1"; "map-append" = "a2"; "map-request" = "a3" }
 foreach ($sample in $samples) {
     for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $order = @($armOrders[($repeat - 1) % $armOrders.Count] | ForEach-Object { [string]$_ })
@@ -83,7 +95,7 @@ foreach ($sample in $samples) {
                     logical_mode = $logicalMode
                     run_side = if ($logicalMode -eq "standard") { "left" } else { "right" }
                     projection_policy = if ($logicalMode -eq "standard") { "map-request" } else { $arm }
-                    arm_run_root = Join-Path $RunRoot "raw/$sample/repeat-$repeat/$arm"
+                    arm_run_root = Join-Path $ExecutionRoot "raw/$sample/r-$repeat/$($armCodes[$arm])"
                 })
         }
     }
@@ -101,6 +113,7 @@ $manifest = [ordered]@{
     whale_sha256 = if (-not $PlanOnly -and (Test-Path -LiteralPath $WhaleBin -PathType Leaf)) { (Get-FileHash -Algorithm SHA256 -LiteralPath $WhaleBin).Hash.ToLowerInvariant() } else { "" }
     model = $Model
     execution = "docker"
+    execution_root = $ExecutionRoot
     repeats_per_arm_per_sample = $Repeats
     samples = $samples
     arms = @("standard", "map-always", "map-append", "map-request")
