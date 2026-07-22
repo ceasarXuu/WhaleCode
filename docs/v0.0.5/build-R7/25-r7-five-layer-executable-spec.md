@@ -2,7 +2,7 @@
 
 - Created: 2026-07-20
 - Version: 1.1
-- Status: Production active through FLA-5; FLA-6 experiments remain disabled and FLA-7 is next
+- Status: Production active through FLA-7; FLA-6 experiments remain disabled and FLA-8 is next
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -43,7 +43,7 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
 | L4 | 普通动作 Tool 的必填 `taskspace_action` carrier；纯 Map/read/terminal 使用 `taskspace_control` | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json) | `active_verified` |
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_verified` |
-| L5 Projection | 三策略共享 canonical Map 和 renderer | 维持 [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json)，补生命周期判定 | `selected_baseline` |
+| L5 Projection | 三策略共享 canonical Map 和 renderer | [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json) 与生命周期 golden | `active_verified` |
 
 主线明确选择：普通动作由必填 `taskspace_action` 明确声明继续当前绑定或承载生命周期交接；纯 Map/read/terminal action
 继续使用一个 `taskspace_control`；`strict=false`；不向 DeepSeek 声称 `output_schema`。读写拆 Tool、MCP
@@ -296,10 +296,13 @@ control taxonomy，并单独暴露 carrier action/failure 分类；观察层不�
 - E3 先 probe adapter 转发、Beta endpoint、全部可见工具 schema 与 parallel calls，再允许行为测试。
 - 完成证据：每项产生独立候选 commit、三臂评估和 accept/reject decision；reject 后生产代码回到 FLA-5，无残留分支。
 
-### FLA-7：生命周期与 projection 恢复
+三个实验均保持 `experimental_disabled`，未进入四臂主线。FLA-7/8 不依赖这些实验，且不得以“继续 phase”为由把任一
+实验隐式混入生产二进制。
 
-- 修改：`action_map/projection.rs`、`projection_policy.rs`、canonical store/reducer、session history reducer、
-  `provider_wire_sections.rs` 及 resume/fork/compaction 入口。
+### FLA-7：生命周期与 projection 恢复（已完成）
+
+- 审计：`action_map/projection.rs`、`projection_policy.rs`、canonical store/reducer、session history reducer、
+  `provider_wire_sections.rs` 及 resume/fork/compaction 入口；现有共享生产路径满足合同，没有为验收新增语义分支。
 - 保持：三种 policy 共用状态、renderer、validator、Tool 和 result；只允许 emission 规则不同。
 - 唯一接管 R7 Phase E/F 的实现项：三策略 scripted differential、retry/provider/tool error、resume/fork/
   compaction/subagent、context epoch、CLI/config/protocol/session、observer、Viewer、wire scanner 和旧 R6 路径删除。
@@ -307,8 +310,12 @@ control taxonomy，并单独暴露 carrier action/failure 分类；观察层不�
   `map-append` 只对相同 provider request retry 去重。
 - 静态审计：Runtime 不读取命令正文、Patch 内容、测试名称或 reasoning 来生成状态/建议。
 - 日志：policy、trigger、request identity/attempt、revision、projection hash、emission reason、dedupe key、恢复来源。
-- smoke：两个开发样本，对三种 policy 分别跑 Standard/冻结基线/候选。
-- 完成证据：12 个 oracle 全部通过，三策略 canonical event log 相同，差异只出现在 emission trace。
+- fixture 范围：LC-01 至 LC-05 仅保留为 FLA-3.5 前历史证据；当前 gate 只使用 LC-06 至 LC-12，避免旧 sibling
+  语义重新进入生产合同。
+- freezer：独立重算 revision 4/5 canonical SHA256 与 event-chain head，再调用共享生产 renderer 生成并核对
+  `map-always` current projection、`map-append` request snapshot、`map-request` handle 的逐字 golden。
+- 完成证据：LC-06 至 LC-12 合同、生产 renderer golden、resume/fork/compaction 定向回归与三策略 projection
+  合同通过；差异仍只存在于 provider-context emission。
 
 ### FLA-8：正式评估与决策
 

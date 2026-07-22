@@ -6776,6 +6776,9 @@ Active runtime mode: standard Codex multi-agent behavior."
 }
 
 #[cfg(test)]
+#[path = "runtime_fla7_tests.rs"]
+mod fla7_tests;
+#[cfg(test)]
 #[path = "runtime_phase_d_tests.rs"]
 mod phase_d_tests;
 #[cfg(test)]

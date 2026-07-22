@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-five-layer-lifecycle-oracles-v1",
-  "status": "selected_design_target_not_implemented",
+  "status": "active_verified",
   "applies_to": "TaskSpaceControlResultV2 and the shared R7 projection-policy runtime",
   "global_invariants": [
     "Canonical Map mutation is atomic per taskspace_control call.",
@@ -11,6 +11,12 @@
     "Retries, resume, fork and compaction never infer task meaning or synthesize Map transitions.",
     "Projection policies may change only provider-context emission; they share the same canonical state and event log."
   ],
+  "fixture_scopes": {
+    "historical_reference_only": ["LC-01", "LC-02", "LC-03", "LC-04", "LC-05"],
+    "active_fla7_lifecycle": ["LC-06", "LC-07", "LC-08", "LC-09", "LC-10", "LC-11", "LC-12"],
+    "historical_rule": "LC-01 through LC-05 preserve pre-FLA-3.5 evidence and are not current provider contracts.",
+    "active_rule": "Only LC-06 through LC-12 gate FLA-7 projection emission and recovery semantics."
+  },
   "fixture_maps": {
     "revision_4": {
       "canonical_state": {
@@ -308,7 +314,8 @@
     "event_hash": "Use fixture_event_chain.codec exactly",
     "projection_hash": "sha256(rendered projection UTF-8 bytes)",
     "freeze_command": "pwsh scripts/taskspace-benchmark/freeze-r7-five-layer-fixtures.ps1 -Contract benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
-    "activation_gate": "The fixture compiler must independently reproduce every frozen canonical and event hash and compare real provider payloads with each fixture's exact allowed differences before FLA-7 production activation."
+    "activation_gate": "The fixture compiler independently reproduces every frozen canonical and event hash and compares production renderer output with the committed golden before FLA-7 production activation.",
+    "golden": "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json"
   },
   "required_logs": [
     "session_id",

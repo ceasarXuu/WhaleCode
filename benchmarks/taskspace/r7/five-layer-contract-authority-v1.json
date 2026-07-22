@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla5",
+  "contract_status": "production_active_through_fla7",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -46,7 +46,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "b82efab8368c0f913c4b3558fabd0bfaf55be63449577cd31c4b60ce54d13ee6",
+      "sha256": "5c6e0298177172a3efb0da803c1ab1175324ce32c4123425468b7557220ebc50",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -165,17 +165,22 @@
     },
     {
       "layer": "L5-projection",
-      "implementation_status": "selected_baseline",
+      "implementation_status": "active_verified",
       "activation_phase": "already_active; FLA-7 adds lifecycle conformance only",
       "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
       "sha256": "8b98705e6a23f3820987c3757d81563a0a9eb4570d9514709d8adcf0dcf395cc"
     },
     {
       "layer": "L5-lifecycle",
-      "implementation_status": "selected_not_implemented",
+      "implementation_status": "active_verified",
       "activation_phase": "FLA-7",
       "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
-      "sha256": "613a399fcbff055a8edfded42fe74915b16b07775c7c44997c8e39f74b9b698e",
+      "sha256": "2df97b4577dfc7381c606719cc8479c034b410c720e6b0898ffbaeed3c900795",
+      "golden": {
+        "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json",
+        "sha256": "0c1d1f521f26f3d08df166cc7ae754cdeec2244e9857c51ec7555ba08fbc3d2c"
+      },
+      "freezer": "scripts/taskspace-benchmark/freeze-r7-five-layer-fixtures.ps1",
       "production_targets": [
         "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
         "third_party/codex-cli/codex-rs/core/src/action_map/projection_policy.rs",

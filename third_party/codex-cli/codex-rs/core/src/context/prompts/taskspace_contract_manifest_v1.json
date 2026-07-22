@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.17",
+  "manifest_version": "1.0.18",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -13,12 +13,12 @@
     "carrier_repair_active",
     "carrier_result_repair_active_projection_baseline"
   ],
-  "activation_through": "FLA-5",
+  "activation_through": "FLA-7",
   "repair_activation": [],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "1516ed03989b194286996ca60fc66f0470d8afc96f656a3661684fee0ec7576c"
+    "sha256": "f34e13a6f21b29f106195a72c4b8b61f232c04702a67c83ace328a3bd08a5fdd"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -90,7 +90,7 @@
       "id": "L5",
       "owner": "taskspace_runtime",
       "carrier": "tool_result_and_projection",
-      "runtime_status": "carrier_active_projection_baseline",
+      "runtime_status": "active",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
@@ -104,7 +104,7 @@
         },
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
-          "sha256": "613a399fcbff055a8edfded42fe74915b16b07775c7c44997c8e39f74b9b698e",
+          "sha256": "2df97b4577dfc7381c606719cc8479c034b410c720e6b0898ffbaeed3c900795",
           "activation_phase": "FLA-7"
         }
       ]

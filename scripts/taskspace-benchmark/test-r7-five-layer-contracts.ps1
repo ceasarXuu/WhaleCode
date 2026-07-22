@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5-Scaffold", "FLA-3.5", "FLA-4-Repair-Baseline", "FLA-4", "FLA-5-Repair-Baseline", "FLA-5", "All")]
+    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5-Scaffold", "FLA-3.5", "FLA-4-Repair-Baseline", "FLA-4", "FLA-5-Repair-Baseline", "FLA-5", "FLA-7", "All")]
     [string]$Phase = "All"
 )
 
@@ -18,6 +18,8 @@ $l3Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l3-taskspace-a
 $productionL3Path = Join-Path $repoRoot "third_party/codex-cli/codex-rs/skills/src/assets/samples/taskspace-advanced/SKILL.md"
 $l4Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
 $l5ResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json"
+$l5LifecyclePath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json"
+$l5LifecycleGoldenPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json"
 
 . (Join-Path $PSScriptRoot "r7-contract-test-primitives.ps1")
 
@@ -512,7 +514,7 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline" -or $Phase -eq "FLA-
     Assert-True $outputSource.Contains('"partial_commit": false') "Production result formatter does not emit boolean partial_commit=false"
     Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING')) "Control preflight retains the removed sibling error"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "carrier_active_projection_baseline" "Production manifest does not expose active L5 result"
+    Assert-True (@("carrier_active_projection_baseline", "active") -contains [string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "Production manifest does not expose active L5 result"
     Assert-True (-not $resultSchema.properties.error.oneOf[1].properties.code.enum.Contains("TASKSPACE_REQUIRED_SIBLING_MISSING")) "L5 result schema retains removed sibling failure"
     $carrierTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier_tests.rs"))
     Assert-True $carrierTests.Contains('committed_transition_is_prepended_without_rewriting_tool_text') "FLA-5 committed carrier conformance test is missing"
@@ -521,6 +523,27 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline" -or $Phase -eq "FLA-
     Assert-True $costSource.Contains('Get-TaskspaceCarrierResultFromOutput') "FLA-5 observer does not parse carrier results"
     Assert-True $costSource.Contains('carrier_state_failure_count') "FLA-5 observer does not classify carrier state failures"
     Write-Output "FLA-5 result and carrier observation contracts passed."
+}
+
+if ($Phase -eq "All" -or $Phase -eq "FLA-7") {
+    $projectionTarget = @($authority.selected_targets | Where-Object layer -eq "L5-projection")[0]
+    $lifecycleTarget = @($authority.selected_targets | Where-Object layer -eq "L5-lifecycle")[0]
+    Assert-Equal ([string]$projectionTarget.implementation_status) "active_verified" "L5 projection activation status drifted"
+    Assert-Equal ([string]$lifecycleTarget.implementation_status) "active_verified" "L5 lifecycle activation status drifted"
+    Assert-True (Test-Path -LiteralPath $l5LifecycleGoldenPath -PathType Leaf) "FLA-7 production renderer golden is missing"
+
+    $lifecycle = Get-Content -Raw -Encoding UTF8 -LiteralPath $l5LifecyclePath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$lifecycle.status) "active_verified" "FLA-7 lifecycle oracle is not active"
+    Assert-Equal @($lifecycle.fixture_scopes.active_fla7_lifecycle).Count 7 "FLA-7 must own LC-06 through LC-12 only"
+    Assert-Equal ([string]$lifecycle.deterministic_fixture_rule.golden) "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json" "FLA-7 golden path drifted"
+
+    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$manifest.activation_through) "FLA-7" "Production manifest has not activated FLA-7"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "active" "Production manifest does not expose active L5"
+
+    & (Join-Path $PSScriptRoot "freeze-r7-five-layer-fixtures.ps1")
+    Assert-True ($LASTEXITCODE -eq 0) "FLA-7 fixture freezer failed"
+    Write-Output "FLA-7 lifecycle and projection recovery contracts passed."
 }
 
 Write-Output "R7 five-layer contract validation passed for $Phase."
