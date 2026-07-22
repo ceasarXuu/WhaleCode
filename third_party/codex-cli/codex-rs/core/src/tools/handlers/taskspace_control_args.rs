@@ -16,25 +16,11 @@ pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceContr
 
 #[derive(Clone, Debug)]
 pub(crate) enum TaskSpaceControlArgs {
-    InitializeMap {
-        root: TaskSpaceGraphNodeArgs,
-        initial_work_node: TaskSpaceGraphNodeArgs,
-        finish_identity: TaskSpaceFinishIdentityArgs,
-        additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
-        edges: Vec<TaskSpaceGraphEdgeArgs>,
-        required_next_call: TaskSpaceRequiredNextCall,
-    },
     MutateGraph {
         expected_revision: u64,
         add_nodes: Vec<TaskSpaceGraphNodeArgs>,
         add_edges: Vec<TaskSpaceGraphEdgeArgs>,
         remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
-        required_next_call: Option<TaskSpaceRequiredNextCall>,
-    },
-    BindNode {
-        expected_revision: u64,
-        node_id: String,
-        required_next_call: TaskSpaceRequiredNextCall,
     },
     BlockNode {
         expected_revision: u64,
@@ -47,12 +33,6 @@ pub(crate) enum TaskSpaceControlArgs {
     ReworkNode {
         expected_revision: u64,
         node_id: String,
-    },
-    CompleteThenContinue {
-        expected_revision: u64,
-        current_node_id: String,
-        next_node_id: String,
-        required_next_call: TaskSpaceRequiredNextCall,
     },
     CompleteThenEnd {
         expected_revision: u64,
@@ -97,32 +77,13 @@ pub(crate) struct TaskSpaceGraphEdgeArgs {
     pub(crate) to: String,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum TaskSpaceRequiredNextCall {
-    OrdinaryTool,
-    ApplyPatch,
-}
-
-impl TaskSpaceRequiredNextCall {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::OrdinaryTool => "ordinary_tool",
-            Self::ApplyPatch => "apply_patch",
-        }
-    }
-}
-
 impl TaskSpaceControlArgs {
     pub(crate) fn action_name(&self) -> &'static str {
         match self {
-            Self::InitializeMap { .. } => "initialize_map",
             Self::MutateGraph { .. } => "mutate_graph",
-            Self::BindNode { .. } => "bind_node",
             Self::BlockNode { .. } => "block_node",
             Self::UnblockNode { .. } => "unblock_node",
             Self::ReworkNode { .. } => "rework_node",
-            Self::CompleteThenContinue { .. } => "complete_then_continue",
             Self::CompleteThenEnd { .. } => "complete_then_end",
             Self::FinishEnd { .. } => "finish_end",
             Self::ExpandNodes { .. } => "expand_nodes",
@@ -136,9 +97,6 @@ impl TaskSpaceControlArgs {
             Self::MutateGraph {
                 expected_revision, ..
             }
-            | Self::BindNode {
-                expected_revision, ..
-            }
             | Self::BlockNode {
                 expected_revision, ..
             }
@@ -148,76 +106,22 @@ impl TaskSpaceControlArgs {
             | Self::ReworkNode {
                 expected_revision, ..
             }
-            | Self::CompleteThenContinue {
-                expected_revision, ..
-            }
             | Self::CompleteThenEnd {
                 expected_revision, ..
             }
             | Self::FinishEnd {
                 expected_revision, ..
             } => Some(*expected_revision),
-            Self::InitializeMap { .. }
-            | Self::ExpandNodes { .. }
-            | Self::ReadOutputRef { .. }
-            | Self::ReadMap => None,
-        }
-    }
-
-    pub(crate) fn required_next_call(&self) -> Option<TaskSpaceRequiredNextCall> {
-        match self {
-            Self::InitializeMap {
-                required_next_call, ..
-            }
-            | Self::BindNode {
-                required_next_call, ..
-            }
-            | Self::CompleteThenContinue {
-                required_next_call, ..
-            } => Some(*required_next_call),
-            Self::MutateGraph {
-                required_next_call: Some(required_next_call),
-                ..
-            } => Some(*required_next_call),
-            Self::MutateGraph {
-                required_next_call: None,
-                ..
-            }
-            | Self::BlockNode { .. }
-            | Self::UnblockNode { .. }
-            | Self::ReworkNode { .. }
-            | Self::CompleteThenEnd { .. }
-            | Self::FinishEnd { .. }
-            | Self::ExpandNodes { .. }
-            | Self::ReadOutputRef { .. }
-            | Self::ReadMap => None,
+            Self::ExpandNodes { .. } | Self::ReadOutputRef { .. } | Self::ReadMap => None,
         }
     }
 
     fn validate(&self) -> Result<(), FunctionCallError> {
         match self {
-            Self::InitializeMap {
-                root,
-                initial_work_node,
-                finish_identity,
-                additional_work_nodes,
-                edges,
-                required_next_call: _,
-            } => {
-                validate_initialize_map(
-                    root,
-                    initial_work_node,
-                    finish_identity,
-                    additional_work_nodes,
-                    edges,
-                )?;
-                Ok(())
-            }
             Self::MutateGraph {
                 add_nodes,
                 add_edges,
                 remove_edges,
-                required_next_call: _,
                 ..
             } => {
                 if add_nodes.is_empty() && add_edges.is_empty() && remove_edges.is_empty() {
@@ -232,23 +136,9 @@ impl TaskSpaceControlArgs {
                 validate_unique_edges(remove_edges, "mutate_graph.remove_edges")?;
                 Ok(())
             }
-            Self::BindNode { node_id, .. } => validate_node_id("bind_node", node_id),
             Self::BlockNode { node_id, .. } => validate_node_id("block_node", node_id),
             Self::UnblockNode { node_id, .. } => validate_node_id("unblock_node", node_id),
             Self::ReworkNode { node_id, .. } => validate_node_id("rework_node", node_id),
-            Self::CompleteThenContinue {
-                current_node_id,
-                next_node_id,
-                required_next_call: _,
-                ..
-            } => {
-                if current_node_id.trim().is_empty() || next_node_id.trim().is_empty() {
-                    return invalid(
-                        "complete_then_continue requires non-empty current_node_id and next_node_id",
-                    );
-                }
-                Ok(())
-            }
             Self::CompleteThenEnd {
                 current_node_id,
                 final_summary,
@@ -314,7 +204,7 @@ pub(crate) fn parse_taskspace_control_args(
     Ok(args)
 }
 
-fn validate_initialize_map(
+pub(crate) fn validate_initialize_map(
     root: &TaskSpaceGraphNodeArgs,
     initial_work_node: &TaskSpaceGraphNodeArgs,
     finish_identity: &TaskSpaceFinishIdentityArgs,
@@ -392,7 +282,7 @@ fn require_non_empty<T>(items: &[T], field: &str) -> Result<(), FunctionCallErro
     }
 }
 
-fn validate_node_id(action: &str, node_id: &str) -> Result<(), FunctionCallError> {
+pub(crate) fn validate_node_id(action: &str, node_id: &str) -> Result<(), FunctionCallError> {
     if node_id.trim().is_empty() {
         invalid(format!("{action} requires a non-empty node_id"))
     } else {

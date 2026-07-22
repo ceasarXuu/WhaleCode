@@ -15,6 +15,7 @@ mod shell;
 pub(crate) mod taskspace_control;
 pub(crate) mod taskspace_control_args;
 pub(crate) mod taskspace_control_output;
+pub(crate) mod taskspace_transition_args;
 mod test_sync;
 mod tool_search;
 mod tool_suggest;

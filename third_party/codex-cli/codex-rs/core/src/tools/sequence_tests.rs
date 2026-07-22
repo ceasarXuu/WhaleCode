@@ -1,10 +1,6 @@
 use super::*;
 use crate::tools::context::ToolPayload;
 use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_REQUIRED_NEXT_CALL_MISSING_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_REQUIRED_ORDINARY_TOOL_INVALID_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_REQUIRED_PATCH_ARGUMENTS_INVALID_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_REQUIRED_PATCH_INVALID_CODE;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 use codex_tools::ToolName;
 
@@ -19,27 +15,16 @@ fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> T
         payload: ToolPayload::Function {
             arguments: arguments.to_string(),
         },
+        taskspace_transition: None,
     }
 }
 
-fn custom_call(name: &str, call_id: &str, input: &str) -> ToolCall {
-    ToolCall {
-        tool_name: ToolName::plain(name),
-        call_id: call_id.to_string(),
-        payload: ToolPayload::Custom {
-            input: input.to_string(),
-        },
-    }
-}
-
-fn handoff_call(call_id: &str, required_next_call: &str) -> ToolCall {
-    function_call_with_arguments(
-        "taskspace_control",
-        call_id,
-        &format!(
-            r#"{{"action":"complete_then_continue","expected_revision":2,"current_node_id":"edit","next_node_id":"verify","required_next_call":"{required_next_call}"}}"#,
-        ),
-    )
+fn call_with_transition(name: &str, call_id: &str) -> ToolCall {
+    let mut call = function_call(name, call_id);
+    call.taskspace_transition = Some(
+        r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"edit","next_node_id":"verify"}"#.into(),
+    );
+    call
 }
 
 #[test]
@@ -177,113 +162,44 @@ fn one_patch_with_follow_up_tools_passes_manifest_preflight() {
 }
 
 #[test]
-fn declared_patch_and_follow_up_tools_stay_in_one_valid_response() {
+fn carried_transition_and_follow_up_tools_stay_in_one_valid_response() {
     let calls = vec![
-        handoff_call("handoff", "apply_patch"),
-        custom_call("apply_patch", "patch", "*** Begin Patch\n*** End Patch"),
+        call_with_transition("apply_patch", "patch"),
         function_call("exec_command", "test"),
         function_call("read_file", "inspect"),
     ];
 
     let manifest = validate_tool_sequence(&calls).expect("valid merged response");
-    assert_eq!(manifest.entries.len(), 4);
+    assert_eq!(manifest.entries.len(), 3);
     assert_eq!(manifest.request_patch_count, 1);
     assert_eq!(
         sequence_segments(&calls),
         vec![
             SequenceSegment::Barrier {
                 index: 0,
-                kind: BarrierKind::TaskSpaceControl,
+                kind: BarrierKind::TaskSpaceTransition,
             },
-            SequenceSegment::Barrier {
-                index: 1,
-                kind: BarrierKind::ApplyPatch,
-            },
-            SequenceSegment::Parallel { start: 2, end: 4 },
+            SequenceSegment::Parallel { start: 1, end: 3 },
         ]
     );
 }
 
 #[test]
-fn declared_ordinary_tool_requirement_passes_in_the_same_response() {
+fn carried_transition_is_a_barrier_even_on_an_ordinary_tool() {
     let calls = vec![
-        handoff_call("handoff", "ordinary_tool"),
-        function_call("exec_command", "test"),
+        function_call("read_file", "read"),
+        call_with_transition("exec_command", "test"),
         function_call("read_file", "inspect"),
     ];
-
-    validate_tool_sequence(&calls).expect("valid ordinary sibling response");
-}
-
-#[test]
-fn declared_next_call_requires_an_immediate_sibling() {
-    let calls = [handoff_call("handoff", "ordinary_tool")];
-    let failure = validate_tool_sequence(&calls).expect_err("missing sibling must fail");
     assert_eq!(
-        failure.reason_code,
-        TASKSPACE_REQUIRED_NEXT_CALL_MISSING_CODE
-    );
-    let output = failure.outputs(&calls, Some(2)).remove(0);
-    let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
-        panic!("expected function output");
-    };
-    let value: serde_json::Value =
-        serde_json::from_str(output.body.to_text().as_deref().expect("control result"))
-            .expect("control result json");
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
-    assert_eq!(value["action"], "complete_then_continue");
-    assert_eq!(value["canonical_revision"], 2);
-    assert_eq!(value["submitted_expected_revision"], 2);
-    assert_eq!(value["error"]["code"], "TASKSPACE_REQUIRED_SIBLING_MISSING");
-    assert_eq!(
-        value["error"]["expected"]["required_next_call"],
-        "ordinary_tool"
-    );
-    assert!(value["error"]["actual"]["observed_next_tool"].is_null());
-}
-
-#[test]
-fn declared_patch_rejects_a_non_patch_immediate_sibling() {
-    let calls = vec![
-        handoff_call("handoff", "apply_patch"),
-        function_call("exec_command", "test"),
-    ];
-    let failure = validate_tool_sequence(&calls).expect_err("wrong sibling must fail");
-    assert_eq!(failure.reason_code, TASKSPACE_REQUIRED_PATCH_INVALID_CODE);
-}
-
-#[test]
-fn declared_patch_rejects_malformed_direct_arguments_before_execution() {
-    let calls = vec![
-        handoff_call("handoff", "apply_patch"),
-        function_call_with_arguments("apply_patch", "patch", r#"{"input":"patch"}}"#),
-    ];
-    let failure = validate_tool_sequence(&calls).expect_err("malformed patch must fail");
-    assert_eq!(
-        failure.reason_code,
-        TASKSPACE_REQUIRED_PATCH_ARGUMENTS_INVALID_CODE
-    );
-    assert!(failure.outputs(&calls, None).iter().all(|output| {
-        !response_input_succeeded(output)
-            && matches!(
-                output,
-                ResponseInputItem::FunctionCallOutput { output, .. }
-                    if output.body.to_text().is_some_and(|text| text.contains(
-                        "\"executed_tool_call_count\":0"
-                    ))
-            )
-    }));
-}
-
-#[test]
-fn ordinary_tool_does_not_ambiguously_accept_apply_patch() {
-    let calls = vec![
-        handoff_call("handoff", "ordinary_tool"),
-        custom_call("apply_patch", "patch", "*** Begin Patch\n*** End Patch"),
-    ];
-    let failure = validate_tool_sequence(&calls).expect_err("ambiguous patch sibling must fail");
-    assert_eq!(
-        failure.reason_code,
-        TASKSPACE_REQUIRED_ORDINARY_TOOL_INVALID_CODE
+        sequence_segments(&calls),
+        vec![
+            SequenceSegment::Parallel { start: 0, end: 1 },
+            SequenceSegment::Barrier {
+                index: 1,
+                kind: BarrierKind::TaskSpaceTransition,
+            },
+            SequenceSegment::Parallel { start: 2, end: 3 },
+        ]
     );
 }

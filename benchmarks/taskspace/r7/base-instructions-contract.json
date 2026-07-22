@@ -26,8 +26,8 @@
     }
   },
   "taskspace_core_protocol": {
-    "version": "taskspace-core-v2.1",
-    "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
+    "version": "taskspace-core-v2.2",
+    "sha256": "9b0f04354026f81f23b9e4570e2f321caf204050c0068d77dfb65a65f393717b",
     "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
     "wire_role": "system",
     "message_index": 1,
@@ -99,6 +99,17 @@
       "core_protocol_sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
       "status": "production_active",
       "change": "remove Tool wire examples from both WhaleCode Base profiles and enforce the L1/L4 ownership boundary"
+    },
+    {
+      "version": "2.0.3",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.2",
+      "core_protocol_sha256": "9b0f04354026f81f23b9e4570e2f321caf204050c0068d77dfb65a65f393717b",
+      "status": "production_active",
+      "change": "align the L2 working protocol with action-carried TaskSpace lifecycle transitions"
     }
   ],
   "diagnostic_validation": {

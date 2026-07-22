@@ -1,8 +1,6 @@
 use super::TaskSpaceControlArgs;
-use super::TaskSpaceFinishIdentityArgs;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
-use super::TaskSpaceRequiredNextCall;
 use super::invalid_error;
 use crate::function_tool::FunctionCallError;
 use serde::Deserialize;
@@ -11,13 +9,10 @@ use serde::de::DeserializeOwned;
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Action {
-    InitializeMap,
     MutateGraph,
-    BindNode,
     BlockNode,
     UnblockNode,
     ReworkNode,
-    CompleteThenContinue,
     CompleteThenEnd,
     FinishEnd,
     ExpandNodes,
@@ -32,19 +27,6 @@ struct Envelope {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct InitializeMapArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    root: TaskSpaceGraphNodeArgs,
-    initial_work_node: TaskSpaceGraphNodeArgs,
-    finish_identity: TaskSpaceFinishIdentityArgs,
-    additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
-    edges: Vec<TaskSpaceGraphEdgeArgs>,
-    required_next_call: TaskSpaceRequiredNextCall,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct MutateGraphArgs {
     #[serde(rename = "action")]
     _action: Action,
@@ -52,18 +34,6 @@ struct MutateGraphArgs {
     add_nodes: Vec<TaskSpaceGraphNodeArgs>,
     add_edges: Vec<TaskSpaceGraphEdgeArgs>,
     remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
-    #[serde(default)]
-    required_next_call: Option<TaskSpaceRequiredNextCall>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BindNodeArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    expected_revision: u64,
-    node_id: String,
-    required_next_call: TaskSpaceRequiredNextCall,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,17 +43,6 @@ struct NodeTransitionArgs {
     _action: Action,
     expected_revision: u64,
     node_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CompleteThenContinueArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    expected_revision: u64,
-    current_node_id: String,
-    next_node_id: String,
-    required_next_call: TaskSpaceRequiredNextCall,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,17 +139,6 @@ struct ReadMapArgs {
 
 pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCallError> {
     match deserialize_arguments::<Envelope>(arguments)?.action {
-        Action::InitializeMap => {
-            let parsed = deserialize_arguments::<InitializeMapArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::InitializeMap {
-                root: parsed.root,
-                initial_work_node: parsed.initial_work_node,
-                finish_identity: parsed.finish_identity,
-                additional_work_nodes: parsed.additional_work_nodes,
-                edges: parsed.edges,
-                required_next_call: parsed.required_next_call,
-            })
-        }
         Action::MutateGraph => {
             let parsed = deserialize_arguments::<MutateGraphArgs>(arguments)?;
             Ok(TaskSpaceControlArgs::MutateGraph {
@@ -198,15 +146,6 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 add_nodes: parsed.add_nodes,
                 add_edges: parsed.add_edges,
                 remove_edges: parsed.remove_edges,
-                required_next_call: parsed.required_next_call,
-            })
-        }
-        Action::BindNode => {
-            let parsed = deserialize_arguments::<BindNodeArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::BindNode {
-                expected_revision: parsed.expected_revision,
-                node_id: parsed.node_id,
-                required_next_call: parsed.required_next_call,
             })
         }
         Action::BlockNode => {
@@ -228,15 +167,6 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
             Ok(TaskSpaceControlArgs::ReworkNode {
                 expected_revision,
                 node_id,
-            })
-        }
-        Action::CompleteThenContinue => {
-            let parsed = deserialize_arguments::<CompleteThenContinueArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::CompleteThenContinue {
-                expected_revision: parsed.expected_revision,
-                current_node_id: parsed.current_node_id,
-                next_node_id: parsed.next_node_id,
-                required_next_call: parsed.required_next_call,
             })
         }
         Action::CompleteThenEnd => {

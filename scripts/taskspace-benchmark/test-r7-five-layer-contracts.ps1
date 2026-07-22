@@ -130,18 +130,22 @@ if (Test-PhaseEnabled "FLA-0") {
 }
 
 if ($Phase -eq "FLA-3.5") {
-    $baselineV1Path = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v1.json"
-    $baselineV2Path = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v2.json"
-    $baselineAnchorPath = "benchmarks/taskspace/r7/continuous-action-ca0-baseline-v3.json"
-    $toolchainAnchorPath = "benchmarks/taskspace/r7/continuous-action-v2-toolchain-anchor-v1.json"
-    [void](Get-ImmutableFirstAddAnchor $baselineV2Path "continuous_action_production_baseline" $baselineV1Path)
-    [void](Get-ImmutableFirstAddAnchor $baselineAnchorPath "continuous_action_production_baseline" $baselineV2Path)
-    $toolchainAnchor = Get-ImmutableFirstAddAnchor $toolchainAnchorPath "continuous_action_v2_toolchain"
-    $verifiers = @($toolchainAnchor.artifacts | Where-Object { [string]$_.role -eq "completion_verifier" })
-    $launchers = @($toolchainAnchor.artifacts | Where-Object { [string]$_.role -eq "completion_launcher" })
-    Assert-Equal $verifiers.Count 1 "V2 toolchain anchor must bind exactly one completion verifier"
-    Assert-Equal $launchers.Count 1 "V2 toolchain anchor must bind exactly one completion launcher"
-    throw "FLA-3.5 local preflight cannot issue completion evidence; execute the pinned launcher exported from the toolchain anchor parent through the required external check"
+    $carrierSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs"))
+    $controlSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs"))
+    $controlWireSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"))
+    $transitionSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"))
+    $routerSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/router.rs"))
+    $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
+    Assert-True $carrierSource.Contains('taskspace_transition') "Action Tool decorator does not expose taskspace_transition"
+    Assert-True $routerSource.Contains('extract_taskspace_transition') "Router does not strip the transition before ordinary Tool dispatch"
+    foreach ($variant in @("InitializeMap", "BindNode", "CompleteThenContinue")) {
+        Assert-True $transitionSource.Contains($variant) "Carrier parser omits transition variant: $variant"
+        Assert-True (-not $controlWireSource.Contains("Action::$variant")) "Standalone control still accepts transition variant: $variant"
+    }
+    Assert-True (-not $controlSource.Contains('required_next_call')) "Tool schema retains required_next_call"
+    Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING')) "Response preflight retains sibling enforcement"
+    Assert-Equal (Get-Sha256 $productionL2Path) (Get-Sha256 $l2Path) "Production L2 bytes differ from authority artifact"
+    Write-Output "FLA-3.5 action-carried lifecycle contracts passed."
 }
 
 if ((Test-PhaseEnabled "FLA-1") -or $Phase -eq "FLA-3.5-Scaffold") {

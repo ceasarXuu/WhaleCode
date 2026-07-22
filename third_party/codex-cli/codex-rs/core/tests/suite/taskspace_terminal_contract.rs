@@ -46,8 +46,7 @@ fn initialize_arguments() -> String {
             {"from": "root", "to": "work"},
             {"from": "work", "to": "verify"},
             {"from": "verify", "to": "finish"}
-        ],
-        "required_next_call": "ordinary_tool"
+        ]
     })
     .to_string()
 }
@@ -57,8 +56,7 @@ fn transition_arguments() -> String {
         "action": "complete_then_continue",
         "expected_revision": 2,
         "current_node_id": "work",
-        "next_node_id": "verify",
-        "required_next_call": "ordinary_tool"
+        "next_node_id": "verify"
     })
     .to_string()
 }
@@ -111,27 +109,34 @@ async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
     }
 }
 
-fn common_responses(test: &TestCodex) -> Vec<String> {
-    let pwd_arguments = json!({
+fn carrier_arguments(test: &TestCodex, transition: String) -> String {
+    json!({
         "cmd": "pwd",
-        "workdir": test.cwd_path().display().to_string()
+        "workdir": test.cwd_path().display().to_string(),
+        "taskspace_transition": serde_json::from_str::<serde_json::Value>(&transition)
+            .expect("transition json")
     })
-    .to_string();
+    .to_string()
+}
+
+fn common_responses(test: &TestCodex) -> Vec<String> {
     vec![
         sse(vec![
             ev_response_created("init-response"),
-            ev_function_call("init-call", "taskspace_control", &initialize_arguments()),
-            ev_function_call("init-exec", "exec_command", &pwd_arguments),
+            ev_function_call(
+                "init-call",
+                "exec_command",
+                &carrier_arguments(test, initialize_arguments()),
+            ),
             ev_completed("init-response"),
         ]),
         sse(vec![
             ev_response_created("complete-response"),
             ev_function_call(
                 "complete-call",
-                "taskspace_control",
-                &transition_arguments(),
+                "exec_command",
+                &carrier_arguments(test, transition_arguments()),
             ),
-            ev_function_call("complete-exec", "exec_command", &pwd_arguments),
             ev_completed("complete-response"),
         ]),
     ]
@@ -191,6 +196,13 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
             !tool_names.contains(&"update_plan"),
             "TaskSpace request must hide the linear plan tool"
         );
+    }
+    for call_id in ["init-call", "complete-call"] {
+        let output = responses
+            .function_call_output_text(call_id)
+            .unwrap_or_else(|| panic!("missing carrier output for {call_id}"));
+        assert!(output.contains("TaskSpaceCarrierResultV1"), "{output}");
+        assert!(output.contains("\"tool_dispatched\":true"), "{output}");
     }
 }
 

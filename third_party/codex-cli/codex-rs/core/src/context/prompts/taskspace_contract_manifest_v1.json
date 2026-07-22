@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.4",
+  "manifest_version": "1.0.5",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -21,7 +21,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "bb62d51046a3869eaece838ff26dbc2f399d5e56791d8a3575f2988391ecd281"
+    "sha256": "29cf884454846784b86b8b2f676c34853b615b62d86308f656d8cd52a31bc10f"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -56,7 +56,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
+          "sha256": "9b0f04354026f81f23b9e4570e2f321caf204050c0068d77dfb65a65f393717b",
           "activation_phase": "FLA-2"
         }
       ]

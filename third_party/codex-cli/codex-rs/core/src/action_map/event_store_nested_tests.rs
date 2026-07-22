@@ -12,8 +12,7 @@ fn bootstrap_call(call_id: &str) -> ResponseItem {
             "initial_work_node": {"node_id": "node-1", "goal": "inspect"},
             "additional_work_nodes": [],
             "finish_identity": {"id": "finish"},
-            "edges": [{"from": "root", "to": "node-1"}, {"from": "node-1", "to": "finish"}],
-            "required_next_call": "ordinary_tool"
+            "edges": [{"from": "root", "to": "node-1"}, {"from": "node-1", "to": "finish"}]
         })
         .to_string(),
         call_id: call_id.into(),

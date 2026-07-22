@@ -6,7 +6,6 @@ use crate::session::turn_context::TurnContext;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceFinishIdentityArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphEdgeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphNodeArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceRequiredNextCall;
 use crate::tools::handlers::taskspace_control_output::action_failure_error;
 use crate::tools::handlers::taskspace_control_output::format_initialize_binding_step;
 use crate::tools::handlers::taskspace_control_output::format_initialize_step;
@@ -15,7 +14,6 @@ use crate::tools::handlers::taskspace_control_output::format_state_batch;
 use crate::tools::handlers::taskspace_control_output::rejected_control_result;
 
 use super::ControlExecution;
-use super::mapping::control_state_has_active_binding;
 use super::mapping::map_edge_input;
 use super::mapping::map_finish_identity_input;
 use super::mapping::map_node_input;
@@ -89,31 +87,12 @@ pub(super) async fn initialize_map(
 pub(super) async fn mutate_graph(
     session: &Session,
     turn: &TurnContext,
-    call_id: &str,
+    _call_id: &str,
     expected_revision: u64,
     add_nodes: Vec<TaskSpaceGraphNodeArgs>,
     add_edges: Vec<TaskSpaceGraphEdgeArgs>,
     remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
-    required_next_call: Option<TaskSpaceRequiredNextCall>,
 ) -> Result<ControlExecution, FunctionCallError> {
-    if required_next_call.is_some()
-        && !control_state_has_active_binding(session.action_map_control_state(None).await.as_ref())
-    {
-        tracing::warn!(
-            target: "codex_core::taskspace",
-            call_id,
-            expected_revision,
-            "taskspace.graph_mutation_required_call_rejected_without_binding"
-        );
-        return Ok((
-            rejected_control_result(
-                "TaskSpace mutate_graph required_next_call requires an existing current node binding and lease. hard_state: no_current_node_binding.",
-            ),
-            false,
-            None,
-        ));
-    }
-
     let outcome = session
         .mutate_action_map_graph(
             turn,

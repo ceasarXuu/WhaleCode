@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::action_map::ActionMapControlState;
 use crate::action_map::ActionMapEdgeInput;
 use crate::action_map::ActionMapInitializeFinishInput;
@@ -6,6 +7,7 @@ use crate::tools::handlers::taskspace_control_args::TaskSpaceFinishIdentityArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphEdgeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphNodeArgs;
 
+#[cfg(test)]
 pub(super) fn control_state_has_active_binding(state: Option<&ActionMapControlState>) -> bool {
     state.is_some_and(|state| {
         state

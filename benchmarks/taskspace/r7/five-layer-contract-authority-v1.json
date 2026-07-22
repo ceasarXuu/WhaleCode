@@ -109,7 +109,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
+      "sha256": "9b0f04354026f81f23b9e4570e2f321caf204050c0068d77dfb65a65f393717b",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -224,7 +224,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2.1 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v2.2 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",

@@ -27,6 +27,7 @@ enum SequenceSegment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BarrierKind {
     TaskSpaceControl,
+    TaskSpaceTransition,
     ApplyPatch,
 }
 
@@ -34,6 +35,7 @@ impl BarrierKind {
     fn as_str(self) -> &'static str {
         match self {
             Self::TaskSpaceControl => "taskspace_control",
+            Self::TaskSpaceTransition => "taskspace_transition",
             Self::ApplyPatch => "apply_patch",
         }
     }
@@ -74,17 +76,6 @@ pub(crate) async fn execute_response_tool_sequence(
         request_patch_count = manifest.request_patch_count,
         "tool.request_patch_count_validated"
     );
-    for (index, entry) in manifest.entries.iter().enumerate() {
-        if let Some(requirement) = entry.required_next_call {
-            tracing::info!(
-                target: "codex_core::taskspace",
-                call_id = entry.call_id,
-                required_next_call = requirement.as_str(),
-                next_call_id = manifest.entries[index + 1].call_id,
-                "taskspace.response_required_next_call_validated"
-            );
-        }
-    }
     let segments = sequence_segments(&calls);
     tracing::info!(
         target: "codex_core::taskspace",
@@ -272,6 +263,9 @@ fn calls_for_segment<'a>(calls: &'a [ToolCall], segment: &SequenceSegment) -> &'
 }
 
 fn barrier_kind(call: &ToolCall) -> Option<BarrierKind> {
+    if call.taskspace_transition.is_some() {
+        return Some(BarrierKind::TaskSpaceTransition);
+    }
     if call.tool_name.namespace.is_some() {
         return None;
     }

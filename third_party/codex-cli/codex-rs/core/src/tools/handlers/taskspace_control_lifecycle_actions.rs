@@ -90,7 +90,6 @@ pub(super) async fn rework_node(
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn complete_then_continue(
     session: &Session,
     turn: &TurnContext,
@@ -98,7 +97,6 @@ pub(super) async fn complete_then_continue(
     expected_revision: u64,
     current_node_id: String,
     next_node_id: String,
-    required_next_call: &str,
 ) -> Result<ControlExecution, FunctionCallError> {
     let source_event_ref = source_event_ref(
         session,
@@ -125,7 +123,6 @@ pub(super) async fn complete_then_continue(
                 revision = outcome.revision,
                 current_node_id,
                 next_node_id,
-                required_next_call,
                 "taskspace.complete_handoff_committed"
             );
             (
@@ -152,7 +149,6 @@ pub(super) async fn complete_then_continue(
                 expected_revision,
                 current_node_id,
                 next_node_id,
-                required_next_call,
                 "taskspace.complete_handoff_rejected"
             );
             (rejected_control_result(&error), false, None)

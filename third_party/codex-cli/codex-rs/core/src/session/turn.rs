@@ -1644,7 +1644,7 @@ mod active_context_replacement_tests {
     fn taskspace_native_tools_hide_linear_plan_but_keep_map_control() {
         let tools = vec![
             codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
+            codex_tools::create_taskspace_control_tool(),
         ];
 
         let filtered =
@@ -1658,7 +1658,7 @@ mod active_context_replacement_tests {
     fn standard_native_tools_hide_map_control_but_keep_linear_plan() {
         let tools = vec![
             codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
+            codex_tools::create_taskspace_control_tool(),
         ];
 
         let visible =
@@ -1700,16 +1700,16 @@ mod active_context_replacement_tests {
     fn taskspace_control_modes_preserve_state_without_changing_tool_contract() {
         let visible = vec![
             codex_tools::create_list_dir_tool(),
-            codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
+            codex_tools::create_taskspace_control_tool(),
         ];
         let tool_contract = serde_json::to_string(&visible).expect("serialize lifecycle tools");
         assert_eq!(
             visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
             vec!["list_dir", "taskspace_control"]
         );
-        assert!(tool_contract.contains("initialize_map"));
+        assert!(!tool_contract.contains("initialize_map"));
         assert!(tool_contract.contains("mutate_graph"));
-        assert!(tool_contract.contains("bind_node"));
+        assert!(!tool_contract.contains("bind_node"));
         assert!(!tool_contract.contains("transition_node"));
         assert!(tool_contract.contains("finish_end"));
 

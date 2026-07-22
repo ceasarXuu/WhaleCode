@@ -16,6 +16,7 @@ use crate::tools::handlers::taskspace_control_output::control_commit_observation
 use crate::tools::handlers::taskspace_control_output::normalize_control_result;
 use crate::tools::handlers::taskspace_control_output::protocol_error;
 use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
+use crate::tools::handlers::taskspace_transition_args::TaskSpaceTransitionArgs;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 
@@ -40,6 +41,11 @@ pub struct TaskSpaceControlOutput {
 }
 
 pub(super) type ControlExecution = (String, bool, Option<TaskSpaceTerminalCarrier>);
+
+pub(crate) struct TaskSpaceTransitionExecution {
+    pub(crate) message: String,
+    pub(crate) success: bool,
+}
 
 impl ToolOutput for TaskSpaceControlOutput {
     fn log_preview(&self) -> String {
@@ -114,14 +120,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                 ));
             }
         };
-        let required_next_call = args
-            .required_next_call()
-            .map_or("none", |required| required.as_str());
         let action = args.action_name();
         let submitted_expected_revision = args.submitted_expected_revision();
 
         let (message, success, terminal_carrier) =
-            execute_action(&session, &turn, &call_id, required_next_call, args).await?;
+            execute_action(&session, &turn, &call_id, args).await?;
         let canonical_revision = session
             .action_map_control_state(None)
             .await
@@ -146,36 +149,14 @@ async fn execute_action(
     session: &Session,
     turn: &TurnContext,
     call_id: &str,
-    required_next_call: &str,
     args: TaskSpaceControlArgs,
 ) -> Result<ControlExecution, FunctionCallError> {
     match args {
-        TaskSpaceControlArgs::InitializeMap {
-            root,
-            initial_work_node,
-            finish_identity,
-            additional_work_nodes,
-            edges,
-            required_next_call: _,
-        } => {
-            graph_actions::initialize_map(
-                session,
-                turn,
-                call_id,
-                root,
-                initial_work_node,
-                finish_identity,
-                additional_work_nodes,
-                edges,
-            )
-            .await
-        }
         TaskSpaceControlArgs::MutateGraph {
             expected_revision,
             add_nodes,
             add_edges,
             remove_edges,
-            required_next_call,
         } => {
             graph_actions::mutate_graph(
                 session,
@@ -185,15 +166,9 @@ async fn execute_action(
                 add_nodes,
                 add_edges,
                 remove_edges,
-                required_next_call,
             )
             .await
         }
-        TaskSpaceControlArgs::BindNode {
-            expected_revision,
-            node_id,
-            required_next_call: _,
-        } => lifecycle_actions::bind_node(session, turn, call_id, expected_revision, node_id).await,
         TaskSpaceControlArgs::BlockNode {
             expected_revision,
             node_id,
@@ -212,23 +187,6 @@ async fn execute_action(
             node_id,
         } => {
             lifecycle_actions::rework_node(session, turn, call_id, expected_revision, node_id).await
-        }
-        TaskSpaceControlArgs::CompleteThenContinue {
-            expected_revision,
-            current_node_id,
-            next_node_id,
-            required_next_call: _,
-        } => {
-            lifecycle_actions::complete_then_continue(
-                session,
-                turn,
-                call_id,
-                expected_revision,
-                current_node_id,
-                next_node_id,
-                required_next_call,
-            )
-            .await
         }
         TaskSpaceControlArgs::CompleteThenEnd {
             expected_revision,
@@ -274,6 +232,71 @@ async fn execute_action(
         }
         TaskSpaceControlArgs::ReadMap => read_actions::read_map(session, turn, call_id).await,
     }
+}
+
+pub(crate) async fn execute_taskspace_transition(
+    session: &Session,
+    turn: &TurnContext,
+    call_id: &str,
+    args: TaskSpaceTransitionArgs,
+) -> Result<TaskSpaceTransitionExecution, FunctionCallError> {
+    let action = args.action_name();
+    let submitted_expected_revision = args.submitted_expected_revision();
+    let (message, success, _) = match args {
+        TaskSpaceTransitionArgs::InitializeMap {
+            root,
+            initial_work_node,
+            finish_identity,
+            additional_work_nodes,
+            edges,
+        } => {
+            graph_actions::initialize_map(
+                session,
+                turn,
+                call_id,
+                root,
+                initial_work_node,
+                finish_identity,
+                additional_work_nodes,
+                edges,
+            )
+            .await?
+        }
+        TaskSpaceTransitionArgs::BindNode {
+            expected_revision,
+            node_id,
+        } => {
+            lifecycle_actions::bind_node(session, turn, call_id, expected_revision, node_id).await?
+        }
+        TaskSpaceTransitionArgs::CompleteThenContinue {
+            expected_revision,
+            current_node_id,
+            next_node_id,
+        } => {
+            lifecycle_actions::complete_then_continue(
+                session,
+                turn,
+                call_id,
+                expected_revision,
+                current_node_id,
+                next_node_id,
+            )
+            .await?
+        }
+    };
+    let canonical_revision = session
+        .action_map_control_state(None)
+        .await
+        .map(|state| state.revision);
+    let message = normalize_control_result(
+        message,
+        action,
+        submitted_expected_revision,
+        canonical_revision,
+        success,
+    );
+    log_control_result(call_id, &message, success);
+    Ok(TaskSpaceTransitionExecution { message, success })
 }
 
 fn log_control_result(call_id: &str, message: &str, success: bool) {
