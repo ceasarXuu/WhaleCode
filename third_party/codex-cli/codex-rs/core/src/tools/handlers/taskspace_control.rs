@@ -188,12 +188,12 @@ async fn execute_action(
         } => {
             lifecycle_actions::rework_node(session, turn, call_id, expected_revision, node_id).await
         }
-        TaskSpaceControlArgs::CompleteThenEnd {
+        TaskSpaceControlArgs::CompleteActiveWorkThenEnd {
             expected_revision,
             current_node_id,
             final_summary,
         } => {
-            lifecycle_actions::complete_then_end(
+            lifecycle_actions::complete_active_work_then_end(
                 session,
                 turn,
                 call_id,
@@ -203,12 +203,17 @@ async fn execute_action(
             )
             .await
         }
-        TaskSpaceControlArgs::CloseReadyFinish {
+        TaskSpaceControlArgs::CloseFinishWithNoActiveWork {
             expected_revision,
             final_summary,
         } => {
-            lifecycle_actions::close_ready_finish(session, turn, expected_revision, final_summary)
-                .await
+            lifecycle_actions::close_finish_with_no_active_work(
+                session,
+                turn,
+                expected_revision,
+                final_summary,
+            )
+            .await
         }
         TaskSpaceControlArgs::ExpandNodes { node_ids } => {
             graph_actions::expand_nodes(session, turn, call_id, node_ids).await

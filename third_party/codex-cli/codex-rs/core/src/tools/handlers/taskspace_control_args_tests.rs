@@ -25,10 +25,37 @@ fn accepts_standalone_graph_and_terminal_actions() {
         r#"{"action":"block_node","expected_revision":2,"node_id":"new"}"#,
         r#"{"action":"unblock_node","expected_revision":3,"node_id":"new"}"#,
         r#"{"action":"rework_node","expected_revision":4,"node_id":"new"}"#,
-        r#"{"action":"complete_then_end","expected_revision":5,"current_node_id":"new","final_summary":"Done"}"#,
-        r#"{"action":"close_ready_finish","expected_revision":6,"final_summary":"Done"}"#,
+        r#"{"action":"complete_active_work_then_end","expected_revision":5,"current_node_id":"new","final_summary":"Done"}"#,
+        r#"{"action":"close_finish_with_no_active_work","expected_revision":6,"active_work_status":"none","finish_status":"ready","final_summary":"Done"}"#,
     ] {
         parse_taskspace_control_args(arguments).expect(arguments);
+    }
+}
+
+#[test]
+fn ready_finish_closure_requires_exact_state_declarations() {
+    for arguments in [
+        r#"{"action":"close_finish_with_no_active_work","expected_revision":6,"finish_status":"ready","final_summary":"Done"}"#,
+        r#"{"action":"close_finish_with_no_active_work","expected_revision":6,"active_work_status":"none","final_summary":"Done"}"#,
+        r#"{"action":"close_finish_with_no_active_work","expected_revision":6,"active_work_status":"running","finish_status":"ready","final_summary":"Done"}"#,
+        r#"{"action":"close_finish_with_no_active_work","expected_revision":6,"active_work_status":"none","finish_status":"running","final_summary":"Done"}"#,
+    ] {
+        assert!(
+            parse_taskspace_control_args(arguments).is_err(),
+            "{arguments}"
+        );
+    }
+}
+
+#[test]
+fn superseded_terminal_action_names_are_rejected() {
+    for action in ["finish_end", "close_ready_finish", "complete_then_end"] {
+        let arguments =
+            format!(r#"{{"action":"{action}","expected_revision":6,"final_summary":"Done"}}"#);
+        assert!(
+            parse_taskspace_control_args(&arguments).is_err(),
+            "{arguments}"
+        );
     }
 }
 
@@ -71,8 +98,8 @@ fn validates_control_ids_summaries_and_edges() {
     );
     for arguments in [
         r#"{"action":"block_node","expected_revision":2,"node_id":""}"#,
-        r#"{"action":"close_ready_finish","expected_revision":3,"final_summary":""}"#,
-        r#"{"action":"complete_then_end","expected_revision":3,"current_node_id":"work","final_summary":""}"#,
+        r#"{"action":"close_finish_with_no_active_work","expected_revision":3,"active_work_status":"none","finish_status":"ready","final_summary":""}"#,
+        r#"{"action":"complete_active_work_then_end","expected_revision":3,"current_node_id":"work","final_summary":""}"#,
     ] {
         assert!(
             parse_taskspace_control_args(arguments).is_err(),

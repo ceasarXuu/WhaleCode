@@ -156,7 +156,7 @@ pub(super) async fn complete_then_continue(
     })
 }
 
-pub(super) async fn complete_then_end(
+pub(super) async fn complete_active_work_then_end(
     session: &Session,
     turn: &TurnContext,
     call_id: &str,
@@ -164,10 +164,15 @@ pub(super) async fn complete_then_end(
     current_node_id: String,
     final_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
-    let source_event_ref =
-        source_event_ref(session, call_id, "complete_then_end", expected_revision).await?;
+    let source_event_ref = source_event_ref(
+        session,
+        call_id,
+        "complete_active_work_then_end",
+        expected_revision,
+    )
+    .await?;
     let outcome = session
-        .complete_then_end_action_map(
+        .complete_active_work_then_end_action_map(
             turn,
             expected_revision,
             current_node_id.clone(),
@@ -186,7 +191,7 @@ pub(super) async fn complete_then_end(
                 summary_bytes = outcome.final_summary.len(),
                 "taskspace.complete_terminal_committed"
             );
-            Ok(terminal_execution("complete_then_end", outcome))
+            Ok(terminal_execution("complete_active_work_then_end", outcome))
         }
         Err(FinishActionMapError::Rejected(error)) => {
             tracing::warn!(
@@ -198,29 +203,40 @@ pub(super) async fn complete_then_end(
             );
             Ok((rejected_control_result(&error), false, None))
         }
-        Err(error) => {
-            Err(terminal_failure(session, "complete_then_end", expected_revision, error).await)
-        }
+        Err(error) => Err(terminal_failure(
+            session,
+            "complete_active_work_then_end",
+            expected_revision,
+            error,
+        )
+        .await),
     }
 }
 
-pub(super) async fn close_ready_finish(
+pub(super) async fn close_finish_with_no_active_work(
     session: &Session,
     turn: &TurnContext,
     expected_revision: u64,
     final_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
     match session
-        .close_ready_finish_action_map(turn, expected_revision, final_summary)
+        .close_finish_with_no_active_work_action_map(turn, expected_revision, final_summary)
         .await
     {
-        Ok(outcome) => Ok(terminal_execution("close_ready_finish", outcome)),
+        Ok(outcome) => Ok(terminal_execution(
+            "close_finish_with_no_active_work",
+            outcome,
+        )),
         Err(FinishActionMapError::Rejected(error)) => {
             Ok((rejected_control_result(&error), false, None))
         }
-        Err(error) => {
-            Err(terminal_failure(session, "close_ready_finish", expected_revision, error).await)
-        }
+        Err(error) => Err(terminal_failure(
+            session,
+            "close_finish_with_no_active_work",
+            expected_revision,
+            error,
+        )
+        .await),
     }
 }
 

@@ -29,7 +29,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 const FINAL_SUMMARY: &str = "Exact Agent terminal summary.";
-const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without complete_then_end.";
+const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without complete_active_work_then_end.";
 const TASKSPACE_CORE_PROTOCOL: &str =
     include_str!("../../src/context/prompts/taskspace_core_protocol_v2.md");
 
@@ -63,7 +63,7 @@ fn transition_arguments() -> String {
 
 fn finish_arguments() -> String {
     json!({
-        "action": "complete_then_end",
+        "action": "complete_active_work_then_end",
         "expected_revision": 3,
         "current_node_id": "verify",
         "final_summary": FINAL_SUMMARY
@@ -312,7 +312,7 @@ async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Resul
                 item,
                 codex_protocol::protocol::RolloutItem::EventMsg(EventMsg::MapRuntime(
                     MapRuntimeEvent::GraphRevisionCommitted(event)
-                )) if event.operation == "complete_then_end"
+                )) if event.operation == "complete_active_work_then_end"
             )
         })
         .count();
@@ -351,7 +351,7 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
     bodies.push(sse(vec![
         ev_response_created("plain-response"),
         ev_message_item_added("plain-message", "Provider tried "),
-        ev_output_text_delta("to finish without complete_then_end."),
+        ev_output_text_delta("to finish without complete_active_work_then_end."),
         ev_assistant_message("plain-message", PLAIN_PROVIDER_TEXT),
         ev_completed("plain-response"),
     ]));

@@ -9,7 +9,7 @@ use super::model::NodeStatus;
 use super::transactions::GraphMutation;
 use super::transactions::InitializeMap;
 use super::transactions::Rejection;
-use super::transactions::close_ready_finish;
+use super::transactions::close_finish_with_no_active_work;
 use super::transactions::initialize;
 use super::transactions::mutate_graph;
 use super::transactions::transition_node;
@@ -303,14 +303,15 @@ fn finish_remains_manual_and_empty_summary_does_not_commit() {
     assert_eq!(map.is_complete(), false);
     let before_hash = map.state_sha256().unwrap();
 
-    let rejection = close_ready_finish(&map, map.revision, "  ".into()).unwrap_err();
+    let rejection = close_finish_with_no_active_work(&map, map.revision, "  ".into()).unwrap_err();
     assert_eq!(
         violation_codes(&rejection),
         vec![ViolationCode::FinalSummaryEmpty]
     );
     assert_eq!(map.state_sha256().unwrap(), before_hash);
 
-    let committed = close_ready_finish(&map, map.revision, "exact agent summary".into()).unwrap();
+    let committed =
+        close_finish_with_no_active_work(&map, map.revision, "exact agent summary".into()).unwrap();
     assert_eq!(committed.map.is_complete(), true);
     assert!(committed.map.terminal_summary_ref.is_some());
     assert_eq!(
@@ -336,7 +337,8 @@ fn twenty_work_cycles_replay_to_identical_state_and_hash() {
         journal.push(completed.events);
     }
     let terminal =
-        close_ready_finish(&map, map.revision, "summary preserved exactly".into()).unwrap();
+        close_finish_with_no_active_work(&map, map.revision, "summary preserved exactly".into())
+            .unwrap();
     map = terminal.map;
     journal.push(terminal.events);
 

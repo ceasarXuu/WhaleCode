@@ -26,8 +26,8 @@
     }
   },
   "taskspace_core_protocol": {
-    "version": "taskspace-core-v2.4",
-    "sha256": "cddde1c815c53c37d30437b5b7a23a6d6be9f1f2653d86a2243da15089ad90a1",
+    "version": "taskspace-core-v2.5",
+    "sha256": "1f45e18d84c9d0310519256f85eebb20d4ee56e1f7752d481b20d985cb43a66e",
     "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
     "wire_role": "system",
     "message_index": 1,
@@ -132,6 +132,17 @@
       "core_protocol_sha256": "cddde1c815c53c37d30437b5b7a23a6d6be9f1f2653d86a2243da15089ad90a1",
       "status": "production_active",
       "change": "distinguish completing a running final Work node from closing an already Ready Finish"
+    },
+    {
+      "version": "2.0.6",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.5",
+      "core_protocol_sha256": "1f45e18d84c9d0310519256f85eebb20d4ee56e1f7752d481b20d985cb43a66e",
+      "status": "production_active",
+      "change": "encode mutually exclusive terminal states in action names and required state declarations"
     }
   ],
   "diagnostic_validation": {

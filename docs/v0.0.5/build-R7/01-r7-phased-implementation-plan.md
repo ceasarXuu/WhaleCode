@@ -407,10 +407,10 @@ TaskSpace bypass fixture 100% rejected，合法动作无新增 policy rejection�
 完成项：
 
 1. 从 provider 可见的 `transition_node` schema 移除独立 `complete`；内部状态机仍保留完成原语。
-2. 在共享 `taskspace_control` 增加 `complete_then_continue` 与 `complete_then_end`。
+2. 在共享 `taskspace_control` 增加 `complete_then_continue` 与 `complete_active_work_then_end`。
 3. `complete_then_continue` 要求 Agent 显式给出当前节点、下一节点和 continuation；完成、readiness、bind 与
    后续普通动作在一个 control transaction 中执行。
-4. `complete_then_end` 要求 Agent 显式给出最终总结；完成当前 Work、闭合 Finish 和 Root 在一个 revision 中提交。
+4. `complete_active_work_then_end` 要求 Agent 显式给出最终总结；完成当前 Work、闭合 Finish 和 Root 在一个 revision 中提交。
 5. candidate graph、lease 和 terminal persistence 均保持全成或全不成；失败结果固定
    `state_commit=false/partial_commit=0`，Runtime 不修复畸形 JSON、不猜测下一节点。
 6. replay、control feedback、working protocol `v1.0.2`、日志和性能 observer 同步识别两种新 action。
@@ -419,7 +419,7 @@ TaskSpace bypass fixture 100% rejected，合法动作无新增 policy rejection�
 
 - Rust 相关单测、集成测试、observer 自测、K0 自测和 skill 校验通过；
 - Docker simple/complex 均与同期 Standard 一起 solved，公开与隐藏验证均通过；
-- 两个 TaskSpace run 都采用 `complete_then_continue=1`、`complete_then_end=1`，
+- 两个 TaskSpace run 都采用 `complete_then_continue=1`、`complete_active_work_then_end=1`，
   `standalone complete=0`、`finish_end=0`；
 - simple 请求数 8 vs Standard 7，complex 为 12 vs 10；没有再由节点完成本身产生独立 provider request；
 - complex 首次大型嵌套 patch carrier 发生一次 trailing JSON 和一次空参数调用，Runtime 忠实拒绝且零提交，

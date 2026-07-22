@@ -145,7 +145,7 @@ fn terminal_crash_window_with_atomic_completion(
     let (pre_terminal, events) = if atomic_completion {
         let pre_terminal = runtime.snapshot();
         let (_, events) = runtime
-            .complete_then_end_for_main(
+            .complete_active_work_then_end_for_main(
                 owner,
                 2,
                 "work".into(),
@@ -166,7 +166,7 @@ fn terminal_crash_window_with_atomic_completion(
             .unwrap();
         let pre_terminal = runtime.snapshot();
         let (_, events) = runtime
-            .close_ready_finish_for_main(owner, 3, "terminal summary".into())
+            .close_finish_with_no_active_work_for_main(owner, 3, "terminal summary".into())
             .unwrap();
         (pre_terminal, events)
     };

@@ -13,8 +13,8 @@ enum Action {
     BlockNode,
     UnblockNode,
     ReworkNode,
-    CompleteThenEnd,
-    CloseReadyFinish,
+    CompleteActiveWorkThenEnd,
+    CloseFinishWithNoActiveWork,
     ExpandNodes,
     ReadOutputRef,
     ReadMap,
@@ -47,7 +47,7 @@ struct NodeTransitionArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CompleteThenEndArgs {
+struct CompleteActiveWorkThenEndArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
@@ -56,11 +56,27 @@ struct CompleteThenEndArgs {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ActiveWorkStatus {
+    None,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum FinishStatus {
+    Ready,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CloseReadyFinishArgs {
+struct CloseFinishWithNoActiveWorkArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
+    #[serde(rename = "active_work_status")]
+    _active_work_status: ActiveWorkStatus,
+    #[serde(rename = "finish_status")]
+    _finish_status: FinishStatus,
     final_summary: String,
 }
 
@@ -169,17 +185,17 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 node_id,
             })
         }
-        Action::CompleteThenEnd => {
-            let parsed = deserialize_arguments::<CompleteThenEndArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::CompleteThenEnd {
+        Action::CompleteActiveWorkThenEnd => {
+            let parsed = deserialize_arguments::<CompleteActiveWorkThenEndArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::CompleteActiveWorkThenEnd {
                 expected_revision: parsed.expected_revision,
                 current_node_id: parsed.current_node_id,
                 final_summary: parsed.final_summary,
             })
         }
-        Action::CloseReadyFinish => {
-            let parsed = deserialize_arguments::<CloseReadyFinishArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::CloseReadyFinish {
+        Action::CloseFinishWithNoActiveWork => {
+            let parsed = deserialize_arguments::<CloseFinishWithNoActiveWorkArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::CloseFinishWithNoActiveWork {
                 expected_revision: parsed.expected_revision,
                 final_summary: parsed.final_summary,
             })

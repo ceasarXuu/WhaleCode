@@ -256,8 +256,8 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
             "block_node",
             "unblock_node",
             "rework_node",
-            "complete_then_end",
-            "close_ready_finish",
+            "complete_active_work_then_end",
+            "close_finish_with_no_active_work",
             "expand_nodes",
             "read_map",
             "read_output_ref",
@@ -267,7 +267,7 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
         ]
     );
     let serialized = serde_json::to_string(parameters).expect("serialize parameters");
-    assert!(serialized.contains("complete_then_end"));
+    assert!(serialized.contains("complete_active_work_then_end"));
     assert!(!serialized.contains("initialize_map"));
     assert!(!serialized.contains("complete_then_continue"));
     assert!(!serialized.contains("\"current_work_node\""));

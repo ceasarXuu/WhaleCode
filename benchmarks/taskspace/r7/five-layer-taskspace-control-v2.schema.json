@@ -189,7 +189,7 @@
               "action": {
                 "type": "string",
                 "enum": [
-                  "complete_then_end"
+                  "complete_active_work_then_end"
                 ]
               },
               "expected_revision": {
@@ -212,18 +212,32 @@
             "additionalProperties": false
           },
           {
-            "description": "Use only when the exact current state already has Finish Ready and no Work node active. Close the unique Finish and Root and store the exact Agent-authored final summary. This action does not complete a Work node; when the final Work node is Running, use complete_then_end instead.",
+            "description": "Use only when the exact current state already has no active Work and the unique Finish is Ready. Declare active_work_status=none and finish_status=ready, then close the Finish and Root. This action does not complete a Work node; when the final Work node is Running, use complete_active_work_then_end instead.",
             "type": "object",
             "properties": {
               "action": {
                 "type": "string",
                 "enum": [
-                  "close_ready_finish"
+                  "close_finish_with_no_active_work"
                 ]
               },
               "expected_revision": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "active_work_status": {
+                "description": "Caller-declared exact current state: no Work node is active.",
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              },
+              "finish_status": {
+                "description": "Caller-declared exact current state: the unique Finish is Ready.",
+                "type": "string",
+                "enum": [
+                  "ready"
+                ]
               },
               "final_summary": {
                 "type": "string"
@@ -232,6 +246,8 @@
             "required": [
               "action",
               "expected_revision",
+              "active_work_status",
+              "finish_status",
               "final_summary"
             ],
             "additionalProperties": false

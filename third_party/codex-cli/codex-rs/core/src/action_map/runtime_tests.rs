@@ -255,7 +255,7 @@ fn rejected_complete_handoff_preserves_the_entire_prestate() {
 }
 
 #[test]
-fn complete_then_end_closes_last_work_root_and_finish_in_one_revision() {
+fn complete_active_work_then_end_closes_last_work_root_and_finish_in_one_revision() {
     let (mut state, owner, _) = initialized_state(
         &[("work", "Implement and verify")],
         &[("root", "work"), ("work", "finish")],
@@ -264,7 +264,7 @@ fn complete_then_end_closes_last_work_root_and_finish_in_one_revision() {
     let summary = "Implemented and verified.".to_string();
 
     let (outcome, events) = state
-        .complete_then_end_for_main(
+        .complete_active_work_then_end_for_main(
             owner,
             2,
             "work".into(),
@@ -278,7 +278,7 @@ fn complete_then_end_closes_last_work_root_and_finish_in_one_revision() {
     assert!(matches!(
         events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(graph))
-            if graph.operation == "complete_then_end" && graph.revision == 3
+            if graph.operation == "complete_active_work_then_end" && graph.revision == 3
     ));
     let map = state
         .snapshot()
@@ -308,7 +308,7 @@ fn complete_then_end_closes_last_work_root_and_finish_in_one_revision() {
 }
 
 #[test]
-fn rejected_complete_then_end_reports_live_revision_and_preserves_prestate() {
+fn rejected_complete_active_work_then_end_reports_live_revision_and_preserves_prestate() {
     let (mut state, owner, _) = initialized_state(
         &[("first", "First branch"), ("second", "Second branch")],
         &[
@@ -322,7 +322,7 @@ fn rejected_complete_then_end_reports_live_revision_and_preserves_prestate() {
     let before = state.snapshot();
 
     let error = state
-        .complete_then_end_for_main(
+        .complete_active_work_then_end_for_main(
             owner,
             2,
             "first".into(),
@@ -338,7 +338,7 @@ fn rejected_complete_then_end_reports_live_revision_and_preserves_prestate() {
 }
 
 #[test]
-fn close_ready_finish_is_agent_explicit_and_closes_root_and_finish_together() {
+fn close_finish_with_no_active_work_is_agent_explicit_and_closes_root_and_finish_together() {
     let (mut state, owner, _) = initialized_state(
         &[("work", "Implement the change")],
         &[("root", "work"), ("work", "finish")],
@@ -346,8 +346,8 @@ fn close_ready_finish_is_agent_explicit_and_closes_root_and_finish_together() {
     );
     let running_snapshot = state.snapshot();
     let rejection = state
-        .close_ready_finish_for_main(owner, 2, "Too early".into())
-        .expect_err("close_ready_finish must not complete a running Work node");
+        .close_finish_with_no_active_work_for_main(owner, 2, "Too early".into())
+        .expect_err("close_finish_with_no_active_work must not complete a running Work node");
     let rejection: serde_json::Value =
         serde_json::from_str(&rejection).expect("typed terminal rejection");
     assert_eq!(rejection["state_commit"], false);
@@ -390,7 +390,7 @@ fn close_ready_finish_is_agent_explicit_and_closes_root_and_finish_together() {
 
     let summary = "Implemented and verified exactly as requested.".to_string();
     let (outcome, events) = state
-        .close_ready_finish_for_main(owner, 3, summary.clone())
+        .close_finish_with_no_active_work_for_main(owner, 3, summary.clone())
         .expect("ready finish closes explicitly");
     assert_eq!(outcome.final_summary, summary);
     assert_eq!(outcome.delta.committed_revision, 4);
@@ -398,7 +398,7 @@ fn close_ready_finish_is_agent_explicit_and_closes_root_and_finish_together() {
     assert!(matches!(
         events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(event))
-            if event.operation == "close_ready_finish" && event.revision == 4
+            if event.operation == "close_finish_with_no_active_work" && event.revision == 4
     ));
     let closed = state
         .snapshot()

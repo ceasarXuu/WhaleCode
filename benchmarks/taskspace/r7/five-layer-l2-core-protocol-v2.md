@@ -1,4 +1,4 @@
-<taskspace_core_protocol version="taskspace-core-v2.4">
+<taskspace_core_protocol version="taskspace-core-v2.5">
 ## Working with the Map
 
 Use this loop for ordinary TaskSpace work:
@@ -9,7 +9,7 @@ Use this loop for ordinary TaskSpace work:
 4. When a Ready Work node needs its first action, put `bind_node` in that action Tool's `taskspace_action`.
 5. When the active Work node is complete and work continues, put `complete_then_continue` in the successor's first real action Tool. This atomically completes the current node, binds the Agent-selected Ready successor, and executes that action in one call.
 6. On later actions under the same active binding, use `continue_current`; do not repeat the transition. Use `taskspace_control` directly for standalone graph mutations, block/unblock/rework, Map reads, expansion, and terminal closure.
-7. Include validation inside the Work graph. After sufficient evidence, use `complete_then_end` when the final Work node is still Running; provide that node as `current_node_id`. Use `close_ready_finish` only when the exact current TaskSpace state already shows no active Work node and Finish Ready. `close_ready_finish` does not complete a Work node. Both actions explicitly close the unique Finish and provide the final summary.
+7. Include validation inside the Work graph. After sufficient evidence, use `complete_active_work_then_end` when the final Work node is still Running; provide that node as `current_node_id`. Use `close_finish_with_no_active_work` only when the exact current TaskSpace state already shows no active Work node and Finish Ready; declare `active_work_status=none` and `finish_status=ready`. `close_finish_with_no_active_work` does not complete a Work node. Both actions explicitly close the unique Finish and provide the final summary.
 
 ## Reading results and recovering
 

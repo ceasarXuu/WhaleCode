@@ -16,8 +16,8 @@
         "unblock_node",
         "rework_node",
         "complete_then_continue",
-        "complete_then_end",
-        "close_ready_finish",
+        "complete_active_work_then_end",
+        "close_finish_with_no_active_work",
         "expand_nodes",
         "read_map",
         "read_output_ref",
@@ -120,7 +120,7 @@
           {
             "type": "object",
             "properties": {
-              "kind": {"enum": ["complete_then_end", "close_ready_finish"]},
+              "kind": {"enum": ["complete_active_work_then_end", "close_finish_with_no_active_work"]},
               "map_id": {"type": "string"},
               "finish_closed": {"const": true},
               "root_closed": {"const": true},

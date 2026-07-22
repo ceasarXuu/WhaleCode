@@ -169,7 +169,7 @@ function Get-PerformanceCrossCarrierLineage {
                 if ($name -eq "taskspace_control" -and $null -ne $args) {
                     $controlCalls[$callId] = $args
                     $action = [string](Get-PerformanceProperty $args "action")
-                    if ($action -in @("close_ready_finish", "complete_then_end")) {
+                    if ($action -in @("close_finish_with_no_active_work", "complete_active_work_then_end")) {
                         $candidate = Get-PerformanceProperty $args "final_summary"
                         if ($null -ne $candidate) { $finalCandidates.Add([pscustomobject]@{ index = $index; text = [string]$candidate }) }
                     }
@@ -202,7 +202,7 @@ function Get-PerformanceCrossCarrierLineage {
                     $action = [string](Get-PerformanceProperty $controlCalls[$callId] "action")
                     $success = [bool](Get-PerformanceProperty $outputObject "success" $false)
                     $stateCommit = [bool](Get-PerformanceProperty $outputObject "state_commit" $false)
-                    if ($action -in @("close_ready_finish", "complete_then_end") -and -not $success -and $stateCommit) {
+                    if ($action -in @("close_finish_with_no_active_work", "complete_active_work_then_end") -and -not $success -and $stateCommit) {
                         $terminalFailureNonzeroCommit++
                     }
                 }
@@ -232,7 +232,7 @@ function Get-PerformanceCrossCarrierLineage {
                     if ($isControlResult -and $kind -in @(
                             "map_initialized", "graph_mutation", "node_transition", "terminal_transition", "node_detail_expanded",
                             "node_bound", "node_blocked", "node_unblocked", "node_reworked",
-                            "complete_then_continue", "close_ready_finish", "complete_then_end"
+                            "complete_then_continue", "close_finish_with_no_active_work", "complete_active_work_then_end"
                         ) -and
                         -not ([bool](Get-PerformanceProperty $step "success" $true) -eq $false)) {
                         $identitySteps++

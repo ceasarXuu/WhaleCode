@@ -46,12 +46,12 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "03bc17bbf0d7436c6a4cae8398f16c1681133708f120656d318d4dd00e02630e",
+      "sha256": "233123fc7d419d8ce5b95314480bd9e0484f4d98a3749f70379626ca771e34b0",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "00e1056ffe9e39bed90eb2f7185ceadd63c5c9693da0b2acccb7123ebc9d166a",
+      "sha256": "9e6351f62385f443df3a969895dfe4fd7637859ae6f1821057950e54b156d5b1",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "7079d090c469c3f1974204d9197f348922c5e19401efa092e28f3849a65186c1",
+      "sha256": "dbbef2282d90813771cd8a612a23e4f99294cf611c949ee8b965e6d2c2406c66",
       "role": "FLA-3.5 minimal continuous-action contract, implementation boundary and verification result"
     }
   ],
@@ -108,7 +108,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "cddde1c815c53c37d30437b5b7a23a6d6be9f1f2653d86a2243da15089ad90a1",
+      "sha256": "1f45e18d84c9d0310519256f85eebb20d4ee56e1f7752d481b20d985cb43a66e",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -124,7 +124,7 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "75edfa34486c8a4254e2b11ac3241c2f15937656c45f4338e9dd8106c3772d33",
+      "sha256": "f441357ba61016c4b61f96e3f19fb334fa6881c20e7f5129b4f08c8a0d94b8dc",
       "tool_count": 1,
       "required_next_call": "removed",
       "taskspace_action": "required_on_ordinary_action_tools",
@@ -154,7 +154,7 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "eaefac39a97746a92ae7056fa854fb04e1e4d41eed650120ce07c83d21ccbce1",
+      "sha256": "0fb9afb467ce5fa56bce6be1d776f8886be7a92b05a18d65d69583f66e825756",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
@@ -230,10 +230,10 @@
     {
       "id": "FLA-3.5-terminal-action-contract-repair",
       "implementation_status": "active_verified",
-      "issue": "H-006",
+      "issue": "H-006/H-007",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
-      "selected_direction": "rename the specialized Ready-Finish closure and state the mutually exclusive complete_then_end decision in L2 and L4",
+      "selected_direction": "encode the mutually exclusive active-Work and Ready-Finish states in terminal action discriminators, require explicit no-active-Work and Ready-Finish declarations on the specialized closure, and align L2 without Runtime action selection",
       "runtime_disposition": "canonical state validation remains unchanged; Runtime does not choose or rewrite terminal actions"
     }
   ],
@@ -243,7 +243,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2.4 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v2.5 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",

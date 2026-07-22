@@ -153,14 +153,20 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
         Assert-True (-not $controlWireSource.Contains("Action::$variant")) "Standalone control still accepts transition variant: $variant"
     }
     Assert-True (-not $controlSource.Contains('required_next_call')) "Tool schema retains required_next_call"
-    Assert-True $controlSource.Contains('"close_ready_finish"') "Ready-Finish closure action is missing"
+    Assert-True $controlSource.Contains('"complete_active_work_then_end"') "Running-Work terminal action is missing"
+    Assert-True $controlSource.Contains('"close_finish_with_no_active_work"') "Ready-Finish closure action is missing"
     Assert-True (-not $controlSource.Contains('"finish_end"')) "Ambiguous finish_end action is still exposed"
-    Assert-True $controlSource.Contains('when the final Work node is Running, use complete_then_end instead') "Terminal action state distinction is missing from the Tool schema"
+    Assert-True (-not $controlSource.Contains('"complete_then_end"')) "Superseded complete_then_end action is still exposed"
+    Assert-True (-not $controlSource.Contains('"close_ready_finish"')) "Superseded close_ready_finish action is still exposed"
+    Assert-True $controlSource.Contains('"active_work_status"') "Ready-Finish closure omits the active Work state declaration"
+    Assert-True $controlSource.Contains('"finish_status"') "Ready-Finish closure omits the Finish state declaration"
+    Assert-True $controlSource.Contains('when the final Work node is Running, use complete_active_work_then_end instead') "Terminal action state distinction is missing from the Tool schema"
     Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING')) "Response preflight retains sibling enforcement"
     Assert-Equal (Get-Sha256 $productionL2Path) (Get-Sha256 $l2Path) "Production L2 bytes differ from authority artifact"
     $l2Source = [System.IO.File]::ReadAllText($productionL2Path)
-    Assert-True $l2Source.Contains('use `complete_then_end` when the final Work node is still Running') "L2 does not map Running final Work to complete_then_end"
-    Assert-True $l2Source.Contains('Use `close_ready_finish` only when the exact current TaskSpace state already shows no active Work node and Finish Ready') "L2 does not constrain close_ready_finish to its exact state"
+    Assert-True $l2Source.Contains('use `complete_active_work_then_end` when the final Work node is still Running') "L2 does not map Running final Work to complete_active_work_then_end"
+    Assert-True $l2Source.Contains('Use `close_finish_with_no_active_work` only when the exact current TaskSpace state already shows no active Work node and Finish Ready') "L2 does not constrain close_finish_with_no_active_work to its exact state"
+    Assert-True $l2Source.Contains('declare `active_work_status=none` and `finish_status=ready`') "L2 omits the Ready-Finish state declarations"
     $repair = @($authority.blocking_repairs | Where-Object id -eq "FLA-3.5-continuous-action-regression-repair")[0]
     Assert-Equal ([string]$repair.implementation_status) "active_verified" "FLA-3.5 authority is not active_verified"
     Assert-Equal @($repair.blocks).Count 0 "FLA-3.5 still blocks later phases"
@@ -232,7 +238,7 @@ if ((Test-PhaseEnabled "FLA-1") -or $Phase -eq "FLA-3.5-Scaffold") {
     $validCandidate | Add-Member -NotePropertyName activation_targets -NotePropertyValue ([pscustomobject]@{
             activation_through = "FLA-3.5"
             authority_contract_status = "production_active_through_fla3_5_with_terminal_contract_repair"
-            production_manifest_version = "1.0.9"
+            production_manifest_version = "1.0.10"
             promotion_commit_paths = @()
             blocking_repair = [pscustomobject]@{ id = "FLA-3.5-continuous-action-regression-repair"; implementation_status = "active_verified" }
             production_runtime_status = [pscustomobject]@{ L4 = "carrier_repair_active"; L5 = "carrier_result_repair_active_projection_baseline" }

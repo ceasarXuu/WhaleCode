@@ -6023,7 +6023,7 @@ mod tests {
                 graph_revision: MapRuntimeGraphRevisionCommittedEvent {
                     map_id: "map-1".to_string(),
                     revision: 4,
-                    operation: "close_ready_finish".to_string(),
+                    operation: "close_finish_with_no_active_work".to_string(),
                     event_ids: vec!["event-1".to_string()],
                     events: vec![json!({
                         "event_type": "terminal_committed",

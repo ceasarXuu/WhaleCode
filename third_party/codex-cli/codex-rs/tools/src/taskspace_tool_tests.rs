@@ -32,8 +32,8 @@ fn standalone_control_excludes_action_carrying_transitions() {
         "block_node",
         "unblock_node",
         "rework_node",
-        "complete_then_end",
-        "close_ready_finish",
+        "complete_active_work_then_end",
+        "close_finish_with_no_active_work",
         "expand_nodes",
         "read_map",
         "read_output_ref",
@@ -41,6 +41,52 @@ fn standalone_control_excludes_action_carrying_transitions() {
         assert!(actions.contains(&action.to_string()), "missing {action}");
     }
     assert!(!actions.contains(&"finish_end".to_string()));
+    assert!(!actions.contains(&"complete_then_end".to_string()));
+    assert!(!actions.contains(&"close_ready_finish".to_string()));
+}
+
+#[test]
+fn ready_finish_closure_requires_exact_state_declarations() {
+    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
+        panic!("taskspace_control must be a function tool");
+    };
+    let variants = tool.parameters.any_of.expect("control variants");
+    let closure = variants
+        .iter()
+        .find(|variant| {
+            variant.properties.as_ref().expect("properties")["action"]
+                .enum_values
+                .as_ref()
+                .expect("action enum")[0]
+                == json!("close_finish_with_no_active_work")
+        })
+        .expect("Ready Finish closure");
+
+    assert_eq!(
+        closure.required.as_ref().expect("required"),
+        &[
+            "action",
+            "expected_revision",
+            "active_work_status",
+            "finish_status",
+            "final_summary",
+        ]
+    );
+    let properties = closure.properties.as_ref().expect("properties");
+    assert_eq!(
+        properties["active_work_status"]
+            .enum_values
+            .as_ref()
+            .expect("active Work enum"),
+        &[json!("none")]
+    );
+    assert_eq!(
+        properties["finish_status"]
+            .enum_values
+            .as_ref()
+            .expect("Finish enum"),
+        &[json!("ready")]
+    );
 }
 
 #[test]
