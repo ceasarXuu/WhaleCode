@@ -21,6 +21,27 @@ fn action_names(spec: ToolSpec) -> Vec<String> {
 }
 
 #[test]
+fn provider_tool_matches_the_fla4_authority_artifact() {
+    let authority: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
+    ))
+    .expect("FLA-4 authority schema");
+    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
+        panic!("taskspace_control must be a function tool");
+    };
+    let actual = json!({
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        }
+    });
+
+    assert_eq!(actual, authority["provider_tool"]);
+}
+
+#[test]
 fn standalone_control_excludes_action_carrying_transitions() {
     let actions = action_names(create_taskspace_control_tool());
 

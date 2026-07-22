@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla3_5_with_terminal_contract_repair",
+  "contract_status": "production_active_through_fla4",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -46,7 +46,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "98bf354133718eab4a2a084fd663f19591509c3c9b5727aea8428c596ce51d1b",
+      "sha256": "e32f64d03013bcaa3edeb2524d5fb3df4a26b8732d9685f48d197105c69d40dc",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -121,10 +121,10 @@
     },
     {
       "layer": "L4",
-      "implementation_status": "active_repair_verified",
-      "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
+      "implementation_status": "active_verified",
+      "activation_phase": "FLA-4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "c66b93b5177c73c8d02d4f21bc00e5f68232816657dca33b192ddeff7f2178b0",
+      "sha256": "813e5a21a470525cfd11a5156a19149ce9aa8426845367b80d1a685ddd94c555",
       "tool_count": 1,
       "required_next_call": "removed",
       "taskspace_action": "required_on_ordinary_action_tools",

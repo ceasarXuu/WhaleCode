@@ -179,8 +179,8 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-Equal ([string]$repair.implementation_status) "active_verified" "FLA-3.5 authority is not active_verified"
     Assert-Equal @($repair.blocks).Count 0 "FLA-3.5 still blocks later phases"
     $carrierManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string]$carrierManifest.activation_through) "FLA-3.5" "Production manifest has not activated FLA-3.5"
-    Assert-Equal ([string](@($carrierManifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "carrier_repair_active" "L4 carrier is not active"
+    Assert-True (@("FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8") -contains [string]$carrierManifest.activation_through) "Production manifest regressed below FLA-3.5"
+    Assert-True (@("carrier_repair_active", "carrier_active_projection_baseline", "active") -contains [string](@($carrierManifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "L4 carrier is not active"
     Write-Output "FLA-3.5 action-carried lifecycle contracts passed."
 }
 
@@ -436,7 +436,7 @@ if (Test-PhaseEnabled "FLA-2") {
     Assert-True $traceSource.Contains("taskspace_core_protocol_identity") "Provider wire trace lacks L2 identity"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-True (@("FLA-2", "FLA-3", "FLA-3.5") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
+    Assert-True (@("FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L1")[0].runtime_status)) "active" "L1 is not active"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L2")[0].runtime_status)) "active" "L2 is not active"
     Write-Output "FLA-2 L1/L2 production contracts passed."
@@ -460,18 +460,14 @@ if (Test-PhaseEnabled "FLA-3") {
     Assert-True $protocolSource.Contains('taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>') "Session metadata does not persist the L3 identity"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-True (@("FLA-3", "FLA-3.5") -contains [string]$manifest.activation_through) "Production manifest has not activated FLA-3"
+    Assert-True (@("FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8") -contains [string]$manifest.activation_through) "Production manifest has not activated FLA-3"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L3")[0].runtime_status)) "active" "L3 is not active"
     Write-Output "FLA-3 advanced Skill lifecycle contracts passed."
 }
 
-if ($Phase -eq "FLA-4") {
-    throw "FLA-4 has not been implemented; use FLA-4-Repair-Baseline to inspect the active FLA-3.5 carrier baseline"
-}
-
-if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline") {
+if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline" -or $Phase -eq "FLA-4") {
     $l4Target = @($authority.selected_targets | Where-Object layer -eq "L4")[0]
-    Assert-Equal ([string]$l4Target.implementation_status) "active_repair_verified" "L4 repair activation status drifted"
+    Assert-Equal ([string]$l4Target.implementation_status) "active_verified" "L4 activation status drifted"
     $selectedSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l4Path | ConvertFrom-Json -Depth 50
     $selectedActions = @($selectedSchema.provider_tool.function.parameters.anyOf | ForEach-Object { [string]$_.properties.action.enum[0] })
     foreach ($action in @("block_node", "unblock_node", "rework_node")) {
@@ -494,8 +490,12 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline") {
     Assert-True $carrierTransitionSource.Contains("ContinueCurrent") "Carrier action parser omits continue_current"
     Assert-True $carrierTransitionSource.Contains("BindNode") "Carrier action parser omits bind_node"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "carrier_repair_active" "Production manifest does not expose the L4 carrier repair"
-    Write-Output "FLA-4 carrier repair baseline contracts passed; FLA-4 formalization remains pending."
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "carrier_active_projection_baseline" "Production manifest does not expose active L4"
+    $toolTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool_tests.rs"))
+    Assert-True $toolTests.Contains('provider_tool_matches_the_fla4_authority_artifact') "FLA-4 provider schema equality gate is missing"
+    $parserTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_tests.rs"))
+    Assert-True $parserTests.Contains('every_standalone_action_rejects_missing_extra_and_wrong_typed_fields') "FLA-4 exhaustive argument fixture gate is missing"
+    Write-Output "FLA-4 input schema contracts passed."
 }
 
 if ($Phase -eq "FLA-5") {

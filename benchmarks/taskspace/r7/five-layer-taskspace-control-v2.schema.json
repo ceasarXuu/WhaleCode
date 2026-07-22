@@ -1,8 +1,8 @@
 {
   "artifact_schema_version": 1,
   "contract_id": "r7-five-layer-taskspace-control-v2",
-  "status": "active_repair_verified",
-  "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
+  "status": "active_verified",
+  "activation_phase": "FLA-4",
   "baseline_tool_count": 1,
   "strict": false,
   "output_schema_sent_to_deepseek": false,

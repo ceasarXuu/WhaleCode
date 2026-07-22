@@ -2,7 +2,7 @@
 
 - Created: 2026-07-20
 - Version: 1.1
-- Status: Production active through FLA-3.5; FLA-4 is next
+- Status: Production active through FLA-4; FLA-5 is next
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -41,7 +41,7 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | L1 | TaskSpace Base v2.0.1；Map 段仅保留宏观模型，整份 Base 不携带 Tool wire 示例 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
 | L2 | `taskspace-core-v2.9` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
-| L4 | 普通动作 Tool 的必填 `taskspace_action` carrier；纯 Map/read/terminal 使用 `taskspace_control` | FLA-4 在该单一基线上正式化描述与 input schema | `active_repair_verified` |
+| L4 | 普通动作 Tool 的必填 `taskspace_action` carrier；纯 Map/read/terminal 使用 `taskspace_control` | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json) | `active_verified` |
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_repair_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | 维持 [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json)，补生命周期判定 | `selected_baseline` |
 
@@ -249,12 +249,11 @@ feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产�
 - 验证：Rust 定向回归、FLA-3.5 gate、CLI build 和 Docker paired smoke 已通过。
 - 激活语义：FLA-3.5 为 `active_verified`；L4/L5-result 维持 `active_repair_verified`，由 FLA-4/5 正式完成各层。
 
-FLA-3.5 已完成，FLA-4 可以开始。
+FLA-3.5 与 FLA-4 已完成，FLA-5 可以开始。
 
 ### FLA-4：激活 L4 input schema
 
-`FLA-4-Repair-Baseline` 只检查当前 repair baseline；名义 `FLA-4` 在 FLA-3.5 未完成时必须失败，不能用 baseline
-通过冒充阶段完成。
+`FLA-4-Repair-Baseline` 保留为 repair 历史检查；名义 `FLA-4` 是当前正式 gate。
 
 - 修改：`tools/src/taskspace_tool.rs`、`taskspace_tool_simple_actions.rs`、
   `core/src/tools/handlers/taskspace_control_args.rs`、`taskspace_control_args_wire.rs`。
@@ -264,8 +263,11 @@ FLA-3.5 已完成，FLA-4 可以开始。
 - 定向测试：每个 action 一组 valid fixture、每个 required/extra/type 失败 fixture；最终 provider schema 等于权威 schema；
   `apply_patch` 不可见时只发生指定 enum 机械变化；旧 action 全部拒绝。
 - 日志：schema profile/hash、action、parser branch、validation code、visible tool set。
-- smoke：两个开发样本三臂各 3 次，观察首次有效 control、错误参数、request 和 cache。
+- 行为矩阵：与其他五层改造统一推迟到 FLA-8 四臂首轮，避免重复消耗和历史基线混入。
 - 完成证据：生产 Tool 和 parser 只接受新 action；所有 schema branches 100% covered。
+
+FLA-4 已完成：生产 provider schema 与权威 artifact 精确相等；每个 standalone action 的合法、缺字段、额外字段和
+类型错误 fixture 均由 Rust gate 覆盖；旧 action 继续不可表达且无兼容 parser。
 
 ### FLA-5：激活 L5 result algebra
 

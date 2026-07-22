@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.15",
+  "manifest_version": "1.0.16",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -13,16 +13,15 @@
     "carrier_repair_active",
     "carrier_result_repair_active_projection_baseline"
   ],
-  "activation_through": "FLA-3.5",
+  "activation_through": "FLA-4",
   "repair_activation": [
     "L2",
-    "L4",
     "L5-result"
   ],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "50decefdbeeee6d00692033c0418b26338c9fb291583aaf70d887c54e60e5cd8"
+    "sha256": "38395fba33f5e32d45a97728f7c18a29bafa4df3e2d0ebb74ecc1c97161e1f29"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -79,12 +78,12 @@
       "id": "L4",
       "owner": "taskspace_tool",
       "carrier": "provider_tools",
-      "runtime_status": "carrier_repair_active",
+      "runtime_status": "carrier_active_projection_baseline",
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-          "sha256": "c66b93b5177c73c8d02d4f21bc00e5f68232816657dca33b192ddeff7f2178b0",
-          "activation_phase": "FLA-3.5 carrier and branch-free terminal action contract repairs; FLA-4 formalizes L4",
+          "sha256": "813e5a21a470525cfd11a5156a19149ce9aa8426845367b80d1a685ddd94c555",
+          "activation_phase": "FLA-4",
           "carrier_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
           "transition_parser": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"
         }
