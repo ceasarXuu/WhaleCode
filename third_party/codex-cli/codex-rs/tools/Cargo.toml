@@ -7,20 +7,10 @@ version.workspace = true
 [lints]
 workspace = true
 
-[features]
-r7-toolchain = ["dep:codex-api", "dep:codex-models-manager"]
-
-[[bin]]
-name = "r7_carrier_entry_closure"
-path = "src/bin/r7_carrier_entry_closure.rs"
-required-features = ["r7-toolchain"]
-
 [dependencies]
-codex-api = { workspace = true, optional = true }
 codex-app-server-protocol = { workspace = true }
 codex-code-mode = { workspace = true }
 codex-features = { workspace = true }
-codex-models-manager = { workspace = true, optional = true }
 codex-protocol = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
 codex-utils-pty = { workspace = true }
@@ -32,10 +22,7 @@ rmcp = { workspace = true, default-features = false, features = [
 ] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
-syn = { version = "2", features = ["full", "visit"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
-tempfile = { workspace = true }

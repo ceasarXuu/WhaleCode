@@ -3427,11 +3427,9 @@ dependencies = [
 name = "codex-tools"
 version = "0.1.0"
 dependencies = [
- "codex-api",
  "codex-app-server-protocol",
  "codex-code-mode",
  "codex-features",
- "codex-models-manager",
  "codex-protocol",
  "codex-utils-absolute-path",
  "codex-utils-pty",
@@ -3439,9 +3437,6 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "sha2",
- "syn 2.0.114",
- "tempfile",
  "tracing",
 ]
 

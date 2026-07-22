@@ -396,19 +396,6 @@
       "r7_owner": "five_layer_phase_gate",
       "reason": "validate selected layer identities and statuses; projection marker strings are assertions over the shared contract, not policy implementation",
       "covered_paths": []
-    },
-    {
-      "id": "continuous_action_v2_activation_contracts",
-      "domain": "tests",
-      "path": "scripts/taskspace-benchmark/test-r7-continuous-action-toolchain.ps1",
-      "classification": "retain_shared",
-      "target_phase": "FLA-3.5",
-      "r7_owner": "continuous_action_candidate_activation_gate",
-      "reason": "validate candidate-only activation status values without creating another projection policy or runtime",
-      "covered_paths": [
-        "scripts/taskspace-benchmark/new-r7-continuous-action-candidate.ps1",
-        "scripts/taskspace-benchmark/r7-v2-promotion.ps1"
-      ]
     }
   ]
 }
