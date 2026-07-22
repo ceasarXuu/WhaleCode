@@ -505,12 +505,16 @@ fn taskspace_wire_contract_identity(
         };
     }
 
-    let single_handle = handles.len() == 1;
-    let map_handle_message_index = single_handle.then_some(handles[0].0);
-    let map_handle_wire_role = single_handle.then(|| handles[0].1.to_string());
-    let map_handle_is_request_tail = single_handle && handles[0].0 + 1 == messages.len();
+    let single_handle = match handles.as_slice() {
+        [(message_index, role)] => Some((*message_index, *role)),
+        _ => None,
+    };
+    let map_handle_message_index = single_handle.map(|(message_index, _)| message_index);
+    let map_handle_wire_role = single_handle.map(|(_, role)| role.to_string());
+    let map_handle_is_request_tail =
+        single_handle.is_some_and(|(message_index, _)| message_index + 1 == messages.len());
     let handle_shape_valid = handles.is_empty()
-        || (single_handle && handles[0].1 == "user" && map_handle_is_request_tail);
+        || single_handle.is_some_and(|(_, role)| role == "user" && map_handle_is_request_tail);
     let matches_current_contract = system_message_count == 2 && handle_shape_valid;
     TaskspaceWireContractIdentity {
         system_message_count,
@@ -888,6 +892,26 @@ mod tests {
             manifest_identity.unavailable_reason,
             Some("taskspace_wire_shape_invalid")
         );
+    }
+
+    #[test]
+    fn taskspace_wire_contract_accepts_no_handle_for_projection_policies() {
+        let messages = vec![
+            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            message("system", TASKSPACE_CORE_PROTOCOL),
+            message("user", "task"),
+        ];
+        let base_identity = base_instructions_identity(&messages);
+
+        let identity = taskspace_wire_contract_identity(&messages, &base_identity);
+
+        assert_eq!(identity.system_message_count, 2);
+        assert_eq!(identity.map_handle_count, 0);
+        assert_eq!(identity.map_handle_message_index, None);
+        assert_eq!(identity.map_handle_wire_role, None);
+        assert!(!identity.map_handle_is_request_tail);
+        assert!(identity.matches_current_contract);
+        assert_eq!(identity.unavailable_reason, None);
     }
 
     #[test]

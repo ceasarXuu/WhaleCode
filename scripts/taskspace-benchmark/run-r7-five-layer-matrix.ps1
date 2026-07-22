@@ -65,7 +65,7 @@ $armOrders = if ($Stage -eq "initial") { @($stageContract.arm_order) } else { @(
 $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
 $runId = Get-Date -Format "yyyyMMdd-HHmmss-fff"
 if ([string]::IsNullOrWhiteSpace($RunRoot)) {
-    $RunRoot = Join-Path $repoRoot "artifacts/taskspace/r7/five-layer/$($contract.contract_id)/$commit/$runId"
+    $RunRoot = Join-Path $repoRoot "target/r7-five-layer-matrix/$($contract.contract_id)/$commit/$runId"
 } elseif (-not [IO.Path]::IsPathRooted($RunRoot)) {
     $RunRoot = Join-Path $repoRoot $RunRoot
 }
@@ -74,7 +74,7 @@ if ([string]::IsNullOrWhiteSpace($ExecutionRoot)) {
     $ExecutionRoot = if ($PlanOnly) {
         Join-Path $RunRoot "_execution-plan"
     } else {
-        Join-Path $repoRoot "artifacts/r7-five-layer-eval-data/$commit/$runId"
+        Join-Path $repoRoot "target/r7-five-layer-eval-data/$commit/$runId"
     }
 } elseif (-not [IO.Path]::IsPathRooted($ExecutionRoot)) {
     $ExecutionRoot = Join-Path $repoRoot $ExecutionRoot

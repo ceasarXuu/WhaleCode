@@ -36,12 +36,12 @@ function Assert-CandidateActivationTargets {
     Assert-Equal ([string]$projection[0].sha256) ([string]$baselineProjection[0].sha256) "Candidate retained projection hash drifted from active authority"
     Assert-Equal ([string]$projection[0].activation_phase) ([string]$baselineProjection[0].activation_phase) "Candidate retained projection phase drifted from active authority"
     Assert-Equal ([string]$projection[0].authority_layer) "L5-projection" "Candidate retained projection authority layer drifted"
-    Assert-Equal ([string]$projection[0].implementation_status) ([string]$baselineProjection[0].implementation_status) "Candidate retained projection status drifted from active authority"
+    Assert-Equal ([string]$projection[0].implementation_status) "selected_baseline" "Historical FLA-3.5 candidate projection status drifted"
     Assert-Equal ([string]$lifecycle[0].path) ([string]$baselineLifecycle[0].artifact) "Candidate retained lifecycle path drifted from active authority"
     Assert-Equal ([string]$lifecycle[0].sha256) ([string]$baselineLifecycle[0].sha256) "Candidate retained lifecycle hash drifted from active authority"
     Assert-Equal ([string]$lifecycle[0].activation_phase) ([string]$baselineLifecycle[0].activation_phase) "Candidate retained lifecycle phase drifted from active authority"
     Assert-Equal ([string]$lifecycle[0].authority_layer) "L5-lifecycle" "Candidate retained lifecycle authority layer drifted"
-    Assert-Equal ([string]$lifecycle[0].implementation_status) ([string]$baselineLifecycle[0].implementation_status) "Candidate retained lifecycle status drifted from active authority"
+    Assert-Equal ([string]$lifecycle[0].implementation_status) "selected_not_implemented" "Historical FLA-3.5 candidate lifecycle status drifted"
 }
 
 function Assert-CandidateArtifactSchemaContract {
