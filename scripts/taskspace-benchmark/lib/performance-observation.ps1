@@ -176,6 +176,12 @@ function Get-PerformanceMapFacts {
         protected_miss_count = Get-PerformanceNumber (Get-PerformanceProperty $managed "protected_miss_count")
         compaction_event_count = Get-PerformanceNumber (Get-PerformanceProperty $managed "compaction_event_count")
         control_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_control_count")
+        carrier_action_count = Get-PerformanceNumber (Get-PerformanceProperty $control "carrier_action_count")
+        carrier_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "carrier_failure_count")
+        carrier_state_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "carrier_state_failure_count")
+        carrier_protocol_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "carrier_protocol_failure_count")
+        carrier_argument_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "carrier_argument_failure_count")
+        carrier_resource_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "carrier_resource_failure_count")
         control_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_failure_count")
         control_preflight_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_preflight_failure_count")
         control_handler_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_handler_failure_count")
@@ -197,6 +203,7 @@ function Get-PerformanceMapFacts {
         read_map_revision_lag_max = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_revision_lag_max")
         read_map_stale_revision_error_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_stale_revision_error_count")
         control_actions = Get-PerformanceProperty $control "action_counts" ([pscustomobject]@{})
+        carrier_actions = Get-PerformanceProperty $control "carrier_action_counts" ([pscustomobject]@{})
         runtime_event_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_runtime_event_count")
         snapshot_update_count = Get-PerformanceNumber (Get-PerformanceProperty (Get-PerformanceProperty $control "runtime_event_counts") "snapshot_updated")
         nodes = $nodes
@@ -258,6 +265,12 @@ function Get-PerformanceSideObservation {
             provider_outer_tool_calls = $actions.provider_outer_tool_calls
             nested_actions = $actions.nested_action_count
             shell = $actions.shell; patch = $actions.patch; taskspace_control = $map.control_count
+            carrier_actions = $map.carrier_action_count
+            carrier_failures = $map.carrier_failure_count
+            carrier_state_failures = $map.carrier_state_failure_count
+            carrier_protocol_failures = $map.carrier_protocol_failure_count
+            carrier_argument_failures = $map.carrier_argument_failure_count
+            carrier_resource_failures = $map.carrier_resource_failure_count
             control_failures = $map.control_failure_count
             control_preflight_failures = $map.control_preflight_failure_count
             control_handler_failures = $map.control_handler_failure_count
@@ -330,7 +343,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_carrier_responses", "direct_tool_mixed_responses", "multi_control_carrier_responses", "initialize_continuations", "mutation_continuations", "bind_continuations", "complete_handoffs", "complete_handoff_continuations", "finish_maps", "finish_map_last_running_work", "finish_map_ready_finish", "standalone_completes", "state_only_controls", "nonterminal_transitions_without_follow_up", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors", "continuation_declarations", "continuation_satisfied", "continuation_violations")) {
+    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "carrier_actions", "carrier_failures", "carrier_state_failures", "carrier_protocol_failures", "carrier_argument_failures", "carrier_resource_failures", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_carrier_responses", "direct_tool_mixed_responses", "multi_control_carrier_responses", "initialize_continuations", "mutation_continuations", "bind_continuations", "complete_handoffs", "complete_handoff_continuations", "finish_maps", "finish_map_last_running_work", "finish_map_ready_finish", "standalone_completes", "state_only_controls", "nonterminal_transitions_without_follow_up", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors", "continuation_declarations", "continuation_satisfied", "continuation_violations")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.actions.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }

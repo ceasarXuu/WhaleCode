@@ -204,7 +204,6 @@
             "code": {
               "enum": [
                 "TASKSPACE_INVALID_ARGUMENT",
-                "TASKSPACE_REQUIRED_SIBLING_MISSING",
                 "TASKSPACE_PROTOCOL_FAILURE",
                 "TASKSPACE_STALE_REVISION",
                 "TASKSPACE_GRAPH_INVARIANT",

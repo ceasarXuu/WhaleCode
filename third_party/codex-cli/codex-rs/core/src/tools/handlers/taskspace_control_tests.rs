@@ -116,6 +116,31 @@ fn rejected_output_cannot_report_partial_commit() {
         control_commit_observation(&output),
         Some((false, None, 0, 0))
     );
+    assert_v2_envelope(&value);
+}
+
+#[test]
+fn read_output_uses_the_same_complete_v2_envelope() {
+    let output = format_read_result(
+        "read_map",
+        Some(7),
+        serde_json::json!({
+            "kind": "map_projection",
+            "map_id": "map-1",
+            "revision": 7,
+            "canonical_sha256": "sha256",
+            "content": "projection",
+        }),
+    );
+    let value: JsonValue = serde_json::from_str(&output).expect("typed read result");
+
+    assert_eq!(value["status"], "read_ok");
+    assert_eq!(value["success"], true);
+    assert_eq!(value["state_commit"], false);
+    assert!(value["committed_revision"].is_null());
+    assert!(value["delta"].is_null());
+    assert!(value["error"].is_null());
+    assert_v2_envelope(&value);
 }
 
 #[test]
@@ -276,5 +301,6 @@ fn assert_v2_envelope(value: &JsonValue) {
     ] {
         assert!(value.get(field).is_some(), "V2 result omits {field}");
     }
+    assert_eq!(value.as_object().expect("V2 object").len(), 13);
     assert_eq!(value["partial_commit"], false);
 }

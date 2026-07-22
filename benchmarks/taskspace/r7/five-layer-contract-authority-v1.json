@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla4",
+  "contract_status": "production_active_through_fla5",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -46,7 +46,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "e32f64d03013bcaa3edeb2524d5fb3df4a26b8732d9685f48d197105c69d40dc",
+      "sha256": "b82efab8368c0f913c4b3558fabd0bfaf55be63449577cd31c4b60ce54d13ee6",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -151,10 +151,10 @@
     },
     {
       "layer": "L5-result",
-      "implementation_status": "active_repair_verified",
-      "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result",
+      "implementation_status": "active_verified",
+      "activation_phase": "FLA-5",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "20f3853a7b72ac2b9cc67868bfca37d171648f0651e0fca4b44eaa3685c464c4",
+      "sha256": "361a5838269ab56b604f527ff4f1f73799908c329c271e017a9545c26273b4d3",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [

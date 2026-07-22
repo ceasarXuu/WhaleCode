@@ -799,6 +799,7 @@ $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"read_map\"}","call_id":"native-read-map-2"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}","call_id":"ordinary-gate-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"{\"input\":\"*** Begin Patch\",\"taskspace_action\":{\"action\":\"complete_then_continue\",\"expected_revision\":5,\"current_node_id\":\"implement\",\"next_node_id\":\"verify\"}}","call_id":"carrier-state-failure-1"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"bind_node\",\"success\":false,\"status\":\"protocol_failed\",\"state_commit\":false,\"error\":{\"class\":\"protocol\",\"code\":\"TASKSPACE_REQUIRED_SIBLING_MISSING\",\"message\":\"missing\"}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"mutate_graph\",\"success\":false,\"status\":\"state_machine_failed\",\"state_commit\":false,\"error\":{\"class\":\"state_machine\",\"code\":\"TASKSPACE_GRAPH_INVARIANT\",\"message\":\"invalid\"}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-3","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_map\",\"success\":false,\"status\":\"argument_failed\",\"state_commit\":false,\"error\":{\"class\":\"argument\",\"code\":\"TASKSPACE_INVALID_ARGUMENT\",\"message\":\"invalid\"}}"}}',
@@ -806,6 +807,7 @@ $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
     '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"graph_revision_committed","mapId":"map-1","revision":4}}',
     '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"graph_revision_committed","mapId":"map-1","revision":5}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"ordinary-gate-1","output":"{\"schema_version\":\"TaskSpaceGateResultV1\",\"success\":false,\"status\":\"state_machine_failed\",\"error\":{\"class\":\"state_machine\",\"code\":\"no_task_path\",\"message\":\"no path\"}}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"carrier-state-failure-1","output":"{\"schema_version\":\"TaskSpaceCarrierResultV2\",\"action_result\":{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"complete_then_continue\",\"success\":false,\"status\":\"state_machine_failed\",\"state_commit\":false,\"error\":{\"class\":\"state_machine\",\"code\":\"TASKSPACE_LIFECYCLE_INVARIANT\",\"message\":\"invalid lifecycle\"}},\"tool_dispatched\":false}\npatch skipped"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-read-map-1","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"read_map\",\"success\":true,\"status\":\"read_ok\",\"state_commit\":false,\"read\":{\"kind\":\"map_projection\",\"revision\":5,\"content\":\"TaskSpaceMapProjectionR7V1:\\n- revision: 5\\nTaskSpaceMapProjectionR7V1 end.\"}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-read-map-2","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"read_map\",\"success\":true,\"status\":\"read_ok\",\"state_commit\":false,\"read\":{\"kind\":\"map_projection\",\"revision\":5,\"content\":\"TaskSpaceMapProjectionR7V1:\\n- revision: 5\\nTaskSpaceMapProjectionR7V1 end.\"}}"}}'
 ) | Set-Content -LiteralPath (Join-Path $rolloutControlDir "rollout.jsonl") -Encoding UTF8
@@ -817,15 +819,19 @@ Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.mutate_graph -eq 1) "graph mutation was not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.initialize_map -eq 2) "map initialization attempts were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.read_map -eq 2) "explicit map reads were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_failure_count -eq 3) "rollout control failures were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.carrier_action_count -eq 1) "action carriers were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.carrier_action_counts.complete_then_continue -eq 1) "carrier action identity was not retained"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.carrier_failure_count -eq 1) "carrier lifecycle failure was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.carrier_state_failure_count -eq 1) "carrier state failure was not classified"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_failure_count -eq 4) "rollout control failures were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_protocol_failure_count -eq 1) "protocol control failures were not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_preflight_failure_count -eq 1) "control preflight failures were not separated"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_handler_failure_count -eq 2) "control handler failures were not separated"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_state_failure_count -eq 1) "state control failure was not classified"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_handler_failure_count -eq 3) "control handler failures were not separated"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_state_failure_count -eq 2) "state control failure was not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_argument_failure_count -eq 1) "argument control failure was not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.nested_action_failure_count -eq 0) "removed nested action contract reappeared"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.ordinary_gate_failure_count -eq 1) "ordinary-tool gate failure was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_boundary_failure_count -eq 4) "TaskSpace boundary failures do not reconcile"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_boundary_failure_count -eq 5) "TaskSpace boundary failures do not reconcile"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.committed_control_count -eq 1) "committed controls were not counted from V2 state_commit"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.state_commit_count -eq 1) "state_commit_count does not reflect committed V2 controls"
 Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.state_commit_count_source -eq "control_result_state_commit") "state commit source is ambiguous"

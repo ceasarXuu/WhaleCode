@@ -668,6 +668,12 @@ function Get-TaskspaceBenchmarkMetrics {
         taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_control_count
         native_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.native_taskspace_control_count
         action_contract_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count
+        carrier_action_count = [int]$costInstrumentation.taskspace_control_usage.carrier_action_count
+        carrier_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_failure_count
+        carrier_state_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_state_failure_count
+        carrier_protocol_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_protocol_failure_count
+        carrier_argument_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_argument_failure_count
+        carrier_resource_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_resource_failure_count
         control_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_failure_count
         control_preflight_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_preflight_failure_count
         control_handler_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_handler_failure_count

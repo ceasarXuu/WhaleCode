@@ -498,13 +498,9 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline" -or $Phase -eq "FLA-
     Write-Output "FLA-4 input schema contracts passed."
 }
 
-if ($Phase -eq "FLA-5") {
-    throw "FLA-5 is blocked until FLA-4 completion and its own executable conformance evidence are active; use FLA-5-Repair-Baseline only to inspect the current baseline"
-}
-
-if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline") {
+if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline" -or $Phase -eq "FLA-5") {
     $l5Target = @($authority.selected_targets | Where-Object layer -eq "L5-result")[0]
-    Assert-Equal ([string]$l5Target.implementation_status) "active_repair_verified" "L5 result repair activation status drifted"
+    Assert-Equal ([string]$l5Target.implementation_status) "active_verified" "L5 result activation status drifted"
     $resultSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l5ResultPath | ConvertFrom-Json -Depth 50
     Assert-Equal ([string]$resultSchema.properties.schema_version.const) "TaskSpaceControlResultV2" "Selected result schema version drifted"
     Assert-Equal ([bool]$resultSchema.properties.partial_commit.const) $false "partial_commit must remain false"
@@ -516,8 +512,15 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline") {
     Assert-True $outputSource.Contains('"partial_commit": false') "Production result formatter does not emit boolean partial_commit=false"
     Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING')) "Control preflight retains the removed sibling error"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "carrier_result_repair_active_projection_baseline" "Production manifest does not expose the carrier-aware L5 result repair"
-    Write-Output "FLA-5 result repair baseline contracts passed; FLA-5 completion remains blocked."
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "carrier_active_projection_baseline" "Production manifest does not expose active L5 result"
+    Assert-True (-not $resultSchema.properties.error.oneOf[1].properties.code.enum.Contains("TASKSPACE_REQUIRED_SIBLING_MISSING")) "L5 result schema retains removed sibling failure"
+    $carrierTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier_tests.rs"))
+    Assert-True $carrierTests.Contains('committed_transition_is_prepended_without_rewriting_tool_text') "FLA-5 committed carrier conformance test is missing"
+    Assert-True $carrierTests.Contains('transition_rejection_records_that_tool_was_not_dispatched') "FLA-5 rejected carrier conformance test is missing"
+    $costSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1"))
+    Assert-True $costSource.Contains('Get-TaskspaceCarrierResultFromOutput') "FLA-5 observer does not parse carrier results"
+    Assert-True $costSource.Contains('carrier_state_failure_count') "FLA-5 observer does not classify carrier state failures"
+    Write-Output "FLA-5 result and carrier observation contracts passed."
 }
 
 Write-Output "R7 five-layer contract validation passed for $Phase."

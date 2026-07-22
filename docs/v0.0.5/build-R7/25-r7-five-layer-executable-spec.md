@@ -2,7 +2,7 @@
 
 - Created: 2026-07-20
 - Version: 1.1
-- Status: Production active through FLA-4; FLA-5 is next
+- Status: Production active through FLA-5; FLA-6 experiments remain disabled and FLA-7 is next
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -42,7 +42,7 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | L2 | `taskspace-core-v2.9` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
 | L4 | 普通动作 Tool 的必填 `taskspace_action` carrier；纯 Map/read/terminal 使用 `taskspace_control` | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json) | `active_verified` |
-| L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_repair_verified` |
+| L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | 维持 [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json)，补生命周期判定 | `selected_baseline` |
 
 主线明确选择：普通动作由必填 `taskspace_action` 明确声明继续当前绑定或承载生命周期交接；纯 Map/read/terminal action
@@ -271,7 +271,7 @@ FLA-4 已完成：生产 provider schema 与权威 artifact 精确相等；每�
 
 ### FLA-5：激活 L5 result algebra
 
-`FLA-5-Repair-Baseline` 只检查当前 result repair baseline；名义 `FLA-5` 在 FLA-4 未完成时必须失败。
+`FLA-5-Repair-Baseline` 保留为 result repair 历史检查；名义 `FLA-5` 是当前正式 gate。
 
 - 修改：`taskspace_control_output.rs`、`sequence_preflight.rs`、`sequence.rs`、control handler/read path。
 - 当前修复基线已统一产生 `TaskSpaceControlResultV2`、错误码和布尔 `partial_commit=false`；FLA-3.5 拥有
@@ -281,8 +281,11 @@ FLA-4 已完成：生产 provider schema 与权威 artifact 精确相等；每�
 - 定向测试：结果 schema 每个 `oneOf` 分支 golden；LC-01 至 LC-05；当前双 call 与目标单 carrier 都保持两个
   独立事实；Agent 可见 transition fact 合规且 opaque Tool 子载体可逆等价。
 - 日志：第 3.4 节 envelope 字段和 oracle 要求字段，禁止只写人类摘要。
-- smoke：两个开发样本三臂各 3 次，错误调用仍计行为失败。
+- 行为矩阵：与其他五层改造统一推迟到 FLA-8 四臂首轮，错误调用仍计行为失败。
 - 完成证据：生产所有 control/read 路径 100% 通过 V2 schema，R6V1 搜索结果为零。
+
+FLA-5 已完成：commit/read/failure 使用同一完整 V2 envelope；carrier 内嵌的 lifecycle result 已进入 benchmark
+control taxonomy，并单独暴露 carrier action/failure 分类；观察层不再漏掉普通 Tool carrier 的状态机失败。
 
 ### FLA-6：三个独立实验
 
