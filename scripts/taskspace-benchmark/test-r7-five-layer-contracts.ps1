@@ -162,6 +162,9 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-True (-not $controlSource.Contains('"close_ready_finish"')) "Superseded close_ready_finish action is still exposed"
     Assert-True $controlSource.Contains('"terminal_state"') "Unified closure omits the terminal state declaration"
     Assert-True $controlSource.Contains('"terminal_node_id"') "Unified closure omits the terminal node identity"
+    Assert-True $controlSource.Contains('"incomplete_work_node_ids"') "Unified closure omits the exact incomplete Work set"
+    Assert-True $controlSource.Contains('"finish_node_id"') "Unified closure omits the Finish identity"
+    Assert-True $controlSource.Contains('"finish_status"') "Unified closure omits the Finish status"
     Assert-True $controlSource.Contains('last_running_work atomically completes terminal_node_id') "Last-Work behavior is missing from the Tool schema"
     Assert-True $controlSource.Contains('no_active_work_ready_finish closes the named Ready Finish') "Ready-Finish behavior is missing from the Tool schema"
     Assert-True (-not $controlSource.Contains('"complete_last_running_work_then_end"')) "Superseded last-Work terminal action is still exposed"
@@ -170,8 +173,10 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-Equal (Get-Sha256 $productionL2Path) (Get-Sha256 $l2Path) "Production L2 bytes differ from authority artifact"
     $l2Source = [System.IO.File]::ReadAllText($productionL2Path)
     Assert-True $l2Source.Contains('close the Map with one `finish_map` call') "L2 does not use one terminal action"
-    Assert-True $l2Source.Contains('Choose `terminal_state=last_running_work`') "L2 omits the last-Work terminal state"
-    Assert-True $l2Source.Contains('Choose `terminal_state=no_active_work_ready_finish`') "L2 omits the Ready-Finish terminal state"
+    Assert-True $l2Source.Contains('For `terminal_state=last_running_work`') "L2 omits the last-Work terminal state"
+    Assert-True $l2Source.Contains('set `incomplete_work_node_ids` to exactly `[terminal_node_id]`') "L2 omits the last-Work exact snapshot"
+    Assert-True $l2Source.Contains('For `terminal_state=no_active_work_ready_finish`') "L2 omits the Ready-Finish terminal state"
+    Assert-True $l2Source.Contains('set `incomplete_work_node_ids=[]`') "L2 omits the Ready-Finish exact snapshot"
     $repair = @($authority.blocking_repairs | Where-Object id -eq "FLA-3.5-continuous-action-regression-repair")[0]
     Assert-Equal ([string]$repair.implementation_status) "active_verified" "FLA-3.5 authority is not active_verified"
     Assert-Equal @($repair.blocks).Count 0 "FLA-3.5 still blocks later phases"

@@ -193,7 +193,9 @@ async fn execute_action(
             expected_revision,
             terminal_state,
             terminal_node_id,
+            finish_node_id,
             final_summary,
+            ..
         } => match terminal_state {
             TaskSpaceTerminalState::LastRunningWork => {
                 lifecycle_actions::finish_map_from_last_running_work(
@@ -202,6 +204,7 @@ async fn execute_action(
                     call_id,
                     expected_revision,
                     terminal_node_id,
+                    finish_node_id,
                     final_summary,
                 )
                 .await
@@ -212,6 +215,7 @@ async fn execute_action(
                     turn,
                     expected_revision,
                     terminal_node_id,
+                    finish_node_id,
                     final_summary,
                 )
                 .await

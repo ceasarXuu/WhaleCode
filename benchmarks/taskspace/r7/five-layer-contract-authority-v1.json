@@ -46,12 +46,12 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "595f4cf2f8f8c636a51496731fba2883e97fce782bb2bc31189b73a55d5abb55",
+      "sha256": "0f4d7e186dbb8164dd94066742b3d2e7ce83de7c0ba8229f2fd6dc73a50f87d0",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "76ed49c658a39ffb5fb30845b814614ba77453087222271ba4e510a0dc11a16b",
+      "sha256": "957bf54b91287b8aca8ed82813eb3070180d56d7ff6688951338f7458aa0b54e",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
@@ -61,7 +61,7 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "0ff7ee11495f2f69f71b3a593d55adf0895420aa21e984c106d19d2783d781e6",
+      "sha256": "7bffc48692296f6ae3156fe3c8a8d6e3eed13c5c55481817b9be42b915a59830",
       "role": "FLA-3.5 minimal continuous-action contract, implementation boundary and verification result"
     }
   ],
@@ -108,7 +108,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "316fb3f4bef12f3d78a7c2d75c0f2e81daea2500ce3d70d280caf97acc8d4c90",
+      "sha256": "733622424cc520a6403f36af3df6f6430d50eef796d23b1793dabd8e462bfa60",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -124,7 +124,7 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "51cf670b7fe2efa26ef7a99586c822fb51063c5ea809b4596612037215846c71",
+      "sha256": "0031420e5bcb3237e39afccf460b1a77c750ff103f196e4ca582b940e5b521d0",
       "tool_count": 1,
       "required_next_call": "removed",
       "taskspace_action": "required_on_ordinary_action_tools",
@@ -154,7 +154,7 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "3e9e25e79f35f1892a957dddff510a1b7868792f9ccfb730f101442410a88a02",
+      "sha256": "ce1de3daf15799157f00b6922bfe82432d4f0e8ed557c193e7d881245e3a8f06",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
@@ -230,11 +230,11 @@
     {
       "id": "FLA-3.5-terminal-action-contract-repair",
       "implementation_status": "active_verified",
-      "issue": "H-006/H-007/H-008/H-009",
+      "issue": "H-006/H-007/H-008/H-009/H-010",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
-      "selected_direction": "expose one finish_map action with a uniform terminal_state and terminal_node_id contract for both terminal states, remove both competing action entries, and align L2 without Runtime state selection",
-      "runtime_disposition": "Runtime mechanically dispatches the Agent-submitted terminal_state and validates revision, node identity, and canonical state; it does not choose or rewrite the state"
+      "selected_direction": "expose one finish_map action with a uniform exact terminal lifecycle snapshot for both terminal states, remove both competing action entries, and align L2 without Runtime state selection",
+      "runtime_disposition": "the parser validates snapshot self-consistency; Runtime mechanically dispatches the Agent-submitted terminal_state and validates revision, Finish identity, and canonical state without choosing or rewriting the state"
     }
   ],
   "obsolete_after_activation": [
@@ -243,7 +243,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2.7 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v2.8 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",

@@ -183,7 +183,7 @@
             "additionalProperties": false
           },
           {
-            "description": "Close the Map from one explicitly declared terminal lifecycle state. last_running_work atomically completes terminal_node_id, Finish, and Root. no_active_work_ready_finish closes the named Ready Finish and Root without completing a Work node. The Runtime validates the declared node and exact canonical state; it never selects the state.",
+            "description": "Close the Map from one explicitly declared terminal lifecycle snapshot. last_running_work atomically completes terminal_node_id, Finish, and Root when incomplete_work_node_ids contains only that Work and Finish is Pending. no_active_work_ready_finish closes the named Ready Finish and Root when incomplete_work_node_ids is empty. The Runtime validates the submitted revision, identities, and exact canonical state; it never selects the state.",
             "type": "object",
             "properties": {
               "action": {
@@ -208,6 +208,25 @@
                 "description": "The last Running Work node for last_running_work, or the unique Ready Finish node for no_active_work_ready_finish.",
                 "type": "string"
               },
+              "incomplete_work_node_ids": {
+                "description": "Exact incomplete Work node IDs before closure. Use exactly [terminal_node_id] for last_running_work and [] for no_active_work_ready_finish.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "finish_node_id": {
+                "description": "The unique Finish node identifier.",
+                "type": "string"
+              },
+              "finish_status": {
+                "description": "Use pending with last_running_work and ready with no_active_work_ready_finish.",
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "ready"
+                ]
+              },
               "final_summary": {
                 "type": "string"
               }
@@ -217,6 +236,9 @@
               "expected_revision",
               "terminal_state",
               "terminal_node_id",
+              "incomplete_work_node_ids",
+              "finish_node_id",
+              "finish_status",
               "final_summary"
             ],
             "additionalProperties": false

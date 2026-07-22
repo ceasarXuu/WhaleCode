@@ -263,11 +263,28 @@ fn complete_last_running_work_then_end_closes_last_work_root_and_finish_in_one_r
     );
     let summary = "Implemented and verified.".to_string();
 
+    let before = state.snapshot();
+    let wrong_finish = state
+        .complete_last_running_work_then_end_for_main(
+            owner,
+            2,
+            "work".into(),
+            "work".into(),
+            summary.clone(),
+            "task-event-wrong-finish".into(),
+        )
+        .expect_err("the submitted Finish identity must match the canonical Map");
+    let wrong_finish: serde_json::Value =
+        serde_json::from_str(&wrong_finish).expect("typed Finish identity rejection");
+    assert_eq!(wrong_finish["violations"][0]["code"], "finish_id_mismatch");
+    assert_eq!(state.snapshot(), before);
+
     let (outcome, events) = state
         .complete_last_running_work_then_end_for_main(
             owner,
             2,
             "work".into(),
+            "finish".into(),
             summary.clone(),
             "task-event-terminal".into(),
         )
@@ -326,6 +343,7 @@ fn rejected_complete_last_running_work_then_end_reports_live_revision_and_preser
             owner,
             2,
             "first".into(),
+            "finish".into(),
             "Too early".into(),
             "task-event-premature-terminal".into(),
         )

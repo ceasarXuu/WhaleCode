@@ -149,6 +149,7 @@ fn terminal_crash_window_with_atomic_completion(
                 owner,
                 2,
                 "work".into(),
+                "finish".into(),
                 "terminal summary".into(),
                 "complete-event".into(),
             )

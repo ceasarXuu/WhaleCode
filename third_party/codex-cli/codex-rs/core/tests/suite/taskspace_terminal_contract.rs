@@ -67,6 +67,9 @@ fn finish_arguments() -> String {
         "expected_revision": 3,
         "terminal_state": "last_running_work",
         "terminal_node_id": "verify",
+        "incomplete_work_node_ids": ["verify"],
+        "finish_node_id": "finish",
+        "finish_status": "pending",
         "final_summary": FINAL_SUMMARY
     })
     .to_string()

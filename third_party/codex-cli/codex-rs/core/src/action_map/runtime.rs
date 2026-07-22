@@ -3805,6 +3805,7 @@ impl ActionMapRuntimeState {
         owner_session_id: ThreadId,
         expected_revision: u64,
         current_node_id: String,
+        finish_node_id: String,
         final_summary: String,
         source_event_ref: String,
     ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
@@ -3813,6 +3814,7 @@ impl ActionMapRuntimeState {
             owner_session_id,
             expected_revision,
             current_node_id,
+            finish_node_id,
             final_summary,
             source_event_ref,
         )?;
@@ -3825,6 +3827,7 @@ impl ActionMapRuntimeState {
         owner_session_id: ThreadId,
         expected_revision: u64,
         current_node_id: String,
+        finish_node_id: String,
         final_summary: String,
         source_event_ref: String,
     ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
@@ -3862,6 +3865,7 @@ impl ActionMapRuntimeState {
                 map,
                 expected_revision,
                 current_node_id.clone(),
+                finish_node_id.clone(),
                 final_summary.clone(),
             )
             .map_err(rooted_rejection_message)?
@@ -3925,6 +3929,7 @@ impl ActionMapRuntimeState {
                 "schema:taskspace-rooted-terminal-event-v1".to_string(),
                 "operation:complete_last_running_work_then_end".to_string(),
                 format!("completed_node_id:{current_node_id}"),
+                format!("finish_node_id:{finish_node_id}"),
                 format!("revision:{revision}"),
                 "state_commit:true".to_string(),
                 "summary_source:agent".to_string(),

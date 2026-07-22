@@ -162,6 +162,7 @@ pub(super) async fn finish_map_from_last_running_work(
     call_id: &str,
     expected_revision: u64,
     terminal_node_id: String,
+    finish_node_id: String,
     final_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
     let source_event_ref =
@@ -171,6 +172,7 @@ pub(super) async fn finish_map_from_last_running_work(
             turn,
             expected_revision,
             terminal_node_id.clone(),
+            finish_node_id.clone(),
             final_summary,
             source_event_ref,
         )
@@ -186,7 +188,12 @@ pub(super) async fn finish_map_from_last_running_work(
                 summary_bytes = outcome.final_summary.len(),
                 "taskspace.complete_terminal_committed"
             );
-            Ok(terminal_execution("last_running_work", outcome))
+            Ok(terminal_execution(
+                "last_running_work",
+                terminal_node_id,
+                finish_node_id,
+                outcome,
+            ))
         }
         Err(FinishActionMapError::Rejected(error)) => {
             tracing::warn!(
@@ -206,6 +213,7 @@ pub(super) async fn finish_map_from_ready_finish(
     session: &Session,
     turn: &TurnContext,
     expected_revision: u64,
+    terminal_node_id: String,
     finish_node_id: String,
     final_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
@@ -213,12 +221,17 @@ pub(super) async fn finish_map_from_ready_finish(
         .close_finish_with_no_active_work_action_map(
             turn,
             expected_revision,
-            finish_node_id,
+            finish_node_id.clone(),
             final_summary,
         )
         .await
     {
-        Ok(outcome) => Ok(terminal_execution("no_active_work_ready_finish", outcome)),
+        Ok(outcome) => Ok(terminal_execution(
+            "no_active_work_ready_finish",
+            terminal_node_id,
+            finish_node_id,
+            outcome,
+        )),
         Err(FinishActionMapError::Rejected(error)) => {
             Ok((rejected_control_result(&error), false, None))
         }
@@ -292,6 +305,8 @@ async fn source_event_ref(
 
 fn terminal_execution(
     terminal_state: &'static str,
+    terminal_node_id: String,
+    finish_node_id: String,
     outcome: crate::action_map::ActionMapTerminalOutcome,
 ) -> ControlExecution {
     (
@@ -299,6 +314,8 @@ fn terminal_execution(
             vec![serde_json::json!({
                 "kind": "finish_map",
                 "terminal_state": terminal_state,
+                "terminal_node_id": terminal_node_id,
+                "finish_node_id": finish_node_id,
                 "map_id": outcome.map_id,
                 "revision": outcome.revision,
                 "finish_closed": true,

@@ -192,3 +192,14 @@ Agent 已拥有 `verify` Running 事实，失败原因不是状态反馈丢失�
 - Runtime 只按 Agent 显式提交的 `terminal_state` 机械分派既有事务，并校验 revision、节点身份和 canonical state，
   不动态改变 schema、不代选状态、不修复参数；
 - L2 升级为 `taskspace-core-v2.7`，性能 observer 分别记录 `finish_map` 总数和两个 terminal-state 分支。
+
+第四轮首次复验确认 Ready-Finish 分支误选降为 0/3，但也证明把状态压缩为单个 enum 会重新放大 H-008：一次
+调用在 `fix` Running、`verify` Pending 时声称 `last_running_work`。因此统一 action 保持不变，只补齐等形的
+机械终态快照：
+
+- 两个 terminal-state 分支都必须提交 `incomplete_work_node_ids`、`finish_node_id` 和 `finish_status`；
+- `last_running_work` 只接受 `incomplete_work_node_ids=[terminal_node_id]` 与 `finish_status=pending`；
+- `no_active_work_ready_finish` 只接受空 incomplete Work 列表、`terminal_node_id=finish_node_id` 与
+  `finish_status=ready`；
+- parser 只校验 Agent 参数内部自洽，Rooted DAG 继续校验真实 revision、Finish 身份与生命周期状态；
+- L2 对应升级为 `taskspace-core-v2.8`，不要求 Runtime 读取 reasoning 或自动决定终态分支。

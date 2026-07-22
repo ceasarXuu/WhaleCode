@@ -25,6 +25,7 @@ impl Session {
         turn_context: &TurnContext,
         expected_revision: u64,
         current_node_id: String,
+        finish_node_id: String,
         final_summary: String,
         source_event_ref: String,
     ) -> Result<ActionMapTerminalOutcome, FinishActionMapError> {
@@ -36,6 +37,7 @@ impl Session {
                     self.conversation_id,
                     expected_revision,
                     current_node_id,
+                    finish_node_id,
                     final_summary,
                     source_event_ref,
                 )

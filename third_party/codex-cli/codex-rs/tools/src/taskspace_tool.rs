@@ -243,15 +243,42 @@ fn finish_map_schema() -> JsonSchema {
                         .into(),
                 )),
             ),
+            (
+                "incomplete_work_node_ids".into(),
+                JsonSchema::array(
+                    JsonSchema::string(None),
+                    Some(
+                        "Exact incomplete Work node IDs before closure. Use exactly [terminal_node_id] for last_running_work and [] for no_active_work_ready_finish."
+                            .into(),
+                    ),
+                ),
+            ),
+            (
+                "finish_node_id".into(),
+                JsonSchema::string(Some("The unique Finish node identifier.".into())),
+            ),
+            (
+                "finish_status".into(),
+                JsonSchema::string_enum(
+                    vec![json!("pending"), json!("ready")],
+                    Some(
+                        "Use pending with last_running_work and ready with no_active_work_ready_finish."
+                            .into(),
+                    ),
+                ),
+            ),
             ("final_summary".into(), JsonSchema::string(None)),
         ]),
         vec![
             "expected_revision".into(),
             "terminal_state".into(),
             "terminal_node_id".into(),
+            "incomplete_work_node_ids".into(),
+            "finish_node_id".into(),
+            "finish_status".into(),
             "final_summary".into(),
         ],
-        "Close the Map from one explicitly declared terminal lifecycle state. last_running_work atomically completes terminal_node_id, Finish, and Root. no_active_work_ready_finish closes the named Ready Finish and Root without completing a Work node. The Runtime validates the declared node and exact canonical state; it never selects the state.",
+        "Close the Map from one explicitly declared terminal lifecycle snapshot. last_running_work atomically completes terminal_node_id, Finish, and Root when incomplete_work_node_ids contains only that Work and Finish is Pending. no_active_work_ready_finish closes the named Ready Finish and Root when incomplete_work_node_ids is empty. The Runtime validates the submitted revision, identities, and exact canonical state; it never selects the state.",
     )
 }
 

@@ -12,6 +12,9 @@ fn final_summary_is_redacted_only_from_tool_logs() {
             "expected_revision": 7,
             "terminal_state": "no_active_work_ready_finish",
             "terminal_node_id": "finish",
+            "incomplete_work_node_ids": [],
+            "finish_node_id": "finish",
+            "finish_status": "ready",
             "final_summary": "private final text"
         })
         .to_string(),

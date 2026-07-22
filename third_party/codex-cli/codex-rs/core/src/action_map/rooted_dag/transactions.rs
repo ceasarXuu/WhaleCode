@@ -223,9 +223,17 @@ pub(crate) fn complete_last_running_work_then_end(
     current: &TaskSpaceMap,
     expected_revision: Revision,
     current_node_id: NodeId,
+    finish_node_id: NodeId,
     final_summary: String,
 ) -> Result<Commit, Rejection> {
     require_revision(current, expected_revision)?;
+    if current.finish_node_id != finish_node_id {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::FinishIdMismatch,
+            finish_node_id,
+        ));
+    }
     let revision = next_revision(current)?;
     let mut events = completion_events(current, revision, current_node_id)?;
     let candidate = apply_batch(

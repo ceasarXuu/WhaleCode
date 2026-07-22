@@ -71,6 +71,9 @@ fn finish_map_uses_one_uniform_terminal_state_contract() {
             "expected_revision",
             "terminal_state",
             "terminal_node_id",
+            "incomplete_work_node_ids",
+            "finish_node_id",
+            "finish_status",
             "final_summary",
         ]
     );
@@ -86,6 +89,14 @@ fn finish_map_uses_one_uniform_terminal_state_contract() {
         ]
     );
     assert!(properties["terminal_node_id"].enum_values.is_none());
+    assert_eq!(
+        properties["finish_status"]
+            .enum_values
+            .as_ref()
+            .expect("Finish status enum"),
+        &[json!("pending"), json!("ready")]
+    );
+    assert!(properties["incomplete_work_node_ids"].items.is_some());
 }
 
 #[test]
