@@ -43,7 +43,7 @@
 # Problem P-002: verify 运行时 Agent 误选只关闭 Ready Finish 的动作
 - Status: open
 - Created: 2026-07-22 21:30
-- Updated: 2026-07-23 00:45
+- Updated: 2026-07-23 01:50
 - Objective: 解释生命周期已同步时，Agent 为何仍在最后一个 Work 节点 Running 状态下选择只适用于 Finish Ready 的 `finish_end`。
 - Symptoms:
   - 三次修复后 TaskSpace 运行中两次先调用 `finish_end`，收到 `finish_not_ready` 后改用 `complete_then_end`。
@@ -66,15 +66,21 @@
   - 在不引入 Runtime 语义判断、动态 schema 或缓存破坏的前提下，使 Agent 稳定选择与当前机械状态匹配的终态动作。
 - Current conclusion: 这是与 P-001 独立的 L4 discriminator 可辨识性问题。第二次修复已消除 Ready-Finish
   专用动作误选，但 `complete_active_work_then_end` 仍只表达“有 active Work”，没有表达“该 Work 是唯一剩余
-  Work”。Agent 在业务验证已完成但自建 `verify` 节点仍 Pending 时仍会按结束意图过早选择它。终态 Tool 的两条
-  分支都必须在 action 名和必填参数中表达完整、互斥的机械前置状态。
+  Work”。后续复验进一步证明，即使把两个动作合成 `finish_map` 并要求 Agent 提交完整、内部自洽的终态快照，
+  `terminal_state` 仍然向模型暴露了两个竞争分支；模型会先按业务完成意图选择 Ready-Finish，再配套生成自洽但
+  不真实的 `[]/ready` 断言。终态 Tool 必须收敛为一个没有前态分支选择的 Agent 可见操作；Runtime 只执行该
+  操作定义内的确定性状态迁移和硬校验。
 - Related hypotheses:
   - H-006
   - H-007
   - H-008
+  - H-009
+  - H-010
+  - H-011
 - Resolution basis:
   - H-006、H-007、H-008。
   - E-011、E-014、E-015、E-016。
+  - E-017、E-018、E-019。
 - Close reason:
   - not closed
 
@@ -429,6 +435,63 @@
 - Repair design readiness: ready
 - Next step: `finish_map` 继续保持唯一入口，新增必填 `incomplete_work_node_ids`、`finish_node_id` 和
   `finish_status`；parser 校验它们与 Agent 选择的 `terminal_state` 自洽，状态机校验节点身份和 canonical state。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-011: Agent 自报快照不能消除同一 action 内的前态分支竞争
+- Status: confirmed
+- Parent: P-002
+- Claim: `finish_map` 虽然只有一个 action 名，但 `terminal_state` enum 仍要求 Agent 在两个互斥前态之间做一次
+  工具分支选择。`incomplete_work_node_ids` 与 `finish_status` 只约束所选分支内部自洽，不能证明它们来自 canonical
+  Map；模型仍可先选择业务意图更接近“直接结束”的 Ready-Finish，再生成与该选择配套的空列表和 Ready 状态。
+- Layer: tool-contract-prestate-branch
+- Factor relation: single
+- Depends on:
+  - H-009
+  - H-010
+- Rationale:
+  - v5 已要求两个分支使用完全相同字段并提交具体快照；若快照字段能成为真实选择依据，`verify` Running 时不应
+    稳定生成 `no_active_work_ready_finish + [] + ready`。
+- Falsifiable predictions:
+  - If true: 多次运行仍会生成内部自洽但与 canonical Map 矛盾的 Ready-Finish 快照，并在准确拒绝后改为
+    `last_running_work`；增加更多自报字段不会根治。
+  - If false: v5 首次终态调用稳定匹配 canonical Map，或错误来自字段/反馈缺失。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查等形精确快照是否真正消除了前态分支竞争。
+  - Signal: 首次 `finish_map` arguments、owner/revision、canonical rejection 和后续纠正调用。
+  - Capture method: 读取 v5 三次 paired Docker rollout 与性能报告。
+  - Event name or marker:
+    - `taskspace.control_rejected`
+    - `taskspace.complete_terminal_committed`
+  - Correlation keys:
+    - repeats 1-3
+    - owner `verify`
+    - revision 4
+  - Differentiates from:
+    - schema/L2 未进入上下文
+    - Map feedback 丢失
+    - Runtime 接受非法状态
+  - Supports if:
+    - 至少两次在 `verify` Running 时提交 `no_active_work_ready_finish + [] + ready`，均零提交拒绝并纠正。
+  - Refutes if:
+    - 首次调用均为真实 `last_running_work`，或 canonical state 本来就是 Ready Finish。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 保留终态候选、分支、state failure、参数和 canonical revision 观测。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+- Conclusion: v5 三次都在 `verify` Running 时先提交了内部自洽但不真实的 Ready-Finish 快照；其中一次还在
+  `fix` Running、`verify` Pending 时过早提交 last-work 快照。自报字段没有把状态断言变成证据，只增加了错误
+  分支的填写成本。根因仍是 Agent 可见合同要求选择底层前态事务。公共合同应只有一个 `finish_map` 语义，由
+  Agent 明确发起并提供节点身份和原样 summary；Runtime 在同一状态机 transition 内机械校验并执行当前合法终态
+  frontier，不向 Agent 暴露内部事务分支。
+- Repair design readiness: ready
+- Next step: 删除 Agent 可见 `terminal_state`、自报 incomplete/status 快照和两个分支；用单一终态操作表达
+  “显式闭合当前 Map”，保留 revision、Finish 身份、Agent 选择的终态 Work 身份与 final summary，并由一个
+  canonical transaction 校验合法 frontier。
 - Blocker:
   - none
 - Close reason:
@@ -1016,3 +1079,41 @@
 - Interpretation: 单一 action 已修复原始竞争入口，但状态合同不能只用一个抽象 enum 代替具体 Map 快照。
   Runtime 和反馈均按设计工作；下一轮只补齐 Tool 输入的机械事实，不增加 Runtime 语义选择。
 - Time: 2026-07-23 01:30
+
+## Evidence E-019: 等形精确快照仍在三次运行中稳定伪造 Ready-Finish 前态
+- Related hypotheses:
+  - H-010
+  - H-011
+- Direction: supports
+- Type: failed-fix-validation-and-diagnostic
+- Source: `target/r7-terminal-action-contract-v5/single-file-fast-fix/20260723-013922-261`
+- Prediction or plan link:
+  - H-010 检查具体 incomplete Work 列表能否阻止过早终结。
+  - H-011 检查自报快照是否仍只是分支选择后的配套断言。
+- Matched signal:
+  - Standard 与 TaskSpace 均 3/3 solved，但 TaskSpace 三次都至少一次提交
+    `terminal_state=no_active_work_ready_finish`、`terminal_node_id=finish`、
+    `incomplete_work_node_ids=[]`、`finish_status=ready`。
+  - 三次调用的 canonical owner 均为 `verify`、revision 均为 4，实际 Finish 为 Pending；三次均收到
+    `finish_not_ready` 且 `state_commit=false`，随后改用
+    `last_running_work + [verify] + pending` 成功闭合。
+  - pair-002 还在 revision 3、owner=`fix`、`verify` Pending 时先提交
+    `last_running_work + [fix] + pending`，同样被零提交拒绝。
+  - 没有参数解析失败，说明新字段完整进入生产 schema 且被模型正确序列化；失败是内容不真实，不是链路丢失。
+- Correlation keys:
+  - pair-001/right terminal sequences 48/57
+  - pair-002/left terminal sequences 32/38/47
+  - pair-003/right terminal sequences 29/39
+- Raw content:
+  ```text
+  taskspace solved: 3/3
+  Ready-Finish selections: 3/3 first terminal at verify
+  state failures: 1, 2, 1
+  parse errors: 0/3
+  aggregate requests: standard 19, taskspace 36
+  aggregate wall: standard 44.57s, taskspace 125.59s
+  ```
+- Interpretation: 精确快照字段只验证 Agent 参数内部自洽，无法迫使它以 canonical Map 为依据选择分支。Runtime
+  拒绝和反馈仍然正确；继续增加字段或提示词只会扩大 schema 与请求成本。应删除 Agent 可见前态分支，让
+  `finish_map` 成为一个显式、单义的状态机操作。
+- Time: 2026-07-23 01:50
