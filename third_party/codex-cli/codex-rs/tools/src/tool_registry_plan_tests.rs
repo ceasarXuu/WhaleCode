@@ -18,6 +18,7 @@ use crate::ToolRegistryPlanDeferredTool;
 use crate::ToolRegistryPlanMcpTool;
 use crate::ToolsConfigParams;
 use crate::WaitAgentTimeoutOptions;
+use crate::decorate_taskspace_carrier_tool;
 use crate::mcp_call_tool_result_output_schema;
 use codex_app_server_protocol::AppInfo;
 use codex_features::Feature;
@@ -144,9 +145,11 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
         expected.insert(spec.name().to_string(), spec);
     }
     if config.collab_tools {
-        let visible_tools = expected.values().cloned().collect::<Vec<_>>();
-        let spec = create_taskspace_control_tool(&visible_tools);
+        let spec = create_taskspace_control_tool();
         expected.insert(spec.name().to_string(), spec);
+        for spec in expected.values_mut() {
+            *spec = decorate_taskspace_carrier_tool(spec.clone());
+        }
     }
 
     assert_eq!(
@@ -253,13 +256,10 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     assert_eq!(
         actions,
         vec![
-            "initialize_map",
             "mutate_graph",
-            "bind_node",
             "block_node",
             "unblock_node",
             "rework_node",
-            "complete_then_continue",
             "complete_then_end",
             "finish_end",
             "expand_nodes",
@@ -271,19 +271,33 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
         ]
     );
     let serialized = serde_json::to_string(parameters).expect("serialize parameters");
-    assert!(serialized.contains("root"));
-    assert!(serialized.contains("initial_work_node"));
-    assert!(serialized.contains("additional_work_nodes"));
-    assert!(serialized.contains("complete_then_continue"));
     assert!(serialized.contains("complete_then_end"));
+    assert!(!serialized.contains("initialize_map"));
+    assert!(!serialized.contains("complete_then_continue"));
     assert!(!serialized.contains("\"current_work_node\""));
     assert!(!serialized.contains("\"work_nodes\""));
-    assert!(serialized.contains("finish_identity"));
-    assert!(!serialized.contains("\"finish\":"));
     assert!(serialized.contains("edges"));
     assert!(!serialized.contains("initialize_then_actions"));
     assert!(!serialized.contains("output_contracts"));
     assert!(!serialized.contains("output_contract_id"));
+
+    let carrier = tools
+        .iter()
+        .find(|configured| {
+            configured.name() != "taskspace_control"
+                && matches!(&configured.spec, ToolSpec::Function(_))
+        })
+        .expect("ordinary function carrier");
+    let ToolSpec::Function(carrier) = &carrier.spec else {
+        panic!("shell_command should be a function tool");
+    };
+    let transition =
+        &carrier.parameters.properties.as_ref().expect("properties")["taskspace_transition"];
+    let transition_text = serde_json::to_string(transition).expect("serialize transition");
+    assert!(transition_text.contains("initialize_map"));
+    assert!(transition_text.contains("bind_node"));
+    assert!(transition_text.contains("complete_then_continue"));
+    assert!(!transition_text.contains("required_next_call"));
 }
 
 #[test]

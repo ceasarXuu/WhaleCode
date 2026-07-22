@@ -443,13 +443,8 @@ pub fn build_tool_registry_plan(
     }
 
     if config.collab_tools {
-        let taskspace_nested_tools = plan
-            .specs
-            .iter()
-            .map(|configured| configured.spec.clone())
-            .collect::<Vec<_>>();
         plan.push_spec(
-            create_taskspace_control_tool(&taskspace_nested_tools),
+            create_taskspace_control_tool(),
             /*supports_parallel_tool_calls*/ false,
             config.code_mode_enabled,
         );
@@ -649,12 +644,7 @@ pub fn build_tool_registry_plan(
     }
 
     if config.collab_tools {
-        let nested_tools = plan
-            .specs
-            .iter()
-            .map(|configured| configured.spec.clone())
-            .collect::<Vec<_>>();
-        let taskspace_spec = create_taskspace_control_tool(&nested_tools);
+        let taskspace_spec = create_taskspace_control_tool();
         let taskspace_spec = if config.code_mode_enabled {
             crate::augment_tool_spec_for_code_mode(taskspace_spec)
         } else {
@@ -666,6 +656,9 @@ pub fn build_tool_registry_plan(
             .find(|configured| configured.name() == "taskspace_control")
             .expect("collab tools must register taskspace_control");
         configured.spec = taskspace_spec;
+        for configured in &mut plan.specs {
+            configured.spec = crate::decorate_taskspace_carrier_tool(configured.spec.clone());
+        }
     }
 
     plan
