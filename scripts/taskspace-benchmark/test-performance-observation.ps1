@@ -138,7 +138,7 @@ function New-SideFixture {
             }) (Join-Path $artifactDir "map-management-summary.json")
         Write-Json ([pscustomobject]@{
                 taskspace_control_count = 3
-                action_counts = [pscustomobject]@{ initialize_map = 1; transition_node = 1; finish_end = 1 }
+                action_counts = [pscustomobject]@{ initialize_map = 1; transition_node = 1; close_ready_finish = 1 }
                 control_failure_count = 1
                 control_protocol_failure_count = 0; control_state_failure_count = 0; nested_action_failure_count = 1
                 read_map_request_count = 2; read_map_completion_count = 2; read_map_failure_count = 0
@@ -209,7 +209,7 @@ function New-SideFixture {
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"; call_id = "terminal-failure-control"
-                    arguments = (@{ action = "finish_end"; expected_revision = 3; final_summary = "Rejected candidate" } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "close_ready_finish"; expected_revision = 3; final_summary = "Rejected candidate" } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call_output"; call_id = "terminal-failure-control"
@@ -223,7 +223,7 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
-                    arguments = (@{ action = "finish_end"; expected_revision = 3; final_summary = "done" } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "close_ready_finish"; expected_revision = 3; final_summary = "done" } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "done" }) } }
         )
@@ -287,7 +287,7 @@ Assert-True ($cadence.bind_continuation_count -eq 0) "unexpected standalone bind
 Assert-True ($cadence.complete_handoff_count -eq 1 -and $cadence.complete_handoff_continuation_count -eq 1) "atomic handoff was not observed"
 Assert-True ($cadence.complete_terminal_count -eq 1 -and $cadence.standalone_complete_count -eq 0) "atomic terminal or standalone completion count is incorrect"
 Assert-True ($cadence.state_only_control_count -eq 1) "state-only control count is incorrect"
-Assert-True ($cadence.finish_end_count -eq 0) "standalone finish_end should not be counted for complete_then_end"
+Assert-True ($cadence.close_ready_finish_count -eq 0) "close_ready_finish should not be counted for complete_then_end"
 Assert-True ($cadence.direct_tool_mixed_response_count -eq 3) "control continuation siblings were not observed as top-level calls"
 Assert-True ($cadence.continuation_declaration_count -eq 3) "top-level continuation declarations were not counted"
 Assert-True ($cadence.continuation_satisfied_count -eq 3 -and $cadence.continuation_violation_count -eq 0) "top-level continuation siblings were not paired correctly"

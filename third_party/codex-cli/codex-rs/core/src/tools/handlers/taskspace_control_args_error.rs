@@ -119,7 +119,7 @@ fn supported_action(action: &str) -> bool {
             | "rework_node"
             | "complete_then_continue"
             | "complete_then_end"
-            | "finish_end"
+            | "close_ready_finish"
             | "expand_nodes"
             | "read_map"
             | "read_output_ref"

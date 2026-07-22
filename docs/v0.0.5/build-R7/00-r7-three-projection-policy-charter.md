@@ -202,7 +202,7 @@ Map 在该策略下仍是不可绕过的工作状态机，不是可选第三方�
 - ordinary tool 必须绑定有效 Work node/lease，call/result 机械归属到该节点；
 - Map 初始化、图变更、bind、transition、finish 只能通过 `taskspace_control`；
 - `update_plan` 在 TaskSpace 中继续隐藏；
-- Root 保持 OPEN，直到 Agent 显式 `finish_end` 闭合 Root 和 Finish；
+- Root 保持 OPEN，直到 Agent 通过合法终态动作显式闭合 Root 和 Finish；
 - Map 未合法终结时不能绕过状态机直接结束 TaskSpace；
 - subagent 继续受 node/lease 约束，策略不改变并发与归属规则。
 

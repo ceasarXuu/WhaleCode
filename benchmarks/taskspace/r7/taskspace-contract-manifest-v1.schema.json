@@ -54,8 +54,8 @@
       "required": ["activation_through", "authority_contract_status", "production_manifest_version", "promotion_commit_paths", "blocking_repair", "production_runtime_status", "L4", "L5"],
       "properties": {
         "activation_through": {"const": "FLA-3.5"},
-        "authority_contract_status": {"const": "production_active_through_fla3_5_with_carrier_repair"},
-        "production_manifest_version": {"const": "1.0.8"},
+        "authority_contract_status": {"const": "production_active_through_fla3_5_with_terminal_contract_repair"},
+        "production_manifest_version": {"const": "1.0.9"},
         "promotion_commit_paths": {
           "type": "array",
           "minItems": 3,

@@ -166,7 +166,7 @@ fn terminal_crash_window_with_atomic_completion(
             .unwrap();
         let pre_terminal = runtime.snapshot();
         let (_, events) = runtime
-            .finish_end_for_main(owner, 3, "terminal summary".into())
+            .close_ready_finish_for_main(owner, 3, "terminal summary".into())
             .unwrap();
         (pre_terminal, events)
     };

@@ -275,7 +275,11 @@ fn surviving_segments_newest_first(items: &[RolloutItem]) -> Vec<Vec<ReplayItem>
             }
             RolloutItem::EventMsg(EventMsg::MapRuntime(
                 MapRuntimeEvent::GraphRevisionCommitted(event),
-            )) if matches!(event.operation.as_str(), "finish_end" | "complete_then_end") => {
+            )) if matches!(
+                event.operation.as_str(),
+                "close_ready_finish" | "complete_then_end"
+            ) =>
+            {
                 active.items.push(ReplayItem::IncompleteTerminalCommit);
             }
             RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(event))) => {
@@ -351,7 +355,7 @@ fn replay_segments(
             ReplayItem::IncompleteTerminalCommit => {
                 return Err(TaskSpaceReplayError::new(
                     TaskSpaceReplayErrorCode::IncompleteTransaction,
-                    "finish_end graph event is missing its terminal transaction envelope",
+                    "terminal graph event is missing its terminal transaction envelope",
                 ));
             }
             ReplayItem::Delta(event) => {
@@ -439,7 +443,7 @@ fn install_terminal_checkpoint(
     })?;
     if !matches!(
         event.graph_revision.operation.as_str(),
-        "finish_end" | "complete_then_end"
+        "close_ready_finish" | "complete_then_end"
     ) || event.trace_event.kind != "terminal_committed"
         || event.graph_revision.map_id != event.trace_event.map_id
         || event.graph_revision.map_id != map.id

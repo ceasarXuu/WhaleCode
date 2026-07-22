@@ -203,10 +203,13 @@ async fn execute_action(
             )
             .await
         }
-        TaskSpaceControlArgs::FinishEnd {
+        TaskSpaceControlArgs::CloseReadyFinish {
             expected_revision,
             final_summary,
-        } => lifecycle_actions::finish_end(session, turn, expected_revision, final_summary).await,
+        } => {
+            lifecycle_actions::close_ready_finish(session, turn, expected_revision, final_summary)
+                .await
+        }
         TaskSpaceControlArgs::ExpandNodes { node_ids } => {
             graph_actions::expand_nodes(session, turn, call_id, node_ids).await
         }

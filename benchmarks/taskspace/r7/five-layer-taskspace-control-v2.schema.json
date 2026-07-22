@@ -183,7 +183,7 @@
             "additionalProperties": false
           },
           {
-            "description": "Atomically complete the final active Work node, close the unique Finish and Root, and store the exact Agent-authored final summary.",
+            "description": "Use when the final Work node is still Running. Atomically complete that Work node, close the unique Finish and Root, and store the exact Agent-authored final summary.",
             "type": "object",
             "properties": {
               "action": {
@@ -212,13 +212,13 @@
             "additionalProperties": false
           },
           {
-            "description": "Close a Map whose Finish is already Ready and no Work remains active. Store the exact Agent-authored final summary.",
+            "description": "Use only when the exact current state already has Finish Ready and no Work node active. Close the unique Finish and Root and store the exact Agent-authored final summary. This action does not complete a Work node; when the final Work node is Running, use complete_then_end instead.",
             "type": "object",
             "properties": {
               "action": {
                 "type": "string",
                 "enum": [
-                  "finish_end"
+                  "close_ready_finish"
                 ]
               },
               "expected_revision": {

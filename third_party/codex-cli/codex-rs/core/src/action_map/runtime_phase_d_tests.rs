@@ -118,7 +118,7 @@ fn runtime_rejects_running_node_dependency_rewrite_atomically() {
 
     let rejection: serde_json::Value = serde_json::from_str(&error).unwrap();
     assert_eq!(rejection["state_commit"], false);
-    assert_eq!(rejection["partial_commit"], 0);
+    assert_eq!(rejection["partial_commit"], false);
     assert_eq!(
         rejection["violations"][0]["code"],
         "execution_causality_conflict"

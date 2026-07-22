@@ -26,7 +26,7 @@ fn accepts_standalone_graph_and_terminal_actions() {
         r#"{"action":"unblock_node","expected_revision":3,"node_id":"new"}"#,
         r#"{"action":"rework_node","expected_revision":4,"node_id":"new"}"#,
         r#"{"action":"complete_then_end","expected_revision":5,"current_node_id":"new","final_summary":"Done"}"#,
-        r#"{"action":"finish_end","expected_revision":6,"final_summary":"Done"}"#,
+        r#"{"action":"close_ready_finish","expected_revision":6,"final_summary":"Done"}"#,
     ] {
         parse_taskspace_control_args(arguments).expect(arguments);
     }
@@ -71,7 +71,7 @@ fn validates_control_ids_summaries_and_edges() {
     );
     for arguments in [
         r#"{"action":"block_node","expected_revision":2,"node_id":""}"#,
-        r#"{"action":"finish_end","expected_revision":3,"final_summary":""}"#,
+        r#"{"action":"close_ready_finish","expected_revision":3,"final_summary":""}"#,
         r#"{"action":"complete_then_end","expected_revision":3,"current_node_id":"work","final_summary":""}"#,
     ] {
         assert!(

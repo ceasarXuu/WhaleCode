@@ -1,6 +1,6 @@
 use super::Session;
 use super::TurnContext;
-use crate::action_map::ActionMapFinishEndOutcome;
+use crate::action_map::ActionMapTerminalOutcome;
 use crate::action_map::snapshot_sha256;
 use codex_protocol::protocol::ActionMapSnapshot;
 use codex_protocol::protocol::EventMsg;
@@ -27,7 +27,7 @@ impl Session {
         current_node_id: String,
         final_summary: String,
         source_event_ref: String,
-    ) -> Result<ActionMapFinishEndOutcome, FinishActionMapError> {
+    ) -> Result<ActionMapTerminalOutcome, FinishActionMapError> {
         let (outcome, terminal_event, candidate) = {
             let state = self.state.lock().await;
             let mut candidate = state.action_map_runtime.clone();
@@ -49,17 +49,17 @@ impl Session {
         Ok(outcome)
     }
 
-    pub(crate) async fn finish_action_map(
+    pub(crate) async fn close_ready_finish_action_map(
         &self,
         turn_context: &TurnContext,
         expected_revision: u64,
         final_summary: String,
-    ) -> Result<ActionMapFinishEndOutcome, FinishActionMapError> {
+    ) -> Result<ActionMapTerminalOutcome, FinishActionMapError> {
         let (outcome, terminal_event, candidate) = {
             let state = self.state.lock().await;
             let mut candidate = state.action_map_runtime.clone();
             let (outcome, events) = candidate
-                .finish_end_for_main(self.conversation_id, expected_revision, final_summary)
+                .close_ready_finish_for_main(self.conversation_id, expected_revision, final_summary)
                 .map_err(FinishActionMapError::Rejected)?;
             let terminal_event = Self::terminal_commit_event(events, candidate.snapshot())
                 .map_err(FinishActionMapError::Internal)?;
@@ -129,8 +129,10 @@ impl Session {
         for event in events {
             match event {
                 MapRuntimeEvent::GraphRevisionCommitted(event)
-                    if matches!(event.operation.as_str(), "finish_end" | "complete_then_end")
-                        && graph_revision.is_none() =>
+                    if matches!(
+                        event.operation.as_str(),
+                        "close_ready_finish" | "complete_then_end"
+                    ) && graph_revision.is_none() =>
                 {
                     graph_revision = Some(event);
                 }

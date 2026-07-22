@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla3_5_with_carrier_repair",
+  "contract_status": "production_active_through_fla3_5_with_terminal_contract_repair",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -46,22 +46,22 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "a8b305b39907b2bc4332dc269789be9c04f2f3f540783f5f8de1c25691850370",
+      "sha256": "03bc17bbf0d7436c6a4cae8398f16c1681133708f120656d318d4dd00e02630e",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "41dd76b6f07206d1467e4c027606ae7269d29d017a4791a010562bd43607753c",
+      "sha256": "00e1056ffe9e39bed90eb2f7185ceadd63c5c9693da0b2acccb7123ebc9d166a",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "61da2d211c941542c66493516810c486764c0ced1b23542e26801acbbe7cdee7",
+      "sha256": "9ce41ce3852787a96c8828fc3fdff7e6ced25788f934b790220041f1042bfa89",
       "role": "layer responsibilities, ownership and architectural boundaries"
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "ee31c0b484a9e442de09792f9d84282b9115c4ed317723ffa76ef82955f41954",
+      "sha256": "7079d090c469c3f1974204d9197f348922c5e19401efa092e28f3849a65186c1",
       "role": "FLA-3.5 minimal continuous-action contract, implementation boundary and verification result"
     }
   ],
@@ -108,7 +108,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "60e9ecf495edd694997512b0b997ecbe02b1e65b9704a2fed02d3384b86dcfcb",
+      "sha256": "cddde1c815c53c37d30437b5b7a23a6d6be9f1f2653d86a2243da15089ad90a1",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -124,7 +124,7 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 repair; FLA-4 formalizes L4",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "07bc82c1da90a1bc986109fb5047159bd987f4680461e9889767c9a679a8bc6b",
+      "sha256": "75edfa34486c8a4254e2b11ac3241c2f15937656c45f4338e9dd8106c3772d33",
       "tool_count": 1,
       "required_next_call": "removed",
       "taskspace_action": "required_on_ordinary_action_tools",
@@ -154,7 +154,7 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-3.5 result repair; FLA-5 formalizes L5 result",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "fabd016964b7999690a0f74baeec4f774f63c415ff20de0a630942f697a5a1ce",
+      "sha256": "eaefac39a97746a92ae7056fa854fb04e1e4d41eed650120ce07c83d21ccbce1",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
@@ -168,7 +168,7 @@
       "implementation_status": "selected_baseline",
       "activation_phase": "already_active; FLA-7 adds lifecycle conformance only",
       "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
-      "sha256": "4185308aa9f157ff0fb0381c628a7cb63ab78861d55bc928f0827f57b497c0e3"
+      "sha256": "8b98705e6a23f3820987c3757d81563a0a9eb4570d9514709d8adcf0dcf395cc"
     },
     {
       "layer": "L5-lifecycle",
@@ -226,6 +226,15 @@
       "current_regression_baseline": "removed; ordinary action tools explicitly carry taskspace_action in the active production path",
       "selected_direction": "shared schema decorator and parser require an Agent-submitted continuation or lifecycle action before dispatching the same ordinary Tool through the existing router",
       "required_next_call_disposition": "removed with missing-sibling preflight and standalone nonterminal lifecycle actions"
+    },
+    {
+      "id": "FLA-3.5-terminal-action-contract-repair",
+      "implementation_status": "active_verified",
+      "issue": "H-006",
+      "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
+      "blocks": [],
+      "selected_direction": "rename the specialized Ready-Finish closure and state the mutually exclusive complete_then_end decision in L2 and L4",
+      "runtime_disposition": "canonical state validation remains unchanged; Runtime does not choose or rewrite terminal actions"
     }
   ],
   "obsolete_after_activation": [
@@ -234,7 +243,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2.3 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v2.4 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",

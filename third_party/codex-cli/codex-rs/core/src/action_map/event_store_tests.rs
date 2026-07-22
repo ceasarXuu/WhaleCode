@@ -477,7 +477,7 @@ fn terminal_control_call(final_summary: &str, call_id: &str) -> ResponseItem {
         name: "taskspace_control".into(),
         namespace: None,
         arguments: serde_json::json!({
-            "action": "finish_end",
+            "action": "close_ready_finish",
             "expected_revision": 4,
             "final_summary": final_summary
         })

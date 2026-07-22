@@ -364,7 +364,7 @@ read(rev N) -> mutate(rev N+1) -> no read 的合同测试。
 - 是否加载高级 Skill，是否展开已折叠节点，何时主动读取 Map。
 
 Runtime 可以指出“节点尚未 Ready”，不能指出“先修测试再修实现”；可以拒绝无效 revision，不能代替 Agent
-改成最新 revision；可以拒绝未闭合图的 `finish_end`，不能自动完成剩余节点。
+改成最新 revision；可以拒绝状态不满足的终态动作，不能自动完成剩余节点。
 
 ## 6. 信息流与权威关系
 

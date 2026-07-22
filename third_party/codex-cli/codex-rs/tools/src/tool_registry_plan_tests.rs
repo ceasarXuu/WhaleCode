@@ -257,7 +257,7 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
             "unblock_node",
             "rework_node",
             "complete_then_end",
-            "finish_end",
+            "close_ready_finish",
             "expand_nodes",
             "read_map",
             "read_output_ref",

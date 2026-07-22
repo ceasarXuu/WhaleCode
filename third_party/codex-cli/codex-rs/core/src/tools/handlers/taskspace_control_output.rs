@@ -389,7 +389,7 @@ pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
                 && has_text(step, "next_node_id")
                 && step.get("revision").is_some()
         }
-        Some("finish_end" | "complete_then_end") => {
+        Some("close_ready_finish" | "complete_then_end") => {
             has_text(step, "map_id")
                 && step.get("revision").is_some()
                 && step.get("finish_closed") == Some(&JsonValue::Bool(true))

@@ -96,7 +96,7 @@ fn terminal_rollout_items(owner: ThreadId) -> Vec<RolloutItem> {
         .unwrap();
     let pre_terminal = runtime.snapshot();
     let (_, events) = runtime
-        .finish_end_for_main(owner, 3, "exact terminal summary".into())
+        .close_ready_finish_for_main(owner, 3, "exact terminal summary".into())
         .unwrap();
     let terminal = Session::terminal_commit_event(events, runtime.snapshot()).unwrap();
     vec![

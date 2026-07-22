@@ -244,7 +244,7 @@ pub(crate) fn complete_then_end(
     )
 }
 
-pub(crate) fn finish_end(
+pub(crate) fn close_ready_finish(
     current: &TaskSpaceMap,
     expected_revision: Revision,
     final_summary: String,

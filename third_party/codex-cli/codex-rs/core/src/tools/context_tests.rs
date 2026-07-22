@@ -8,7 +8,7 @@ use serde_json::json;
 fn final_summary_is_redacted_only_from_tool_logs() {
     let payload = ToolPayload::Function {
         arguments: serde_json::json!({
-            "action": "finish_end",
+            "action": "close_ready_finish",
             "expected_revision": 7,
             "final_summary": "private final text"
         })

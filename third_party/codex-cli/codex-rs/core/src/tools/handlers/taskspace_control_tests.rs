@@ -216,7 +216,7 @@ fn graph_and_terminal_steps_have_required_identity() {
             "status": "running",
         }),
         serde_json::json!({
-            "kind": "finish_end",
+            "kind": "close_ready_finish",
             "map_id": "map-1",
             "revision": 5,
             "finish_closed": true,
@@ -229,7 +229,12 @@ fn graph_and_terminal_steps_have_required_identity() {
 
 #[test]
 fn legacy_actions_are_rejected_by_parser() {
-    for action in ["create_node", "finish_nodes", "finish_then_end"] {
+    for action in [
+        "create_node",
+        "finish_nodes",
+        "finish_then_end",
+        "finish_end",
+    ] {
         let args = format!(r#"{{"action":"{action}"}}"#);
         assert!(parse_taskspace_control_args(&args).is_err());
     }

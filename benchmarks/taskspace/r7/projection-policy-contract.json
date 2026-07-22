@@ -174,7 +174,7 @@
         "call_and_result_must_be_mechanically_attributed_to_bound_node",
         "map_mutation_bind_transition_finish_only_via_taskspace_control",
         "update_plan_hidden_in_taskspace",
-        "root_remains_open_until_explicit_finish_end",
+        "root_remains_open_until_explicit_terminal_close",
         "cannot_end_taskspace_before_legal_map_termination",
         "subagent_node_and_lease_constraints_unchanged"
       ],

@@ -120,7 +120,7 @@ $request = $contract.policies."map-request"
 foreach ($gate in @(
     "agent_must_initialize_legal_map_before_ordinary_tools_or_subagents",
     "ordinary_tool_must_bind_valid_work_node_and_lease",
-    "root_remains_open_until_explicit_finish_end",
+    "root_remains_open_until_explicit_terminal_close",
     "cannot_end_taskspace_before_legal_map_termination",
     "subagent_node_and_lease_constraints_unchanged"
 )) {

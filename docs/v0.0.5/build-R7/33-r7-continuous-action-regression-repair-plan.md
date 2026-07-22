@@ -37,7 +37,7 @@ Standard 模式、普通 Tool handler、权限、sandbox、approval、hook、MCP
 | `bind_node` | 该节点第一个真实动作的 `taskspace_action` | 否 |
 | `complete_then_continue` | 后继节点第一个真实动作的 `taskspace_action` | 否 |
 | `complete_then_end` | 终态 `taskspace_control` | 是 |
-| `finish_end` | 终态 `taskspace_control` | 是 |
+| `close_ready_finish` | 仅在 Finish 已 Ready 且没有 active Work 时使用的终态 `taskspace_control` | 是 |
 
 `mutate_graph`、`block_node`、`unblock_node`、`rework_node`、`expand_nodes`、`read_map` 和
 `read_output_ref` 仍是独立 Map 操作。Runtime 不根据命令、Patch、reasoning 或任务内容选择节点、补动作或改写交接。
@@ -146,7 +146,7 @@ sequence barrier、terminal closure、compact/resume 回归、Standard schema �
 
 ### 5.3 独立残留观测
 
-三次 TaskSpace 中有两次在 `verify` 仍为 Running 时先选择 `finish_end`，被现有硬状态约束准确拒绝后改用
+三次 TaskSpace 中有两次在 `verify` 仍为 Running 时先选择当时名为 `finish_end` 的专用动作，被现有硬状态约束准确拒绝后改用
 `complete_then_end`；另一次直接选择正确动作。此时 Patch、测试和 Map revision 已全程同步，因此该现象不再能
 由 H-003 的静默漂移解释。它属于终态 Tool action 选择的独立问题，不在本次修复中通过 Runtime 猜测或自动改写。
 
@@ -157,3 +157,17 @@ H-003、H-004 和 H-005 的结构根因已经消除：每个 TaskSpace 普通动
 实现复用现有工具链，没有新增 router 或 handler 分叉，FLA-3.5 状态为 `active_verified`。
 
 FLA-4 可以从当前 carrier 基线继续，但不得重新引入 sibling、中央 nested action carrier 或 Runtime 语义控制。
+
+## 7. H-006 终态动作合同修复
+
+FLA-3.5 验证暴露出一个独立的 L2/L4 合同歧义：最终 Work 仍为 Running 时，Agent 经常把原先的
+`finish_end` 当成通用结束动作，而不是选择能够同时完成当前 Work 的 `complete_then_end`。工具结果完整且状态机拒绝
+准确，问题不在反馈丢失，也不应由 Runtime 替 Agent 选择动作。
+
+修复保持既有状态机不变，只收敛 Agent 可见合同：
+
+- 将只适用于“Finish 已 Ready 且没有 active Work”的专用动作改名为 `close_ready_finish`；旧名称不保留兼容入口；
+- `complete_then_end` 的 schema 明确其适用于最终 Work 仍为 Running 的状态，并要求 `current_node_id`；
+- L2 `taskspace-core-v2.4` 给出同一状态判别规则，避免宏观协议与 Tool 合同相互脱节；
+- Runtime 继续只校验 canonical state，不动态删减 schema、不自动代选动作、不根据任务语义改写调用；
+- 终态 operation、回放识别和性能观测统一使用 `close_ready_finish`，使误选与合法专用闭合可直接审计。

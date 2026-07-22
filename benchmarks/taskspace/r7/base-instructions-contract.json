@@ -26,8 +26,8 @@
     }
   },
   "taskspace_core_protocol": {
-    "version": "taskspace-core-v2.3",
-    "sha256": "60e9ecf495edd694997512b0b997ecbe02b1e65b9704a2fed02d3384b86dcfcb",
+    "version": "taskspace-core-v2.4",
+    "sha256": "cddde1c815c53c37d30437b5b7a23a6d6be9f1f2653d86a2243da15089ad90a1",
     "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
     "wire_role": "system",
     "message_index": 1,
@@ -121,6 +121,17 @@
       "core_protocol_sha256": "60e9ecf495edd694997512b0b997ecbe02b1e65b9704a2fed02d3384b86dcfcb",
       "status": "production_active",
       "change": "require every ordinary TaskSpace Tool call to declare continue_current or a lifecycle action"
+    },
+    {
+      "version": "2.0.5",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.4",
+      "core_protocol_sha256": "cddde1c815c53c37d30437b5b7a23a6d6be9f1f2653d86a2243da15089ad90a1",
+      "status": "production_active",
+      "change": "distinguish completing a running final Work node from closing an already Ready Finish"
     }
   ],
   "diagnostic_validation": {

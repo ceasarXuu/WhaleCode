@@ -79,9 +79,9 @@ use super::rooted_dag::NodeRole;
 use super::rooted_dag::NodeTransition;
 use super::rooted_dag::Rejection;
 use super::rooted_dag::TaskSpaceMap;
+use super::rooted_dag::close_ready_finish;
 use super::rooted_dag::complete_then_bind;
 use super::rooted_dag::complete_then_end;
-use super::rooted_dag::finish_end;
 use super::rooted_dag::initialize;
 use super::rooted_dag::mutate_graph;
 use super::rooted_dag::transition_node;
@@ -314,7 +314,7 @@ pub(crate) struct ActionMapCompleteHandoffOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ActionMapFinishEndOutcome {
+pub(crate) struct ActionMapTerminalOutcome {
     pub(crate) map_id: ActionMapId,
     pub(crate) revision: u64,
     pub(crate) final_summary: String,
@@ -3807,7 +3807,7 @@ impl ActionMapRuntimeState {
         current_node_id: String,
         final_summary: String,
         source_event_ref: String,
-    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+    ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
         let mut candidate = self.clone();
         let outcome = candidate.complete_then_end_for_main_inner(
             owner_session_id,
@@ -3827,7 +3827,7 @@ impl ActionMapRuntimeState {
         current_node_id: String,
         final_summary: String,
         source_event_ref: String,
-    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+    ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
         self.validate_routing_complete()?;
         let map_id = self
             .active_map_id
@@ -3929,7 +3929,7 @@ impl ActionMapRuntimeState {
             ],
         );
         Ok((
-            ActionMapFinishEndOutcome {
+            ActionMapTerminalOutcome {
                 map_id: map_id.clone(),
                 revision,
                 final_summary,
@@ -3944,14 +3944,14 @@ impl ActionMapRuntimeState {
         ))
     }
 
-    pub(crate) fn finish_end_for_main(
+    pub(crate) fn close_ready_finish_for_main(
         &mut self,
         owner_session_id: ThreadId,
         expected_revision: u64,
         final_summary: String,
-    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+    ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
         let mut candidate = self.clone();
-        let outcome = candidate.finish_end_for_main_inner(
+        let outcome = candidate.close_ready_finish_for_main_inner(
             owner_session_id,
             expected_revision,
             final_summary,
@@ -3960,12 +3960,12 @@ impl ActionMapRuntimeState {
         Ok(outcome)
     }
 
-    fn finish_end_for_main_inner(
+    fn close_ready_finish_for_main_inner(
         &mut self,
         owner_session_id: ThreadId,
         expected_revision: u64,
         final_summary: String,
-    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+    ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
         self.validate_routing_complete()?;
         let map_id = self
             .active_map_id
@@ -3979,11 +3979,11 @@ impl ActionMapRuntimeState {
             if map.owner_session_id != Some(owner_session_id) {
                 return Err("TaskSpace rooted map owner mismatch.".to_string());
             }
-            finish_end(map, expected_revision, final_summary.clone())
+            close_ready_finish(map, expected_revision, final_summary.clone())
                 .map_err(rooted_rejection_message)?
         };
         let revision = committed.map.revision;
-        let graph_batch = graph_revision_committed_record(&committed.events, "finish_end");
+        let graph_batch = graph_revision_committed_record(&committed.events, "close_ready_finish");
         let graph_event = MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone());
         self.maps
             .get_mut(&map_id)
@@ -4004,6 +4004,7 @@ impl ActionMapRuntimeState {
             true,
             vec![
                 "schema:taskspace-rooted-terminal-event-v1".to_string(),
+                "operation:close_ready_finish".to_string(),
                 format!("revision:{revision}"),
                 "state_commit:true".to_string(),
                 "summary_source:agent".to_string(),
@@ -4011,7 +4012,7 @@ impl ActionMapRuntimeState {
             ],
         );
         Ok((
-            ActionMapFinishEndOutcome {
+            ActionMapTerminalOutcome {
                 map_id: map_id.clone(),
                 revision,
                 final_summary,

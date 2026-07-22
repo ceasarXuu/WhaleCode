@@ -39,7 +39,7 @@ pub(crate) enum TaskSpaceControlArgs {
         current_node_id: String,
         final_summary: String,
     },
-    FinishEnd {
+    CloseReadyFinish {
         expected_revision: u64,
         final_summary: String,
     },
@@ -85,7 +85,7 @@ impl TaskSpaceControlArgs {
             Self::UnblockNode { .. } => "unblock_node",
             Self::ReworkNode { .. } => "rework_node",
             Self::CompleteThenEnd { .. } => "complete_then_end",
-            Self::FinishEnd { .. } => "finish_end",
+            Self::CloseReadyFinish { .. } => "close_ready_finish",
             Self::ExpandNodes { .. } => "expand_nodes",
             Self::ReadOutputRef { .. } => "read_output_ref",
             Self::ReadMap => "read_map",
@@ -109,7 +109,7 @@ impl TaskSpaceControlArgs {
             | Self::CompleteThenEnd {
                 expected_revision, ..
             }
-            | Self::FinishEnd {
+            | Self::CloseReadyFinish {
                 expected_revision, ..
             } => Some(*expected_revision),
             Self::ExpandNodes { .. } | Self::ReadOutputRef { .. } | Self::ReadMap => None,
@@ -152,10 +152,10 @@ impl TaskSpaceControlArgs {
                 }
                 Ok(())
             }
-            Self::FinishEnd { final_summary, .. } if final_summary.trim().is_empty() => {
-                invalid("finish_end requires a non-empty final_summary")
+            Self::CloseReadyFinish { final_summary, .. } if final_summary.trim().is_empty() => {
+                invalid("close_ready_finish requires a non-empty final_summary")
             }
-            Self::FinishEnd { .. } => Ok(()),
+            Self::CloseReadyFinish { .. } => Ok(()),
             Self::ExpandNodes { node_ids } => {
                 require_non_empty(node_ids, "node_ids")?;
                 let mut unique_node_ids = HashSet::with_capacity(node_ids.len());

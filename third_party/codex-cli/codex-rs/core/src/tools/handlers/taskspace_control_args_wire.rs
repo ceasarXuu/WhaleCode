@@ -14,7 +14,7 @@ enum Action {
     UnblockNode,
     ReworkNode,
     CompleteThenEnd,
-    FinishEnd,
+    CloseReadyFinish,
     ExpandNodes,
     ReadOutputRef,
     ReadMap,
@@ -57,7 +57,7 @@ struct CompleteThenEndArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FinishEndArgs {
+struct CloseReadyFinishArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
@@ -177,9 +177,9 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 final_summary: parsed.final_summary,
             })
         }
-        Action::FinishEnd => {
-            let parsed = deserialize_arguments::<FinishEndArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::FinishEnd {
+        Action::CloseReadyFinish => {
+            let parsed = deserialize_arguments::<CloseReadyFinishArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::CloseReadyFinish {
                 expected_revision: parsed.expected_revision,
                 final_summary: parsed.final_summary,
             })

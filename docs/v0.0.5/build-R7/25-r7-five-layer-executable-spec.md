@@ -39,7 +39,7 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | 层 | 当前生产基线 | 已选目标 | 当前状态 |
 |---|---|---|---|
 | L1 | TaskSpace Base v2.0.1；Map 段仅保留宏观模型，整份 Base 不携带 Tool wire 示例 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
-| L2 | `taskspace-core-v2.3` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
+| L2 | `taskspace-core-v2.4` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
 | L4 | 普通动作 Tool 的必填 `taskspace_action` carrier；纯 Map/read/terminal 使用 `taskspace_control` | FLA-4 在该单一基线上正式化描述与 input schema | `active_repair_verified` |
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_repair_verified` |
@@ -118,7 +118,7 @@ Skill 失败不创建新的 TaskSpace Tool result。显式 mention 缺少快照�
 为准。三个非终态 lifecycle action 已从该 Tool 删除；当前独立 action 是：
 
 ```text
-mutate_graph, block_node, unblock_node, rework_node, complete_then_end, finish_end,
+mutate_graph, block_node, unblock_node, rework_node, complete_then_end, close_ready_finish,
 expand_nodes, read_map, read_output_ref
 ```
 

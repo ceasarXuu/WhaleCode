@@ -204,21 +204,23 @@ pub(super) async fn complete_then_end(
     }
 }
 
-pub(super) async fn finish_end(
+pub(super) async fn close_ready_finish(
     session: &Session,
     turn: &TurnContext,
     expected_revision: u64,
     final_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
     match session
-        .finish_action_map(turn, expected_revision, final_summary)
+        .close_ready_finish_action_map(turn, expected_revision, final_summary)
         .await
     {
-        Ok(outcome) => Ok(terminal_execution("finish_end", outcome)),
+        Ok(outcome) => Ok(terminal_execution("close_ready_finish", outcome)),
         Err(FinishActionMapError::Rejected(error)) => {
             Ok((rejected_control_result(&error), false, None))
         }
-        Err(error) => Err(terminal_failure(session, "finish_end", expected_revision, error).await),
+        Err(error) => {
+            Err(terminal_failure(session, "close_ready_finish", expected_revision, error).await)
+        }
     }
 }
 
@@ -288,7 +290,7 @@ async fn source_event_ref(
 
 fn terminal_execution(
     step_kind: &'static str,
-    outcome: crate::action_map::ActionMapFinishEndOutcome,
+    outcome: crate::action_map::ActionMapTerminalOutcome,
 ) -> ControlExecution {
     (
         format_state_batch(

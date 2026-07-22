@@ -29,7 +29,6 @@ pub(crate) use runtime::ActionMapEdgeInput;
 pub(crate) use runtime::ActionMapExactPayloadScanEventInput;
 #[cfg(test)]
 pub(crate) use runtime::ActionMapExpandedDetailRef;
-pub(crate) use runtime::ActionMapFinishEndOutcome;
 pub(crate) use runtime::ActionMapGraphMutationInput;
 pub(crate) use runtime::ActionMapGraphMutationOutcome;
 pub(crate) use runtime::ActionMapInitializeFinishInput;
@@ -41,6 +40,7 @@ pub(crate) use runtime::ActionMapProviderRequestBudgetEventInput;
 pub(crate) use runtime::ActionMapProviderRequestBudgetSnapshot;
 pub(crate) use runtime::ActionMapProviderResponseActionabilityInput;
 pub(crate) use runtime::ActionMapRuntimeState;
+pub(crate) use runtime::ActionMapTerminalOutcome;
 pub(crate) use runtime::ActionMapTransitionOutcome;
 pub(crate) use runtime::TaskSpaceHardGateClass;
 pub(crate) use runtime::format_action_map_snapshot;

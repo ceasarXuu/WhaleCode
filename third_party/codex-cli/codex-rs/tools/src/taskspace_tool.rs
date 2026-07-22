@@ -231,19 +231,19 @@ fn complete_then_end_schema() -> JsonSchema {
             "current_node_id".into(),
             "final_summary".into(),
         ],
-        "Atomically complete the final active Work node, close the unique Finish and Root, and store the exact Agent-authored final summary.",
+        "Use when the final Work node is still Running. Atomically complete that Work node, close the unique Finish and Root, and store the exact Agent-authored final summary.",
     )
 }
 
-fn finish_end_schema() -> JsonSchema {
+fn close_ready_finish_schema() -> JsonSchema {
     described_object_variant(
-        "finish_end",
+        "close_ready_finish",
         BTreeMap::from([
             ("expected_revision".into(), revision_schema()),
             ("final_summary".into(), JsonSchema::string(None)),
         ]),
         vec!["expected_revision".into(), "final_summary".into()],
-        "Close a Map whose Finish is already Ready and no Work remains active. Store the exact Agent-authored final summary.",
+        "Use only when the exact current state already has Finish Ready and no Work node active. Close the unique Finish and Root and store the exact Agent-authored final summary. This action does not complete a Work node; when the final Work node is Running, use complete_then_end instead.",
     )
 }
 
@@ -275,7 +275,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
             "Return a completed Work node to Ready because the Agent has decided that more work is required.",
         ),
         complete_then_end_schema(),
-        finish_end_schema(),
+        close_ready_finish_schema(),
     ];
     variants.extend(simple_action_schemas());
     let parameters = object_any_of(variants, "One mechanical TaskSpace operation.");

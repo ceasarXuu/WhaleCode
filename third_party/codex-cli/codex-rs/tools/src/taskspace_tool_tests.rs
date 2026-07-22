@@ -33,13 +33,14 @@ fn standalone_control_excludes_action_carrying_transitions() {
         "unblock_node",
         "rework_node",
         "complete_then_end",
-        "finish_end",
+        "close_ready_finish",
         "expand_nodes",
         "read_map",
         "read_output_ref",
     ] {
         assert!(actions.contains(&action.to_string()), "missing {action}");
     }
+    assert!(!actions.contains(&"finish_end".to_string()));
 }
 
 #[test]

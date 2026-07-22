@@ -338,12 +338,22 @@ fn rejected_complete_then_end_reports_live_revision_and_preserves_prestate() {
 }
 
 #[test]
-fn finish_end_is_agent_explicit_and_closes_root_and_finish_together() {
+fn close_ready_finish_is_agent_explicit_and_closes_root_and_finish_together() {
     let (mut state, owner, _) = initialized_state(
         &[("work", "Implement the change")],
         &[("root", "work"), ("work", "finish")],
         "work",
     );
+    let running_snapshot = state.snapshot();
+    let rejection = state
+        .close_ready_finish_for_main(owner, 2, "Too early".into())
+        .expect_err("close_ready_finish must not complete a running Work node");
+    let rejection: serde_json::Value =
+        serde_json::from_str(&rejection).expect("typed terminal rejection");
+    assert_eq!(rejection["state_commit"], false);
+    assert_eq!(rejection["violations"][0]["code"], "finish_not_ready");
+    assert_eq!(state.snapshot(), running_snapshot);
+
     let (transition_outcome, transition_events) = state
         .transition_node_for_main(
             owner,
@@ -380,7 +390,7 @@ fn finish_end_is_agent_explicit_and_closes_root_and_finish_together() {
 
     let summary = "Implemented and verified exactly as requested.".to_string();
     let (outcome, events) = state
-        .finish_end_for_main(owner, 3, summary.clone())
+        .close_ready_finish_for_main(owner, 3, summary.clone())
         .expect("ready finish closes explicitly");
     assert_eq!(outcome.final_summary, summary);
     assert_eq!(outcome.delta.committed_revision, 4);
@@ -388,7 +398,7 @@ fn finish_end_is_agent_explicit_and_closes_root_and_finish_together() {
     assert!(matches!(
         events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(event))
-            if event.operation == "finish_end" && event.revision == 4
+            if event.operation == "close_ready_finish" && event.revision == 4
     ));
     let closed = state
         .snapshot()

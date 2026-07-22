@@ -17,7 +17,7 @@
         "rework_node",
         "complete_then_continue",
         "complete_then_end",
-        "finish_end",
+        "close_ready_finish",
         "expand_nodes",
         "read_map",
         "read_output_ref",
@@ -120,7 +120,7 @@
           {
             "type": "object",
             "properties": {
-              "kind": {"enum": ["complete_then_end", "finish_end"]},
+              "kind": {"enum": ["complete_then_end", "close_ready_finish"]},
               "map_id": {"type": "string"},
               "finish_closed": {"const": true},
               "root_closed": {"const": true},
