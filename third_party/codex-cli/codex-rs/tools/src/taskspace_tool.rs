@@ -224,61 +224,20 @@ fn finish_map_schema() -> JsonSchema {
         BTreeMap::from([
             ("expected_revision".into(), revision_schema()),
             (
-                "terminal_state".into(),
-                JsonSchema::string_enum(
-                    vec![
-                        json!("last_running_work"),
-                        json!("no_active_work_ready_finish"),
-                    ],
-                    Some(
-                        "Choose last_running_work when terminal_node_id is the only incomplete Work and is Running while Finish is Pending. Choose no_active_work_ready_finish when terminal_node_id is the unique Ready Finish and every Work is completed."
-                            .into(),
-                    ),
-                ),
-            ),
-            (
                 "terminal_node_id".into(),
                 JsonSchema::string(Some(
-                    "The last Running Work node for last_running_work, or the unique Ready Finish node for no_active_work_ready_finish."
+                    "The Agent-selected terminal entry node: the current final Running Work, or the unique Ready Finish when no Work remains active."
                         .into(),
                 )),
-            ),
-            (
-                "incomplete_work_node_ids".into(),
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some(
-                        "Exact incomplete Work node IDs before closure. Use exactly [terminal_node_id] for last_running_work and [] for no_active_work_ready_finish."
-                            .into(),
-                    ),
-                ),
-            ),
-            (
-                "finish_node_id".into(),
-                JsonSchema::string(Some("The unique Finish node identifier.".into())),
-            ),
-            (
-                "finish_status".into(),
-                JsonSchema::string_enum(
-                    vec![json!("pending"), json!("ready")],
-                    Some(
-                        "Use pending with last_running_work and ready with no_active_work_ready_finish."
-                            .into(),
-                    ),
-                ),
             ),
             ("final_summary".into(), JsonSchema::string(None)),
         ]),
         vec![
             "expected_revision".into(),
-            "terminal_state".into(),
             "terminal_node_id".into(),
-            "incomplete_work_node_ids".into(),
-            "finish_node_id".into(),
-            "finish_status".into(),
             "final_summary".into(),
         ],
-        "Close the Map from one explicitly declared terminal lifecycle snapshot. last_running_work atomically completes terminal_node_id, Finish, and Root when incomplete_work_node_ids contains only that Work and Finish is Pending. no_active_work_ready_finish closes the named Ready Finish and Root when incomplete_work_node_ids is empty. The Runtime validates the submitted revision, identities, and exact canonical state; it never selects the state.",
+        "Explicitly close the current Map through the Agent-selected terminal entry node. A final Running Work is completed in the same atomic transaction; an already Ready Finish is closed directly when no Work remains active. The Runtime validates the submitted revision, node identity, binding, and canonical terminal frontier without interpreting task meaning or choosing a node.",
     )
 }
 

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.13",
+  "manifest_version": "1.0.14",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -22,7 +22,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "ec6ac967d4e915f5b18c1eb0d514b24ce899fad62eb5f9f8768a5f28afbcfb1e"
+    "sha256": "108743551a744132d9b1cf3aa6baef67962756636bd2f33fee75063005dc2904"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -57,8 +57,8 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "733622424cc520a6403f36af3df6f6430d50eef796d23b1793dabd8e462bfa60",
-          "activation_phase": "FLA-2; FLA-3.5 terminal action contract repair"
+          "sha256": "9764007b78c66a6a0fea625740c322f021d250f1b6cd0fe4d840b55084b79ac4",
+          "activation_phase": "FLA-2; FLA-3.5 branch-free terminal action contract repair"
         }
       ]
     },
@@ -83,8 +83,8 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-          "sha256": "0031420e5bcb3237e39afccf460b1a77c750ff103f196e4ca582b940e5b521d0",
-          "activation_phase": "FLA-3.5 carrier and terminal action contract repairs; FLA-4 formalizes L4",
+          "sha256": "c66b93b5177c73c8d02d4f21bc00e5f68232816657dca33b192ddeff7f2178b0",
+          "activation_phase": "FLA-3.5 carrier and branch-free terminal action contract repairs; FLA-4 formalizes L4",
           "carrier_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
           "transition_parser": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"
         }
@@ -98,8 +98,8 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-          "sha256": "ce1de3daf15799157f00b6922bfe82432d4f0e8ed557c193e7d881245e3a8f06",
-          "activation_phase": "FLA-3.5 result and terminal action contract repairs; FLA-5 formalizes L5 result"
+          "sha256": "20f3853a7b72ac2b9cc67868bfca37d171648f0651e0fca4b44eaa3685c464c4",
+          "activation_phase": "FLA-3.5 result and branch-free terminal action contract repairs; FLA-5 formalizes L5 result"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",

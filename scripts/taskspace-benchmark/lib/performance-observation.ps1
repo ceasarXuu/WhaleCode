@@ -439,7 +439,7 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("")
     $lines.Add("## Schema carrier")
     $lines.Add("")
-    $lines.Add("| Repeat | Mode | Tool responses | Control responses | Nested actions | Required next calls | Satisfied | Violations | Init requirement | Mutation requirement | Bind requirement | Complete handoff | Handoff requirement | Finish Map | Last-work finish | Ready-Finish recovery | Standalone complete | State-only controls | Direct mixed | Multi-control | Nonterminal without follow-up | Protocol failures | State failures | Nested failures | Terminal candidates | Extra final requests | Parse errors | Source |")
+    $lines.Add("| Repeat | Mode | Tool responses | Control responses | Nested actions | Required next calls | Satisfied | Violations | Init requirement | Mutation requirement | Bind requirement | Complete handoff | Handoff requirement | Finish Map | Work-entry commit | Finish-entry commit | Standalone complete | State-only controls | Direct mixed | Multi-control | Nonterminal without follow-up | Protocol failures | State failures | Nested failures | Terminal candidates | Extra final requests | Parse errors | Source |")
     $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     foreach ($row in $rows) {
         if ($row.observation_status -eq "skipped") {

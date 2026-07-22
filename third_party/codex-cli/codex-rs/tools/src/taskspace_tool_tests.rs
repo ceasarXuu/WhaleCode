@@ -48,7 +48,7 @@ fn standalone_control_excludes_action_carrying_transitions() {
 }
 
 #[test]
-fn finish_map_uses_one_uniform_terminal_state_contract() {
+fn finish_map_exposes_one_branch_free_terminal_contract() {
     let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
         panic!("taskspace_control must be a function tool");
     };
@@ -69,34 +69,20 @@ fn finish_map_uses_one_uniform_terminal_state_contract() {
         &[
             "action",
             "expected_revision",
-            "terminal_state",
             "terminal_node_id",
-            "incomplete_work_node_ids",
-            "finish_node_id",
-            "finish_status",
             "final_summary",
         ]
     );
     let properties = closure.properties.as_ref().expect("properties");
-    assert_eq!(
-        properties["terminal_state"]
-            .enum_values
-            .as_ref()
-            .expect("terminal state enum"),
-        &[
-            json!("last_running_work"),
-            json!("no_active_work_ready_finish"),
-        ]
-    );
     assert!(properties["terminal_node_id"].enum_values.is_none());
-    assert_eq!(
-        properties["finish_status"]
-            .enum_values
-            .as_ref()
-            .expect("Finish status enum"),
-        &[json!("pending"), json!("ready")]
-    );
-    assert!(properties["incomplete_work_node_ids"].items.is_some());
+    for removed in [
+        "terminal_state",
+        "incomplete_work_node_ids",
+        "finish_node_id",
+        "finish_status",
+    ] {
+        assert!(!properties.contains_key(removed), "unexpected {removed}");
+    }
 }
 
 #[test]

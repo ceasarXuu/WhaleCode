@@ -47,6 +47,7 @@ function Get-TaskspaceNativeCadenceFacts {
     $standaloneCompleteCount = 0
     $finishMapReadyFinishCount = 0
     $controlArgumentParseErrors = 0
+    $finishCallsAwaitingCanonicalRole = @{}
     foreach ($line in [System.IO.File]::ReadLines($rolloutPath)) {
         $rowIndex++
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -104,6 +105,10 @@ function Get-TaskspaceNativeCadenceFacts {
                         $terminalStateProperty = $arguments.PSObject.Properties["terminal_state"]
                         if ($null -ne $terminalStateProperty -and [string]$terminalStateProperty.Value -eq "last_running_work") { $finishMapLastWorkCount++ }
                         if ($null -ne $terminalStateProperty -and [string]$terminalStateProperty.Value -eq "no_active_work_ready_finish") { $finishMapReadyFinishCount++ }
+                        $callIdProperty = $payload.PSObject.Properties["call_id"]
+                        if ($null -eq $terminalStateProperty -and $null -ne $callIdProperty -and -not [string]::IsNullOrWhiteSpace([string]$callIdProperty.Value)) {
+                            $finishCallsAwaitingCanonicalRole[[string]$callIdProperty.Value] = $true
+                        }
                     }
                     if ($action -eq "transition_node" -and $transition -eq "complete") { $standaloneCompleteCount++ }
                     if ($action -eq "finish_map") {
@@ -131,6 +136,30 @@ function Get-TaskspaceNativeCadenceFacts {
                     nested_action_count = $nestedCount; terminal_candidate = [bool]$hasTerminalCandidate
                 })
             continue
+        }
+
+        if ($payloadType -eq "function_call_output") {
+            $outputCallIdProperty = $payload.PSObject.Properties["call_id"]
+            $outputCallId = if ($null -ne $outputCallIdProperty) { [string]$outputCallIdProperty.Value } else { "" }
+            if ($finishCallsAwaitingCanonicalRole.ContainsKey($outputCallId)) {
+                try {
+                    $controlResult = ([string]$payload.output) | ConvertFrom-Json
+                    $terminalStep = @($controlResult.steps | Where-Object { [string]$_.kind -eq "finish_map" }) | Select-Object -First 1
+                    if ($null -ne $terminalStep) {
+                        if ([string]$terminalStep.terminal_node_role -eq "work") { $finishMapLastWorkCount++ }
+                        if ([string]$terminalStep.terminal_node_role -eq "finish") { $finishMapReadyFinishCount++ }
+                    }
+                } catch {
+                    if ($Events) {
+                        $Events.Add([pscustomobject]@{
+                                event = "cadence_finish_result_parse_failed"
+                                path = $rolloutPath; row = $rowIndex; call_id = $outputCallId
+                                error = [string]$_.Exception.Message
+                            })
+                    }
+                }
+                $finishCallsAwaitingCanonicalRole.Remove($outputCallId)
+            }
         }
 
         if ($current.Count -gt 0) {

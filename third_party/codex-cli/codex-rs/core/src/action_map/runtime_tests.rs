@@ -255,7 +255,7 @@ fn rejected_complete_handoff_preserves_the_entire_prestate() {
 }
 
 #[test]
-fn complete_last_running_work_then_end_closes_last_work_root_and_finish_in_one_revision() {
+fn finish_map_closes_last_running_work_root_and_finish_in_one_revision() {
     let (mut state, owner, _) = initialized_state(
         &[("work", "Implement and verify")],
         &[("root", "work"), ("work", "finish")],
@@ -264,38 +264,41 @@ fn complete_last_running_work_then_end_closes_last_work_root_and_finish_in_one_r
     let summary = "Implemented and verified.".to_string();
 
     let before = state.snapshot();
-    let wrong_finish = state
-        .complete_last_running_work_then_end_for_main(
+    let wrong_terminal = state
+        .finish_map_for_main(
             owner,
             2,
-            "work".into(),
-            "work".into(),
+            "root".into(),
             summary.clone(),
-            "task-event-wrong-finish".into(),
+            "task-event-wrong-terminal".into(),
         )
-        .expect_err("the submitted Finish identity must match the canonical Map");
-    let wrong_finish: serde_json::Value =
-        serde_json::from_str(&wrong_finish).expect("typed Finish identity rejection");
-    assert_eq!(wrong_finish["violations"][0]["code"], "finish_id_mismatch");
+        .expect_err("Task Root is not a terminal entry node");
+    let wrong_terminal: serde_json::Value =
+        serde_json::from_str(&wrong_terminal).expect("typed terminal identity rejection");
+    assert_eq!(
+        wrong_terminal["violations"][0]["code"],
+        "transition_invalid"
+    );
     assert_eq!(state.snapshot(), before);
 
     let (outcome, events) = state
-        .complete_last_running_work_then_end_for_main(
+        .finish_map_for_main(
             owner,
             2,
             "work".into(),
-            "finish".into(),
             summary.clone(),
             "task-event-terminal".into(),
         )
         .expect("final completion and explicit end commit together");
 
     assert_eq!(outcome.revision, 3);
+    assert_eq!(outcome.terminal_node_id, "work");
+    assert_eq!(outcome.terminal_node_role, "work");
     assert_eq!(outcome.final_summary, summary);
     assert!(matches!(
         events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(graph))
-            if graph.operation == "complete_last_running_work_then_end" && graph.revision == 3
+            if graph.operation == "finish_map" && graph.revision == 3
     ));
     let map = state
         .snapshot()
@@ -325,7 +328,7 @@ fn complete_last_running_work_then_end_closes_last_work_root_and_finish_in_one_r
 }
 
 #[test]
-fn rejected_complete_last_running_work_then_end_reports_live_revision_and_preserves_prestate() {
+fn rejected_finish_map_reports_live_revision_and_preserves_prestate() {
     let (mut state, owner, _) = initialized_state(
         &[("first", "First branch"), ("second", "Second branch")],
         &[
@@ -339,11 +342,10 @@ fn rejected_complete_last_running_work_then_end_reports_live_revision_and_preser
     let before = state.snapshot();
 
     let error = state
-        .complete_last_running_work_then_end_for_main(
+        .finish_map_for_main(
             owner,
             2,
             "first".into(),
-            "finish".into(),
             "Too early".into(),
             "task-event-premature-terminal".into(),
         )
@@ -356,7 +358,7 @@ fn rejected_complete_last_running_work_then_end_reports_live_revision_and_preser
 }
 
 #[test]
-fn close_finish_with_no_active_work_is_agent_explicit_and_closes_root_and_finish_together() {
+fn finish_map_accepts_a_ready_finish_without_active_work() {
     let (mut state, owner, _) = initialized_state(
         &[("work", "Implement the change")],
         &[("root", "work"), ("work", "finish")],
@@ -364,8 +366,14 @@ fn close_finish_with_no_active_work_is_agent_explicit_and_closes_root_and_finish
     );
     let running_snapshot = state.snapshot();
     let rejection = state
-        .close_finish_with_no_active_work_for_main(owner, 2, "finish".into(), "Too early".into())
-        .expect_err("close_finish_with_no_active_work must not complete a running Work node");
+        .finish_map_for_main(
+            owner,
+            2,
+            "finish".into(),
+            "Too early".into(),
+            "task-event-premature-finish".into(),
+        )
+        .expect_err("finish_map must not close a pending Finish");
     let rejection: serde_json::Value =
         serde_json::from_str(&rejection).expect("typed terminal rejection");
     assert_eq!(rejection["state_commit"], false);
@@ -408,15 +416,23 @@ fn close_finish_with_no_active_work_is_agent_explicit_and_closes_root_and_finish
 
     let summary = "Implemented and verified exactly as requested.".to_string();
     let (outcome, events) = state
-        .close_finish_with_no_active_work_for_main(owner, 3, "finish".into(), summary.clone())
+        .finish_map_for_main(
+            owner,
+            3,
+            "finish".into(),
+            summary.clone(),
+            "task-event-ready-finish".into(),
+        )
         .expect("ready finish closes explicitly");
+    assert_eq!(outcome.terminal_node_id, "finish");
+    assert_eq!(outcome.terminal_node_role, "finish");
     assert_eq!(outcome.final_summary, summary);
     assert_eq!(outcome.delta.committed_revision, 4);
     assert_eq!(outcome.delta.graph_revision_batches.len(), 1);
     assert!(matches!(
         events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(event))
-            if event.operation == "close_finish_with_no_active_work" && event.revision == 4
+            if event.operation == "finish_map" && event.revision == 4
     ));
     let closed = state
         .snapshot()
@@ -436,6 +452,59 @@ fn close_finish_with_no_active_work_is_agent_explicit_and_closes_root_and_finish
             .status,
         "closed"
     );
+}
+
+#[test]
+fn finish_map_closes_ready_finish_after_last_subagent_result() {
+    let (mut state, owner, _) = initialized_state(
+        &[
+            ("setup", "Prepare the delegated work"),
+            ("delegated", "Complete the final verification"),
+        ],
+        &[
+            ("root", "setup"),
+            ("setup", "delegated"),
+            ("delegated", "finish"),
+        ],
+        "setup",
+    );
+    state
+        .transition_node_for_main(
+            owner,
+            2,
+            "setup".into(),
+            NodeTransition::Complete,
+            "task-event-setup".into(),
+        )
+        .expect("setup completion makes delegated work ready");
+    let (assignment, _) = state
+        .prepare_spawn_assignment(owner, "delegated", Some("delegated"))
+        .expect("ready final work can be delegated");
+    let assignment = assignment.expect("TaskSpace creates a subagent assignment");
+    let child = ThreadId::new();
+    state
+        .attach_agent_to_lease(&assignment.lease_id, child, None)
+        .expect("subagent attaches to its lease");
+    state
+        .record_child_result(child, &AgentStatus::Completed(Some("verified".into())))
+        .expect("subagent result completes the final Work");
+
+    let ready = state.snapshot().map.expect("open Map remains visible");
+    assert!(ready.finish_ready);
+    assert_eq!(ready.current_node_id, None);
+    assert!(!ready.complete);
+
+    let (outcome, _) = state
+        .finish_map_for_main(
+            owner,
+            ready.revision,
+            "finish".into(),
+            "Delegated verification completed.".into(),
+            "task-event-subagent-finish".into(),
+        )
+        .expect("Agent explicitly closes the Ready Finish");
+    assert_eq!(outcome.terminal_node_role, "finish");
+    assert!(state.snapshot().map.expect("closed Map").complete);
 }
 
 #[test]

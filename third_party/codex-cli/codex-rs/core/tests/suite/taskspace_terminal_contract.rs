@@ -65,11 +65,7 @@ fn finish_arguments() -> String {
     json!({
         "action": "finish_map",
         "expected_revision": 3,
-        "terminal_state": "last_running_work",
         "terminal_node_id": "verify",
-        "incomplete_work_node_ids": ["verify"],
-        "finish_node_id": "finish",
-        "finish_status": "pending",
         "final_summary": FINAL_SUMMARY
     })
     .to_string()
@@ -316,7 +312,7 @@ async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Resul
                 item,
                 codex_protocol::protocol::RolloutItem::EventMsg(EventMsg::MapRuntime(
                     MapRuntimeEvent::GraphRevisionCommitted(event)
-                )) if event.operation == "complete_last_running_work_then_end"
+                )) if event.operation == "finish_map"
             )
         })
         .count();

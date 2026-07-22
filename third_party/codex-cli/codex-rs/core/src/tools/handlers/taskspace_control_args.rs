@@ -36,11 +36,7 @@ pub(crate) enum TaskSpaceControlArgs {
     },
     FinishMap {
         expected_revision: u64,
-        terminal_state: TaskSpaceTerminalState,
         terminal_node_id: String,
-        incomplete_work_node_ids: Vec<String>,
-        finish_node_id: String,
-        finish_status: TaskSpaceFinishStatus,
         final_summary: String,
     },
     ExpandNodes {
@@ -55,18 +51,6 @@ pub(crate) enum TaskSpaceControlArgs {
         max_bytes: Option<usize>,
     },
     ReadMap,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TaskSpaceTerminalState {
-    LastRunningWork,
-    NoActiveWorkReadyFinish,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TaskSpaceFinishStatus {
-    Pending,
-    Ready,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -148,63 +132,17 @@ impl TaskSpaceControlArgs {
             Self::UnblockNode { node_id, .. } => validate_node_id("unblock_node", node_id),
             Self::ReworkNode { node_id, .. } => validate_node_id("rework_node", node_id),
             Self::FinishMap {
-                terminal_state,
                 terminal_node_id,
-                incomplete_work_node_ids,
-                finish_node_id,
-                finish_status,
                 final_summary,
                 ..
             } => {
                 if terminal_node_id.trim().is_empty() {
                     return invalid("finish_map requires a non-empty terminal_node_id");
                 }
-                if finish_node_id.trim().is_empty() {
-                    return invalid("finish_map requires a non-empty finish_node_id");
-                }
                 if final_summary.trim().is_empty() {
                     return invalid("finish_map requires a non-empty final_summary");
                 }
-                validate_unique_ids(
-                    incomplete_work_node_ids,
-                    "finish_map.incomplete_work_node_ids",
-                )?;
-                match terminal_state {
-                    TaskSpaceTerminalState::LastRunningWork
-                        if *finish_status != TaskSpaceFinishStatus::Pending =>
-                    {
-                        invalid("finish_map last_running_work requires finish_status=pending")
-                    }
-                    TaskSpaceTerminalState::LastRunningWork
-                        if incomplete_work_node_ids.as_slice() != [terminal_node_id.as_str()] =>
-                    {
-                        invalid(
-                            "finish_map last_running_work requires incomplete_work_node_ids=[terminal_node_id]",
-                        )
-                    }
-                    TaskSpaceTerminalState::NoActiveWorkReadyFinish
-                        if *finish_status != TaskSpaceFinishStatus::Ready =>
-                    {
-                        invalid(
-                            "finish_map no_active_work_ready_finish requires finish_status=ready",
-                        )
-                    }
-                    TaskSpaceTerminalState::NoActiveWorkReadyFinish
-                        if !incomplete_work_node_ids.is_empty() =>
-                    {
-                        invalid(
-                            "finish_map no_active_work_ready_finish requires incomplete_work_node_ids=[]",
-                        )
-                    }
-                    TaskSpaceTerminalState::NoActiveWorkReadyFinish
-                        if terminal_node_id != finish_node_id =>
-                    {
-                        invalid(
-                            "finish_map no_active_work_ready_finish requires terminal_node_id=finish_node_id",
-                        )
-                    }
-                    _ => Ok(()),
-                }
+                Ok(())
             }
             Self::ExpandNodes { node_ids } => {
                 require_non_empty(node_ids, "node_ids")?;
@@ -242,19 +180,6 @@ impl TaskSpaceControlArgs {
             Self::ReadMap => Ok(()),
         }
     }
-}
-
-fn validate_unique_ids(ids: &[String], field: &str) -> Result<(), FunctionCallError> {
-    let mut unique = HashSet::with_capacity(ids.len());
-    for id in ids {
-        if id.trim().is_empty() {
-            return invalid(format!("{field} requires non-empty node IDs"));
-        }
-        if !unique.insert(id) {
-            return invalid(format!("{field} requires unique node IDs"));
-        }
-    }
-    Ok(())
 }
 
 pub(crate) fn parse_taskspace_control_args(

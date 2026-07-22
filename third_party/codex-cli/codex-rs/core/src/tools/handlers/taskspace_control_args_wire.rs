@@ -1,8 +1,6 @@
 use super::TaskSpaceControlArgs;
-use super::TaskSpaceFinishStatus;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
-use super::TaskSpaceTerminalState;
 use super::invalid_error;
 use crate::function_tool::FunctionCallError;
 use serde::Deserialize;
@@ -52,44 +50,8 @@ struct FinishMapArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
-    terminal_state: TerminalState,
     terminal_node_id: String,
-    incomplete_work_node_ids: Vec<String>,
-    finish_node_id: String,
-    finish_status: FinishStatus,
     final_summary: String,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum TerminalState {
-    LastRunningWork,
-    NoActiveWorkReadyFinish,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum FinishStatus {
-    Pending,
-    Ready,
-}
-
-impl From<TerminalState> for TaskSpaceTerminalState {
-    fn from(value: TerminalState) -> Self {
-        match value {
-            TerminalState::LastRunningWork => Self::LastRunningWork,
-            TerminalState::NoActiveWorkReadyFinish => Self::NoActiveWorkReadyFinish,
-        }
-    }
-}
-
-impl From<FinishStatus> for TaskSpaceFinishStatus {
-    fn from(value: FinishStatus) -> Self {
-        match value {
-            FinishStatus::Pending => Self::Pending,
-            FinishStatus::Ready => Self::Ready,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,11 +163,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
             let parsed = deserialize_arguments::<FinishMapArgs>(arguments)?;
             Ok(TaskSpaceControlArgs::FinishMap {
                 expected_revision: parsed.expected_revision,
-                terminal_state: parsed.terminal_state.into(),
                 terminal_node_id: parsed.terminal_node_id,
-                incomplete_work_node_ids: parsed.incomplete_work_node_ids,
-                finish_node_id: parsed.finish_node_id,
-                finish_status: parsed.finish_status.into(),
                 final_summary: parsed.final_summary,
             })
         }

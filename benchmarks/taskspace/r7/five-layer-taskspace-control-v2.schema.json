@@ -183,7 +183,7 @@
             "additionalProperties": false
           },
           {
-            "description": "Close the Map from one explicitly declared terminal lifecycle snapshot. last_running_work atomically completes terminal_node_id, Finish, and Root when incomplete_work_node_ids contains only that Work and Finish is Pending. no_active_work_ready_finish closes the named Ready Finish and Root when incomplete_work_node_ids is empty. The Runtime validates the submitted revision, identities, and exact canonical state; it never selects the state.",
+            "description": "Explicitly close the current Map through the Agent-selected terminal entry node. A final Running Work is completed in the same atomic transaction; an already Ready Finish is closed directly when no Work remains active. The Runtime validates the submitted revision, node identity, binding, and canonical terminal frontier without interpreting task meaning or choosing a node.",
             "type": "object",
             "properties": {
               "action": {
@@ -196,36 +196,9 @@
                 "type": "integer",
                 "minimum": 0
               },
-              "terminal_state": {
-                "description": "Choose last_running_work when terminal_node_id is the only incomplete Work and is Running while Finish is Pending. Choose no_active_work_ready_finish when terminal_node_id is the unique Ready Finish and every Work is completed.",
-                "type": "string",
-                "enum": [
-                  "last_running_work",
-                  "no_active_work_ready_finish"
-                ]
-              },
               "terminal_node_id": {
-                "description": "The last Running Work node for last_running_work, or the unique Ready Finish node for no_active_work_ready_finish.",
+                "description": "The Agent-selected terminal entry node: the current final Running Work, or the unique Ready Finish when no Work remains active.",
                 "type": "string"
-              },
-              "incomplete_work_node_ids": {
-                "description": "Exact incomplete Work node IDs before closure. Use exactly [terminal_node_id] for last_running_work and [] for no_active_work_ready_finish.",
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "finish_node_id": {
-                "description": "The unique Finish node identifier.",
-                "type": "string"
-              },
-              "finish_status": {
-                "description": "Use pending with last_running_work and ready with no_active_work_ready_finish.",
-                "type": "string",
-                "enum": [
-                  "pending",
-                  "ready"
-                ]
               },
               "final_summary": {
                 "type": "string"
@@ -234,11 +207,7 @@
             "required": [
               "action",
               "expected_revision",
-              "terminal_state",
               "terminal_node_id",
-              "incomplete_work_node_ids",
-              "finish_node_id",
-              "finish_status",
               "final_summary"
             ],
             "additionalProperties": false

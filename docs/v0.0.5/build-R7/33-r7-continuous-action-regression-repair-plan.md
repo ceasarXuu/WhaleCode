@@ -36,7 +36,7 @@ Standard 模式、普通 Tool handler、权限、sandbox、approval、hook、MCP
 | `initialize_map` | 第一个真实动作的 `taskspace_action` | 否 |
 | `bind_node` | 该节点第一个真实动作的 `taskspace_action` | 否 |
 | `complete_then_continue` | 后继节点第一个真实动作的 `taskspace_action` | 否 |
-| `finish_map` | 终态 `taskspace_control`；用 `terminal_state` 区分最后 Running Work 与无 active Work 的 Ready Finish | 是 |
+| `finish_map` | 终态 `taskspace_control`；Agent 只选择终态入口节点，不选择底层前态事务 | 是 |
 
 `mutate_graph`、`block_node`、`unblock_node`、`rework_node`、`expand_nodes`、`read_map` 和
 `read_output_ref` 仍是独立 Map 操作。Runtime 不根据命令、Patch、reasoning 或任务内容选择节点、补动作或改写交接。
@@ -203,3 +203,17 @@ Agent 已拥有 `verify` Running 事实，失败原因不是状态反馈丢失�
   `finish_status=ready`；
 - parser 只校验 Agent 参数内部自洽，Rooted DAG 继续校验真实 revision、Finish 身份与生命周期状态；
 - L2 对应升级为 `taskspace-core-v2.8`，不要求 Runtime 读取 reasoning 或自动决定终态分支。
+
+第五轮三次复验证明等形快照仍然无效：3/3 都在 `verify` Running 时先提交了内部自洽但不真实的
+`no_active_work_ready_finish + [] + ready`，另有一次在 `fix` Running、`verify` Pending 时过早声称 last Work。
+这些字段只是 Agent 自报断言，不能证明来自 canonical Map；`terminal_state` 仍在同一 action 内保留了两个竞争入口。
+
+第六轮因此把产品合同收敛为真正单义的状态机操作：
+
+- `finish_map` 只接收 `expected_revision`、`terminal_node_id` 和原样 `final_summary`；
+- Agent 仍明确决定何时结束，并选择当前最终 Running Work 或已经 Ready 的唯一 Finish 作为终态入口；
+- Rooted DAG 用一个原子事务按该节点的 canonical role/status 执行合法迁移：Work 入口先完成 Work 再闭合，Finish
+  入口只在无未完成 Work 且 Finish Ready 时闭合；
+- Runtime 不尝试寻找可成功节点、不读取 reasoning、不修复参数；非法节点、binding、revision 或 frontier 均零提交拒绝；
+- `terminal_node_role=work|finish` 只在结果中忠实反馈实际 canonical 路径，不再作为 Agent 输入分支；
+- L2 升级为 `taskspace-core-v2.9`，合法的 subagent-final/no-active 恢复路径保持可用。

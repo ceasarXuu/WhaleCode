@@ -20,12 +20,11 @@ pub(crate) enum FinishActionMapError {
 }
 
 impl Session {
-    pub(crate) async fn complete_last_running_work_then_end_action_map(
+    pub(crate) async fn finish_action_map(
         &self,
         turn_context: &TurnContext,
         expected_revision: u64,
-        current_node_id: String,
-        finish_node_id: String,
+        terminal_node_id: String,
         final_summary: String,
         source_event_ref: String,
     ) -> Result<ActionMapTerminalOutcome, FinishActionMapError> {
@@ -33,40 +32,12 @@ impl Session {
             let state = self.state.lock().await;
             let mut candidate = state.action_map_runtime.clone();
             let (outcome, events) = candidate
-                .complete_last_running_work_then_end_for_main(
+                .finish_map_for_main(
                     self.conversation_id,
                     expected_revision,
-                    current_node_id,
-                    finish_node_id,
+                    terminal_node_id,
                     final_summary,
                     source_event_ref,
-                )
-                .map_err(FinishActionMapError::Rejected)?;
-            let terminal_event = Self::terminal_commit_event(events, candidate.snapshot())
-                .map_err(FinishActionMapError::Internal)?;
-            (outcome, terminal_event, candidate)
-        };
-        self.install_terminal_candidate(turn_context, expected_revision, terminal_event, candidate)
-            .await?;
-        Ok(outcome)
-    }
-
-    pub(crate) async fn close_finish_with_no_active_work_action_map(
-        &self,
-        turn_context: &TurnContext,
-        expected_revision: u64,
-        finish_node_id: String,
-        final_summary: String,
-    ) -> Result<ActionMapTerminalOutcome, FinishActionMapError> {
-        let (outcome, terminal_event, candidate) = {
-            let state = self.state.lock().await;
-            let mut candidate = state.action_map_runtime.clone();
-            let (outcome, events) = candidate
-                .close_finish_with_no_active_work_for_main(
-                    self.conversation_id,
-                    expected_revision,
-                    finish_node_id,
-                    final_summary,
                 )
                 .map_err(FinishActionMapError::Rejected)?;
             let terminal_event = Self::terminal_commit_event(events, candidate.snapshot())
@@ -137,10 +108,7 @@ impl Session {
         for event in events {
             match event {
                 MapRuntimeEvent::GraphRevisionCommitted(event)
-                    if matches!(
-                        event.operation.as_str(),
-                        "close_finish_with_no_active_work" | "complete_last_running_work_then_end"
-                    ) && graph_revision.is_none() =>
+                    if event.operation == "finish_map" && graph_revision.is_none() =>
                 {
                     graph_revision = Some(event);
                 }

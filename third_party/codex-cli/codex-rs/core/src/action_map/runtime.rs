@@ -79,9 +79,8 @@ use super::rooted_dag::NodeRole;
 use super::rooted_dag::NodeTransition;
 use super::rooted_dag::Rejection;
 use super::rooted_dag::TaskSpaceMap;
-use super::rooted_dag::close_finish_with_no_active_work;
-use super::rooted_dag::complete_last_running_work_then_end;
 use super::rooted_dag::complete_then_bind;
+use super::rooted_dag::finish_map;
 use super::rooted_dag::initialize;
 use super::rooted_dag::mutate_graph;
 use super::rooted_dag::transition_node;
@@ -316,6 +315,8 @@ pub(crate) struct ActionMapCompleteHandoffOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapTerminalOutcome {
     pub(crate) map_id: ActionMapId,
+    pub(crate) terminal_node_id: MapNodeId,
+    pub(crate) terminal_node_role: String,
     pub(crate) revision: u64,
     pub(crate) final_summary: String,
     pub(crate) delta: ActionMapControlDelta,
@@ -3800,21 +3801,19 @@ impl ActionMapRuntimeState {
         ))
     }
 
-    pub(crate) fn complete_last_running_work_then_end_for_main(
+    pub(crate) fn finish_map_for_main(
         &mut self,
         owner_session_id: ThreadId,
         expected_revision: u64,
-        current_node_id: String,
-        finish_node_id: String,
+        terminal_node_id: String,
         final_summary: String,
         source_event_ref: String,
     ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
         let mut candidate = self.clone();
-        let outcome = candidate.complete_last_running_work_then_end_for_main_inner(
+        let outcome = candidate.finish_map_for_main_inner(
             owner_session_id,
             expected_revision,
-            current_node_id,
-            finish_node_id,
+            terminal_node_id,
             final_summary,
             source_event_ref,
         )?;
@@ -3822,12 +3821,11 @@ impl ActionMapRuntimeState {
         Ok(outcome)
     }
 
-    fn complete_last_running_work_then_end_for_main_inner(
+    fn finish_map_for_main_inner(
         &mut self,
         owner_session_id: ThreadId,
         expected_revision: u64,
-        current_node_id: String,
-        finish_node_id: String,
+        terminal_node_id: String,
         final_summary: String,
         source_event_ref: String,
     ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
@@ -3836,7 +3834,7 @@ impl ActionMapRuntimeState {
             .active_map_id
             .clone()
             .ok_or_else(|| "TaskSpace has no active rooted map.".to_string())?;
-        {
+        let (terminal_node_role, finish_node_id) = {
             let map = self
                 .maps
                 .get(&map_id)
@@ -3844,73 +3842,84 @@ impl ActionMapRuntimeState {
             if map.owner_session_id != Some(owner_session_id) {
                 return Err("TaskSpace rooted map owner mismatch.".to_string());
             }
+            (
+                map.nodes.get(&terminal_node_id).map(|node| node.role),
+                map.finish_node_id.clone(),
+            )
+        };
+        if terminal_node_role == Some(NodeRole::Work) {
+            self.validate_main_binding(owner_session_id)?;
+            if self.current_main_node_id.as_deref() != Some(terminal_node_id.as_str()) {
+                return Err(format!(
+                    "TaskSpace node `{terminal_node_id}` is not the current binding."
+                ));
+            }
+            self.validate_no_main_tool_reservations_for_node(
+                &map_id,
+                &terminal_node_id,
+                "finish_map",
+            )?;
         }
-        self.validate_main_binding(owner_session_id)?;
-        if self.current_main_node_id.as_deref() != Some(current_node_id.as_str()) {
-            return Err(format!(
-                "TaskSpace node `{current_node_id}` is not the current binding."
-            ));
-        }
-        self.validate_no_main_tool_reservations_for_node(
-            &map_id,
-            &current_node_id,
-            "complete_last_running_work_then_end",
-        )?;
         let committed = {
             let map = self
                 .maps
                 .get(&map_id)
                 .expect("rooted map was validated before terminal completion");
-            complete_last_running_work_then_end(
+            finish_map(
                 map,
                 expected_revision,
-                current_node_id.clone(),
-                finish_node_id.clone(),
+                terminal_node_id.clone(),
                 final_summary.clone(),
             )
             .map_err(rooted_rejection_message)?
         };
+        let terminal_node_role =
+            terminal_node_role.expect("a committed finish_map must have a canonical terminal node");
         let revision = committed.map.revision;
-        let graph_batch = graph_revision_committed_record(
-            &committed.events,
-            "complete_last_running_work_then_end",
-        );
-        let old_lease_id = self
-            .current_main_lease_id
-            .clone()
-            .ok_or_else(|| "TaskSpace current binding has no main lease.".to_string())?;
-        let result_id = self.next_result_id();
+        let graph_batch = graph_revision_committed_record(&committed.events, "finish_map");
+        let old_lease_id = if terminal_node_role == NodeRole::Work {
+            Some(
+                self.current_main_lease_id
+                    .clone()
+                    .ok_or_else(|| "TaskSpace terminal Work has no main lease.".to_string())?,
+            )
+        } else {
+            None
+        };
+        let result_id = old_lease_id.as_ref().map(|_| self.next_result_id());
         let map = self
             .maps
             .get_mut(&map_id)
             .expect("validated rooted map remains present");
         map.commit_graph(committed.map, committed.events);
-        map.leases.remove(&old_lease_id);
-        map.results.insert(
-            result_id.clone(),
-            NodeResult {
-                id: result_id.clone(),
-                assignment_id: old_lease_id.clone(),
-                map_id: map_id.clone(),
-                node_id: current_node_id.clone(),
+        if let (Some(old_lease_id), Some(result_id)) = (old_lease_id, result_id) {
+            map.leases.remove(&old_lease_id);
+            map.results.insert(
+                result_id.clone(),
+                NodeResult {
+                    id: result_id.clone(),
+                    assignment_id: old_lease_id,
+                    map_id: map_id.clone(),
+                    node_id: terminal_node_id.clone(),
+                    kind: NodeResultKind::Result,
+                    action_class: None,
+                    tool_success: None,
+                    source_event_ref,
+                    artifact_refs: Vec::new(),
+                    source_thread_id: owner_session_id,
+                    created_at_ms: now_ms(),
+                },
+            );
+            let completed_node = map
+                .nodes
+                .get_mut(&terminal_node_id)
+                .expect("completed terminal Work exists");
+            completed_node.active_lease = None;
+            completed_node.result_context.push(NodeResultRef {
+                id: result_id,
                 kind: NodeResultKind::Result,
-                action_class: None,
-                tool_success: None,
-                source_event_ref,
-                artifact_refs: Vec::new(),
-                source_thread_id: owner_session_id,
-                created_at_ms: now_ms(),
-            },
-        );
-        let completed_node = map
-            .nodes
-            .get_mut(&current_node_id)
-            .expect("completed terminal node exists");
-        completed_node.active_lease = None;
-        completed_node.result_context.push(NodeResultRef {
-            id: result_id,
-            kind: NodeResultKind::Result,
-        });
+            });
+        }
         self.active_map_id = None;
         self.active_task_id = None;
         self.current_main_node_id = None;
@@ -3918,6 +3927,20 @@ impl ActionMapRuntimeState {
         self.routing_required = true;
         self.bootstrap_required = false;
         let graph_event = MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone());
+        let mut trace_tags = vec![
+            "schema:taskspace-rooted-terminal-event-v1".to_string(),
+            "operation:finish_map".to_string(),
+            format!("terminal_node_id:{terminal_node_id}"),
+            format!("terminal_node_role:{}", terminal_node_role.as_str()),
+            format!("finish_node_id:{finish_node_id}"),
+            format!("revision:{revision}"),
+            "state_commit:true".to_string(),
+            "summary_source:agent".to_string(),
+            "runtime_inferred_semantics:false".to_string(),
+        ];
+        if terminal_node_role == NodeRole::Work {
+            trace_tags.push(format!("completed_node_id:{terminal_node_id}"));
+        }
         let trace_event = self.record_runtime_budget_trace_event(
             "terminal_committed",
             None,
@@ -3925,20 +3948,13 @@ impl ActionMapRuntimeState {
             "finish".to_string(),
             None,
             true,
-            vec![
-                "schema:taskspace-rooted-terminal-event-v1".to_string(),
-                "operation:complete_last_running_work_then_end".to_string(),
-                format!("completed_node_id:{current_node_id}"),
-                format!("finish_node_id:{finish_node_id}"),
-                format!("revision:{revision}"),
-                "state_commit:true".to_string(),
-                "summary_source:agent".to_string(),
-                "runtime_inferred_semantics:false".to_string(),
-            ],
+            trace_tags,
         );
         Ok((
             ActionMapTerminalOutcome {
                 map_id: map_id.clone(),
+                terminal_node_id,
+                terminal_node_role: terminal_node_role.as_str().to_string(),
                 revision,
                 final_summary,
                 delta: ActionMapControlDelta {
@@ -3949,99 +3965,6 @@ impl ActionMapRuntimeState {
                 },
             },
             vec![graph_event, trace_event],
-        ))
-    }
-
-    pub(crate) fn close_finish_with_no_active_work_for_main(
-        &mut self,
-        owner_session_id: ThreadId,
-        expected_revision: u64,
-        finish_node_id: String,
-        final_summary: String,
-    ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
-        let mut candidate = self.clone();
-        let outcome = candidate.close_finish_with_no_active_work_for_main_inner(
-            owner_session_id,
-            expected_revision,
-            finish_node_id,
-            final_summary,
-        )?;
-        *self = candidate;
-        Ok(outcome)
-    }
-
-    fn close_finish_with_no_active_work_for_main_inner(
-        &mut self,
-        owner_session_id: ThreadId,
-        expected_revision: u64,
-        finish_node_id: String,
-        final_summary: String,
-    ) -> Result<(ActionMapTerminalOutcome, Vec<MapRuntimeEvent>), String> {
-        self.validate_routing_complete()?;
-        let map_id = self
-            .active_map_id
-            .clone()
-            .ok_or_else(|| "TaskSpace has no active rooted map.".to_string())?;
-        let committed = {
-            let map = self
-                .maps
-                .get(&map_id)
-                .ok_or_else(|| format!("TaskSpace rooted map `{map_id}` is missing."))?;
-            if map.owner_session_id != Some(owner_session_id) {
-                return Err("TaskSpace rooted map owner mismatch.".to_string());
-            }
-            close_finish_with_no_active_work(
-                map,
-                expected_revision,
-                finish_node_id.clone(),
-                final_summary.clone(),
-            )
-            .map_err(rooted_rejection_message)?
-        };
-        let revision = committed.map.revision;
-        let graph_batch =
-            graph_revision_committed_record(&committed.events, "close_finish_with_no_active_work");
-        let graph_event = MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone());
-        self.maps
-            .get_mut(&map_id)
-            .expect("validated rooted map remains present")
-            .commit_graph(committed.map, committed.events);
-        self.active_map_id = None;
-        self.active_task_id = None;
-        self.current_main_node_id = None;
-        self.current_main_lease_id = None;
-        self.routing_required = true;
-        self.bootstrap_required = false;
-        let event = self.record_runtime_budget_trace_event(
-            "terminal_committed",
-            None,
-            map_id.clone(),
-            "finish".to_string(),
-            None,
-            true,
-            vec![
-                "schema:taskspace-rooted-terminal-event-v1".to_string(),
-                "operation:close_finish_with_no_active_work".to_string(),
-                format!("finish_node_id:{finish_node_id}"),
-                format!("revision:{revision}"),
-                "state_commit:true".to_string(),
-                "summary_source:agent".to_string(),
-                "runtime_inferred_semantics:false".to_string(),
-            ],
-        );
-        Ok((
-            ActionMapTerminalOutcome {
-                map_id: map_id.clone(),
-                revision,
-                final_summary,
-                delta: ActionMapControlDelta {
-                    map_id,
-                    committed_revision: revision,
-                    graph_revision_batches: vec![graph_batch],
-                    node_detail_events: Vec::new(),
-                },
-            },
-            vec![graph_event, event],
         ))
     }
 

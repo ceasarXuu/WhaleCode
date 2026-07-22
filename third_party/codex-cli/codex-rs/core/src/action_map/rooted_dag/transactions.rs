@@ -219,62 +219,58 @@ pub(crate) fn complete_then_bind(
     )
 }
 
-pub(crate) fn complete_last_running_work_then_end(
+pub(crate) fn finish_map(
     current: &TaskSpaceMap,
     expected_revision: Revision,
-    current_node_id: NodeId,
-    finish_node_id: NodeId,
+    terminal_node_id: NodeId,
     final_summary: String,
 ) -> Result<Commit, Rejection> {
     require_revision(current, expected_revision)?;
-    if current.finish_node_id != finish_node_id {
+    let revision = next_revision(current)?;
+    let Some(terminal_node) = current.node(&terminal_node_id) else {
         return Err(Rejection::one(
             current.revision,
-            ViolationCode::FinishIdMismatch,
-            finish_node_id,
+            ViolationCode::TransitionInvalid,
+            terminal_node_id,
         ));
-    }
-    let revision = next_revision(current)?;
-    let mut events = completion_events(current, revision, current_node_id)?;
-    let candidate = apply_batch(
-        Some(current),
-        &EventBatch::new(current.id.clone(), revision, events.clone()),
-    )
-    .map_err(|error| rejection_from_replay(current.revision, error))?;
-    validate_terminal_state(&candidate, &final_summary).map_err(|mut rejection| {
-        rejection.current_revision = current.revision;
-        rejection
-    })?;
+    };
+    let mut events = match terminal_node.role {
+        NodeRole::Work => {
+            let events = completion_events(current, revision, terminal_node_id)?;
+            let candidate = apply_batch(
+                Some(current),
+                &EventBatch::new(current.id.clone(), revision, events.clone()),
+            )
+            .map_err(|error| rejection_from_replay(current.revision, error))?;
+            validate_terminal_state(&candidate, &final_summary).map_err(|mut rejection| {
+                rejection.current_revision = current.revision;
+                rejection
+            })?;
+            events
+        }
+        NodeRole::Finish if terminal_node_id == current.finish_node_id => {
+            validate_terminal_state(current, &final_summary)?;
+            Vec::new()
+        }
+        NodeRole::Finish => {
+            return Err(Rejection::one(
+                current.revision,
+                ViolationCode::FinishIdMismatch,
+                terminal_node_id,
+            ));
+        }
+        NodeRole::TaskRoot => {
+            return Err(Rejection::one(
+                current.revision,
+                ViolationCode::TransitionInvalid,
+                terminal_node_id,
+            ));
+        }
+    };
     events.push(MapEvent::TerminalCommitted { final_summary });
     commit(
         Some(current),
         EventBatch::new(current.id.clone(), revision, events),
-    )
-}
-
-pub(crate) fn close_finish_with_no_active_work(
-    current: &TaskSpaceMap,
-    expected_revision: Revision,
-    finish_node_id: NodeId,
-    final_summary: String,
-) -> Result<Commit, Rejection> {
-    require_revision(current, expected_revision)?;
-    if current.finish_node_id != finish_node_id {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::FinishIdMismatch,
-            finish_node_id,
-        ));
-    }
-    validate_terminal_state(current, &final_summary)?;
-    let revision = next_revision(current)?;
-    commit(
-        Some(current),
-        EventBatch::new(
-            current.id.clone(),
-            revision,
-            vec![MapEvent::TerminalCommitted { final_summary }],
-        ),
     )
 }
 

@@ -209,7 +209,7 @@ function New-SideFixture {
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"; call_id = "terminal-failure-control"
-                    arguments = (@{ action = "finish_map"; expected_revision = 3; terminal_state = "no_active_work_ready_finish"; terminal_node_id = "finish"; incomplete_work_node_ids = @(); finish_node_id = "finish"; finish_status = "ready"; final_summary = "Rejected candidate" } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "finish_map"; expected_revision = 3; terminal_node_id = "finish"; final_summary = "Rejected candidate" } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call_output"; call_id = "terminal-failure-control"
@@ -223,7 +223,7 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
-                    arguments = (@{ action = "finish_map"; expected_revision = 3; terminal_state = "no_active_work_ready_finish"; terminal_node_id = "finish"; incomplete_work_node_ids = @(); finish_node_id = "finish"; finish_status = "ready"; final_summary = "done" } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "finish_map"; expected_revision = 3; terminal_node_id = "finish"; final_summary = "done" } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "done" }) } }
         )
@@ -258,7 +258,7 @@ $completeArgs = @{
     required_next_call = "apply_patch"
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
-    action = "finish_map"; expected_revision = 4; terminal_state = "last_running_work"; terminal_node_id = "plan"; incomplete_work_node_ids = @("plan"); finish_node_id = "finish"; finish_status = "pending"; final_summary = "Agent final"
+    action = "finish_map"; expected_revision = 4; terminal_node_id = "plan"; final_summary = "Agent final"
 } | ConvertTo-Json -Compress -Depth 10
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
@@ -274,7 +274,7 @@ Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "complete"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "patch"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish"; arguments = $terminalArgs } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish"; output = (@{ schema_version = "TaskSpaceControlResultV2"; status = "committed"; success = $true; steps = @(@{ kind = "finish_map"; terminal_node_id = "plan"; terminal_node_role = "work" }) } | ConvertTo-Json -Compress -Depth 10) } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "Agent final" }) } }
 ) (Join-Path $cadenceFixture "rollout.jsonl")
 $cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null

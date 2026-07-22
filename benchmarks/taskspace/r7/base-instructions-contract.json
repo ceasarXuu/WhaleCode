@@ -26,8 +26,8 @@
     }
   },
   "taskspace_core_protocol": {
-    "version": "taskspace-core-v2.8",
-    "sha256": "733622424cc520a6403f36af3df6f6430d50eef796d23b1793dabd8e462bfa60",
+    "version": "taskspace-core-v2.9",
+    "sha256": "9764007b78c66a6a0fea625740c322f021d250f1b6cd0fe4d840b55084b79ac4",
     "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
     "wire_role": "system",
     "message_index": 1,
@@ -176,6 +176,17 @@
       "core_protocol_sha256": "733622424cc520a6403f36af3df6f6430d50eef796d23b1793dabd8e462bfa60",
       "status": "production_active",
       "change": "require an exact terminal lifecycle snapshot inside the unified finish_map action"
+    },
+    {
+      "version": "2.0.10",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.9",
+      "core_protocol_sha256": "9764007b78c66a6a0fea625740c322f021d250f1b6cd0fe4d840b55084b79ac4",
+      "status": "production_active",
+      "change": "remove Agent-visible terminal prestate branches and use one terminal entry node contract"
     }
   ],
   "diagnostic_validation": {

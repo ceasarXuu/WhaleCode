@@ -25,23 +25,22 @@ fn accepts_standalone_graph_and_terminal_actions() {
         r#"{"action":"block_node","expected_revision":2,"node_id":"new"}"#,
         r#"{"action":"unblock_node","expected_revision":3,"node_id":"new"}"#,
         r#"{"action":"rework_node","expected_revision":4,"node_id":"new"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_state":"last_running_work","terminal_node_id":"new","incomplete_work_node_ids":["new"],"finish_node_id":"finish","finish_status":"pending","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":6,"terminal_state":"no_active_work_ready_finish","terminal_node_id":"finish","incomplete_work_node_ids":[],"finish_node_id":"finish","finish_status":"ready","final_summary":"Done"}"#,
+        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done"}"#,
+        r#"{"action":"finish_map","expected_revision":6,"terminal_node_id":"finish","final_summary":"Done"}"#,
     ] {
         parse_taskspace_control_args(arguments).expect(arguments);
     }
 }
 
 #[test]
-fn finish_map_requires_exact_uniform_state_declaration() {
+fn finish_map_rejects_missing_identity_and_removed_prestate_fields() {
     for arguments in [
-        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","incomplete_work_node_ids":["new"],"finish_node_id":"finish","finish_status":"pending","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_state":"last_running_work","incomplete_work_node_ids":["new"],"finish_node_id":"finish","finish_status":"pending","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_state":"unknown","terminal_node_id":"new","incomplete_work_node_ids":["new"],"finish_node_id":"finish","finish_status":"pending","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_state":"last_running_work","terminal_node_id":"new","incomplete_work_node_ids":["new","verify"],"finish_node_id":"finish","finish_status":"pending","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_state":"last_running_work","terminal_node_id":"new","incomplete_work_node_ids":["new"],"finish_node_id":"finish","finish_status":"ready","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_state":"no_active_work_ready_finish","terminal_node_id":"finish","incomplete_work_node_ids":["new"],"finish_node_id":"finish","finish_status":"ready","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_state":"no_active_work_ready_finish","terminal_node_id":"other","incomplete_work_node_ids":[],"finish_node_id":"finish","finish_status":"ready","final_summary":"Done"}"#,
+        r#"{"action":"finish_map","expected_revision":5,"final_summary":"Done"}"#,
+        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new"}"#,
+        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","terminal_state":"last_running_work"}"#,
+        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","incomplete_work_node_ids":["new"]}"#,
+        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","finish_node_id":"finish"}"#,
+        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","finish_status":"pending"}"#,
     ] {
         assert!(
             parse_taskspace_control_args(arguments).is_err(),
@@ -108,8 +107,8 @@ fn validates_control_ids_summaries_and_edges() {
     );
     for arguments in [
         r#"{"action":"block_node","expected_revision":2,"node_id":""}"#,
-        r#"{"action":"finish_map","expected_revision":3,"terminal_state":"last_running_work","terminal_node_id":"work","incomplete_work_node_ids":["work"],"finish_node_id":"finish","finish_status":"pending","final_summary":""}"#,
-        r#"{"action":"finish_map","expected_revision":3,"terminal_state":"no_active_work_ready_finish","terminal_node_id":"","incomplete_work_node_ids":[],"finish_node_id":"finish","finish_status":"ready","final_summary":"Done"}"#,
+        r#"{"action":"finish_map","expected_revision":3,"terminal_node_id":"work","final_summary":""}"#,
+        r#"{"action":"finish_map","expected_revision":3,"terminal_node_id":"","final_summary":"Done"}"#,
     ] {
         assert!(
             parse_taskspace_control_args(arguments).is_err(),
