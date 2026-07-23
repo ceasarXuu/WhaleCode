@@ -12,6 +12,7 @@ use crate::tools::router::ToolCall;
 pub(crate) enum ProviderToolDeclaration {
     Ready(ToolCall),
     BuildFailed(BuildFailedToolDeclaration),
+    UnpairedBuildFailed(UnpairedToolDeclaration),
     RejectedNative(RejectedNativeToolDeclaration),
 }
 
@@ -26,6 +27,14 @@ pub(crate) struct BuildFailedToolDeclaration {
 
 #[derive(Clone, Debug)]
 pub(crate) struct RejectedNativeToolDeclaration {
+    call_id: Option<String>,
+    tool_name: &'static str,
+    payload_kind: &'static str,
+    error: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct UnpairedToolDeclaration {
     call_id: Option<String>,
     tool_name: &'static str,
     payload_kind: &'static str,
@@ -52,7 +61,7 @@ impl ProviderToolDeclaration {
                 tool_name: name.clone(),
                 payload_kind: "function",
                 pairing: ToolCallPairing::Function,
-                error,
+                error: error.clone(),
             }),
             ResponseItem::CustomToolCall { call_id, name, .. } => {
                 Some(BuildFailedToolDeclaration {
@@ -60,7 +69,7 @@ impl ProviderToolDeclaration {
                     tool_name: name.clone(),
                     payload_kind: "custom",
                     pairing: ToolCallPairing::Custom,
-                    error,
+                    error: error.clone(),
                 })
             }
             ResponseItem::LocalShellCall { call_id, id, .. } => call_id
@@ -71,7 +80,7 @@ impl ProviderToolDeclaration {
                     tool_name: "local_shell".to_string(),
                     payload_kind: "local_shell",
                     pairing: ToolCallPairing::Function,
-                    error,
+                    error: error.clone(),
                 }),
             ResponseItem::ToolSearchCall {
                 call_id: Some(call_id),
@@ -81,17 +90,18 @@ impl ProviderToolDeclaration {
                 tool_name: "tool_search".to_string(),
                 payload_kind: "tool_search",
                 pairing: ToolCallPairing::ToolSearch,
-                error,
+                error: error.clone(),
             }),
             _ => None,
         };
         failed.map_or_else(
             || {
-                Self::RejectedNative(RejectedNativeToolDeclaration {
+                let (tool_name, payload_kind) = unpaired_tool_identity(item);
+                Self::UnpairedBuildFailed(UnpairedToolDeclaration {
                     call_id: response_item_id(item),
-                    tool_name: "unidentifiable_provider_tool",
-                    payload_kind: "unknown",
-                    error: "provider tool call cannot be paired to a call identity".to_string(),
+                    tool_name,
+                    payload_kind,
+                    error,
                 })
             },
             Self::BuildFailed,
@@ -128,12 +138,21 @@ impl ProviderToolDeclaration {
         match self {
             Self::Ready(call) => format!("ready:{}", call.call_id),
             Self::BuildFailed(failed) => format!("build_failed:{}", failed.call_id),
+            Self::UnpairedBuildFailed(failed) => format!(
+                "unpaired_build_failed:{}:{}",
+                failed.tool_name,
+                failed.call_id.as_deref().unwrap_or("<missing>")
+            ),
             Self::RejectedNative(rejected) => format!(
                 "rejected_native:{}:{}",
                 rejected.tool_name,
                 rejected.call_id.as_deref().unwrap_or("<missing>")
             ),
         }
+    }
+
+    pub(crate) fn deduplicates_stream_events(&self) -> bool {
+        matches!(self, Self::RejectedNative(_))
     }
 
     pub(crate) fn descriptor(&self) -> serde_json::Value {
@@ -146,6 +165,13 @@ impl ProviderToolDeclaration {
             }),
             Self::BuildFailed(failed) => serde_json::json!({
                 "status": "build_failed",
+                "call_id": failed.call_id,
+                "tool": failed.tool_name,
+                "payload_kind": failed.payload_kind,
+                "error": failed.error,
+            }),
+            Self::UnpairedBuildFailed(failed) => serde_json::json!({
+                "status": "build_failed_unpaired",
                 "call_id": failed.call_id,
                 "tool": failed.tool_name,
                 "payload_kind": failed.payload_kind,
@@ -172,7 +198,7 @@ impl ProviderToolDeclaration {
             Self::BuildFailed(failed) => {
                 vec![failed.pairing_response(response_failure_payload)]
             }
-            Self::RejectedNative(_) => Vec::new(),
+            Self::UnpairedBuildFailed(_) | Self::RejectedNative(_) => Vec::new(),
         }
     }
 }
@@ -233,6 +259,16 @@ fn payload_kind(payload: &ToolPayload) -> &'static str {
         ToolPayload::Custom { .. } => "custom",
         ToolPayload::LocalShell { .. } => "local_shell",
         ToolPayload::Mcp { .. } => "mcp",
+    }
+}
+
+fn unpaired_tool_identity(item: &ResponseItem) -> (&'static str, &'static str) {
+    match item {
+        ResponseItem::LocalShellCall { .. } => ("local_shell", "local_shell"),
+        ResponseItem::ToolSearchCall { .. } => ("tool_search", "tool_search"),
+        ResponseItem::WebSearchCall { .. } => ("web_search", "web_search"),
+        ResponseItem::ImageGenerationCall { .. } => ("image_generation", "image_generation"),
+        _ => ("unidentifiable_provider_tool", "unknown"),
     }
 }
 

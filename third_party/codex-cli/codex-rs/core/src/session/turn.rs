@@ -2977,9 +2977,10 @@ async fn try_run_sampling_request(
                 if let Some(tool_declaration) = output_result.tool_declaration {
                     saw_actionable_output = true;
                     let identity = tool_declaration.identity_key();
-                    if !pending_tool_declarations
-                        .iter()
-                        .any(|pending| pending.identity_key() == identity)
+                    if !tool_declaration.deduplicates_stream_events()
+                        || !pending_tool_declarations
+                            .iter()
+                            .any(|pending| pending.identity_key() == identity)
                     {
                         pending_tool_declarations.push(tool_declaration);
                     }

@@ -8489,6 +8489,138 @@ async fn malformed_suffix_rejects_the_complete_provider_tool_response() -> anyho
     Ok(())
 }
 
+async fn assert_missing_client_tool_search_call_id_zero_dispatch(
+    provider_item_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
+        })
+        .build(&server)
+        .await?;
+    let side_effect_file = provider_item_id
+        .map(|id| format!("missing-tool-search-call-id-{id}.txt"))
+        .unwrap_or_else(|| "missing-tool-search-call-id-none.txt".to_string());
+    let mut missing_call_id_item = json!({
+        "type": "tool_search_call",
+        "status": "completed",
+        "execution": "client",
+        "arguments": {
+            "query": "must fail before dispatch",
+            "taskspace_binding": "active"
+        }
+    });
+    if let Some(provider_item_id) = provider_item_id {
+        missing_call_id_item["id"] = json!(provider_item_id);
+    }
+    mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("initialize-before-missing-search-id"),
+                ev_function_call(
+                    "initialize-map",
+                    "taskspace_control",
+                    &json!({
+                        "action": "initialize_map",
+                        "root": {"node_id": "root", "goal": "Exercise response preflight"},
+                        "initial_work_node": {"node_id": "work", "goal": "Run the work"},
+                        "finish_identity": {"id": "finish"},
+                        "additional_work_nodes": [],
+                        "edges": [
+                            {"from": "root", "to": "work"},
+                            {"from": "work", "to": "finish"}
+                        ]
+                    })
+                    .to_string(),
+                ),
+                ev_function_call(
+                    "initialize-action",
+                    "exec_command",
+                    r#"{"cmd":"pwd","taskspace_binding":"after_boundary"}"#,
+                ),
+                ev_completed("initialize-before-missing-search-id"),
+            ]),
+            sse(vec![
+                ev_response_created("missing-search-id-response"),
+                ev_function_call(
+                    "side-effect-prefix",
+                    "exec_command",
+                    &json!({
+                        "cmd": format!("printf executed > {side_effect_file}"),
+                        "taskspace_binding": "active"
+                    })
+                    .to_string(),
+                ),
+                json!({
+                    "type": "response.output_item.done",
+                    "item": missing_call_id_item,
+                }),
+                ev_completed("missing-search-id-response"),
+            ]),
+        ],
+    )
+    .await;
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise missing client ToolSearch call id".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            let rollout = std::fs::read_to_string(&rollout_path).unwrap_or_default();
+            if rollout.contains("client tool_search call is missing call_id") {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    assert!(
+        !test.workspace_path(&side_effect_file).exists(),
+        "a valid prefix executed despite a client ToolSearch call missing call_id"
+    );
+    let rollout = std::fs::read_to_string(rollout_path)?;
+    assert!(rollout.contains("provider_tool_declaration_invalid"));
+    assert!(rollout.contains("build_failed_unpaired"));
+    assert!(rollout.contains("tool_search"));
+    if let Some(provider_item_id) = provider_item_id {
+        assert!(rollout.contains(provider_item_id));
+    }
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_client_tool_search_call_id_rejects_the_complete_response() -> anyhow::Result<()> {
+    assert_missing_client_tool_search_call_id_zero_dispatch(Some("provider-search-id")).await?;
+    assert_missing_client_tool_search_call_id_zero_dispatch(None).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn taskspace_rejects_hidden_image_added_event_before_artifact_write() -> anyhow::Result<()> {
     let server = start_mock_server().await;
@@ -8609,6 +8741,36 @@ async fn malformed_tool_arguments_are_deferred_to_response_preflight() {
     assert!(!history.raw_items().iter().any(|item| {
         matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "malformed-exec")
     }));
+}
+
+#[tokio::test]
+async fn standard_missing_client_tool_search_call_id_is_a_mechanical_build_failure() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    let item = ResponseItem::ToolSearchCall {
+        id: Some("standard-provider-search-id".to_string()),
+        call_id: None,
+        status: Some("completed".to_string()),
+        execution: "client".to_string(),
+        arguments: json!({"query": "missing call identity"}),
+    };
+    let mut ctx = HandleOutputCtx {
+        sess: Arc::clone(&sess),
+        turn_context: Arc::clone(&tc),
+    };
+
+    let output = handle_output_item_done(&mut ctx, item, None)
+        .await
+        .expect("missing client call identity should enter response preflight");
+
+    assert!(output.needs_follow_up);
+    assert!(matches!(
+        output.tool_declaration,
+        Some(
+            crate::tools::provider_tool_declaration::ProviderToolDeclaration::UnpairedBuildFailed(
+                _
+            )
+        )
+    ));
 }
 
 #[tokio::test]

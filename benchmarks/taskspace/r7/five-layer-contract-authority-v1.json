@@ -55,7 +55,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
-      "sha256": "8e923575d50f219c141105a08a782f35d28b775278c337dfe85079310f916034",
+      "sha256": "da74e4ef51d02f47a5ec5da70ce7caa78e8b9d6a06e95fa599e3471eccf72378",
       "role": "FLA-9 lightweight ordinary Tool binding, boundary sequence, implementation boundary and verification gates"
     },
     {

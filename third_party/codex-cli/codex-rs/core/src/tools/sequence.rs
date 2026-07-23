@@ -59,6 +59,7 @@ pub(crate) async fn execute_provider_response_tool_sequence(
             .filter_map(|declaration| match declaration {
                 ProviderToolDeclaration::Ready(call) => Some(call),
                 ProviderToolDeclaration::BuildFailed(_)
+                | ProviderToolDeclaration::UnpairedBuildFailed(_)
                 | ProviderToolDeclaration::RejectedNative(_) => None,
             })
             .collect();
@@ -68,7 +69,13 @@ pub(crate) async fn execute_provider_response_tool_sequence(
     let canonical_revision = runtime.taskspace_canonical_revision().await;
     let build_failure_count = declarations
         .iter()
-        .filter(|declaration| matches!(declaration, ProviderToolDeclaration::BuildFailed(_)))
+        .filter(|declaration| {
+            matches!(
+                declaration,
+                ProviderToolDeclaration::BuildFailed(_)
+                    | ProviderToolDeclaration::UnpairedBuildFailed(_)
+            )
+        })
         .count();
     let rejected_native_count = declarations
         .iter()
@@ -95,7 +102,13 @@ fn invalid_provider_declaration_outcome(
 ) -> ToolSequenceOutcome {
     let build_failure_count = declarations
         .iter()
-        .filter(|declaration| matches!(declaration, ProviderToolDeclaration::BuildFailed(_)))
+        .filter(|declaration| {
+            matches!(
+                declaration,
+                ProviderToolDeclaration::BuildFailed(_)
+                    | ProviderToolDeclaration::UnpairedBuildFailed(_)
+            )
+        })
         .count();
     let rejected_native_count = declarations
         .iter()

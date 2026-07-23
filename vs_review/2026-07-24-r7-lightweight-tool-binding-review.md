@@ -400,3 +400,145 @@ schema-cost direction remains valid; the implementation cannot be treated as clo
 through BF-6 are fixed and a fresh closure reviewer passes the result. BF-5 requires an explicit
 decision for provider-native Tool shapes: project them into contract-capable Function Tools or make
 them deterministically unavailable in TaskSpace. Silent bypass is not acceptable.
+
+## Round 2: 首轮修复闭合审查
+
+### Review Input
+
+- Objective: 对提交 `a26affe1d` 与 `73380f696` 逐项复核 BF-1 至 BF-6，不接受 schema-only
+  证明，重点攻击 build failure、ToolSearch 配对、native event 与五层合同。
+- Review target: 完整 provider response 所有权、ToolSearch 反馈、ToolSpec runtime admission、
+  Standard 隔离、合同和 Docker 证据。
+- Reviewer instructions: fresh session，`fork_context=false`，只读，直接读取仓库，不修改文件。
+- Timeout policy: high-risk，20 分钟初始窗口。
+
+### Reviewer Launch Records
+
+| Reviewer | Mechanism | Session | Context Forked | Input | Explicitly Excluded | Read-only |
+|---|---|---|---:|---|---|---:|
+| implementation-adversary | `multi_agent_v1.spawn_agent` | `019f9075-0b18-7593-8e96-b0c1ce457865` | false | BF-1..BF-6 closure navigation packet | 主会话历史、结论和说服性摘要 | yes |
+
+### Reviewer Timeout Records
+
+| Output | Attempt | Session | Status |
+|---|---:|---|---|
+| R2-implementation | 1 | `019f9075-0b18-7593-8e96-b0c1ce457865` | completed |
+
+### Reviewer Output
+
+Reviewer verdict: **BLOCK**。
+
+#### Blocking Findings
+
+1. **R2-B1 Critical:** `build_tool_call` 的 model-visible failure 被即时写回但不进入 response
+   manifest；合法 side-effect 前缀仍可在 Completed 后执行。
+2. **R2-B2 High:** ToolSearch 的 developer supplemental fact 可能位于后续 call pairing
+   之前，形成 `tool output -> system/developer -> late tool output`。
+3. **R2-B3 High:** TaskSpace 只在 schema 层隐藏 Web/Image；provider/replay event 仍进入
+   非 Tool 路径，ImageGeneration 可写文件。
+4. **R2-B4 Gate:** governing document hash 陈旧，五层 `-Phase All` 不可复现。
+
+#### BF Closure
+
+| BF | Result |
+|---|---|
+| BF-1 | closed |
+| BF-2 | open: build-failed item 不入 manifest |
+| BF-3 | open: build/pairing 缺口 |
+| BF-4 | partial: 缺 search -> invoke |
+| BF-5 | open: hidden native event 仍可接纳 |
+| BF-6 | implementation closed, proof partial |
+
+#### Non-blocking Risks / Missing Evidence
+
+- Docker repeat-1 的两次恢复是 adoption 观察，不是状态破坏；
+- 全量 core suite 受历史 stack overflow 和无关失败影响，不能声明全绿；
+- 缺 deferred actual invocation、Standard actual dispatch、native event、Fatal/cancel
+  和 observer 精确分类。
+
+### Main Agent Response
+
+| Finding | Decision | Action |
+|---|---|---|
+| R2-B1 | accept | 新增统一 `ProviderToolDeclaration`，Ready/BuildFailed 共用整响应 preflight；真实 SSE 证明 malformed 后缀时合法前缀零执行 |
+| R2-B2 | accept | 所有 call pairing output 先完成，再追加 supplemental factual message；增加顺序测试 |
+| R2-B3 | accept | hidden Web/Image 的 added/done 在非 Tool handler 前转为 RejectedNative，并按 provider identity 去重 |
+| R2-B4 | accept | 同步 governing document、authority、production manifest 与 Rust identity hash |
+| BF-4 proof gap | accept | 增加 TaskSpace deferred search -> dynamic invocation 集成测试 |
+| BF-6 proof gap | accept | 增加 Standard business-owned `taskspace_binding` 实际 dynamic dispatch 测试 |
+
+### Closure Status
+
+- Accepted blocking findings fixed: yes，提交 `5897cb8ba`
+- Required fresh review: yes
+- Status: continued to Round 3
+
+## Round 3: Provider Declaration 完整性审查
+
+### Review Input
+
+- Objective: 尝试证伪 `5897cb8ba` 的统一 declaration 序列。
+- Risk focus: Function/ToolSearch build errors、pairing 顺序、Web/Image added/done、deferred
+  search -> invoke、Standard dispatch、去重、取消与 partial side effect。
+- Verification navigation: tools 12/12、core TaskSpace 101/101、sequence 18/18、terminal
+  2/2、五层 All 通过；reviewer 被要求独立抽查，不接受这些数字作为结论。
+
+### Reviewer Launch Records
+
+| Reviewer | Mechanism | Session | Model | Context Forked | Input | Read-only |
+|---|---|---|---|---:|---|---:|
+| implementation-adversary | `multi_agent_v1.spawn_agent` | `019f9094-dbcf-7d31-89d6-f658a67ca95a` | GPT-5.5 low | false | neutral closure navigation packet | yes |
+
+### Reviewer Timeout Records
+
+| Output | Attempt | Session | Status |
+|---|---:|---|---|
+| R3-implementation | 1 | `019f9094-dbcf-7d31-89d6-f658a67ca95a` | completed |
+
+### Reviewer Output
+
+Reviewer verdict: **BLOCK**。
+
+#### Blocking Finding
+
+**R3-BF-A:** `ToolSearchCall { execution="client", call_id=None }` 被 Router 的 fallback
+返回为 `Ok(None)`，不形成 ProviderToolDeclaration。若它位于合法普通 Tool 后面，Completed
+只看到 Ready 前缀并执行。
+
+- Broken assumption: 所有 invalid provider declarations 都进入 BuildFailed 或 RejectedNative。
+- Trigger: valid FunctionCall prefix + client ToolSearch missing call_id + Completed。
+- Impact: 部分执行，Agent 收不到完整机械失败事实。
+- Evidence: `router.rs` 只匹配 `call_id=Some`；`stream_events_utils.rs` 的 `Ok(None)` 走非 Tool；
+  `sequence.rs` 对 all-Ready 列表正常 dispatch。
+- Proof needed: `id=Some` 和 `id=None` 两种真实 SSE 都应整响应零 dispatch。
+
+#### Non-blocking Risks
+
+- native 无 client pairing 时只依赖 developer fact，需要在合同中明确；
+- Custom/freeform 在 TaskSpace 仍是明确 unsupported 边界，不是完整能力支持；
+- schema 成本收益未被该 finding 推翻。
+
+#### BF Closure
+
+| BF | Result |
+|---|---|
+| BF-1 | mostly closed, but reopened by missing-call-id ToolSearch |
+| BF-2 | appears closed |
+| BF-3 | partial: missing-call-id ToolSearch 仍无失败事实 |
+| BF-4 | appears closed |
+| BF-5 | partial by explicit unsupported product boundary |
+| BF-6 | appears closed |
+
+### Main Agent Response
+
+| Finding | Decision | Action |
+|---|---|---|
+| R3-BF-A | accept | client ToolSearch 缺 call_id 现在返回 build failure；无法配对的声明使用独立 `UnpairedBuildFailed`，保留 provider item id、tool、payload kind 和原始错误 |
+| 去重风险 | accept | 只有真正的 RejectedNative added/done 去重；Ready、BuildFailed、UnpairedBuildFailed 不做泛化去重 |
+| missing tests | accept | 一个集成测试顺序执行 `id=Some` 与 `id=None` 两个真实 TaskSpace SSE，均断言前缀文件不存在并存在 `build_failed_unpaired` |
+
+### Closure Status
+
+- Accepted blocking finding fixed: yes，等待提交和 Round 4
+- Blocking re-review required: yes
+- Status: blocked until fresh Round 4 passes

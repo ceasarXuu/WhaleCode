@@ -233,6 +233,13 @@ impl ToolRouter {
                     taskspace_binding,
                 }))
             }
+            ResponseItem::ToolSearchCall {
+                call_id: None,
+                execution,
+                ..
+            } if execution == "client" => Err(FunctionCallError::RespondToModel(
+                "client tool_search call is missing call_id".to_string(),
+            )),
             ResponseItem::ToolSearchCall { .. } => Ok(None),
             ResponseItem::CustomToolCall {
                 name,

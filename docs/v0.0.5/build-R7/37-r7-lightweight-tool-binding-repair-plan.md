@@ -181,6 +181,11 @@ Tool 名与字段；不再使用 panic，也不静默覆盖业务字段。
 - 不能参加客户端 preflight 的 provider-native Tool 在 TaskSpace 明确隐藏；
 - mailbox 只在 pending Tool calls 为空时允许抢占，未完成响应的 Tool 前缀永不执行；
 - ToolSearch 失败的 provider 配对状态与真实执行成功状态分离；
+- Ready、BuildFailed 与 RejectedNative 共用完整 provider response declaration 序列；
+- 任一 build failure 或隐藏 native event 都使同一 response 的 client Tool 全部零执行；
+- client ToolSearch 即使缺少 call_id 也作为无配对 build failure 保留，不得降级为非 Tool；
+- 所有 call pairing output 先于 ToolSearch 或 response-level factual message；
+- hidden WebSearch/ImageGeneration 的 added/done event 都在非 Tool 处理和本地落盘前拒绝并去重；
 - 完整 carrier executor、复合结果 envelope 和旧 parser 已删除，不保留兼容路径。
 
 初始化 `edges` 的 schema 还明确写入 Root/Finish 硬图规则。该修复只陈述已存在的状态机不变量，不让
@@ -193,9 +198,15 @@ Runtime 生成或修复图。
 | 验证 | 结果 |
 |---|---:|
 | `cargo test -p codex-tools taskspace --lib` | 12/12 |
-| `cargo test -p codex-core taskspace --lib --no-fail-fast` | 99/99 |
+| `cargo test -p codex-core taskspace --lib --no-fail-fast` | 101/101 |
 | `cargo test -p codex-core --test all taskspace_terminal_contract --no-fail-fast` | 2/2 |
 | mailbox 未完成响应前缀集成测试 | 1/1 |
+| build-malformed suffix 整响应零执行 SSE | 1/1 |
+| client ToolSearch missing call_id（有/无 provider item id） | 2/2 variants |
+| hidden native added/done 零落盘 | 2/2 |
+| TaskSpace deferred search -> invoke | 1/1 |
+| Standard business field 实际 dispatch | 1/1 |
+| response sequence / pairing 顺序 | 18/18 |
 | 五层合同 `-Phase All` | 通过 |
 | trace/cost/performance observer 自测 | 通过 |
 | observer Skill 校验 | 通过 |
