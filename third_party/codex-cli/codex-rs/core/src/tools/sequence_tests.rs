@@ -328,6 +328,7 @@ fn standalone_boundary_is_rejected_before_execution() {
             "tool": "taskspace_control",
             "control_action": "complete_then_continue",
             "taskspace_binding": null,
+            "payload_kind": "function",
         })
     );
     assert_eq!(
