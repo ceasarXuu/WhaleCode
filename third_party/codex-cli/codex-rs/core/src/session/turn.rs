@@ -58,9 +58,10 @@ use crate::stream_events_utils::record_completed_response_item;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::parallel::ToolCallRuntime;
+use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolRouterParams;
-use crate::tools::sequence::execute_response_tool_sequence;
+use crate::tools::sequence::execute_provider_response_tool_sequence;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
 use crate::unavailable_tool::collect_unavailable_called_tools;
@@ -2803,7 +2804,7 @@ async fn try_run_sampling_request(
         .await;
     }
     let mut stream = stream_result??;
-    let mut pending_tool_calls = Vec::new();
+    let mut pending_tool_declarations: Vec<ProviderToolDeclaration> = Vec::new();
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
     let mut saw_actionable_output = false;
@@ -2973,9 +2974,15 @@ async fn try_run_sampling_request(
                         Ok(output_result) => output_result,
                         Err(err) => break Err(err),
                     };
-                if let Some(tool_call) = output_result.tool_call {
+                if let Some(tool_declaration) = output_result.tool_declaration {
                     saw_actionable_output = true;
-                    pending_tool_calls.push(tool_call);
+                    let identity = tool_declaration.identity_key();
+                    if !pending_tool_declarations
+                        .iter()
+                        .any(|pending| pending.identity_key() == identity)
+                    {
+                        pending_tool_declarations.push(tool_declaration);
+                    }
                 }
                 if let Some(agent_message) = output_result.last_agent_message {
                     last_agent_message = Some(agent_message);
@@ -2991,17 +2998,17 @@ async fn try_run_sampling_request(
                     if should_preempt_response_for_mailbox(
                         preempt_for_mailbox_mail,
                         mailbox_has_pending,
-                        pending_tool_calls.len(),
+                        pending_tool_declarations.len(),
                     ) {
                         break Ok(SamplingRequestResult {
                             needs_follow_up: true,
                             last_agent_message,
                         });
                     }
-                    if mailbox_has_pending && !pending_tool_calls.is_empty() {
+                    if mailbox_has_pending && !pending_tool_declarations.is_empty() {
                         tracing::info!(
                             target: "codex_core::taskspace",
-                            pending_tool_call_count = pending_tool_calls.len(),
+                            pending_tool_call_count = pending_tool_declarations.len(),
                             zero_dispatch = true,
                             state_commit = false,
                             "taskspace.response_mailbox_preemption_deferred_until_completed"
@@ -3010,6 +3017,27 @@ async fn try_run_sampling_request(
                 }
             }
             ResponseEvent::OutputItemAdded(item) => {
+                if taskspace_response_contract.is_some()
+                    && let Some(declaration) =
+                        ProviderToolDeclaration::rejected_taskspace_native(&item)
+                {
+                    saw_actionable_output = true;
+                    let identity = declaration.identity_key();
+                    if !pending_tool_declarations
+                        .iter()
+                        .any(|pending| pending.identity_key() == identity)
+                    {
+                        pending_tool_declarations.push(declaration);
+                    }
+                    tracing::warn!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.provider_native_tool_added_rejected",
+                        zero_dispatch = true,
+                        state_commit = false,
+                        "TaskSpace rejected a hidden provider-native tool before item processing"
+                    );
+                    continue;
+                }
                 if taskspace_response_contract.is_some()
                     && taskspace_nonterminal_assistant_message(&item).is_some()
                 {
@@ -3142,9 +3170,9 @@ async fn try_run_sampling_request(
                     .await;
                 }
                 should_emit_turn_diff = true;
-                let tool_outcome = execute_response_tool_sequence(
+                let tool_outcome = execute_provider_response_tool_sequence(
                     tool_runtime.clone(),
-                    std::mem::take(&mut pending_tool_calls),
+                    std::mem::take(&mut pending_tool_declarations),
                     cancellation_token.child_token(),
                 )
                 .await?;
@@ -3372,10 +3400,10 @@ async fn try_run_sampling_request(
     )
     .await;
 
-    if outcome.is_ok() && !pending_tool_calls.is_empty() {
+    if outcome.is_ok() && !pending_tool_declarations.is_empty() {
         tracing::error!(
             target: "codex_core::taskspace",
-            pending_tool_call_count = pending_tool_calls.len(),
+            pending_tool_call_count = pending_tool_declarations.len(),
             zero_dispatch = true,
             state_commit = false,
             "taskspace.response_ended_without_completion_with_pending_tools"

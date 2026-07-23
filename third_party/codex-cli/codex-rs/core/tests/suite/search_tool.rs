@@ -14,9 +14,12 @@ use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::MapRuntimeEvent;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::McpInvocation;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use core_test_support::apps_test_server::AppsTestServer;
 use core_test_support::apps_test_server::CALENDAR_CREATE_EVENT_MCP_APP_RESOURCE_URI;
@@ -24,6 +27,8 @@ use core_test_support::apps_test_server::CALENDAR_CREATE_EVENT_RESOURCE_URI;
 use core_test_support::responses::ResponsesRequest;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
+use core_test_support::responses::ev_function_call;
+use core_test_support::responses::ev_function_call_with_namespace;
 use core_test_support::responses::ev_response_created;
 use core_test_support::responses::ev_tool_search_call;
 use core_test_support::responses::mount_sse_once;
@@ -874,6 +879,291 @@ async fn tool_search_returns_deferred_dynamic_tool_and_routes_follow_up_call() -
     assert!(
         !third_request_tools.iter().any(|name| name == tool_name),
         "post-tool follow-up should rely on tool_search_output history, not tool injection: {third_request_tools:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn standard_dynamic_dispatch_preserves_business_taskspace_binding_field() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let dynamic_call_id = "standard-business-binding";
+    let tool_name = "business_update";
+    mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("standard-business-response"),
+                ev_function_call_with_namespace(
+                    dynamic_call_id,
+                    "business",
+                    tool_name,
+                    &json!({
+                        "value": "payload",
+                        "taskspace_binding": "business-owned-value",
+                    })
+                    .to_string(),
+                ),
+                ev_completed("standard-business-response"),
+            ]),
+            sse(vec![
+                ev_response_created("standard-business-finish"),
+                ev_assistant_message("standard-business-message", "done"),
+                ev_completed("standard-business-finish"),
+            ]),
+        ],
+    )
+    .await;
+
+    let base_test = test_codex().build(&server).await?;
+    let new_thread = base_test
+        .thread_manager
+        .start_thread_with_tools(
+            base_test.config.clone(),
+            vec![DynamicToolSpec {
+                namespace: Some("business".to_string()),
+                name: tool_name.to_string(),
+                description: "Exercise a business-owned field.".to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" },
+                        "taskspace_binding": { "type": "string" },
+                    },
+                    "required": ["value", "taskspace_binding"],
+                    "additionalProperties": false,
+                }),
+                defer_loading: false,
+            }],
+            /*persist_extended_history*/ false,
+        )
+        .await?;
+    let mut test = base_test;
+    test.codex = new_thread.thread;
+    test.session_configured = new_thread.session_configured;
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "Use the business tool".to_string(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let EventMsg::DynamicToolCallRequest(request) = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::DynamicToolCallRequest(_))
+    })
+    .await
+    else {
+        unreachable!("event guard guarantees DynamicToolCallRequest");
+    };
+    assert_eq!(
+        request.arguments,
+        json!({
+            "value": "payload",
+            "taskspace_binding": "business-owned-value",
+        })
+    );
+    test.codex
+        .submit(Op::DynamicToolResponse {
+            id: request.call_id,
+            response: DynamicToolResponse {
+                content_items: vec![DynamicToolCallOutputContentItem::InputText {
+                    text: "business-binding-ok".to_string(),
+                }],
+                success: true,
+            },
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispatch() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let search_call_id = "taskspace-tool-search";
+    let dynamic_call_id = "taskspace-dynamic-call";
+    let tool_name = "automation_update";
+    let mock = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("taskspace-search-response"),
+                ev_function_call(
+                    "initialize-map",
+                    "taskspace_control",
+                    &json!({
+                        "action": "initialize_map",
+                        "root": {"node_id": "root", "goal": "Use the deferred automation tool"},
+                        "initial_work_node": {"node_id": "work", "goal": "Search and invoke the tool"},
+                        "finish_identity": {"id": "finish"},
+                        "additional_work_nodes": [],
+                        "edges": [
+                            {"from": "root", "to": "work"},
+                            {"from": "work", "to": "finish"}
+                        ]
+                    })
+                    .to_string(),
+                ),
+                ev_tool_search_call(
+                    search_call_id,
+                    &json!({
+                        "query": "recurring automations",
+                        "limit": 8,
+                        "taskspace_binding": "after_boundary",
+                    }),
+                ),
+                ev_completed("taskspace-search-response"),
+            ]),
+            sse(vec![
+                ev_response_created("taskspace-tool-response"),
+                ev_function_call_with_namespace(
+                    dynamic_call_id,
+                    "codex_app",
+                    tool_name,
+                    &json!({
+                        "mode": "create",
+                        "taskspace_binding": "active",
+                    })
+                    .to_string(),
+                ),
+                ev_completed("taskspace-tool-response"),
+            ]),
+            sse(vec![
+                ev_response_created("taskspace-finish-response"),
+                ev_function_call(
+                    "finish-map",
+                    "taskspace_control",
+                    &json!({
+                        "action": "finish_map",
+                        "expected_revision": 2,
+                        "terminal_node_id": "work",
+                        "final_summary": "Deferred tool invocation completed."
+                    })
+                    .to_string(),
+                ),
+                ev_completed("taskspace-finish-response"),
+            ]),
+        ],
+    )
+    .await;
+
+    let dynamic_tool = DynamicToolSpec {
+        namespace: Some("codex_app".to_string()),
+        name: tool_name.to_string(),
+        description: "Create, update, view, or delete recurring automations.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "mode": { "type": "string" },
+            },
+            "required": ["mode"],
+            "additionalProperties": false,
+        }),
+        defer_loading: true,
+    };
+
+    let mut builder = test_codex().with_config(|config| {
+        configure_search_capable_model(config);
+        config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
+    });
+    let base_test = builder.build(&server).await?;
+    let new_thread = base_test
+        .thread_manager
+        .start_thread_with_tools(
+            base_test.config.clone(),
+            vec![dynamic_tool],
+            /*persist_extended_history*/ false,
+        )
+        .await?;
+    let mut test = base_test;
+    test.codex = new_thread.thread;
+    test.session_configured = new_thread.session_configured;
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "Use the deferred automation tool".to_string(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let EventMsg::DynamicToolCallRequest(request) = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::DynamicToolCallRequest(_))
+    })
+    .await
+    else {
+        unreachable!("event guard guarantees DynamicToolCallRequest");
+    };
+    assert_eq!(request.call_id, dynamic_call_id);
+    assert_eq!(request.namespace.as_deref(), Some("codex_app"));
+    assert_eq!(request.tool, tool_name);
+    assert_eq!(request.arguments, json!({"mode": "create"}));
+
+    test.codex
+        .submit(Op::DynamicToolResponse {
+            id: request.call_id,
+            response: DynamicToolResponse {
+                content_items: vec![DynamicToolCallOutputContentItem::InputText {
+                    text: "taskspace-dynamic-ok".to_string(),
+                }],
+                success: true,
+            },
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    let requests = mock.requests();
+    assert_eq!(requests.len(), 3);
+    let tools = tool_search_output_tools(&requests[1], search_call_id);
+    let parameters = &tools[0]["tools"][0]["parameters"];
+    assert!(
+        parameters["properties"].get("taskspace_binding").is_some(),
+        "deferred search result must expose the TaskSpace binding contract"
+    );
+    assert!(
+        parameters["required"]
+            .as_array()
+            .is_some_and(|required| required.iter().any(|field| field == "taskspace_binding")),
+        "deferred search result must require taskspace_binding"
+    );
+    let output = requests[2]
+        .function_call_output(dynamic_call_id)
+        .get("output")
+        .cloned()
+        .expect("dynamic tool output should be present");
+    let payload: FunctionCallOutputPayload = serde_json::from_value(output)?;
+    assert_eq!(
+        payload,
+        FunctionCallOutputPayload::from_text("taskspace-dynamic-ok".to_string())
     );
 
     Ok(())

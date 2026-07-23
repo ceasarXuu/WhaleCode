@@ -90,10 +90,15 @@ impl ToolSequencePreflightFailure {
             },
         })
         .to_string();
-        calls
+        let responses = calls
             .iter()
             .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
-            .collect()
+            .collect::<Vec<_>>();
+        let (mut pairing_outputs, supplemental_outputs): (Vec<_>, Vec<_>) = responses
+            .into_iter()
+            .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
+        pairing_outputs.extend(supplemental_outputs);
+        pairing_outputs
     }
 }
 

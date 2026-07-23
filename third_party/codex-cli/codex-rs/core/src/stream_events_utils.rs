@@ -14,11 +14,10 @@ use crate::memories::citations::thread_ids_from_memory_citation;
 use crate::parse_turn_item;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
+use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::router::ToolRouter;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
-use codex_protocol::models::FunctionCallOutputBody;
-use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::models::ResponseItem;
 use codex_rollout::state_db;
@@ -198,7 +197,7 @@ async fn record_stage1_output_usage_and_detect_memory_citation(
 pub(crate) struct OutputItemResult {
     pub last_agent_message: Option<String>,
     pub needs_follow_up: bool,
-    pub tool_call: Option<crate::tools::router::ToolCall>,
+    pub tool_declaration: Option<ProviderToolDeclaration>,
 }
 
 pub(crate) struct HandleOutputCtx {
@@ -214,6 +213,21 @@ pub(crate) async fn handle_output_item_done(
 ) -> Result<OutputItemResult> {
     let mut output = OutputItemResult::default();
     let plan_mode = ctx.turn_context.collaboration_mode.mode == ModeKind::Plan;
+    if ctx.sess.taskspace_active().await
+        && let Some(declaration) = ProviderToolDeclaration::rejected_taskspace_native(&item)
+    {
+        record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item).await;
+        tracing::warn!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.provider_native_tool_rejected",
+            zero_dispatch = true,
+            state_commit = false,
+            "TaskSpace rejected a provider-native tool that was not exposed"
+        );
+        output.needs_follow_up = true;
+        output.tool_declaration = Some(declaration);
+        return Ok(output);
+    }
 
     match ToolRouter::build_tool_call(ctx.sess.as_ref(), item.clone()).await {
         // The model emitted a tool call; log it, persist the item immediately, and queue the tool execution.
@@ -237,7 +251,7 @@ pub(crate) async fn handle_output_item_done(
                 .await;
 
             output.needs_follow_up = true;
-            output.tool_call = Some(call);
+            output.tool_declaration = Some(ProviderToolDeclaration::ready(call));
         }
         // No tool call: convert messages/reasoning into turn items and mark them as complete.
         Ok(None) => {
@@ -272,32 +286,37 @@ pub(crate) async fn handle_output_item_done(
 
             output.last_agent_message = last_agent_message;
         }
-        // Guardrail: the model issued a LocalShellCall without an id; surface the error back into history.
+        // Preserve an unidentifiable native call as a response-level failure so
+        // earlier declarations in the same provider response cannot execute.
         Err(FunctionCallError::MissingLocalShellCallId) => {
             let msg = "LocalShellCall without call_id or id";
             ctx.turn_context
                 .session_telemetry
                 .log_tool_failed("local_shell", msg);
-            tracing::error!(msg);
-            return Err(CodexErr::Fatal(msg.to_string()));
-        }
-        // The tool request should be answered directly (or was denied); push that response into the transcript.
-        Err(FunctionCallError::RespondToModel(message)) => {
-            let feedback_items = tool_build_failure_feedback(&item, &message)?;
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
-            ctx.sess
-                .record_conversation_items(&ctx.turn_context, &feedback_items)
+            output.needs_follow_up = true;
+            output.tool_declaration = Some(ProviderToolDeclaration::build_failed(
+                &item,
+                msg.to_string(),
+            ));
+        }
+        // Queue build failures with the complete provider response. Preflight
+        // then rejects the whole declaration sequence before any dispatch.
+        Err(FunctionCallError::RespondToModel(message)) => {
+            record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
             tracing::warn!(
                 target: "codex_core::tools",
-                event_name = "tool.call_build_failed_feedback_recorded",
-                feedback_item_count = feedback_items.len(),
+                event_name = "tool.call_build_failed_queued",
                 error = message,
-                "recorded identity-preserving tool build failure feedback"
+                zero_dispatch = true,
+                state_commit = false,
+                "queued identity-preserving tool build failure for response preflight"
             );
 
             output.needs_follow_up = true;
+            output.tool_declaration = Some(ProviderToolDeclaration::build_failed(&item, message));
         }
         // A fatal error occurred; surface it back into history.
         Err(FunctionCallError::Fatal(message)) => {
@@ -306,61 +325,6 @@ pub(crate) async fn handle_output_item_done(
     }
 
     Ok(output)
-}
-
-fn tool_build_failure_feedback(item: &ResponseItem, message: &str) -> Result<Vec<ResponseItem>> {
-    let failed_output = || FunctionCallOutputPayload {
-        body: FunctionCallOutputBody::Text(message.to_string()),
-        success: Some(false),
-    };
-    let feedback = match item {
-        ResponseItem::FunctionCall { call_id, .. } => vec![ResponseItem::FunctionCallOutput {
-            call_id: call_id.clone(),
-            output: failed_output(),
-        }],
-        ResponseItem::CustomToolCall { call_id, .. } => {
-            vec![ResponseItem::CustomToolCallOutput {
-                call_id: call_id.clone(),
-                name: None,
-                output: failed_output(),
-            }]
-        }
-        ResponseItem::LocalShellCall { call_id, id, .. } => {
-            let call_id = call_id.as_ref().or(id.as_ref()).ok_or_else(|| {
-                CodexErr::Fatal("LocalShellCall without call_id or id".to_string())
-            })?;
-            vec![ResponseItem::FunctionCallOutput {
-                call_id: call_id.clone(),
-                output: failed_output(),
-            }]
-        }
-        ResponseItem::ToolSearchCall {
-            call_id: Some(call_id),
-            ..
-        } => vec![
-            ResponseItem::ToolSearchOutput {
-                call_id: Some(call_id.clone()),
-                status: "completed".to_string(),
-                execution: "client".to_string(),
-                tools: Vec::new(),
-            },
-            ResponseItem::Message {
-                id: None,
-                role: "developer".to_string(),
-                content: vec![codex_protocol::models::ContentItem::InputText {
-                    text: message.to_string(),
-                }],
-                end_turn: None,
-                phase: None,
-            },
-        ],
-        _ => {
-            return Err(CodexErr::Fatal(
-                "tool build failure cannot be paired to a provider call identity".to_string(),
-            ));
-        }
-    };
-    Ok(feedback)
 }
 
 pub(crate) async fn handle_non_tool_response_item(

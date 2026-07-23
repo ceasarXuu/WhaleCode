@@ -1,6 +1,7 @@
 use super::*;
 use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallExecution;
+use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE;
@@ -8,6 +9,7 @@ use crate::tools::sequence_preflight::TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE;
 use crate::tools::sequence_preflight::validate_tool_sequence;
+use codex_protocol::models::ResponseItem;
 use codex_tools::ToolName;
 
 fn function_call(name: &str, call_id: &str) -> ToolCall {
@@ -106,6 +108,51 @@ fn tool_sequence_identity_is_stable_and_order_sensitive() {
 }
 
 #[test]
+fn provider_build_failure_closes_all_pairings_before_factual_feedback() {
+    let declarations = vec![
+        ProviderToolDeclaration::ready(function_call("read_file", "ready-prefix")),
+        ProviderToolDeclaration::build_failed(
+            &ResponseItem::ToolSearchCall {
+                id: None,
+                call_id: Some("malformed-search".to_string()),
+                status: Some("completed".to_string()),
+                execution: "client".to_string(),
+                arguments: serde_json::json!({"query": 7}),
+            },
+            "failed to parse tool_search arguments: query must be a string",
+        ),
+    ];
+
+    let outcome = invalid_provider_declaration_outcome(&declarations, Some(11));
+
+    assert_eq!(outcome.outputs.len(), 3);
+    assert!(matches!(
+        &outcome.outputs[0],
+        ResponseInputItem::FunctionCallOutput { call_id, output }
+            if call_id == "ready-prefix" && output.success == Some(false)
+    ));
+    assert!(matches!(
+        &outcome.outputs[1],
+        ResponseInputItem::ToolSearchOutput { call_id, status, tools, .. }
+            if call_id == "malformed-search" && status == "completed" && tools.is_empty()
+    ));
+    let ResponseInputItem::Message { content, .. } = &outcome.outputs[2] else {
+        panic!("response-level factual feedback must follow all call pairings");
+    };
+    let text = content
+        .iter()
+        .find_map(|item| match item {
+            codex_protocol::models::ContentItem::InputText { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .expect("factual failure payload");
+    assert!(text.contains("ProviderToolResponsePreflightV1"));
+    assert!(text.contains("malformed-search"));
+    assert!(text.contains("query must be a string"));
+    assert!(text.contains(r#""executed_tool_call_count":0"#));
+}
+
+#[test]
 fn skipped_output_preserves_call_id_and_failure_status() {
     let call = function_call("apply_patch", "edit-call");
     let output = ToolCallRuntime::skipped_responses(&call, "finish-call").remove(0);
@@ -141,6 +188,48 @@ fn tool_search_failure_stops_later_segments_despite_completed_pairing_status() {
         response_input_succeeded(&execution.response),
         "provider pairing status remains completed independently of execution success"
     );
+}
+
+#[test]
+fn tool_pairing_outputs_precede_supplemental_failure_facts() {
+    let mut pairing = Vec::new();
+    let mut supplemental = Vec::new();
+    let search = ToolCall {
+        tool_name: ToolName::plain("tool_search"),
+        call_id: "search-failed".into(),
+        payload: ToolPayload::ToolSearch {
+            arguments: codex_protocol::models::SearchToolCallParams {
+                query: String::new(),
+                limit: None,
+            },
+        },
+        taskspace_binding: Some("active".into()),
+    };
+
+    append_pairing_and_supplemental(
+        &mut pairing,
+        &mut supplemental,
+        ToolCallRuntime::skipped_responses(&search, "prior-call"),
+    );
+    append_pairing_and_supplemental(
+        &mut pairing,
+        &mut supplemental,
+        ToolCallRuntime::skipped_responses(
+            &function_call("taskspace_control", "control-skipped"),
+            "prior-call",
+        ),
+    );
+    pairing.extend(supplemental);
+
+    assert!(matches!(
+        pairing[0],
+        ResponseInputItem::ToolSearchOutput { .. }
+    ));
+    assert!(matches!(
+        pairing[1],
+        ResponseInputItem::FunctionCallOutput { .. }
+    ));
+    assert!(matches!(pairing[2], ResponseInputItem::Message { .. }));
 }
 
 #[test]
@@ -216,6 +305,39 @@ fn unsupported_provider_payload_rejects_the_complete_response() {
         assert!(text.contains("\"executed_tool_call_count\":0"));
         assert!(text.contains("\"state_commit\":false"));
     }
+}
+
+#[test]
+fn preflight_keeps_all_call_pairings_before_tool_search_failure_facts() {
+    let search = ToolCall {
+        tool_name: ToolName::plain("tool_search"),
+        call_id: "search-invalid".into(),
+        payload: ToolPayload::ToolSearch {
+            arguments: codex_protocol::models::SearchToolCallParams {
+                query: "tools".into(),
+                limit: None,
+            },
+        },
+        taskspace_binding: Some("active".into()),
+    };
+    let calls = vec![
+        search,
+        function_call_with_arguments("taskspace_control", "control-invalid", r#"{"action":7}"#),
+    ];
+
+    let outputs = validate_tool_sequence(&calls, true)
+        .expect_err("invalid control must reject the complete response")
+        .outputs(&calls, None);
+
+    assert!(matches!(
+        outputs[0],
+        ResponseInputItem::ToolSearchOutput { .. }
+    ));
+    assert!(matches!(
+        outputs[1],
+        ResponseInputItem::FunctionCallOutput { .. }
+    ));
+    assert!(matches!(outputs[2], ResponseInputItem::Message { .. }));
 }
 
 #[test]

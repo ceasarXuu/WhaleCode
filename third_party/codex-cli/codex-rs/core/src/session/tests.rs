@@ -8331,7 +8331,10 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
         .expect("tool call should be handled");
 
     assert!(output.needs_follow_up);
-    assert!(output.tool_call.is_some());
+    assert!(matches!(
+        output.tool_declaration,
+        Some(crate::tools::provider_tool_declaration::ProviderToolDeclaration::Ready(_))
+    ));
     assert_eq!(
         sess.get_pending_input().await,
         vec![communication.to_response_input_item()],
@@ -8425,8 +8428,151 @@ async fn mailbox_preemption_never_executes_an_uncompleted_tool_prefix() -> anyho
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn malformed_suffix_rejects_the_complete_provider_tool_response() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex().build(&server).await?;
+    mount_response_once(
+        &server,
+        sse_response(sse(vec![
+            ev_response_created("build-failure-response"),
+            ev_function_call(
+                "prefix-side-effect",
+                "exec_command",
+                r#"{"cmd":"printf executed > build-failure-prefix.txt"}"#,
+            ),
+            ev_function_call("malformed-suffix", "exec_command", "{"),
+            ev_completed("build-failure-response"),
+        ])),
+    )
+    .await;
+
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise response-level build failure preflight".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            if std::fs::read_to_string(&rollout_path)
+                .unwrap_or_default()
+                .contains("ProviderToolResponsePreflightV1")
+            {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    assert!(
+        !test.workspace_path("build-failure-prefix.txt").exists(),
+        "a valid prefix executed despite a malformed suffix in the same provider response"
+    );
+    let rollout = std::fs::read_to_string(rollout_path)?;
+    assert!(rollout.contains("provider_tool_declaration_invalid"));
+    assert!(rollout.contains("failed to parse exec_command arguments"));
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn taskspace_rejects_hidden_image_added_event_before_artifact_write() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
+        })
+        .build(&server)
+        .await?;
+    let image_id = "hidden-added-image";
+    mount_response_once(
+        &server,
+        sse_response(sse(vec![
+            ev_response_created("hidden-added-response"),
+            json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "image_generation_call",
+                    "id": image_id,
+                    "status": "completed",
+                    "revised_prompt": "must not be persisted",
+                    "result": "aGlkZGVuLWFkZGVkLWJ5dGVz",
+                }
+            }),
+            ev_completed("hidden-added-response"),
+        ])),
+    )
+    .await;
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise hidden native added event".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            if std::fs::read_to_string(&rollout_path)
+                .unwrap_or_default()
+                .contains("ProviderToolResponsePreflightV1")
+            {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    let image_path = crate::stream_events_utils::image_generation_artifact_path(
+        &test.config.codex_home,
+        &test.session_configured.session_id.to_string(),
+        image_id,
+    );
+    assert!(
+        !image_path.exists(),
+        "TaskSpace hidden image added event wrote an artifact"
+    );
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
+}
+
 #[tokio::test]
-async fn malformed_tool_arguments_preserve_call_identity_in_feedback() {
+async fn malformed_tool_arguments_are_deferred_to_response_preflight() {
     let (sess, tc, _rx) = make_session_and_context_with_rx().await;
     {
         let mut state = sess.state.lock().await;
@@ -8452,29 +8598,70 @@ async fn malformed_tool_arguments_preserve_call_identity_in_feedback() {
         .expect("malformed arguments should return typed feedback");
 
     assert!(output.needs_follow_up);
-    assert!(output.tool_call.is_none());
+    assert!(matches!(
+        output.tool_declaration,
+        Some(crate::tools::provider_tool_declaration::ProviderToolDeclaration::BuildFailed(_))
+    ));
     let history = sess.clone_history().await;
     assert!(history.raw_items().iter().any(|item| {
         matches!(item, ResponseItem::FunctionCall { call_id, .. } if call_id == "malformed-exec")
     }));
-    let feedback = history
-        .raw_items()
-        .iter()
-        .find_map(|item| match item {
-            ResponseItem::FunctionCallOutput { call_id, output } if call_id == "malformed-exec" => {
-                Some(output)
-            }
-            _ => None,
-        })
-        .expect("matching failure output");
-    assert_eq!(feedback.success, Some(false));
-    assert!(matches!(
-        &feedback.body,
-        FunctionCallOutputBody::Text(text) if text.contains("missing `cmd` or `command`")
-    ));
     assert!(!history.raw_items().iter().any(|item| {
-        matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id.is_empty())
+        matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "malformed-exec")
     }));
+}
+
+#[tokio::test]
+async fn taskspace_hidden_native_tools_are_rejected_before_local_side_effects() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    {
+        let mut state = sess.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode_for_session(MapRuntimeMode::Experiment, sess.conversation_id);
+        state.activate_taskspace_context();
+    }
+    let image_id = "hidden-native-image";
+    let image_path = crate::stream_events_utils::image_generation_artifact_path(
+        &tc.config.codex_home,
+        &sess.conversation_id.to_string(),
+        image_id,
+    );
+    let items = [
+        ResponseItem::WebSearchCall {
+            id: Some("hidden-native-web".to_string()),
+            status: Some("completed".to_string()),
+            action: None,
+        },
+        ResponseItem::ImageGenerationCall {
+            id: image_id.to_string(),
+            status: "completed".to_string(),
+            revised_prompt: Some("must not be persisted".to_string()),
+            result: "aGlkZGVuLW5hdGl2ZS1ieXRlcw==".to_string(),
+        },
+    ];
+
+    for item in items {
+        let mut ctx = HandleOutputCtx {
+            sess: Arc::clone(&sess),
+            turn_context: Arc::clone(&tc),
+        };
+        let output = handle_output_item_done(&mut ctx, item, None)
+            .await
+            .expect("hidden native call should become a response preflight declaration");
+        assert!(output.needs_follow_up);
+        assert!(matches!(
+            output.tool_declaration,
+            Some(
+                crate::tools::provider_tool_declaration::ProviderToolDeclaration::RejectedNative(_)
+            )
+        ));
+    }
+
+    assert!(
+        !image_path.exists(),
+        "TaskSpace hidden image generation wrote an artifact before response preflight"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

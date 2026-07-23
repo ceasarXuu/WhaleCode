@@ -7,8 +7,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::parallel::ToolCallRuntime;
+use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
+use crate::tools::provider_tool_declaration::provider_response_failure_fact;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_preflight::validate_tool_sequence;
+
+const PROVIDER_TOOL_DECLARATION_INVALID_CODE: &str = "provider_tool_declaration_invalid";
 
 pub(crate) struct TaskSpaceTerminalCompletion {
     pub(crate) call_id: String,
@@ -38,6 +42,105 @@ impl BarrierKind {
             Self::TaskSpaceControl => "taskspace_control",
             Self::ApplyPatch => "apply_patch",
         }
+    }
+}
+
+pub(crate) async fn execute_provider_response_tool_sequence(
+    runtime: ToolCallRuntime,
+    declarations: Vec<ProviderToolDeclaration>,
+    cancellation_token: CancellationToken,
+) -> Result<ToolSequenceOutcome> {
+    if declarations
+        .iter()
+        .all(|declaration| !declaration.is_invalid())
+    {
+        let calls = declarations
+            .into_iter()
+            .filter_map(|declaration| match declaration {
+                ProviderToolDeclaration::Ready(call) => Some(call),
+                ProviderToolDeclaration::BuildFailed(_)
+                | ProviderToolDeclaration::RejectedNative(_) => None,
+            })
+            .collect();
+        return execute_response_tool_sequence(runtime, calls, cancellation_token).await;
+    }
+
+    let canonical_revision = runtime.taskspace_canonical_revision().await;
+    let build_failure_count = declarations
+        .iter()
+        .filter(|declaration| matches!(declaration, ProviderToolDeclaration::BuildFailed(_)))
+        .count();
+    let rejected_native_count = declarations
+        .iter()
+        .filter(|declaration| matches!(declaration, ProviderToolDeclaration::RejectedNative(_)))
+        .count();
+    let outcome = invalid_provider_declaration_outcome(&declarations, canonical_revision);
+    tracing::warn!(
+        target: "codex_core::taskspace",
+        reason_code = PROVIDER_TOOL_DECLARATION_INVALID_CODE,
+        declared_tool_count = declarations.len(),
+        build_failure_count,
+        rejected_native_count,
+        canonical_revision = ?canonical_revision,
+        zero_dispatch = true,
+        state_commit = false,
+        "tool.response_provider_declaration_rejected"
+    );
+    Ok(outcome)
+}
+
+fn invalid_provider_declaration_outcome(
+    declarations: &[ProviderToolDeclaration],
+    canonical_revision: Option<u64>,
+) -> ToolSequenceOutcome {
+    let build_failure_count = declarations
+        .iter()
+        .filter(|declaration| matches!(declaration, ProviderToolDeclaration::BuildFailed(_)))
+        .count();
+    let rejected_native_count = declarations
+        .iter()
+        .filter(|declaration| matches!(declaration, ProviderToolDeclaration::RejectedNative(_)))
+        .count();
+    let descriptors = declarations
+        .iter()
+        .map(ProviderToolDeclaration::descriptor)
+        .collect::<Vec<_>>();
+    let response_payload = serde_json::json!({
+        "canonical_revision": canonical_revision,
+        "declared_tool_count": declarations.len(),
+        "build_failure_count": build_failure_count,
+        "rejected_native_count": rejected_native_count,
+        "executed_tool_call_count": 0,
+        "declarations": descriptors,
+    });
+    let failure_payload = serde_json::json!({
+        "schema_version": "ProviderToolResponsePreflightV1",
+        "status": "protocol_failed",
+        "success": false,
+        "state_commit": false,
+        "error": {
+            "class": "protocol",
+            "code": PROVIDER_TOOL_DECLARATION_INVALID_CODE,
+            "message": "the provider response contains an invalid tool declaration; no client tool calls were executed",
+        },
+        "response": response_payload,
+    })
+    .to_string();
+    let responses = declarations
+        .iter()
+        .flat_map(|declaration| declaration.rejection_responses(&failure_payload))
+        .collect::<Vec<_>>();
+    let (mut pairing_outputs, supplemental_outputs): (Vec<_>, Vec<_>) = responses
+        .into_iter()
+        .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
+    pairing_outputs.extend(supplemental_outputs);
+    pairing_outputs.push(provider_response_failure_fact(
+        PROVIDER_TOOL_DECLARATION_INVALID_CODE,
+        response_payload,
+    ));
+    ToolSequenceOutcome {
+        outputs: pairing_outputs,
+        terminal_completion: None,
     }
 }
 
@@ -93,6 +196,7 @@ pub(crate) async fn execute_response_tool_sequence(
     );
 
     let mut outputs = Vec::with_capacity(calls.len());
+    let mut supplemental_outputs = Vec::new();
     let mut prior_failure: Option<String> = None;
     let mut terminal_completion: Option<TaskSpaceTerminalCompletion> = None;
     for (segment_index, segment) in segments.into_iter().enumerate() {
@@ -106,10 +210,11 @@ pub(crate) async fn execute_response_tool_sequence(
                     terminal_call_id = terminal.call_id,
                     "tool_response_sequence_call_skipped"
                 );
-                outputs.extend(ToolCallRuntime::terminal_completion_skipped_responses(
-                    call,
-                    &terminal.call_id,
-                ));
+                append_pairing_and_supplemental(
+                    &mut outputs,
+                    &mut supplemental_outputs,
+                    ToolCallRuntime::terminal_completion_skipped_responses(call, &terminal.call_id),
+                );
             }
             continue;
         }
@@ -123,7 +228,11 @@ pub(crate) async fn execute_response_tool_sequence(
                     prior_call_id,
                     "tool_response_sequence_call_skipped"
                 );
-                outputs.extend(ToolCallRuntime::skipped_responses(call, prior_call_id));
+                append_pairing_and_supplemental(
+                    &mut outputs,
+                    &mut supplemental_outputs,
+                    ToolCallRuntime::skipped_responses(call, prior_call_id),
+                );
             }
             continue;
         }
@@ -223,7 +332,7 @@ pub(crate) async fn execute_response_tool_sequence(
         );
         for execution in segment_executions {
             outputs.push(execution.response);
-            outputs.extend(execution.supplemental_responses);
+            supplemental_outputs.extend(execution.supplemental_responses);
         }
     }
 
@@ -233,10 +342,25 @@ pub(crate) async fn execute_response_tool_sequence(
         failed = prior_failure.is_some(),
         "tool_response_sequence_completed"
     );
+    outputs.extend(supplemental_outputs);
     Ok(ToolSequenceOutcome {
         outputs,
         terminal_completion,
     })
+}
+
+fn append_pairing_and_supplemental(
+    pairing_outputs: &mut Vec<ResponseInputItem>,
+    supplemental_outputs: &mut Vec<ResponseInputItem>,
+    responses: impl IntoIterator<Item = ResponseInputItem>,
+) {
+    for response in responses {
+        if matches!(response, ResponseInputItem::Message { .. }) {
+            supplemental_outputs.push(response);
+        } else {
+            pairing_outputs.push(response);
+        }
+    }
 }
 
 fn sequence_segments(calls: &[ToolCall]) -> Vec<SequenceSegment> {

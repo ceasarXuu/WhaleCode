@@ -55,7 +55,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
-      "sha256": "a33352b61545a5b38e3486bd165ef6965604e32acc130dc023bb7dd67c2df6a4",
+      "sha256": "8e923575d50f219c141105a08a782f35d28b775278c337dfe85079310f916034",
       "role": "FLA-9 lightweight ordinary Tool binding, boundary sequence, implementation boundary and verification gates"
     },
     {
@@ -156,7 +156,7 @@
       },
       "sequence_preflight": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
-        "sha256": "11d0f232b10346303b6b96374dfc574d2909b8e69bde5708825128b4dbfb1707"
+        "sha256": "db06e3a2e224f7b8b21ef3c84d99c29a02b5ede393937faf6e7314d465f38308"
       },
       "strict": false,
       "output_schema": null,
