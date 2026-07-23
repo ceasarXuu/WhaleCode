@@ -109,10 +109,12 @@ async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
     }
 }
 
-fn action_arguments(test: &TestCodex) -> String {
+fn carrier_arguments(test: &TestCodex, action: String) -> String {
     json!({
         "cmd": "pwd",
-        "workdir": test.cwd_path().display().to_string()
+        "workdir": test.cwd_path().display().to_string(),
+        "taskspace_action": serde_json::from_str::<serde_json::Value>(&action)
+            .expect("action json")
     })
     .to_string()
 }
@@ -121,18 +123,20 @@ fn common_responses(test: &TestCodex) -> Vec<String> {
     vec![
         sse(vec![
             ev_response_created("init-response"),
-            ev_function_call("init-call", "taskspace_control", &initialize_arguments()),
-            ev_function_call("init-action", "exec_command", &action_arguments(test)),
+            ev_function_call(
+                "init-call",
+                "exec_command",
+                &carrier_arguments(test, initialize_arguments()),
+            ),
             ev_completed("init-response"),
         ]),
         sse(vec![
             ev_response_created("complete-response"),
             ev_function_call(
                 "complete-call",
-                "taskspace_control",
-                &transition_arguments(),
+                "exec_command",
+                &carrier_arguments(test, transition_arguments()),
             ),
-            ev_function_call("complete-action", "exec_command", &action_arguments(test)),
             ev_completed("complete-response"),
         ]),
     ]
@@ -196,15 +200,9 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
     for call_id in ["init-call", "complete-call"] {
         let output = responses
             .function_call_output_text(call_id)
-            .unwrap_or_else(|| panic!("missing control output for {call_id}"));
-        assert!(output.contains("TaskSpaceControlResultV2"), "{output}");
-        assert!(output.contains("\"status\":\"committed\""), "{output}");
-    }
-    for call_id in ["init-action", "complete-action"] {
-        assert!(
-            responses.function_call_output_text(call_id).is_some(),
-            "missing action output for {call_id}"
-        );
+            .unwrap_or_else(|| panic!("missing carrier output for {call_id}"));
+        assert!(output.contains("TaskSpaceCarrierResultV2"), "{output}");
+        assert!(output.contains("\"tool_dispatched\":true"), "{output}");
     }
 }
 

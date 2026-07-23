@@ -8,11 +8,6 @@
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
 - Compatibility: 不保留 `required_next_call` 或旧 session 兼容路径
 
-> 2026-07-23 supersession：本文记录 FLA-3.5 当时的 carrier 修复及其历史验收，不再代表当前
-> 生产 L4 合同。FLA-9 已删除普通 Tool `taskspace_action`、decorator 和 carrier envelope，改由
-> `taskspace_control` 边界调用与下一实际动作在同一 provider response 中连续声明。当前权威方案见
-> [R7 普通 Tool 去侵入与连续动作修复](37-r7-ordinary-tool-carrier-deinvasion-plan.md)。
-
 ## 1. 实施决策
 
 FLA-3.5 直接在现有 Tool 构建和执行链上恢复连续动作，不建立候选晋级体系。

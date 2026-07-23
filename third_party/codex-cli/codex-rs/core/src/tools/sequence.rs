@@ -4,6 +4,7 @@ use futures::future::join_all;
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::context::TaskSpaceTerminalCarrier;
+use crate::tools::handlers::taskspace_transition_args::taskspace_action_requires_barrier;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_preflight::validate_tool_sequence;
@@ -27,6 +28,7 @@ enum SequenceSegment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BarrierKind {
     TaskSpaceControl,
+    TaskSpaceAction,
     ApplyPatch,
 }
 
@@ -34,6 +36,7 @@ impl BarrierKind {
     fn as_str(self) -> &'static str {
         match self {
             Self::TaskSpaceControl => "taskspace_control",
+            Self::TaskSpaceAction => "taskspace_action",
             Self::ApplyPatch => "apply_patch",
         }
     }
@@ -261,6 +264,13 @@ fn calls_for_segment<'a>(calls: &'a [ToolCall], segment: &SequenceSegment) -> &'
 }
 
 fn barrier_kind(call: &ToolCall) -> Option<BarrierKind> {
+    if call
+        .taskspace_action
+        .as_deref()
+        .is_some_and(taskspace_action_requires_barrier)
+    {
+        return Some(BarrierKind::TaskSpaceAction);
+    }
     if call.tool_name.namespace.is_some() {
         return None;
     }

@@ -1157,35 +1157,13 @@ fn apply_provider_tool_visibility(
                 target = "codex_core::taskspace",
                 "taskspace_linear_plan_tool_hidden"
             );
-            let visible = tools
+            tools
                 .into_iter()
                 .filter(|spec| spec.name() != "update_plan")
-                .collect::<Vec<_>>();
-            trace_taskspace_provider_tool_schema_profile(&visible);
-            visible
+                .map(codex_tools::decorate_taskspace_carrier_tool)
+                .collect()
         }
     }
-}
-
-fn trace_taskspace_provider_tool_schema_profile(tools: &[ToolSpec]) {
-    let mut total_schema_bytes = 0;
-    let entries = tools
-        .iter()
-        .map(|tool| {
-            let encoded = serde_json::to_vec(tool).unwrap_or_default();
-            let bytes = encoded.len();
-            total_schema_bytes += bytes;
-            format!("{}:{bytes}", tool.name())
-        })
-        .collect::<Vec<_>>();
-    tracing::info!(
-        target: "codex_core::taskspace",
-        tool_count = tools.len(),
-        ordinary_schema_extension_count = 0,
-        total_schema_bytes,
-        tool_schema_bytes = entries.join(","),
-        "taskspace.provider_tool_schema_profile"
-    );
 }
 
 pub(crate) fn build_prompt_with_tool_visibility(
@@ -1678,7 +1656,7 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn ordinary_tool_schema_is_identical_between_standard_and_taskspace() {
+    fn carrier_schema_is_visible_only_in_taskspace_mode() {
         let ordinary = codex_tools::create_exec_command_tool(codex_tools::CommandToolOptions {
             allow_login_shell: true,
             exec_permission_approvals_enabled: false,
@@ -1692,9 +1670,33 @@ mod active_context_replacement_tests {
             TaskspaceProviderToolVisibility::TaskspaceNative,
         );
 
-        assert_eq!(
-            serde_json::to_value(&standard[0]).expect("standard schema"),
-            serde_json::to_value(&taskspace[0]).expect("taskspace schema")
+        let ToolSpec::Function(standard) = &standard[0] else {
+            panic!("exec_command should be a function Tool");
+        };
+        assert!(
+            !standard
+                .parameters
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.contains_key("taskspace_action"))
+        );
+
+        let ToolSpec::Function(taskspace) = &taskspace[0] else {
+            panic!("decorated exec_command should remain a function Tool");
+        };
+        assert!(
+            taskspace
+                .parameters
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.contains_key("taskspace_action"))
+        );
+        assert!(
+            taskspace
+                .parameters
+                .required
+                .as_ref()
+                .is_some_and(|required| required.iter().any(|field| field == "taskspace_action"))
         );
     }
 
@@ -1751,10 +1753,9 @@ mod active_context_replacement_tests {
             visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
             vec!["list_dir", "taskspace_control"]
         );
-        assert!(tool_contract.contains("initialize_map"));
+        assert!(!tool_contract.contains("initialize_map"));
         assert!(tool_contract.contains("mutate_graph"));
-        assert!(tool_contract.contains("bind_node"));
-        assert!(tool_contract.contains("complete_then_continue"));
+        assert!(!tool_contract.contains("bind_node"));
         assert!(!tool_contract.contains("transition_node"));
         assert!(tool_contract.contains("finish_map"));
         assert!(!tool_contract.contains("terminal_state"));

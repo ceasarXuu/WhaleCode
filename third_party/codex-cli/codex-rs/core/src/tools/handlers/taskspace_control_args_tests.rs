@@ -2,13 +2,16 @@ use super::*;
 use serde_json::Value as JsonValue;
 
 #[test]
-fn control_accepts_boundary_transitions() {
+fn standalone_control_rejects_carrier_transitions() {
     for arguments in [
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}]}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[]}"#,
         r#"{"action":"bind_node","expected_revision":2,"node_id":"work"}"#,
         r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"verify"}"#,
     ] {
-        parse_taskspace_control_args(arguments).expect(arguments);
+        assert!(
+            parse_taskspace_control_args(arguments).is_err(),
+            "{arguments}"
+        );
     }
 }
 
@@ -32,10 +35,7 @@ fn accepts_standalone_graph_and_terminal_actions() {
 #[test]
 fn every_standalone_action_rejects_missing_extra_and_wrong_typed_fields() {
     let fixtures = [
-        serde_json::json!({"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}]}),
         serde_json::json!({"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[]}),
-        serde_json::json!({"action":"bind_node","expected_revision":2,"node_id":"new"}),
-        serde_json::json!({"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"new"}),
         serde_json::json!({"action":"block_node","expected_revision":2,"node_id":"new"}),
         serde_json::json!({"action":"unblock_node","expected_revision":3,"node_id":"new"}),
         serde_json::json!({"action":"rework_node","expected_revision":4,"node_id":"new"}),

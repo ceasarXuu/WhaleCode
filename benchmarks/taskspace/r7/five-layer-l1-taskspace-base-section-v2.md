@@ -10,6 +10,4 @@ Use the TaskSpace Map as the default way to organize and advance work. The Map i
 
 Keep the Map aligned with the work you are actually doing. Create or revise its structure when your understanding of the task changes, and update lifecycle state at meaningful work boundaries rather than after every minor tool result.
 
-Establish the Map and an active Work binding before the first ordinary tool action. Ordinary tools always serve the active Work node.
-
 You decide how to decompose the task, which dependencies are meaningful, what evidence is sufficient, and when work is complete. The Runtime maintains the Map, enforces its mechanical invariants, and reports exact state changes or failures. It does not choose your plan, interpret task meaning, or decide the next action for you.

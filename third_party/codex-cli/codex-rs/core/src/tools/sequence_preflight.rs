@@ -6,8 +6,6 @@ use crate::tools::sequence_manifest::ToolSequenceManifest;
 
 pub(crate) const REQUEST_MULTIPLE_PATCHES_CODE: &str =
     "request_multiple_apply_patch_calls_not_allowed";
-pub(crate) const BOUNDARY_ACTION_REQUIRES_FOLLOW_UP_CODE: &str =
-    "taskspace_boundary_action_requires_follow_up";
 
 #[derive(Debug)]
 pub(crate) struct ToolSequencePreflightFailure {
@@ -60,31 +58,6 @@ pub(crate) fn validate_tool_sequence(
             request_patch_count: Some(manifest.request_patch_count),
             declared_tool_count: Some(manifest.entries.len()),
         });
-    }
-    for (index, entry) in manifest.entries.iter().enumerate() {
-        let Some(action) = entry.taskspace_control_action.as_deref() else {
-            continue;
-        };
-        if !matches!(
-            action,
-            "initialize_map" | "bind_node" | "complete_then_continue"
-        ) {
-            continue;
-        }
-        let has_immediate_follow_up = manifest
-            .entries
-            .get(index + 1)
-            .is_some_and(|next| !next.is_taskspace_control);
-        if !has_immediate_follow_up {
-            return Err(ToolSequencePreflightFailure {
-                reason_code: BOUNDARY_ACTION_REQUIRES_FOLLOW_UP_CODE,
-                message: format!(
-                    "taskspace_control action `{action}` must be immediately followed by a real action Tool in the same provider response; no calls were executed"
-                ),
-                request_patch_count: Some(manifest.request_patch_count),
-                declared_tool_count: Some(manifest.entries.len()),
-            });
-        }
     }
     Ok(manifest)
 }

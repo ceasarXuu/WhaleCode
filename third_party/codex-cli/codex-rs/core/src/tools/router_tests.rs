@@ -10,6 +10,7 @@ use codex_tools::ToolName;
 use super::ToolCall;
 use super::ToolRouter;
 use super::ToolRouterParams;
+use super::extract_taskspace_action;
 
 #[tokio::test]
 #[expect(
@@ -46,6 +47,7 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
                 payload: ToolPayload::Function {
                     arguments: "{}".to_string(),
                 },
+                taskspace_action: None,
             })
         })
         .expect("test session should expose a parallel shell-like tool");
@@ -56,6 +58,7 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
         payload: ToolPayload::Function {
             arguments: "{}".to_string(),
         },
+        taskspace_action: None,
     }));
 
     Ok(())
@@ -191,6 +194,7 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
             tool: "query_with_delay".to_string(),
             raw_arguments: "{}".to_string(),
         },
+        taskspace_action: None,
     };
     assert!(router.tool_supports_parallel(&deferred_call));
 
@@ -202,8 +206,35 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
             tool: "query_with_delay".to_string(),
             raw_arguments: "{}".to_string(),
         },
+        taskspace_action: None,
     };
     assert!(!router.tool_supports_parallel(&different_server_call));
 
+    Ok(())
+}
+
+#[test]
+fn extracts_taskspace_action_without_forwarding_it_to_the_tool() -> anyhow::Result<()> {
+    let original_input = "*** Begin Patch\n*** End Patch";
+    let arguments = serde_json::json!({
+        "input": original_input,
+        "taskspace_action": {
+            "action": "bind_node",
+            "expected_revision": 2,
+            "node_id": "edit"
+        }
+    })
+    .to_string();
+
+    let (tool_arguments, action) = extract_taskspace_action(arguments)?;
+    let tool_arguments: serde_json::Value = serde_json::from_str(&tool_arguments)?;
+    assert_eq!(
+        tool_arguments,
+        serde_json::json!({ "input": original_input })
+    );
+    let action: serde_json::Value =
+        serde_json::from_str(action.as_deref().expect("taskspace action"))?;
+    assert_eq!(action["action"], "bind_node");
+    assert_eq!(action["node_id"], "edit");
     Ok(())
 }
