@@ -655,17 +655,20 @@
   },
   "x-taskspace-binding-sequence": {
     "required_field": "taskspace_binding",
-    "values": [
-      "active",
-      "after_boundary"
-    ],
-    "boundary_actions": [
-      "initialize_map",
+    "values": {
+      "post_initialization": [
+        "active",
+        "after_boundary"
+      ],
+      "initialization": "initialize_map object"
+    },
+    "control_boundary_actions": [
       "bind_node",
       "complete_then_continue"
     ],
     "preflight_result_schema": "ToolSequencePreflightResultV1",
-    "execution_contract": "A valid boundary control and its immediately following after_boundary ordinary Tool execute in provider order and return separate results.",
+    "initialization_contract": "The first ordinary Tool carries the explicit initialize_map object in taskspace_binding. Runtime commits exactly that object before dispatching the same ordinary Tool through its original handler.",
+    "later_boundary_contract": "A valid bind_node or complete_then_continue control and its immediately following after_boundary ordinary Tool execute in provider order and return separate results.",
     "validation_failure": {
       "state_commit": false,
       "executed_tool_call_count": 0,
@@ -673,10 +676,38 @@
         "taskspace_binding_required",
         "taskspace_binding_invalid",
         "taskspace_binding_mode_mismatch",
+        "taskspace_initialization_arguments_invalid",
+        "taskspace_initialization_must_be_carried",
         "taskspace_boundary_requires_after_boundary_action",
         "taskspace_after_boundary_requires_boundary_control"
       ]
     },
-    "ordinary_tool_result": "The original Tool result is preserved without a TaskSpace carrier envelope."
+    "ordinary_tool_result": "For active and after_boundary calls, the original Tool result is preserved without a TaskSpace carrier envelope."
+  },
+  "x-taskspace-initialization-carrier-result": {
+    "schema_version": "TaskSpaceInitializationCarrierResultV1",
+    "wire_shape": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "initialization_result",
+        "tool_dispatched"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "TaskSpaceInitializationCarrierResultV1"
+        },
+        "initialization_result": {
+          "description": "The exact TaskSpaceControlResultV2 produced by the explicit initialize_map object."
+        },
+        "tool_dispatched": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "success_delivery": "The carrier header is followed by the ordinary Tool's original result. tool_dispatched is true even when that Tool reports its own failure.",
+    "initialization_rejection": "The ordinary Tool is not dispatched. The carrier result is the only output and tool_dispatched is false.",
+    "semantic_policy": "Runtime does not summarize, repair, infer, or replace either result."
   }
 }

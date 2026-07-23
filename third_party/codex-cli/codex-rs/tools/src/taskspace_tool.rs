@@ -90,7 +90,7 @@ fn revision_schema() -> JsonSchema {
     JsonSchema::integer(None).with_minimum(0)
 }
 
-fn initialize_map_schema() -> JsonSchema {
+pub(crate) fn initialize_map_schema() -> JsonSchema {
     described_object_variant(
         "initialize_map",
         BTreeMap::from([
@@ -137,7 +137,7 @@ fn initialize_map_schema() -> JsonSchema {
             "additional_work_nodes".into(),
             "edges".into(),
         ],
-        "Create the initial rooted DAG, its unique Finish, and the first active Work binding. This call is invalid alone: immediately emit the first real Tool after it in the same response with taskspace_binding after_boundary.",
+        "Create the initial rooted DAG, its unique Finish, and the first active Work binding. Use this object as the first ordinary Tool's taskspace_binding so initialization and that real action form one Tool call.",
     )
 }
 
@@ -235,7 +235,6 @@ fn finish_map_schema() -> JsonSchema {
 
 pub fn create_taskspace_control_tool() -> ToolSpec {
     let mut variants = vec![
-        initialize_map_schema(),
         mutate_graph_schema(),
         bind_node_schema(),
         complete_then_continue_schema(),
@@ -258,7 +257,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Use taskspace_control for Map lifecycle, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map, bind_node, and complete_then_continue are invalid as standalone calls: immediately follow one with the real Tool whose taskspace_binding is after_boundary in the same response. Ordinary Tools otherwise use taskspace_binding active. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
+        description: "Use taskspace_control for Map lifecycle after initialization, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map is carried by the first ordinary Tool's taskspace_binding and is not a standalone control action. bind_node and complete_then_continue are invalid as standalone calls: immediately follow one with the real Tool whose taskspace_binding is after_boundary in the same response. Other ordinary Tools use taskspace_binding active. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
         strict: false,
         defer_loading: None,
         parameters,

@@ -7,6 +7,7 @@ use crate::ResponsesApiNamespace;
 use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use crate::ToolSpec;
+use crate::taskspace_tool::initialize_map_schema;
 use serde_json::json;
 use std::error::Error;
 use std::fmt;
@@ -132,11 +133,20 @@ fn decorate_parameters(
 }
 
 fn taskspace_binding_schema() -> JsonSchema {
-    JsonSchema::string_enum(
-        vec![json!("active"), json!("after_boundary")],
+    JsonSchema::any_of(
+        vec![
+            JsonSchema::string_enum(
+                vec![json!("active"), json!("after_boundary")],
+                Some(
+                    "active serves the existing current Work. after_boundary marks the ordinary Tool immediately following bind_node or complete_then_continue in the same response."
+                        .into(),
+                ),
+            ),
+            initialize_map_schema(),
+        ],
         Some(
-            "active serves the existing current Work. after_boundary marks the ordinary Tool immediately following initialize_map, bind_node, or complete_then_continue in the same response."
-                .into(),
+            "Bind this ordinary Tool to TaskSpace. Use active for current Work, after_boundary after a lifecycle boundary control, or the initialize_map object on the first real Tool."
+                .to_string(),
         ),
     )
 }

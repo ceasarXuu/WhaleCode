@@ -1,6 +1,6 @@
 # R7 普通 Tool 轻量绑定与连续动作修复
 
-> 状态：轻量绑定闭环修复已实现；工程、Docker 与独立复审待最终确认
+> 状态：初始化连续动作修复实施中；工程与 Docker repeat-3 待最终确认
 >
 > 日期：2026-07-24
 >
@@ -14,22 +14,24 @@
 edges 等完整结构重复暴露约 12 次，使 TaskSpace 首请求 Tool section 从 Standard 的 `21,669` bytes
 放大到 `60,743` bytes。
 
-普通 Tool 与 TaskSpace 的机械关联仍是必要合同。本轮只删除重复的状态内容，不删除关联本身：
+普通 Tool 与 TaskSpace 的机械关联仍是必要合同。本轮只保留连续动作所需的最小结构，不恢复完整
+`taskspace_action` 联合：
 
 - Agent 继续明确声明普通动作沿用当前 binding，或承接紧邻的边界 control；
 - Runtime 继续强制 Map、binding、lease、reservation 和顺序硬约束；
 - Runtime 不选择节点、不推断下一动作、不修改普通 Tool 参数或结果；
-- 生命周期参数只在唯一 `taskspace_control` 中精确暴露一次。
+- 初始化参数只在第一个普通 Tool 的 binding 中精确暴露；初始化后生命周期参数只在唯一
+  `taskspace_control` 中暴露。
 
 ## 2. Agent 可见合同
 
 ### 2.1 普通 Tool 的唯一扩展
 
-TaskSpace 下每个普通 Tool 增加一个必填字符串字段：
+TaskSpace 下每个普通 Tool 增加一个必填字段：
 
 ```json
 {
-  "taskspace_binding": "active | after_boundary"
+  "taskspace_binding": "active | after_boundary | initialize_map object"
 }
 ```
 
@@ -39,18 +41,20 @@ TaskSpace 下每个普通 Tool 增加一个必填字符串字段：
 |---|---|
 | `active` | 此动作服务当前 canonical active Work binding |
 | `after_boundary` | 此动作紧邻前一个边界 `taskspace_control`，服务该 control 新建立的 binding |
+| `initialize_map object` | 仅用于第一个真实普通 Tool；显式声明初始 Root、Work、Finish 与 edges，并在同一调用中执行该 Tool |
 
-字段不携带 revision、node id、目标、图结构或生命周期参数。Router 在调用普通 Tool handler 前机械移除
-该字段，普通 Tool 的原生参数和结果保持不变。
+`active` 与 `after_boundary` 不携带 revision、node id、目标、图结构或生命周期参数。
+`initialize_map object` 复用唯一初始化 schema，但不包含普通 Tool 的业务参数。Router 在调用普通 Tool
+handler 前机械移除该字段，因此命令、Patch、MCP 等原生参数仍保持顶层形态。
 
 Standard 不暴露该字段，也不把同名业务字段识别成 TaskSpace binding。外部 Tool 合法拥有
 `taskspace_binding` 业务参数时，Router 原样转发，是否接受由该 Tool 自己的原生 schema 和 handler 决定。
 
 ### 2.2 边界 control
 
-以下三个 action 以完整精确 schema 只在 `taskspace_control` 暴露一次：
+初始化只通过第一个普通 Tool 的 `taskspace_binding` 暴露，中央 `taskspace_control` 不再暴露
+`initialize_map`。以下两个连续动作仍由 control 承载：
 
-- `initialize_map`
 - `bind_node`
 - `complete_then_continue`
 
@@ -60,20 +64,23 @@ Standard 不暴露该字段，也不把同名业务字段识别成 TaskSpace bin
 
 Tool sequence preflight 在任何调用执行前检查完整 provider response：
 
-1. 边界 control 后必须立即出现一个普通 Tool，且其 `taskspace_binding` 为 `after_boundary`；
-2. `after_boundary` 普通 Tool 前必须立即是边界 control；
-3. 其余普通 Tool 必须使用 `active`；
-4. 任一不匹配使整份 response 零执行拒绝，不允许先提交 control 再发现缺失动作；
-5. `finish_map` 是终态 control，不要求后续动作；
-6. 现有单 response 最多一个 patch 约束保持不变。
-7. control JSON、action 类型和保留字段等机械错误也在整响应 preflight 中拒绝；
-8. 只有收到 `response.completed` 的完整响应才能进入 preflight 和执行；mailbox 抢占不能取得含
+1. 空 Map 的首个真实普通 Tool 必须携带合法 `initialize_map object`；
+2. `initialize_map` 不允许作为独立 `taskspace_control` 调用；
+3. `bind_node` 或 `complete_then_continue` 后必须立即出现一个普通 Tool，且其
+   `taskspace_binding` 为 `after_boundary`；
+4. `after_boundary` 普通 Tool 前必须立即是上述后续边界 control；
+5. 其余普通 Tool 必须使用 `active`；
+6. 任一不匹配使整份 response 零执行拒绝，不允许先提交后续边界 control 再发现缺失动作；
+7. `finish_map` 是终态 control，不要求后续动作；
+8. 现有单 response 最多一个 patch 约束保持不变；
+9. control JSON、action 类型和保留字段等机械错误也在整响应 preflight 中拒绝；
+10. 只有收到 `response.completed` 的完整响应才能进入 preflight 和执行；mailbox 抢占不能取得含
    pending Tool calls 的响应所有权。
 
 合法：
 
 ```text
-initialize_map + exec(after_boundary)
+exec(taskspace_binding=initialize_map object)
 complete_then_continue + apply_patch(after_boundary) + exec(active)
 complete_then_continue + read(after_boundary) + complete_then_continue + exec(after_boundary)
 ```
@@ -81,22 +88,23 @@ complete_then_continue + read(after_boundary) + complete_then_continue + exec(af
 非法：
 
 ```text
-initialize_map
-initialize_map + exec(active)
+taskspace_control(initialize_map)
+exec(active) on an empty Map
 exec(after_boundary)
 complete_then_continue + taskspace_control
 ```
 
 ## 4. 执行与反馈
 
-`taskspace_control` 和 `apply_patch` 继续是 sequence barrier：
+初始化载体、`taskspace_control` 和 `apply_patch` 都是 sequence barrier：
 
-1. 边界 control 先执行并提交 Agent 明确声明的状态变化；
-2. control 成功后，紧邻普通动作在新 canonical binding 下执行；
-3. control 失败时，后续声明调用全部返回 `skipped_due_to_prior_failure`；
-4. 普通动作失败时，已提交的 control 不自动回滚；
-5. control 结果和普通 Tool 原始结果作为两个有序事实进入上下文，不合并、不再解释；
-6. 同一普通并行段只包含彼此不依赖返回值的动作；有结果依赖的动作等待下一次 provider response。
+1. 初始化载体先提交 Agent 明确声明的 Map，再通过原 Router 执行同一个普通 Tool；
+2. 初始化失败时普通 Tool 不执行，反馈精确保留初始化失败事实；
+3. 初始化成功时，同一 Tool 结果前附独立结构化初始化结果，普通 Tool 原始结果不被改写；
+4. 后续边界 control 先提交 Agent 明确声明的状态变化，紧邻普通动作随后在新 binding 下执行；
+5. 后续 control 失败时，后续声明调用全部返回 `skipped_due_to_prior_failure`；
+6. 普通动作失败时，已提交的初始化或 control 不自动回滚；
+7. 同一普通并行段只包含彼此不依赖返回值的动作；有结果依赖的动作等待下一次 provider response。
 
 ToolSearch 的 provider 配对输出必须保留协议要求的 `status=completed`。它不再被当成业务成功状态：
 Runtime 独立保留真实 `succeeded`，错误时额外返回包含原始错误文本和 call id 的
@@ -133,16 +141,17 @@ Tool 名与字段；不再使用 panic，也不静默覆盖业务字段。
 
 ### 6.1 结构
 
-- 每个普通 Tool 只增加一个两值字符串字段；
-- Root、edge、Finish、revision、node id 不出现在该字段；
-- 三个边界 action 的完整参数只在 `taskspace_control` 出现一次；
+- 每个普通 Tool 只增加一个 `active | after_boundary | initialize_map object` 联合；
+- Root、edge、Finish 只出现在该联合的初始化分支，revision 不出现在普通 Tool binding；
+- 初始化分支与中央 control 不重复；初始化后生命周期参数只在 `taskspace_control` 出现；
 - Standard 普通 Tool schema 不变；
 - TaskSpace 普通 Tool 仍经过 canonical binding、lease 和 reservation gate。
 
 ### 6.2 连续动作
 
-- 三类边界与 `after_boundary` 动作可在同一 response 连续声明；
-- 任一单独边界、孤立 `after_boundary` 或错误配对均零执行拒绝；
+- 初始化与首个真实动作由同一个 provider Tool call 表达；
+- 两类后续边界与 `after_boundary` 动作可在同一 response 连续声明；
+- 独立 control 初始化、单独后续边界、孤立 `after_boundary` 或错误配对均零执行拒绝；
 - 合法 response 中 control 先于普通 Tool；
 - control 失败阻止后续动作，control 成功而 Tool 失败保留两项事实；
 - 支持同一 response 中多个合法边界动作对。
@@ -154,7 +163,7 @@ Tool 名与字段；不再使用 panic，也不静默覆盖业务字段。
   `taskspace_control` 与普通 Tool 扩展的占比，不以不可达阈值替代实测；
 - 普通 Tool 重复扩展不得包含生命周期联合；
 - Standard、map-always、map-append、map-request 使用同一二进制和 Docker image；
-- 三个 TaskSpace arm 不出现生命周期参数 shape 猜测；
+- 三个 TaskSpace arm 不出现独立初始化恢复请求或生命周期参数 shape 猜测；
 - 记录 request、input、cached、output、时间、Tool bytes、配对率、拒绝码和 Map 闭合状态。
 
 ## 7. 非目标
@@ -167,14 +176,17 @@ Tool 名与字段；不再使用 panic，也不静默覆盖业务字段。
 
 ## 8. 实施结果
 
-最终实现没有采用“普通 Tool 零侵入”，也没有恢复完整 lifecycle 联合：
+最终实现没有采用“普通 Tool 零侵入”，也没有恢复完整 `taskspace_action` 联合：
 
-- TaskSpace 普通 Tool 仅增加必填 `taskspace_binding=active|after_boundary`；
-- `taskspace_control` 是 lifecycle 参数的唯一 schema owner；
+- TaskSpace 普通 Tool 增加必填
+  `taskspace_binding=active|after_boundary|initialize_map object`；
+- 初始化 schema 由第一个普通 Tool 的 binding 复用，中央 control 不再重复暴露初始化；
+- 初始化后的 lifecycle 参数由 `taskspace_control` 唯一拥有；
 - Router 在普通 handler 前机械移除 binding，不改变业务参数；
-- response 级 preflight 对 boundary/`after_boundary` 做双向紧邻校验，失败时整份 response 零执行；
+- response 级 preflight 对初始化载体、后续 boundary/`after_boundary` 做机械校验；
 - preflight 反馈包含实际 Tool 序列和机械期望序列，不补动作、不选节点；
-- control 与 ordinary Tool 结果保持两个独立有序事实；
+- 初始化结果与首个普通 Tool 结果在同一调用反馈中忠实并列；后续 control 与 ordinary Tool
+  结果保持两个独立有序事实；
 - Standard schema 不经过装饰；
 - Standard Router 不提取或删除同名业务字段；
 - ToolSearch 返回的延迟 Tool 与初始 prompt Tool 使用同一 binding 投影；
@@ -186,7 +198,7 @@ Tool 名与字段；不再使用 panic，也不静默覆盖业务字段。
 - client ToolSearch 即使缺少 call_id 也作为无配对 build failure 保留，不得降级为非 Tool；
 - 所有 call pairing output 先于 ToolSearch 或 response-level factual message；
 - hidden WebSearch/ImageGeneration 的 added/done event 都在非 Tool 处理和本地落盘前拒绝并去重；
-- 完整 carrier executor、复合结果 envelope 和旧 parser 已删除，不保留兼容路径。
+- 历史完整 carrier executor、四分支复合 action 和旧 parser 已删除，不保留兼容路径。
 
 初始化 `edges` 的 schema 还明确写入 Root/Finish 硬图规则。该修复只陈述已存在的状态机不变量，不让
 Runtime 生成或修复图。
@@ -213,7 +225,7 @@ Runtime 生成或修复图。
 | `cargo check -p codex-tools -p codex-core` | 通过 |
 | `cargo build -p codex-cli --bin whale --locked` | 通过 |
 
-### 9.2 固定 schema 成本
+### 9.2 修复前固定 schema 成本基线
 
 同一 DeepSeek Docker harness 的最终 wire Tool section：
 
@@ -221,12 +233,13 @@ Runtime 生成或修复图。
 |---|---:|---:|---:|
 | Standard | 21,669 | 5,418 | 0 |
 | 历史完整 carrier | 60,743 | 15,186 | 39,074 |
-| 最终轻量 binding | 29,200 | 7,300 | 7,531 |
+| 修复前两值轻量 binding | 29,200 | 7,300 | 7,531 |
 
-最终实现把相对 Standard 的额外 Tool schema 从 `39,074` bytes 降到 `7,531` bytes，下降约
-`80.7%`。完整 lifecycle 结构只在中央 control 出现一次；普通 Tool 的 binding schema 设有独立字节上限回归。
+两值轻量实现把相对 Standard 的额外 Tool schema 从 `39,074` bytes 降到 `7,531` bytes，下降约
+`80.7%`，但无法结构化消除独立初始化。初始化载体修复会增加普通 Tool binding 的固定 schema
+成本；最终值必须由同镜像 repeat-3 重新测量，不能沿用本表。
 
-最终 map-request 自然样本：
+修复前 map-request 自然样本：
 
 - 业务验证与 hidden oracle 均通过；
 - 12 个 provider request，input `201,901`、cached input `174,592`、request-2+ cache
@@ -236,23 +249,26 @@ Runtime 生成或修复图。
 - 首次 `initialize_map` 仍有 1 次单独调用并被零执行 preflight 拒绝；
 - Agent 还曾过早 `finish_map`，收到状态机事实后主动 `read_map` 并完成剩余 Work。
 
-该 repeat-1 只证明最终合同可运行、可恢复和成本收敛，不用于选择 projection policy。
+该 repeat-1 证明两值轻量合同可运行、可恢复，但也直接暴露了独立初始化回归。
 
-## 10. 明确未决边界
+## 10. 初始化连续动作修复决策
 
 单个 Tool 的 JSON Schema 不能结构化要求同一 provider response 中存在另一个 sibling Tool。实测也证明，
 再增加固定 `next_call="ordinary_tool"` 只会形成重复声明：Agent 能填该字段，仍可能单独结束 control
 response，因此该试验已删除。
 
-当前轻量方案对连续动作提供三层配合：
+选定修复不建立通用嵌套 dispatcher，也不恢复每个普通 Tool 上的完整生命周期联合：
 
-1. L2 描述工作协议；
-2. control 与 ordinary Tool 两侧都暴露机械配对关系；
-3. Runtime preflight 严格保证非法序列零执行并忠实反馈。
+1. 只有初始化改为首个普通 Tool 的结构化 binding 分支；
+2. Patch、命令、MCP 等真实参数保持原 Tool 顶层 schema；
+3. Runtime 先机械执行 Agent 明确给出的初始化对象，再走原 Router/权限/hook 执行同一个 Tool；
+4. 后续 `bind_node` 和 `complete_then_continue` 继续使用 control + sibling，因为这两类调用已稳定，
+   无需扩大普通 Tool schema；
+5. 独立 `taskspace_control initialize_map` 在 provider schema 中消失，Runtime 仍防御性零执行拒绝；
+6. 不自动建图、不补动作、不选择节点、不解析 reasoning。
 
-这保证了状态不会被错误提交，但不能保证 Agent 首次一定生成 sibling。若后续要求“provider schema 本身绝对
-不能表达单独 boundary”，必须单独决策单调用复合 Tool 的产品形态及其 patch、MCP、schema 成本，不得继续
-堆提示词、固定字段或 Runtime 语义纠正来假装获得结构保证。
+该边界以最小 Tool 形态变更关闭“schema 合法但 sequence 非法的独立初始化”空间，同时避免历史通用
+carrier 对所有普通 Tool 的大规模侵入。其行为收益和新增 schema 成本以修复后 repeat-3 判断。
 
 ## 11. Docker 运行经验
 

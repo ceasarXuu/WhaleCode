@@ -1,14 +1,13 @@
 {
   "artifact_schema_version": 2,
   "contract_id": "r7-five-layer-taskspace-control-v3",
-  "status": "implementation_candidate",
+  "status": "active_repair_verified",
   "activation_phase": "FLA-9",
   "baseline_tool_count": 1,
   "strict": false,
   "output_schema_sent_to_deepseek": false,
   "capability_profiles": {
     "boundary_actions": [
-      "initialize_map",
       "bind_node",
       "complete_then_continue"
     ],
@@ -17,129 +16,16 @@
       "after_boundary"
     ],
     "required_on_decorated_tools": true,
-    "mechanical_transform": "Decorate only TaskSpace provider-visible ordinary Tools with one required two-value taskspace_binding string; Standard schemas remain unchanged. Keep all lifecycle payloads in the single taskspace_control schema.",
-    "sequence_contract": "A boundary taskspace_control must be immediately followed by an ordinary Tool with taskspace_binding after_boundary. Other ordinary Tools use active. Sequence preflight rejects an invalid response before any Tool executes.",
-    "result_contract": "Boundary control and ordinary Tool return two independent ordered results without a carrier envelope."
+    "mechanical_transform": "Decorate TaskSpace provider-visible ordinary Tools with one required taskspace_binding: active, after_boundary, or an initialize_map object. Standard schemas remain unchanged. Post-initialization lifecycle payloads remain in the single taskspace_control schema.",
+    "sequence_contract": "The first ordinary Tool carries initialize_map in taskspace_binding and executes as one initialization carrier. A later boundary taskspace_control must be immediately followed by an ordinary Tool with taskspace_binding after_boundary. Other ordinary Tools use active.",
+    "result_contract": "Initialization and its first ordinary Tool return one faithful carrier result. Later boundary control and ordinary Tool return two independent ordered results."
   },
   "provider_tool": {
     "function": {
-      "description": "Use taskspace_control for Map lifecycle, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map, bind_node, and complete_then_continue are invalid as standalone calls: immediately follow one with the real Tool whose taskspace_binding is after_boundary in the same response. Ordinary Tools otherwise use taskspace_binding active. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.",
+      "description": "Use taskspace_control for Map lifecycle after initialization, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map is carried by the first ordinary Tool's taskspace_binding and is not a standalone control action. bind_node and complete_then_continue are invalid as standalone calls: immediately follow one with the real Tool whose taskspace_binding is after_boundary in the same response. Other ordinary Tools use taskspace_binding active. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.",
       "name": "taskspace_control",
       "parameters": {
         "anyOf": [
-          {
-            "additionalProperties": false,
-            "description": "Create the initial rooted DAG, its unique Finish, and the first active Work binding. This call is invalid alone: immediately emit the first real Tool after it in the same response with taskspace_binding after_boundary.",
-            "properties": {
-              "action": {
-                "enum": [
-                  "initialize_map"
-                ],
-                "type": "string"
-              },
-              "additional_work_nodes": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "goal": {
-                      "description": "A coherent Work goal.",
-                      "type": "string"
-                    },
-                    "node_id": {
-                      "description": "Stable Agent-authored Work identifier.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "node_id",
-                    "goal"
-                  ],
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              "edges": {
-                "description": "Complete explicit DAG edges. Include root.node_id -> initial_work_node.node_id. Every non-Root node must be reachable from Root, and every non-Finish node must reach Finish.",
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "from": {
-                      "description": "Source node identifier.",
-                      "type": "string"
-                    },
-                    "to": {
-                      "description": "Target node identifier.",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "from",
-                    "to"
-                  ],
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              "finish_identity": {
-                "additionalProperties": false,
-                "properties": {
-                  "id": {
-                    "description": "Stable Agent-authored Finish identifier.",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id"
-                ],
-                "type": "object"
-              },
-              "initial_work_node": {
-                "additionalProperties": false,
-                "properties": {
-                  "goal": {
-                    "description": "The first coherent Work goal.",
-                    "type": "string"
-                  },
-                  "node_id": {
-                    "description": "Stable Agent-authored Work identifier.",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "node_id",
-                  "goal"
-                ],
-                "type": "object"
-              },
-              "root": {
-                "additionalProperties": false,
-                "properties": {
-                  "goal": {
-                    "description": "The user's overall task goal.",
-                    "type": "string"
-                  },
-                  "node_id": {
-                    "description": "Stable Agent-authored Root identifier.",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "node_id",
-                  "goal"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "action",
-              "root",
-              "initial_work_node",
-              "finish_identity",
-              "additional_work_nodes",
-              "edges"
-            ],
-            "type": "object"
-          },
           {
             "additionalProperties": false,
             "description": "Atomically add Work nodes or dependency edges and remove eligible edges. Keep the existing binding unless the mutation is mechanically incompatible with it.",

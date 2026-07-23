@@ -145,8 +145,8 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-True $bindingSource.Contains('required.push(TASKSPACE_BINDING_FIELD') "Ordinary Tool decorator does not require taskspace_binding"
     Assert-True $bindingSource.Contains('json!("active")') "Ordinary Tool binding omits active"
     Assert-True $bindingSource.Contains('json!("after_boundary")') "Ordinary Tool binding omits after_boundary"
+    Assert-True $bindingSource.Contains('initialize_map_schema()') "Ordinary Tool binding omits initialization carrier"
     Assert-True (-not $bindingSource.Contains('expected_revision')) "Ordinary Tool binding duplicates lifecycle revision"
-    Assert-True (-not $bindingSource.Contains('initial_work_node')) "Ordinary Tool binding duplicates lifecycle graph fields"
     Assert-True $routerSource.Contains('extract_taskspace_binding') "Router does not strip taskspace_binding before ordinary Tool dispatch"
     Assert-True (-not $registrySource.Contains('decorate_taskspace_carrier_tool')) "Shared Tool registry still decorates Standard schemas"
     Assert-True $turnSource.Contains('project_taskspace_binding_tool(spec)') "TaskSpace provider visibility does not project ordinary Tools"
@@ -160,6 +160,8 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     foreach ($variant in @("InitializeMap", "BindNode", "CompleteThenContinue")) {
         Assert-True $controlWireSource.Contains("Action::$variant") "Boundary control omits transition variant: $variant"
     }
+    Assert-True $preflightSource.Contains('TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE') "Direct initialize_map is not rejected before execution"
+    Assert-True $preflightSource.Contains('TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE') "Initialization carrier arguments are not preflighted"
     Assert-True (-not $controlSource.Contains('required_next_call')) "Tool schema retains required_next_call"
     Assert-True $controlSource.Contains('"finish_map"') "Unified terminal action is missing"
     Assert-True (-not $controlSource.Contains('"last_running_work"')) "Tool schema still exposes the last-Work transaction branch"
@@ -484,9 +486,10 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline" -or $Phase -eq "FLA-
     foreach ($action in @("block_node", "unblock_node", "rework_node")) {
         Assert-True ($selectedActions -contains $action) "Selected L4 schema omits direct action: $action"
     }
-    foreach ($action in @("initialize_map", "bind_node", "complete_then_continue")) {
+    foreach ($action in @("bind_node", "complete_then_continue")) {
         Assert-True ($selectedActions -contains $action) "Selected L4 schema omits boundary action: $action"
     }
+    Assert-True ($selectedActions -notcontains "initialize_map") "Selected L4 control schema still exposes standalone initialization"
     Assert-True ($selectedActions -notcontains "transition_node") "Selected L4 schema retains transition_node"
 
     $toolSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs"))
@@ -525,8 +528,9 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline" -or $Phase -eq "FLA-
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "active" "Production manifest does not expose active L5 result"
     Assert-True (-not $resultSchema.properties.error.oneOf[1].properties.code.enum.Contains("TASKSPACE_REQUIRED_SIBLING_MISSING")) "L5 result schema retains removed sibling failure"
     $bindingTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/taskspace_binding_tests.rs"))
-    Assert-True $bindingTests.Contains('lightweight_binding_values_are_stable') "FLA-5 binding conformance test is missing"
+    Assert-True $bindingTests.Contains('binding_kinds_are_stable') "FLA-5 binding conformance test is missing"
     Assert-True $bindingTests.Contains('binding_failure_is_factual_and_never_claims_a_commit') "FLA-5 rejected binding feedback test is missing"
+    Assert-Equal ([string]$resultSchema.'x-taskspace-initialization-carrier-result'.schema_version) "TaskSpaceInitializationCarrierResultV1" "L5 initialization carrier result is missing"
     $costSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1"))
     Assert-True $costSource.Contains('after_boundary_binding_count') "FLA-5 observer does not count boundary bindings"
     Assert-True $costSource.Contains('sequence_preflight_rejected_call_count') "FLA-5 observer does not classify sequence preflight failures"

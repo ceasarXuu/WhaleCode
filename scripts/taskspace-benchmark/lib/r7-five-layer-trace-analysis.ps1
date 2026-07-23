@@ -19,14 +19,20 @@ function ConvertTo-R7CallDescriptor {
     } else {
         ""
     }
+    $bindingValue = Get-R7JsonProperty $parsed "taskspace_binding"
     $taskspaceBinding = if ($ToolName -eq "taskspace_control") {
         ""
+    } elseif ($bindingValue -is [string]) {
+        [string]$bindingValue
+    } elseif ([string](Get-R7JsonProperty $bindingValue "action" "") -eq "initialize_map") {
+        "initialize_map"
     } else {
-        [string](Get-R7JsonProperty $parsed "taskspace_binding" "")
+        ""
     }
     $currentNode = [string](Get-R7JsonProperty $parsed "current_node_id" "")
     $nextNode = [string](Get-R7JsonProperty $parsed "next_node_id" "")
-    $initialWork = Get-R7JsonProperty $parsed "initial_work_node"
+    $initialization = if ($taskspaceBinding -eq "initialize_map") { $bindingValue } else { $parsed }
+    $initialWork = Get-R7JsonProperty $initialization "initial_work_node"
     $initialNode = [string](Get-R7JsonProperty $initialWork "node_id" "")
     $terminalNode = [string](Get-R7JsonProperty $parsed "terminal_node_id" "")
     $node = if ($currentNode -and $nextNode) {

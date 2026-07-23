@@ -118,15 +118,24 @@ fn bound_exec_arguments(test: &TestCodex, binding: &str) -> String {
     .to_string()
 }
 
+fn initializing_exec_arguments(test: &TestCodex) -> String {
+    json!({
+        "cmd": "pwd",
+        "workdir": test.cwd_path().display().to_string(),
+        "taskspace_binding": serde_json::from_str::<serde_json::Value>(&initialize_arguments())
+            .expect("initialization arguments"),
+    })
+    .to_string()
+}
+
 fn common_responses(test: &TestCodex) -> Vec<String> {
     vec![
         sse(vec![
             ev_response_created("init-response"),
-            ev_function_call("init-control", "taskspace_control", &initialize_arguments()),
             ev_function_call(
                 "init-action",
                 "exec_command",
-                &bound_exec_arguments(test, "after_boundary"),
+                &initializing_exec_arguments(test),
             ),
             ev_completed("init-response"),
         ]),
@@ -209,19 +218,34 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
             );
         }
     }
-    for call_id in ["init-control", "complete-control"] {
-        let output = responses
-            .function_call_output_text(call_id)
-            .unwrap_or_else(|| panic!("missing control output for {call_id}"));
-        assert!(output.contains("TaskSpaceControlResultV2"), "{output}");
-        assert!(output.contains("\"state_commit\":true"), "{output}");
-    }
-    for call_id in ["init-action", "complete-action"] {
-        let output = responses
-            .function_call_output_text(call_id)
-            .unwrap_or_else(|| panic!("missing ordinary output for {call_id}"));
-        assert!(!output.contains("TaskSpaceCarrierResultV2"), "{output}");
-    }
+    let initialization_output = responses
+        .function_call_output_text("init-action")
+        .expect("missing initialization carrier output");
+    assert!(
+        initialization_output.contains("TaskSpaceInitializationCarrierResultV1"),
+        "{initialization_output}"
+    );
+    assert!(
+        initialization_output.contains("TaskSpaceControlResultV2"),
+        "{initialization_output}"
+    );
+    assert!(
+        initialization_output.contains("\"state_commit\":true"),
+        "{initialization_output}"
+    );
+
+    let complete_output = responses
+        .function_call_output_text("complete-control")
+        .expect("missing complete control output");
+    assert!(complete_output.contains("TaskSpaceControlResultV2"));
+    assert!(complete_output.contains("\"state_commit\":true"));
+    let complete_action_output = responses
+        .function_call_output_text("complete-action")
+        .expect("missing complete action output");
+    assert!(
+        !complete_action_output.contains("TaskSpaceInitializationCarrierResultV1"),
+        "{complete_action_output}"
+    );
 }
 
 fn error_messages(events: &[EventMsg]) -> Vec<&str> {
@@ -235,7 +259,7 @@ fn error_messages(events: &[EventMsg]) -> Vec<&str> {
 }
 
 fn control_output_diagnostics(responses: &ResponseMock) -> Vec<(&'static str, String)> {
-    ["init-control", "complete-control", "finish-call"]
+    ["init-action", "complete-control", "finish-call"]
         .into_iter()
         .filter_map(|call_id| {
             responses

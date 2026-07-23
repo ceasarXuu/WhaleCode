@@ -1740,7 +1740,7 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn lightweight_binding_schema_is_visible_only_in_taskspace_mode() {
+    fn initialization_binding_schema_is_visible_only_in_taskspace_mode() {
         let ordinary = codex_tools::create_exec_command_tool(codex_tools::CommandToolOptions {
             allow_login_shell: true,
             exec_permission_approvals_enabled: false,
@@ -1790,8 +1790,9 @@ mod active_context_replacement_tests {
             .as_ref()
             .and_then(|properties| properties.get("taskspace_binding"))
             .expect("binding schema");
+        let variants = binding.any_of.as_ref().expect("binding variants");
         assert_eq!(
-            binding.enum_values.as_deref(),
+            variants[0].enum_values.as_deref(),
             Some(
                 &[
                     serde_json::json!("active"),
@@ -1799,10 +1800,19 @@ mod active_context_replacement_tests {
                 ][..]
             )
         );
+        assert_eq!(
+            variants[1]
+                .properties
+                .as_ref()
+                .expect("initialization properties")["action"]
+                .enum_values
+                .as_deref(),
+            Some(&[serde_json::json!("initialize_map")][..])
+        );
         let serialized = serde_json::to_string(binding).expect("serialize binding schema");
         assert!(!serialized.contains("expected_revision"));
-        assert!(!serialized.contains("node_id"));
-        assert!(!serialized.contains("edges"));
+        assert!(serialized.contains("node_id"));
+        assert!(serialized.contains("edges"));
     }
 
     #[test]

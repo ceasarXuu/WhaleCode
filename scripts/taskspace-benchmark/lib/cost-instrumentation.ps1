@@ -1368,6 +1368,9 @@ function New-TaskspaceControlUsageSummary {
     $rolloutBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActiveBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutAfterBoundaryBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutInitializationCarrierCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutCommittedInitializationCarrierCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutFailedInitializationCarrierCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutSequencePreflightFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlPreflightFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
@@ -1418,8 +1421,26 @@ function New-TaskspaceControlUsageSummary {
                 $batch = $null
                 if (-not [string]::IsNullOrWhiteSpace($output)) {
                     try { $batch = $output | ConvertFrom-Json } catch {}
+                    if ($null -eq $batch) {
+                        $firstLine = @($output -split "`r?`n", 2)[0]
+                        try { $batch = $firstLine | ConvertFrom-Json } catch {}
+                    }
                 }
                 $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
+                if ($schemaVersion -eq "TaskSpaceInitializationCarrierResultV1" -and
+                    $rolloutInitializationCarrierCallIds.Contains($callId)) {
+                    $initializationResult = Get-TaskspaceCostProperty $batch @("initialization_result")
+                    if ([bool](Get-TaskspaceCostProperty $initializationResult @("success")) -and
+                        [bool](Get-TaskspaceCostProperty $initializationResult @("state_commit"))) {
+                        [void]$rolloutCommittedInitializationCarrierCallIds.Add($callId)
+                        $committedRevision = Get-TaskspaceCostProperty $initializationResult @("committed_revision")
+                        if ($null -ne $committedRevision) {
+                            $latestCommittedRevision = [int64]$committedRevision
+                        }
+                    } else {
+                        [void]$rolloutFailedInitializationCarrierCallIds.Add($callId)
+                    }
+                }
                 if ($schemaVersion -eq "TaskSpaceGateResultV1" -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false -and
                     -not [string]::IsNullOrWhiteSpace($callId)) {
@@ -1535,12 +1556,23 @@ function New-TaskspaceControlUsageSummary {
                 $parsedArguments = $arguments
             }
             if ($toolName -ne "taskspace_control") {
-                $binding = [string](Get-TaskspaceCostProperty $parsedArguments @("taskspace_binding"))
-                if (-not [string]::IsNullOrWhiteSpace($binding) -and $rolloutBindingCallIds.Add($callId)) {
+                $bindingValue = Get-TaskspaceCostProperty $parsedArguments @("taskspace_binding")
+                $binding = if ($bindingValue -is [string]) {
+                    [string]$bindingValue
+                } elseif ([string](Get-TaskspaceCostProperty $bindingValue @("action")) -eq "initialize_map") {
+                    "initialize_map"
+                } else {
+                    ""
+                }
+                if (-not [string]::IsNullOrWhiteSpace($binding) -and
+                    $rolloutBindingCallIds.Add($callId)) {
                     if ($binding -eq "active") {
                         [void]$rolloutActiveBindingCallIds.Add($callId)
                     } elseif ($binding -eq "after_boundary") {
                         [void]$rolloutAfterBoundaryBindingCallIds.Add($callId)
+                    } elseif ($binding -eq "initialize_map") {
+                        [void]$rolloutInitializationCarrierCallIds.Add($callId)
+                        Add-TaskspaceCostCount $rolloutActions "initialize_map"
                     }
                 }
                 continue
@@ -1682,6 +1714,9 @@ function New-TaskspaceControlUsageSummary {
         ordinary_binding_count = [int]$rolloutBindingCallIds.Count
         active_binding_count = [int]$rolloutActiveBindingCallIds.Count
         after_boundary_binding_count = [int]$rolloutAfterBoundaryBindingCallIds.Count
+        initialization_carrier_count = [int]$rolloutInitializationCarrierCallIds.Count
+        committed_initialization_carrier_count = [int]$rolloutCommittedInitializationCarrierCallIds.Count
+        failed_initialization_carrier_count = [int]$rolloutFailedInitializationCarrierCallIds.Count
         sequence_preflight_rejected_call_count = [int]$rolloutSequencePreflightFailureCallIds.Count
         control_failure_count = [int]$rolloutControlFailureCallIds.Count
         control_preflight_failure_count = [int]$rolloutControlPreflightFailureCallIds.Count

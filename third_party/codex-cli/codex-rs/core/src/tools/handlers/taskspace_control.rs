@@ -41,6 +41,16 @@ pub struct TaskSpaceControlOutput {
 
 pub(super) type ControlExecution = (String, bool, Option<TaskSpaceTerminalCarrier>);
 
+impl TaskSpaceControlOutput {
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub(crate) fn success(&self) -> bool {
+        self.success
+    }
+}
+
 impl ToolOutput for TaskSpaceControlOutput {
     fn log_preview(&self) -> String {
         self.message.clone()
@@ -114,29 +124,95 @@ impl ToolHandler for TaskSpaceControlHandler {
                 ));
             }
         };
-        let action = args.action_name();
-        let submitted_expected_revision = args.submitted_expected_revision();
-
-        let (message, success, terminal_carrier) =
-            execute_action(&session, &turn, &call_id, args).await?;
-        let canonical_revision = session
-            .action_map_control_state(None)
-            .await
-            .map(|state| state.revision);
-        let message = normalize_control_result(
-            message,
-            action,
-            submitted_expected_revision,
-            canonical_revision,
-            success,
-        );
-        log_control_result(&call_id, &message, success);
-        Ok(TaskSpaceControlOutput {
-            message,
-            success,
-            terminal_carrier,
-        })
+        if matches!(args, TaskSpaceControlArgs::InitializeMap { .. }) {
+            return Err(protocol_error(
+                "initialize_map must be carried by the first ordinary Tool's taskspace_binding"
+                    .into(),
+                "taskspace_initialization_must_be_carried",
+            ));
+        }
+        execute_parsed_action(&session, &turn, &call_id, args).await
     }
+}
+
+pub(crate) async fn execute_taskspace_initialization_binding(
+    session: &Session,
+    turn: &TurnContext,
+    call_id: &str,
+    arguments: &str,
+) -> Result<TaskSpaceControlOutput, FunctionCallError> {
+    let TaskSpaceControlArgs::InitializeMap {
+        root,
+        initial_work_node,
+        finish_identity,
+        additional_work_nodes,
+        edges,
+    } = parse_taskspace_control_args(arguments)?
+    else {
+        return Err(protocol_error(
+            "taskspace initialization binding must contain initialize_map".into(),
+            "taskspace_initialization_arguments_invalid",
+        ));
+    };
+    let execution = graph_actions::initialize_map(
+        session,
+        turn,
+        call_id,
+        root,
+        initial_work_node,
+        finish_identity,
+        additional_work_nodes,
+        edges,
+    )
+    .await?;
+    finalize_control_output(session, call_id, "initialize_map", None, execution).await
+}
+
+async fn execute_parsed_action(
+    session: &Session,
+    turn: &TurnContext,
+    call_id: &str,
+    args: TaskSpaceControlArgs,
+) -> Result<TaskSpaceControlOutput, FunctionCallError> {
+    let action = args.action_name();
+    let submitted_expected_revision = args.submitted_expected_revision();
+
+    let execution = execute_action(session, turn, call_id, args).await?;
+    finalize_control_output(
+        session,
+        call_id,
+        action,
+        submitted_expected_revision,
+        execution,
+    )
+    .await
+}
+
+async fn finalize_control_output(
+    session: &Session,
+    call_id: &str,
+    action: &str,
+    submitted_expected_revision: Option<u64>,
+    execution: ControlExecution,
+) -> Result<TaskSpaceControlOutput, FunctionCallError> {
+    let (message, success, terminal_carrier) = execution;
+    let canonical_revision = session
+        .action_map_control_state(None)
+        .await
+        .map(|state| state.revision);
+    let message = normalize_control_result(
+        message,
+        action,
+        submitted_expected_revision,
+        canonical_revision,
+        success,
+    );
+    log_control_result(call_id, &message, success);
+    Ok(TaskSpaceControlOutput {
+        message,
+        success,
+        terminal_carrier,
+    })
 }
 
 async fn execute_action(

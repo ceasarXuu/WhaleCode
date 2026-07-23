@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla7_with_fla9_lightweight_binding_repair",
+  "contract_status": "production_active_through_fla7_with_fla9_initialization_carrier_repair",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -55,8 +55,8 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
-      "sha256": "da74e4ef51d02f47a5ec5da70ce7caa78e8b9d6a06e95fa599e3471eccf72378",
-      "role": "FLA-9 lightweight ordinary Tool binding, boundary sequence, implementation boundary and verification gates"
+      "sha256": "b77646dd426a658cb635e157c61a1412a0b3e6cf0770225124eb0c270a4fdb6c",
+      "role": "FLA-9 lightweight ordinary Tool binding, initialization carrier, later boundary sequence, implementation boundary and verification gates"
     },
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
@@ -122,7 +122,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2; FLA-9 lightweight binding protocol alignment",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "8ae643f9e874aedbc8f459f2640b69e2268b98a28cf97f7855a43edcc9d7f98a",
+      "sha256": "b98a9d73a6cdef97a17af68818293222080dfdd88d7f620ceaa7eff17c543c67",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -138,17 +138,17 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-9",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json",
-      "sha256": "7dfc3e95e469325476ed67c9d272e84b66d3aa4c6368d47570ec2682ec466bc1",
+      "sha256": "8df7dcfc553ae5cb3a40b35860e361682298a8b283489268da5c33fb282647a1",
       "tool_count": 1,
-      "taskspace_binding": "required_two_value_string_on_ordinary_tools",
+      "taskspace_binding": "required_active_after_boundary_or_initialize_map_union_on_ordinary_tools",
+      "initialization_carrier": "the first ordinary Tool carries the explicit initialize_map object and keeps its native business arguments at top level",
       "boundary_actions": [
-        "initialize_map",
         "bind_node",
         "complete_then_continue"
       ],
       "binding_schema_source": {
         "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
-        "sha256": "04a5cabaa04c6ba4ed5b71579658801f23ace387c18542bcbd3d23b379694fa6"
+        "sha256": "0ecab454343f031314f4421af204caae161156eb45046ec456892f0daab9b122"
       },
       "control_argument_parser": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
@@ -156,7 +156,7 @@
       },
       "sequence_preflight": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
-        "sha256": "db06e3a2e224f7b8b21ef3c84d99c29a02b5ede393937faf6e7314d465f38308"
+        "sha256": "bc91542765a8ffff294419cdfc72da9d1ebe6c14c0904e283394c4a86e667a16"
       },
       "strict": false,
       "output_schema": null,
@@ -167,6 +167,8 @@
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/taskspace_binding.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_initialization.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/router.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
@@ -176,13 +178,14 @@
     {
       "layer": "L5-result",
       "implementation_status": "active_verified",
-      "activation_phase": "FLA-5; FLA-9 removes the composite carrier envelope",
+      "activation_phase": "FLA-5; FLA-9 adds the initialization-only carrier result",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "429afe8ec927b806f13354e718d6af675a5a53c6c7447e8d92ef2c766afbc9c7",
+      "sha256": "9bcad3a84389714d876f5c524ecac4c15d0cb689356b31c8513f75cf3b20bd15",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_output.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_initialization.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs"
       ]
@@ -252,9 +255,9 @@
       "issue": "H-003",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
-      "current_regression_baseline": "ordinary Tools retain one required taskspace_binding marker; lifecycle payloads live only in taskspace_control",
-      "selected_direction": "pair each boundary taskspace_control with an immediate after_boundary ordinary Tool in one response; validate symmetrically before execution",
-      "required_next_call_disposition": "removed; sequence preflight validates boundary and after_boundary adjacency without a second continuation field"
+      "current_regression_baseline": "ordinary Tools retain one required taskspace_binding union; initialization is carried by the first ordinary Tool while later lifecycle payloads live in taskspace_control",
+      "selected_direction": "make initialization and the first real Tool one provider call; retain immediate after_boundary siblings for bind_node and complete_then_continue",
+      "required_next_call_disposition": "removed; initialization is structurally inseparable from the first ordinary Tool, while sequence preflight validates later boundary and after_boundary adjacency"
     },
     {
       "id": "FLA-3.5-terminal-action-contract-repair",
@@ -272,7 +275,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v3.0 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v3.1 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",
@@ -287,7 +290,7 @@
     {
       "item": "full taskspace_action union copied into ordinary Tool schemas and TaskSpaceCarrierResultV2",
       "obsolete_after": "FLA-9",
-      "replacement": "single taskspace_control lifecycle schema plus required taskspace_binding active|after_boundary and separate ordered results"
+      "replacement": "initialization-only ordinary Tool carrier plus taskspace_control for later lifecycle actions, active|after_boundary bindings, and faithful results"
     }
   ],
   "phase_gate": "No FLA phase may start until all selected input artifacts for that phase have matching hashes and every earlier selected target is active in production. Experimental artifacts never satisfy a baseline phase gate."

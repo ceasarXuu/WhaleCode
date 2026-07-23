@@ -264,6 +264,9 @@ function Get-PerformanceSideObservation {
             ordinary_bindings = $map.ordinary_binding_count
             active_bindings = $map.active_binding_count
             after_boundary_bindings = $map.after_boundary_binding_count
+            initialization_carriers = Get-PerformanceNumber (Get-PerformanceProperty $map "initialization_carrier_count" 0)
+            committed_initialization_carriers = Get-PerformanceNumber (Get-PerformanceProperty $map "committed_initialization_carrier_count" 0)
+            failed_initialization_carriers = Get-PerformanceNumber (Get-PerformanceProperty $map "failed_initialization_carrier_count" 0)
             sequence_preflight_rejected_calls = $map.sequence_preflight_rejected_call_count
             control_failures = $map.control_failure_count
             control_preflight_failures = $map.control_preflight_failure_count
@@ -337,7 +340,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "ordinary_bindings", "active_bindings", "after_boundary_bindings", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "boundary_actions", "boundary_pairs", "boundary_violations", "orphan_after_boundary", "cadence_ordinary_bindings", "cadence_active_bindings", "cadence_after_boundary_bindings", "initialize_pairs", "bind_pairs", "complete_handoffs", "complete_handoff_pairs", "finish_maps", "finish_map_last_running_work", "finish_map_ready_finish", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
+    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "ordinary_bindings", "active_bindings", "after_boundary_bindings", "initialization_carriers", "committed_initialization_carriers", "failed_initialization_carriers", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "boundary_actions", "boundary_pairs", "boundary_violations", "orphan_after_boundary", "cadence_ordinary_bindings", "cadence_active_bindings", "cadence_after_boundary_bindings", "initialize_pairs", "bind_pairs", "complete_handoffs", "complete_handoff_pairs", "finish_maps", "finish_map_last_running_work", "finish_map_ready_finish", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.actions.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }

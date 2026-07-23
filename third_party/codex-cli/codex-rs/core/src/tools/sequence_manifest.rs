@@ -1,4 +1,5 @@
 use crate::tools::router::ToolCall;
+use crate::tools::taskspace_binding::taskspace_binding_kind;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ToolSequenceManifestEntry {
@@ -30,7 +31,11 @@ impl ToolSequenceManifest {
                     && call.tool_name.name == "apply_patch",
                 is_taskspace_control: is_taskspace_control(call),
                 taskspace_control_action: taskspace_control_action(call),
-                taskspace_binding: call.taskspace_binding.clone(),
+                taskspace_binding: call
+                    .taskspace_binding
+                    .as_deref()
+                    .and_then(taskspace_binding_kind)
+                    .map(str::to_owned),
                 requires_taskspace_binding: requires_taskspace_binding(call),
                 payload_kind: payload_kind(call),
                 unsupported_taskspace_payload: matches!(
@@ -59,10 +64,7 @@ fn payload_kind(call: &ToolCall) -> &'static str {
 }
 
 pub(crate) fn is_boundary_action(action: Option<&str>) -> bool {
-    matches!(
-        action,
-        Some("initialize_map" | "bind_node" | "complete_then_continue")
-    )
+    matches!(action, Some("bind_node" | "complete_then_continue"))
 }
 
 fn is_taskspace_control(call: &ToolCall) -> bool {

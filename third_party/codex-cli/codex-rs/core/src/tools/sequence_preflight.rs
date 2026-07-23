@@ -2,6 +2,7 @@ use codex_protocol::models::ResponseInputItem;
 
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::ToolPayload;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
@@ -9,6 +10,7 @@ use crate::tools::sequence_manifest::ToolSequenceManifest;
 use crate::tools::sequence_manifest::is_boundary_action;
 use crate::tools::taskspace_binding::ACTIVE_BINDING;
 use crate::tools::taskspace_binding::AFTER_BOUNDARY_BINDING;
+use crate::tools::taskspace_binding::INITIALIZE_MAP_BINDING;
 
 pub(crate) const REQUEST_MULTIPLE_PATCHES_CODE: &str =
     "request_multiple_apply_patch_calls_not_allowed";
@@ -19,6 +21,10 @@ pub(crate) const TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE: &str =
     "taskspace_control_binding_forbidden";
 pub(crate) const TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE: &str =
     "taskspace_control_arguments_invalid";
+pub(crate) const TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE: &str =
+    "taskspace_initialization_arguments_invalid";
+pub(crate) const TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE: &str =
+    "taskspace_initialization_must_be_carried";
 pub(crate) const TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE: &str = "taskspace_tool_shape_unsupported";
 pub(crate) const TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE: &str =
     "taskspace_boundary_requires_after_boundary_action";
@@ -62,7 +68,6 @@ impl ToolSequencePreflightFailure {
                 "immediately_before_after_boundary": {
                     "tool": "taskspace_control",
                     "action": [
-                        "initialize_map",
                         "bind_node",
                         "complete_then_continue",
                     ],
@@ -121,7 +126,7 @@ pub(crate) fn validate_tool_sequence(
 
     for (call, entry) in calls.iter().zip(&manifest.entries) {
         if !taskspace_active {
-            if entry.taskspace_binding.is_some() {
+            if call.taskspace_binding.is_some() {
                 return Err(failure(
                     TASKSPACE_BINDING_MODE_MISMATCH_CODE,
                     "taskspace_binding is not available in Standard mode",
@@ -155,12 +160,22 @@ pub(crate) fn validate_tool_sequence(
                     &manifest,
                 ));
             };
-            if let Err(error) = parse_taskspace_control_args(arguments) {
-                return Err(failure(
-                    TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
-                    control_argument_error_message(error),
-                    &manifest,
-                ));
+            match parse_taskspace_control_args(arguments) {
+                Ok(TaskSpaceControlArgs::InitializeMap { .. }) => {
+                    return Err(failure(
+                        TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE,
+                        "initialize_map must be carried by the first ordinary Tool's taskspace_binding",
+                        &manifest,
+                    ));
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    return Err(failure(
+                        TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
+                        control_argument_error_message(error),
+                        &manifest,
+                    ));
+                }
             }
             continue;
         }
@@ -174,12 +189,29 @@ pub(crate) fn validate_tool_sequence(
         if let Some(binding) = entry.taskspace_binding.as_deref()
             && binding != ACTIVE_BINDING
             && binding != AFTER_BOUNDARY_BINDING
+            && binding != INITIALIZE_MAP_BINDING
         {
             return Err(failure(
                 TASKSPACE_BINDING_INVALID_CODE,
-                "taskspace_binding must be active or after_boundary",
+                "taskspace_binding must be active, after_boundary, or a valid initialize_map object",
                 &manifest,
             ));
+        }
+        if entry.taskspace_binding.as_deref() == Some(INITIALIZE_MAP_BINDING) {
+            let Some(arguments) = call.taskspace_binding.as_deref() else {
+                unreachable!("manifest initialization binding requires raw arguments");
+            };
+            match parse_taskspace_control_args(arguments) {
+                Ok(TaskSpaceControlArgs::InitializeMap { .. }) => {}
+                Ok(_) => unreachable!("binding kind only classifies initialize_map"),
+                Err(error) => {
+                    return Err(failure(
+                        TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE,
+                        control_argument_error_message(error),
+                        &manifest,
+                    ));
+                }
+            }
         }
     }
 

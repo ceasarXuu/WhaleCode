@@ -522,9 +522,11 @@ base identity 分别 6/6、7/7 匹配 v1.0.0 合同。该单次结果只证明�
 **目标**：恢复 R5 J6 与 R7 D.2 已验证的结构保证，使初始化、绑定和完成后继续不能脱离真实后续动作单独
 表达，同时保留 D.4 的原生 Patch 保真收益。
 
-选定方向是让真实动作 Tool 由共享 builder 机械增加必填 `taskspace_action`；显式继续或状态交接和该动作属于
-同一个 provider tool call，Patch 正文仍保持原生顶层输入。Runtime 只校验并执行 Agent 明确给出的交接，
-不自动补动作、不推断下一节点，也不复制 ordinary Tool router/handler。
+当前方向将连续动作分成两个最小合同。初始化由首个真实普通 Tool 的
+`taskspace_binding=initialize_map object` 在同一个 provider call 中表达，Patch/命令/MCP 原生参数保持
+顶层；初始化后的 `bind_node` 与 `complete_then_continue` 使用 control + 紧邻
+`after_boundary` 普通 Tool。Runtime 只校验并执行 Agent 明确给出的状态变化，不自动补动作、不推断
+下一节点，也不复制 ordinary Tool router/handler。
 
 当前实现由共享 Tool decorator/parser 和现有 router 完成，不建立候选、晋级或平行执行链。定向 Rust 回归、
 FLA-3.5 gate、CLI build 和单组 Docker paired smoke 已通过；完整实现边界与 trace 见
@@ -532,7 +534,7 @@ FLA-3.5 gate、CLI build 和单组 Docker paired smoke 已通过；完整实现�
 
 阶段关系：
 
-- carrier 方案是当前唯一生产基线，FLA-4 不得重新正式化 sibling；
+- 初始化载体与后续边界 sibling 共同构成当前唯一生产合同，FLA-4 不得引入平行执行链；
 - FLA-3.5 已 `active_verified`，H-003 不再阻塞 FLA-4；
 - 原 FLA-6 “移除 `required_next_call`”实验取消，该字段随回归修复一次性删除；
 - 历史 D.2-D.4 结果保持原样，继续分别证明连续动作收益和 Patch carrier 根因。
@@ -597,7 +599,7 @@ image、样本、重复、seed、trace、统计、报告和默认值决策全部
 | policy 泄漏到 Runtime 语义 | 不同策略产生不同 Map/event hash | Phase E differential hard gate |
 | append 缺失或倒退 | request 末项不是 projection、revision 回退、末项 identity 不匹配 | cursor + wire scanner + fault tests |
 | request 退化成可选账本 | ordinary tool 可在空 Map/无 lease 执行 | 共享 hard gate 回归矩阵 |
-| 连续动作退化成跨 sibling 事后惩罚 | standalone transition、`TASKSPACE_REQUIRED_SIBLING_MISSING` | FLA-3.5 schema-first hard gate |
+| 初始化退化成跨 sibling 事后惩罚 | standalone initialize、初始化恢复请求 | 首个普通 Tool 的结构化初始化载体 |
 | always 缓存被误判为 bug | correctness 正常但 uncached 偏高 | known-feature 分类 + raw cache trace |
 | mode-specific prompt 污染实验 | 三策略 system/tool hash 不同 | Phase F hash equality gate |
 | compaction 丢失 Map | provider history 缩短后 state hash 变化 | canonical store 独立 hash proof |

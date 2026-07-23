@@ -26,6 +26,9 @@ use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
 use crate::tools::taskspace_binding::validate_taskspace_binding;
+use crate::tools::taskspace_initialization::InitializationAction;
+use crate::tools::taskspace_initialization::prepare_initialization;
+use crate::tools::taskspace_initialization::wrap_initialization_response;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ContentItem;
@@ -120,10 +123,50 @@ impl ToolCallRuntime {
                     taskspace_terminal_carrier: None,
                 });
             }
+            let initialization_action = match Box::pin(prepare_initialization(
+                &self.session,
+                &self.turn_context,
+                &call,
+            ))
+            .await
+            {
+                Ok(action) => action,
+                Err(FunctionCallError::Fatal(message)) => {
+                    return Err(CodexErr::Fatal(message));
+                }
+                Err(other) => {
+                    let mut response = Self::failure_response_for_error(&call, &other);
+                    let rejected = InitializationAction::Rejected(other.to_string());
+                    wrap_initialization_response(&mut response, &rejected, false);
+                    return Ok(ToolCallExecution {
+                        response,
+                        supplemental_responses: Self::supplemental_failure_response(&call, &other)
+                            .into_iter()
+                            .collect(),
+                        succeeded: false,
+                        taskspace_terminal_carrier: None,
+                    });
+                }
+            };
+            if let InitializationAction::Rejected(message) = &initialization_action {
+                let error = FunctionCallError::RespondToModel(message.clone());
+                let mut response = Self::failure_response_for_error(&call, &error);
+                wrap_initialization_response(&mut response, &initialization_action, false);
+                return Ok(ToolCallExecution {
+                    response,
+                    supplemental_responses: Self::supplemental_failure_response(&call, &error)
+                        .into_iter()
+                        .collect(),
+                    succeeded: false,
+                    taskspace_terminal_carrier: None,
+                });
+            }
             if let Err(message) = validate_taskspace_binding(&self.session, &call).await {
                 let error = FunctionCallError::RespondToModel(message);
+                let mut response = Self::failure_response_for_error(&call, &error);
+                wrap_initialization_response(&mut response, &initialization_action, false);
                 return Ok(ToolCallExecution {
-                    response: Self::failure_response_for_error(&call, &error),
+                    response,
                     supplemental_responses: Self::supplemental_failure_response(&call, &error)
                         .into_iter()
                         .collect(),
@@ -138,8 +181,10 @@ impl ToolCallRuntime {
                 Ok(response) => {
                     let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
                     let succeeded = response.result.success_for_logging();
+                    let mut response = response.into_response();
+                    wrap_initialization_response(&mut response, &initialization_action, true);
                     Ok(ToolCallExecution {
-                        response: response.into_response(),
+                        response,
                         supplemental_responses: Vec::new(),
                         succeeded,
                         taskspace_terminal_carrier,
@@ -151,8 +196,10 @@ impl ToolCallRuntime {
                         Self::supplemental_failure_response(&error_call, &other)
                             .into_iter()
                             .collect();
+                    let mut response = Self::failure_response(error_call, other);
+                    wrap_initialization_response(&mut response, &initialization_action, true);
                     Ok(ToolCallExecution {
-                        response: Self::failure_response(error_call, other),
+                        response,
                         supplemental_responses,
                         succeeded: false,
                         taskspace_terminal_carrier: None,

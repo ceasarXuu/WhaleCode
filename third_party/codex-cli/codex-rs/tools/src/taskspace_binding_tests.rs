@@ -34,14 +34,15 @@ fn function_tool_requires_lightweight_binding_without_changing_business_fields()
         serde_json::to_string(actual.get("taskspace_binding").expect("binding schema"))
             .expect("serialize binding");
     assert!(serialized.contains("after_boundary"));
+    assert!(serialized.contains("initialize_map"));
     assert!(
-        serialized.len() < 320,
-        "lightweight binding schema expanded to {} bytes",
+        serialized.len() < 2_500,
+        "initialization binding schema expanded to {} bytes",
         serialized.len()
     );
     assert!(!serialized.contains("expected_revision"));
-    assert!(!serialized.contains("node_id"));
-    assert!(!serialized.contains("edges"));
+    assert!(serialized.contains("node_id"));
+    assert!(serialized.contains("edges"));
 }
 
 #[test]
@@ -60,6 +61,10 @@ fn taskspace_patch_projection_keeps_raw_patch_as_top_level_input() {
     let properties = projected.parameters.properties.unwrap();
     assert!(properties.contains_key("input"));
     assert!(properties.contains_key("taskspace_binding"));
+    let binding = serde_json::to_string(&properties["taskspace_binding"])
+        .expect("serialize initialization carrier");
+    assert!(binding.contains("initialize_map"));
+    assert!(binding.contains("root"));
 }
 
 #[test]

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.22",
+  "manifest_version": "1.0.23",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -15,12 +15,12 @@
   ],
   "activation_through": "FLA-7",
   "repair_activation": [
-    "FLA-9-lightweight-binding"
+    "FLA-9-initialization-carrier"
   ],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "45d7bcf1365585237930bb2e9df6a2810d56e77a3683054941049b9138771e35"
+    "sha256": "5927521c5041e4bdfbaf076963c5dffae651fccd2159597a6f4371a58d205ab8"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -55,8 +55,8 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "8ae643f9e874aedbc8f459f2640b69e2268b98a28cf97f7855a43edcc9d7f98a",
-          "activation_phase": "FLA-2; FLA-9 lightweight binding protocol alignment"
+          "sha256": "b98a9d73a6cdef97a17af68818293222080dfdd88d7f620ceaa7eff17c543c67",
+          "activation_phase": "FLA-2; FLA-9 initialization carrier protocol alignment"
         }
       ]
     },
@@ -81,7 +81,7 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json",
-          "sha256": "7dfc3e95e469325476ed67c9d272e84b66d3aa4c6368d47570ec2682ec466bc1",
+          "sha256": "8df7dcfc553ae5cb3a40b35860e361682298a8b283489268da5c33fb282647a1",
           "activation_phase": "FLA-9",
           "binding_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
           "sequence_preflight": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"
@@ -96,8 +96,8 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-          "sha256": "429afe8ec927b806f13354e718d6af675a5a53c6c7447e8d92ef2c766afbc9c7",
-          "activation_phase": "FLA-5; FLA-9 separate ordered control and ordinary Tool results"
+          "sha256": "9bcad3a84389714d876f5c524ecac4c15d0cb689356b31c8513f75cf3b20bd15",
+          "activation_phase": "FLA-5; FLA-9 initialization carrier plus separate later boundary results"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",

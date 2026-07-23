@@ -42,11 +42,10 @@ fn provider_tool_matches_the_active_l4_authority_artifact() {
 }
 
 #[test]
-fn control_exposes_boundary_and_standalone_actions_once() {
+fn control_exposes_post_initialization_actions_once() {
     let actions = action_names(create_taskspace_control_tool());
 
     for action in [
-        "initialize_map",
         "mutate_graph",
         "bind_node",
         "complete_then_continue",
@@ -60,6 +59,7 @@ fn control_exposes_boundary_and_standalone_actions_once() {
     ] {
         assert!(actions.contains(&action.to_string()), "missing {action}");
     }
+    assert!(!actions.contains(&"initialize_map".to_string()));
     assert!(!actions.contains(&"finish_end".to_string()));
     assert!(!actions.contains(&"complete_then_end".to_string()));
     assert!(!actions.contains(&"complete_active_work_then_end".to_string()));
@@ -107,21 +107,8 @@ fn finish_map_exposes_one_branch_free_terminal_contract() {
 }
 
 #[test]
-fn initialization_keeps_explicit_rooted_graph_contract() {
-    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
-        panic!("taskspace_control must be a function tool");
-    };
-    let variants = tool.parameters.any_of.expect("variants");
-    let initialize = variants
-        .iter()
-        .find(|variant| {
-            variant.properties.as_ref().expect("properties")["action"]
-                .enum_values
-                .as_ref()
-                .expect("action enum")[0]
-                == json!("initialize_map")
-        })
-        .expect("initialize_map");
+fn initialization_binding_keeps_explicit_rooted_graph_contract() {
+    let initialize = initialize_map_schema();
     assert_eq!(
         initialize.required.as_ref().expect("required"),
         &[

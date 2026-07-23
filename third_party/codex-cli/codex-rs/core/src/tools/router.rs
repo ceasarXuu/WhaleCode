@@ -339,10 +339,15 @@ fn extract_taskspace_binding(
     let Some(binding) = object.remove(FIELD) else {
         return Ok((arguments, None));
     };
-    let binding = binding
-        .as_str()
-        .ok_or_else(|| FunctionCallError::RespondToModel(format!("{FIELD} must be a string")))?;
-    let binding = binding.to_string();
+    let binding = match binding {
+        JsonValue::String(binding) => binding,
+        JsonValue::Object(_) => binding.to_string(),
+        _ => {
+            return Err(FunctionCallError::RespondToModel(format!(
+                "{FIELD} must be active, after_boundary, or an initialize_map object"
+            )));
+        }
+    };
     Ok((value.to_string(), Some(binding)))
 }
 
@@ -361,10 +366,12 @@ fn extract_taskspace_binding_value(
     };
     let binding = object
         .remove(FIELD)
-        .map(|value| {
-            value.as_str().map(str::to_owned).ok_or_else(|| {
-                FunctionCallError::RespondToModel(format!("{FIELD} must be a string"))
-            })
+        .map(|value| match value {
+            JsonValue::String(binding) => Ok(binding),
+            JsonValue::Object(_) => Ok(value.to_string()),
+            _ => Err(FunctionCallError::RespondToModel(format!(
+                "{FIELD} must be active, after_boundary, or an initialize_map object"
+            ))),
         })
         .transpose()?;
     Ok((arguments, binding))

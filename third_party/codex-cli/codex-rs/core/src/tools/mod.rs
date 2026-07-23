@@ -17,6 +17,7 @@ pub(crate) mod sequence_manifest;
 pub(crate) mod sequence_preflight;
 pub(crate) mod spec;
 pub(crate) mod taskspace_binding;
+pub(crate) mod taskspace_initialization;
 pub(crate) mod tool_dispatch_trace;
 pub(crate) mod tool_search_entry;
 

@@ -25,22 +25,18 @@ try {
     if ($standard[0].calls[0].failure_code -ne "shell_exit_1") { throw "Standard failure was not classified" }
 
     $taskspacePath = Join-Path $tempRoot "taskspace.jsonl"
-    $initControlArgs = '{"action":"initialize_map","root":{"node_id":"root","goal":"task"},"initial_work_node":{"node_id":"explore","goal":"inspect"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}]}'
-    $initActionArgs = '{"cmd":"ls","taskspace_binding":"after_boundary"}'
+    $initActionArgs = '{"cmd":"ls","taskspace_binding":{"action":"initialize_map","root":{"node_id":"root","goal":"task"},"initial_work_node":{"node_id":"explore","goal":"inspect"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}]}}'
     $finishArgs = '{"action":"finish_map","terminal_node_id":"verify"}'
     Write-Lines $taskspacePath @(
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t0"; rawPayload = @{ name = "taskspace_control"; arguments = $initControlArgs } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_map","success":true,"state_commit":true}' } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "exec_command"; arguments = $initActionArgs } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceInitializationCarrierResultV1","initialization_result":{"schema_version":"TaskSpaceControlResultV2","action":"initialize_map","success":true,"state_commit":true},"tool_dispatched":true}`nok' } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "taskspace_trace_event_recorded"; kind = "provider_response_actionability"; tags = @("request_count:1") } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t2"; rawPayload = @{ name = "taskspace_control"; arguments = $finishArgs } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t2"; toolSuccess = $true; rawPayload = @{ output = '{"action":"finish_map","success":true,"state_commit":true}' } } },
         @{ type = "event_msg"; payload = @{ type = "task_complete" } }
     )
     $taskspace = @(Get-R7TaskspaceRequestPath $taskspacePath 2)
-    if ($taskspace[0].calls[0].control_action -ne "initialize_map") { throw "TaskSpace init control was not parsed" }
-    if ($taskspace[0].calls[1].taskspace_binding -ne "after_boundary") { throw "TaskSpace boundary binding was not parsed" }
+    if ($taskspace[0].calls[0].taskspace_binding -ne "initialize_map") { throw "TaskSpace initialization carrier was not parsed" }
     if ($taskspace[1].calls[0].control_action -ne "finish_map") { throw "TaskSpace terminal request was not flushed" }
     $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_LIFECYCLE_INVARIANT"}}'
     if ($stateFailure.failure_class -ne "taskspace_state_machine" -or $stateFailure.failure_code -ne "TASKSPACE_LIFECYCLE_INVARIANT") {

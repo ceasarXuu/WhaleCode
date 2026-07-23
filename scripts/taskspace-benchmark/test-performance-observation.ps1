@@ -245,6 +245,11 @@ $initializeArgs = @{
     finish_identity = @{ id = "finish" }
     edges = @(@{ from = "root"; to = "inspect" }, @{ from = "inspect"; to = "plan" }, @{ from = "plan"; to = "finish" })
 } | ConvertTo-Json -Compress -Depth 10
+$initializeBinding = $initializeArgs | ConvertFrom-Json
+$initializeToolArgs = @{
+    cmd = "pwd"
+    taskspace_binding = $initializeBinding
+} | ConvertTo-Json -Compress -Depth 10
 $mutationArgs = @{
     action = "mutate_graph"; expected_revision = 2
     add_nodes = @(@{ node_id = "verify"; goal = "Verify" })
@@ -258,12 +263,10 @@ $terminalArgs = @{
     action = "finish_map"; expected_revision = 4; terminal_node_id = "plan"; final_summary = "Agent final"
 } | ConvertTo-Json -Compress -Depth 10
 Write-JsonLines @(
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "reasoning"; summary = @() } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "init-tool"; arguments = '{"cmd":"pwd","taskspace_binding":"after_boundary"}' } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "init-tool"; arguments = $initializeToolArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "tool_search_call"; execution = "client"; call_id = "search-tool"; arguments = [pscustomobject]@{ query = "calendar"; taskspace_binding = "active" } } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "tool_search_output"; execution = "client"; call_id = "search-tool"; status = "completed"; tools = @() } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init-tool"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "mutation"; arguments = $mutationArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "mutation-tool"; arguments = '{"cmd":"git status","taskspace_binding":"active"}' } },
@@ -279,12 +282,12 @@ Write-JsonLines @(
 ) (Join-Path $cadenceFixture "rollout.jsonl")
 $cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null
 Assert-True ($cadence.provider_tool_response_count -eq 4) "provider tool response count is incorrect"
-Assert-True ($cadence.control_response_count -eq 4) "control response count is incorrect"
-Assert-True ($cadence.mixed_control_action_response_count -eq 3) "mixed control/action responses were not observed"
+Assert-True ($cadence.control_response_count -eq 3) "control response count is incorrect"
+Assert-True ($cadence.mixed_control_action_response_count -eq 2) "mixed control/action responses were not observed"
 Assert-True ($cadence.multi_control_response_count -eq 0) "unexpected multi-control response was observed"
 Assert-True ($cadence.boundary_action_count -eq 2 -and $cadence.boundary_pair_count -eq 2) "boundary actions were not paired"
 Assert-True ($cadence.boundary_violation_count -eq 0 -and $cadence.orphan_after_boundary_count -eq 0) "valid sequence was classified as invalid"
-Assert-True ($cadence.ordinary_binding_count -eq 4 -and $cadence.active_binding_count -eq 2 -and $cadence.after_boundary_binding_count -eq 2) "ordinary bindings were not classified"
+Assert-True ($cadence.ordinary_binding_count -eq 4 -and $cadence.active_binding_count -eq 2 -and $cadence.after_boundary_binding_count -eq 1) "ordinary bindings were not classified"
 Assert-True ($cadence.initialize_pair_count -eq 1 -and $cadence.bind_pair_count -eq 0) "boundary action types were not classified"
 Assert-True ($cadence.complete_handoff_count -eq 1 -and $cadence.complete_handoff_pair_count -eq 1) "atomic handoff was not observed"
 Assert-True ($cadence.finish_map_count -eq 1 -and $cadence.finish_map_last_running_work_count -eq 1 -and $cadence.finish_map_ready_finish_count -eq 0) "finish_map state counts are incorrect"

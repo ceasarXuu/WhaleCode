@@ -119,7 +119,14 @@ function Get-TaskspaceNativeCadenceFacts {
                         }
                     }
                 } else {
-                    $binding = [string]$arguments.taskspace_binding
+                    $bindingValue = $arguments.taskspace_binding
+                    if ($bindingValue -is [string]) {
+                        $binding = [string]$bindingValue
+                    } elseif ($null -ne $bindingValue -and
+                        $bindingValue.PSObject.Properties.Name -contains "action" -and
+                        [string]$bindingValue.action -eq "initialize_map") {
+                        $binding = "initialize_map"
+                    }
                 }
             } catch {
                 if ($name -eq "taskspace_control") {
@@ -215,7 +222,7 @@ function Get-TaskspaceNativeCadenceFacts {
     $bindPairs = 0
     $completeHandoffs = 0
     $completePairs = 0
-    $boundaryNames = @("initialize_map", "bind_node", "complete_then_continue")
+    $boundaryNames = @("bind_node", "complete_then_continue")
 
     foreach ($batch in $batches) {
         $calls = @($batch)
@@ -233,6 +240,11 @@ function Get-TaskspaceNativeCadenceFacts {
                 $ordinaryBindings++
                 if ($call.taskspace_binding -eq "active") { $activeBindings++ }
                 if ($call.taskspace_binding -eq "after_boundary") { $afterBoundaryBindings++ }
+                if ($call.taskspace_binding -eq "initialize_map") {
+                    $boundaryActions++
+                    $boundaryPairs++
+                    $initializePairs++
+                }
             }
             if ($call.name -eq "taskspace_control" -and $call.action -eq "complete_then_continue") {
                 $completeHandoffs++
@@ -251,6 +263,10 @@ function Get-TaskspaceNativeCadenceFacts {
                 } else {
                     $boundaryViolations++
                 }
+            }
+            if ($call.name -eq "taskspace_control" -and $call.action -eq "initialize_map") {
+                $boundaryActions++
+                $boundaryViolations++
             }
             if ($call.name -ne "taskspace_control" -and $call.taskspace_binding -eq "after_boundary") {
                 $previous = if ($index -gt 0) { $calls[$index - 1] } else { $null }

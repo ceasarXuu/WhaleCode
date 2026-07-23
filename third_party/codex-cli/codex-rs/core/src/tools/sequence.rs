@@ -11,6 +11,8 @@ use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::provider_tool_declaration::provider_response_failure_fact;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_preflight::validate_tool_sequence;
+use crate::tools::taskspace_binding::is_initialization_binding;
+use crate::tools::taskspace_binding::taskspace_binding_kind;
 
 const PROVIDER_TOOL_DECLARATION_INVALID_CODE: &str = "provider_tool_declaration_invalid";
 
@@ -33,6 +35,7 @@ enum SequenceSegment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BarrierKind {
     TaskSpaceControl,
+    TaskSpaceInitialization,
     ApplyPatch,
 }
 
@@ -40,6 +43,7 @@ impl BarrierKind {
     fn as_str(self) -> &'static str {
         match self {
             Self::TaskSpaceControl => "taskspace_control",
+            Self::TaskSpaceInitialization => "taskspace_initialization",
             Self::ApplyPatch => "apply_patch",
         }
     }
@@ -409,6 +413,9 @@ fn calls_for_segment<'a>(calls: &'a [ToolCall], segment: &SequenceSegment) -> &'
 }
 
 fn barrier_kind(call: &ToolCall) -> Option<BarrierKind> {
+    if is_initialization_binding(call.taskspace_binding.as_deref()) {
+        return Some(BarrierKind::TaskSpaceInitialization);
+    }
     if call.tool_name.namespace.is_some() {
         return None;
     }
@@ -444,7 +451,13 @@ fn tool_sequence_sha256(calls: &[ToolCall]) -> String {
         hasher.update([0]);
         hasher.update(call.tool_name.display().as_bytes());
         hasher.update([0]);
-        hasher.update(call.taskspace_binding.as_deref().unwrap_or("").as_bytes());
+        hasher.update(
+            call.taskspace_binding
+                .as_deref()
+                .and_then(taskspace_binding_kind)
+                .unwrap_or("")
+                .as_bytes(),
+        );
         hasher.update([0xff]);
     }
     format!("{:x}", hasher.finalize())

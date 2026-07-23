@@ -7,6 +7,8 @@ use crate::tools::sequence_preflight::TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_
 use crate::tools::sequence_preflight::TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 use codex_protocol::models::ResponseItem;
@@ -35,9 +37,6 @@ fn bound_call(name: &str, call_id: &str, binding: &str) -> ToolCall {
 
 fn boundary_control(action: &str, call_id: &str) -> ToolCall {
     let arguments = match action {
-        "initialize_map" => {
-            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[]}"#
-        }
         "bind_node" => r#"{"action":"bind_node","expected_revision":2,"node_id":"work"}"#,
         "complete_then_continue" => {
             r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"verify"}"#
@@ -45,6 +44,10 @@ fn boundary_control(action: &str, call_id: &str) -> ToolCall {
         other => panic!("unsupported boundary action fixture: {other}"),
     };
     function_call_with_arguments("taskspace_control", call_id, arguments)
+}
+
+fn initialization_binding() -> &'static str {
+    r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}]}"#
 }
 
 #[test]
@@ -88,6 +91,65 @@ fn leaves_ordinary_only_response_as_one_parallel_segment() {
     assert_eq!(
         sequence_segments(&calls),
         vec![SequenceSegment::Parallel { start: 0, end: 2 }]
+    );
+}
+
+#[test]
+fn initialization_carrier_is_a_single_action_barrier() {
+    let calls = vec![
+        bound_call(
+            "exec_command",
+            "initialize-and-inspect",
+            initialization_binding(),
+        ),
+        bound_call("read_file", "follow-up", "active"),
+    ];
+
+    let manifest = validate_tool_sequence(&calls, true).expect("valid initialization carrier");
+    assert_eq!(
+        manifest.entries[0].taskspace_binding.as_deref(),
+        Some("initialize_map")
+    );
+    assert_eq!(
+        sequence_segments(&calls),
+        vec![
+            SequenceSegment::Barrier {
+                index: 0,
+                kind: BarrierKind::TaskSpaceInitialization,
+            },
+            SequenceSegment::Parallel { start: 1, end: 2 },
+        ]
+    );
+}
+
+#[test]
+fn standalone_control_initialization_is_rejected_before_execution() {
+    let calls = vec![function_call_with_arguments(
+        "taskspace_control",
+        "standalone-initialize",
+        initialization_binding(),
+    )];
+
+    let failure = validate_tool_sequence(&calls, true).expect_err("initialization must be carried");
+    assert_eq!(
+        failure.reason_code,
+        TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE
+    );
+}
+
+#[test]
+fn malformed_initialization_carrier_is_rejected_before_execution() {
+    let calls = vec![bound_call(
+        "exec_command",
+        "invalid-initialize",
+        r#"{"action":"initialize_map","root":{}}"#,
+    )];
+
+    let failure =
+        validate_tool_sequence(&calls, true).expect_err("invalid initialization must fail");
+    assert_eq!(
+        failure.reason_code,
+        TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE
     );
 }
 

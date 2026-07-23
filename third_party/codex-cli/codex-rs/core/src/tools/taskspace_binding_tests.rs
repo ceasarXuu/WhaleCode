@@ -17,7 +17,7 @@ fn call(name: &str, binding: Option<&str>) -> ToolCall {
 fn binding_failure_is_factual_and_never_claims_a_commit() {
     let value: serde_json::Value = serde_json::from_str(&binding_failure(
         "TASKSPACE_BINDING_INVALID",
-        "taskspace_binding must be active or after_boundary",
+        "taskspace_binding must be valid",
         Some("other"),
     ))
     .expect("binding failure json");
@@ -43,7 +43,13 @@ fn only_taskspace_control_is_exempt_from_binding() {
 }
 
 #[test]
-fn lightweight_binding_values_are_stable() {
+fn binding_kinds_are_stable() {
     assert_eq!(ACTIVE_BINDING, "active");
     assert_eq!(AFTER_BOUNDARY_BINDING, "after_boundary");
+    assert_eq!(INITIALIZE_MAP_BINDING, "initialize_map");
+    assert_eq!(
+        taskspace_binding_kind(r#"{"action":"initialize_map"}"#),
+        Some(INITIALIZE_MAP_BINDING)
+    );
+    assert_eq!(taskspace_binding_kind(r#"{"action":"read_map"}"#), None);
 }

@@ -233,6 +233,39 @@ fn extracts_taskspace_binding_without_forwarding_it_to_the_tool() -> anyhow::Res
 }
 
 #[test]
+fn extracts_initialization_binding_without_forwarding_it_to_the_tool() -> anyhow::Result<()> {
+    let initialization = serde_json::json!({
+        "action": "initialize_map",
+        "root": {"node_id": "root", "goal": "Fix the bug"},
+        "initial_work_node": {"node_id": "inspect", "goal": "Inspect the code"},
+        "finish_identity": {"id": "finish"},
+        "additional_work_nodes": [],
+        "edges": [
+            {"from": "root", "to": "inspect"},
+            {"from": "inspect", "to": "finish"}
+        ]
+    });
+    let arguments = serde_json::json!({
+        "cmd": "ls",
+        "taskspace_binding": initialization
+    })
+    .to_string();
+
+    let (tool_arguments, binding) = extract_taskspace_binding(arguments, true)?;
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&tool_arguments)?,
+        serde_json::json!({"cmd": "ls"})
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            binding.as_deref().expect("initialization binding")
+        )?,
+        initialization
+    );
+    Ok(())
+}
+
+#[test]
 fn standard_mode_preserves_business_taskspace_binding_field() -> anyhow::Result<()> {
     let arguments = serde_json::json!({
         "account": "example",

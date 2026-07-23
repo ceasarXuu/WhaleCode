@@ -1001,10 +1001,12 @@ async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispat
         vec![
             sse(vec![
                 ev_response_created("taskspace-search-response"),
-                ev_function_call(
-                    "initialize-map",
-                    "taskspace_control",
+                ev_tool_search_call(
+                    search_call_id,
                     &json!({
+                        "query": "recurring automations",
+                        "limit": 8,
+                        "taskspace_binding": {
                         "action": "initialize_map",
                         "root": {"node_id": "root", "goal": "Use the deferred automation tool"},
                         "initial_work_node": {"node_id": "work", "goal": "Search and invoke the tool"},
@@ -1014,15 +1016,7 @@ async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispat
                             {"from": "root", "to": "work"},
                             {"from": "work", "to": "finish"}
                         ]
-                    })
-                    .to_string(),
-                ),
-                ev_tool_search_call(
-                    search_call_id,
-                    &json!({
-                        "query": "recurring automations",
-                        "limit": 8,
-                        "taskspace_binding": "after_boundary",
+                        },
                     }),
                 ),
                 ev_completed("taskspace-search-response"),

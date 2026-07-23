@@ -8,6 +8,22 @@ use crate::tools::router::ToolCall;
 
 pub(crate) const ACTIVE_BINDING: &str = "active";
 pub(crate) const AFTER_BOUNDARY_BINDING: &str = "after_boundary";
+pub(crate) const INITIALIZE_MAP_BINDING: &str = "initialize_map";
+
+pub(crate) fn taskspace_binding_kind(binding: &str) -> Option<&str> {
+    if matches!(binding, ACTIVE_BINDING | AFTER_BOUNDARY_BINDING) {
+        return Some(binding);
+    }
+    let value = serde_json::from_str::<serde_json::Value>(binding).ok()?;
+    match value.get("action").and_then(serde_json::Value::as_str) {
+        Some(INITIALIZE_MAP_BINDING) => Some(INITIALIZE_MAP_BINDING),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_initialization_binding(binding: Option<&str>) -> bool {
+    binding.and_then(taskspace_binding_kind) == Some(INITIALIZE_MAP_BINDING)
+}
 
 pub(crate) async fn validate_taskspace_binding(
     session: &Arc<Session>,
@@ -50,12 +66,21 @@ pub(crate) async fn validate_taskspace_binding(
         return Ok(());
     }
 
-    match call.taskspace_binding.as_deref() {
-        Some(ACTIVE_BINDING | AFTER_BOUNDARY_BINDING) => Ok(()),
+    match call
+        .taskspace_binding
+        .as_deref()
+        .and_then(taskspace_binding_kind)
+    {
+        Some(ACTIVE_BINDING | AFTER_BOUNDARY_BINDING | INITIALIZE_MAP_BINDING) => Ok(()),
         Some(binding) => Err(binding_failure(
             "TASKSPACE_BINDING_INVALID",
-            "taskspace_binding must be active or after_boundary",
+            "taskspace_binding must be active, after_boundary, or a valid initialize_map object",
             Some(binding),
+        )),
+        None if call.taskspace_binding.is_some() => Err(binding_failure(
+            "TASKSPACE_BINDING_INVALID",
+            "taskspace_binding must be active, after_boundary, or a valid initialize_map object",
+            call.taskspace_binding.as_deref(),
         )),
         None => Err(binding_failure(
             "TASKSPACE_BINDING_REQUIRED",

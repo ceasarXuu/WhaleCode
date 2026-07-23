@@ -1330,7 +1330,11 @@ async fn provider_composer_injects_one_blank_map_projection() {
         );
         assert!(developer_text.contains("- map: none"));
         assert!(developer_text.contains("- bootstrap_required: true"));
-        assert!(developer_text.contains("- bootstrap_action: taskspace_control.initialize_map"));
+        assert!(
+            developer_text.contains(
+                "- bootstrap_action: first_ordinary_tool.taskspace_binding.initialize_map"
+            )
+        );
         assert!(
             developer_text.contains(
                 "- boundary_action_binding: ordinary_tool.taskspace_binding.after_boundary"
@@ -8520,9 +8524,11 @@ async fn assert_missing_client_tool_search_call_id_zero_dispatch(
             sse(vec![
                 ev_response_created("initialize-before-missing-search-id"),
                 ev_function_call(
-                    "initialize-map",
-                    "taskspace_control",
+                    "initialize-action",
+                    "exec_command",
                     &json!({
+                        "cmd": "pwd",
+                        "taskspace_binding": {
                         "action": "initialize_map",
                         "root": {"node_id": "root", "goal": "Exercise response preflight"},
                         "initial_work_node": {"node_id": "work", "goal": "Run the work"},
@@ -8532,13 +8538,9 @@ async fn assert_missing_client_tool_search_call_id_zero_dispatch(
                             {"from": "root", "to": "work"},
                             {"from": "work", "to": "finish"}
                         ]
+                        },
                     })
                     .to_string(),
-                ),
-                ev_function_call(
-                    "initialize-action",
-                    "exec_command",
-                    r#"{"cmd":"pwd","taskspace_binding":"after_boundary"}"#,
                 ),
                 ev_completed("initialize-before-missing-search-id"),
             ]),
