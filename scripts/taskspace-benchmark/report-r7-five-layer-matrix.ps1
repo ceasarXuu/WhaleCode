@@ -50,6 +50,13 @@ function Get-AggregateRow {
         taskspace_state_failure_requests_total = ($Rows | Measure-Object -Property taskspace_state_failure_requests -Sum).Sum
         ordinary_failure_requests_total = ($Rows | Measure-Object -Property ordinary_failure_requests -Sum).Sum
         echo_only_handoffs_total = ($Rows | Measure-Object -Property echo_only_handoffs -Sum).Sum
+        initialization_carriers_total = ($Rows | Measure-Object -Property initialization_carriers -Sum).Sum
+        committed_initialization_carriers_total = ($Rows | Measure-Object -Property committed_initialization_carriers -Sum).Sum
+        failed_initialization_carriers_total = ($Rows | Measure-Object -Property failed_initialization_carriers -Sum).Sum
+        first_request_initialization_total = ($Rows | Measure-Object -Property first_request_initialization -Sum).Sum
+        first_request_initialization_commits_total = ($Rows | Measure-Object -Property first_request_initialization_commits -Sum).Sum
+        direct_initialize_control_total = ($Rows | Measure-Object -Property direct_initialize_control -Sum).Sum
+        no_task_path_rejections_total = ($Rows | Measure-Object -Property no_task_path_rejections -Sum).Sum
         input_tokens_total = $inputTotal
         input_tokens_mean = if ($Rows.Count) { [Math]::Round($inputTotal / $Rows.Count, 3) } else { $null }
         input_tokens_median = Get-Median @($Rows.input_tokens)
@@ -117,6 +124,9 @@ foreach ($run in @($manifest.runs)) {
         ordinary_tools = [double](Get-Value $row.actions "ordinary_tools" 0)
         failed_tools = [double](Get-Value $row.actions "failed_tools" 0)
         taskspace_control = [double](Get-Value $row.actions "taskspace_control" 0)
+        initialization_carriers = [double](Get-Value $row.actions "initialization_carriers" 0)
+        committed_initialization_carriers = [double](Get-Value $row.actions "committed_initialization_carriers" 0)
+        failed_initialization_carriers = [double](Get-Value $row.actions "failed_initialization_carriers" 0)
         control_failures = [double](Get-Value $row.actions "control_failures" 0)
         control_protocol_failures = [double](Get-Value $row.actions "control_protocol_failures" 0)
         control_state_failures = [double](Get-Value $row.actions "control_state_failures" 0)
@@ -162,6 +172,26 @@ foreach ($run in @($manifest.runs)) {
     $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_protocol").Count }).Count
     $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_state_machine").Count }).Count
     $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "ordinary_tool").Count }).Count
+    $firstRequestInitialization = if ($requestPath.Count) {
+        @($requestPath[0].calls | Where-Object taskspace_binding -eq "initialize_map").Count
+    } else {
+        0
+    }
+    $firstRequestInitializationCommits = if ($requestPath.Count) {
+        @($requestPath[0].calls | Where-Object {
+                $_.taskspace_binding -eq "initialize_map" -and $_.success -eq $true -and $_.state_commit -eq $true
+            }).Count
+    } else {
+        0
+    }
+    $directInitializeControl = @($requestCalls | Where-Object {
+            $_.tool -eq "taskspace_control" -and $_.control_action -eq "initialize_map"
+        }).Count
+    $noTaskPathRejections = @($requestCalls | Where-Object failure_code -eq "no_task_path").Count
+    $flat | Add-Member -NotePropertyName first_request_initialization -NotePropertyValue $firstRequestInitialization
+    $flat | Add-Member -NotePropertyName first_request_initialization_commits -NotePropertyValue $firstRequestInitializationCommits
+    $flat | Add-Member -NotePropertyName direct_initialize_control -NotePropertyValue $directInitializeControl
+    $flat | Add-Member -NotePropertyName no_task_path_rejections -NotePropertyValue $noTaskPathRejections
     $soloNonterminal = 0
     foreach ($requestRow in $requestPath) {
         $calls = @($requestRow.calls)
@@ -254,6 +284,12 @@ $lines.Add("| arm | 工作/终答 request | 多工具 request | 首请求 input 
 $lines.Add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 foreach ($row in $overall) {
     $lines.Add("| $($row.arm) | $($row.tool_action_requests_total) / $($row.assistant_only_requests_total) | $($row.multi_tool_requests_total) | $($row.first_input_tokens_mean) | $($row.tools_section_tokens_mean) | $($row.projection_section_tokens_mean) | $($row.taskspace_protocol_failure_requests_total) | $($row.taskspace_state_failure_requests_total) | $($row.multi_patch_attempts_total) | $($row.echo_only_handoffs_total) | $($row.patch_prepare_failures_total) | $($row.map_nodes_mean) / $($row.map_edges_mean) |")
+}
+$lines.Add("")
+$lines.Add("| arm | 初始化载体 提交/总/失败 | 首请求初始化 尝试/提交 | 直接 control 初始化 | no_task_path |")
+$lines.Add("|---|---:|---:|---:|---:|")
+foreach ($row in $overall) {
+    $lines.Add("| $($row.arm) | $($row.committed_initialization_carriers_total) / $($row.initialization_carriers_total) / $($row.failed_initialization_carriers_total) | $($row.first_request_initialization_total) / $($row.first_request_initialization_commits_total) | $($row.direct_initialize_control_total) | $($row.no_task_path_rejections_total) |")
 }
 $lines.Add("")
 $lines.Add("逐运行明细：``summary.csv``；分样本和全局聚合：``aggregate.csv``；trace 索引与初筛异常：``trace-analysis.json``。")

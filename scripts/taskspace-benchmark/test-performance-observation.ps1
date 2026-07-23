@@ -138,6 +138,9 @@ function New-SideFixture {
             }) (Join-Path $artifactDir "map-management-summary.json")
         Write-Json ([pscustomobject]@{
                 taskspace_control_count = 3
+                initialization_carrier_count = 1
+                committed_initialization_carrier_count = 1
+                failed_initialization_carrier_count = 0
                 action_counts = [pscustomobject]@{ initialize_map = 1; transition_node = 1; finish_map = 1 }
                 control_failure_count = 1
                 control_protocol_failure_count = 0; control_state_failure_count = 0; nested_action_failure_count = 1
@@ -331,6 +334,9 @@ Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggr
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
 Assert-True ($taskspace.totals.unreviewed_result_count -eq 6) "result lifecycle totals are incorrect"
 Assert-True ($taskspace.totals.control_failures -eq 2) "control failures are missing"
+Assert-True ($taskspace.totals.initialization_carriers -eq 2) "initialization carriers are missing"
+Assert-True ($taskspace.totals.committed_initialization_carriers -eq 2) "committed initialization carriers are missing"
+Assert-True ($taskspace.totals.failed_initialization_carriers -eq 0) "failed initialization carriers are incorrect"
 Assert-True ($taskspace.totals.request_patch_count -eq 2) "patch declarations are missing from aggregate"
 Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorrect"
 Assert-True ([string]$taskspace.section_cost.availability -eq "measured" -and [int]$taskspace.section_cost.measured_request_count -eq 18 -and [int64]$taskspace.section_cost.section_bytes_total -eq 2520) "taskspace mode section totals are incorrect"

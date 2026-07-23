@@ -80,11 +80,20 @@ function Get-R7CallOutcome {
     }
     if ($null -ne $payload) {
         $stateCommitValue = Get-R7JsonProperty $payload "state_commit"
+        if ([string](Get-R7JsonProperty $payload "schema_version" "") -eq "TaskSpaceInitializationCarrierResultV1") {
+            $initializationResult = Get-R7JsonProperty $payload "initialization_result"
+            $stateCommitValue = Get-R7JsonProperty $initializationResult "state_commit"
+        }
         if ($null -ne $stateCommitValue) { $stateCommit = [bool]$stateCommitValue }
     }
     if (-not $ToolSuccess) {
         $schemaVersion = [string](Get-R7JsonProperty $payload "schema_version" "")
-        $error = Get-R7JsonProperty $payload "error"
+        $failurePayload = if ($schemaVersion -eq "TaskSpaceInitializationCarrierResultV1") {
+            Get-R7JsonProperty $payload "initialization_result"
+        } else {
+            $payload
+        }
+        $error = Get-R7JsonProperty $failurePayload "error"
         $errorClass = [string](Get-R7JsonProperty $error "class" "")
         $errorCode = [string](Get-R7JsonProperty $error "code" "")
         if ($schemaVersion -eq "ToolSequencePreflightResultV1") {

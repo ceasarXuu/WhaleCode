@@ -44,6 +44,12 @@ try {
     }
     $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV1","error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
     if ($multiPatchFailure.failure_class -ne "tool_sequence_protocol") { throw "Multi-patch failure was not separated" }
+    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceInitializationCarrierResultV1","initialization_result":{"success":false,"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID"}},"tool_dispatched":false}'
+    if ($initializationFailure.failure_class -ne "taskspace_state_machine" -or
+        $initializationFailure.failure_code -ne "TASKSPACE_INITIAL_GRAPH_INVALID" -or
+        $initializationFailure.state_commit -ne $false) {
+        throw "Initialization carrier failure was not classified"
+    }
 
     $wirePath = Join-Path $tempRoot "wire.jsonl"
     Write-Lines $wirePath @(
