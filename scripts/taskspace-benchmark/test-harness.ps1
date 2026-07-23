@@ -26,7 +26,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\matrix-report.ps1")
 . (Join-Path $PSScriptRoot "adapters\external-benchmark-common.ps1")
 
-if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\paired-bench-selftest" }
+$autoRunRoot = [string]::IsNullOrWhiteSpace($RunRoot)
+if ($autoRunRoot) { $RunRoot = Join-Path ([IO.Path]::GetTempPath()) "paired-bench-harness-$([guid]::NewGuid().ToString('N'))" }
 $failures = New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { $script:failures.Add($Message) } }
 function Assert-Throws([scriptblock]$Body, [string]$Message) {
@@ -1343,3 +1344,7 @@ if ($failures.Count -gt 0) {
 }
 Write-Host "TaskSpace benchmark harness self-test: PASS"
 Write-Host "RunRoot: $runDir"
+if ($autoRunRoot -and (Test-Path -LiteralPath $RunRoot)) {
+    Remove-Item -Force -Recurse -LiteralPath $RunRoot
+    Write-Host "ArtifactsRetained: False"
+}

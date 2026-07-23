@@ -57,8 +57,6 @@ try {
     Write-Output "R7 five-layer trace analysis passed."
 } finally {
     if (Test-Path -LiteralPath $tempRoot) {
-        $backupRoot = Join-Path ([IO.Path]::GetTempPath()) "r7-five-layer-trace-complete"
-        New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
-        Move-Item -Force -LiteralPath $tempRoot -Destination (Join-Path $backupRoot ([IO.Path]::GetFileName($tempRoot)))
+        Remove-Item -Force -Recurse -LiteralPath $tempRoot
     }
 }

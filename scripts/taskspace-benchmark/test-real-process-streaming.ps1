@@ -58,3 +58,6 @@ Assert-True ([bool]$timeoutTimingJson.timed_out) "timeout timing should be timed
 Assert-True (-not [bool]$timeoutTimingJson.completed) "timeout timing should not be completed"
 
 Write-Host "PASS: Invoke-RealProcess streams stdout/stderr and preserves timeout diagnostics"
+foreach ($path in @($normalDir, $timeoutDir)) {
+    if (Test-Path -LiteralPath $path) { Remove-Item -Force -Recurse -LiteralPath $path }
+}

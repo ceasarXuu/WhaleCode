@@ -97,6 +97,23 @@ if (-not $resuming) {
     }
     if ($stale) { Write-TaskspaceRunEvent $runDir "stale_lock_reclaimed" @{ previous_lock_owner = [string]$existingStatus.lock_owner } }
 }
+function Assert-TaskspaceArtifactStorage {
+    param([Parameter(Mandatory = $true)][string]$Stage)
+    $safeStage = $Stage -replace '[^A-Za-z0-9_.-]', '_'
+    $healthPath = Join-Path $runDir "artifact-storage-$safeStage.json"
+    $health = New-TaskspaceArtifactStorageHealth $repoRoot $runDir $Stage
+    Write-TaskspaceJson $health $healthPath
+    Write-TaskspaceRunEvent $runDir "artifact_storage_checked" @{ stage = $Stage; status = [string]$health.status; path = $healthPath; run_artifact_bytes = [int64]$health.run_artifact_bytes; repository_artifact_bytes = [int64]$health.repository_usage.artifact_bytes }
+    if ([string]$health.status -eq "fail") {
+        $finding = @($health.findings | Select-Object -First 1)[0]
+        $signature = New-TaskspaceInfraSignature "harness_materialization_failure" $Stage ([string]$finding.stable_code) ([string]$finding.message) "" $healthPath
+        Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id $Stage ([string]$finding.stable_code) $signature $healthPath $commandLine 0 0 | Out-Null
+        Write-Host "RunDir: $runDir"
+        Write-Host "ArtifactStorageHealth: $healthPath"
+        exit $script:TaskspaceInvalidHarnessExitCode
+    }
+}
+Assert-TaskspaceArtifactStorage "run_preflight"
 if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath) -and (Test-Path -LiteralPath $V005NonAgentGatesPath -PathType Leaf)) {
     Copy-Item -LiteralPath $V005NonAgentGatesPath -Destination (Join-Path $runDir "v005-non-agent-gates.json") -Force
 }
@@ -757,6 +774,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence_target = $manifest.EvidenceTarget; evidence = $evidence })
     Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
+    Assert-TaskspaceArtifactStorage ("pair_{0:000}_completed" -f $repeat)
     if ($RunSide -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
         $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $pair.PairDir $pairReportPath $evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
         Write-Host "RunDir: $runDir"

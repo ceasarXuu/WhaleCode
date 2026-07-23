@@ -25,8 +25,6 @@ try {
     Write-Output "R7 five-layer matrix harness passed."
 } finally {
     if (Test-Path -LiteralPath $runRoot) {
-        $backupRoot = Join-Path ([IO.Path]::GetTempPath()) "r7-five-layer-matrix-plan-complete"
-        New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
-        Move-Item -Force -LiteralPath $runRoot -Destination (Join-Path $backupRoot ([IO.Path]::GetFileName($runRoot)))
+        Remove-Item -Force -Recurse -LiteralPath $runRoot
     }
 }

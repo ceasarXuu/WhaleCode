@@ -12,6 +12,7 @@ param(
 . (Join-Path $BenchmarkRoot "lib\workspace.ps1")
 . (Join-Path $BenchmarkRoot "lib\canonical-rollout.ps1")
 . (Join-Path $BenchmarkRoot "lib\graph-health.ps1")
+. (Join-Path $BenchmarkRoot "lib\artifact-storage.ps1")
 . (Join-Path $BenchmarkRoot "lib\harness-health.ps1")
 . (Join-Path $BenchmarkRoot "lib\metrics-extractor.ps1")
 . (Join-Path $BenchmarkRoot "lib\audit-report.ps1")

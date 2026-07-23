@@ -109,3 +109,4 @@ if ([double]$row.node_detail_before_median -ne 500 -or [double]$row.node_detail_
 if ([double]$row.skeleton_before_median -ne 500 -or [double]$row.skeleton_after_median -ne 500) { throw "skeleton bytes mismatch" }
 
 Write-Host "Map compression observer test: PASS"
+Remove-Item -Force -Recurse -LiteralPath $root
