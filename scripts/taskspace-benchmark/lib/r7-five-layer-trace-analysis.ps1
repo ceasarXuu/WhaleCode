@@ -14,11 +14,19 @@ function ConvertTo-R7CallDescriptor {
     )
     $parsed = $null
     try { $parsed = $Arguments | ConvertFrom-Json -Depth 100 } catch {}
-    $taskspaceAction = Get-R7JsonProperty $parsed "taskspace_action"
-    $action = [string](Get-R7JsonProperty $taskspaceAction "action" (Get-R7JsonProperty $parsed "action" ""))
-    $currentNode = [string](Get-R7JsonProperty $taskspaceAction "current_node_id" "")
-    $nextNode = [string](Get-R7JsonProperty $taskspaceAction "next_node_id" "")
-    $initialWork = Get-R7JsonProperty $taskspaceAction "initial_work_node"
+    $taskspaceTransition = Get-R7JsonProperty $parsed "taskspace_transition"
+    if ($null -eq $taskspaceTransition) {
+        $taskspaceTransition = Get-R7JsonProperty $parsed "taskspace_action"
+    }
+    $transitionArguments = if ($null -eq $taskspaceTransition) {
+        $parsed
+    } else {
+        Get-R7JsonProperty $taskspaceTransition "arguments" $taskspaceTransition
+    }
+    $action = [string](Get-R7JsonProperty $taskspaceTransition "action" (Get-R7JsonProperty $parsed "action" ""))
+    $currentNode = [string](Get-R7JsonProperty $transitionArguments "current_node_id" "")
+    $nextNode = [string](Get-R7JsonProperty $transitionArguments "next_node_id" "")
+    $initialWork = Get-R7JsonProperty $transitionArguments "initial_work_node"
     $initialNode = [string](Get-R7JsonProperty $initialWork "node_id" "")
     $terminalNode = [string](Get-R7JsonProperty $parsed "terminal_node_id" "")
     $node = if ($currentNode -and $nextNode) {
@@ -45,7 +53,7 @@ function ConvertTo-R7CallDescriptor {
     [pscustomobject]@{
         call_id = $CallId
         tool = $ToolName
-        taskspace_action = $action
+        taskspace_transition = $action
         node = $node
         detail = $detail
         success = $null
@@ -74,9 +82,13 @@ function Get-R7CallOutcome {
         $error = Get-R7JsonProperty $actionResult "error"
         $errorClass = [string](Get-R7JsonProperty $error "class" "")
         $errorCode = [string](Get-R7JsonProperty $error "code" "")
-        if ($Output -match 'request_multiple_apply_patch_calls_not_allowed') {
+        if ($Output -match 'request_multiple_apply_patch_calls_not_allowed|taskspace_boundary_action_requires_follow_up') {
             $failureClass = "tool_sequence_protocol"
-            $failureCode = "request_multiple_apply_patch_calls_not_allowed"
+            $failureCode = if ($Output -match 'taskspace_boundary_action_requires_follow_up') {
+                "taskspace_boundary_action_requires_follow_up"
+            } else {
+                "request_multiple_apply_patch_calls_not_allowed"
+            }
         } elseif ($errorCode) {
             $failureClass = if ($errorClass) { "taskspace_$errorClass" } else { "taskspace" }
             $failureCode = $errorCode

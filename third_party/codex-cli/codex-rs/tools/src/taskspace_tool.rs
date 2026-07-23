@@ -128,7 +128,7 @@ fn initialize_map_schema() -> JsonSchema {
             "additional_work_nodes".into(),
             "edges".into(),
         ],
-        "Create the initial rooted DAG, its unique Finish, and the first active Work binding before executing the carrying Tool.",
+        "Create the initial rooted DAG and first active Work binding. This boundary call is invalid by itself. Do not wait for its result: emit the first real action Tool immediately after it in the same response.",
     )
 }
 
@@ -160,35 +160,6 @@ fn mutate_graph_schema() -> JsonSchema {
     )
 }
 
-fn bind_node_schema() -> JsonSchema {
-    described_object_variant(
-        "bind_node",
-        BTreeMap::from([
-            ("expected_revision".into(), revision_schema()),
-            ("node_id".into(), JsonSchema::string(None)),
-        ]),
-        vec!["expected_revision".into(), "node_id".into()],
-        "Bind one Agent-selected Ready Work node before executing the carrying Tool.",
-    )
-}
-
-fn continue_current_schema() -> JsonSchema {
-    described_object_variant(
-        "continue_current",
-        BTreeMap::from([
-            ("expected_revision".into(), revision_schema()),
-            (
-                "current_node_id".into(),
-                JsonSchema::string(Some(
-                    "The active Work node that this Tool action continues to serve.".into(),
-                )),
-            ),
-        ]),
-        vec!["expected_revision".into(), "current_node_id".into()],
-        "Explicitly continue the current Work binding without changing lifecycle state before executing the carrying Tool.",
-    )
-}
-
 fn node_transition_schema(action: &str, description: &str) -> JsonSchema {
     described_object_variant(
         action,
@@ -198,6 +169,18 @@ fn node_transition_schema(action: &str, description: &str) -> JsonSchema {
         ]),
         vec!["expected_revision".into(), "node_id".into()],
         description,
+    )
+}
+
+fn bind_node_schema() -> JsonSchema {
+    described_object_variant(
+        "bind_node",
+        BTreeMap::from([
+            ("expected_revision".into(), revision_schema()),
+            ("node_id".into(), JsonSchema::string(None)),
+        ]),
+        vec!["expected_revision".into(), "node_id".into()],
+        "Bind one Agent-selected Ready Work node. This boundary call is invalid by itself. Do not wait for its result: emit that node's first real action Tool immediately after it in the same response.",
     )
 }
 
@@ -214,7 +197,7 @@ fn complete_then_continue_schema() -> JsonSchema {
             "current_node_id".into(),
             "next_node_id".into(),
         ],
-        "Atomically complete the active Work node and bind one Agent-selected Ready successor before executing the carrying Tool.",
+        "Atomically complete the active Work node and bind one Agent-selected Ready successor. This boundary call is invalid by itself. Do not wait for its result: emit the successor's first real action Tool immediately after it in the same response.",
     )
 }
 
@@ -241,21 +224,12 @@ fn finish_map_schema() -> JsonSchema {
     )
 }
 
-pub(crate) fn taskspace_action_schema() -> JsonSchema {
-    object_any_of(
-        vec![
-            continue_current_schema(),
-            initialize_map_schema(),
-            bind_node_schema(),
-            complete_then_continue_schema(),
-        ],
-        "The explicit TaskSpace binding action applied before this Tool executes. Choose continue_current when the Tool still serves the active Work node; otherwise choose the lifecycle transition that binds the Work node served by this Tool.",
-    )
-}
-
 pub fn create_taskspace_control_tool() -> ToolSpec {
     let mut variants = vec![
+        initialize_map_schema(),
         mutate_graph_schema(),
+        bind_node_schema(),
+        complete_then_continue_schema(),
         node_transition_schema(
             "block_node",
             "Mark the currently running Work node blocked. The Runtime does not select an alternative path.",
@@ -275,7 +249,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Use taskspace_control for standalone Map mutations, lifecycle states that do not begin a new action, terminal closure, expansion, and retained-data reads. Every ordinary action Tool explicitly declares taskspace_action: continue the current binding, or carry initialization, binding, or complete-then-continue into the action. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
+        description: "Use taskspace_control for Map lifecycle, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map, bind_node, and complete_then_continue are boundary actions. A boundary call is invalid alone: do not wait for its result; emit at least one real action Tool immediately after it in the same response. Later ordinary Tools serve the canonical active binding without TaskSpace fields. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
         strict: false,
         defer_loading: None,
         parameters,

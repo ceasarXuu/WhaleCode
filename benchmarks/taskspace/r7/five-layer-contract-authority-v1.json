@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla7",
+  "contract_status": "production_active_through_fla9",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -36,6 +36,7 @@
   },
   "authority_order": [
     "this_manifest",
+    "docs/v0.0.5/build-R7/37-r7-ordinary-tool-carrier-deinvasion-plan.md",
     "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
     "selected machine-readable schemas and exact-text artifacts listed here",
     "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
@@ -46,12 +47,12 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "5c6e0298177172a3efb0da803c1ab1175324ce32c4123425468b7557220ebc50",
+      "sha256": "7396512adf0294f3d73c03083e4e0d1dcbe10e48dc499e0b0dccc4df4f0e4a8b",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "944c22999d44addaa867e829622fb0cf9d873916ec98d901a85b16ca37bc4a94",
+      "sha256": "447dfc92ccb879b5dfba4b07718a49a4d3493a0129c772c27387192d97c5bbec",
       "role": "Agent-visible examples and human-reviewable concrete contracts"
     },
     {
@@ -61,8 +62,13 @@
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "cc84e97df90da95adc08ba163fa55658ff56ae7c6307310ea7f2628959e962b7",
+      "sha256": "b45625e88082764419e77f46ac693e4e7a7aecda6219b749c56ca1b146ea0b96",
       "role": "FLA-3.5 minimal continuous-action contract, implementation boundary and verification result"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/37-r7-ordinary-tool-carrier-deinvasion-plan.md",
+      "sha256": "d565c4a7c1fd9dc7e86435b69c080e0415b9887c4bfd381e6ce0c4a833aaca83",
+      "role": "FLA-9 ordinary Tool de-invasion, exact control boundary schema and sequence validation gates"
     }
   ],
   "baseline": {
@@ -100,7 +106,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md",
-      "sha256": "0f92283e162a2c4cc2021ac8a89be458a37616b3ff82b3876807918a02cb89fd",
+      "sha256": "e8c2dc1e2354d479771fc7f62e1eacc7c19de3d745f63b40b4422cf62d986875",
       "production_target": "replace only the TaskSpace work map section in third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md"
     },
     {
@@ -108,7 +114,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "9764007b78c66a6a0fea625740c322f021d250f1b6cd0fe4d840b55084b79ac4",
+      "sha256": "3983fe0e3dedf6543eb7943976c2a06c576780e9c6e2b7862c4deadc786f0d4a",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -122,30 +128,38 @@
     {
       "layer": "L4",
       "implementation_status": "active_verified",
-      "activation_phase": "FLA-4",
-      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "813e5a21a470525cfd11a5156a19149ce9aa8426845367b80d1a685ddd94c555",
+      "activation_phase": "FLA-9",
+      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json",
+      "sha256": "a196a996d13a5af6de5e5bad25acbb7ec0d291c6f1f7435aa836625f7f2b7e67",
       "tool_count": 1,
       "required_next_call": "removed",
-      "taskspace_action": "required_on_ordinary_action_tools",
-      "carrier_schema_source": {
-        "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
-        "sha256": "e6b5a554e3342eea1783e513990c579e4c41daf9793806d4b5c2ed365c8dd48d"
+      "ordinary_tool_schema_extension_count": 0,
+      "boundary_actions": [
+        "initialize_map",
+        "bind_node",
+        "complete_then_continue"
+      ],
+      "boundary_schema_source": {
+        "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+        "sha256": "b5fb88cd97607a42451a7b3a1051d1c7a210e51731d355cb5ad46bdac16468e3"
       },
-      "transition_parser": {
-        "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
-        "sha256": "4e1522170836d00ea61500fafb553190a73a66d7707ae0f81686422170b5fe0f"
+      "control_parser": {
+        "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs",
+        "sha256": "7b2c9d5c639ea1290c9bc38f89f382b6f24b4ec75aba22e89a14a5fc58729a5b"
+      },
+      "sequence_preflight": {
+        "path": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
+        "sha256": "fa1da36fb1929c867fe8faf302246779d5c4a5b7a97fb25f31f2d360c5843aeb"
       },
       "strict": false,
       "output_schema": null,
       "production_targets": [
         "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
         "third_party/codex-cli/codex-rs/tools/src/taskspace_tool_simple_actions.rs",
-        "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
         "third_party/codex-cli/codex-rs/core/src/session/turn.rs"
       ]
     },
@@ -154,7 +168,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-5",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "361a5838269ab56b604f527ff4f1f73799908c329c271e017a9545c26273b4d3",
+      "sha256": "879b542f10963624fa4f4392bdff0e90b8d68c66f8127e6e1ce8bea91395a9a6",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
@@ -228,9 +242,9 @@
       "issue": "H-003",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
-      "current_regression_baseline": "removed; ordinary action tools explicitly carry taskspace_action in the active production path",
-      "selected_direction": "shared schema decorator and parser require an Agent-submitted continuation or lifecycle action before dispatching the same ordinary Tool through the existing router",
-      "required_next_call_disposition": "removed with missing-sibling preflight and standalone nonterminal lifecycle actions"
+      "current_regression_baseline": "preserved; boundary control and the next real action are declared in one provider response while ordinary actions use the canonical active binding",
+      "selected_direction": "one exact taskspace_control schema owns lifecycle boundaries; Tool sequence preflight requires an immediate ordinary follow-up and ordinary Tool schemas remain byte-identical across Standard and TaskSpace",
+      "required_next_call_disposition": "the deprecated argument field remains removed; sequence shape is validated mechanically before any declared call executes"
     },
     {
       "id": "FLA-3.5-terminal-action-contract-repair",
@@ -248,7 +262,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2.9 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v3.1 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",

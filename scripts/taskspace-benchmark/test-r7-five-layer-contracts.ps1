@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5-Scaffold", "FLA-3.5", "FLA-4-Repair-Baseline", "FLA-4", "FLA-5-Repair-Baseline", "FLA-5", "FLA-7", "All")]
+    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5-Scaffold", "FLA-3.5", "FLA-4-Repair-Baseline", "FLA-4", "FLA-5-Repair-Baseline", "FLA-5", "FLA-7", "FLA-9", "All")]
     [string]$Phase = "All"
 )
 
@@ -16,7 +16,7 @@ $l2Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l2-core-protoc
 $productionL2Path = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md"
 $l3Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md"
 $productionL3Path = Join-Path $repoRoot "third_party/codex-cli/codex-rs/skills/src/assets/samples/taskspace-advanced/SKILL.md"
-$l4Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
+$l4Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json"
 $l5ResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json"
 $l5LifecyclePath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json"
 $l5LifecycleGoldenPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json"
@@ -132,28 +132,21 @@ if (Test-PhaseEnabled "FLA-0") {
 }
 
 if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
-    $carrierSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs"))
     $controlSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs"))
     $controlWireSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"))
-    $transitionSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"))
     $routerSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/router.rs"))
-    $carrierRuntimeSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier.rs"))
     $registrySource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/tool_registry_plan.rs"))
     $turnSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/session/turn.rs"))
     $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
-    Assert-True $carrierSource.Contains('taskspace_action') "Action Tool decorator does not expose taskspace_action"
-    Assert-True $carrierSource.Contains('required.push(ACTION_FIELD') "Action Tool decorator does not require taskspace_action"
-    Assert-True $routerSource.Contains('extract_taskspace_action') "Router does not strip the action before ordinary Tool dispatch"
     Assert-True (-not $registrySource.Contains('decorate_taskspace_carrier_tool')) "Shared Tool registry still decorates Standard schemas"
-    Assert-True $turnSource.Contains('.map(codex_tools::decorate_taskspace_carrier_tool)') "TaskSpace provider visibility does not decorate action Tools"
-    Assert-True $carrierRuntimeSource.Contains('session.taskspace_active().await') "Runtime action contract is not scoped to canonical TaskSpace mode"
-    Assert-True $carrierRuntimeSource.Contains('replace_function_output(response, header)') "Rejected action feedback does not replace the duplicate failure body"
-    foreach ($variant in @("ContinueCurrent", "InitializeMap", "BindNode", "CompleteThenContinue")) {
-        Assert-True $transitionSource.Contains($variant) "Carrier parser omits action variant: $variant"
-    }
+    Assert-True (-not $turnSource.Contains('decorate_taskspace_carrier_tool')) "TaskSpace provider visibility still decorates ordinary Tools"
+    Assert-True (-not $routerSource.Contains('extract_taskspace_transition')) "Router still rewrites ordinary Tool arguments"
+    Assert-True $turnSource.Contains('ordinary_schema_extension_count = 0') "Provider schema profile does not record zero ordinary Tool extensions"
+    Assert-True $turnSource.Contains('ordinary_tool_schema_is_identical_between_standard_and_taskspace') "Ordinary Tool schema identity regression test is missing"
     foreach ($variant in @("InitializeMap", "BindNode", "CompleteThenContinue")) {
-        Assert-True (-not $controlWireSource.Contains("Action::$variant")) "Standalone control still accepts transition variant: $variant"
+        Assert-True $controlWireSource.Contains("Action::$variant") "Control parser omits boundary variant: $variant"
     }
+    Assert-True $preflightSource.Contains('taskspace_boundary_action_requires_follow_up') "Response preflight omits the boundary follow-up contract"
     Assert-True (-not $controlSource.Contains('required_next_call')) "Tool schema retains required_next_call"
     Assert-True $controlSource.Contains('"finish_map"') "Unified terminal action is missing"
     Assert-True (-not $controlSource.Contains('"last_running_work"')) "Tool schema still exposes the last-Work transaction branch"
@@ -170,7 +163,7 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-True $controlSource.Contains('an already Ready Finish is closed directly') "Ready Finish behavior is missing from the Tool schema"
     Assert-True (-not $controlSource.Contains('"complete_last_running_work_then_end"')) "Superseded last-Work terminal action is still exposed"
     Assert-True (-not $controlSource.Contains('"close_finish_with_no_active_work"')) "Superseded Ready-Finish action is still exposed"
-    Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING')) "Response preflight retains sibling enforcement"
+    Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING')) "Response preflight retains the deprecated sibling field contract"
     Assert-Equal (Get-Sha256 $productionL2Path) (Get-Sha256 $l2Path) "Production L2 bytes differ from authority artifact"
     $l2Source = [System.IO.File]::ReadAllText($productionL2Path)
     Assert-True $l2Source.Contains('close the Map with one `finish_map` call') "L2 does not use one terminal action"
@@ -180,10 +173,10 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     $repair = @($authority.blocking_repairs | Where-Object id -eq "FLA-3.5-continuous-action-regression-repair")[0]
     Assert-Equal ([string]$repair.implementation_status) "active_verified" "FLA-3.5 authority is not active_verified"
     Assert-Equal @($repair.blocks).Count 0 "FLA-3.5 still blocks later phases"
-    $carrierManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-True (@("FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8") -contains [string]$carrierManifest.activation_through) "Production manifest regressed below FLA-3.5"
-    Assert-True (@("carrier_repair_active", "carrier_active_projection_baseline", "active") -contains [string](@($carrierManifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "L4 carrier is not active"
-    Write-Output "FLA-3.5 action-carried lifecycle contracts passed."
+    $productionManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$productionManifest.activation_through) "FLA-9" "Production manifest has not activated the boundary sequence contract"
+    Assert-Equal ([string](@($productionManifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "active" "L4 boundary sequence is not active"
+    Write-Output "FLA-3.5/FLA-9 continuous boundary-action contracts passed."
 }
 
 if ((Test-PhaseEnabled "FLA-1") -or $Phase -eq "FLA-3.5-Scaffold") {
@@ -438,7 +431,7 @@ if (Test-PhaseEnabled "FLA-2") {
     Assert-True $traceSource.Contains("taskspace_core_protocol_identity") "Provider wire trace lacks L2 identity"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-True (@("FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
+    Assert-True (@("FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8", "FLA-9") -contains [string]$manifest.activation_through) "Production manifest regressed below FLA-2"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L1")[0].runtime_status)) "active" "L1 is not active"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L2")[0].runtime_status)) "active" "L2 is not active"
     Write-Output "FLA-2 L1/L2 production contracts passed."
@@ -462,20 +455,19 @@ if (Test-PhaseEnabled "FLA-3") {
     Assert-True $protocolSource.Contains('taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>') "Session metadata does not persist the L3 identity"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-True (@("FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8") -contains [string]$manifest.activation_through) "Production manifest has not activated FLA-3"
+    Assert-True (@("FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8", "FLA-9") -contains [string]$manifest.activation_through) "Production manifest has not activated FLA-3"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L3")[0].runtime_status)) "active" "L3 is not active"
     Write-Output "FLA-3 advanced Skill lifecycle contracts passed."
 }
 
-if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline" -or $Phase -eq "FLA-4") {
+if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline" -or $Phase -eq "FLA-4" -or $Phase -eq "FLA-9") {
     $l4Target = @($authority.selected_targets | Where-Object layer -eq "L4")[0]
     Assert-Equal ([string]$l4Target.implementation_status) "active_verified" "L4 activation status drifted"
     $selectedSchema = Get-Content -Raw -Encoding UTF8 -LiteralPath $l4Path | ConvertFrom-Json -Depth 50
     $selectedActions = @($selectedSchema.provider_tool.function.parameters.anyOf | ForEach-Object { [string]$_.properties.action.enum[0] })
-    foreach ($action in @("block_node", "unblock_node", "rework_node")) {
-        Assert-True ($selectedActions -contains $action) "Selected L4 schema omits direct action: $action"
+    foreach ($action in @("initialize_map", "mutate_graph", "bind_node", "complete_then_continue", "block_node", "unblock_node", "rework_node", "finish_map", "expand_nodes", "read_map", "read_output_ref")) {
+        Assert-True ($selectedActions -contains $action) "Selected L4 schema omits action: $action"
     }
-    Assert-True ($selectedActions -notcontains "bind_node") "Selected L4 control schema still exposes standalone bind_node"
     Assert-True ($selectedActions -notcontains "transition_node") "Selected L4 schema retains transition_node"
 
     $toolSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs"))
@@ -485,16 +477,17 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-4-Repair-Baseline" -or $Phase -eq "FLA-
     foreach ($action in @("block_node", "unblock_node", "rework_node")) {
         Assert-True ($toolSource.Contains('"' + $action + '"')) "Provider Tool source omits direct action: $action"
     }
-    foreach ($variant in @("BlockNode", "UnblockNode", "ReworkNode")) {
-        Assert-True $wireSource.Contains("Action::$variant") "Argument wire omits direct action variant: $variant"
+    foreach ($variant in @("InitializeMap", "BindNode", "CompleteThenContinue", "BlockNode", "UnblockNode", "ReworkNode")) {
+        Assert-True $wireSource.Contains("Action::$variant") "Argument wire omits action variant: $variant"
     }
-    $carrierTransitionSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"))
-    Assert-True $carrierTransitionSource.Contains("ContinueCurrent") "Carrier action parser omits continue_current"
-    Assert-True $carrierTransitionSource.Contains("BindNode") "Carrier action parser omits bind_node"
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs"))) "Deleted ordinary Tool decorator was restored"
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"))) "Deleted transition parser was restored"
+    $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
+    Assert-True $preflightSource.Contains('taskspace_boundary_action_requires_follow_up') "Boundary sequence preflight is missing"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "carrier_active_projection_baseline" "Production manifest does not expose active L4"
+    Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "active" "Production manifest does not expose active L4"
     $toolTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/taskspace_tool_tests.rs"))
-    Assert-True $toolTests.Contains('provider_tool_matches_the_fla4_authority_artifact') "FLA-4 provider schema equality gate is missing"
+    Assert-True $toolTests.Contains('provider_tool_matches_the_fla9_authority_artifact') "FLA-9 provider schema equality gate is missing"
     $parserTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_tests.rs"))
     Assert-True $parserTests.Contains('every_standalone_action_rejects_missing_extra_and_wrong_typed_fields') "FLA-4 exhaustive argument fixture gate is missing"
     Write-Output "FLA-4 input schema contracts passed."
@@ -512,17 +505,19 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-5-Repair-Baseline" -or $Phase -eq "FLA-
     $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
     Assert-True $argsSource.Contains('TaskSpaceControlResultV2') "Production result version is not V2"
     Assert-True $outputSource.Contains('"partial_commit": false') "Production result formatter does not emit boolean partial_commit=false"
-    Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING')) "Control preflight retains the removed sibling error"
+    Assert-True (-not $preflightSource.Contains('TASKSPACE_REQUIRED_SIBLING_MISSING')) "Control preflight retains the removed sibling field error"
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
     Assert-True (@("carrier_active_projection_baseline", "active") -contains [string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "Production manifest does not expose active L5 result"
     Assert-True (-not $resultSchema.properties.error.oneOf[1].properties.code.enum.Contains("TASKSPACE_REQUIRED_SIBLING_MISSING")) "L5 result schema retains removed sibling failure"
-    $carrierTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier_tests.rs"))
-    Assert-True $carrierTests.Contains('committed_transition_is_prepended_without_rewriting_tool_text') "FLA-5 committed carrier conformance test is missing"
-    Assert-True $carrierTests.Contains('transition_rejection_records_that_tool_was_not_dispatched') "FLA-5 rejected carrier conformance test is missing"
+    Assert-Equal ([int]$resultSchema.'x-taskspace-boundary-sequence'.ordinary_tool_schema_extension_count) 0 "L5 contract permits ordinary Tool schema extensions"
+    Assert-Equal ([string]$resultSchema.'x-taskspace-boundary-sequence'.preflight_failure.error_code) "taskspace_boundary_action_requires_follow_up" "L5 boundary preflight code drifted"
+    $sequenceTests = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_tests.rs"))
+    Assert-True $sequenceTests.Contains('standalone_boundary_control_is_rejected_before_execution') "Standalone boundary rejection test is missing"
+    Assert-True $sequenceTests.Contains('boundary_control_and_follow_up_tools_stay_in_one_valid_response') "Boundary-plus-action acceptance test is missing"
     $costSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1"))
-    Assert-True $costSource.Contains('Get-TaskspaceCarrierResultFromOutput') "FLA-5 observer does not parse carrier results"
-    Assert-True $costSource.Contains('carrier_state_failure_count') "FLA-5 observer does not classify carrier state failures"
-    Write-Output "FLA-5 result and carrier observation contracts passed."
+    Assert-True $costSource.Contains('boundary_action_count') "FLA-5 observer does not count boundary actions"
+    Assert-True $costSource.Contains('taskspace_boundary_action_requires_follow_up') "FLA-5 observer does not classify boundary sequence failures"
+    Write-Output "FLA-5 result and boundary-sequence observation contracts passed."
 }
 
 if ($Phase -eq "All" -or $Phase -eq "FLA-7") {
@@ -538,7 +533,7 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-7") {
     Assert-Equal ([string]$lifecycle.deterministic_fixture_rule.golden) "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json" "FLA-7 golden path drifted"
 
     $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
-    Assert-Equal ([string]$manifest.activation_through) "FLA-7" "Production manifest has not activated FLA-7"
+    Assert-True (@("FLA-7", "FLA-8", "FLA-9") -contains [string]$manifest.activation_through) "Production manifest has not activated FLA-7"
     Assert-Equal ([string](@($manifest.layers | Where-Object id -eq "L5")[0].runtime_status)) "active" "Production manifest does not expose active L5"
 
     & (Join-Path $PSScriptRoot "freeze-r7-five-layer-fixtures.ps1")

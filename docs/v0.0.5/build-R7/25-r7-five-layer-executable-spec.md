@@ -1,9 +1,9 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 1.1
-- Status: Production active through FLA-7; FLA-6 experiments remain disabled and FLA-8 is next
-- Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
+- Version: 1.2
+- Status: FLA-9 普通 Tool 去侵入已验证；bootstrap sibling 机制待产品决策
+- Scope: FLA-0 至 FLA-9 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
 
@@ -39,14 +39,16 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | 层 | 当前生产基线 | 已选目标 | 当前状态 |
 |---|---|---|---|
 | L1 | TaskSpace Base v2.0.1；Map 段仅保留宏观模型，整份 Base 不携带 Tool wire 示例 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
-| L2 | `taskspace-core-v2.9` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
+| L2 | `taskspace-core-v3.1` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
-| L4 | 普通动作 Tool 的必填 `taskspace_action` carrier；纯 Map/read/terminal 使用 `taskspace_control` | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json) | `active_verified` |
+| L4 | 唯一 `taskspace_control` 精确承载 Map action；边界 control 与下一实际动作同 response 连续声明；普通 Tool schema 零扩展 | [`five-layer-taskspace-control-v3.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json) | `active_verified` |
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json) 与生命周期 golden | `active_verified` |
 
-主线明确选择：普通动作由必填 `taskspace_action` 明确声明继续当前绑定或承载生命周期交接；纯 Map/read/terminal action
-继续使用一个 `taskspace_control`；`strict=false`；不向 DeepSeek 声称 `output_schema`。读写拆 Tool、MCP
+主线明确选择：普通动作默认服务 Runtime canonical active binding，所有 Map action 只通过一个
+`taskspace_control` 暴露；初始化、首次绑定和完成后继续三类边界 control 必须与下一实际动作在同一
+provider response 中连续声明。普通 Tool 不增加 TaskSpace 字段；`strict=false`；不向 DeepSeek 声称
+`output_schema`。读写拆 Tool、MCP
 `outputSchema` 和 DeepSeek strict 是三个 `experimental_disabled` 单变量实验。移除 `required_next_call` 不是实验，
 而是 FLA-3.5 修复 H-003 的组成部分。
 
@@ -89,8 +91,9 @@ tools                    content=<L4 schema + 普通工具 schema>
 第二条 system。Standard 不装配 L1、L2、L3 正文或 TaskSpace Tool。
 
 Standard 与 TaskSpace 完整 Base 都只能描述通用工具行为，不得内嵌 JSON 参数对象、patch 正文模板或其他
-provider Tool wire 示例。具体调用语法由请求顶层的 Tool schema 唯一负责；FLA-2 合同测试同时扫描两份 Base，
-任何命中都阻止验收。
+provider Tool wire 示例。L2 说明边界 control 与下一实际动作的组合方式；顶层 `taskspace_control`
+schema 唯一声明精确 payload，Runtime 执行结构、顺序和状态校验。FLA-2 合同测试同时扫描两份 Base，任何
+wire 示例命中都阻止验收。
 
 ### 3.2 L3 的载体
 
@@ -111,22 +114,25 @@ Skill 失败不创建新的 TaskSpace Tool result。显式 mention 缺少快照�
 `skill_load_status=snapshot_missing, reason_code=TASKSPACE_SKILL_SNAPSHOT_MISSING` 及 name/version/hash/path/carrier，
 不追加“加载最新版”或下一步建议。
 
-### 3.3 L4 当前 carrier 合同
+### 3.3 L4 当前边界序列合同
 
 独立 `taskspace_control` action 以
-[`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)
-为准。三个非终态 lifecycle action 已从该 Tool 删除；当前独立 action 是：
+[`five-layer-taskspace-control-v3.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json)
+为准。该 Tool 包含以下 action：
 
 ```text
-mutate_graph, block_node, unblock_node, rework_node, finish_map,
+initialize_map, mutate_graph, bind_node, complete_then_continue,
+block_node, unblock_node, rework_node, finish_map,
 expand_nodes, read_map, read_output_ref
 ```
 
 `read_output_ref` 的 `head`、`tail`、`line_range`、`grep` 四种分支均已在 schema 中内联。`block_node` 和
 `rework_node` 不接收 `reason`，因为当前 Rooted DAG 领域模型没有该字段；五层重构不得暗中扩展领域状态。
-`initialize_map`、`bind_node`、`complete_then_continue` 只存在于普通动作 Tool 的轻量
-`taskspace_action`。同节点普通动作使用 `continue_current`。Patch 正文继续是 `apply_patch.input` 顶层字段，原 Tool router、权限、sandbox、hook、
-handler 和输出链保持唯一。Tool 身份继续包含
+`initialize_map`、`bind_node`、`complete_then_continue` 是边界 action，必须在同一 provider response
+中紧邻一个非 control 的实际动作；sequence preflight 在执行任何调用前整体拒绝单独边界。同节点普通动作
+不携带 TaskSpace 字段，Runtime 通过 canonical active node/lease 完成不可绕过的归属和 reservation。
+Patch 正文继续是 `apply_patch.input` 顶层字段，原 Tool router、权限、sandbox、hook、handler 和输出链
+保持唯一。Tool 身份继续包含
 `provider_schema_profile + capability_set_hash + tools_hash`；Map revision 不触发 schema 变化。
 
 ### 3.4 L5 的完整结果合同
@@ -141,7 +147,7 @@ handler 和输出链保持唯一。Tool 身份继续包含
   `resource_failed`。
 - `actual` 是 Runtime 观测事实，`expected` 是调用合同要求或提交值；不得互换。
 - 错误不得携带 Agent 下一步动作建议。
-- carrier transition 成功后普通 Tool 失败时保留两份事实；Map 不自动回滚。
+- 边界 control 成功后普通 Tool 失败时保留两个独立、有序结果；Map 不自动回滚。
 - 截断的 `line_range` 读取若仍有后续行，`continuation` 是一份可直接再次调用的完整
   `read_output_ref` 参数对象；其他 mode 或无剩余内容时为 `null`。
 
@@ -156,9 +162,10 @@ handler 和输出链保持唯一。Tool 身份继续包含
 | `TASKSPACE_OUTPUT_REF_NOT_FOUND` | `resource_failed` | `the requested retained output reference does not exist` | output_ref、requested range |
 | `TASKSPACE_RANGE_INVALID` | `argument_failed` | `the requested retained output range is invalid` | output_ref、submitted range、available range |
 
-carrier 使用一个 call id。action 校验或 transition 失败返回 `TaskSpaceCarrierResultV2` 且 `tool_dispatched=false`；提交成功后
-设置 `tool_dispatched=true`，随后原样附加普通 Tool 输出。普通 Tool 失败不会覆盖 transition 事实，Runtime 也不
-自动回滚。FLA-5 负责继续形式化全载体结果一致性，不在本阶段增加 prepare/reservation 或第二套结果代数。
+边界 control 和下一实际动作各自使用独立 call id。preflight 失败为 response 中每个调用返回同一结构化
+`ToolSequencePreflightResultV1`，且 `executed_tool_call_count=0`。preflight 通过后，control 结果与普通
+Tool 输出保持两个有序事实；普通 Tool 失败不会覆盖已提交的 control 事实，Runtime 也不自动回滚。
+FLA-5 不增加第二套结果代数。
 
 Rust enum 常量使用上述大写值，JSON `error.code` 原样输出；日志也使用同一值。FLA-3.5 目标中不再存在
 missing-sibling 运行时形态；非法 transition carrier 使用同源参数/状态错误分类，不另造带下一步建议的错误。
@@ -274,18 +281,17 @@ FLA-4 已完成：生产 provider schema 与权威 artifact 精确相等；每�
 `FLA-5-Repair-Baseline` 保留为 result repair 历史检查；名义 `FLA-5` 是当前正式 gate。
 
 - 修改：`taskspace_control_output.rs`、`sequence_preflight.rs`、`sequence.rs`、control handler/read path。
-- 当前修复基线已统一产生 `TaskSpaceControlResultV2`、错误码和布尔 `partial_commit=false`；FLA-3.5 拥有
-  carrier typed outcome transport。正式阶段只补齐 transition fact + opaque Tool output conformance、fixture
-  freezer 和三臂评估证据，不重复实现 transport。
+- 当前修复基线已统一产生 `TaskSpaceControlResultV2`、错误码和布尔 `partial_commit=false`；FLA-9
+  进一步删除 carrier envelope。边界 control 与普通 Tool 分别产生独立、有序结果。
 - 删除：R6V1 formatter、整数 `partial_commit`、旧自由文本 envelope；不保留版本协商。
-- 定向测试：结果 schema 每个 `oneOf` 分支 golden；LC-01 至 LC-05；当前双 call 与目标单 carrier 都保持两个
-  独立事实；Agent 可见 transition fact 合规且 opaque Tool 子载体可逆等价。
+- 定向测试：结果 schema 每个 `oneOf` 分支 golden；LC-01 至 LC-05；边界 control 成功而普通 Tool
+  失败时仍保持两个独立事实。
 - 日志：第 3.4 节 envelope 字段和 oracle 要求字段，禁止只写人类摘要。
 - 行为矩阵：与其他五层改造统一推迟到 FLA-8 四臂首轮，错误调用仍计行为失败。
 - 完成证据：生产所有 control/read 路径 100% 通过 V2 schema，R6V1 搜索结果为零。
 
-FLA-5 已完成：commit/read/failure 使用同一完整 V2 envelope；carrier 内嵌的 lifecycle result 已进入 benchmark
-control taxonomy，并单独暴露 carrier action/failure 分类；观察层不再漏掉普通 Tool carrier 的状态机失败。
+FLA-5 已完成：commit/read/failure 使用同一完整 V2 envelope。FLA-9 observer 单独统计边界 control、
+序列 preflight 和普通 Tool gate，不再依赖已删除的 carrier 结果。
 
 ### FLA-6：三个独立实验
 
@@ -334,6 +340,22 @@ FLA-8 不再比较五层改造前版本，也不存在冻结版/候选版产品�
   作为完整观察项报告。
 
 首轮完成证据是 raw manifests、requests/tool/map JSONL、逐运行 verdict、四臂汇总 CSV 和逐 trace 异常分类。
+
+### FLA-9：普通 Tool 去侵入与边界序列
+
+- 已删除普通 Tool `taskspace_action` / `taskspace_transition`、decorator、carrier parser/executor 和
+  carrier result envelope；
+- Standard 与 TaskSpace 普通 Tool schema 字节一致，TaskSpace 只增加唯一
+  `taskspace_control`；
+- `initialize_map`、`bind_node`、`complete_then_continue` 以精确 schema 归入 control；
+- sequence preflight 在零执行前拒绝没有紧邻实际动作的边界 control；
+- Docker 三种 policy 均完成业务与闭合 Map，Tool section 从旧 `60,743` bytes 降至
+  `25,394` bytes。
+
+已确认的剩余缺口：单个 function schema 无法结构化约束同 response 的另一个 sibling call。三种 policy
+仍各出现一次首轮普通 Tool gate 和一次单独初始化 preflight。该问题的四个产品方向及代价以
+[`37-r7-ordinary-tool-carrier-deinvasion-plan.md`](37-r7-ordinary-tool-carrier-deinvasion-plan.md)
+第 10 节为准，未决前不再增加重复提示词或恢复普通 Tool 侵入。
 
 ## 6. 测试与日志落地清单
 

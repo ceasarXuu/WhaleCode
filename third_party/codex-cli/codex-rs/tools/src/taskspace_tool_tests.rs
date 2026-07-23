@@ -21,11 +21,11 @@ fn action_names(spec: ToolSpec) -> Vec<String> {
 }
 
 #[test]
-fn provider_tool_matches_the_fla4_authority_artifact() {
+fn provider_tool_matches_the_fla9_authority_artifact() {
     let authority: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json"
+        "../../../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json"
     ))
-    .expect("FLA-4 authority schema");
+    .expect("FLA-9 authority schema");
     let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
         panic!("taskspace_control must be a function tool");
     };
@@ -37,19 +37,26 @@ fn provider_tool_matches_the_fla4_authority_artifact() {
             "parameters": tool.parameters,
         }
     });
+    if let Ok(path) = std::env::var("R7_TASKSPACE_CONTROL_TOOL_OUT") {
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(&actual).expect("serialize provider tool"),
+        )
+        .expect("write provider tool fixture");
+    }
 
     assert_eq!(actual, authority["provider_tool"]);
 }
 
 #[test]
-fn standalone_control_excludes_action_carrying_transitions() {
+fn control_exposes_boundary_and_standalone_actions_once() {
     let actions = action_names(create_taskspace_control_tool());
 
-    assert!(!actions.contains(&"initialize_map".to_string()));
-    assert!(!actions.contains(&"bind_node".to_string()));
-    assert!(!actions.contains(&"complete_then_continue".to_string()));
     for action in [
+        "initialize_map",
         "mutate_graph",
+        "bind_node",
+        "complete_then_continue",
         "block_node",
         "unblock_node",
         "rework_node",
@@ -73,7 +80,7 @@ fn finish_map_exposes_one_branch_free_terminal_contract() {
     let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
         panic!("taskspace_control must be a function tool");
     };
-    let variants = tool.parameters.any_of.expect("control variants");
+    let variants = tool.parameters.any_of.as_ref().expect("control variants");
     let closure = variants
         .iter()
         .find(|variant| {
@@ -107,58 +114,27 @@ fn finish_map_exposes_one_branch_free_terminal_contract() {
 }
 
 #[test]
-fn action_schema_requires_explicit_continuation_or_lifecycle_change() {
-    let actions = taskspace_action_schema()
-        .any_of
-        .expect("transition variants")
-        .into_iter()
-        .map(|variant| {
-            variant.properties.expect("properties")["action"]
+fn boundary_actions_expose_exact_payloads_on_control() {
+    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
+        panic!("taskspace_control must be a function tool");
+    };
+    let variants = tool.parameters.any_of.as_ref().expect("control variants");
+    let initialize = variants
+        .iter()
+        .find(|variant| {
+            variant.properties.as_ref().expect("properties")["action"]
                 .enum_values
                 .as_ref()
                 .expect("action enum")[0]
-                .as_str()
-                .expect("action string")
-                .to_string()
+                == json!("initialize_map")
         })
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        actions,
-        [
-            "continue_current",
-            "initialize_map",
-            "bind_node",
-            "complete_then_continue"
-        ]
+        .expect("initialize_map");
+    let initialize_properties = initialize.properties.as_ref().expect("properties");
+    assert!(initialize_properties.contains_key("root"));
+    assert!(initialize_properties.contains_key("finish_identity"));
+    assert!(
+        !serde_json::to_string(&tool)
+            .expect("serialize")
+            .contains("continue_current")
     );
-}
-
-#[test]
-fn action_schema_has_no_sibling_declaration() {
-    let serialized = serde_json::to_string(&taskspace_action_schema()).expect("serialize");
-    assert!(!serialized.contains("required_next_call"));
-    assert!(!serialized.contains("sibling"));
-}
-
-#[test]
-fn initialization_keeps_explicit_rooted_graph_contract() {
-    let schema = taskspace_action_schema();
-    let initialize = &schema.any_of.expect("variants")[1];
-    assert_eq!(
-        initialize.required.as_ref().expect("required"),
-        &[
-            "action",
-            "root",
-            "initial_work_node",
-            "finish_identity",
-            "additional_work_nodes",
-            "edges",
-        ]
-    );
-    let properties = initialize.properties.as_ref().expect("properties");
-    assert!(properties.contains_key("root"));
-    assert!(properties.contains_key("initial_work_node"));
-    assert!(properties.contains_key("finish_identity"));
-    assert!(properties.contains_key("edges"));
 }

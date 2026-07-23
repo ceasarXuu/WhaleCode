@@ -25,9 +25,6 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
-use crate::tools::taskspace_carrier::CarrierAction;
-use crate::tools::taskspace_carrier::prepare_carried_action;
-use crate::tools::taskspace_carrier::wrap_carrier_response;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
@@ -100,47 +97,22 @@ impl ToolCallRuntime {
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
         async move {
-            let action = if cancellation_token.is_cancelled() {
-                CarrierAction::Rejected("tool call cancelled before TaskSpace action".into())
-            } else {
-                prepare_carried_action(&self.session, &self.turn_context, &call).await
-            };
-            if matches!(action, CarrierAction::Rejected(_)) {
-                let message = match &action {
-                    CarrierAction::Rejected(message) => message.clone(),
-                    CarrierAction::None
-                    | CarrierAction::ContinueValidated
-                    | CarrierAction::TransitionCommitted(_) => unreachable!(),
-                };
-                let mut response = Self::invalid_call_response(&call, message);
-                wrap_carrier_response(&mut response, &action, false);
-                return Ok(ToolCallExecution {
-                    response,
-                    taskspace_terminal_carrier: None,
-                });
-            }
             let error_call = call.clone();
             let future =
                 self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
             match future.await {
                 Ok(response) => {
                     let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
-                    let mut response = response.into_response();
-                    wrap_carrier_response(&mut response, &action, true);
                     Ok(ToolCallExecution {
-                        response,
+                        response: response.into_response(),
                         taskspace_terminal_carrier,
                     })
                 }
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
-                Err(other) => {
-                    let mut response = Self::failure_response(error_call, other);
-                    wrap_carrier_response(&mut response, &action, true);
-                    Ok(ToolCallExecution {
-                        response,
-                        taskspace_terminal_carrier: None,
-                    })
-                }
+                Err(other) => Ok(ToolCallExecution {
+                    response: Self::failure_response(error_call, other),
+                    taskspace_terminal_carrier: None,
+                }),
             }
         }
         .in_current_span()
@@ -860,7 +832,6 @@ mod tests {
             payload: ToolPayload::Function {
                 arguments: "{}".to_string(),
             },
-            taskspace_action: None,
         };
         let response = ToolCallRuntime::failure_response_for_error(&call, &err);
         response_input_model_visible_preview(&response)

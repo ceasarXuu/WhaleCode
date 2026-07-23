@@ -25,25 +25,31 @@ try {
     if ($standard[0].calls[0].failure_code -ne "shell_exit_1") { throw "Standard failure was not classified" }
 
     $taskspacePath = Join-Path $tempRoot "taskspace.jsonl"
-    $initArgs = '{"cmd":"ls","taskspace_action":{"action":"initialize_map","initial_work_node":{"node_id":"explore"}}}'
+    $initArgs = '{"action":"initialize_map","initial_work_node":{"node_id":"explore"}}'
+    $firstActionArgs = '{"cmd":"ls"}'
     $finishArgs = '{"action":"finish_map","terminal_node_id":"verify"}'
     Write-Lines $taskspacePath @(
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "exec_command"; arguments = $initArgs } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "taskspace_control"; arguments = $initArgs } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1-action"; rawPayload = @{ name = "exec_command"; arguments = $firstActionArgs } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1-action"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "taskspace_trace_event_recorded"; kind = "provider_response_actionability"; tags = @("request_count:1") } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t2"; rawPayload = @{ name = "taskspace_control"; arguments = $finishArgs } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t2"; toolSuccess = $true; rawPayload = @{ output = '{"action":"finish_map","success":true,"state_commit":true}' } } },
         @{ type = "event_msg"; payload = @{ type = "task_complete" } }
     )
     $taskspace = @(Get-R7TaskspaceRequestPath $taskspacePath 2)
-    if ($taskspace[0].calls[0].taskspace_action -ne "initialize_map") { throw "TaskSpace init carrier was not parsed" }
-    if ($taskspace[1].calls[0].taskspace_action -ne "finish_map") { throw "TaskSpace terminal request was not flushed" }
+    if ($taskspace[0].calls[0].taskspace_transition -ne "initialize_map") { throw "TaskSpace init carrier was not parsed" }
+    if ($taskspace[0].calls[1].tool -ne "exec_command") { throw "TaskSpace boundary follow-up was not retained" }
+    if ($taskspace[1].calls[0].taskspace_transition -ne "finish_map") { throw "TaskSpace terminal request was not flushed" }
     $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"action_result":{"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_LIFECYCLE_INVARIANT"}}}'
     if ($stateFailure.failure_class -ne "taskspace_state_machine" -or $stateFailure.failure_code -ne "TASKSPACE_LIFECYCLE_INVARIANT") {
         throw "TaskSpace state failure was not classified"
     }
     $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
     if ($multiPatchFailure.failure_class -ne "tool_sequence_protocol") { throw "Multi-patch failure was not separated" }
+    $boundaryFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"error":{"class":"protocol","code":"taskspace_boundary_action_requires_follow_up"}}'
+    if ($boundaryFailure.failure_class -ne "tool_sequence_protocol") { throw "Standalone TaskSpace boundary failure was not separated" }
 
     $wirePath = Join-Path $tempRoot "wire.jsonl"
     Write-Lines $wirePath @(

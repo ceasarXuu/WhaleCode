@@ -23,10 +23,11 @@
 完整 schema 和实施验收以 authority manifest 与 `25` 号规格为准。若发生冲突，阶段必须停止并修正文档或
 权威 artifact，不能让实施者自行选择。
 
-> 2026-07-22 supersession：第 6 节的 `required_next_call + top-level sibling` schema 和调用示例仅保留为
-> H-003 历史复现材料，不代表当前生产合同。当前合同是普通动作 Tool 携带必填 `taskspace_action`；旧字段、
-> missing-sibling preflight 和非终态独立 control 已删除。实现与结果见
-> [R7 连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)。
+> 2026-07-23 supersession：本文中的 `required_next_call`、`taskspace_action`、`continue_current`
+> 和普通 Tool `taskspace_transition` schema/调用示例只保留为历史演进材料，不代表当前生产合同。
+> 当前合同是普通动作 schema 零扩展；边界 action 由 `taskspace_control` 精确声明，并与下一实际动作在
+> 同一 provider response 中连续调用。当前权威方案见
+> [R7 普通 Tool Carrier 去侵入修复方案](37-r7-ordinary-tool-carrier-deinvasion-plan.md)。
 
 ## 2. Agent 实际看到的总体结构
 
@@ -119,6 +120,8 @@ Use the TaskSpace Map as the default way to organize and advance work. The Map i
 - The active binding identifies the Work node currently served by ordinary tool calls.
 
 Keep the Map aligned with the work you are actually doing. Create or revise its structure when your understanding of the task changes, and update lifecycle state at meaningful work boundaries rather than after every minor tool result.
+
+Establish the Map and an active Work binding before the first ordinary tool action. Ordinary tools always serve the active Work node.
 
 You decide how to decompose the task, which dependencies are meaningful, what evidence is sufficient, and when work is complete. The Runtime maintains the Map, enforces its mechanical invariants, and reports exact state changes or failures. It does not choose your plan, interpret task meaning, or decide the next action for you.
 ```
@@ -290,7 +293,7 @@ Agent 自主判断需要时，调用现有文件读取工具打开 catalog path�
 ### 6.1 当前 `taskspace_control` 顶层 description
 
 ```text
-Use taskspace_control to initialize and change the canonical TaskSpace Map, bind Work nodes, commit lifecycle transitions, expand folded node details, and read retained TaskSpace facts. Each call selects one action schema. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. Use it only for Map state and retained TaskSpace data, not to wrap ordinary tool names, commands, patch content, or reasoning. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.
+Use taskspace_control for Map lifecycle, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map, bind_node, and complete_then_continue are boundary actions. A boundary call is invalid alone: do not wait for its result; emit at least one real action Tool immediately after it in the same response. Later ordinary Tools serve the canonical active binding without TaskSpace fields. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.
 ```
 
 ### 6.2 后续独立实验：拆出 `taskspace_read`
@@ -304,19 +307,19 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 
 ### 6.3 当前 action-local 描述和字段
 
-下表记录当前生产 action。`initialize_map`、`bind_node`、`complete_then_continue` 只作为普通动作 Tool 的
-`taskspace_action` 出现；普通动作继续服务当前节点时使用 `continue_current`，其余独立 Map 操作仍属于
-`taskspace_control`。
+下表记录当前生产 action。所有 Map action 都只属于 `taskspace_control`。`initialize_map`、
+`bind_node`、`complete_then_continue` 是边界 action，必须紧邻下一实际动作并在同一 provider response
+中声明；普通 Tool schema 不包含任何 TaskSpace 字段。
 
 | Tool | Action | Agent 可见描述 | 核心必填字段 | 成功副作用 |
 |---|---|---|---|---|
-| ordinary carrier | `initialize_map` | Create the initial rooted DAG and execute this first real action under its initial binding. | root、initial_work_node、finish_identity、additional_work_nodes、edges | 初始化 Map；当前 ordinary Tool 同 call 执行 |
+| control boundary | `initialize_map` | Create the initial rooted DAG and first active Work binding. This boundary call is invalid by itself. Do not wait for its result: emit the first real action Tool immediately after it in the same response. | root、initial_work_node、finish_identity、additional_work_nodes、edges | 初始化 Map；下一 ordinary Tool 在同 response 顺序执行 |
 | control | `mutate_graph` | Atomically add Work nodes or dependency edges and remove eligible edges from the current Map. It does not choose or bind a node. | expected_revision、add_nodes、add_edges、remove_edges | revision +1；图结构原子变更 |
-| ordinary carrier | `bind_node` | Bind one Agent-selected Ready Work node and execute this node's first real action. | expected_revision、node_id | 目标节点进入 running；当前 ordinary Tool 同 call 执行 |
+| control boundary | `bind_node` | Bind one Agent-selected Ready Work node. This boundary call is invalid by itself. Do not wait for its result: emit that node's first real action Tool immediately after it in the same response. | expected_revision、node_id | 目标节点进入 running；下一 ordinary Tool 在同 response 顺序执行 |
 | control | `block_node` | Mark a Work node blocked. It does not select an alternative path. | expected_revision、node_id | 节点进入 blocked |
 | control | `unblock_node` | Return a blocked Work node to the mechanically derived lifecycle state after its blocker is cleared. | expected_revision、node_id | 节点回到 pending/ready |
 | control | `rework_node` | Reopen a completed Work node because the Agent has decided more work is required. | expected_revision、node_id | 节点进入 rework/ready |
-| ordinary carrier | `complete_then_continue` | Atomically complete the active Work node, bind one Agent-selected Ready successor, and execute its first real action. | expected_revision、current_node_id、next_node_id | 当前 completed；后继 running；当前 ordinary Tool 同 call 执行 |
+| control boundary | `complete_then_continue` | Atomically complete the active Work node and bind one Agent-selected Ready successor. This boundary call is invalid by itself. Do not wait for its result: emit the successor's first real action Tool immediately after it in the same response. | expected_revision、current_node_id、next_node_id | 当前 completed；后继 running；下一 ordinary Tool 在同 response 顺序执行 |
 | control | `finish_map` | 通过 Agent 选定的终态入口显式闭合 Map。 | expected_revision、terminal_node_id、final_summary | 入口为最终 Running Work 时原子完成并闭合；无 active Work 且 Finish 已 Ready 时以 Finish 为入口直接闭合 |
 | control | `expand_nodes` | Mark previously folded node details for full inclusion in future projections. It does not change graph lifecycle state. | node_ids | 更新显示状态，不改变任务判断 |
 | control | `read_map` | Return the current full rendered Map and its canonical revision. | action | 无写入 |
@@ -325,7 +328,7 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 ### 6.4 历史 sibling schema 摘录
 
 完整、可直接生成 provider Tool definition 的权威文件是
-[`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)。
+[`five-layer-taskspace-control-v3.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json)。
 它内联展开全部 action 和 `read_output_ref` 四种 mode，不使用 `$ref`，并冻结 capability profile 的唯一机械
 变换。以下两支只用于文档阅读，不是待实施者补全的“骨架”：
 
@@ -411,9 +414,10 @@ Use taskspace_read to retrieve the current rendered Map or exact retained output
 }
 ```
 
-以上是 H-003 的历史回归 schema，仅用于解释根因。当前生产让真实动作自身携带轻量
-`taskspace_action`；该字段必须显式选择 `continue_current` 或生命周期动作。`required_next_call` 和 sibling
-preflight 已删除，不保留兼容路径。
+以上是 H-003 的历史回归 schema，仅用于解释根因。当前生产由 `taskspace_control` 精确声明边界
+action，并让下一实际动作作为同 response 的独立 sibling call；普通动作使用 canonical active binding。
+`taskspace_action`、普通 Tool `taskspace_transition`、`continue_current` 和 `required_next_call` 均已
+删除，不保留兼容路径。sequence preflight 只机械拒绝没有紧邻实际动作的边界 control。
 
 ### 6.5 历史 sibling 组合调用示例
 
@@ -487,7 +491,7 @@ preflight 已删除，不保留兼容路径。
 }
 ```
 
-这里不出现“现在请修改文件”或“建议运行测试”。后续动作由 Agent 已提交的 carrier action 或下一次语义决策决定。
+这里不出现“现在请修改文件”或“建议运行测试”。后续动作由 Agent 根据忠实事实自行决定。
 
 ### 7.2 状态机拒绝
 
@@ -519,50 +523,49 @@ preflight 已删除，不保留兼容路径。
 `actual` 始终是 Runtime 观测到的 canonical 事实，`expected` 是调用者在输入中声明的条件；
 两者不得根据自然语言 message 的句式交换方向。
 
-### 7.3 历史回归基线的 Response preflight 拒绝
+### 7.3 Response preflight 拒绝
 
 ```json
 {
-  "schema_version": "TaskSpaceControlResultV2",
-  "action": "complete_then_continue",
+  "schema_version": "ToolSequencePreflightResultV1",
   "status": "protocol_failed",
   "success": false,
-  "state_commit": false,
-  "partial_commit": false,
-  "canonical_revision": 3,
-  "submitted_expected_revision": 3,
-  "committed_revision": null,
-  "delta": null,
-  "steps": [],
-  "read": null,
   "error": {
     "class": "protocol",
-    "code": "TASKSPACE_REQUIRED_SIBLING_MISSING",
-    "message": "complete_then_continue requires a following top-level ordinary_tool call in the same response",
-    "actual": {"next_call_kind": "response_end"},
-    "expected": {"next_call_kind": "ordinary_tool"}
+    "code": "taskspace_boundary_action_requires_follow_up",
+    "message": "taskspace_control action `complete_then_continue` must be immediately followed by a real action Tool in the same provider response; no calls were executed"
+  },
+  "request": {
+    "tool_call_count": 1,
+    "patch_call_count": 0,
+    "executed_tool_call_count": 0
   }
 }
 ```
 
-整个 batch 在执行前被拒绝，所以 `state_commit=false`。该示例只记录旧 sibling 回归；当前 schema 不再允许
-单独非终态 transition，因此没有 missing-sibling 分支。
+Runtime 在整个 response 执行前拒绝没有实际动作跟随的边界 control，不依赖 Agent 重复声明
+`required_next_call`。
 
-### 7.4 carrier 的交接已提交、普通工具随后失败
+### 7.4 边界交接已提交、普通工具随后失败
 
-这是同一个 provider call id 下的两个独立事实。当前实现先返回短 `TaskSpaceCarrierResultV2` 头，再原样附加
-普通 Tool 输出：
+这是同一 provider response 中两个不同 call id 的独立事实。当前实现先返回
+`taskspace_control` 的 `TaskSpaceControlResultV2`，再返回普通 Tool 的原始失败结果：
 
 ```text
-{"schema_version":"TaskSpaceCarrierResultV2",
- "action_result":{"status":"committed","state_commit":true,"canonical_revision":4},
- "tool_dispatched":true}
-<原 Tool 失败输出保持不变>
+call_id=boundary-1
+{"schema_version":"TaskSpaceControlResultV2",
+ "action":"complete_then_continue",
+ "status":"committed",
+ "state_commit":true,
+ "canonical_revision":4}
+
+call_id=action-1
+<普通 Tool 失败输出保持不变>
 ```
 
 Agent 能据此知道 binding 已切换，但普通动作失败。Runtime 不自动回滚 Map，也不替 Agent 决定重试或修订节点。
-transition 失败时 `tool_dispatched=false`，普通 Tool 不进入执行链。FLA-5 再正式化全载体结果一致性，不在
-FLA-3.5 增加 prepare、reservation 或新的结果代数层。
+边界 control 自身失败时，现有 sequence 顺序失败传播阻止依赖动作越过失败状态；preflight 失败则所有调用
+均不执行。这里不增加 prepare、reservation 或新的结果代数层。
 
 ### 7.5 截断读取
 

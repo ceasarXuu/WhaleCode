@@ -162,12 +162,26 @@ foreach ($run in @($manifest.runs)) {
     $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_protocol").Count }).Count
     $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_state_machine").Count }).Count
     $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "ordinary_tool").Count }).Count
-    $soloNonterminal = @($requestCalls | Where-Object {
-            $_.tool -eq "taskspace_control" -and $_.taskspace_action -in @("initialize_map", "bind_node", "complete_then_continue")
-        }).Count
-    $echoOnlyHandoffs = @($requestCalls | Where-Object {
-            $_.tool -eq "exec_command" -and $_.taskspace_action -eq "complete_then_continue" -and $_.detail -match '(?:^|&&\s*)echo(?:\s|$)'
-        }).Count
+    $soloNonterminal = 0
+    $echoOnlyHandoffs = 0
+    foreach ($request in @($requestPath)) {
+        $calls = @($request.calls)
+        for ($index = 0; $index -lt $calls.Count; $index++) {
+            $call = $calls[$index]
+            if ($call.tool -ne "taskspace_control" -or
+                $call.taskspace_transition -notin @("initialize_map", "bind_node", "complete_then_continue")) {
+                continue
+            }
+            $followUp = if ($index + 1 -lt $calls.Count) { $calls[$index + 1] } else { $null }
+            if ($null -eq $followUp -or $followUp.tool -eq "taskspace_control") {
+                $soloNonterminal++
+            } elseif ($call.taskspace_transition -eq "complete_then_continue" -and
+                $followUp.tool -eq "exec_command" -and
+                $followUp.detail -match '(?:^|&&\s*)echo(?:\s|$)') {
+                $echoOnlyHandoffs++
+            }
+        }
+    }
     $flat | Add-Member -NotePropertyName echo_only_handoffs -NotePropertyValue $echoOnlyHandoffs
     $rows.Add($flat)
     $anomalies = [Collections.Generic.List[string]]::new()

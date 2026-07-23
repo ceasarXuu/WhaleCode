@@ -791,7 +791,7 @@ New-Item -ItemType Directory -Path $rolloutControlDir -Force | Out-Null
 $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
 '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}' | Set-Content -LiteralPath $rolloutControlJsonl -Encoding UTF8
 @(
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\",\"expected_revision\":4,\"node_id\":\"work\",\"required_next_call\":\"ordinary_tool\"}","call_id":"native-control-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\",\"expected_revision\":4,\"node_id\":\"work\"}","call_id":"native-control-1"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"mutate_graph\",\"expected_revision\":4,\"add_nodes\":[],\"add_edges\":[],\"remove_edges\":[]}","call_id":"native-control-2"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"initialize_map\"}","call_id":"native-control-3"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"initialize_map\"}","call_id":"native-control-4"}}',
@@ -799,8 +799,8 @@ $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"read_map\"}","call_id":"native-read-map-2"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}","call_id":"ordinary-gate-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"{\"input\":\"*** Begin Patch\",\"taskspace_action\":{\"action\":\"complete_then_continue\",\"expected_revision\":5,\"current_node_id\":\"implement\",\"next_node_id\":\"verify\"}}","call_id":"carrier-state-failure-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"bind_node\",\"success\":false,\"status\":\"protocol_failed\",\"state_commit\":false,\"error\":{\"class\":\"protocol\",\"code\":\"TASKSPACE_REQUIRED_SIBLING_MISSING\",\"message\":\"missing\"}}"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"{\"input\":\"*** Begin Patch\",\"taskspace_transition\":{\"action\":\"complete_then_continue\",\"arguments\":{\"expected_revision\":5,\"current_node_id\":\"implement\",\"next_node_id\":\"verify\"}}}","call_id":"carrier-state-failure-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"ToolSequencePreflightResultV1\",\"status\":\"protocol_failed\",\"success\":false,\"error\":{\"class\":\"protocol\",\"code\":\"taskspace_boundary_action_requires_follow_up\",\"message\":\"missing\"},\"request\":{\"tool_call_count\":1,\"executed_tool_call_count\":0}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"mutate_graph\",\"success\":false,\"status\":\"state_machine_failed\",\"state_commit\":false,\"error\":{\"class\":\"state_machine\",\"code\":\"TASKSPACE_GRAPH_INVARIANT\",\"message\":\"invalid\"}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-3","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_map\",\"success\":false,\"status\":\"argument_failed\",\"state_commit\":false,\"error\":{\"class\":\"argument\",\"code\":\"TASKSPACE_INVALID_ARGUMENT\",\"message\":\"invalid\"}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-4","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_map\",\"success\":true,\"status\":\"committed\",\"state_commit\":true,\"committed_revision\":5}"}}',
@@ -819,6 +819,7 @@ Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.mutate_graph -eq 1) "graph mutation was not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.initialize_map -eq 2) "map initialization attempts were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.read_map -eq 2) "explicit map reads were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.boundary_action_count -eq 4) "boundary control actions were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.carrier_action_count -eq 1) "action carriers were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.carrier_action_counts.complete_then_continue -eq 1) "carrier action identity was not retained"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.carrier_failure_count -eq 1) "carrier lifecycle failure was not counted"

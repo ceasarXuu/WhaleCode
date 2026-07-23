@@ -16,6 +16,13 @@ pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceContr
 
 #[derive(Clone, Debug)]
 pub(crate) enum TaskSpaceControlArgs {
+    InitializeMap {
+        root: TaskSpaceGraphNodeArgs,
+        initial_work_node: TaskSpaceGraphNodeArgs,
+        finish_identity: TaskSpaceFinishIdentityArgs,
+        additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+        edges: Vec<TaskSpaceGraphEdgeArgs>,
+    },
     MutateGraph {
         expected_revision: u64,
         add_nodes: Vec<TaskSpaceGraphNodeArgs>,
@@ -33,6 +40,15 @@ pub(crate) enum TaskSpaceControlArgs {
     ReworkNode {
         expected_revision: u64,
         node_id: String,
+    },
+    BindNode {
+        expected_revision: u64,
+        node_id: String,
+    },
+    CompleteThenContinue {
+        expected_revision: u64,
+        current_node_id: String,
+        next_node_id: String,
     },
     FinishMap {
         expected_revision: u64,
@@ -76,10 +92,13 @@ pub(crate) struct TaskSpaceGraphEdgeArgs {
 impl TaskSpaceControlArgs {
     pub(crate) fn action_name(&self) -> &'static str {
         match self {
+            Self::InitializeMap { .. } => "initialize_map",
             Self::MutateGraph { .. } => "mutate_graph",
             Self::BlockNode { .. } => "block_node",
             Self::UnblockNode { .. } => "unblock_node",
             Self::ReworkNode { .. } => "rework_node",
+            Self::BindNode { .. } => "bind_node",
+            Self::CompleteThenContinue { .. } => "complete_then_continue",
             Self::FinishMap { .. } => "finish_map",
             Self::ExpandNodes { .. } => "expand_nodes",
             Self::ReadOutputRef { .. } => "read_output_ref",
@@ -89,6 +108,7 @@ impl TaskSpaceControlArgs {
 
     pub(crate) fn submitted_expected_revision(&self) -> Option<u64> {
         match self {
+            Self::InitializeMap { .. } => None,
             Self::MutateGraph {
                 expected_revision, ..
             }
@@ -101,6 +121,12 @@ impl TaskSpaceControlArgs {
             | Self::ReworkNode {
                 expected_revision, ..
             }
+            | Self::BindNode {
+                expected_revision, ..
+            }
+            | Self::CompleteThenContinue {
+                expected_revision, ..
+            }
             | Self::FinishMap {
                 expected_revision, ..
             } => Some(*expected_revision),
@@ -110,6 +136,19 @@ impl TaskSpaceControlArgs {
 
     fn validate(&self) -> Result<(), FunctionCallError> {
         match self {
+            Self::InitializeMap {
+                root,
+                initial_work_node,
+                finish_identity,
+                additional_work_nodes,
+                edges,
+            } => validate_initialize_map(
+                root,
+                initial_work_node,
+                finish_identity,
+                additional_work_nodes,
+                edges,
+            ),
             Self::MutateGraph {
                 add_nodes,
                 add_edges,
@@ -131,6 +170,15 @@ impl TaskSpaceControlArgs {
             Self::BlockNode { node_id, .. } => validate_node_id("block_node", node_id),
             Self::UnblockNode { node_id, .. } => validate_node_id("unblock_node", node_id),
             Self::ReworkNode { node_id, .. } => validate_node_id("rework_node", node_id),
+            Self::BindNode { node_id, .. } => validate_node_id("bind_node", node_id),
+            Self::CompleteThenContinue {
+                current_node_id,
+                next_node_id,
+                ..
+            } if current_node_id.trim().is_empty() || next_node_id.trim().is_empty() => invalid(
+                "complete_then_continue requires non-empty current_node_id and next_node_id",
+            ),
+            Self::CompleteThenContinue { .. } => Ok(()),
             Self::FinishMap {
                 terminal_node_id,
                 final_summary,

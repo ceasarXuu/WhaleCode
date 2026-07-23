@@ -1384,6 +1384,7 @@ function New-TaskspaceControlUsageSummary {
     $rolloutActions = @{}
     $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutBoundaryActionCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutCarrierActionCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutCarrierFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutCarrierStateFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
@@ -1451,7 +1452,7 @@ function New-TaskspaceControlUsageSummary {
                         $rolloutCarrierActionCallIds.Contains($callId))
                 if (-not $isControlCall) { continue }
 
-                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2", "TaskSpaceControlResultR6V1", "TaskSpaceActionValidationResultV1")
+                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2", "TaskSpaceControlResultR6V1", "TaskSpaceActionValidationResultV1", "TaskSpaceTransitionValidationResultV1")
                 $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV1"
                 $controlFailed = ($isControlResult -or $isControlPreflightResult) -and
                     $batch.PSObject.Properties.Name -contains "success" -and
@@ -1464,7 +1465,8 @@ function New-TaskspaceControlUsageSummary {
                     [void]$rolloutControlFailureCallIds.Add($callId)
                     if ($isCarrierResult) { [void]$rolloutCarrierFailureCallIds.Add($callId) }
                     $isPreflight = $isControlPreflightResult -or
-                        $errorCode -eq "TASKSPACE_REQUIRED_SIBLING_MISSING"
+                        $errorCode -eq "TASKSPACE_REQUIRED_SIBLING_MISSING" -or
+                        $errorCode -eq "taskspace_boundary_action_requires_follow_up"
                     if ($isPreflight) {
                         [void]$rolloutControlPreflightFailureCallIds.Add($callId)
                     } else {
@@ -1544,11 +1546,14 @@ function New-TaskspaceControlUsageSummary {
                 $parsedArguments = $arguments
             }
             if ($toolName -ne "taskspace_control") {
-                $taskspaceAction = Get-TaskspaceCostProperty $parsedArguments @("taskspace_action")
-                if ($taskspaceAction -is [string]) {
-                    try { $taskspaceAction = $taskspaceAction | ConvertFrom-Json } catch {}
+                $taskspaceTransition = Get-TaskspaceCostProperty $parsedArguments @("taskspace_transition")
+                if ($null -eq $taskspaceTransition) {
+                    $taskspaceTransition = Get-TaskspaceCostProperty $parsedArguments @("taskspace_action")
                 }
-                $carrierAction = [string](Get-TaskspaceCostProperty $taskspaceAction @("action"))
+                if ($taskspaceTransition -is [string]) {
+                    try { $taskspaceTransition = $taskspaceTransition | ConvertFrom-Json } catch {}
+                }
+                $carrierAction = [string](Get-TaskspaceCostProperty $taskspaceTransition @("action"))
                 if (-not [string]::IsNullOrWhiteSpace($carrierAction) -and $rolloutCarrierActionCallIds.Add($callId)) {
                     Add-TaskspaceCostCount $rolloutCarrierActions $carrierAction
                 }
@@ -1564,6 +1569,9 @@ function New-TaskspaceControlUsageSummary {
             $action = ""
             $action = [string](Get-TaskspaceCostProperty $parsedArguments @("action"))
             Add-TaskspaceCostCount $rolloutActions $action
+            if ($action -in @("initialize_map", "bind_node", "complete_then_continue")) {
+                [void]$rolloutBoundaryActionCallIds.Add($callId)
+            }
             if ($action -eq "read_map") {
                 [void]$rolloutReadMapCallIds.Add($callId)
             }
@@ -1688,6 +1696,7 @@ function New-TaskspaceControlUsageSummary {
         taskspace_control_count = [int]$total
         native_taskspace_control_count = [int]$nativeTotal
         action_contract_taskspace_control_count = [int]$actionContractTotal
+        boundary_action_count = [int]$rolloutBoundaryActionCallIds.Count
         carrier_action_count = [int]$rolloutCarrierActionCallIds.Count
         carrier_failure_count = [int]$rolloutCarrierFailureCallIds.Count
         carrier_state_failure_count = [int]$rolloutCarrierStateFailureCallIds.Count

@@ -302,28 +302,18 @@
       "TASKSPACE_RESOURCE_FAILURE": {"status": "resource_failed", "class": "resource", "message": "a required TaskSpace resource operation failed"}
     }
   },
-  "x-taskspace-action-carrier": {
-    "required_field": "taskspace_action",
-    "continuation_success": "A validated continue_current dispatches the ordinary Tool without adding a redundant carrier header to its result.",
-    "transition_result": {
-      "schema_version": "TaskSpaceCarrierResultV2",
-      "fields": ["action_result", "tool_dispatched"],
-      "action_result_schema": "TaskSpaceControlResultV2"
-    },
-    "validation_failure": {
-      "schema_version": "TaskSpaceActionValidationResultV1",
+  "x-taskspace-boundary-sequence": {
+    "ordinary_tool_schema_extension_count": 0,
+    "ordinary_binding": "Every ordinary Tool uses only its native arguments and is assigned to the canonical active binding by the existing Map, lease, and reservation gates.",
+    "boundary_actions": ["initialize_map", "bind_node", "complete_then_continue"],
+    "ordering": "A boundary taskspace_control call is immediately followed by a non-control real action Tool in the same provider response.",
+    "result_order": "After successful preflight, the control and ordinary Tool keep independent call ids and emit separate ordered results. A committed control is never combined with or rolled back by a later ordinary Tool failure.",
+    "preflight_failure": {
+      "schema_version": "ToolSequencePreflightResultV1",
       "state_commit": false,
-      "tool_dispatched": false,
-      "feedback_contract": "The carrier envelope replaces the internal failure placeholder; the same action failure is not appended as a second body.",
-      "error_codes": [
-        "TASKSPACE_ACTION_REQUIRED",
-        "TASKSPACE_ACTION_FORBIDDEN",
-        "TASKSPACE_ACTION_MODE_MISMATCH",
-        "TASKSPACE_ACTION_INVALID",
-        "TASKSPACE_NO_ACTIVE_MAP",
-        "TASKSPACE_REVISION_MISMATCH",
-        "TASKSPACE_BINDING_MISMATCH"
-      ]
+      "executed_tool_call_count": 0,
+      "error_code": "taskspace_boundary_action_requires_follow_up",
+      "feedback_contract": "The full declared call sequence is rejected before any call executes when a boundary control lacks an immediate real action follow-up."
     }
   }
 }

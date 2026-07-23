@@ -50,6 +50,54 @@ fn initialized_state(
 }
 
 #[test]
+fn ordinary_tool_without_transition_is_rejected_before_map_initialization() {
+    let owner = ThreadId::new();
+    let mut state = ActionMapRuntimeState::default();
+    state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+    let error = state
+        .prepare_main_tool_call(
+            owner,
+            ToolActionDescriptor::new("exec_command", ActionClass::Read, "pwd")
+                .with_call_id("ordinary-before-map"),
+        )
+        .expect_err("bootstrap gate must reject ordinary tools");
+
+    assert!(error.to_string().contains("hard_state: no_task_path"));
+    assert!(state.main_tool_reservations.is_empty());
+}
+
+#[test]
+fn ordinary_tool_without_transition_uses_canonical_active_binding() {
+    let (mut state, owner, _) = initialized_state(
+        &[("inspect", "Inspect the code")],
+        &[("root", "inspect"), ("inspect", "finish")],
+        "inspect",
+    );
+    let expected_lease = state
+        .current_main_lease_id
+        .clone()
+        .expect("initialized main lease");
+
+    state
+        .prepare_main_tool_call(
+            owner,
+            ToolActionDescriptor::new("exec_command", ActionClass::Read, "pwd")
+                .with_call_id("ordinary-active-binding"),
+        )
+        .expect("canonical active binding accepts ordinary tool");
+
+    let reservation = state
+        .main_tool_reservations
+        .get("ordinary-active-binding")
+        .expect("ordinary tool reservation");
+    assert_eq!(reservation.map_id, "map-1");
+    assert_eq!(reservation.node_id, "inspect");
+    assert_eq!(reservation.lease_id, expected_lease);
+    assert_eq!(reservation.action_class, ActionClass::Read);
+}
+
+#[test]
 fn initialization_exposes_one_root_one_finish_and_revision_events() {
     let (state, _, outcome) = initialized_state(
         &[("inspect", "Inspect the code")],

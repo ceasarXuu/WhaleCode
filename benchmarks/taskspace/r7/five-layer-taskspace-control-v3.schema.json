@@ -1,0 +1,584 @@
+{
+  "artifact_schema_version": 2,
+  "contract_id": "r7-five-layer-taskspace-control-v3",
+  "status": "active_verified",
+  "activation_phase": "FLA-9",
+  "baseline_tool_count": 1,
+  "strict": false,
+  "output_schema_sent_to_deepseek": false,
+  "capability_profiles": {
+    "boundary_actions": [
+      "initialize_map",
+      "bind_node",
+      "complete_then_continue"
+    ],
+    "ordinary_tool_schema_modified": false,
+    "mechanical_transform": "Expose boundary actions once through taskspace_control. Each boundary control call is immediately followed by a real action Tool in the same provider response; ordinary Tool schemas remain unchanged in Standard and TaskSpace.",
+    "ordinary_binding_contract": "Every ordinary Tool is mechanically assigned to the canonical active Map binding and must pass the existing Map, lease, and reservation gates.",
+    "transition_payload_contract": "The taskspace_control schema and Runtime parser define the same strict action-specific fields. Sequence preflight rejects a boundary action without an immediate ordinary follow-up before any call executes."
+  },
+  "provider_tool": {
+    "function": {
+      "description": "Use taskspace_control for Map lifecycle, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map, bind_node, and complete_then_continue are boundary actions. A boundary call is invalid alone: do not wait for its result; emit at least one real action Tool immediately after it in the same response. Later ordinary Tools serve the canonical active binding without TaskSpace fields. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.",
+      "name": "taskspace_control",
+      "parameters": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "description": "Create the initial rooted DAG and first active Work binding. This boundary call is invalid by itself. Do not wait for its result: emit the first real action Tool immediately after it in the same response.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "initialize_map"
+                ],
+                "type": "string"
+              },
+              "additional_work_nodes": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "goal": {
+                      "description": "A coherent Work goal.",
+                      "type": "string"
+                    },
+                    "node_id": {
+                      "description": "Stable Agent-authored Work identifier.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "node_id",
+                    "goal"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "from": {
+                      "description": "Source node identifier.",
+                      "type": "string"
+                    },
+                    "to": {
+                      "description": "Target node identifier.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "finish_identity": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "description": "Stable Agent-authored Finish identifier.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "initial_work_node": {
+                "additionalProperties": false,
+                "properties": {
+                  "goal": {
+                    "description": "The first coherent Work goal.",
+                    "type": "string"
+                  },
+                  "node_id": {
+                    "description": "Stable Agent-authored Work identifier.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "node_id",
+                  "goal"
+                ],
+                "type": "object"
+              },
+              "root": {
+                "additionalProperties": false,
+                "properties": {
+                  "goal": {
+                    "description": "The user's overall task goal.",
+                    "type": "string"
+                  },
+                  "node_id": {
+                    "description": "Stable Agent-authored Root identifier.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "node_id",
+                  "goal"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "action",
+              "root",
+              "initial_work_node",
+              "finish_identity",
+              "additional_work_nodes",
+              "edges"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Atomically add Work nodes or dependency edges and remove eligible edges. Keep the existing binding unless the mutation is mechanically incompatible with it.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "mutate_graph"
+                ],
+                "type": "string"
+              },
+              "add_edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "add_nodes": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "goal": {
+                      "type": "string"
+                    },
+                    "node_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "node_id",
+                    "goal"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "expected_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "remove_edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "add_nodes",
+              "add_edges",
+              "remove_edges"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Bind one Agent-selected Ready Work node. This boundary call is invalid by itself. Do not wait for its result: emit that node's first real action Tool immediately after it in the same response.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "bind_node"
+                ],
+                "type": "string"
+              },
+              "expected_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "node_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "node_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Atomically complete the active Work node and bind one Agent-selected Ready successor. This boundary call is invalid by itself. Do not wait for its result: emit the successor's first real action Tool immediately after it in the same response.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "complete_then_continue"
+                ],
+                "type": "string"
+              },
+              "current_node_id": {
+                "type": "string"
+              },
+              "expected_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "next_node_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "current_node_id",
+              "next_node_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Mark the currently running Work node blocked. The Runtime does not select an alternative path.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "block_node"
+                ],
+                "type": "string"
+              },
+              "expected_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "node_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "node_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return a blocked Work node to Ready after the Agent has determined that its blocker is cleared.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "unblock_node"
+                ],
+                "type": "string"
+              },
+              "expected_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "node_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "node_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return a completed Work node to Ready because the Agent has decided that more work is required.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "rework_node"
+                ],
+                "type": "string"
+              },
+              "expected_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "node_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "node_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Explicitly close the current Map through the Agent-selected terminal entry node. A final Running Work is completed in the same atomic transaction; an already Ready Finish is closed directly when no Work remains active. The Runtime validates the submitted revision, node identity, binding, and canonical terminal frontier without interpreting task meaning or choosing a node.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "finish_map"
+                ],
+                "type": "string"
+              },
+              "expected_revision": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "final_summary": {
+                "type": "string"
+              },
+              "terminal_node_id": {
+                "description": "The Agent-selected terminal entry node: the current final Running Work, or the unique Ready Finish when no Work remains active.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "terminal_node_id",
+              "final_summary"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Mark folded node details for full inclusion in future projections. This changes only deterministic display state.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "expand_nodes"
+                ],
+                "type": "string"
+              },
+              "node_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "action",
+              "node_ids"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return the current full rendered Map and its canonical revision without changing state.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "read_map"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return the beginning of exact retained output by reference.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "read_output_ref"
+                ],
+                "type": "string"
+              },
+              "max_bytes": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "mode": {
+                "enum": [
+                  "head"
+                ],
+                "type": "string"
+              },
+              "output_ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "output_ref",
+              "mode",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return the end of exact retained output by reference.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "read_output_ref"
+                ],
+                "type": "string"
+              },
+              "max_bytes": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "mode": {
+                "enum": [
+                  "tail"
+                ],
+                "type": "string"
+              },
+              "output_ref": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "output_ref",
+              "mode",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return an exact retained output line range by reference.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "read_output_ref"
+                ],
+                "type": "string"
+              },
+              "end_line": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "max_bytes": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "mode": {
+                "enum": [
+                  "line_range"
+                ],
+                "type": "string"
+              },
+              "output_ref": {
+                "type": "string"
+              },
+              "start_line": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "action",
+              "output_ref",
+              "mode",
+              "start_line",
+              "end_line",
+              "max_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return exact matching retained output ranges by reference and pattern.",
+            "properties": {
+              "action": {
+                "enum": [
+                  "read_output_ref"
+                ],
+                "type": "string"
+              },
+              "max_bytes": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "mode": {
+                "enum": [
+                  "grep"
+                ],
+                "type": "string"
+              },
+              "output_ref": {
+                "type": "string"
+              },
+              "pattern": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "output_ref",
+              "mode",
+              "pattern",
+              "max_bytes"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "One mechanical TaskSpace operation.",
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  "invariants": [
+    "ordinary Tool schemas are byte-identical between Standard and TaskSpace",
+    "initialize_map, bind_node, and complete_then_continue are exact taskspace_control variants",
+    "each boundary action must be immediately followed by a real action Tool in the same provider response",
+    "sequence preflight rejects a missing follow-up before any Tool call executes",
+    "a committed boundary control is a sequence barrier before its following action",
+    "ordinary action Tools use the canonical active binding and still pass Map, lease, and reservation gates",
+    "all control mutations compare expected_revision before commit and commit atomically",
+    "read and expand actions never change graph lifecycle state",
+    "one provider response may contain multiple independent control calls, and each call produces its own result envelope"
+  ],
+  "excluded_experiments": [
+    "taskspace_control/taskspace_read split",
+    "DeepSeek strict mode",
+    "DeepSeek provider-visible output schema",
+    "MCP outputSchema"
+  ]
+}

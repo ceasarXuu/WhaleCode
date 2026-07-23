@@ -1,5 +1,6 @@
 use super::*;
 use crate::tools::context::ToolPayload;
+use crate::tools::sequence_preflight::BOUNDARY_ACTION_REQUIRES_FOLLOW_UP_CODE;
 use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 use codex_tools::ToolName;
@@ -15,24 +16,15 @@ fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> T
         payload: ToolPayload::Function {
             arguments: arguments.to_string(),
         },
-        taskspace_action: None,
     }
 }
 
-fn call_with_transition(name: &str, call_id: &str) -> ToolCall {
-    let mut call = function_call(name, call_id);
-    call.taskspace_action = Some(
-        r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"edit","next_node_id":"verify"}"#.into(),
-    );
-    call
-}
-
-fn call_continuing_current(name: &str, call_id: &str) -> ToolCall {
-    let mut call = function_call(name, call_id);
-    call.taskspace_action = Some(
-        r#"{"action":"continue_current","expected_revision":2,"current_node_id":"edit"}"#.into(),
-    );
-    call
+fn boundary_control(action: &str, call_id: &str) -> ToolCall {
+    function_call_with_arguments(
+        "taskspace_control",
+        call_id,
+        &format!(r#"{{"action":"{action}"}}"#),
+    )
 }
 
 #[test]
@@ -127,8 +119,9 @@ fn invalid_taskspace_arguments_are_owned_by_the_tool_handler() {
         r#"{"action":"initialize_map"}"#,
     );
 
-    let manifest = validate_tool_sequence(&[call]).expect("preflight must not own tool arguments");
-    assert_eq!(manifest.entries.len(), 1);
+    let calls = [call, function_call("exec_command", "first-action")];
+    let manifest = validate_tool_sequence(&calls).expect("preflight must not own tool arguments");
+    assert_eq!(manifest.entries.len(), 2);
     assert_eq!(manifest.request_patch_count, 0);
 }
 
@@ -170,53 +163,45 @@ fn one_patch_with_follow_up_tools_passes_manifest_preflight() {
 }
 
 #[test]
-fn carried_transition_and_follow_up_tools_stay_in_one_valid_response() {
+fn boundary_control_and_follow_up_tools_stay_in_one_valid_response() {
     let calls = vec![
-        call_with_transition("apply_patch", "patch"),
+        boundary_control("complete_then_continue", "handoff"),
+        function_call("apply_patch", "patch"),
         function_call("exec_command", "test"),
         function_call("read_file", "inspect"),
     ];
 
     let manifest = validate_tool_sequence(&calls).expect("valid merged response");
-    assert_eq!(manifest.entries.len(), 3);
+    assert_eq!(manifest.entries.len(), 4);
     assert_eq!(manifest.request_patch_count, 1);
     assert_eq!(
         sequence_segments(&calls),
         vec![
             SequenceSegment::Barrier {
                 index: 0,
-                kind: BarrierKind::TaskSpaceAction,
+                kind: BarrierKind::TaskSpaceControl,
             },
-            SequenceSegment::Parallel { start: 1, end: 3 },
-        ]
-    );
-}
-
-#[test]
-fn carried_transition_is_a_barrier_even_on_an_ordinary_tool() {
-    let calls = vec![
-        function_call("read_file", "read"),
-        call_with_transition("exec_command", "test"),
-        function_call("read_file", "inspect"),
-    ];
-    assert_eq!(
-        sequence_segments(&calls),
-        vec![
-            SequenceSegment::Parallel { start: 0, end: 1 },
             SequenceSegment::Barrier {
                 index: 1,
-                kind: BarrierKind::TaskSpaceAction,
+                kind: BarrierKind::ApplyPatch,
             },
-            SequenceSegment::Parallel { start: 2, end: 3 },
+            SequenceSegment::Parallel { start: 2, end: 4 },
         ]
     );
 }
 
 #[test]
-fn explicit_continue_current_preserves_parallel_segments() {
+fn standalone_boundary_control_is_rejected_before_execution() {
+    let calls = vec![boundary_control("complete_then_continue", "handoff")];
+    let failure = validate_tool_sequence(&calls).expect_err("follow-up action is mandatory");
+    assert_eq!(failure.reason_code, BOUNDARY_ACTION_REQUIRES_FOLLOW_UP_CODE);
+}
+
+#[test]
+fn ordinary_calls_under_active_binding_preserve_parallel_segments() {
     let calls = vec![
-        call_continuing_current("read_file", "read-1"),
-        call_continuing_current("exec_command", "read-2"),
+        function_call("read_file", "read-1"),
+        function_call("exec_command", "read-2"),
     ];
 
     assert_eq!(
