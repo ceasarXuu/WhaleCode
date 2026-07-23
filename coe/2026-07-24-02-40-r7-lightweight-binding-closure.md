@@ -1,7 +1,7 @@
 # Problem P-001: R7 轻量 Tool 绑定未形成全生产路径硬合同
-- Status: open
+- Status: closed
 - Created: 2026-07-24 02:40
-- Updated: 2026-07-24 04:42
+- Updated: 2026-07-24 05:00
 - Objective: 修复对抗性审查确认的六类生产路径缺口，使 TaskSpace 连续动作、反馈忠实性、Tool 覆盖和 Standard 隔离满足声明的硬合同。
 - Symptoms:
   - 未完成 provider response 的 Tool 前缀可能在 mailbox 抢占后执行。
@@ -41,14 +41,13 @@
   - Standard 同名业务参数原样传递；TaskSpace collision 返回确定性错误而非 panic。
   - Rust、五层合同、observer、构建和 Docker 自然样本通过。
   - fresh closure reviewer 不再发现未闭合 blocking finding。
-- Current conclusion: Round 2 closure review 发现三条仍可绕过响应级合同的生产路径：
-  build failure 从清单消失、ToolSearch 补充事实插入未完成配对之间、隐藏 native event 仍进入
-  added/done 副作用处理。提交 `5897cb8ba` 已用统一 provider declaration 序列修复这些路径，
-  并补齐 SSE 零副作用、deferred search -> invoke、Standard 实际 dispatch 与 added/done
-  native 拒绝测试。Round 3 又发现 client ToolSearch 缺少 `call_id` 时的 Router 枚举遗漏；
-  该 shape 现已进入 `build_failed_unpaired` 并由双输入 SSE 证明整响应零 dispatch。定向 Rust
-  已通过；accepted blocker 修复后的 fresh Round 4 closure review 尚待执行，因此 P-001
-  保持 open。
+- Current conclusion: Round 1 至 Round 3 发现的完整 response 所有权、机械预检、ToolSearch
+  失败语义、延迟 Tool 投影、native Tool 边界、Standard 隔离及 missing-call-id 枚举缺口均已
+  修复。fresh Round 4 未发现 accepted blocker；其两项非阻断建议也由 `b0f61318a` 补齐。
+  最新同二进制 Docker 双臂中 Standard 与 map-request 均通过 public/hidden oracle，且
+  TaskSpace Map 以 4 nodes / 3 edges / 0 open leaves 闭合。TaskSpace 曾单独提交一次
+  `initialize_map`，被整响应预检零执行拒绝后改为合法配对；这是可观察的协议采纳成本，没有形成
+  部分执行、错误提交或反馈扭曲。
 - Related hypotheses:
   - H-001
   - H-002
@@ -57,14 +56,17 @@
   - H-005
   - H-006
 - Resolution basis:
-  - not satisfied
+  - H-001 至 H-009 均有生产入口修复、失败路径回归或独立闭合审查证据。
+  - fresh Round 4 verdict 为 PASS，无 blocking finding。
+  - 当前 HEAD Docker 双臂均 solved，run validity 为 valid。
 - Close reason:
-  - not closed
+  - 所有 accepted blocker 已修复并通过全新 reviewer 复审；剩余单独 boundary 是 Agent
+    协议采纳观测，不是 Runtime 正确性缺口。
 
 ## Repair checkpoint R-001: 六个 blocking finding 的工程修复
 
 - Time: 2026-07-24 03:28
-- Status: implemented-awaiting-runtime-closure
+- Status: closed
 - BF-1:
   - Tool sequence 只在 `response.completed` 分支取得执行所有权；
   - pending Tool 非空时 mailbox 抢占延迟；
@@ -94,13 +96,35 @@
   - terminal contract: 2/2；
   - mailbox 完整响应所有权集成测试: 1/1；
   - 五层合同、四项 observer 自测、`cargo check`、locked CLI build: 通过。
-- Remaining:
-  - Docker 自然样本；
-  - fresh closure reviewer；
-  - 根据 closure review 更新审查报告并关闭或继续修复 P-001。
+- Closure:
+  - Docker `single-file-fast-fix` 双臂均 solved；
+  - fresh Round 4 closure review PASS；
+  - reviewer 提出的 Standard `id=None` 对称测试和结构化日志字段已由 `b0f61318a` 补齐。
+
+## Repair checkpoint R-002: Provider declaration 完整闭合
+
+- Time: 2026-07-24 05:00
+- Status: closed
+- Commits:
+  - `5897cb8ba`: build failure、ToolSearch 配对顺序及 hidden native event 进入统一 response
+    declaration；
+  - `0111ca95f`: client ToolSearch 缺少 `call_id` 时进入 `UnpairedBuildFailed`；
+  - `b0f61318a`: Standard 双 identity 证据及 build-failure 结构化日志。
+- Fresh review:
+  - reviewer `019f90a4-0467-72e2-a768-357497f5bdc3`；
+  - verdict PASS；
+  - BF-1 至 BF-6 均 closed，无 required fix。
+- Latest Docker smoke:
+  - binary SHA-256 `c33eb556ca2fc141b40c37fb115a674c2ed27367c82b1e063967fde672c778b3`；
+  - Standard: solved，7 requests，9 Tool calls，15.975s，input 86,227，request-2+
+    cache 97.28%；
+  - map-request: solved，8 requests，9 ordinary Tool calls，4 control calls，23.311s，
+    input 123,956，request-2+ cache 92.93%；
+  - Map: 4 nodes / 3 edges / 0 open leaves，Root 与 Finish 闭合；
+  - protocol: 1 次 standalone `initialize_map` 被 preflight 零执行拒绝，随后合法初始化。
 
 ## Hypothesis H-001: mailbox 抢占绕过完整 response preflight
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: 当已有 pending Tool call 时，Reasoning/Commentary item 上的 mailbox 抢占会以成功 outcome 退出，并在未收到 `response.completed` 时执行该前缀。
 - Layer: root-cause
@@ -133,13 +157,15 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-001
-- Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: pending calls 非空时延迟 mailbox 抢占，并删除非 Completed fallback 执行。
+  - E-014
+  - E-015
+- Conclusion: confirmed-fixed
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - 未完成 response 前缀 SSE 回归证明副作用为零。
 
 ## Evidence E-001: 未完成 response 前缀存在成功执行路径
 - Related hypotheses:
@@ -162,7 +188,7 @@
 - Time: 2026-07-24 02:35
 
 ## Hypothesis H-002: control 机械错误只在分段执行期间发现
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: control action 解析失败被 manifest 折叠为 `None`，control 携带 binding 也不由 preflight 拒绝，因此早于 control 的 segment 可先执行。
 - Layer: sub-cause
@@ -194,13 +220,15 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-002
-- Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: preflight 复用 canonical control parser，并拒绝 control binding。
+  - E-014
+  - E-015
+- Conclusion: confirmed-fixed
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - canonical parser 已进入整响应 preflight，失败响应的执行数和 state commit 均为零。
 
 ## Evidence E-002: manifest 丢失 control parse failure
 - Related hypotheses:
@@ -222,7 +250,7 @@
 - Time: 2026-07-24 02:35
 
 ## Hypothesis H-003: ToolSearch 错误在输出代数中被压成成功
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: ToolSearch handler 错误被转换成 `status=completed` 空结果且丢弃错误文本，sequence 因此继续执行后续 control。
 - Layer: root-cause
@@ -254,13 +282,14 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-003
-- Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: ToolCallExecution 独立携带真实 success，并为特殊输出追加原始错误事实。
+  - E-014
+- Conclusion: confirmed-fixed
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - ToolSearch pairing 与真实执行成功状态已分离，原始错误作为独立事实保留。
 
 ## Evidence E-003: ToolSearch Err 与成功空结果不可区分
 - Related hypotheses:
@@ -282,7 +311,7 @@
 - Time: 2026-07-24 02:35
 
 ## Hypothesis H-004: ToolSearch 延迟 Tool 跳过可见性投影
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: ToolSearch 返回 raw `LoadableToolSpec`，TaskSpace Agent 看不到 binding 字段，但 Runtime 对随后 Function/MCP 调用强制要求 binding。
 - Layer: root-cause
@@ -315,13 +344,15 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-004
-- Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: 对 LoadableToolSpec 复用同一 typed decorator。
+  - E-014
+  - E-015
+- Conclusion: confirmed-fixed
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - deferred search 到实际 dynamic invocation 已通过生产入口集成测试。
 
 ## Evidence E-004: 延迟 Tool 输出使用 raw schema
 - Related hypotheses:
@@ -343,7 +374,7 @@
 - Time: 2026-07-24 02:35
 
 ## Hypothesis H-005: 非 Function ToolSpec 绕过统一序列合同
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: LocalShell、native WebSearch、ImageGeneration 和未知 Freeform Tool 不可添加 binding，仍可在 TaskSpace 可见或产生 provider-native事件。
 - Layer: interaction
@@ -376,13 +407,15 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-005
-- Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: 采用混合策略：Function 等价形态投影；无法进入 client preflight 的 native 形态在 TaskSpace 明确隐藏。
+  - E-014
+  - E-015
+- Conclusion: confirmed-fixed
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none；用户“修复”授权接受前述推荐方向。
 - Close reason:
-  - not closed
+  - 可绑定形态统一投影；隐藏 native added/done 在副作用前确定性拒绝。
 
 ## Evidence E-005: decorator fallback 保留不可绑定 ToolSpec
 - Related hypotheses:
@@ -404,7 +437,7 @@
 - Time: 2026-07-24 02:35
 
 ## Hypothesis H-006: binding 提取未按 TaskSpace 模式隔离
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: Router 在 Standard 和 TaskSpace 中都移除同名字段，且 TaskSpace schema collision 使用 panic。
 - Layer: root-cause
@@ -436,13 +469,15 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-006
-- Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: mode-aware extraction和 fallible typed projection。
+  - E-014
+  - E-015
+- Conclusion: confirmed-fixed
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - Standard 实际 dynamic dispatch 保留业务同名字段，TaskSpace collision 返回 typed error。
 
 ## Evidence E-006: Standard 提取与 TaskSpace panic 共用同一 collision
 - Related hypotheses:
@@ -746,3 +781,68 @@
   ```
 - Interpretation: 无法配对的 client call 不再从完整 response declaration 消失。
 - Time: 2026-07-24 04:55
+
+## Evidence E-014: fresh Round 4 不再发现 blocking finding
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+  - H-008
+  - H-009
+- Direction: refutes
+- Type: independent-review
+- Source: fresh reviewer `019f90a4-0467-72e2-a768-357497f5bdc3`
+- Prediction or plan link:
+  - 所有 accepted blocker 修复后应通过无继承上下文的闭合复审。
+- Matched signal:
+  - verdict PASS；
+  - BF-1 至 BF-6 全部 closed；
+  - missing-call-id 双 identity、零 dispatch、反馈类型和 dedup 边界均通过独立检查。
+- Correlation keys:
+  - reviewed commit `0111ca95f`
+  - follow-up commit `b0f61318a`
+- Raw content:
+  ```text
+  PASS. I did not find a remaining blocker.
+  ```
+- Interpretation: 本案不再存在已知可绕过完整 response preflight 的生产路径。
+- Time: 2026-07-24 05:00
+
+## Evidence E-015: 当前 HEAD Docker 双臂自然样本闭合
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+- Direction: refutes
+- Type: runtime-validation
+- Source:
+  - scenario `single-file-fast-fix`
+  - run `20260724-042659-251`
+  - binary SHA-256 `c33eb556ca2fc141b40c37fb115a674c2ed27367c82b1e063967fde672c778b3`
+- Prediction or plan link:
+  - 同一当前二进制下 Standard 与 map-request 都应完成业务修复和独立 oracle。
+- Matched signal:
+  - 两臂 `business_success=true`，public/hidden oracle exit code 均为 0；
+  - 变更均只涉及 `src/tax_calc.py`；
+  - TaskSpace 以 4 nodes / 3 edges / 0 open leaves 闭合；
+  - 一次非法 standalone initialization 被预检拒绝，control handler failure 与 state failure
+    均为 0；
+  - runner shell exit 1 来自 repeat-1 不满足 E2 `repeats>=3` 证据门槛；artifact 内 run
+    validity 为 `valid`、phase 为 `completed`、exit code 为 0。
+- Correlation keys:
+  - git HEAD `b0f61318a1bff208cdd13f809078c62ccf680e94`
+  - pair `pair-001`
+- Raw content:
+  ```text
+  standard solved: 7 requests, 9 tools
+  taskspace solved: 8 requests, 9 ordinary tools, 4 controls
+  ```
+- Interpretation: 生产接线、反馈和状态提交在自然样本中可运行；单次运行不用于推导策略稳定性。
+- Time: 2026-07-24 05:00

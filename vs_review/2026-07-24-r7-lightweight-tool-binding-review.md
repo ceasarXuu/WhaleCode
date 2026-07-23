@@ -1,13 +1,13 @@
 # Subagent VS Review: R7 轻量 Tool 绑定
 
 - Created: 2026-07-24 02:17:16 +0800
-- Updated: 2026-07-24 02:35:39 +0800
+- Updated: 2026-07-24 05:00:00 +0800
 - Report schema: adversarial-v1
 - Task: 审查 R7 普通 Tool 轻量绑定修复是否在降低 schema 成本的同时，完整保留连续动作硬合同和 TaskSpace 边界。
 - Report path: `vs_review/2026-07-24-r7-lightweight-tool-binding-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context
-- Status: blocked
+- Status: passed
 
 ## Round 1: 实现正确性与边界审查
 
@@ -542,3 +542,66 @@ Reviewer verdict: **BLOCK**。
 - Accepted blocking finding fixed: yes，等待提交和 Round 4
 - Blocking re-review required: yes
 - Status: blocked until fresh Round 4 passes
+
+## Round 4: missing-call-id 闭合复审
+
+### Review Input
+
+- Objective: 尝试证伪 `0111ca95f` 对 client ToolSearch 缺少 `call_id` 的修复，并重新核验
+  BF-1 至 BF-6。
+- Risk focus: provider item id 有/无、unpaired feedback、dedup、server ToolSearch、Standard
+  隔离、native event、整响应零执行和 deferred Tool。
+- Reviewer policy: fresh session，`fork_context=false`，只读，不继承主会话结论。
+
+### Reviewer Launch Records
+
+| Reviewer | Mechanism | Session | Context Forked | Read-only |
+|---|---|---|---:|---:|
+| implementation-adversary | `multi_agent_v1.spawn_agent` | `019f90a4-0467-72e2-a768-357497f5bdc3` | false | yes |
+
+### Reviewer Output
+
+Reviewer verdict: **PASS**，无 blocking finding。
+
+| Contract | Result |
+|---|---|
+| BF-1 完整 response 所有权 | closed |
+| BF-2 build failure 进入 declaration | closed |
+| BF-3 missing-call-id 与忠实失败反馈 | closed |
+| BF-4 deferred search -> invocation | closed |
+| BF-5 hidden native runtime admission | closed by explicit unsupported boundary |
+| BF-6 Standard 隔离 | closed |
+
+Reviewer 确认：
+
+- client ToolSearch 缺少 `call_id` 不再返回 `Ok(None)`；
+- provider item id 存在或缺失时都形成 invalid declaration；
+- 任一 invalid declaration 使完整 response 的 `executed_tool_call_count=0`；
+- `UnpairedBuildFailed` 明确表示无配对协议失败，不伪装成 Tool 执行结果；
+- 只有 hidden native added/done identity 进行去重。
+
+### Non-blocking Findings And Response
+
+| Finding | Decision | Action |
+|---|---|---|
+| Standard 直接测试仅覆盖 provider id 存在 | accept | `b0f61318a` 改为 `Some/None` 双变体，并校验 descriptor identity |
+| build-failure 日志缺 provider item/tool/payload 字段 | accept | `b0f61318a` 增加三个结构化事实字段，不改变执行语义 |
+
+### Runtime Validation
+
+- missing-call-id 定向 Rust: 2 passed；
+- locked CLI build: passed；
+- Docker `single-file-fast-fix`: Standard 与 map-request 均 solved，public/hidden oracle 均通过；
+- repeat-1 只形成 E2-candidate，runner 因 `repeats_lt_3` 证据门槛返回 1；run artifact 本身为
+  `valid/completed`，不把该诊断 smoke 宣称为 E2；
+- TaskSpace 一次 standalone `initialize_map` 被 preflight 零执行拒绝后自纠正，未发生部分执行或
+  状态提交。
+
+### Final Closure Status
+
+- Blocking findings found in Round 4: no
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Deferred blockers: none
+- Final status: passed
