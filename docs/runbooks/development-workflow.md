@@ -154,6 +154,18 @@ powershell -NoProfile -ExecutionPolicy Bypass \
 - Docker build 能访问 Python package 源；`organization-json-generator` 的 validator image 会执行 `pip install jsonschema`。
 - Linux native Docker 如果使用宿主 loopback proxy，例如 `127.0.0.1:7890`，generated validator 必须对 build/run 使用 `--network host`，不能只把 proxy 改成 `host.docker.internal`。
 - Linux runner 不应依赖 Windows-only primitives：`WindowsIdentity`、`icacls`、`curl.exe`、`cmd.exe`、`subst`、`USERPROFILE` 都必须有跨平台分支或 no-op 记录。
+- 从 Bash 用 `pwsh -Command` 批量重算报告时，不要同时依赖 Bash `$name` 与 PowerShell `$args` 的
+  隐式转义。把路径放入临时环境变量，再在 PowerShell 中通过 `$env:NAME` 读取，可避免 Bash 提前
+  展开 PowerShell 变量。派生报告重算只覆盖 observation/report，不改原始 rollout、wire trace 或
+  模型运行证据。
+- Skill 的 `quick_validate.py` 依赖 `PyYAML`。系统 Python 缺依赖时不要污染全局环境，使用已有
+  `uv` 缓存执行：
+
+```bash
+uv run --with pyyaml python \
+  /home/zhangxu/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
+  .agents/skills/observe-taskspace-performance
+```
 
 ## R4 Tools Feedback 调试内循环
 

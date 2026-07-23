@@ -18,9 +18,10 @@
 > 2026-07-22 实施更新：H-003 已由普通动作 Tool 的必填 `taskspace_action` carrier 修复并通过定向回归、构建和
 > Docker paired smoke。旧 `required_next_call + top-level sibling` 路径已删除；FLA-4 可以从单一 carrier
 > 生产基线继续。
-> 2026-07-24 修订：上述完整 carrier 是历史实现。FLA-9 在不撤销连续动作要求的前提下，以唯一
-> `taskspace_control` 边界调用和普通 Tool 必填 `taskspace_binding=active|after_boundary` 替代，避免把完整
-> 生命周期 schema 重复复制到每个普通 Tool。当前合同见 `37-r7-lightweight-tool-binding-repair-plan.md`。
+> 2026-07-24 修订：上述完整 carrier 是历史实现。FLA-9 在不撤销连续动作要求的前提下，让初始化由
+> 首个普通 Tool 的判别式 `taskspace_binding` 承载，初始化后的边界继续使用唯一
+> `taskspace_control` 与紧邻普通 Tool。正式四臂 repeat-3 已关闭独立初始化回归，但固定 Tool schema
+> 成本门未通过。当前合同与证据见 `37-r7-lightweight-tool-binding-repair-plan.md`。
 
 ## 1.1 元数据
 
@@ -28,7 +29,7 @@
 Created: 2026-07-17
 Updated: 2026-07-23
 Version: v0.0.5 build-R7
-Status: FLA-7 Active Verified / FLA-8 Initial Repeat-3 Completed / Extended Decision Pending
+Status: FLA-7 Active Verified / FLA-8 Initial Repeat-3 Completed / FLA-9 Initialization Regression Closed / Extended Decision Pending
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -530,13 +531,16 @@ base identity 分别 6/6、7/7 匹配 v1.0.0 合同。该单次结果只证明�
 下一节点，也不复制 ordinary Tool router/handler。
 
 当前实现由共享 Tool decorator/parser 和现有 router 完成，不建立候选、晋级或平行执行链。定向 Rust 回归、
-FLA-3.5 gate、CLI build 和单组 Docker paired smoke 已通过；完整实现边界与 trace 见
-[连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)。
+FLA-3.5 gate、CLI build 和正式四臂 Docker repeat-3 已通过。18/18 个 TaskSpace run 最终通过普通 Tool
+carrier 初始化，直接 control 初始化为 0；首请求初始化尝试/提交为 16/15。完整实现边界、trace 和成本见
+[连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)与
+[普通 Tool 轻量绑定修复](37-r7-lightweight-tool-binding-repair-plan.md)。
 
 阶段关系：
 
 - 初始化载体与后续边界 sibling 共同构成当前唯一生产合同，FLA-4 不得引入平行执行链；
 - FLA-3.5 已 `active_verified`，H-003 不再阻塞 FLA-4；
+- FLA-9 的独立初始化回归已关闭；普通 Tool 固定 schema 成本未达到 80% 降幅门，作为后续独立问题；
 - 原 FLA-6 “移除 `required_next_call`”实验取消，该字段随回归修复一次性删除；
 - 历史 D.2-D.4 结果保持原样，继续分别证明连续动作收益和 Patch carrier 根因。
 

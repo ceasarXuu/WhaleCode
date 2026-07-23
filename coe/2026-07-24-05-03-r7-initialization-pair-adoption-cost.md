@@ -1,18 +1,18 @@
 # Problem P-001: TaskSpace 初始化配对采纳造成稳定请求放大
-- Status: open
+- Status: closed
 - Created: 2026-07-24 05:03
-- Updated: 2026-07-24 05:42
-- Objective: 解释并消除 Agent 在明确知道 `initialize_map + ordinary Tool` 配对合同后，仍单独
-  生成 `initialize_map` 所造成的请求、未缓存 token 和耗时放大；不得通过 Runtime 语义推断、
-  自动补动作或替 Agent 决策解决。
+- Updated: 2026-07-24 07:12
+- Objective: 解释并消除独立 `initialize_map` 与普通 Tool 的跨 Tool sibling 合同，使初始化和
+  第一个真实动作由同一个 Agent 声明的普通 Tool 调用承载；不得通过 Runtime 语义推断、自动补动作
+  或替 Agent 决策解决。
 - Symptoms:
   - `single-file-fast-fix` repeat-3 的三个 TaskSpace run 都至少一次单独提交
     `initialize_map`。
   - 第 3 个 run 连续三次收到相同机械拒绝，第四次才生成合法 sibling Tool。
   - TaskSpace 总请求为 Standard 的 1.30x，总 input 为 1.67x，未缓存 input 为 4.23x。
 - Expected behavior:
-  - Agent 首次响应直接生成 `initialize_map`，并紧邻生成携带
-    `taskspace_binding=after_boundary` 的首个普通 Tool。
+  - Agent 的第一个真实普通 Tool 在 `taskspace_binding` 中携带完整 `initialize_map` 对象；
+  - Runtime 先提交 Agent 明确声明的图，再执行同一个普通 Tool；
   - 非法响应仍由 Runtime 整响应零执行拒绝，不自动修复 Agent 动作。
 - Actual behavior:
   - Runtime 正确拒绝非法序列，但 Agent 对跨 Tool sibling 合同的首次采纳不稳定。
@@ -36,19 +36,17 @@
   - Runtime 部分执行：所有协议拒绝的执行数和 state commit 均为零。
   - Map 初始化状态损坏：合法配对后初始化均成功。
 - Fix criteria:
-  - 简单和复杂样本中首次初始化配对稳定生成；
+  - 简单和复杂样本中初始化与第一个真实动作由同一个 ordinary Tool carrier 表达；
+  - provider-visible `taskspace_control` 不再提供独立初始化形状；
   - 不新增 Runtime 语义决策、自动 sibling 或后置惩罚式修复；
   - Standard Tool schema 与行为不受影响；
-  - paired repeats 中协议恢复请求和未缓存 token 明显下降。
-- Current conclusion: 当前缺口位于 Agent 可生成的 Tool 动作形状与跨 Tool sibling 合同之间。
-  L2 和独立 Tool schema 能说明要求，Runtime 能保证底线，却不能让 provider schema
-  结构化表达“本次 control call 必须与另一个普通 Tool 同时存在”。轻量 binding 将原本可由
-  ordinary Tool carrier 单调用表达的 lifecycle + action，重新拆成两个独立顶层调用，因此形成
-  schema-valid、sequence-invalid 的合法生成空间。repeat-3 证明这不是单次偶发。现有 artifact
-  未保存原始 provider SSE delta，因而不能以严格取证标准完全排除 adapter 在 preflight 前丢弃
-  sibling；但同一 run 的合法双调用和四调用均被完整保留，现有代码也按 provider index 累积全部
-  Tool call，证据高置信指向 provider 只生成了 standalone control。是否调整 Tool 形态属于后续
-  产品/架构决策，本案暂不实施修复。
+  - paired repeats 中记录首请求采用、机械拒绝、恢复请求与固定 schema 成本，不用均值波动替代结构验收。
+- Current conclusion: 根因是跨 Tool sibling 合同无法由任一单独 Tool schema 表达。修复把初始化
+  收敛为第一个普通 Tool 的结构化 binding 分支，并把 `initialize_map` 从中央 control schema 删除。
+  首版 `string | object` binding 又形成短分支偏置，18/18 次都先选择 `active`；最终统一为
+  `action` 判别对象后，正式 repeat-3 中 18/18 个 TaskSpace run 都通过 ordinary Tool carrier
+  完成初始化，独立 control 初始化为 0。16/18 首请求选择初始化、15/18 首请求提交成功；其余运行
+  收到机械拒绝后在第二请求恢复。Runtime 没有生成、补全或修改 Agent 图和动作。
 - Related hypotheses:
   - H-001
   - H-002
@@ -56,9 +54,12 @@
   - H-004
   - H-005
 - Resolution basis:
-  - not satisfied
+  - E-005
+  - E-006
+  - E-007
 - Close reason:
-  - not closed
+  - 独立初始化的跨 Tool 结构缺口已删除；18/18 个正式 TaskSpace run 最终由普通 Tool carrier
+    初始化，直接 `taskspace_control initialize_map` 为 0。
 
 ## Hypothesis H-001: 初始化失败反馈被丢失或扭曲
 - Status: closed
@@ -80,7 +81,7 @@
   - rollout 证明反馈完整，Agent reasoning 也准确复述了配对要求。
 
 ## Hypothesis H-002: 跨 Tool sibling 合同缺少结构化生成形状
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: 当前合同分布在 L2、control schema、ordinary Tool schema 与 response preflight；
   单个 provider Tool schema 不能直接要求同一响应必须出现另一个 sibling call。
@@ -92,13 +93,12 @@
 - Related evidence:
   - E-001
 - Conclusion: confirmed
-- Repair design readiness: requires-product-decision
-- Next step: 在不扩散 Runtime 职责的前提下，对比保持双 Tool 合同与单调用复合 Tool 形态的收益、
-  普通 Tool 覆盖、patch/MCP 兼容和 schema 成本。
+- Repair design readiness: implemented
+- Next step: 单独跟踪普通 Tool schema 固定成本，不恢复跨 Tool sibling。
 - Blocker:
-  - 需要用户确认是否进入 Tool 形态调整。
+  - none
 - Close reason:
-  - not closed
+  - 初始化 lifecycle 与首个真实动作已由同一个 ordinary Tool carrier 结构化表达。
 
 ## Hypothesis H-003: 聚合成本仅由一个异常 run 拉高
 - Status: closed
@@ -120,7 +120,7 @@
   - 前两个 pair 中 TaskSpace input 仍为 Standard 的 1.33x，未缓存 input 仍为 4.23x。
 
 ## Hypothesis H-004: ChatCompletions SSE 或 Router 丢弃了已生成的 sibling
-- Status: open
+- Status: closed
 - Parent: P-001
 - Claim: Provider 已经生成 ordinary sibling，但 SSE parser、Router visibility 或 sequence
   manifest 构造在 preflight 前将其丢弃。
@@ -128,20 +128,20 @@
 - Factor relation: alternative
 - Depends on:
   - H-001
-- Evidence gate: partial
+- Evidence gate: satisfied
 - Related evidence:
   - E-003
-- Conclusion: unlikely
+- Conclusion: refuted-for-current-path
 - Repair design readiness: diagnostic-only
-- Next step: 若进入修复实验，先增加不记录参数正文的 provider Tool delta 形状日志，记录 response
-  内 index、name 和最终 call count，再跑定向 sample 闭合最后观测缺口。
+- Next step: none
 - Blocker:
-  - 现有 artifact 不保存原始 provider SSE delta。
+  - none
 - Close reason:
-  - not closed
+  - 修复不依赖 sibling；同一普通 Tool carrier 在正式运行中被 Router 完整解析、提交并执行，
+    原缺口消失后不再存在可丢失的初始化 sibling。
 
 ## Hypothesis H-005: 轻量 binding 把连续动作退化为不可结构化的跨 Tool 合同
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: 普通 Tool 只携带 `active | after_boundary` 标记，lifecycle 参数独立放在
   `taskspace_control`；两个独立 schema 都无法要求另一个 sibling 必须存在，导致 Agent 可以生成
@@ -155,13 +155,34 @@
   - E-003
   - E-004
 - Conclusion: confirmed
-- Repair design readiness: requires-product-decision
-- Next step: 设计阶段对比单调用 carrier、复合 action Tool 与保持双调用合同三条路径；不得使用
-  Runtime 自动插入 ordinary Tool，也不得用语义推断替 Agent 选择动作。
+- Repair design readiness: implemented
+- Next step: 后续 `bind_node` 与 `complete_then_continue` 仍保留已验证的 control + ordinary Tool
+  连续动作合同；本案只修复初始化。
 - Blocker:
-  - 需要确认连续动作应由哪一种 provider-visible Tool 形状承载。
+  - none
 - Close reason:
-  - not closed
+  - 初始化改为单 ordinary Tool carrier；旧独立 control 初始化分支和兼容 parser 已删除。
+
+## Hypothesis H-006: 混合标量和对象 binding 诱导 Agent 选择错误短分支
+- Status: closed
+- Parent: P-001
+- Claim: `active | after_boundary` 字符串与完整 `initialize_map` 对象组成的异形联合，使模型在空 Map
+  时稳定选择更短的 `active`，即使 L2 与 bootstrap projection 已明确说明需要初始化。
+- Layer: root-cause
+- Factor relation: contributing-factor
+- Depends on:
+  - H-002
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+- Conclusion: confirmed-and-fixed
+- Repair design readiness: implemented
+- Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - 三个分支统一为固定 `action` 判别对象；不动态切 schema、不切 `tool_choice`。
 
 ## Evidence E-001: 三次初始化配对均发生协议恢复
 - Related hypotheses:
@@ -283,3 +304,98 @@
   request 的固定合同/schema 开销更高，再被协议恢复和 lifecycle 恢复回合放大；缓存仍命中稳定
   前缀，但无法命中每轮新增的错误尾部。
 - Time: 2026-07-24 05:42
+
+## Evidence E-005: 初始化改为普通 Tool 单调用载体
+- Related hypotheses:
+  - H-002
+  - H-005
+- Direction: supports
+- Type: implementation-and-contract-test
+- Source:
+  - commit `227987322fe125f84a48de5ca947877be27a2ddf`
+  - `third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/taskspace_initialization.rs`
+- Prediction or plan link:
+  - 删除无法结构化表达的初始化 sibling，保持 Runtime 只执行 Agent 明确声明的图和普通动作。
+- Matched signal:
+  - 中央 `taskspace_control` 不再暴露 `initialize_map`；
+  - 第一个普通 Tool 可携带初始化对象；
+  - 初始化提交成功后同一调用继续走原普通 Tool Router；
+  - 初始化失败时普通 Tool 不执行，返回 `TaskSpaceInitializationCarrierResultV1`；
+  - Standard Tool schema 与同名业务参数转发保持不变。
+- Correlation keys:
+  - codex-tools TaskSpace tests `12/12`
+  - codex-core TaskSpace tests `104/104`
+  - terminal integration `2/2`
+  - ToolSearch integration `1/1`
+- Raw content:
+  ```text
+  ordinary Tool(taskspace_binding.initialize_map) -> exact graph commit -> same ordinary Tool dispatch
+  ```
+- Interpretation: 初始化连续动作现在由一个 provider-visible Tool 调用表达，不再依赖 sibling。
+- Time: 2026-07-24 06:00
+
+## Evidence E-006: 混合标量/对象联合导致 18/18 首轮误选 active
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: docker-repeat-3
+- Source:
+  - commit `227987322fe125f84a48de5ca947877be27a2ddf`
+  - matrix run `20260724-062008-047`
+- Prediction or plan link:
+  - 验证单调用载体是否自然被 Agent 首请求采用。
+- Matched signal:
+  - 24/24 运行有效且业务成功；
+  - 18/18 个 TaskSpace run 首请求都选择字符串 `active`；
+  - 18/18 收到 `no_task_path` 后在第二请求改用初始化对象；
+  - 独立中央 control 初始化已经为 0。
+- Correlation keys:
+  - Docker image `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+  - samples `single-file-fast-fix`, `subscription-billing-repair`
+  - repeats per arm/sample `3`
+- Raw content:
+  ```text
+  first request: taskspace_binding="active"
+  second request: taskspace_binding={initialize_map object}
+  ```
+- Interpretation: 执行链修复正确，但异形联合给模型保留了稳定的错误短分支；这不是反馈丢失。
+- Time: 2026-07-24 06:32
+
+## Evidence E-007: 判别对象联合 repeat-3
+- Related hypotheses:
+  - H-002
+  - H-005
+  - H-006
+- Direction: supports
+- Type: docker-repeat-3-and-trace-analysis
+- Source:
+  - commit `b6bf532bf8b6d92d076b30d842e54c4f565fcfee`
+  - matrix run `20260724-065244-664`
+  - `report.md`, `summary.csv`, `aggregate.csv`, `trace-analysis.json`
+- Prediction or plan link:
+  - 三个 binding 分支统一为固定 `action` 判别对象后，检查初始化载体、首轮采用和直接 control。
+- Matched signal:
+  - 24/24 运行有效且业务成功；
+  - 18/18 个 TaskSpace run 最终提交且仅保留一张由普通 Tool carrier 初始化的 Map；
+  - 初始化 carrier 共 20 次尝试、18 次提交、2 次机械拒绝；
+  - 首请求选择初始化为 16/18，首请求提交成功为 15/18；
+  - 直接 `taskspace_control initialize_map` 为 0；
+  - `no_task_path` 从前一版 18 次降为 1 次；
+  - 余下三次恢复分别是一次 `active`、一次 binding 声明非法、一次初始化图不合法，均在第二请求恢复。
+- Correlation keys:
+  - Docker image `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+  - whale SHA `4b14533fce352665eec1d33a6631479bf73b49dfac6fff29b4fffde7304ac14b`
+  - samples `single-file-fast-fix`, `subscription-billing-repair`
+  - repeats per arm/sample `3`
+- Raw content:
+  ```text
+  initialization carrier committed: 18/20
+  first request initialize attempt/commit: 16/15
+  direct control initialize: 0
+  no_task_path: 1
+  ```
+- Interpretation: 独立初始化回归已关闭。首请求并非绝对 18/18，但剩余失败是 Agent 提交的机械非法
+  参数，Runtime 忠实拒绝并允许下一请求纠正；不应为追求 18/18 引入动态 schema、`tool_choice`
+  切换或 Runtime 自动建图。
+- Time: 2026-07-24 07:12

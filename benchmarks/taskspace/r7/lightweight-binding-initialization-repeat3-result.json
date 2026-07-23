@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-lightweight-binding-initialization-repeat3",
+  "status": "initialization_regression_closed_cost_gate_not_met",
+  "claim_scope": "initialization_carrier_regression_and_execution_path_observation_only",
+  "subject_commit": "b6bf532bf8b6d92d076b30d842e54c4f565fcfee",
+  "observer_commit": "1ecc2d7d9",
+  "whale_sha256": "4b14533fce352665eec1d33a6631479bf73b49dfac6fff29b4fffde7304ac14b",
+  "docker_image_digest": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
+  "model": "deepseek-v4-flash",
+  "samples": [
+    "single-file-fast-fix",
+    "subscription-billing-repair"
+  ],
+  "repeats_per_arm_per_sample": 3,
+  "run_count": 24,
+  "excluded_run_count": 0,
+  "matrix_run": "target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/b6bf532bf8b6d92d076b30d842e54c4f565fcfee/20260724-065244-664",
+  "arms": {
+    "standard": {
+      "successes": 6,
+      "requests": {"total": 58, "mean": 9.667, "median": 9.5},
+      "input_tokens": {"total": 913041, "mean": 152173.5, "median": 138276.5, "cached": 882688, "uncached": 30353},
+      "request_2_plus_cache_hit_rate": 0.964584,
+      "output_tokens": {"total": 23232, "mean": 3872.0},
+      "wall_time_ms": {"total": 210375, "mean": 35062.5, "median": 29118.5},
+      "first_request_input_tokens_mean": 10870.5,
+      "tools_section": {"bytes_per_request": 21669, "estimated_tokens_per_request": 5418.0}
+    },
+    "map-always": {
+      "successes": 6,
+      "requests": {"total": 88, "mean": 14.667, "median": 12.5},
+      "input_tokens": {"total": 2412243, "mean": 402040.5, "median": 324450.0, "cached": 1014656, "uncached": 1397587},
+      "request_2_plus_cache_hit_rate": 0.399646,
+      "output_tokens": {"total": 30639, "mean": 5106.5},
+      "wall_time_ms": {"total": 306134, "mean": 51022.333, "median": 43548.0},
+      "first_request_input_tokens_mean": 20262.5,
+      "tools_section": {"bytes_per_request": 55578, "estimated_tokens_per_request": 13895.0},
+      "initialization": {"carrier_commits": 6, "carrier_attempts": 7, "carrier_failures": 1, "first_request_attempts": 4, "first_request_commits": 4, "direct_control": 0, "no_task_path": 1}
+    },
+    "map-append": {
+      "successes": 6,
+      "requests": {"total": 74, "mean": 12.333, "median": 11.0},
+      "input_tokens": {"total": 2272492, "mean": 378748.667, "median": 316010.0, "cached": 2154624, "uncached": 117868},
+      "request_2_plus_cache_hit_rate": 0.955722,
+      "output_tokens": {"total": 26995, "mean": 4499.167},
+      "wall_time_ms": {"total": 249330, "mean": 41555.0, "median": 42356.5},
+      "first_request_input_tokens_mean": 20284.5,
+      "tools_section": {"bytes_per_request": 55578, "estimated_tokens_per_request": 13895.0},
+      "initialization": {"carrier_commits": 6, "carrier_attempts": 6, "carrier_failures": 0, "first_request_attempts": 6, "first_request_commits": 6, "direct_control": 0, "no_task_path": 0}
+    },
+    "map-request": {
+      "successes": 6,
+      "requests": {"total": 98, "mean": 16.333, "median": 14.5},
+      "input_tokens": {"total": 2718204, "mean": 453034.0, "median": 406862.5, "cached": 2589696, "uncached": 128508},
+      "request_2_plus_cache_hit_rate": 0.952996,
+      "output_tokens": {"total": 34872, "mean": 5812.0},
+      "wall_time_ms": {"total": 327824, "mean": 54637.333, "median": 54444.5},
+      "first_request_input_tokens_mean": 20276.5,
+      "tools_section": {"bytes_per_request": 55578, "estimated_tokens_per_request": 13895.0},
+      "initialization": {"carrier_commits": 6, "carrier_attempts": 7, "carrier_failures": 1, "first_request_attempts": 6, "first_request_commits": 5, "direct_control": 0, "no_task_path": 0}
+    }
+  },
+  "initialization_result": {
+    "taskspace_runs": 18,
+    "eventual_carrier_commits": 18,
+    "carrier_attempts": 20,
+    "carrier_failures": 2,
+    "first_request_attempts": 16,
+    "first_request_commits": 15,
+    "direct_taskspace_control_initialize": 0,
+    "no_task_path_rejections": 1,
+    "previous_mixed_union_no_task_path_rejections": 18,
+    "structural_regression_closed": true
+  },
+  "tool_schema_cost": {
+    "historical_full_carrier_bytes_per_request": 60743,
+    "current_bytes_per_request": 55578,
+    "standard_bytes_per_request": 21669,
+    "total_reduction_vs_full_carrier": 0.085,
+    "extra_bytes_reduction_vs_full_carrier": 0.132,
+    "planned_extra_bytes_reduction_gate": 0.8,
+    "gate_met": false
+  },
+  "trace_boundary": {
+    "simple_taskspace_requests_previous": 108,
+    "simple_taskspace_requests_current": 83,
+    "complex_taskspace_requests_previous": 151,
+    "complex_taskspace_requests_current": 177,
+    "interpretation": "Initialization recovery improved, but complex-run patch and lifecycle outliers prevent an aggregate performance-win claim."
+  },
+  "decision": "Close standalone initialization regression. Keep fixed Tool schema cost and complex execution-path anomalies as separate follow-up work; do not add dynamic schemas, tool_choice switching, or Runtime-generated graph actions."
+}

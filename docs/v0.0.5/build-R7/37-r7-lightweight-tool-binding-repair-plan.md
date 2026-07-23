@@ -1,6 +1,7 @@
 # R7 普通 Tool 轻量绑定与连续动作修复
 
-> 状态：初始化连续动作载体已实现；binding 生成歧义修复与 Docker repeat-3 待最终确认
+> 状态：初始化连续动作与 binding 生成歧义已修复，Docker 四臂 repeat-3 完成；固定 Tool schema
+> 成本门未通过，作为后续独立问题
 >
 > 日期：2026-07-24
 >
@@ -214,7 +215,7 @@ Runtime 生成或修复图。
 | 验证 | 结果 |
 |---|---:|
 | `cargo test -p codex-tools taskspace --lib` | 12/12 |
-| `cargo test -p codex-core taskspace --lib --no-fail-fast` | 101/101 |
+| `cargo test -p codex-core taskspace --lib --no-fail-fast` | 104/104 |
 | `cargo test -p codex-core --test all taskspace_terminal_contract --no-fail-fast` | 2/2 |
 | mailbox 未完成响应前缀集成测试 | 1/1 |
 | build-malformed suffix 整响应零执行 SSE | 1/1 |
@@ -286,7 +287,67 @@ TaskSpace run 都在首请求选择字符串 `active`，收到 `no_task_path` �
 
 单样本 Docker 探针中，修改前首请求为 `{"taskspace_binding":"active"}` 并失败；修改后首请求直接生成
 `initialize_map` 对象并在同一 `exec_command` 中成功提交，后续动作使用
-`{"taskspace_binding":{"action":"active"}}`。该探针只确认修复方向，最终结论仍以完整 repeat-3 为准。
+`{"taskspace_binding":{"action":"active"}}`。该探针只确认修复方向，最终结论以完整 repeat-3 为准。
+
+### 10.2 正式 Docker repeat-3
+
+正式矩阵使用同一二进制、同一 Docker image、两个样本、每样本每臂 3 次，共 24 次：
+
+- subject commit：`b6bf532bf8b6d92d076b30d842e54c4f565fcfee`
+- whale SHA：`4b14533fce352665eec1d33a6631479bf73b49dfac6fff29b4fffde7304ac14b`
+- Docker image：
+  `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+- matrix run：`20260724-065244-664`
+- 有效且业务成功：`24/24`
+- 机器摘要：
+  [lightweight-binding-initialization-repeat3-result.json](../../../benchmarks/taskspace/r7/lightweight-binding-initialization-repeat3-result.json)
+
+初始化路径：
+
+| Arm | 初始化载体提交 / 尝试 / 失败 | 首请求尝试 / 提交 | 直接 control 初始化 | `no_task_path` |
+|---|---:|---:|---:|---:|
+| map-always | 6 / 7 / 1 | 4 / 4 | 0 | 1 |
+| map-append | 6 / 6 / 0 | 6 / 6 | 0 | 0 |
+| map-request | 6 / 7 / 1 | 6 / 5 | 0 | 0 |
+| TaskSpace 合计 | 18 / 20 / 2 | 16 / 15 | 0 | 1 |
+
+两次 carrier 失败分别是重复初始化图和非法初始图，另有一次首请求 binding 声明非法；Agent 都在下一请求
+纠正。18 个 TaskSpace run 最终都通过普通 Tool carrier 初始化，独立
+`taskspace_control initialize_map` 为 0。相对首版混合 `string | object` 联合的
+首请求误选 `active 18/18`、`no_task_path 18`，判别对象联合把 `no_task_path` 降到 1，并把首请求
+初始化提交提高到 `15/18`。
+
+因此“独立初始化 + 后续普通 Tool”的跨 Tool 结构回归已关闭。首请求仍不是绝对 `18/18`，但剩余样本
+均是 Agent 提交的机械非法参数，Runtime 精确拒绝并允许恢复；不为此引入动态 schema、`tool_choice`
+切换或 Runtime 自动建图。
+
+### 10.3 行为与成本边界
+
+四臂总成本：
+
+| Arm | 成功 | Request 总 / 均 / 中位 | Input 总 / 均 / 中位 | Cached / uncached | Req2+ cache | Wall ms 总 / 均 / 中位 |
+|---|---:|---:|---:|---:|---:|---:|
+| Standard | 6/6 | 58 / 9.667 / 9.5 | 913,041 / 152,173.500 / 138,276.5 | 882,688 / 30,353 | 96.46% | 210,375 / 35,062.500 / 29,118.5 |
+| map-always | 6/6 | 88 / 14.667 / 12.5 | 2,412,243 / 402,040.500 / 324,450 | 1,014,656 / 1,397,587 | 39.96% | 306,134 / 51,022.333 / 43,548 |
+| map-append | 6/6 | 74 / 12.333 / 11 | 2,272,492 / 378,748.667 / 316,010 | 2,154,624 / 117,868 | 95.57% | 249,330 / 41,555.000 / 42,356.5 |
+| map-request | 6/6 | 98 / 16.333 / 14.5 | 2,718,204 / 453,034.000 / 406,862.5 | 2,589,696 / 128,508 | 95.30% | 327,824 / 54,637.333 / 54,444.5 |
+
+行为修复没有形成全局成本收益结论。相对首版 carrier repeat-3，简单样本三个 TaskSpace 臂请求从 108
+降到 83，但复杂样本从 151 增到 177；复杂样本中的 patch 失败、生命周期拒绝和离群执行路径抵消了
+初始化恢复减少。当前 repeat-3 只用于确认回归修复和发现异常，不能据此选择 projection policy。
+
+静态 Tool section：
+
+| 合同 | Tool bytes / request | Estimated tokens / request |
+|---|---:|---:|
+| Standard | 21,669 | 5,418 |
+| 历史完整 carrier | 60,743 | 15,186 |
+| 当前判别对象 binding | 55,578 | 13,895 |
+
+当前方案相对历史完整 carrier 的总 Tool bytes 只下降 `8.5%`；相对 Standard 的额外 bytes 从
+`39,074` 降到 `33,909`，只下降 `13.2%`，没有达到 6.3 的 80% 门。原因是静态 schema 为保证缓存
+形状不变，必须在每个可用普通 Tool 上持续暴露初始化对象分支。该固定成本与独立初始化行为修复是两个问题：
+本轮不以压缩 schema 重新打开已经关闭的跨 Tool sibling 缺口。
 
 ## 11. Docker 运行经验
 
