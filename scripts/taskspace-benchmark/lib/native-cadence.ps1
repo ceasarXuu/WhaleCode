@@ -68,11 +68,21 @@ function Get-TaskspaceNativeCadenceFacts {
         $payload = Get-TaskspaceCanonicalResponseItem $row
         if ($null -eq $payload) { continue }
         $payloadType = [string]$payload.type
-        $isCall = $payloadType -in @("function_call", "custom_tool_call", "local_shell_call")
+        $isCall = $payloadType -in @(
+            "function_call",
+            "custom_tool_call",
+            "local_shell_call",
+            "tool_search_call",
+            "mcp_tool_call"
+        )
         if ($isCall) {
             $nameProperty = $payload.PSObject.Properties["name"]
             $name = if ($payloadType -eq "local_shell_call") {
                 "local_shell"
+            } elseif ($payloadType -eq "tool_search_call") {
+                "tool_search"
+            } elseif ($payloadType -eq "mcp_tool_call") {
+                "mcp"
             } elseif ($null -ne $nameProperty) {
                 [string]$nameProperty.Value
             } else {
@@ -171,7 +181,15 @@ function Get-TaskspaceNativeCadenceFacts {
             }
         }
 
-        if ($current.Count -gt 0) {
+        $isCallOutput = $payloadType -in @(
+            "function_call_output",
+            "custom_tool_call_output",
+            "local_shell_call_output",
+            "tool_search_output",
+            "tool_search_call_output",
+            "mcp_tool_call_output"
+        )
+        if ($isCallOutput -and $current.Count -gt 0) {
             $batches.Add(@($current.ToArray()))
             $current.Clear()
         }

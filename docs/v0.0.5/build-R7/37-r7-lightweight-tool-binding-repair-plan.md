@@ -1,6 +1,6 @@
 # R7 普通 Tool 轻量绑定与连续动作修复
 
-> 状态：轻量绑定实现与工程验证完成；跨 Tool 首次配对采用率保留为明确未决项
+> 状态：轻量绑定闭环修复已实现；工程、Docker 与独立复审待最终确认
 >
 > 日期：2026-07-24
 >
@@ -43,7 +43,8 @@ TaskSpace 下每个普通 Tool 增加一个必填字符串字段：
 字段不携带 revision、node id、目标、图结构或生命周期参数。Router 在调用普通 Tool handler 前机械移除
 该字段，普通 Tool 的原生参数和结果保持不变。
 
-Standard 不暴露也不接受该字段。
+Standard 不暴露该字段，也不把同名业务字段识别成 TaskSpace binding。外部 Tool 合法拥有
+`taskspace_binding` 业务参数时，Router 原样转发，是否接受由该 Tool 自己的原生 schema 和 handler 决定。
 
 ### 2.2 边界 control
 
@@ -65,6 +66,9 @@ Tool sequence preflight 在任何调用执行前检查完整 provider response�
 4. 任一不匹配使整份 response 零执行拒绝，不允许先提交 control 再发现缺失动作；
 5. `finish_map` 是终态 control，不要求后续动作；
 6. 现有单 response 最多一个 patch 约束保持不变。
+7. control JSON、action 类型和保留字段等机械错误也在整响应 preflight 中拒绝；
+8. 只有收到 `response.completed` 的完整响应才能进入 preflight 和执行；mailbox 抢占不能取得含
+   pending Tool calls 的响应所有权。
 
 合法：
 
@@ -93,6 +97,29 @@ complete_then_continue + taskspace_control
 4. 普通动作失败时，已提交的 control 不自动回滚；
 5. control 结果和普通 Tool 原始结果作为两个有序事实进入上下文，不合并、不再解释；
 6. 同一普通并行段只包含彼此不依赖返回值的动作；有结果依赖的动作等待下一次 provider response。
+
+ToolSearch 的 provider 配对输出必须保留协议要求的 `status=completed`。它不再被当成业务成功状态：
+Runtime 独立保留真实 `succeeded`，错误时额外返回包含原始错误文本和 call id 的
+`ToolSearchFailureV1` 事实，后续依赖 segment 按失败处理。
+
+## 4.1 Tool 形态统一策略
+
+TaskSpace provider visibility 和 ToolSearch 延迟加载结果共用同一个 binding 投影：
+
+| Tool 形态 | TaskSpace 行为 |
+|---|---|
+| Function / Namespace member / ToolSearch | 保持原业务 schema，仅增加轻量 binding |
+| ToolSearch 返回的 Function / Namespace | 使用同一投影后再返回 Agent |
+| apply_patch / code mode Freeform | 投影为等价 Function，保留原 raw input/source |
+| taskspace_control | 保持中央 lifecycle schema，不增加 binding |
+| LocalShell / WebSearch / ImageGeneration / 未知 Freeform | 因不能进入客户端整响应 preflight，在 TaskSpace 确定性隐藏并记录 |
+
+即使 provider 伪造已隐藏的 Custom 或 LocalShell payload，Runtime 仍会在整响应 preflight
+以 `taskspace_tool_shape_unsupported` 零执行拒绝。此策略只按可否进入机械预检分类，不根据任务语义
+替 Agent 选择 Tool。
+
+schema 已包含保留字段时，投影返回 `TaskSpaceToolProjectionError`，prompt 构建确定性失败并记录
+Tool 名与字段；不再使用 panic，也不静默覆盖业务字段。
 
 ## 5. 删除项
 
@@ -149,6 +176,11 @@ complete_then_continue + taskspace_control
 - preflight 反馈包含实际 Tool 序列和机械期望序列，不补动作、不选节点；
 - control 与 ordinary Tool 结果保持两个独立有序事实；
 - Standard schema 不经过装饰；
+- Standard Router 不提取或删除同名业务字段；
+- ToolSearch 返回的延迟 Tool 与初始 prompt Tool 使用同一 binding 投影；
+- 不能参加客户端 preflight 的 provider-native Tool 在 TaskSpace 明确隐藏；
+- mailbox 只在 pending Tool calls 为空时允许抢占，未完成响应的 Tool 前缀永不执行；
+- ToolSearch 失败的 provider 配对状态与真实执行成功状态分离；
 - 完整 carrier executor、复合结果 envelope 和旧 parser 已删除，不保留兼容路径。
 
 初始化 `edges` 的 schema 还明确写入 Root/Finish 硬图规则。该修复只陈述已存在的状态机不变量，不让
@@ -160,9 +192,10 @@ Runtime 生成或修复图。
 
 | 验证 | 结果 |
 |---|---:|
-| `cargo test -p codex-tools taskspace --lib` | 9/9 |
-| `cargo test -p codex-core taskspace --lib --no-fail-fast` | 93/93 |
+| `cargo test -p codex-tools taskspace --lib` | 12/12 |
+| `cargo test -p codex-core taskspace --lib --no-fail-fast` | 99/99 |
 | `cargo test -p codex-core --test all taskspace_terminal_contract --no-fail-fast` | 2/2 |
+| mailbox 未完成响应前缀集成测试 | 1/1 |
 | 五层合同 `-Phase All` | 通过 |
 | trace/cost/performance observer 自测 | 通过 |
 | observer Skill 校验 | 通过 |

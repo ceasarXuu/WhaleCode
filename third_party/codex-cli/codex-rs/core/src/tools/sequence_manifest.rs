@@ -9,6 +9,8 @@ pub(crate) struct ToolSequenceManifestEntry {
     pub(crate) taskspace_control_action: Option<String>,
     pub(crate) taskspace_binding: Option<String>,
     pub(crate) requires_taskspace_binding: bool,
+    pub(crate) payload_kind: &'static str,
+    pub(crate) unsupported_taskspace_payload: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +32,12 @@ impl ToolSequenceManifest {
                 taskspace_control_action: taskspace_control_action(call),
                 taskspace_binding: call.taskspace_binding.clone(),
                 requires_taskspace_binding: requires_taskspace_binding(call),
+                payload_kind: payload_kind(call),
+                unsupported_taskspace_payload: matches!(
+                    call.payload,
+                    crate::tools::context::ToolPayload::Custom { .. }
+                        | crate::tools::context::ToolPayload::LocalShell { .. }
+                ),
             })
             .collect::<Vec<_>>();
         let request_patch_count = entries.iter().filter(|entry| entry.is_apply_patch).count();
@@ -37,6 +45,16 @@ impl ToolSequenceManifest {
             entries,
             request_patch_count,
         }
+    }
+}
+
+fn payload_kind(call: &ToolCall) -> &'static str {
+    match call.payload {
+        crate::tools::context::ToolPayload::Function { .. } => "function",
+        crate::tools::context::ToolPayload::ToolSearch { .. } => "tool_search",
+        crate::tools::context::ToolPayload::Custom { .. } => "custom",
+        crate::tools::context::ToolPayload::LocalShell { .. } => "local_shell",
+        crate::tools::context::ToolPayload::Mcp { .. } => "mcp",
     }
 }
 

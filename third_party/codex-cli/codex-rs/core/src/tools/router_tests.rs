@@ -222,12 +222,61 @@ fn extracts_taskspace_binding_without_forwarding_it_to_the_tool() -> anyhow::Res
     })
     .to_string();
 
-    let (tool_arguments, binding) = extract_taskspace_binding(arguments)?;
+    let (tool_arguments, binding) = extract_taskspace_binding(arguments, true)?;
     let tool_arguments: serde_json::Value = serde_json::from_str(&tool_arguments)?;
     assert_eq!(
         tool_arguments,
         serde_json::json!({ "input": original_input })
     );
     assert_eq!(binding.as_deref(), Some("after_boundary"));
+    Ok(())
+}
+
+#[test]
+fn standard_mode_preserves_business_taskspace_binding_field() -> anyhow::Result<()> {
+    let arguments = serde_json::json!({
+        "account": "example",
+        "taskspace_binding": "business-owned-value"
+    })
+    .to_string();
+
+    let (tool_arguments, binding) = extract_taskspace_binding(arguments.clone(), false)?;
+
+    assert_eq!(tool_arguments, arguments);
+    assert_eq!(binding, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn standard_tool_call_forwards_business_taskspace_binding_unchanged() -> anyhow::Result<()> {
+    let (session, _) = make_session_and_context().await;
+    let session = Arc::new(session);
+    let arguments = serde_json::json!({
+        "account": "example",
+        "taskspace_binding": "business-owned-value"
+    })
+    .to_string();
+
+    let call = ToolRouter::build_tool_call(
+        &session,
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "business_tool".into(),
+            namespace: None,
+            arguments: arguments.clone(),
+            call_id: "business-call".into(),
+        },
+    )
+    .await?
+    .expect("function call");
+
+    assert_eq!(call.taskspace_binding, None);
+    let ToolPayload::Function {
+        arguments: forwarded,
+    } = call.payload
+    else {
+        panic!("expected function payload");
+    };
+    assert_eq!(forwarded, arguments);
     Ok(())
 }

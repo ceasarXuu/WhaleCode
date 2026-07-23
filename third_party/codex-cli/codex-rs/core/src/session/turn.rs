@@ -113,6 +113,8 @@ use codex_utils_stream_parser::ProposedPlanSegment;
 use codex_utils_stream_parser::extract_proposed_plan_text;
 use codex_utils_stream_parser::strip_citations;
 use futures::prelude::*;
+use sha2::Digest;
+use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::error;
@@ -1071,7 +1073,7 @@ pub(crate) fn build_prompt(
     router: &ToolRouter,
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
-) -> Prompt {
+) -> Result<Prompt, codex_tools::TaskSpaceToolProjectionError> {
     build_prompt_with_tool_visibility(
         input,
         router,
@@ -1143,38 +1145,67 @@ fn taskspace_nonterminal_assistant_message(item: &ResponseItem) -> Option<Respon
     })
 }
 
+fn should_preempt_response_for_mailbox(
+    preemptible_item: bool,
+    mailbox_has_pending: bool,
+    pending_tool_call_count: usize,
+) -> bool {
+    preemptible_item && mailbox_has_pending && pending_tool_call_count == 0
+}
+
 fn apply_provider_tool_visibility(
     tools: Vec<ToolSpec>,
     tool_visibility: TaskspaceProviderToolVisibility,
-) -> Vec<ToolSpec> {
+) -> Result<Vec<ToolSpec>, codex_tools::TaskSpaceToolProjectionError> {
     match tool_visibility {
-        TaskspaceProviderToolVisibility::Standard => tools
+        TaskspaceProviderToolVisibility::Standard => Ok(tools
             .into_iter()
             .filter(|spec| spec.name() != "taskspace_control")
-            .collect(),
+            .collect()),
         TaskspaceProviderToolVisibility::TaskspaceNative => {
             trace!(
                 target = "codex_core::taskspace",
                 "taskspace_linear_plan_tool_hidden"
             );
-            let visible = tools
-                .into_iter()
-                .filter(|spec| spec.name() != "update_plan")
-                .map(codex_tools::decorate_taskspace_binding_tool)
-                .collect::<Vec<_>>();
+            let mut visible = Vec::new();
+            for spec in tools {
+                if spec.name() == "update_plan" {
+                    continue;
+                }
+                match codex_tools::project_taskspace_binding_tool(spec)? {
+                    codex_tools::TaskSpaceToolProjection::Visible(spec) => visible.push(spec),
+                    codex_tools::TaskSpaceToolProjection::Hidden {
+                        tool_name,
+                        tool_kind,
+                        reason,
+                    } => {
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            tool_name,
+                            tool_kind,
+                            reason,
+                            state_commit = false,
+                            "taskspace.provider_tool_hidden_unsequenced"
+                        );
+                    }
+                }
+            }
             trace_taskspace_provider_tool_schema_profile(&visible);
-            visible
+            Ok(visible)
         }
     }
 }
 
 fn trace_taskspace_provider_tool_schema_profile(tools: &[ToolSpec]) {
+    let mut tool_set_hasher = Sha256::new();
     let mut total_schema_bytes = 0;
     let mut binding_extension_count = 0;
     let entries = tools
         .iter()
         .map(|tool| {
             let encoded = serde_json::to_vec(tool).unwrap_or_default();
+            tool_set_hasher.update(&encoded);
+            tool_set_hasher.update([0xff]);
             let bytes = encoded.len();
             total_schema_bytes += bytes;
             if encoded
@@ -1191,6 +1222,9 @@ fn trace_taskspace_provider_tool_schema_profile(tools: &[ToolSpec]) {
         tool_count = tools.len(),
         binding_extension_count,
         total_schema_bytes,
+        tool_set_sha256 = format!("{:x}", tool_set_hasher.finalize()),
+        package_version = env!("CARGO_PKG_VERSION"),
+        build_identity = option_env!("WHALECODE_BUILD_ID").unwrap_or("unavailable"),
         tool_schema_bytes = entries.join(","),
         "taskspace.provider_tool_schema_profile"
     );
@@ -1202,7 +1236,7 @@ pub(crate) fn build_prompt_with_tool_visibility(
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
     tool_visibility: TaskspaceProviderToolVisibility,
-) -> Prompt {
+) -> Result<Prompt, codex_tools::TaskSpaceToolProjectionError> {
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
         .iter()
@@ -1218,9 +1252,9 @@ pub(crate) fn build_prompt_with_tool_visibility(
             .filter_map(|spec| filter_deferred_dynamic_tool_spec(spec, &deferred_dynamic_tools))
             .collect()
     };
-    let tools = apply_provider_tool_visibility(tools, tool_visibility);
+    let tools = apply_provider_tool_visibility(tools, tool_visibility)?;
 
-    Prompt {
+    Ok(Prompt {
         input,
         tools,
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
@@ -1231,7 +1265,7 @@ pub(crate) fn build_prompt_with_tool_visibility(
         output_schema_strict: !crate::guardian::is_guardian_reviewer_source(
             &turn_context.session_source,
         ),
-    }
+    })
 }
 
 fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
@@ -1437,7 +1471,17 @@ async fn run_sampling_request(
             turn_context.as_ref(),
             base_instructions,
             tool_visibility,
-        );
+        )
+        .map_err(|error| {
+            tracing::error!(
+                target: "codex_core::taskspace",
+                tool_name = error.tool_name,
+                field = error.field,
+                state_commit = false,
+                "taskspace.tool_schema_collision"
+            );
+            CodexErr::Fatal(format!("TaskSpace tool schema projection failed: {error}"))
+        })?;
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
             Arc::clone(&sess),
@@ -1679,10 +1723,19 @@ mod active_context_replacement_tests {
         ];
 
         let filtered =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative)
+                .expect("TaskSpace projection");
         let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["taskspace_control"]);
+    }
+
+    #[test]
+    fn mailbox_preemption_never_takes_ownership_of_pending_tool_calls() {
+        assert!(should_preempt_response_for_mailbox(true, true, 0));
+        assert!(!should_preempt_response_for_mailbox(true, true, 1));
+        assert!(!should_preempt_response_for_mailbox(true, false, 0));
+        assert!(!should_preempt_response_for_mailbox(false, true, 0));
     }
 
     #[test]
@@ -1694,11 +1747,13 @@ mod active_context_replacement_tests {
         let standard = apply_provider_tool_visibility(
             vec![ordinary.clone()],
             TaskspaceProviderToolVisibility::Standard,
-        );
+        )
+        .expect("Standard projection");
         let taskspace = apply_provider_tool_visibility(
             vec![ordinary],
             TaskspaceProviderToolVisibility::TaskspaceNative,
-        );
+        )
+        .expect("TaskSpace projection");
 
         let ToolSpec::Function(standard) = &standard[0] else {
             panic!("exec_command should be a function Tool");
@@ -1750,6 +1805,54 @@ mod active_context_replacement_tests {
     }
 
     #[test]
+    fn taskspace_visibility_hides_unsequenced_native_shapes() {
+        let tools = vec![
+            ToolSpec::LocalShell {},
+            ToolSpec::ImageGeneration {
+                output_format: "png".into(),
+            },
+            codex_tools::create_taskspace_control_tool(),
+        ];
+
+        let visible =
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative)
+                .expect("TaskSpace projection");
+
+        assert_eq!(
+            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
+            vec!["taskspace_control"]
+        );
+    }
+
+    #[test]
+    fn taskspace_visibility_reports_reserved_field_collision_without_panicking() {
+        let conflicting = ToolSpec::Function(codex_tools::ResponsesApiTool {
+            name: "conflicting_tool".into(),
+            description: "conflict".into(),
+            strict: false,
+            defer_loading: None,
+            parameters: codex_tools::JsonSchema::object(
+                std::collections::BTreeMap::from([(
+                    codex_tools::TASKSPACE_BINDING_FIELD.to_string(),
+                    codex_tools::JsonSchema::string(Some("business field".into())),
+                )]),
+                None,
+                Some(false.into()),
+            ),
+            output_schema: None,
+        });
+
+        let error = apply_provider_tool_visibility(
+            vec![conflicting],
+            TaskspaceProviderToolVisibility::TaskspaceNative,
+        )
+        .expect_err("reserved field collision");
+
+        assert_eq!(error.tool_name, "conflicting_tool");
+        assert_eq!(error.field, codex_tools::TASKSPACE_BINDING_FIELD);
+    }
+
+    #[test]
     fn standard_native_tools_hide_map_control_but_keep_linear_plan() {
         let tools = vec![
             codex_tools::create_update_plan_tool(),
@@ -1757,7 +1860,8 @@ mod active_context_replacement_tests {
         ];
 
         let visible =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::Standard);
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::Standard)
+                .expect("Standard projection");
         let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["update_plan"]);
@@ -2716,7 +2820,7 @@ async fn try_run_sampling_request(
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
     let receiving_span = trace_span!("receiving_stream");
-    let mut outcome: CodexResult<SamplingRequestResult> = loop {
+    let outcome: CodexResult<SamplingRequestResult> = loop {
         let handle_responses = trace_span!(
             parent: &receiving_span,
             "handle_responses",
@@ -2882,11 +2986,27 @@ async fn try_run_sampling_request(
                 }
                 needs_follow_up |= output_result.needs_follow_up;
                 // todo: remove before stabilizing multi-agent v2
-                if preempt_for_mailbox_mail && sess.mailbox_rx.lock().await.has_pending() {
-                    break Ok(SamplingRequestResult {
-                        needs_follow_up: true,
-                        last_agent_message,
-                    });
+                if preempt_for_mailbox_mail {
+                    let mailbox_has_pending = sess.mailbox_rx.lock().await.has_pending();
+                    if should_preempt_response_for_mailbox(
+                        preempt_for_mailbox_mail,
+                        mailbox_has_pending,
+                        pending_tool_calls.len(),
+                    ) {
+                        break Ok(SamplingRequestResult {
+                            needs_follow_up: true,
+                            last_agent_message,
+                        });
+                    }
+                    if mailbox_has_pending && !pending_tool_calls.is_empty() {
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            pending_tool_call_count = pending_tool_calls.len(),
+                            zero_dispatch = true,
+                            state_commit = false,
+                            "taskspace.response_mailbox_preemption_deferred_until_completed"
+                        );
+                    }
                 }
             }
             ResponseEvent::OutputItemAdded(item) => {
@@ -3253,28 +3373,17 @@ async fn try_run_sampling_request(
     .await;
 
     if outcome.is_ok() && !pending_tool_calls.is_empty() {
-        let tool_outcome = execute_response_tool_sequence(
-            tool_runtime.clone(),
-            std::mem::take(&mut pending_tool_calls),
-            cancellation_token.child_token(),
-        )
-        .await?;
-        for output in tool_outcome.outputs {
-            record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
-        }
-        if let Some(terminal) = tool_outcome.terminal_completion {
-            publish_taskspace_terminal_agent_message(
-                sess.as_ref(),
-                turn_context.as_ref(),
-                &terminal.call_id,
-                &terminal.carrier,
-            )
-            .await;
-            if let Ok(result) = &mut outcome {
-                result.needs_follow_up = false;
-                result.last_agent_message = Some(terminal.carrier.summary);
-            }
-        }
+        tracing::error!(
+            target: "codex_core::taskspace",
+            pending_tool_call_count = pending_tool_calls.len(),
+            zero_dispatch = true,
+            state_commit = false,
+            "taskspace.response_ended_without_completion_with_pending_tools"
+        );
+        return Err(CodexErr::Fatal(
+            "provider response ended without response.completed while tool calls were pending"
+                .to_string(),
+        ));
     }
 
     if cancellation_token.is_cancelled() {

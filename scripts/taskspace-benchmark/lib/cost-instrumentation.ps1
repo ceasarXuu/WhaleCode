@@ -1405,7 +1405,14 @@ function New-TaskspaceControlUsageSummary {
             if ($null -eq $payload) { continue }
             $rolloutResponseItemCount++
             $payloadType = [string](Get-TaskspaceCostProperty $payload @("type"))
-            if ($payloadType -in @("function_call_output", "custom_tool_call_output")) {
+            if ($payloadType -in @(
+                    "function_call_output",
+                    "custom_tool_call_output",
+                    "local_shell_call_output",
+                    "tool_search_output",
+                    "tool_search_call_output",
+                    "mcp_tool_call_output"
+                )) {
                 $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
                 $output = [string](Get-TaskspaceCostProperty $payload @("output"))
                 $batch = $null
@@ -1502,8 +1509,22 @@ function New-TaskspaceControlUsageSummary {
                 }
                 continue
             }
-            if ($payloadType -notin @("function_call", "custom_tool_call")) { continue }
-            $toolName = [string](Get-TaskspaceCostProperty $payload @("name"))
+            if ($payloadType -notin @(
+                    "function_call",
+                    "custom_tool_call",
+                    "local_shell_call",
+                    "tool_search_call",
+                    "mcp_tool_call"
+                )) { continue }
+            $toolName = if ($payloadType -eq "local_shell_call") {
+                "local_shell"
+            } elseif ($payloadType -eq "tool_search_call") {
+                "tool_search"
+            } elseif ($payloadType -eq "mcp_tool_call") {
+                "mcp"
+            } else {
+                [string](Get-TaskspaceCostProperty $payload @("name"))
+            }
             $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
             if ([string]::IsNullOrWhiteSpace($callId)) { continue }
             $arguments = Get-TaskspaceCostProperty $payload @("arguments", "args")

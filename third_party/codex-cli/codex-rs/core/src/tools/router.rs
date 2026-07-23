@@ -178,6 +178,7 @@ impl ToolRouter {
         session: &Session,
         item: ResponseItem,
     ) -> Result<Option<ToolCall>, FunctionCallError> {
+        let taskspace_active = session.taskspace_active().await;
         match item {
             ResponseItem::FunctionCall {
                 name,
@@ -187,7 +188,8 @@ impl ToolRouter {
                 ..
             } => {
                 let tool_name = ToolName::new(namespace, name);
-                let (arguments, taskspace_binding) = extract_taskspace_binding(arguments)?;
+                let (arguments, taskspace_binding) =
+                    extract_taskspace_binding(arguments, taskspace_active)?;
                 if let Some(tool_info) = session.resolve_mcp_tool_info(&tool_name).await {
                     Ok(Some(ToolCall {
                         tool_name: tool_info.canonical_tool_name(),
@@ -216,7 +218,8 @@ impl ToolRouter {
                 arguments,
                 ..
             } if execution == "client" => {
-                let (arguments, taskspace_binding) = extract_taskspace_binding_value(arguments)?;
+                let (arguments, taskspace_binding) =
+                    extract_taskspace_binding_value(arguments, taskspace_active)?;
                 let arguments: SearchToolCallParams =
                     serde_json::from_value(arguments).map_err(|err| {
                         FunctionCallError::RespondToModel(format!(
@@ -310,9 +313,10 @@ impl ToolRouter {
 
 fn extract_taskspace_binding(
     arguments: String,
+    taskspace_active: bool,
 ) -> Result<(String, Option<String>), FunctionCallError> {
     const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
-    if !arguments.contains(FIELD) {
+    if !taskspace_active || !arguments.contains(FIELD) {
         return Ok((arguments, None));
     }
     let mut value = serde_json::from_str::<JsonValue>(&arguments).map_err(|error| {
@@ -337,7 +341,11 @@ fn extract_taskspace_binding(
 
 fn extract_taskspace_binding_value(
     mut arguments: JsonValue,
+    taskspace_active: bool,
 ) -> Result<(JsonValue, Option<String>), FunctionCallError> {
+    if !taskspace_active {
+        return Ok((arguments, None));
+    }
     const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
     let Some(object) = arguments.as_object_mut() else {
         return Err(FunctionCallError::RespondToModel(format!(

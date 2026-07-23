@@ -1,6 +1,8 @@
 use codex_protocol::error::Result;
 use codex_protocol::models::ResponseInputItem;
 use futures::future::join_all;
+use sha2::Digest;
+use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::context::TaskSpaceTerminalCarrier;
@@ -55,14 +57,19 @@ pub(crate) async fn execute_response_tool_sequence(
     let manifest = match validate_tool_sequence(&calls, taskspace_active) {
         Ok(manifest) => manifest,
         Err(failure) => {
+            let canonical_revision = runtime.taskspace_canonical_revision().await;
             tracing::warn!(
                 target: "codex_core::taskspace",
                 reason_code = failure.reason_code,
                 request_patch_count = failure.request_patch_count,
                 declared_tool_count = failure.declared_tool_count,
+                call_ids = tool_sequence_call_ids(&calls),
+                sequence_sha256 = tool_sequence_sha256(&calls),
+                canonical_revision = ?canonical_revision,
+                zero_dispatch = true,
+                state_commit = false,
                 "tool.response_preflight_rejected"
             );
-            let canonical_revision = runtime.taskspace_canonical_revision().await;
             return Ok(ToolSequenceOutcome {
                 outputs: failure.outputs(&calls, canonical_revision),
                 terminal_completion: None,
@@ -73,6 +80,8 @@ pub(crate) async fn execute_response_tool_sequence(
         target: "codex_core::taskspace",
         declared_tool_count = manifest.entries.len(),
         request_patch_count = manifest.request_patch_count,
+        call_ids = tool_sequence_call_ids(&calls),
+        sequence_sha256 = tool_sequence_sha256(&calls),
         "tool.request_patch_count_validated"
     );
     let segments = sequence_segments(&calls);
@@ -97,7 +106,7 @@ pub(crate) async fn execute_response_tool_sequence(
                     terminal_call_id = terminal.call_id,
                     "tool_response_sequence_call_skipped"
                 );
-                outputs.push(ToolCallRuntime::terminal_completion_skipped_response(
+                outputs.extend(ToolCallRuntime::terminal_completion_skipped_responses(
                     call,
                     &terminal.call_id,
                 ));
@@ -114,7 +123,7 @@ pub(crate) async fn execute_response_tool_sequence(
                     prior_call_id,
                     "tool_response_sequence_call_skipped"
                 );
-                outputs.push(ToolCallRuntime::skipped_response(call, prior_call_id));
+                outputs.extend(ToolCallRuntime::skipped_responses(call, prior_call_id));
             }
             continue;
         }
@@ -165,8 +174,10 @@ pub(crate) async fn execute_response_tool_sequence(
 
         for execution in &segment_executions {
             let output = &execution.response;
-            if !response_input_succeeded(output) && prior_failure.is_none() {
-                prior_failure = Some(response_input_call_id(output).to_string());
+            if prior_failure.is_none()
+                && let Some(call_id) = execution_failure_call_id(execution)
+            {
+                prior_failure = Some(call_id.to_string());
             }
             if let Some(carrier) = execution.taskspace_terminal_carrier.as_ref() {
                 let call_id = response_input_call_id(output).to_string();
@@ -210,11 +221,10 @@ pub(crate) async fn execute_response_tool_sequence(
             failed = prior_failure.is_some(),
             "tool_response_sequence_segment_completed"
         );
-        outputs.extend(
-            segment_executions
-                .into_iter()
-                .map(|execution| execution.response),
-        );
+        for execution in segment_executions {
+            outputs.push(execution.response);
+            outputs.extend(execution.supplemental_responses);
+        }
     }
 
     tracing::info!(
@@ -282,6 +292,34 @@ fn response_input_call_id(output: &ResponseInputItem) -> &str {
     }
 }
 
+fn tool_sequence_call_ids(calls: &[ToolCall]) -> String {
+    calls
+        .iter()
+        .map(|call| call.call_id.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn tool_sequence_sha256(calls: &[ToolCall]) -> String {
+    let mut hasher = Sha256::new();
+    for call in calls {
+        hasher.update(call.call_id.as_bytes());
+        hasher.update([0]);
+        hasher.update(call.tool_name.display().as_bytes());
+        hasher.update([0]);
+        hasher.update(call.taskspace_binding.as_deref().unwrap_or("").as_bytes());
+        hasher.update([0xff]);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn execution_failure_call_id(
+    execution: &crate::tools::parallel::ToolCallExecution,
+) -> Option<&str> {
+    (!execution.succeeded).then(|| response_input_call_id(&execution.response))
+}
+
+#[cfg(test)]
 fn response_input_succeeded(output: &ResponseInputItem) -> bool {
     match output {
         ResponseInputItem::FunctionCallOutput { output, .. }

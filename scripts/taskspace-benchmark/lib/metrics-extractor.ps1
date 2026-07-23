@@ -75,7 +75,12 @@ function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
         $responseItem = Get-TaskspaceCanonicalResponseItem $event
         if ($null -eq $responseItem) { continue }
         $responseType = [string]$responseItem.type
-        if ($responseType -in @("function_call", "custom_tool_call") -and
+        if ($responseType -in @(
+                "function_call",
+                "custom_tool_call",
+                "tool_search_call",
+                "mcp_tool_call"
+            ) -and
             [string]$responseItem.name -ne "taskspace_control" -and
             -not $bindingEstablished) {
             return $true
@@ -192,10 +197,24 @@ function Get-TaskspaceRolloutToolStats {
         $payload = Get-TaskspaceCanonicalResponseItem $evt
         if ($null -eq $payload) { continue }
         $payloadType = [string]$payload.type
-        if ($payloadType -in @("function_call", "custom_tool_call")) {
+        if ($payloadType -in @(
+                "function_call",
+                "custom_tool_call",
+                "local_shell_call",
+                "tool_search_call",
+                "mcp_tool_call"
+            )) {
             $callId = [string]$payload.call_id
             if ([string]::IsNullOrWhiteSpace($callId)) { $callId = "rollout-call-$($callNames.Count)" }
-            $name = [string]$payload.name
+            $name = if ($payloadType -eq "local_shell_call") {
+                "local_shell"
+            } elseif ($payloadType -eq "tool_search_call") {
+                "tool_search"
+            } elseif ($payloadType -eq "mcp_tool_call") {
+                "mcp"
+            } else {
+                [string]$payload.name
+            }
             if ([string]::IsNullOrWhiteSpace($name)) { $name = "unknown" }
             $callNames[$callId] = $name
             if ($name -eq "taskspace_control") {
@@ -205,7 +224,14 @@ function Get-TaskspaceRolloutToolStats {
             }
             continue
         }
-        if ($payloadType -in @("function_call_output", "custom_tool_call_output")) {
+        if ($payloadType -in @(
+                "function_call_output",
+                "custom_tool_call_output",
+                "local_shell_call_output",
+                "tool_search_output",
+                "tool_search_call_output",
+                "mcp_tool_call_output"
+            )) {
             $callId = [string]$payload.call_id
             if ([string]::IsNullOrWhiteSpace($callId)) { continue }
             $name = if ($callNames.ContainsKey($callId)) { [string]$callNames[$callId] } else { "" }
@@ -216,6 +242,19 @@ function Get-TaskspaceRolloutToolStats {
                 $output -match "(?m)^Exit code:\s*(?!0\b)\d+" -or
                 $output -match '"exit_code"\s*:\s*(?!0\b)\d+') {
                 [void]$failedCallIds.Add($callId)
+            }
+            continue
+        }
+        if ($payloadType -eq "message" -and [string]$payload.role -eq "developer") {
+            $content = @($payload.content | ForEach-Object { [string]$_.text }) -join ""
+            if ($content -match '"schema_version"\s*:\s*"ToolSearchFailureV1"') {
+                try {
+                    $failure = $content | ConvertFrom-Json
+                    $callId = [string]$failure.call_id
+                    if (-not [string]::IsNullOrWhiteSpace($callId)) {
+                        [void]$failedCallIds.Add($callId)
+                    }
+                } catch {}
             }
         }
     }

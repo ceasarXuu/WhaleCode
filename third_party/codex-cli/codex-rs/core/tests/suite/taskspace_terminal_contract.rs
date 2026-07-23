@@ -189,8 +189,8 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
         );
         assert_eq!(
             body["tools"].as_array().map(Vec::len),
-            Some(13),
-            "TaskSpace must preserve the immutable tool surface"
+            Some(12),
+            "TaskSpace must preserve the immutable preflight-capable tool surface: {tool_names:?}"
         );
         assert_eq!(
             tool_names.first().copied(),
@@ -201,6 +201,13 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
             !tool_names.contains(&"update_plan"),
             "TaskSpace request must hide the linear plan tool"
         );
+        for unsupported in ["local_shell", "web_search", "image_generation"] {
+            assert!(
+                !tool_names.contains(&unsupported),
+                "TaskSpace must hide provider-native tools that cannot enter client preflight: \
+                 {unsupported}"
+            );
+        }
     }
     for call_id in ["init-control", "complete-control"] {
         let output = responses

@@ -28,6 +28,7 @@ use crate::tools::router::ToolRouter;
 use crate::tools::taskspace_binding::validate_taskspace_binding;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
+use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
@@ -44,6 +45,8 @@ pub(crate) struct ToolCallRuntime {
 
 pub(crate) struct ToolCallExecution {
     pub(crate) response: ResponseInputItem,
+    pub(crate) supplemental_responses: Vec<ResponseInputItem>,
+    pub(crate) succeeded: bool,
     pub(crate) taskspace_terminal_carrier: Option<TaskSpaceTerminalCarrier>,
 }
 
@@ -85,14 +88,16 @@ impl ToolCallRuntime {
         self.session.taskspace_active().await
     }
 
-    pub(crate) fn invalid_call_response(
+    pub(crate) fn invalid_call_responses(
         call: &ToolCall,
         message: impl Into<String>,
-    ) -> ResponseInputItem {
-        Self::failure_response(
-            call.clone(),
-            FunctionCallError::RespondToModel(message.into()),
-        )
+    ) -> Vec<ResponseInputItem> {
+        let error = FunctionCallError::RespondToModel(message.into());
+        let mut responses = vec![Self::failure_response_for_error(call, &error)];
+        if let Some(supplemental) = Self::supplemental_failure_response(call, &error) {
+            responses.push(supplemental);
+        }
+        responses
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -103,17 +108,26 @@ impl ToolCallRuntime {
     ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
         async move {
             if cancellation_token.is_cancelled() {
+                let error = FunctionCallError::RespondToModel(
+                    "tool call cancelled before TaskSpace binding validation".to_string(),
+                );
                 return Ok(ToolCallExecution {
-                    response: Self::invalid_call_response(
-                        &call,
-                        "tool call cancelled before TaskSpace binding validation",
-                    ),
+                    response: Self::failure_response_for_error(&call, &error),
+                    supplemental_responses: Self::supplemental_failure_response(&call, &error)
+                        .into_iter()
+                        .collect(),
+                    succeeded: false,
                     taskspace_terminal_carrier: None,
                 });
             }
             if let Err(message) = validate_taskspace_binding(&self.session, &call).await {
+                let error = FunctionCallError::RespondToModel(message);
                 return Ok(ToolCallExecution {
-                    response: Self::invalid_call_response(&call, message),
+                    response: Self::failure_response_for_error(&call, &error),
+                    supplemental_responses: Self::supplemental_failure_response(&call, &error)
+                        .into_iter()
+                        .collect(),
+                    succeeded: false,
                     taskspace_terminal_carrier: None,
                 });
             }
@@ -123,16 +137,27 @@ impl ToolCallRuntime {
             match future.await {
                 Ok(response) => {
                     let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
+                    let succeeded = response.result.success_for_logging();
                     Ok(ToolCallExecution {
                         response: response.into_response(),
+                        supplemental_responses: Vec::new(),
+                        succeeded,
                         taskspace_terminal_carrier,
                     })
                 }
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
-                Err(other) => Ok(ToolCallExecution {
-                    response: Self::failure_response(error_call, other),
-                    taskspace_terminal_carrier: None,
-                }),
+                Err(other) => {
+                    let supplemental_responses =
+                        Self::supplemental_failure_response(&error_call, &other)
+                            .into_iter()
+                            .collect();
+                    Ok(ToolCallExecution {
+                        response: Self::failure_response(error_call, other),
+                        supplemental_responses,
+                        succeeded: false,
+                        taskspace_terminal_carrier: None,
+                    })
+                }
             }
         }
         .in_current_span()
@@ -300,8 +325,31 @@ impl ToolCallRuntime {
         }
     }
 
-    pub(crate) fn skipped_response(call: &ToolCall, prior_call_id: &str) -> ResponseInputItem {
-        Self::skipped_response_with_status(
+    fn supplemental_failure_response(
+        call: &ToolCall,
+        err: &FunctionCallError,
+    ) -> Option<ResponseInputItem> {
+        matches!(call.payload, ToolPayload::ToolSearch { .. }).then(|| {
+            let message = function_call_error_model_visible_message(err);
+            Self::factual_message(serde_json::json!({
+                "schema_version": "ToolSearchFailureV1",
+                "status": "failed",
+                "success": false,
+                "call_id": call.call_id,
+                "tool": call.tool_name.display(),
+                "error": {
+                    "class": "tool",
+                    "message": message,
+                },
+            }))
+        })
+    }
+
+    pub(crate) fn skipped_responses(
+        call: &ToolCall,
+        prior_call_id: &str,
+    ) -> Vec<ResponseInputItem> {
+        Self::skipped_responses_with_status(
             call,
             "skipped_due_to_prior_failure",
             "prior_call_id",
@@ -309,11 +357,11 @@ impl ToolCallRuntime {
         )
     }
 
-    pub(crate) fn terminal_completion_skipped_response(
+    pub(crate) fn terminal_completion_skipped_responses(
         call: &ToolCall,
         terminal_call_id: &str,
-    ) -> ResponseInputItem {
-        Self::skipped_response_with_status(
+    ) -> Vec<ResponseInputItem> {
+        Self::skipped_responses_with_status(
             call,
             "skipped_due_to_terminal_completion",
             "terminal_call_id",
@@ -321,18 +369,18 @@ impl ToolCallRuntime {
         )
     }
 
-    fn skipped_response_with_status(
+    fn skipped_responses_with_status(
         call: &ToolCall,
         status: &str,
         cause_field: &str,
         cause_call_id: &str,
-    ) -> ResponseInputItem {
+    ) -> Vec<ResponseInputItem> {
         let message =
             format!("TaskSpaceToolSkippedV1:\nstatus: {status}\n{cause_field}: {cause_call_id}");
-        match &call.payload {
+        let response = match &call.payload {
             ToolPayload::ToolSearch { .. } => ResponseInputItem::ToolSearchOutput {
                 call_id: call.call_id.clone(),
-                status: status.to_string(),
+                status: "completed".to_string(),
                 execution: "client".to_string(),
                 tools: Vec::new(),
             },
@@ -357,6 +405,29 @@ impl ToolCallRuntime {
                     },
                 }
             }
+        };
+        let mut responses = vec![response];
+        if matches!(call.payload, ToolPayload::ToolSearch { .. }) {
+            responses.push(Self::factual_message(serde_json::json!({
+                "schema_version": "TaskSpaceToolSkippedV1",
+                "status": status,
+                "success": false,
+                "call_id": call.call_id,
+                "cause": {
+                    "field": cause_field,
+                    "call_id": cause_call_id,
+                },
+            })));
+        }
+        responses
+    }
+
+    fn factual_message(value: serde_json::Value) -> ResponseInputItem {
+        ResponseInputItem::Message {
+            role: "developer".to_string(),
+            content: vec![ContentItem::InputText {
+                text: value.to_string(),
+            }],
         }
     }
 }
@@ -843,6 +914,7 @@ mod tests {
     use crate::tools::context::ToolPayload;
     use crate::tools::context::response_input_model_visible_preview;
     use crate::tools::router::ToolCall;
+    use codex_protocol::models::SearchToolCallParams;
     use codex_tools::ToolName;
 
     fn failure_response_preview(err: FunctionCallError) -> String {
@@ -890,6 +962,48 @@ mod tests {
         assert!(preview.contains("garbled host output"));
         assert!(preview.contains('\0'));
         assert!(!preview.contains("local_validator_infra_failure"));
+    }
+
+    #[test]
+    fn tool_search_failure_keeps_pairing_output_and_exact_error_fact() {
+        let call = ToolCall {
+            tool_name: ToolName::plain("tool_search"),
+            call_id: "search-1".to_string(),
+            payload: ToolPayload::ToolSearch {
+                arguments: SearchToolCallParams {
+                    query: String::new(),
+                    limit: None,
+                },
+            },
+            taskspace_binding: Some("active".to_string()),
+        };
+        let error = FunctionCallError::RespondToModel("query must not be empty".to_string());
+        let response = ToolCallRuntime::failure_response_for_error(&call, &error);
+        let supplemental =
+            ToolCallRuntime::supplemental_failure_response(&call, &error).expect("error fact");
+
+        let codex_protocol::models::ResponseInputItem::ToolSearchOutput { status, tools, .. } =
+            response
+        else {
+            panic!("expected tool_search output");
+        };
+        assert_eq!(status, "completed");
+        assert!(tools.is_empty());
+        let codex_protocol::models::ResponseInputItem::Message { content, .. } = supplemental
+        else {
+            panic!("expected supplemental factual message");
+        };
+        let text = content
+            .into_iter()
+            .map(|item| match item {
+                codex_protocol::models::ContentItem::InputText { text }
+                | codex_protocol::models::ContentItem::OutputText { text } => text,
+                codex_protocol::models::ContentItem::InputImage { .. } => String::new(),
+            })
+            .collect::<String>();
+        assert!(text.contains("ToolSearchFailureV1"));
+        assert!(text.contains("query must not be empty"));
+        assert!(text.contains("\"success\":false"));
     }
 
     #[test]

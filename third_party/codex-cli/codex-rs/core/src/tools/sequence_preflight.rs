@@ -1,5 +1,8 @@
 use codex_protocol::models::ResponseInputItem;
 
+use crate::function_tool::FunctionCallError;
+use crate::tools::context::ToolPayload;
+use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_manifest::ToolSequenceManifest;
@@ -12,6 +15,11 @@ pub(crate) const REQUEST_MULTIPLE_PATCHES_CODE: &str =
 pub(crate) const TASKSPACE_BINDING_REQUIRED_CODE: &str = "taskspace_binding_required";
 pub(crate) const TASKSPACE_BINDING_INVALID_CODE: &str = "taskspace_binding_invalid";
 pub(crate) const TASKSPACE_BINDING_MODE_MISMATCH_CODE: &str = "taskspace_binding_mode_mismatch";
+pub(crate) const TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE: &str =
+    "taskspace_control_binding_forbidden";
+pub(crate) const TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE: &str =
+    "taskspace_control_arguments_invalid";
+pub(crate) const TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE: &str = "taskspace_tool_shape_unsupported";
 pub(crate) const TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE: &str =
     "taskspace_boundary_requires_after_boundary_action";
 pub(crate) const TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE: &str =
@@ -29,7 +37,7 @@ impl ToolSequencePreflightFailure {
     pub(crate) fn outputs(
         &self,
         calls: &[ToolCall],
-        _canonical_revision: Option<u64>,
+        canonical_revision: Option<u64>,
     ) -> Vec<ResponseInputItem> {
         let actual_sequence = ToolSequenceManifest::from_calls(calls)
             .entries
@@ -39,6 +47,7 @@ impl ToolSequencePreflightFailure {
                     "tool": entry.tool_name,
                     "control_action": entry.taskspace_control_action,
                     "taskspace_binding": entry.taskspace_binding,
+                    "payload_kind": entry.payload_kind,
                 })
             })
             .collect::<Vec<_>>();
@@ -65,6 +74,8 @@ impl ToolSequencePreflightFailure {
             "schema_version": "ToolSequencePreflightResultV1",
             "status": "protocol_failed",
             "success": false,
+            "state_commit": false,
+            "canonical_revision": canonical_revision,
             "error": {
                 "class": "protocol",
                 "code": self.reason_code,
@@ -81,7 +92,7 @@ impl ToolSequencePreflightFailure {
         .to_string();
         calls
             .iter()
-            .map(|call| ToolCallRuntime::invalid_call_response(call, payload.clone()))
+            .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
             .collect()
     }
 }
@@ -103,12 +114,46 @@ pub(crate) fn validate_tool_sequence(
         });
     }
 
-    for entry in &manifest.entries {
+    for (call, entry) in calls.iter().zip(&manifest.entries) {
         if !taskspace_active {
             if entry.taskspace_binding.is_some() {
                 return Err(failure(
                     TASKSPACE_BINDING_MODE_MISMATCH_CODE,
                     "taskspace_binding is not available in Standard mode",
+                    &manifest,
+                ));
+            }
+            continue;
+        }
+        if entry.unsupported_taskspace_payload {
+            return Err(failure(
+                TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE,
+                format!(
+                    "TaskSpace cannot sequence provider payload kind `{}`; no tool calls were executed",
+                    entry.payload_kind
+                ),
+                &manifest,
+            ));
+        }
+        if entry.is_taskspace_control {
+            if entry.taskspace_binding.is_some() {
+                return Err(failure(
+                    TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE,
+                    "taskspace_control cannot carry taskspace_binding",
+                    &manifest,
+                ));
+            }
+            let ToolPayload::Function { arguments } = &call.payload else {
+                return Err(failure(
+                    TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
+                    "taskspace_control must use function arguments",
+                    &manifest,
+                ));
+            };
+            if let Err(error) = parse_taskspace_control_args(arguments) {
+                return Err(failure(
+                    TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
+                    control_argument_error_message(error),
                     &manifest,
                 ));
             }
@@ -166,6 +211,18 @@ pub(crate) fn validate_tool_sequence(
         }
     }
     Ok(manifest)
+}
+
+fn control_argument_error_message(error: FunctionCallError) -> String {
+    match error {
+        FunctionCallError::RespondToModel(message) => message,
+        FunctionCallError::MissingLocalShellCallId => {
+            "taskspace_control arguments are missing a call identity".to_string()
+        }
+        FunctionCallError::Fatal(_) => {
+            "taskspace_control arguments failed canonical parsing".to_string()
+        }
+    }
 }
 
 fn failure(

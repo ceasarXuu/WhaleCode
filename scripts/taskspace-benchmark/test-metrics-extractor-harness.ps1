@@ -84,6 +84,24 @@ Assert-True ([int]$cost.taskspace_control_usage.taskspace_control_count -eq 2) "
 Assert-True ((Get-TaskspaceAgentCompletionEvidence "" "taskspace" $rolloutPath).agent_final_observed) "canonical final Agent message was not detected"
 Assert-True (Test-Path -LiteralPath $cost.cost_scan_policy_path) "cost scan policy artifact was not written"
 
+$toolShapePath = Join-Path $artifactDir "tool-shapes-rollout.jsonl"
+$toolShapeWriter = [System.IO.StreamWriter]::new($toolShapePath, $false, [System.Text.UTF8Encoding]::new($false))
+try {
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_call","execution":"client","call_id":"search-1","arguments":{"query":"calendar","taskspace_binding":"active"}}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_output","execution":"client","call_id":"search-1","status":"completed","tools":[]}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"{\"schema_version\":\"ToolSearchFailureV1\",\"status\":\"failed\",\"success\":false,\"call_id\":\"search-1\"}"}]}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"local_shell_call","call_id":"shell-1","action":{"type":"exec","command":["pwd"]}}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"local_shell_call_output","call_id":"shell-1","output":"ok"}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"mcp_tool_call","call_id":"mcp-1","name":"calendar"}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"mcp_tool_call_output","call_id":"mcp-1","output":"ok"}}')
+} finally {
+    $toolShapeWriter.Dispose()
+}
+$toolShapeStats = Get-TaskspaceRolloutToolStats $toolShapePath
+Assert-True ([int]$toolShapeStats.Completed -eq 3) "ToolSearch, LocalShell, or MCP call shape was not counted"
+Assert-True ([int]$toolShapeStats.Failed -eq 1) "ToolSearch supplemental failure fact was not counted"
+Assert-True (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $toolShapePath) "ToolSearch before Map binding was not detected"
+
 if ($failures.Count -gt 0) {
     Write-Host "TaskSpace metrics extractor harness self-test: FAIL"
     $failures | ForEach-Object { Write-Host " - $_" }

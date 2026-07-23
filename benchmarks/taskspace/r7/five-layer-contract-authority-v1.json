@@ -55,7 +55,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
-      "sha256": "480de61de209a5879c82eb1528f29320223f1a1fbc2da522cbee4fe3185653bd",
+      "sha256": "a33352b61545a5b38e3486bd165ef6965604e32acc130dc023bb7dd67c2df6a4",
       "role": "FLA-9 lightweight ordinary Tool binding, boundary sequence, implementation boundary and verification gates"
     },
     {
@@ -148,7 +148,7 @@
       ],
       "binding_schema_source": {
         "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
-        "sha256": "d53cabe21c0cba4e222d54a2ec0a137de936bfbbba91c89df70a22245a9fbe95"
+        "sha256": "04a5cabaa04c6ba4ed5b71579658801f23ace387c18542bcbd3d23b379694fa6"
       },
       "control_argument_parser": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
@@ -156,7 +156,7 @@
       },
       "sequence_preflight": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
-        "sha256": "2ffd83c4ceecd75b73d0cef8371580dc44b03771f59cb35fe5475e0cff3b2cf4"
+        "sha256": "11d0f232b10346303b6b96374dfc574d2909b8e69bde5708825128b4dbfb1707"
       },
       "strict": false,
       "output_schema": null,

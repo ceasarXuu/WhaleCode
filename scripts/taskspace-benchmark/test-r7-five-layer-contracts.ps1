@@ -140,6 +140,7 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     $registrySource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/tools/src/tool_registry_plan.rs"))
     $turnSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/session/turn.rs"))
     $preflightSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"))
+    $toolSearchSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/tool_search.rs"))
     Assert-True $bindingSource.Contains('TASKSPACE_BINDING_FIELD') "Ordinary Tool decorator does not expose taskspace_binding"
     Assert-True $bindingSource.Contains('required.push(TASKSPACE_BINDING_FIELD') "Ordinary Tool decorator does not require taskspace_binding"
     Assert-True $bindingSource.Contains('json!("active")') "Ordinary Tool binding omits active"
@@ -148,7 +149,11 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-True (-not $bindingSource.Contains('initial_work_node')) "Ordinary Tool binding duplicates lifecycle graph fields"
     Assert-True $routerSource.Contains('extract_taskspace_binding') "Router does not strip taskspace_binding before ordinary Tool dispatch"
     Assert-True (-not $registrySource.Contains('decorate_taskspace_carrier_tool')) "Shared Tool registry still decorates Standard schemas"
-    Assert-True $turnSource.Contains('.map(codex_tools::decorate_taskspace_binding_tool)') "TaskSpace provider visibility does not decorate ordinary Tools"
+    Assert-True $turnSource.Contains('project_taskspace_binding_tool(spec)') "TaskSpace provider visibility does not project ordinary Tools"
+    Assert-True $turnSource.Contains('taskspace.provider_tool_hidden_unsequenced') "Unsupported provider-native Tool shapes are not explicitly hidden"
+    Assert-True $bindingSource.Contains('TaskSpaceToolProjectionError') "Reserved binding collision does not use a typed error"
+    Assert-True (-not $bindingSource.Contains('assert!')) "TaskSpace binding projection can still panic on schema collision"
+    Assert-True $toolSearchSource.Contains('project_taskspace_binding_loadable_tool') "ToolSearch results bypass the TaskSpace binding projection"
     Assert-True $turnSource.Contains('taskspace.provider_tool_schema_profile') "TaskSpace Tool schema cost is not observable"
     Assert-True $bindingRuntimeSource.Contains('session.taskspace_active().await') "Runtime binding contract is not scoped to canonical TaskSpace mode"
     Assert-True $bindingRuntimeSource.Contains('TaskSpaceBindingValidationResultV1') "Binding validation feedback is not factual and typed"
@@ -173,6 +178,8 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-True (-not $controlSource.Contains('"close_finish_with_no_active_work"')) "Superseded Ready-Finish action is still exposed"
     Assert-True $preflightSource.Contains('TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE') "Response preflight does not enforce boundary/action pairing"
     Assert-True $preflightSource.Contains('TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE') "Response preflight does not reject orphan after_boundary"
+    Assert-True $preflightSource.Contains('TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE') "Response preflight does not reject mechanically invalid control arguments"
+    Assert-True $preflightSource.Contains('TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE') "Response preflight does not reject hidden provider payload shapes"
     Assert-Equal (Get-Sha256 $productionL2Path) (Get-Sha256 $l2Path) "Production L2 bytes differ from authority artifact"
     $l2Source = [System.IO.File]::ReadAllText($productionL2Path)
     Assert-True $l2Source.Contains('close the Map with one `finish_map` call') "L2 does not use one terminal action"

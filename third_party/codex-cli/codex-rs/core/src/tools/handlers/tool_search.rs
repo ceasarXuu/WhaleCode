@@ -13,7 +13,9 @@ use codex_tools::LoadableToolSpec;
 use codex_tools::TOOL_SEARCH_DEFAULT_LIMIT;
 use codex_tools::TOOL_SEARCH_TOOL_NAME;
 use codex_tools::coalesce_loadable_tool_specs;
+use codex_tools::project_taskspace_binding_loadable_tool;
 use std::collections::HashMap;
+use tracing::info;
 
 const COMPUTER_USE_MCP_SERVER_NAME: &str = "computer-use";
 const COMPUTER_USE_TOOL_SEARCH_LIMIT: usize = 20;
@@ -52,7 +54,12 @@ impl ToolHandler for ToolSearchHandler {
         &self,
         invocation: ToolInvocation,
     ) -> Result<ToolSearchOutput, FunctionCallError> {
-        let ToolInvocation { payload, .. } = invocation;
+        let ToolInvocation {
+            payload,
+            session,
+            call_id,
+            ..
+        } = invocation;
 
         let args = match payload {
             ToolPayload::ToolSearch { arguments } => arguments,
@@ -83,9 +90,52 @@ impl ToolHandler for ToolSearchHandler {
         }
 
         let tools = self.search(query, limit, requested_limit.is_none())?;
+        let taskspace_active = session.taskspace_active().await;
+        let tools = project_search_output_tools(tools, taskspace_active, &call_id)?;
+        if taskspace_active {
+            info!(
+                target: "codex_core::taskspace",
+                call_id,
+                projected_tool_count = tools.len(),
+                "taskspace.tool_search_schema_projected"
+            );
+        }
 
         Ok(ToolSearchOutput { tools })
     }
+}
+
+fn project_search_output_tools(
+    tools: Vec<LoadableToolSpec>,
+    taskspace_active: bool,
+    call_id: &str,
+) -> Result<Vec<LoadableToolSpec>, FunctionCallError> {
+    if !taskspace_active {
+        return Ok(tools);
+    }
+    tools
+        .into_iter()
+        .map(project_taskspace_binding_loadable_tool)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            FunctionCallError::RespondToModel(
+                serde_json::json!({
+                    "schema_version": "TaskSpaceToolSearchProjectionResultV1",
+                    "status": "protocol_failed",
+                    "success": false,
+                    "state_commit": false,
+                    "call_id": call_id,
+                    "error": {
+                        "class": "tool_schema",
+                        "code": "TASKSPACE_TOOL_SCHEMA_FIELD_COLLISION",
+                        "tool_name": error.tool_name,
+                        "field": error.field,
+                        "message": error.to_string(),
+                    }
+                })
+                .to_string(),
+            )
+        })
 }
 
 impl ToolSearchHandler {
@@ -276,6 +326,56 @@ mod tests {
                     })],
                 }),
             ],
+        );
+    }
+
+    #[test]
+    fn taskspace_search_results_receive_the_same_binding_contract() {
+        let tools = vec![LoadableToolSpec::Function(ResponsesApiTool {
+            name: "deferred_tool".to_string(),
+            description: "Deferred tool".to_string(),
+            strict: false,
+            defer_loading: Some(true),
+            parameters: codex_tools::JsonSchema::object(
+                Default::default(),
+                None,
+                Some(false.into()),
+            ),
+            output_schema: None,
+        })];
+
+        let projected =
+            project_search_output_tools(tools, true, "search-call").expect("TaskSpace projection");
+        let LoadableToolSpec::Function(tool) = &projected[0] else {
+            panic!("function must remain function");
+        };
+        assert!(tool.parameters.required.as_ref().is_some_and(|required| {
+            required.contains(&codex_tools::TASKSPACE_BINDING_FIELD.to_string())
+        }));
+    }
+
+    #[test]
+    fn standard_search_results_are_not_decorated() {
+        let tools = vec![LoadableToolSpec::Function(ResponsesApiTool {
+            name: "business_tool".to_string(),
+            description: "Business tool".to_string(),
+            strict: false,
+            defer_loading: Some(true),
+            parameters: codex_tools::JsonSchema::object(
+                std::collections::BTreeMap::from([(
+                    codex_tools::TASKSPACE_BINDING_FIELD.to_string(),
+                    codex_tools::JsonSchema::string(Some("business value".into())),
+                )]),
+                None,
+                Some(false.into()),
+            ),
+            output_schema: None,
+        })];
+
+        assert_eq!(
+            project_search_output_tools(tools.clone(), false, "search-call")
+                .expect("Standard passthrough"),
+            tools
         );
     }
 

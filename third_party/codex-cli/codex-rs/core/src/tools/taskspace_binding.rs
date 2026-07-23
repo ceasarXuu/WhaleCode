@@ -35,6 +35,17 @@ pub(crate) async fn validate_taskspace_binding(
         };
     }
 
+    if matches!(
+        call.payload,
+        ToolPayload::Custom { .. } | ToolPayload::LocalShell { .. }
+    ) {
+        return Err(binding_failure(
+            "TASKSPACE_TOOL_SHAPE_UNSUPPORTED",
+            "TaskSpace cannot sequence this provider tool payload shape",
+            call.taskspace_binding.as_deref(),
+        ));
+    }
+
     if !requires_taskspace_binding(call) {
         return Ok(());
     }

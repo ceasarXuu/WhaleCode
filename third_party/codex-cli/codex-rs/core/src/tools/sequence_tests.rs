@@ -1,8 +1,12 @@
 use super::*;
 use crate::tools::context::ToolPayload;
+use crate::tools::parallel::ToolCallExecution;
 use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE;
 use crate::tools::sequence_preflight::TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 use codex_tools::ToolName;
 
@@ -28,11 +32,17 @@ fn bound_call(name: &str, call_id: &str, binding: &str) -> ToolCall {
 }
 
 fn boundary_control(action: &str, call_id: &str) -> ToolCall {
-    function_call_with_arguments(
-        "taskspace_control",
-        call_id,
-        &format!(r#"{{"action":"{action}"}}"#),
-    )
+    let arguments = match action {
+        "initialize_map" => {
+            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[]}"#
+        }
+        "bind_node" => r#"{"action":"bind_node","expected_revision":2,"node_id":"work"}"#,
+        "complete_then_continue" => {
+            r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"verify"}"#
+        }
+        other => panic!("unsupported boundary action fixture: {other}"),
+    };
+    function_call_with_arguments("taskspace_control", call_id, arguments)
 }
 
 #[test]
@@ -80,9 +90,25 @@ fn leaves_ordinary_only_response_as_one_parallel_segment() {
 }
 
 #[test]
+fn tool_sequence_identity_is_stable_and_order_sensitive() {
+    let first = vec![
+        bound_call("read_file", "read-1", "active"),
+        bound_call("exec_command", "test-1", "active"),
+    ];
+    let reversed = vec![first[1].clone(), first[0].clone()];
+
+    assert_eq!(tool_sequence_sha256(&first), tool_sequence_sha256(&first));
+    assert_ne!(
+        tool_sequence_sha256(&first),
+        tool_sequence_sha256(&reversed)
+    );
+    assert_eq!(tool_sequence_call_ids(&first), "read-1,test-1");
+}
+
+#[test]
 fn skipped_output_preserves_call_id_and_failure_status() {
     let call = function_call("apply_patch", "edit-call");
-    let output = ToolCallRuntime::skipped_response(&call, "finish-call");
+    let output = ToolCallRuntime::skipped_responses(&call, "finish-call").remove(0);
     assert_eq!(response_input_call_id(&output), "edit-call");
     assert!(!response_input_succeeded(&output));
     let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
@@ -97,16 +123,99 @@ fn skipped_output_preserves_call_id_and_failure_status() {
 }
 
 #[test]
-fn invalid_taskspace_arguments_are_owned_by_the_tool_handler() {
+fn tool_search_failure_stops_later_segments_despite_completed_pairing_status() {
+    let execution = ToolCallExecution {
+        response: ResponseInputItem::ToolSearchOutput {
+            call_id: "search-failed".into(),
+            status: "completed".into(),
+            execution: "client".into(),
+            tools: Vec::new(),
+        },
+        supplemental_responses: Vec::new(),
+        succeeded: false,
+        taskspace_terminal_carrier: None,
+    };
+
+    assert_eq!(execution_failure_call_id(&execution), Some("search-failed"));
+    assert!(
+        response_input_succeeded(&execution.response),
+        "provider pairing status remains completed independently of execution success"
+    );
+}
+
+#[test]
+fn invalid_taskspace_control_arguments_reject_the_complete_response() {
     let calls = [
-        boundary_control("initialize_map", "invalid-bootstrap"),
-        bound_call("exec_command", "first-action", "after_boundary"),
+        bound_call("exec_command", "inspect", "active"),
+        function_call_with_arguments("taskspace_control", "invalid-bootstrap", r#"{"action":7}"#),
     ];
 
-    let manifest =
-        validate_tool_sequence(&calls, true).expect("preflight must not own control arguments");
-    assert_eq!(manifest.entries.len(), 2);
-    assert_eq!(manifest.request_patch_count, 0);
+    let failure = validate_tool_sequence(&calls, true)
+        .expect_err("mechanically invalid control must fail before execution");
+    assert_eq!(
+        failure.reason_code,
+        TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE
+    );
+    let outputs = failure.outputs(&calls, Some(7));
+    assert_eq!(outputs.len(), calls.len());
+    for output in outputs {
+        let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
+            panic!("expected function output");
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(output.body.to_text().as_deref().expect("preflight payload"))
+                .expect("preflight json");
+        assert_eq!(value["request"]["executed_tool_call_count"], 0);
+        assert_eq!(value["state_commit"], false);
+        assert_eq!(value["canonical_revision"], 7);
+    }
+}
+
+#[test]
+fn taskspace_control_binding_is_rejected_by_response_preflight() {
+    let mut control =
+        function_call_with_arguments("taskspace_control", "read-map", r#"{"action":"read_map"}"#);
+    control.taskspace_binding = Some("active".into());
+    let calls = [bound_call("exec_command", "inspect", "active"), control];
+
+    let failure =
+        validate_tool_sequence(&calls, true).expect_err("control binding must fail preflight");
+    assert_eq!(
+        failure.reason_code,
+        TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE
+    );
+}
+
+#[test]
+fn unsupported_provider_payload_rejects_the_complete_response() {
+    let calls = vec![
+        bound_call("ordinary", "ordinary-call", "active"),
+        ToolCall {
+            tool_name: ToolName::plain("unknown_custom"),
+            call_id: "custom-call".into(),
+            payload: ToolPayload::Custom {
+                input: "raw".into(),
+            },
+            taskspace_binding: None,
+        },
+    ];
+
+    let failure = validate_tool_sequence(&calls, true).expect_err("custom payload must fail");
+    assert_eq!(failure.reason_code, TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE);
+    let outputs = failure.outputs(&calls, Some(11));
+    assert_eq!(outputs.len(), 2);
+    for output in outputs {
+        assert!(!response_input_succeeded(&output));
+        let text = match output {
+            ResponseInputItem::FunctionCallOutput { output, .. }
+            | ResponseInputItem::CustomToolCallOutput { output, .. } => {
+                output.body.to_text().expect("preflight text")
+            }
+            other => panic!("expected function-compatible output, got {other:?}"),
+        };
+        assert!(text.contains("\"executed_tool_call_count\":0"));
+        assert!(text.contains("\"state_commit\":false"));
+    }
 }
 
 #[test]

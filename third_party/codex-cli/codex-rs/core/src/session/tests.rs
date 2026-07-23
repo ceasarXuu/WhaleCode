@@ -126,10 +126,13 @@ use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_completed_with_tokens;
 use core_test_support::responses::ev_function_call;
+use core_test_support::responses::ev_reasoning_item;
 use core_test_support::responses::ev_response_created;
+use core_test_support::responses::mount_response_once;
 use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
+use core_test_support::responses::sse_response;
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_codex::test_codex;
 use core_test_support::test_path_buf;
@@ -8333,6 +8336,93 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
         sess.get_pending_input().await,
         vec![communication.to_response_input_item()],
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mailbox_preemption_never_executes_an_uncompleted_tool_prefix() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex().build(&server).await?;
+    let response = mount_response_once(
+        &server,
+        sse_response(sse(vec![
+            ev_response_created("mailbox-prefix-response"),
+            ev_function_call(
+                "prefix-side-effect",
+                "shell_command",
+                r#"{"command":"printf executed > mailbox-prefix.txt"}"#,
+            ),
+            ev_reasoning_item("reasoning-after-tool", &["continue"], &[]),
+            ev_function_call(
+                "invalid-patch-1",
+                "apply_patch",
+                r#"{"input":"first patch"}"#,
+            ),
+            ev_function_call(
+                "invalid-patch-2",
+                "apply_patch",
+                r#"{"input":"second patch"}"#,
+            ),
+            ev_completed("mailbox-prefix-response"),
+        ]))
+        .set_delay(Duration::from_millis(200)),
+    )
+    .await;
+
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise complete-response ownership".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    timeout(Duration::from_secs(2), async {
+        while response.requests().is_empty() {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    test.codex
+        .submit(Op::InterAgentCommunication {
+            communication: InterAgentCommunication::new(
+                AgentPath::try_from("/root/worker").expect("worker path"),
+                AgentPath::root(),
+                Vec::new(),
+                "mail arrived after provider request started".into(),
+                /*trigger_turn*/ true,
+            ),
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            if std::fs::read_to_string(&rollout_path)
+                .unwrap_or_default()
+                .contains("ToolSequencePreflightResultV1")
+            {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    assert!(
+        !test.workspace_path("mailbox-prefix.txt").exists(),
+        "a provider-response prefix executed before response.completed preflight"
+    );
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
 }
 
 #[tokio::test]
