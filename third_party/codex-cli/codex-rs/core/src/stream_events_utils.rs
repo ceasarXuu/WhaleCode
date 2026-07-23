@@ -306,17 +306,34 @@ pub(crate) async fn handle_output_item_done(
         Err(FunctionCallError::RespondToModel(message)) => {
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
+            let declaration = ProviderToolDeclaration::build_failed(&item, message.clone());
+            let descriptor = declaration.descriptor();
+            let provider_item_id = descriptor
+                .get("call_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<missing>");
+            let tool_name = descriptor
+                .get("tool")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unknown>");
+            let payload_kind = descriptor
+                .get("payload_kind")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unknown>");
             tracing::warn!(
                 target: "codex_core::tools",
                 event_name = "tool.call_build_failed_queued",
                 error = message,
+                provider_item_id,
+                tool_name,
+                payload_kind,
                 zero_dispatch = true,
                 state_commit = false,
                 "queued identity-preserving tool build failure for response preflight"
             );
 
             output.needs_follow_up = true;
-            output.tool_declaration = Some(ProviderToolDeclaration::build_failed(&item, message));
+            output.tool_declaration = Some(declaration);
         }
         // A fatal error occurred; surface it back into history.
         Err(FunctionCallError::Fatal(message)) => {

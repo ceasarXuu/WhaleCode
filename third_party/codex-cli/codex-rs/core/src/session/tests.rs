@@ -8746,31 +8746,44 @@ async fn malformed_tool_arguments_are_deferred_to_response_preflight() {
 #[tokio::test]
 async fn standard_missing_client_tool_search_call_id_is_a_mechanical_build_failure() {
     let (sess, tc, _rx) = make_session_and_context_with_rx().await;
-    let item = ResponseItem::ToolSearchCall {
-        id: Some("standard-provider-search-id".to_string()),
-        call_id: None,
-        status: Some("completed".to_string()),
-        execution: "client".to_string(),
-        arguments: json!({"query": "missing call identity"}),
-    };
-    let mut ctx = HandleOutputCtx {
-        sess: Arc::clone(&sess),
-        turn_context: Arc::clone(&tc),
-    };
+    for provider_item_id in [Some("standard-provider-search-id"), None] {
+        let item = ResponseItem::ToolSearchCall {
+            id: provider_item_id.map(str::to_string),
+            call_id: None,
+            status: Some("completed".to_string()),
+            execution: "client".to_string(),
+            arguments: json!({"query": "missing call identity"}),
+        };
+        let mut ctx = HandleOutputCtx {
+            sess: Arc::clone(&sess),
+            turn_context: Arc::clone(&tc),
+        };
 
-    let output = handle_output_item_done(&mut ctx, item, None)
-        .await
-        .expect("missing client call identity should enter response preflight");
+        let output = handle_output_item_done(&mut ctx, item, None)
+            .await
+            .expect("missing client call identity should enter response preflight");
 
-    assert!(output.needs_follow_up);
-    assert!(matches!(
-        output.tool_declaration,
-        Some(
-            crate::tools::provider_tool_declaration::ProviderToolDeclaration::UnpairedBuildFailed(
-                _
+        assert!(output.needs_follow_up);
+        assert!(matches!(
+            &output.tool_declaration,
+            Some(
+                crate::tools::provider_tool_declaration::ProviderToolDeclaration::UnpairedBuildFailed(
+                    _
+                )
             )
-        )
-    ));
+        ));
+        let descriptor = output
+            .tool_declaration
+            .as_ref()
+            .expect("unpaired declaration")
+            .descriptor();
+        assert_eq!(
+            descriptor
+                .get("call_id")
+                .and_then(serde_json::Value::as_str),
+            provider_item_id
+        );
+    }
 }
 
 #[tokio::test]
