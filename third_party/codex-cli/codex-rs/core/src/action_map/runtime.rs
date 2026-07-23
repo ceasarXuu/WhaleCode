@@ -4486,7 +4486,7 @@ impl ActionMapRuntimeState {
         );
         if bootstrap_required {
             context.push_str(
-                "- bootstrap_action: initialize_map\n- action_carrier: ordinary_tool.taskspace_action\n- ordinary_tools_allowed: with_explicit_taskspace_action\n- ordinary_tool_without_action_failure: TASKSPACE_ACTION_REQUIRED\n",
+                "- bootstrap_action: taskspace_control.initialize_map\n- boundary_action_binding: ordinary_tool.taskspace_binding.after_boundary\n- active_action_binding: ordinary_tool.taskspace_binding.active\n- ordinary_tool_without_binding_failure: TASKSPACE_BINDING_REQUIRED\n",
             );
         }
         context.push_str("TaskSpaceMapHandleR7V1 end.\n");
@@ -4512,7 +4512,7 @@ impl ActionMapRuntimeState {
             ""
         };
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\n- bootstrap_action: initialize_map\n- action_carrier: ordinary_tool.taskspace_action\n- ordinary_tools_allowed: with_explicit_taskspace_action\n- ordinary_tool_without_action_failure: TASKSPACE_ACTION_REQUIRED\n{request_snapshot_fields}TaskSpaceMapProjectionR7V1 end.\n"
+            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\n- bootstrap_action: taskspace_control.initialize_map\n- boundary_action_binding: ordinary_tool.taskspace_binding.after_boundary\n- active_action_binding: ordinary_tool.taskspace_binding.active\n- ordinary_tool_without_binding_failure: TASKSPACE_BINDING_REQUIRED\n{request_snapshot_fields}TaskSpaceMapProjectionR7V1 end.\n"
         )
     }
 

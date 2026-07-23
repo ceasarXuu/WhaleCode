@@ -25,9 +25,7 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
-use crate::tools::taskspace_carrier::CarrierAction;
-use crate::tools::taskspace_carrier::prepare_carried_action;
-use crate::tools::taskspace_carrier::wrap_carrier_response;
+use crate::tools::taskspace_binding::validate_taskspace_binding;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
@@ -83,6 +81,10 @@ impl ToolCallRuntime {
             .map(|state| state.revision)
     }
 
+    pub(crate) async fn taskspace_active(&self) -> bool {
+        self.session.taskspace_active().await
+    }
+
     pub(crate) fn invalid_call_response(
         call: &ToolCall,
         message: impl Into<String>,
@@ -100,22 +102,18 @@ impl ToolCallRuntime {
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
         async move {
-            let action = if cancellation_token.is_cancelled() {
-                CarrierAction::Rejected("tool call cancelled before TaskSpace action".into())
-            } else {
-                prepare_carried_action(&self.session, &self.turn_context, &call).await
-            };
-            if matches!(action, CarrierAction::Rejected(_)) {
-                let message = match &action {
-                    CarrierAction::Rejected(message) => message.clone(),
-                    CarrierAction::None
-                    | CarrierAction::ContinueValidated
-                    | CarrierAction::TransitionCommitted(_) => unreachable!(),
-                };
-                let mut response = Self::invalid_call_response(&call, message);
-                wrap_carrier_response(&mut response, &action, false);
+            if cancellation_token.is_cancelled() {
                 return Ok(ToolCallExecution {
-                    response,
+                    response: Self::invalid_call_response(
+                        &call,
+                        "tool call cancelled before TaskSpace binding validation",
+                    ),
+                    taskspace_terminal_carrier: None,
+                });
+            }
+            if let Err(message) = validate_taskspace_binding(&self.session, &call).await {
+                return Ok(ToolCallExecution {
+                    response: Self::invalid_call_response(&call, message),
                     taskspace_terminal_carrier: None,
                 });
             }
@@ -125,22 +123,16 @@ impl ToolCallRuntime {
             match future.await {
                 Ok(response) => {
                     let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
-                    let mut response = response.into_response();
-                    wrap_carrier_response(&mut response, &action, true);
                     Ok(ToolCallExecution {
-                        response,
+                        response: response.into_response(),
                         taskspace_terminal_carrier,
                     })
                 }
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
-                Err(other) => {
-                    let mut response = Self::failure_response(error_call, other);
-                    wrap_carrier_response(&mut response, &action, true);
-                    Ok(ToolCallExecution {
-                        response,
-                        taskspace_terminal_carrier: None,
-                    })
-                }
+                Err(other) => Ok(ToolCallExecution {
+                    response: Self::failure_response(error_call, other),
+                    taskspace_terminal_carrier: None,
+                }),
             }
         }
         .in_current_span()
@@ -491,13 +483,13 @@ impl ToolCallRuntime {
             .payload
             .log_payload_for_tool(&call.tool_name)
             .to_string();
-        let class = taskspace_action_contract_class(&call.call_id)
+        let class = taskspace_benchmark_action_class(&call.call_id)
             .unwrap_or_else(|| classify_tool_payload(&tool_name, &call.payload));
         ToolActionDescriptor::new(tool_name, class, preview).with_call_id(call.call_id.clone())
     }
 }
 
-fn taskspace_action_contract_class(call_id: &str) -> Option<ActionClass> {
+fn taskspace_benchmark_action_class(call_id: &str) -> Option<ActionClass> {
     let suffix = call_id.strip_prefix("taskspace-action-contract-")?;
     let (_, action) = suffix.rsplit_once('-')?;
     match action {
@@ -845,7 +837,7 @@ mod tests {
     use super::ToolCallRuntime;
     use super::classify_shell_text;
     use super::classify_tool_payload;
-    use super::taskspace_action_contract_class;
+    use super::taskspace_benchmark_action_class;
     use crate::action_map::ActionClass;
     use crate::function_tool::FunctionCallError;
     use crate::tools::context::ToolPayload;
@@ -860,7 +852,7 @@ mod tests {
             payload: ToolPayload::Function {
                 arguments: "{}".to_string(),
             },
-            taskspace_action: None,
+            taskspace_binding: None,
         };
         let response = ToolCallRuntime::failure_response_for_error(&call, &err);
         response_input_model_visible_preview(&response)
@@ -1065,13 +1057,13 @@ mod tests {
     }
 
     #[test]
-    fn taskspace_action_contract_call_id_preserves_run_test_class() {
+    fn taskspace_benchmark_call_id_preserves_run_test_class() {
         assert_eq!(
-            taskspace_action_contract_class("taskspace-action-contract-25-run_test"),
+            taskspace_benchmark_action_class("taskspace-action-contract-25-run_test"),
             Some(ActionClass::Test)
         );
         assert_eq!(
-            taskspace_action_contract_class(
+            taskspace_benchmark_action_class(
                 "taskspace-action-contract-bootstrap-taskspace_control"
             ),
             Some(ActionClass::Control)

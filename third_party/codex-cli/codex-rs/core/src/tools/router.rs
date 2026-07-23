@@ -37,7 +37,7 @@ pub struct ToolCall {
     pub tool_name: ToolName,
     pub call_id: String,
     pub payload: ToolPayload,
-    pub taskspace_action: Option<String>,
+    pub taskspace_binding: Option<String>,
 }
 
 pub struct ToolRouter {
@@ -187,7 +187,7 @@ impl ToolRouter {
                 ..
             } => {
                 let tool_name = ToolName::new(namespace, name);
-                let (arguments, taskspace_action) = extract_taskspace_action(arguments)?;
+                let (arguments, taskspace_binding) = extract_taskspace_binding(arguments)?;
                 if let Some(tool_info) = session.resolve_mcp_tool_info(&tool_name).await {
                     Ok(Some(ToolCall {
                         tool_name: tool_info.canonical_tool_name(),
@@ -197,7 +197,7 @@ impl ToolRouter {
                             tool: tool_info.tool.name.to_string(),
                             raw_arguments: arguments,
                         },
-                        taskspace_action,
+                        taskspace_binding,
                     }))
                 } else {
                     let (tool_name, arguments) =
@@ -206,7 +206,7 @@ impl ToolRouter {
                         tool_name,
                         call_id,
                         payload: ToolPayload::Function { arguments },
-                        taskspace_action,
+                        taskspace_binding,
                     }))
                 }
             }
@@ -216,7 +216,7 @@ impl ToolRouter {
                 arguments,
                 ..
             } if execution == "client" => {
-                let (arguments, taskspace_action) = extract_taskspace_action_value(arguments)?;
+                let (arguments, taskspace_binding) = extract_taskspace_binding_value(arguments)?;
                 let arguments: SearchToolCallParams =
                     serde_json::from_value(arguments).map_err(|err| {
                         FunctionCallError::RespondToModel(format!(
@@ -227,7 +227,7 @@ impl ToolRouter {
                     tool_name: ToolName::plain("tool_search"),
                     call_id,
                     payload: ToolPayload::ToolSearch { arguments },
-                    taskspace_action,
+                    taskspace_binding,
                 }))
             }
             ResponseItem::ToolSearchCall { .. } => Ok(None),
@@ -240,7 +240,7 @@ impl ToolRouter {
                 tool_name: ToolName::plain(name),
                 call_id,
                 payload: ToolPayload::Custom { input },
-                taskspace_action: None,
+                taskspace_binding: None,
             })),
             ResponseItem::LocalShellCall {
                 id,
@@ -267,7 +267,7 @@ impl ToolRouter {
                             tool_name: ToolName::plain("local_shell"),
                             call_id,
                             payload: ToolPayload::LocalShell { params },
-                            taskspace_action: None,
+                            taskspace_binding: None,
                         }))
                     }
                 }
@@ -290,7 +290,7 @@ impl ToolRouter {
             tool_name,
             call_id,
             payload,
-            taskspace_action: _,
+            taskspace_binding: _,
         } = call;
 
         let invocation = ToolInvocation {
@@ -308,40 +308,51 @@ impl ToolRouter {
     }
 }
 
-fn extract_taskspace_action(
+fn extract_taskspace_binding(
     arguments: String,
 ) -> Result<(String, Option<String>), FunctionCallError> {
-    const FIELD: &str = "taskspace_action";
+    const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
     if !arguments.contains(FIELD) {
         return Ok((arguments, None));
     }
     let mut value = serde_json::from_str::<JsonValue>(&arguments).map_err(|error| {
         FunctionCallError::RespondToModel(format!(
-            "failed to parse tool arguments containing taskspace_action: {error}"
+            "failed to parse tool arguments containing {FIELD}: {error}"
         ))
     })?;
     let object = value.as_object_mut().ok_or_else(|| {
-        FunctionCallError::RespondToModel(
-            "tool arguments containing taskspace_action must be an object".into(),
-        )
+        FunctionCallError::RespondToModel(format!(
+            "tool arguments containing {FIELD} must be an object"
+        ))
     })?;
-    let Some(transition) = object.remove(FIELD) else {
+    let Some(binding) = object.remove(FIELD) else {
         return Ok((arguments, None));
     };
-    Ok((value.to_string(), Some(transition.to_string())))
+    let binding = binding
+        .as_str()
+        .ok_or_else(|| FunctionCallError::RespondToModel(format!("{FIELD} must be a string")))?;
+    let binding = binding.to_string();
+    Ok((value.to_string(), Some(binding)))
 }
 
-fn extract_taskspace_action_value(
+fn extract_taskspace_binding_value(
     mut arguments: JsonValue,
 ) -> Result<(JsonValue, Option<String>), FunctionCallError> {
-    const FIELD: &str = "taskspace_action";
+    const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
     let Some(object) = arguments.as_object_mut() else {
-        return Err(FunctionCallError::RespondToModel(
-            "tool arguments containing taskspace_action must be an object".into(),
-        ));
+        return Err(FunctionCallError::RespondToModel(format!(
+            "tool arguments containing {FIELD} must be an object"
+        )));
     };
-    let action = object.remove(FIELD).map(|value| value.to_string());
-    Ok((arguments, action))
+    let binding = object
+        .remove(FIELD)
+        .map(|value| {
+            value.as_str().map(str::to_owned).ok_or_else(|| {
+                FunctionCallError::RespondToModel(format!("{FIELD} must be a string"))
+            })
+        })
+        .transpose()?;
+    Ok((arguments, binding))
 }
 
 fn normalize_native_function_alias(

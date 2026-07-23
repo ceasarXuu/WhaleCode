@@ -1,14 +1,20 @@
 # R7 连续动作合同回归修复
 
 - Created: 2026-07-21
-- Updated: 2026-07-22
-- Version: 3.1
-- Status: `active_verified`
+- Updated: 2026-07-24
+- Version: 4.0
+- Status: `superseded_by_fla9_lightweight_binding`
 - Phase: FLA-3.5
 - Scope: TaskSpace 非终态生命周期交接、真实动作 Tool schema、执行顺序与事实反馈
 - Compatibility: 不保留 `required_next_call` 或旧 session 兼容路径
 
 ## 1. 实施决策
+
+> 当前生产修订：本文件第 1 至第 5 节记录 FLA-3.5 的完整 action carrier 历史实现。该实现虽然恢复了连续动作，
+> 但把完整生命周期联合复制到每个普通 Tool，造成明显 schema 放大，已由
+> [R7 普通 Tool 轻量绑定与连续动作修复](37-r7-lightweight-tool-binding-repair-plan.md) 替代。连续动作产品要求
+> 没有撤销；当前实现把边界生命周期放回唯一 `taskspace_control`，普通 Tool 保留必填两值
+> `taskspace_binding`，并在整份 response 执行前做对称配对校验。以下内容仅用于追踪旧实现与回归来源。
 
 FLA-3.5 直接在现有 Tool 构建和执行链上恢复连续动作，不建立候选晋级体系。
 

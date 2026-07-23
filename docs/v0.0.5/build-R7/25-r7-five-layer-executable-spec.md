@@ -1,8 +1,8 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 1.1
-- Status: Production active through FLA-7; FLA-6 experiments remain disabled and FLA-8 is next
+- Version: 1.2
+- Status: Production active through FLA-7; FLA-9 lightweight binding repair in verification
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
 - Compatibility: 不兼容旧合同，不保留双轨生产路径
@@ -39,14 +39,15 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | 层 | 当前生产基线 | 已选目标 | 当前状态 |
 |---|---|---|---|
 | L1 | TaskSpace Base v2.0.1；Map 段仅保留宏观模型，整份 Base 不携带 Tool wire 示例 | [`five-layer-l1-taskspace-base-section-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md) | `active_verified` |
-| L2 | `taskspace-core-v2.9` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
+| L2 | `taskspace-core-v3.0` | [`five-layer-l2-core-protocol-v2.md`](../../../benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md) 作为现有 developer bundle 第一段 | `active_verified` |
 | L3 | `taskspace-advanced` v1.0.0，会话锁定内容寻址快照 | [`five-layer-l3-taskspace-advanced-v1.SKILL.md`](../../../benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md) | `active_verified` |
-| L4 | 普通动作 Tool 的必填 `taskspace_action` carrier；纯 Map/read/terminal 使用 `taskspace_control` | [`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json) | `active_verified` |
+| L4 | 唯一 `taskspace_control` 承载完整 Map/lifecycle 参数；普通 Tool 只增加必填两值 `taskspace_binding` | [`five-layer-taskspace-control-v3.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json) | `active_repair_verified` |
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json) 与生命周期 golden | `active_verified` |
 
-主线明确选择：普通动作由必填 `taskspace_action` 明确声明继续当前绑定或承载生命周期交接；纯 Map/read/terminal action
-继续使用一个 `taskspace_control`；`strict=false`；不向 DeepSeek 声称 `output_schema`。读写拆 Tool、MCP
+主线明确选择：普通动作由必填 `taskspace_binding=active|after_boundary` 声明机械绑定；初始化、绑定和完成后继续
+由紧邻的 `taskspace_control` 与真实动作共同组成一个 response；其他 Map/read/terminal action 继续使用同一个
+`taskspace_control`；`strict=false`；不向 DeepSeek 声称 `output_schema`。读写拆 Tool、MCP
 `outputSchema` 和 DeepSeek strict 是三个 `experimental_disabled` 单变量实验。移除 `required_next_call` 不是实验，
 而是 FLA-3.5 修复 H-003 的组成部分。
 
@@ -111,22 +112,24 @@ Skill 失败不创建新的 TaskSpace Tool result。显式 mention 缺少快照�
 `skill_load_status=snapshot_missing, reason_code=TASKSPACE_SKILL_SNAPSHOT_MISSING` 及 name/version/hash/path/carrier，
 不追加“加载最新版”或下一步建议。
 
-### 3.3 L4 当前 carrier 合同
+### 3.3 L4 当前轻量绑定合同
 
 独立 `taskspace_control` action 以
-[`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)
-为准。三个非终态 lifecycle action 已从该 Tool 删除；当前独立 action 是：
+[`five-layer-taskspace-control-v3.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json)
+为准。它一次性暴露以下 action：
 
 ```text
-mutate_graph, block_node, unblock_node, rework_node, finish_map,
+initialize_map, mutate_graph, bind_node, complete_then_continue,
+block_node, unblock_node, rework_node, finish_map,
 expand_nodes, read_map, read_output_ref
 ```
 
 `read_output_ref` 的 `head`、`tail`、`line_range`、`grep` 四种分支均已在 schema 中内联。`block_node` 和
 `rework_node` 不接收 `reason`，因为当前 Rooted DAG 领域模型没有该字段；五层重构不得暗中扩展领域状态。
-`initialize_map`、`bind_node`、`complete_then_continue` 只存在于普通动作 Tool 的轻量
-`taskspace_action`。同节点普通动作使用 `continue_current`。Patch 正文继续是 `apply_patch.input` 顶层字段，原 Tool router、权限、sandbox、hook、
-handler 和输出链保持唯一。Tool 身份继续包含
+`initialize_map`、`bind_node`、`complete_then_continue` 是边界 action，必须紧邻一个
+`taskspace_binding=after_boundary` 的普通 Tool；其他普通动作使用 `active`。整份 response 在任何调用执行前
+做对称配对校验。该字段不携带 revision、node、edge 或生命周期参数。Patch 正文继续是 `apply_patch.input`
+顶层字段，原 Tool router、权限、sandbox、hook、handler 和输出链保持唯一。Tool 身份继续包含
 `provider_schema_profile + capability_set_hash + tools_hash`；Map revision 不触发 schema 变化。
 
 ### 3.4 L5 的完整结果合同
@@ -141,7 +144,7 @@ handler 和输出链保持唯一。Tool 身份继续包含
   `resource_failed`。
 - `actual` 是 Runtime 观测事实，`expected` 是调用合同要求或提交值；不得互换。
 - 错误不得携带 Agent 下一步动作建议。
-- carrier transition 成功后普通 Tool 失败时保留两份事实；Map 不自动回滚。
+- 边界 control 成功后普通 Tool 失败时保留两份事实；Map 不自动回滚。
 - 截断的 `line_range` 读取若仍有后续行，`continuation` 是一份可直接再次调用的完整
   `read_output_ref` 参数对象；其他 mode 或无剩余内容时为 `null`。
 
@@ -156,9 +159,10 @@ handler 和输出链保持唯一。Tool 身份继续包含
 | `TASKSPACE_OUTPUT_REF_NOT_FOUND` | `resource_failed` | `the requested retained output reference does not exist` | output_ref、requested range |
 | `TASKSPACE_RANGE_INVALID` | `argument_failed` | `the requested retained output range is invalid` | output_ref、submitted range、available range |
 
-carrier 使用一个 call id。action 校验或 transition 失败返回 `TaskSpaceCarrierResultV2` 且 `tool_dispatched=false`；提交成功后
-设置 `tool_dispatched=true`，随后原样附加普通 Tool 输出。普通 Tool 失败不会覆盖 transition 事实，Runtime 也不
-自动回滚。FLA-5 负责继续形式化全载体结果一致性，不在本阶段增加 prepare/reservation 或第二套结果代数。
+边界 control 与普通 Tool 各自保留 call id 和原生结果。序列配对失败时，每个声明调用收到
+`ToolSequencePreflightResultV1`，且 `executed_tool_call_count=0`；合法序列中先返回
+`TaskSpaceControlResultV2`，再返回未经包装的普通 Tool 结果。普通 Tool 失败不会覆盖已提交的 control 事实，
+Runtime 也不自动回滚。
 
 Rust enum 常量使用上述大写值，JSON `error.code` 原样输出；日志也使用同一值。FLA-3.5 目标中不再存在
 missing-sibling 运行时形态；非法 transition carrier 使用同源参数/状态错误分类，不另造带下一步建议的错误。

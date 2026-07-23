@@ -103,7 +103,7 @@
         "required": ["id", "implementation_status", "issue", "plan", "blocks"],
         "properties": {
           "id": {"type": "string", "minLength": 1},
-          "implementation_status": {"enum": ["selected_not_implemented", "active_verified"]},
+          "implementation_status": {"enum": ["selected_not_implemented", "active_repair_verified", "active_verified"]},
           "issue": {"type": "string", "minLength": 1},
           "plan": {"type": "string", "minLength": 1},
           "blocks": {"type": "array", "items": {"type": "string"}}

@@ -1,4 +1,5 @@
 use super::TaskSpaceControlArgs;
+use super::TaskSpaceFinishIdentityArgs;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
 use super::invalid_error;
@@ -9,7 +10,10 @@ use serde::de::DeserializeOwned;
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Action {
+    InitializeMap,
     MutateGraph,
+    BindNode,
+    CompleteThenContinue,
     BlockNode,
     UnblockNode,
     ReworkNode,
@@ -22,6 +26,18 @@ enum Action {
 #[derive(Debug, Deserialize)]
 struct Envelope {
     action: Action,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InitializeMapArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    root: TaskSpaceGraphNodeArgs,
+    initial_work_node: TaskSpaceGraphNodeArgs,
+    finish_identity: TaskSpaceFinishIdentityArgs,
+    additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+    edges: Vec<TaskSpaceGraphEdgeArgs>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +58,16 @@ struct NodeTransitionArgs {
     _action: Action,
     expected_revision: u64,
     node_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompleteThenContinueArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    expected_revision: u64,
+    current_node_id: String,
+    next_node_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,6 +155,16 @@ struct ReadMapArgs {
 
 pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCallError> {
     match deserialize_arguments::<Envelope>(arguments)?.action {
+        Action::InitializeMap => {
+            let parsed = deserialize_arguments::<InitializeMapArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::InitializeMap {
+                root: parsed.root,
+                initial_work_node: parsed.initial_work_node,
+                finish_identity: parsed.finish_identity,
+                additional_work_nodes: parsed.additional_work_nodes,
+                edges: parsed.edges,
+            })
+        }
         Action::MutateGraph => {
             let parsed = deserialize_arguments::<MutateGraphArgs>(arguments)?;
             Ok(TaskSpaceControlArgs::MutateGraph {
@@ -136,6 +172,21 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 add_nodes: parsed.add_nodes,
                 add_edges: parsed.add_edges,
                 remove_edges: parsed.remove_edges,
+            })
+        }
+        Action::BindNode => {
+            let (expected_revision, node_id) = parse_node_transition(arguments)?;
+            Ok(TaskSpaceControlArgs::BindNode {
+                expected_revision,
+                node_id,
+            })
+        }
+        Action::CompleteThenContinue => {
+            let parsed = deserialize_arguments::<CompleteThenContinueArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::CompleteThenContinue {
+                expected_revision: parsed.expected_revision,
+                current_node_id: parsed.current_node_id,
+                next_node_id: parsed.next_node_id,
             })
         }
         Action::BlockNode => {

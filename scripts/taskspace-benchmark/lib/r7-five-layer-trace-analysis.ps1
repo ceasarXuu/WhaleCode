@@ -14,11 +14,19 @@ function ConvertTo-R7CallDescriptor {
     )
     $parsed = $null
     try { $parsed = $Arguments | ConvertFrom-Json -Depth 100 } catch {}
-    $taskspaceAction = Get-R7JsonProperty $parsed "taskspace_action"
-    $action = [string](Get-R7JsonProperty $taskspaceAction "action" (Get-R7JsonProperty $parsed "action" ""))
-    $currentNode = [string](Get-R7JsonProperty $taskspaceAction "current_node_id" "")
-    $nextNode = [string](Get-R7JsonProperty $taskspaceAction "next_node_id" "")
-    $initialWork = Get-R7JsonProperty $taskspaceAction "initial_work_node"
+    $controlAction = if ($ToolName -eq "taskspace_control") {
+        [string](Get-R7JsonProperty $parsed "action" "")
+    } else {
+        ""
+    }
+    $taskspaceBinding = if ($ToolName -eq "taskspace_control") {
+        ""
+    } else {
+        [string](Get-R7JsonProperty $parsed "taskspace_binding" "")
+    }
+    $currentNode = [string](Get-R7JsonProperty $parsed "current_node_id" "")
+    $nextNode = [string](Get-R7JsonProperty $parsed "next_node_id" "")
+    $initialWork = Get-R7JsonProperty $parsed "initial_work_node"
     $initialNode = [string](Get-R7JsonProperty $initialWork "node_id" "")
     $terminalNode = [string](Get-R7JsonProperty $parsed "terminal_node_id" "")
     $node = if ($currentNode -and $nextNode) {
@@ -45,7 +53,8 @@ function ConvertTo-R7CallDescriptor {
     [pscustomobject]@{
         call_id = $CallId
         tool = $ToolName
-        taskspace_action = $action
+        control_action = $controlAction
+        taskspace_binding = $taskspaceBinding
         node = $node
         detail = $detail
         success = $null
@@ -65,18 +74,18 @@ function Get-R7CallOutcome {
     if ($firstLine.StartsWith("{")) {
         try { $payload = $firstLine | ConvertFrom-Json -Depth 100 } catch {}
     }
-    $actionResult = Get-R7JsonProperty $payload "action_result" $payload
-    if ($null -ne $actionResult) {
-        $stateCommitValue = Get-R7JsonProperty $actionResult "state_commit"
+    if ($null -ne $payload) {
+        $stateCommitValue = Get-R7JsonProperty $payload "state_commit"
         if ($null -ne $stateCommitValue) { $stateCommit = [bool]$stateCommitValue }
     }
     if (-not $ToolSuccess) {
-        $error = Get-R7JsonProperty $actionResult "error"
+        $schemaVersion = [string](Get-R7JsonProperty $payload "schema_version" "")
+        $error = Get-R7JsonProperty $payload "error"
         $errorClass = [string](Get-R7JsonProperty $error "class" "")
         $errorCode = [string](Get-R7JsonProperty $error "code" "")
-        if ($Output -match 'request_multiple_apply_patch_calls_not_allowed') {
+        if ($schemaVersion -eq "ToolSequencePreflightResultV1") {
             $failureClass = "tool_sequence_protocol"
-            $failureCode = "request_multiple_apply_patch_calls_not_allowed"
+            $failureCode = $errorCode
         } elseif ($errorCode) {
             $failureClass = if ($errorClass) { "taskspace_$errorClass" } else { "taskspace" }
             $failureCode = $errorCode

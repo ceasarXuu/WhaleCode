@@ -668,12 +668,10 @@ function Get-TaskspaceBenchmarkMetrics {
         taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_control_count
         native_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.native_taskspace_control_count
         action_contract_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count
-        carrier_action_count = [int]$costInstrumentation.taskspace_control_usage.carrier_action_count
-        carrier_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_failure_count
-        carrier_state_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_state_failure_count
-        carrier_protocol_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_protocol_failure_count
-        carrier_argument_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_argument_failure_count
-        carrier_resource_failure_count = [int]$costInstrumentation.taskspace_control_usage.carrier_resource_failure_count
+        ordinary_binding_count = [int]$costInstrumentation.taskspace_control_usage.ordinary_binding_count
+        active_binding_count = [int]$costInstrumentation.taskspace_control_usage.active_binding_count
+        after_boundary_binding_count = [int]$costInstrumentation.taskspace_control_usage.after_boundary_binding_count
+        sequence_preflight_rejected_call_count = [int]$costInstrumentation.taskspace_control_usage.sequence_preflight_rejected_call_count
         control_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_failure_count
         control_preflight_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_preflight_failure_count
         control_handler_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_handler_failure_count
@@ -682,7 +680,6 @@ function Get-TaskspaceBenchmarkMetrics {
         control_argument_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_argument_failure_count
         control_resource_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_resource_failure_count
         ordinary_gate_failure_count = [int]$costInstrumentation.taskspace_control_usage.ordinary_gate_failure_count
-        taskspace_boundary_failure_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_boundary_failure_count
         committed_control_count = [int]$costInstrumentation.taskspace_control_usage.committed_control_count
         graph_revision_commit_count = [int]$costInstrumentation.taskspace_control_usage.graph_revision_commit_count
         state_commit_count = [int]$costInstrumentation.taskspace_control_usage.state_commit_count

@@ -18,6 +18,9 @@
 > 2026-07-22 实施更新：H-003 已由普通动作 Tool 的必填 `taskspace_action` carrier 修复并通过定向回归、构建和
 > Docker paired smoke。旧 `required_next_call + top-level sibling` 路径已删除；FLA-4 可以从单一 carrier
 > 生产基线继续。
+> 2026-07-24 修订：上述完整 carrier 是历史实现。FLA-9 在不撤销连续动作要求的前提下，以唯一
+> `taskspace_control` 边界调用和普通 Tool 必填 `taskspace_binding=active|after_boundary` 替代，避免把完整
+> 生命周期 schema 重复复制到每个普通 Tool。当前合同见 `37-r7-lightweight-tool-binding-repair-plan.md`。
 
 ## 1.1 元数据
 

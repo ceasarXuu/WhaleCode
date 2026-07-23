@@ -1157,13 +1157,43 @@ fn apply_provider_tool_visibility(
                 target = "codex_core::taskspace",
                 "taskspace_linear_plan_tool_hidden"
             );
-            tools
+            let visible = tools
                 .into_iter()
                 .filter(|spec| spec.name() != "update_plan")
-                .map(codex_tools::decorate_taskspace_carrier_tool)
-                .collect()
+                .map(codex_tools::decorate_taskspace_binding_tool)
+                .collect::<Vec<_>>();
+            trace_taskspace_provider_tool_schema_profile(&visible);
+            visible
         }
     }
+}
+
+fn trace_taskspace_provider_tool_schema_profile(tools: &[ToolSpec]) {
+    let mut total_schema_bytes = 0;
+    let mut binding_extension_count = 0;
+    let entries = tools
+        .iter()
+        .map(|tool| {
+            let encoded = serde_json::to_vec(tool).unwrap_or_default();
+            let bytes = encoded.len();
+            total_schema_bytes += bytes;
+            if encoded
+                .windows(codex_tools::TASKSPACE_BINDING_FIELD.len())
+                .any(|window| window == codex_tools::TASKSPACE_BINDING_FIELD.as_bytes())
+            {
+                binding_extension_count += 1;
+            }
+            format!("{}:{bytes}", tool.name())
+        })
+        .collect::<Vec<_>>();
+    tracing::info!(
+        target: "codex_core::taskspace",
+        tool_count = tools.len(),
+        binding_extension_count,
+        total_schema_bytes,
+        tool_schema_bytes = entries.join(","),
+        "taskspace.provider_tool_schema_profile"
+    );
 }
 
 pub(crate) fn build_prompt_with_tool_visibility(
@@ -1656,7 +1686,7 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn carrier_schema_is_visible_only_in_taskspace_mode() {
+    fn lightweight_binding_schema_is_visible_only_in_taskspace_mode() {
         let ordinary = codex_tools::create_exec_command_tool(codex_tools::CommandToolOptions {
             allow_login_shell: true,
             exec_permission_approvals_enabled: false,
@@ -1678,7 +1708,7 @@ mod active_context_replacement_tests {
                 .parameters
                 .properties
                 .as_ref()
-                .is_some_and(|properties| properties.contains_key("taskspace_action"))
+                .is_some_and(|properties| properties.contains_key("taskspace_binding"))
         );
 
         let ToolSpec::Function(taskspace) = &taskspace[0] else {
@@ -1689,15 +1719,34 @@ mod active_context_replacement_tests {
                 .parameters
                 .properties
                 .as_ref()
-                .is_some_and(|properties| properties.contains_key("taskspace_action"))
+                .is_some_and(|properties| properties.contains_key("taskspace_binding"))
         );
         assert!(
             taskspace
                 .parameters
                 .required
                 .as_ref()
-                .is_some_and(|required| required.iter().any(|field| field == "taskspace_action"))
+                .is_some_and(|required| required.iter().any(|field| field == "taskspace_binding"))
         );
+        let binding = taskspace
+            .parameters
+            .properties
+            .as_ref()
+            .and_then(|properties| properties.get("taskspace_binding"))
+            .expect("binding schema");
+        assert_eq!(
+            binding.enum_values.as_deref(),
+            Some(
+                &[
+                    serde_json::json!("active"),
+                    serde_json::json!("after_boundary")
+                ][..]
+            )
+        );
+        let serialized = serde_json::to_string(binding).expect("serialize binding schema");
+        assert!(!serialized.contains("expected_revision"));
+        assert!(!serialized.contains("node_id"));
+        assert!(!serialized.contains("edges"));
     }
 
     #[test]
@@ -1743,7 +1792,7 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_control_modes_preserve_state_without_changing_tool_contract() {
+    fn taskspace_control_modes_preserve_state_with_one_stable_central_contract() {
         let visible = vec![
             codex_tools::create_list_dir_tool(),
             codex_tools::create_taskspace_control_tool(),
@@ -1753,9 +1802,10 @@ mod active_context_replacement_tests {
             visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
             vec!["list_dir", "taskspace_control"]
         );
-        assert!(!tool_contract.contains("initialize_map"));
+        assert!(tool_contract.contains("initialize_map"));
         assert!(tool_contract.contains("mutate_graph"));
-        assert!(!tool_contract.contains("bind_node"));
+        assert!(tool_contract.contains("bind_node"));
+        assert!(tool_contract.contains("complete_then_continue"));
         assert!(!tool_contract.contains("transition_node"));
         assert!(tool_contract.contains("finish_map"));
         assert!(!tool_contract.contains("terminal_state"));

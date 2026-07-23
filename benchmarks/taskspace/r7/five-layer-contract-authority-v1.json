@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla7",
+  "contract_status": "production_active_through_fla7_with_fla9_lightweight_binding_repair",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -20,10 +20,18 @@
     "reverted"
   ],
   "candidate_status_transitions": {
-    "evaluation_candidate": ["promotion_pending", "rejected"],
-    "promotion_pending": ["promoted", "rejected"],
+    "evaluation_candidate": [
+      "promotion_pending",
+      "rejected"
+    ],
+    "promotion_pending": [
+      "promoted",
+      "rejected"
+    ],
     "rejected": [],
-    "promoted": ["reverted"],
+    "promoted": [
+      "reverted"
+    ],
     "reverted": []
   },
   "candidate_registry": {
@@ -36,6 +44,7 @@
   },
   "authority_order": [
     "this_manifest",
+    "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
     "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
     "selected machine-readable schemas and exact-text artifacts listed here",
     "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
@@ -45,24 +54,29 @@
   "conflict_policy": "Any byte or status conflict blocks the affected FLA phase. Implementers must update the authoritative artifact and its hash; they may not choose one side locally.",
   "governing_documents": [
     {
+      "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
+      "sha256": "480de61de209a5879c82eb1528f29320223f1a1fbc2da522cbee4fe3185653bd",
+      "role": "FLA-9 lightweight ordinary Tool binding, boundary sequence, implementation boundary and verification gates"
+    },
+    {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "5c6e0298177172a3efb0da803c1ab1175324ce32c4123425468b7557220ebc50",
+      "sha256": "d7f685141359583a0ce2fc482d52bada6a7343cb57c0e5a27cf1fa818512dac3",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
       "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
-      "sha256": "944c22999d44addaa867e829622fb0cf9d873916ec98d901a85b16ca37bc4a94",
-      "role": "Agent-visible examples and human-reviewable concrete contracts"
+      "sha256": "64e2f84f6178823580be4e62b72074710e2e7bc2e0994d26612e690c773662c4",
+      "role": "Agent-visible examples and historical concrete contracts; current FLA-9 examples defer to document 37"
     },
     {
       "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
-      "sha256": "9ce41ce3852787a96c8828fc3fdff7e6ced25788f934b790220041f1042bfa89",
+      "sha256": "c23dff8237c2fac81476a65303b786838a0b1d1c206a34d20432661cde02936b",
       "role": "layer responsibilities, ownership and architectural boundaries"
     },
     {
       "path": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
-      "sha256": "cc84e97df90da95adc08ba163fa55658ff56ae7c6307310ea7f2628959e962b7",
-      "role": "FLA-3.5 minimal continuous-action contract, implementation boundary and verification result"
+      "sha256": "e93b89a447088274eb570f88efb120e0b86e34bae4d84fd699deff2fb03b20bc",
+      "role": "historical FLA-3.5 full action carrier baseline and regression provenance"
     }
   ],
   "baseline": {
@@ -106,9 +120,9 @@
     {
       "layer": "L2",
       "implementation_status": "active_verified",
-      "activation_phase": "FLA-2",
+      "activation_phase": "FLA-2; FLA-9 lightweight binding protocol alignment",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "9764007b78c66a6a0fea625740c322f021d250f1b6cd0fe4d840b55084b79ac4",
+      "sha256": "8ae643f9e874aedbc8f459f2640b69e2268b98a28cf97f7855a43edcc9d7f98a",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -121,40 +135,50 @@
     },
     {
       "layer": "L4",
-      "implementation_status": "active_verified",
-      "activation_phase": "FLA-4",
-      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-      "sha256": "813e5a21a470525cfd11a5156a19149ce9aa8426845367b80d1a685ddd94c555",
+      "implementation_status": "active_repair_verified",
+      "activation_phase": "FLA-9",
+      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json",
+      "sha256": "7dfc3e95e469325476ed67c9d272e84b66d3aa4c6368d47570ec2682ec466bc1",
       "tool_count": 1,
-      "required_next_call": "removed",
-      "taskspace_action": "required_on_ordinary_action_tools",
-      "carrier_schema_source": {
-        "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
-        "sha256": "e6b5a554e3342eea1783e513990c579e4c41daf9793806d4b5c2ed365c8dd48d"
+      "taskspace_binding": "required_two_value_string_on_ordinary_tools",
+      "boundary_actions": [
+        "initialize_map",
+        "bind_node",
+        "complete_then_continue"
+      ],
+      "binding_schema_source": {
+        "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
+        "sha256": "d53cabe21c0cba4e222d54a2ec0a137de936bfbbba91c89df70a22245a9fbe95"
       },
-      "transition_parser": {
-        "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
-        "sha256": "4e1522170836d00ea61500fafb553190a73a66d7707ae0f81686422170b5fe0f"
+      "control_argument_parser": {
+        "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
+        "sha256": "0dad03e42324920804006b5e60b48be5c3822c81f726ac3a07db88db78de5330"
+      },
+      "sequence_preflight": {
+        "path": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
+        "sha256": "2ffd83c4ceecd75b73d0cef8371580dc44b03771f59cb35fe5475e0cff3b2cf4"
       },
       "strict": false,
       "output_schema": null,
       "production_targets": [
         "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
         "third_party/codex-cli/codex-rs/tools/src/taskspace_tool_simple_actions.rs",
-        "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
+        "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
         "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_carrier.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_binding.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/router.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
         "third_party/codex-cli/codex-rs/core/src/session/turn.rs"
       ]
     },
     {
       "layer": "L5-result",
       "implementation_status": "active_verified",
-      "activation_phase": "FLA-5",
+      "activation_phase": "FLA-5; FLA-9 removes the composite carrier envelope",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-      "sha256": "361a5838269ab56b604f527ff4f1f73799908c329c271e017a9545c26273b4d3",
+      "sha256": "429afe8ec927b806f13354e718d6af675a5a53c6c7447e8d92ef2c766afbc9c7",
       "schema_version": "TaskSpaceControlResultV2",
       "partial_commit_type": "boolean_const_false",
       "production_targets": [
@@ -224,13 +248,13 @@
   "blocking_repairs": [
     {
       "id": "FLA-3.5-continuous-action-regression-repair",
-      "implementation_status": "active_verified",
+      "implementation_status": "active_repair_verified",
       "issue": "H-003",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
-      "current_regression_baseline": "removed; ordinary action tools explicitly carry taskspace_action in the active production path",
-      "selected_direction": "shared schema decorator and parser require an Agent-submitted continuation or lifecycle action before dispatching the same ordinary Tool through the existing router",
-      "required_next_call_disposition": "removed with missing-sibling preflight and standalone nonterminal lifecycle actions"
+      "current_regression_baseline": "ordinary Tools retain one required taskspace_binding marker; lifecycle payloads live only in taskspace_control",
+      "selected_direction": "pair each boundary taskspace_control with an immediate after_boundary ordinary Tool in one response; validate symmetrically before execution",
+      "required_next_call_disposition": "removed; sequence preflight validates boundary and after_boundary adjacency without a second continuation field"
     },
     {
       "id": "FLA-3.5-terminal-action-contract-repair",
@@ -248,7 +272,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v2.9 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v3.0 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",
@@ -259,6 +283,11 @@
       "item": "TaskSpaceControlResultR6V1 and integer partial_commit",
       "obsolete_after": "FLA-5",
       "replacement": "TaskSpaceControlResultV2 and boolean partial_commit=false"
+    },
+    {
+      "item": "full taskspace_action union copied into ordinary Tool schemas and TaskSpaceCarrierResultV2",
+      "obsolete_after": "FLA-9",
+      "replacement": "single taskspace_control lifecycle schema plus required taskspace_binding active|after_boundary and separate ordered results"
     }
   ],
   "phase_gate": "No FLA phase may start until all selected input artifacts for that phase have matching hashes and every earlier selected target is active in production. Experimental artifacts never satisfy a baseline phase gate."

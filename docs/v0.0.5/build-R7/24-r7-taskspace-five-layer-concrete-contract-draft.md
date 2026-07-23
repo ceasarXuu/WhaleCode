@@ -1,8 +1,8 @@
 # R7 TaskSpace 五层具体合同评审稿
 
 - Created: 2026-07-20
-- Document Version: 1.0
-- Status: L1-L3 production active; FLA-3.5 action-carried lifecycle repair active
+- Document Version: 1.1
+- Status: 历史具体合同与当前五层示例；FLA-9 轻量绑定合同生效
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
 - Implementation Status: FLA-0 至 FLA-3.5 已实施并验证；FLA-4 为下一阶段
@@ -23,10 +23,11 @@
 完整 schema 和实施验收以 authority manifest 与 `25` 号规格为准。若发生冲突，阶段必须停止并修正文档或
 权威 artifact，不能让实施者自行选择。
 
-> 2026-07-22 supersession：第 6 节的 `required_next_call + top-level sibling` schema 和调用示例仅保留为
-> H-003 历史复现材料，不代表当前生产合同。当前合同是普通动作 Tool 携带必填 `taskspace_action`；旧字段、
-> missing-sibling preflight 和非终态独立 control 已删除。实现与结果见
-> [R7 连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md)。
+> 2026-07-24 supersession：第 6 节及后续 `required_next_call`、完整 `taskspace_action` carrier 和复合
+> `TaskSpaceCarrierResultV2` 示例只保留为 H-003 历史演进材料，不代表当前生产合同。当前合同以
+> [R7 普通 Tool 轻量绑定与连续动作修复](37-r7-lightweight-tool-binding-repair-plan.md) 为准：生命周期参数只在
+> `taskspace_control` 暴露一次，普通 Tool 只携带 `taskspace_binding=active|after_boundary`，两次调用返回两个
+> 独立有序事实。
 
 ## 2. Agent 实际看到的总体结构
 

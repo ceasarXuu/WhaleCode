@@ -1,15 +1,16 @@
 # R7 TaskSpace 五层交互架构设计
 
 - Created: 2026-07-20
-- Version: 1.8
-- Status: Production active through FLA-3.5; FLA-4 is next
+- Version: 1.9
+- Status: Production active through FLA-7; FLA-9 lightweight binding repair in verification
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
 - Related: [R7 三种 Projection 策略共享架构宪章](00-r7-three-projection-policy-charter.md)、
   [R7 双基础提示词设计](20-r7-dual-base-instructions-design.md)、
   [R7 五层具体合同评审稿](24-r7-taskspace-five-layer-concrete-contract-draft.md)、
   [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md)、
-  [R7 连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md)
+  [R7 连续动作合同回归修复计划](33-r7-continuous-action-regression-repair-plan.md)、
+  [R7 普通 Tool 轻量绑定与连续动作修复](37-r7-lightweight-tool-binding-repair-plan.md)
 - Risk Level: High
 
 ## 1. 执行摘要
@@ -32,9 +33,10 @@ Agent 不是第六层。Agent 是五层能力的唯一语义使用者：任务�
 门禁后才替代当前实现。三种策略之间唯一允许的差异仍是同一份 projection 如何进入 provider context；不得
 因五层重构而产生三套提示词、工具、状态机或反馈链。
 
-连续动作是 L4 的结构合同，不是 L1/L2 建议：初始化、绑定和完成后继续必须与至少一个真实动作处于同一个
-provider-visible Tool schema 中。FLA-3.5 已删除 `required_next_call + top-level sibling` 回归路径，由普通动作
-Tool 的必填 `taskspace_action` 恢复结构保证；FLA-4 从该单一生产基线继续正式化 L4。
+连续动作是 L4 的结构合同，不是 L1/L2 建议：初始化、绑定和完成后继续必须在同一个 provider response 中
+紧邻至少一个真实动作。完整生命周期参数只在唯一 `taskspace_control` 中出现；普通 Tool 只携带两值
+`taskspace_binding`，声明它服务当前 binding 还是承接紧邻的边界 control。FLA-9 以此替代把完整
+`taskspace_action` 联合复制到每个普通 Tool 的高成本实现。
 
 本文件只定义架构与内容所有权，不能单独作为实施依据。Agent 可见内容示例见 `24` 号文档；唯一主线、完整
 机器合同、生产入口、删除项、生命周期 oracle、评估门槛和完成证据以 `25` 号可执行规格及其链接的 authority
@@ -272,16 +274,17 @@ Tool 顶层 description 必须用足够但不重复的文字说明工具做什�
 
 | Tool | 职责 | Action 范围 |
 |---|---|---|
-| `taskspace_control` | 独立修改/读取 canonical Map 或执行终态闭合 | mutate、block/unblock/rework、complete/end、finish/end、expand、read_map、read_output_ref |
-| 普通动作 Tool | 执行真实工作，并明确声明当前 Map 绑定或携带状态交接 | `taskspace_action=continue_current|initialize_map|bind_node|complete_then_continue` |
+| `taskspace_control` | 修改/读取 canonical Map、执行边界生命周期或终态闭合 | initialize、mutate、bind、complete_then_continue、block/unblock/rework、finish、expand、read_map、read_output_ref |
+| 普通动作 Tool | 执行真实工作，并声明与 canonical binding 的机械关系 | `taskspace_binding=active|after_boundary` |
 
 读写拆分仅作为 FLA-6 独立实验。命名或 MCP annotation 本身不构成权限边界；只有 ordinary tool router、
 approval policy 和执行校验真正隔离写权限时，才能声称 read-only 权限收益。无论实验结果如何，所有 action
 共享同一 TaskSpace service、Map、validator、result algebra 和日志，不得形成两套架构。
 
-`complete_then_continue` 本身表达“提交当前边界并继续”。交接与真实动作现在是同一个结构化调用，不再依赖
-顶层 sibling。共享 Tool decorator 让真实动作携带必填 `taskspace_action`，原 Tool 参数、router、权限和
-handler 保持唯一；大型 Patch 正文不嵌入 control。旧 `required_next_call` 和 response preflight 已删除。
+`complete_then_continue` 本身表达“提交当前边界并继续”。交接 control 与真实动作是同一 provider response
+中的两个紧邻 Tool call。共享 Tool decorator 只让真实动作携带必填两值 `taskspace_binding`，原 Tool 参数、
+router、权限和 handler 保持唯一；大型 Patch 正文不嵌入 control。sequence preflight 在执行前对称检查边界
+与 `after_boundary`，但不推断节点或动作。
 
 `read_output_ref` 的不同读取模式应使用带明确 discriminator 的 `anyOf` 分支表达各自必填字段，而不是把所有
 字段设为 optional 后交给 Runtime 猜测。选择 `anyOf` 是因为 DeepSeek strict 当前公开支持集合不包含
@@ -577,13 +580,12 @@ Skill 不产生新硬规则。
 
 ### FLA-3.5：修复连续动作合同回归
 
-- 已将显式继续、初始化、绑定、完成后继续统一为普通动作 Tool 的必填 `taskspace_action`。
-- 共享 decorator/parser 只做参数投影与剥离；原 router、权限、sandbox、hook 和业务 handler 保持唯一。
-- 同一 call 的短事实头保留 transition 结果，后接未经改写的原 Tool 输出。
-- 已一次性删除 `required_next_call`、missing-sibling preflight 和三个非终态独立 control 分支。
+- 历史阶段曾用普通动作 Tool 的完整 `taskspace_action` 恢复连续动作。
+- FLA-9 保留连续动作要求，但把生命周期参数收回唯一 `taskspace_control`，普通 Tool 只保留轻量 binding。
+- 原 router、权限、sandbox、hook 和业务 handler 仍保持唯一。
+- control 与普通 Tool 返回两个独立有序事实，不再生成复合 carrier envelope。
 
-验收：定向 Rust 回归、FLA-3.5 contract gate、CLI 构建和 Docker paired smoke 均通过；详细边界与证据见 `33`
-号文档。该阶段已完成，FLA-4 不再被 H-003 阻塞。
+历史证据见 `33` 号文档；当前修订、验收门和样本结果以 `37` 号文档为准。
 
 ### FLA-4：重构 L4 描述与 input schema
 

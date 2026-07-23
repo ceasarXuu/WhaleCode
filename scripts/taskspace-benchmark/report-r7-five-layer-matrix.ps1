@@ -162,11 +162,23 @@ foreach ($run in @($manifest.runs)) {
     $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_protocol").Count }).Count
     $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_state_machine").Count }).Count
     $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "ordinary_tool").Count }).Count
-    $soloNonterminal = @($requestCalls | Where-Object {
-            $_.tool -eq "taskspace_control" -and $_.taskspace_action -in @("initialize_map", "bind_node", "complete_then_continue")
-        }).Count
+    $soloNonterminal = 0
+    foreach ($requestRow in $requestPath) {
+        $calls = @($requestRow.calls)
+        for ($index = 0; $index -lt $calls.Count; $index++) {
+            $call = $calls[$index]
+            if ($call.tool -ne "taskspace_control" -or
+                $call.control_action -notin @("initialize_map", "bind_node", "complete_then_continue")) {
+                continue
+            }
+            $paired = $index + 1 -lt $calls.Count -and
+                $calls[$index + 1].tool -ne "taskspace_control" -and
+                $calls[$index + 1].taskspace_binding -eq "after_boundary"
+            if (-not $paired) { $soloNonterminal++ }
+        }
+    }
     $echoOnlyHandoffs = @($requestCalls | Where-Object {
-            $_.tool -eq "exec_command" -and $_.taskspace_action -eq "complete_then_continue" -and $_.detail -match '(?:^|&&\s*)echo(?:\s|$)'
+            $_.tool -eq "exec_command" -and $_.taskspace_binding -eq "after_boundary" -and $_.detail -match '(?:^|&&\s*)echo(?:\s|$)'
         }).Count
     $flat | Add-Member -NotePropertyName echo_only_handoffs -NotePropertyValue $echoOnlyHandoffs
     $rows.Add($flat)

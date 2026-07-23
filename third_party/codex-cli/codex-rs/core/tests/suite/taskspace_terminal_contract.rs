@@ -109,12 +109,11 @@ async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
     }
 }
 
-fn carrier_arguments(test: &TestCodex, action: String) -> String {
+fn bound_exec_arguments(test: &TestCodex, binding: &str) -> String {
     json!({
         "cmd": "pwd",
         "workdir": test.cwd_path().display().to_string(),
-        "taskspace_action": serde_json::from_str::<serde_json::Value>(&action)
-            .expect("action json")
+        "taskspace_binding": binding,
     })
     .to_string()
 }
@@ -123,19 +122,25 @@ fn common_responses(test: &TestCodex) -> Vec<String> {
     vec![
         sse(vec![
             ev_response_created("init-response"),
+            ev_function_call("init-control", "taskspace_control", &initialize_arguments()),
             ev_function_call(
-                "init-call",
+                "init-action",
                 "exec_command",
-                &carrier_arguments(test, initialize_arguments()),
+                &bound_exec_arguments(test, "after_boundary"),
             ),
             ev_completed("init-response"),
         ]),
         sse(vec![
             ev_response_created("complete-response"),
             ev_function_call(
-                "complete-call",
+                "complete-control",
+                "taskspace_control",
+                &transition_arguments(),
+            ),
+            ev_function_call(
+                "complete-action",
                 "exec_command",
-                &carrier_arguments(test, transition_arguments()),
+                &bound_exec_arguments(test, "after_boundary"),
             ),
             ev_completed("complete-response"),
         ]),
@@ -197,12 +202,18 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
             "TaskSpace request must hide the linear plan tool"
         );
     }
-    for call_id in ["init-call", "complete-call"] {
+    for call_id in ["init-control", "complete-control"] {
         let output = responses
             .function_call_output_text(call_id)
-            .unwrap_or_else(|| panic!("missing carrier output for {call_id}"));
-        assert!(output.contains("TaskSpaceCarrierResultV2"), "{output}");
-        assert!(output.contains("\"tool_dispatched\":true"), "{output}");
+            .unwrap_or_else(|| panic!("missing control output for {call_id}"));
+        assert!(output.contains("TaskSpaceControlResultV2"), "{output}");
+        assert!(output.contains("\"state_commit\":true"), "{output}");
+    }
+    for call_id in ["init-action", "complete-action"] {
+        let output = responses
+            .function_call_output_text(call_id)
+            .unwrap_or_else(|| panic!("missing ordinary output for {call_id}"));
+        assert!(!output.contains("TaskSpaceCarrierResultV2"), "{output}");
     }
 }
 
@@ -217,7 +228,7 @@ fn error_messages(events: &[EventMsg]) -> Vec<&str> {
 }
 
 fn control_output_diagnostics(responses: &ResponseMock) -> Vec<(&'static str, String)> {
-    ["init-call", "complete-call", "finish-call"]
+    ["init-control", "complete-control", "finish-call"]
         .into_iter()
         .filter_map(|call_id| {
             responses
@@ -242,7 +253,7 @@ fn agent_text(item: &TurnItem) -> Option<(String, Option<MessagePhase>)> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Result<()> {
+async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
     let test = test_codex()

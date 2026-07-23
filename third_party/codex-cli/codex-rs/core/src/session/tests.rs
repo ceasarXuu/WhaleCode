@@ -1327,14 +1327,19 @@ async fn provider_composer_injects_one_blank_map_projection() {
         );
         assert!(developer_text.contains("- map: none"));
         assert!(developer_text.contains("- bootstrap_required: true"));
-        assert!(developer_text.contains("- bootstrap_action: initialize_map"));
-        assert!(developer_text.contains("- action_carrier: ordinary_tool.taskspace_action"));
+        assert!(developer_text.contains("- bootstrap_action: taskspace_control.initialize_map"));
         assert!(
-            developer_text.contains("- ordinary_tools_allowed: with_explicit_taskspace_action")
+            developer_text.contains(
+                "- boundary_action_binding: ordinary_tool.taskspace_binding.after_boundary"
+            )
         );
         assert!(
             developer_text
-                .contains("- ordinary_tool_without_action_failure: TASKSPACE_ACTION_REQUIRED")
+                .contains("- active_action_binding: ordinary_tool.taskspace_binding.active")
+        );
+        assert!(
+            developer_text
+                .contains("- ordinary_tool_without_binding_failure: TASKSPACE_BINDING_REQUIRED")
         );
         assert!(!developer_text.contains("active_task_path_without_nodes"));
         if let Some(previous_context) = previous_context.as_ref() {
@@ -1797,9 +1802,11 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
             &[
                 ResponseItem::FunctionCall {
                     id: None,
-                    name: "shell_command".to_string(),
+                    name: "taskspace_control".to_string(),
                     namespace: None,
-                    arguments: r#"{"command":"pwd","taskspace_action":{"action":"bind_node","expected_revision":3,"node_id":"implement"}}"#.to_string(),
+                    arguments:
+                        r#"{"action":"bind_node","expected_revision":3,"node_id":"implement"}"#
+                            .to_string(),
                     call_id: "transition-control".to_string(),
                 },
                 ResponseItem::FunctionCallOutput {
@@ -1812,7 +1819,8 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
                     id: None,
                     name: "shell_command".to_string(),
                     namespace: None,
-                    arguments: "{}".to_string(),
+                    arguments: r#"{"command":"pwd","taskspace_binding":"after_boundary"}"#
+                        .to_string(),
                     call_id: "ordinary-call".to_string(),
                 },
             ],

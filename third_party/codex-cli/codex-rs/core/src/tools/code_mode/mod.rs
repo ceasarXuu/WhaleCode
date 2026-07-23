@@ -349,7 +349,7 @@ async fn call_nested_tool(
         tool_name: tool_call_name,
         call_id: format!("{PUBLIC_TOOL_NAME}-{}", uuid::Uuid::new_v4()),
         payload,
-        taskspace_action: None,
+        taskspace_binding: None,
     };
     let result = tool_runtime
         .handle_tool_call_with_source(

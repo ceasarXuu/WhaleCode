@@ -1,6 +1,6 @@
 ---
 name: observe-taskspace-performance
-description: Generate evidence-based TaskSpace benchmark performance reports from local run artifacts. Use when comparing Standard, TaskSpace, R4, or R5 runs; reporting results, actions, request amplification, time or token cost, DeepSeek cache behavior, map structure, result lifecycle, or semantic preservation; or auditing a benchmark run for skipped, incomplete, or incomparable sides.
+description: Generate evidence-based TaskSpace benchmark performance reports from local run artifacts. Use when comparing Standard, TaskSpace, R4, R5, R6, or R7 runs; reporting results, actions, request amplification, time or token cost, DeepSeek cache behavior, map structure, result lifecycle, Tool binding sequences, or semantic preservation; or auditing a benchmark run for skipped, incomplete, or incomparable sides.
 ---
 
 # Observe TaskSpace Performance
@@ -30,13 +30,15 @@ pwsh -NoProfile -File scripts/taskspace-benchmark/write-performance-observation.
 - Treat `tool_choice` as part of the provider cache shape. Show message-prefix preservation separately when named-to-auto changes leave messages intact but break the full request prefix.
 - Keep cached and uncached input separate. Do not infer monetary cost without a frozen unit-price artifact.
 - Include map nodes, edges, open leaves, root status, control actions, result validity, retention, and semantic replacement.
-- Report TaskSpace failures as separate protocol, state-machine, and nested ordinary-action counts. Do not label a faithful nested tool failure as a state-machine failure.
-- Distinguish provider outer tool calls, Runtime-executed tools, and actions nested inside a `taskspace_control` carrier.
-- Report the `patch` section: total/max patch declarations per provider response, singular/multi carrier attempts, request-wide multi-patch attempts and preflight rejects, multi-file patches, prepare/commit/partial failures, and post-patch action/skipped counts. Treat missing rollout evidence as unavailable, not zero.
+- Report TaskSpace failures as separate protocol, state-machine, and ordinary Tool counts. A Tool skipped after an earlier control failure is not an independently executed ordinary failure.
+- For the current R7 contract, distinguish `taskspace_control`, ordinary Tools with `taskspace_binding=active`, ordinary Tools with `taskspace_binding=after_boundary`, and sequence-preflight rejected calls. Historical nested carrier fields remain historical evidence only.
+- Report the `patch` section: total/max patch declarations per provider response, request-wide multi-patch attempts and preflight rejects, multi-file patches, prepare/commit/partial failures, and post-patch action/skipped counts. Treat missing rollout evidence as unavailable, not zero.
 - Read observations cover only explicit `read_file` and `read_output_ref` identities. Do not infer reads or writes from shell command text, and never use these observations as a Runtime gate.
-- Report `initialize_map`, `mutate_graph`, `transition_node`, and `finish_map` counts. For the current branch-free terminal contract, split committed `finish_map` results by canonical `terminal_node_role` (`work` versus `finish`); for historical artifacts only, preserve the submitted `terminal_state` split. Separately report initialize, mutation, and bind continuations; nested actions; state-only controls; direct ordinary sibling tools; multiple controls in one response; and nonterminal transitions without a follow-up action.
+- Report `initialize_map`, `mutate_graph`, `bind_node`, `complete_then_continue`, direct block/unblock/rework actions, and `finish_map` counts. For the current branch-free terminal contract, split committed `finish_map` results by canonical `terminal_node_role` (`work` versus `finish`); for historical artifacts only, preserve the submitted `terminal_state` split.
+- For current R7 runs, report boundary-pair counts and violations separately: initialization pairs, bind pairs, complete-then-continue pairs, standalone boundaries, orphan `after_boundary` calls, active bindings, and preflight-rejected call totals. Preserve provider order when deciding whether calls are adjacent.
 - For `TaskSpaceControlResultR6V1`, report committed delta present/missing counts, canonical graph revision batch counts, node-detail event counts, and any failed terminal result whose `state_commit` is true. A missing success delta or nonzero failure commit is a feedback-contract violation, not an Agent mistake. Current full Map state belongs only to the active projection and must not appear in control feedback.
-- Treat a nonterminal transition without a follow-up as an efficiency observation, not a state-machine failure. Runtime must not infer or insert the missing action.
+- Treat a nonterminal boundary without its required adjacent ordinary Tool as a protocol failure with zero execution, not a state-machine failure. Runtime must not infer or insert the missing action. Report the actual and expected mechanical sequence when the artifact contains it.
+- Report the provider-visible Tool section count, bytes, estimated tokens, and hash. Compare the current lightweight binding cost with both Standard and any historical full-carrier baseline only when the model, tool registry, and wire scanner are equivalent.
 - Treat map warnings as mechanical observations. Do not recommend Runtime semantic intervention solely because Agent planning is coarse.
 - Mark historical R4 fields unavailable when final-wire or map artifacts do not exist; do not fabricate parity.
 

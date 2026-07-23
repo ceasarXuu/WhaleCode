@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.18",
+  "manifest_version": "1.0.19",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -14,11 +14,13 @@
     "carrier_result_repair_active_projection_baseline"
   ],
   "activation_through": "FLA-7",
-  "repair_activation": [],
+  "repair_activation": [
+    "FLA-9-lightweight-binding"
+  ],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "f34e13a6f21b29f106195a72c4b8b61f232c04702a67c83ace328a3bd08a5fdd"
+    "sha256": "913543bb91bf9be2f65433c02e2a4446a8b6bd7775cd07df16684c21e370a230"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -53,8 +55,8 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "9764007b78c66a6a0fea625740c322f021d250f1b6cd0fe4d840b55084b79ac4",
-          "activation_phase": "FLA-2; FLA-3.5 branch-free terminal action contract repair"
+          "sha256": "8ae643f9e874aedbc8f459f2640b69e2268b98a28cf97f7855a43edcc9d7f98a",
+          "activation_phase": "FLA-2; FLA-9 lightweight binding protocol alignment"
         }
       ]
     },
@@ -75,14 +77,14 @@
       "id": "L4",
       "owner": "taskspace_tool",
       "carrier": "provider_tools",
-      "runtime_status": "carrier_active_projection_baseline",
+      "runtime_status": "active",
       "selected_targets": [
         {
-          "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
-          "sha256": "813e5a21a470525cfd11a5156a19149ce9aa8426845367b80d1a685ddd94c555",
-          "activation_phase": "FLA-4",
-          "carrier_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_carrier.rs",
-          "transition_parser": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_transition_args.rs"
+          "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json",
+          "sha256": "7dfc3e95e469325476ed67c9d272e84b66d3aa4c6368d47570ec2682ec466bc1",
+          "activation_phase": "FLA-9",
+          "binding_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
+          "sequence_preflight": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"
         }
       ]
     },
@@ -94,8 +96,8 @@
       "selected_targets": [
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-          "sha256": "361a5838269ab56b604f527ff4f1f73799908c329c271e017a9545c26273b4d3",
-          "activation_phase": "FLA-5"
+          "sha256": "429afe8ec927b806f13354e718d6af675a5a53c6c7447e8d92ef2c766afbc9c7",
+          "activation_phase": "FLA-5; FLA-9 separate ordered control and ordinary Tool results"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",

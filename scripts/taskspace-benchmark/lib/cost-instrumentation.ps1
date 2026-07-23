@@ -1276,25 +1276,6 @@ function New-TaskspaceProviderInputVisibilitySummary {
     }
 }
 
-function Get-TaskspaceCarrierResultFromOutput {
-    param([AllowEmptyString()][string]$Output)
-    if ([string]::IsNullOrWhiteSpace($Output)) { return $null }
-    $candidates = @($Output.Trim())
-    $firstLine = @($Output -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
-    if ($firstLine.Count -gt 0 -and [string]$firstLine[0] -cne [string]$candidates[0]) {
-        $candidates += [string]$firstLine[0]
-    }
-    foreach ($candidate in $candidates) {
-        try {
-            $value = $candidate | ConvertFrom-Json
-            if ([string](Get-TaskspaceCostProperty $value @("schema_version")) -eq "TaskSpaceCarrierResultV2") {
-                return $value
-            }
-        } catch {}
-    }
-    $null
-}
-
 function New-TaskspaceControlUsageSummary {
     param(
         [string]$JsonlPath,
@@ -1384,13 +1365,10 @@ function New-TaskspaceControlUsageSummary {
     $rolloutActions = @{}
     $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCarrierActionCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCarrierFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCarrierStateFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCarrierProtocolFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCarrierArgumentFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCarrierResourceFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCarrierActions = @{}
+    $rolloutBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutActiveBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutAfterBoundaryBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutSequencePreflightFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlPreflightFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlHandlerFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
@@ -1434,11 +1412,6 @@ function New-TaskspaceControlUsageSummary {
                 if (-not [string]::IsNullOrWhiteSpace($output)) {
                     try { $batch = $output | ConvertFrom-Json } catch {}
                 }
-                $carrier = Get-TaskspaceCarrierResultFromOutput $output
-                $isCarrierResult = $null -ne $carrier
-                if ($isCarrierResult) {
-                    $batch = Get-TaskspaceCostProperty $carrier @("action_result")
-                }
                 $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
                 if ($schemaVersion -eq "TaskSpaceGateResultV1" -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false -and
@@ -1447,11 +1420,14 @@ function New-TaskspaceControlUsageSummary {
                 }
                 $isControlCall = -not [string]::IsNullOrWhiteSpace($callId) -and
                     ($rolloutNativeCallIds.Contains($callId) -or
-                        $rolloutActionContractCallIds.Contains($callId) -or
-                        $rolloutCarrierActionCallIds.Contains($callId))
+                        $rolloutActionContractCallIds.Contains($callId))
+                if ($schemaVersion -eq "ToolSequencePreflightResultV1" -and
+                    [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false) {
+                    [void]$rolloutSequencePreflightFailureCallIds.Add($callId)
+                }
                 if (-not $isControlCall) { continue }
 
-                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2", "TaskSpaceControlResultR6V1", "TaskSpaceActionValidationResultV1")
+                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2", "TaskSpaceControlResultR6V1")
                 $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV1"
                 $controlFailed = ($isControlResult -or $isControlPreflightResult) -and
                     $batch.PSObject.Properties.Name -contains "success" -and
@@ -1462,9 +1438,7 @@ function New-TaskspaceControlUsageSummary {
                 $status = [string](Get-TaskspaceCostProperty $batch @("status"))
                 if ($controlFailed) {
                     [void]$rolloutControlFailureCallIds.Add($callId)
-                    if ($isCarrierResult) { [void]$rolloutCarrierFailureCallIds.Add($callId) }
-                    $isPreflight = $isControlPreflightResult -or
-                        $errorCode -eq "TASKSPACE_REQUIRED_SIBLING_MISSING"
+                    $isPreflight = $isControlPreflightResult
                     if ($isPreflight) {
                         [void]$rolloutControlPreflightFailureCallIds.Add($callId)
                     } else {
@@ -1474,16 +1448,12 @@ function New-TaskspaceControlUsageSummary {
                         [void]$rolloutNestedActionFailureCallIds.Add($callId)
                     } elseif ($status -eq "state_machine_failed" -or $errorClass -eq "state_machine") {
                         [void]$rolloutControlStateFailureCallIds.Add($callId)
-                        if ($isCarrierResult) { [void]$rolloutCarrierStateFailureCallIds.Add($callId) }
                     } elseif ($status -eq "argument_failed" -or $errorClass -eq "argument") {
                         [void]$rolloutControlArgumentFailureCallIds.Add($callId)
-                        if ($isCarrierResult) { [void]$rolloutCarrierArgumentFailureCallIds.Add($callId) }
                     } elseif ($status -eq "resource_failed" -or $errorClass -eq "resource") {
                         [void]$rolloutControlResourceFailureCallIds.Add($callId)
-                        if ($isCarrierResult) { [void]$rolloutCarrierResourceFailureCallIds.Add($callId) }
                     } else {
                         [void]$rolloutControlProtocolFailureCallIds.Add($callId)
-                        if ($isCarrierResult) { [void]$rolloutCarrierProtocolFailureCallIds.Add($callId) }
                     }
                 }
                 $stateCommitted = $isControlResult -and
@@ -1544,13 +1514,13 @@ function New-TaskspaceControlUsageSummary {
                 $parsedArguments = $arguments
             }
             if ($toolName -ne "taskspace_control") {
-                $taskspaceAction = Get-TaskspaceCostProperty $parsedArguments @("taskspace_action")
-                if ($taskspaceAction -is [string]) {
-                    try { $taskspaceAction = $taskspaceAction | ConvertFrom-Json } catch {}
-                }
-                $carrierAction = [string](Get-TaskspaceCostProperty $taskspaceAction @("action"))
-                if (-not [string]::IsNullOrWhiteSpace($carrierAction) -and $rolloutCarrierActionCallIds.Add($callId)) {
-                    Add-TaskspaceCostCount $rolloutCarrierActions $carrierAction
+                $binding = [string](Get-TaskspaceCostProperty $parsedArguments @("taskspace_binding"))
+                if (-not [string]::IsNullOrWhiteSpace($binding) -and $rolloutBindingCallIds.Add($callId)) {
+                    if ($binding -eq "active") {
+                        [void]$rolloutActiveBindingCallIds.Add($callId)
+                    } elseif ($binding -eq "after_boundary") {
+                        [void]$rolloutAfterBoundaryBindingCallIds.Add($callId)
+                    }
                 }
                 continue
             }
@@ -1688,12 +1658,10 @@ function New-TaskspaceControlUsageSummary {
         taskspace_control_count = [int]$total
         native_taskspace_control_count = [int]$nativeTotal
         action_contract_taskspace_control_count = [int]$actionContractTotal
-        carrier_action_count = [int]$rolloutCarrierActionCallIds.Count
-        carrier_failure_count = [int]$rolloutCarrierFailureCallIds.Count
-        carrier_state_failure_count = [int]$rolloutCarrierStateFailureCallIds.Count
-        carrier_protocol_failure_count = [int]$rolloutCarrierProtocolFailureCallIds.Count
-        carrier_argument_failure_count = [int]$rolloutCarrierArgumentFailureCallIds.Count
-        carrier_resource_failure_count = [int]$rolloutCarrierResourceFailureCallIds.Count
+        ordinary_binding_count = [int]$rolloutBindingCallIds.Count
+        active_binding_count = [int]$rolloutActiveBindingCallIds.Count
+        after_boundary_binding_count = [int]$rolloutAfterBoundaryBindingCallIds.Count
+        sequence_preflight_rejected_call_count = [int]$rolloutSequencePreflightFailureCallIds.Count
         control_failure_count = [int]$rolloutControlFailureCallIds.Count
         control_preflight_failure_count = [int]$rolloutControlPreflightFailureCallIds.Count
         control_handler_failure_count = [int]$rolloutControlHandlerFailureCallIds.Count
@@ -1703,7 +1671,6 @@ function New-TaskspaceControlUsageSummary {
         control_resource_failure_count = [int]$rolloutControlResourceFailureCallIds.Count
         nested_action_failure_count = [int]$rolloutNestedActionFailureCallIds.Count
         ordinary_gate_failure_count = [int]$rolloutOrdinaryGateFailureCallIds.Count
-        taskspace_boundary_failure_count = [int]$rolloutControlFailureCallIds.Count + [int]$rolloutOrdinaryGateFailureCallIds.Count
         committed_control_count = [int]$rolloutCommittedControlCallIds.Count
         graph_revision_commit_count = [int]$rolloutGraphRevisionCommitKeys.Count
         read_map_request_count = $readMapRequestCount
@@ -1721,7 +1688,6 @@ function New-TaskspaceControlUsageSummary {
         runtime_output_ref_slice_read_count = [int]$runtimeOutputRefSliceRead
         taskspace_runtime_event_count = [int]$runtimeEventTotal
         action_counts = Convert-TaskspaceCostTable $actions
-        carrier_action_counts = Convert-TaskspaceCostTable $rolloutCarrierActions
         runtime_event_counts = Convert-TaskspaceCostTable $runtimeEventCounts
     }
 }
