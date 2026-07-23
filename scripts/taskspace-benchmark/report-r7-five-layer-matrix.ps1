@@ -4,6 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+. (Join-Path $PSScriptRoot "lib/r7-five-layer-trace-analysis.ps1")
 if (-not [IO.Path]::IsPathRooted($RunRoot)) { $RunRoot = Join-Path $repoRoot $RunRoot }
 $manifestPath = Join-Path $RunRoot "run-manifest.json"
 $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
@@ -42,6 +43,13 @@ function Get-AggregateRow {
         requests_total = $requestTotal
         requests_mean = if ($Rows.Count) { [Math]::Round($requestTotal / $Rows.Count, 3) } else { $null }
         requests_median = Get-Median @($Rows.provider_requests)
+        tool_action_requests_total = ($Rows | Measure-Object -Property tool_action_requests -Sum).Sum
+        assistant_only_requests_total = ($Rows | Measure-Object -Property assistant_only_requests -Sum).Sum
+        multi_tool_requests_total = ($Rows | Measure-Object -Property multi_tool_requests -Sum).Sum
+        taskspace_protocol_failure_requests_total = ($Rows | Measure-Object -Property taskspace_protocol_failure_requests -Sum).Sum
+        taskspace_state_failure_requests_total = ($Rows | Measure-Object -Property taskspace_state_failure_requests -Sum).Sum
+        ordinary_failure_requests_total = ($Rows | Measure-Object -Property ordinary_failure_requests -Sum).Sum
+        echo_only_handoffs_total = ($Rows | Measure-Object -Property echo_only_handoffs -Sum).Sum
         input_tokens_total = $inputTotal
         input_tokens_mean = if ($Rows.Count) { [Math]::Round($inputTotal / $Rows.Count, 3) } else { $null }
         input_tokens_median = Get-Median @($Rows.input_tokens)
@@ -58,8 +66,15 @@ function Get-AggregateRow {
         failed_tools_total = ($Rows | Measure-Object -Property failed_tools -Sum).Sum
         taskspace_control_total = ($Rows | Measure-Object -Property taskspace_control -Sum).Sum
         control_failures_total = ($Rows | Measure-Object -Property control_failures -Sum).Sum
+        control_protocol_failures_total = ($Rows | Measure-Object -Property control_protocol_failures -Sum).Sum
+        control_state_failures_total = ($Rows | Measure-Object -Property control_state_failures -Sum).Sum
+        multi_patch_attempts_total = ($Rows | Measure-Object -Property multi_patch_attempts -Sum).Sum
+        patch_prepare_failures_total = ($Rows | Measure-Object -Property patch_prepare_failures -Sum).Sum
         map_nodes_mean = [Math]::Round((($Rows | Measure-Object -Property map_nodes -Average).Average), 3)
         map_edges_mean = [Math]::Round((($Rows | Measure-Object -Property map_edges -Average).Average), 3)
+        first_input_tokens_mean = [Math]::Round((($Rows | Measure-Object -Property first_input_tokens -Average).Average), 3)
+        tools_section_tokens_mean = if ($requestTotal) { [Math]::Round((($Rows | Measure-Object -Property tools_section_tokens_total -Sum).Sum) / $requestTotal, 3) } else { 0 }
+        projection_section_tokens_mean = if ($requestTotal) { [Math]::Round((($Rows | Measure-Object -Property projection_section_tokens_total -Sum).Sum) / $requestTotal, 3) } else { 0 }
     }
 }
 
@@ -80,10 +95,15 @@ foreach ($run in @($manifest.runs)) {
     if ($actualRows.Count -ne 1) { throw "Expected one complete row for $($run.sample) repeat $($run.repeat) $($run.arm)" }
     $row = $actualRows[0]
     $request2Input = [double](Get-Value $row.cache "request_2_plus_cached_input_tokens" 0) + [double](Get-Value $row.cache "request_2_plus_uncached_input_tokens" 0)
-    $finishNode = @((Get-Value $row.map "nodes" @()) | Where-Object { [string]$_.role -eq "finish" } | Select-Object -First 1)
+    $finishNode = @((Get-Value $row.map "nodes" @()) | Where-Object { [string]$_.kind -eq "finish" } | Select-Object -First 1)
+    $rootNode = @((Get-Value $row.map "nodes" @()) | Where-Object { [string]$_.kind -eq "task_root" } | Select-Object -First 1)
     $resolvedPath = Join-Path ([string]$run.run_dir) "pair-001/manifest.resolved.json"
     $resolved = Get-Content -Raw -Encoding UTF8 -LiteralPath $resolvedPath | ConvertFrom-Json -Depth 50
     $imageDigests.Add([string]$resolved.container_image_digest)
+    $wireTracePath = Join-Path ([string]$row.artifact_dir) "provider-wire-trace.jsonl"
+    $rolloutPath = Join-Path ([string]$row.artifact_dir) "rollout.jsonl"
+    $requestSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-summary.json") | ConvertFrom-Json -Depth 50
+    $sectionSummary = Get-R7WireSectionSummary $wireTracePath
     $flat = [pscustomobject]@{
         sample = [string]$run.sample
         repeat = [int]$run.repeat
@@ -98,6 +118,10 @@ foreach ($run in @($manifest.runs)) {
         failed_tools = [double](Get-Value $row.actions "failed_tools" 0)
         taskspace_control = [double](Get-Value $row.actions "taskspace_control" 0)
         control_failures = [double](Get-Value $row.actions "control_failures" 0)
+        control_protocol_failures = [double](Get-Value $row.actions "control_protocol_failures" 0)
+        control_state_failures = [double](Get-Value $row.actions "control_state_failures" 0)
+        multi_patch_attempts = [double](Get-Value $row.patch "request_multi_patch_attempt_count" 0)
+        patch_prepare_failures = [double](Get-Value $row.patch "patch_prepare_failure_count" 0)
         input_tokens = [double](Get-Value $row.cost "input_tokens" 0)
         cached_input_tokens = [double](Get-Value $row.cost "cached_input_tokens" 0)
         uncached_input_tokens = [double](Get-Value $row.cost "uncached_input_tokens" 0)
@@ -112,26 +136,61 @@ foreach ($run in @($manifest.runs)) {
         map_nodes = [double](Get-Value $row.map "node_count" 0)
         map_edges = [double](Get-Value $row.map "edge_count" 0)
         map_open_leaves = [double](Get-Value $row.map "open_leaf_nodes" 0)
-        map_root_status = [string](Get-Value $row.map "root_task_status" "")
+        map_root_status = if ($rootNode.Count) { [string]$rootNode[0].status } else { "" }
+        map_observer_root_task_status = [string](Get-Value $row.map "root_task_status" "")
         map_finish_status = if ($finishNode.Count) { [string]$finishNode[0].status } else { "" }
+        first_input_tokens = [double](Get-Value $requestSummary "first_input_tokens_per_request" 0)
+        tools_section_tokens_mean = [double](Get-Value $sectionSummary.estimated_tokens_mean "tools" 0)
+        projection_section_tokens_mean = [double](Get-Value $sectionSummary.estimated_tokens_mean "active_projection" 0)
+        tools_section_tokens_total = [double](Get-Value $sectionSummary.estimated_tokens_total "tools" 0)
+        projection_section_tokens_total = [double](Get-Value $sectionSummary.estimated_tokens_total "active_projection" 0)
+        natural_history_section_tokens_mean = [double](Get-Value $sectionSummary.estimated_tokens_mean "natural_history" 0)
+        ordinary_feedback_section_tokens_mean = [double](Get-Value $sectionSummary.estimated_tokens_mean "ordinary_tool_feedback" 0)
+        system_section_tokens_mean = [double](Get-Value $sectionSummary.estimated_tokens_mean "system_messages" 0)
         artifact_dir = [string]$row.artifact_dir
         run_dir = [string]$run.run_dir
     }
+    $requestPath = if ($flat.logical_mode -eq "standard") {
+        Get-R7StandardRequestPath $rolloutPath ([int]$flat.provider_requests)
+    } else {
+        Get-R7TaskspaceRequestPath $rolloutPath ([int]$flat.provider_requests)
+    }
+    $requestCalls = @($requestPath | ForEach-Object { @($_.calls) })
+    $flat | Add-Member -NotePropertyName tool_action_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "tool_calls").Count
+    $flat | Add-Member -NotePropertyName assistant_only_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "assistant_only").Count
+    $flat | Add-Member -NotePropertyName multi_tool_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls).Count -gt 1 }).Count
+    $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_protocol").Count }).Count
+    $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_state_machine").Count }).Count
+    $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "ordinary_tool").Count }).Count
+    $soloNonterminal = @($requestCalls | Where-Object {
+            $_.tool -eq "taskspace_control" -and $_.taskspace_action -in @("initialize_map", "bind_node", "complete_then_continue")
+        }).Count
+    $echoOnlyHandoffs = @($requestCalls | Where-Object {
+            $_.tool -eq "exec_command" -and $_.taskspace_action -eq "complete_then_continue" -and $_.detail -match '(?:^|&&\s*)echo(?:\s|$)'
+        }).Count
+    $flat | Add-Member -NotePropertyName echo_only_handoffs -NotePropertyValue $echoOnlyHandoffs
     $rows.Add($flat)
     $anomalies = [Collections.Generic.List[string]]::new()
     if (-not $flat.business_success) { $anomalies.Add("scenario_failed") }
-    if ($flat.control_failures -gt 0) { $anomalies.Add("taskspace_control_failure") }
-    if ($flat.failed_tools -gt 0) { $anomalies.Add("ordinary_tool_failure") }
+    if (@($requestCalls | Where-Object failure_class -eq "taskspace_protocol").Count) { $anomalies.Add("taskspace_protocol_failure") }
+    if (@($requestCalls | Where-Object failure_class -eq "taskspace_state_machine").Count) { $anomalies.Add("taskspace_state_machine_failure") }
+    if (@($requestCalls | Where-Object failure_class -eq "tool_sequence_protocol").Count) { $anomalies.Add("tool_sequence_protocol_failure") }
+    if (@($requestCalls | Where-Object failure_class -eq "ordinary_tool").Count) { $anomalies.Add("ordinary_tool_failure") }
     if ($flat.same_shape_zero_hit_count -gt 0) { $anomalies.Add("same_shape_zero_cache_hit") }
+    if ($echoOnlyHandoffs -gt 0) { $anomalies.Add("echo_only_lifecycle_handoff") }
     $traceRuns.Add([pscustomobject]@{
             sample = $flat.sample
             repeat = $flat.repeat
             arm = $flat.arm
             provider_requests = $flat.provider_requests
             anomalies = @($anomalies)
+            solo_nonterminal_transition_count = $soloNonterminal
+            echo_only_handoff_count = $echoOnlyHandoffs
+            request_path = @($requestPath)
+            wire_sections = $sectionSummary
             observation_json = $observationPath
-            provider_wire_trace = Join-Path $flat.artifact_dir "provider-wire-trace.jsonl"
-            rollout = Join-Path $flat.artifact_dir "rollout.jsonl"
+            provider_wire_trace = $wireTracePath
+            rollout = $rolloutPath
             whale_exec = Join-Path $flat.artifact_dir "whale-exec.jsonl"
         })
 }
@@ -177,6 +236,12 @@ $lines.Add("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
 foreach ($row in $overall) {
     $cacheRate = if ($null -eq $row.request_2_plus_cache_hit_rate) { "N/A" } else { "{0:P2}" -f [double]$row.request_2_plus_cache_hit_rate }
     $lines.Add("| $($row.arm) | $($row.successes)/$($row.runs) | $($row.requests_total) / $($row.requests_mean) / $($row.requests_median) | $($row.input_tokens_total) / $($row.input_tokens_mean) / $($row.input_tokens_median) | $($row.cached_input_tokens_total) | $($row.uncached_input_tokens_total) | $cacheRate | $($row.output_tokens_total) / $($row.output_tokens_mean) | $($row.wall_time_ms_total) / $($row.wall_time_ms_mean) / $($row.wall_time_ms_median) |")
+}
+$lines.Add("")
+$lines.Add("| arm | 工作/终答 request | 多工具 request | 首请求 input 均值 | Tools section/请求 | Projection section/请求 | TS 协议失败 request | TS 状态失败 request | multi-patch | 空动作交接 | patch prepare 失败 | Map nodes/edges 均值 |")
+$lines.Add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+foreach ($row in $overall) {
+    $lines.Add("| $($row.arm) | $($row.tool_action_requests_total) / $($row.assistant_only_requests_total) | $($row.multi_tool_requests_total) | $($row.first_input_tokens_mean) | $($row.tools_section_tokens_mean) | $($row.projection_section_tokens_mean) | $($row.taskspace_protocol_failure_requests_total) | $($row.taskspace_state_failure_requests_total) | $($row.multi_patch_attempts_total) | $($row.echo_only_handoffs_total) | $($row.patch_prepare_failures_total) | $($row.map_nodes_mean) / $($row.map_edges_mean) |")
 }
 $lines.Add("")
 $lines.Add("逐运行明细：``summary.csv``；分样本和全局聚合：``aggregate.csv``；trace 索引与初筛异常：``trace-analysis.json``。")
