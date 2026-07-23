@@ -23,9 +23,9 @@
 
 ```text
 Created: 2026-07-17
-Updated: 2026-07-21
+Updated: 2026-07-23
 Version: v0.0.5 build-R7
-Status: Phase D.5 Completed / FLA-3.5 Active Verified / FLA-4 Next
+Status: FLA-7 Active Verified / FLA-8 Initial Repeat-3 Completed / Extended Decision Pending
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -554,10 +554,11 @@ Phase F 不再修改代码、运行独立测试或形成另一份 acceptance。�
 
 **目标**：在同一生产 commit 上量化三种设计取舍，形成默认值建议，但保留全部策略。
 
-**阶段所有权**：本节只命名 FLA-8 七臂正式矩阵中的 Standard + 三种 projection policy 固定子矩阵。唯一 Docker
+**阶段所有权**：本节只命名 FLA-8 四臂正式矩阵中的 Standard + 三种 projection policy。唯一 Docker
 image、样本、重复、seed、trace、统计、报告和默认值决策全部归
 [五层可执行规格的 FLA-8](25-r7-five-layer-executable-spec.md)。Phase G 不另跑三重复、不单独查看 held-out、
-不维护独立 gate；FLA-8 未完成时 Phase G 保持未完成。
+不维护独立 gate。首轮 repeat 3 已完成，结果见
+[FLA-8 首轮四臂结果](35-r7-five-layer-fla8-initial-repeat3-result.md)；repeat 10 和 held-out 仍需用户明确批准。
 
 决策维度：
 

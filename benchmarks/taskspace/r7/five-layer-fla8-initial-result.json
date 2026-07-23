@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla8-initial-repeat3",
+  "status": "initial_observation_completed_decision_pending",
+  "claim_scope": "regression_and_execution_path_observation_only",
+  "subject_commit": "f2baea6d13caef02f15e1a3c6938a3fa05a3d315",
+  "observer_commit": "9bc3bf7ca",
+  "docker_image_digest": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
+  "model": "deepseek-v4-flash",
+  "samples": [
+    "single-file-fast-fix",
+    "subscription-billing-repair"
+  ],
+  "repeats_per_arm_per_sample": 3,
+  "run_count": 24,
+  "excluded_run_count": 0,
+  "arms": {
+    "standard": {
+      "successes": 6,
+      "requests": {"total": 66, "mean": 11.0, "median": 11.0, "tool_action": 60, "assistant_only": 6},
+      "input_tokens": {"total": 1058248, "mean": 176374.667, "median": 176651.0, "cached": 1026688, "uncached": 31560},
+      "request_2_plus_cache_hit_rate": 0.968677,
+      "output_tokens": {"total": 25545, "mean": 4257.5},
+      "wall_time_ms": {"total": 230790, "mean": 38465.0, "median": 35801.0},
+      "first_request_input_tokens_mean": 10870.5,
+      "tools_section_estimated_tokens_per_request": 5418.0
+    },
+    "map-always": {
+      "successes": 6,
+      "requests": {"total": 60, "mean": 10.0, "median": 11.0, "tool_action": 60, "assistant_only": 0},
+      "input_tokens": {"total": 1588363, "mean": 264727.167, "median": 290456.0, "cached": 618240, "uncached": 970123},
+      "request_2_plus_cache_hit_rate": 0.347286,
+      "output_tokens": {"total": 24893, "mean": 4148.833},
+      "wall_time_ms": {"total": 233500, "mean": 38916.667, "median": 40868.0},
+      "first_request_input_tokens_mean": 21653.5,
+      "tools_section_estimated_tokens_per_request": 15186.0,
+      "projection_section_estimated_tokens_per_request": 577.05,
+      "map": {"nodes_mean": 5.0, "edges_mean": 4.0}
+    },
+    "map-append": {
+      "successes": 6,
+      "requests": {"total": 65, "mean": 10.833, "median": 9.0, "tool_action": 65, "assistant_only": 0},
+      "input_tokens": {"total": 2085648, "mean": 347608.0, "median": 263461.5, "cached": 1992832, "uncached": 92816},
+      "request_2_plus_cache_hit_rate": 0.955813,
+      "output_tokens": {"total": 27348, "mean": 4558.0},
+      "wall_time_ms": {"total": 246595, "mean": 41099.167, "median": 34072.0},
+      "first_request_input_tokens_mean": 21675.5,
+      "tools_section_estimated_tokens_per_request": 15186.0,
+      "projection_section_estimated_tokens_per_request": 4252.185,
+      "map": {"nodes_mean": 5.0, "edges_mean": 4.167}
+    },
+    "map-request": {
+      "successes": 6,
+      "requests": {"total": 78, "mean": 13.0, "median": 10.5, "tool_action": 78, "assistant_only": 0},
+      "input_tokens": {"total": 2236203, "mean": 372700.5, "median": 280216.5, "cached": 2131712, "uncached": 104491},
+      "request_2_plus_cache_hit_rate": 0.950611,
+      "output_tokens": {"total": 33997, "mean": 5666.167},
+      "wall_time_ms": {"total": 310739, "mean": 51789.833, "median": 41438.5},
+      "first_request_input_tokens_mean": 21667.5,
+      "tools_section_estimated_tokens_per_request": 15186.0,
+      "projection_section_estimated_tokens_per_request": 0.0,
+      "map": {"nodes_mean": 5.333, "edges_mean": 4.667}
+    }
+  },
+  "hard_gate_evidence": {
+    "business_success": "24/24",
+    "taskspace_final_root_closed": "18/18",
+    "taskspace_final_finish_closed": "18/18",
+    "taskspace_open_leaf_nodes": 0,
+    "solo_nonterminal_transition_count": 0,
+    "exact_payload_scan_passed": "609/609",
+    "semantic_replacement_rate": 0.0,
+    "retention_coverage_ratio": 1.0
+  },
+  "trace_findings": {
+    "standard_final_answer_only_requests": 6,
+    "map_request_complex_multi_patch_attempts": "3/3 runs",
+    "map_request_taskspace_protocol_failure_requests": 2,
+    "map_request_taskspace_state_failure_requests": 5,
+    "map_request_echo_only_handoffs": 4,
+    "map_append_echo_only_handoffs": 3,
+    "map_always_echo_only_handoffs": 1,
+    "taskspace_first_request_initialize_attempts": "16/18",
+    "taskspace_first_request_valid_initialize_commits": "12/18"
+  },
+  "known_design_features": {
+    "map_always_low_cache": "expected from dynamic replacement and not classified as a defect",
+    "map_append_projection_accumulation": "expected input growth from retained superseded projections",
+    "map_request_external_map": "keeps cache near Standard but showed weaker work-to-map alignment in one complex repeat"
+  },
+  "decision": "stop_after_repeat3_and_wait_for_user_decision; do_not_run_repeat10_or_held_out_samples"
+}
