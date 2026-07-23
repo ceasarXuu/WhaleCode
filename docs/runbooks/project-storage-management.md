@@ -83,6 +83,11 @@ test profile；`[profile.ci-test]` 只有显式传入 `--profile ci-test` 才生
 3. 为构建缓存增加只读容量报告；任何自动清理都必须显式启用并记录影响范围。
 4. 禁止用完整目录复制冻结版本；优先使用 Git commit、manifest、hash 和可重建命令。
 
+2026-07-23 曾在用户明确授权后单独删除 `debug/incremental`，实际释放约
+147GiB，并保留 `deps` 和现有二进制。该操作不是常规自动维护策略：incremental
+会在后续编译中重新生成，长期方案仍需通过测试 profile 隔离和构建耗时/容量 A/B
+验证后确定。
+
 自测生成物默认写入唯一临时目录，成功后立即清理。测试失败时可以保留诊断目录；
 正式 benchmark 证据仍写入显式 run root。禁止把每次成功自测移动到 `*-complete`
 或 `.bak-*` 目录，这类“归档”没有保留上限，会绕过仓库 `target/` 的容量门禁。
