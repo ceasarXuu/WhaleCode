@@ -139,6 +139,8 @@ stable-aarch64-apple-darwin (overridden by '<repo>/rust-toolchain.toml')
 
 - The archived demo keeps its `Cargo.lock` because it contained a CLI binary.
 - `target/` is ignored and should not be committed.
+- Benchmark 产物与 Cargo 缓存必须分开治理；容量门禁、清理命令和构建缓存边界见
+  [项目存储管理](project-storage-management.md)。
 - If a future shell cannot find `cargo`, first check whether `/opt/homebrew/opt/rustup/bin` is on `PATH`.
 - If `~/.rustup/settings.toml` already exists, the rustup installer may restore
   the previously configured default toolchain even when the current shell cannot
