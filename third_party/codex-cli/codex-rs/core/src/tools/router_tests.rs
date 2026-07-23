@@ -218,7 +218,7 @@ fn extracts_taskspace_binding_without_forwarding_it_to_the_tool() -> anyhow::Res
     let original_input = "*** Begin Patch\n*** End Patch";
     let arguments = serde_json::json!({
         "input": original_input,
-        "taskspace_binding": "after_boundary"
+        "taskspace_binding": {"action": "after_boundary"}
     })
     .to_string();
 
@@ -230,6 +230,18 @@ fn extracts_taskspace_binding_without_forwarding_it_to_the_tool() -> anyhow::Res
     );
     assert_eq!(binding.as_deref(), Some("after_boundary"));
     Ok(())
+}
+
+#[test]
+fn rejects_legacy_scalar_taskspace_binding() {
+    let arguments = serde_json::json!({
+        "cmd": "pwd",
+        "taskspace_binding": "active"
+    })
+    .to_string();
+
+    let error = extract_taskspace_binding(arguments, true).expect_err("scalar binding must fail");
+    assert!(error.to_string().contains("must be an object with action"));
 }
 
 #[test]

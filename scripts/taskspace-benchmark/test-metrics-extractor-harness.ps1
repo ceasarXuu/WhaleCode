@@ -87,7 +87,7 @@ Assert-True (Test-Path -LiteralPath $cost.cost_scan_policy_path) "cost scan poli
 $toolShapePath = Join-Path $artifactDir "tool-shapes-rollout.jsonl"
 $toolShapeWriter = [System.IO.StreamWriter]::new($toolShapePath, $false, [System.Text.UTF8Encoding]::new($false))
 try {
-    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_call","execution":"client","call_id":"search-1","arguments":{"query":"calendar","taskspace_binding":"active"}}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_call","execution":"client","call_id":"search-1","arguments":{"query":"calendar","taskspace_binding":{"action":"active"}}}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_output","execution":"client","call_id":"search-1","status":"completed","tools":[]}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"{\"schema_version\":\"ToolSearchFailureV1\",\"status\":\"failed\",\"success\":false,\"call_id\":\"search-1\"}"}]}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"local_shell_call","call_id":"shell-1","action":{"type":"exec","command":["pwd"]}}}')

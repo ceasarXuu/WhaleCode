@@ -525,7 +525,8 @@ base identity 分别 6/6、7/7 匹配 v1.0.0 合同。该单次结果只证明�
 当前方向将连续动作分成两个最小合同。初始化由首个真实普通 Tool 的
 `taskspace_binding=initialize_map object` 在同一个 provider call 中表达，Patch/命令/MCP 原生参数保持
 顶层；初始化后的 `bind_node` 与 `complete_then_continue` 使用 control + 紧邻
-`after_boundary` 普通 Tool。Runtime 只校验并执行 Agent 明确给出的状态变化，不自动补动作、不推断
+`{"action":"after_boundary"}` 普通 Tool。所有 binding 使用固定的 `action` 判别对象，避免历史
+`string | object` 混合联合诱发首轮错误选择。Runtime 只校验并执行 Agent 明确给出的状态变化，不自动补动作、不推断
 下一节点，也不复制 ordinary Tool router/handler。
 
 当前实现由共享 Tool decorator/parser 和现有 router 完成，不建立候选、晋级或平行执行链。定向 Rust 回归、

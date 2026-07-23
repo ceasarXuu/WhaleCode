@@ -143,8 +143,10 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     $toolSearchSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/tool_search.rs"))
     Assert-True $bindingSource.Contains('TASKSPACE_BINDING_FIELD') "Ordinary Tool decorator does not expose taskspace_binding"
     Assert-True $bindingSource.Contains('required.push(TASKSPACE_BINDING_FIELD') "Ordinary Tool decorator does not require taskspace_binding"
-    Assert-True $bindingSource.Contains('json!("active")') "Ordinary Tool binding omits active"
-    Assert-True $bindingSource.Contains('json!("after_boundary")') "Ordinary Tool binding omits after_boundary"
+    Assert-True $bindingSource.Contains('binding_variant(') "Ordinary Tool binding omits discriminated steady-state variants"
+    Assert-True $bindingSource.Contains('"active",') "Ordinary Tool binding omits active"
+    Assert-True $bindingSource.Contains('"after_boundary",') "Ordinary Tool binding omits after_boundary"
+    Assert-True $bindingSource.Contains('JsonSchema::object_any_of') "Ordinary Tool binding still uses a mixed scalar/object union"
     Assert-True $bindingSource.Contains('initialize_map_schema()') "Ordinary Tool binding omits initialization carrier"
     Assert-True (-not $bindingSource.Contains('expected_revision')) "Ordinary Tool binding duplicates lifecycle revision"
     Assert-True $routerSource.Contains('extract_taskspace_binding') "Router does not strip taskspace_binding before ordinary Tool dispatch"

@@ -123,9 +123,8 @@ function Get-TaskspaceNativeCadenceFacts {
                     if ($bindingValue -is [string]) {
                         $binding = [string]$bindingValue
                     } elseif ($null -ne $bindingValue -and
-                        $bindingValue.PSObject.Properties.Name -contains "action" -and
-                        [string]$bindingValue.action -eq "initialize_map") {
-                        $binding = "initialize_map"
+                        $bindingValue.PSObject.Properties.Name -contains "action") {
+                        $binding = [string]$bindingValue.action
                     }
                 }
             } catch {

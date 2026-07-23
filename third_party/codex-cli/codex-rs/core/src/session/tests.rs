@@ -1330,20 +1330,9 @@ async fn provider_composer_injects_one_blank_map_projection() {
         );
         assert!(developer_text.contains("- map: none"));
         assert!(developer_text.contains("- bootstrap_required: true"));
-        assert!(
-            developer_text.contains(
-                "- bootstrap_action: first_ordinary_tool.taskspace_binding.initialize_map"
-            )
-        );
-        assert!(
-            developer_text.contains(
-                "- boundary_action_binding: ordinary_tool.taskspace_binding.after_boundary"
-            )
-        );
-        assert!(
-            developer_text
-                .contains("- active_action_binding: ordinary_tool.taskspace_binding.active")
-        );
+        assert!(developer_text.contains("- bootstrap_binding_action: initialize_map"));
+        assert!(developer_text.contains("- boundary_binding: {\"action\":\"after_boundary\"}"));
+        assert!(developer_text.contains("- active_binding: {\"action\":\"active\"}"));
         assert!(
             developer_text
                 .contains("- ordinary_tool_without_binding_failure: TASKSPACE_BINDING_REQUIRED")
@@ -1826,8 +1815,9 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
                     id: None,
                     name: "shell_command".to_string(),
                     namespace: None,
-                    arguments: r#"{"command":"pwd","taskspace_binding":"after_boundary"}"#
-                        .to_string(),
+                    arguments:
+                        r#"{"command":"pwd","taskspace_binding":{"action":"after_boundary"}}"#
+                            .to_string(),
                     call_id: "ordinary-call".to_string(),
                 },
             ],
@@ -8512,7 +8502,7 @@ async fn assert_missing_client_tool_search_call_id_zero_dispatch(
         "execution": "client",
         "arguments": {
             "query": "must fail before dispatch",
-            "taskspace_binding": "active"
+            "taskspace_binding": {"action": "active"}
         }
     });
     if let Some(provider_item_id) = provider_item_id {
@@ -8551,7 +8541,7 @@ async fn assert_missing_client_tool_search_call_id_zero_dispatch(
                     "exec_command",
                     &json!({
                         "cmd": format!("printf executed > {side_effect_file}"),
-                        "taskspace_binding": "active"
+                        "taskspace_binding": {"action": "active"}
                     })
                     .to_string(),
                 ),

@@ -55,7 +55,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
-      "sha256": "b77646dd426a658cb635e157c61a1412a0b3e6cf0770225124eb0c270a4fdb6c",
+      "sha256": "ea968fd583b461dfe697caef74fbd19ca8ea32ac37c57f5c118adaa25eea7b9a",
       "role": "FLA-9 lightweight ordinary Tool binding, initialization carrier, later boundary sequence, implementation boundary and verification gates"
     },
     {
@@ -122,7 +122,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-2; FLA-9 lightweight binding protocol alignment",
       "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-      "sha256": "b98a9d73a6cdef97a17af68818293222080dfdd88d7f620ceaa7eff17c543c67",
+      "sha256": "c91a270e5b3425376ab6f093ee47d9d4d27ccb5dc514b47352d4ab9952d72307",
       "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
     },
     {
@@ -138,9 +138,9 @@
       "implementation_status": "active_repair_verified",
       "activation_phase": "FLA-9",
       "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json",
-      "sha256": "8df7dcfc553ae5cb3a40b35860e361682298a8b283489268da5c33fb282647a1",
+      "sha256": "0c96d56183eacae0693a35b77599c31fbf3be32601b73272839e2111e909c028",
       "tool_count": 1,
-      "taskspace_binding": "required_active_after_boundary_or_initialize_map_union_on_ordinary_tools",
+      "taskspace_binding": "required_discriminated_object_union_for_initialize_map_active_or_after_boundary_on_ordinary_tools",
       "initialization_carrier": "the first ordinary Tool carries the explicit initialize_map object and keeps its native business arguments at top level",
       "boundary_actions": [
         "bind_node",
@@ -148,7 +148,7 @@
       ],
       "binding_schema_source": {
         "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
-        "sha256": "0ecab454343f031314f4421af204caae161156eb45046ec456892f0daab9b122"
+        "sha256": "f9c8e0662a9f33f6e6de16b0a8e667a8ded68a777a82ab6c0365197dc9736048"
       },
       "control_argument_parser": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
@@ -156,7 +156,7 @@
       },
       "sequence_preflight": {
         "path": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
-        "sha256": "bc91542765a8ffff294419cdfc72da9d1ebe6c14c0904e283394c4a86e667a16"
+        "sha256": "c2a63eeef49d73816eda1c246af858032218287e611e3a6cf494d1f6210f929f"
       },
       "strict": false,
       "output_schema": null,
@@ -275,7 +275,7 @@
       "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
       "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
       "obsolete_after": "FLA-2",
-      "replacement": "L2 taskspace-core-v3.1 as the first section of the existing developer bundle"
+      "replacement": "L2 taskspace-core-v3.2 as the first section of the existing developer bundle"
     },
     {
       "item": "transition_node plus transition discriminator",
@@ -290,7 +290,7 @@
     {
       "item": "full taskspace_action union copied into ordinary Tool schemas and TaskSpaceCarrierResultV2",
       "obsolete_after": "FLA-9",
-      "replacement": "initialization-only ordinary Tool carrier plus taskspace_control for later lifecycle actions, active|after_boundary bindings, and faithful results"
+      "replacement": "initialization-only ordinary Tool carrier plus taskspace_control for later lifecycle actions, discriminated active/after_boundary binding objects, and faithful results"
     }
   ],
   "phase_gate": "No FLA phase may start until all selected input artifacts for that phase have matching hashes and every earlier selected target is active in production. Experimental artifacts never satisfy a baseline phase gate."

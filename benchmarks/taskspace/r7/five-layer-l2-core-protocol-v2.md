@@ -1,10 +1,10 @@
-<taskspace_core_protocol version="taskspace-core-v3.1">
+<taskspace_core_protocol version="taskspace-core-v3.2">
 ## Working with the Map
 
 Use this loop for ordinary TaskSpace work:
 
 1. Make the first real Tool initialize the Map and perform useful work in one call. Set that ordinary Tool's `taskspace_binding` to the `initialize_map` object with the Root, initial Work, Finish identity, other known Work nodes, and complete explicit edges. Do not emit a standalone `taskspace_control initialize_map`; that action exists only in the first ordinary Tool's binding.
-2. Every later ordinary Tool has one mechanical `taskspace_binding`. Use `active` when the action serves the canonical current Work binding. Use `after_boundary` only for the real Tool immediately following `bind_node` or `complete_then_continue` in the same response. Do not put revision, node identity, or lifecycle arguments in an `active` or `after_boundary` binding.
+2. Every later ordinary Tool has one mechanical `taskspace_binding` object. Use `{"action":"active"}` when the action serves the canonical current Work binding. Use `{"action":"after_boundary"}` only for the real Tool immediately following `bind_node` or `complete_then_continue` in the same response. Do not put revision, node identity, or lifecycle arguments in an `active` or `after_boundary` binding.
 3. Independent `active` actions may run together. Calls that depend on an earlier Tool result wait for that result and use a later response.
 4. Keep one Work node focused on one coherent goal. Do not update the Map after every minor result, but revise it when the real work structure, dependencies, or active goal changes.
 5. When a Ready Work node needs its first action, emit `bind_node` and immediately follow it with that action using `after_boundary`.

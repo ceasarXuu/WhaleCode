@@ -519,7 +519,9 @@ fn standalone_boundary_is_rejected_before_execution() {
         value["request"]["expected_sequence"]["immediately_after_boundary"],
         serde_json::json!({
             "tool_kind": "ordinary_tool",
-            "taskspace_binding": "after_boundary",
+            "taskspace_binding": {
+                "action": "after_boundary",
+            },
         })
     );
 }

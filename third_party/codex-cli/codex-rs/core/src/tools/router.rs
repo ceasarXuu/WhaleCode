@@ -339,15 +339,7 @@ fn extract_taskspace_binding(
     let Some(binding) = object.remove(FIELD) else {
         return Ok((arguments, None));
     };
-    let binding = match binding {
-        JsonValue::String(binding) => binding,
-        JsonValue::Object(_) => binding.to_string(),
-        _ => {
-            return Err(FunctionCallError::RespondToModel(format!(
-                "{FIELD} must be active, after_boundary, or an initialize_map object"
-            )));
-        }
-    };
+    let binding = normalize_taskspace_binding(binding)?;
     Ok((value.to_string(), Some(binding)))
 }
 
@@ -366,15 +358,37 @@ fn extract_taskspace_binding_value(
     };
     let binding = object
         .remove(FIELD)
-        .map(|value| match value {
-            JsonValue::String(binding) => Ok(binding),
-            JsonValue::Object(_) => Ok(value.to_string()),
-            _ => Err(FunctionCallError::RespondToModel(format!(
-                "{FIELD} must be active, after_boundary, or an initialize_map object"
-            ))),
-        })
+        .map(normalize_taskspace_binding)
         .transpose()?;
     Ok((arguments, binding))
+}
+
+fn normalize_taskspace_binding(binding: JsonValue) -> Result<String, FunctionCallError> {
+    const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
+    let action = binding
+        .as_object()
+        .and_then(|object| object.get("action"))
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| {
+            FunctionCallError::RespondToModel(format!(
+                "{FIELD} must be an object with action active, after_boundary, or initialize_map"
+            ))
+        })?;
+    match action {
+        "active" | "after_boundary" => {
+            let field_count = binding.as_object().map_or(0, serde_json::Map::len);
+            if field_count != 1 {
+                return Err(FunctionCallError::RespondToModel(format!(
+                    "{FIELD} action {action} accepts no additional fields"
+                )));
+            }
+            Ok(action.to_string())
+        }
+        "initialize_map" => Ok(binding.to_string()),
+        _ => Err(FunctionCallError::RespondToModel(format!(
+            "{FIELD} action must be active, after_boundary, or initialize_map"
+        ))),
+    }
 }
 
 fn normalize_native_function_alias(

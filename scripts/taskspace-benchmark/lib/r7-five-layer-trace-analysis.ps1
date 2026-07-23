@@ -24,10 +24,8 @@ function ConvertTo-R7CallDescriptor {
         ""
     } elseif ($bindingValue -is [string]) {
         [string]$bindingValue
-    } elseif ([string](Get-R7JsonProperty $bindingValue "action" "") -eq "initialize_map") {
-        "initialize_map"
     } else {
-        ""
+        [string](Get-R7JsonProperty $bindingValue "action" "")
     }
     $currentNode = [string](Get-R7JsonProperty $parsed "current_node_id" "")
     $nextNode = [string](Get-R7JsonProperty $parsed "next_node_id" "")

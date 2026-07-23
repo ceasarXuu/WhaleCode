@@ -133,21 +133,33 @@ fn decorate_parameters(
 }
 
 fn taskspace_binding_schema() -> JsonSchema {
-    JsonSchema::any_of(
+    JsonSchema::object_any_of(
         vec![
-            JsonSchema::string_enum(
-                vec![json!("active"), json!("after_boundary")],
-                Some(
-                    "active serves the existing current Work. after_boundary marks the ordinary Tool immediately following bind_node or complete_then_continue in the same response."
-                        .into(),
-                ),
-            ),
             initialize_map_schema(),
+            binding_variant(
+                "active",
+                "Serve the existing canonical current Work after Map initialization.",
+            ),
+            binding_variant(
+                "after_boundary",
+                "Mark the real Tool immediately following bind_node or complete_then_continue in the same response.",
+            ),
         ],
         Some(
-            "Bind this ordinary Tool to TaskSpace. Use active for current Work, after_boundary after a lifecycle boundary control, or the initialize_map object on the first real Tool."
+            "Bind this ordinary Tool to TaskSpace. Before the Map exists, the first real Tool uses the initialize_map object. After initialization, use active for current Work or after_boundary after a lifecycle boundary control."
                 .to_string(),
         ),
+    )
+}
+
+fn binding_variant(action: &str, description: &str) -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([(
+            "action".into(),
+            JsonSchema::string_enum(vec![json!(action)], Some(description.into())),
+        )]),
+        Some(vec!["action".into()]),
+        Some(false.into()),
     )
 }
 

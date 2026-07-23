@@ -16,6 +16,8 @@ pub(crate) fn taskspace_binding_kind(binding: &str) -> Option<&str> {
     }
     let value = serde_json::from_str::<serde_json::Value>(binding).ok()?;
     match value.get("action").and_then(serde_json::Value::as_str) {
+        Some(ACTIVE_BINDING) => Some(ACTIVE_BINDING),
+        Some(AFTER_BOUNDARY_BINDING) => Some(AFTER_BOUNDARY_BINDING),
         Some(INITIALIZE_MAP_BINDING) => Some(INITIALIZE_MAP_BINDING),
         _ => None,
     }
@@ -79,7 +81,7 @@ pub(crate) async fn validate_taskspace_binding(
         )),
         None if call.taskspace_binding.is_some() => Err(binding_failure(
             "TASKSPACE_BINDING_INVALID",
-            "taskspace_binding must be active, after_boundary, or a valid initialize_map object",
+            "taskspace_binding must be an object with action active, after_boundary, or initialize_map",
             call.taskspace_binding.as_deref(),
         )),
         None => Err(binding_failure(

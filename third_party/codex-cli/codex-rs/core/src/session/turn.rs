@@ -1792,22 +1792,28 @@ mod active_context_replacement_tests {
             .expect("binding schema");
         let variants = binding.any_of.as_ref().expect("binding variants");
         assert_eq!(
-            variants[0].enum_values.as_deref(),
-            Some(
-                &[
-                    serde_json::json!("active"),
-                    serde_json::json!("after_boundary")
-                ][..]
-            )
-        );
-        assert_eq!(
-            variants[1]
+            variants[0]
                 .properties
                 .as_ref()
                 .expect("initialization properties")["action"]
                 .enum_values
                 .as_deref(),
             Some(&[serde_json::json!("initialize_map")][..])
+        );
+        assert_eq!(
+            variants[1].properties.as_ref().expect("active properties")["action"]
+                .enum_values
+                .as_deref(),
+            Some(&[serde_json::json!("active")][..])
+        );
+        assert_eq!(
+            variants[2]
+                .properties
+                .as_ref()
+                .expect("after-boundary properties")["action"]
+                .enum_values
+                .as_deref(),
+            Some(&[serde_json::json!("after_boundary")][..])
         );
         let serialized = serde_json::to_string(binding).expect("serialize binding schema");
         assert!(!serialized.contains("expected_revision"));

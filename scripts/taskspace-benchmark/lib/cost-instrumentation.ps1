@@ -1559,10 +1559,8 @@ function New-TaskspaceControlUsageSummary {
                 $bindingValue = Get-TaskspaceCostProperty $parsedArguments @("taskspace_binding")
                 $binding = if ($bindingValue -is [string]) {
                     [string]$bindingValue
-                } elseif ([string](Get-TaskspaceCostProperty $bindingValue @("action")) -eq "initialize_map") {
-                    "initialize_map"
                 } else {
-                    ""
+                    [string](Get-TaskspaceCostProperty $bindingValue @("action"))
                 }
                 if (-not [string]::IsNullOrWhiteSpace($binding) -and
                     $rolloutBindingCallIds.Add($callId)) {

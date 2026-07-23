@@ -1029,7 +1029,7 @@ async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispat
                     tool_name,
                     &json!({
                         "mode": "create",
-                        "taskspace_binding": "active",
+                        "taskspace_binding": {"action": "active"},
                     })
                     .to_string(),
                 ),

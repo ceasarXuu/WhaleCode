@@ -265,15 +265,15 @@ $terminalArgs = @{
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "reasoning"; summary = @() } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "init-tool"; arguments = $initializeToolArgs } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "tool_search_call"; execution = "client"; call_id = "search-tool"; arguments = [pscustomobject]@{ query = "calendar"; taskspace_binding = "active" } } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "tool_search_call"; execution = "client"; call_id = "search-tool"; arguments = [pscustomobject]@{ query = "calendar"; taskspace_binding = [pscustomobject]@{ action = "active" } } } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "tool_search_output"; execution = "client"; call_id = "search-tool"; status = "completed"; tools = @() } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init-tool"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "mutation"; arguments = $mutationArgs } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "mutation-tool"; arguments = '{"cmd":"git status","taskspace_binding":"active"}' } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "mutation-tool"; arguments = '{"cmd":"git status","taskspace_binding":{"action":"active"}}' } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "mutation"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "mutation-tool"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "complete"; arguments = $completeArgs } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; call_id = "patch"; arguments = '{"input":"patch","taskspace_binding":"after_boundary"}' } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; call_id = "patch"; arguments = '{"input":"patch","taskspace_binding":{"action":"after_boundary"}}' } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "complete"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "patch"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish"; arguments = $terminalArgs } },
@@ -298,7 +298,7 @@ Assert-True ($cadence.control_argument_parse_error_count -eq 0) "cadence argumen
 $cadenceViolationFixture = Join-Path $RunRoot "cadence-violation-fixture"
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "bad-handoff"; arguments = $completeArgs } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "wrong-sibling"; arguments = '{"cmd":"pwd","taskspace_binding":"active"}' } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "wrong-sibling"; arguments = '{"cmd":"pwd","taskspace_binding":{"action":"active"}}' } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "bad-handoff"; output = "protocol_failed" } }
 ) (Join-Path $cadenceViolationFixture "rollout.jsonl")
 $cadenceViolation = Get-TaskspaceNativeCadenceFacts $cadenceViolationFixture $null

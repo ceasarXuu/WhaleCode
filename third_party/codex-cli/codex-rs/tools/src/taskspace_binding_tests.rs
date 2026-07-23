@@ -36,13 +36,35 @@ fn function_tool_requires_lightweight_binding_without_changing_business_fields()
     assert!(serialized.contains("after_boundary"));
     assert!(serialized.contains("initialize_map"));
     assert!(
-        serialized.len() < 2_500,
+        !serialized.contains("\"type\":\"string\",\"description\":\"active serves"),
+        "steady-state bindings must share the discriminated object shape"
+    );
+    assert!(
+        serialized.len() < 2_700,
         "initialization binding schema expanded to {} bytes",
         serialized.len()
     );
     assert!(!serialized.contains("expected_revision"));
     assert!(serialized.contains("node_id"));
     assert!(serialized.contains("edges"));
+
+    let binding = actual
+        .get("taskspace_binding")
+        .expect("binding schema must be present");
+    let variants = binding
+        .any_of
+        .as_ref()
+        .expect("binding must remain a fixed union");
+    assert_eq!(
+        variants[0]
+            .properties
+            .as_ref()
+            .and_then(|properties| properties.get("action"))
+            .and_then(|action| action.enum_values.as_ref())
+            .and_then(|values| values.first()),
+        Some(&serde_json::json!("initialize_map")),
+        "the fixed schema must present bootstrap before steady-state bindings"
+    );
 }
 
 #[test]

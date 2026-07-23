@@ -51,5 +51,13 @@ fn binding_kinds_are_stable() {
         taskspace_binding_kind(r#"{"action":"initialize_map"}"#),
         Some(INITIALIZE_MAP_BINDING)
     );
+    assert_eq!(
+        taskspace_binding_kind(r#"{"action":"active"}"#),
+        Some(ACTIVE_BINDING)
+    );
+    assert_eq!(
+        taskspace_binding_kind(r#"{"action":"after_boundary"}"#),
+        Some(AFTER_BOUNDARY_BINDING)
+    );
     assert_eq!(taskspace_binding_kind(r#"{"action":"read_map"}"#), None);
 }

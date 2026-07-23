@@ -113,7 +113,7 @@ fn bound_exec_arguments(test: &TestCodex, binding: &str) -> String {
     json!({
         "cmd": "pwd",
         "workdir": test.cwd_path().display().to_string(),
-        "taskspace_binding": binding,
+        "taskspace_binding": {"action": binding},
     })
     .to_string()
 }

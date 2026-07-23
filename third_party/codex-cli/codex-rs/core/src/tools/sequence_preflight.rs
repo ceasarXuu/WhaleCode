@@ -61,7 +61,9 @@ impl ToolSequencePreflightFailure {
             TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE => serde_json::json!({
                 "immediately_after_boundary": {
                     "tool_kind": "ordinary_tool",
-                    "taskspace_binding": AFTER_BOUNDARY_BINDING,
+                    "taskspace_binding": {
+                        "action": AFTER_BOUNDARY_BINDING,
+                    },
                 }
             }),
             TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE => serde_json::json!({
@@ -225,7 +227,7 @@ pub(crate) fn validate_tool_sequence(
                 if !paired {
                     return Err(failure(
                         TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE,
-                        "a boundary taskspace_control must be immediately followed by an ordinary Tool with taskspace_binding after_boundary",
+                        "a boundary taskspace_control must be immediately followed by an ordinary Tool with taskspace_binding {\"action\":\"after_boundary\"}",
                         &manifest,
                     ));
                 }
@@ -240,7 +242,7 @@ pub(crate) fn validate_tool_sequence(
                 if !paired {
                     return Err(failure(
                         TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE,
-                        "taskspace_binding after_boundary must immediately follow a boundary taskspace_control",
+                        "taskspace_binding {\"action\":\"after_boundary\"} must immediately follow a boundary taskspace_control",
                         &manifest,
                     ));
                 }
