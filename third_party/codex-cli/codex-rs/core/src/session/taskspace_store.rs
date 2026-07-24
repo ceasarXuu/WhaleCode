@@ -31,15 +31,18 @@ pub(super) async fn hydrate_action_map_store(
     session_source: &SessionSource,
     taskspace_policy_present: bool,
 ) -> anyhow::Result<Option<HydratedActionMapStore>> {
+    let parent_binding = taskspace_policy_present
+        .then(|| parent_map_binding(initial_history, session_source))
+        .flatten();
     let requires_existing_map = taskspace_policy_present
-        && matches!(
+        && (matches!(
             initial_history,
             InitialHistory::Resumed(_) | InitialHistory::Forked(_)
-        );
+        ) || parent_binding.is_some());
     let Some(state_db) = state_db else {
         if requires_existing_map {
             anyhow::bail!(
-                "TaskSpace Map Store is unavailable; persisted TaskSpace sessions cannot recover from rollout."
+                "TaskSpace Map Store is unavailable; resume, fork, and child sessions require a canonical Map binding."
             );
         }
         return Ok(None);
@@ -47,8 +50,7 @@ pub(super) async fn hydrate_action_map_store(
 
     let mut loaded = state_db.load_taskspace_map_for_thread(thread_id).await?;
     if loaded.is_none()
-        && let Some((parent_thread_id, relation)) =
-            parent_map_binding(initial_history, session_source)
+        && let Some((parent_thread_id, relation)) = parent_binding
         && let Some((parent_map, _)) = state_db
             .load_taskspace_map_for_thread(parent_thread_id)
             .await?
@@ -80,9 +82,17 @@ pub(super) async fn hydrate_action_map_store(
 
     let Some((record, binding)) = loaded else {
         if requires_existing_map {
-            anyhow::bail!(
-                "TaskSpace Map Store has no binding for persisted thread `{thread_id}`; rollout recovery is disabled."
+            tracing::error!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.map_store_binding_missing",
+                actor_thread_id = %thread_id,
+                parent_thread_id = ?parent_binding.map(|(parent, _)| parent),
+                relation = ?parent_binding.map(|(_, relation)| relation.as_str()),
+                operation = "hydrate_taskspace",
+                reason_code = "binding_missing",
+                "TaskSpace session has no canonical Map binding"
             );
+            anyhow::bail!("TaskSpace Map Store has no canonical binding for thread `{thread_id}`.");
         }
         return Ok(None);
     };
@@ -113,13 +123,16 @@ fn parent_map_binding(
         SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
             parent_thread_id, ..
         }) => Some((*parent_thread_id, TaskSpaceMapRelation::Child)),
-        _ => initial_history
+        _ if matches!(initial_history, InitialHistory::Forked(_)) => initial_history
             .forked_from_id()
             .map(|parent| (parent, TaskSpaceMapRelation::Fork)),
+        _ => None,
     }
 }
 
-fn runtime_from_record(record: &TaskSpaceMapRecord) -> anyhow::Result<ActionMapRuntimeState> {
+pub(super) fn runtime_from_record(
+    record: &TaskSpaceMapRecord,
+) -> anyhow::Result<ActionMapRuntimeState> {
     let mut runtime = ActionMapRuntimeState::default();
     runtime
         .restore_store_snapshot(
@@ -367,13 +380,13 @@ impl Session {
         Ok((result, events))
     }
 
-    fn require_taskspace_state_db(&self) -> Result<StateDbHandle, String> {
+    pub(super) fn require_taskspace_state_db(&self) -> Result<StateDbHandle, String> {
         self.state_db().ok_or_else(|| {
             "TaskSpace requires the persistent Map Store; state DB is unavailable.".to_string()
         })
     }
 
-    async fn install_store_record(
+    pub(super) async fn install_store_record(
         &self,
         record: &TaskSpaceMapRecord,
         candidate: ActionMapRuntimeState,

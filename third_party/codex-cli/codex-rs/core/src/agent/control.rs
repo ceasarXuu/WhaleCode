@@ -753,6 +753,39 @@ impl AgentControl {
         state.send_op(agent_id, Op::Interrupt).await
     }
 
+    /// Remove a child whose post-spawn TaskSpace handoff failed before it can be reported as live.
+    pub(crate) async fn abort_agent_after_spawn_failure(
+        &self,
+        agent_id: ThreadId,
+    ) -> CodexResult<String> {
+        let state = self.upgrade()?;
+        let persistence_error = if let Ok(thread) = state.get_thread(agent_id).await
+            && let Some(state_db_ctx) = thread.state_db()
+            && let Err(error) = state_db_ctx
+                .set_thread_spawn_edge_status(agent_id, DirectionalThreadSpawnEdgeStatus::Closed)
+                .await
+        {
+            Some(error.to_string())
+        } else {
+            None
+        };
+        let result = state.send_op(agent_id, Op::Shutdown {}).await;
+        let _ = state.remove_thread(&agent_id).await;
+        self.state.release_spawned_thread(agent_id);
+        if let Some(error) = persistence_error {
+            return Err(CodexErr::Fatal(format!(
+                "failed to close aborted child spawn edge: {error}"
+            )));
+        }
+        match result {
+            Ok(value) => Ok(value),
+            Err(CodexErr::ThreadNotFound(_)) | Err(CodexErr::InternalAgentDied) => {
+                Ok(String::new())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn handle_thread_request_result(
         &self,
         agent_id: ThreadId,

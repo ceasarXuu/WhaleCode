@@ -207,6 +207,7 @@ mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
 pub(crate) mod session;
 mod taskspace_store;
+mod taskspace_store_read;
 #[cfg(test)]
 mod taskspace_store_tests;
 mod taskspace_terminal;
@@ -1008,12 +1009,11 @@ impl Session {
         &self,
         child_thread_id: ThreadId,
     ) -> Result<(), String> {
-        let result = {
-            let state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .prepare_child_spawn(child_thread_id)
-        };
+        let result = self
+            .read_canonical_action_map("prepare_child_spawn", |runtime, _| {
+                runtime.prepare_child_spawn(child_thread_id)
+            })
+            .await?;
         if let Err(error) = &result {
             debug!(
                 child_thread_id = %child_thread_id,
@@ -1481,25 +1481,37 @@ impl Session {
         lease_id: &str,
         thread_id: ThreadId,
         agent_path: Option<String>,
-    ) {
-        let binding_target = {
+    ) -> Result<(), String> {
+        let (store_handle, binding_target) = {
             let state = self.state.lock().await;
-            state.action_map_store_handle.as_ref().and_then(|handle| {
+            let handle = state.action_map_store_handle.clone();
+            let target = handle.as_ref().and_then(|handle| {
                 state
                     .action_map_runtime
                     .lease_map_node(lease_id)
                     .filter(|(map_id, _)| *map_id == handle.map_id)
                     .map(|(_, node_id)| (handle.map_id.clone(), node_id.to_string()))
-            })
+            });
+            (handle, target)
         };
         let test_runtime_without_store = cfg!(test) && self.services.state_db.is_none();
         if binding_target.is_none() && !test_runtime_without_store {
             tracing::error!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.map_store_child_attach_failed",
+                map_id = store_handle.as_ref().map(|handle| handle.map_id.as_str()),
                 %thread_id,
                 lease_id,
+                owner_thread_id = ?store_handle.as_ref().map(|handle| handle.owner_thread_id),
+                store_revision = ?store_handle.as_ref().map(|handle| handle.store_revision),
+                graph_revision = ?store_handle.as_ref().map(|handle| handle.graph_revision),
+                operation = "attach_child_lease",
+                reason_code = "lease_target_missing",
                 "TaskSpace child attach has no persisted lease target"
             );
-            return;
+            return Err(
+                "TaskSpace child attach has no persisted canonical lease target.".to_string(),
+            );
         }
         let binding =
             binding_target.map(|(map_id, node_id)| codex_state::BindTaskSpaceMapRequest {
@@ -1527,9 +1539,24 @@ impl Session {
             Ok(((), events)) => {
                 self.emit_action_map_events_for_turn(turn_context, events)
                     .await;
+                Ok(())
             }
             Err(error) => {
-                tracing::error!(%thread_id, lease_id, %error, "failed to persist child lease attach");
+                tracing::error!(
+                    target: "codex_core::taskspace",
+                    event_name = "taskspace.map_store_child_attach_failed",
+                    map_id = store_handle.as_ref().map(|handle| handle.map_id.as_str()),
+                    %thread_id,
+                    lease_id,
+                    owner_thread_id = ?store_handle.as_ref().map(|handle| handle.owner_thread_id),
+                    store_revision = ?store_handle.as_ref().map(|handle| handle.store_revision),
+                    graph_revision = ?store_handle.as_ref().map(|handle| handle.graph_revision),
+                    operation = "attach_child_lease",
+                    reason_code = "store_commit_failed",
+                    %error,
+                    "failed to persist child lease attach"
+                );
+                Err(error)
             }
         }
     }

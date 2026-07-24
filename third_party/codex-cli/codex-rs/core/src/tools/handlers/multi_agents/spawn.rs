@@ -139,7 +139,7 @@ impl ToolHandler for Handler {
         )
         .await
         .map_err(collab_spawn_error);
-        let (new_thread_id, new_agent_metadata, status) = match &result {
+        let (new_thread_id, new_agent_metadata, mut status) = match &result {
             Ok(spawned_agent) => (
                 Some(spawned_agent.thread_id),
                 Some(spawned_agent.metadata.clone()),
@@ -171,19 +171,45 @@ impl ToolHandler for Handler {
                 ),
                 (None, None) => (None, None, None),
             };
+        let mut taskspace_attach_error = None;
         if let Some(assignment) = action_map_assignment.as_ref() {
             if let Some(thread_id) = new_thread_id {
-                session
+                if let Err(error) = session
                     .attach_action_map_assignment(
                         &turn,
                         &assignment.lease_id,
                         thread_id,
                         new_agent_path.clone(),
                     )
-                    .await;
-                session
-                    .record_final_action_map_child_result_if_needed(thread_id)
-                    .await;
+                    .await
+                {
+                    let abort_error = session
+                        .services
+                        .agent_control
+                        .abort_agent_after_spawn_failure(thread_id)
+                        .await
+                        .err();
+                    session
+                        .release_action_map_assignment(
+                            &turn,
+                            &assignment.lease_id,
+                            "child_attach_failed",
+                        )
+                        .await;
+                    status = AgentStatus::Shutdown;
+                    taskspace_attach_error = Some(match abort_error {
+                        Some(abort_error) => format!(
+                            "TaskSpace child binding failed and cleanup reported an error: {error}; {abort_error}"
+                        ),
+                        None => format!(
+                            "TaskSpace child binding failed; the spawned child was stopped: {error}"
+                        ),
+                    });
+                } else {
+                    session
+                        .record_final_action_map_child_result_if_needed(thread_id)
+                        .await;
+                }
             } else {
                 session
                     .release_action_map_assignment(&turn, &assignment.lease_id, "spawn_failed")
@@ -216,6 +242,9 @@ impl ToolHandler for Handler {
                 .into(),
             )
             .await;
+        if let Some(error) = taskspace_attach_error {
+            return Err(FunctionCallError::RespondToModel(error));
+        }
         let new_thread_id = result?.thread_id;
         let role_tag = role_name.unwrap_or(DEFAULT_ROLE_NAME);
         turn.session_telemetry.counter(
