@@ -679,7 +679,6 @@ pub(crate) struct ActionMapRuntimeState {
     budget_violations: Vec<TaskSpaceBudgetViolation>,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
     next_task_seq: u64,
-    next_map_seq: u64,
     next_lease_seq: u64,
     next_node_event_seq: u64,
     next_result_seq: u64,
@@ -839,7 +838,6 @@ impl Default for ActionMapRuntimeState {
             budget_violations: Vec::new(),
             sentinel_warnings: Vec::new(),
             next_task_seq: 1,
-            next_map_seq: 1,
             next_lease_seq: 1,
             next_node_event_seq: 1,
             next_result_seq: 1,
@@ -861,6 +859,14 @@ impl ActionMapRuntimeState {
 
     pub(crate) fn context_owner_node_id(&self) -> Option<&str> {
         self.current_main_node_id.as_deref()
+    }
+
+    pub(crate) fn lease_map_node(&self, lease_id: &str) -> Option<(&str, &str)> {
+        self.maps.values().find_map(|map| {
+            map.leases
+                .get(lease_id)
+                .map(|lease| (lease.map_id.as_str(), lease.node_id.as_str()))
+        })
     }
 
     pub(crate) fn take_pending_projection_trace_events(&mut self) -> Vec<MapRuntimeEvent> {
@@ -1181,7 +1187,7 @@ impl ActionMapRuntimeState {
         }
 
         let task_id = self.next_task_id();
-        let map_id = self.next_map_id();
+        let map_id = format!("map-{owner_session_id}");
         let task = TaskRecord {
             owner_session_id: Some(owner_session_id),
         };
@@ -1210,13 +1216,6 @@ impl ActionMapRuntimeState {
             ],
         ));
         events
-    }
-
-    pub(crate) fn restore_mode(&mut self, mode: MapRuntimeMode) {
-        *self = Self::default();
-        self.mode = mode;
-        self.routing_required = mode == MapRuntimeMode::Experiment;
-        self.bootstrap_required = mode == MapRuntimeMode::Experiment;
     }
 
     pub(crate) fn begin_user_turn(&mut self) -> bool {
@@ -1587,7 +1586,6 @@ impl ActionMapRuntimeState {
         }
 
         self.next_task_seq = next_numeric_seq(self.tasks.keys(), "task-");
-        self.next_map_seq = next_numeric_seq(self.maps.keys(), "map-");
         self.next_lease_seq = next_numeric_seq(
             self.maps.values().flat_map(|map| map.leases.keys()),
             "lease-",
@@ -1632,46 +1630,25 @@ impl ActionMapRuntimeState {
         Ok(())
     }
 
-    pub(crate) fn rebind_after_fork(&mut self, owner_session_id: ThreadId) -> usize {
-        for task in self.tasks.values_mut() {
-            task.owner_session_id = Some(owner_session_id);
+    pub(crate) fn restore_store_snapshot(
+        &mut self,
+        map_id: &str,
+        owner_thread_id: ThreadId,
+        snapshot: ActionMapSnapshot,
+    ) -> Result<(), String> {
+        self.restore_snapshot(snapshot)?;
+        if self.active_map_id.as_deref() != Some(map_id) {
+            return Err(format!(
+                "TaskSpace Store map `{map_id}` does not match restored Runtime map `{:?}`.",
+                self.active_map_id
+            ));
         }
-        for map in self.maps.values_mut() {
-            map.owner_session_id = Some(owner_session_id);
-        }
-
-        let stale_child_leases = self
-            .maps
-            .values()
-            .flat_map(|map| map.leases.values())
-            .filter(|lease| lease.holder == LeaseHolder::SubAgent)
-            .map(|lease| lease.id.clone())
-            .collect::<Vec<_>>();
-        for lease_id in &stale_child_leases {
-            self.release_lease(lease_id, "fork_owner_rebind");
-        }
-
-        for map in self.maps.values_mut() {
-            for lease in map.leases.values_mut() {
-                if lease.holder == LeaseHolder::Main {
-                    lease.agent_thread_id = Some(owner_session_id);
-                    lease.agent_path = None;
-                }
-            }
-        }
-        self.current_main_node_id = None;
-        self.current_main_lease_id = None;
-        if let Some(active_map_id) = self.active_map_id.as_ref()
-            && let Some(map) = self.maps.get(active_map_id)
-            && let Some(lease) = map
-                .leases
-                .values()
-                .find(|lease| lease.holder == LeaseHolder::Main)
+        if let Some(task_id) = self.active_task_id.as_ref()
+            && let Some(task) = self.tasks.get_mut(task_id)
         {
-            self.current_main_node_id = Some(lease.node_id.clone());
-            self.current_main_lease_id = Some(lease.id.clone());
+            task.owner_session_id = Some(owner_thread_id);
         }
-        stale_child_leases.len()
+        Ok(())
     }
 
     fn restored_active_binding_is_coherent(&self) -> bool {
@@ -5219,12 +5196,6 @@ impl ActionMapRuntimeState {
     fn next_task_id(&mut self) -> TaskId {
         let id = format!("task-{}", self.next_task_seq);
         self.next_task_seq += 1;
-        id
-    }
-
-    fn next_map_id(&mut self) -> ActionMapId {
-        let id = format!("map-{}", self.next_map_seq);
-        self.next_map_seq += 1;
         id
     }
 

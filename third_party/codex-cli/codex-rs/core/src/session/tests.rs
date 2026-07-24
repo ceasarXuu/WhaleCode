@@ -1319,6 +1319,7 @@ async fn provider_composer_injects_one_blank_map_projection() {
         let context = session
             .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
             .await
+            .expect("prepare provider prompt")
             .items;
         let developer_text = developer_input_texts(&context).join("\n");
         assert!(!developer_text.contains("TaskSpace mode is now active"));
@@ -1364,7 +1365,8 @@ async fn provider_map_append_persists_bootstrap_at_request_tail() {
     let initial_context = session.build_initial_context(&turn_context).await;
     let provider = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let last = provider.items.last().expect("provider request tail");
     assert_eq!(taskspace_projection_context(Some(last)).is_some(), true);
     assert!(matches!(last, ResponseItem::Message { role, .. } if role == "user"));
@@ -1402,7 +1404,8 @@ async fn provider_map_request_exposes_current_request_tail_handle_until_explicit
 
     let provider = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let handle = taskspace_map_handle_context(provider.items.last())
         .expect("provider request must end with the current map handle");
     assert!(
@@ -1428,6 +1431,7 @@ async fn provider_map_request_exposes_current_request_tail_handle_until_explicit
 #[tokio::test]
 async fn map_request_read_returns_shared_current_projection_without_auto_injection() {
     let (session, turn_context) = make_session_and_context().await;
+    let map_id_line = format!("- map_id: map-{}", session.conversation_id);
     {
         let mut state = session.state.lock().await;
         state.session_configuration.taskspace_projection_policy =
@@ -1477,11 +1481,12 @@ async fn map_request_read_returns_shared_current_projection_without_auto_injecti
     );
     let first_provider = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let handle = taskspace_map_handle_context(first_provider.items.last())
         .expect("provider request must end with a current map handle");
     assert!(handle.contains("TaskSpaceMapHandleR7V1:"));
-    assert!(handle.contains("- map_id: map-1"));
+    assert!(handle.contains(&map_id_line));
     assert!(handle.contains("- revision: 2"));
     assert!(handle.contains("- bootstrap_required: false"));
     assert!(!handle.contains("map_nodes"));
@@ -1527,7 +1532,8 @@ async fn map_request_read_returns_shared_current_projection_without_auto_injecti
     }
     let refreshed_provider = session
         .prepare_provider_visible_prompt_items(&turn_context, first_provider.items)
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let refreshed_handle = taskspace_map_handle_context(refreshed_provider.items.last())
         .expect("provider request must refresh the map handle");
     assert!(refreshed_handle.contains("- revision: 3"));
@@ -1547,7 +1553,7 @@ async fn map_request_read_returns_shared_current_projection_without_auto_injecti
         .expect("explicit map read");
     assert!(projection.starts_with("TaskSpaceMapProjectionR7V1:\n"));
     assert!(projection.contains("- projection_kind: current_projection"));
-    assert!(projection.contains("- map_id: map-1"));
+    assert!(projection.contains(&map_id_line));
     assert!(projection.contains("- revision: 3"));
     assert!(projection.contains("  map_nodes:\n"));
     assert!(projection.contains("  map_edges:\n"));
@@ -1592,7 +1598,8 @@ async fn map_request_read_returns_shared_current_projection_without_auto_injecti
     history.push(explicit_result);
     let provider = session
         .prepare_provider_visible_prompt_items(&turn_context, history)
-        .await;
+        .await
+        .expect("prepare provider prompt");
     assert!(
         provider
             .items
@@ -1650,6 +1657,7 @@ async fn provider_composer_keeps_projection_separate_from_skills() {
     let provider_context = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
         .await
+        .expect("prepare provider prompt")
         .items;
     let provider_developer_texts = developer_input_texts(&provider_context);
     assert_eq!(
@@ -1671,6 +1679,7 @@ async fn provider_composer_keeps_projection_separate_from_skills() {
 #[tokio::test]
 async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
     let (session, turn_context) = make_session_and_context().await;
+    let map_id_line = format!("map_id: map-{}", session.conversation_id);
     {
         let mut state = session.state.lock().await;
         state.action_map_runtime.set_mode_for_session(
@@ -1753,13 +1762,14 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
     );
     let first_provider = session
         .prepare_provider_visible_prompt_items(&turn_context, history.raw_items().to_vec())
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let provider_text = developer_input_texts(&first_provider.items).join("\n");
     assert_eq!(
         provider_text.matches("TaskSpaceMapProjectionR7V1:").count(),
         1
     );
-    assert!(provider_text.contains("map_id: map-1"));
+    assert!(provider_text.contains(&map_id_line));
     assert!(provider_text.contains("revision: 2"));
     assert!(provider_text.contains("projection_kind: current_projection"));
     assert!(provider_text.contains("canonical_sha256:"));
@@ -1847,7 +1857,8 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
     source_with_stale_projection.push(stale_projection);
     let refreshed = session
         .prepare_provider_visible_prompt_items(&turn_context, source_with_stale_projection)
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let refreshed_text = developer_input_texts(&refreshed.items).join("\n");
     assert_eq!(
         refreshed_text
@@ -1893,37 +1904,40 @@ async fn provider_map_append_persists_latest_projection_at_each_request_tail() {
     session
         .record_conversation_items(&turn_context, std::slice::from_ref(&control_call))
         .await;
-    session
-        .initialize_action_map_for_main(
-            &turn_context,
-            crate::action_map::ActionMapInitializeInput {
-                root: crate::action_map::ActionMapInitializeNodeInput {
-                    id: "root".into(),
-                    goal: "Append projection request snapshots".into(),
-                },
-                current_work_node: crate::action_map::ActionMapInitializeNodeInput {
-                    id: "work".into(),
-                    goal: "Perform work".into(),
-                },
-                finish: crate::action_map::ActionMapInitializeFinishInput {
-                    id: "finish".into(),
-                },
-                source_event_ids: vec!["task-event-1".into()],
-                work_nodes: Vec::new(),
-                edges: vec![
-                    crate::action_map::ActionMapEdgeInput {
-                        from: "root".into(),
-                        to: "work".into(),
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .initialize_map_for_main(
+                session.conversation_id,
+                crate::action_map::ActionMapInitializeInput {
+                    root: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "root".into(),
+                        goal: "Append projection request snapshots".into(),
                     },
-                    crate::action_map::ActionMapEdgeInput {
-                        from: "work".into(),
-                        to: "finish".into(),
+                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "work".into(),
+                        goal: "Perform work".into(),
                     },
-                ],
-            },
-        )
-        .await
-        .expect("map initializes");
+                    finish: crate::action_map::ActionMapInitializeFinishInput {
+                        id: "finish".into(),
+                    },
+                    source_event_ids: vec!["task-event-1".into()],
+                    work_nodes: Vec::new(),
+                    edges: vec![
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "root".into(),
+                            to: "work".into(),
+                        },
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "work".into(),
+                            to: "finish".into(),
+                        },
+                    ],
+                },
+            )
+            .expect("map initializes");
+    }
     let control_output = ResponseItem::FunctionCallOutput {
         call_id: "append-init".to_string(),
         output: FunctionCallOutputPayload::from_text("initialized".to_string()),
@@ -1945,7 +1959,8 @@ async fn provider_map_append_persists_latest_projection_at_each_request_tail() {
             &turn_context,
             history_before_request.raw_items().to_vec(),
         )
-        .await;
+        .await
+        .expect("prepare provider prompt");
     assert!(matches!(
         first.items.last(),
         Some(ResponseItem::Message { role, .. }) if role == "user"
@@ -1970,7 +1985,8 @@ async fn provider_map_append_persists_latest_projection_at_each_request_tail() {
     let second_history = session.clone_history().await;
     let second = session
         .prepare_provider_visible_prompt_items(&turn_context, second_history.raw_items().to_vec())
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let second_context = taskspace_projection_context(second.items.last())
         .expect("second provider request must end in a projection");
     let second_identity =
@@ -1995,7 +2011,8 @@ async fn provider_map_append_persists_latest_projection_at_each_request_tail() {
             &turn_context,
             history_after_second.raw_items().to_vec(),
         )
-        .await;
+        .await
+        .expect("prepare provider prompt");
     assert!(taskspace_projection_context(retry.items.last()).is_some());
     let history_after_retry = session.clone_history().await;
     assert_eq!(
@@ -2012,6 +2029,7 @@ async fn provider_map_append_persists_latest_projection_at_each_request_tail() {
 #[tokio::test]
 async fn map_projection_is_canonical_map_derived_and_provider_only() {
     let (session, turn_context) = make_session_and_context().await;
+    let map_id_line = format!("map_id: map-{}", session.conversation_id);
     {
         let mut state = session.state.lock().await;
         state.action_map_runtime.set_mode_for_session(
@@ -2064,14 +2082,15 @@ async fn map_projection_is_canonical_map_derived_and_provider_only() {
             &turn_context,
             canonical_history.raw_items().to_vec(),
         )
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let developer_text = developer_input_texts(&provider.items).join("\n");
     assert!(
         developer_text.contains("TaskSpaceMapProjectionR7V1:"),
         "expected R7 map projection in provider context: {developer_text}"
     );
     assert!(
-        developer_text.contains("map_id: map-1")
+        developer_text.contains(&map_id_line)
             && developer_text.contains("revision: 2")
             && developer_text.contains("canonical_sha256:")
             && developer_text.contains("root_node_id: root")
@@ -2110,10 +2129,11 @@ async fn map_projection_is_canonical_map_derived_and_provider_only() {
             &turn_context,
             history_after_second_update.raw_items().to_vec(),
         )
-        .await;
+        .await
+        .expect("prepare provider prompt");
     let developer_text = developer_input_texts(&second_provider.items).join("\n");
     assert!(
-        developer_text.contains("map_id: map-1")
+        developer_text.contains(&map_id_line)
             && developer_text.contains("root->scope")
             && developer_text.contains("scope->finish"),
         "provider history should expose the current map projection: {developer_text}"
@@ -2133,177 +2153,6 @@ async fn map_projection_is_canonical_map_derived_and_provider_only() {
     assert!(!canonical_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
     assert!(!canonical_developer_text.contains("task_status:"));
     assert!(!canonical_developer_text.contains("map_status:"));
-}
-
-#[tokio::test]
-async fn session_main_tool_result_is_checkpointed_at_explicit_boundary() {
-    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
-    {
-        let mut state = session.state.lock().await;
-        state.action_map_runtime.set_mode_for_session(
-            codex_protocol::protocol::MapRuntimeMode::Experiment,
-            session.conversation_id,
-        );
-        state
-            .action_map_runtime
-            .initialize_map_for_main(
-                session.conversation_id,
-                crate::action_map::ActionMapInitializeInput {
-                    root: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "root".into(),
-                        goal: "Trace session path".into(),
-                    },
-                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "validate".to_string(),
-                        goal: "Run a validation command.".to_string(),
-                    },
-                    finish: crate::action_map::ActionMapInitializeFinishInput {
-                        id: "finish".into(),
-                    },
-                    source_event_ids: vec!["task-event-1".to_string()],
-                    work_nodes: Vec::new(),
-                    edges: vec![
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "root".into(),
-                            to: "validate".into(),
-                        },
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "validate".into(),
-                            to: "finish".into(),
-                        },
-                    ],
-                },
-            )
-            .expect("map initializes");
-        state
-            .taskspace_events
-            .record_item(
-                &ResponseItem::FunctionCall {
-                    id: None,
-                    name: "shell_command".to_string(),
-                    namespace: None,
-                    arguments: "{}".to_string(),
-                    call_id: "call-session-test".to_string(),
-                },
-                Some("validate"),
-                None,
-                1,
-            )
-            .expect("canonical tool call event");
-    }
-
-    session
-        .emit_action_map_checkpoint_for_turn(turn_context.as_ref(), "test_baseline")
-        .await;
-    let baseline_checkpoint_id = loop {
-        let event = rx.recv().await.expect("baseline checkpoint event");
-        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
-            break payload.checkpoint_id;
-        }
-    };
-
-    session
-        .prepare_action_map_main_tool_call(
-            turn_context.as_ref(),
-            ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest")
-                .with_call_id("call-session-test"),
-        )
-        .await
-        .expect("session prepare allows test action");
-    session
-        .record_action_map_main_tool_result(
-            turn_context.as_ref(),
-            "call-session-test",
-            "shell_command",
-            Some(ActionClass::Test),
-            false,
-            "pytest failed".to_string(),
-        )
-        .await;
-    session
-        .emit_action_map_checkpoint_for_turn(turn_context.as_ref(), "test_boundary")
-        .await;
-
-    let mut trace_event_seen = false;
-    let mut delta_seen = false;
-    let mut snapshot_seen = false;
-    let mut main_trace_event_id = None;
-    let mut map_runtime_order = Vec::new();
-    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline && (!trace_event_seen || !snapshot_seen) {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let event = tokio::time::timeout(remaining, rx.recv())
-            .await
-            .expect("timeout waiting for TaskSpace trace events")
-            .expect("event");
-        match event.msg {
-            EventMsg::MapRuntime(MapRuntimeEvent::NodeEventRecorded(event)) => {
-                if event.node_event_id == "node-event-1" {
-                    map_runtime_order.push("node_event_recorded");
-                }
-            }
-            EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event)) => {
-                if event.kind != "main_tool_result" {
-                    continue;
-                }
-                map_runtime_order.push("taskspace_trace_event_recorded");
-                assert_eq!(event.kind, "main_tool_result");
-                assert_eq!(event.result_id.as_deref(), Some("node-event-1"));
-                assert_eq!(event.call_id.as_deref(), Some("call-session-test"));
-                assert_eq!(event.action_class.as_deref(), Some("test"));
-                assert_eq!(event.tool_success, Some(false));
-                assert!(event.tags.iter().any(|tag| tag == "tool_failure"));
-                main_trace_event_id = Some(event.trace_event_id);
-                trace_event_seen = true;
-            }
-            EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(payload)) => {
-                assert_eq!(payload.base_checkpoint_id, baseline_checkpoint_id);
-                assert!(payload.sequence > 0);
-                assert!(
-                    payload
-                        .patch
-                        .as_array()
-                        .is_some_and(|patch| !patch.is_empty())
-                );
-                delta_seen = true;
-            }
-            EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
-                assert_eq!(payload.reason, "test_boundary");
-                assert!(payload.checkpoint_id.starts_with("map-checkpoint-"));
-                assert_eq!(payload.snapshot_sha256.len(), 64);
-                if let Some(trace_event_id) = main_trace_event_id.as_ref()
-                    && payload.snapshot.trace_events.iter().any(|event| {
-                        event.id == *trace_event_id
-                            && event.result_id.as_deref() == Some("node-event-1")
-                    })
-                {
-                    let map = payload.snapshot.map.as_ref().expect("snapshot map");
-                    let event = map.node_events.first().expect("node event snapshot");
-                    assert_eq!(event.id, "node-event-1");
-                    assert_eq!(event.source_event_id.as_deref(), Some("task-event-1"));
-                    snapshot_seen = true;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    assert!(
-        trace_event_seen,
-        "expected TaskSpace trace event from session path"
-    );
-    assert!(
-        snapshot_seen,
-        "expected snapshot with trace event from session path"
-    );
-    assert!(
-        delta_seen,
-        "expected incremental snapshot delta before checkpoint"
-    );
-    assert_eq!(
-        map_runtime_order,
-        vec!["node_event_recorded", "taskspace_trace_event_recorded"]
-    );
 }
 
 #[tokio::test]

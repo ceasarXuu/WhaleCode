@@ -1422,7 +1422,8 @@ async fn run_sampling_request(
         let base_instructions = resolved_base_instructions.instructions;
         let prepared_prompt = sess
             .prepare_provider_visible_prompt_items(&turn_context, prompt_source)
-            .await;
+            .await
+            .map_err(CodexErr::Fatal)?;
         let prompt_input = prepared_prompt.items;
         let tool_visibility = if taskspace_context_visible {
             TaskspaceProviderToolVisibility::TaskspaceNative

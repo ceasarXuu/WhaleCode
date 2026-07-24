@@ -30,6 +30,7 @@ CREATE TABLE taskspace_map_commits (
     expected_store_revision INTEGER NOT NULL CHECK(expected_store_revision >= 0),
     result_store_revision INTEGER NOT NULL CHECK(result_store_revision >= 1),
     snapshot_sha256 TEXT NOT NULL,
+    request_sha256 TEXT NOT NULL,
     operation TEXT NOT NULL,
     actor_thread_id TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ops::Deref;
 
-use crate::action_map::ActionMapCheckpointState;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::ActionMapStoreHandle;
 use crate::action_map::ProjectionCursor;
 use crate::action_map::TaskSpaceEvent;
 use crate::action_map::TaskSpaceEventStore;
@@ -16,7 +16,6 @@ use crate::context_manager::ContextManager;
 use crate::session::PreviousTurnSettings;
 use crate::session::session::SessionConfiguration;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
-use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::TokenUsage;
@@ -41,7 +40,10 @@ pub(crate) struct SessionState {
     pub(crate) active_connector_selection: HashSet<String>,
     pub(crate) pending_session_start_source: Option<codex_hooks::SessionStartSource>,
     pub(crate) action_map_runtime: ActionMapRuntimeState,
-    pub(crate) action_map_checkpoint: ActionMapCheckpointState,
+    /// Revision-checked handle for the canonical Map Store record.
+    ///
+    /// `action_map_runtime` is only a disposable cache when this handle exists.
+    pub(crate) action_map_store_handle: Option<ActionMapStoreHandle>,
     pub(crate) taskspace_events: TaskSpaceEventStore,
     pub(crate) taskspace_projection_cursor: ProjectionCursor,
     granted_permissions: Option<AdditionalPermissionProfile>,
@@ -64,12 +66,21 @@ impl SessionState {
             active_connector_selection: HashSet::new(),
             pending_session_start_source: None,
             action_map_runtime: ActionMapRuntimeState::default(),
-            action_map_checkpoint: ActionMapCheckpointState::default(),
+            action_map_store_handle: None,
             taskspace_events: TaskSpaceEventStore::new(),
             taskspace_projection_cursor: ProjectionCursor::default(),
             granted_permissions: None,
             next_turn_is_first: true,
         }
+    }
+
+    pub(crate) fn install_action_map_store_record(
+        &mut self,
+        record: &codex_state::TaskSpaceMapRecord,
+        runtime: ActionMapRuntimeState,
+    ) {
+        self.action_map_runtime = runtime;
+        self.action_map_store_handle = Some(ActionMapStoreHandle::from(record));
     }
 
     // History helpers
@@ -252,15 +263,7 @@ impl SessionState {
         self.history
             .set_reference_context_item(reference_context_item);
         self.taskspace_events = TaskSpaceEventStore::new();
-        self.action_map_runtime = ActionMapRuntimeState::default();
         self.taskspace_projection_cursor = ProjectionCursor::default();
-    }
-
-    pub(crate) fn mutate_action_map<T>(
-        &mut self,
-        operation: impl FnOnce(&mut ActionMapRuntimeState) -> Result<(T, Vec<MapRuntimeEvent>), String>,
-    ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
-        operation(&mut self.action_map_runtime)
     }
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {

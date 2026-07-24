@@ -815,7 +815,7 @@ pub async fn thread_rollback(sess: &Arc<Session>, sub_id: String, num_turns: u32
         .chain(std::iter::once(RolloutItem::EventMsg(rollback_msg.clone())))
         .collect::<Vec<_>>();
     if let Err(error) = sess
-        .apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice(), false, None)
+        .apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice(), false)
         .await
     {
         sess.send_event_raw(Event {
@@ -981,12 +981,23 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
             return;
         }
     }
-    let (outcome, bootstrap_events, ownership_event) = {
+    let (outcome, bootstrap_events) = match sess.set_persisted_action_map_mode(mode).await {
+        Ok(result) => result,
+        Err(message) => {
+            sess.send_event(
+                &turn_context,
+                EventMsg::Error(ErrorEvent {
+                    message,
+                    codex_error_info: Some(CodexErrorInfo::Other),
+                }),
+            )
+            .await;
+            return;
+        }
+    };
+    let ownership_event = {
         let mut state = sess.state.lock().await;
-        let (outcome, bootstrap_events) = state
-            .action_map_runtime
-            .set_mode_for_session(mode, sess.conversation_id);
-        let ownership_event = outcome.mode.changed.then(|| {
+        outcome.mode.changed.then(|| {
             let events = if outcome.mode.current_mode == MapRuntimeMode::Experiment {
                 state.activate_taskspace_context()
             } else {
@@ -1000,8 +1011,7 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
                     .map(|event| event.to_protocol())
                     .collect(),
             }
-        });
-        (outcome, bootstrap_events, ownership_event)
+        })
     };
 
     sess.send_event(
@@ -1036,9 +1046,6 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
         );
         sess.schedule_startup_prewarm().await;
     }
-    sess.emit_action_map_checkpoint_for_turn(&turn_context, "mode_change")
-        .await;
-
     let status = if outcome.mode.changed {
         if outcome.mode.current_mode == MapRuntimeMode::Experiment {
             match outcome.active_map_id.as_deref() {

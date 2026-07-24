@@ -2190,34 +2190,13 @@ pub struct MapRuntimeMaintenanceBarrierClearedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
-pub struct MapRuntimeSnapshotUpdatedEvent {
-    pub checkpoint_id: String,
-    pub reason: String,
+pub struct MapRuntimeStoreCommittedEvent {
+    pub map_id: String,
+    pub store_revision: u64,
+    pub graph_revision: u64,
+    pub operation: String,
+    pub actor_thread_id: ThreadId,
     pub snapshot_sha256: String,
-    pub snapshot: ActionMapSnapshot,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeSnapshotDeltaEvent {
-    pub base_checkpoint_id: String,
-    pub sequence: u64,
-    pub base_snapshot_sha256: String,
-    pub previous_snapshot_sha256: String,
-    pub snapshot_sha256: String,
-    pub patch: Value,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeTerminalCommittedEvent {
-    pub checkpoint_id: String,
-    pub snapshot_sha256: String,
-    pub snapshot: ActionMapSnapshot,
-    pub graph_revision: MapRuntimeGraphRevisionCommittedEvent,
-    pub trace_event: MapRuntimeTraceEventRecordedEvent,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2226,7 +2205,6 @@ pub struct MapRuntimeTerminalCommittedEvent {
 pub enum MapRuntimeEvent {
     ModeChanged(MapRuntimeModeChangedEvent),
     GraphRevisionCommitted(MapRuntimeGraphRevisionCommittedEvent),
-    TerminalCommitted(Box<MapRuntimeTerminalCommittedEvent>),
     LeaseCreated(MapRuntimeLeaseCreatedEvent),
     LeaseAttached(MapRuntimeLeaseAttachedEvent),
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
@@ -2240,8 +2218,7 @@ pub enum MapRuntimeEvent {
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
     MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
     MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent),
-    SnapshotDelta(MapRuntimeSnapshotDeltaEvent),
-    SnapshotUpdated(MapRuntimeSnapshotUpdatedEvent),
+    StoreCommitted(MapRuntimeStoreCommittedEvent),
 }
 
 impl From<MapRuntimeEvent> for EventMsg {
@@ -6001,57 +5978,23 @@ mod tests {
     }
 
     #[test]
-    fn terminal_committed_round_trips_one_durable_envelope() -> Result<()> {
-        let snapshot = ActionMapSnapshot {
-            schema_version: "taskspace-rooted-dag-v1".to_string(),
-            mode: MapRuntimeMode::Experiment,
-            routing_required: true,
-            bootstrap_required: false,
-            reborn_requested: false,
-            map: None,
-            maintenance_barriers: Vec::new(),
-            trace_summary: ActionMapSnapshotTraceSummary::default(),
-            trace_events: Vec::new(),
-            sentinel_summary: ActionMapSnapshotSentinelSummary::default(),
-            sentinel_warnings: Vec::new(),
-        };
-        let event =
-            MapRuntimeEvent::TerminalCommitted(Box::new(MapRuntimeTerminalCommittedEvent {
-                checkpoint_id: "map-terminal-abcd".to_string(),
-                snapshot_sha256: "abcd".to_string(),
-                snapshot,
-                graph_revision: MapRuntimeGraphRevisionCommittedEvent {
-                    map_id: "map-1".to_string(),
-                    revision: 4,
-                    operation: "close_finish_with_no_active_work".to_string(),
-                    event_ids: vec!["event-1".to_string()],
-                    events: vec![json!({
-                        "event_type": "terminal_committed",
-                        "final_summary": "exact summary",
-                    })],
-                },
-                trace_event: MapRuntimeTraceEventRecordedEvent {
-                    trace_event_id: "trace-1".to_string(),
-                    kind: "terminal_committed".to_string(),
-                    task_id: None,
-                    map_id: "map-1".to_string(),
-                    node_id: "finish".to_string(),
-                    result_id: None,
-                    call_id: None,
-                    action_class: None,
-                    tool_success: None,
-                    tags: vec!["state_commit:true".to_string()],
-                    artifact_refs: Vec::new(),
-                    created_at_ms: 1234,
-                },
-            }));
+    fn store_committed_round_trips_canonical_revision() -> Result<()> {
+        let event = MapRuntimeEvent::StoreCommitted(MapRuntimeStoreCommittedEvent {
+            map_id: "map-1".to_string(),
+            store_revision: 5,
+            graph_revision: 4,
+            operation: "finish_map".to_string(),
+            actor_thread_id: ThreadId::new(),
+            snapshot_sha256: "abcd".to_string(),
+        });
 
         let value = serde_json::to_value(&event)?;
 
-        assert_eq!(value["map_event_type"], "terminal_committed");
-        assert_eq!(value["checkpointId"], "map-terminal-abcd");
-        assert_eq!(value["graphRevision"]["revision"], 4);
-        assert_eq!(value["traceEvent"]["kind"], "terminal_committed");
+        assert_eq!(value["map_event_type"], "store_committed");
+        assert_eq!(value["mapId"], "map-1");
+        assert_eq!(value["storeRevision"], 5);
+        assert_eq!(value["graphRevision"], 4);
+        assert_eq!(value["operation"], "finish_map");
         assert_eq!(serde_json::from_value::<MapRuntimeEvent>(value)?, event);
         Ok(())
     }

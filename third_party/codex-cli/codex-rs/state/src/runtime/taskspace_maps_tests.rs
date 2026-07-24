@@ -116,6 +116,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
             commit_id: "commit-1".to_string(),
             operation: "initialize_map".to_string(),
             actor_thread_id: fork,
+            binding: None,
         })
         .await
         .expect("commit map");
@@ -155,6 +156,7 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
         commit_id: "commit-idempotent".to_string(),
         operation: "initialize_map".to_string(),
         actor_thread_id: owner,
+        binding: None,
     };
     runtime
         .compare_and_swap_taskspace_map(commit.clone())
@@ -167,12 +169,46 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
             .expect("commit replay"),
         TaskSpaceMapWriteOutcome::IdempotentReplay(_)
     ));
-    let mut reused = commit;
+    runtime
+        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            expected_store_revision: 2,
+            snapshot: initialized_snapshot(&map_id, 2),
+            commit_id: "commit-after-replay".to_string(),
+            operation: "advance_map".to_string(),
+            actor_thread_id: owner,
+            binding: None,
+        })
+        .await
+        .expect("advance after original commit");
+    assert!(matches!(
+        runtime
+            .compare_and_swap_taskspace_map(commit.clone())
+            .await
+            .expect("late commit replay"),
+        TaskSpaceMapWriteOutcome::IdempotentReplay(record) if record.store_revision == 3
+    ));
+    let mut reused = commit.clone();
     reused.operation = "different_operation".to_string();
     let error = runtime
         .compare_and_swap_taskspace_map(reused)
         .await
         .expect_err("changed input must fail");
+    assert!(error.to_string().contains("reused with different input"));
+
+    let mut reused = commit;
+    reused.binding = Some(BindTaskSpaceMapRequest {
+        thread_id: ThreadId::new(),
+        map_id,
+        relation: TaskSpaceMapRelation::Child,
+        parent_thread_id: Some(owner),
+        node_id: Some("work".to_string()),
+        lease_id: Some("lease-1".to_string()),
+    });
+    let error = runtime
+        .compare_and_swap_taskspace_map(reused)
+        .await
+        .expect_err("changed binding must fail");
     assert!(error.to_string().contains("reused with different input"));
     let _ = tokio::fs::remove_dir_all(home).await;
 }
@@ -199,6 +235,7 @@ async fn concurrent_taskspace_map_writers_have_one_winner() {
         commit_id: commit_id.to_string(),
         operation: "concurrent_test".to_string(),
         actor_thread_id: owner,
+        binding: None,
     };
     let (left, right) = tokio::join!(
         runtime.compare_and_swap_taskspace_map(request("left", 1)),
@@ -225,5 +262,55 @@ async fn concurrent_taskspace_map_writers_have_one_winner() {
         .expect("load")
         .expect("map");
     assert_eq!(loaded.store_revision, 2);
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn unchanged_snapshot_commit_still_applies_atomic_child_binding() {
+    let (home, runtime) = runtime().await;
+    let owner = ThreadId::new();
+    let child = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    let snapshot = blank_snapshot();
+    runtime
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            owner_thread_id: owner,
+            snapshot: snapshot.clone(),
+            commit_id: "create-binding".to_string(),
+            operation: "activate_taskspace".to_string(),
+        })
+        .await
+        .expect("create");
+    let committed = runtime
+        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            expected_store_revision: 1,
+            snapshot,
+            commit_id: "bind-child".to_string(),
+            operation: "attach_child_binding".to_string(),
+            actor_thread_id: owner,
+            binding: Some(BindTaskSpaceMapRequest {
+                thread_id: child,
+                map_id: map_id.clone(),
+                relation: TaskSpaceMapRelation::Child,
+                parent_thread_id: Some(owner),
+                node_id: Some("work".to_string()),
+                lease_id: Some("lease-1".to_string()),
+            }),
+        })
+        .await
+        .expect("commit child binding");
+    assert!(matches!(
+        committed,
+        TaskSpaceMapWriteOutcome::Applied(ref record) if record.store_revision == 2
+    ));
+    let (_, binding) = runtime
+        .load_taskspace_map_for_thread(child)
+        .await
+        .expect("load child")
+        .expect("child binding");
+    assert_eq!(binding.node_id.as_deref(), Some("work"));
+    assert_eq!(binding.lease_id.as_deref(), Some("lease-1"));
     let _ = tokio::fs::remove_dir_all(home).await;
 }

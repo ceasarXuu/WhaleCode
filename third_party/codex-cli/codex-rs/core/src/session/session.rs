@@ -634,7 +634,19 @@ impl Session {
                     ))
                     .await;
             session_configuration.thread_name = thread_name.clone();
-            let state = SessionState::new(session_configuration.clone());
+            let hydrated_action_map = super::taskspace_store::hydrate_action_map_store(
+                state_db_ctx.as_ref(),
+                conversation_id,
+                &initial_history,
+                &session_configuration.session_source,
+                session_configuration.taskspace_projection_policy.is_some(),
+            )
+            .await?;
+            let mut state = SessionState::new(session_configuration.clone());
+            if let Some(hydrated) = hydrated_action_map {
+                state.action_map_runtime = hydrated.runtime;
+                state.action_map_store_handle = Some(hydrated.handle);
+            }
             let managed_network_requirements_configured = config
                 .config_layer_stack
                 .requirements_toml()

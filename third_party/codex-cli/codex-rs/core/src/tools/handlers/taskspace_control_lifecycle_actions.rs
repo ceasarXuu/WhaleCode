@@ -312,15 +312,6 @@ async fn terminal_failure(
             "resource_failed",
             error,
         ),
-        FinishActionMapError::Internal(error) => action_failure_error(
-            action,
-            Some(expected_revision),
-            canonical_revision,
-            "protocol",
-            "TASKSPACE_PROTOCOL_FAILURE",
-            "protocol_failed",
-            error,
-        ),
         FinishActionMapError::Rejected(error) => {
             debug_assert!(
                 false,

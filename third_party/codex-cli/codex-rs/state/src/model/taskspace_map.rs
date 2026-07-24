@@ -82,6 +82,7 @@ pub struct CommitTaskSpaceMapRequest {
     pub commit_id: String,
     pub operation: String,
     pub actor_thread_id: ThreadId,
+    pub binding: Option<BindTaskSpaceMapRequest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

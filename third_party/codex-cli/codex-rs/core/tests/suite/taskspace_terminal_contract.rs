@@ -328,51 +328,37 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
     )));
     assert!(events.iter().any(|event| matches!(
         event,
-        EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(committed))
-            if committed.graph_revision.revision == 4
-                && committed.snapshot.map.as_ref().is_some_and(|map| map.complete)
+        EventMsg::MapRuntime(MapRuntimeEvent::GraphRevisionCommitted(committed))
+            if committed.operation == "finish_map" && committed.revision == 4
     )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EventMsg::MapRuntime(MapRuntimeEvent::StoreCommitted(committed))
+            if committed.operation == "finish_map"
+                && committed.store_revision >= 4
+                && committed.graph_revision == 4
+    )));
+
+    let state = codex_state::StateRuntime::init(
+        test.codex_home_path().to_path_buf(),
+        "test-provider".to_string(),
+    )
+    .await?;
+    let (stored, binding) = state
+        .load_taskspace_map_for_thread(test.session_configured.session_id)
+        .await?
+        .expect("TaskSpace thread must remain bound to its canonical Store map");
+    let stored_map = stored.snapshot.map.as_ref().expect("stored rooted map");
+    assert!(stored.complete);
+    assert!(stored_map.complete);
+    assert_eq!(stored.graph_revision, 4);
+    assert_eq!(stored_map.revision, 4);
+    assert_eq!(binding.map_id, stored.map_id);
+
     let rollout_path = test.codex.rollout_path().expect("rollout path");
-    let loaded = codex_core::taskspace_replay::load_rollout(&rollout_path).await?;
-    let terminal_envelope_count = loaded
-        .items
-        .iter()
-        .filter(|item| {
-            matches!(
-                item,
-                codex_protocol::protocol::RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::TerminalCommitted(_)
-                ))
-            )
-        })
-        .count();
-    let split_terminal_graph_count = loaded
-        .items
-        .iter()
-        .filter(|item| {
-            matches!(
-                item,
-                codex_protocol::protocol::RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::GraphRevisionCommitted(event)
-                )) if event.operation == "finish_map"
-            )
-        })
-        .count();
-    assert_eq!(terminal_envelope_count, 1);
-    assert_eq!(split_terminal_graph_count, 0);
-    let replayed = codex_core::taskspace_replay::replay_loaded_rollout(&loaded)?;
-    assert!(
-        replayed
-            .snapshot
-            .map
-            .as_ref()
-            .is_some_and(|map| map.complete)
-    );
-    assert_eq!(
-        replayed.snapshot.map.as_ref().map(|map| map.revision),
-        Some(4)
-    );
-    assert!(replayed.active_checkpoint_id.starts_with("map-terminal-"));
+    let rollout = tokio::fs::read_to_string(rollout_path).await?;
+    assert!(!rollout.contains("\"snapshot_updated\""));
+    assert!(!rollout.contains("\"snapshot_delta\""));
     assert_taskspace_request_shapes(&responses);
     Ok(())
 }

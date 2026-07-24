@@ -51,7 +51,7 @@ fn initialized_state(
 
 #[test]
 fn initialization_exposes_one_root_one_finish_and_revision_events() {
-    let (state, _, outcome) = initialized_state(
+    let (state, owner, outcome) = initialized_state(
         &[("inspect", "Inspect the code")],
         &[("root", "inspect"), ("inspect", "finish")],
         "inspect",
@@ -86,7 +86,7 @@ fn initialization_exposes_one_root_one_finish_and_revision_events() {
         ""
     );
     assert_eq!(outcome.node_ids, ["root", "inspect", "finish"]);
-    assert_eq!(outcome.delta.map_id, "map-1");
+    assert_eq!(outcome.delta.map_id, format!("map-{owner}"));
     assert_eq!(outcome.delta.committed_revision, 2);
     assert_eq!(outcome.delta.graph_revision_batches.len(), 2);
     assert_eq!(outcome.delta.graph_revision_batches[0].revision, 1);

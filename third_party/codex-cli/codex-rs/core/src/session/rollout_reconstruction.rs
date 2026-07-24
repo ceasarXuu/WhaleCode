@@ -1,5 +1,4 @@
 use super::*;
-use crate::action_map::ActionMapCheckpointState;
 use crate::action_map::TaskSpaceEventStore;
 use crate::context_manager::is_user_turn_boundary;
 use std::fmt;
@@ -35,9 +34,6 @@ pub(super) struct RolloutReconstruction {
     pub(super) taskspace_events: Vec<TaskSpaceEvent>,
     pub(super) previous_turn_settings: Option<PreviousTurnSettings>,
     pub(super) reference_context_item: Option<TurnContextItem>,
-    pub(super) map_runtime_mode: MapRuntimeMode,
-    pub(super) map_runtime_snapshot: Option<ActionMapSnapshot>,
-    pub(super) map_runtime_checkpoint: ActionMapCheckpointState,
 }
 
 #[derive(Debug, Default)]
@@ -64,7 +60,6 @@ struct ActiveReplaySegment<'a> {
     reference_context_item: TurnReferenceContextItem,
     base_replacement_history: Option<&'a [ResponseItem]>,
     replacement_history_suffix_start: Option<usize>,
-    map_runtime_snapshot: Option<ActionMapSnapshot>,
 }
 
 fn turn_ids_are_compatible(active_turn_id: Option<&str>, item_turn_id: Option<&str>) -> bool {
@@ -78,7 +73,6 @@ fn finalize_active_segment<'a>(
     rollout_suffix_start: &mut usize,
     previous_turn_settings: &mut Option<PreviousTurnSettings>,
     reference_context_item: &mut TurnReferenceContextItem,
-    map_runtime_snapshot: &mut Option<ActionMapSnapshot>,
     pending_rollback_turns: &mut usize,
 ) {
     // Thread rollback drops the newest surviving real user-message boundaries. In replay, that
@@ -118,10 +112,6 @@ fn finalize_active_segment<'a>(
     {
         *reference_context_item = active_segment.reference_context_item;
     }
-
-    if map_runtime_snapshot.is_none() {
-        *map_runtime_snapshot = active_segment.map_runtime_snapshot;
-    }
 }
 
 impl Session {
@@ -152,8 +142,6 @@ impl Session {
         // Rollback is "drop the newest N user turns". While scanning in reverse, that becomes
         // "skip the next N user-turn segments we finalize".
         let mut pending_rollback_turns = 0usize;
-        let map_runtime_mode = crate::taskspace_replay::replay_surviving_mode(rollout_items);
-        let mut map_runtime_snapshot = None;
         // Borrowed suffix of rollout items newer than the newest surviving replacement-history
         // checkpoint. If no such checkpoint exists, this remains the full rollout.
         let mut rollout_suffix_start = 0usize;
@@ -185,16 +173,6 @@ impl Session {
                     pending_rollback_turns = pending_rollback_turns
                         .saturating_add(usize::try_from(rollback.num_turns).unwrap_or(usize::MAX));
                 }
-                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-                    event,
-                ))) => {
-                    let active_segment =
-                        active_segment.get_or_insert_with(ActiveReplaySegment::default);
-                    if active_segment.map_runtime_snapshot.is_none() {
-                        active_segment.map_runtime_snapshot = Some(event.snapshot.clone());
-                    }
-                }
-                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(_))) => {}
                 RolloutItem::EventMsg(EventMsg::MapRuntime(
                     MapRuntimeEvent::TaskContextEventRecorded(event),
                 )) if event.event_type == "compaction" => {
@@ -275,7 +253,6 @@ impl Session {
                             &mut rollout_suffix_start,
                             &mut previous_turn_settings,
                             &mut reference_context_item,
-                            &mut map_runtime_snapshot,
                             &mut pending_rollback_turns,
                         );
                     }
@@ -296,26 +273,8 @@ impl Session {
                 &mut rollout_suffix_start,
                 &mut previous_turn_settings,
                 &mut reference_context_item,
-                &mut map_runtime_snapshot,
                 &mut pending_rollback_turns,
             );
-        }
-
-        let mut map_runtime_checkpoint = ActionMapCheckpointState::default();
-        match crate::taskspace_replay::replay_rollout_items(String::new(), 0, rollout_items) {
-            Ok(replayed) => {
-                map_runtime_snapshot = Some(replayed.state.snapshot);
-                map_runtime_checkpoint = replayed.checkpoint;
-            }
-            Err(error)
-                if error.code
-                    == crate::taskspace_replay::TaskSpaceReplayErrorCode::NotApplicable => {}
-            Err(error) => {
-                return Err(RolloutReconstructionError::new(
-                    "map_checkpoint_delta_chain",
-                    format!("{}: {}", error.code.as_str(), error.message),
-                ));
-            }
         }
 
         let mut history = ContextManager::new();
@@ -460,9 +419,6 @@ impl Session {
             taskspace_events,
             previous_turn_settings,
             reference_context_item,
-            map_runtime_mode,
-            map_runtime_snapshot,
-            map_runtime_checkpoint,
         })
     }
 }
