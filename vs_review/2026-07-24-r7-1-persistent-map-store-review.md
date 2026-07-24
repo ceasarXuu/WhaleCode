@@ -1,13 +1,13 @@
 # Subagent VS Review: R7.1 canonical Map Store
 
 - Created: 2026-07-24T23:55:00+08:00
-- Updated: 2026-07-25T00:45:00+08:00
+- Updated: 2026-07-25T01:15:00+08:00
 - Report schema: adversarial-v1
 - Task: 完成 R7.1-A0，并专项审查旧恢复残留、错误引用、双事实源和生产接线缺口。
 - Report path: `vs_review/2026-07-24-r7-1-persistent-map-store-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: 不继承主 Agent 上下文，只接收中立导航包。
-- Status: open
+- Status: passed
 
 ## Round 1: A0 实施完整性与残留专项审查
 
@@ -390,8 +390,172 @@ Blocking findings: none。Store schema、CAS、hydration、mutation、CLI export
 - Implementation completeness gaps resolved or accepted by user: yes
 - Target benefit warnings recorded: yes
 - Blocked reason: n/a
-- Allowed to proceed: pending final review
+- Allowed to proceed: yes，进入 Round 4-7 最终复审
+
+## Round 1-3 Interim Conclusion
+
+Round 1-3 的 Store ownership、child binding、observer 和 App Server 缺口均已关闭。Round 4-6
+继续发现并关闭交互式 cache bypass、门禁覆盖不足、失败日志缺失和活跃 Python snapshot patch
+解析残留；Round 7 在最终提交 `12d1ca2c2` 上未发现 blocking。
+
+## Round 4: 交互式 current Map read 复审
+
+### Review Input
+
+- Objective: 在 `e404383b9` 上继续搜索 current Map cache bypass、旧恢复和错误引用。
+- Risk focus: interactive show、App Server、CLI observer、终态恢复和测试真实性。
+- Reviewer instructions: fresh、`fork_context=false`、read-only、直接读代码。
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Read-only |
+|---|---|---|---|---|---|
+| final-residue-and-reference-adversary | `multi_agent_v1.spawn_agent`，`gpt-5.5` low | `019f9508-cd64-74a3-93c2-fc70495c903d` | spawn result 与 subagent notification | false | yes |
+
+### Reviewer Outputs
+
+#### Blocking Finding
+
+- `Op::ShowActionMap` 调用 `Session::action_map_snapshot()`，直接把 Session cache 当作 current Map。
+  - Trigger: 另一个绑定线程推进 Store revision 后，原 Session 执行交互式 show。
+  - Impact: App Server 与交互式界面可展示两个不同的 current Map。
+  - Proof needed: show 走 canonical read；真实外部 CAS 后执行 `Op::ShowActionMap`。
+
+#### Main Agent Response
+
+| Finding | Decision | Action |
+|---|---|---|
+| interactive show 直接读 cache | accept | `173abf3c1` 改走 `canonical_action_map_snapshot()`，失败忠实显示；cache snapshot API 收缩为 `cfg(test)` |
+| 缺少精确 stale-cache 测试 | accept | terminal contract 外部 CAS 修改 root goal，再提交 `Op::ShowActionMap` 并断言新内容 |
+| 门禁只检查旧恢复符号 | accept | 禁止 production handler 重新调用旧 cache snapshot API |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review: Round 5
+
+## Round 5: interactive read blocking closure
+
+### Review Input
+
+- Objective: 复核 `173abf3c1` 是否关闭 interactive stale-cache read。
+- Risk focus: ShowActionMap、App Server、projection、nested spawn、门禁和日志。
+- Reviewer instructions: fresh、`fork_context=false`、read-only。
+
+### Reviewer Launch Records
+
+| Reviewer | Session / Job ID | Target | Read-only |
+|---|---|---|---|
+| current-read-closure-adversary | `019f950f-e840-7d92-b61b-393ed56b1e73` | `173abf3c1` | yes |
+
+### Reviewer Outputs
+
+- Blocking findings: none。
+- 精确 stale-cache 测试有效，不是 fixture 自证。
+- Non-blocking:
+  - reference gate 未扫描 `app-server/src` 和 `tui/src`；
+  - show 失败缺结构化日志；
+  - canonical read 未记录 cache 是否刷新。
+
+### Main Agent Response
+
+| Finding | Decision | Action |
+|---|---|---|
+| gate 漏扫 App Server/TUI | accept | `b1cb7e9b8` 扩展 Rust roots |
+| show 失败无结构化日志 | accept | 新增 `taskspace.show_map_failed`，记录 thread、operation、reason code 和原始错误 |
+| cache refresh 不可观察 | accept | `taskspace.map_store_read` 增加 `cache_refreshed` 和 `snapshot_sha256` |
+
+### Closure Status
+
+- Blocking findings found: no
+- Non-blocking findings fixed: yes
+- Allowed to proceed: yes，进入最终残留扫描
+
+## Round 6: 活跃工具残留复审
+
+### Review Input
+
+- Objective: 在 `b1cb7e9b8` 上检查所有活跃代码和脚本是否仍依赖退役 rollout Map snapshot。
+- Risk focus: Python/Shell 漏扫、默认回归是否执行门禁、历史 analyzer 是否仍重建 projection。
+- Reviewer instructions: fresh、`fork_context=false`、read-only。
+
+### Reviewer Launch Records
+
+| Reviewer | Session / Job ID | Target | Read-only |
+|---|---|---|---|
+| active-tooling-residue-adversary | `019f9514-728e-71d0-9dd8-5ef56001c66d` | `b1cb7e9b8` | yes |
+
+### Reviewer Outputs
+
+#### Blocking Finding
+
+- reference gate 只扫描 PowerShell；active-prefix Python analyzer 仍解析 `snapshot_delta` patch；
+  默认 action-map regression 没有运行 R7 gate。
+
+### Main Agent Response
+
+| Finding | Decision | Action |
+|---|---|---|
+| Python analyzer 解析 snapshot patch | accept | `12d1ca2c2` 删除 patch 解析，只消费 `taskspace_trace_event_recorded` |
+| Python fixture 保留 snapshot delta | accept | fixture 改为直接 runtime trace event |
+| gate 漏扫 Python/Shell | accept | scripts 扫描扩展为 `.ps1/.py/.sh`，活跃 Python 禁止 snapshot parser |
+| 默认回归不执行 gate | accept | `run-action-map-regression.ps1` 默认 script matrix 加入 R7 gate |
+
+验证：
+
+- `python3 scripts/taskspace-benchmark/test-active-prefix-tools.py`：`5 passed`；
+- R7 reference gate：passed；
+- `run-action-map-regression.ps1 -PlanOnly`：确认默认脚本矩阵包含 R7 gate。
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review: Round 7
+
+## Round 7: 最终 blocking closure
+
+### Review Input
+
+- Objective: 在最终提交 `12d1ca2c2` 上只复核 Store ownership、current read、活跃残留和门禁。
+- Explicit exclusion: 历史 docs/COE/generated evidence 不作为活跃 production 残留。
+- Reviewer instructions: fresh、`fork_context=false`、read-only、必须给生产触发路径。
+
+### Reviewer Launch Records
+
+| Reviewer | Session / Job ID | Target | Read-only |
+|---|---|---|---|
+| final-blocking-closure-adversary | `019f951a-85cb-7132-85b0-3149c9784f79` | `12d1ca2c2` | yes |
+
+### Reviewer Outputs
+
+- Blocking findings: none。
+- reviewer 实际执行 R7 reference gate：passed。
+- ShowActionMap、App Server 和 TUI viewer current read 均进入 canonical Store read。
+- active-prefix analyzer 不再从 snapshot patch 重建。
+- resume/fork/child 缺 Store 或 binding 均 fail closed。
+
+### Main Agent Response
+
+| Finding | Severity | Decision | Evidence |
+|---|---|---|---|
+| 未找到“外部 CAS 后 `Op::ShowActionMap`”精确测试 | non-blocking | reject | `taskspace_terminal_contract.rs` 先执行 `compare_and_swap_taskspace_map`，随后提交 `Op::ShowActionMap` 并断言外部 goal；定向测试通过 |
+| PowerShell 历史 storage metric 仍含 snapshot 字段名 | non-blocking | accept as historical evidence | 仅统计旧 evidence 字节，不解析或恢复 canonical Map；无 production Rust trigger |
+
+### Final Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Rejected findings backed by evidence: yes
+- Deferred findings: none
+- Implementation completeness gaps resolved: yes
+- Allowed to proceed: yes
 
 ## Final Conclusion
 
-前三轮发现均已响应；等待基于最终提交的 Round 4 空白复审。
+独立 Map Store 是唯一 canonical Map；所有已知用户可见 current read 均校验 Store；
+rollout/history 不再恢复 Map；活跃生产代码、observer 和 Python analyzer 未发现旧 canonical recovery
+或错误命令引用。

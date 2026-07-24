@@ -1,7 +1,7 @@
 # Problem P-001: canonical Map 被 Session Runtime 和 rollout 恢复链路错误持有
 - Status: fixed
 - Created: 2026-07-24 21:21
-- Updated: 2026-07-25 00:35
+- Updated: 2026-07-25 01:15
 - Objective: 建立独立持久化、全局唯一的 canonical Map；Session、Runtime、resume、fork 和 child agent 只按身份访问同一份 Map，rollout 仅保留对话与审计记录。
 - Symptoms:
   - `SessionState` 直接持有包含完整 `tasks`、`maps` 的 `ActionMapRuntimeState`。
@@ -497,3 +497,26 @@
   - terminal contract 中 stale Session cache refresh 通过，日志保留 `taskspace.map_store_read` 的 map/revision/relation。
 - Interpretation: App Server 的 Session cache 只作为可丢弃副本，不再是对外观察 authority。
 - Time: 2026-07-25 00:33
+
+## Evidence E-017: interactive read 与活跃残留最终闭合
+- Related hypotheses:
+  - H-001
+- Direction: refutes-current
+- Type: failing-then-passing-test
+- Source: `173abf3c1`, `b1cb7e9b8`, `12d1ca2c2`
+- Prediction or plan link:
+  - 所有用户可见 current Map read 必须校验 Store；活跃工具不得继续解析 rollout snapshot patch。
+- Matched signal:
+  - `ShowActionMap` 改走 canonical Store read；外部 CAS 后交互式 show 输出新 Store goal；
+    active-prefix analyzer 只消费直接 runtime trace event；reference gate 覆盖 Rust、PowerShell、Python 和 Shell，
+    并进入默认 action-map regression。
+- Correlation keys:
+  - thread id
+  - map id
+  - store revision
+  - snapshot SHA256
+- Raw content:
+  - terminal contract、Python `5 passed`、R7 reference gate 和 CLI check 通过；最终空白审查无 blocking。
+- Interpretation: 已知外部 current Map read、observer 和活跃分析器均不再暴露或重建 rollout Map；
+  Session cache 只在 Store revision/hash 一致时可读。
+- Time: 2026-07-25 01:15
