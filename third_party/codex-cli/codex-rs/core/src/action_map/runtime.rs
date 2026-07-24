@@ -1562,8 +1562,11 @@ impl ActionMapRuntimeState {
             && self.active_task_id.is_some()
             && self.active_map_id.is_some()
             && self.maps.is_empty();
+        let restored_complete_map =
+            !self.maps.is_empty() && self.maps.values().all(|map| map.is_complete());
         if self.mode == MapRuntimeMode::Experiment
             && !blank_task_path_is_coherent
+            && !restored_complete_map
             && !self.restored_active_binding_is_coherent()
         {
             self.active_task_id = None;
@@ -1612,6 +1615,9 @@ impl ActionMapRuntimeState {
             self.reborn_requested = false;
         } else if blank_task_path_is_coherent {
             self.bootstrap_required = true;
+        } else if restored_complete_map {
+            // A completed Store snapshot has no active binding by design. Preserve
+            // its persisted flags so Store encode/decode remains hash-stable.
         } else {
             self.bootstrap_required = self.bootstrap_required || self.maps.is_empty();
             self.routing_required =
@@ -1637,13 +1643,21 @@ impl ActionMapRuntimeState {
         snapshot: ActionMapSnapshot,
     ) -> Result<(), String> {
         self.restore_snapshot(snapshot)?;
-        if self.active_map_id.as_deref() != Some(map_id) {
+        if self.active_map_id.as_deref() != Some(map_id) && !self.maps.contains_key(map_id) {
             return Err(format!(
                 "TaskSpace Store map `{map_id}` does not match restored Runtime map `{:?}`.",
                 self.active_map_id
             ));
         }
-        if let Some(task_id) = self.active_task_id.as_ref()
+        let restored_task_id = self
+            .maps
+            .get_mut(map_id)
+            .and_then(|map| {
+                map.owner_session_id = Some(owner_thread_id);
+                map.task_id.clone()
+            })
+            .or_else(|| self.active_task_id.clone());
+        if let Some(task_id) = restored_task_id.as_ref()
             && let Some(task) = self.tasks.get_mut(task_id)
         {
             task.owner_session_id = Some(owner_thread_id);

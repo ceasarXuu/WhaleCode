@@ -35,27 +35,17 @@ Copy-Item -LiteralPath $fixturePath -Destination $outputPath -Force
     $wrapper
 }
 
-function Set-TestActionMapStoreFixtureFromRollout {
+function Set-TestActionMapStoreFixture {
     param(
         [Parameter(Mandatory = $true)][string]$WhalePath,
-        [Parameter(Mandatory = $true)][string]$RolloutPath,
-        [Parameter(Mandatory = $true)][string]$ThreadId
+        [Parameter(Mandatory = $true)][string]$ThreadId,
+        [Parameter(Mandatory = $true)][object]$Snapshot
     )
-    $snapshot = $null
-    foreach ($line in Get-Content -LiteralPath $RolloutPath -Encoding UTF8) {
-        try { $row = $line | ConvertFrom-Json } catch { continue }
-        if ($row.payload -and $row.payload.snapshot) {
-            $snapshot = $row.payload.snapshot
-        }
+    $mapId = if ($Snapshot.map -and $Snapshot.map.id) {
+        [string]$Snapshot.map.id
     }
-    if ($null -eq $snapshot) {
-        throw "Map Store test fixture source has no snapshot: $RolloutPath"
-    }
-    $mapId = if ($snapshot.map -and $snapshot.map.id) {
-        [string]$snapshot.map.id
-    }
-    elseif ($snapshot.maps -and @($snapshot.maps).Count -gt 0) {
-        [string]$snapshot.maps[0].id
+    elseif ($Snapshot.maps -and @($Snapshot.maps).Count -gt 0) {
+        [string]$Snapshot.maps[0].id
     }
     else {
         "map-$ThreadId"
@@ -66,7 +56,7 @@ function Set-TestActionMapStoreFixtureFromRollout {
         map = [ordered]@{
             map_id = $mapId
             owner_thread_id = $ThreadId
-            snapshot = $snapshot
+            snapshot = $Snapshot
             snapshot_sha256 = "fixture"
             store_revision = 1
             graph_revision = 1

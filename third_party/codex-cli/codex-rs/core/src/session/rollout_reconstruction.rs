@@ -1,3 +1,7 @@
+// This module reconstructs provider history and TaskSpace context events only.
+// The canonical Map aggregate is loaded from Map Store before this code runs and
+// must never be restored, replaced, or derived from rollout items here.
+
 use super::*;
 use crate::action_map::TaskSpaceEventStore;
 use crate::context_manager::is_user_turn_boundary;

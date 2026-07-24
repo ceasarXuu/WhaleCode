@@ -508,6 +508,38 @@ fn finish_map_closes_ready_finish_after_last_subagent_result() {
 }
 
 #[test]
+fn store_restore_accepts_a_completed_map_without_an_active_binding() {
+    let (mut state, owner, _) = initialized_state(
+        &[("work", "Implement and verify")],
+        &[("root", "work"), ("work", "finish")],
+        "work",
+    );
+    state
+        .finish_map_for_main(
+            owner,
+            2,
+            "work".into(),
+            "Verified.".into(),
+            "task-event-terminal".into(),
+        )
+        .expect("finish map");
+    let snapshot = state.snapshot();
+    let map_id = snapshot.map.as_ref().expect("completed map").id.clone();
+    let mut restored = ActionMapRuntimeState::default();
+
+    restored
+        .restore_store_snapshot(&map_id, owner, snapshot.clone())
+        .expect("completed canonical Store map must restore");
+
+    let restored_snapshot = restored.snapshot();
+    let restored_map = restored_snapshot.map.as_ref().expect("completed map retained");
+    assert!(restored_map.complete);
+    assert_eq!(restored_map.id, map_id);
+    assert_eq!(restored_map.owner_session_id, Some(owner));
+    assert_eq!(restored_snapshot, snapshot);
+}
+
+#[test]
 fn projection_reads_canonical_graph_without_task_or_map_status() {
     let (mut state, _, _) = initialized_state(
         &[("inspect", "Inspect the code")],

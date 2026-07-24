@@ -11,6 +11,8 @@ use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
+use codex_state::CommitTaskSpaceMapRequest;
+use codex_state::TaskSpaceMapWriteOutcome;
 use core_test_support::responses::ResponseMock;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
@@ -354,6 +356,33 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
     assert_eq!(stored.graph_revision, 4);
     assert_eq!(stored_map.revision, 4);
     assert_eq!(binding.map_id, stored.map_id);
+
+    let mut externally_committed = stored.snapshot.clone();
+    externally_committed.routing_required = !stored.snapshot.routing_required;
+    let external_commit = state
+        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+            map_id: stored.map_id.clone(),
+            expected_store_revision: stored.store_revision,
+            snapshot: externally_committed,
+            commit_id: "external-app-server-read-test".to_string(),
+            operation: "external_app_server_read_test".to_string(),
+            actor_thread_id: test.session_configured.session_id,
+            binding: None,
+        })
+        .await?;
+    assert!(matches!(
+        external_commit,
+        TaskSpaceMapWriteOutcome::Applied(_)
+    ));
+    let refreshed = test
+        .codex
+        .action_map_snapshot()
+        .await
+        .map_err(anyhow::Error::msg)?;
+    assert_ne!(
+        refreshed.routing_required, stored.snapshot.routing_required,
+        "public snapshot reads must refresh a stale Session cache from the canonical Store"
+    );
 
     let rollout_path = test.codex.rollout_path().expect("rollout path");
     let rollout = tokio::fs::read_to_string(rollout_path).await?;

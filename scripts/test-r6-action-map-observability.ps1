@@ -67,7 +67,7 @@ $snapshot = [ordered]@{
 }
 ($snapshot | ConvertTo-Json -Compress -Depth 30) | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
 "" | Set-Content -LiteralPath $execPath -Encoding UTF8
-Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $rolloutPath -ThreadId "thread-1"
+Set-TestActionMapStoreFixture -WhalePath $testWhale -ThreadId "thread-1" -Snapshot $snapshot.payload.snapshot
 & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $execPath -OutputDir $exportDir -WhalePath $testWhale -ThreadId "thread-1" | Out-Null
 
 $obsPath = Join-Path $exportDir "action-map-observability.json"

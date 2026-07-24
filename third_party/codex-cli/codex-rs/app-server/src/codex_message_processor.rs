@@ -3454,7 +3454,17 @@ impl CodexMessageProcessor {
             }
         };
 
-        let snapshot = thread.action_map_snapshot().await;
+        let snapshot = match thread.action_map_snapshot().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.send_internal_error(
+                    request_id,
+                    format!("failed to read canonical action map: {error}"),
+                )
+                .await;
+                return;
+            }
+        };
         self.outgoing
             .send_response(request_id, ThreadActionMapReadResponse { snapshot })
             .await;
@@ -3474,7 +3484,17 @@ impl CodexMessageProcessor {
             }
         };
 
-        let snapshot = thread.action_map_snapshot().await;
+        let snapshot = match thread.action_map_snapshot().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.send_internal_error(
+                    request_id,
+                    format!("failed to read canonical TaskSpace map: {error}"),
+                )
+                .await;
+                return;
+            }
+        };
         self.outgoing
             .send_response(request_id, ThreadTaskSpaceReadResponse { snapshot })
             .await;

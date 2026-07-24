@@ -462,7 +462,7 @@ try {
         ($validityEvent | ConvertTo-Json -Depth 30 -Compress)
     ) | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
     "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
-    Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $rolloutPath -ThreadId "thread-1"
+    Set-TestActionMapStoreFixture -WhalePath $testWhale -ThreadId "thread-1" -Snapshot $snapshotEvent.payload.snapshot
     & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -WhalePath $testWhale -ThreadId "thread-1" -ArtifactRoot $fixtureDir | Out-Null
     $exportJson = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     Assert-Equal ([bool]$exportJson.cognitiveAudit.structuralGatePassed) $false "canonical Map result should not synthesize the retired cognitive evidence package"

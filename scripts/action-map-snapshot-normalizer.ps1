@@ -1,8 +1,16 @@
+function Test-ActionMapSnapshotSingleMapShape {
+    param([object]$Snapshot)
+    $null -ne $Snapshot -and $Snapshot.PSObject.Properties.Name -contains "map"
+}
+
 function Get-ActionMapSnapshotTasks {
     param([object]$Snapshot)
     if (-not $Snapshot) { return @() }
-    if ([string]$Snapshot.schemaVersion -ne "TaskSpaceSnapshotR6V1") {
-        return @($Snapshot.tasks)
+    if (-not (Test-ActionMapSnapshotSingleMapShape $Snapshot)) {
+        if ($Snapshot.PSObject.Properties.Name -contains "tasks") {
+            return @($Snapshot.tasks)
+        }
+        return @()
     }
     $map = $Snapshot.map
     if (-not $map) { return @() }
@@ -20,7 +28,7 @@ function Get-ActionMapSnapshotTasks {
         })
 }
 
-function Convert-R6ActionMapSnapshotNode {
+function Convert-ActionMapSnapshotNode {
     param([object]$Node, [string]$MapId, [string]$TaskId)
     [pscustomobject]@{
         id = [string]$Node.id
@@ -38,7 +46,7 @@ function Convert-R6ActionMapSnapshotNode {
     }
 }
 
-function Convert-R6ActionMapSnapshotMap {
+function Convert-ActionMapSnapshotMap {
     param([object]$Map)
     if (-not $Map) { return $null }
     $mapId = [string]$Map.id
@@ -56,7 +64,7 @@ function Convert-R6ActionMapSnapshotMap {
         currentNodeId = [string]$Map.currentNodeId
         complete = [bool]$Map.complete
         terminalSummaryRef = [string]$Map.terminalSummaryRef
-        nodes = @($Map.nodes | ForEach-Object { Convert-R6ActionMapSnapshotNode $_ $mapId $taskId })
+        nodes = @($Map.nodes | ForEach-Object { Convert-ActionMapSnapshotNode $_ $mapId $taskId })
         edges = @($Map.edges)
         leases = @($Map.leases)
         results = @($Map.results)
@@ -68,10 +76,13 @@ function Convert-R6ActionMapSnapshotMap {
 function Get-ActionMapSnapshotMaps {
     param([object]$Snapshot)
     if (-not $Snapshot) { return @() }
-    if ([string]$Snapshot.schemaVersion -eq "TaskSpaceSnapshotR6V1") {
-        $map = Convert-R6ActionMapSnapshotMap $Snapshot.map
+    if (Test-ActionMapSnapshotSingleMapShape $Snapshot) {
+        $map = Convert-ActionMapSnapshotMap $Snapshot.map
         if ($map) { return @($map) }
         return @()
     }
-    @($Snapshot.maps)
+    if ($Snapshot.PSObject.Properties.Name -contains "maps") {
+        return @($Snapshot.maps)
+    }
+    @()
 }

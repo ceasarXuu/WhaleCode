@@ -82,7 +82,7 @@ $lines.Add(([ordered]@{
 } | ConvertTo-Json -Compress -Depth 10))
 $lines | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
 "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
-Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $rolloutPath -ThreadId "thread-1"
+Set-TestActionMapStoreFixture -WhalePath $testWhale -ThreadId "thread-1" -Snapshot $snapshot.payload.snapshot
 
 try {
     $env:TASKSPACE_OBSERVABILITY_ROLLOUT_MAX_BYTES = "1048576"

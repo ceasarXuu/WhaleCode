@@ -3907,6 +3907,11 @@ impl Session {
         state.action_map_runtime.snapshot()
     }
 
+    pub(crate) async fn canonical_action_map_snapshot(&self) -> Result<ActionMapSnapshot, String> {
+        self.read_canonical_action_map("canonical_snapshot", |runtime, _| runtime.snapshot())
+            .await
+    }
+
     pub(crate) async fn taskspace_active(&self) -> bool {
         let state = self.state.lock().await;
         state.action_map_runtime.mode() == MapRuntimeMode::Experiment
