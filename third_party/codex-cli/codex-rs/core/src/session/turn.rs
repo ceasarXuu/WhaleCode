@@ -1817,7 +1817,7 @@ mod active_context_replacement_tests {
         );
         let serialized = serde_json::to_string(binding).expect("serialize binding schema");
         assert!(!serialized.contains("expected_revision"));
-        assert!(serialized.contains("initial_work_id"));
+        assert!(serialized.contains("initial_work"));
         assert!(serialized.contains("edges"));
     }
 

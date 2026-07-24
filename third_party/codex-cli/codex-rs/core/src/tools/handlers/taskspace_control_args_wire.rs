@@ -33,9 +33,9 @@ struct Envelope {
 struct InitializeMapArgs {
     #[serde(rename = "action")]
     _action: Action,
-    nodes: Vec<InitializeMapNodeArgs>,
-    root_id: String,
-    initial_work_id: String,
+    root: InitializeMapNodeArgs,
+    initial_work: InitializeMapNodeArgs,
+    additional_work: Vec<InitializeMapNodeArgs>,
     finish_id: String,
     edges: Vec<TaskSpaceGraphEdgeArgs>,
 }
@@ -164,21 +164,14 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
     match deserialize_arguments::<Envelope>(arguments)?.action {
         Action::InitializeMap => {
             let parsed = deserialize_arguments::<InitializeMapArgs>(arguments)?;
-            let root_index = initialize_node_index(&parsed.nodes, &parsed.root_id, "root_id")?;
-            let initial_work_index =
-                initialize_node_index(&parsed.nodes, &parsed.initial_work_id, "initial_work_id")?;
-            let root = initialize_node(&parsed.nodes[root_index]);
-            let initial_work_node = initialize_node(&parsed.nodes[initial_work_index]);
             let additional_work_nodes = parsed
-                .nodes
+                .additional_work
                 .into_iter()
-                .enumerate()
-                .filter(|(index, _)| *index != root_index && *index != initial_work_index)
-                .map(|(_, node)| initialize_node(&node))
+                .map(initialize_node)
                 .collect();
             Ok(TaskSpaceControlArgs::InitializeMap {
-                root,
-                initial_work_node,
+                root: initialize_node(parsed.root),
+                initial_work_node: initialize_node(parsed.initial_work),
                 finish_identity: TaskSpaceFinishIdentityArgs {
                     id: parsed.finish_id,
                 },
@@ -290,25 +283,10 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
     }
 }
 
-fn initialize_node_index(
-    nodes: &[InitializeMapNodeArgs],
-    node_id: &str,
-    role: &str,
-) -> Result<usize, FunctionCallError> {
-    nodes
-        .iter()
-        .position(|node| node.id == node_id)
-        .ok_or_else(|| {
-            invalid_error(format!(
-                "initialize_map {role} must identify an item in nodes"
-            ))
-        })
-}
-
-fn initialize_node(node: &InitializeMapNodeArgs) -> TaskSpaceGraphNodeArgs {
+fn initialize_node(node: InitializeMapNodeArgs) -> TaskSpaceGraphNodeArgs {
     TaskSpaceGraphNodeArgs {
-        node_id: node.id.clone(),
-        goal: node.goal.clone(),
+        node_id: node.id,
+        goal: node.goal,
     }
 }
 

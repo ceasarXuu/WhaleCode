@@ -94,28 +94,16 @@ pub(crate) fn initialize_map_schema() -> JsonSchema {
     described_object_variant(
         "initialize_map",
         BTreeMap::from([
+            ("root".into(), initialization_node_schema()),
+            ("initial_work".into(), initialization_node_schema()),
             (
-                "nodes".into(),
+                "additional_work".into(),
                 JsonSchema::array(
                     initialization_node_schema(),
-                    Some(
-                        "All Agent-authored Root and Work nodes. Finish is identified separately."
-                            .into(),
-                    ),
+                    Some("Additional Work nodes only; omit Root and Finish.".into()),
                 ),
             ),
-            (
-                "root_id".into(),
-                JsonSchema::string(Some("Root id from nodes.".into())),
-            ),
-            (
-                "initial_work_id".into(),
-                JsonSchema::string(Some("First active Work id from nodes.".into())),
-            ),
-            (
-                "finish_id".into(),
-                JsonSchema::string(Some("Unique Finish id; omit it from nodes.".into())),
-            ),
+            ("finish_id".into(), JsonSchema::string(None)),
             (
                 "edges".into(),
                 JsonSchema::array(
@@ -128,9 +116,9 @@ pub(crate) fn initialize_map_schema() -> JsonSchema {
             ),
         ]),
         vec![
-            "nodes".into(),
-            "root_id".into(),
-            "initial_work_id".into(),
+            "root".into(),
+            "initial_work".into(),
+            "additional_work".into(),
             "finish_id".into(),
             "edges".into(),
         ],

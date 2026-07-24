@@ -47,7 +47,7 @@ fn boundary_control(action: &str, call_id: &str) -> ToolCall {
 }
 
 fn initialization_binding() -> &'static str {
-    r#"{"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"work","goal":"Work"}],"root_id":"root","initial_work_id":"work","finish_id":"finish","edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}]}"#
+    r#"{"action":"initialize_map","root":{"id":"root","goal":"Start"},"initial_work":{"id":"work","goal":"Work"},"additional_work":[],"finish_id":"finish","edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}]}"#
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn malformed_initialization_carrier_is_rejected_before_execution() {
     let calls = vec![bound_call(
         "exec_command",
         "invalid-initialize",
-        r#"{"action":"initialize_map","nodes":[]}"#,
+        r#"{"action":"initialize_map","root":{}}"#,
     )];
 
     let failure =

@@ -8520,12 +8520,9 @@ async fn assert_missing_client_tool_search_call_id_zero_dispatch(
                         "cmd": "pwd",
                         "taskspace_binding": {
                         "action": "initialize_map",
-                        "nodes": [
-                            {"id": "root", "goal": "Exercise response preflight"},
-                            {"id": "work", "goal": "Run the work"}
-                        ],
-                        "root_id": "root",
-                        "initial_work_id": "work",
+                        "root": {"id": "root", "goal": "Exercise response preflight"},
+                        "initial_work": {"id": "work", "goal": "Run the work"},
+                        "additional_work": [],
                         "finish_id": "finish",
                         "edges": [
                             {"from": "root", "to": "work"},

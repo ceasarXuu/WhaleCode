@@ -29,10 +29,10 @@ $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath
 Assert-Contract ($raw | Test-Json -SchemaFile $schemaPath -ErrorAction Stop) "Integrated constraint contract does not match its schema"
 $contract = $raw | ConvertFrom-Json -Depth 40
 
-Assert-ExactIds @($contract.architectural_constraints) "C" 15
-Assert-ExactIds @($contract.regression_invariants) "R" 19
-Assert-ExactIds @($contract.candidate_gates) "G" 12
-Assert-ExactIds @($contract.rejected_directions) "D" 9
+Assert-ExactIds @($contract.architectural_constraints) "C" 16
+Assert-ExactIds @($contract.regression_invariants) "R" 20
+Assert-ExactIds @($contract.candidate_gates) "G" 13
+Assert-ExactIds @($contract.rejected_directions) "D" 10
 
 $documentPath = Join-Path $repoRoot ([string]$contract.governing_document.path)
 $documentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $documentPath).Hash.ToLowerInvariant()
@@ -41,7 +41,7 @@ Assert-Contract ($documentHash -eq [string]$contract.governing_document.sha256) 
 $closed = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "closed" })
 $open = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "open" })
 Assert-Contract ($closed.Count -eq 18) "Exactly 18 historical regressions must remain closed"
-Assert-Contract ($open.Count -eq 1 -and [string]$open[0].id -eq "R-19") "R-19 must be the only open regression"
+Assert-Contract (($open.id -join ",") -eq "R-19,R-20") "R-19 and R-20 must remain open until the role-separated compact wire passes the full gate"
 
 $knownIds = @{}
 foreach ($item in @($contract.architectural_constraints) + @($contract.regression_invariants)) {
@@ -58,6 +58,8 @@ Assert-Contract (@($dynamicSchema.violates) -contains "C-06") "Dynamic schema re
 
 $costRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-19" })[0]
 Assert-Contract ([string]$costRegression.required_behavior -match "55578") "Current schema cost baseline is missing"
+$roleRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-20" })[0]
+Assert-Contract ([string]$roleRegression.required_behavior -match "structurally distinct") "Initialization role-structure invariant is missing"
 
 $document = Get-Content -Raw -Encoding UTF8 -LiteralPath $documentPath
 foreach ($id in @(

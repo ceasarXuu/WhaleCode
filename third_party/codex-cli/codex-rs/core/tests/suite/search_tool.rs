@@ -1008,12 +1008,9 @@ async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispat
                         "limit": 8,
                         "taskspace_binding": {
                         "action": "initialize_map",
-                        "nodes": [
-                            {"id": "root", "goal": "Use the deferred automation tool"},
-                            {"id": "work", "goal": "Search and invoke the tool"}
-                        ],
-                        "root_id": "root",
-                        "initial_work_id": "work",
+                        "root": {"id": "root", "goal": "Use the deferred automation tool"},
+                        "initial_work": {"id": "work", "goal": "Search and invoke the tool"},
+                        "additional_work": [],
                         "finish_id": "finish",
                         "edges": [
                             {"from": "root", "to": "work"},

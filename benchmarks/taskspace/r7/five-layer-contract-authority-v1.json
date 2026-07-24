@@ -56,7 +56,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "1531d967ccc0dce7ac0e1a8acad7cec851d9cf2e8fa330a60ab0240d6aa2f307",
+      "sha256": "0521f8e853774bcde4dc8f75d964c8c291355a9a9e0eb567ae4eda852fc80372",
       "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
     },
     {
@@ -120,9 +120,12 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-9 integrated non-regression gate",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "2004230f9a472023982fa112a32c2da5cf3b110400d9c088666b1d36b84c8290",
+      "sha256": "839b250e7c5bc9d8ba75371059302d727a625347a94eaa771324771c8bb3fbb0",
       "validation": "scripts/taskspace-benchmark/test-r7-integrated-change-constraints.ps1",
-      "open_regression": "R-19",
+      "open_regressions": [
+        "R-19",
+        "R-20"
+      ],
       "closed_regression_count": 18
     },
     {
@@ -287,12 +290,12 @@
     {
       "id": "FLA-9-fixed-schema-cost-repair",
       "implementation_status": "selected_not_implemented",
-      "issue": "R-19/H-005",
+      "issue": "R-19/R-20/H-005/H-006",
       "plan": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
       "blocks": [
         "FLA-8 promotion"
       ],
-      "selected_direction": "evaluate only fixed-schema compact Agent-authored initialization wire candidates",
+      "selected_direction": "evaluate only fixed-schema compact Agent-authored initialization wires with structurally distinct Root, Initial Work, Additional Work, and Finish roles",
       "rejected_directions": [
         "Map-state-dependent schema",
         "Runtime-authored graph bootstrap",

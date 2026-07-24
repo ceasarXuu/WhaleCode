@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "1531d967ccc0dce7ac0e1a8acad7cec851d9cf2e8fa330a60ab0240d6aa2f307"
+    "sha256": "0521f8e853774bcde4dc8f75d964c8c291355a9a9e0eb567ae4eda852fc80372"
   },
   "architectural_constraints": [
     {
@@ -97,6 +97,12 @@
       "owner": "wire migrations",
       "requirement": "Schema, parser, tests, logs, and docs migrate atomically without legacy data compatibility.",
       "prohibited": "Old wire fallback, dual parser, silent compatibility branch, or undocumented drift."
+    },
+    {
+      "id": "C-16",
+      "owner": "L4",
+      "requirement": "Mechanical roles that drive parsing or hard validation are represented by distinct Tool fields or schema branches.",
+      "prohibited": "Erasing roles into a generic collection and relying on cross-field prose for exclusivity, uniqueness, or membership."
     }
   ],
   "regression_invariants": [
@@ -232,6 +238,13 @@
       "problem": "The complete initialization graph schema is copied onto every ordinary Tool.",
       "required_behavior": "Reduce the fixed Tool section below 55578 bytes without regressing R-08, R-09, R-17, or R-18.",
       "evidence": ["coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md"]
+    },
+    {
+      "id": "R-20",
+      "status": "open",
+      "problem": "A compact nodes plus role-id initialization wire erased Root, Work, and Finish role structure and caused repeated invalid initialization.",
+      "required_behavior": "Keep Root, Initial Work, Additional Work, and Finish structurally distinct while retaining one fixed Agent-authored initialization carrier.",
+      "evidence": ["coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md"]
     }
   ],
   "candidate_gates": [
@@ -246,7 +259,8 @@
     {"id": "G-09", "requirement": "TaskSpace Tool section is below the current 55578 bytes per request.", "evidence_required": "Provider wire trace with bytes and estimated tokens."},
     {"id": "G-10", "requirement": "Simple and complex behavior does not add known regressions.", "evidence_required": "Docker repeat runs with request-level trace audit."},
     {"id": "G-11", "requirement": "Schema, carrier, preflight, dispatch, and commit remain observable.", "evidence_required": "Telemetry contract tests and observer reconciliation."},
-    {"id": "G-12", "requirement": "No legacy initialization parser or fallback remains.", "evidence_required": "Source scan and negative old-wire test."}
+    {"id": "G-12", "requirement": "No legacy initialization parser or fallback remains.", "evidence_required": "Source scan and negative old-wire test."},
+    {"id": "G-13", "requirement": "Initialization roles remain structurally distinct rather than prose-only cross-field relations.", "evidence_required": "Schema inspection, one-pass valid fixture, role-collision negatives, and Docker initialization traces."}
   ],
   "rejected_directions": [
     {"id": "D-01", "direction": "Change ordinary Tool schema when the Map becomes initialized.", "violates": ["C-06"]},
@@ -257,6 +271,7 @@
     {"id": "D-06", "direction": "Make binding optional and infer a default from Runtime state.", "violates": ["C-05", "R-09"]},
     {"id": "D-07", "direction": "Use prompt text as the only initialization or continuity contract.", "violates": ["C-05", "R-08", "R-10"]},
     {"id": "D-08", "direction": "Relax graph, revision, binding, or terminal invariants for pass rate.", "violates": ["C-02", "C-08", "C-12"]},
-    {"id": "D-09", "direction": "Inject corrective next-action advice into failure feedback.", "violates": ["C-03", "C-12"]}
+    {"id": "D-09", "direction": "Inject corrective next-action advice into failure feedback.", "violates": ["C-03", "C-12"]},
+    {"id": "D-10", "direction": "Flatten Root, Work, and Finish into a generic nodes collection plus role-id references to save bytes.", "violates": ["C-05", "C-16", "R-20"]}
   ]
 }

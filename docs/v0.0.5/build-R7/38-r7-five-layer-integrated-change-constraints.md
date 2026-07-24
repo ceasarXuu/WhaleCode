@@ -109,6 +109,12 @@ provider 实际收到的完整 `tools`、messages、input、cache hit 和 reques
 产品无值得保留的旧 TaskSpace 数据。不得保留旧 wire、静默 fallback、双 parser 或行为兼容分支；迁移必须一次性
 更新 schema、parser、测试、日志和文档。
 
+### C-16 机械角色必须由 Tool 结构表达
+
+当 Root、Initial Work、Additional Work、Finish 等机械角色决定解析和硬校验时，L4 必须用不同字段或不同
+schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用集合，再依赖跨字段说明让 Agent 自行维持互斥、
+唯一性或成员关系。描述文本可以补充合同，但不能替代能够直接表达的结构。
+
 ## 4. 历史回归总账
 
 | ID | 曾出现的问题 | 当前不可回退的结论 | 状态 |
@@ -132,8 +138,9 @@ provider 实际收到的完整 `tools`、messages、input、cache hit 和 reques
 | R-17 | 初始化成为独立 provider request，随后才执行真实 Tool | 初始化对象由首个真实普通 Tool 携带并原子执行 | closed |
 | R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | `initialize_map`、`active`、`after_boundary` 使用同形可判别对象 | closed |
 | R-19 | 完整初始化图 schema 被复制到每个普通 Tool，固定 schema 约 55.6 KB | 必须在固定 schema 内机械收敛，且不能回退 R-08/R-09/R-17/R-18 | open |
+| R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | open |
 
-## 5. 当前 R-19 候选的整组准入门
+## 5. 当前 R-19/R-20 候选的整组准入门
 
 任何实现候选必须一次通过以下全部条件：
 
@@ -149,6 +156,8 @@ provider 实际收到的完整 `tools`、messages、input、cache hit 和 reques
 10. **行为门**：简单、复杂样本不增加独立初始化、事后补 Map、单独边界 control、multi-patch 或业务失败。
 11. **观测门**：schema profile、carrier outcome、preflight/dispatch/commit 和 provider wire trace 均可对账。
 12. **迁移门**：不保留旧初始化 wire parser 或 fallback。
+13. **角色结构门**：Root、Initial Work、Additional Work、Finish 由 schema 分区，valid fixture 一次解析，
+    角色重复和旧通用 `nodes + role ids` wire 被确定性拒绝。
 
 ## 6. 已淘汰方向
 
@@ -163,6 +172,7 @@ provider 实际收到的完整 `tools`、messages、input、cache hit 和 reques
 | 只靠 L1/L2 提示词要求初始化或连续动作 | 无法提供 L4 结构合同，回退 R-08/R-10 |
 | 放宽 rooted DAG、revision、binding 或 terminal 硬规则换成功率 | 违反 C-02、C-08、C-12 |
 | 在失败反馈中加入下一步动作建议 | 违反 C-03、C-12 |
+| 把有不同硬规则的初始化角色压成通用 nodes 集合和 role id 引用 | 违反 C-05、C-16，并重新引入 R-20 |
 
 ## 7. 变更流程
 
@@ -173,4 +183,3 @@ provider 实际收到的完整 `tools`、messages、input、cache hit 和 reques
 5. 运行定向单元、合同、Standard 隔离、连续动作、Patch 和生命周期回归。
 6. 使用相同 Docker harness 跑 simple/complex 四臂；报告结果、动作、Map、request、input、output、cache 和时间。
 7. 只有全部门通过才更新 authority 与生产 manifest；局部通过不得标记完成。
-

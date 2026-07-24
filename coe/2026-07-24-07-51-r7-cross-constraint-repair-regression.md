@@ -388,3 +388,76 @@
 - Interpretation: H-002/H-003/H-004 无需进入生产 probe 即可由权威合同证伪；H-005 是当前唯一未被原则预先
   淘汰的候选方向。
 - Time: 2026-07-24 08:26
+
+## Hypothesis H-006: 通用 nodes 加 role-id 的压缩抹掉了初始化角色结构
+- Status: confirmed
+- Claim: 第一版紧凑 wire 把 Root、Initial Work、Additional Work 合并到 `nodes`，再用
+  `root_id`、`initial_work_id`、`finish_id` 建立跨字段关系；provider schema 无法结构化表达 Finish
+  不能同时属于 nodes，导致 Agent 生成 schema-valid 但状态机非法的角色重叠。
+- Factor relation: single
+- Depends on:
+  - H-005
+- Rationale:
+  - Root、Work、Finish 不是仅供展示的标签，它们决定 parser 映射和 rooted DAG 硬校验。把角色压成通用集合
+    会把原本由对象字段表达的合同退化为描述文本。
+- Falsifiable predictions:
+  - If true: 失败 trace 中 `finish_id` 会与 `nodes[].id` 重合，反馈为 duplicate node id；恢复角色分区后同一
+    模型不需要反复猜初始化 shape。
+  - If false: 失败参数没有角色重叠，或角色分区后仍以相同形态稳定失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查四臂 repeat-3 中初始化失败最多的 run 的每次原始参数与结果。
+  - Signal: `taskspace_binding` 初始化参数、argument failure code、carrier attempts/commits。
+  - Capture method: provider rollout 逐 request 提取。
+  - Event name or marker:
+    - `taskspace.initialization_carrier_outcome`
+  - Correlation keys:
+    - subject commit `3084e0358d7a0f49784b34119b2828eaa19815d7`
+    - sample `subscription-billing-repair`
+    - repeat `2`
+    - arm `map-request`
+  - Differentiates from:
+    - provider cache、projection policy、Runtime 自动状态推进或 feedback 丢失。
+  - Supports if:
+    - 多次失败都存在角色重叠，且 Runtime 忠实返回相同机械原因。
+  - Refutes if:
+    - 初始化参数角色分离仍被 parser 拒绝，或失败结果未进入后续上下文。
+  - Instrumentation status: existing-observability-sufficient
+  - Instrumentation lifecycle:
+    - 保留 carrier attempt、原始参数和结构化失败观测。
+- Evidence gate: passed
+- Related evidence:
+  - E-005
+- Conclusion: 第一版候选违反 L4 角色结构；成本优化必须保留 Agent 语义所有权和固定 schema，同时恢复
+  Root、Initial Work、Additional Work、Finish 的结构分区。
+- Repair design readiness: ready
+- Next step: 以角色分区的固定紧凑 wire 替换通用 nodes wire，不保留兼容 parser。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-005: 通用 nodes wire 在真实复杂样本中连续产生角色重叠
+- Related hypotheses:
+  - H-005
+  - H-006
+- Direction: supports
+- Type: reproduction
+- Source: R7 initial matrix `20260724-082822-832`
+- Prediction or plan link:
+  - H-006 对 `finish_id` 与 `nodes[].id` 重叠以及重复初始化失败的预测。
+- Matched signal:
+  - `subscription-billing-repair` repeat 2 `map-request` 前 11 个初始化 carrier 均被拒绝；典型参数同时包含
+    `nodes:[...,{"id":"finish",...}]` 与 `finish_id:"finish"`，结果忠实返回
+    `initialize_map nodes requires unique node_id values`。第 12 次仅在不再把 Finish 放进 nodes 后提交成功。
+- Correlation keys:
+  - subject commit `3084e0358d7a0f49784b34119b2828eaa19815d7`
+  - matrix run `20260724-082822-832`
+- Raw content:
+  ```text
+  attempts 1..11: taskspace_initialization_arguments_invalid
+  actual nodes include finish id; finish_id references the same id
+  attempt 12: carrier committed
+  ```
+- Interpretation: feedback 没有丢失或扭曲，Runtime 也没有替 Agent 改参数；错误来自 L4 wire 将角色关系降级成
+  schema 无法表达的跨字段约定。
+- Time: 2026-07-24 08:45

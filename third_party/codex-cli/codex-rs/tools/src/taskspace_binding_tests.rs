@@ -45,7 +45,7 @@ fn function_tool_requires_lightweight_binding_without_changing_business_fields()
         serialized.len()
     );
     assert!(!serialized.contains("expected_revision"));
-    assert!(serialized.contains("initial_work_id"));
+    assert!(serialized.contains("initial_work"));
     assert!(serialized.contains("edges"));
 
     let binding = actual
@@ -86,7 +86,7 @@ fn taskspace_patch_projection_keeps_raw_patch_as_top_level_input() {
     let binding = serde_json::to_string(&properties["taskspace_binding"])
         .expect("serialize initialization carrier");
     assert!(binding.contains("initialize_map"));
-    assert!(binding.contains("root_id"));
+    assert!(binding.contains("additional_work"));
 }
 
 #[test]
