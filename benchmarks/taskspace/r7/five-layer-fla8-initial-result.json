@@ -7,6 +7,15 @@
   "observer_commit": "9bc3bf7ca",
   "docker_image_digest": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
   "model": "deepseek-v4-flash",
+  "matrix_run": "target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/f2baea6d13caef02f15e1a3c6938a3fa05a3d315/20260723-073642-091",
+  "raw_evidence": {
+    "snapshot_root": "benchmarks/taskspace/r7/evidence/fla8-repeat3-f2baea6",
+    "sanitization": "absolute_repo_prefix_replaced_with_$REPO_ROOT",
+    "run_manifest_sha256": "f9e507033314f2e117649fd25708bc0f28ca9320f7cf963abacb11f76456a2ba",
+    "summary_csv_sha256": "0d39aa32e9c7a093e1e44ddda3c04c472057b3c7d91dabf74ee4882aee022b80",
+    "aggregate_csv_sha256": "3e605ad0bc50c531b2b527b64f0a7b471f4ef7a542dc03f73d2682bb3aa8bd51",
+    "trace_analysis_sha256": "6b067e6abff269b3a623628910e9fcf617f0573411eb1511c24e44aaf27b3ebd"
+  },
   "samples": [
     "single-file-fast-fix",
     "subscription-billing-repair"

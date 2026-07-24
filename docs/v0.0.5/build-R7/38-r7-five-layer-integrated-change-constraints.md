@@ -128,7 +128,7 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 | R-07 | 初始化成功结果未明确报告当前 binding | 初始化结果显式报告 node binding 和 commit 事实 | closed |
 | R-08 | schema 只能描述 control 内部，无法保证 top-level sibling | 连续动作由普通 Tool binding 加 response sequence preflight 表达 | closed |
 | R-09 | 普通 Tool 未携带 carrier 时静默解释为继续当前节点 | TaskSpace 普通 Tool binding 必填且分支可判别 | closed |
-| R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复 | 非终态 boundary 必须在 Tool 结构上与真实后继动作不可分离，不能只靠事后 preflight 拒绝 | open（重新打开） |
+| R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复；该问题曾因“能够拒绝”被错误记为已关闭 | 非终态 boundary 必须在 Tool 结构上与真实后继动作不可分离，不能只靠事后 preflight 拒绝 | open（历史误关闭已纠正） |
 | R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map`；Agent 提交 terminal，Runtime 验证 canonical frontier | closed |
 | R-12 | Patch 被嵌套 JSON 转义破坏，或同 response 多 Patch 部分写入 | 原生顶层 Patch 保真；单 response 最多一个 Patch | closed |
 | R-13 | TaskSpace 装饰侵入 Standard 普通 Tool | 只在 TaskSpace provider visibility 阶段装饰 | closed |
@@ -139,8 +139,10 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 | R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | `initialize_map`、`active`、`after_boundary` 使用同形可判别对象 | closed |
 | R-19 | 完整初始化图 schema 被复制到每个普通 Tool，固定 schema 约 55.6 KB | 必须在固定 schema 内机械收敛，且不能回退 R-08/R-09/R-17/R-18 | open |
 | R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | closed |
+| R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前恢复了不一致的父 assignment 状态 | parent-to-child handoff 必须可重放，父 canonical Map 不被破坏，并机械区分线性化 child attach 与 TaskSpace session restore | open |
+| R-22 | `map-request` 复杂样本稳定产生多 Patch sibling reject，部分运行在业务完成后才补 Map 生命周期 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
 
-## 5. 当前 R-10/R-19 候选的整组准入门
+## 5. 当前 R-10/R-19/R-21/R-22 的整组准入门
 
 任何实现候选必须一次通过以下全部条件：
 
@@ -158,8 +160,13 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 12. **迁移门**：不保留旧初始化 wire parser 或 fallback。
 13. **角色结构门**：Root、Initial Work、Additional Work、Finish 由 schema 分区，valid fixture 一次解析，
     角色重复和旧通用 `nodes + role ids` wire 被确定性拒绝。
+14. **子代理恢复门**：节点绑定子代理 spawn、完成 watcher、resume/fork 和 replay 使用可重放 handoff，不出现
+    `current binding and main lease are inconsistent`，并用 typed telemetry 区分 child attach 与 session restore。
+15. **响应级行为门**：逐 policy 报告 multi-Patch attempts、零 dispatch reject、Map lifecycle cadence 和事后
+    补账；自然复杂样本不得稳定重复触发同一协议拒绝后再恢复。
 
-R-20 的定向门已经通过，但 R-10 仍使 R-19 的整组行为门失败。成本下降不能越过该阻塞项单独晋升。
+R-20 的定向门已经通过，但 R-10、R-21 和 R-22 仍使 R-19 的整组行为门失败。成本下降不能越过这些阻塞项
+单独晋升。
 
 ## 6. 已淘汰方向
 

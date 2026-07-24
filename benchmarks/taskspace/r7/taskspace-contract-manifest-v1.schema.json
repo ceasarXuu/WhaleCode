@@ -133,6 +133,23 @@
       ]
     },
     "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8"]},
+    "evaluation_candidates": {
+      "type": "object",
+      "required": ["FLA_9"],
+      "properties": {
+        "FLA_9": {
+          "type": "object",
+          "required": ["status", "production_path_active", "promoted"],
+          "properties": {
+            "status": {"const": "production_path_evaluation_candidate"},
+            "production_path_active": {"const": true},
+            "promoted": {"const": false}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "source_authority": {
       "type": "object",
       "required": ["contract_id", "path", "sha256"],

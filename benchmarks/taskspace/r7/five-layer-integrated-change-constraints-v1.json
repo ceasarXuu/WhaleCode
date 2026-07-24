@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "febe17f4e40911b9a6118506b2ce9dafdcdc4a374f1dd9697bb8d3c431c999a5"
+    "sha256": "36fd8d62438f0e01d660cb9ecc3593ae7b79efa307b4773c779a2a2059ffdecb"
   },
   "architectural_constraints": [
     {
@@ -245,6 +245,20 @@
       "problem": "A compact nodes plus role-id initialization wire erased Root, Work, and Finish role structure and caused repeated invalid initialization.",
       "required_behavior": "Keep Root, Initial Work, Additional Work, and Finish structurally distinct while retaining one fixed Agent-authored initialization carrier.",
       "evidence": ["coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md"]
+    },
+    {
+      "id": "R-21",
+      "status": "open",
+      "problem": "A node-bound TaskSpace subagent spawn restores an inconsistent parent assignment state and fails before the child session starts.",
+      "required_behavior": "A subagent spawn uses a replayable parent-to-child handoff, preserves the parent canonical Map, and distinguishes linearized child attachment from TaskSpace session restore.",
+      "evidence": ["coe/2026-07-18-03-15-r7-subagent-map-restore.md"]
+    },
+    {
+      "id": "R-22",
+      "status": "open",
+      "problem": "Map-request complex runs repeatedly generate multiple sibling Patch calls or postpone Map lifecycle bookkeeping until after business work.",
+      "required_behavior": "Promotion evidence shows no repeated multi-Patch protocol rejection or post-hoc Map closure pattern while preserving one-Patch atomic safety and Agent-owned lifecycle choices.",
+      "evidence": ["coe/2026-07-23-18-24-r7-fla-map-request-operation-drift.md"]
     }
   ],
   "candidate_gates": [
@@ -260,7 +274,9 @@
     {"id": "G-10", "requirement": "Simple and complex behavior does not add known regressions.", "evidence_required": "Docker repeat runs with request-level trace audit."},
     {"id": "G-11", "requirement": "Schema, carrier, preflight, dispatch, and commit remain observable.", "evidence_required": "Telemetry contract tests and observer reconciliation."},
     {"id": "G-12", "requirement": "No legacy initialization parser or fallback remains.", "evidence_required": "Source scan and negative old-wire test."},
-    {"id": "G-13", "requirement": "Initialization roles remain structurally distinct rather than prose-only cross-field relations.", "evidence_required": "Schema inspection, one-pass valid fixture, role-collision negatives, and Docker initialization traces."}
+    {"id": "G-13", "requirement": "Initialization roles remain structurally distinct rather than prose-only cross-field relations.", "evidence_required": "Schema inspection, one-pass valid fixture, role-collision negatives, and Docker initialization traces."},
+    {"id": "G-14", "requirement": "TaskSpace subagent handoff and replay do not persist or restore an inconsistent assignment intermediate state.", "evidence_required": "Focused failing spawn regression, parent-child handoff fixture, resume/fork regression, and typed boundary telemetry."},
+    {"id": "G-15", "requirement": "Natural complex runs do not repeatedly reach response-wide multi-Patch rejection or defer Map lifecycle bookkeeping until after business work.", "evidence_required": "Per-policy multi-Patch attempt, zero-dispatch reject, lifecycle cadence, request path, and final Map closure evidence."}
   ],
   "rejected_directions": [
     {"id": "D-01", "direction": "Change ordinary Tool schema when the Map becomes initialized.", "violates": ["C-06"]},

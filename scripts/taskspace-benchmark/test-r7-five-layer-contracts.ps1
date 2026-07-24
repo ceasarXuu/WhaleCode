@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5-Scaffold", "FLA-3.5", "FLA-4-Repair-Baseline", "FLA-4", "FLA-5-Repair-Baseline", "FLA-5", "FLA-7", "All")]
+    [ValidateSet("FLA-0", "FLA-1", "FLA-2", "FLA-3", "FLA-3.5-Scaffold", "FLA-3.5", "FLA-4-Repair-Baseline", "FLA-4", "FLA-5-Repair-Baseline", "FLA-5", "FLA-7", "FLA-8", "FLA-9", "All")]
     [string]$Phase = "All"
 )
 
@@ -20,8 +20,12 @@ $l4Path = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-cont
 $l5ResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json"
 $l5LifecyclePath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json"
 $l5LifecycleGoldenPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json"
+$integratedConstraintsPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json"
+$fla8InitialResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-fla8-initial-result.json"
+$fla9RoleResultPath = Join-Path $repoRoot "benchmarks/taskspace/r7/role-separated-initialization-repeat3-result.json"
 
 . (Join-Path $PSScriptRoot "r7-contract-test-primitives.ps1")
+. (Join-Path $PSScriptRoot "lib/r7-five-layer-evidence-gate.ps1")
 
 function Assert-CandidateStateHistory {
     param([object]$Candidate, [string]$PreviousStatus, [object]$Authority)
@@ -108,11 +112,14 @@ Assert-Equal $authority.contract_id "r7-five-layer-contract-authority-v1" "Unexp
 Assert-Equal $authority.compatibility_policy "none" "Five-layer migration must not keep compatibility paths"
 Assert-Equal $authority.current_milestone.id "R7.1" "Unexpected current milestone"
 Assert-Equal $authority.current_milestone.document "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md" "R7.1 milestone path drifted"
-Assert-Equal (@($authority.current_milestone.open_regressions) -join ",") "R-10,R-19" "R7.1 open regression set drifted"
+Assert-Equal (@($authority.current_milestone.open_regressions) -join ",") "R-10,R-19,R-21,R-22" "R7.1 open regression set drifted"
 & git -C $repoRoot cat-file -e "$($authority.current_milestone.behavior_baseline_commit)^{commit}" 2>$null
 Assert-True ($LASTEXITCODE -eq 0) "R7.1 behavior baseline commit is unavailable"
 
 & (Join-Path $PSScriptRoot "test-r7-integrated-change-constraints.ps1")
+$integratedConstraints = Get-Content -Raw -Encoding UTF8 -LiteralPath $integratedConstraintsPath | ConvertFrom-Json -Depth 50
+$integratedOpenRegressions = @($integratedConstraints.regression_invariants | Where-Object status -eq "open" | ForEach-Object { [string]$_.id })
+Assert-Equal (@($authority.current_milestone.open_regressions) -join ",") ($integratedOpenRegressions -join ",") "Milestone and integrated gate disagree on open regressions"
 
 foreach ($document in @($authority.governing_documents)) {
     $path = Join-Path $repoRoot ([string]$document.path)
@@ -199,7 +206,7 @@ if ($Phase -eq "FLA-3.5" -or $Phase -eq "All") {
     Assert-True (-not $l2Source.Contains('terminal_state')) "L2 still exposes an internal terminal transaction branch"
     $repair = @($authority.blocking_repairs | Where-Object id -eq "FLA-3.5-continuous-action-regression-repair")[0]
     Assert-Equal ([string]$repair.implementation_status) "active_repair_verified" "FLA-9 repair is not active_repair_verified"
-    Assert-Equal @($repair.blocks).Count 0 "FLA-3.5 still blocks later phases"
+    Assert-Equal (@($repair.blocks) -join ",") "FLA-8 promotion" "FLA-3.5 open behavior must block only formal promotion"
     $carrierManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
     Assert-True (@("FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8") -contains [string]$carrierManifest.activation_through) "Production manifest regressed below FLA-3.5"
     Assert-True (@("carrier_repair_active", "carrier_active_projection_baseline", "active") -contains [string](@($carrierManifest.layers | Where-Object id -eq "L4")[0].runtime_status)) "L4 binding contract is not active"
@@ -566,6 +573,40 @@ if ($Phase -eq "All" -or $Phase -eq "FLA-7") {
     & (Join-Path $PSScriptRoot "freeze-r7-five-layer-fixtures.ps1")
     Assert-True ($LASTEXITCODE -eq 0) "FLA-7 fixture freezer failed"
     Write-Output "FLA-7 lifecycle and projection recovery contracts passed."
+}
+
+if ($Phase -eq "All" -or $Phase -eq "FLA-8") {
+    $evaluationTarget = @($authority.selected_targets | Where-Object layer -eq "evaluation")[0]
+    Assert-Equal ([string]$evaluationTarget.implementation_status) "selected_not_implemented" "FLA-8 formal evaluation must remain incomplete before repeat-10 and held-out evidence"
+    Assert-True (Test-Path -LiteralPath $fla8InitialResultPath -PathType Leaf) "FLA-8 initial repeat-3 result is missing"
+    $fla8InitialResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $fla8InitialResultPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$fla8InitialResult.status) "initial_observation_completed_decision_pending" "FLA-8 initial result status drifted"
+    Assert-Equal ([int]$fla8InitialResult.run_count) 24 "FLA-8 initial result must retain 24 diagnostic runs"
+    Assert-Equal ([int]$fla8InitialResult.repeats_per_arm_per_sample) 3 "FLA-8 initial result is not the repeat-3 diagnostic"
+    Assert-Equal ([string]$fla8InitialResult.trace_findings.map_request_complex_multi_patch_attempts) "3/3 runs" "FLA-8 lost the open map-request multi-Patch evidence"
+    Assert-True ([string]$fla8InitialResult.decision -match "do_not_run_repeat10") "FLA-8 initial result no longer blocks premature formal evaluation"
+    Assert-R7Fla8RawEvidence $repoRoot $fla8InitialResult
+    Write-Output "FLA-8 diagnostic evaluation gate passed; formal repeat-10 and held-out decision remain incomplete."
+}
+
+if ($Phase -eq "All" -or $Phase -eq "FLA-9") {
+    $fla9Repair = @($authority.blocking_repairs | Where-Object id -eq "FLA-9-fixed-schema-cost-repair")[0]
+    Assert-Equal ([string]$fla9Repair.implementation_status) "active_repair_verified" "FLA-9 production-path candidate status drifted"
+    Assert-Equal ([string]$fla9Repair.candidate_status) "evaluation_candidate" "FLA-9 candidate was promoted without the full gate"
+    Assert-True (@($fla9Repair.blocks) -contains "FLA-8 promotion") "FLA-9 no longer blocks premature promotion"
+    Assert-True (Test-Path -LiteralPath $fla9RoleResultPath -PathType Leaf) "FLA-9 role-separated repeat-3 result is missing"
+    $fla9RoleResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $fla9RoleResultPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$fla9RoleResult.status) "not_promoted_role_regression_closed_continuous_action_open" "FLA-9 result status drifted"
+    Assert-True ([bool]$fla9RoleResult.initialization.r20_closed) "FLA-9 role-separated initialization no longer closes R-20"
+    Assert-Equal ([int]$fla9RoleResult.initialization.role_erasure_failures) 0 "FLA-9 role erasure regression returned"
+    Assert-True ([int]$fla9RoleResult.tool_schema.taskspace_candidate_bytes_per_request -lt [int]$fla9RoleResult.tool_schema.taskspace_baseline_bytes_per_request) "FLA-9 candidate no longer lowers the fixed Tool section"
+    Assert-Equal ([string]$fla9RoleResult.blocking_result.regression) "R-10" "FLA-9 result lost its promotion blocker"
+    Assert-R7Fla9RawEvidence $repoRoot $fla9RoleResult $integratedConstraints
+    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
+    Assert-Equal ([string]$manifest.activation_through) "FLA-7" "FLA-9 repair was incorrectly promoted into activation_through"
+    Assert-Equal ([string]$manifest.evaluation_candidates.FLA_9.status) "production_path_evaluation_candidate" "FLA-9 manifest candidate status is ambiguous"
+    Assert-True (-not [bool]$manifest.evaluation_candidates.FLA_9.promoted) "FLA-9 manifest incorrectly claims promotion"
+    Write-Output "FLA-9 active repair candidate gate passed; promotion remains blocked."
 }
 
 Write-Output "R7 five-layer contract validation passed for $Phase."

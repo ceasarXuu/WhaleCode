@@ -38,14 +38,14 @@
     },
     "regression_invariants": {
       "type": "array",
-      "minItems": 20,
-      "maxItems": 20,
+      "minItems": 22,
+      "maxItems": 22,
       "items": {"$ref": "#/$defs/regression"}
     },
     "candidate_gates": {
       "type": "array",
-      "minItems": 13,
-      "maxItems": 13,
+      "minItems": 15,
+      "maxItems": 15,
       "items": {"$ref": "#/$defs/gate"}
     },
     "rejected_directions": {

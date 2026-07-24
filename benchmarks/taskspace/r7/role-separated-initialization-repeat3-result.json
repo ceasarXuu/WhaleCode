@@ -13,6 +13,13 @@
   "repeats_per_arm_per_sample": 3,
   "run_count": 24,
   "matrix_run": "target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/3e827065c912d9c332a9e52a796ccd7c2207106c/20260724-085351-391",
+  "raw_evidence": {
+    "snapshot_root": "benchmarks/taskspace/r7/evidence/fla9-repeat3-3e827065",
+    "sanitization": "absolute_repo_prefix_replaced_with_$REPO_ROOT",
+    "run_manifest_sha256": "d5b07581e786d9975dcf1d8e86a4d7042df333f3939a995558191d6b0221dacf",
+    "observation_set_sha256": "96f0d4f6acada227addb764200f18e799d338eeaefb5c2e026c33bc0aef092b0",
+    "formal_report_status": "unavailable_due_to_incomplete_observation"
+  },
   "tool_schema": {
     "standard_bytes_per_request": 21669,
     "taskspace_baseline_bytes_per_request": 55578,
@@ -98,5 +105,11 @@
     "state_failures": 3,
     "reason": "The Agent generated standalone complete_then_continue calls, selected a not-ready successor, later failed finish_map, and ended with the Map still open."
   },
-  "decision": "Keep the role-separated fixed initialization wire as the R-20 repair. Do not promote R-19 while R-10 remains open. A structural continuous-action carrier decision is required; prompt-only or post-response punishment is rejected."
+  "current_promotion_blockers": [
+    "R-10",
+    "R-19",
+    "R-21",
+    "R-22"
+  ],
+  "decision": "Keep the role-separated fixed initialization wire as the R-20 repair. Do not promote the candidate while R-10, R-19, R-21, or R-22 remains open. R-10 requires a structural continuous-action carrier decision; prompt-only or post-response punishment is rejected."
 }
