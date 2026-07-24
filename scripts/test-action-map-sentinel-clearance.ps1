@@ -5,13 +5,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "action-map-observability-lib.ps1")
-. (Join-Path $PSScriptRoot "test-action-map-replay-fixture-lib.ps1")
+. (Join-Path $PSScriptRoot "test-action-map-store-fixture-lib.ps1")
 
 if (-not $OutputDir) {
     $OutputDir = Join-Path $PSScriptRoot "..\target\test-reports\action-map-sentinel-clearance"
 }
 [void](New-Item -ItemType Directory -Force -Path $OutputDir)
-$testWhale = New-TestActionMapReplayWhale (Join-Path $OutputDir "fake-replay")
+$testWhale = New-TestActionMapStoreWhale (Join-Path $OutputDir "fake-map-store")
 
 function Assert-Equal($Actual, $Expected, [string]$Message) {
     if ($Actual -ne $Expected) { throw "$Message. Expected '$Expected', got '$Actual'." }
@@ -145,7 +145,8 @@ try {
     $validityEvent = [ordered]@{ timestamp = "2026-06-05T00:07:00Z"; payload = [ordered]@{ type = "result_validity_changed"; resultId = "result-1"; validity = "accepted" } }
     @($snapshotEvent, $clearEvent, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
     "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -WhalePath $testWhale -ArtifactRoot $context.ArtifactRoot | Out-Null
+    Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $rolloutPath -ThreadId "thread-1"
+    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -WhalePath $testWhale -ThreadId "thread-1" -ArtifactRoot $context.ArtifactRoot | Out-Null
     $exportJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $exportDir "action-map-observability.json") | ConvertFrom-Json
     Assert-Equal ([bool]$exportJson.cognitiveAudit.hardGatePassed) $false "timeline clear event must not override canonical replay snapshot"
     Assert-Equal ([string]$exportJson.sentinelWarnings[0].status) "active" "final sentinel status must come from replay snapshot"
@@ -196,7 +197,8 @@ try {
         }
     }
     @($derivedClearSnapshot, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $derivedClearPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $derivedClearPath -JsonlPath $jsonlPath -OutputDir $derivedClearExportDir -WhalePath $testWhale -ArtifactRoot $context.ArtifactRoot | Out-Null
+    Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $derivedClearPath -ThreadId "thread-1"
+    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $derivedClearPath -JsonlPath $jsonlPath -OutputDir $derivedClearExportDir -WhalePath $testWhale -ThreadId "thread-1" -ArtifactRoot $context.ArtifactRoot | Out-Null
     $derivedClearJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $derivedClearExportDir "action-map-observability.json") | ConvertFrom-Json
     Assert-Equal ([string]$derivedClearJson.sentinelWarnings[0].status) "cleared" "canonical replay snapshot should preserve cleared sentinel state"
     Assert-Equal ([string]$derivedClearJson.sentinelWarnings[0].clearAction) "FixApplied" "derived snapshot clear action should be exported"
@@ -208,7 +210,8 @@ try {
     $wrongContextExportDir = Join-Path $wrongContextDir "export"
     $wrongContextClear = [ordered]@{ timestamp = "2026-06-05T00:06:00Z"; payload = [ordered]@{ type = "sentinel_warning_cleared"; sentinelId = "sentinel-export"; clearAction = "FixApplied"; taskId = "task-other"; mapId = "map-1"; nodeId = "node-1"; resultId = "result-1"; clearedBy = "main-agent"; clearedAtMs = "6"; clearEventIds = @("clear-wrong-context") } }
     @($snapshotEvent, $wrongContextClear, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $wrongContextPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $wrongContextPath -JsonlPath $jsonlPath -OutputDir $wrongContextExportDir -WhalePath $testWhale -ArtifactRoot $context.ArtifactRoot | Out-Null
+    Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $wrongContextPath -ThreadId "thread-1"
+    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $wrongContextPath -JsonlPath $jsonlPath -OutputDir $wrongContextExportDir -WhalePath $testWhale -ThreadId "thread-1" -ArtifactRoot $context.ArtifactRoot | Out-Null
     $wrongContextJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $wrongContextExportDir "action-map-observability.json") | ConvertFrom-Json
     Assert-Equal ([bool]$wrongContextJson.cognitiveAudit.hardGatePassed) $false "exported same-id clear event with wrong context should not clear sentinel"
     Assert-Equal ([string]$wrongContextJson.sentinelWarnings[0].status) "active" "timeline clear with wrong context must not override replay snapshot"
@@ -222,7 +225,8 @@ try {
     $lateSnapshotEvent = $snapshotEvent
     $lateSnapshotEvent.timestamp = "2026-06-05T00:05:00Z"
     @($earlyClearEvent, $lateSnapshotEvent, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $earlyRolloutPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $earlyRolloutPath -JsonlPath $jsonlPath -OutputDir $earlyExportDir -WhalePath $testWhale -ArtifactRoot $context.ArtifactRoot | Out-Null
+    Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $earlyRolloutPath -ThreadId "thread-1"
+    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $earlyRolloutPath -JsonlPath $jsonlPath -OutputDir $earlyExportDir -WhalePath $testWhale -ThreadId "thread-1" -ArtifactRoot $context.ArtifactRoot | Out-Null
     $earlyJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $earlyExportDir "action-map-observability.json") | ConvertFrom-Json
     Assert-Equal ([bool]$earlyJson.cognitiveAudit.hardGatePassed) $false "exported clear event before active snapshot should not clear final artifact sentinel"
     Assert-Equal ([string]$earlyJson.sentinelWarnings[0].status) "active" "early timeline clear must not override replay snapshot"

@@ -75,10 +75,10 @@ function Write-ActionMapObservabilityReport {
     $md.Add("- rollout parse errors: $($Reduced.source.rolloutReadStats.parseErrorCount)")
     $md.Add("- jsonl parse errors: $($Reduced.source.jsonlReadStats.parseErrorCount)")
     if ($Reduced.source.PSObject.Properties.Name -contains "replay") {
-        $md.Add("- canonical replay: $($Reduced.source.replay.availability)")
-        $md.Add("- replay error code: $($Reduced.source.replay.error_code)")
-        $md.Add("- final snapshot SHA256: $($Reduced.source.replay.final_snapshot_sha256)")
-        $md.Add("- active checkpoint/delta: $($Reduced.source.replay.active_checkpoint_id) / $($Reduced.source.replay.active_chain_last_delta_sequence)")
+        $md.Add("- canonical Map Store: $($Reduced.source.mapStore.availability)")
+        $md.Add("- Map Store error code: $($Reduced.source.mapStore.error_code)")
+        $md.Add("- current snapshot SHA256: $($Reduced.source.mapStore.snapshot_sha256)")
+        $md.Add("- store/graph revision: $($Reduced.source.mapStore.store_revision) / $($Reduced.source.mapStore.graph_revision)")
     }
     $md.Add("")
     $md.Add("## Summary")

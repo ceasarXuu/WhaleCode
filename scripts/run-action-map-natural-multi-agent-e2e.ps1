@@ -229,7 +229,7 @@ if ($rollout) {
     $exportScript = Join-Path $PSScriptRoot "export-action-map-observability.ps1"
     $obsStdout = Join-Path $artifactDir "observability.stdout.log"
     $obsStderr = Join-Path $artifactDir "observability.stderr.log"
-    $obsExitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rollout.FullName, "-JsonlPath", $jsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhaleBin, "-ArtifactRoot", $repoDir) $repoDir $obsStdout $obsStderr 180
+    $obsExitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rollout.FullName, "-JsonlPath", $jsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhaleBin, "-ThreadId", $threadId, "-ArtifactRoot", $repoDir) $repoDir $obsStdout $obsStderr 180
     $obsJson = Join-Path $obsDir "action-map-observability.json"
     if (Test-Path $obsJson) { $obs = Get-Content -Raw -Encoding UTF8 $obsJson | ConvertFrom-Json }
 }

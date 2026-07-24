@@ -3,7 +3,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-. (Join-Path $PSScriptRoot "test-action-map-replay-fixture-lib.ps1")
+. (Join-Path $PSScriptRoot "test-action-map-store-fixture-lib.ps1")
 
 if (-not $RunRoot) {
     $RunRoot = Join-Path $PSScriptRoot "..\target\action-map-observability-summary-export-test"
@@ -24,7 +24,7 @@ $fixtureRoot = Join-Path $RunRoot "fixture"
 $exportDir = Join-Path $RunRoot "export"
 [void](New-Item -ItemType Directory -Force -Path $fixtureRoot)
 [void](New-Item -ItemType Directory -Force -Path $exportDir)
-$testWhale = New-TestActionMapReplayWhale (Join-Path $RunRoot "fake-replay")
+$testWhale = New-TestActionMapStoreWhale (Join-Path $RunRoot "fake-map-store")
 $rolloutPath = Join-Path $fixtureRoot "rollout.jsonl"
 $jsonlPath = Join-Path $fixtureRoot "whale-exec.jsonl"
 
@@ -82,12 +82,13 @@ $lines.Add(([ordered]@{
 } | ConvertTo-Json -Compress -Depth 10))
 $lines | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
 "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
+Set-TestActionMapStoreFixtureFromRollout -WhalePath $testWhale -RolloutPath $rolloutPath -ThreadId "thread-1"
 
 try {
     $env:TASKSPACE_OBSERVABILITY_ROLLOUT_MAX_BYTES = "1048576"
     $env:TASKSPACE_OBSERVABILITY_EVENT_MAX_BYTES = "65536"
     $env:TASKSPACE_OBSERVABILITY_TIMELINE_SAMPLE_LIMIT = "60"
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -WhalePath $testWhale -ArtifactRoot $fixtureRoot | Out-Null
+    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -WhalePath $testWhale -ThreadId "thread-1" -ArtifactRoot $fixtureRoot | Out-Null
 } finally {
     Remove-Item Env:\TASKSPACE_OBSERVABILITY_ROLLOUT_MAX_BYTES -ErrorAction SilentlyContinue
     Remove-Item Env:\TASKSPACE_OBSERVABILITY_EVENT_MAX_BYTES -ErrorAction SilentlyContinue

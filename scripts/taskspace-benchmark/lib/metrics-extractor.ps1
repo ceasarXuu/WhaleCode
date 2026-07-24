@@ -533,12 +533,12 @@ function Export-TaskspaceObservabilityIfAvailable {
     $stdoutPath = Join-Path $ArtifactDir "observability.stdout.log"
     $stderrPath = Join-Path $ArtifactDir "observability.stderr.log"
     $exportScript = Join-Path $RepoRoot "scripts\export-action-map-observability.ps1"
-    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhalePath, "-ArtifactRoot", $RepoDir) $RepoDir $stdoutPath $stderrPath 180
+    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhalePath, "-ThreadId", $ThreadId, "-ArtifactRoot", $RepoDir) $RepoDir $stdoutPath $stderrPath 180
     $jsonPath = Join-Path $obsDir "action-map-observability.json"
     $obs = if (Test-Path -LiteralPath $jsonPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonPath | ConvertFrom-Json } else { $null }
-    $availability = if ($obs -and $obs.source -and $obs.source.replay) { [string]$obs.source.replay.availability } elseif ($exitCode -eq 0) { "replay_proof_missing" } else { "replay_failed" }
-    $errorCode = if ($obs -and $obs.source -and $obs.source.replay) { [string]$obs.source.replay.error_code } else { "" }
-    [pscustomobject]@{ exit_code = $exitCode; rollout_path = $rolloutCopy; observability_json = $jsonPath; observability = $obs; availability = $availability; replay_error_code = $errorCode }
+    $availability = if ($obs -and $obs.source -and $obs.source.mapStore) { [string]$obs.source.mapStore.availability } elseif ($exitCode -eq 0) { "map_store_export_missing" } else { "map_store_failed" }
+    $errorCode = if ($obs -and $obs.source -and $obs.source.mapStore) { [string]$obs.source.mapStore.error_code } else { "" }
+    [pscustomobject]@{ exit_code = $exitCode; rollout_path = $rolloutCopy; observability_json = $jsonPath; observability = $obs; availability = $availability; map_store_error_code = $errorCode }
 }
 
 function Get-TaskspaceBenchmarkMetrics {
@@ -566,7 +566,7 @@ function Get-TaskspaceBenchmarkMetrics {
     $observabilityAvailability = if ($ObservabilityResult -and $ObservabilityResult.PSObject.Properties.Name -contains "availability") { [string]$ObservabilityResult.availability } elseif ($Side.LogicalMode -eq "taskspace") { "missing" } else { "not_applicable" }
     $observabilityReplayFailed = $Side.LogicalMode -eq "taskspace" -and $observabilityAvailability -eq "replay_failed"
     if ($observabilityReplayFailed) {
-        $metricsTaints += "observability_replay_failed:$([string]$ObservabilityResult.replay_error_code)"
+        $metricsTaints += "observability_map_store_failed:$([string]$ObservabilityResult.map_store_error_code)"
     }
     $activeSentinelWarnings = @()
     if ($obs -and $obs.PSObject.Properties.Name -contains "sentinelWarnings") {
@@ -742,7 +742,7 @@ function Get-TaskspaceBenchmarkMetrics {
         metrics_warnings = @($metricsWarnings)
         metrics_taints = @($metricsTaints)
         observability_availability = $observabilityAvailability
-        observability_replay_error_code = if ($ObservabilityResult) { [string]$ObservabilityResult.replay_error_code } else { "" }
+        observability_map_store_error_code = if ($ObservabilityResult) { [string]$ObservabilityResult.map_store_error_code } else { "" }
         docker_build_result_path = $dockerResult.path
         docker_cache_enabled = ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_enabled" -and [bool]$dockerResult.json.cache_enabled)
         docker_cache_eligible = ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_eligible" -and [bool]$dockerResult.json.cache_eligible)

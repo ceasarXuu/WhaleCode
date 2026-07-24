@@ -1,6 +1,6 @@
 . (Join-Path $PSScriptRoot "action-map-snapshot-normalizer.ps1")
 
-function Get-ActionMapReplayProperty {
+function Get-ActionMapStoreProperty {
     param([object]$Value, [string]$Name, [object]$Default = $null)
     if ($null -eq $Value) { return $Default }
     if ($Value -is [System.Collections.IDictionary]) {
@@ -11,127 +11,118 @@ function Get-ActionMapReplayProperty {
     return $Default
 }
 
-function Move-PreviousActionMapReplayProof {
-    param([Parameter(Mandatory = $true)][string]$ProofPath)
-    if (-not (Test-Path -LiteralPath $ProofPath -PathType Leaf)) { return }
-    $backup = "$ProofPath.previous-$([guid]::NewGuid().ToString('N'))"
-    Move-Item -LiteralPath $ProofPath -Destination $backup
+function Move-PreviousActionMapStoreExport {
+    param([Parameter(Mandatory = $true)][string]$ExportPath)
+    if (-not (Test-Path -LiteralPath $ExportPath -PathType Leaf)) { return }
+    $backup = "$ExportPath.previous-$([guid]::NewGuid().ToString('N'))"
+    Move-Item -LiteralPath $ExportPath -Destination $backup
 }
 
-function Invoke-ActionMapCanonicalReplay {
+function Invoke-ActionMapStoreExport {
     param(
         [Parameter(Mandatory = $true)][string]$WhalePath,
-        [Parameter(Mandatory = $true)][string]$RolloutPath,
+        [Parameter(Mandatory = $true)][string]$ThreadId,
         [Parameter(Mandatory = $true)][string]$OutputDir
     )
     if (-not (Test-Path -LiteralPath $WhalePath -PathType Leaf)) {
-        throw "Whale replay binary does not exist: $WhalePath"
+        throw "Whale binary does not exist: $WhalePath"
     }
     $resolvedWhale = (Resolve-Path -LiteralPath $WhalePath).Path
-    $resolvedRollout = (Resolve-Path -LiteralPath $RolloutPath).Path
-    $proofPath = Join-Path $OutputDir "taskspace-replay-proof.json"
-    $logPath = Join-Path $OutputDir "taskspace-replay.stdout.log"
-    Move-PreviousActionMapReplayProof $proofPath
+    $exportPath = Join-Path $OutputDir "taskspace-map-store.json"
+    $logPath = Join-Path $OutputDir "taskspace-map-store.stdout.log"
+    Move-PreviousActionMapStoreExport $exportPath
 
-    $commandOutput = @(& $resolvedWhale debug taskspace-replay --rollout $resolvedRollout --output $proofPath 2>&1)
+    $commandOutput = @(& $resolvedWhale debug taskspace-map --thread-id $ThreadId --output $exportPath 2>&1)
     $exitCode = [int]$LASTEXITCODE
     @($commandOutput | ForEach-Object { [string]$_ }) | Set-Content -LiteralPath $logPath -Encoding UTF8
 
     $envelope = $null
     $parseError = ""
-    if (Test-Path -LiteralPath $proofPath -PathType Leaf) {
-        try { $envelope = Get-Content -Raw -Encoding UTF8 -LiteralPath $proofPath | ConvertFrom-Json }
+    if (Test-Path -LiteralPath $exportPath -PathType Leaf) {
+        try { $envelope = Get-Content -Raw -Encoding UTF8 -LiteralPath $exportPath | ConvertFrom-Json }
         catch { $parseError = $_.Exception.Message }
     }
-    $schema = [string](Get-ActionMapReplayProperty $envelope "schema_version" "")
-    $status = [string](Get-ActionMapReplayProperty $envelope "status" "")
-    $error = Get-ActionMapReplayProperty $envelope "error"
-    $errorCode = [string](Get-ActionMapReplayProperty $error "code" "")
-    $errorMessage = [string](Get-ActionMapReplayProperty $error "message" "")
+    $schema = [string](Get-ActionMapStoreProperty $envelope "schema_version" "")
+    $status = [string](Get-ActionMapStoreProperty $envelope "status" "")
+    $errorCode = ""
+    $errorMessage = ""
     if ($parseError) {
         $status = "error"
-        $errorCode = "invalid_proof_envelope"
+        $errorCode = "invalid_map_store_envelope"
         $errorMessage = $parseError
     }
-    elseif ($schema -ne "TaskSpaceReplayProofR6V1") {
+    elseif ($exitCode -ne 0) {
         $status = "error"
-        $errorCode = "invalid_proof_envelope"
-        $errorMessage = "Unsupported replay proof schema '$schema'."
+        $errorCode = "map_store_export_failed"
+        $errorMessage = (@($commandOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
     }
-    elseif ($exitCode -eq 0 -and $status -ne "ok") {
+    elseif ($schema -ne "TaskSpaceMapExportR7V1") {
         $status = "error"
-        $errorCode = "invalid_proof_envelope"
-        $errorMessage = "Replay command succeeded without an ok proof."
+        $errorCode = "invalid_map_store_envelope"
+        $errorMessage = "Unsupported Map Store export schema '$schema'."
     }
-    elseif ($exitCode -ne 0 -and $status -ne "error") {
+    elseif ($status -ne "ok") {
         $status = "error"
-        $errorCode = "invalid_proof_envelope"
-        $errorMessage = "Replay command failed without an error proof."
+        $errorCode = "invalid_map_store_envelope"
+        $errorMessage = "Map Store command succeeded without an ok export."
     }
 
-    $proof = Get-ActionMapReplayProperty $envelope "proof"
-    $snapshot = Get-ActionMapReplayProperty $envelope "snapshot"
+    $map = Get-ActionMapStoreProperty $envelope "map"
+    $binding = Get-ActionMapStoreProperty $envelope "binding"
+    $snapshot = Get-ActionMapStoreProperty $map "snapshot"
     if ($status -eq "ok" -and $null -eq $snapshot) {
         $status = "error"
-        $errorCode = "invalid_proof_envelope"
-        $errorMessage = "Replay proof omitted the canonical snapshot."
+        $errorCode = "invalid_map_store_envelope"
+        $errorMessage = "Map Store export omitted the canonical snapshot."
     }
-    $availability = if ($status -eq "ok") {
-        "measured"
-    }
-    elseif ($errorCode -eq "not_applicable") {
-        "not_applicable"
-    }
-    else {
-        "replay_failed"
-    }
+    $availability = if ($status -eq "ok") { "measured" } else { "map_store_failed" }
     [pscustomobject]@{
-        schema_version = "taskspace-observer-replay-source-r6-v1"
+        schema_version = "taskspace-observer-map-store-source-r7-v1"
         availability = $availability
         error_code = $errorCode
         error_message = $errorMessage
         command_exit_code = $exitCode
         whale_path = $resolvedWhale
         whale_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedWhale).Hash.ToLowerInvariant()
-        proof_path = $proofPath
+        export_path = $exportPath
         command_log_path = $logPath
-        rollout_sha256 = [string](Get-ActionMapReplayProperty $proof "rollout_sha256" "")
-        final_snapshot_sha256 = [string](Get-ActionMapReplayProperty $proof "final_snapshot_sha256" "")
-        checkpoint_id = [string](Get-ActionMapReplayProperty $proof "checkpoint_id" "")
-        base_snapshot_sha256 = [string](Get-ActionMapReplayProperty $proof "base_snapshot_sha256" "")
-        parsed_checkpoint_count = [int](Get-ActionMapReplayProperty $proof "parsed_checkpoint_count" 0)
-        parsed_delta_count = [int](Get-ActionMapReplayProperty $proof "parsed_delta_count" 0)
-        surviving_checkpoint_count = [int](Get-ActionMapReplayProperty $proof "surviving_checkpoint_count" 0)
-        surviving_delta_count = [int](Get-ActionMapReplayProperty $proof "surviving_delta_count" 0)
-        active_checkpoint_id = [string](Get-ActionMapReplayProperty $proof "active_checkpoint_id" "")
-        active_chain_applied_delta_count = [int](Get-ActionMapReplayProperty $proof "active_chain_applied_delta_count" 0)
-        active_chain_last_delta_sequence = Get-ActionMapReplayProperty $proof "active_chain_last_delta_sequence"
+        map_id = [string](Get-ActionMapStoreProperty $map "map_id" "")
+        owner_thread_id = [string](Get-ActionMapStoreProperty $map "owner_thread_id" "")
+        snapshot_sha256 = [string](Get-ActionMapStoreProperty $map "snapshot_sha256" "")
+        store_revision = [uint64](Get-ActionMapStoreProperty $map "store_revision" 0)
+        graph_revision = [uint64](Get-ActionMapStoreProperty $map "graph_revision" 0)
+        complete = [bool](Get-ActionMapStoreProperty $map "complete" $false)
+        binding_thread_id = [string](Get-ActionMapStoreProperty $binding "thread_id" "")
+        binding_relation = [string](Get-ActionMapStoreProperty $binding "relation" "")
+        parent_thread_id = [string](Get-ActionMapStoreProperty $binding "parent_thread_id" "")
+        node_id = [string](Get-ActionMapStoreProperty $binding "node_id" "")
+        lease_id = [string](Get-ActionMapStoreProperty $binding "lease_id" "")
         snapshot = $snapshot
     }
 }
 
 function Get-ActionMapSnapshotSentinelClearAction {
     param([object]$Warning, [object]$Snapshot)
-    $direct = [string](Get-ActionMapReplayProperty $Warning "clearAction" "")
+    $direct = [string](Get-ActionMapStoreProperty $Warning "clearAction" "")
     if ($direct) { return $direct }
-    if ([string](Get-ActionMapReplayProperty $Warning "status" "") -ne "cleared") { return "" }
-    if ([string](Get-ActionMapReplayProperty $Warning "sentinelType" "") -ne "validator_failure") { return "" }
-    $clearedAtMs = [string](Get-ActionMapReplayProperty $Warning "clearedAtMs" "")
+    if ([string](Get-ActionMapStoreProperty $Warning "status" "") -ne "cleared") { return "" }
+    if ([string](Get-ActionMapStoreProperty $Warning "sentinelType" "") -ne "validator_failure") { return "" }
+    $clearedAtMs = [string](Get-ActionMapStoreProperty $Warning "clearedAtMs" "")
     if (-not $clearedAtMs) { return "" }
-    $traceIds = @(Get-ObjectArray (Get-ActionMapReplayProperty $Warning "traceEventIds") | ForEach-Object { [string]$_ })
-    foreach ($trace in @(Get-ObjectArray (Get-ActionMapReplayProperty $Snapshot "traceEvents"))) {
-        if ($traceIds -notcontains [string](Get-ActionMapReplayProperty $trace "id" "")) { continue }
-        if ([string](Get-ActionMapReplayProperty $trace "createdAtMs" "") -ne $clearedAtMs) { continue }
-        if ([string](Get-ActionMapReplayProperty $trace "taskId" "") -ne [string](Get-ActionMapReplayProperty $Warning "taskId" "")) { continue }
-        if ([string](Get-ActionMapReplayProperty $trace "mapId" "") -ne [string](Get-ActionMapReplayProperty $Warning "mapId" "")) { continue }
-        if (@(Get-ObjectArray (Get-ActionMapReplayProperty $trace "tags")) -contains "validator_success") {
+    $traceIds = @(Get-ObjectArray (Get-ActionMapStoreProperty $Warning "traceEventIds") | ForEach-Object { [string]$_ })
+    foreach ($trace in @(Get-ObjectArray (Get-ActionMapStoreProperty $Snapshot "traceEvents"))) {
+        if ($traceIds -notcontains [string](Get-ActionMapStoreProperty $trace "id" "")) { continue }
+        if ([string](Get-ActionMapStoreProperty $trace "createdAtMs" "") -ne $clearedAtMs) { continue }
+        if ([string](Get-ActionMapStoreProperty $trace "taskId" "") -ne [string](Get-ActionMapStoreProperty $Warning "taskId" "")) { continue }
+        if ([string](Get-ActionMapStoreProperty $trace "mapId" "") -ne [string](Get-ActionMapStoreProperty $Warning "mapId" "")) { continue }
+        if (@(Get-ObjectArray (Get-ActionMapStoreProperty $trace "tags")) -contains "validator_success") {
             return "FixApplied"
         }
     }
     ""
 }
 
-function ConvertFrom-ActionMapReplaySnapshot {
+function ConvertFrom-ActionMapStoreSnapshot {
     param([Parameter(Mandatory = $true)][object]$Snapshot)
     $tasks = New-Object System.Collections.Generic.List[object]
     $taskById = @{}

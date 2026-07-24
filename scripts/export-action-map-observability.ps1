@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$JsonlPath,
     [Parameter(Mandatory = $true)][string]$OutputDir,
     [Parameter(Mandatory = $true)][string]$WhalePath,
+    [Parameter(Mandatory = $true)][string]$ThreadId,
     [string]$ArtifactRoot = ""
 )
 
@@ -12,7 +13,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "action-map-observability-report-lib.ps1")
 . (Join-Path $PSScriptRoot "action-map-observability-summary-lib.ps1")
 . (Join-Path $PSScriptRoot "action-map-jsonl-lib.ps1")
-. (Join-Path $PSScriptRoot "action-map-replay-proof-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-store-export-lib.ps1")
 
 $output = New-Item -ItemType Directory -Force -Path $OutputDir
 $rolloutReadStats = New-JsonLineReadStats $RolloutPath
@@ -21,24 +22,24 @@ $exportPolicy = Get-ActionMapObservabilityExportPolicy $RolloutPath
 $exportPolicyPath = Join-Path $output.FullName "action-map-observability-policy.json"
 ($exportPolicy | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $exportPolicyPath -Encoding UTF8
 
-$replay = Invoke-ActionMapCanonicalReplay -WhalePath $WhalePath -RolloutPath $RolloutPath -OutputDir $output.FullName
-$replaySource = $replay | Select-Object * -ExcludeProperty snapshot
+$mapStore = Invoke-ActionMapStoreExport -WhalePath $WhalePath -ThreadId $ThreadId -OutputDir $output.FullName
+$mapStoreSource = $mapStore | Select-Object * -ExcludeProperty snapshot
 $scan = New-ActionMapObservabilityEventScan -RolloutPath $RolloutPath -JsonlPath $JsonlPath -Policy $exportPolicy -RolloutReadStats $rolloutReadStats -JsonlReadStats $jsonlReadStats
-$finalState = if ([string]$replay.availability -eq "measured") {
-    ConvertFrom-ActionMapReplaySnapshot $replay.snapshot
+$finalState = if ([string]$mapStore.availability -eq "measured") {
+    ConvertFrom-ActionMapStoreSnapshot $mapStore.snapshot
 }
 else {
     [pscustomobject]@{ tasks = @(); maps = @(); nodes = @(); edges = @(); sentinelWarnings = @(); agents = @() }
 }
 
 $isLarge = [string]$exportPolicy.rollout_export_mode -eq "summary_only_large_rollout"
-$cognitiveAudit = if ($isLarge -or [string]$replay.availability -ne "measured") {
+$cognitiveAudit = if ($isLarge -or [string]$mapStore.availability -ne "measured") {
     New-ActionMapSummaryCognitiveAudit
 }
 else {
     Get-CognitiveAuditSummary $finalState.tasks $finalState.nodes $finalState.sentinelWarnings $scan.timeline $ArtifactRoot
 }
-$blockedToolActions = [int](Get-ActionMapReplayProperty $scan.runtimeEventCounts "tool_action_blocked" 0)
+$blockedToolActions = [int](Get-ActionMapStoreProperty $scan.runtimeEventCounts "tool_action_blocked" 0)
 $activeMaintenanceBarriers = 0
 foreach ($node in @($finalState.nodes)) {
     $activeMaintenanceBarriers += @(Get-ObjectArray $node.maintenanceBarriers | Where-Object { $_.state -eq "active" }).Count
@@ -81,7 +82,7 @@ $reduced = [ordered]@{
         artifactRoot = $ArtifactRoot
         exportPolicy = $exportPolicy
         exportPolicyPath = $exportPolicyPath
-        replay = $replaySource
+        mapStore = $mapStoreSource
     }
     summary = $summary
     tasks = @($finalState.tasks)
@@ -97,12 +98,12 @@ $reduced = [ordered]@{
 }
 
 $reportPaths = Write-ActionMapObservabilityReport -Reduced $reduced -OutputDir $output.FullName
-Write-Host "ReplayAvailability: $($replay.availability)"
-Write-Host "ReplayErrorCode: $($replay.error_code)"
+Write-Host "MapStoreAvailability: $($mapStore.availability)"
+Write-Host "MapStoreErrorCode: $($mapStore.error_code)"
 Write-Host "ObservabilityJson: $($reportPaths.Json)"
 Write-Host "ObservabilityMarkdown: $($reportPaths.Markdown)"
 Write-Host "ObservabilityHtml: $($reportPaths.Html)"
 
-if ([string]$replay.availability -eq "replay_failed") {
-    throw "Canonical TaskSpace replay failed: $($replay.error_code)"
+if ([string]$mapStore.availability -eq "map_store_failed") {
+    throw "Canonical TaskSpace Map Store export failed: $($mapStore.error_code)"
 }
