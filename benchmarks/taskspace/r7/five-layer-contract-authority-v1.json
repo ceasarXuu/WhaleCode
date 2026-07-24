@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla7_with_fla9_initialization_carrier_repair",
+  "contract_status": "production_active_through_fla7_with_fla9_initialization_carrier_and_integrated_change_gate",
   "frozen_against_commit": "48922ce9b",
   "compatibility_policy": "none",
   "implementation_status_enum": [
@@ -44,6 +44,7 @@
   },
   "authority_order": [
     "this_manifest",
+    "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
     "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
     "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
     "selected machine-readable schemas and exact-text artifacts listed here",
@@ -54,13 +55,18 @@
   "conflict_policy": "Any byte or status conflict blocks the affected FLA phase. Implementers must update the authoritative artifact and its hash; they may not choose one side locally.",
   "governing_documents": [
     {
+      "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+      "sha256": "1531d967ccc0dce7ac0e1a8acad7cec851d9cf2e8fa330a60ab0240d6aa2f307",
+      "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
+    },
+    {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
-      "sha256": "ea968fd583b461dfe697caef74fbd19ca8ea32ac37c57f5c118adaa25eea7b9a",
+      "sha256": "8e279e20566d790596c5d59ff6031659b63fdcf958c83dae0537b8234bd73705",
       "role": "FLA-9 lightweight ordinary Tool binding, initialization carrier, later boundary sequence, implementation boundary and verification gates"
     },
     {
       "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
-      "sha256": "d7f685141359583a0ce2fc482d52bada6a7343cb57c0e5a27cf1fa818512dac3",
+      "sha256": "44e6faa6600d2215001490ad75e10d2a977e0cfc1c7b9130f9248c2a37816058",
       "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
     },
     {
@@ -109,6 +115,16 @@
     }
   },
   "selected_targets": [
+    {
+      "layer": "change-governance",
+      "implementation_status": "active_verified",
+      "activation_phase": "FLA-9 integrated non-regression gate",
+      "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
+      "sha256": "2004230f9a472023982fa112a32c2da5cf3b110400d9c088666b1d36b84c8290",
+      "validation": "scripts/taskspace-benchmark/test-r7-integrated-change-constraints.ps1",
+      "open_regression": "R-19",
+      "closed_regression_count": 18
+    },
     {
       "layer": "L1",
       "implementation_status": "active_verified",
@@ -267,6 +283,22 @@
       "blocks": [],
       "selected_direction": "expose one branch-free finish_map action in which the Agent selects only a terminal entry node and exact summary; remove Agent-submitted terminal prestate branches and align L2/L5",
       "runtime_disposition": "one Rooted DAG transaction validates the submitted revision and terminal node against the canonical role, binding, and terminal frontier; Runtime does not interpret task meaning, search for a successful node, repair arguments, or choose an Agent action"
+    },
+    {
+      "id": "FLA-9-fixed-schema-cost-repair",
+      "implementation_status": "selected_not_implemented",
+      "issue": "R-19/H-005",
+      "plan": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+      "blocks": [
+        "FLA-8 promotion"
+      ],
+      "selected_direction": "evaluate only fixed-schema compact Agent-authored initialization wire candidates",
+      "rejected_directions": [
+        "Map-state-dependent schema",
+        "Runtime-authored graph bootstrap",
+        "standalone initialization",
+        "full ordinary Tool lifecycle carrier"
+      ]
     }
   ],
   "obsolete_after_activation": [

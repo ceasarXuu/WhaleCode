@@ -1,7 +1,7 @@
 # R7 TaskSpace 五层架构可执行规格
 
 - Created: 2026-07-20
-- Version: 1.2
+- Version: 1.3
 - Status: Production active through FLA-7; FLA-9 lightweight binding repair in verification
 - Scope: FLA-0 至 FLA-3、FLA-3.5、FLA-4 至 FLA-8 的唯一实施与验收入口
 - Rollback baseline: `48922ce9b`
@@ -45,9 +45,11 @@ schema、mock、脚手架或文档的提交一律不算阶段完成。
 | L5 Result | `TaskSpaceControlResultV2`，布尔常量 `partial_commit=false` | [`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json) | `active_verified` |
 | L5 Projection | 三策略共享 canonical Map 和 renderer | [`projection-policy-contract.json`](../../../benchmarks/taskspace/r7/projection-policy-contract.json) 与生命周期 golden | `active_verified` |
 
-主线明确选择：普通动作由必填 `taskspace_binding=active|after_boundary` 声明机械绑定；初始化、绑定和完成后继续
-由紧邻的 `taskspace_control` 与真实动作共同组成一个 response；其他 Map/read/terminal action 继续使用同一个
-`taskspace_control`；`strict=false`；不向 DeepSeek 声称 `output_schema`。读写拆 Tool、MCP
+主线明确选择：普通动作由必填、可判别对象 `taskspace_binding` 声明机械绑定。空 Map 时，首个真实普通 Tool
+携带 `initialize_map` 对象并在同一调用内先建图再执行原生业务；初始化后普通动作使用 `active`，绑定和完成后
+继续由紧邻的 `taskspace_control` 与 `after_boundary` 真实动作共同组成一个 response；其他
+Map/read/terminal action 继续使用同一个 `taskspace_control`；`strict=false`；不向 DeepSeek 声称
+`output_schema`。读写拆 Tool、MCP
 `outputSchema` 和 DeepSeek strict 是三个 `experimental_disabled` 单变量实验。移除 `required_next_call` 不是实验，
 而是 FLA-3.5 修复 H-003 的组成部分。
 
@@ -64,9 +66,10 @@ repair active，其完整阶段 smoke、三臂比较和接受决策仍需按后�
 FLA-3 重复运行证明当前 L4 仍允许 Agent 先发单独 lifecycle control，再因缺少 sibling 被拒绝。连续动作已经在
 R5 J6 与 R7 D.2 证明有明确 request 和执行路径收益，不能降级成提示词建议或 FLA-6 可选实验。
 
-[连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md) 是 FLA-3.5 的权威入口。修复已直接接入
-现有 Tool builder、router 和状态机路径；旧 sibling 字段与 preflight 已删除，不存在候选晋级、双 parser、
-feature flag 或旧 session 兼容路径。
+[普通 Tool 轻量绑定与连续动作修复](37-r7-lightweight-tool-binding-repair-plan.md) 是当前权威入口；
+[连续动作合同回归修复](33-r7-continuous-action-regression-repair-plan.md) 只保留完整 carrier 的历史证据。
+当前修复直接接入现有 Tool builder、router 和状态机路径；不保留旧 carrier、双 parser、feature flag 或旧
+session 兼容路径。
 
 ## 3. Agent 实际看到的内容
 
@@ -119,18 +122,21 @@ Skill 失败不创建新的 TaskSpace Tool result。显式 mention 缺少快照�
 为准。它一次性暴露以下 action：
 
 ```text
-initialize_map, mutate_graph, bind_node, complete_then_continue,
+mutate_graph, bind_node, complete_then_continue,
 block_node, unblock_node, rework_node, finish_map,
 expand_nodes, read_map, read_output_ref
 ```
 
 `read_output_ref` 的 `head`、`tail`、`line_range`、`grep` 四种分支均已在 schema 中内联。`block_node` 和
 `rework_node` 不接收 `reason`，因为当前 Rooted DAG 领域模型没有该字段；五层重构不得暗中扩展领域状态。
-`initialize_map`、`bind_node`、`complete_then_continue` 是边界 action，必须紧邻一个
-`taskspace_binding=after_boundary` 的普通 Tool；其他普通动作使用 `active`。整份 response 在任何调用执行前
-做对称配对校验。该字段不携带 revision、node、edge 或生命周期参数。Patch 正文继续是 `apply_patch.input`
-顶层字段，原 Tool router、权限、sandbox、hook、handler 和输出链保持唯一。Tool 身份继续包含
-`provider_schema_profile + capability_set_hash + tools_hash`；Map revision 不触发 schema 变化。
+初始化只存在于首个普通 Tool 的 `taskspace_binding={"action":"initialize_map", ...}` 对象，不在中央 control
+中重复暴露。`bind_node`、`complete_then_continue` 是后续边界 action，必须紧邻一个
+`taskspace_binding={"action":"after_boundary"}` 的普通 Tool；其他普通动作使用
+`taskspace_binding={"action":"active"}`。整份 response 在任何调用执行前做对称配对校验。后续两值对象不携带
+revision、node、edge 或生命周期参数；初始化对象完整携带 Agent 声明的 Root、Work、Finish 和 edges。
+Patch 正文继续是 `apply_patch.input` 顶层字段，原 Tool router、权限、sandbox、hook、handler 和输出链保持唯一。
+Tool 身份继续包含 `provider_schema_profile + capability_set_hash + tools_hash`；Map revision 或空/非空状态均不
+触发 schema 变化。
 
 ### 3.4 L5 的完整结果合同
 
@@ -245,11 +251,11 @@ feature flag、兼容 parser 或双 schema。每个阶段必须先提交生产�
 
 ### FLA-3.5：修复连续动作合同回归
 
-- 权威入口：`33-r7-continuous-action-regression-repair-plan.md`。
-- 实现：共享 decorator/parser 将小型状态交接附着到普通动作 Tool，Runtime 提交交接后复用原 router、权限、
-  sandbox、hook、approval 和业务 handler。
-- 删除：生产 `required_next_call`、missing-sibling preflight、三个非终态独立 control 分支和对应兼容 parser。
-- 反馈：同一 call 返回 transition factual header，原 Tool 输出保持不变；transition 失败则不 dispatch 普通 Tool。
+- 当前权威入口：`37-r7-lightweight-tool-binding-repair-plan.md`；`33` 号文档仅保留完整 carrier 历史。
+- 实现：初始化由首个普通 Tool 携带；后续 lifecycle 保留中央 control，并用必填 binding 与 sequence preflight
+  保证连续动作。合法普通 Tool 继续复用原 router、权限、sandbox、hook、approval 和业务 handler。
+- 删除：生产 `required_next_call`、可选 binding、完整 ordinary Tool lifecycle carrier、旧 discriminator 和兼容 parser。
+- 反馈：初始化控制事实与原普通 Tool 结果分别忠实返回；初始化失败则不 dispatch 普通 Tool。
 - 验证：Rust 定向回归、FLA-3.5 gate、CLI build 和 Docker paired smoke 已通过。
 - 激活语义：FLA-3.5 为 `active_verified`；L4/L5-result 维持 `active_repair_verified`，由 FLA-4/5 正式完成各层。
 

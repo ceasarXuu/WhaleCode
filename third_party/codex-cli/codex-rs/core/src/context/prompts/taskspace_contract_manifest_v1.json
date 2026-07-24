@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.24",
+  "manifest_version": "1.0.25",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -16,12 +16,13 @@
   "activation_through": "FLA-7",
   "repair_activation": [
     "FLA-9-initialization-carrier",
-    "FLA-9-discriminated-binding"
+    "FLA-9-discriminated-binding",
+    "FLA-9-integrated-change-gate"
   ],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "600024ac834ded419011fe0eb2879f4bafc3a285cb35e9fd5fa7c61805f8fd50"
+    "sha256": "45d5615e38eeecf3dc92d8dc40e1b4522e2b634af0f701d1fa9bdb04db75c6f0"
   },
   "compatibility_policy": "none",
   "wire_order": {

@@ -107,6 +107,8 @@ $authority = $authorityRaw | ConvertFrom-Json -Depth 50
 Assert-Equal $authority.contract_id "r7-five-layer-contract-authority-v1" "Unexpected authority contract"
 Assert-Equal $authority.compatibility_policy "none" "Five-layer migration must not keep compatibility paths"
 
+& (Join-Path $PSScriptRoot "test-r7-integrated-change-constraints.ps1")
+
 foreach ($document in @($authority.governing_documents)) {
     $path = Join-Path $repoRoot ([string]$document.path)
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Governing document missing: $($document.path)"

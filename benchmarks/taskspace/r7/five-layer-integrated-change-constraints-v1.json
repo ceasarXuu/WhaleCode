@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "schema_path": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.schema.json",
+  "contract_id": "r7-five-layer-integrated-change-constraints-v1",
+  "status": "active_change_gate",
+  "governing_document": {
+    "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+    "sha256": "1531d967ccc0dce7ac0e1a8acad7cec851d9cf2e8fa330a60ab0240d6aa2f307"
+  },
+  "architectural_constraints": [
+    {
+      "id": "C-01",
+      "owner": "all product artifacts",
+      "requirement": "Each product rule has one authoritative layer and other layers only reference its identity.",
+      "prohibited": "Parallel paraphrased ownership or semantic conflict resolution in the provider composer."
+    },
+    {
+      "id": "C-02",
+      "owner": "Agent and L5",
+      "requirement": "The Agent owns task semantics while Runtime enforces only mechanical state and graph invariants.",
+      "prohibited": "Runtime-selected goals, nodes, plans, initialization semantics, or next actions."
+    },
+    {
+      "id": "C-03",
+      "owner": "L5 feedback and projection",
+      "requirement": "Tool results, failures, commit facts, and projections are transmitted faithfully.",
+      "prohibited": "Loss, distortion, duplicate wrapping, hidden failure, or next-step advice."
+    },
+    {
+      "id": "C-04",
+      "owner": "L1 through L5",
+      "requirement": "Content is assigned by stability and universal necessity.",
+      "prohibited": "Tool wire in Base, advanced playbooks in fixed context, or dynamic facts in stable instructions."
+    },
+    {
+      "id": "C-05",
+      "owner": "L4",
+      "requirement": "Tools describe capability, success, inputs, outputs, and side effects precisely.",
+      "prohibited": "Planning instruction, semantic inference, or semantically empty field-only contracts."
+    },
+    {
+      "id": "C-06",
+      "owner": "L1, L2, L4, provider adapter",
+      "requirement": "Base, protocol, and Tool schema bytes stay fixed inside one immutable capability epoch.",
+      "prohibited": "Schema changes triggered by Map revision, empty state, or lifecycle state."
+    },
+    {
+      "id": "C-07",
+      "owner": "projection policy",
+      "requirement": "The three projection policies share L1 through L4, Map, Runtime, feedback, and state machine.",
+      "prohibited": "Policy-specific architecture or behavior branches outside L5 emission."
+    },
+    {
+      "id": "C-08",
+      "owner": "canonical Map and L5 validator",
+      "requirement": "One Agent-authored rooted DAG has one open Root and one explicit Finish with full reachability.",
+      "prohibited": "Orphan nodes, Runtime-authored task topology, automatic Finish, or a second canonical state."
+    },
+    {
+      "id": "C-09",
+      "owner": "L4 and L5 sequence preflight",
+      "requirement": "Initialization and lifecycle continuation remain paired with a real Tool in one response.",
+      "prohibited": "Standalone initialization, bind, or nonterminal complete as a normal successful path."
+    },
+    {
+      "id": "C-10",
+      "owner": "Patch Tool and sequence preflight",
+      "requirement": "Patch input remains native top-level text and at most one Patch executes per response.",
+      "prohibited": "Nested Patch transport, multi-Patch partial writes, or blocking a valid control plus Patch pair."
+    },
+    {
+      "id": "C-11",
+      "owner": "provider Tool visibility",
+      "requirement": "TaskSpace decoration is isolated from Standard while bundled Skills remain shared.",
+      "prohibited": "Standard Tool mutation or benchmark-only Skill disabling."
+    },
+    {
+      "id": "C-12",
+      "owner": "L5 preflight, execution, and result",
+      "requirement": "Preflight failure is zero-dispatch and zero-commit and each failure has one factual result.",
+      "prohibited": "Argument repair, semantic retry, duplicate failure envelopes, or failure hiding."
+    },
+    {
+      "id": "C-13",
+      "owner": "provider wire observability",
+      "requirement": "Per-request and aggregate Tool bytes, tokens, cache, requests, and time are measured.",
+      "prohibited": "Correctness-only promotion or unmeasured permanent schema amplification."
+    },
+    {
+      "id": "C-14",
+      "owner": "benchmark harness",
+      "requirement": "One strategy changes per experiment under identical artifacts and simple plus complex samples.",
+      "prohibited": "Confounded arms, excluded Agent errors, or infrastructure failures counted as behavior."
+    },
+    {
+      "id": "C-15",
+      "owner": "wire migrations",
+      "requirement": "Schema, parser, tests, logs, and docs migrate atomically without legacy data compatibility.",
+      "prohibited": "Old wire fallback, dual parser, silent compatibility branch, or undocumented drift."
+    }
+  ],
+  "regression_invariants": [
+    {
+      "id": "R-01",
+      "status": "closed",
+      "problem": "The Whale minimal Base discarded the mature Codex engineering framework.",
+      "required_behavior": "Standard and TaskSpace each select one complete Codex-derived Base.",
+      "evidence": ["docs/v0.0.5/build-R7/20-r7-dual-base-instructions-design.md"]
+    },
+    {
+      "id": "R-02",
+      "status": "closed",
+      "problem": "TaskSpace appeared only as scattered low-salience developer text.",
+      "required_behavior": "L1 owns the macro model and L2 owns the normal working protocol without duplication.",
+      "evidence": ["docs/v0.0.5/build-R7/28-r7-five-layer-fla2-result.md"]
+    },
+    {
+      "id": "R-03",
+      "status": "closed",
+      "problem": "Docker benchmarks disabled bundled Skills and changed the product capability set.",
+      "required_behavior": "Standard and TaskSpace use the same bundled Skills infrastructure.",
+      "evidence": ["docs/v0.0.5/build-R7/31-r7-five-layer-fla3-result.md"]
+    },
+    {
+      "id": "R-04",
+      "status": "closed",
+      "problem": "L2 recovery depended on Tool result fields that were not visible to the Agent.",
+      "required_behavior": "All control entry paths return factual TaskSpaceControlResultV2 fields.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-05",
+      "status": "closed",
+      "problem": "The observer underreported preflight rejects, handler attempts, gates, and commits.",
+      "required_behavior": "Preflight, handler, gate, and commit telemetry are independently countable.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-06",
+      "status": "closed",
+      "problem": "A nested transition discriminator caused lifecycle action and parser drift.",
+      "required_behavior": "Lifecycle operations use direct top-level action variants.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-07",
+      "status": "closed",
+      "problem": "Initialization success omitted the current binding fact.",
+      "required_behavior": "Initialization result reports binding and commit facts explicitly.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-08",
+      "status": "closed",
+      "problem": "A control-only schema could not require a top-level real Tool sibling.",
+      "required_behavior": "Ordinary Tool binding plus response sequence preflight expresses the continuous pair.",
+      "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
+    },
+    {
+      "id": "R-09",
+      "status": "closed",
+      "problem": "Omitted binding silently drifted to continue-current behavior.",
+      "required_behavior": "Every TaskSpace ordinary Tool has one explicit discriminated binding object.",
+      "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
+    },
+    {
+      "id": "R-10",
+      "status": "closed",
+      "problem": "Standalone complete or bind was rejected only after an extra provider request.",
+      "required_behavior": "Boundary control and after_boundary real Tool are adjacent in one response.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-11",
+      "status": "closed",
+      "problem": "Early or ambiguous terminal actions selected the wrong Finish path.",
+      "required_behavior": "One finish_map action accepts the Agent terminal choice and validates the canonical frontier.",
+      "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
+    },
+    {
+      "id": "R-12",
+      "status": "closed",
+      "problem": "Nested Patch JSON was malformed or multiple Patches partially wrote a response.",
+      "required_behavior": "Patch remains native top-level text and one response executes at most one Patch.",
+      "evidence": ["coe/2026-07-19-19-30-r7-nested-patch-control-arguments.md"]
+    },
+    {
+      "id": "R-13",
+      "status": "closed",
+      "problem": "TaskSpace decoration modified ordinary Tools in Standard.",
+      "required_behavior": "Decoration occurs only during TaskSpace provider visibility.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-14",
+      "status": "closed",
+      "problem": "Preflight and router wrapped the same undispatched failure twice.",
+      "required_behavior": "An undispatched Tool call produces one factual failure result.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-15",
+      "status": "closed",
+      "problem": "Uncarriable provider-native Tools or incomplete Tool responses could enter execution.",
+      "required_behavior": "Uncarriable Tools are hidden and incomplete responses neither execute nor persist.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-16",
+      "status": "closed",
+      "problem": "A full lifecycle union was copied onto every ordinary Tool.",
+      "required_behavior": "Later lifecycle payloads remain only on central control and ordinary Tools carry binding only.",
+      "evidence": ["coe/2026-07-23-18-24-r7-fla-tool-schema-amplification.md"]
+    },
+    {
+      "id": "R-17",
+      "status": "closed",
+      "problem": "Map initialization consumed a standalone provider request before real work.",
+      "required_behavior": "The first real ordinary Tool carries initialization and executes atomically with it.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-18",
+      "status": "closed",
+      "problem": "A mixed scalar-or-object binding union biased generation toward the wrong short branch.",
+      "required_behavior": "initialize_map, active, and after_boundary are discriminated objects.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-19",
+      "status": "open",
+      "problem": "The complete initialization graph schema is copied onto every ordinary Tool.",
+      "required_behavior": "Reduce the fixed Tool section below 55578 bytes without regressing R-08, R-09, R-17, or R-18.",
+      "evidence": ["coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md"]
+    }
+  ],
+  "candidate_gates": [
+    {"id": "G-01", "requirement": "Agent retains all graph and task semantic choices.", "evidence_required": "Source boundary review and initialization wire fixture."},
+    {"id": "G-02", "requirement": "Tool schema is byte-identical across Map states in one capability epoch.", "evidence_required": "Empty and initialized state schema hash test."},
+    {"id": "G-03", "requirement": "Initialization and first real Tool stay in one response and call.", "evidence_required": "Sequence unit test and provider trace."},
+    {"id": "G-04", "requirement": "All binding variants remain discriminated objects.", "evidence_required": "JSON schema and parser negative fixtures."},
+    {"id": "G-05", "requirement": "Feedback preserves initialization, business, and commit outcomes separately.", "evidence_required": "ResultV2 snapshots and failure tests."},
+    {"id": "G-06", "requirement": "Native top-level single Patch behavior is unchanged.", "evidence_required": "Patch fidelity, multi-Patch reject, and control-plus-Patch tests."},
+    {"id": "G-07", "requirement": "Standard Tool bytes and execution path are unchanged.", "evidence_required": "Standard schema snapshot and paired smoke."},
+    {"id": "G-08", "requirement": "All three projection policies share L1 through L4 behavior.", "evidence_required": "Four-arm contract hashes and traces."},
+    {"id": "G-09", "requirement": "TaskSpace Tool section is below the current 55578 bytes per request.", "evidence_required": "Provider wire trace with bytes and estimated tokens."},
+    {"id": "G-10", "requirement": "Simple and complex behavior does not add known regressions.", "evidence_required": "Docker repeat runs with request-level trace audit."},
+    {"id": "G-11", "requirement": "Schema, carrier, preflight, dispatch, and commit remain observable.", "evidence_required": "Telemetry contract tests and observer reconciliation."},
+    {"id": "G-12", "requirement": "No legacy initialization parser or fallback remains.", "evidence_required": "Source scan and negative old-wire test."}
+  ],
+  "rejected_directions": [
+    {"id": "D-01", "direction": "Change ordinary Tool schema when the Map becomes initialized.", "violates": ["C-06"]},
+    {"id": "D-02", "direction": "Let Runtime create task nodes, goals, edges, or choose the next node.", "violates": ["C-02", "C-08"]},
+    {"id": "D-03", "direction": "Restore standalone central initialize_map as the normal path.", "violates": ["C-09", "R-17"]},
+    {"id": "D-04", "direction": "Restore the full lifecycle union on every ordinary Tool.", "violates": ["C-13", "R-16"]},
+    {"id": "D-05", "direction": "Wrap native Tools in a generic nested dispatcher.", "violates": ["C-10", "R-12"]},
+    {"id": "D-06", "direction": "Make binding optional and infer a default from Runtime state.", "violates": ["C-05", "R-09"]},
+    {"id": "D-07", "direction": "Use prompt text as the only initialization or continuity contract.", "violates": ["C-05", "R-08", "R-10"]},
+    {"id": "D-08", "direction": "Relax graph, revision, binding, or terminal invariants for pass rate.", "violates": ["C-02", "C-08", "C-12"]},
+    {"id": "D-09", "direction": "Inject corrective next-action advice into failure feedback.", "violates": ["C-03", "C-12"]}
+  ]
+}

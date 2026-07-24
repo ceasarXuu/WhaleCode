@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/five-layer-integrated-change-constraints-v1.schema.json",
+  "title": "R7 five-layer integrated change constraints",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "schema_path",
+    "contract_id",
+    "status",
+    "governing_document",
+    "architectural_constraints",
+    "regression_invariants",
+    "candidate_gates",
+    "rejected_directions"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema_path": {
+      "const": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.schema.json"
+    },
+    "contract_id": {"const": "r7-five-layer-integrated-change-constraints-v1"},
+    "status": {"const": "active_change_gate"},
+    "governing_document": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"const": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "architectural_constraints": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": {"$ref": "#/$defs/constraint"}
+    },
+    "regression_invariants": {
+      "type": "array",
+      "minItems": 19,
+      "maxItems": 19,
+      "items": {"$ref": "#/$defs/regression"}
+    },
+    "candidate_gates": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {"$ref": "#/$defs/gate"}
+    },
+    "rejected_directions": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {"$ref": "#/$defs/rejectedDirection"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "constraint": {
+      "type": "object",
+      "required": ["id", "owner", "requirement", "prohibited"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^C-[0-9]{2}$"},
+        "owner": {"type": "string", "minLength": 1},
+        "requirement": {"type": "string", "minLength": 1},
+        "prohibited": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "regression": {
+      "type": "object",
+      "required": ["id", "status", "problem", "required_behavior", "evidence"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^R-[0-9]{2}$"},
+        "status": {"enum": ["closed", "open"]},
+        "problem": {"type": "string", "minLength": 1},
+        "required_behavior": {"type": "string", "minLength": 1},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    },
+    "gate": {
+      "type": "object",
+      "required": ["id", "requirement", "evidence_required"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^G-[0-9]{2}$"},
+        "requirement": {"type": "string", "minLength": 1},
+        "evidence_required": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "rejectedDirection": {
+      "type": "object",
+      "required": ["id", "direction", "violates"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^D-[0-9]{2}$"},
+        "direction": {"type": "string", "minLength": 1},
+        "violates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^[CR]-[0-9]{2}$"}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
