@@ -63,6 +63,9 @@ mod goals;
 mod logs;
 mod memories;
 mod remote_control;
+mod taskspace_maps;
+#[cfg(test)]
+mod taskspace_maps_tests;
 #[cfg(test)]
 mod test_support;
 mod threads;
