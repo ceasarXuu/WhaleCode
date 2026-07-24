@@ -51,7 +51,8 @@ $rustForbidden = @(
     "action_map_checkpoint",
     "build_snapshot_delta",
     "apply_snapshot_delta",
-    "taskspace_snapshot_restore"
+    "taskspace_snapshot_restore",
+    "sess.action_map_snapshot()"
 )
 foreach ($relativeRoot in $rustRoots) {
     $root = Join-Path $RepoRoot $relativeRoot

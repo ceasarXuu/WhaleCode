@@ -1564,7 +1564,7 @@ async fn map_request_read_returns_shared_current_projection_without_auto_injecti
         .await
         .expect("repeated explicit map read");
     assert_eq!(repeated_projection, projection);
-    let snapshot = session.action_map_snapshot().await;
+    let snapshot = session.cached_action_map_snapshot_for_test().await;
     let read_events = snapshot
         .trace_events
         .iter()
@@ -2170,7 +2170,7 @@ async fn session_standard_mode_main_tool_result_does_not_record_trace() {
         )
         .await;
 
-    let snapshot = session.action_map_snapshot().await;
+    let snapshot = session.cached_action_map_snapshot_for_test().await;
     assert_eq!(
         snapshot.mode,
         codex_protocol::protocol::MapRuntimeMode::Standard

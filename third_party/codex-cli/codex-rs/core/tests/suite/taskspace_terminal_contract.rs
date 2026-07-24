@@ -32,6 +32,7 @@ use serde_json::json;
 
 const FINAL_SUMMARY: &str = "Exact Agent terminal summary.";
 const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without finish_map.";
+const EXTERNAL_STORE_GOAL: &str = "Canonical goal committed outside the Session cache";
 const TASKSPACE_CORE_PROTOCOL: &str =
     include_str!("../../src/context/prompts/taskspace_core_protocol_v2.md");
 
@@ -358,7 +359,15 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
     assert_eq!(binding.map_id, stored.map_id);
 
     let mut externally_committed = stored.snapshot.clone();
-    externally_committed.routing_required = !stored.snapshot.routing_required;
+    externally_committed
+        .map
+        .as_mut()
+        .expect("externally committed rooted map")
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == "root")
+        .expect("root node")
+        .goal = EXTERNAL_STORE_GOAL.to_string();
     let external_commit = state
         .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
             map_id: stored.map_id.clone(),
@@ -374,13 +383,33 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
         external_commit,
         TaskSpaceMapWriteOutcome::Applied(_)
     ));
+
+    test.codex.submit(Op::ShowActionMap).await?;
+    let EventMsg::BackgroundEvent(shown) = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::BackgroundEvent(_))
+    })
+    .await
+    else {
+        unreachable!("ShowActionMap must emit a background event");
+    };
+    assert!(
+        shown.message.contains(EXTERNAL_STORE_GOAL),
+        "ShowActionMap must refresh stale cache from Store: {}",
+        shown.message
+    );
+
     let refreshed = test
         .codex
         .action_map_snapshot()
         .await
         .map_err(anyhow::Error::msg)?;
-    assert_ne!(
-        refreshed.routing_required, stored.snapshot.routing_required,
+    assert_eq!(
+        refreshed
+            .map
+            .as_ref()
+            .and_then(|map| map.nodes.iter().find(|node| node.id == "root"))
+            .map(|node| node.goal.as_str()),
+        Some(EXTERNAL_STORE_GOAL),
         "public snapshot reads must refresh a stale Session cache from the canonical Store"
     );
 

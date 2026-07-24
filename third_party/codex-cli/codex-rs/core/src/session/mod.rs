@@ -3902,7 +3902,8 @@ impl Session {
         state.reference_context_item()
     }
 
-    pub(crate) async fn action_map_snapshot(&self) -> ActionMapSnapshot {
+    #[cfg(test)]
+    pub(crate) async fn cached_action_map_snapshot_for_test(&self) -> ActionMapSnapshot {
         let state = self.state.lock().await;
         state.action_map_runtime.snapshot()
     }

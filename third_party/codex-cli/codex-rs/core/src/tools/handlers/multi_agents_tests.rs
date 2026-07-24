@@ -192,7 +192,7 @@ async fn add_action_map_work_node(
     goal: &str,
     dependencies: Vec<String>,
 ) -> String {
-    let snapshot = session.action_map_snapshot().await;
+    let snapshot = session.cached_action_map_snapshot_for_test().await;
     let map = snapshot.map.expect("active rooted map");
     let predecessors = if dependencies.is_empty() {
         vec![map.root_node_id.clone()]
@@ -235,7 +235,7 @@ fn active_action_map_snapshot_map(snapshot: &ActionMapSnapshot) -> &ActionMapSna
 async fn active_action_map_node_statuses(
     session: &Arc<crate::session::session::Session>,
 ) -> HashMap<String, String> {
-    let snapshot = session.action_map_snapshot().await;
+    let snapshot = session.cached_action_map_snapshot_for_test().await;
     active_action_map_snapshot_map(&snapshot)
         .nodes
         .iter()
@@ -244,7 +244,7 @@ async fn active_action_map_node_statuses(
 }
 
 async fn active_action_map_lease_count(session: &Arc<crate::session::session::Session>) -> usize {
-    let snapshot = session.action_map_snapshot().await;
+    let snapshot = session.cached_action_map_snapshot_for_test().await;
     active_action_map_snapshot_map(&snapshot)
         .leases
         .iter()
@@ -1862,7 +1862,7 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
 
     timeout(Duration::from_secs(5), async {
         loop {
-            let snapshot = session.action_map_snapshot().await;
+            let snapshot = session.cached_action_map_snapshot_for_test().await;
             let result_exists = snapshot
                 .map
                 .as_ref()

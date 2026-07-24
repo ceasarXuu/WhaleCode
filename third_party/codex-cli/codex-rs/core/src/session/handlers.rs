@@ -1086,8 +1086,10 @@ pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
 
 pub async fn show_action_map(sess: &Arc<Session>, sub_id: String) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let snapshot = sess.action_map_snapshot().await;
-    let status = crate::action_map::format_action_map_snapshot(&snapshot);
+    let status = match sess.canonical_action_map_snapshot().await {
+        Ok(snapshot) => crate::action_map::format_action_map_snapshot(&snapshot),
+        Err(error) => format!("TaskSpace map is unavailable: {error}"),
+    };
     sess.notify_background_event(&turn_context, status).await;
 }
 

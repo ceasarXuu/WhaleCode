@@ -106,7 +106,7 @@ async fn reconstruct_history_replays_taskspace_compaction_checkpoint_from_raw_ev
 #[tokio::test]
 async fn resumed_history_rejects_invalid_taskspace_ownership_sequence() {
     let (session, _turn_context) = make_session_and_context().await;
-    let state_before = session.action_map_snapshot().await;
+    let state_before = session.cached_action_map_snapshot_for_test().await;
     let history_before = session.clone_history().await.raw_items().to_vec();
     let mut store = TaskSpaceEventStore::new();
     let mut event = store
@@ -133,14 +133,17 @@ async fn resumed_history_rejects_invalid_taskspace_ownership_sequence() {
 
     assert_eq!(error.phase, "taskspace_ownership_checkpoint");
     assert!(error.message.contains("sequence"));
-    assert_eq!(session.action_map_snapshot().await, state_before);
+    assert_eq!(
+        session.cached_action_map_snapshot_for_test().await,
+        state_before
+    );
     assert_eq!(session.clone_history().await.raw_items(), history_before);
 }
 
 #[tokio::test]
 async fn resumed_history_rejects_invalid_taskspace_event_sequence() {
     let (session, _turn_context) = make_session_and_context().await;
-    let state_before = session.action_map_snapshot().await;
+    let state_before = session.cached_action_map_snapshot_for_test().await;
     let history_before = session.clone_history().await.raw_items().to_vec();
     let mut store = TaskSpaceEventStore::new();
     let first = store
@@ -175,7 +178,10 @@ async fn resumed_history_rejects_invalid_taskspace_event_sequence() {
 
     assert_eq!(error.phase, "taskspace_event_sequence");
     assert!(error.message.contains("sequence"));
-    assert_eq!(session.action_map_snapshot().await, state_before);
+    assert_eq!(
+        session.cached_action_map_snapshot_for_test().await,
+        state_before
+    );
     assert_eq!(session.clone_history().await.raw_items(), history_before);
 }
 
