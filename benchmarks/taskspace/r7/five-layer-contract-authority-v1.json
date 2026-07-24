@@ -2,8 +2,19 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "production_active_through_fla7_with_fla9_initialization_carrier_and_integrated_change_gate",
+  "contract_status": "r7_1_continuation_baseline_with_r10_and_r19_open",
   "frozen_against_commit": "48922ce9b",
+  "current_milestone": {
+    "id": "R7.1",
+    "behavior_baseline_commit": "1fdd4474d02600ea0c7290300154bcd1ce45f52d",
+    "document": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+    "sha256": "7687620b5e823c113c348f0d31061c46ab17c589958550f7874df25f7d3de7c8",
+    "purpose": "single human-readable continuation entrypoint; does not override the integrated machine gate",
+    "open_regressions": [
+      "R-10",
+      "R-19"
+    ]
+  },
   "compatibility_policy": "none",
   "implementation_status_enum": [
     "selected_baseline",
@@ -45,6 +56,7 @@
   "authority_order": [
     "this_manifest",
     "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+    "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
     "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
     "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
     "selected machine-readable schemas and exact-text artifacts listed here",
@@ -58,6 +70,11 @@
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
       "sha256": "febe17f4e40911b9a6118506b2ce9dafdcdc4a374f1dd9697bb8d3c431c999a5",
       "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+      "sha256": "7687620b5e823c113c348f0d31061c46ab17c589958550f7874df25f7d3de7c8",
+      "role": "R7.1 human-readable status, constraints, blockers and continuation entrypoint"
     },
     {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
