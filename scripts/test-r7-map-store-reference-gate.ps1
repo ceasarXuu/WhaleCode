@@ -40,7 +40,9 @@ $rustRoots = @(
     "third_party/codex-cli/codex-rs/core/src",
     "third_party/codex-cli/codex-rs/protocol/src",
     "third_party/codex-cli/codex-rs/cli/src",
-    "third_party/codex-cli/codex-rs/state/src"
+    "third_party/codex-cli/codex-rs/state/src",
+    "third_party/codex-cli/codex-rs/app-server/src",
+    "third_party/codex-cli/codex-rs/tui/src"
 )
 $rustForbidden = @(
     "taskspace_replay",

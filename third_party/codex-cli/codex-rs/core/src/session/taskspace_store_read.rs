@@ -77,6 +77,8 @@ impl Session {
             relation = binding.relation.as_str(),
             store_revision = record.store_revision,
             graph_revision = record.graph_revision,
+            cache_refreshed = !cache_is_current,
+            snapshot_sha256 = record.snapshot_sha256,
             operation,
             "read canonical TaskSpace Map"
         );

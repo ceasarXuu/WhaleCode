@@ -1088,7 +1088,18 @@ pub async fn show_action_map(sess: &Arc<Session>, sub_id: String) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
     let status = match sess.canonical_action_map_snapshot().await {
         Ok(snapshot) => crate::action_map::format_action_map_snapshot(&snapshot),
-        Err(error) => format!("TaskSpace map is unavailable: {error}"),
+        Err(error) => {
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.show_map_failed",
+                actor_thread_id = %sess.conversation_id,
+                operation = "show_action_map",
+                reason_code = "canonical_read_failed",
+                error = %error,
+                "failed to read canonical TaskSpace Map for interactive display"
+            );
+            format!("TaskSpace map is unavailable: {error}")
+        }
     };
     sess.notify_background_event(&turn_context, status).await;
 }
