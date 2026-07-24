@@ -16,7 +16,9 @@ $forbidden = @(
     [ordered]@{ pattern = "action-map-replay-proof-lib"; reason = "retired replay library" }
 )
 
-foreach ($file in Get-ChildItem -LiteralPath $scriptRoot -Recurse -File -Filter "*.ps1") {
+foreach ($file in Get-ChildItem -LiteralPath $scriptRoot -Recurse -File | Where-Object {
+    $_.Extension -in @(".ps1", ".py", ".sh")
+}) {
     if ($file.FullName -eq $PSCommandPath) { continue }
     $relative = [System.IO.Path]::GetRelativePath($RepoRoot, $file.FullName)
     $lines = Get-Content -LiteralPath $file.FullName -Encoding UTF8
@@ -26,6 +28,9 @@ foreach ($file in Get-ChildItem -LiteralPath $scriptRoot -Recurse -File -Filter 
             if ($line -match [string]$rule.pattern) {
                 $violations.Add("${relative}:$($index + 1): $($rule.reason)")
             }
+        }
+        if ($file.Extension -eq ".py" -and $line -match "snapshot_(updated|delta)") {
+            $violations.Add("${relative}:$($index + 1): retired rollout Map snapshot parser in active Python tooling")
         }
         $invokesExporter = $line -match "&\s+\`$exportScript" -or
             $line -match "&\s+\(Join-Path.+export-action-map-observability\.ps1" -or

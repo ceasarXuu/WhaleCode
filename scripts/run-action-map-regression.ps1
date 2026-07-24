@@ -175,7 +175,8 @@ $scriptTestRuns = if ($SkipScriptTests) {
         "test-action-map-observability-lib.ps1",
         "test-action-map-sentinel-clearance.ps1",
         "test-action-map-reparse-containment.ps1",
-        "test-action-map-real-user-e2e-lib.ps1"
+        "test-action-map-real-user-e2e-lib.ps1",
+        "test-r7-map-store-reference-gate.ps1"
     )
     if ($IncludeTuiViewerE2E) {
         $scriptRuns += "run-tui-taskspace-viewer-e2e.ps1"

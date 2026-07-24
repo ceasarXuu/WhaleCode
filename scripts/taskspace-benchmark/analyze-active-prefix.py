@@ -128,7 +128,7 @@ def parse_tags(tags: list[str]) -> dict[str, str]:
 
 
 def projection_metrics(rollout: list[dict[str, Any]]) -> dict[str, Any]:
-    budget_events: dict[str, tuple[dict[str, Any], str | None]] = {}
+    budget_events: dict[str, dict[str, Any]] = {}
     for event in rollout:
         payload = event.get("payload") or {}
         if (
@@ -138,21 +138,9 @@ def projection_metrics(rollout: list[dict[str, Any]]) -> dict[str, Any]:
             and payload.get("kind") == "projection_budget"
         ):
             event_id = str(payload.get("traceEventId", len(budget_events)))
-            budget_events.setdefault(event_id, (payload, None))
-        if payload.get("map_event_type") != "snapshot_delta":
-            continue
-        for operation in payload.get("patch") or []:
-            value = operation.get("value") or {}
-            if isinstance(value, dict) and value.get("kind") == "projection_budget":
-                budget_events[str(value.get("id", len(budget_events)))] = (
-                    value,
-                    payload.get("previousSnapshotSha256") or payload.get("baseSnapshotSha256"),
-                )
-    budgets = [
-        (parse_tags(event.get("tags") or []), snapshot_hash)
-        for event, snapshot_hash in budget_events.values()
-    ]
-    latest, input_snapshot_hash = budgets[-1] if budgets else ({}, None)
+            budget_events.setdefault(event_id, payload)
+    budgets = [parse_tags(event.get("tags") or []) for event in budget_events.values()]
+    latest = budgets[-1] if budgets else {}
     activation = int(latest.get("strategy_activation_count", "0"))
     before = int(latest["projection_bytes_before_strategy"]) if "projection_bytes_before_strategy" in latest else None
     after = int(latest["projection_bytes_after_strategy"]) if "projection_bytes_after_strategy" in latest else None
@@ -192,7 +180,6 @@ def projection_metrics(rollout: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "coveredNodeCount": int(latest["covered_node_count"]) if "covered_node_count" in latest else 0,
         "archiveRef": latest.get("archive_ref"),
-        "inputSnapshotSha256": input_snapshot_hash,
     }
 
 

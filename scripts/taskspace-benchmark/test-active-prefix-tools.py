@@ -112,9 +112,8 @@ class AnalyzerTest(unittest.TestCase):
     def setUp(self) -> None:
         self.analyzer = load_analyzer()
 
-    def test_projection_reads_snapshot_delta_and_deduplicates_direct_event(self) -> None:
+    def test_projection_reads_direct_runtime_trace_event(self) -> None:
         projection = {
-            "id": "trace-1",
             "kind": "projection_budget",
             "tags": [
                 "strategy_id:S4.2",
@@ -135,15 +134,6 @@ class AnalyzerTest(unittest.TestCase):
             ],
         }
         rollout = [
-            {
-                "type": "event_msg",
-                "payload": {
-                    "type": "map_runtime",
-                    "map_event_type": "snapshot_delta",
-                    "previousSnapshotSha256": "canonical-map-sha",
-                    "patch": [{"op": "add", "value": projection}],
-                },
-            },
             {
                 "type": "event_msg",
                 "payload": {
@@ -170,7 +160,6 @@ class AnalyzerTest(unittest.TestCase):
         self.assertEqual(metrics["nodeDetailAfterBeforeRatio"], 0.0775)
         self.assertEqual(metrics["skeletonBytesBeforeStrategy"], 763)
         self.assertEqual(metrics["skeletonBytesAfterStrategy"], 763)
-        self.assertEqual(metrics["inputSnapshotSha256"], "canonical-map-sha")
 
     def test_standard_mode_keeps_historical_map_inactive(self) -> None:
         rollout = [
