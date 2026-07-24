@@ -58,6 +58,7 @@ use codex_login::AuthManager;
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_models_manager::manager::RefreshStrategy;
+use codex_protocol::ThreadId;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::user_input::UserInput;
 use codex_terminal_detection::TerminalName;
@@ -215,6 +216,10 @@ enum DebugSubcommand {
     #[clap(hide = true)]
     TraceReduce(DebugTraceReduceCommand),
 
+    /// Internal: export the canonical TaskSpace Map Store record for a thread.
+    #[clap(hide = true)]
+    TaskspaceMap(DebugTaskspaceMapCommand),
+
     /// Internal: reset local memory state for a fresh start.
     #[clap(hide = true)]
     ClearMemories,
@@ -272,6 +277,17 @@ struct DebugTraceReduceCommand {
     /// Output path for reduced RolloutTrace JSON. Defaults to TRACE_BUNDLE/state.json.
     #[arg(long = "output", short = 'o', value_name = "FILE")]
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct DebugTaskspaceMapCommand {
+    /// Thread whose canonical TaskSpace map binding should be exported.
+    #[arg(long = "thread-id", value_name = "THREAD_ID")]
+    thread_id: String,
+
+    /// Output path for the canonical Map Store JSON envelope.
+    #[arg(long = "output", short = 'o', value_name = "FILE")]
+    output: PathBuf,
 }
 
 #[derive(Debug, Parser)]
@@ -992,6 +1008,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 )?;
                 run_debug_trace_reduce_command(cmd).await?;
             }
+            DebugSubcommand::TaskspaceMap(cmd) => {
+                reject_remote_mode_for_subcommand(
+                    root_remote.as_deref(),
+                    root_remote_auth_token_env.as_deref(),
+                    "debug taskspace-map",
+                )?;
+                run_debug_taskspace_map_command(cmd, &root_config_overrides, &interactive).await?;
+            }
             DebugSubcommand::ClearMemories => {
                 reject_remote_mode_for_subcommand(
                     root_remote.as_deref(),
@@ -1326,6 +1350,70 @@ async fn run_debug_clear_memories_command(
 
     println!("{message}");
 
+    Ok(())
+}
+
+async fn run_debug_taskspace_map_command(
+    cmd: DebugTaskspaceMapCommand,
+    root_config_overrides: &CliConfigOverrides,
+    interactive: &TuiCli,
+) -> anyhow::Result<()> {
+    let thread_id = ThreadId::from_string(&cmd.thread_id)
+        .map_err(|error| anyhow::anyhow!("invalid TaskSpace thread id: {error}"))?;
+    let cli_kv_overrides = root_config_overrides
+        .parse_overrides()
+        .map_err(anyhow::Error::msg)?;
+    let overrides = ConfigOverrides {
+        config_profile: interactive.config_profile.clone(),
+        ..Default::default()
+    };
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(cli_kv_overrides, overrides).await?;
+
+    let state_path = state_db_path(config.sqlite_home.as_path());
+    if !tokio::fs::try_exists(&state_path).await? {
+        anyhow::bail!(
+            "TaskSpace Map Store does not exist at {}",
+            state_path.display()
+        );
+    }
+    let state_db =
+        StateRuntime::init(config.sqlite_home.clone(), config.model_provider_id.clone()).await?;
+    let (record, binding) = state_db
+        .load_taskspace_map_for_thread(thread_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("thread {thread_id} has no TaskSpace map binding"))?;
+
+    let envelope = serde_json::json!({
+        "schema_version": "TaskSpaceMapExportR7V1",
+        "status": "ok",
+        "map": {
+            "map_id": record.map_id,
+            "owner_thread_id": record.owner_thread_id,
+            "snapshot": record.snapshot,
+            "snapshot_sha256": record.snapshot_sha256,
+            "store_revision": record.store_revision,
+            "graph_revision": record.graph_revision,
+            "complete": record.complete,
+            "created_at_ms": record.created_at_ms,
+            "updated_at_ms": record.updated_at_ms,
+        },
+        "binding": {
+            "thread_id": binding.thread_id,
+            "map_id": binding.map_id,
+            "relation": binding.relation.as_str(),
+            "parent_thread_id": binding.parent_thread_id,
+            "node_id": binding.node_id,
+            "lease_id": binding.lease_id,
+            "created_at_ms": binding.created_at_ms,
+            "updated_at_ms": binding.updated_at_ms,
+        }
+    });
+    if let Some(parent) = cmd.output.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(&cmd.output, serde_json::to_vec_pretty(&envelope)?).await?;
+    println!("TaskSpaceMapExport: {}", cmd.output.display());
     Ok(())
 }
 
