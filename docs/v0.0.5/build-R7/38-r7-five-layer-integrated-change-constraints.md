@@ -1,7 +1,8 @@
 # R7 五层架构整体变更约束
 
 - Created: 2026-07-24
-- Version: 1.0
+- Updated: 2026-07-25
+- Version: 1.1
 - Status: Active change gate
 - Machine contract:
   [`five-layer-integrated-change-constraints-v1.json`](../../../benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json)
@@ -146,13 +147,13 @@ revision 校验、随时可丢弃的缓存，但不能拥有 authoritative Map �
 | R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | `initialize_map`、`active`、`after_boundary` 使用同形可判别对象 | closed |
 | R-19 | 完整初始化图 schema 被复制到每个普通 Tool，固定 schema 约 55.6 KB | 必须在固定 schema 内机械收敛，且不能回退 R-08/R-09/R-17/R-18 | open |
 | R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | closed |
-| R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前从父 rollout 恢复了不一致的 assignment 状态 | child 必须按 Map 身份访问同一份持久化 canonical Map，并机械区分 child attach 与 TaskSpace session resume | open |
+| R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前从父 rollout 恢复了不一致的 assignment 状态 | child 按 Map 身份访问同一持久化状态；attach 失败原子回收，原失败与相邻 handoff 测试通过 | closed（R7.1-A1） |
 | R-22 | `map-request` 复杂样本稳定产生多 Patch sibling reject，部分运行在业务完成后才补 Map 生命周期 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
-| R-23 | canonical Map 被 Session-local Runtime 持有，并依赖 rollout checkpoint/delta 重建 | 独立持久化 Map Store 是唯一事实源；Session/Runtime 只持有引用或可丢弃缓存，rollout 永不承担 Map 恢复 | open |
+| R-23 | canonical Map 被 Session-local Runtime 持有，并依赖 rollout checkpoint/delta 重建 | 独立持久化 Map Store 已成为唯一事实源；Session/Runtime 只持有引用或可丢弃缓存，rollout 不承担 Map 恢复 | closed（R7.1-A0） |
 
-## 5. 当前 R-10/R-19/R-21/R-22/R-23 的整组准入门
+## 5. 当前 R-10/R-19/R-22 的整组准入门
 
-任何实现候选必须一次通过以下全部条件：
+R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退门。任何实现候选必须一次通过以下全部条件：
 
 1. **职责门**：不把初始化、节点选择或图设计交给 Runtime。
 2. **静态门**：空 Map 与已初始化 Map 的同一 capability epoch 使用完全相同 Tool schema。
@@ -176,8 +177,7 @@ revision 校验、随时可丢弃的缓存，但不能拥有 authoritative Map �
 16. **持久化所有权门**：进程重启、resume、fork 和 child agent 均从独立 Map Store 读取同一 `map_id` 与 revision；
     rollout 截断不丢 Map，Map Store 缺失时也不得从 rollout 静默重建。
 
-R-20 的定向门已经通过，但 R-10、R-21、R-22 和 R-23 仍使 R-19 的整组行为门失败。成本下降不能越过这些阻塞项
-单独晋升。
+R-20、R-21 和 R-23 已关闭；R-10 与 R-22 仍使 R-19 的整组行为门失败。成本下降不能越过这些阻塞项单独晋升。
 
 ## 6. 已淘汰方向
 
