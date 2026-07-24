@@ -248,10 +248,13 @@ fn rejects_legacy_scalar_taskspace_binding() {
 fn extracts_initialization_binding_without_forwarding_it_to_the_tool() -> anyhow::Result<()> {
     let initialization = serde_json::json!({
         "action": "initialize_map",
-        "root": {"node_id": "root", "goal": "Fix the bug"},
-        "initial_work_node": {"node_id": "inspect", "goal": "Inspect the code"},
-        "finish_identity": {"id": "finish"},
-        "additional_work_nodes": [],
+        "nodes": [
+            {"id": "root", "goal": "Fix the bug"},
+            {"id": "inspect", "goal": "Inspect the code"}
+        ],
+        "root_id": "root",
+        "initial_work_id": "inspect",
+        "finish_id": "finish",
         "edges": [
             {"from": "root", "to": "inspect"},
             {"from": "inspect", "to": "finish"}

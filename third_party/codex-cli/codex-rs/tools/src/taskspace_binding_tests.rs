@@ -40,12 +40,12 @@ fn function_tool_requires_lightweight_binding_without_changing_business_fields()
         "steady-state bindings must share the discriminated object shape"
     );
     assert!(
-        serialized.len() < 2_700,
-        "initialization binding schema expanded to {} bytes",
+        serialized.len() < 1_900,
+        "binding schema is {} bytes",
         serialized.len()
     );
     assert!(!serialized.contains("expected_revision"));
-    assert!(serialized.contains("node_id"));
+    assert!(serialized.contains("initial_work_id"));
     assert!(serialized.contains("edges"));
 
     let binding = actual
@@ -86,7 +86,7 @@ fn taskspace_patch_projection_keeps_raw_patch_as_top_level_input() {
     let binding = serde_json::to_string(&properties["taskspace_binding"])
         .expect("serialize initialization carrier");
     assert!(binding.contains("initialize_map"));
-    assert!(binding.contains("root"));
+    assert!(binding.contains("root_id"));
 }
 
 #[test]

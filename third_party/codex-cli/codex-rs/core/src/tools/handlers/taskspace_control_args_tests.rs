@@ -4,11 +4,27 @@ use serde_json::Value as JsonValue;
 #[test]
 fn control_accepts_boundary_transitions() {
     for arguments in [
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[]}"#,
+        r#"{"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"work","goal":"Work"}],"root_id":"root","initial_work_id":"work","finish_id":"finish","edges":[]}"#,
         r#"{"action":"bind_node","expected_revision":2,"node_id":"work"}"#,
         r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"verify"}"#,
     ] {
         parse_taskspace_control_args(arguments).expect(arguments);
+    }
+}
+
+#[test]
+fn initialize_map_requires_agent_authored_roles_in_the_node_set() {
+    for arguments in [
+        r#"{"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"work","goal":"Work"}],"root_id":"missing","initial_work_id":"work","finish_id":"finish","edges":[]}"#,
+        r#"{"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"work","goal":"Work"}],"root_id":"root","initial_work_id":"missing","finish_id":"finish","edges":[]}"#,
+        r#"{"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"root","goal":"Duplicate"},{"id":"work","goal":"Work"}],"root_id":"root","initial_work_id":"work","finish_id":"finish","edges":[]}"#,
+        r#"{"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"work","goal":"Work"}],"root_id":"root","initial_work_id":"work","finish_id":"root","edges":[]}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[]}"#,
+    ] {
+        assert!(
+            parse_taskspace_control_args(arguments).is_err(),
+            "{arguments}"
+        );
     }
 }
 
@@ -32,7 +48,7 @@ fn accepts_standalone_graph_and_terminal_actions() {
 #[test]
 fn every_control_action_rejects_missing_extra_and_wrong_typed_fields() {
     let fixtures = [
-        serde_json::json!({"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[]}),
+        serde_json::json!({"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"work","goal":"Work"}],"root_id":"root","initial_work_id":"work","finish_id":"finish","edges":[]}),
         serde_json::json!({"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[]}),
         serde_json::json!({"action":"bind_node","expected_revision":2,"node_id":"new"}),
         serde_json::json!({"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"new"}),

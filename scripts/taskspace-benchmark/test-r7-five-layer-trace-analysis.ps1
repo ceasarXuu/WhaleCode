@@ -25,7 +25,7 @@ try {
     if ($standard[0].calls[0].failure_code -ne "shell_exit_1") { throw "Standard failure was not classified" }
 
     $taskspacePath = Join-Path $tempRoot "taskspace.jsonl"
-    $initActionArgs = '{"cmd":"ls","taskspace_binding":{"action":"initialize_map","root":{"node_id":"root","goal":"task"},"initial_work_node":{"node_id":"explore","goal":"inspect"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}]}}'
+    $initActionArgs = '{"cmd":"ls","taskspace_binding":{"action":"initialize_map","nodes":[{"id":"root","goal":"task"},{"id":"explore","goal":"inspect"}],"root_id":"root","initial_work_id":"explore","finish_id":"finish","edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}]}}'
     $finishArgs = '{"action":"finish_map","terminal_node_id":"verify"}'
     Write-Lines $taskspacePath @(
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "exec_command"; arguments = $initActionArgs } } },

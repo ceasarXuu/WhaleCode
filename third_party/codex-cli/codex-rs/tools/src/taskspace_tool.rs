@@ -58,13 +58,13 @@ fn graph_node_schema(
     )
 }
 
-fn finish_identity_schema() -> JsonSchema {
+fn initialization_node_schema() -> JsonSchema {
     JsonSchema::object(
-        BTreeMap::from([(
-            "id".into(),
-            JsonSchema::string(Some("Stable Agent-authored Finish identifier.".into())),
-        )]),
-        Some(vec!["id".into()]),
+        BTreeMap::from([
+            ("id".into(), JsonSchema::string(None)),
+            ("goal".into(), JsonSchema::string(None)),
+        ]),
+        Some(vec!["id".into(), "goal".into()]),
         Some(false.into()),
     )
 }
@@ -95,49 +95,46 @@ pub(crate) fn initialize_map_schema() -> JsonSchema {
         "initialize_map",
         BTreeMap::from([
             (
-                "root".into(),
-                graph_node_schema(
-                    Some("Stable Agent-authored Root identifier."),
-                    Some("The user's overall task goal."),
-                ),
-            ),
-            (
-                "initial_work_node".into(),
-                graph_node_schema(
-                    Some("Stable Agent-authored Work identifier."),
-                    Some("The first coherent Work goal."),
-                ),
-            ),
-            ("finish_identity".into(), finish_identity_schema()),
-            (
-                "additional_work_nodes".into(),
+                "nodes".into(),
                 JsonSchema::array(
-                    graph_node_schema(
-                        Some("Stable Agent-authored Work identifier."),
-                        Some("A coherent Work goal."),
+                    initialization_node_schema(),
+                    Some(
+                        "All Agent-authored Root and Work nodes. Finish is identified separately."
+                            .into(),
                     ),
-                    None,
                 ),
+            ),
+            (
+                "root_id".into(),
+                JsonSchema::string(Some("Root id from nodes.".into())),
+            ),
+            (
+                "initial_work_id".into(),
+                JsonSchema::string(Some("First active Work id from nodes.".into())),
+            ),
+            (
+                "finish_id".into(),
+                JsonSchema::string(Some("Unique Finish id; omit it from nodes.".into())),
             ),
             (
                 "edges".into(),
                 JsonSchema::array(
-                    edge_schema(true),
+                    edge_schema(false),
                     Some(
-                        "Complete explicit DAG edges. Include root.node_id -> initial_work_node.node_id. Every non-Root node must be reachable from Root, and every non-Finish node must reach Finish."
+                        "Complete Agent-authored DAG edges from Root through every Work to Finish."
                             .into(),
                     ),
                 ),
             ),
         ]),
         vec![
-            "root".into(),
-            "initial_work_node".into(),
-            "finish_identity".into(),
-            "additional_work_nodes".into(),
+            "nodes".into(),
+            "root_id".into(),
+            "initial_work_id".into(),
+            "finish_id".into(),
             "edges".into(),
         ],
-        "Create the initial rooted DAG, its unique Finish, and the first active Work binding. Use this object as the first ordinary Tool's taskspace_binding so initialization and that real action form one Tool call.",
+        "Initialize the Agent-authored rooted DAG and bind its first Work before this ordinary Tool executes.",
     )
 }
 

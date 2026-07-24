@@ -33,11 +33,18 @@ struct Envelope {
 struct InitializeMapArgs {
     #[serde(rename = "action")]
     _action: Action,
-    root: TaskSpaceGraphNodeArgs,
-    initial_work_node: TaskSpaceGraphNodeArgs,
-    finish_identity: TaskSpaceFinishIdentityArgs,
-    additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+    nodes: Vec<InitializeMapNodeArgs>,
+    root_id: String,
+    initial_work_id: String,
+    finish_id: String,
     edges: Vec<TaskSpaceGraphEdgeArgs>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InitializeMapNodeArgs {
+    id: String,
+    goal: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,11 +164,25 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
     match deserialize_arguments::<Envelope>(arguments)?.action {
         Action::InitializeMap => {
             let parsed = deserialize_arguments::<InitializeMapArgs>(arguments)?;
+            let root_index = initialize_node_index(&parsed.nodes, &parsed.root_id, "root_id")?;
+            let initial_work_index =
+                initialize_node_index(&parsed.nodes, &parsed.initial_work_id, "initial_work_id")?;
+            let root = initialize_node(&parsed.nodes[root_index]);
+            let initial_work_node = initialize_node(&parsed.nodes[initial_work_index]);
+            let additional_work_nodes = parsed
+                .nodes
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| *index != root_index && *index != initial_work_index)
+                .map(|(_, node)| initialize_node(&node))
+                .collect();
             Ok(TaskSpaceControlArgs::InitializeMap {
-                root: parsed.root,
-                initial_work_node: parsed.initial_work_node,
-                finish_identity: parsed.finish_identity,
-                additional_work_nodes: parsed.additional_work_nodes,
+                root,
+                initial_work_node,
+                finish_identity: TaskSpaceFinishIdentityArgs {
+                    id: parsed.finish_id,
+                },
+                additional_work_nodes,
                 edges: parsed.edges,
             })
         }
@@ -266,6 +287,28 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
             let _ = deserialize_arguments::<ReadMapArgs>(arguments)?;
             Ok(TaskSpaceControlArgs::ReadMap)
         }
+    }
+}
+
+fn initialize_node_index(
+    nodes: &[InitializeMapNodeArgs],
+    node_id: &str,
+    role: &str,
+) -> Result<usize, FunctionCallError> {
+    nodes
+        .iter()
+        .position(|node| node.id == node_id)
+        .ok_or_else(|| {
+            invalid_error(format!(
+                "initialize_map {role} must identify an item in nodes"
+            ))
+        })
+}
+
+fn initialize_node(node: &InitializeMapNodeArgs) -> TaskSpaceGraphNodeArgs {
+    TaskSpaceGraphNodeArgs {
+        node_id: node.id.clone(),
+        goal: node.goal.clone(),
     }
 }
 

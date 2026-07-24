@@ -113,22 +113,23 @@ fn initialization_binding_keeps_explicit_rooted_graph_contract() {
         initialize.required.as_ref().expect("required"),
         &[
             "action",
-            "root",
-            "initial_work_node",
-            "finish_identity",
-            "additional_work_nodes",
+            "nodes",
+            "root_id",
+            "initial_work_id",
+            "finish_id",
             "edges",
         ]
     );
     let properties = initialize.properties.as_ref().expect("properties");
-    assert!(properties.contains_key("root"));
-    assert!(properties.contains_key("initial_work_node"));
-    assert!(properties.contains_key("finish_identity"));
+    assert!(properties.contains_key("nodes"));
+    assert!(properties.contains_key("root_id"));
+    assert!(properties.contains_key("initial_work_id"));
+    assert!(properties.contains_key("finish_id"));
     assert!(properties.contains_key("edges"));
     assert!(
         properties["edges"]
             .description
             .as_deref()
-            .is_some_and(|description| description.contains("root.node_id"))
+            .is_some_and(|description| description.contains("Root"))
     );
 }

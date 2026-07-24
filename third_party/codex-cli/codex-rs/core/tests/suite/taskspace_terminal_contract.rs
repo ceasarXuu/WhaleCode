@@ -36,12 +36,14 @@ const TASKSPACE_CORE_PROTOCOL: &str =
 fn initialize_arguments() -> String {
     json!({
         "action": "initialize_map",
-        "root": {"node_id": "root", "goal": "Complete the test task"},
-        "initial_work_node": {"node_id": "work", "goal": "Inspect the workspace"},
-        "finish_identity": {"id": "finish"},
-        "additional_work_nodes": [
-            {"node_id": "verify", "goal": "Verify the result"}
+        "nodes": [
+            {"id": "root", "goal": "Complete the test task"},
+            {"id": "work", "goal": "Inspect the workspace"},
+            {"id": "verify", "goal": "Verify the result"}
         ],
+        "root_id": "root",
+        "initial_work_id": "work",
+        "finish_id": "finish",
         "edges": [
             {"from": "root", "to": "work"},
             {"from": "work", "to": "verify"},

@@ -30,8 +30,7 @@ function ConvertTo-R7CallDescriptor {
     $currentNode = [string](Get-R7JsonProperty $parsed "current_node_id" "")
     $nextNode = [string](Get-R7JsonProperty $parsed "next_node_id" "")
     $initialization = if ($taskspaceBinding -eq "initialize_map") { $bindingValue } else { $parsed }
-    $initialWork = Get-R7JsonProperty $initialization "initial_work_node"
-    $initialNode = [string](Get-R7JsonProperty $initialWork "node_id" "")
+    $initialNode = [string](Get-R7JsonProperty $initialization "initial_work_id" "")
     $terminalNode = [string](Get-R7JsonProperty $parsed "terminal_node_id" "")
     $node = if ($currentNode -and $nextNode) {
         "$currentNode->$nextNode"

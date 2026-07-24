@@ -8,10 +8,13 @@ fn bootstrap_call(call_id: &str) -> ResponseItem {
         namespace: None,
         arguments: serde_json::json!({
             "action": "initialize_map",
-            "root": {"node_id": "root", "goal": "solve"},
-            "initial_work_node": {"node_id": "node-1", "goal": "inspect"},
-            "additional_work_nodes": [],
-            "finish_identity": {"id": "finish"},
+            "nodes": [
+                {"id": "root", "goal": "solve"},
+                {"id": "node-1", "goal": "inspect"}
+            ],
+            "root_id": "root",
+            "initial_work_id": "node-1",
+            "finish_id": "finish",
             "edges": [{"from": "root", "to": "node-1"}, {"from": "node-1", "to": "finish"}]
         })
         .to_string(),
