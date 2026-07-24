@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.30",
+  "manifest_version": "1.0.31",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -27,12 +27,13 @@
     "FLA-9-integrated-change-gate",
     "FLA-9-initialization-role-structure-gate",
     "R7.1-continuation-baseline",
-    "R7.1-adversarial-audit-correction"
+    "R7.1-adversarial-audit-correction",
+    "R7.1-persistent-map-ownership-blocker"
   ],
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "2bf69bfa8a6e3ff51da75dbd18b8fea95908d48745aa2eecde4b7149a7ae94ae"
+    "sha256": "601cbdba3b9305de37cac4f55c58be17d05f55a610881eabd2d6e703c70c7f9c"
   },
   "compatibility_policy": "none",
   "wire_order": {

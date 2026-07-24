@@ -594,3 +594,13 @@ The adversarial milestone audit is closed after three fresh review rounds.
 
 R7.1 is an accurate continuation baseline, not a completed release. Its current machine and human ledgers agree on
 `18 closed / 4 open`: R-10, R-19, R-21 and R-22 remain blocking.
+
+## Post-audit architecture clarification
+
+本审查关闭后，产品所有权模型进一步明确：canonical Map 应是独立持久化、始终存在的唯一数据，而不是由
+Session-local Runtime 持有并从 rollout checkpoint/delta 重建。该澄清新增 R-23、C-17、G-16 和 D-11，并把
+R7.1-A0 调整为先建立持久化 Map Store，再验证 R-21 child handoff。
+
+因此，上述 Round 3 的 `18 closed / 4 open` 和“无遗漏”结论只对审查当时的目标模型成立。当前权威总账为
+`18 closed / 5 open`，新增 R-23 属于审查后产品架构澄清，不回写或伪造既有 reviewer 输出。该计划更新尚未执行
+新的对抗性审查。

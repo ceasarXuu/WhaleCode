@@ -27,7 +27,7 @@
 | L2 Core Working Protocol | 普通任务都需要的 Map 工作循环、基础恢复和反模式 | 初始化后工作、真实边界同步、依据事实恢复 | 第二份 Base、参数全集、动态事实、高级 playbook |
 | L3 Advanced Skills | 复杂 DAG、重规划、长任务和证据冲突的按需经验 | 内置 Skill 可被 Standard 与 TaskSpace 正常发现；正文按需加载 | 成为正确性前提、Runtime 自动加载、固定进入每个请求 |
 | L4 Tool Contract | 能力、action 语义、参数、结果、副作用和机械调用形状 | schema 明确、静态、可解析；连续动作可结构表达 | 教授规划、推断任务语义、按 Map 状态动态改 schema |
-| L5 Runtime and Factual Feedback | canonical Map、硬规则、原子提交、忠实结果和纯 projection | 单一事实、失败零提交、原始原因、明确 revision/commit | 代选节点、补参数、自动初始化、语义建议、隐藏或改写失败 |
+| L5 Map Store, Runtime and Factual Feedback | 独立持久化 canonical Map、硬规则、原子提交、忠实结果和纯 projection | 单一事实、失败零提交、原始原因、明确 revision/commit | 以 Session/rollout 代替 Map Store、代选节点、补参数、自动初始化、语义建议、隐藏或改写失败 |
 
 Agent 是唯一语义决策者，不是第六层。Provider Context Composer 只是无语义传输设施，也不是第六层。
 
@@ -115,6 +115,13 @@ provider 实际收到的完整 `tools`、messages、input、cache hit 和 reques
 schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用集合，再依赖跨字段说明让 Agent 自行维持互斥、
 唯一性或成员关系。描述文本可以补充合同，但不能替代能够直接表达的结构。
 
+### C-17 canonical Map 必须独立持久化
+
+Map 从初始化 commit 起就是独立持久化、全局唯一的数据。Map Store 是 Map、node、edge、lease、result 和 revision
+的唯一事实源；Session、Runtime、resume、fork 和 child agent 只能按身份访问同一份 Map。Runtime 可以维护按
+revision 校验、随时可丢弃的缓存，但不能拥有 authoritative Map 副本。rollout 只记录对话、Tool 结果、审计事件
+和 Map revision 引用，不能作为 Map snapshot/delta 的恢复权威，也不能在 Map Store 缺失时静默重建 Map。
+
 ## 4. 历史回归总账
 
 | ID | 曾出现的问题 | 当前不可回退的结论 | 状态 |
@@ -139,10 +146,11 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 | R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | `initialize_map`、`active`、`after_boundary` 使用同形可判别对象 | closed |
 | R-19 | 完整初始化图 schema 被复制到每个普通 Tool，固定 schema 约 55.6 KB | 必须在固定 schema 内机械收敛，且不能回退 R-08/R-09/R-17/R-18 | open |
 | R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | closed |
-| R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前恢复了不一致的父 assignment 状态 | parent-to-child handoff 必须可重放，父 canonical Map 不被破坏，并机械区分线性化 child attach 与 TaskSpace session restore | open |
+| R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前从父 rollout 恢复了不一致的 assignment 状态 | child 必须按 Map 身份访问同一份持久化 canonical Map，并机械区分 child attach 与 TaskSpace session resume | open |
 | R-22 | `map-request` 复杂样本稳定产生多 Patch sibling reject，部分运行在业务完成后才补 Map 生命周期 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
+| R-23 | canonical Map 被 Session-local Runtime 持有，并依赖 rollout checkpoint/delta 重建 | 独立持久化 Map Store 是唯一事实源；Session/Runtime 只持有引用或可丢弃缓存，rollout 永不承担 Map 恢复 | open |
 
-## 5. 当前 R-10/R-19/R-21/R-22 的整组准入门
+## 5. 当前 R-10/R-19/R-21/R-22/R-23 的整组准入门
 
 任何实现候选必须一次通过以下全部条件：
 
@@ -160,12 +168,15 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 12. **迁移门**：不保留旧初始化 wire parser 或 fallback。
 13. **角色结构门**：Root、Initial Work、Additional Work、Finish 由 schema 分区，valid fixture 一次解析，
     角色重复和旧通用 `nodes + role ids` wire 被确定性拒绝。
-14. **子代理恢复门**：节点绑定子代理 spawn、完成 watcher、resume/fork 和 replay 使用可重放 handoff，不出现
-    `current binding and main lease are inconsistent`，并用 typed telemetry 区分 child attach 与 session restore。
+14. **子代理恢复门**：节点绑定子代理 spawn、完成 watcher、resume/fork 按 Map 身份访问同一份持久化状态，
+    不出现 `current binding and main lease are inconsistent`，并用 typed telemetry 区分 child attach 与
+    session resume。
 15. **响应级行为门**：逐 policy 报告 multi-Patch attempts、零 dispatch reject、Map lifecycle cadence 和事后
     补账；自然复杂样本不得稳定重复触发同一协议拒绝后再恢复。
+16. **持久化所有权门**：进程重启、resume、fork 和 child agent 均从独立 Map Store 读取同一 `map_id` 与 revision；
+    rollout 截断不丢 Map，Map Store 缺失时也不得从 rollout 静默重建。
 
-R-20 的定向门已经通过，但 R-10、R-21 和 R-22 仍使 R-19 的整组行为门失败。成本下降不能越过这些阻塞项
+R-20 的定向门已经通过，但 R-10、R-21、R-22 和 R-23 仍使 R-19 的整组行为门失败。成本下降不能越过这些阻塞项
 单独晋升。
 
 ## 6. 已淘汰方向
@@ -182,6 +193,7 @@ R-20 的定向门已经通过，但 R-10、R-21 和 R-22 仍使 R-19 的整组�
 | 放宽 rooted DAG、revision、binding 或 terminal 硬规则换成功率 | 违反 C-02、C-08、C-12 |
 | 在失败反馈中加入下一步动作建议 | 违反 C-03、C-12 |
 | 把有不同硬规则的初始化角色压成通用 nodes 集合和 role id 引用 | 违反 C-05、C-16，并重新引入 R-20 |
+| 从 Session rollout、checkpoint 或 delta 重建 canonical Map，或保留 Session-local authoritative Map 副本 | 违反 C-01、C-08、C-17，并延续 R-23 |
 
 ## 7. 变更流程
 

@@ -2,19 +2,20 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "r7_1_continuation_baseline_with_four_open_regressions",
+  "contract_status": "r7_1_continuation_baseline_with_five_open_regressions",
   "frozen_against_commit": "48922ce9b",
   "current_milestone": {
     "id": "R7.1",
     "behavior_baseline_commit": "1fdd4474d02600ea0c7290300154bcd1ce45f52d",
     "document": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-    "sha256": "26f7da71126ebf5aa4d0f4e533109868362af353edd85b30eb0987a7f9a589ce",
+    "sha256": "9c818378b4e47c66933072a7682a0b59d110a48d34a2c3fa8cfedf71ee20340d",
     "purpose": "single human-readable continuation entrypoint; does not override the integrated machine gate",
     "open_regressions": [
       "R-10",
       "R-19",
       "R-21",
-      "R-22"
+      "R-22",
+      "R-23"
     ]
   },
   "compatibility_policy": "none",
@@ -70,12 +71,12 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "36fd8d62438f0e01d660cb9ecc3593ae7b79efa307b4773c779a2a2059ffdecb",
+      "sha256": "7df380b9620a87c94bb06459eecddd340c520360e653bacb66caf589be1d1a89",
       "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
     },
     {
       "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "sha256": "26f7da71126ebf5aa4d0f4e533109868362af353edd85b30eb0987a7f9a589ce",
+      "sha256": "9c818378b4e47c66933072a7682a0b59d110a48d34a2c3fa8cfedf71ee20340d",
       "role": "R7.1 human-readable status, constraints, blockers and continuation entrypoint"
     },
     {
@@ -139,13 +140,14 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-9 integrated non-regression gate",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "849ade6993fdf69eaf2ca88f71cc49b4e72ea7a4ea0c9132e7effbdcca7de856",
+      "sha256": "6d11a39e0107a562536950e3a60dc8727ec7fb25ac16e7dc32a287439f7f8b21",
       "validation": "scripts/taskspace-benchmark/test-r7-integrated-change-constraints.ps1",
       "open_regressions": [
         "R-10",
         "R-19",
         "R-21",
-        "R-22"
+        "R-22",
+        "R-23"
       ],
       "closed_regression_count": 18
     },
@@ -320,7 +322,8 @@
         "FLA-8 promotion",
         "R-10",
         "R-21",
-        "R-22"
+        "R-22",
+        "R-23"
       ],
       "candidate_status": "evaluation_candidate",
       "selected_direction": "evaluate only fixed-schema compact Agent-authored initialization wires with structurally distinct Root, Initial Work, Additional Work, and Finish roles",
@@ -332,6 +335,18 @@
       ]
     },
     {
+      "id": "R7.1-persistent-map-ownership",
+      "implementation_status": "selected_not_implemented",
+      "issue": "R-23/H-001",
+      "plan": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+      "blocks": [
+        "FLA-8 promotion",
+        "R-21"
+      ],
+      "current_failure": "SessionState owns complete ActionMapRuntimeState maps and tasks while resume and fork reconstruct canonical Map state from rollout checkpoints and deltas",
+      "selected_direction": "reuse the existing state and SQLite substrate for one independently persisted Map Store; make sessions and Runtime use identity handles or disposable revision-checked caches, and remove rollout Map recovery without compatibility fallback"
+    },
+    {
       "id": "R7.1-subagent-map-restore",
       "implementation_status": "selected_not_implemented",
       "issue": "R-21/H-003",
@@ -340,7 +355,7 @@
         "FLA-8 promotion"
       ],
       "current_failure": "action_map_completion_watcher_advances_next_spawn_to_next_node fails before first child session with current binding and main lease inconsistent",
-      "selected_direction": "locate and repair the replayability boundary between persisted spawn assignment and child attach without weakening canonical Map invariants"
+      "selected_direction": "after R-23 is closed, make parent and child access the same persisted Map identity and repair only the child attach, lease, and revision transaction without rollout reconstruction or weakened invariants"
     },
     {
       "id": "R7.1-map-request-operation-drift",

@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "36fd8d62438f0e01d660cb9ecc3593ae7b79efa307b4773c779a2a2059ffdecb"
+    "sha256": "7df380b9620a87c94bb06459eecddd340c520360e653bacb66caf589be1d1a89"
   },
   "architectural_constraints": [
     {
@@ -103,6 +103,12 @@
       "owner": "L4",
       "requirement": "Mechanical roles that drive parsing or hard validation are represented by distinct Tool fields or schema branches.",
       "prohibited": "Erasing roles into a generic collection and relying on cross-field prose for exclusivity, uniqueness, or membership."
+    },
+    {
+      "id": "C-17",
+      "owner": "persistent Map Store and L5 Runtime",
+      "requirement": "One independently persisted Map Store is the canonical owner; sessions and Runtime use identity handles or disposable revision-checked caches.",
+      "prohibited": "Session-local authoritative Map copies, rollout checkpoint or delta recovery authority, silent Map reconstruction, or dual sources of truth."
     }
   ],
   "regression_invariants": [
@@ -249,8 +255,8 @@
     {
       "id": "R-21",
       "status": "open",
-      "problem": "A node-bound TaskSpace subagent spawn restores an inconsistent parent assignment state and fails before the child session starts.",
-      "required_behavior": "A subagent spawn uses a replayable parent-to-child handoff, preserves the parent canonical Map, and distinguishes linearized child attachment from TaskSpace session restore.",
+      "problem": "A node-bound TaskSpace subagent spawn restores an inconsistent assignment from the parent rollout and fails before the child session starts.",
+      "required_behavior": "A subagent accesses the same persisted canonical Map by identity and distinguishes child attachment from TaskSpace session resume without reconstructing the Map from rollout.",
       "evidence": ["coe/2026-07-18-03-15-r7-subagent-map-restore.md"]
     },
     {
@@ -259,6 +265,13 @@
       "problem": "Map-request complex runs repeatedly generate multiple sibling Patch calls or postpone Map lifecycle bookkeeping until after business work.",
       "required_behavior": "Promotion evidence shows no repeated multi-Patch protocol rejection or post-hoc Map closure pattern while preserving one-Patch atomic safety and Agent-owned lifecycle choices.",
       "evidence": ["coe/2026-07-23-18-24-r7-fla-map-request-operation-drift.md"]
+    },
+    {
+      "id": "R-23",
+      "status": "open",
+      "problem": "The canonical Map is owned by Session-local Runtime state and recovered by replaying rollout checkpoints and deltas.",
+      "required_behavior": "One independently persisted Map Store remains the canonical data owner; Runtime, sessions, resumes, forks, and child agents access it by identity while rollout remains audit and context history only.",
+      "evidence": ["coe/2026-07-24-21-21-r7-canonical-map-persistence-ownership.md"]
     }
   ],
   "candidate_gates": [
@@ -276,7 +289,8 @@
     {"id": "G-12", "requirement": "No legacy initialization parser or fallback remains.", "evidence_required": "Source scan and negative old-wire test."},
     {"id": "G-13", "requirement": "Initialization roles remain structurally distinct rather than prose-only cross-field relations.", "evidence_required": "Schema inspection, one-pass valid fixture, role-collision negatives, and Docker initialization traces."},
     {"id": "G-14", "requirement": "TaskSpace subagent handoff and replay do not persist or restore an inconsistent assignment intermediate state.", "evidence_required": "Focused failing spawn regression, parent-child handoff fixture, resume/fork regression, and typed boundary telemetry."},
-    {"id": "G-15", "requirement": "Natural complex runs do not repeatedly reach response-wide multi-Patch rejection or defer Map lifecycle bookkeeping until after business work.", "evidence_required": "Per-policy multi-Patch attempt, zero-dispatch reject, lifecycle cadence, request path, and final Map closure evidence."}
+    {"id": "G-15", "requirement": "Natural complex runs do not repeatedly reach response-wide multi-Patch rejection or defer Map lifecycle bookkeeping until after business work.", "evidence_required": "Per-policy multi-Patch attempt, zero-dispatch reject, lifecycle cadence, request path, and final Map closure evidence."},
+    {"id": "G-16", "requirement": "The canonical Map survives process restart, resume, fork, child attachment, and rollout truncation through one independently persisted identity.", "evidence_required": "Map Store integration tests, failure injection, same-map revision traces, rollout truncation negatives, and source scan proving no rollout recovery fallback."}
   ],
   "rejected_directions": [
     {"id": "D-01", "direction": "Change ordinary Tool schema when the Map becomes initialized.", "violates": ["C-06"]},
@@ -288,6 +302,7 @@
     {"id": "D-07", "direction": "Use prompt text as the only initialization or continuity contract.", "violates": ["C-05", "R-08", "R-10"]},
     {"id": "D-08", "direction": "Relax graph, revision, binding, or terminal invariants for pass rate.", "violates": ["C-02", "C-08", "C-12"]},
     {"id": "D-09", "direction": "Inject corrective next-action advice into failure feedback.", "violates": ["C-03", "C-12"]},
-    {"id": "D-10", "direction": "Flatten Root, Work, and Finish into a generic nodes collection plus role-id references to save bytes.", "violates": ["C-05", "C-16", "R-20"]}
+    {"id": "D-10", "direction": "Flatten Root, Work, and Finish into a generic nodes collection plus role-id references to save bytes.", "violates": ["C-05", "C-16", "R-20"]},
+    {"id": "D-11", "direction": "Reconstruct the canonical Map from session rollout checkpoints or deltas, or retain a Session-local authoritative Map copy.", "violates": ["C-01", "C-08", "C-17", "R-23"]}
   ]
 }

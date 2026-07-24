@@ -109,7 +109,8 @@
     "R-10",
     "R-19",
     "R-21",
-    "R-22"
+    "R-22",
+    "R-23"
   ],
-  "decision": "Keep the role-separated fixed initialization wire as the R-20 repair. Do not promote the candidate while R-10, R-19, R-21, or R-22 remains open. R-10 requires a structural continuous-action carrier decision; prompt-only or post-response punishment is rejected."
+  "decision": "Keep the role-separated fixed initialization wire as the R-20 repair. Do not promote the candidate while R-10, R-19, R-21, R-22, or R-23 remains open. R-10 requires a structural continuous-action carrier decision; R-23 requires one independently persisted canonical Map Store rather than rollout reconstruction."
 }

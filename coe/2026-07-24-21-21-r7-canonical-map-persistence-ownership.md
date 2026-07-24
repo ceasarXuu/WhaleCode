@@ -1,0 +1,153 @@
+# Problem P-001: canonical Map 被 Session Runtime 和 rollout 恢复链路错误持有
+- Status: open
+- Created: 2026-07-24 21:21
+- Updated: 2026-07-24 21:21
+- Objective: 建立独立持久化、全局唯一的 canonical Map；Session、Runtime、resume、fork 和 child agent 只按身份访问同一份 Map，rollout 仅保留对话与审计记录。
+- Symptoms:
+  - `SessionState` 直接持有包含完整 `tasks`、`maps` 的 `ActionMapRuntimeState`。
+  - resume/fork 从 rollout 的 checkpoint/delta 重建 Map。
+  - 节点绑定 child 在重放父 rollout 时可能恢复到不一致的 assignment 中间态。
+- Expected behavior:
+  - Map 从创建起就是独立持久化数据，并始终作为唯一事实源存在。
+  - Runtime 是 Map 操作、硬规则验证和可丢弃缓存层，不是 Map 的所有者。
+  - Session 与 Agent 只持有 `map_id`、`node_id`、`lease_id` 和 revision 等引用。
+  - resume、fork 和 child agent 按 `map_id` 访问同一份持久化 Map，不通过 rollout 重建。
+  - rollout 只记录对话、Tool 结果、审计事件和 Map revision 引用，删除或截断 rollout 不得导致 Map 丢失。
+- Actual behavior:
+  - 完整 Map 数据驻留在 Session-local Runtime HashMap 中。
+  - checkpoint/delta 被写入 rollout，session 恢复再调用 `restore_snapshot` 重建 Runtime Map。
+  - rollout 同时承担自然上下文历史和 Map 恢复事实源，形成错误的双重职责。
+- Impact:
+  - child handoff、resume、fork 和 compaction 都被 rollout 边界绑架。
+  - 任意回放截断或中间态持久化都可能产生 Map 丢失、分叉或不一致。
+  - R-21 即使通过局部时序修补也无法证明 canonical ownership 正确。
+- Reproduction:
+  - 检查 `SessionState::action_map_runtime`、`ActionMapRuntimeState::{tasks,maps}` 和 `try_reconstruct_history_from_rollout -> restore_snapshot`。
+  - 运行 `cargo test -p codex-core action_map_completion_watcher_advances_next_spawn_to_next_node -- --nocapture` 可观察下游 R-21 症状。
+- Environment:
+  - Linux，分支 `whalecode-alpha`，R7.1 continuation baseline。
+- Known facts:
+  - `SessionState` 直接持有 `ActionMapRuntimeState`。
+  - `ActionMapRuntimeState` 直接持有任务与 Map 的 HashMap。
+  - session 恢复从 rollout checkpoint/delta 构造 snapshot 并调用 `restore_snapshot`。
+  - 当前未发现独立的 Map repository 或持久化 Map 表。
+- Ruled out:
+  - Map 只是 projection 或 provider context 中的临时视图。
+  - rollout 重放是 canonical Map 的合理持久化模型。
+  - 仅调整 child spawn 时序即可根治所有权问题。
+- Fix criteria:
+  - 存在唯一持久化 Map Store，复用项目既有 state/SQLite 基建，不新建平行存储体系。
+  - Map、node、edge、lease、result 和 revision 通过一个事务边界持久化。
+  - Session/Runtime 不再持有 authoritative Map 副本；内存状态只能是可丢弃、按 revision 校验的缓存。
+  - rollout 不再存放用于恢复 canonical Map 的 snapshot/delta；不得保留旧回放恢复 fallback 或双 parser。
+  - 进程重启、resume、fork 和 child agent 都按同一 `map_id` 读取同一 revision 链。
+  - 删除或截断对话 rollout 后，Map 仍完整可读；删除 Map Store 后，rollout 不得静默重建 Map。
+  - 并发 child 操作通过 revision/transaction 检测冲突，不产生第二份 Map。
+  - R-21 原始失败测试和相邻生命周期回归在新所有权模型下通过。
+  - 日志能够按 `map_id`、revision、session id、node id 和 lease id 追踪 load、commit、conflict 与 handoff。
+- Current conclusion: 根因已确认是 canonical ownership 放错层级。后续必须先建立独立持久化 Map Store，再处理 R-21 child handoff；禁止继续以 rollout replay 补丁延续旧模型。
+- Related hypotheses:
+  - H-001
+- Resolution basis:
+  - not satisfied
+- Close reason:
+  - not closed
+
+## Hypothesis H-001: Session-local Runtime 和 rollout 被错误当作 canonical Map 持久化层
+- Status: confirmed
+- Parent: P-001
+- Claim: 当前实现把完整 Map 所有权放在 Session-local Runtime 中，并以 rollout checkpoint/delta 作为恢复来源；这与“独立持久化 Map 始终存在”的产品模型冲突。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - Map 数据结构、恢复入口和 rollout 事件链的代码所有权一致指向 Session/replay，而不是独立 repository。
+- Falsifiable predictions:
+  - If true: Runtime 持有完整 Map HashMap，恢复入口从 rollout 读取 snapshot/delta，且不存在独立 Map repository。
+  - If false: Runtime 仅持有 handle/cache，canonical Map 已独立持久化，rollout 只携带 revision 引用。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查 Map 数据所有者、持久化写入点和 session 恢复入口。
+  - Signal: 字段类型、repository/table、snapshot/delta 写入和 restore 调用。
+  - Capture method: 代码路径审计和全仓搜索。
+  - Event name or marker:
+    - `map_runtime_snapshot_delta`
+  - Correlation keys:
+    - map id
+    - revision
+    - session id
+  - Differentiates from:
+    - R-21 的 child spawn 时序假设
+  - Supports if:
+    - 完整 Map 驻留 Session Runtime 且从 rollout 重建。
+  - Refutes if:
+    - 独立 Store 已是唯一事实源。
+  - Instrumentation status: existing-insufficient
+  - Instrumentation lifecycle:
+    - 实施时新增 Store load/commit/conflict/handoff 永久结构化日志。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+  - E-002
+  - E-003
+- Conclusion: confirmed；当前 canonical ownership 与目标产品模型不一致。
+- Repair design readiness: ready
+- Next step: 按 R7.1-A0 分阶段建立持久化 Map Store，移除 rollout recovery authority，再验证 R-21。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-001: SessionState 直接持有完整 ActionMapRuntimeState
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/state/session.rs:43`
+- Prediction or plan link:
+  - H-001 关于 Session-local ownership 的判断。
+- Matched signal:
+  - `SessionState` 包含 `pub(crate) action_map_runtime: ActionMapRuntimeState`。
+- Correlation keys:
+  - session state
+- Raw content:
+  - `ActionMapRuntimeState` 随 SessionState 创建、重置和恢复。
+- Interpretation: Session 当前不是只持有 Map handle，而是直接拥有 Runtime Map 状态。
+- Time: 2026-07-24 21:21
+
+## Evidence E-002: ActionMapRuntimeState 内部保存 authoritative tasks 和 maps
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:670`
+- Prediction or plan link:
+  - H-001 关于 Runtime 数据所有权的判断。
+- Matched signal:
+  - Runtime 字段为 `tasks: HashMap<TaskId, TaskRecord>` 和 `maps: HashMap<ActionMapId, ActionMapInstance>`。
+- Correlation keys:
+  - task id
+  - map id
+- Raw content:
+  - Runtime 默认构造空 HashMap，并通过 snapshot/restore 管理完整状态。
+- Interpretation: 当前 Runtime 是完整 Map 数据容器，而不只是操作层或缓存。
+- Time: 2026-07-24 21:21
+
+## Evidence E-003: session 从 rollout checkpoint/delta 恢复 Map
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/session/mod.rs:2167`
+- Prediction or plan link:
+  - H-001 关于 rollout recovery authority 的判断。
+- Matched signal:
+  - session 调用 `try_reconstruct_history_from_rollout`，随后以重建 snapshot 调用 `action_map_runtime.restore_snapshot`。
+- Correlation keys:
+  - rollout
+  - map id
+  - revision
+- Raw content:
+  - Map checkpoint/delta 与自然对话历史共同进入 rollout 恢复链路。
+- Interpretation: rollout 当前承担了 canonical Map 恢复源职责；这正是需要移除的错误所有权。
+- Time: 2026-07-24 21:21
