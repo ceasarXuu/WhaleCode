@@ -461,3 +461,98 @@
 - Interpretation: feedback 没有丢失或扭曲，Runtime 也没有替 Agent 改参数；错误来自 L4 wire 将角色关系降级成
   schema 无法表达的跨字段约定。
 - Time: 2026-07-24 08:45
+
+## Hypothesis H-007: R-10 只实现了事后拒绝，没有实现连续动作结构合同
+- Status: confirmed
+- Claim: 当前 `taskspace_control` 与普通 Tool 是两个独立 provider schema；前者无法要求后者作为同 response
+  sibling，`after_boundary` 也无法反向要求前置 control。sequence preflight 只能在模型已经生成单独 boundary
+  后拒绝，因此 R-10 的行为问题从未真正关闭。
+- Factor relation: single
+- Depends on:
+  - H-006
+- Rationale:
+  - “能够检测非法 response”不等于“Tool 合同结构表达了合法连续动作”。历史状态把 preflight gate 通过误记为
+    Agent 行为回归关闭。
+- Falsifiable predictions:
+  - If true: 旧固定 carrier 基线与新角色分区候选都会出现 standalone boundary；失败码稳定为
+    `taskspace_boundary_requires_after_boundary_action`，且下一请求才重试配对。
+  - If false: 旧基线不存在该失败，或失败来自 parser、feedback 丢失或动态 projection 分支。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对比同一两个样本、四臂 repeat-3 的旧/新 rollout。
+  - Signal: control protocol failure、实际 Tool 序列、下一请求恢复、projection policy 分布。
+  - Capture method: performance observation 与 request-level rollout。
+  - Event name or marker:
+    - `taskspace.sequence_preflight`
+  - Correlation keys:
+    - baseline commit `b6bf532bf8b6d92d076b30d842e54c4f565fcfee`
+    - candidate commit `3e827065c912d9c332a9e52a796ccd7c2207106c`
+  - Differentiates from:
+    - R-20 初始化角色结构、provider cache 或某个 projection 专用逻辑。
+  - Supports if:
+    - 两个版本三种 TaskSpace policy 都稳定出现相同 standalone boundary reject。
+  - Refutes if:
+    - 失败只在角色分区候选出现，或 Tool schema 已能使 standalone response 无法生成。
+  - Instrumentation status: existing-observability-sufficient
+  - Instrumentation lifecycle:
+    - 保留 request 实际/期望序列和 failure code。
+- Evidence gate: passed
+- Related evidence:
+  - E-006
+  - E-007
+- Conclusion: R-10 重新打开。下一方案必须改变非终态 boundary 的唯一 Tool 承载结构；继续增强提示词或只调整
+  reject 文案不能关闭该问题。
+- Repair design readiness: blocked on product decision
+- Next step: 评审“将非终态 boundary 作为普通 Tool binding 的判别分支并从中央 control 移除”是否成为唯一候选。
+- Blocker:
+  - 该方案改变 L4 action ownership，属于需要用户确认的重大 Tool 合同决策。
+- Close reason:
+  - not closed
+
+## Evidence E-006: 角色分区候选消除了角色重叠并保留固定 schema
+- Related hypotheses:
+  - H-005
+  - H-006
+- Direction: supports
+- Type: fix-validation
+- Source: R7 matrix `20260724-085351-391`
+- Prediction or plan link:
+  - H-006 对角色分区后一遍生成和零角色重叠的预测。
+- Matched signal:
+  - 18 个 TaskSpace run 共 19 次初始化 attempts、18 次 commits、1 次图端点拼写失败、0 次角色重叠；
+    每个 request 的 Tool section 都是 13 tools、46,926 bytes、同一 hash。
+- Correlation keys:
+  - subject commit `3e827065c912d9c332a9e52a796ccd7c2207106c`
+  - tools hash `fc5b6e87fea963156a28f9abc6b9cf9f030eea892d7e9c7bbc0bf4863e16f0cc`
+- Raw content:
+  ```text
+  baseline tools bytes: 55,578
+  candidate tools bytes: 46,926
+  initialization role-erasure failures: 0
+  ```
+- Interpretation: R-20 已关闭；R-19 的固定成本门通过，但整组行为门仍被 R-10 阻塞。
+- Time: 2026-07-24 09:08
+
+## Evidence E-007: standalone boundary 在旧基线和新候选中都稳定存在
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: comparative-reproduction
+- Source:
+  - baseline matrix `20260724-065244-664`
+  - candidate matrix `20260724-085351-391`
+- Prediction or plan link:
+  - H-007 对跨版本、跨 projection policy 同类失败的预测。
+- Matched signal:
+  - 旧基线三种 TaskSpace arm 的 protocol failures 为 `8/10/7`，总计 25；新候选为 `6/12/10`，
+    总计 28。失败均为独立 boundary 缺少相邻 `after_boundary` Tool 后被 preflight 拒绝。
+- Correlation keys:
+  - baseline commit `b6bf532bf8b6d92d076b30d842e54c4f565fcfee`
+  - candidate commit `3e827065c912d9c332a9e52a796ccd7c2207106c`
+- Raw content:
+  ```text
+  baseline protocol failures: 25
+  candidate protocol failures: 28
+  candidate incomplete: subscription-billing-repair repeat 3 map-append
+  ```
+- Interpretation: 该失败不是角色分区候选新引入，而是被错误标记 closed 的既有 L4 结构缺口。
+- Time: 2026-07-24 09:08

@@ -56,7 +56,7 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "0521f8e853774bcde4dc8f75d964c8c291355a9a9e0eb567ae4eda852fc80372",
+      "sha256": "febe17f4e40911b9a6118506b2ce9dafdcdc4a374f1dd9697bb8d3c431c999a5",
       "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
     },
     {
@@ -120,11 +120,11 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-9 integrated non-regression gate",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "839b250e7c5bc9d8ba75371059302d727a625347a94eaa771324771c8bb3fbb0",
+      "sha256": "bd0a46aac183c70ca7799f741cfc338921699bf5d76b623175547c41e123847b",
       "validation": "scripts/taskspace-benchmark/test-r7-integrated-change-constraints.ps1",
       "open_regressions": [
-        "R-19",
-        "R-20"
+        "R-10",
+        "R-19"
       ],
       "closed_regression_count": 18
     },
@@ -271,12 +271,13 @@
     {
       "id": "FLA-3.5-continuous-action-regression-repair",
       "implementation_status": "active_repair_verified",
-      "issue": "H-003",
+      "issue": "R-10/H-003/H-007",
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
       "current_regression_baseline": "ordinary Tools retain one required taskspace_binding union; initialization is carried by the first ordinary Tool while later lifecycle payloads live in taskspace_control",
       "selected_direction": "make initialization and the first real Tool one provider call; retain immediate after_boundary siblings for bind_node and complete_then_continue",
-      "required_next_call_disposition": "removed; initialization is structurally inseparable from the first ordinary Tool, while sequence preflight validates later boundary and after_boundary adjacency"
+      "required_next_call_disposition": "removed; initialization is structurally inseparable from the first ordinary Tool, while sequence preflight validates later boundary and after_boundary adjacency",
+      "behavioral_status": "open; separate control plus sibling remains schema-valid as a standalone response and is rejected only after generation"
     },
     {
       "id": "FLA-3.5-terminal-action-contract-repair",
@@ -293,7 +294,8 @@
       "issue": "R-19/R-20/H-005/H-006",
       "plan": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
       "blocks": [
-        "FLA-8 promotion"
+        "FLA-8 promotion",
+        "R-10"
       ],
       "selected_direction": "evaluate only fixed-schema compact Agent-authored initialization wires with structurally distinct Root, Initial Work, Additional Work, and Finish roles",
       "rejected_directions": [

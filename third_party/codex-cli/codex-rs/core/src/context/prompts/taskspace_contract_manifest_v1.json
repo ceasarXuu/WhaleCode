@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.26",
+  "manifest_version": "1.0.27",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -23,7 +23,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "62d5f2584a537ee8c2ede8738e28a5ef4dd286409aa9eb053b508a6a55bb9147"
+    "sha256": "869e8828e62329aafbdf29385135c31c7dd1de18e00334b65bc45eab741188c1"
   },
   "compatibility_policy": "none",
   "wire_order": {

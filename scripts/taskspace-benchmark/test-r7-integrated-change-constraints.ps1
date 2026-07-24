@@ -41,7 +41,7 @@ Assert-Contract ($documentHash -eq [string]$contract.governing_document.sha256) 
 $closed = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "closed" })
 $open = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "open" })
 Assert-Contract ($closed.Count -eq 18) "Exactly 18 historical regressions must remain closed"
-Assert-Contract (($open.id -join ",") -eq "R-19,R-20") "R-19 and R-20 must remain open until the role-separated compact wire passes the full gate"
+Assert-Contract (($open.id -join ",") -eq "R-10,R-19") "R-10 and R-19 must remain open until continuous actions and the full cost gate pass"
 
 $knownIds = @{}
 foreach ($item in @($contract.architectural_constraints) + @($contract.regression_invariants)) {
@@ -60,6 +60,9 @@ $costRegression = @($contract.regression_invariants | Where-Object { [string]$_.
 Assert-Contract ([string]$costRegression.required_behavior -match "55578") "Current schema cost baseline is missing"
 $roleRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-20" })[0]
 Assert-Contract ([string]$roleRegression.required_behavior -match "structurally distinct") "Initialization role-structure invariant is missing"
+Assert-Contract ([string]$roleRegression.status -eq "closed") "Role-separated initialization regression must remain closed"
+$continuousRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-10" })[0]
+Assert-Contract ([string]$continuousRegression.required_behavior -match "structurally inseparable") "Continuous-action structural gate is missing"
 
 $document = Get-Content -Raw -Encoding UTF8 -LiteralPath $documentPath
 foreach ($id in @(

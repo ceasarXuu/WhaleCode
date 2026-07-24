@@ -128,7 +128,7 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 | R-07 | 初始化成功结果未明确报告当前 binding | 初始化结果显式报告 node binding 和 commit 事实 | closed |
 | R-08 | schema 只能描述 control 内部，无法保证 top-level sibling | 连续动作由普通 Tool binding 加 response sequence preflight 表达 | closed |
 | R-09 | 普通 Tool 未携带 carrier 时静默解释为继续当前节点 | TaskSpace 普通 Tool binding 必填且分支可判别 | closed |
-| R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复 | 边界 control 与 `after_boundary` 真实 Tool 必须同 response | closed |
+| R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复 | 非终态 boundary 必须在 Tool 结构上与真实后继动作不可分离，不能只靠事后 preflight 拒绝 | open（重新打开） |
 | R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map`；Agent 提交 terminal，Runtime 验证 canonical frontier | closed |
 | R-12 | Patch 被嵌套 JSON 转义破坏，或同 response 多 Patch 部分写入 | 原生顶层 Patch 保真；单 response 最多一个 Patch | closed |
 | R-13 | TaskSpace 装饰侵入 Standard 普通 Tool | 只在 TaskSpace provider visibility 阶段装饰 | closed |
@@ -138,9 +138,9 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 | R-17 | 初始化成为独立 provider request，随后才执行真实 Tool | 初始化对象由首个真实普通 Tool 携带并原子执行 | closed |
 | R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | `initialize_map`、`active`、`after_boundary` 使用同形可判别对象 | closed |
 | R-19 | 完整初始化图 schema 被复制到每个普通 Tool，固定 schema 约 55.6 KB | 必须在固定 schema 内机械收敛，且不能回退 R-08/R-09/R-17/R-18 | open |
-| R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | open |
+| R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | closed |
 
-## 5. 当前 R-19/R-20 候选的整组准入门
+## 5. 当前 R-10/R-19 候选的整组准入门
 
 任何实现候选必须一次通过以下全部条件：
 
@@ -158,6 +158,8 @@ schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用�
 12. **迁移门**：不保留旧初始化 wire parser 或 fallback。
 13. **角色结构门**：Root、Initial Work、Additional Work、Finish 由 schema 分区，valid fixture 一次解析，
     角色重复和旧通用 `nodes + role ids` wire 被确定性拒绝。
+
+R-20 的定向门已经通过，但 R-10 仍使 R-19 的整组行为门失败。成本下降不能越过该阻塞项单独晋升。
 
 ## 6. 已淘汰方向
 
