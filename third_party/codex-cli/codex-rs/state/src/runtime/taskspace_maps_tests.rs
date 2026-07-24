@@ -314,3 +314,117 @@ async fn unchanged_snapshot_commit_still_applies_atomic_child_binding() {
     assert_eq!(binding.lease_id.as_deref(), Some("lease-1"));
     let _ = tokio::fs::remove_dir_all(home).await;
 }
+
+#[tokio::test]
+async fn failed_child_binding_rolls_back_map_and_binding_together() {
+    let (home, runtime) = runtime().await;
+    let owner = ThreadId::new();
+    let child = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    runtime
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            owner_thread_id: owner,
+            snapshot: blank_snapshot(),
+            commit_id: "create-rollback".to_string(),
+            operation: "activate_taskspace".to_string(),
+        })
+        .await
+        .expect("create map");
+
+    let error = runtime
+        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            expected_store_revision: 1,
+            snapshot: initialized_snapshot(&map_id, 2),
+            commit_id: "commit-invalid-binding".to_string(),
+            operation: "attach_child_binding".to_string(),
+            actor_thread_id: owner,
+            binding: Some(BindTaskSpaceMapRequest {
+                thread_id: child,
+                map_id: "different-map".to_string(),
+                relation: TaskSpaceMapRelation::Child,
+                parent_thread_id: Some(owner),
+                node_id: Some("work".to_string()),
+                lease_id: Some("lease-1".to_string()),
+            }),
+        })
+        .await
+        .expect_err("cross-map binding must abort the transaction");
+    assert!(error.to_string().contains("targets a different map"));
+
+    let record = runtime
+        .load_taskspace_map(&map_id)
+        .await
+        .expect("load original map")
+        .expect("original map exists");
+    assert_eq!(record.store_revision, 1);
+    assert!(record.snapshot.map.is_none());
+    assert!(
+        runtime
+            .load_taskspace_map_for_thread(child)
+            .await
+            .expect("load child binding")
+            .is_none()
+    );
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn corrupted_snapshot_hash_is_rejected_on_load() {
+    let (home, runtime) = runtime().await;
+    let owner = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    runtime
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            owner_thread_id: owner,
+            snapshot: blank_snapshot(),
+            commit_id: "create-corruption".to_string(),
+            operation: "activate_taskspace".to_string(),
+        })
+        .await
+        .expect("create map");
+    sqlx::query("UPDATE taskspace_maps SET snapshot_sha256 = 'corrupt' WHERE map_id = ?")
+        .bind(&map_id)
+        .execute(runtime.pool.as_ref())
+        .await
+        .expect("inject hash corruption");
+
+    let error = runtime
+        .load_taskspace_map(&map_id)
+        .await
+        .expect_err("corrupt snapshot must not load");
+    assert!(error.to_string().contains("snapshot hash mismatch"));
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn taskspace_map_survives_state_runtime_restart() {
+    let (home, runtime) = runtime().await;
+    let owner = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    runtime
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            owner_thread_id: owner,
+            snapshot: blank_snapshot(),
+            commit_id: "create-restart".to_string(),
+            operation: "activate_taskspace".to_string(),
+        })
+        .await
+        .expect("create map");
+    drop(runtime);
+
+    let reopened = StateRuntime::init(home.clone(), "test-provider".to_string())
+        .await
+        .expect("reopen state runtime");
+    let record = reopened
+        .load_taskspace_map(&map_id)
+        .await
+        .expect("load persisted map")
+        .expect("persisted map exists");
+    assert_eq!(record.owner_thread_id, owner);
+    assert_eq!(record.store_revision, 1);
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
