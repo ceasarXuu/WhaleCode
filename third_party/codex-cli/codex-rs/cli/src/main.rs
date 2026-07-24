@@ -1379,10 +1379,16 @@ async fn run_debug_taskspace_map_command(
     }
     let state_db =
         StateRuntime::init(config.sqlite_home.clone(), config.model_provider_id.clone()).await?;
-    let (record, binding) = state_db
-        .load_taskspace_map_for_thread(thread_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("thread {thread_id} has no TaskSpace map binding"))?;
+    let loaded = state_db.load_taskspace_map_for_thread(thread_id).await?;
+    let Some((record, binding)) = loaded else {
+        tracing::warn!(
+            target: "codex_cli::taskspace",
+            event_name = "taskspace.map_store_export_missing_binding",
+            actor_thread_id = %thread_id,
+            "TaskSpace Map Store export found no thread binding"
+        );
+        anyhow::bail!("thread {thread_id} has no TaskSpace map binding");
+    };
 
     let envelope = serde_json::json!({
         "schema_version": "TaskSpaceMapExportR7V1",
@@ -1413,6 +1419,16 @@ async fn run_debug_taskspace_map_command(
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(&cmd.output, serde_json::to_vec_pretty(&envelope)?).await?;
+    tracing::info!(
+        target: "codex_cli::taskspace",
+        event_name = "taskspace.map_store_exported",
+        actor_thread_id = %thread_id,
+        map_id = record.map_id,
+        store_revision = record.store_revision,
+        graph_revision = record.graph_revision,
+        output_path = %cmd.output.display(),
+        "exported canonical TaskSpace Map Store record"
+    );
     println!("TaskSpaceMapExport: {}", cmd.output.display());
     Ok(())
 }

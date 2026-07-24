@@ -307,6 +307,14 @@ WHERE taskspace_map_bindings.map_id = excluded.map_id
     .await?;
     let binding = load_binding_in_tx(tx, request.thread_id).await?;
     if binding.as_ref().map(|value| value.map_id.as_str()) != Some(request.map_id.as_str()) {
+        tracing::warn!(
+            target: "codex_state::taskspace",
+            event_name = "taskspace.map_store_binding_conflict",
+            actor_thread_id = %request.thread_id,
+            attempted_map_id = request.map_id,
+            current_map_id = binding.as_ref().map(|value| value.map_id.as_str()),
+            "refused to bind thread to a different canonical TaskSpace Map"
+        );
         anyhow::bail!(
             "thread `{}` is already bound to another TaskSpace map",
             request.thread_id

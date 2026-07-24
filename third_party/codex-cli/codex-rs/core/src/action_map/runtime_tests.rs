@@ -532,7 +532,10 @@ fn store_restore_accepts_a_completed_map_without_an_active_binding() {
         .expect("completed canonical Store map must restore");
 
     let restored_snapshot = restored.snapshot();
-    let restored_map = restored_snapshot.map.as_ref().expect("completed map retained");
+    let restored_map = restored_snapshot
+        .map
+        .as_ref()
+        .expect("completed map retained");
     assert!(restored_map.complete);
     assert_eq!(restored_map.id, map_id);
     assert_eq!(restored_map.owner_session_id, Some(owner));
