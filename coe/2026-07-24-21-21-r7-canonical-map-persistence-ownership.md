@@ -1,7 +1,7 @@
 # Problem P-001: canonical Map 被 Session Runtime 和 rollout 恢复链路错误持有
 - Status: open
 - Created: 2026-07-24 21:21
-- Updated: 2026-07-24 21:21
+- Updated: 2026-07-24 22:35
 - Objective: 建立独立持久化、全局唯一的 canonical Map；Session、Runtime、resume、fork 和 child agent 只按身份访问同一份 Map，rollout 仅保留对话与审计记录。
 - Symptoms:
   - `SessionState` 直接持有包含完整 `tasks`、`maps` 的 `ActionMapRuntimeState`。
@@ -90,9 +90,11 @@
   - E-001
   - E-002
   - E-003
+  - E-004
+  - E-005
 - Conclusion: confirmed；当前 canonical ownership 与目标产品模型不一致。
-- Repair design readiness: ready
-- Next step: 按 R7.1-A0 分阶段建立持久化 Map Store，移除 rollout recovery authority，再验证 R-21。
+- Repair design readiness: implementing
+- Next step: 按 `docs/v0.0.5/build-R7/41-r7.1-persistent-map-store-design.md` 实施 repository、Runtime handle、生产接线和旧 replay 删除。
 - Blocker:
   - none
 - Close reason:
@@ -151,3 +153,40 @@
   - Map checkpoint/delta 与自然对话历史共同进入 rollout 恢复链路。
 - Interpretation: rollout 当前承担了 canonical Map 恢复源职责；这正是需要移除的错误所有权。
 - Time: 2026-07-24 21:21
+
+## Evidence E-004: codex-state 已提供可复用的事务存储基建
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/state/src/runtime.rs:101`
+- Prediction or plan link:
+  - R7.1-A0.1 不新建平行数据库。
+- Matched signal:
+  - `StateRuntime` 已统一持有 SQLx SQLite pool，启用 WAL、busy timeout 和编译期 migration。
+- Correlation keys:
+  - state db
+  - transaction
+- Raw content:
+  - `runtime_state_migrator()` 和 `SqliteJournalMode::Wal` 已用于现有状态数据。
+- Interpretation: canonical Map 可以作为现有 state aggregate 接入，无需第二套持久化架构。
+- Time: 2026-07-24 22:35
+
+## Evidence E-005: fork 和 child 已携带可建立 Store binding 的父线程身份
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/protocol/src/protocol.rs:3042`
+- Prediction or plan link:
+  - R7.1-A0.1 resume/fork/child 访问同一 Map。
+- Matched signal:
+  - `InitialHistory::forked_from_id()` 可获得 fork 来源；`SubAgentSource::ThreadSpawn` 显式携带 `parent_thread_id`。
+- Correlation keys:
+  - thread id
+  - parent thread id
+  - map binding
+- Raw content:
+  - 当前身份被用于 rollout fork，但尚未用于独立 Map binding。
+- Interpretation: Session 启动无需重放 Map 即可按父线程查找并绑定 canonical Map。
+- Time: 2026-07-24 22:35
