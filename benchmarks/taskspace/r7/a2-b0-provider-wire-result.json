@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "phase": "R7.1-A2-B0",
+  "status": "completed",
+  "decision": "proceed_to_a2_b1",
+  "production_behavior_changed": false,
+  "baseline_commit": "67f71a64ed54e55cbf2da498b2e8a251228a7bf0",
+  "generated_at": "2026-07-26T22:44:39.050855+00:00",
+  "execution": {
+    "environment": "docker",
+    "image": "whalecode/taskspace-benchmark:r5",
+    "image_digest": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
+    "docker_server_version": "29.6.2",
+    "model": "deepseek-v4-flash",
+    "endpoint": "https://api.deepseek.com/chat/completions",
+    "repeat_per_scenario": 3,
+    "deterministic_tests": {
+      "probe_contract_passed": 10,
+      "result_contract_passed": 4,
+      "total_passed": 14,
+      "total_failed": 0
+    },
+    "rust_adapter_tests": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "probe_iterations": [
+    {
+      "decision": "pause",
+      "cause": "taskspace_control parameters omitted the provider-required top-level object type",
+      "resolution": "add type object and a deterministic provider-contract test"
+    },
+    {
+      "decision": "pause",
+      "cause": "the probe used required tool_choice with thinking although production uses auto",
+      "resolution": "use production-equivalent auto and retain required plus thinking as a negative contract"
+    },
+    {
+      "decision": "proceed",
+      "cause": "all positive and negative provider-wire contracts passed"
+    }
+  ],
+  "scenario_results": [
+    {
+      "scenario": "initialize_multi_function",
+      "kind": "positive",
+      "passed": 3,
+      "requests": 3,
+      "duration_total_ms": 16319,
+      "duration_mean_ms": 5439.7,
+      "duration_median_ms": 4369,
+      "input_tokens": 3267,
+      "cached_input_tokens": 0,
+      "cache_hit_rate": 0,
+      "output_tokens": 2208
+    },
+    {
+      "scenario": "execute_patch_and_function",
+      "kind": "positive",
+      "passed": 3,
+      "requests": 3,
+      "duration_total_ms": 8535,
+      "duration_mean_ms": 2845,
+      "duration_median_ms": 2781,
+      "input_tokens": 3255,
+      "cached_input_tokens": 1024,
+      "cache_hit_rate": 0.3146,
+      "output_tokens": 1072,
+      "patch_exact": true
+    },
+    {
+      "scenario": "execute_mcp_and_tool_search",
+      "kind": "positive",
+      "passed": 3,
+      "requests": 3,
+      "duration_total_ms": 20256,
+      "duration_mean_ms": 6752,
+      "duration_median_ms": 4093,
+      "input_tokens": 3204,
+      "cached_input_tokens": 1024,
+      "cache_hit_rate": 0.3196,
+      "output_tokens": 2524
+    },
+    {
+      "scenario": "execute_web_search_function",
+      "kind": "positive",
+      "passed": 3,
+      "requests": 3,
+      "duration_total_ms": 25366,
+      "duration_mean_ms": 8455.3,
+      "duration_median_ms": 6068,
+      "input_tokens": 2961,
+      "cached_input_tokens": 2432,
+      "cache_hit_rate": 0.8213,
+      "output_tokens": 2786
+    },
+    {
+      "scenario": "provider_native_web_search_negative",
+      "kind": "expected_provider_rejection",
+      "passed": 3,
+      "requests": 3,
+      "duration_total_ms": 341,
+      "duration_mean_ms": 113.7,
+      "duration_median_ms": 114
+    },
+    {
+      "scenario": "required_tool_choice_thinking_negative",
+      "kind": "expected_provider_rejection",
+      "passed": 3,
+      "requests": 3,
+      "duration_total_ms": 448,
+      "duration_mean_ms": 149.3,
+      "duration_median_ms": 129
+    }
+  ],
+  "aggregate": {
+    "all_scenarios_passed": 18,
+    "all_scenarios_requests": 18,
+    "positive_passed": 12,
+    "positive_requests": 12,
+    "positive_duration_total_ms": 70476,
+    "positive_duration_mean_ms": 5873,
+    "positive_duration_median_ms": 4227.5,
+    "positive_input_tokens": 12687,
+    "positive_cached_input_tokens": 4480,
+    "positive_cache_hit_rate": 0.3531,
+    "positive_output_tokens": 8590
+  },
+  "capabilities": {
+    "ordered_multi_function_calls": true,
+    "agent_manifest_sibling_pairing": true,
+    "agent_declared_node_id_per_action": true,
+    "apply_patch_function_adapter_shape": true,
+    "apply_patch_text_exact": true,
+    "mcp_and_tool_search_as_client_functions": true,
+    "web_search_as_client_function": true,
+    "provider_native_non_function_tool": "unsupported_by_deepseek_chat",
+    "positive_thinking_tool_choice": "auto",
+    "required_with_thinking": "unsupported_by_deepseek_chat"
+  },
+  "limits": [
+    "This is a guided synthetic provider-wire probe, not a natural coding benchmark.",
+    "Returned tools were not executed; B1 through B4 production dispatch remains unimplemented.",
+    "Cache observations describe the probe only and are not an R7 projection-policy comparison."
+  ],
+  "official_sources": [
+    "https://api-docs.deepseek.com/guides/tool_calls",
+    "https://api-docs.deepseek.com/api/create-chat-completion"
+  ],
+  "privacy": {
+    "api_key_recorded": false,
+    "authorization_header_recorded": false,
+    "tracked_artifact_contains_raw_provider_payload": false
+  }
+}
