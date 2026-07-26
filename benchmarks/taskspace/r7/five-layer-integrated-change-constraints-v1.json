@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "7df380b9620a87c94bb06459eecddd340c520360e653bacb66caf589be1d1a89"
+    "sha256": "d9fa7793b86063bd79387a5c82e19db42563b046ff7a168306f13de7fc3318a8"
   },
   "architectural_constraints": [
     {
@@ -35,8 +35,8 @@
     {
       "id": "C-05",
       "owner": "L4",
-      "requirement": "Tools describe capability, success, inputs, outputs, and side effects precisely.",
-      "prohibited": "Planning instruction, semantic inference, or semantically empty field-only contracts."
+      "requirement": "Ordinary Tools describe only their native capability, success, inputs, outputs, and side effects while taskspace_control exclusively describes Map actions.",
+      "prohibited": "TaskSpace binding or response-sequencing fields on ordinary Tools, planning instruction, or semantic inference."
     },
     {
       "id": "C-06",
@@ -59,8 +59,8 @@
     {
       "id": "C-09",
       "owner": "L4 and L5 sequence preflight",
-      "requirement": "Initialization and lifecycle continuation remain paired with a real Tool in one response.",
-      "prohibited": "Standalone initialization, bind, or nonterminal complete as a normal successful path."
+      "requirement": "A complete response manifest mechanically enforces Tool type, order, and count so initialization and lifecycle continuation remain paired with a real ordinary Tool in one response.",
+      "prohibited": "Standalone initialization, bind, or nonterminal complete as a normal successful path, or ordinary Tool content inspection to infer sequence validity."
     },
     {
       "id": "C-10",
@@ -70,9 +70,9 @@
     },
     {
       "id": "C-11",
-      "owner": "provider Tool visibility",
-      "requirement": "TaskSpace decoration is isolated from Standard while bundled Skills remain shared.",
-      "prohibited": "Standard Tool mutation or benchmark-only Skill disabling."
+      "owner": "provider Tool visibility and sequence runtime",
+      "requirement": "Shared ordinary Tool schema, arguments, and native execution remain identical in Standard and TaskSpace while bundled Skills remain shared.",
+      "prohibited": "Ordinary Tool decoration, wrapping, Standard Tool mutation, or benchmark-only Skill disabling."
     },
     {
       "id": "C-12",
@@ -164,23 +164,23 @@
     {
       "id": "R-08",
       "status": "closed",
-      "problem": "A control-only schema could not require a top-level real Tool sibling.",
-      "required_behavior": "Ordinary Tool binding plus response sequence preflight expresses the continuous pair.",
+      "problem": "A single control schema cannot require a top-level real Tool sibling.",
+      "required_behavior": "A complete response passes Tool type, order, and count preflight before any client Tool executes.",
       "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
     },
     {
       "id": "R-09",
       "status": "closed",
-      "problem": "Omitted binding silently drifted to continue-current behavior.",
-      "required_behavior": "Every TaskSpace ordinary Tool has one explicit discriminated binding object.",
+      "problem": "Missing ordinary Tool attribution silently drifted to the wrong current node.",
+      "required_behavior": "Ordinary Tool dispatch reads the canonical current binding from the Map Store and passes node, lease, and revision gates without Agent-submitted default binding metadata.",
       "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
     },
     {
       "id": "R-10",
       "status": "open",
       "problem": "Standalone complete or bind was rejected only after an extra provider request.",
-      "required_behavior": "A nonterminal boundary and its real successor are structurally inseparable rather than enforced only by post-response rejection.",
-      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+      "required_behavior": "A nonterminal boundary and its real successor occur in one response under zero-dispatch response grammar and natural runs do not stably amplify requests through recovery.",
+      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
     },
     {
       "id": "R-11",
@@ -200,7 +200,7 @@
       "id": "R-13",
       "status": "closed",
       "problem": "TaskSpace decoration modified ordinary Tools in Standard.",
-      "required_behavior": "Decoration occurs only during TaskSpace provider visibility.",
+      "required_behavior": "Shared ordinary Tools keep byte-identical native schema and execution paths in Standard and TaskSpace.",
       "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
     },
     {
@@ -214,35 +214,35 @@
       "id": "R-15",
       "status": "closed",
       "problem": "Uncarriable provider-native Tools or incomplete Tool responses could enter execution.",
-      "required_behavior": "Uncarriable Tools are hidden and incomplete responses neither execute nor persist.",
+      "required_behavior": "Incomplete responses neither execute nor persist, and capabilities that cannot enter a complete client manifest are explicitly classified before a product visibility decision.",
       "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
     },
     {
       "id": "R-16",
       "status": "closed",
       "problem": "A full lifecycle union was copied onto every ordinary Tool.",
-      "required_behavior": "Later lifecycle payloads remain only on central control and ordinary Tools carry binding only.",
+      "required_behavior": "Response grammar is not copied onto ordinary Tools and the central control exclusively owns Map actions.",
       "evidence": ["coe/2026-07-23-18-24-r7-fla-tool-schema-amplification.md"]
     },
     {
       "id": "R-17",
       "status": "closed",
       "problem": "Map initialization consumed a standalone provider request before real work.",
-      "required_behavior": "The first real ordinary Tool carries initialization and executes atomically with it.",
+      "required_behavior": "initialize_map and at least one native ordinary Tool occur in the same response and execute in barrier order.",
       "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
     },
     {
       "id": "R-18",
       "status": "closed",
       "problem": "A mixed scalar-or-object binding union biased generation toward the wrong short branch.",
-      "required_behavior": "initialize_map, active, and after_boundary are discriminated objects.",
+      "required_behavior": "Ordinary Tool binding is removed and the central control uses direct action variants.",
       "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
     },
     {
       "id": "R-19",
       "status": "open",
-      "problem": "The complete initialization graph schema is copied onto every ordinary Tool.",
-      "required_behavior": "Reduce the fixed Tool section below 55578 bytes without regressing R-08, R-09, R-17, or R-18.",
+      "problem": "Initialization graph and binding schema are copied onto ordinary Tools and the current Tool section remains 46926 bytes per request.",
+      "required_behavior": "Shared ordinary Tool bytes equal Standard and TaskSpace fixed overhead comes only from the single central control and explicit capability-set differences.",
       "evidence": ["coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md"]
     },
     {
@@ -254,7 +254,7 @@
     },
     {
       "id": "R-21",
-      "status": "open",
+      "status": "closed",
       "problem": "A node-bound TaskSpace subagent spawn restores an inconsistent assignment from the parent rollout and fails before the child session starts.",
       "required_behavior": "A subagent accesses the same persisted canonical Map by identity and distinguishes child attachment from TaskSpace session resume without reconstructing the Map from rollout.",
       "evidence": ["coe/2026-07-18-03-15-r7-subagent-map-restore.md"]
@@ -268,7 +268,7 @@
     },
     {
       "id": "R-23",
-      "status": "open",
+      "status": "closed",
       "problem": "The canonical Map is owned by Session-local Runtime state and recovered by replaying rollout checkpoints and deltas.",
       "required_behavior": "One independently persisted Map Store remains the canonical data owner; Runtime, sessions, resumes, forks, and child agents access it by identity while rollout remains audit and context history only.",
       "evidence": ["coe/2026-07-24-21-21-r7-canonical-map-persistence-ownership.md"]
@@ -277,16 +277,16 @@
   "candidate_gates": [
     {"id": "G-01", "requirement": "Agent retains all graph and task semantic choices.", "evidence_required": "Source boundary review and initialization wire fixture."},
     {"id": "G-02", "requirement": "Tool schema is byte-identical across Map states in one capability epoch.", "evidence_required": "Empty and initialized state schema hash test."},
-    {"id": "G-03", "requirement": "Initialization and first real Tool stay in one response and call.", "evidence_required": "Sequence unit test and provider trace."},
-    {"id": "G-04", "requirement": "All binding variants remain discriminated objects.", "evidence_required": "JSON schema and parser negative fixtures."},
+    {"id": "G-03", "requirement": "Initialization and first real Tool plus every nonterminal boundary and successor stay in one response.", "evidence_required": "Response grammar matrix and provider trace."},
+    {"id": "G-04", "requirement": "Shared ordinary Tools contain no TaskSpace fields and are byte-identical across Standard and TaskSpace.", "evidence_required": "JSON schema golden, wire hash, and source residue scan."},
     {"id": "G-05", "requirement": "Feedback preserves initialization, business, and commit outcomes separately.", "evidence_required": "ResultV2 snapshots and failure tests."},
     {"id": "G-06", "requirement": "Native top-level single Patch behavior is unchanged.", "evidence_required": "Patch fidelity, multi-Patch reject, and control-plus-Patch tests."},
     {"id": "G-07", "requirement": "Standard Tool bytes and execution path are unchanged.", "evidence_required": "Standard schema snapshot and paired smoke."},
     {"id": "G-08", "requirement": "All three projection policies share L1 through L4 behavior.", "evidence_required": "Four-arm contract hashes and traces."},
-    {"id": "G-09", "requirement": "TaskSpace Tool section is below the current 55578 bytes per request.", "evidence_required": "Provider wire trace with bytes and estimated tokens."},
+    {"id": "G-09", "requirement": "TaskSpace Tool section is below the current 46926 bytes per request and shared ordinary Tool overhead is zero.", "evidence_required": "Provider wire trace with per-Tool bytes and estimated tokens."},
     {"id": "G-10", "requirement": "Simple and complex behavior does not add known regressions.", "evidence_required": "Docker repeat runs with request-level trace audit."},
-    {"id": "G-11", "requirement": "Schema, carrier, preflight, dispatch, and commit remain observable.", "evidence_required": "Telemetry contract tests and observer reconciliation."},
-    {"id": "G-12", "requirement": "No legacy initialization parser or fallback remains.", "evidence_required": "Source scan and negative old-wire test."},
+    {"id": "G-11", "requirement": "Schema, response manifest, preflight, barrier, dispatch, and commit remain observable.", "evidence_required": "Telemetry contract tests and observer reconciliation."},
+    {"id": "G-12", "requirement": "No taskspace_binding, initialization carrier, legacy parser, or fallback remains.", "evidence_required": "Source scan and negative old-wire test."},
     {"id": "G-13", "requirement": "Initialization roles remain structurally distinct rather than prose-only cross-field relations.", "evidence_required": "Schema inspection, one-pass valid fixture, role-collision negatives, and Docker initialization traces."},
     {"id": "G-14", "requirement": "TaskSpace subagent handoff and replay do not persist or restore an inconsistent assignment intermediate state.", "evidence_required": "Focused failing spawn regression, parent-child handoff fixture, resume/fork regression, and typed boundary telemetry."},
     {"id": "G-15", "requirement": "Natural complex runs do not repeatedly reach response-wide multi-Patch rejection or defer Map lifecycle bookkeeping until after business work.", "evidence_required": "Per-policy multi-Patch attempt, zero-dispatch reject, lifecycle cadence, request path, and final Map closure evidence."},
@@ -295,11 +295,11 @@
   "rejected_directions": [
     {"id": "D-01", "direction": "Change ordinary Tool schema when the Map becomes initialized.", "violates": ["C-06"]},
     {"id": "D-02", "direction": "Let Runtime create task nodes, goals, edges, or choose the next node.", "violates": ["C-02", "C-08"]},
-    {"id": "D-03", "direction": "Restore standalone central initialize_map as the normal path.", "violates": ["C-09", "R-17"]},
-    {"id": "D-04", "direction": "Restore the full lifecycle union on every ordinary Tool.", "violates": ["C-13", "R-16"]},
+    {"id": "D-03", "direction": "Allow central initialize_map to succeed without a following ordinary Tool in the same response.", "violates": ["C-09", "R-17"]},
+    {"id": "D-04", "direction": "Add any TaskSpace binding or lifecycle union to ordinary Tools.", "violates": ["C-05", "C-11", "C-13", "R-16"]},
     {"id": "D-05", "direction": "Wrap native Tools in a generic nested dispatcher.", "violates": ["C-10", "R-12"]},
-    {"id": "D-06", "direction": "Make binding optional and infer a default from Runtime state.", "violates": ["C-05", "R-09"]},
-    {"id": "D-07", "direction": "Use prompt text as the only initialization or continuity contract.", "violates": ["C-05", "R-08", "R-10"]},
+    {"id": "D-06", "direction": "Read or synthesize TaskSpace binding from ordinary Tool arguments instead of canonical Store state.", "violates": ["C-05", "C-11", "R-09"]},
+    {"id": "D-07", "direction": "Use prompt text without response-level preflight as the only initialization or continuity contract.", "violates": ["C-05", "R-08", "R-10"]},
     {"id": "D-08", "direction": "Relax graph, revision, binding, or terminal invariants for pass rate.", "violates": ["C-02", "C-08", "C-12"]},
     {"id": "D-09", "direction": "Inject corrective next-action advice into failure feedback.", "violates": ["C-03", "C-12"]},
     {"id": "D-10", "direction": "Flatten Root, Work, and Finish into a generic nodes collection plus role-id references to save bytes.", "violates": ["C-05", "C-16", "R-20"]},

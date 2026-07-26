@@ -1,15 +1,15 @@
 # R7 五层架构整体变更约束
 
 - Created: 2026-07-24
-- Updated: 2026-07-25
-- Version: 1.1
+- Updated: 2026-07-27
+- Version: 1.2
 - Status: Active change gate
 - Machine contract:
   [`five-layer-integrated-change-constraints-v1.json`](../../../benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json)
 - Architecture source:
   [`23-r7-taskspace-five-layer-architecture-design.md`](23-r7-taskspace-five-layer-architecture-design.md)
-- Current L4 repair:
-  [`37-r7-lightweight-tool-binding-repair-plan.md`](37-r7-lightweight-tool-binding-repair-plan.md)
+- Current L4 redesign:
+  [`42-r7.1-a2-nonterminal-action-ownership-design.md`](42-r7.1-a2-nonterminal-action-ownership-design.md)
 
 ## 1. 目的
 
@@ -27,8 +27,8 @@
 | L1 Base Instructions | 通用工程框架、TaskSpace 价值、Map 宏观模型和 Agent/Runtime 边界 | Codex 成熟工作框架；每个 profile 仅一份完整 Base | Tool 字段、JSON 示例、动态 Map 状态、逐 action 时序 |
 | L2 Core Working Protocol | 普通任务都需要的 Map 工作循环、基础恢复和反模式 | 初始化后工作、真实边界同步、依据事实恢复 | 第二份 Base、参数全集、动态事实、高级 playbook |
 | L3 Advanced Skills | 复杂 DAG、重规划、长任务和证据冲突的按需经验 | 内置 Skill 可被 Standard 与 TaskSpace 正常发现；正文按需加载 | 成为正确性前提、Runtime 自动加载、固定进入每个请求 |
-| L4 Tool Contract | 能力、action 语义、参数、结果、副作用和机械调用形状 | schema 明确、静态、可解析；连续动作可结构表达 | 教授规划、推断任务语义、按 Map 状态动态改 schema |
-| L5 Map Store, Runtime and Factual Feedback | 独立持久化 canonical Map、硬规则、原子提交、忠实结果和纯 projection | 单一事实、失败零提交、原始原因、明确 revision/commit | 以 Session/rollout 代替 Map Store、代选节点、补参数、自动初始化、语义建议、隐藏或改写失败 |
+| L4 Tool Contract | 普通 Tool 的原生能力合同与唯一 `taskspace_control` 的 Map action 合同 | schema 明确、静态、可解析；普通 Tool 不携带 TaskSpace 编排字段 | 教授规划、推断任务语义、按 Map 状态动态改 schema、把 response grammar 复制到普通 Tool |
+| L5 Map Store, Runtime and Factual Feedback | 独立持久化 canonical Map、响应级 Tool 序列硬门、原子提交、忠实结果和纯 projection | 单一事实、失败零提交、原始原因、明确 revision/commit、类型/顺序/数量 preflight | 以 Session/rollout 代替 Map Store、代选节点、补参数、自动初始化、语义建议、读取普通 Tool 内容判断序列 |
 
 Agent 是唯一语义决策者，不是第六层。Provider Context Composer 只是无语义传输设施，也不是第六层。
 
@@ -56,8 +56,9 @@ Agent 异常时，先审查 provider payload、Tool feedback 和 projection，�
 
 ### C-05 Tool 领域语义准确、策略语义克制
 
-Tool 必须说清能力、成功条件、输入、输出和副作用；不能变成无含义字段表，也不能承担完整工作方法、提示词或
-Runtime 的事后纠正。
+Tool 必须说清能力、成功条件、输入、输出和副作用；普通 Tool 只能描述自身能力，不得携带 TaskSpace
+binding、生命周期或 response 编排字段。`taskspace_control` 只描述 Map action，不能承担完整工作方法、提示词
+或 Runtime 的事后纠正。
 
 ### C-06 immutable capability epoch
 
@@ -78,17 +79,19 @@ Root 可达，所有非 Finish 节点能到达 Finish；允许多父依赖。Run
 ### C-09 连续动作是必须保留的 L4/L5 合同
 
 初始化必须与首个真实普通 Tool 同一 provider response；`bind_node` 和 `complete_then_continue` 必须与后继首个
-真实 Tool 同一 response。Runtime 只做机械配对和原子提交，不生成后续动作。
+真实 Tool 同一 response。合同只检查完整 response 的 Tool 类型、顺序和数量。Runtime 只做机械配对、barrier
+执行和原子提交，不读取普通 Tool 业务参数判断动作意义，也不生成后续动作。
 
 ### C-10 Patch 保真与单 Patch
 
 `apply_patch` 保持原生顶层文本输入，不进入通用嵌套 dispatcher。单个 provider response 最多一个 Patch；该约束
 不能阻止同一 response 中合法的 lifecycle control 与该 Patch 配对。
 
-### C-11 Standard 隔离
+### C-11 普通 Tool 保真与 Standard 隔离
 
-TaskSpace 的普通 Tool 装饰、schema、硬门和反馈不得进入 Standard。Standard 的原生 Tool schema、业务参数和执行
-路径保持不变；内置 Skills 属于共享能力，不能为 benchmark 人为禁用。
+Standard 与 TaskSpace 的 shared ordinary Tool schema、业务参数和原生执行路径必须相同。TaskSpace 只额外暴露
+中央 `taskspace_control`，并在 L5 对完整 response 执行序列硬门；不得装饰、包装或重解释普通 Tool。内置 Skills
+属于共享能力，不能为 benchmark 人为禁用。
 
 ### C-12 原子、事实型失败
 
@@ -134,18 +137,18 @@ revision 校验、随时可丢弃的缓存，但不能拥有 authoritative Map �
 | R-05 | observer 漏报 preflight reject、handler、gate 和真实 commit | 四阶段分别记录，provider 成功与业务成功分开 | closed |
 | R-06 | nested lifecycle discriminator 导致 action 选择和解析漂移 | lifecycle 使用直接 action，禁止恢复旧嵌套 transition | closed |
 | R-07 | 初始化成功结果未明确报告当前 binding | 初始化结果显式报告 node binding 和 commit 事实 | closed |
-| R-08 | schema 只能描述 control 内部，无法保证 top-level sibling | 连续动作由普通 Tool binding 加 response sequence preflight 表达 | closed |
-| R-09 | 普通 Tool 未携带 carrier 时静默解释为继续当前节点 | TaskSpace 普通 Tool binding 必填且分支可判别 | closed |
-| R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复；该问题曾因“能够拒绝”被错误记为已关闭 | 非终态 boundary 必须在 Tool 结构上与真实后继动作不可分离，不能只靠事后 preflight 拒绝 | open（历史误关闭已纠正） |
+| R-08 | schema 只能描述单个 control，无法保证 top-level sibling | 完整 response 必须经过 Tool 类型、顺序和数量 preflight；连续动作使用原生 sibling Tool calls | closed；实现不得回退到无 preflight |
+| R-09 | 普通 Tool 归属缺失时曾静默漂移到错误节点 | 普通 Tool dispatch 必须从 Map Store 读取 canonical current binding，并通过 node/lease/revision 硬门；不得依赖 Agent 重复提交默认 binding | closed；目标实现方式已重设计 |
+| R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复；该问题曾因“能够拒绝”被错误记为已关闭 | 非终态 boundary 与真实后继动作必须在同一 response，response grammar 必须在零执行 preflight 中强制，并通过真实模型证明不形成稳定额外请求 | open |
 | R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map`；Agent 提交 terminal，Runtime 验证 canonical frontier | closed |
 | R-12 | Patch 被嵌套 JSON 转义破坏，或同 response 多 Patch 部分写入 | 原生顶层 Patch 保真；单 response 最多一个 Patch | closed |
-| R-13 | TaskSpace 装饰侵入 Standard 普通 Tool | 只在 TaskSpace provider visibility 阶段装饰 | closed |
+| R-13 | TaskSpace 装饰曾侵入 Standard 普通 Tool | shared ordinary Tool 在 Standard/TaskSpace 中保持原生 schema 与执行路径一致 | closed；新候选必须消除 TaskSpace 内装饰 |
 | R-14 | preflight 与 router 对同一失败重复包装 | 未 dispatch 时只返回一份事实失败 | closed |
-| R-15 | provider-native 不可承载 Tool 混入 TaskSpace，或不完整 Tool 响应抢占 | 不可承载能力隐藏；未完整响应不执行、不持久化 | closed |
-| R-16 | 完整 lifecycle 联合复制到每个普通 Tool，固定 schema 约 60.7 KB | 后续 lifecycle 仅在中央 control；普通 Tool 只承载绑定 | closed |
-| R-17 | 初始化成为独立 provider request，随后才执行真实 Tool | 初始化对象由首个真实普通 Tool 携带并原子执行 | closed |
-| R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | `initialize_map`、`active`、`after_boundary` 使用同形可判别对象 | closed |
-| R-19 | 完整初始化图 schema 被复制到每个普通 Tool，固定 schema 约 55.6 KB | 必须在固定 schema 内机械收敛，且不能回退 R-08/R-09/R-17/R-18 | open |
+| R-15 | provider-native 不可序列化 Tool 混入客户端执行，或不完整 Tool 响应抢占 | 未完整响应不执行、不持久化；不可进入完整 manifest 的能力必须显式分类并在产品决策前暂停 | closed；能力策略继续作为 B0 硬门 |
+| R-16 | 完整 lifecycle 联合复制到每个普通 Tool，固定 schema 约 60.7 KB | TaskSpace response grammar 不得复制到普通 Tool；唯一 control 集中拥有 Map action | closed；目标候选删除剩余 binding |
+| R-17 | 初始化成为独立 provider request，随后才执行真实 Tool | `initialize_map` 与至少一个原生普通 Tool 必须位于同一 response，并按 barrier 顺序执行 | closed；不要求同一 Tool call |
+| R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | provider-visible wire 只保留中央 control 的直接 action；删除普通 Tool binding 联合 | closed；目标候选删除旧联合 |
+| R-19 | 初始化图和 binding schema 被复制到每个普通 Tool，TaskSpace Tool section 仍为 46,926 B/request | shared ordinary Tool 与 Standard 字节一致；TaskSpace 固定增量只允许来自唯一 control 和明确能力集差异 | open |
 | R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | closed |
 | R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前从父 rollout 恢复了不一致的 assignment 状态 | child 按 Map 身份访问同一持久化状态；attach 失败原子回收，原失败与相邻 handoff 测试通过 | closed（R7.1-A1） |
 | R-22 | `map-request` 复杂样本稳定产生多 Patch sibling reject，部分运行在业务完成后才补 Map 生命周期 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
@@ -157,16 +160,17 @@ R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退�
 
 1. **职责门**：不把初始化、节点选择或图设计交给 Runtime。
 2. **静态门**：空 Map 与已初始化 Map 的同一 capability epoch 使用完全相同 Tool schema。
-3. **连续动作门**：初始化与首个真实 Tool 仍为一个 response、一个普通 Tool call。
-4. **可判别门**：三个 binding 分支保持对象形态和唯一 action discriminator。
+3. **连续动作门**：初始化与首个真实 Tool、非终态 boundary 与后继真实 Tool 均在同一 response。
+4. **普通 Tool 保真门**：shared ordinary Tool 不包含 TaskSpace 字段，Standard/TaskSpace schema byte-identical。
 5. **反馈门**：初始化失败、业务失败和 Map commit 事实分别忠实返回。
 6. **Patch 门**：顶层原生 Patch、单 Patch 和 control + Patch 合法配对均保持。
 7. **Standard 门**：Standard Tool schema 与请求路径字节不变。
 8. **projection 门**：三个 TaskSpace policy 的 L1-L4 与 Runtime 行为一致。
-9. **成本门**：同 capability set 的 `tools` section 明确低于当前 55,578 bytes/request，并报告总 Input、缓存和请求数。
+9. **成本门**：同 capability set 的 `tools` section 明确低于当前 46,926 bytes/request；shared ordinary Tool
+   增量为零，并报告总 Input、缓存和请求数。
 10. **行为门**：简单、复杂样本不增加独立初始化、事后补 Map、单独边界 control、multi-patch 或业务失败。
-11. **观测门**：schema profile、carrier outcome、preflight/dispatch/commit 和 provider wire trace 均可对账。
-12. **迁移门**：不保留旧初始化 wire parser 或 fallback。
+11. **观测门**：schema profile、response manifest、preflight/barrier/dispatch/commit 和 provider wire trace 均可对账。
+12. **迁移门**：不保留 `taskspace_binding`、旧初始化 carrier、parser 或 fallback。
 13. **角色结构门**：Root、Initial Work、Additional Work、Finish 由 schema 分区，valid fixture 一次解析，
     角色重复和旧通用 `nodes + role ids` wire 被确定性拒绝。
 14. **子代理恢复门**：节点绑定子代理 spawn、完成 watcher、resume/fork 按 Map 身份访问同一份持久化状态，
@@ -185,11 +189,11 @@ R-20、R-21 和 R-23 已关闭；R-10 与 R-22 仍使 R-19 的整组行为门失
 |---|---|
 | 按 Map 空/非空动态切换普通 Tool schema | 违反 C-06，破坏 immutable capability epoch 和缓存身份 |
 | Runtime 自动创建 Root/Work/Finish 或自动选择节点 | 违反 C-02、C-08，替 Agent 做语义决策 |
-| 恢复独立 `taskspace_control.initialize_map` 请求 | 回退 R-17，并重新产生初始化 request |
-| 恢复每个普通 Tool 的完整 lifecycle action 联合 | 回退 R-16 |
+| 允许 `taskspace_control.initialize_map` 成为无后继普通 Tool 的独立成功请求 | 回退 R-17，并重新产生初始化 request |
+| 在任意普通 Tool 上增加 TaskSpace binding 或 lifecycle 联合 | 编排职责侵入能力层，违反 C-05/C-11 |
 | 把原生 Tool 封进通用 nested dispatcher | 回退 R-12，并重新引入解析/转义面 |
-| 让 binding 可选并用当前状态补默认值 | 回退 R-09 |
-| 只靠 L1/L2 提示词要求初始化或连续动作 | 无法提供 L4 结构合同，回退 R-08/R-10 |
+| 从普通 Tool 参数读取或补全 TaskSpace binding | 恢复已淘汰的 per-Tool 编排合同；归属应读取 canonical Store |
+| 只靠 L1/L2 提示词要求初始化或连续动作 | 缺失 L5 response grammar 硬门，回退 R-08/R-10 |
 | 放宽 rooted DAG、revision、binding 或 terminal 硬规则换成功率 | 违反 C-02、C-08、C-12 |
 | 在失败反馈中加入下一步动作建议 | 违反 C-03、C-12 |
 | 把有不同硬规则的初始化角色压成通用 nodes 集合和 role id 引用 | 违反 C-05、C-16，并重新引入 R-20 |

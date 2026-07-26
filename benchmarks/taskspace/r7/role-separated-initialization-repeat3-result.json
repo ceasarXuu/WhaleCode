@@ -108,9 +108,7 @@
   "current_promotion_blockers": [
     "R-10",
     "R-19",
-    "R-21",
-    "R-22",
-    "R-23"
+    "R-22"
   ],
-  "decision": "Keep the role-separated fixed initialization wire as the R-20 repair. Do not promote the candidate while R-10, R-19, R-21, R-22, or R-23 remains open. R-10 requires a structural continuous-action carrier decision; R-23 requires one independently persisted canonical Map Store rather than rollout reconstruction."
+  "decision": "Keep the role-separated fixed initialization wire as the R-20 historical repair baseline. Do not promote it while R-10, R-19, or R-22 remains open. R7.1-A2 supersedes the per-Tool carrier direction with a response-level Tool type, order, and count contract; R-21 and R-23 are closed by the persistent Map Store and shared child attachment path."
 }

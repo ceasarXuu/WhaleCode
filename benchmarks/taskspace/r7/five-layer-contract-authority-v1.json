@@ -2,20 +2,18 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "r7_1_continuation_baseline_with_five_open_regressions",
+  "contract_status": "r7_1_continuation_baseline_with_three_open_regressions",
   "frozen_against_commit": "48922ce9b",
   "current_milestone": {
     "id": "R7.1",
     "behavior_baseline_commit": "1fdd4474d02600ea0c7290300154bcd1ce45f52d",
     "document": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-    "sha256": "9c818378b4e47c66933072a7682a0b59d110a48d34a2c3fa8cfedf71ee20340d",
+    "sha256": "3441466f9943f0cad9da8bd06ac09b55c2000a9a1f19e9ee83881f0da7ad250c",
     "purpose": "single human-readable continuation entrypoint; does not override the integrated machine gate",
     "open_regressions": [
       "R-10",
       "R-19",
-      "R-21",
-      "R-22",
-      "R-23"
+      "R-22"
     ]
   },
   "compatibility_policy": "none",
@@ -60,6 +58,7 @@
     "this_manifest",
     "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
     "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+    "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
     "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
     "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
     "selected machine-readable schemas and exact-text artifacts listed here",
@@ -71,13 +70,18 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "7df380b9620a87c94bb06459eecddd340c520360e653bacb66caf589be1d1a89",
+      "sha256": "d9fa7793b86063bd79387a5c82e19db42563b046ff7a168306f13de7fc3318a8",
       "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
     },
     {
       "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "sha256": "9c818378b4e47c66933072a7682a0b59d110a48d34a2c3fa8cfedf71ee20340d",
+      "sha256": "3441466f9943f0cad9da8bd06ac09b55c2000a9a1f19e9ee83881f0da7ad250c",
       "role": "R7.1 human-readable status, constraints, blockers and continuation entrypoint"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+      "sha256": "a56af1354ad82f9621444bcb9355e7b87102854bc739e51177d4926016c87044",
+      "role": "R7.1-A2 response-level Tool type, order, count, preflight and ordinary Tool fidelity design"
     },
     {
       "path": "docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md",
@@ -140,16 +144,14 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-9 integrated non-regression gate",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "6d11a39e0107a562536950e3a60dc8727ec7fb25ac16e7dc32a287439f7f8b21",
+      "sha256": "bf0d6a7d4677f49a63ba102f61d023971fe7297bd085b7b62eb4df765bc43f71",
       "validation": "scripts/taskspace-benchmark/test-r7-integrated-change-constraints.ps1",
       "open_regressions": [
         "R-10",
         "R-19",
-        "R-21",
-        "R-22",
-        "R-23"
+        "R-22"
       ],
-      "closed_regression_count": 18
+      "closed_regression_count": 20
     },
     {
       "layer": "L1",
@@ -295,14 +297,15 @@
       "id": "FLA-3.5-continuous-action-regression-repair",
       "implementation_status": "active_repair_verified",
       "issue": "R-10/H-003/H-007",
-      "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
+      "plan": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
       "blocks": [
         "FLA-8 promotion"
       ],
-      "current_regression_baseline": "ordinary Tools retain one required taskspace_binding union; initialization is carried by the first ordinary Tool while later lifecycle payloads live in taskspace_control",
-      "selected_direction": "make initialization and the first real Tool one provider call; retain immediate after_boundary siblings for bind_node and complete_then_continue",
-      "required_next_call_disposition": "removed; initialization is structurally inseparable from the first ordinary Tool, while sequence preflight validates later boundary and after_boundary adjacency",
-      "behavioral_status": "open; separate control plus sibling remains schema-valid as a standalone response and is rejected only after generation"
+      "current_regression_baseline": "ordinary Tools still carry taskspace_binding and the response-level lifecycle grammar is split across ordinary Tool schemas and taskspace_control",
+      "selected_direction": "remove ordinary Tool decoration and validate only complete-response Tool type, order, and count; central taskspace_control owns Map actions and sequence barriers",
+      "required_next_call_disposition": "initialize_map, bind_node, and complete_then_continue require a following native ordinary Tool in the same response; finish_map is terminal",
+      "behavioral_status": "current binding implementation remains active as rollback baseline; replacement design confirmed, B0-B5 production implementation and live validation not started",
+      "replacement_design_status": "selected_not_implemented"
     },
     {
       "id": "FLA-3.5-terminal-action-contract-repair",
@@ -321,41 +324,34 @@
       "blocks": [
         "FLA-8 promotion",
         "R-10",
-        "R-21",
-        "R-22",
-        "R-23"
+        "R-22"
       ],
       "candidate_status": "evaluation_candidate",
-      "selected_direction": "evaluate only fixed-schema compact Agent-authored initialization wires with structurally distinct Root, Initial Work, Additional Work, and Finish roles",
+      "selected_direction": "make shared ordinary Tool bytes equal Standard and keep role-separated initialization only in the single central taskspace_control schema",
       "rejected_directions": [
         "Map-state-dependent schema",
         "Runtime-authored graph bootstrap",
-        "standalone initialization",
-        "full ordinary Tool lifecycle carrier"
+        "standalone successful initialization response",
+        "any ordinary Tool TaskSpace carrier"
       ]
     },
     {
       "id": "R7.1-persistent-map-ownership",
-      "implementation_status": "selected_not_implemented",
+      "implementation_status": "active_verified",
       "issue": "R-23/H-001",
       "plan": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "blocks": [
-        "FLA-8 promotion",
-        "R-21"
-      ],
-      "current_failure": "SessionState owns complete ActionMapRuntimeState maps and tasks while resume and fork reconstruct canonical Map state from rollout checkpoints and deltas",
-      "selected_direction": "reuse the existing state and SQLite substrate for one independently persisted Map Store; make sessions and Runtime use identity handles or disposable revision-checked caches, and remove rollout Map recovery without compatibility fallback"
+      "blocks": [],
+      "current_failure": "closed; Session and rollout no longer own or reconstruct canonical Map state",
+      "selected_direction": "one independently persisted Map Store is active; sessions and Runtime use identity handles or disposable revision-checked caches without rollout recovery fallback"
     },
     {
       "id": "R7.1-subagent-map-restore",
-      "implementation_status": "selected_not_implemented",
+      "implementation_status": "active_verified",
       "issue": "R-21/H-003",
       "plan": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "blocks": [
-        "FLA-8 promotion"
-      ],
-      "current_failure": "action_map_completion_watcher_advances_next_spawn_to_next_node fails before first child session with current binding and main lease inconsistent",
-      "selected_direction": "after R-23 is closed, make parent and child access the same persisted Map identity and repair only the child attach, lease, and revision transaction without rollout reconstruction or weakened invariants"
+      "blocks": [],
+      "current_failure": "closed; parent, fork, and child access one Store Map and failed child attachment is atomically reclaimed",
+      "selected_direction": "retain Store-backed parent-child Map identity, attachment, lease, revision, cleanup, and completion-watcher regression gates"
     },
     {
       "id": "R7.1-map-request-operation-drift",

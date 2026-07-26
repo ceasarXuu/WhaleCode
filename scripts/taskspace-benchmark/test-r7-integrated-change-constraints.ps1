@@ -40,8 +40,8 @@ Assert-Contract ($documentHash -eq [string]$contract.governing_document.sha256) 
 
 $closed = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "closed" })
 $open = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "open" })
-Assert-Contract ($closed.Count -eq 18) "Exactly 18 historical regressions must remain closed"
-Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-21,R-22,R-23") "R-10, R-19, R-21, R-22, and R-23 must remain open until all continuation gates pass"
+Assert-Contract ($closed.Count -eq 20) "Exactly 20 historical regressions must remain closed"
+Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-22") "R-10, R-19, and R-22 must remain open until all continuation gates pass"
 
 $knownIds = @{}
 foreach ($item in @($contract.architectural_constraints) + @($contract.regression_invariants)) {
@@ -57,12 +57,14 @@ $dynamicSchema = @($contract.rejected_directions | Where-Object { [string]$_.id 
 Assert-Contract (@($dynamicSchema.violates) -contains "C-06") "Dynamic schema rejection must be bound to immutable capability epochs"
 
 $costRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-19" })[0]
-Assert-Contract ([string]$costRegression.required_behavior -match "55578") "Current schema cost baseline is missing"
+Assert-Contract ([string]$costRegression.problem -match "46926") "Current schema cost baseline is missing"
 $roleRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-20" })[0]
 Assert-Contract ([string]$roleRegression.required_behavior -match "structurally distinct") "Initialization role-structure invariant is missing"
 Assert-Contract ([string]$roleRegression.status -eq "closed") "Role-separated initialization regression must remain closed"
 $continuousRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-10" })[0]
-Assert-Contract ([string]$continuousRegression.required_behavior -match "structurally inseparable") "Continuous-action structural gate is missing"
+Assert-Contract ([string]$continuousRegression.required_behavior -match "one response") "Continuous-action response grammar gate is missing"
+$ordinaryToolRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-13" })[0]
+Assert-Contract ([string]$ordinaryToolRegression.required_behavior -match "byte-identical native schema") "Ordinary Tool fidelity gate is missing"
 $subagentRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-21" })[0]
 Assert-Contract ([string]$subagentRegression.required_behavior -match "same persisted canonical Map") "TaskSpace subagent persistent handoff gate is missing"
 $operationDriftRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-22" })[0]
