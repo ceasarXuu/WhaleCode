@@ -29,10 +29,10 @@ $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath
 Assert-Contract ($raw | Test-Json -SchemaFile $schemaPath -ErrorAction Stop) "Integrated constraint contract does not match its schema"
 $contract = $raw | ConvertFrom-Json -Depth 40
 
-Assert-ExactIds @($contract.architectural_constraints) "C" 17
-Assert-ExactIds @($contract.regression_invariants) "R" 23
-Assert-ExactIds @($contract.candidate_gates) "G" 16
-Assert-ExactIds @($contract.rejected_directions) "D" 11
+Assert-ExactIds @($contract.architectural_constraints) "C" 19
+Assert-ExactIds @($contract.regression_invariants) "R" 25
+Assert-ExactIds @($contract.candidate_gates) "G" 19
+Assert-ExactIds @($contract.rejected_directions) "D" 13
 
 $documentPath = Join-Path $repoRoot ([string]$contract.governing_document.path)
 $documentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $documentPath).Hash.ToLowerInvariant()
@@ -41,7 +41,7 @@ Assert-Contract ($documentHash -eq [string]$contract.governing_document.sha256) 
 $closed = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "closed" })
 $open = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "open" })
 Assert-Contract ($closed.Count -eq 20) "Exactly 20 historical regressions must remain closed"
-Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-22") "R-10, R-19, and R-22 must remain open until all continuation gates pass"
+Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-22,R-24,R-25") "R-10, R-19, R-22, R-24, and R-25 must remain open until all continuation gates pass"
 
 $knownIds = @{}
 foreach ($item in @($contract.architectural_constraints) + @($contract.regression_invariants)) {
@@ -71,6 +71,10 @@ $operationDriftRegression = @($contract.regression_invariants | Where-Object { [
 Assert-Contract ([string]$operationDriftRegression.required_behavior -match "multi-Patch") "Map-request operation drift gate is missing"
 $mapOwnershipRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-23" })[0]
 Assert-Contract ([string]$mapOwnershipRegression.required_behavior -match "independently persisted Map Store") "Persistent canonical Map ownership gate is missing"
+$actionOwnershipRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-24" })[0]
+Assert-Contract ([string]$actionOwnershipRegression.required_behavior -match "declares node_id per ordinary action") "Agent-authored per-action ownership gate is missing"
+$derivedLifecycleRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-25" })[0]
+Assert-Contract ([string]$derivedLifecycleRegression.required_behavior -match "derives Waiting, Ready, InFlight, Blocked, Completed") "Fact-derived lifecycle gate is missing"
 
 $document = Get-Content -Raw -Encoding UTF8 -LiteralPath $documentPath
 foreach ($id in @(

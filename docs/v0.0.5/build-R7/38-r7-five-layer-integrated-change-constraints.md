@@ -2,7 +2,7 @@
 
 - Created: 2026-07-24
 - Updated: 2026-07-27
-- Version: 1.2
+- Version: 1.3
 - Status: Active change gate
 - Machine contract:
   [`five-layer-integrated-change-constraints-v1.json`](../../../benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json)
@@ -28,7 +28,7 @@
 | L2 Core Working Protocol | 普通任务都需要的 Map 工作循环、基础恢复和反模式 | 初始化后工作、真实边界同步、依据事实恢复 | 第二份 Base、参数全集、动态事实、高级 playbook |
 | L3 Advanced Skills | 复杂 DAG、重规划、长任务和证据冲突的按需经验 | 内置 Skill 可被 Standard 与 TaskSpace 正常发现；正文按需加载 | 成为正确性前提、Runtime 自动加载、固定进入每个请求 |
 | L4 Tool Contract | 普通 Tool 的原生能力合同与唯一 `taskspace_control` 的 Map action 合同 | schema 明确、静态、可解析；普通 Tool 不携带 TaskSpace 编排字段 | 教授规划、推断任务语义、按 Map 状态动态改 schema、把 response grammar 复制到普通 Tool |
-| L5 Map Store, Runtime and Factual Feedback | 独立持久化 canonical Map、响应级 Tool 序列硬门、原子提交、忠实结果和纯 projection | 单一事实、失败零提交、原始原因、明确 revision/commit、类型/顺序/数量 preflight | 以 Session/rollout 代替 Map Store、代选节点、补参数、自动初始化、语义建议、读取普通 Tool 内容判断序列 |
+| L5 Map Store, Runtime and Factual Feedback | 独立持久化 canonical Map、响应级 action manifest 硬门、原子提交、忠实结果和纯 projection | 单一事实、Agent 显式动作归属、失败零提交、原始原因、明确 revision/commit | 以 Session/rollout 代替 Map Store、维护 current node、代选节点、补参数、自动初始化、语义建议、读取普通 Tool 内容判断序列 |
 
 Agent 是唯一语义决策者，不是第六层。Provider Context Composer 只是无语义传输设施，也不是第六层。
 
@@ -41,8 +41,8 @@ Agent 是唯一语义决策者，不是第六层。Provider Context Composer 只
 
 ### C-02 Agent 负责语义，Runtime 只守底线
 
-任务拆解、目标、依赖、行动、完成判断和总结由 Agent 决定。Runtime 只能验证图结构、revision、readiness、
-binding、terminal、事务原子性和明确的调用顺序。
+任务拆解、目标、依赖、行动归属、完成判断和总结由 Agent 决定。Runtime 只能验证图结构、revision、派生
+readiness、Agent 声明的 node/action reservation、terminal、事务原子性和明确的调用顺序。
 
 ### C-03 语义忠实透传
 
@@ -73,14 +73,16 @@ projection policy 建立平行架构或专用行为分支。
 
 ### C-08 Map 是唯一 canonical rooted DAG
 
-Root 是唯一起点并保持 Open，直到 Agent 显式闭合唯一 Finish。除 Root 外每个节点至少有一个入边，所有节点从
-Root 可达，所有非 Finish 节点能到达 Finish；允许多父依赖。Runtime 维护事实和硬不变量，不设计任务结构。
+Root 是唯一起点，Finish 是唯一终点。除 Root 外每个节点至少有一个入边，所有节点从 Root 可达，所有非 Finish
+节点能到达 Finish；允许多父依赖。Root 与 Finish 只由 Agent 显式 `finish_map` 闭合。Runtime 维护事实和硬不变量，
+不设计任务结构。
 
 ### C-09 连续动作是必须保留的 L4/L5 合同
 
-初始化必须与首个真实普通 Tool 同一 provider response；`bind_node` 和 `complete_then_continue` 必须与后继首个
-真实 Tool 同一 response。合同只检查完整 response 的 Tool 类型、顺序和数量。Runtime 只做机械配对、barrier
-执行和原子提交，不读取普通 Tool 业务参数判断动作意义，也不生成后续动作。
+初始化和所有非终态 Map mutation 必须与至少一个真实普通 Tool 位于同一 provider response。Agent 在唯一
+`taskspace_control` action manifest 中为每个 sibling 普通 Tool 声明 `node_id + tool`；Runtime 只做数量、名称、
+顺序、图事实、reservation 和 revision 的机械校验、原子提交与原生 dispatch，不读取普通 Tool 业务参数判断动作
+意义，也不生成后续动作。
 
 ### C-10 Patch 保真与单 Patch
 
@@ -115,16 +117,29 @@ provider 实际收到的完整 `tools`、messages、input、cache hit 和 reques
 
 ### C-16 机械角色必须由 Tool 结构表达
 
-当 Root、Initial Work、Additional Work、Finish 等机械角色决定解析和硬校验时，L4 必须用不同字段或不同
-schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用集合，再依赖跨字段说明让 Agent 自行维持互斥、
-唯一性或成员关系。描述文本可以补充合同，但不能替代能够直接表达的结构。
+当 Root、Work、Finish 等机械角色决定解析和硬校验时，L4 必须用 `root`、`work_nodes[]`、`finish` 等不同字段
+或不同 schema 分支表达角色；不得为了缩短 schema 把角色抹平成通用集合，再依赖跨字段说明让 Agent 自行维持
+互斥、唯一性或成员关系。初始化允许多个首批 Work 节点，不得恢复单数 current/initial work 游标。
 
 ### C-17 canonical Map 必须独立持久化
 
-Map 从初始化 commit 起就是独立持久化、全局唯一的数据。Map Store 是 Map、node、edge、lease、result 和 revision
+Map 从初始化 commit 起就是独立持久化、全局唯一的数据。Map Store 是 Map、node、edge、action reservation、
+result 和 revision
 的唯一事实源；Session、Runtime、resume、fork 和 child agent 只能按身份访问同一份 Map。Runtime 可以维护按
 revision 校验、随时可丢弃的缓存，但不能拥有 authoritative Map 副本。rollout 只记录对话、Tool 结果、审计事件
 和 Map revision 引用，不能作为 Map snapshot/delta 的恢复权威，也不能在 Map Store 缺失时静默重建 Map。
+
+### C-18 动作归属必须由 Agent 逐项声明
+
+每个普通 Tool call 的 `node_id` 必须由 Agent 在同一 response 的 action manifest 中显式声明；同一 response 可
+推进多个 Ready 节点。Runtime 只解析并建立外层 `TaskSpaceBoundCall`，不得推断、默认、修复或选择动作归属。
+原生 ordinary Tool handler 对 `node_id` 完全无感。
+
+### C-19 生命周期只保存不可重复的事实
+
+canonical Map 不持久化 `Open`，也不存在 `current_node/current_binding/next_node`。Store 保存依赖、completion、
+block、action reservation、result 和 revision；`Waiting/Ready/InFlight/Blocked/Completed` 由这些事实计算。
+`open_nodes` 只可作为派生查询或指标，不得成为状态转换或第二事实源。
 
 ## 4. 历史回归总账
 
@@ -136,9 +151,9 @@ revision 校验、随时可丢弃的缓存，但不能拥有 authoritative Map �
 | R-04 | L2 恢复协议依赖 Tool result 中不存在的字段 | 所有执行入口统一返回 `TaskSpaceControlResultV2` 可见事实 | closed |
 | R-05 | observer 漏报 preflight reject、handler、gate 和真实 commit | 四阶段分别记录，provider 成功与业务成功分开 | closed |
 | R-06 | nested lifecycle discriminator 导致 action 选择和解析漂移 | lifecycle 使用直接 action，禁止恢复旧嵌套 transition | closed |
-| R-07 | 初始化成功结果未明确报告当前 binding | 初始化结果显式报告 node binding 和 commit 事实 | closed |
+| R-07 | 初始化成功结果未明确报告动作归属 | 初始化结果显式报告 Agent 声明的 action attribution、reservation 和 commit 事实 | closed |
 | R-08 | schema 只能描述单个 control，无法保证 top-level sibling | 完整 response 必须经过 Tool 类型、顺序和数量 preflight；连续动作使用原生 sibling Tool calls | closed；实现不得回退到无 preflight |
-| R-09 | 普通 Tool 归属缺失时曾静默漂移到错误节点 | 普通 Tool dispatch 必须从 Map Store 读取 canonical current binding，并通过 node/lease/revision 硬门；不得依赖 Agent 重复提交默认 binding | closed；目标实现方式已重设计 |
+| R-09 | 普通 Tool 归属缺失时曾静默漂移到错误节点 | 缺失或错位的动作归属必须在零执行 preflight 中失败，不得静默默认、推断或漂移 | closed；旧 current-binding 实现由 R-24 追踪替换 |
 | R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复；该问题曾因“能够拒绝”被错误记为已关闭 | 非终态 boundary 与真实后继动作必须在同一 response，response grammar 必须在零执行 preflight 中强制，并通过真实模型证明不形成稳定额外请求 | open |
 | R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map`；Agent 提交 terminal，Runtime 验证 canonical frontier | closed |
 | R-12 | Patch 被嵌套 JSON 转义破坏，或同 response 多 Patch 部分写入 | 原生顶层 Patch 保真；单 response 最多一个 Patch | closed |
@@ -149,18 +164,20 @@ revision 校验、随时可丢弃的缓存，但不能拥有 authoritative Map �
 | R-17 | 初始化成为独立 provider request，随后才执行真实 Tool | `initialize_map` 与至少一个原生普通 Tool 必须位于同一 response，并按 barrier 顺序执行 | closed；不要求同一 Tool call |
 | R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | provider-visible wire 只保留中央 control 的直接 action；删除普通 Tool binding 联合 | closed；目标候选删除旧联合 |
 | R-19 | 初始化图和 binding schema 被复制到每个普通 Tool，TaskSpace Tool section 仍为 46,926 B/request | shared ordinary Tool 与 Standard 字节一致；TaskSpace 固定增量只允许来自唯一 control 和明确能力集差异 | open |
-| R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、Initial Work、Additional Work、Finish 在 wire 中保持角色分区；成本优化不得依赖跨字段自然语言互斥 | closed |
+| R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、`work_nodes[]`、Finish 在 wire 中保持角色分区；允许多个首批 Work，成本优化不得依赖跨字段自然语言互斥 | closed |
 | R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前从父 rollout 恢复了不一致的 assignment 状态 | child 按 Map 身份访问同一持久化状态；attach 失败原子回收，原失败与相邻 handoff 测试通过 | closed（R7.1-A1） |
 | R-22 | `map-request` 复杂样本稳定产生多 Patch sibling reject，部分运行在业务完成后才补 Map 生命周期 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
 | R-23 | canonical Map 被 Session-local Runtime 持有，并依赖 rollout checkpoint/delta 重建 | 独立持久化 Map Store 已成为唯一事实源；Session/Runtime 只持有引用或可丢弃缓存，rollout 不承担 Map 恢复 | closed（R7.1-A0） |
+| R-24 | singleton `current_node/current_binding/main lease` 把多活跃节点 DAG 退化为 Runtime 驱动的线性游标 | Agent 为每个普通动作显式声明 `node_id`；Runtime 不维护 current/next，不代选节点，同一 response 可推进多个节点 | open |
+| R-25 | `Open` 作为持久化状态与依赖、阻塞、执行中和完成事实重复，产生双重状态源 | Store 只保存不可重复事实；`Waiting/Ready/InFlight/Blocked/Completed/open_nodes` 全部由事实计算 | open |
 
-## 5. 当前 R-10/R-19/R-22 的整组准入门
+## 5. 当前 R-10/R-19/R-22/R-24/R-25 的整组准入门
 
 R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退门。任何实现候选必须一次通过以下全部条件：
 
 1. **职责门**：不把初始化、节点选择或图设计交给 Runtime。
 2. **静态门**：空 Map 与已初始化 Map 的同一 capability epoch 使用完全相同 Tool schema。
-3. **连续动作门**：初始化与首个真实 Tool、非终态 boundary 与后继真实 Tool 均在同一 response。
+3. **连续动作门**：初始化和所有非终态 mutation 与至少一个真实 Tool 均在同一 response。
 4. **普通 Tool 保真门**：shared ordinary Tool 不包含 TaskSpace 字段，Standard/TaskSpace schema byte-identical。
 5. **反馈门**：初始化失败、业务失败和 Map commit 事实分别忠实返回。
 6. **Patch 门**：顶层原生 Patch、单 Patch 和 control + Patch 合法配对均保持。
@@ -171,8 +188,8 @@ R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退�
 10. **行为门**：简单、复杂样本不增加独立初始化、事后补 Map、单独边界 control、multi-patch 或业务失败。
 11. **观测门**：schema profile、response manifest、preflight/barrier/dispatch/commit 和 provider wire trace 均可对账。
 12. **迁移门**：不保留 `taskspace_binding`、旧初始化 carrier、parser 或 fallback。
-13. **角色结构门**：Root、Initial Work、Additional Work、Finish 由 schema 分区，valid fixture 一次解析，
-    角色重复和旧通用 `nodes + role ids` wire 被确定性拒绝。
+13. **角色结构门**：Root、`work_nodes[]`、Finish 由 schema 分区，valid fixture 一次解析，角色重复和旧通用
+    `nodes + role ids` wire 被确定性拒绝。
 14. **子代理恢复门**：节点绑定子代理 spawn、完成 watcher、resume/fork 按 Map 身份访问同一份持久化状态，
     不出现 `current binding and main lease are inconsistent`，并用 typed telemetry 区分 child attach 与
     session resume。
@@ -180,8 +197,15 @@ R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退�
     补账；自然复杂样本不得稳定重复触发同一协议拒绝后再恢复。
 16. **持久化所有权门**：进程重启、resume、fork 和 child agent 均从独立 Map Store 读取同一 `map_id` 与 revision；
     rollout 截断不丢 Map，Map Store 缺失时也不得从 rollout 静默重建。
+17. **Agent 动作归属门**：每个 sibling 普通 Tool 都与 action manifest 中 Agent 声明的 `node_id + tool`
+    逐项对应；缺失、错位或多余调用零执行零提交。
+18. **无 current 门**：生产模型、Runtime、projection、subagent、event 和测试不保留 canonical
+    `current_node/current_binding/next_node`、`bind_node`、`complete_then_continue` 或 singleton main lease。
+19. **非重复状态门**：生产 Store 不持久化 `Open`；readiness、inflight、blocked、completed 和 open metrics
+    都能从同一组事实确定性重建。
 
-R-20、R-21 和 R-23 已关闭；R-10 与 R-22 仍使 R-19 的整组行为门失败。成本下降不能越过这些阻塞项单独晋升。
+当前总计：`20 closed / 5 open`。R-20、R-21 和 R-23 已关闭；R-10、R-22、R-24、R-25 仍使 R-19 的整组行为
+门失败。成本下降不能越过这些阻塞项单独晋升。
 
 ## 6. 已淘汰方向
 
@@ -192,12 +216,14 @@ R-20、R-21 和 R-23 已关闭；R-10 与 R-22 仍使 R-19 的整组行为门失
 | 允许 `taskspace_control.initialize_map` 成为无后继普通 Tool 的独立成功请求 | 回退 R-17，并重新产生初始化 request |
 | 在任意普通 Tool 上增加 TaskSpace binding 或 lifecycle 联合 | 编排职责侵入能力层，违反 C-05/C-11 |
 | 把原生 Tool 封进通用 nested dispatcher | 回退 R-12，并重新引入解析/转义面 |
-| 从普通 Tool 参数读取或补全 TaskSpace binding | 恢复已淘汰的 per-Tool 编排合同；归属应读取 canonical Store |
+| 从普通 Tool 参数、Store current pointer 或启发式规则推断/补全动作归属 | 恢复隐式归属；唯一来源必须是 Agent action manifest |
 | 只靠 L1/L2 提示词要求初始化或连续动作 | 缺失 L5 response grammar 硬门，回退 R-08/R-10 |
-| 放宽 rooted DAG、revision、binding 或 terminal 硬规则换成功率 | 违反 C-02、C-08、C-12 |
+| 放宽 rooted DAG、revision、action attribution/reservation 或 terminal 硬规则换成功率 | 违反 C-02、C-08、C-12 |
 | 在失败反馈中加入下一步动作建议 | 违反 C-03、C-12 |
 | 把有不同硬规则的初始化角色压成通用 nodes 集合和 role id 引用 | 违反 C-05、C-16，并重新引入 R-20 |
 | 从 Session rollout、checkpoint 或 delta 重建 canonical Map，或保留 Session-local authoritative Map 副本 | 违反 C-01、C-08、C-17，并延续 R-23 |
+| 维护 singleton current binding、next node 或 main lease，再由 Runtime 把普通动作归到该节点 | 违反 C-02、C-18，并延续 R-24 |
+| 持久化 `Open` 或同时保存可由同一事实推导的多套节点状态 | 违反 C-01、C-19，并延续 R-25 |
 
 ## 7. 变更流程
 

@@ -108,7 +108,9 @@
   "current_promotion_blockers": [
     "R-10",
     "R-19",
-    "R-22"
+    "R-22",
+    "R-24",
+    "R-25"
   ],
-  "decision": "Keep the role-separated fixed initialization wire as the R-20 historical repair baseline. Do not promote it while R-10, R-19, or R-22 remains open. R7.1-A2 supersedes the per-Tool carrier direction with a response-level Tool type, order, and count contract; R-21 and R-23 are closed by the persistent Map Store and shared child attachment path."
+  "decision": "Keep the role-separated fixed initialization wire as the R-20 historical repair baseline. Do not promote it while R-10, R-19, R-22, R-24, or R-25 remains open. R7.1-A2 v3.0 supersedes the per-Tool carrier and singleton-current direction with an Agent-authored per-action manifest, native sibling Tool calls, and fact-derived lifecycle state; R-21 and R-23 remain closed by the persistent Map Store and shared child attachment path."
 }

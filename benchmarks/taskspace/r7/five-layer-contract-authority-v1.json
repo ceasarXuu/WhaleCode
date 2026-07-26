@@ -2,18 +2,20 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
   "contract_id": "r7-five-layer-contract-authority-v1",
-  "contract_status": "r7_1_continuation_baseline_with_three_open_regressions",
+  "contract_status": "r7_1_continuation_baseline_with_five_open_regressions",
   "frozen_against_commit": "48922ce9b",
   "current_milestone": {
     "id": "R7.1",
     "behavior_baseline_commit": "1fdd4474d02600ea0c7290300154bcd1ce45f52d",
     "document": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-    "sha256": "3441466f9943f0cad9da8bd06ac09b55c2000a9a1f19e9ee83881f0da7ad250c",
+    "sha256": "c2b4f2634932effd70312e3c913cd44af888b5a45c24fcbaba8d79a58778c028",
     "purpose": "single human-readable continuation entrypoint; does not override the integrated machine gate",
     "open_regressions": [
       "R-10",
       "R-19",
-      "R-22"
+      "R-22",
+      "R-24",
+      "R-25"
     ]
   },
   "compatibility_policy": "none",
@@ -70,17 +72,17 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "d9fa7793b86063bd79387a5c82e19db42563b046ff7a168306f13de7fc3318a8",
+      "sha256": "a20169868fcde95b9d7c37df87be21504338c06855a1bfa6e4cae2f1ef6a17b8",
       "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
     },
     {
       "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "sha256": "3441466f9943f0cad9da8bd06ac09b55c2000a9a1f19e9ee83881f0da7ad250c",
+      "sha256": "c2b4f2634932effd70312e3c913cd44af888b5a45c24fcbaba8d79a58778c028",
       "role": "R7.1 human-readable status, constraints, blockers and continuation entrypoint"
     },
     {
       "path": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
-      "sha256": "a56af1354ad82f9621444bcb9355e7b87102854bc739e51177d4926016c87044",
+      "sha256": "740983744a3df8634e49a2f1fcd287bce0c36f853ca91c7888123ba9b3656d4c",
       "role": "R7.1-A2 response-level Tool type, order, count, preflight and ordinary Tool fidelity design"
     },
     {
@@ -144,12 +146,14 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-9 integrated non-regression gate",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "bf0d6a7d4677f49a63ba102f61d023971fe7297bd085b7b62eb4df765bc43f71",
+      "sha256": "db5955baa779f9522d8b33064f1bc94685558e2131c12282eba63771a0dc5a82",
       "validation": "scripts/taskspace-benchmark/test-r7-integrated-change-constraints.ps1",
       "open_regressions": [
         "R-10",
         "R-19",
-        "R-22"
+        "R-22",
+        "R-24",
+        "R-25"
       ],
       "closed_regression_count": 20
     },
@@ -186,6 +190,8 @@
       "tool_count": 1,
       "taskspace_binding": "required_discriminated_object_union_for_initialize_map_active_or_after_boundary_on_ordinary_tools",
       "initialization_carrier": "the first ordinary Tool carries the explicit initialize_map object and keeps its native business arguments at top level",
+      "authority_disposition": "active rollback baseline only; superseded target design is selected but not implemented",
+      "replacement_plan": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
       "boundary_actions": [
         "bind_node",
         "complete_then_continue"
@@ -247,6 +253,7 @@
       "activation_phase": "FLA-7",
       "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
       "sha256": "2df97b4577dfc7381c606719cc8479c034b410c720e6b0898ffbaeed3c900795",
+      "authority_disposition": "persistent Store ownership remains active; singleton current/Open lifecycle representation is superseded and awaiting A2-B1 through B4",
       "golden": {
         "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json",
         "sha256": "0c1d1f521f26f3d08df166cc7ae754cdeec2244e9857c51ec7555ba08fbc3d2c"
@@ -296,15 +303,15 @@
     {
       "id": "FLA-3.5-continuous-action-regression-repair",
       "implementation_status": "active_repair_verified",
-      "issue": "R-10/H-003/H-007",
+      "issue": "R-10/R-24/H-003/H-007",
       "plan": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
       "blocks": [
         "FLA-8 promotion"
       ],
-      "current_regression_baseline": "ordinary Tools still carry taskspace_binding and the response-level lifecycle grammar is split across ordinary Tool schemas and taskspace_control",
-      "selected_direction": "remove ordinary Tool decoration and validate only complete-response Tool type, order, and count; central taskspace_control owns Map actions and sequence barriers",
-      "required_next_call_disposition": "initialize_map, bind_node, and complete_then_continue require a following native ordinary Tool in the same response; finish_map is terminal",
-      "behavioral_status": "current binding implementation remains active as rollback baseline; replacement design confirmed, B0-B5 production implementation and live validation not started",
+      "current_regression_baseline": "ordinary Tools still carry taskspace_binding and Runtime attributes work through a singleton current binding",
+      "selected_direction": "one taskspace_control action manifest maps Agent-declared node_id plus Tool names to byte-native sibling ordinary Tool calls; Runtime validates the complete response without choosing ownership",
+      "required_next_call_disposition": "initialize_and_execute and execute require one or more matching native ordinary Tool siblings; read_map and read_output_ref may stand alone on true result dependency; finish_map is terminal",
+      "behavioral_status": "current binding implementation remains active only as rollback baseline; A2 v3.0 replacement design is confirmed and D0/B0-B5 production implementation has not started",
       "replacement_design_status": "selected_not_implemented"
     },
     {
@@ -314,7 +321,7 @@
       "plan": "docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md",
       "blocks": [],
       "selected_direction": "expose one branch-free finish_map action in which the Agent selects only a terminal entry node and exact summary; remove Agent-submitted terminal prestate branches and align L2/L5",
-      "runtime_disposition": "one Rooted DAG transaction validates the submitted revision and terminal node against the canonical role, binding, and terminal frontier; Runtime does not interpret task meaning, search for a successful node, repair arguments, or choose an Agent action"
+      "runtime_disposition": "one Rooted DAG transaction validates the submitted revision and terminal node against canonical graph facts, action reservations, and terminal frontier; Runtime does not interpret task meaning, search for a successful node, repair arguments, or choose an Agent action"
     },
     {
       "id": "FLA-9-fixed-schema-cost-repair",
@@ -324,10 +331,12 @@
       "blocks": [
         "FLA-8 promotion",
         "R-10",
-        "R-22"
+        "R-22",
+        "R-24",
+        "R-25"
       ],
       "candidate_status": "evaluation_candidate",
-      "selected_direction": "make shared ordinary Tool bytes equal Standard and keep role-separated initialization only in the single central taskspace_control schema",
+      "selected_direction": "make shared ordinary Tool bytes equal Standard and keep root, work_nodes, Finish, mutations, and the ordered action manifest only in the single central taskspace_control schema",
       "rejected_directions": [
         "Map-state-dependent schema",
         "Runtime-authored graph bootstrap",
@@ -351,7 +360,22 @@
       "plan": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
       "blocks": [],
       "current_failure": "closed; parent, fork, and child access one Store Map and failed child attachment is atomically reclaimed",
-      "selected_direction": "retain Store-backed parent-child Map identity, attachment, lease, revision, cleanup, and completion-watcher regression gates"
+      "selected_direction": "retain Store-backed parent-child Map identity, attachment, revision, cleanup, and completion-watcher regression gates while A2 migrates singleton lease semantics to per-action reservations"
+    },
+    {
+      "id": "R7.1-multi-active-map-lifecycle-model",
+      "implementation_status": "selected_not_implemented",
+      "issue": "R-24/R-25",
+      "plan": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+      "blocks": [
+        "FLA-8 promotion",
+        "R-10",
+        "R-19",
+        "R-22"
+      ],
+      "current_failure": "production model, Runtime, projection, events, subagent paths, and fixtures still depend on singleton current binding, singleton main lease, and persisted Open",
+      "selected_direction": "remove current and Open in one domain migration; derive lifecycle views from dependencies, completion, block, action reservations, results, and revision; accept Agent-declared per-action node ownership",
+      "replacement_design_status": "selected_not_implemented"
     },
     {
       "id": "R7.1-map-request-operation-drift",
@@ -362,7 +386,7 @@
         "FLA-8 promotion"
       ],
       "current_failure": "map-request complex repeat-3 produced multi-Patch attempts in 3 of 3 runs and one post-hoc Map closure path",
-      "selected_direction": "run a single-variable projection-visibility and Tool-contract causal experiment before selecting a repair"
+      "selected_direction": "after A2-B5, run a single-variable projection-visibility and Tool-contract causal experiment before selecting a repair"
     }
   ],
   "obsolete_after_activation": [
@@ -387,6 +411,16 @@
       "item": "full taskspace_action union copied into ordinary Tool schemas and TaskSpaceCarrierResultV2",
       "obsolete_after": "FLA-9",
       "replacement": "initialization-only ordinary Tool carrier plus taskspace_control for later lifecycle actions, discriminated active/after_boundary binding objects, and faithful results"
+    },
+    {
+      "item": "ordinary Tool taskspace_binding plus bind_node, complete_then_continue, current binding, next node, and singleton main lease",
+      "obsolete_after": "R7.1-A2-B5",
+      "replacement": "Agent-authored ordered action manifest plus native sibling ordinary Tool calls and per-action reservations"
+    },
+    {
+      "item": "persisted NodeStatus::Open and current-node-biased projections",
+      "obsolete_after": "R7.1-A2-B5",
+      "replacement": "nonredundant Store facts with derived Waiting, Ready, InFlight, Blocked, Completed, and open-node metrics"
     }
   ],
   "phase_gate": "No FLA phase may start until all selected input artifacts for that phase have matching hashes and every earlier selected target is active in production. Experimental artifacts never satisfy a baseline phase gate."
