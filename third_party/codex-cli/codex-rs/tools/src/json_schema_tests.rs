@@ -202,12 +202,16 @@ fn parse_tool_input_schema_infers_number_from_numeric_keywords() {
     // Expected normalization behavior:
     // - Numeric constraint keywords imply a number schema when `type` is
     //   omitted.
+    // - Supported numeric constraints remain present after normalization.
     let schema = parse_tool_input_schema(&serde_json::json!({
         "minimum": 1
     }))
     .expect("parse schema");
 
-    assert_eq!(schema, JsonSchema::number(/*description*/ None));
+    assert_eq!(
+        schema,
+        JsonSchema::number(/*description*/ None).with_minimum(1)
+    );
 }
 
 #[test]
