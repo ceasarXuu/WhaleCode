@@ -101,15 +101,11 @@ impl SessionState {
             self.history.record_items(items.iter(), policy);
             return Vec::new();
         }
-        let current_node_id = self
-            .action_map_runtime
-            .context_owner_node_id()
-            .map(str::to_string);
         let mut recorded = Vec::new();
         for item in &items {
             match self.taskspace_events.record_item(
                 item,
-                current_node_id.as_deref(),
+                None,
                 None,
                 chrono::Utc::now().timestamp_millis(),
             ) {
@@ -158,15 +154,9 @@ impl SessionState {
     ) {
         if self.action_map_runtime.mode() == MapRuntimeMode::Experiment {
             let mut store = TaskSpaceEventStore::new();
-            let current_node_id = self.action_map_runtime.context_owner_node_id();
             for item in &items {
                 store
-                    .record_item(
-                        item,
-                        current_node_id,
-                        None,
-                        chrono::Utc::now().timestamp_millis(),
-                    )
+                    .record_item(item, None, None, chrono::Utc::now().timestamp_millis())
                     .expect("compacted TaskSpace history must be encodable");
             }
             self.taskspace_events = store;
@@ -208,18 +198,9 @@ impl SessionState {
         }
         let items = self.history.raw_items().to_vec();
         self.history.replace(Vec::new());
-        let current_node_id = self
-            .action_map_runtime
-            .context_owner_node_id()
-            .map(str::to_string);
         for item in &items {
             self.taskspace_events
-                .record_item(
-                    item,
-                    current_node_id.as_deref(),
-                    None,
-                    chrono::Utc::now().timestamp_millis(),
-                )
+                .record_item(item, None, None, chrono::Utc::now().timestamp_millis())
                 .expect("existing history must be encodable as TaskSpace events");
         }
         self.taskspace_projection_cursor =

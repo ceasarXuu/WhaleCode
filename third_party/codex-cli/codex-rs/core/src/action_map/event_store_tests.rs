@@ -228,6 +228,38 @@ fn store_preserves_order_and_call_pair_owner() {
 }
 
 #[test]
+fn agent_manifest_owner_applies_to_call_and_output_without_a_current_node() {
+    let call = fixtures()
+        .into_iter()
+        .find(|item| {
+            matches!(
+                item,
+                ResponseItem::FunctionCall { call_id, .. } if call_id == "function-call"
+            )
+        })
+        .unwrap();
+    let output = fixtures()
+        .into_iter()
+        .find(|item| {
+            matches!(
+                item,
+                ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "function-call"
+            )
+        })
+        .unwrap();
+    let mut store = TaskSpaceEventStore::new();
+    store.record_item(&call, None, None, 1).unwrap();
+    store
+        .bind_call_owner("function-call", "node-from-agent-manifest")
+        .unwrap();
+    store.record_item(&output, None, None, 2).unwrap();
+
+    assert!(store.events().iter().all(|event| {
+        event.owner == TaskSpaceEventOwner::Node("node-from-agent-manifest".to_string())
+    }));
+}
+
+#[test]
 fn store_marks_global_items_without_reordering_them() {
     let mut store = TaskSpaceEventStore::new();
     let developer = ResponseItem::Message {

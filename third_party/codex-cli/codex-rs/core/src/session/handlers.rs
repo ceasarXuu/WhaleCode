@@ -249,8 +249,6 @@ pub(super) async fn user_input_or_turn_inner(
         // new_turn_with_sub_id already emits the error event.
         return;
     };
-    sess.begin_action_map_user_turn(current_context.as_ref())
-        .await;
     sess.maybe_emit_unknown_model_warning_for_turn(current_context.as_ref())
         .await;
     let accepted_items = match sess

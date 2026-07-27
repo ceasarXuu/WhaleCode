@@ -142,14 +142,40 @@ impl TaskSpaceEventStore {
         source_event_ids
     }
 
+    pub(crate) fn bind_call_owner(
+        &mut self,
+        call_id: impl Into<String>,
+        node_id: impl Into<String>,
+    ) -> Result<(), TaskSpaceEventCodecError> {
+        let call_id = call_id.into();
+        let node_id = node_id.into();
+        if call_id.trim().is_empty() {
+            return Err(TaskSpaceEventCodecError::InvalidPayload(
+                "call owner requires a non-empty call_id".to_string(),
+            ));
+        }
+        if node_id.trim().is_empty() {
+            return Err(TaskSpaceEventCodecError::EmptyNodeOwner);
+        }
+        let owner = TaskSpaceEventOwner::Node(node_id);
+        for event in &mut self.events {
+            if event.call_id.as_deref() == Some(call_id.as_str()) && is_call_event(event.event_type)
+            {
+                event.owner = owner.clone();
+            }
+        }
+        self.call_owners.insert(call_id, owner);
+        Ok(())
+    }
+
     pub(crate) fn record_item(
         &mut self,
         item: &ResponseItem,
-        current_node_id: Option<&str>,
+        owner_node_id: Option<&str>,
         parent_call_id: Option<String>,
         created_at_ms: i64,
     ) -> Result<TaskSpaceEvent, TaskSpaceEventCodecError> {
-        let owner = self.owner_for_item(item, current_node_id);
+        let owner = self.owner_for_item(item, owner_node_id);
         let sequence = self.next_sequence;
         let event = TaskSpaceEvent::from_response_item(
             format!("task-event-{sequence}"),
@@ -306,9 +332,9 @@ impl TaskSpaceEventStore {
     fn owner_for_item(
         &self,
         item: &ResponseItem,
-        current_node_id: Option<&str>,
+        owner_node_id: Option<&str>,
     ) -> TaskSpaceEventOwner {
-        if let Some(call_id) = output_call_id(item)
+        if let Some(call_id) = item_call_id(item)
             && let Some(owner) = self.call_owners.get(call_id)
         {
             return owner.clone();
@@ -317,7 +343,7 @@ impl TaskSpaceEventStore {
         {
             return TaskSpaceEventOwner::Global;
         }
-        current_node_id
+        owner_node_id
             .map(|node_id| TaskSpaceEventOwner::Node(node_id.to_string()))
             .unwrap_or(TaskSpaceEventOwner::Root)
     }
@@ -439,6 +465,16 @@ pub(super) fn output_call_id(item: &ResponseItem) -> Option<&str> {
     }
 }
 
+fn item_call_id(item: &ResponseItem) -> Option<&str> {
+    match item {
+        ResponseItem::LocalShellCall { call_id, .. }
+        | ResponseItem::ToolSearchCall { call_id, .. } => call_id.as_deref(),
+        ResponseItem::FunctionCall { call_id, .. }
+        | ResponseItem::CustomToolCall { call_id, .. } => Some(call_id),
+        _ => output_call_id(item),
+    }
+}
+
 pub(super) fn is_call_item(item: &ResponseItem) -> bool {
     matches!(
         item,
@@ -446,6 +482,16 @@ pub(super) fn is_call_item(item: &ResponseItem) -> bool {
             | ResponseItem::FunctionCall { .. }
             | ResponseItem::ToolSearchCall { .. }
             | ResponseItem::CustomToolCall { .. }
+    )
+}
+
+fn is_call_event(event_type: TaskSpaceEventType) -> bool {
+    matches!(
+        event_type,
+        TaskSpaceEventType::LocalShellCall
+            | TaskSpaceEventType::FunctionCall
+            | TaskSpaceEventType::ToolSearchCall
+            | TaskSpaceEventType::CustomToolCall
     )
 }
 

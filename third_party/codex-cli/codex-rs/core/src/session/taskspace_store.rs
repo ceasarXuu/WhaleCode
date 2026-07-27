@@ -400,6 +400,7 @@ impl Session {
         binding: Option<BindTaskSpaceMapRequest>,
         mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
     ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
+        let _write_guard = self.taskspace_store_write_lock.lock().await;
         {
             let mut state = self.state.lock().await;
             if state.action_map_store_handle.is_none() {

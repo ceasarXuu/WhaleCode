@@ -10,15 +10,12 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use crate::action_map::ActionClass;
-use crate::action_map::ActionMapAssignment;
 use crate::action_map::ActionMapExactPayloadScanEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::TaskSpaceEvent;
-use crate::action_map::ToolActionDescriptor;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
 use crate::agent::Mailbox;
@@ -87,7 +84,6 @@ use codex_network_proxy::normalize_host;
 use codex_otel::current_span_trace_id;
 use codex_otel::current_span_w3c_trace_context;
 use codex_otel::set_parent_from_w3c_trace_context;
-use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::ToolName;
 use codex_protocol::account::PlanType as AccountPlanType;
@@ -206,6 +202,7 @@ mod review;
 mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
 pub(crate) mod session;
+mod taskspace_response;
 mod taskspace_store;
 mod taskspace_store_read;
 #[cfg(test)]
@@ -919,176 +916,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn prepare_action_map_spawn_assignment(
-        &self,
-        turn_context: &TurnContext,
-        task_name: &str,
-        node_id: Option<&str>,
-    ) -> Result<Option<ActionMapAssignment>, String> {
-        let (assignment, events) = self
-            .mutate_canonical_action_map("prepare_spawn_assignment", |runtime, principal| {
-                match runtime.prepare_spawn_assignment(principal, task_name, node_id) {
-                    Ok((assignment, events)) => (Ok(assignment), events),
-                    Err(error) => (Err(error), Vec::new()),
-                }
-            })
-            .await?;
-        let assignment = assignment.map_err(|err| {
-            debug!(
-                task_name,
-                node_id,
-                error = %err,
-                "rejected TaskSpace spawn assignment"
-            );
-            err
-        })?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(assignment)
-    }
-
-    pub(crate) async fn prepare_action_map_main_tool_call(
-        &self,
-        turn_context: &TurnContext,
-        descriptor: impl Into<ToolActionDescriptor>,
-    ) -> Result<(), String> {
-        let (result, events) = self
-            .mutate_canonical_action_map("prepare_main_tool_call", |runtime, principal| {
-                match runtime.prepare_main_tool_call(principal, descriptor) {
-                    Ok(events) => (Ok(()), events),
-                    Err(error) => {
-                        let (message, events) = error.into_parts();
-                        (Err(message), events)
-                    }
-                }
-            })
-            .await?;
-        match result {
-            Ok(()) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-                Ok(())
-            }
-            Err(message) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-                Err(message)
-            }
-        }
-    }
-
-    pub(crate) async fn prepare_action_map_child_tool_call(
-        &self,
-        child_thread_id: ThreadId,
-        descriptor: impl Into<ToolActionDescriptor>,
-    ) -> Result<(), String> {
-        let (result, events) = self
-            .mutate_canonical_action_map("prepare_child_tool_call", |runtime, _| {
-                match runtime.prepare_child_tool_call(child_thread_id, descriptor) {
-                    Ok(events) => (Ok(()), events),
-                    Err(error) => {
-                        let (message, events) = error.into_parts();
-                        (Err(message), events)
-                    }
-                }
-            })
-            .await?;
-        match result {
-            Ok(()) => {
-                self.emit_action_map_events_raw(events).await;
-                Ok(())
-            }
-            Err(message) => {
-                self.emit_action_map_events_raw(events).await;
-                Err(message)
-            }
-        }
-    }
-
-    pub(crate) async fn prepare_action_map_child_spawn(
-        &self,
-        child_thread_id: ThreadId,
-    ) -> Result<(), String> {
-        let result = self
-            .read_canonical_action_map("prepare_child_spawn", |runtime, _| {
-                runtime.prepare_child_spawn(child_thread_id)
-            })
-            .await?;
-        if let Err(error) = &result {
-            debug!(
-                child_thread_id = %child_thread_id,
-                error = %error,
-                "rejected TaskSpace subagent nested spawn"
-            );
-        }
-        result
-    }
-
-    pub(crate) async fn begin_action_map_user_turn(&self, _turn_context: &TurnContext) {
-        if let Err(error) = self
-            .mutate_canonical_action_map("begin_user_turn", |runtime, _| {
-                (runtime.begin_user_turn(), Vec::new())
-            })
-            .await
-        {
-            tracing::error!(
-                target: "codex_core::taskspace",
-                %error,
-                "failed to persist TaskSpace user-turn boundary"
-            );
-        }
-    }
-
-    pub(crate) async fn record_action_map_main_tool_result(
-        &self,
-        turn_context: &TurnContext,
-        call_id: &str,
-        tool_name: &str,
-        action_class: Option<ActionClass>,
-        success: bool,
-        preview: String,
-    ) {
-        let source_event_id = self
-            .state
-            .lock()
-            .await
-            .taskspace_events
-            .event_id_for_call(call_id)
-            .unwrap_or_default();
-        let result = self
-            .mutate_canonical_action_map("record_main_tool_result", |runtime, principal| {
-                match runtime.record_main_tool_result_with_class(
-                    principal,
-                    call_id,
-                    source_event_id,
-                    tool_name,
-                    action_class,
-                    success,
-                    preview,
-                ) {
-                    Ok(Some((result_id, events))) => (Ok(Some(result_id)), events),
-                    Ok(None) => (Ok(None), Vec::new()),
-                    Err(error) => (Err(error), Vec::new()),
-                }
-            })
-            .await;
-        match result {
-            Ok((Ok(Some(_)), events)) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-            }
-            Ok((Ok(None), _)) => {}
-            Ok((Err(error), _)) | Err(error) => {
-                warn!(
-                    %error,
-                    call_id,
-                    tool_name,
-                    "failed to record TaskSpace main tool result"
-                );
-            }
-        }
-    }
-
     pub(crate) async fn record_action_map_output_ref_trace_event(
         &self,
         turn_context: &TurnContext,
@@ -1291,170 +1118,12 @@ impl Session {
         }
     }
 
-    pub(crate) async fn record_action_map_child_tool_result(
-        &self,
-        child_thread_id: ThreadId,
-        call_id: &str,
-        tool_name: &str,
-        action_class: Option<ActionClass>,
-        success: bool,
-        preview: String,
-    ) -> bool {
-        let result = self
-            .mutate_canonical_action_map("record_child_tool_result", |runtime, _| {
-                match runtime.record_child_tool_result_with_class(
-                    child_thread_id,
-                    call_id,
-                    tool_name,
-                    action_class,
-                    success,
-                    preview,
-                ) {
-                    Ok(Some((result_id, events))) => (Ok(Some(result_id)), events),
-                    Ok(None) => (Ok(None), Vec::new()),
-                    Err(error) => (Err(error), Vec::new()),
-                }
-            })
-            .await;
-        match result {
-            Ok((Ok(Some(_)), events)) => {
-                self.emit_action_map_events_raw(events).await;
-                true
-            }
-            Ok((Ok(None), _)) => false,
-            Ok((Err(error), _)) | Err(error) => {
-                warn!(
-                    %error,
-                    child_thread_id = %child_thread_id,
-                    call_id,
-                    tool_name,
-                    "failed to record TaskSpace subagent tool result"
-                );
-                false
-            }
-        }
-    }
-
-    pub(crate) async fn initialize_action_map_for_main(
-        &self,
-        turn_context: &TurnContext,
-        input: crate::action_map::ActionMapInitializeInput,
-    ) -> Result<crate::action_map::ActionMapInitializeOutcome, String> {
-        let (outcome, events) = self
-            .mutate_canonical_action_map("initialize_map", |runtime, principal| {
-                match runtime.initialize_map_for_main(principal, input) {
-                    Ok((outcome, events)) => (Ok(outcome), events),
-                    Err(error) => (Err(error), Vec::new()),
-                }
-            })
-            .await?;
-        let outcome = outcome?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcome)
-    }
-
     pub(crate) async fn action_map_control_state(
         &self,
         map_id_hint: Option<&str>,
     ) -> Option<crate::action_map::ActionMapControlState> {
         let state = self.state.lock().await;
         state.action_map_runtime.control_state(map_id_hint)
-    }
-
-    pub(crate) async fn mutate_action_map_graph(
-        &self,
-        turn_context: &TurnContext,
-        input: crate::action_map::ActionMapGraphMutationInput,
-    ) -> Result<crate::action_map::ActionMapGraphMutationOutcome, String> {
-        let (outcome, events) = self
-            .mutate_canonical_action_map("mutate_graph", |runtime, principal| {
-                match runtime.mutate_graph_for_main(principal, input) {
-                    Ok((outcome, events)) => (Ok(outcome), events),
-                    Err(error) => (Err(error), Vec::new()),
-                }
-            })
-            .await?;
-        let outcome = outcome?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcome)
-    }
-
-    pub(crate) async fn transition_action_map_node(
-        &self,
-        turn_context: &TurnContext,
-        expected_revision: u64,
-        node_id: String,
-        transition: crate::action_map::NodeTransition,
-        source_event_ref: String,
-    ) -> Result<crate::action_map::ActionMapTransitionOutcome, String> {
-        let (outcome, events) =
-            self.mutate_canonical_action_map("transition_node", |runtime, principal| match runtime
-                .transition_node_for_main(
-                    principal,
-                    expected_revision,
-                    node_id,
-                    transition,
-                    source_event_ref,
-                ) {
-                Ok((outcome, events)) => (Ok(outcome), events),
-                Err(error) => (Err(error), Vec::new()),
-            })
-            .await?;
-        let outcome = outcome?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcome)
-    }
-
-    pub(crate) async fn complete_then_bind_action_map_node(
-        &self,
-        turn_context: &TurnContext,
-        expected_revision: u64,
-        current_node_id: String,
-        next_node_id: String,
-        source_event_ref: String,
-    ) -> Result<crate::action_map::ActionMapCompleteHandoffOutcome, String> {
-        let (outcome, events) = self
-            .mutate_canonical_action_map("complete_then_bind", |runtime, principal| {
-                match runtime.complete_then_bind_for_main(
-                    principal,
-                    expected_revision,
-                    current_node_id,
-                    next_node_id,
-                    source_event_ref,
-                ) {
-                    Ok((outcome, events)) => (Ok(outcome), events),
-                    Err(error) => (Err(error), Vec::new()),
-                }
-            })
-            .await?;
-        let outcome = outcome?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcome)
-    }
-
-    pub(crate) async fn expand_action_map_node_details(
-        &self,
-        turn_context: &TurnContext,
-        node_ids: Vec<String>,
-        call_id: String,
-        source_event_id: String,
-    ) -> Result<Vec<crate::action_map::ActionMapNodeDetailExpansionOutcome>, String> {
-        let (outcomes, events) = self
-            .mutate_canonical_action_map("expand_node_details", |runtime, principal| match runtime
-                .expand_node_details_for_main(principal, node_ids, call_id, source_event_id)
-            {
-                Ok((outcomes, events)) => (Ok(outcomes), events),
-                Err(error) => (Err(error), Vec::new()),
-            })
-            .await?;
-        let outcomes = outcomes?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcomes)
     }
 
     #[cfg(test)]
@@ -1475,189 +1144,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn attach_action_map_assignment(
-        &self,
-        turn_context: &TurnContext,
-        lease_id: &str,
-        thread_id: ThreadId,
-        agent_path: Option<String>,
-    ) -> Result<(), String> {
-        let (store_handle, binding_target) = {
-            let state = self.state.lock().await;
-            let handle = state.action_map_store_handle.clone();
-            let target = handle.as_ref().and_then(|handle| {
-                state
-                    .action_map_runtime
-                    .lease_map_node(lease_id)
-                    .filter(|(map_id, _)| *map_id == handle.map_id)
-                    .map(|(_, node_id)| (handle.map_id.clone(), node_id.to_string()))
-            });
-            (handle, target)
-        };
-        let test_runtime_without_store = cfg!(test) && self.services.state_db.is_none();
-        if binding_target.is_none() && !test_runtime_without_store {
-            tracing::error!(
-                target: "codex_core::taskspace",
-                event_name = "taskspace.map_store_child_attach_failed",
-                map_id = store_handle.as_ref().map(|handle| handle.map_id.as_str()),
-                %thread_id,
-                lease_id,
-                owner_thread_id = ?store_handle.as_ref().map(|handle| handle.owner_thread_id),
-                store_revision = ?store_handle.as_ref().map(|handle| handle.store_revision),
-                graph_revision = ?store_handle.as_ref().map(|handle| handle.graph_revision),
-                operation = "attach_child_lease",
-                reason_code = "lease_target_missing",
-                "TaskSpace child attach has no persisted lease target"
-            );
-            return Err(
-                "TaskSpace child attach has no persisted canonical lease target.".to_string(),
-            );
-        }
-        let binding =
-            binding_target.map(|(map_id, node_id)| codex_state::BindTaskSpaceMapRequest {
-                thread_id,
-                map_id,
-                relation: codex_state::TaskSpaceMapRelation::Child,
-                parent_thread_id: Some(self.conversation_id),
-                node_id: Some(node_id),
-                lease_id: Some(lease_id.to_string()),
-            });
-        match self
-            .mutate_canonical_action_map_with_binding(
-                "attach_child_lease",
-                binding,
-                |runtime, _| {
-                    let events = runtime
-                        .attach_agent_to_lease(lease_id, thread_id, agent_path)
-                        .into_iter()
-                        .collect();
-                    ((), events)
-                },
-            )
-            .await
-        {
-            Ok(((), events)) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-                Ok(())
-            }
-            Err(error) => {
-                tracing::error!(
-                    target: "codex_core::taskspace",
-                    event_name = "taskspace.map_store_child_attach_failed",
-                    map_id = store_handle.as_ref().map(|handle| handle.map_id.as_str()),
-                    %thread_id,
-                    lease_id,
-                    owner_thread_id = ?store_handle.as_ref().map(|handle| handle.owner_thread_id),
-                    store_revision = ?store_handle.as_ref().map(|handle| handle.store_revision),
-                    graph_revision = ?store_handle.as_ref().map(|handle| handle.graph_revision),
-                    operation = "attach_child_lease",
-                    reason_code = "store_commit_failed",
-                    %error,
-                    "failed to persist child lease attach"
-                );
-                Err(error)
-            }
-        }
-    }
-
-    pub(crate) async fn release_action_map_assignment(
-        &self,
-        turn_context: &TurnContext,
-        lease_id: &str,
-        reason: &str,
-    ) {
-        match self
-            .mutate_canonical_action_map("release_lease", |runtime, _| {
-                ((), runtime.release_lease(lease_id, reason))
-            })
-            .await
-        {
-            Ok(((), events)) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-            }
-            Err(error) => tracing::error!(lease_id, %error, "failed to persist lease release"),
-        }
-    }
-
-    pub(crate) async fn release_action_map_assignment_for_thread(
-        &self,
-        turn_context: &TurnContext,
-        thread_id: ThreadId,
-        reason: &str,
-    ) {
-        match self
-            .mutate_canonical_action_map("release_thread_lease", |runtime, _| {
-                let events = runtime
-                    .release_lease_for_thread(thread_id, reason)
-                    .map(|(_, events)| events)
-                    .unwrap_or_default();
-                ((), events)
-            })
-            .await
-        {
-            Ok(((), events)) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-            }
-            Err(error) => {
-                tracing::error!(%thread_id, %error, "failed to persist thread lease release");
-            }
-        }
-    }
-
-    pub(crate) async fn record_action_map_child_result(
-        &self,
-        child_thread_id: ThreadId,
-        status: &AgentStatus,
-    ) -> Option<String> {
-        let result = self
-            .mutate_canonical_action_map("record_child_result", |runtime, _| {
-                match runtime.record_child_result(child_thread_id, status) {
-                    Some((result_id, events)) => (Some(result_id), events),
-                    None => (None, Vec::new()),
-                }
-            })
-            .await;
-        let (Some(result_id), events) = (match result {
-            Ok(result) => result,
-            Err(error) => {
-                tracing::error!(%child_thread_id, %error, "failed to persist child result");
-                return None;
-            }
-        }) else {
-            return None;
-        };
-        self.emit_action_map_events_raw(events).await;
-        Some(result_id)
-    }
-
-    pub(crate) async fn record_final_action_map_child_result_if_needed(
-        &self,
-        child_thread_id: ThreadId,
-    ) -> Option<String> {
-        let status = self
-            .services
-            .agent_control
-            .get_status(child_thread_id)
-            .await;
-        if !is_final(&status) {
-            return None;
-        }
-
-        let result_id = self
-            .record_action_map_child_result(child_thread_id, &status)
-            .await;
-        debug!(
-            child_thread_id = %child_thread_id,
-            ?status,
-            result_id = result_id.as_deref().unwrap_or("none"),
-            "checked final TaskSpace child status after lease attach"
-        );
-        result_id
-    }
-
     pub(crate) async fn request_action_map_reborn(&self, turn_context: &TurnContext) {
         match self
             .mutate_canonical_action_map("request_reborn", |runtime, _| {
@@ -1673,64 +1159,6 @@ impl Session {
                 tracing::error!(%error, "failed to persist TaskSpace reborn request");
             }
         }
-    }
-
-    pub(crate) async fn request_action_map_timeout_summaries(
-        &self,
-        turn_context: &TurnContext,
-    ) -> usize {
-        let (targets, parent_agent_path) = {
-            let state = self.state.lock().await;
-            let parent_agent_path = state
-                .session_configuration
-                .session_source
-                .get_agent_path()
-                .unwrap_or_else(AgentPath::root);
-            (
-                state.action_map_runtime.active_timeout_targets(),
-                parent_agent_path,
-            )
-        };
-
-        let mut requested = 0usize;
-        let mut events = Vec::new();
-        for target in targets {
-            let Some(agent_path) = target.agent_path.clone() else {
-                continue;
-            };
-            let _ = self
-                .services
-                .agent_control
-                .interrupt_agent(target.thread_id)
-                .await;
-            let message = format!(
-                "TaskSpace wait timeout reached for task path `{}` node `{}` lease `{}`. Stop the current work and return a concise current-progress summary as the node result. Do not start unrelated work.",
-                target.map_id, target.node_id, target.lease_id
-            );
-            let communication = InterAgentCommunication::new(
-                parent_agent_path.clone(),
-                agent_path,
-                Vec::new(),
-                message,
-                /*trigger_turn*/ true,
-            );
-            if self
-                .services
-                .agent_control
-                .send_inter_agent_communication(target.thread_id, communication)
-                .await
-                .is_ok()
-            {
-                requested += 1;
-                if let Some(event) = ActionMapRuntimeState::timeout_summary_requested_event(&target)
-                {
-                    events.push(event);
-                }
-            }
-        }
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        requested
     }
 
     async fn emit_action_map_events_for_turn(
@@ -1760,16 +1188,6 @@ impl Session {
         input.recovery_action != "none"
             || input.response_actionability != "turn_complete"
             || snapshot.request_count.saturating_mul(2) >= snapshot.max_requests
-    }
-
-    async fn emit_action_map_events_raw(&self, events: Vec<MapRuntimeEvent>) {
-        for event in events {
-            self.send_event_raw(Event {
-                id: self.next_internal_sub_id(),
-                msg: EventMsg::MapRuntime(event),
-            })
-            .await;
-        }
     }
 
     fn managed_network_proxy_active_for_sandbox_policy(sandbox_policy: &SandboxPolicy) -> bool {
@@ -2504,11 +1922,6 @@ impl Session {
             debug!("failed to notify parent thread {parent_thread_id}: {err}");
             return;
         }
-        let _ = self
-            .services
-            .agent_control
-            .record_action_map_child_result(parent_thread_id, self.conversation_id, &status)
-            .await;
         if let Some(message) = trace_message {
             self.services
                 .rollout_thread_trace
