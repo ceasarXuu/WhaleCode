@@ -8,14 +8,14 @@
     "id": "R7.1",
     "behavior_baseline_commit": "1fdd4474d02600ea0c7290300154bcd1ce45f52d",
     "document": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-    "sha256": "4d9f6a505d002d6ae52d9cc6c727c1705bb5efb7b0bdaeaa6f235153f8282916",
+    "sha256": "6944e4c8938e03283573e4769466e671dbf772cc6c3c72f58031a94097e9fc70",
     "purpose": "single human-readable continuation entrypoint; does not override the integrated machine gate",
     "open_regressions": [
       "R-10",
       "R-19",
       "R-22",
-      "R-24",
-      "R-25"
+      "R-26",
+      "R-27"
     ]
   },
   "compatibility_policy": "none",
@@ -72,17 +72,17 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "a20169868fcde95b9d7c37df87be21504338c06855a1bfa6e4cae2f1ef6a17b8",
+      "sha256": "eef985e74eaabef33574e395e338c116850b5ab486ccc0cb34972738b1d65b98",
       "role": "highest-priority integrated architecture, closed-regression and candidate acceptance gate"
     },
     {
       "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "sha256": "4d9f6a505d002d6ae52d9cc6c727c1705bb5efb7b0bdaeaa6f235153f8282916",
+      "sha256": "6944e4c8938e03283573e4769466e671dbf772cc6c3c72f58031a94097e9fc70",
       "role": "R7.1 human-readable status, constraints, blockers and continuation entrypoint"
     },
     {
       "path": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
-      "sha256": "a478440a6338107b1f742ef2f9f1bf77880759d9c949f2914efd67a3c437490e",
+      "sha256": "78328c79b2e52a4d9e981251b8969a1cc889ec18bc0cdfd1ddac268f766753f2",
       "role": "R7.1-A2 response-level Tool type, order, count, preflight and ordinary Tool fidelity design"
     },
     {
@@ -156,16 +156,16 @@
       "implementation_status": "active_verified",
       "activation_phase": "FLA-9 integrated non-regression gate",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "db5955baa779f9522d8b33064f1bc94685558e2131c12282eba63771a0dc5a82",
+      "sha256": "58b2601ab30ca1130257790aa3c2a853ae44ed37fa82b504e53ed7a6b915df7a",
       "validation": "scripts/taskspace-benchmark/test-r7-integrated-change-constraints.ps1",
       "open_regressions": [
         "R-10",
         "R-19",
         "R-22",
-        "R-24",
-        "R-25"
+        "R-26",
+        "R-27"
       ],
-      "closed_regression_count": 20
+      "closed_regression_count": 22
     },
     {
       "layer": "L1",

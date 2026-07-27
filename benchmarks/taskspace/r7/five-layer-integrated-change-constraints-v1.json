@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "a20169868fcde95b9d7c37df87be21504338c06855a1bfa6e4cae2f1ef6a17b8"
+    "sha256": "eef985e74eaabef33574e395e338c116850b5ab486ccc0cb34972738b1d65b98"
   },
   "architectural_constraints": [
     {
@@ -121,6 +121,18 @@
       "owner": "canonical Map domain and Store",
       "requirement": "The Store persists nonredundant dependency, completion, block, action-reservation, result, and revision facts from which lifecycle views are derived.",
       "prohibited": "Persisted Open, canonical current_node/current_binding/next_node, singleton main lease, or any second lifecycle fact source."
+    },
+    {
+      "id": "C-20",
+      "owner": "Agent lifecycle contract and L5 validator",
+      "requirement": "Map lifecycle has exactly initialize-to-active, Agent finish-to-closed, and user-feedback continuation through reopen-to-active; finish atomically includes the Agent-declared final Work completions.",
+      "prohibited": "An unreachable final Work boundary, standalone reopen, Runtime-inferred completion, or automatic reopen from user-message semantics."
+    },
+    {
+      "id": "C-21",
+      "owner": "canonical Map domain and Store",
+      "requirement": "Reopen preserves prior terminal, Work completion, result, and evidence facts while the Agent adds new Work for additional requirements.",
+      "prohibited": "rework_node, deleted or reversed Work completion, overwritten terminal history, or duplicated Root and Finish lifecycle facts."
     }
   ],
   "regression_invariants": [
@@ -287,16 +299,30 @@
     },
     {
       "id": "R-24",
-      "status": "open",
+      "status": "closed",
       "problem": "A singleton current_node/current_binding/main lease reduces the multi-active-node DAG to a Runtime-driven linear cursor.",
       "required_behavior": "The Agent declares node_id per ordinary action, Runtime keeps no current or next node, and one response can advance multiple declared nodes.",
       "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
     },
     {
       "id": "R-25",
-      "status": "open",
+      "status": "closed",
       "problem": "Persisted Open duplicates dependency, block, in-flight, and completion facts and creates a second lifecycle source.",
       "required_behavior": "The Store persists only nonredundant facts and deterministically derives Waiting, Ready, InFlight, Blocked, Completed, and open-node metrics.",
+      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
+    },
+    {
+      "id": "R-26",
+      "status": "open",
+      "problem": "The final Work has no finite legal closure because execute completion requires a next action while finish_map requires all Work to be completed beforehand.",
+      "required_behavior": "finish_map accepts Agent-declared final Work node ids and atomically completes those Work nodes before validating and closing the unique Finish and Root.",
+      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
+    },
+    {
+      "id": "R-27",
+      "status": "open",
+      "problem": "A closed Task Map cannot continue after user feedback, or continuation reverses historical completion through rework_node.",
+      "required_behavior": "reopen_map continues the same map with new Work, edges, actions, and native sibling Tools while moving the prior terminal into history and preserving all prior Work facts.",
       "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
     }
   ],
@@ -319,7 +345,9 @@
     {"id": "G-16", "requirement": "The canonical Map survives process restart, resume, fork, child attachment, and rollout truncation through one independently persisted identity.", "evidence_required": "Map Store integration tests, failure injection, same-map revision traces, rollout truncation negatives, and source scan proving no rollout recovery fallback."},
     {"id": "G-17", "requirement": "Every native ordinary Tool call matches one Agent-declared node_id plus Tool name in response order.", "evidence_required": "Multi-node action-manifest fixtures, count/name/order negatives, raw Tool-result attribution, and zero-dispatch mismatch tests."},
     {"id": "G-18", "requirement": "Production model, Runtime, projection, event, subagent, and Tool contract contain no canonical current, next, bind, handoff, or singleton main-lease semantics.", "evidence_required": "Repository residue scan, multi-Ready and multi-InFlight property tests, and same-response multi-node execution trace."},
-    {"id": "G-19", "requirement": "Open is not persisted and all lifecycle views are derived deterministically from one set of Store facts.", "evidence_required": "Store schema inspection, property/replay equivalence tests, restart round-trip, and open-state residue scan."}
+    {"id": "G-19", "requirement": "Open is not persisted and all lifecycle views are derived deterministically from one set of Store facts.", "evidence_required": "Store schema inspection, property/replay equivalence tests, restart round-trip, and open-state residue scan."},
+    {"id": "G-20", "requirement": "Single-Work, parallel-final-Work, and multi-parent Maps reach terminal closure through one Agent-declared finish_map without a standalone nonterminal completion request.", "evidence_required": "Domain, schema, preflight, integration, restart, and replay tests for final Work completion and terminal rejection paths."},
+    {"id": "G-21", "requirement": "A closed Map continues only through reopen_map with new Work, edges, actions, and matching native sibling Tools while preserving prior terminal and Work facts.", "evidence_required": "Repeated close/reopen Store history, invalid reopen, same-map identity, projection, and source residue tests."}
   ],
   "rejected_directions": [
     {"id": "D-01", "direction": "Change ordinary Tool schema when the Map becomes initialized.", "violates": ["C-06"]},
@@ -334,6 +362,8 @@
     {"id": "D-10", "direction": "Flatten Root, Work, and Finish into a generic nodes collection plus role-id references to save bytes.", "violates": ["C-05", "C-16", "R-20"]},
     {"id": "D-11", "direction": "Reconstruct the canonical Map from session rollout checkpoints or deltas, or retain a Session-local authoritative Map copy.", "violates": ["C-01", "C-08", "C-17", "R-23"]},
     {"id": "D-12", "direction": "Maintain a singleton current binding, next node, or main lease and attribute ordinary actions through that Runtime-owned cursor.", "violates": ["C-02", "C-18", "C-19", "R-24"]},
-    {"id": "D-13", "direction": "Persist Open or any lifecycle state that can be deterministically derived from the same canonical facts.", "violates": ["C-01", "C-19", "R-25"]}
+    {"id": "D-13", "direction": "Persist Open or any lifecycle state that can be deterministically derived from the same canonical facts.", "violates": ["C-01", "C-19", "R-25"]},
+    {"id": "D-14", "direction": "Delete or reverse a completed Work fact through rework_node after user feedback.", "violates": ["C-21", "R-27"]},
+    {"id": "D-15", "direction": "Require the final Work to complete through a standalone nonterminal request before finish_map.", "violates": ["C-09", "C-20", "R-10", "R-26"]}
   ]
 }

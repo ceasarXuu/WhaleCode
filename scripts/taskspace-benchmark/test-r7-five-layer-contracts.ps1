@@ -112,7 +112,7 @@ Assert-Equal $authority.contract_id "r7-five-layer-contract-authority-v1" "Unexp
 Assert-Equal $authority.compatibility_policy "none" "Five-layer migration must not keep compatibility paths"
 Assert-Equal $authority.current_milestone.id "R7.1" "Unexpected current milestone"
 Assert-Equal $authority.current_milestone.document "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md" "R7.1 milestone path drifted"
-Assert-Equal (@($authority.current_milestone.open_regressions) -join ",") "R-10,R-19,R-22,R-24,R-25" "R7.1 open regression set drifted"
+Assert-Equal (@($authority.current_milestone.open_regressions) -join ",") "R-10,R-19,R-22,R-26,R-27" "R7.1 open regression set drifted"
 & git -C $repoRoot cat-file -e "$($authority.current_milestone.behavior_baseline_commit)^{commit}" 2>$null
 Assert-True ($LASTEXITCODE -eq 0) "R7.1 behavior baseline commit is unavailable"
 

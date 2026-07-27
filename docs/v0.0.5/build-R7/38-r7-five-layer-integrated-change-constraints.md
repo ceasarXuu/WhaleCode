@@ -2,7 +2,7 @@
 
 - Created: 2026-07-24
 - Updated: 2026-07-27
-- Version: 1.3
+- Version: 1.4
 - Status: Active change gate
 - Machine contract:
   [`five-layer-integrated-change-constraints-v1.json`](../../../benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json)
@@ -74,12 +74,12 @@ projection policy 建立平行架构或专用行为分支。
 ### C-08 Map 是唯一 canonical rooted DAG
 
 Root 是唯一起点，Finish 是唯一终点。除 Root 外每个节点至少有一个入边，所有节点从 Root 可达，所有非 Finish
-节点能到达 Finish；允许多父依赖。Root 与 Finish 只由 Agent 显式 `finish_map` 闭合。Runtime 维护事实和硬不变量，
-不设计任务结构。
+节点能到达 Finish；允许多父依赖。Root 与 Finish 只由 Agent 显式 `finish_map` 闭合；用户反馈后，同一个已关闭
+Task Map 只由 Agent 显式 `reopen_map` 恢复。Runtime 维护事实和硬不变量，不设计任务结构。
 
 ### C-09 连续动作是必须保留的 L4/L5 合同
 
-初始化和所有非终态 Map mutation 必须与至少一个真实普通 Tool 位于同一 provider response。Agent 在唯一
+初始化、reopen 和所有非终态 Map mutation 必须与至少一个真实普通 Tool 位于同一 provider response。Agent 在唯一
 `taskspace_control` action manifest 中为每个 sibling 普通 Tool 声明 `node_id + tool`；Runtime 只做数量、名称、
 顺序、图事实、reservation 和 revision 的机械校验、原子提交与原生 dispatch，不读取普通 Tool 业务参数判断动作
 意义，也不生成后续动作。
@@ -141,6 +141,19 @@ canonical Map 不持久化 `Open`，也不存在 `current_node/current_binding/n
 block、action reservation、result 和 revision；`Waiting/Ready/InFlight/Blocked/Completed` 由这些事实计算。
 `open_nodes` 只可作为派生查询或指标，不得成为状态转换或第二事实源。
 
+### C-20 Map 生命周期必须闭合且可继续
+
+Map 生命周期只有三种转换：`initialize_and_execute` 负责不存在到进行中，`finish_map` 负责进行中到已关闭，
+`reopen_map` 负责用户反馈后的已关闭到进行中。`finish_map` 必须允许 Agent 在同一终态事务中显式完成最后一批
+Work，否则“非终态完成必须带下一动作”会使最后 Work 永远无法闭合。`reopen_map` 必须与新增 Work、edges 和
+真实 actions 同 response，不得成为独立空转请求。
+
+### C-21 历史工作事实不可倒退
+
+用户反馈后继续任务时，既有 Work completion、result 和 evidence 保持不变；当前 terminal 移入 terminal history，
+Agent 通过新增 Work 表达遗漏或补充工作。不得保留 `rework_node`、删除 completion 或把历史完成节点改回未完成。
+Root/Finish 的关闭状态只由当前 terminal 派生，不与 Work completion 混存为第二事实源。
+
 ## 4. 历史回归总账
 
 | ID | 曾出现的问题 | 当前不可回退的结论 | 状态 |
@@ -155,7 +168,7 @@ block、action reservation、result 和 revision；`Waiting/Ready/InFlight/Block
 | R-08 | schema 只能描述单个 control，无法保证 top-level sibling | 完整 response 必须经过 Tool 类型、顺序和数量 preflight；连续动作使用原生 sibling Tool calls | closed；实现不得回退到无 preflight |
 | R-09 | 普通 Tool 归属缺失时曾静默漂移到错误节点 | 缺失或错位的动作归属必须在零执行 preflight 中失败，不得静默默认、推断或漂移 | closed；旧 current-binding 实现由 R-24 追踪替换 |
 | R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复；该问题曾因“能够拒绝”被错误记为已关闭 | 非终态 boundary 与真实后继动作必须在同一 response，response grammar 必须在零执行 preflight 中强制，并通过真实模型证明不形成稳定额外请求 | open |
-| R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map`；Agent 提交 terminal，Runtime 验证 canonical frontier | closed |
+| R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map` 负责关闭；Agent 同时声明最后完成的 Work 与 terminal，Runtime 验证 canonical frontier | closed；B2.5 扩充可达性合同 |
 | R-12 | Patch 被嵌套 JSON 转义破坏，或同 response 多 Patch 部分写入 | 原生顶层 Patch 保真；单 response 最多一个 Patch | closed |
 | R-13 | TaskSpace 装饰曾侵入 Standard 普通 Tool | shared ordinary Tool 在 Standard/TaskSpace 中保持原生 schema 与执行路径一致 | closed；新候选必须消除 TaskSpace 内装饰 |
 | R-14 | preflight 与 router 对同一失败重复包装 | 未 dispatch 时只返回一份事实失败 | closed |
@@ -168,12 +181,15 @@ block、action reservation、result 和 revision；`Waiting/Ready/InFlight/Block
 | R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前从父 rollout 恢复了不一致的 assignment 状态 | child 按 Map 身份访问同一持久化状态；attach 失败原子回收，原失败与相邻 handoff 测试通过 | closed（R7.1-A1） |
 | R-22 | `map-request` 复杂样本稳定产生多 Patch sibling reject，部分运行在业务完成后才补 Map 生命周期 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
 | R-23 | canonical Map 被 Session-local Runtime 持有，并依赖 rollout checkpoint/delta 重建 | 独立持久化 Map Store 已成为唯一事实源；Session/Runtime 只持有引用或可丢弃缓存，rollout 不承担 Map 恢复 | closed（R7.1-A0） |
-| R-24 | singleton `current_node/current_binding/main lease` 把多活跃节点 DAG 退化为 Runtime 驱动的线性游标 | Agent 为每个普通动作显式声明 `node_id`；Runtime 不维护 current/next，不代选节点，同一 response 可推进多个节点 | open |
-| R-25 | `Open` 作为持久化状态与依赖、阻塞、执行中和完成事实重复，产生双重状态源 | Store 只保存不可重复事实；`Waiting/Ready/InFlight/Blocked/Completed/open_nodes` 全部由事实计算 | open |
+| R-24 | singleton `current_node/current_binding/main lease` 把多活跃节点 DAG 退化为 Runtime 驱动的线性游标 | Agent 为每个普通动作显式声明 `node_id`；Runtime 不维护 current/next，不代选节点，同一 response 可推进多个节点 | closed（R7.1-A2-B1X） |
+| R-25 | `Open` 作为持久化状态与依赖、阻塞、执行中和完成事实重复，产生双重状态源 | Store 只保存不可重复事实；`Waiting/Ready/InFlight/Blocked/Completed/open_nodes` 全部由事实计算 | closed（R7.1-A2-B1X） |
+| R-26 | `execute` 强制完成后携带下一动作，而 `finish_map` 又要求所有 Work 事先完成，导致最后 Work 没有有限合法闭合路径 | `finish_map` 接受 Agent 显式声明的最后 Work，并在一个终态事务中完成 Work、Finish、Root 和总结 | open；A2-B2.5 designed |
+| R-27 | Map 关闭后缺少用户反馈驱动的继续路径，或通过 `rework_node` 倒退既有完成事实 | `reopen_map` 恢复同一 Map 并携带新增 Work、edges、actions；旧 terminal 进入历史，旧 Work 事实不变 | open；A2-B2.5 designed |
 
-## 5. 当前 R-10/R-19/R-22/R-24/R-25 的整组准入门
+## 5. 当前 R-10/R-19/R-22/R-26/R-27 的整组准入门
 
-R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退门。任何实现候选必须一次通过以下全部条件：
+R-21/R-23/R-24/R-25 已关闭，但其 handoff、持久化、无 current 和无节点 Open 结论继续作为不可回退门。任何
+实现候选必须一次通过以下全部条件：
 
 1. **职责门**：不把初始化、节点选择或图设计交给 Runtime。
 2. **静态门**：空 Map 与已初始化 Map 的同一 capability epoch 使用完全相同 Tool schema。
@@ -203,9 +219,13 @@ R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退�
     `current_node/current_binding/next_node`、`bind_node`、`complete_then_continue` 或 singleton main lease。
 19. **非重复状态门**：生产 Store 不持久化 `Open`；readiness、inflight、blocked、completed 和 open metrics
     都能从同一组事实确定性重建。
+20. **终态可达门**：最后 Work 由 Agent 在 `finish_map` 中显式完成；单 Work、多末端 Work 和多父依赖图都能在
+    有限请求内关闭，不允许 Runtime 根据 Tool 成功自动完成。
+21. **用户反馈继续门**：已关闭 Map 只能通过 `reopen_map + 新 Work + edges + actions` 恢复；同一 `map_id`
+    保持，旧 terminal 进入历史，生产 schema/domain 不存在 `rework_node`。
 
-当前总计：`20 closed / 5 open`。R-20、R-21 和 R-23 已关闭；R-10、R-22、R-24、R-25 仍使 R-19 的整组行为
-门失败。成本下降不能越过这些阻塞项单独晋升。
+当前总计：`22 closed / 5 open`。R-20、R-21、R-23、R-24、R-25 已关闭；R-10、R-19、R-22、R-26、R-27
+仍阻止产品晋升。成本下降不能越过这些阻塞项单独晋升。
 
 ## 6. 已淘汰方向
 
@@ -224,6 +244,9 @@ R-21/R-23 已关闭，但其 handoff 与持久化结论继续作为不可回退�
 | 从 Session rollout、checkpoint 或 delta 重建 canonical Map，或保留 Session-local authoritative Map 副本 | 违反 C-01、C-08、C-17，并延续 R-23 |
 | 维护 singleton current binding、next node 或 main lease，再由 Runtime 把普通动作归到该节点 | 违反 C-02、C-18，并延续 R-24 |
 | 持久化 `Open` 或同时保存可由同一事实推导的多套节点状态 | 违反 C-01、C-19，并延续 R-25 |
+| 用 `rework_node` 删除或反转既有 Work completion | 历史事实不可倒退；用户反馈通过 `reopen_map + 新 Work` 表达 |
+| 要求最后 Work 先通过单独非终态 mutation 完成，再允许 `finish_map` | 与连续动作门形成不可达终态，延续 R-26 |
+| 把每条新用户消息自动解释为 reopen | Runtime 无权判断反馈语义；是否继续同一 Task Map 由 Agent 决定 |
 
 ## 7. 变更流程
 

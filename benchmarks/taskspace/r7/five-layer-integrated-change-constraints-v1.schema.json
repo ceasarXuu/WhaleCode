@@ -32,26 +32,26 @@
     },
     "architectural_constraints": {
       "type": "array",
-      "minItems": 19,
-      "maxItems": 19,
+      "minItems": 21,
+      "maxItems": 21,
       "items": {"$ref": "#/$defs/constraint"}
     },
     "regression_invariants": {
       "type": "array",
-      "minItems": 25,
-      "maxItems": 25,
+      "minItems": 27,
+      "maxItems": 27,
       "items": {"$ref": "#/$defs/regression"}
     },
     "candidate_gates": {
       "type": "array",
-      "minItems": 19,
-      "maxItems": 19,
+      "minItems": 21,
+      "maxItems": 21,
       "items": {"$ref": "#/$defs/gate"}
     },
     "rejected_directions": {
       "type": "array",
-      "minItems": 13,
-      "maxItems": 13,
+      "minItems": 15,
+      "maxItems": 15,
       "items": {"$ref": "#/$defs/rejectedDirection"}
     }
   },

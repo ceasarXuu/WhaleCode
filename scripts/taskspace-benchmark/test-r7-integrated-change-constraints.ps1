@@ -29,10 +29,10 @@ $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath
 Assert-Contract ($raw | Test-Json -SchemaFile $schemaPath -ErrorAction Stop) "Integrated constraint contract does not match its schema"
 $contract = $raw | ConvertFrom-Json -Depth 40
 
-Assert-ExactIds @($contract.architectural_constraints) "C" 19
-Assert-ExactIds @($contract.regression_invariants) "R" 25
-Assert-ExactIds @($contract.candidate_gates) "G" 19
-Assert-ExactIds @($contract.rejected_directions) "D" 13
+Assert-ExactIds @($contract.architectural_constraints) "C" 21
+Assert-ExactIds @($contract.regression_invariants) "R" 27
+Assert-ExactIds @($contract.candidate_gates) "G" 21
+Assert-ExactIds @($contract.rejected_directions) "D" 15
 
 $documentPath = Join-Path $repoRoot ([string]$contract.governing_document.path)
 $documentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $documentPath).Hash.ToLowerInvariant()
@@ -40,8 +40,8 @@ Assert-Contract ($documentHash -eq [string]$contract.governing_document.sha256) 
 
 $closed = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "closed" })
 $open = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "open" })
-Assert-Contract ($closed.Count -eq 20) "Exactly 20 historical regressions must remain closed"
-Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-22,R-24,R-25") "R-10, R-19, R-22, R-24, and R-25 must remain open until all continuation gates pass"
+Assert-Contract ($closed.Count -eq 22) "Exactly 22 historical regressions must remain closed"
+Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-22,R-26,R-27") "R-10, R-19, R-22, R-26, and R-27 must remain open until all continuation gates pass"
 
 $knownIds = @{}
 foreach ($item in @($contract.architectural_constraints) + @($contract.regression_invariants)) {
@@ -75,6 +75,10 @@ $actionOwnershipRegression = @($contract.regression_invariants | Where-Object { 
 Assert-Contract ([string]$actionOwnershipRegression.required_behavior -match "declares node_id per ordinary action") "Agent-authored per-action ownership gate is missing"
 $derivedLifecycleRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-25" })[0]
 Assert-Contract ([string]$derivedLifecycleRegression.required_behavior -match "derives Waiting, Ready, InFlight, Blocked, Completed") "Fact-derived lifecycle gate is missing"
+$terminalReachabilityRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-26" })[0]
+Assert-Contract ([string]$terminalReachabilityRegression.required_behavior -match "final Work") "Final Work terminal reachability gate is missing"
+$reopenRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-27" })[0]
+Assert-Contract ([string]$reopenRegression.required_behavior -match "reopen_map") "User-feedback Map reopen gate is missing"
 
 $document = Get-Content -Raw -Encoding UTF8 -LiteralPath $documentPath
 foreach ($id in @(
