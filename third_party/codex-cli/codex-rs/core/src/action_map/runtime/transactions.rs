@@ -457,6 +457,58 @@ mod tests {
         assert!(map.result_refs["tool-result://call/call-test"].is_error);
     }
 
+    #[test]
+    fn skipped_action_release_survives_canonical_map_restore() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+        runtime
+            .restore_store_map("store-map-12", owner, None)
+            .expect("restore empty identity");
+        let (prepared, _) = runtime
+            .prepare_response_for_main(
+                owner,
+                "control-call-3",
+                parallel_initialize_operation(),
+                vec![
+                    declared_call_at(0, "call-patch", "inspect", "apply_patch"),
+                    declared_call_at(1, "call-verify", "verify", "exec_command"),
+                ],
+            )
+            .expect("parallel response commits");
+
+        runtime
+            .release_main_action_result(
+                owner,
+                &prepared.prepared_calls[0],
+                false,
+                "tool-result://call/call-patch".to_string(),
+            )
+            .expect("failed patch result commits");
+        runtime
+            .release_main_action_result(
+                owner,
+                &prepared.prepared_calls[1],
+                false,
+                "tool-result://call/call-verify".to_string(),
+            )
+            .expect("skipped verify result commits");
+        let stored = runtime
+            .canonical_map_for_store()
+            .expect("canonical map for Store");
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored
+            .restore_store_map("store-map-12", owner, Some(stored))
+            .expect("restore persisted canonical map");
+        let map = restored
+            .canonical_map_for_store()
+            .expect("restored canonical map");
+
+        assert!(map.action_reservations.is_empty());
+        assert!(map.result_refs["tool-result://call/call-patch"].is_error);
+        assert!(map.result_refs["tool-result://call/call-verify"].is_error);
+    }
+
     fn initialize_operation() -> ActionMapResponseOperation {
         ActionMapResponseOperation::Initialize {
             root: map_node("root", "solve", vec!["turn-1".to_string()]),

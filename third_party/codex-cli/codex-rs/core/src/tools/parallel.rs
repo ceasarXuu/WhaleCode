@@ -465,6 +465,35 @@ impl ToolCallRuntime {
             .await
     }
 
+    pub(crate) async fn record_taskspace_skipped_tool_result(
+        &self,
+        prepared: &ActionMapPreparedCall,
+    ) -> Result<(), String> {
+        self.session
+            .record_taskspace_bound_tool_result(
+                &self.turn_context,
+                prepared,
+                false,
+                result_ref_id_for_call_id(&prepared.call_id),
+            )
+            .await
+    }
+
+    pub(crate) fn taskspace_bound_result_commit_failure_response(
+        prepared: &ActionMapPreparedCall,
+        error: String,
+    ) -> ResponseInputItem {
+        Self::factual_message(serde_json::json!({
+            "schema_version": "TaskSpaceBoundResultCommitFailureV1",
+            "status": "failed",
+            "success": false,
+            "state_commit": false,
+            "call_id": prepared.call_id,
+            "reservation_id": prepared.reservation_id,
+            "error": error,
+        }))
+    }
+
     fn apply_failed_bound_result_commit(
         execution: &mut ToolCallExecution,
         prepared: &ActionMapPreparedCall,
@@ -481,17 +510,9 @@ impl ToolCallRuntime {
             "taskspace_bound_tool_result_record_failed"
         );
         execution.succeeded = false;
-        execution
-            .supplemental_responses
-            .push(Self::factual_message(serde_json::json!({
-                "schema_version": "TaskSpaceBoundResultCommitFailureV1",
-                "status": "failed",
-                "success": false,
-                "state_commit": false,
-                "call_id": prepared.call_id,
-                "reservation_id": prepared.reservation_id,
-                "error": error,
-            })));
+        execution.supplemental_responses.push(
+            Self::taskspace_bound_result_commit_failure_response(prepared, error),
+        );
     }
 }
 
@@ -503,6 +524,10 @@ fn result_ref_id(response: &ResponseInputItem) -> String {
         | ResponseInputItem::ToolSearchOutput { call_id, .. } => call_id,
         ResponseInputItem::Message { .. } => "unknown",
     };
+    result_ref_id_for_call_id(call_id)
+}
+
+fn result_ref_id_for_call_id(call_id: &str) -> String {
     format!("tool-result://call/{call_id}")
 }
 

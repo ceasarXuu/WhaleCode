@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.33",
+  "manifest_version": "1.0.34",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -92,8 +92,8 @@
       "selected_targets": [
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
-          "sha256": "66df60dc64154aea567d2ab4fd348d85f4e066c24be2252947a632d1081f651f",
-          "activation_phase": "A2-B1X response preflight and factual feedback"
+          "sha256": "394dc8f430a54c82072c821a13ece963ea25611a790be3284fb9a8ff217760bf",
+          "activation_phase": "A2-B1X response preflight, factual feedback, and skipped action closure"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
@@ -102,8 +102,8 @@
         },
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
-          "sha256": "f5f66fe3e810a526f6581f415306a195eb17fc9345f9f7b21a245135228608a0",
-          "activation_phase": "A2-B1X native dispatch and explicit result attribution"
+          "sha256": "415d09bf624b8ef3f941f1e8c92404c9af57e50157341c28641af8535890458a",
+          "activation_phase": "A2-B1X native dispatch and explicit dispatched/skipped result attribution"
         }
       ]
     }

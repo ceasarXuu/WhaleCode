@@ -522,9 +522,14 @@ fn sequence_segments(calls: &[ToolCall]) -> Vec<SequenceSegment> {
 }
 
 fn calls_for_segment<'a>(calls: &'a [ToolCall], segment: &SequenceSegment) -> &'a [ToolCall] {
+    let range = segment_range(segment);
+    &calls[range]
+}
+
+fn segment_range(segment: &SequenceSegment) -> std::ops::Range<usize> {
     match *segment {
-        SequenceSegment::Parallel { start, end } => &calls[start..end],
-        SequenceSegment::Barrier { index, .. } => &calls[index..=index],
+        SequenceSegment::Parallel { start, end } => start..end,
+        SequenceSegment::Barrier { index, .. } => index..index + 1,
     }
 }
 
@@ -601,19 +606,67 @@ async fn execute_prepared_taskspace_siblings(
     let mut supplemental_outputs = Vec::new();
     let mut prior_failure: Option<String> = None;
     let mut terminal_completion: Option<TaskSpaceTerminalCompletion> = None;
+    let prepared_action_count = bound_calls.len();
+    let mut dispatched_action_count = 0usize;
+    let mut skipped_action_count = 0usize;
+    let mut closure_attempt_count = 0usize;
 
     for segment in segments {
         if let Some(prior_call_id) = prior_failure.as_deref() {
-            for call in calls_for_segment(&calls, &segment) {
+            for index in segment_range(&segment) {
+                let call = &calls[index];
+                let prepared = &bound_calls[index];
                 append_pairing_and_supplemental(
                     &mut outputs,
                     &mut supplemental_outputs,
                     ToolCallRuntime::skipped_responses(call, prior_call_id),
                 );
+                skipped_action_count += 1;
+                closure_attempt_count += 1;
+                match runtime.record_taskspace_skipped_tool_result(prepared).await {
+                    Ok(()) => {
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            event_name = "taskspace_prepared_tool_skipped_and_released",
+                            call_id = prepared.call_id,
+                            call_index = prepared.call_index,
+                            tool_name = prepared.tool_name,
+                            map_id = prepared.map_id,
+                            node_id = prepared.node_id,
+                            reservation_id = prepared.reservation_id,
+                            prior_call_id,
+                            tool_success = false,
+                            state_commit = true,
+                            "released skipped Agent-declared native tool action"
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            event_name = "taskspace_prepared_tool_skip_release_failed",
+                            call_id = prepared.call_id,
+                            call_index = prepared.call_index,
+                            tool_name = prepared.tool_name,
+                            map_id = prepared.map_id,
+                            node_id = prepared.node_id,
+                            reservation_id = prepared.reservation_id,
+                            prior_call_id,
+                            state_commit = false,
+                            error = %error,
+                            "failed to release skipped Agent-declared native tool action"
+                        );
+                        supplemental_outputs.push(
+                            ToolCallRuntime::taskspace_bound_result_commit_failure_response(
+                                prepared, error,
+                            ),
+                        );
+                    }
+                }
             }
             continue;
         }
 
+        let segment_action_count = segment_range(&segment).len();
         let segment_executions = match segment {
             SequenceSegment::Parallel { start, end } => {
                 let futures =
@@ -650,6 +703,8 @@ async fn execute_prepared_taskspace_siblings(
                 ]
             }
         };
+        dispatched_action_count += segment_action_count;
+        closure_attempt_count += segment_action_count;
 
         for execution in segment_executions {
             if prior_failure.is_none()
@@ -668,6 +723,19 @@ async fn execute_prepared_taskspace_siblings(
         }
     }
 
+    let all_prepared_actions_accounted =
+        dispatched_action_count + skipped_action_count == prepared_action_count;
+    tracing::info!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace_response_action_closure_audited",
+        prepared_action_count,
+        dispatched_action_count,
+        skipped_action_count,
+        closure_attempt_count,
+        all_prepared_actions_accounted,
+        failed = prior_failure.is_some(),
+        "audited TaskSpace prepared action closure attempts"
+    );
     outputs.extend(supplemental_outputs);
     Ok(ToolSequenceOutcome {
         outputs,
@@ -695,3 +763,7 @@ fn response_input_succeeded(output: &ResponseInputItem) -> bool {
 #[cfg(test)]
 #[path = "sequence_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sequence_taskspace_tests.rs"]
+mod taskspace_tests;

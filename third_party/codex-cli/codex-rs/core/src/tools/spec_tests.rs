@@ -751,7 +751,6 @@ async fn spawn_agent_description_omits_usage_hint_when_disabled() {
             \s+Spawned\ agents\ inherit\ your\ current\ model\ by\ default\.\ Omit\ `model`\ to\ use\ that\ preferred\ default;\ set\ `model`\ only\ when\ an\ explicit\ override\ is\ needed\.
             \s+It\ will\ be\ able\ to\ send\ you\ and\ other\ running\ agents\ messages,\ and\ its\ final\ answer\ will\ be\ provided\ to\ you\ when\ it\ finishes\.
             \s+The\ new\ agent's\ canonical\ task\ name\ will\ be\ provided\ to\ it\ along\ with\ the\ message\.
-            \s+When\ TaskSpace\ mode\ has\ more\ than\ one\ ready\ node,\ include\ node_id\ so\ the\ runtime\ can\ bind\ the\ new\ agent\ to\ the\ intended\ node\.
             \s+This\ session\ is\ configured\ with\ `max_concurrent_threads_per_session\ =\ 4`\ for\ concurrently\ open\ agent\ threads\.
             \s*$
         "#,
@@ -778,7 +777,6 @@ async fn spawn_agent_description_uses_configured_usage_hint_text() {
             \s+Spawned\ agents\ inherit\ your\ current\ model\ by\ default\.\ Omit\ `model`\ to\ use\ that\ preferred\ default;\ set\ `model`\ only\ when\ an\ explicit\ override\ is\ needed\.
             \s+It\ will\ be\ able\ to\ send\ you\ and\ other\ running\ agents\ messages,\ and\ its\ final\ answer\ will\ be\ provided\ to\ you\ when\ it\ finishes\.
             \s+The\ new\ agent's\ canonical\ task\ name\ will\ be\ provided\ to\ it\ along\ with\ the\ message\.
-            \s+When\ TaskSpace\ mode\ has\ more\ than\ one\ ready\ node,\ include\ node_id\ so\ the\ runtime\ can\ bind\ the\ new\ agent\ to\ the\ intended\ node\.
             \s+This\ session\ is\ configured\ with\ `max_concurrent_threads_per_session\ =\ 4`\ for\ concurrently\ open\ agent\ threads\.
             \s+Custom\ delegation\ guidance\ only\.
             \s*$
