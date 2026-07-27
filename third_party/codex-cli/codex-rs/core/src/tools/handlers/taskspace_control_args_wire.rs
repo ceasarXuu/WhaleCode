@@ -1,7 +1,8 @@
+use super::TaskSpaceActionArgs;
 use super::TaskSpaceControlArgs;
-use super::TaskSpaceFinishIdentityArgs;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
+use super::TaskSpaceMutationArgs;
 use super::invalid_error;
 use crate::function_tool::FunctionCallError;
 use serde::Deserialize;
@@ -10,17 +11,11 @@ use serde::de::DeserializeOwned;
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Action {
-    InitializeMap,
-    MutateGraph,
-    BindNode,
-    CompleteThenContinue,
-    BlockNode,
-    UnblockNode,
-    ReworkNode,
-    FinishMap,
-    ExpandNodes,
-    ReadOutputRef,
+    InitializeAndExecute,
+    Execute,
     ReadMap,
+    ReadOutputRef,
+    FinishMap,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,69 +25,64 @@ struct Envelope {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct InitializeMapArgs {
+struct InitializeAndExecuteArgs {
     #[serde(rename = "action")]
     _action: Action,
-    root: InitializeMapNodeArgs,
-    initial_work: InitializeMapNodeArgs,
-    additional_work: Vec<InitializeMapNodeArgs>,
-    finish_id: String,
+    root: TaskSpaceGraphNodeArgs,
+    work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+    finish: TaskSpaceGraphNodeArgs,
     edges: Vec<TaskSpaceGraphEdgeArgs>,
+    actions: Vec<TaskSpaceActionArgs>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct InitializeMapNodeArgs {
-    id: String,
-    goal: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MutateGraphArgs {
+struct ExecuteArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
-    add_nodes: Vec<TaskSpaceGraphNodeArgs>,
-    add_edges: Vec<TaskSpaceGraphEdgeArgs>,
-    remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
+    mutations: Vec<MutationWire>,
+    actions: Vec<TaskSpaceActionArgs>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NodeTransitionArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    expected_revision: u64,
-    node_id: String,
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+enum MutationWire {
+    AddWorkNodes {
+        work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+    },
+    AddEdges {
+        edges: Vec<TaskSpaceGraphEdgeArgs>,
+    },
+    RemoveEdges {
+        edges: Vec<TaskSpaceGraphEdgeArgs>,
+    },
+    CompleteNode {
+        node_id: String,
+    },
+    BlockNode {
+        node_id: String,
+    },
+    UnblockNode {
+        node_id: String,
+    },
+    ReworkNode {
+        node_id: String,
+    },
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CompleteThenContinueArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    expected_revision: u64,
-    current_node_id: String,
-    next_node_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FinishMapArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    expected_revision: u64,
-    terminal_node_id: String,
-    final_summary: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExpandNodesArgs {
-    #[serde(rename = "action")]
-    _action: Action,
-    node_ids: Vec<String>,
+impl From<MutationWire> for TaskSpaceMutationArgs {
+    fn from(value: MutationWire) -> Self {
+        match value {
+            MutationWire::AddWorkNodes { work_nodes } => Self::AddWorkNodes { work_nodes },
+            MutationWire::AddEdges { edges } => Self::AddEdges { edges },
+            MutationWire::RemoveEdges { edges } => Self::RemoveEdges { edges },
+            MutationWire::CompleteNode { node_id } => Self::CompleteNode { node_id },
+            MutationWire::BlockNode { node_id } => Self::BlockNode { node_id },
+            MutationWire::UnblockNode { node_id } => Self::UnblockNode { node_id },
+            MutationWire::ReworkNode { node_id } => Self::ReworkNode { node_id },
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -160,139 +150,89 @@ struct ReadMapArgs {
     _action: Action,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FinishMapArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    expected_revision: u64,
+    finish_node_id: String,
+    exact_summary: String,
+}
+
 pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCallError> {
     match deserialize_arguments::<Envelope>(arguments)?.action {
-        Action::InitializeMap => {
-            let parsed = deserialize_arguments::<InitializeMapArgs>(arguments)?;
-            let additional_work_nodes = parsed
-                .additional_work
-                .into_iter()
-                .map(initialize_node)
-                .collect();
-            Ok(TaskSpaceControlArgs::InitializeMap {
-                root: initialize_node(parsed.root),
-                initial_work_node: initialize_node(parsed.initial_work),
-                finish_identity: TaskSpaceFinishIdentityArgs {
-                    id: parsed.finish_id,
-                },
-                additional_work_nodes,
+        Action::InitializeAndExecute => {
+            let parsed = deserialize_arguments::<InitializeAndExecuteArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::InitializeAndExecute {
+                root: parsed.root,
+                work_nodes: parsed.work_nodes,
+                finish: parsed.finish,
                 edges: parsed.edges,
+                actions: parsed.actions,
             })
         }
-        Action::MutateGraph => {
-            let parsed = deserialize_arguments::<MutateGraphArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::MutateGraph {
+        Action::Execute => {
+            let parsed = deserialize_arguments::<ExecuteArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::Execute {
                 expected_revision: parsed.expected_revision,
-                add_nodes: parsed.add_nodes,
-                add_edges: parsed.add_edges,
-                remove_edges: parsed.remove_edges,
+                mutations: parsed.mutations.into_iter().map(Into::into).collect(),
+                actions: parsed.actions,
             })
-        }
-        Action::BindNode => {
-            let (expected_revision, node_id) = parse_node_transition(arguments)?;
-            Ok(TaskSpaceControlArgs::BindNode {
-                expected_revision,
-                node_id,
-            })
-        }
-        Action::CompleteThenContinue => {
-            let parsed = deserialize_arguments::<CompleteThenContinueArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::CompleteThenContinue {
-                expected_revision: parsed.expected_revision,
-                current_node_id: parsed.current_node_id,
-                next_node_id: parsed.next_node_id,
-            })
-        }
-        Action::BlockNode => {
-            let (expected_revision, node_id) = parse_node_transition(arguments)?;
-            Ok(TaskSpaceControlArgs::BlockNode {
-                expected_revision,
-                node_id,
-            })
-        }
-        Action::UnblockNode => {
-            let (expected_revision, node_id) = parse_node_transition(arguments)?;
-            Ok(TaskSpaceControlArgs::UnblockNode {
-                expected_revision,
-                node_id,
-            })
-        }
-        Action::ReworkNode => {
-            let (expected_revision, node_id) = parse_node_transition(arguments)?;
-            Ok(TaskSpaceControlArgs::ReworkNode {
-                expected_revision,
-                node_id,
-            })
-        }
-        Action::FinishMap => {
-            let parsed = deserialize_arguments::<FinishMapArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::FinishMap {
-                expected_revision: parsed.expected_revision,
-                terminal_node_id: parsed.terminal_node_id,
-                final_summary: parsed.final_summary,
-            })
-        }
-        Action::ExpandNodes => {
-            let parsed = deserialize_arguments::<ExpandNodesArgs>(arguments)?;
-            Ok(TaskSpaceControlArgs::ExpandNodes {
-                node_ids: parsed.node_ids,
-            })
-        }
-        Action::ReadOutputRef => {
-            let mode = deserialize_arguments::<ReadOutputModeEnvelope>(arguments)?.mode;
-            match mode {
-                ReadOutputMode::Head | ReadOutputMode::Tail => {
-                    let parsed = deserialize_arguments::<ReadOutputHeadOrTailArgs>(arguments)?;
-                    Ok(TaskSpaceControlArgs::ReadOutputRef {
-                        output_ref: parsed.output_ref,
-                        mode: parsed.mode.as_str().into(),
-                        start_line: None,
-                        end_line: None,
-                        pattern: None,
-                        max_bytes: Some(parsed.max_bytes),
-                    })
-                }
-                ReadOutputMode::LineRange => {
-                    let parsed = deserialize_arguments::<ReadOutputLineRangeArgs>(arguments)?;
-                    Ok(TaskSpaceControlArgs::ReadOutputRef {
-                        output_ref: parsed.output_ref,
-                        mode: parsed.mode.as_str().into(),
-                        start_line: Some(parsed.start_line),
-                        end_line: Some(parsed.end_line),
-                        pattern: None,
-                        max_bytes: Some(parsed.max_bytes),
-                    })
-                }
-                ReadOutputMode::Grep => {
-                    let parsed = deserialize_arguments::<ReadOutputGrepArgs>(arguments)?;
-                    Ok(TaskSpaceControlArgs::ReadOutputRef {
-                        output_ref: parsed.output_ref,
-                        mode: parsed.mode.as_str().into(),
-                        start_line: None,
-                        end_line: None,
-                        pattern: Some(parsed.pattern),
-                        max_bytes: Some(parsed.max_bytes),
-                    })
-                }
-            }
         }
         Action::ReadMap => {
             let _ = deserialize_arguments::<ReadMapArgs>(arguments)?;
             Ok(TaskSpaceControlArgs::ReadMap)
         }
+        Action::ReadOutputRef => parse_output_read(arguments),
+        Action::FinishMap => {
+            let parsed = deserialize_arguments::<FinishMapArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::FinishMap {
+                expected_revision: parsed.expected_revision,
+                finish_node_id: parsed.finish_node_id,
+                exact_summary: parsed.exact_summary,
+            })
+        }
     }
 }
 
-fn initialize_node(node: InitializeMapNodeArgs) -> TaskSpaceGraphNodeArgs {
-    TaskSpaceGraphNodeArgs {
-        node_id: node.id,
-        goal: node.goal,
+fn parse_output_read(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCallError> {
+    let mode = deserialize_arguments::<ReadOutputModeEnvelope>(arguments)?.mode;
+    match mode {
+        ReadOutputMode::Head | ReadOutputMode::Tail => {
+            let parsed = deserialize_arguments::<ReadOutputHeadOrTailArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::ReadOutputRef {
+                output_ref: parsed.output_ref,
+                mode: parsed.mode.as_str().into(),
+                start_line: None,
+                end_line: None,
+                pattern: None,
+                max_bytes: parsed.max_bytes,
+            })
+        }
+        ReadOutputMode::LineRange => {
+            let parsed = deserialize_arguments::<ReadOutputLineRangeArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::ReadOutputRef {
+                output_ref: parsed.output_ref,
+                mode: parsed.mode.as_str().into(),
+                start_line: Some(parsed.start_line),
+                end_line: Some(parsed.end_line),
+                pattern: None,
+                max_bytes: parsed.max_bytes,
+            })
+        }
+        ReadOutputMode::Grep => {
+            let parsed = deserialize_arguments::<ReadOutputGrepArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::ReadOutputRef {
+                output_ref: parsed.output_ref,
+                mode: parsed.mode.as_str().into(),
+                start_line: None,
+                end_line: None,
+                pattern: Some(parsed.pattern),
+                max_bytes: parsed.max_bytes,
+            })
+        }
     }
-}
-
-fn parse_node_transition(arguments: &str) -> Result<(u64, String), FunctionCallError> {
-    let parsed = deserialize_arguments::<NodeTransitionArgs>(arguments)?;
-    Ok((parsed.expected_revision, parsed.node_id))
 }
 
 fn deserialize_arguments<T: DeserializeOwned>(arguments: &str) -> Result<T, FunctionCallError> {

@@ -7,7 +7,7 @@ use serde_json::json;
 
 #[path = "taskspace_tool_simple_actions.rs"]
 mod simple_actions;
-use simple_actions::simple_action_schemas;
+use simple_actions::read_action_schemas;
 
 fn action_tag(action: &str) -> JsonSchema {
     JsonSchema::string_enum(vec![json!(action)], None)
@@ -23,10 +23,6 @@ fn object_variant(
     JsonSchema::object(properties, Some(required), Some(false.into()))
 }
 
-fn object_any_of(variants: Vec<JsonSchema>, description: &str) -> JsonSchema {
-    JsonSchema::object_any_of(variants, Some(description.into()))
-}
-
 fn described_object_variant(
     action: &str,
     properties: BTreeMap<String, JsonSchema>,
@@ -38,19 +34,16 @@ fn described_object_variant(
     schema
 }
 
-fn graph_node_schema(
-    node_id_description: Option<&str>,
-    goal_description: Option<&str>,
-) -> JsonSchema {
+fn graph_node_schema() -> JsonSchema {
     JsonSchema::object(
         BTreeMap::from([
             (
                 "node_id".into(),
-                JsonSchema::string(node_id_description.map(str::to_owned)),
+                JsonSchema::string(Some("Agent-declared Map node identifier.".into())),
             ),
             (
                 "goal".into(),
-                JsonSchema::string(goal_description.map(str::to_owned)),
+                JsonSchema::string(Some("Exact goal retained for this Map node.".into())),
             ),
         ]),
         Some(vec!["node_id".into(), "goal".into()]),
@@ -58,27 +51,16 @@ fn graph_node_schema(
     )
 }
 
-fn initialization_node_schema() -> JsonSchema {
-    JsonSchema::object(
-        BTreeMap::from([
-            ("id".into(), JsonSchema::string(None)),
-            ("goal".into(), JsonSchema::string(None)),
-        ]),
-        Some(vec!["id".into(), "goal".into()]),
-        Some(false.into()),
-    )
-}
-
-fn edge_schema(describe_fields: bool) -> JsonSchema {
+fn edge_schema() -> JsonSchema {
     JsonSchema::object(
         BTreeMap::from([
             (
                 "from".into(),
-                JsonSchema::string(describe_fields.then(|| "Source node identifier.".to_string())),
+                JsonSchema::string(Some("Dependency source node identifier.".into())),
             ),
             (
                 "to".into(),
-                JsonSchema::string(describe_fields.then(|| "Target node identifier.".to_string())),
+                JsonSchema::string(Some("Dependency target node identifier.".into())),
             ),
         ]),
         Some(vec!["from".into(), "to".into()]),
@@ -86,112 +68,159 @@ fn edge_schema(describe_fields: bool) -> JsonSchema {
     )
 }
 
+fn action_manifest_item_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "node_id".into(),
+                JsonSchema::string(Some(
+                    "Map node that owns the matching ordinary sibling Tool call.".into(),
+                )),
+            ),
+            (
+                "tool".into(),
+                JsonSchema::string(Some(
+                    "Exact name of the matching ordinary sibling Tool call.".into(),
+                )),
+            ),
+        ]),
+        Some(vec!["node_id".into(), "tool".into()]),
+        Some(false.into()),
+    )
+}
+
+fn actions_schema() -> JsonSchema {
+    JsonSchema::array(
+        action_manifest_item_schema(),
+        Some(
+            "Ordered ownership manifest. Item i matches ordinary sibling Tool call i in this response; ordinary Tool arguments remain native and are not copied here."
+                .into(),
+        ),
+    )
+    .with_min_items(1)
+}
+
 fn revision_schema() -> JsonSchema {
     JsonSchema::integer(None).with_minimum(0)
 }
 
-pub(crate) fn initialize_map_schema() -> JsonSchema {
-    described_object_variant(
-        "initialize_map",
-        BTreeMap::from([
-            ("root".into(), initialization_node_schema()),
-            ("initial_work".into(), initialization_node_schema()),
-            (
-                "additional_work".into(),
-                JsonSchema::array(
-                    initialization_node_schema(),
-                    Some("Additional Work nodes only; omit Root and Finish.".into()),
-                ),
-            ),
-            ("finish_id".into(), JsonSchema::string(None)),
-            (
-                "edges".into(),
-                JsonSchema::array(
-                    edge_schema(false),
-                    Some(
-                        "Complete Agent-authored DAG edges from Root through every Work to Finish."
-                            .into(),
-                    ),
-                ),
-            ),
-        ]),
-        vec![
-            "root".into(),
-            "initial_work".into(),
-            "additional_work".into(),
-            "finish_id".into(),
-            "edges".into(),
-        ],
-        "Initialize the Agent-authored rooted DAG and bind its first Work before this ordinary Tool executes.",
-    )
-}
-
-fn mutate_graph_schema() -> JsonSchema {
-    described_object_variant(
-        "mutate_graph",
-        BTreeMap::from([
-            ("expected_revision".into(), revision_schema()),
-            (
-                "add_nodes".into(),
-                JsonSchema::array(graph_node_schema(None, None), None),
-            ),
-            (
-                "add_edges".into(),
-                JsonSchema::array(edge_schema(false), None),
-            ),
-            (
-                "remove_edges".into(),
-                JsonSchema::array(edge_schema(false), None),
-            ),
-        ]),
-        vec![
-            "expected_revision".into(),
-            "add_nodes".into(),
-            "add_edges".into(),
-            "remove_edges".into(),
-        ],
-        "Atomically add Work nodes or dependency edges and remove eligible edges. Keep the existing binding unless the mutation is mechanically incompatible with it.",
-    )
-}
-
-fn bind_node_schema() -> JsonSchema {
-    described_object_variant(
-        "bind_node",
-        BTreeMap::from([
-            ("expected_revision".into(), revision_schema()),
-            ("node_id".into(), JsonSchema::string(None)),
-        ]),
-        vec!["expected_revision".into(), "node_id".into()],
-        "Bind one Agent-selected Ready Work node. This call is invalid alone: immediately emit that Work node's first real Tool after it in the same response with taskspace_binding {\"action\":\"after_boundary\"}.",
-    )
-}
-
-fn node_transition_schema(action: &str, description: &str) -> JsonSchema {
+fn node_mutation_schema(action: &str, description: &str) -> JsonSchema {
     described_object_variant(
         action,
-        BTreeMap::from([
-            ("expected_revision".into(), revision_schema()),
-            ("node_id".into(), JsonSchema::string(None)),
-        ]),
-        vec!["expected_revision".into(), "node_id".into()],
+        BTreeMap::from([("node_id".into(), JsonSchema::string(None))]),
+        vec!["node_id".into()],
         description,
     )
 }
 
-fn complete_then_continue_schema() -> JsonSchema {
+fn mutation_schema() -> JsonSchema {
+    JsonSchema::object_any_of(
+        vec![
+            described_object_variant(
+                "add_work_nodes",
+                BTreeMap::from([(
+                    "work_nodes".into(),
+                    JsonSchema::array(graph_node_schema(), None).with_min_items(1),
+                )]),
+                vec!["work_nodes".into()],
+                "Add one or more Agent-authored Work nodes.",
+            ),
+            described_object_variant(
+                "add_edges",
+                BTreeMap::from([(
+                    "edges".into(),
+                    JsonSchema::array(edge_schema(), None).with_min_items(1),
+                )]),
+                vec!["edges".into()],
+                "Add one or more dependency edges.",
+            ),
+            described_object_variant(
+                "remove_edges",
+                BTreeMap::from([(
+                    "edges".into(),
+                    JsonSchema::array(edge_schema(), None).with_min_items(1),
+                )]),
+                vec!["edges".into()],
+                "Remove one or more dependency edges.",
+            ),
+            node_mutation_schema(
+                "complete_node",
+                "Record Agent-declared completion of one Work node.",
+            ),
+            node_mutation_schema(
+                "block_node",
+                "Record that one Work node is mechanically blocked.",
+            ),
+            node_mutation_schema(
+                "unblock_node",
+                "Remove the active block record from one Work node.",
+            ),
+            node_mutation_schema(
+                "rework_node",
+                "Reopen one completed Work node for additional work.",
+            ),
+        ],
+        Some("One Agent-declared nonterminal Map mutation.".into()),
+    )
+}
+
+fn initialize_and_execute_schema() -> JsonSchema {
     described_object_variant(
-        "complete_then_continue",
+        "initialize_and_execute",
+        BTreeMap::from([
+            ("root".into(), graph_node_schema()),
+            (
+                "work_nodes".into(),
+                JsonSchema::array(graph_node_schema(), None).with_min_items(1),
+            ),
+            ("finish".into(), graph_node_schema()),
+            (
+                "edges".into(),
+                JsonSchema::array(
+                    edge_schema(),
+                    Some(
+                        "Complete Agent-authored DAG edges from Root through every Work node to Finish."
+                            .into(),
+                    ),
+                )
+                .with_min_items(1),
+            ),
+            ("actions".into(), actions_schema()),
+        ]),
+        vec![
+            "root".into(),
+            "work_nodes".into(),
+            "finish".into(),
+            "edges".into(),
+            "actions".into(),
+        ],
+        "Initialize the rooted TaskSpace Map and declare one or more native ordinary sibling Tool calls in the same response.",
+    )
+}
+
+fn execute_schema() -> JsonSchema {
+    described_object_variant(
+        "execute",
         BTreeMap::from([
             ("expected_revision".into(), revision_schema()),
-            ("current_node_id".into(), JsonSchema::string(None)),
-            ("next_node_id".into(), JsonSchema::string(None)),
+            (
+                "mutations".into(),
+                JsonSchema::array(
+                    mutation_schema(),
+                    Some(
+                        "Ordered nonterminal Map mutations committed before sibling Tool dispatch."
+                            .into(),
+                    ),
+                ),
+            ),
+            ("actions".into(), actions_schema()),
         ]),
         vec![
             "expected_revision".into(),
-            "current_node_id".into(),
-            "next_node_id".into(),
+            "mutations".into(),
+            "actions".into(),
         ],
-        "Atomically complete the active Work node and bind one Agent-selected Ready successor. This call is invalid alone: immediately emit the successor's first real Tool after it in the same response with taskspace_binding {\"action\":\"after_boundary\"}.",
+        "Declare optional nonterminal Map mutations and one or more native ordinary sibling Tool calls in the same response.",
     )
 }
 
@@ -201,48 +230,39 @@ fn finish_map_schema() -> JsonSchema {
         BTreeMap::from([
             ("expected_revision".into(), revision_schema()),
             (
-                "terminal_node_id".into(),
+                "finish_node_id".into(),
                 JsonSchema::string(Some(
-                    "The Agent-selected terminal entry node: the current final Running Work, or the unique Ready Finish when no Work remains active."
-                        .into(),
+                    "The unique Agent-authored Finish node identifier.".into(),
                 )),
             ),
-            ("final_summary".into(), JsonSchema::string(None)),
+            (
+                "exact_summary".into(),
+                JsonSchema::string(Some(
+                    "Agent-authored final Map summary retained without reinterpretation.".into(),
+                )),
+            ),
         ]),
         vec![
             "expected_revision".into(),
-            "terminal_node_id".into(),
-            "final_summary".into(),
+            "finish_node_id".into(),
+            "exact_summary".into(),
         ],
-        "Explicitly close the current Map through the Agent-selected terminal entry node. A final Running Work is completed in the same atomic transaction; an already Ready Finish is closed directly when no Work remains active. The Runtime validates the submitted revision, node identity, binding, and canonical terminal frontier without interpreting task meaning or choosing a node.",
+        "Explicitly close the unique Finish and Root after all required Work is complete. This terminal action has no ordinary sibling Tool calls.",
     )
 }
 
 pub fn create_taskspace_control_tool() -> ToolSpec {
-    let mut variants = vec![
-        mutate_graph_schema(),
-        bind_node_schema(),
-        complete_then_continue_schema(),
-        node_transition_schema(
-            "block_node",
-            "Mark the currently running Work node blocked. The Runtime does not select an alternative path.",
-        ),
-        node_transition_schema(
-            "unblock_node",
-            "Return a blocked Work node to Ready after the Agent has determined that its blocker is cleared.",
-        ),
-        node_transition_schema(
-            "rework_node",
-            "Return a completed Work node to Ready because the Agent has decided that more work is required.",
-        ),
-        finish_map_schema(),
-    ];
-    variants.extend(simple_action_schemas());
-    let parameters = object_any_of(variants, "One mechanical TaskSpace operation.");
+    let mut variants = vec![initialize_and_execute_schema(), execute_schema()];
+    variants.extend(read_action_schemas());
+    variants.push(finish_map_schema());
+    let parameters = JsonSchema::object_any_of(
+        variants,
+        Some("One TaskSpace response manifest, read, or explicit terminal closure.".into()),
+    );
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Use taskspace_control for Map lifecycle after initialization, graph mutations, terminal closure, expansion, and retained-data reads. initialize_map is carried by the first ordinary Tool's taskspace_binding and is not a standalone control action. bind_node and complete_then_continue are invalid as standalone calls: immediately follow one with the real Tool whose taskspace_binding is {\"action\":\"after_boundary\"} in the same response. Other ordinary Tools use taskspace_binding {\"action\":\"active\"}. Successful calls return the committed revision and exact delta or read result; rejected calls return a structured error and whether state was committed. The Runtime validates mechanical graph, lifecycle, ordering, binding, and lease invariants but never chooses nodes, repairs arguments, or decides the next action.".into(),
+        description: "Declare the TaskSpace Map initialization or nonterminal mutations together with the ordered node ownership of native ordinary sibling Tool calls. Use read_map or read_output_ref for factual reads, and finish_map for explicit terminal closure. The Runtime validates graph, revision, action count, Tool name, order, and reservation invariants without choosing nodes or interpreting ordinary Tool arguments.".into(),
         strict: false,
         defer_loading: None,
         parameters,

@@ -19,17 +19,10 @@ use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 
-#[path = "taskspace_control_graph_actions.rs"]
-mod graph_actions;
 #[path = "taskspace_control_lifecycle_actions.rs"]
 mod lifecycle_actions;
-#[path = "taskspace_control_mapping.rs"]
-mod mapping;
 #[path = "taskspace_control_read_actions.rs"]
 mod read_actions;
-
-#[cfg(test)]
-use mapping::control_state_has_active_binding;
 
 pub struct TaskSpaceControlHandler;
 
@@ -124,48 +117,23 @@ impl ToolHandler for TaskSpaceControlHandler {
                 ));
             }
         };
-        if matches!(args, TaskSpaceControlArgs::InitializeMap { .. }) {
-            return Err(protocol_error(
-                "initialize_map must be carried by the first ordinary Tool's taskspace_binding"
-                    .into(),
-                "taskspace_initialization_must_be_carried",
-            ));
-        }
         execute_parsed_action(&session, &turn, &call_id, args).await
     }
 }
 
+#[deprecated(
+    note = "A2-B1X removes ordinary Tool initialization carriers; response preflight owns initialize_and_execute"
+)]
 pub(crate) async fn execute_taskspace_initialization_binding(
-    session: &Session,
-    turn: &TurnContext,
-    call_id: &str,
-    arguments: &str,
+    _session: &Session,
+    _turn: &TurnContext,
+    _call_id: &str,
+    _arguments: &str,
 ) -> Result<TaskSpaceControlOutput, FunctionCallError> {
-    let TaskSpaceControlArgs::InitializeMap {
-        root,
-        initial_work_node,
-        finish_identity,
-        additional_work_nodes,
-        edges,
-    } = parse_taskspace_control_args(arguments)?
-    else {
-        return Err(protocol_error(
-            "taskspace initialization binding must contain initialize_map".into(),
-            "taskspace_initialization_arguments_invalid",
-        ));
-    };
-    let execution = graph_actions::initialize_map(
-        session,
-        turn,
-        call_id,
-        root,
-        initial_work_node,
-        finish_identity,
-        additional_work_nodes,
-        edges,
-    )
-    .await?;
-    finalize_control_output(session, call_id, "initialize_map", None, execution).await
+    Err(protocol_error(
+        "ordinary Tool initialization carriers were removed by A2-B1X".into(),
+        "taskspace_initialization_carrier_removed",
+    ))
 }
 
 async fn execute_parsed_action(
@@ -222,97 +190,27 @@ async fn execute_action(
     args: TaskSpaceControlArgs,
 ) -> Result<ControlExecution, FunctionCallError> {
     match args {
-        TaskSpaceControlArgs::InitializeMap {
-            root,
-            initial_work_node,
-            finish_identity,
-            additional_work_nodes,
-            edges,
-        } => {
-            graph_actions::initialize_map(
-                session,
-                turn,
-                call_id,
-                root,
-                initial_work_node,
-                finish_identity,
-                additional_work_nodes,
-                edges,
-            )
-            .await
-        }
-        TaskSpaceControlArgs::MutateGraph {
-            expected_revision,
-            add_nodes,
-            add_edges,
-            remove_edges,
-        } => {
-            graph_actions::mutate_graph(
-                session,
-                turn,
-                call_id,
-                expected_revision,
-                add_nodes,
-                add_edges,
-                remove_edges,
-            )
-            .await
-        }
-        TaskSpaceControlArgs::BindNode {
-            expected_revision,
-            node_id,
-        } => lifecycle_actions::bind_node(session, turn, call_id, expected_revision, node_id).await,
-        TaskSpaceControlArgs::CompleteThenContinue {
-            expected_revision,
-            current_node_id,
-            next_node_id,
-        } => {
-            lifecycle_actions::complete_then_continue(
-                session,
-                turn,
-                call_id,
-                expected_revision,
-                current_node_id,
-                next_node_id,
-            )
-            .await
-        }
-        TaskSpaceControlArgs::BlockNode {
-            expected_revision,
-            node_id,
-        } => {
-            lifecycle_actions::block_node(session, turn, call_id, expected_revision, node_id).await
-        }
-        TaskSpaceControlArgs::UnblockNode {
-            expected_revision,
-            node_id,
-        } => {
-            lifecycle_actions::unblock_node(session, turn, call_id, expected_revision, node_id)
-                .await
-        }
-        TaskSpaceControlArgs::ReworkNode {
-            expected_revision,
-            node_id,
-        } => {
-            lifecycle_actions::rework_node(session, turn, call_id, expected_revision, node_id).await
-        }
+        // TODO(A2-B1X-response-preflight): these manifests must be consumed before
+        // ToolHandler dispatch. Do not add a nested dispatcher or old Runtime fallback here.
+        TaskSpaceControlArgs::InitializeAndExecute { .. }
+        | TaskSpaceControlArgs::Execute { .. } => Err(protocol_error(
+            "TaskSpace action manifests require complete-response preflight".into(),
+            "taskspace_action_manifest_requires_response_preflight",
+        )),
         TaskSpaceControlArgs::FinishMap {
             expected_revision,
-            terminal_node_id,
-            final_summary,
+            finish_node_id,
+            exact_summary,
         } => {
             lifecycle_actions::finish_map(
                 session,
                 turn,
                 call_id,
                 expected_revision,
-                terminal_node_id,
-                final_summary,
+                finish_node_id,
+                exact_summary,
             )
             .await
-        }
-        TaskSpaceControlArgs::ExpandNodes { node_ids } => {
-            graph_actions::expand_nodes(session, turn, call_id, node_ids).await
         }
         TaskSpaceControlArgs::ReadOutputRef {
             output_ref,
@@ -323,14 +221,7 @@ async fn execute_action(
             max_bytes,
         } => {
             read_actions::read_output_ref(
-                session,
-                turn,
-                output_ref,
-                mode,
-                start_line,
-                end_line,
-                pattern,
-                max_bytes.expect("validated read_output_ref max_bytes"),
+                session, turn, output_ref, mode, start_line, end_line, pattern, max_bytes,
             )
             .await
         }

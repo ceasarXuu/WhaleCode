@@ -1,78 +1,211 @@
 use super::*;
 use serde_json::Value as JsonValue;
+use serde_json::json;
 
-#[test]
-fn control_accepts_boundary_transitions() {
-    for arguments in [
-        r#"{"action":"initialize_map","root":{"id":"root","goal":"Start"},"initial_work":{"id":"work","goal":"Work"},"additional_work":[],"finish_id":"finish","edges":[]}"#,
-        r#"{"action":"bind_node","expected_revision":2,"node_id":"work"}"#,
-        r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"verify"}"#,
-    ] {
-        parse_taskspace_control_args(arguments).expect(arguments);
-    }
+fn initialize_fixture() -> JsonValue {
+    json!({
+        "action": "initialize_and_execute",
+        "root": {"node_id": "root", "goal": "Solve the task"},
+        "work_nodes": [
+            {"node_id": "inspect", "goal": "Inspect the implementation"},
+            {"node_id": "research", "goal": "Check the contract"}
+        ],
+        "finish": {"node_id": "finish", "goal": "Verify and summarize"},
+        "edges": [
+            {"from": "root", "to": "inspect"},
+            {"from": "root", "to": "research"},
+            {"from": "inspect", "to": "finish"},
+            {"from": "research", "to": "finish"}
+        ],
+        "actions": [
+            {"node_id": "inspect", "tool": "read_file"},
+            {"node_id": "research", "tool": "exec_command"}
+        ]
+    })
+}
+
+fn execute_fixture() -> JsonValue {
+    json!({
+        "action": "execute",
+        "expected_revision": 12,
+        "mutations": [
+            {"action": "complete_node", "node_id": "inspect"}
+        ],
+        "actions": [
+            {"node_id": "research", "tool": "exec_command"}
+        ]
+    })
 }
 
 #[test]
-fn initialize_map_requires_distinct_agent_authored_role_sections() {
-    for arguments in [
-        r#"{"action":"initialize_map","root":{"id":"root","goal":"Start"},"initial_work":{"id":"root","goal":"Duplicate"},"additional_work":[],"finish_id":"finish","edges":[]}"#,
-        r#"{"action":"initialize_map","root":{"id":"root","goal":"Start"},"initial_work":{"id":"work","goal":"Work"},"additional_work":[{"id":"finish","goal":"Wrong role"}],"finish_id":"finish","edges":[]}"#,
-        r#"{"action":"initialize_map","nodes":[{"id":"root","goal":"Start"},{"id":"work","goal":"Work"}],"root_id":"root","initial_work_id":"work","finish_id":"finish","edges":[]}"#,
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Work"},"finish_identity":{"id":"finish"},"additional_work_nodes":[],"edges":[]}"#,
-    ] {
-        assert!(
-            parse_taskspace_control_args(arguments).is_err(),
-            "{arguments}"
-        );
-    }
-}
-
-#[test]
-fn accepts_standalone_graph_and_terminal_actions() {
-    parse_taskspace_control_args(
-        r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[]}"#,
-    )
-    .expect("graph mutation");
-    for arguments in [
-        r#"{"action":"block_node","expected_revision":2,"node_id":"new"}"#,
-        r#"{"action":"unblock_node","expected_revision":3,"node_id":"new"}"#,
-        r#"{"action":"rework_node","expected_revision":4,"node_id":"new"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":6,"terminal_node_id":"finish","final_summary":"Done"}"#,
-    ] {
-        parse_taskspace_control_args(arguments).expect(arguments);
-    }
-}
-
-#[test]
-fn every_control_action_rejects_missing_extra_and_wrong_typed_fields() {
+fn parser_accepts_exactly_the_five_top_level_actions() {
     let fixtures = [
-        serde_json::json!({"action":"initialize_map","root":{"id":"root","goal":"Start"},"initial_work":{"id":"work","goal":"Work"},"additional_work":[],"finish_id":"finish","edges":[]}),
-        serde_json::json!({"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[]}),
-        serde_json::json!({"action":"bind_node","expected_revision":2,"node_id":"new"}),
-        serde_json::json!({"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"new"}),
-        serde_json::json!({"action":"block_node","expected_revision":2,"node_id":"new"}),
-        serde_json::json!({"action":"unblock_node","expected_revision":3,"node_id":"new"}),
-        serde_json::json!({"action":"rework_node","expected_revision":4,"node_id":"new"}),
-        serde_json::json!({"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done"}),
-        serde_json::json!({"action":"expand_nodes","node_ids":["new"]}),
-        serde_json::json!({"action":"read_map"}),
-        serde_json::json!({"action":"read_output_ref","output_ref":"ref-1","mode":"head","max_bytes":64}),
-        serde_json::json!({"action":"read_output_ref","output_ref":"ref-1","mode":"tail","max_bytes":64}),
-        serde_json::json!({"action":"read_output_ref","output_ref":"ref-1","mode":"line_range","start_line":1,"end_line":2,"max_bytes":64}),
-        serde_json::json!({"action":"read_output_ref","output_ref":"ref-1","mode":"grep","pattern":"needle","max_bytes":64}),
+        initialize_fixture(),
+        execute_fixture(),
+        json!({"action": "read_map"}),
+        json!({
+            "action": "read_output_ref",
+            "output_ref": "output-1",
+            "mode": "head",
+            "max_bytes": 64
+        }),
+        json!({
+            "action": "finish_map",
+            "expected_revision": 13,
+            "finish_node_id": "finish",
+            "exact_summary": "All required work is complete."
+        }),
     ];
 
     for fixture in fixtures {
-        let object = fixture.as_object().expect("object fixture");
-        parse_taskspace_control_args(&fixture.to_string()).expect("valid fixture");
+        parse_taskspace_control_args(&fixture.to_string()).expect("valid B1X action");
+    }
+}
 
-        for required in object.keys() {
+#[test]
+fn initialize_and_execute_parser_matches_the_wire_golden() {
+    let parsed = parse_taskspace_control_args(&initialize_fixture().to_string())
+        .expect("valid initialization");
+    assert_eq!(
+        parsed,
+        TaskSpaceControlArgs::InitializeAndExecute {
+            root: TaskSpaceGraphNodeArgs {
+                node_id: "root".into(),
+                goal: "Solve the task".into(),
+            },
+            work_nodes: vec![
+                TaskSpaceGraphNodeArgs {
+                    node_id: "inspect".into(),
+                    goal: "Inspect the implementation".into(),
+                },
+                TaskSpaceGraphNodeArgs {
+                    node_id: "research".into(),
+                    goal: "Check the contract".into(),
+                },
+            ],
+            finish: TaskSpaceGraphNodeArgs {
+                node_id: "finish".into(),
+                goal: "Verify and summarize".into(),
+            },
+            edges: vec![
+                TaskSpaceGraphEdgeArgs {
+                    from: "root".into(),
+                    to: "inspect".into(),
+                },
+                TaskSpaceGraphEdgeArgs {
+                    from: "root".into(),
+                    to: "research".into(),
+                },
+                TaskSpaceGraphEdgeArgs {
+                    from: "inspect".into(),
+                    to: "finish".into(),
+                },
+                TaskSpaceGraphEdgeArgs {
+                    from: "research".into(),
+                    to: "finish".into(),
+                },
+            ],
+            actions: vec![
+                TaskSpaceActionArgs {
+                    node_id: "inspect".into(),
+                    tool: "read_file".into(),
+                },
+                TaskSpaceActionArgs {
+                    node_id: "research".into(),
+                    tool: "exec_command".into(),
+                },
+            ],
+        }
+    );
+}
+
+#[test]
+fn execute_accepts_every_frozen_mutation_variant() {
+    let fixture = json!({
+        "action": "execute",
+        "expected_revision": 7,
+        "mutations": [
+            {
+                "action": "add_work_nodes",
+                "work_nodes": [{"node_id": "verify", "goal": "Verify the change"}]
+            },
+            {
+                "action": "add_edges",
+                "edges": [{"from": "implement", "to": "verify"}]
+            },
+            {
+                "action": "remove_edges",
+                "edges": [{"from": "implement", "to": "finish"}]
+            },
+            {"action": "complete_node", "node_id": "implement"},
+            {"action": "block_node", "node_id": "verify"},
+            {"action": "unblock_node", "node_id": "verify"},
+            {"action": "rework_node", "node_id": "implement"}
+        ],
+        "actions": [{"node_id": "verify", "tool": "exec_command"}]
+    });
+    let TaskSpaceControlArgs::Execute {
+        expected_revision,
+        mutations,
+        actions,
+    } = parse_taskspace_control_args(&fixture.to_string()).expect("all mutations")
+    else {
+        panic!("execute expected");
+    };
+
+    assert_eq!(expected_revision, 7);
+    assert_eq!(mutations.len(), 7);
+    assert_eq!(
+        actions,
+        vec![TaskSpaceActionArgs {
+            node_id: "verify".into(),
+            tool: "exec_command".into(),
+        }]
+    );
+}
+
+#[test]
+fn execute_allows_no_mutation_but_never_allows_no_action() {
+    parse_taskspace_control_args(
+        &json!({
+            "action": "execute",
+            "expected_revision": 7,
+            "mutations": [],
+            "actions": [{"node_id": "inspect", "tool": "read_file"}]
+        })
+        .to_string(),
+    )
+    .expect("ordinary progress without a mutation");
+
+    for fixture in [
+        json!({"action":"execute","expected_revision":7,"mutations":[],"actions":[]}),
+        json!({
+            "action":"initialize_and_execute",
+            "root":{"node_id":"root","goal":"Root"},
+            "work_nodes":[{"node_id":"work","goal":"Work"}],
+            "finish":{"node_id":"finish","goal":"Finish"},
+            "edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],
+            "actions":[]
+        }),
+    ] {
+        assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
+    }
+}
+
+#[test]
+fn top_level_contract_rejects_missing_extra_and_wrong_types() {
+    let fixtures = [
+        initialize_fixture(),
+        execute_fixture(),
+        json!({"action":"read_map"}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"tail","max_bytes":64}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","exact_summary":"Done"}),
+    ];
+
+    for fixture in fixtures {
+        for required in fixture.as_object().expect("object").keys() {
             let mut missing = fixture.clone();
-            missing
-                .as_object_mut()
-                .expect("object fixture")
-                .remove(required);
+            missing.as_object_mut().expect("object").remove(required);
             assert!(
                 parse_taskspace_control_args(&missing.to_string()).is_err(),
                 "accepted missing {required}: {missing}"
@@ -82,158 +215,125 @@ fn every_control_action_rejects_missing_extra_and_wrong_typed_fields() {
         let mut extra = fixture.clone();
         extra
             .as_object_mut()
-            .expect("object fixture")
-            .insert("unexpected".into(), serde_json::json!(true));
+            .expect("object")
+            .insert("unexpected".into(), json!(true));
         assert!(
             parse_taskspace_control_args(&extra.to_string()).is_err(),
             "accepted extra field: {extra}"
         );
+    }
 
-        let typed_field = object
-            .keys()
-            .find(|field| field.as_str() != "action")
-            .cloned()
-            .unwrap_or_else(|| "action".to_string());
-        let mut wrong_type = fixture.clone();
-        wrong_type
-            .as_object_mut()
-            .expect("object fixture")
-            .insert(typed_field.clone(), serde_json::Value::Null);
-        assert!(
-            parse_taskspace_control_args(&wrong_type.to_string()).is_err(),
-            "accepted null {typed_field}: {wrong_type}"
-        );
+    for fixture in [
+        json!({"action":"execute","expected_revision":"7","mutations":[],"actions":[{"node_id":"n","tool":"t"}]}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":7,"exact_summary":"Done"}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"head","max_bytes":"64"}),
+    ] {
+        assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
     }
 }
 
 #[test]
-fn finish_map_rejects_missing_identity_and_removed_prestate_fields() {
-    for arguments in [
-        r#"{"action":"finish_map","expected_revision":5,"final_summary":"Done"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","terminal_state":"last_running_work"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","incomplete_work_node_ids":["new"]}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","finish_node_id":"finish"}"#,
-        r#"{"action":"finish_map","expected_revision":5,"terminal_node_id":"new","final_summary":"Done","finish_status":"pending"}"#,
+fn nested_manifest_and_mutation_contracts_are_strict() {
+    for fixture in [
+        json!({"action":"execute","expected_revision":1,"mutations":[],"actions":[{"node_id":"n","tool":"t","arguments":{}}]}),
+        json!({"action":"execute","expected_revision":1,"mutations":[],"actions":[{"node_id":"n"}]}),
+        json!({"action":"execute","expected_revision":1,"mutations":[{"action":"complete_node","node_id":"n","reason":"done"}],"actions":[{"node_id":"n","tool":"t"}]}),
+        json!({"action":"execute","expected_revision":1,"mutations":[{"action":"add_edges","edges":[]}],"actions":[{"node_id":"n","tool":"t"}]}),
+        json!({"action":"execute","expected_revision":1,"mutations":[{"action":"unknown","node_id":"n"}],"actions":[{"node_id":"n","tool":"t"}]}),
+        json!({"action":"execute","expected_revision":1,"mutations":[{"action":"complete_node"}],"actions":[{"node_id":"n","tool":"t"}]}),
     ] {
         assert!(
-            parse_taskspace_control_args(arguments).is_err(),
-            "{arguments}"
+            parse_taskspace_control_args(&fixture.to_string()).is_err(),
+            "{fixture}"
         );
     }
 }
 
 #[test]
-fn superseded_terminal_action_names_are_rejected() {
+fn initialization_rejects_empty_or_overlapping_role_nodes() {
+    for fixture in [
+        json!({
+            "action":"initialize_and_execute",
+            "root":{"node_id":"root","goal":"Root"},
+            "work_nodes":[],
+            "finish":{"node_id":"finish","goal":"Finish"},
+            "edges":[{"from":"root","to":"finish"}],
+            "actions":[{"node_id":"root","tool":"read_file"}]
+        }),
+        json!({
+            "action":"initialize_and_execute",
+            "root":{"node_id":"root","goal":"Root"},
+            "work_nodes":[{"node_id":"root","goal":"Duplicate"}],
+            "finish":{"node_id":"finish","goal":"Finish"},
+            "edges":[{"from":"root","to":"finish"}],
+            "actions":[{"node_id":"root","tool":"read_file"}]
+        }),
+        json!({
+            "action":"initialize_and_execute",
+            "root":{"node_id":"root","goal":"Root"},
+            "work_nodes":[{"node_id":"work","goal":"Work"}],
+            "finish":{"node_id":"work","goal":"Duplicate"},
+            "edges":[{"from":"root","to":"work"}],
+            "actions":[{"node_id":"work","tool":"read_file"}]
+        }),
+    ] {
+        assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
+    }
+}
+
+#[test]
+fn read_output_ref_modes_keep_exact_direct_contracts() {
+    for fixture in [
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"head","max_bytes":64}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"tail","max_bytes":64}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"line_range","start_line":1,"end_line":3,"max_bytes":64}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"grep","pattern":"needle","max_bytes":64}),
+    ] {
+        parse_taskspace_control_args(&fixture.to_string()).expect("valid read");
+    }
+
+    for fixture in [
+        json!({"action":"read_output_ref","output_ref":"","mode":"head","max_bytes":64}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"head","pattern":"extra","max_bytes":64}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"line_range","start_line":3,"end_line":1,"max_bytes":64}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"grep","pattern":"","max_bytes":64}),
+        json!({"action":"read_output_ref","output_ref":"ref","mode":"grep","pattern":"x","max_bytes":0}),
+    ] {
+        assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
+    }
+}
+
+#[test]
+fn old_carriers_and_lifecycle_actions_are_rejected() {
     for action in [
-        "finish_end",
-        "close_ready_finish",
-        "complete_then_end",
-        "complete_active_work_then_end",
-        "complete_last_running_work_then_end",
-        "close_finish_with_no_active_work",
+        "initialize_map",
+        "mutate_graph",
+        "bind_node",
+        "complete_then_continue",
+        "block_node",
+        "unblock_node",
+        "rework_node",
+        "expand_nodes",
+        "active",
+        "after_boundary",
     ] {
-        let arguments =
-            format!(r#"{{"action":"{action}","expected_revision":6,"final_summary":"Done"}}"#);
+        let fixture = json!({"action":action});
         assert!(
-            parse_taskspace_control_args(&arguments).is_err(),
-            "{arguments}"
+            parse_taskspace_control_args(&fixture.to_string()).is_err(),
+            "{action}"
         );
     }
 }
 
 #[test]
-fn removed_sibling_metadata_is_rejected() {
-    for arguments in [
-        r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[],"required_next_call":"ordinary_tool"}"#,
-        r#"{"action":"block_node","expected_revision":2,"node_id":"new","required_next_call":"ordinary_tool"}"#,
+fn finish_map_rejects_old_identity_fields_and_empty_values() {
+    for fixture in [
+        json!({"action":"finish_map","expected_revision":3,"terminal_node_id":"work","final_summary":"Done"}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"","exact_summary":"Done"}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","exact_summary":""}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","exact_summary":"Done","actions":[]}),
     ] {
-        assert!(
-            parse_taskspace_control_args(arguments).is_err(),
-            "{arguments}"
-        );
-    }
-}
-
-#[test]
-fn mutation_arrays_are_required_and_not_all_empty() {
-    assert!(
-        parse_taskspace_control_args(
-            r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[],"add_edges":[],"remove_edges":[]}"#
-        )
-        .is_err()
-    );
-    assert!(
-        parse_taskspace_control_args(
-            r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[]}"#
-        )
-        .is_err()
-    );
-}
-
-#[test]
-fn validates_control_ids_summaries_and_edges() {
-    assert!(
-        parse_taskspace_control_args(
-            r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[],"add_edges":[{"from":"a","to":"b"},{"from":"a","to":"b"}],"remove_edges":[]}"#
-        )
-        .is_err()
-    );
-    for arguments in [
-        r#"{"action":"block_node","expected_revision":2,"node_id":""}"#,
-        r#"{"action":"finish_map","expected_revision":3,"terminal_node_id":"work","final_summary":""}"#,
-        r#"{"action":"finish_map","expected_revision":3,"terminal_node_id":"","final_summary":"Done"}"#,
-    ] {
-        assert!(
-            parse_taskspace_control_args(arguments).is_err(),
-            "{arguments}"
-        );
-    }
-}
-
-#[test]
-fn expand_nodes_requires_non_empty_unique_node_ids() {
-    parse_taskspace_control_args(r#"{"action":"expand_nodes","node_ids":["node-1","node-2"]}"#)
-        .expect("valid expansion batch");
-    assert!(parse_taskspace_control_args(r#"{"action":"expand_nodes","node_ids":[]}"#).is_err());
-    assert!(
-        parse_taskspace_control_args(r#"{"action":"expand_nodes","node_ids":["node-1","node-1"]}"#)
-            .is_err()
-    );
-}
-
-#[test]
-fn read_map_accepts_only_the_action_tag() {
-    assert!(matches!(
-        parse_taskspace_control_args(r#"{"action":"read_map"}"#).expect("valid map read"),
-        TaskSpaceControlArgs::ReadMap
-    ));
-    assert!(
-        parse_taskspace_control_args(r#"{"action":"read_map","expected_revision":2}"#).is_err()
-    );
-}
-
-#[test]
-fn read_output_ref_modes_accept_only_their_direct_schema() {
-    for arguments in [
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"head","max_bytes":64}"#,
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"tail","max_bytes":64}"#,
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"line_range","start_line":1,"end_line":3,"max_bytes":64}"#,
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"grep","pattern":"needle","max_bytes":64}"#,
-    ] {
-        parse_taskspace_control_args(arguments).expect("valid direct read mode");
-    }
-
-    for arguments in [
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"head"}"#,
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"head","pattern":"extra","max_bytes":64}"#,
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"line_range","start_line":0,"end_line":3,"max_bytes":64}"#,
-        r#"{"action":"read_output_ref","output_ref":"ref-1","mode":"grep","pattern":"needle","max_bytes":0}"#,
-    ] {
-        assert!(
-            parse_taskspace_control_args(arguments).is_err(),
-            "{arguments}"
-        );
+        assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
     }
 }
 

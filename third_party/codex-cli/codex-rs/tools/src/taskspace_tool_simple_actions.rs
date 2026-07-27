@@ -5,28 +5,13 @@ use serde_json::json;
 use super::JsonSchema;
 use super::object_variant;
 
-pub(super) fn simple_action_schemas() -> Vec<JsonSchema> {
-    let mut expand_nodes = object_variant(
-        "expand_nodes",
-        BTreeMap::from([(
-            "node_ids".into(),
-            JsonSchema::array(JsonSchema::string(None), None).with_min_items(1),
-        )]),
-        vec!["node_ids".into()],
-    );
-    expand_nodes.description = Some(
-        "Mark folded node details for full inclusion in future projections. This changes only deterministic display state."
-            .into(),
-    );
-
+pub(super) fn read_action_schemas() -> Vec<JsonSchema> {
     let mut read_map = object_variant("read_map", BTreeMap::new(), Vec::new());
     read_map.description = Some(
-        "Return the current full rendered Map and its canonical revision without changing state."
-            .into(),
+        "Return the current rendered Map and canonical revision without changing state.".into(),
     );
 
     vec![
-        expand_nodes,
         read_map,
         read_output_ref_schema(
             "head",

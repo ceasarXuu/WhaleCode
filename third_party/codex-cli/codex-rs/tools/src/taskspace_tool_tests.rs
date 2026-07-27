@@ -1,141 +1,195 @@
+use std::collections::BTreeSet;
+
 use super::*;
 
-fn action_names(spec: ToolSpec) -> Vec<String> {
-    let ToolSpec::Function(tool) = spec else {
+fn function_tool() -> ResponsesApiTool {
+    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
         panic!("taskspace_control must be a function tool");
     };
-    tool.parameters
-        .any_of
-        .expect("control variants")
-        .into_iter()
-        .map(|variant| {
-            variant.properties.expect("properties")["action"]
-                .enum_values
-                .as_ref()
-                .expect("action enum")[0]
-                .as_str()
-                .expect("action string")
-                .to_string()
-        })
+    tool
+}
+
+fn variants(tool: &ResponsesApiTool) -> &[JsonSchema] {
+    tool.parameters.any_of.as_deref().expect("control variants")
+}
+
+fn action_name(variant: &JsonSchema) -> &str {
+    variant.properties.as_ref().expect("properties")["action"]
+        .enum_values
+        .as_ref()
+        .expect("action enum")[0]
+        .as_str()
+        .expect("action string")
+}
+
+fn required_fields(variant: &JsonSchema) -> Vec<&str> {
+    variant
+        .required
+        .as_ref()
+        .expect("required fields")
+        .iter()
+        .map(String::as_str)
         .collect()
 }
 
-#[test]
-fn provider_tool_matches_the_active_l4_authority_artifact() {
-    let authority: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json"
-    ))
-    .expect("active L4 authority schema");
-    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
-        panic!("taskspace_control must be a function tool");
-    };
-    let actual = json!({
-        "type": "function",
-        "function": {
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": tool.parameters,
-        }
-    });
-
-    assert_eq!(actual, authority["provider_tool"]);
+fn variant<'a>(tool: &'a ResponsesApiTool, action: &str) -> &'a JsonSchema {
+    variants(tool)
+        .iter()
+        .find(|variant| action_name(variant) == action)
+        .unwrap_or_else(|| panic!("missing {action}"))
 }
 
 #[test]
-fn control_exposes_post_initialization_actions_once() {
-    let actions = action_names(create_taskspace_control_tool());
+fn control_exposes_exactly_five_top_level_actions() {
+    let tool = function_tool();
+    let actions = variants(&tool)
+        .iter()
+        .map(action_name)
+        .collect::<BTreeSet<_>>();
 
-    for action in [
+    assert_eq!(
+        actions,
+        BTreeSet::from([
+            "execute",
+            "finish_map",
+            "initialize_and_execute",
+            "read_map",
+            "read_output_ref",
+        ])
+    );
+}
+
+#[test]
+fn initialize_and_execute_keeps_roles_and_action_manifest_separate() {
+    let tool = function_tool();
+    let initialize = variant(&tool, "initialize_and_execute");
+    assert_eq!(
+        required_fields(initialize),
+        ["action", "root", "work_nodes", "finish", "edges", "actions"]
+    );
+    let properties = initialize.properties.as_ref().expect("properties");
+    assert_eq!(properties["work_nodes"].min_items, Some(1));
+    assert_eq!(properties["actions"].min_items, Some(1));
+    let action_item = properties["actions"].items.as_deref().expect("action item");
+    assert_eq!(required_fields(action_item), ["node_id", "tool"]);
+    assert_eq!(
+        action_item
+            .properties
+            .as_ref()
+            .expect("action properties")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["node_id", "tool"]
+    );
+}
+
+#[test]
+fn execute_exposes_all_nonterminal_mutations_and_requires_actions() {
+    let tool = function_tool();
+    let execute = variant(&tool, "execute");
+    assert_eq!(
+        required_fields(execute),
+        ["action", "expected_revision", "mutations", "actions"]
+    );
+    let properties = execute.properties.as_ref().expect("properties");
+    assert_eq!(properties["actions"].min_items, Some(1));
+    assert_eq!(properties["mutations"].min_items, None);
+
+    let mutation = properties["mutations"]
+        .items
+        .as_deref()
+        .expect("mutation item");
+    let mutation_actions = mutation
+        .any_of
+        .as_ref()
+        .expect("mutation variants")
+        .iter()
+        .map(action_name)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        mutation_actions,
+        BTreeSet::from([
+            "add_edges",
+            "add_work_nodes",
+            "block_node",
+            "complete_node",
+            "remove_edges",
+            "rework_node",
+            "unblock_node",
+        ])
+    );
+}
+
+#[test]
+fn finish_map_uses_the_explicit_finish_identity_contract() {
+    let tool = function_tool();
+    let finish = variant(&tool, "finish_map");
+    assert_eq!(
+        required_fields(finish),
+        [
+            "action",
+            "expected_revision",
+            "finish_node_id",
+            "exact_summary",
+        ]
+    );
+    let properties = finish.properties.as_ref().expect("properties");
+    assert!(!properties.contains_key("terminal_node_id"));
+    assert!(!properties.contains_key("final_summary"));
+}
+
+#[test]
+fn schema_wire_shape_matches_the_b1x_golden() {
+    let tool = function_tool();
+    let summary = variants(&tool)
+        .iter()
+        .map(|variant| {
+            json!({
+                "action": action_name(variant),
+                "required": variant.required,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        summary,
+        vec![
+            json!({"action":"initialize_and_execute","required":["action","root","work_nodes","finish","edges","actions"]}),
+            json!({"action":"execute","required":["action","expected_revision","mutations","actions"]}),
+            json!({"action":"read_map","required":["action"]}),
+            json!({"action":"read_output_ref","required":["action","output_ref","mode","max_bytes"]}),
+            json!({"action":"read_output_ref","required":["action","output_ref","mode","max_bytes"]}),
+            json!({"action":"read_output_ref","required":["action","output_ref","mode","start_line","end_line","max_bytes"]}),
+            json!({"action":"read_output_ref","required":["action","output_ref","mode","pattern","max_bytes"]}),
+            json!({"action":"finish_map","required":["action","expected_revision","finish_node_id","exact_summary"]}),
+        ]
+    );
+}
+
+#[test]
+fn schema_contains_no_superseded_carrier_or_lifecycle_actions() {
+    let serialized =
+        serde_json::to_string(&function_tool()).expect("serialize taskspace_control schema");
+    for removed in [
+        "taskspace_binding",
+        "initialize_map",
         "mutate_graph",
         "bind_node",
         "complete_then_continue",
-        "block_node",
-        "unblock_node",
-        "rework_node",
-        "finish_map",
         "expand_nodes",
-        "read_map",
-        "read_output_ref",
+        "terminal_node_id",
+        "final_summary",
     ] {
-        assert!(actions.contains(&action.to_string()), "missing {action}");
+        assert!(
+            !serialized.contains(removed),
+            "schema still contains {removed}"
+        );
     }
-    assert!(!actions.contains(&"initialize_map".to_string()));
-    assert!(!actions.contains(&"finish_end".to_string()));
-    assert!(!actions.contains(&"complete_then_end".to_string()));
-    assert!(!actions.contains(&"complete_active_work_then_end".to_string()));
-    assert!(!actions.contains(&"close_ready_finish".to_string()));
-    assert!(!actions.contains(&"complete_last_running_work_then_end".to_string()));
-    assert!(!actions.contains(&"close_finish_with_no_active_work".to_string()));
-}
-
-#[test]
-fn finish_map_exposes_one_branch_free_terminal_contract() {
-    let ToolSpec::Function(tool) = create_taskspace_control_tool() else {
-        panic!("taskspace_control must be a function tool");
-    };
-    let variants = tool.parameters.any_of.expect("control variants");
-    let closure = variants
-        .iter()
-        .find(|variant| {
-            variant.properties.as_ref().expect("properties")["action"]
-                .enum_values
-                .as_ref()
-                .expect("action enum")[0]
-                == json!("finish_map")
-        })
-        .expect("unified Map closure");
-
-    assert_eq!(
-        closure.required.as_ref().expect("required"),
-        &[
-            "action",
-            "expected_revision",
-            "terminal_node_id",
-            "final_summary",
-        ]
-    );
-    let properties = closure.properties.as_ref().expect("properties");
-    assert!(properties["terminal_node_id"].enum_values.is_none());
-    for removed in [
-        "terminal_state",
-        "incomplete_work_node_ids",
-        "finish_node_id",
-        "finish_status",
-    ] {
-        assert!(!properties.contains_key(removed), "unexpected {removed}");
+    for removed_action in ["active", "after_boundary"] {
+        assert!(
+            !serialized.contains(&format!("\"{removed_action}\"")),
+            "schema still exposes {removed_action}"
+        );
     }
-}
-
-#[test]
-fn initialization_binding_keeps_explicit_rooted_graph_contract() {
-    let initialize = initialize_map_schema();
-    assert_eq!(
-        initialize.required.as_ref().expect("required"),
-        &[
-            "action",
-            "root",
-            "initial_work",
-            "additional_work",
-            "finish_id",
-            "edges",
-        ]
-    );
-    let properties = initialize.properties.as_ref().expect("properties");
-    assert!(properties.contains_key("root"));
-    assert!(properties.contains_key("initial_work"));
-    assert!(properties.contains_key("additional_work"));
-    assert!(properties.contains_key("finish_id"));
-    assert!(properties.contains_key("edges"));
-    assert!(
-        properties["additional_work"]
-            .description
-            .as_deref()
-            .is_some_and(|description| description.contains("omit Root and Finish"))
-    );
-    assert!(
-        properties["edges"]
-            .description
-            .as_deref()
-            .is_some_and(|description| description.contains("Root"))
-    );
 }
