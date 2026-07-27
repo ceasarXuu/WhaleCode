@@ -5,11 +5,13 @@ use sha2::Digest;
 use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 
+use crate::action_map::ActionMapPreparedCall;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::provider_tool_declaration::provider_response_failure_fact;
 use crate::tools::router::ToolCall;
+use crate::tools::sequence_preflight::ToolSequencePlan;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 use crate::tools::taskspace_binding::is_initialization_binding;
 use crate::tools::taskspace_binding::taskspace_binding_kind;
@@ -174,8 +176,8 @@ pub(crate) async fn execute_response_tool_sequence(
     }
 
     let taskspace_active = runtime.taskspace_active().await;
-    let manifest = match validate_tool_sequence(&calls, taskspace_active) {
-        Ok(manifest) => manifest,
+    let (manifest, plan) = match validate_tool_sequence(&calls, taskspace_active) {
+        Ok((manifest, plan)) => (manifest, plan),
         Err(failure) => {
             let canonical_revision = runtime.taskspace_canonical_revision().await;
             tracing::warn!(
@@ -196,6 +198,39 @@ pub(crate) async fn execute_response_tool_sequence(
             });
         }
     };
+    if let ToolSequencePlan::TaskSpaceExecute {
+        control_index,
+        args,
+        declared_calls,
+    } = plan
+    {
+        let prepared = runtime
+            .prepare_taskspace_response(&calls[control_index].call_id, args, declared_calls)
+            .await
+            .map_err(codex_protocol::error::CodexErr::Fatal)?;
+        let control_output = ResponseInputItem::FunctionCallOutput {
+            call_id: calls[control_index].call_id.clone(),
+            output: codex_protocol::models::FunctionCallOutputPayload {
+                body: codex_protocol::models::FunctionCallOutputBody::Text(
+                    prepared.model_visible_result(),
+                ),
+                success: Some(true),
+            },
+        };
+        let sibling_calls = calls
+            .iter()
+            .enumerate()
+            .filter_map(|(index, call)| (index != control_index).then_some(call.clone()))
+            .collect::<Vec<_>>();
+        return execute_prepared_taskspace_siblings(
+            runtime,
+            sibling_calls,
+            prepared.prepared_calls,
+            control_output,
+            cancellation_token,
+        )
+        .await;
+    }
     tracing::info!(
         target: "codex_core::taskspace",
         declared_tool_count = manifest.entries.len(),
@@ -270,9 +305,11 @@ pub(crate) async fn execute_response_tool_sequence(
                     "tool_response_parallel_segment_started"
                 );
                 let futures = calls[start..end].iter().cloned().map(|call| {
-                    runtime
-                        .clone()
-                        .handle_tool_call_for_sequence(call, cancellation_token.child_token())
+                    runtime.clone().handle_tool_call_for_sequence(
+                        call,
+                        None,
+                        cancellation_token.child_token(),
+                    )
                 });
                 join_all(futures)
                     .await
@@ -292,7 +329,7 @@ pub(crate) async fn execute_response_tool_sequence(
                 vec![
                     runtime
                         .clone()
-                        .handle_tool_call_for_sequence(call, cancellation_token.child_token())
+                        .handle_tool_call_for_sequence(call, None, cancellation_token.child_token())
                         .await?,
                 ]
             }
@@ -461,6 +498,90 @@ fn tool_sequence_sha256(calls: &[ToolCall]) -> String {
         hasher.update([0xff]);
     }
     format!("{:x}", hasher.finalize())
+}
+
+async fn execute_prepared_taskspace_siblings(
+    runtime: ToolCallRuntime,
+    calls: Vec<ToolCall>,
+    prepared_calls: Vec<ActionMapPreparedCall>,
+    control_output: ResponseInputItem,
+    cancellation_token: CancellationToken,
+) -> Result<ToolSequenceOutcome> {
+    let prepared_by_call_id = prepared_calls
+        .into_iter()
+        .map(|prepared| (prepared.call_id.clone(), prepared))
+        .collect::<std::collections::HashMap<_, _>>();
+    let segments = sequence_segments(&calls);
+    let mut outputs = vec![control_output];
+    let mut supplemental_outputs = Vec::new();
+    let mut prior_failure: Option<String> = None;
+    let mut terminal_completion: Option<TaskSpaceTerminalCompletion> = None;
+
+    for segment in segments {
+        if let Some(prior_call_id) = prior_failure.as_deref() {
+            for call in calls_for_segment(&calls, &segment) {
+                append_pairing_and_supplemental(
+                    &mut outputs,
+                    &mut supplemental_outputs,
+                    ToolCallRuntime::skipped_responses(call, prior_call_id),
+                );
+            }
+            continue;
+        }
+
+        let segment_executions = match segment {
+            SequenceSegment::Parallel { start, end } => {
+                let futures = calls[start..end].iter().cloned().map(|call| {
+                    let prepared = prepared_by_call_id.get(&call.call_id).cloned();
+                    runtime.clone().handle_tool_call_for_sequence(
+                        call,
+                        prepared,
+                        cancellation_token.child_token(),
+                    )
+                });
+                join_all(futures)
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>>>()?
+            }
+            SequenceSegment::Barrier { index, .. } => {
+                let call = calls[index].clone();
+                let prepared = prepared_by_call_id.get(&call.call_id).cloned();
+                vec![
+                    runtime
+                        .clone()
+                        .handle_tool_call_for_sequence(
+                            call,
+                            prepared,
+                            cancellation_token.child_token(),
+                        )
+                        .await?,
+                ]
+            }
+        };
+
+        for execution in segment_executions {
+            if prior_failure.is_none()
+                && let Some(call_id) = execution_failure_call_id(&execution)
+            {
+                prior_failure = Some(call_id.to_string());
+            }
+            if let Some(carrier) = execution.taskspace_terminal_carrier.as_ref() {
+                terminal_completion = Some(TaskSpaceTerminalCompletion {
+                    call_id: response_input_call_id(&execution.response).to_string(),
+                    carrier: carrier.clone(),
+                });
+            }
+            outputs.push(execution.response);
+            supplemental_outputs.extend(execution.supplemental_responses);
+        }
+    }
+
+    outputs.extend(supplemental_outputs);
+    Ok(ToolSequenceOutcome {
+        outputs,
+        terminal_completion,
+    })
 }
 
 fn execution_failure_call_id(

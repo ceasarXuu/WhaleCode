@@ -10,6 +10,7 @@ use tracing::instrument;
 use tracing::trace_span;
 
 use crate::action_map::ActionClass;
+use crate::action_map::ActionMapPreparedCall;
 use crate::action_map::ToolActionDescriptor;
 use crate::function_tool::FunctionCallError;
 use crate::session::session::Session;
@@ -20,11 +21,13 @@ use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
 use crate::tools::context::response_input_model_visible_preview;
 use crate::tools::context::tool_output_model_visible_preview;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
+use crate::tools::sequence_preflight::TaskSpaceDeclaredCall;
 use crate::tools::taskspace_binding::validate_taskspace_binding;
 use crate::tools::taskspace_initialization::InitializationAction;
 use crate::tools::taskspace_initialization::prepare_initialization;
@@ -91,6 +94,17 @@ impl ToolCallRuntime {
         self.session.taskspace_active().await
     }
 
+    pub(crate) async fn prepare_taskspace_response(
+        &self,
+        control_call_id: &str,
+        args: TaskSpaceControlArgs,
+        declared_calls: Vec<TaskSpaceDeclaredCall>,
+    ) -> Result<crate::action_map::ActionMapPreparedResponse, String> {
+        self.session
+            .prepare_taskspace_response(&self.turn_context, control_call_id, args, declared_calls)
+            .await
+    }
+
     pub(crate) fn invalid_call_responses(
         call: &ToolCall,
         message: impl Into<String>,
@@ -107,6 +121,7 @@ impl ToolCallRuntime {
     pub(crate) fn handle_tool_call_for_sequence(
         self,
         call: ToolCall,
+        prepared_call: Option<ActionMapPreparedCall>,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
         async move {
@@ -161,7 +176,9 @@ impl ToolCallRuntime {
                     taskspace_terminal_carrier: None,
                 });
             }
-            if let Err(message) = validate_taskspace_binding(&self.session, &call).await {
+            if prepared_call.is_none()
+                && let Err(message) = validate_taskspace_binding(&self.session, &call).await
+            {
                 let error = FunctionCallError::RespondToModel(message);
                 let mut response = Self::failure_response_for_error(&call, &error);
                 wrap_initialization_response(&mut response, &initialization_action, false);
@@ -175,13 +192,21 @@ impl ToolCallRuntime {
                 });
             }
             let error_call = call.clone();
-            let future =
-                self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
+            let future = self.clone().handle_tool_call_with_source_and_bound(
+                call,
+                ToolCallSource::Direct,
+                prepared_call.is_some(),
+                cancellation_token,
+            );
             match future.await {
                 Ok(response) => {
                     let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
                     let succeeded = response.result.success_for_logging();
                     let mut response = response.into_response();
+                    if let Some(prepared) = prepared_call.as_ref() {
+                        self.record_taskspace_bound_tool_result(prepared, succeeded, &response)
+                            .await;
+                    }
                     wrap_initialization_response(&mut response, &initialization_action, true);
                     Ok(ToolCallExecution {
                         response,
@@ -197,6 +222,10 @@ impl ToolCallRuntime {
                             .into_iter()
                             .collect();
                     let mut response = Self::failure_response(error_call, other);
+                    if let Some(prepared) = prepared_call.as_ref() {
+                        self.record_taskspace_bound_tool_result(prepared, false, &response)
+                            .await;
+                    }
                     wrap_initialization_response(&mut response, &initialization_action, true);
                     Ok(ToolCallExecution {
                         response,
@@ -217,6 +246,16 @@ impl ToolCallRuntime {
         source: ToolCallSource,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<AnyToolResult, FunctionCallError>> {
+        self.handle_tool_call_with_source_and_bound(call, source, false, cancellation_token)
+    }
+
+    fn handle_tool_call_with_source_and_bound(
+        self,
+        call: ToolCall,
+        source: ToolCallSource,
+        taskspace_response_bound: bool,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = Result<AnyToolResult, FunctionCallError>> {
         let supports_parallel = self.router.tool_supports_parallel(&call);
         let router = Arc::clone(&self.router);
         let session = Arc::clone(&self.session);
@@ -226,7 +265,8 @@ impl ToolCallRuntime {
         let invocation_cancellation_token = cancellation_token.clone();
         let started = Instant::now();
         let display_name = call.tool_name.display();
-        let taskspace_attributed = Self::should_attribute_taskspace_tool(&call, &source);
+        let taskspace_attributed =
+            !taskspace_response_bound && Self::should_attribute_taskspace_tool(&call, &source);
         let taskspace_descriptor =
             taskspace_attributed.then(|| Self::classify_taskspace_tool_action(&call));
         let taskspace_tool_name = display_name.clone();
@@ -242,10 +282,6 @@ impl ToolCallRuntime {
 
         let handle: AbortOnDropHandle<Result<AnyToolResult, FunctionCallError>> =
             AbortOnDropHandle::new(tokio::spawn(async move {
-                if let Some(descriptor) = taskspace_descriptor.as_ref() {
-                    Self::prepare_taskspace_tool_call(&session, &turn, descriptor.clone()).await?;
-                }
-
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
@@ -509,31 +545,6 @@ impl ToolCallRuntime {
         }
     }
 
-    async fn prepare_taskspace_tool_call(
-        session: &Arc<Session>,
-        turn: &TurnContext,
-        descriptor: ToolActionDescriptor,
-    ) -> Result<(), FunctionCallError> {
-        if let Some(parent_thread_id) = taskspace_parent_thread_id(&turn.session_source) {
-            session
-                .services
-                .agent_control
-                .prepare_action_map_child_tool_call(
-                    parent_thread_id,
-                    session.conversation_id,
-                    descriptor,
-                )
-                .await
-                .map_err(FunctionCallError::RespondToModel)?;
-        } else if let Err(message) = session
-            .prepare_action_map_main_tool_call(turn, descriptor)
-            .await
-        {
-            return Err(FunctionCallError::RespondToModel(message));
-        }
-        Ok(())
-    }
-
     async fn record_taskspace_tool_result(
         session: &Arc<Session>,
         turn: &TurnContext,
@@ -571,6 +582,32 @@ impl ToolCallRuntime {
         }
     }
 
+    async fn record_taskspace_bound_tool_result(
+        &self,
+        prepared: &ActionMapPreparedCall,
+        success: bool,
+        response: &ResponseInputItem,
+    ) {
+        if let Err(error) = self
+            .session
+            .record_taskspace_bound_tool_result(
+                &self.turn_context,
+                prepared,
+                success,
+                result_ref_id(response),
+            )
+            .await
+        {
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                call_id = prepared.call_id,
+                node_id = prepared.node_id,
+                error,
+                "taskspace_bound_tool_result_record_failed"
+            );
+        }
+    }
+
     fn should_attribute_taskspace_tool(call: &ToolCall, source: &ToolCallSource) -> bool {
         if *source != ToolCallSource::Direct {
             return false;
@@ -605,6 +642,17 @@ impl ToolCallRuntime {
             .unwrap_or_else(|| classify_tool_payload(&tool_name, &call.payload));
         ToolActionDescriptor::new(tool_name, class, preview).with_call_id(call.call_id.clone())
     }
+}
+
+fn result_ref_id(response: &ResponseInputItem) -> String {
+    let call_id = match response {
+        ResponseInputItem::FunctionCallOutput { call_id, .. }
+        | ResponseInputItem::McpToolCallOutput { call_id, .. }
+        | ResponseInputItem::CustomToolCallOutput { call_id, .. }
+        | ResponseInputItem::ToolSearchOutput { call_id, .. } => call_id,
+        ResponseInputItem::Message { .. } => "unknown",
+    };
+    format!("tool-result://call/{call_id}")
 }
 
 fn taskspace_benchmark_action_class(call_id: &str) -> Option<ActionClass> {

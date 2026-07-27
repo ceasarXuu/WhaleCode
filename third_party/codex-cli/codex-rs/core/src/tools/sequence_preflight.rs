@@ -2,34 +2,47 @@ use codex_protocol::models::ResponseInputItem;
 
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::ToolPayload;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceActionArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_manifest::ToolSequenceManifest;
-use crate::tools::sequence_manifest::is_boundary_action;
-use crate::tools::taskspace_binding::ACTIVE_BINDING;
-use crate::tools::taskspace_binding::AFTER_BOUNDARY_BINDING;
-use crate::tools::taskspace_binding::INITIALIZE_MAP_BINDING;
+use crate::tools::sequence_manifest::is_taskspace_control;
 
 pub(crate) const REQUEST_MULTIPLE_PATCHES_CODE: &str =
     "request_multiple_apply_patch_calls_not_allowed";
-pub(crate) const TASKSPACE_BINDING_REQUIRED_CODE: &str = "taskspace_binding_required";
-pub(crate) const TASKSPACE_BINDING_INVALID_CODE: &str = "taskspace_binding_invalid";
-pub(crate) const TASKSPACE_BINDING_MODE_MISMATCH_CODE: &str = "taskspace_binding_mode_mismatch";
-pub(crate) const TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE: &str =
-    "taskspace_control_binding_forbidden";
+pub(crate) const TASKSPACE_CONTROL_REQUIRED_CODE: &str = "taskspace_control_required";
+pub(crate) const TASKSPACE_CONTROL_MULTIPLE_CODE: &str = "taskspace_control_multiple";
+pub(crate) const TASKSPACE_CONTROL_MUST_BE_FIRST_CODE: &str = "taskspace_control_must_be_first";
 pub(crate) const TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE: &str =
     "taskspace_control_arguments_invalid";
-pub(crate) const TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE: &str =
-    "taskspace_initialization_arguments_invalid";
-pub(crate) const TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE: &str =
-    "taskspace_initialization_must_be_carried";
-pub(crate) const TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE: &str = "taskspace_tool_shape_unsupported";
-pub(crate) const TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE: &str =
-    "taskspace_boundary_requires_after_boundary_action";
-pub(crate) const TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE: &str =
-    "taskspace_after_boundary_requires_boundary_control";
+pub(crate) const TASKSPACE_ACTION_COUNT_MISMATCH_CODE: &str = "taskspace_action_count_mismatch";
+pub(crate) const TASKSPACE_ACTION_TOOL_MISMATCH_CODE: &str = "taskspace_action_tool_mismatch";
+pub(crate) const TASKSPACE_CONTROL_ONLY_ACTION_HAS_SIBLINGS_CODE: &str =
+    "taskspace_control_only_action_has_siblings";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TaskSpaceDeclaredCall {
+    pub(crate) call_id: String,
+    pub(crate) call_index: usize,
+    pub(crate) node_id: String,
+    pub(crate) tool_name: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ToolSequencePlan {
+    Standard,
+    TaskSpaceControlOnly {
+        control_index: usize,
+        args: TaskSpaceControlArgs,
+    },
+    TaskSpaceExecute {
+        control_index: usize,
+        args: TaskSpaceControlArgs,
+        declared_calls: Vec<TaskSpaceDeclaredCall>,
+    },
+}
 
 #[derive(Debug)]
 pub(crate) struct ToolSequencePreflightFailure {
@@ -51,34 +64,12 @@ impl ToolSequencePreflightFailure {
             .map(|entry| {
                 serde_json::json!({
                     "tool": entry.tool_name,
-                    "control_action": entry.taskspace_control_action,
-                    "taskspace_binding": entry.taskspace_binding,
                     "payload_kind": entry.payload_kind,
                 })
             })
             .collect::<Vec<_>>();
-        let expected_sequence = match self.reason_code {
-            TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE => serde_json::json!({
-                "immediately_after_boundary": {
-                    "tool_kind": "ordinary_tool",
-                    "taskspace_binding": {
-                        "action": AFTER_BOUNDARY_BINDING,
-                    },
-                }
-            }),
-            TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE => serde_json::json!({
-                "immediately_before_after_boundary": {
-                    "tool": "taskspace_control",
-                    "action": [
-                        "bind_node",
-                        "complete_then_continue",
-                    ],
-                }
-            }),
-            _ => serde_json::Value::Null,
-        };
         let payload = serde_json::json!({
-            "schema_version": "ToolSequencePreflightResultV1",
+            "schema_version": "ToolSequencePreflightResultV2",
             "status": "protocol_failed",
             "success": false,
             "state_commit": false,
@@ -93,7 +84,6 @@ impl ToolSequencePreflightFailure {
                 "patch_call_count": self.request_patch_count,
                 "executed_tool_call_count": 0,
                 "actual_sequence": actual_sequence,
-                "expected_sequence": expected_sequence,
             },
         })
         .to_string();
@@ -101,155 +91,154 @@ impl ToolSequencePreflightFailure {
             .iter()
             .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
             .collect::<Vec<_>>();
-        let (mut pairing_outputs, supplemental_outputs): (Vec<_>, Vec<_>) = responses
+        let (mut pairing, supplemental): (Vec<_>, Vec<_>) = responses
             .into_iter()
             .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
-        pairing_outputs.extend(supplemental_outputs);
-        pairing_outputs
+        pairing.extend(supplemental);
+        pairing
     }
 }
 
 pub(crate) fn validate_tool_sequence(
     calls: &[ToolCall],
     taskspace_active: bool,
-) -> Result<ToolSequenceManifest, ToolSequencePreflightFailure> {
+) -> Result<(ToolSequenceManifest, ToolSequencePlan), ToolSequencePreflightFailure> {
     let manifest = ToolSequenceManifest::from_calls(calls);
     if manifest.request_patch_count > 1 {
-        return Err(ToolSequencePreflightFailure {
-            reason_code: REQUEST_MULTIPLE_PATCHES_CODE,
-            message: format!(
-                "provider response declares {} apply_patch calls; maximum is 1; no tool calls were executed",
+        return Err(failure(
+            REQUEST_MULTIPLE_PATCHES_CODE,
+            format!(
+                "provider response declares {} apply_patch calls; maximum is 1",
                 manifest.request_patch_count
             ),
-            request_patch_count: Some(manifest.request_patch_count),
-            declared_tool_count: Some(manifest.entries.len()),
-        });
+            &manifest,
+        ));
+    }
+    if !taskspace_active {
+        return Ok((manifest, ToolSequencePlan::Standard));
     }
 
-    for (call, entry) in calls.iter().zip(&manifest.entries) {
-        if !taskspace_active {
-            if call.taskspace_binding.is_some() {
-                return Err(failure(
-                    TASKSPACE_BINDING_MODE_MISMATCH_CODE,
-                    "taskspace_binding is not available in Standard mode",
-                    &manifest,
-                ));
-            }
-            continue;
-        }
-        if entry.unsupported_taskspace_payload {
+    let control_indices = calls
+        .iter()
+        .enumerate()
+        .filter_map(|(index, call)| is_taskspace_control(call).then_some(index))
+        .collect::<Vec<_>>();
+    let control_index = match control_indices.as_slice() {
+        [] => {
             return Err(failure(
-                TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE,
-                format!(
-                    "TaskSpace cannot sequence provider payload kind `{}`; no tool calls were executed",
-                    entry.payload_kind
-                ),
+                TASKSPACE_CONTROL_REQUIRED_CODE,
+                "TaskSpace response requires one taskspace_control manifest",
                 &manifest,
             ));
         }
-        if entry.is_taskspace_control {
-            if entry.taskspace_binding.is_some() {
-                return Err(failure(
-                    TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE,
-                    "taskspace_control cannot carry taskspace_binding",
-                    &manifest,
-                ));
-            }
-            let ToolPayload::Function { arguments } = &call.payload else {
-                return Err(failure(
-                    TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
-                    "taskspace_control must use function arguments",
-                    &manifest,
-                ));
-            };
-            match parse_taskspace_control_args(arguments) {
-                Ok(TaskSpaceControlArgs::InitializeMap { .. }) => {
-                    return Err(failure(
-                        TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE,
-                        "initialize_map must be carried by the first ordinary Tool's taskspace_binding",
-                        &manifest,
-                    ));
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    return Err(failure(
-                        TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
-                        control_argument_error_message(error),
-                        &manifest,
-                    ));
-                }
-            }
-            continue;
-        }
-        if entry.requires_taskspace_binding && entry.taskspace_binding.is_none() {
+        [index] => *index,
+        _ => {
             return Err(failure(
-                TASKSPACE_BINDING_REQUIRED_CODE,
-                "a TaskSpace ordinary Tool is missing required taskspace_binding",
+                TASKSPACE_CONTROL_MULTIPLE_CODE,
+                "TaskSpace response contains multiple taskspace_control manifests",
                 &manifest,
             ));
         }
-        if let Some(binding) = entry.taskspace_binding.as_deref()
-            && binding != ACTIVE_BINDING
-            && binding != AFTER_BOUNDARY_BINDING
-            && binding != INITIALIZE_MAP_BINDING
-        {
-            return Err(failure(
-                TASKSPACE_BINDING_INVALID_CODE,
-                "taskspace_binding must be active, after_boundary, or a valid initialize_map object",
-                &manifest,
-            ));
+    };
+    if control_index != 0 {
+        return Err(failure(
+            TASKSPACE_CONTROL_MUST_BE_FIRST_CODE,
+            "taskspace_control must be the first Tool call in a TaskSpace response",
+            &manifest,
+        ));
+    }
+    let ToolPayload::Function { arguments } = &calls[control_index].payload else {
+        return Err(failure(
+            TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
+            "taskspace_control must use function arguments",
+            &manifest,
+        ));
+    };
+    let args = parse_taskspace_control_args(arguments).map_err(|error| {
+        failure(
+            TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE,
+            control_argument_error_message(error),
+            &manifest,
+        )
+    })?;
+    let ordinary_calls = &calls[control_index + 1..];
+    match &args {
+        TaskSpaceControlArgs::InitializeAndExecute { actions, .. }
+        | TaskSpaceControlArgs::Execute { actions, .. } => {
+            let declared_calls = match_actions(actions, ordinary_calls, &manifest)?;
+            Ok((
+                manifest,
+                ToolSequencePlan::TaskSpaceExecute {
+                    control_index,
+                    args,
+                    declared_calls,
+                },
+            ))
         }
-        if entry.taskspace_binding.as_deref() == Some(INITIALIZE_MAP_BINDING) {
-            let Some(arguments) = call.taskspace_binding.as_deref() else {
-                unreachable!("manifest initialization binding requires raw arguments");
-            };
-            match parse_taskspace_control_args(arguments) {
-                Ok(TaskSpaceControlArgs::InitializeMap { .. }) => {}
-                Ok(_) => unreachable!("binding kind only classifies initialize_map"),
-                Err(error) => {
-                    return Err(failure(
-                        TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE,
-                        control_argument_error_message(error),
-                        &manifest,
-                    ));
-                }
+        TaskSpaceControlArgs::ReadMap
+        | TaskSpaceControlArgs::ReadOutputRef { .. }
+        | TaskSpaceControlArgs::FinishMap { .. } => {
+            if !ordinary_calls.is_empty() {
+                return Err(failure(
+                    TASKSPACE_CONTROL_ONLY_ACTION_HAS_SIBLINGS_CODE,
+                    format!(
+                        "{} must not include sibling ordinary Tool calls",
+                        args.action_name()
+                    ),
+                    &manifest,
+                ));
             }
+            Ok((
+                manifest,
+                ToolSequencePlan::TaskSpaceControlOnly {
+                    control_index,
+                    args,
+                },
+            ))
         }
     }
+}
 
-    if taskspace_active {
-        for (index, entry) in manifest.entries.iter().enumerate() {
-            if is_boundary_action(entry.taskspace_control_action.as_deref()) {
-                let paired = manifest.entries.get(index + 1).is_some_and(|next| {
-                    !next.is_taskspace_control
-                        && next.taskspace_binding.as_deref() == Some(AFTER_BOUNDARY_BINDING)
-                });
-                if !paired {
-                    return Err(failure(
-                        TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE,
-                        "a boundary taskspace_control must be immediately followed by an ordinary Tool with taskspace_binding {\"action\":\"after_boundary\"}",
-                        &manifest,
-                    ));
-                }
-            }
-            if entry.taskspace_binding.as_deref() == Some(AFTER_BOUNDARY_BINDING) {
-                let paired = index.checked_sub(1).and_then(|previous| {
-                    manifest
-                        .entries
-                        .get(previous)
-                        .map(|entry| is_boundary_action(entry.taskspace_control_action.as_deref()))
-                }) == Some(true);
-                if !paired {
-                    return Err(failure(
-                        TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE,
-                        "taskspace_binding {\"action\":\"after_boundary\"} must immediately follow a boundary taskspace_control",
-                        &manifest,
-                    ));
-                }
-            }
-        }
+fn match_actions(
+    actions: &[TaskSpaceActionArgs],
+    calls: &[ToolCall],
+    manifest: &ToolSequenceManifest,
+) -> Result<Vec<TaskSpaceDeclaredCall>, ToolSequencePreflightFailure> {
+    if actions.len() != calls.len() {
+        return Err(failure(
+            TASKSPACE_ACTION_COUNT_MISMATCH_CODE,
+            format!(
+                "TaskSpace manifest declares {} actions for {} sibling Tool calls",
+                actions.len(),
+                calls.len()
+            ),
+            manifest,
+        ));
     }
-    Ok(manifest)
+    actions
+        .iter()
+        .zip(calls)
+        .enumerate()
+        .map(|(offset, (action, call))| {
+            let actual = call.tool_name.display();
+            if action.tool != actual {
+                return Err(failure(
+                    TASKSPACE_ACTION_TOOL_MISMATCH_CODE,
+                    format!(
+                        "TaskSpace actions[{offset}].tool is `{}`, sibling Tool is `{actual}`",
+                        action.tool
+                    ),
+                    manifest,
+                ));
+            }
+            Ok(TaskSpaceDeclaredCall {
+                call_id: call.call_id.clone(),
+                call_index: offset,
+                node_id: action.node_id.clone(),
+                tool_name: actual,
+            })
+        })
+        .collect()
 }
 
 fn control_argument_error_message(error: FunctionCallError) -> String {

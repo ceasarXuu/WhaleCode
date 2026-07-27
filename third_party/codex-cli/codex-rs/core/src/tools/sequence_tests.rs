@@ -3,13 +3,12 @@ use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallExecution;
 use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE;
-use crate::tools::sequence_preflight::TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_ACTION_COUNT_MISMATCH_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_ACTION_TOOL_MISMATCH_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_CONTROL_MUST_BE_FIRST_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_CONTROL_ONLY_ACTION_HAS_SIBLINGS_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_CONTROL_REQUIRED_CODE;
+use crate::tools::sequence_preflight::ToolSequencePlan;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 use codex_protocol::models::ResponseItem;
 use codex_tools::ToolName;
@@ -29,25 +28,37 @@ fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> T
     }
 }
 
-fn bound_call(name: &str, call_id: &str, binding: &str) -> ToolCall {
-    let mut call = function_call(name, call_id);
-    call.taskspace_binding = Some(binding.into());
-    call
+fn execute_control(call_id: &str, actions: serde_json::Value) -> ToolCall {
+    function_call_with_arguments(
+        "taskspace_control",
+        call_id,
+        &serde_json::json!({
+            "action": "execute",
+            "expected_revision": 7,
+            "mutations": [],
+            "actions": actions,
+        })
+        .to_string(),
+    )
 }
 
-fn boundary_control(action: &str, call_id: &str) -> ToolCall {
-    let arguments = match action {
-        "bind_node" => r#"{"action":"bind_node","expected_revision":2,"node_id":"work"}"#,
-        "complete_then_continue" => {
-            r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"work","next_node_id":"verify"}"#
-        }
-        other => panic!("unsupported boundary action fixture: {other}"),
-    };
-    function_call_with_arguments("taskspace_control", call_id, arguments)
-}
-
-fn initialization_binding() -> &'static str {
-    r#"{"action":"initialize_map","root":{"id":"root","goal":"Start"},"initial_work":{"id":"work","goal":"Work"},"additional_work":[],"finish_id":"finish","edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}]}"#
+fn initialize_and_execute_control(call_id: &str, actions: serde_json::Value) -> ToolCall {
+    function_call_with_arguments(
+        "taskspace_control",
+        call_id,
+        &serde_json::json!({
+            "action": "initialize_and_execute",
+            "root": {"node_id": "root", "goal": "Start"},
+            "work_nodes": [{"node_id": "inspect", "goal": "Inspect"}],
+            "finish": {"node_id": "finish", "goal": "Finish"},
+            "edges": [
+                {"from": "root", "to": "inspect"},
+                {"from": "inspect", "to": "finish"}
+            ],
+            "actions": actions,
+        })
+        .to_string(),
+    )
 }
 
 #[test]
@@ -95,69 +106,126 @@ fn leaves_ordinary_only_response_as_one_parallel_segment() {
 }
 
 #[test]
-fn initialization_carrier_is_a_single_action_barrier() {
+fn taskspace_execute_plan_declares_sibling_native_calls_without_payload_decoration() {
     let calls = vec![
-        bound_call(
-            "exec_command",
-            "initialize-and-inspect",
-            initialization_binding(),
+        initialize_and_execute_control(
+            "control",
+            serde_json::json!([
+                {"node_id": "inspect", "tool": "read_file"},
+                {"node_id": "inspect", "tool": "exec_command"}
+            ]),
         ),
-        bound_call("read_file", "follow-up", "active"),
+        function_call_with_arguments("read_file", "read", r#"{"path":"README.md"}"#),
+        function_call_with_arguments("exec_command", "test", r#"{"cmd":"cargo test"}"#),
     ];
 
-    let manifest = validate_tool_sequence(&calls, true).expect("valid initialization carrier");
+    let (manifest, plan) = validate_tool_sequence(&calls, true).expect("valid TaskSpace execute");
+    assert_eq!(manifest.entries.len(), 3);
+    let ToolSequencePlan::TaskSpaceExecute {
+        control_index,
+        declared_calls,
+        ..
+    } = plan
+    else {
+        panic!("expected TaskSpaceExecute plan");
+    };
+    assert_eq!(control_index, 0);
+    assert_eq!(declared_calls.len(), 2);
+    assert_eq!(declared_calls[0].call_id, "read");
+    assert_eq!(declared_calls[0].call_index, 0);
+    assert_eq!(declared_calls[0].node_id, "inspect");
+    assert_eq!(declared_calls[0].tool_name, "read_file");
+    assert_eq!(calls[1].taskspace_binding, None);
+}
+
+#[test]
+fn taskspace_execute_requires_action_count_to_match_sibling_calls() {
+    let calls = vec![
+        execute_control(
+            "control",
+            serde_json::json!([{"node_id": "inspect", "tool": "read_file"}]),
+        ),
+        function_call("read_file", "read"),
+        function_call("exec_command", "test"),
+    ];
+
+    let failure = validate_tool_sequence(&calls, true).expect_err("count mismatch must fail");
+    assert_eq!(failure.reason_code, TASKSPACE_ACTION_COUNT_MISMATCH_CODE);
+    assert_eq!(failure.outputs(&calls, Some(7)).len(), calls.len());
+}
+
+#[test]
+fn taskspace_execute_requires_action_tool_to_match_sibling_call() {
+    let calls = vec![
+        execute_control(
+            "control",
+            serde_json::json!([{"node_id": "inspect", "tool": "exec_command"}]),
+        ),
+        function_call("read_file", "read"),
+    ];
+
+    let failure = validate_tool_sequence(&calls, true).expect_err("tool mismatch must fail");
+    assert_eq!(failure.reason_code, TASKSPACE_ACTION_TOOL_MISMATCH_CODE);
+}
+
+#[test]
+fn taskspace_control_only_plan_rejects_sibling_native_calls() {
+    let calls = vec![
+        function_call_with_arguments("taskspace_control", "read-map", r#"{"action":"read_map"}"#),
+        function_call("read_file", "read"),
+    ];
+
+    let failure = validate_tool_sequence(&calls, true).expect_err("control-only has sibling");
     assert_eq!(
-        manifest.entries[0].taskspace_binding.as_deref(),
-        Some("initialize_map")
-    );
-    assert_eq!(
-        sequence_segments(&calls),
-        vec![
-            SequenceSegment::Barrier {
-                index: 0,
-                kind: BarrierKind::TaskSpaceInitialization,
-            },
-            SequenceSegment::Parallel { start: 1, end: 2 },
-        ]
+        failure.reason_code,
+        TASKSPACE_CONTROL_ONLY_ACTION_HAS_SIBLINGS_CODE
     );
 }
 
 #[test]
-fn standalone_control_initialization_is_rejected_before_execution() {
+fn taskspace_control_only_plan_stays_with_control_handler() {
     let calls = vec![function_call_with_arguments(
         "taskspace_control",
-        "standalone-initialize",
-        initialization_binding(),
+        "read-map",
+        r#"{"action":"read_map"}"#,
     )];
 
-    let failure = validate_tool_sequence(&calls, true).expect_err("initialization must be carried");
-    assert_eq!(
-        failure.reason_code,
-        TASKSPACE_INITIALIZATION_MUST_BE_CARRIED_CODE
-    );
+    let (_, plan) = validate_tool_sequence(&calls, true).expect("valid control-only");
+    let ToolSequencePlan::TaskSpaceControlOnly {
+        control_index,
+        args,
+    } = plan
+    else {
+        panic!("expected control-only plan");
+    };
+    assert_eq!(control_index, 0);
+    assert_eq!(args.action_name(), "read_map");
 }
 
 #[test]
-fn malformed_initialization_carrier_is_rejected_before_execution() {
-    let calls = vec![bound_call(
-        "exec_command",
-        "invalid-initialize",
-        r#"{"action":"initialize_map","root":{}}"#,
-    )];
+fn taskspace_response_requires_control_manifest_first() {
+    let calls = vec![
+        function_call("read_file", "read"),
+        execute_control("control", serde_json::json!([])),
+    ];
 
-    let failure =
-        validate_tool_sequence(&calls, true).expect_err("invalid initialization must fail");
-    assert_eq!(
-        failure.reason_code,
-        TASKSPACE_INITIALIZATION_ARGUMENTS_INVALID_CODE
-    );
+    let failure = validate_tool_sequence(&calls, true).expect_err("control must be first");
+    assert_eq!(failure.reason_code, TASKSPACE_CONTROL_MUST_BE_FIRST_CODE);
+}
+
+#[test]
+fn taskspace_response_requires_control_manifest() {
+    let calls = vec![function_call("read_file", "read")];
+
+    let failure = validate_tool_sequence(&calls, true).expect_err("control is mandatory");
+    assert_eq!(failure.reason_code, TASKSPACE_CONTROL_REQUIRED_CODE);
 }
 
 #[test]
 fn tool_sequence_identity_is_stable_and_order_sensitive() {
     let first = vec![
-        bound_call("read_file", "read-1", "active"),
-        bound_call("exec_command", "test-1", "active"),
+        function_call("read_file", "read-1"),
+        function_call("exec_command", "test-1"),
     ];
     let reversed = vec![first[1].clone(), first[0].clone()];
 
@@ -265,7 +333,7 @@ fn tool_pairing_outputs_precede_supplemental_failure_facts() {
                 limit: None,
             },
         },
-        taskspace_binding: Some("active".into()),
+        taskspace_binding: None,
     };
 
     append_pairing_and_supplemental(
@@ -292,114 +360,6 @@ fn tool_pairing_outputs_precede_supplemental_failure_facts() {
         ResponseInputItem::FunctionCallOutput { .. }
     ));
     assert!(matches!(pairing[2], ResponseInputItem::Message { .. }));
-}
-
-#[test]
-fn invalid_taskspace_control_arguments_reject_the_complete_response() {
-    let calls = [
-        bound_call("exec_command", "inspect", "active"),
-        function_call_with_arguments("taskspace_control", "invalid-bootstrap", r#"{"action":7}"#),
-    ];
-
-    let failure = validate_tool_sequence(&calls, true)
-        .expect_err("mechanically invalid control must fail before execution");
-    assert_eq!(
-        failure.reason_code,
-        TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE
-    );
-    let outputs = failure.outputs(&calls, Some(7));
-    assert_eq!(outputs.len(), calls.len());
-    for output in outputs {
-        let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
-            panic!("expected function output");
-        };
-        let value: serde_json::Value =
-            serde_json::from_str(output.body.to_text().as_deref().expect("preflight payload"))
-                .expect("preflight json");
-        assert_eq!(value["request"]["executed_tool_call_count"], 0);
-        assert_eq!(value["state_commit"], false);
-        assert_eq!(value["canonical_revision"], 7);
-    }
-}
-
-#[test]
-fn taskspace_control_binding_is_rejected_by_response_preflight() {
-    let mut control =
-        function_call_with_arguments("taskspace_control", "read-map", r#"{"action":"read_map"}"#);
-    control.taskspace_binding = Some("active".into());
-    let calls = [bound_call("exec_command", "inspect", "active"), control];
-
-    let failure =
-        validate_tool_sequence(&calls, true).expect_err("control binding must fail preflight");
-    assert_eq!(
-        failure.reason_code,
-        TASKSPACE_CONTROL_BINDING_FORBIDDEN_CODE
-    );
-}
-
-#[test]
-fn unsupported_provider_payload_rejects_the_complete_response() {
-    let calls = vec![
-        bound_call("ordinary", "ordinary-call", "active"),
-        ToolCall {
-            tool_name: ToolName::plain("unknown_custom"),
-            call_id: "custom-call".into(),
-            payload: ToolPayload::Custom {
-                input: "raw".into(),
-            },
-            taskspace_binding: None,
-        },
-    ];
-
-    let failure = validate_tool_sequence(&calls, true).expect_err("custom payload must fail");
-    assert_eq!(failure.reason_code, TASKSPACE_TOOL_SHAPE_UNSUPPORTED_CODE);
-    let outputs = failure.outputs(&calls, Some(11));
-    assert_eq!(outputs.len(), 2);
-    for output in outputs {
-        assert!(!response_input_succeeded(&output));
-        let text = match output {
-            ResponseInputItem::FunctionCallOutput { output, .. }
-            | ResponseInputItem::CustomToolCallOutput { output, .. } => {
-                output.body.to_text().expect("preflight text")
-            }
-            other => panic!("expected function-compatible output, got {other:?}"),
-        };
-        assert!(text.contains("\"executed_tool_call_count\":0"));
-        assert!(text.contains("\"state_commit\":false"));
-    }
-}
-
-#[test]
-fn preflight_keeps_all_call_pairings_before_tool_search_failure_facts() {
-    let search = ToolCall {
-        tool_name: ToolName::plain("tool_search"),
-        call_id: "search-invalid".into(),
-        payload: ToolPayload::ToolSearch {
-            arguments: codex_protocol::models::SearchToolCallParams {
-                query: "tools".into(),
-                limit: None,
-            },
-        },
-        taskspace_binding: Some("active".into()),
-    };
-    let calls = vec![
-        search,
-        function_call_with_arguments("taskspace_control", "control-invalid", r#"{"action":7}"#),
-    ];
-
-    let outputs = validate_tool_sequence(&calls, true)
-        .expect_err("invalid control must reject the complete response")
-        .outputs(&calls, None);
-
-    assert!(matches!(
-        outputs[0],
-        ResponseInputItem::ToolSearchOutput { .. }
-    ));
-    assert!(matches!(
-        outputs[1],
-        ResponseInputItem::FunctionCallOutput { .. }
-    ));
-    assert!(matches!(outputs[2], ResponseInputItem::Message { .. }));
 }
 
 #[test]
@@ -435,117 +395,7 @@ fn one_patch_with_follow_up_tools_passes_standard_preflight() {
         function_call("apply_patch", "patch"),
         function_call("exec_command", "test"),
     ];
-    let manifest = validate_tool_sequence(&calls, false).expect("valid sequence");
+    let (manifest, plan) = validate_tool_sequence(&calls, false).expect("valid sequence");
     assert_eq!(manifest.request_patch_count, 1);
-}
-
-#[test]
-fn boundary_and_bound_action_stay_in_one_valid_response() {
-    let calls = vec![
-        boundary_control("complete_then_continue", "handoff"),
-        bound_call("apply_patch", "patch", "after_boundary"),
-        bound_call("exec_command", "test", "active"),
-        bound_call("read_file", "inspect", "active"),
-    ];
-
-    let manifest = validate_tool_sequence(&calls, true).expect("valid merged response");
-    assert_eq!(manifest.entries.len(), 4);
-    assert_eq!(manifest.request_patch_count, 1);
-    assert_eq!(
-        sequence_segments(&calls),
-        vec![
-            SequenceSegment::Barrier {
-                index: 0,
-                kind: BarrierKind::TaskSpaceControl,
-            },
-            SequenceSegment::Barrier {
-                index: 1,
-                kind: BarrierKind::ApplyPatch,
-            },
-            SequenceSegment::Parallel { start: 2, end: 4 },
-        ]
-    );
-}
-
-#[test]
-fn multiple_boundary_pairs_preserve_declared_sequence() {
-    let calls = vec![
-        boundary_control("bind_node", "bind"),
-        bound_call("read_file", "read", "after_boundary"),
-        boundary_control("complete_then_continue", "handoff"),
-        bound_call("exec_command", "test", "after_boundary"),
-    ];
-
-    validate_tool_sequence(&calls, true).expect("two valid boundary pairs");
-    assert_eq!(
-        sequence_segments(&calls),
-        vec![
-            SequenceSegment::Barrier {
-                index: 0,
-                kind: BarrierKind::TaskSpaceControl,
-            },
-            SequenceSegment::Parallel { start: 1, end: 2 },
-            SequenceSegment::Barrier {
-                index: 2,
-                kind: BarrierKind::TaskSpaceControl,
-            },
-            SequenceSegment::Parallel { start: 3, end: 4 },
-        ]
-    );
-}
-
-#[test]
-fn standalone_boundary_is_rejected_before_execution() {
-    let calls = vec![boundary_control("complete_then_continue", "handoff")];
-    let failure = validate_tool_sequence(&calls, true).expect_err("action pair is mandatory");
-    assert_eq!(failure.reason_code, TASKSPACE_BOUNDARY_REQUIRES_ACTION_CODE);
-    let output = failure.outputs(&calls, None).remove(0);
-    let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
-        panic!("expected function output");
-    };
-    let value: serde_json::Value =
-        serde_json::from_str(output.body.to_text().as_deref().expect("preflight payload"))
-            .expect("preflight json");
-    assert_eq!(
-        value["request"]["actual_sequence"][0],
-        serde_json::json!({
-            "tool": "taskspace_control",
-            "control_action": "complete_then_continue",
-            "taskspace_binding": null,
-            "payload_kind": "function",
-        })
-    );
-    assert_eq!(
-        value["request"]["expected_sequence"]["immediately_after_boundary"],
-        serde_json::json!({
-            "tool_kind": "ordinary_tool",
-            "taskspace_binding": {
-                "action": "after_boundary",
-            },
-        })
-    );
-}
-
-#[test]
-fn orphan_after_boundary_is_rejected_before_execution() {
-    let calls = vec![bound_call("exec_command", "test", "after_boundary")];
-    let failure = validate_tool_sequence(&calls, true).expect_err("boundary is mandatory");
-    assert_eq!(
-        failure.reason_code,
-        TASKSPACE_AFTER_BOUNDARY_REQUIRES_CONTROL_CODE
-    );
-}
-
-#[test]
-fn active_binding_preserves_parallel_segments() {
-    let calls = vec![
-        bound_call("read_file", "read-1", "active"),
-        bound_call("exec_command", "read-2", "active"),
-    ];
-
-    validate_tool_sequence(&calls, true).expect("active binding sequence");
-    assert_eq!(
-        sequence_segments(&calls),
-        vec![SequenceSegment::Parallel { start: 0, end: 2 }]
-    );
+    assert!(matches!(plan, ToolSequencePlan::Standard));
 }
