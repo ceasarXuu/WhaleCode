@@ -1,5 +1,3 @@
-use crate::action_map::ActionClass;
-use crate::action_map::ToolActionDescriptor;
 use crate::agent::AgentStatus;
 use crate::agent::registry::AgentMetadata;
 use crate::agent::registry::AgentRegistry;
@@ -655,98 +653,6 @@ impl AgentControl {
         result
     }
 
-    pub(crate) async fn record_action_map_child_result(
-        &self,
-        parent_thread_id: ThreadId,
-        child_thread_id: ThreadId,
-        status: &AgentStatus,
-    ) -> bool {
-        let Ok(state) = self.upgrade() else {
-            return false;
-        };
-        let Ok(parent_thread) = state.get_thread(parent_thread_id).await else {
-            return false;
-        };
-        parent_thread
-            .codex
-            .session
-            .record_action_map_child_result(child_thread_id, status)
-            .await
-            .is_some()
-    }
-
-    pub(crate) async fn prepare_action_map_child_tool_call(
-        &self,
-        parent_thread_id: ThreadId,
-        child_thread_id: ThreadId,
-        descriptor: ToolActionDescriptor,
-    ) -> Result<bool, String> {
-        let state = self
-            .upgrade()
-            .map_err(|_| "TaskSpace blocked this subagent tool call because the parent task runtime is unavailable.".to_string())?;
-        let parent_thread = state.get_thread(parent_thread_id).await.map_err(|_| {
-            "TaskSpace blocked this subagent tool call because the parent task runtime could not be found."
-                .to_string()
-        })?;
-        parent_thread
-            .codex
-            .session
-            .prepare_action_map_child_tool_call(child_thread_id, descriptor)
-            .await
-            .map(|_| true)
-    }
-
-    pub(crate) async fn prepare_action_map_child_spawn(
-        &self,
-        parent_thread_id: ThreadId,
-        child_thread_id: ThreadId,
-    ) -> Result<bool, String> {
-        let state = self.upgrade().map_err(|_| {
-            "TaskSpace blocked this subagent spawn because the parent task runtime is unavailable."
-                .to_string()
-        })?;
-        let parent_thread = state.get_thread(parent_thread_id).await.map_err(|_| {
-            "TaskSpace blocked this subagent spawn because the parent task runtime could not be found."
-                .to_string()
-        })?;
-        parent_thread
-            .codex
-            .session
-            .prepare_action_map_child_spawn(child_thread_id)
-            .await
-            .map(|_| true)
-    }
-
-    pub(crate) async fn record_action_map_child_tool_result(
-        &self,
-        parent_thread_id: ThreadId,
-        child_thread_id: ThreadId,
-        call_id: &str,
-        tool_name: &str,
-        action_class: Option<ActionClass>,
-        success: bool,
-        preview: String,
-    ) -> bool {
-        let Ok(state) = self.upgrade() else {
-            return false;
-        };
-        let Ok(parent_thread) = state.get_thread(parent_thread_id).await else {
-            return false;
-        };
-        parent_thread
-            .codex
-            .session
-            .record_action_map_child_tool_result(
-                child_thread_id,
-                call_id,
-                tool_name,
-                action_class,
-                success,
-                preview,
-            )
-            .await
-    }
-
     /// Interrupt the current task for an existing agent thread.
     pub(crate) async fn interrupt_agent(&self, agent_id: ThreadId) -> CodexResult<String> {
         let state = self.upgrade()?;
@@ -1076,13 +982,10 @@ impl AgentControl {
                         &status,
                     )
                     .await;
-                let _ = control
-                    .record_action_map_child_result(parent_thread_id, child_thread_id, &status)
-                    .await;
                 return;
             }
 
-            let notified = control
+            let _ = control
                 .notify_subagent_completion(
                     parent_thread_id,
                     child_thread_id,
@@ -1091,11 +994,6 @@ impl AgentControl {
                     &status,
                 )
                 .await;
-            if notified {
-                let _ = control
-                    .record_action_map_child_result(parent_thread_id, child_thread_id, &status)
-                    .await;
-            }
         });
     }
 

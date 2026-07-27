@@ -59,13 +59,6 @@ impl ToolHandler for Handler {
             Err(err) => {
                 let status = session.services.agent_control.get_status(agent_id).await;
                 session
-                    .release_action_map_assignment_for_thread(
-                        &turn,
-                        agent_id,
-                        "close_agent_status_unavailable",
-                    )
-                    .await;
-                session
                     .send_event(
                         &turn,
                         CollabCloseEndEvent {
@@ -89,14 +82,6 @@ impl ToolHandler for Handler {
             .await
             .map_err(|err| collab_agent_error(agent_id, err))
             .map(|_| ());
-        let release_reason = if result.is_ok() {
-            "close_agent"
-        } else {
-            "close_agent_failed"
-        };
-        session
-            .release_action_map_assignment_for_thread(&turn, agent_id, release_reason)
-            .await;
         session
             .send_event(
                 &turn,
