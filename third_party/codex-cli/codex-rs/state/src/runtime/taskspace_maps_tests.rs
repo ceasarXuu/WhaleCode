@@ -5,54 +5,55 @@ use crate::CreateTaskSpaceMapRequest;
 use crate::TaskSpaceMapRelation;
 use crate::TaskSpaceMapWriteOutcome;
 use codex_protocol::ThreadId;
-use codex_protocol::protocol::ActionMapSnapshot;
-use codex_protocol::protocol::ActionMapSnapshotMap;
-use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
-use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
-use codex_protocol::protocol::MapRuntimeMode;
+use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
+use codex_protocol::taskspace::TaskSpaceCanonicalMap;
+use codex_protocol::taskspace::TaskSpaceMapEdge;
+use codex_protocol::taskspace::TaskSpaceMapNode;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn blank_snapshot() -> ActionMapSnapshot {
-    ActionMapSnapshot {
-        schema_version: "action-map-snapshot-v2".to_string(),
-        mode: MapRuntimeMode::Experiment,
-        routing_required: false,
-        bootstrap_required: true,
-        reborn_requested: false,
-        map: None,
-        maintenance_barriers: Vec::new(),
-        trace_summary: ActionMapSnapshotTraceSummary::default(),
-        trace_events: Vec::new(),
-        sentinel_summary: ActionMapSnapshotSentinelSummary::default(),
-        sentinel_warnings: Vec::new(),
-    }
+fn blank_map() -> Option<TaskSpaceCanonicalMap> {
+    None
 }
 
-fn initialized_snapshot(map_id: &str, revision: u64) -> ActionMapSnapshot {
-    let mut snapshot = blank_snapshot();
-    snapshot.bootstrap_required = false;
-    snapshot.map = Some(ActionMapSnapshotMap {
-        id: map_id.to_string(),
-        task_id: Some("task-1".to_string()),
-        owner_session_id: Some(ThreadId::new()),
-        root_node_id: "root".to_string(),
-        finish_node_id: "finish".to_string(),
+fn initialized_map(map_id: &str, revision: u64) -> Option<TaskSpaceCanonicalMap> {
+    Some(TaskSpaceCanonicalMap {
+        schema_version: TASKSPACE_CANONICAL_SCHEMA_VERSION.to_string(),
+        map_id: map_id.to_string(),
+        root: TaskSpaceMapNode {
+            node_id: "root".to_string(),
+            goal: "deliver".to_string(),
+            source_refs: Vec::new(),
+        },
+        work_nodes: vec![TaskSpaceMapNode {
+            node_id: "work".to_string(),
+            goal: "implement".to_string(),
+            source_refs: Vec::new(),
+        }],
+        finish: TaskSpaceMapNode {
+            node_id: "finish".to_string(),
+            goal: "finish".to_string(),
+            source_refs: Vec::new(),
+        },
+        edges: vec![
+            TaskSpaceMapEdge {
+                from: "root".to_string(),
+                to: "work".to_string(),
+            },
+            TaskSpaceMapEdge {
+                from: "work".to_string(),
+                to: "finish".to_string(),
+            },
+        ],
+        completion_records: BTreeMap::new(),
+        block_records: BTreeMap::new(),
+        action_reservations: BTreeMap::new(),
+        result_refs: BTreeMap::new(),
+        evidence_refs: BTreeMap::new(),
+        terminal_record: None,
         revision,
-        current_node_id: Some("work".to_string()),
-        terminal_summary_ref: None,
-        complete: false,
-        ready_work_node_count: 0,
-        running_work_node_count: 1,
-        completed_work_node_count: 0,
-        finish_ready: false,
-        nodes: Vec::new(),
-        edges: Vec::new(),
-        leases: Vec::new(),
-        results: Vec::new(),
-        node_events: Vec::new(),
-    });
-    snapshot
+    })
 }
 
 fn temp_home() -> std::path::PathBuf {
@@ -77,7 +78,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            snapshot: blank_snapshot(),
+            canonical_map: blank_map(),
             commit_id: "create-1".to_string(),
             operation: "activate_taskspace".to_string(),
         })
@@ -87,7 +88,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
         panic!("map creation should apply");
     };
     assert_eq!(created.store_revision, 1);
-    assert_eq!(created.graph_revision, 0);
+    assert_eq!(created.map_revision, 0);
 
     runtime
         .bind_thread_to_taskspace_map(BindTaskSpaceMapRequest {
@@ -95,8 +96,6 @@ async fn create_load_bind_and_commit_taskspace_map() {
             map_id: map_id.clone(),
             relation: TaskSpaceMapRelation::Fork,
             parent_thread_id: Some(owner),
-            node_id: None,
-            lease_id: None,
         })
         .await
         .expect("bind fork");
@@ -112,7 +111,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
         .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
             map_id: loaded.map_id.clone(),
             expected_store_revision: loaded.store_revision,
-            snapshot: initialized_snapshot(&loaded.map_id, 3),
+            canonical_map: initialized_map(&loaded.map_id, 3),
             commit_id: "commit-1".to_string(),
             operation: "initialize_map".to_string(),
             actor_thread_id: fork,
@@ -124,7 +123,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
         panic!("map commit should apply");
     };
     assert_eq!(committed.store_revision, 2);
-    assert_eq!(committed.graph_revision, 3);
+    assert_eq!(committed.map_revision, 3);
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
@@ -136,7 +135,7 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
     let create = CreateTaskSpaceMapRequest {
         map_id: map_id.clone(),
         owner_thread_id: owner,
-        snapshot: blank_snapshot(),
+        canonical_map: blank_map(),
         commit_id: "create-idempotent".to_string(),
         operation: "activate_taskspace".to_string(),
     };
@@ -152,7 +151,7 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
     let commit = CommitTaskSpaceMapRequest {
         map_id: map_id.clone(),
         expected_store_revision: 1,
-        snapshot: initialized_snapshot(&map_id, 1),
+        canonical_map: initialized_map(&map_id, 1),
         commit_id: "commit-idempotent".to_string(),
         operation: "initialize_map".to_string(),
         actor_thread_id: owner,
@@ -173,7 +172,7 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
         .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
             map_id: map_id.clone(),
             expected_store_revision: 2,
-            snapshot: initialized_snapshot(&map_id, 2),
+            canonical_map: initialized_map(&map_id, 2),
             commit_id: "commit-after-replay".to_string(),
             operation: "advance_map".to_string(),
             actor_thread_id: owner,
@@ -202,8 +201,6 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
         map_id,
         relation: TaskSpaceMapRelation::Child,
         parent_thread_id: Some(owner),
-        node_id: Some("work".to_string()),
-        lease_id: Some("lease-1".to_string()),
     });
     let error = runtime
         .compare_and_swap_taskspace_map(reused)
@@ -222,7 +219,7 @@ async fn concurrent_taskspace_map_writers_have_one_winner() {
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            snapshot: blank_snapshot(),
+            canonical_map: blank_map(),
             commit_id: "create-concurrent".to_string(),
             operation: "activate_taskspace".to_string(),
         })
@@ -231,7 +228,7 @@ async fn concurrent_taskspace_map_writers_have_one_winner() {
     let request = |commit_id: &str, revision: u64| CommitTaskSpaceMapRequest {
         map_id: map_id.clone(),
         expected_store_revision: 1,
-        snapshot: initialized_snapshot(&map_id, revision),
+        canonical_map: initialized_map(&map_id, revision),
         commit_id: commit_id.to_string(),
         operation: "concurrent_test".to_string(),
         actor_thread_id: owner,
@@ -266,17 +263,17 @@ async fn concurrent_taskspace_map_writers_have_one_winner() {
 }
 
 #[tokio::test]
-async fn unchanged_snapshot_commit_still_applies_atomic_child_binding() {
+async fn unchanged_canonical_commit_still_applies_atomic_child_binding() {
     let (home, runtime) = runtime().await;
     let owner = ThreadId::new();
     let child = ThreadId::new();
     let map_id = format!("map-{owner}");
-    let snapshot = blank_snapshot();
+    let canonical_map = blank_map();
     runtime
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            snapshot: snapshot.clone(),
+            canonical_map: canonical_map.clone(),
             commit_id: "create-binding".to_string(),
             operation: "activate_taskspace".to_string(),
         })
@@ -286,7 +283,7 @@ async fn unchanged_snapshot_commit_still_applies_atomic_child_binding() {
         .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
             map_id: map_id.clone(),
             expected_store_revision: 1,
-            snapshot,
+            canonical_map,
             commit_id: "bind-child".to_string(),
             operation: "attach_child_binding".to_string(),
             actor_thread_id: owner,
@@ -295,8 +292,6 @@ async fn unchanged_snapshot_commit_still_applies_atomic_child_binding() {
                 map_id: map_id.clone(),
                 relation: TaskSpaceMapRelation::Child,
                 parent_thread_id: Some(owner),
-                node_id: Some("work".to_string()),
-                lease_id: Some("lease-1".to_string()),
             }),
         })
         .await
@@ -310,8 +305,7 @@ async fn unchanged_snapshot_commit_still_applies_atomic_child_binding() {
         .await
         .expect("load child")
         .expect("child binding");
-    assert_eq!(binding.node_id.as_deref(), Some("work"));
-    assert_eq!(binding.lease_id.as_deref(), Some("lease-1"));
+    assert_eq!(binding.parent_thread_id, Some(owner));
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
@@ -325,7 +319,7 @@ async fn failed_child_binding_rolls_back_map_and_binding_together() {
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            snapshot: blank_snapshot(),
+            canonical_map: blank_map(),
             commit_id: "create-rollback".to_string(),
             operation: "activate_taskspace".to_string(),
         })
@@ -336,7 +330,7 @@ async fn failed_child_binding_rolls_back_map_and_binding_together() {
         .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
             map_id: map_id.clone(),
             expected_store_revision: 1,
-            snapshot: initialized_snapshot(&map_id, 2),
+            canonical_map: initialized_map(&map_id, 2),
             commit_id: "commit-invalid-binding".to_string(),
             operation: "attach_child_binding".to_string(),
             actor_thread_id: owner,
@@ -345,8 +339,6 @@ async fn failed_child_binding_rolls_back_map_and_binding_together() {
                 map_id: "different-map".to_string(),
                 relation: TaskSpaceMapRelation::Child,
                 parent_thread_id: Some(owner),
-                node_id: Some("work".to_string()),
-                lease_id: Some("lease-1".to_string()),
             }),
         })
         .await
@@ -359,7 +351,7 @@ async fn failed_child_binding_rolls_back_map_and_binding_together() {
         .expect("load original map")
         .expect("original map exists");
     assert_eq!(record.store_revision, 1);
-    assert!(record.snapshot.map.is_none());
+    assert!(record.canonical_map.is_none());
     assert!(
         runtime
             .load_taskspace_map_for_thread(child)
@@ -371,7 +363,7 @@ async fn failed_child_binding_rolls_back_map_and_binding_together() {
 }
 
 #[tokio::test]
-async fn corrupted_snapshot_hash_is_rejected_on_load() {
+async fn corrupted_canonical_hash_is_rejected_on_load() {
     let (home, runtime) = runtime().await;
     let owner = ThreadId::new();
     let map_id = format!("map-{owner}");
@@ -379,13 +371,13 @@ async fn corrupted_snapshot_hash_is_rejected_on_load() {
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            snapshot: blank_snapshot(),
+            canonical_map: blank_map(),
             commit_id: "create-corruption".to_string(),
             operation: "activate_taskspace".to_string(),
         })
         .await
         .expect("create map");
-    sqlx::query("UPDATE taskspace_maps SET snapshot_sha256 = 'corrupt' WHERE map_id = ?")
+    sqlx::query("UPDATE taskspace_maps SET canonical_sha256 = 'corrupt' WHERE map_id = ?")
         .bind(&map_id)
         .execute(runtime.pool.as_ref())
         .await
@@ -394,8 +386,8 @@ async fn corrupted_snapshot_hash_is_rejected_on_load() {
     let error = runtime
         .load_taskspace_map(&map_id)
         .await
-        .expect_err("corrupt snapshot must not load");
-    assert!(error.to_string().contains("snapshot hash mismatch"));
+        .expect_err("corrupt canonical map must not load");
+    assert!(error.to_string().contains("canonical hash mismatch"));
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
@@ -408,7 +400,7 @@ async fn taskspace_map_survives_state_runtime_restart() {
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            snapshot: blank_snapshot(),
+            canonical_map: blank_map(),
             commit_id: "create-restart".to_string(),
             operation: "activate_taskspace".to_string(),
         })

@@ -2,8 +2,8 @@ use super::StateRuntime;
 use super::taskspace_map_codec::decode_binding_row;
 use super::taskspace_map_codec::decode_map_row;
 use super::taskspace_map_codec::from_i64;
-use super::taskspace_map_codec::graph_revision;
-use super::taskspace_map_codec::map_complete;
+use super::taskspace_map_codec::map_revision;
+use super::taskspace_map_codec::map_terminal;
 use super::taskspace_map_codec::request_sha256;
 use super::taskspace_map_codec::require_nonempty;
 use super::taskspace_map_codec::sha256;
@@ -17,6 +17,7 @@ use crate::TaskSpaceMapRecord;
 use crate::TaskSpaceMapRelation;
 use crate::TaskSpaceMapWriteOutcome;
 use codex_protocol::ThreadId;
+use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use sqlx::Row;
 use sqlx::Sqlite;
 use sqlx::Transaction;
@@ -26,21 +27,21 @@ impl StateRuntime {
         &self,
         request: CreateTaskSpaceMapRequest,
     ) -> anyhow::Result<TaskSpaceMapWriteOutcome> {
-        validate_map_identity(&request.map_id, &request.snapshot)?;
+        validate_map_identity(&request.map_id, request.canonical_map.as_ref())?;
         require_nonempty("commit_id", &request.commit_id)?;
         require_nonempty("operation", &request.operation)?;
-        let snapshot_json = serde_json::to_string(&request.snapshot)?;
-        let snapshot_sha256 = sha256(snapshot_json.as_bytes());
+        let canonical_json = serde_json::to_string(&request.canonical_map)?;
+        let canonical_sha256 = sha256(canonical_json.as_bytes());
         let request_sha256 = request_sha256(
             &request.map_id,
             0,
-            &snapshot_sha256,
+            &canonical_sha256,
             &request.operation,
             request.owner_thread_id,
             None,
         )?;
-        let graph_revision = graph_revision(&request.snapshot);
-        let complete = map_complete(&request.snapshot);
+        let map_revision = map_revision(request.canonical_map.as_ref());
+        let terminal = map_terminal(request.canonical_map.as_ref());
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
 
@@ -59,18 +60,19 @@ impl StateRuntime {
         let inserted = sqlx::query(
             r#"
 INSERT INTO taskspace_maps (
-    map_id, owner_thread_id, snapshot_json, snapshot_sha256,
-    store_revision, graph_revision, complete, created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+    map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
+    store_revision, map_revision, terminal, created_at_ms, updated_at_ms
+) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
 ON CONFLICT(map_id) DO NOTHING
             "#,
         )
         .bind(&request.map_id)
         .bind(request.owner_thread_id.to_string())
-        .bind(snapshot_json)
-        .bind(&snapshot_sha256)
-        .bind(to_i64(graph_revision, "graph_revision")?)
-        .bind(i64::from(complete))
+        .bind(TASKSPACE_CANONICAL_SCHEMA_VERSION)
+        .bind(canonical_json)
+        .bind(&canonical_sha256)
+        .bind(to_i64(map_revision, "map_revision")?)
+        .bind(i64::from(terminal))
         .bind(now)
         .bind(now)
         .execute(&mut *tx)
@@ -89,8 +91,6 @@ ON CONFLICT(map_id) DO NOTHING
                 map_id: request.map_id.clone(),
                 relation: TaskSpaceMapRelation::Owner,
                 parent_thread_id: None,
-                node_id: None,
-                lease_id: None,
             },
             now,
         )
@@ -101,7 +101,7 @@ ON CONFLICT(map_id) DO NOTHING
             &request.map_id,
             0,
             1,
-            &snapshot_sha256,
+            &canonical_sha256,
             &request_sha256,
             &request.operation,
             request.owner_thread_id,
@@ -121,8 +121,8 @@ ON CONFLICT(map_id) DO NOTHING
     ) -> anyhow::Result<Option<TaskSpaceMapRecord>> {
         let row = sqlx::query(
             r#"
-SELECT map_id, owner_thread_id, snapshot_json, snapshot_sha256,
-       store_revision, graph_revision, complete, created_at_ms, updated_at_ms
+SELECT map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
+       store_revision, map_revision, terminal, created_at_ms, updated_at_ms
 FROM taskspace_maps
 WHERE map_id = ?
             "#,
@@ -140,11 +140,11 @@ WHERE map_id = ?
         let row = sqlx::query(
             r#"
 SELECT
-    m.map_id, m.owner_thread_id, m.snapshot_json, m.snapshot_sha256,
-    m.store_revision, m.graph_revision, m.complete, m.created_at_ms, m.updated_at_ms,
+    m.map_id, m.owner_thread_id, m.canonical_schema_version, m.canonical_json,
+    m.canonical_sha256, m.store_revision, m.map_revision, m.terminal,
+    m.created_at_ms, m.updated_at_ms,
     b.thread_id AS binding_thread_id, b.relation, b.parent_thread_id,
-    b.node_id, b.lease_id, b.created_at_ms AS binding_created_at_ms,
-    b.updated_at_ms AS binding_updated_at_ms
+    b.created_at_ms AS binding_created_at_ms, b.updated_at_ms AS binding_updated_at_ms
 FROM taskspace_map_bindings b
 JOIN taskspace_maps m ON m.map_id = b.map_id
 WHERE b.thread_id = ?
@@ -182,21 +182,21 @@ WHERE b.thread_id = ?
         &self,
         request: CommitTaskSpaceMapRequest,
     ) -> anyhow::Result<TaskSpaceMapWriteOutcome> {
-        validate_map_identity(&request.map_id, &request.snapshot)?;
+        validate_map_identity(&request.map_id, request.canonical_map.as_ref())?;
         require_nonempty("commit_id", &request.commit_id)?;
         require_nonempty("operation", &request.operation)?;
-        let snapshot_json = serde_json::to_string(&request.snapshot)?;
-        let snapshot_sha256 = sha256(snapshot_json.as_bytes());
+        let canonical_json = serde_json::to_string(&request.canonical_map)?;
+        let canonical_sha256 = sha256(canonical_json.as_bytes());
         let request_sha256 = request_sha256(
             &request.map_id,
             request.expected_store_revision,
-            &snapshot_sha256,
+            &canonical_sha256,
             &request.operation,
             request.actor_thread_id,
             request.binding.as_ref(),
         )?;
-        let graph_revision = graph_revision(&request.snapshot);
-        let complete = map_complete(&request.snapshot);
+        let map_revision = map_revision(request.canonical_map.as_ref());
+        let terminal = map_terminal(request.canonical_map.as_ref());
         let next_revision = request
             .expected_store_revision
             .checked_add(1)
@@ -219,20 +219,22 @@ WHERE b.thread_id = ?
         let updated = sqlx::query(
             r#"
 UPDATE taskspace_maps
-SET snapshot_json = ?,
-    snapshot_sha256 = ?,
+SET canonical_schema_version = ?,
+    canonical_json = ?,
+    canonical_sha256 = ?,
     store_revision = ?,
-    graph_revision = ?,
-    complete = ?,
+    map_revision = ?,
+    terminal = ?,
     updated_at_ms = ?
 WHERE map_id = ? AND store_revision = ?
             "#,
         )
-        .bind(snapshot_json)
-        .bind(&snapshot_sha256)
+        .bind(TASKSPACE_CANONICAL_SCHEMA_VERSION)
+        .bind(canonical_json)
+        .bind(&canonical_sha256)
         .bind(to_i64(next_revision, "store_revision")?)
-        .bind(to_i64(graph_revision, "graph_revision")?)
-        .bind(i64::from(complete))
+        .bind(to_i64(map_revision, "map_revision")?)
+        .bind(i64::from(terminal))
         .bind(now)
         .bind(&request.map_id)
         .bind(to_i64(
@@ -260,7 +262,7 @@ WHERE map_id = ? AND store_revision = ?
             &request.map_id,
             request.expected_store_revision,
             next_revision,
-            &snapshot_sha256,
+            &canonical_sha256,
             &request_sha256,
             &request.operation,
             request.actor_thread_id,
@@ -283,14 +285,11 @@ async fn insert_binding(
     sqlx::query(
         r#"
 INSERT INTO taskspace_map_bindings (
-    thread_id, map_id, relation, parent_thread_id, node_id, lease_id,
-    created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    thread_id, map_id, relation, parent_thread_id, created_at_ms, updated_at_ms
+) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(thread_id) DO UPDATE SET
     relation = excluded.relation,
     parent_thread_id = excluded.parent_thread_id,
-    node_id = excluded.node_id,
-    lease_id = excluded.lease_id,
     updated_at_ms = excluded.updated_at_ms
 WHERE taskspace_map_bindings.map_id = excluded.map_id
         "#,
@@ -299,8 +298,6 @@ WHERE taskspace_map_bindings.map_id = excluded.map_id
     .bind(&request.map_id)
     .bind(request.relation.as_str())
     .bind(request.parent_thread_id.map(|id| id.to_string()))
-    .bind(request.node_id.as_deref())
-    .bind(request.lease_id.as_deref())
     .bind(now)
     .bind(now)
     .execute(&mut **tx)
@@ -330,7 +327,7 @@ async fn insert_commit(
     map_id: &str,
     expected_store_revision: u64,
     result_store_revision: u64,
-    snapshot_sha256: &str,
+    canonical_sha256: &str,
     request_sha256: &str,
     operation: &str,
     actor_thread_id: ThreadId,
@@ -340,7 +337,7 @@ async fn insert_commit(
         r#"
 INSERT INTO taskspace_map_commits (
     commit_id, map_id, expected_store_revision, result_store_revision,
-    snapshot_sha256, request_sha256, operation, actor_thread_id, created_at_ms
+    canonical_sha256, request_sha256, operation, actor_thread_id, created_at_ms
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
@@ -348,7 +345,7 @@ INSERT INTO taskspace_map_commits (
     .bind(map_id)
     .bind(to_i64(expected_store_revision, "expected_store_revision")?)
     .bind(to_i64(result_store_revision, "result_store_revision")?)
-    .bind(snapshot_sha256)
+    .bind(canonical_sha256)
     .bind(request_sha256)
     .bind(operation)
     .bind(actor_thread_id.to_string())
@@ -401,8 +398,8 @@ async fn load_map_in_tx(
 ) -> anyhow::Result<Option<TaskSpaceMapRecord>> {
     let row = sqlx::query(
         r#"
-SELECT map_id, owner_thread_id, snapshot_json, snapshot_sha256,
-       store_revision, graph_revision, complete, created_at_ms, updated_at_ms
+SELECT map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
+       store_revision, map_revision, terminal, created_at_ms, updated_at_ms
 FROM taskspace_maps
 WHERE map_id = ?
         "#,
@@ -420,8 +417,7 @@ async fn load_binding_in_tx(
     let row = sqlx::query(
         r#"
 SELECT thread_id AS binding_thread_id, map_id, relation, parent_thread_id,
-       node_id, lease_id, created_at_ms AS binding_created_at_ms,
-       updated_at_ms AS binding_updated_at_ms
+       created_at_ms AS binding_created_at_ms, updated_at_ms AS binding_updated_at_ms
 FROM taskspace_map_bindings
 WHERE thread_id = ?
         "#,

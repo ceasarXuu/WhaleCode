@@ -1,15 +1,15 @@
 use codex_protocol::ThreadId;
-use codex_protocol::protocol::ActionMapSnapshot;
+use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskSpaceMapRecord {
     pub map_id: String,
     pub owner_thread_id: ThreadId,
-    pub snapshot: ActionMapSnapshot,
-    pub snapshot_sha256: String,
+    pub canonical_map: Option<TaskSpaceCanonicalMap>,
+    pub canonical_sha256: String,
     pub store_revision: u64,
-    pub graph_revision: u64,
-    pub complete: bool,
+    pub map_revision: u64,
+    pub terminal: bool,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -49,8 +49,6 @@ pub struct TaskSpaceMapBindingRecord {
     pub map_id: String,
     pub relation: TaskSpaceMapRelation,
     pub parent_thread_id: Option<ThreadId>,
-    pub node_id: Option<String>,
-    pub lease_id: Option<String>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -59,7 +57,7 @@ pub struct TaskSpaceMapBindingRecord {
 pub struct CreateTaskSpaceMapRequest {
     pub map_id: String,
     pub owner_thread_id: ThreadId,
-    pub snapshot: ActionMapSnapshot,
+    pub canonical_map: Option<TaskSpaceCanonicalMap>,
     pub commit_id: String,
     pub operation: String,
 }
@@ -70,15 +68,13 @@ pub struct BindTaskSpaceMapRequest {
     pub map_id: String,
     pub relation: TaskSpaceMapRelation,
     pub parent_thread_id: Option<ThreadId>,
-    pub node_id: Option<String>,
-    pub lease_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitTaskSpaceMapRequest {
     pub map_id: String,
     pub expected_store_revision: u64,
-    pub snapshot: ActionMapSnapshot,
+    pub canonical_map: Option<TaskSpaceCanonicalMap>,
     pub commit_id: String,
     pub operation: String,
     pub actor_thread_id: ThreadId,
