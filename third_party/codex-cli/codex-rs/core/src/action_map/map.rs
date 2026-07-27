@@ -21,6 +21,7 @@ use super::rooted_dag::node_role;
 pub(crate) type ActionMapId = String;
 pub(crate) type MapNodeId = String;
 pub(crate) type NodeEventId = String;
+pub(crate) type NodeResultId = String;
 pub(crate) type TaskId = String;
 pub(crate) type TaskSpaceTraceEventId = String;
 
