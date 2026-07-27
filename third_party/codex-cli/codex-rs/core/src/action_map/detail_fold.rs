@@ -4,8 +4,8 @@ use std::collections::VecDeque;
 
 use super::map::ActionMapInstance;
 use super::map::MapNodeId;
-use super::map::NodeStatus;
-use super::rooted_dag::NodeRole;
+use super::map::NodeRole;
+use super::map::NodeState;
 
 pub(super) const MINIMUM_FRONTIER_DISTANCE: usize = 3;
 pub(super) const NODE_DETAIL_EXPANDED_EVENT_KIND: &str = "node_detail_expanded";
@@ -35,27 +35,21 @@ impl NodeDetailPlan {
     }
 }
 
-pub(super) fn node_detail_plan(
-    map: &ActionMapInstance,
-    current_node_id: Option<&str>,
-) -> NodeDetailPlan {
-    let active_frontier = active_frontier(map, current_node_id);
+pub(super) fn node_detail_plan(map: &ActionMapInstance) -> NodeDetailPlan {
+    let active_frontier = active_frontier(map);
     let distances = graph_distances(map, &active_frontier);
-    let graph_roots = graph_roots(map);
     let states = map
-        .nodes
-        .iter()
-        .map(|(node_id, node)| {
-            let expansion_event_id = node.node_events.iter().find_map(|event_ref| {
-                (event_ref.kind == NODE_DETAIL_EXPANDED_EVENT_KIND).then(|| event_ref.id.clone())
+        .all_nodes()
+        .map(|(role, node)| {
+            let node_id = &node.node_id;
+            let expansion_event_id = map.node_events.values().find_map(|event| {
+                (event.node_id == *node_id && event.event_kind == NODE_DETAIL_EXPANDED_EVENT_KIND)
+                    .then(|| event.id.clone())
             });
             let state = if let Some(expansion_event_id) = expansion_event_id {
                 NodeDetailState::Expanded { expansion_event_id }
-            } else if node.status == NodeStatus::Completed
-                && !graph_roots.contains(node_id)
-                && current_node_id != Some(node_id.as_str())
-                && node.active_lease.is_none()
-                && !map.leases.values().any(|lease| lease.node_id == *node_id)
+            } else if role != NodeRole::TaskRoot
+                && map.node_state(node_id) == Some(NodeState::Completed)
                 && distances
                     .get(node_id)
                     .is_some_and(|distance| *distance >= MINIMUM_FRONTIER_DISTANCE)
@@ -72,21 +66,19 @@ pub(super) fn node_detail_plan(
     NodeDetailPlan { states }
 }
 
-fn active_frontier(map: &ActionMapInstance, current_node_id: Option<&str>) -> HashSet<MapNodeId> {
-    let mut frontier = map
-        .nodes
-        .iter()
-        .filter(|(_, node)| node.role == NodeRole::Work && node.status != NodeStatus::Completed)
-        .map(|(node_id, _)| node_id.clone())
+fn active_frontier(map: &ActionMapInstance) -> HashSet<MapNodeId> {
+    let frontier = map
+        .all_nodes()
+        .filter(|(role, node)| {
+            *role == NodeRole::Work && map.node_state(&node.node_id) != Some(NodeState::Completed)
+        })
+        .map(|(_, node)| node.node_id.clone())
         .collect::<HashSet<_>>();
-    if let Some(current_node_id) = current_node_id.filter(|id| map.nodes.contains_key(*id)) {
-        frontier.insert(current_node_id.to_string());
+    if frontier.is_empty() {
+        HashSet::from([map.finish.node_id.clone()])
+    } else {
+        frontier
     }
-    frontier
-}
-
-fn graph_roots(map: &ActionMapInstance) -> HashSet<MapNodeId> {
-    HashSet::from([map.root_node_id.clone()])
 }
 
 fn graph_distances(
@@ -109,7 +101,7 @@ fn graph_distances(
                 None
             }
         }) {
-            if map.nodes.contains_key(adjacent) && !distances.contains_key(adjacent) {
+            if map.node(adjacent).is_some() && !distances.contains_key(adjacent) {
                 distances.insert(adjacent.to_string(), next_distance);
                 queue.push_back(adjacent.to_string());
             }
@@ -124,60 +116,82 @@ mod tests {
     use crate::action_map::map::MapEdge;
     use crate::action_map::map::MapNode;
     use crate::action_map::map::NodeEvent;
-    use crate::action_map::map::NodeEventRef;
+    use crate::action_map::rooted_dag::ActionReservation;
+    use crate::action_map::rooted_dag::CompletionRecord;
     use crate::action_map::rooted_dag::TaskSpaceMap;
     use codex_protocol::ThreadId;
+    use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
     use std::collections::BTreeMap;
 
-    fn chain(statuses: &[NodeStatus]) -> ActionMapInstance {
-        let mut nodes = BTreeMap::new();
-        nodes.insert("node-0".into(), MapNode::task_root("Goal", Vec::new()));
-        for (index, status) in statuses.iter().enumerate().skip(1) {
-            let id = format!("node-{index}");
-            let mut node = MapNode::work("Goal");
-            node.status = *status;
-            nodes.insert(id, node);
-        }
-        nodes.insert("finish".into(), MapNode::finish());
-        let mut edges = (1..statuses.len())
+    fn chain(work_count: usize) -> TaskSpaceMap {
+        let work_nodes = (1..=work_count)
+            .map(|index| MapNode {
+                node_id: format!("node-{index}"),
+                goal: format!("Goal {index}"),
+                source_refs: vec![],
+            })
+            .collect::<Vec<_>>();
+        let mut edges = (1..=work_count)
             .map(|index| MapEdge {
-                from: format!("node-{}", index - 1),
+                from: if index == 1 {
+                    "root".into()
+                } else {
+                    format!("node-{}", index - 1)
+                },
                 to: format!("node-{index}"),
             })
             .collect::<Vec<_>>();
         edges.push(MapEdge {
-            from: format!("node-{}", statuses.len() - 1),
+            from: format!("node-{work_count}"),
             to: "finish".into(),
         });
-        ActionMapInstance::from_graph(
-            TaskSpaceMap {
-                id: "map-1".into(),
-                root_node_id: "node-0".into(),
-                finish_node_id: "finish".into(),
-                nodes,
-                edges,
-                revision: 1,
-                current_binding: None,
-                terminal_summary_ref: None,
+        TaskSpaceMap {
+            schema_version: TASKSPACE_CANONICAL_SCHEMA_VERSION.into(),
+            map_id: "map-1".into(),
+            root: MapNode {
+                node_id: "root".into(),
+                goal: "Goal".into(),
+                source_refs: vec![],
             },
-            Vec::new(),
-            None,
-        )
+            work_nodes,
+            finish: MapNode {
+                node_id: "finish".into(),
+                goal: "Finish".into(),
+                source_refs: vec![],
+            },
+            edges,
+            completion_records: BTreeMap::new(),
+            block_records: BTreeMap::new(),
+            action_reservations: BTreeMap::new(),
+            result_refs: BTreeMap::new(),
+            evidence_refs: BTreeMap::new(),
+            terminal_record: None,
+            revision: 1,
+        }
+    }
+
+    fn complete(map: &mut TaskSpaceMap, node_id: &str) {
+        map.completion_records.insert(
+            node_id.into(),
+            CompletionRecord {
+                action_id: format!("complete-{node_id}"),
+                result_ref_ids: vec![],
+                evidence_ref_ids: vec![],
+            },
+        );
     }
 
     #[test]
     fn folds_only_completed_non_root_nodes_at_distance_three_or_more() {
-        let map = chain(&[
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Ready,
-        ]);
+        let mut map = chain(4);
+        complete(&mut map, "node-1");
+        complete(&mut map, "node-2");
+        complete(&mut map, "node-3");
+        let map = ActionMapInstance::from_graph(map, vec![], None);
 
-        let plan = node_detail_plan(&map, Some("node-4"));
+        let plan = node_detail_plan(&map);
 
-        assert_eq!(plan.state("node-0"), Some(&NodeDetailState::Full));
+        assert_eq!(plan.state("root"), Some(&NodeDetailState::Full));
         assert_eq!(
             plan.state("node-1"),
             Some(&NodeDetailState::FoldEligible {
@@ -190,46 +204,58 @@ mod tests {
     }
 
     #[test]
-    fn uses_minimum_distance_across_all_active_frontiers() {
-        let map = chain(&[
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Ready,
-            NodeStatus::Completed,
-            NodeStatus::Blocked,
-        ]);
+    fn uses_distance_from_the_derived_inflight_frontier() {
+        let mut map = chain(3);
+        complete(&mut map, "node-1");
+        complete(&mut map, "node-2");
+        map.action_reservations.insert(
+            "reservation-3".into(),
+            ActionReservation {
+                action_id: "action-3".into(),
+                node_id: "node-3".into(),
+                tool_name: "exec_command".into(),
+                response_call_index: 1,
+            },
+        );
+        let map = ActionMapInstance::from_graph(map, vec![], None);
 
-        let plan = node_detail_plan(&map, Some("node-5"));
+        let plan = node_detail_plan(&map);
 
         assert_eq!(plan.state("node-1"), Some(&NodeDetailState::Full));
     }
 
     #[test]
-    fn does_not_fold_disconnected_or_root_nodes() {
-        let mut map = chain(&[NodeStatus::Completed, NodeStatus::Ready]);
-        map.edges.clear();
+    fn uses_finish_as_frontier_after_all_work_completes() {
+        let mut map = chain(4);
+        for node_id in ["node-1", "node-2", "node-3", "node-4"] {
+            complete(&mut map, node_id);
+        }
+        let map = ActionMapInstance::from_graph(map, vec![], None);
 
-        let plan = node_detail_plan(&map, Some("node-1"));
+        let plan = node_detail_plan(&map);
 
-        assert_eq!(plan.eligible_node_count(), 0);
+        assert_eq!(
+            plan.state("node-1"),
+            Some(&NodeDetailState::FoldEligible {
+                frontier_distance: 4
+            })
+        );
+        assert_eq!(plan.state("root"), Some(&NodeDetailState::Full));
     }
 
     #[test]
-    fn expansion_event_permanently_overrides_fold_eligibility() {
-        let mut map = chain(&[
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Completed,
-            NodeStatus::Ready,
-        ]);
+    fn expansion_evidence_overrides_fold_eligibility() {
+        let mut map = chain(4);
+        complete(&mut map, "node-1");
+        complete(&mut map, "node-2");
+        complete(&mut map, "node-3");
+        let mut map = ActionMapInstance::from_graph(map, vec![], None);
         let event_id = "node-event-1".to_string();
         map.node_events.insert(
             event_id.clone(),
             NodeEvent {
                 id: event_id.clone(),
-                map_id: map.id.clone(),
+                map_id: map.map_id.clone(),
                 node_id: "node-1".into(),
                 event_kind: NODE_DETAIL_EXPANDED_EVENT_KIND.into(),
                 source: "agent_taskspace_control".into(),
@@ -238,22 +264,14 @@ mod tests {
                 content_sha256: "hash".into(),
                 source_event_id: Some("task-event-1".into()),
                 raw_ref: None,
-                artifact_refs: Vec::new(),
+                artifact_refs: vec![],
                 call_id: Some("call-1".into()),
                 source_thread_id: ThreadId::new(),
                 created_at_ms: 1,
             },
         );
-        map.nodes
-            .get_mut("node-1")
-            .expect("expanded node")
-            .node_events
-            .push(NodeEventRef {
-                id: event_id.clone(),
-                kind: NODE_DETAIL_EXPANDED_EVENT_KIND.into(),
-            });
 
-        let plan = node_detail_plan(&map, Some("node-4"));
+        let plan = node_detail_plan(&map);
 
         assert_eq!(
             plan.state("node-1"),

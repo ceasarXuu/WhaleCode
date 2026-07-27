@@ -1835,17 +1835,17 @@ pub struct ActionMapSnapshotMap {
     pub root_node_id: String,
     pub finish_node_id: String,
     pub revision: u64,
-    pub current_node_id: Option<String>,
     pub terminal_summary_ref: Option<String>,
     pub complete: bool,
     pub ready_work_node_count: usize,
-    pub running_work_node_count: usize,
+    pub inflight_work_node_count: usize,
     pub completed_work_node_count: usize,
     pub finish_ready: bool,
     pub nodes: Vec<ActionMapSnapshotNode>,
     pub edges: Vec<ActionMapSnapshotEdge>,
-    pub leases: Vec<ActionMapSnapshotLease>,
+    pub reservations: Vec<ActionMapSnapshotReservation>,
     pub results: Vec<ActionMapSnapshotResult>,
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
     #[serde(default)]
     pub node_events: Vec<ActionMapSnapshotNodeEvent>,
 }
@@ -1857,10 +1857,10 @@ pub struct ActionMapSnapshotNode {
     pub id: String,
     pub role: String,
     pub goal: String,
-    pub status: String,
+    pub state: String,
     pub source_refs: Vec<String>,
-    pub active_lease: Option<String>,
     pub result_ids: Vec<String>,
+    pub evidence_ref_ids: Vec<String>,
     #[serde(default)]
     pub node_event_ids: Vec<String>,
 }
@@ -1876,14 +1876,12 @@ pub struct ActionMapSnapshotEdge {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotLease {
+pub struct ActionMapSnapshotReservation {
     pub id: String,
-    pub map_id: String,
+    pub action_id: String,
     pub node_id: String,
-    pub holder: String,
-    pub previous_node_status: String,
-    pub agent_thread_id: Option<ThreadId>,
-    pub agent_path: Option<String>,
+    pub tool_name: String,
+    pub response_call_index: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1891,18 +1889,21 @@ pub struct ActionMapSnapshotLease {
 #[ts(rename_all = "camelCase")]
 pub struct ActionMapSnapshotResult {
     pub id: String,
-    pub assignment_id: String,
-    pub map_id: String,
     pub node_id: String,
+    pub action_id: String,
+    pub reservation_id: String,
+    pub is_error: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotEvidenceRef {
+    pub id: String,
+    pub node_id: String,
+    pub action_id: String,
+    pub reservation_id: String,
     pub kind: String,
-    #[serde(default)]
-    pub action_class: Option<String>,
-    #[serde(default)]
-    pub tool_success: Option<bool>,
-    pub source_event_ref: String,
-    pub artifact_refs: Vec<String>,
-    pub source_thread_id: ThreadId,
-    pub created_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -5762,36 +5763,74 @@ mod tests {
     }
 
     #[test]
-    fn action_map_snapshot_result_serializes_audit_join_keys_and_tool_success() -> Result<()> {
+    fn action_map_snapshot_result_serializes_canonical_attribution_facts() -> Result<()> {
         let result = ActionMapSnapshotResult {
             id: "result-1".to_string(),
-            assignment_id: "lease-1".to_string(),
-            map_id: "map-1".to_string(),
             node_id: "node-1".to_string(),
-            kind: "main_tool_call".to_string(),
-            action_class: Some("test".to_string()),
-            tool_success: Some(true),
-            source_event_ref: "thread:child-1/call:test-1".to_string(),
-            artifact_refs: vec!["tests/test_runtime.py".to_string()],
-            source_thread_id: ThreadId::new(),
-            created_at_ms: 1234,
+            action_id: "action-1".to_string(),
+            reservation_id: "reservation-1".to_string(),
+            is_error: false,
         };
 
         let value = serde_json::to_value(&result)?;
 
         assert_eq!(value["id"], "result-1");
-        assert_eq!(value["assignmentId"], "lease-1");
-        assert_eq!(value["mapId"], "map-1");
         assert_eq!(value["nodeId"], "node-1");
-        assert_eq!(value["kind"], "main_tool_call");
-        assert_eq!(value["actionClass"], "test");
-        assert_eq!(value["toolSuccess"], true);
-        assert_eq!(value["sourceEventRef"], "thread:child-1/call:test-1");
-        assert_eq!(value["artifactRefs"][0], "tests/test_runtime.py");
-        assert!(value.get("body").is_none());
-        assert!(value.get("tool_success").is_none());
-        assert!(value.get("map_id").is_none());
-        assert!(value.get("node_id").is_none());
+        assert_eq!(value["actionId"], "action-1");
+        assert_eq!(value["reservationId"], "reservation-1");
+        assert_eq!(value["isError"], false);
+        for forbidden in [
+            "assignmentId",
+            "leaseId",
+            "mapId",
+            "toolSuccess",
+            "previousNodeStatus",
+        ] {
+            assert!(
+                value.get(forbidden).is_none(),
+                "{forbidden} leaked into {value}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_node_and_reservation_are_derived_fact_views() -> Result<()> {
+        let node = ActionMapSnapshotNode {
+            id: "work-1".to_string(),
+            role: "work".to_string(),
+            goal: "inspect".to_string(),
+            state: "in_flight".to_string(),
+            source_refs: vec!["user-turn-1".to_string()],
+            result_ids: vec!["result-1".to_string()],
+            evidence_ref_ids: vec!["evidence-1".to_string()],
+            node_event_ids: vec!["event-1".to_string()],
+        };
+        let reservation = ActionMapSnapshotReservation {
+            id: "reservation-1".to_string(),
+            action_id: "action-1".to_string(),
+            node_id: "work-1".to_string(),
+            tool_name: "exec_command".to_string(),
+            response_call_index: 2,
+        };
+
+        let node_value = serde_json::to_value(node)?;
+        let reservation_value = serde_json::to_value(reservation)?;
+
+        assert_eq!(node_value["state"], "in_flight");
+        assert_eq!(reservation_value["responseCallIndex"], 2);
+        for forbidden in [
+            "currentNodeId",
+            "status",
+            "activeLease",
+            "holder",
+            "previousNodeStatus",
+        ] {
+            assert!(
+                node_value.get(forbidden).is_none() && reservation_value.get(forbidden).is_none(),
+                "{forbidden} leaked into the derived snapshot view"
+            );
+        }
         Ok(())
     }
 
