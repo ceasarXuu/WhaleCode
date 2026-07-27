@@ -5,8 +5,9 @@ pub(crate) struct ActionMapStoreHandle {
     pub(crate) map_id: String,
     pub(crate) owner_thread_id: ThreadId,
     pub(crate) store_revision: u64,
-    pub(crate) graph_revision: u64,
-    pub(crate) snapshot_sha256: String,
+    pub(crate) map_revision: u64,
+    pub(crate) canonical_sha256: String,
+    pub(crate) terminal: bool,
 }
 
 impl From<&codex_state::TaskSpaceMapRecord> for ActionMapStoreHandle {
@@ -15,8 +16,9 @@ impl From<&codex_state::TaskSpaceMapRecord> for ActionMapStoreHandle {
             map_id: record.map_id.clone(),
             owner_thread_id: record.owner_thread_id,
             store_revision: record.store_revision,
-            graph_revision: record.graph_revision,
-            snapshot_sha256: record.snapshot_sha256.clone(),
+            map_revision: record.map_revision,
+            canonical_sha256: record.canonical_sha256.clone(),
+            terminal: record.terminal,
         }
     }
 }

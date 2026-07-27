@@ -1,3 +1,4 @@
+use super::taskspace_store::canonical_map_for_store;
 use super::taskspace_store::hydrate_action_map_store;
 use crate::action_map::ActionMapRuntimeState;
 use codex_protocol::AgentPath;
@@ -40,7 +41,7 @@ async fn resume_fork_and_child_hydrate_the_same_canonical_map() {
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            snapshot: runtime.snapshot(),
+            canonical_map: canonical_map_for_store(&runtime),
             commit_id: "create-hydration-map".to_string(),
             operation: "activate_taskspace".to_string(),
         })
@@ -63,7 +64,10 @@ async fn resume_fork_and_child_hydrate_the_same_canonical_map() {
     .expect("hydrate resumed Map")
     .expect("resumed Map handle");
     assert_eq!(resumed.handle.map_id, map_id);
-    assert_eq!(resumed.runtime.snapshot(), runtime.snapshot());
+    assert_eq!(
+        canonical_map_for_store(&resumed.runtime),
+        canonical_map_for_store(&runtime)
+    );
 
     let child = ThreadId::new();
     let child_hydrated = hydrate_action_map_store(
@@ -212,7 +216,7 @@ async fn standard_child_does_not_inherit_taskspace_binding() {
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: activation.active_map_id.expect("mechanical Map identity"),
             owner_thread_id: owner,
-            snapshot: runtime.snapshot(),
+            canonical_map: canonical_map_for_store(&runtime),
             commit_id: "create-standard-parent-map".to_string(),
             operation: "activate_taskspace".to_string(),
         })

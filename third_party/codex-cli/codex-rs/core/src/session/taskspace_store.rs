@@ -3,20 +3,29 @@ use crate::StateDbHandle;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::ActionMapStoreHandle;
 use crate::action_map::SetTaskSpaceModeOutcome;
-use crate::action_map::snapshot_sha256;
 use codex_protocol::ThreadId;
+use codex_protocol::protocol::ActionMapSnapshot;
+use codex_protocol::protocol::ActionMapSnapshotEdge;
+use codex_protocol::protocol::ActionMapSnapshotEvidenceRef;
+use codex_protocol::protocol::ActionMapSnapshotMap;
+use codex_protocol::protocol::ActionMapSnapshotNode;
+use codex_protocol::protocol::ActionMapSnapshotResult;
+use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
+use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeStoreCommittedEvent;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 use codex_state::BindTaskSpaceMapRequest;
 use codex_state::CommitTaskSpaceMapRequest;
 use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::TaskSpaceMapRecord;
 use codex_state::TaskSpaceMapRelation;
 use codex_state::TaskSpaceMapWriteOutcome;
+use sha2::Digest;
 use uuid::Uuid;
 
 pub(super) struct HydratedActionMapStore {
@@ -61,8 +70,6 @@ pub(super) async fn hydrate_action_map_store(
                 map_id: parent_map.map_id.clone(),
                 relation,
                 parent_thread_id: Some(parent_thread_id),
-                node_id: None,
-                lease_id: None,
             })
             .await?;
         tracing::info!(
@@ -74,7 +81,7 @@ pub(super) async fn hydrate_action_map_store(
             parent_thread_id = %parent_thread_id,
             relation = relation.as_str(),
             store_revision = parent_map.store_revision,
-            graph_revision = parent_map.graph_revision,
+            map_revision = parent_map.map_revision,
             "bound thread to canonical TaskSpace Map"
         );
         loaded = state_db.load_taskspace_map_for_thread(thread_id).await?;
@@ -105,8 +112,8 @@ pub(super) async fn hydrate_action_map_store(
         owner_thread_id = %record.owner_thread_id,
         relation = binding.relation.as_str(),
         store_revision = record.store_revision,
-        graph_revision = record.graph_revision,
-        complete = record.complete,
+        map_revision = record.map_revision,
+        terminal = record.terminal,
         "loaded canonical TaskSpace Map"
     );
     Ok(Some(HydratedActionMapStore {
@@ -134,14 +141,168 @@ pub(super) fn runtime_from_record(
     record: &TaskSpaceMapRecord,
 ) -> anyhow::Result<ActionMapRuntimeState> {
     let mut runtime = ActionMapRuntimeState::default();
-    runtime
-        .restore_store_snapshot(
-            &record.map_id,
-            record.owner_thread_id,
-            record.snapshot.clone(),
-        )
-        .map_err(anyhow::Error::msg)?;
+    if let Some(canonical_map) = record.canonical_map.clone() {
+        let snapshot = canonical_map_to_store_snapshot(canonical_map, record.owner_thread_id);
+        runtime
+            .restore_store_snapshot(&record.map_id, record.owner_thread_id, snapshot)
+            .map_err(anyhow::Error::msg)?;
+    }
     Ok(runtime)
+}
+
+pub(super) fn canonical_map_for_store(
+    runtime: &ActionMapRuntimeState,
+) -> Option<TaskSpaceCanonicalMap> {
+    runtime.active_map().map(|map| (**map).clone())
+}
+
+pub(super) fn canonical_map_sha256(
+    canonical_map: &Option<TaskSpaceCanonicalMap>,
+) -> Result<String, serde_json::Error> {
+    let bytes = serde_json::to_vec(canonical_map)?;
+    Ok(format!("{:x}", sha2::Sha256::digest(bytes)))
+}
+
+fn canonical_map_to_store_snapshot(
+    canonical_map: TaskSpaceCanonicalMap,
+    owner_thread_id: ThreadId,
+) -> ActionMapSnapshot {
+    let map_id = canonical_map.map_id.clone();
+    let root_node_id = canonical_map.root.node_id.clone();
+    let finish_node_id = canonical_map.finish.node_id.clone();
+    let terminal_summary_ref = canonical_map
+        .terminal_record
+        .as_ref()
+        .map(|record| record.summary_ref.clone());
+    let complete = canonical_map.terminal_record.is_some();
+    let nodes = std::iter::once(canonical_map.root.clone())
+        .chain(canonical_map.work_nodes.clone())
+        .chain(std::iter::once(canonical_map.finish.clone()))
+        .map(|node| ActionMapSnapshotNode {
+            id: node.node_id.clone(),
+            role: canonical_node_role(&canonical_map, &node.node_id).to_string(),
+            goal: node.goal,
+            state: canonical_node_state(&canonical_map, &node.node_id).to_string(),
+            source_refs: node.source_refs,
+            result_ids: canonical_map
+                .result_refs
+                .iter()
+                .filter(|(_, result)| result.node_id == node.node_id)
+                .map(|(id, _)| id.clone())
+                .collect(),
+            evidence_ref_ids: canonical_map
+                .evidence_refs
+                .iter()
+                .filter(|(_, evidence)| evidence.node_id == node.node_id)
+                .map(|(id, _)| id.clone())
+                .collect(),
+            node_event_ids: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    ActionMapSnapshot {
+        schema_version: "taskspace-snapshot-v1".to_string(),
+        mode: MapRuntimeMode::Experiment,
+        routing_required: false,
+        bootstrap_required: false,
+        reborn_requested: false,
+        map: Some(ActionMapSnapshotMap {
+            id: map_id.clone(),
+            task_id: Some(map_id),
+            owner_session_id: Some(owner_thread_id),
+            root_node_id,
+            finish_node_id: finish_node_id.clone(),
+            revision: canonical_map.revision,
+            terminal_summary_ref,
+            complete,
+            ready_work_node_count: nodes
+                .iter()
+                .filter(|node| node.role == "work" && node.state == "ready")
+                .count(),
+            inflight_work_node_count: nodes
+                .iter()
+                .filter(|node| node.role == "work" && node.state == "in_flight")
+                .count(),
+            completed_work_node_count: nodes
+                .iter()
+                .filter(|node| node.role == "work" && node.state == "completed")
+                .count(),
+            finish_ready: nodes
+                .iter()
+                .any(|node| node.id == finish_node_id && node.state == "ready"),
+            nodes,
+            edges: canonical_map
+                .edges
+                .into_iter()
+                .map(|edge| ActionMapSnapshotEdge {
+                    from: edge.from,
+                    to: edge.to,
+                })
+                .collect(),
+            reservations: Vec::new(),
+            results: canonical_map
+                .result_refs
+                .into_iter()
+                .map(|(id, result)| ActionMapSnapshotResult {
+                    id,
+                    node_id: result.node_id,
+                    action_id: result.action_id,
+                    reservation_id: result.reservation_id,
+                    is_error: result.is_error,
+                })
+                .collect(),
+            evidence_refs: canonical_map
+                .evidence_refs
+                .into_iter()
+                .map(|(id, evidence)| ActionMapSnapshotEvidenceRef {
+                    id,
+                    node_id: evidence.node_id,
+                    action_id: evidence.action_id,
+                    reservation_id: evidence.reservation_id,
+                    kind: evidence.kind,
+                })
+                .collect(),
+            node_events: Vec::new(),
+        }),
+        maintenance_barriers: Vec::new(),
+        trace_summary: ActionMapSnapshotTraceSummary::default(),
+        trace_events: Vec::new(),
+        sentinel_summary: ActionMapSnapshotSentinelSummary::default(),
+        sentinel_warnings: Vec::new(),
+    }
+}
+
+fn canonical_node_role(map: &TaskSpaceCanonicalMap, node_id: &str) -> &'static str {
+    if node_id == map.root.node_id {
+        "root"
+    } else if node_id == map.finish.node_id {
+        "finish"
+    } else {
+        "work"
+    }
+}
+
+fn canonical_node_state(map: &TaskSpaceCanonicalMap, node_id: &str) -> &'static str {
+    if map.completion_records.contains_key(node_id) {
+        "completed"
+    } else if map.block_records.contains_key(node_id) {
+        "blocked"
+    } else if map
+        .action_reservations
+        .values()
+        .any(|reservation| reservation.node_id == node_id)
+    {
+        "in_flight"
+    } else if node_id == map.root.node_id
+        || map
+            .edges
+            .iter()
+            .filter(|edge| edge.to == node_id)
+            .all(|edge| map.completion_records.contains_key(&edge.from))
+    {
+        "ready"
+    } else {
+        "waiting"
+    }
 }
 
 impl Session {
@@ -179,7 +340,7 @@ impl Session {
             .create_taskspace_map(CreateTaskSpaceMapRequest {
                 map_id: map_id.clone(),
                 owner_thread_id: self.conversation_id,
-                snapshot: candidate.snapshot(),
+                canonical_map: canonical_map_for_store(&candidate),
                 commit_id: Uuid::new_v4().to_string(),
                 operation: "activate_taskspace".to_string(),
             })
@@ -204,10 +365,10 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                graph_revision: record.graph_revision,
+                graph_revision: record.map_revision,
                 operation: "activate_taskspace".to_string(),
                 actor_thread_id: self.conversation_id,
-                snapshot_sha256: record.snapshot_sha256.clone(),
+                snapshot_sha256: record.canonical_sha256.clone(),
             },
         ));
         tracing::info!(
@@ -217,7 +378,7 @@ impl Session {
             actor_thread_id = %self.conversation_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
-            graph_revision = record.graph_revision,
+            map_revision = record.map_revision,
             operation = "activate_taskspace",
             "created canonical TaskSpace Map"
         );
@@ -258,15 +419,15 @@ impl Session {
             }
         }
 
-        let (candidate, handle, result, mut events, before_sha256, after_snapshot) = {
+        let (candidate, handle, result, mut events, before_canonical_map) = {
             let state = self.state.lock().await;
             let handle = state.action_map_store_handle.clone().ok_or_else(|| {
                 "TaskSpace operation requires a canonical Map Store handle.".to_string()
             })?;
-            let before_snapshot = state.action_map_runtime.snapshot();
-            let before_sha256 = snapshot_sha256(&before_snapshot)
+            let before_canonical_map = canonical_map_for_store(&state.action_map_runtime);
+            let before_canonical_sha256 = canonical_map_sha256(&before_canonical_map)
                 .map_err(|error| format!("TaskSpace cache hash failed: {error}"))?;
-            if before_sha256 != handle.snapshot_sha256 {
+            if before_canonical_sha256 != handle.canonical_sha256 {
                 return Err(format!(
                     "TaskSpace Runtime cache is stale for `{}`: handle hash mismatch.",
                     handle.map_id
@@ -274,19 +435,10 @@ impl Session {
             }
             let mut candidate = state.action_map_runtime.clone();
             let (result, events) = mutate(&mut candidate, handle.owner_thread_id);
-            let after_snapshot = candidate.snapshot();
-            (
-                candidate,
-                handle,
-                result,
-                events,
-                before_sha256,
-                after_snapshot,
-            )
+            (candidate, handle, result, events, before_canonical_map)
         };
-        let after_sha256 = snapshot_sha256(&after_snapshot)
-            .map_err(|error| format!("TaskSpace candidate hash failed: {error}"))?;
-        if after_sha256 == before_sha256 && binding.is_none() {
+        let after_canonical_map = canonical_map_for_store(&candidate);
+        if after_canonical_map == before_canonical_map && binding.is_none() {
             let mut state = self.state.lock().await;
             state.action_map_runtime = candidate;
             return Ok((result, events));
@@ -298,7 +450,7 @@ impl Session {
             .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
                 map_id: handle.map_id.clone(),
                 expected_store_revision: handle.store_revision,
-                snapshot: after_snapshot,
+                canonical_map: after_canonical_map,
                 commit_id: commit_id.clone(),
                 operation: operation.to_string(),
                 actor_thread_id: self.conversation_id,
@@ -359,10 +511,10 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                graph_revision: record.graph_revision,
+                graph_revision: record.map_revision,
                 operation: operation.to_string(),
                 actor_thread_id: self.conversation_id,
-                snapshot_sha256: record.snapshot_sha256.clone(),
+                snapshot_sha256: record.canonical_sha256.clone(),
             },
         ));
         tracing::info!(
@@ -372,7 +524,7 @@ impl Session {
             actor_thread_id = %self.conversation_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
-            graph_revision = record.graph_revision,
+            map_revision = record.map_revision,
             operation,
             commit_id,
             "committed canonical TaskSpace Map"
@@ -391,9 +543,10 @@ impl Session {
         record: &TaskSpaceMapRecord,
         candidate: ActionMapRuntimeState,
     ) -> Result<(), String> {
-        let candidate_sha256 = snapshot_sha256(&candidate.snapshot())
+        let candidate_map = canonical_map_for_store(&candidate);
+        let candidate_sha256 = canonical_map_sha256(&candidate_map)
             .map_err(|error| format!("TaskSpace candidate hash failed: {error}"))?;
-        if candidate_sha256 != record.snapshot_sha256 {
+        if candidate_sha256 != record.canonical_sha256 {
             return Err("TaskSpace Store record does not match Runtime candidate.".to_string());
         }
         let mut state = self.state.lock().await;

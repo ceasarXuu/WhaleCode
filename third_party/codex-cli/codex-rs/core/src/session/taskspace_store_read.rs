@@ -1,7 +1,8 @@
 use super::Session;
+use super::taskspace_store::canonical_map_for_store;
+use super::taskspace_store::canonical_map_sha256;
 use super::taskspace_store::runtime_from_record;
 use crate::action_map::ActionMapRuntimeState;
-use crate::action_map::snapshot_sha256;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::MapRuntimeMode;
 
@@ -52,7 +53,8 @@ impl Session {
         }
         let cache_is_current = {
             let state = self.state.lock().await;
-            let cache_sha256 = snapshot_sha256(&state.action_map_runtime.snapshot())
+            let cache_map = canonical_map_for_store(&state.action_map_runtime);
+            let cache_sha256 = canonical_map_sha256(&cache_map)
                 .map_err(|error| format!("TaskSpace cache hash failed: {error}"))?;
             state
                 .action_map_store_handle
@@ -60,8 +62,8 @@ impl Session {
                 .is_some_and(|current| {
                     current.map_id == record.map_id
                         && current.store_revision == record.store_revision
-                        && current.snapshot_sha256 == record.snapshot_sha256
-                        && cache_sha256 == record.snapshot_sha256
+                        && current.canonical_sha256 == record.canonical_sha256
+                        && cache_sha256 == record.canonical_sha256
                 })
         };
         if !cache_is_current {
@@ -76,9 +78,9 @@ impl Session {
             owner_thread_id = %record.owner_thread_id,
             relation = binding.relation.as_str(),
             store_revision = record.store_revision,
-            graph_revision = record.graph_revision,
+            map_revision = record.map_revision,
             cache_refreshed = !cache_is_current,
-            snapshot_sha256 = record.snapshot_sha256,
+            canonical_sha256 = record.canonical_sha256,
             operation,
             "read canonical TaskSpace Map"
         );
