@@ -5,30 +5,45 @@ mod transactions;
 mod transitions;
 
 pub(crate) use events::EventBatch;
+#[cfg(test)]
 pub(crate) use events::MapFact;
+#[cfg(test)]
 pub(crate) use events::ReplayError;
+#[cfg(test)]
 pub(crate) use events::apply_batch;
+#[cfg(test)]
 pub(crate) use events::replay_batches;
+#[cfg(test)]
 pub(crate) use invariants::Violation;
+#[cfg(test)]
 pub(crate) use invariants::ViolationCode;
+#[cfg(test)]
 pub(crate) use invariants::validate;
 pub(crate) use model::ActionReservation;
 pub(crate) use model::BlockRecord;
 pub(crate) use model::CompletionRecord;
+#[cfg(test)]
 pub(crate) use model::EvidenceRef;
 pub(crate) use model::MapEdge;
 pub(crate) use model::MapNode;
 pub(crate) use model::NodeRole;
 pub(crate) use model::NodeState;
+#[cfg(test)]
 pub(crate) use model::ResultRef;
 pub(crate) use model::TaskSpaceMap;
+#[cfg(test)]
 pub(crate) use model::TerminalRecord;
+#[cfg(test)]
 pub(crate) use model::canonicalize;
 pub(crate) use model::is_complete;
+#[cfg(test)]
 pub(crate) use model::map_node;
+#[cfg(test)]
+pub(crate) use model::new_map;
 pub(crate) use model::node;
 pub(crate) use model::node_role;
 pub(crate) use model::state_sha256;
+#[cfg(test)]
 pub(crate) use transactions::Commit;
 pub(crate) use transactions::EvidenceRefInput;
 pub(crate) use transactions::ExecuteTransaction;
@@ -47,7 +62,9 @@ pub(crate) use transactions::initialize;
 pub(crate) use transactions::release_reservation;
 pub(crate) use transitions::derive_node_state;
 pub(crate) use transitions::derive_node_views;
+#[cfg(test)]
 pub(crate) use transitions::predecessors_satisfied;
+#[cfg(test)]
 pub(crate) use transitions::ready_node_ids;
 
 #[cfg(test)]

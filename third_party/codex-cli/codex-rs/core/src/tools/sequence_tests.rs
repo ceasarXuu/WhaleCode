@@ -24,7 +24,6 @@ fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> T
         payload: ToolPayload::Function {
             arguments: arguments.to_string(),
         },
-        taskspace_binding: None,
     }
 }
 
@@ -135,7 +134,10 @@ fn taskspace_execute_plan_declares_sibling_native_calls_without_payload_decorati
     assert_eq!(declared_calls[0].call_index, 0);
     assert_eq!(declared_calls[0].node_id, "inspect");
     assert_eq!(declared_calls[0].tool_name, "read_file");
-    assert_eq!(calls[1].taskspace_binding, None);
+    let ToolPayload::Function { arguments } = &calls[1].payload else {
+        panic!("expected native function payload");
+    };
+    assert_eq!(arguments, r#"{"path":"README.md"}"#);
 }
 
 #[test]
@@ -283,6 +285,41 @@ fn provider_build_failure_closes_all_pairings_before_factual_feedback() {
 }
 
 #[test]
+fn taskspace_state_commit_failure_closes_every_call_without_dispatch() {
+    let calls = vec![
+        execute_control(
+            "control",
+            serde_json::json!([{"node_id": "inspect", "tool": "read_file"}]),
+        ),
+        function_call("read_file", "read"),
+    ];
+
+    let outcome =
+        taskspace_state_commit_failure_outcome(&calls, Some(9), "revision mismatch".to_string());
+
+    assert_eq!(outcome.outputs.len(), calls.len());
+    assert!(outcome.terminal_completion.is_none());
+    for (output, call) in outcome.outputs.iter().zip(&calls) {
+        assert_eq!(response_input_call_id(output), call.call_id);
+        assert!(!response_input_succeeded(output));
+        let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
+            panic!("expected function output");
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(output.body.to_text().as_deref().expect("failure payload"))
+                .expect("failure json");
+        assert_eq!(
+            value["error"]["code"],
+            TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE
+        );
+        assert_eq!(value["executed_tool_call_count"], 0);
+        assert_eq!(value["state_commit"], false);
+        assert_eq!(value["canonical_revision"], 9);
+        assert_eq!(value["error"]["detail"], "revision mismatch");
+    }
+}
+
+#[test]
 fn skipped_output_preserves_call_id_and_failure_status() {
     let call = function_call("apply_patch", "edit-call");
     let output = ToolCallRuntime::skipped_responses(&call, "finish-call").remove(0);
@@ -333,7 +370,6 @@ fn tool_pairing_outputs_precede_supplemental_failure_facts() {
                 limit: None,
             },
         },
-        taskspace_binding: None,
     };
 
     append_pairing_and_supplemental(

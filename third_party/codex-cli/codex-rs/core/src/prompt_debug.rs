@@ -94,12 +94,7 @@ pub(crate) async fn build_prompt_input_from_session(
         router.as_ref(),
         turn_context.as_ref(),
         base_instructions,
-    )
-    .map_err(|error| {
-        codex_protocol::error::CodexErr::Fatal(format!(
-            "tool schema projection failed while building prompt debug output: {error}"
-        ))
-    })?;
+    );
 
     Ok(prompt.get_formatted_input())
 }

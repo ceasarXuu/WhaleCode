@@ -30,7 +30,7 @@ pub(super) async fn finish_map(
         Ok(outcome) => {
             tracing::info!(
                 target: "codex_core::taskspace",
-                event_name = "taskspace.finish_map_committed",
+                event_name = "taskspace_finish_committed",
                 call_id,
                 map_id = outcome.map_id,
                 revision = outcome.revision,
@@ -43,7 +43,7 @@ pub(super) async fn finish_map(
         Err(FinishActionMapError::Rejected(error)) => {
             tracing::warn!(
                 target: "codex_core::taskspace",
-                event_name = "taskspace.finish_map_rejected",
+                event_name = "taskspace_finish_rejected",
                 call_id,
                 expected_revision,
                 finish_node_id,

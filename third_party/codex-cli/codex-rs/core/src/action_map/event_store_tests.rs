@@ -313,10 +313,6 @@ fn initialization_sources_reference_user_and_control_events() {
         store.initialization_source_event_ids("control-call"),
         vec!["task-event-1", "task-event-2"]
     );
-    assert_eq!(
-        store.event_id_for_call("control-call").as_deref(),
-        Some("task-event-2")
-    );
 }
 
 #[test]

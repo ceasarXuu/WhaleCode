@@ -4,14 +4,6 @@ use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::ActionMapStoreHandle;
 use crate::action_map::SetTaskSpaceModeOutcome;
 use codex_protocol::ThreadId;
-use codex_protocol::protocol::ActionMapSnapshot;
-use codex_protocol::protocol::ActionMapSnapshotEdge;
-use codex_protocol::protocol::ActionMapSnapshotEvidenceRef;
-use codex_protocol::protocol::ActionMapSnapshotMap;
-use codex_protocol::protocol::ActionMapSnapshotNode;
-use codex_protocol::protocol::ActionMapSnapshotResult;
-use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
-use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
@@ -141,19 +133,20 @@ pub(super) fn runtime_from_record(
     record: &TaskSpaceMapRecord,
 ) -> anyhow::Result<ActionMapRuntimeState> {
     let mut runtime = ActionMapRuntimeState::default();
-    if let Some(canonical_map) = record.canonical_map.clone() {
-        let snapshot = canonical_map_to_store_snapshot(canonical_map, record.owner_thread_id);
-        runtime
-            .restore_store_snapshot(&record.map_id, record.owner_thread_id, snapshot)
-            .map_err(anyhow::Error::msg)?;
-    }
+    runtime
+        .restore_store_map(
+            &record.map_id,
+            record.owner_thread_id,
+            record.canonical_map.clone(),
+        )
+        .map_err(anyhow::Error::msg)?;
     Ok(runtime)
 }
 
 pub(super) fn canonical_map_for_store(
     runtime: &ActionMapRuntimeState,
 ) -> Option<TaskSpaceCanonicalMap> {
-    runtime.active_map().map(|map| (**map).clone())
+    runtime.canonical_map_for_store()
 }
 
 pub(super) fn canonical_map_sha256(
@@ -161,148 +154,6 @@ pub(super) fn canonical_map_sha256(
 ) -> Result<String, serde_json::Error> {
     let bytes = serde_json::to_vec(canonical_map)?;
     Ok(format!("{:x}", sha2::Sha256::digest(bytes)))
-}
-
-fn canonical_map_to_store_snapshot(
-    canonical_map: TaskSpaceCanonicalMap,
-    owner_thread_id: ThreadId,
-) -> ActionMapSnapshot {
-    let map_id = canonical_map.map_id.clone();
-    let root_node_id = canonical_map.root.node_id.clone();
-    let finish_node_id = canonical_map.finish.node_id.clone();
-    let terminal_summary_ref = canonical_map
-        .terminal_record
-        .as_ref()
-        .map(|record| record.summary_ref.clone());
-    let complete = canonical_map.terminal_record.is_some();
-    let nodes = std::iter::once(canonical_map.root.clone())
-        .chain(canonical_map.work_nodes.clone())
-        .chain(std::iter::once(canonical_map.finish.clone()))
-        .map(|node| ActionMapSnapshotNode {
-            id: node.node_id.clone(),
-            role: canonical_node_role(&canonical_map, &node.node_id).to_string(),
-            goal: node.goal,
-            state: canonical_node_state(&canonical_map, &node.node_id).to_string(),
-            source_refs: node.source_refs,
-            result_ids: canonical_map
-                .result_refs
-                .iter()
-                .filter(|(_, result)| result.node_id == node.node_id)
-                .map(|(id, _)| id.clone())
-                .collect(),
-            evidence_ref_ids: canonical_map
-                .evidence_refs
-                .iter()
-                .filter(|(_, evidence)| evidence.node_id == node.node_id)
-                .map(|(id, _)| id.clone())
-                .collect(),
-            node_event_ids: Vec::new(),
-        })
-        .collect::<Vec<_>>();
-    ActionMapSnapshot {
-        schema_version: "taskspace-snapshot-v1".to_string(),
-        mode: MapRuntimeMode::Experiment,
-        routing_required: false,
-        bootstrap_required: false,
-        reborn_requested: false,
-        map: Some(ActionMapSnapshotMap {
-            id: map_id.clone(),
-            task_id: Some(map_id),
-            owner_session_id: Some(owner_thread_id),
-            root_node_id,
-            finish_node_id: finish_node_id.clone(),
-            revision: canonical_map.revision,
-            terminal_summary_ref,
-            complete,
-            ready_work_node_count: nodes
-                .iter()
-                .filter(|node| node.role == "work" && node.state == "ready")
-                .count(),
-            inflight_work_node_count: nodes
-                .iter()
-                .filter(|node| node.role == "work" && node.state == "in_flight")
-                .count(),
-            completed_work_node_count: nodes
-                .iter()
-                .filter(|node| node.role == "work" && node.state == "completed")
-                .count(),
-            finish_ready: nodes
-                .iter()
-                .any(|node| node.id == finish_node_id && node.state == "ready"),
-            nodes,
-            edges: canonical_map
-                .edges
-                .into_iter()
-                .map(|edge| ActionMapSnapshotEdge {
-                    from: edge.from,
-                    to: edge.to,
-                })
-                .collect(),
-            reservations: Vec::new(),
-            results: canonical_map
-                .result_refs
-                .into_iter()
-                .map(|(id, result)| ActionMapSnapshotResult {
-                    id,
-                    node_id: result.node_id,
-                    action_id: result.action_id,
-                    reservation_id: result.reservation_id,
-                    is_error: result.is_error,
-                })
-                .collect(),
-            evidence_refs: canonical_map
-                .evidence_refs
-                .into_iter()
-                .map(|(id, evidence)| ActionMapSnapshotEvidenceRef {
-                    id,
-                    node_id: evidence.node_id,
-                    action_id: evidence.action_id,
-                    reservation_id: evidence.reservation_id,
-                    kind: evidence.kind,
-                })
-                .collect(),
-            node_events: Vec::new(),
-        }),
-        maintenance_barriers: Vec::new(),
-        trace_summary: ActionMapSnapshotTraceSummary::default(),
-        trace_events: Vec::new(),
-        sentinel_summary: ActionMapSnapshotSentinelSummary::default(),
-        sentinel_warnings: Vec::new(),
-    }
-}
-
-fn canonical_node_role(map: &TaskSpaceCanonicalMap, node_id: &str) -> &'static str {
-    if node_id == map.root.node_id {
-        "root"
-    } else if node_id == map.finish.node_id {
-        "finish"
-    } else {
-        "work"
-    }
-}
-
-fn canonical_node_state(map: &TaskSpaceCanonicalMap, node_id: &str) -> &'static str {
-    if map.completion_records.contains_key(node_id) {
-        "completed"
-    } else if map.block_records.contains_key(node_id) {
-        "blocked"
-    } else if map
-        .action_reservations
-        .values()
-        .any(|reservation| reservation.node_id == node_id)
-    {
-        "in_flight"
-    } else if node_id == map.root.node_id
-        || map
-            .edges
-            .iter()
-            .filter(|edge| edge.to == node_id)
-            .all(|edge| map.completion_records.contains_key(&edge.from))
-    {
-        "ready"
-    } else {
-        "waiting"
-    }
 }
 
 impl Session {

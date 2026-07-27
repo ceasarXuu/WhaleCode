@@ -113,11 +113,11 @@ fn graph_distances(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action_map::map::MapEdge;
     use crate::action_map::map::MapNode;
     use crate::action_map::map::NodeEvent;
     use crate::action_map::rooted_dag::ActionReservation;
     use crate::action_map::rooted_dag::CompletionRecord;
+    use crate::action_map::rooted_dag::MapEdge;
     use crate::action_map::rooted_dag::TaskSpaceMap;
     use codex_protocol::ThreadId;
     use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;

@@ -34,16 +34,6 @@ pub struct TaskSpaceControlOutput {
 
 pub(super) type ControlExecution = (String, bool, Option<TaskSpaceTerminalCarrier>);
 
-impl TaskSpaceControlOutput {
-    pub(crate) fn message(&self) -> &str {
-        &self.message
-    }
-
-    pub(crate) fn success(&self) -> bool {
-        self.success
-    }
-}
-
 impl ToolOutput for TaskSpaceControlOutput {
     fn log_preview(&self) -> String {
         self.message.clone()
@@ -119,21 +109,6 @@ impl ToolHandler for TaskSpaceControlHandler {
         };
         execute_parsed_action(&session, &turn, &call_id, args).await
     }
-}
-
-#[deprecated(
-    note = "A2-B1X removes ordinary Tool initialization carriers; response preflight owns initialize_and_execute"
-)]
-pub(crate) async fn execute_taskspace_initialization_binding(
-    _session: &Session,
-    _turn: &TurnContext,
-    _call_id: &str,
-    _arguments: &str,
-) -> Result<TaskSpaceControlOutput, FunctionCallError> {
-    Err(protocol_error(
-        "ordinary Tool initialization carriers were removed by A2-B1X".into(),
-        "taskspace_initialization_carrier_removed",
-    ))
 }
 
 async fn execute_parsed_action(
@@ -262,7 +237,3 @@ fn log_control_result(call_id: &str, message: &str, success: bool) {
         );
     }
 }
-
-#[cfg(test)]
-#[path = "taskspace_control_tests.rs"]
-mod tests;

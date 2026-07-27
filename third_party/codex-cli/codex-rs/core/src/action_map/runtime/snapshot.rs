@@ -31,19 +31,6 @@ impl ActionMapRuntimeState {
             sentinel_warnings: Vec::new(),
         }
     }
-
-    pub(crate) fn restore_snapshot(&mut self, snapshot: ActionMapSnapshot) -> Result<(), String> {
-        let Some(map) = snapshot.map else {
-            self.mode = snapshot.mode;
-            self.active_map_id = None;
-            self.maps.clear();
-            return Ok(());
-        };
-        Err(format!(
-            "canonical restore requires TaskSpaceCanonicalMap, not derived snapshot map `{}`",
-            map.id
-        ))
-    }
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {

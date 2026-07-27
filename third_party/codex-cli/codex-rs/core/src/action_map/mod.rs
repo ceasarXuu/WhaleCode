@@ -8,13 +8,13 @@ mod projection_policy;
 mod response;
 mod rooted_dag;
 mod runtime;
-mod sentinel;
-mod snapshot_hash;
 mod store_handle;
 
 pub(crate) use event_store::TaskSpaceEvent;
 pub(crate) use event_store::TaskSpaceEventStore;
+#[cfg(test)]
 pub(crate) use map::ActionClass;
+#[cfg(test)]
 pub(crate) use map::ToolActionDescriptor;
 pub(crate) use projection::ProjectionEnvelope;
 pub(crate) use projection_policy::ProjectionCursor;
@@ -41,7 +41,5 @@ pub(crate) use runtime::ActionMapProviderResponseActionabilityInput;
 pub(crate) use runtime::ActionMapRuntimeState;
 pub(crate) use runtime::ActionMapTerminalOutcome;
 pub(crate) use runtime::SetTaskSpaceModeOutcome;
-pub(crate) use runtime::TaskSpaceHardGateClass;
 pub(crate) use runtime::format_action_map_snapshot;
-pub(crate) use snapshot_hash::snapshot_sha256;
 pub(crate) use store_handle::ActionMapStoreHandle;

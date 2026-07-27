@@ -2024,68 +2024,6 @@ pub struct MapRuntimeGraphRevisionCommittedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
-pub struct MapRuntimeLeaseCreatedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub lease_id: String,
-    pub holder: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeLeaseAttachedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub lease_id: String,
-    pub agent_thread_id: ThreadId,
-    pub agent_path: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeLeaseReleasedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub lease_id: String,
-    pub holder: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeNodeResultRecordedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub lease_id: String,
-    pub result_id: String,
-    pub kind: String,
-    #[serde(default)]
-    pub action_class: Option<String>,
-    pub source_thread_id: ThreadId,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeNodeEventRecordedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub lease_id: String,
-    pub node_event_id: String,
-    pub event_kind: String,
-    #[serde(default)]
-    pub action_class: Option<String>,
-    #[serde(default)]
-    pub tool_success: Option<bool>,
-    pub source_thread_id: ThreadId,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeNodeDetailExpandedEvent {
     pub map_id: String,
     pub node_id: String,
@@ -2142,55 +2080,6 @@ pub struct MapRuntimeTaskContextOwnershipChangedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
-pub struct MapRuntimeSentinelWarningRaisedEvent {
-    pub sentinel_id: String,
-    pub sentinel_type: String,
-    pub status: String,
-    pub severity: String,
-    pub task_id: Option<String>,
-    pub map_id: String,
-    pub node_id: String,
-    pub result_id: Option<String>,
-    pub trace_event_ids: Vec<String>,
-    pub reason: String,
-    pub clearance_action: String,
-    pub created_at_ms: i64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeTimeoutSummaryRequestedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub lease_id: String,
-    pub agent_thread_id: ThreadId,
-    pub agent_path: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeMaintenanceBarrierRaisedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub reason: String,
-    pub result_count: usize,
-    pub budget: usize,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeMaintenanceBarrierClearedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeStoreCommittedEvent {
     pub map_id: String,
     pub store_revision: u64,
@@ -2206,19 +2095,10 @@ pub struct MapRuntimeStoreCommittedEvent {
 pub enum MapRuntimeEvent {
     ModeChanged(MapRuntimeModeChangedEvent),
     GraphRevisionCommitted(MapRuntimeGraphRevisionCommittedEvent),
-    LeaseCreated(MapRuntimeLeaseCreatedEvent),
-    LeaseAttached(MapRuntimeLeaseAttachedEvent),
-    LeaseReleased(MapRuntimeLeaseReleasedEvent),
-    NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
-    NodeEventRecorded(MapRuntimeNodeEventRecordedEvent),
     NodeDetailExpanded(MapRuntimeNodeDetailExpandedEvent),
     TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
     TaskContextEventRecorded(MapRuntimeTaskContextEventRecordedEvent),
     TaskContextOwnershipChanged(MapRuntimeTaskContextOwnershipChangedEvent),
-    SentinelWarningRaised(MapRuntimeSentinelWarningRaisedEvent),
-    TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
-    MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
-    MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent),
     StoreCommitted(MapRuntimeStoreCommittedEvent),
 }
 
@@ -5956,37 +5836,6 @@ mod tests {
             serde_json::from_value::<MapRuntimeEvent>(ownership_value)?,
             ownership
         );
-        Ok(())
-    }
-
-    #[test]
-    fn map_runtime_sentinel_warning_raised_serializes_refs_without_raw_output() -> Result<()> {
-        let event = MapRuntimeEvent::SentinelWarningRaised(MapRuntimeSentinelWarningRaisedEvent {
-            sentinel_id: "sentinel-1".to_string(),
-            sentinel_type: "validator_failure".to_string(),
-            status: "active".to_string(),
-            severity: "warning".to_string(),
-            task_id: Some("task-1".to_string()),
-            map_id: "map-1".to_string(),
-            node_id: "node-1".to_string(),
-            result_id: Some("result-1".to_string()),
-            trace_event_ids: vec!["trace-1".to_string()],
-            reason: "Validator-class action failed".to_string(),
-            clearance_action: "Run a successful validator".to_string(),
-            created_at_ms: 1234,
-        });
-
-        let value = serde_json::to_value(&event)?;
-
-        assert_eq!(value["map_event_type"], "sentinel_warning_raised");
-        assert_eq!(value["sentinelId"], "sentinel-1");
-        assert_eq!(value["sentinelType"], "validator_failure");
-        assert_eq!(value["status"], "active");
-        assert_eq!(value["severity"], "warning");
-        assert_eq!(value["resultId"], "result-1");
-        assert_eq!(value["traceEventIds"], json!(["trace-1"]));
-        assert!(value.get("preview").is_none());
-        assert!(value.get("body").is_none());
         Ok(())
     }
 

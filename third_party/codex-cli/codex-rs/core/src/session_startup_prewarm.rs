@@ -235,12 +235,7 @@ async fn schedule_startup_prewarm_inner(session: Arc<Session>) -> CodexResult<Mo
         } else {
             TaskspaceProviderToolVisibility::Standard
         },
-    )
-    .map_err(|error| {
-        codex_protocol::error::CodexErr::Fatal(format!(
-            "TaskSpace startup tool schema projection failed: {error}"
-        ))
-    })?;
+    );
     let startup_turn_metadata_header = startup_turn_context
         .turn_metadata_state
         .current_header_value();

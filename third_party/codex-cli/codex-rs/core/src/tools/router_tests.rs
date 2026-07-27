@@ -10,7 +10,6 @@ use codex_tools::ToolName;
 use super::ToolCall;
 use super::ToolRouter;
 use super::ToolRouterParams;
-use super::extract_taskspace_binding;
 
 #[tokio::test]
 #[expect(
@@ -47,7 +46,6 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
                 payload: ToolPayload::Function {
                     arguments: "{}".to_string(),
                 },
-                taskspace_binding: None,
             })
         })
         .expect("test session should expose a parallel shell-like tool");
@@ -58,7 +56,6 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
         payload: ToolPayload::Function {
             arguments: "{}".to_string(),
         },
-        taskspace_binding: None,
     }));
 
     Ok(())
@@ -194,7 +191,6 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
             tool: "query_with_delay".to_string(),
             raw_arguments: "{}".to_string(),
         },
-        taskspace_binding: None,
     };
     assert!(router.tool_supports_parallel(&deferred_call));
 
@@ -206,94 +202,14 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
             tool: "query_with_delay".to_string(),
             raw_arguments: "{}".to_string(),
         },
-        taskspace_binding: None,
     };
     assert!(!router.tool_supports_parallel(&different_server_call));
 
     Ok(())
 }
 
-#[test]
-fn extracts_taskspace_binding_without_forwarding_it_to_the_tool() -> anyhow::Result<()> {
-    let original_input = "*** Begin Patch\n*** End Patch";
-    let arguments = serde_json::json!({
-        "input": original_input,
-        "taskspace_binding": {"action": "after_boundary"}
-    })
-    .to_string();
-
-    let (tool_arguments, binding) = extract_taskspace_binding(arguments, true)?;
-    let tool_arguments: serde_json::Value = serde_json::from_str(&tool_arguments)?;
-    assert_eq!(
-        tool_arguments,
-        serde_json::json!({ "input": original_input })
-    );
-    assert_eq!(binding.as_deref(), Some("after_boundary"));
-    Ok(())
-}
-
-#[test]
-fn rejects_legacy_scalar_taskspace_binding() {
-    let arguments = serde_json::json!({
-        "cmd": "pwd",
-        "taskspace_binding": "active"
-    })
-    .to_string();
-
-    let error = extract_taskspace_binding(arguments, true).expect_err("scalar binding must fail");
-    assert!(error.to_string().contains("must be an object with action"));
-}
-
-#[test]
-fn extracts_initialization_binding_without_forwarding_it_to_the_tool() -> anyhow::Result<()> {
-    let initialization = serde_json::json!({
-        "action": "initialize_map",
-        "root": {"id": "root", "goal": "Fix the bug"},
-        "initial_work": {"id": "inspect", "goal": "Inspect the code"},
-        "additional_work": [],
-        "finish_id": "finish",
-        "edges": [
-            {"from": "root", "to": "inspect"},
-            {"from": "inspect", "to": "finish"}
-        ]
-    });
-    let arguments = serde_json::json!({
-        "cmd": "ls",
-        "taskspace_binding": initialization
-    })
-    .to_string();
-
-    let (tool_arguments, binding) = extract_taskspace_binding(arguments, true)?;
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&tool_arguments)?,
-        serde_json::json!({"cmd": "ls"})
-    );
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(
-            binding.as_deref().expect("initialization binding")
-        )?,
-        initialization
-    );
-    Ok(())
-}
-
-#[test]
-fn standard_mode_preserves_business_taskspace_binding_field() -> anyhow::Result<()> {
-    let arguments = serde_json::json!({
-        "account": "example",
-        "taskspace_binding": "business-owned-value"
-    })
-    .to_string();
-
-    let (tool_arguments, binding) = extract_taskspace_binding(arguments.clone(), false)?;
-
-    assert_eq!(tool_arguments, arguments);
-    assert_eq!(binding, None);
-    Ok(())
-}
-
 #[tokio::test]
-async fn standard_tool_call_forwards_business_taskspace_binding_unchanged() -> anyhow::Result<()> {
+async fn ordinary_tool_payload_is_forwarded_without_taskspace_parsing() -> anyhow::Result<()> {
     let (session, _) = make_session_and_context().await;
     let session = Arc::new(session);
     let arguments = serde_json::json!({
@@ -315,7 +231,6 @@ async fn standard_tool_call_forwards_business_taskspace_binding_unchanged() -> a
     .await?
     .expect("function call");
 
-    assert_eq!(call.taskspace_binding, None);
     let ToolPayload::Function {
         arguments: forwarded,
     } = call.payload

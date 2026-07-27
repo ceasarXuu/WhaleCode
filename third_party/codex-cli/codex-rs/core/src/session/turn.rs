@@ -1074,7 +1074,7 @@ pub(crate) fn build_prompt(
     router: &ToolRouter,
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
-) -> Result<Prompt, codex_tools::TaskSpaceToolProjectionError> {
+) -> Prompt {
     build_prompt_with_tool_visibility(
         input,
         router,
@@ -1157,42 +1157,23 @@ fn should_preempt_response_for_mailbox(
 fn apply_provider_tool_visibility(
     tools: Vec<ToolSpec>,
     tool_visibility: TaskspaceProviderToolVisibility,
-) -> Result<Vec<ToolSpec>, codex_tools::TaskSpaceToolProjectionError> {
+) -> Vec<ToolSpec> {
     match tool_visibility {
-        TaskspaceProviderToolVisibility::Standard => Ok(tools
+        TaskspaceProviderToolVisibility::Standard => tools
             .into_iter()
             .filter(|spec| spec.name() != "taskspace_control")
-            .collect()),
+            .collect(),
         TaskspaceProviderToolVisibility::TaskspaceNative => {
             trace!(
                 target = "codex_core::taskspace",
                 "taskspace_linear_plan_tool_hidden"
             );
-            let mut visible = Vec::new();
-            for spec in tools {
-                if spec.name() == "update_plan" {
-                    continue;
-                }
-                match codex_tools::project_taskspace_binding_tool(spec)? {
-                    codex_tools::TaskSpaceToolProjection::Visible(spec) => visible.push(spec),
-                    codex_tools::TaskSpaceToolProjection::Hidden {
-                        tool_name,
-                        tool_kind,
-                        reason,
-                    } => {
-                        tracing::warn!(
-                            target: "codex_core::taskspace",
-                            tool_name,
-                            tool_kind,
-                            reason,
-                            state_commit = false,
-                            "taskspace.provider_tool_hidden_unsequenced"
-                        );
-                    }
-                }
-            }
+            let visible = tools
+                .into_iter()
+                .filter(|spec| spec.name() != "update_plan")
+                .collect::<Vec<_>>();
             trace_taskspace_provider_tool_schema_profile(&visible);
-            Ok(visible)
+            visible
         }
     }
 }
@@ -1200,7 +1181,6 @@ fn apply_provider_tool_visibility(
 fn trace_taskspace_provider_tool_schema_profile(tools: &[ToolSpec]) {
     let mut tool_set_hasher = Sha256::new();
     let mut total_schema_bytes = 0;
-    let mut binding_extension_count = 0;
     let entries = tools
         .iter()
         .map(|tool| {
@@ -1209,19 +1189,12 @@ fn trace_taskspace_provider_tool_schema_profile(tools: &[ToolSpec]) {
             tool_set_hasher.update([0xff]);
             let bytes = encoded.len();
             total_schema_bytes += bytes;
-            if encoded
-                .windows(codex_tools::TASKSPACE_BINDING_FIELD.len())
-                .any(|window| window == codex_tools::TASKSPACE_BINDING_FIELD.as_bytes())
-            {
-                binding_extension_count += 1;
-            }
             format!("{}:{bytes}", tool.name())
         })
         .collect::<Vec<_>>();
     tracing::info!(
         target: "codex_core::taskspace",
         tool_count = tools.len(),
-        binding_extension_count,
         total_schema_bytes,
         tool_set_sha256 = format!("{:x}", tool_set_hasher.finalize()),
         package_version = env!("CARGO_PKG_VERSION"),
@@ -1237,7 +1210,7 @@ pub(crate) fn build_prompt_with_tool_visibility(
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
     tool_visibility: TaskspaceProviderToolVisibility,
-) -> Result<Prompt, codex_tools::TaskSpaceToolProjectionError> {
+) -> Prompt {
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
         .iter()
@@ -1253,9 +1226,9 @@ pub(crate) fn build_prompt_with_tool_visibility(
             .filter_map(|spec| filter_deferred_dynamic_tool_spec(spec, &deferred_dynamic_tools))
             .collect()
     };
-    let tools = apply_provider_tool_visibility(tools, tool_visibility)?;
+    let tools = apply_provider_tool_visibility(tools, tool_visibility);
 
-    Ok(Prompt {
+    Prompt {
         input,
         tools,
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
@@ -1266,7 +1239,7 @@ pub(crate) fn build_prompt_with_tool_visibility(
         output_schema_strict: !crate::guardian::is_guardian_reviewer_source(
             &turn_context.session_source,
         ),
-    })
+    }
 }
 
 fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
@@ -1473,17 +1446,7 @@ async fn run_sampling_request(
             turn_context.as_ref(),
             base_instructions,
             tool_visibility,
-        )
-        .map_err(|error| {
-            tracing::error!(
-                target: "codex_core::taskspace",
-                tool_name = error.tool_name,
-                field = error.field,
-                state_commit = false,
-                "taskspace.tool_schema_collision"
-            );
-            CodexErr::Fatal(format!("TaskSpace tool schema projection failed: {error}"))
-        })?;
+        );
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
             Arc::clone(&sess),
@@ -1725,8 +1688,7 @@ mod active_context_replacement_tests {
         ];
 
         let filtered =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative)
-                .expect("TaskSpace projection");
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
         let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["taskspace_control"]);
@@ -1741,7 +1703,7 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn initialization_binding_schema_is_visible_only_in_taskspace_mode() {
+    fn ordinary_tool_schema_is_identical_in_standard_and_taskspace() {
         let ordinary = codex_tools::create_exec_command_tool(codex_tools::CommandToolOptions {
             allow_login_shell: true,
             exec_permission_approvals_enabled: false,
@@ -1749,81 +1711,20 @@ mod active_context_replacement_tests {
         let standard = apply_provider_tool_visibility(
             vec![ordinary.clone()],
             TaskspaceProviderToolVisibility::Standard,
-        )
-        .expect("Standard projection");
+        );
         let taskspace = apply_provider_tool_visibility(
             vec![ordinary],
             TaskspaceProviderToolVisibility::TaskspaceNative,
-        )
-        .expect("TaskSpace projection");
-
-        let ToolSpec::Function(standard) = &standard[0] else {
-            panic!("exec_command should be a function Tool");
-        };
-        assert!(
-            !standard
-                .parameters
-                .properties
-                .as_ref()
-                .is_some_and(|properties| properties.contains_key("taskspace_binding"))
         );
 
-        let ToolSpec::Function(taskspace) = &taskspace[0] else {
-            panic!("decorated exec_command should remain a function Tool");
-        };
-        assert!(
-            taskspace
-                .parameters
-                .properties
-                .as_ref()
-                .is_some_and(|properties| properties.contains_key("taskspace_binding"))
-        );
-        assert!(
-            taskspace
-                .parameters
-                .required
-                .as_ref()
-                .is_some_and(|required| required.iter().any(|field| field == "taskspace_binding"))
-        );
-        let binding = taskspace
-            .parameters
-            .properties
-            .as_ref()
-            .and_then(|properties| properties.get("taskspace_binding"))
-            .expect("binding schema");
-        let variants = binding.any_of.as_ref().expect("binding variants");
         assert_eq!(
-            variants[0]
-                .properties
-                .as_ref()
-                .expect("initialization properties")["action"]
-                .enum_values
-                .as_deref(),
-            Some(&[serde_json::json!("initialize_map")][..])
+            serde_json::to_value(&standard[0]).expect("serialize Standard Tool"),
+            serde_json::to_value(&taskspace[0]).expect("serialize TaskSpace Tool")
         );
-        assert_eq!(
-            variants[1].properties.as_ref().expect("active properties")["action"]
-                .enum_values
-                .as_deref(),
-            Some(&[serde_json::json!("active")][..])
-        );
-        assert_eq!(
-            variants[2]
-                .properties
-                .as_ref()
-                .expect("after-boundary properties")["action"]
-                .enum_values
-                .as_deref(),
-            Some(&[serde_json::json!("after_boundary")][..])
-        );
-        let serialized = serde_json::to_string(binding).expect("serialize binding schema");
-        assert!(!serialized.contains("expected_revision"));
-        assert!(serialized.contains("initial_work"));
-        assert!(serialized.contains("edges"));
     }
 
     #[test]
-    fn taskspace_visibility_hides_unsequenced_native_shapes() {
+    fn taskspace_visibility_preserves_native_tool_shapes() {
         let tools = vec![
             ToolSpec::LocalShell {},
             ToolSpec::ImageGeneration {
@@ -1833,41 +1734,27 @@ mod active_context_replacement_tests {
         ];
 
         let visible =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative)
-                .expect("TaskSpace projection");
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
 
         assert_eq!(
             visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["taskspace_control"]
+            vec!["local_shell", "image_generation", "taskspace_control"]
         );
     }
 
     #[test]
-    fn taskspace_visibility_reports_reserved_field_collision_without_panicking() {
-        let conflicting = ToolSpec::Function(codex_tools::ResponsesApiTool {
-            name: "conflicting_tool".into(),
-            description: "conflict".into(),
-            strict: false,
-            defer_loading: None,
-            parameters: codex_tools::JsonSchema::object(
-                std::collections::BTreeMap::from([(
-                    codex_tools::TASKSPACE_BINDING_FIELD.to_string(),
-                    codex_tools::JsonSchema::string(Some("business field".into())),
-                )]),
-                None,
-                Some(false.into()),
-            ),
-            output_schema: None,
-        });
-
-        let error = apply_provider_tool_visibility(
-            vec![conflicting],
+    fn taskspace_hides_linear_plan_but_keeps_control() {
+        let visible = apply_provider_tool_visibility(
+            vec![
+                codex_tools::create_update_plan_tool(),
+                codex_tools::create_taskspace_control_tool(),
+            ],
             TaskspaceProviderToolVisibility::TaskspaceNative,
-        )
-        .expect_err("reserved field collision");
-
-        assert_eq!(error.tool_name, "conflicting_tool");
-        assert_eq!(error.field, codex_tools::TASKSPACE_BINDING_FIELD);
+        );
+        assert_eq!(
+            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
+            vec!["taskspace_control"]
+        );
     }
 
     #[test]
@@ -1878,8 +1765,7 @@ mod active_context_replacement_tests {
         ];
 
         let visible =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::Standard)
-                .expect("Standard projection");
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::Standard);
         let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["update_plan"]);
@@ -1887,20 +1773,14 @@ mod active_context_replacement_tests {
 
     fn terminal_control_state() -> ActionMapControlState {
         ActionMapControlState {
-            task_id: "task-1".into(),
             map_id: "map-1".into(),
+            owner_session_id: None,
             revision: 7,
-            root_node_id: "root".into(),
-            finish_node_id: "finish".into(),
             complete: false,
-            current_node_id: None,
-            pending_work_node_ids: Vec::new(),
-            ready_work_node_ids: Vec::new(),
-            running_work_node_ids: Vec::new(),
-            blocked_work_node_ids: Vec::new(),
+            ready_work_node_count: 0,
+            inflight_work_node_count: 0,
             finish_ready: true,
             completed_work_node_count: 3,
-            total_node_count: 5,
         }
     }
 
@@ -1924,15 +1804,14 @@ mod active_context_replacement_tests {
             visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
             vec!["list_dir", "taskspace_control"]
         );
-        assert!(tool_contract.contains("initialize_map"));
-        assert!(tool_contract.contains("mutate_graph"));
-        assert!(tool_contract.contains("bind_node"));
-        assert!(tool_contract.contains("complete_then_continue"));
-        assert!(!tool_contract.contains("transition_node"));
+        assert!(tool_contract.contains("initialize_and_execute"));
+        assert!(tool_contract.contains("\"execute\""));
+        assert!(tool_contract.contains("read_map"));
+        assert!(tool_contract.contains("read_output_ref"));
         assert!(tool_contract.contains("finish_map"));
-        assert!(!tool_contract.contains("terminal_state"));
-        assert!(!tool_contract.contains("no_active_work_ready_finish"));
-        assert!(!tool_contract.contains("\"finish_end\""));
+        assert!(!tool_contract.contains("bind_node"));
+        assert!(!tool_contract.contains("complete_then_continue"));
+        assert!(!tool_contract.contains("current_node"));
 
         let bootstrap_mode = taskspace_provider_control_mode(true, None);
         assert_eq!(
@@ -1942,8 +1821,7 @@ mod active_context_replacement_tests {
 
         let mut work_state = terminal_control_state();
         work_state.finish_ready = false;
-        work_state.current_node_id = Some("work".into());
-        work_state.running_work_node_ids = vec!["work".into()];
+        work_state.ready_work_node_count = 1;
         let work_mode = taskspace_provider_control_mode(false, Some(&work_state));
         assert_eq!(work_mode, TaskspaceProviderControlMode::WorkActive);
 

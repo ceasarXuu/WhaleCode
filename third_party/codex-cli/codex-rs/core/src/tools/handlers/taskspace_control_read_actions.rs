@@ -13,7 +13,7 @@ use super::ControlExecution;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn read_output_ref(
     session: &Session,
-    turn: &TurnContext,
+    _turn: &TurnContext,
     output_ref: String,
     mode: String,
     start_line: Option<usize>,
@@ -40,19 +40,6 @@ pub(super) async fn read_output_ref(
     let slice = read_output_artifact_slice_result(rollout_path.as_deref(), &output_ref, request)
         .await
         .map_err(|error| output_read_error(error, canonical_revision))?;
-    session
-        .record_action_map_output_ref_trace_event(
-            turn,
-            "output_ref.slice_read",
-            None,
-            output_ref.clone(),
-            vec![
-                "output_ref".into(),
-                "slice_read".into(),
-                format!("mode:{mode}"),
-            ],
-        )
-        .await;
     Ok((
         format_read_result(
             "read_output_ref",

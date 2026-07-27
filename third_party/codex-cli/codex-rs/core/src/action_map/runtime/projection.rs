@@ -1,3 +1,4 @@
+use super::state::ActionMapRuntimeState;
 use crate::action_map::detail_fold::NodeDetailState;
 use crate::action_map::detail_fold::node_detail_plan;
 use crate::action_map::map::ActionMapInstance;
@@ -7,24 +8,39 @@ use crate::action_map::projection::ProjectionEventRef;
 use crate::action_map::projection::ProjectionInput;
 use crate::action_map::projection::ProjectionNode;
 use crate::action_map::projection::ProjectionNodeDetailState;
+use crate::action_map::projection::render_empty_projection;
 use crate::action_map::projection::render_projection;
 use crate::action_map::rooted_dag::state_sha256;
-
-use super::state::ActionMapRuntimeState;
 
 impl ActionMapRuntimeState {
     pub(crate) fn build_developer_context(&self, envelope: ProjectionEnvelope) -> Option<String> {
         let map_id = self.active_map_id.as_deref()?;
-        self.build_developer_context_for_map(map_id, envelope)
+        Some(
+            self.build_developer_context_for_map(map_id, envelope)
+                .unwrap_or_else(|| render_empty_projection(map_id, envelope)),
+        )
     }
 
     pub(crate) fn build_map_handle_context(&self) -> Option<String> {
-        let map = self.active_map()?;
-        Some(format!(
-            "TaskSpaceMapHandleR7V1:\n- map_id: {}\n- revision: {}\n- bootstrap_required: false\n- request_snapshot_tool: taskspace_control\nTaskSpaceMapHandleR7V1 end.\n",
-            map.map_id,
-            map.canonical_map().revision
-        ))
+        let map_id = self.active_map_id.as_deref()?;
+        let (revision, bootstrap_required, initialization_action) = self.active_map().map_or(
+            (
+                "none".to_string(),
+                true,
+                Some("taskspace_control.initialize_and_execute"),
+            ),
+            |map| (map.canonical_map().revision.to_string(), false, None),
+        );
+        let mut context = format!(
+            "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- map_id: {map_id}\n- revision: {revision}\n- bootstrap_required: {bootstrap_required}\n- available_read_action: taskspace_control.read_map\n"
+        );
+        if let Some(action) = initialization_action {
+            context.push_str("- required_initialization_action: ");
+            context.push_str(action);
+            context.push('\n');
+        }
+        context.push_str("TaskSpaceMapHandleR7V1 end.\n");
+        Some(context)
     }
 
     pub(crate) fn build_developer_context_for_map(

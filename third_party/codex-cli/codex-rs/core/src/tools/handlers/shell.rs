@@ -604,9 +604,7 @@ impl ShellHandler {
             /*turn_diff_tracker*/ None,
         );
         let artifact_ref = match out.as_ref() {
-            Ok(output) => {
-                write_shell_output_artifact_and_trace(&session, &turn, &call_id, output).await
-            }
+            Ok(output) => write_shell_output_artifact(&session, output).await,
             Err(_) => None,
         };
         let post_tool_use_response = out
@@ -633,10 +631,8 @@ impl ShellHandler {
     }
 }
 
-async fn write_shell_output_artifact_and_trace(
+async fn write_shell_output_artifact(
     session: &Arc<crate::session::session::Session>,
-    turn: &Arc<TurnContext>,
-    call_id: &str,
     output: &codex_protocol::exec_output::ExecToolCallOutput,
 ) -> Option<String> {
     let raw_output = output.aggregated_output.text.as_bytes();
@@ -655,22 +651,6 @@ async fn write_shell_output_artifact_and_trace(
                 return None;
             }
         };
-    if let Some(ref artifact_ref) = artifact_ref {
-        session
-            .record_action_map_output_ref_trace_event(
-                turn.as_ref(),
-                "output_ref.created",
-                Some(call_id.to_string()),
-                artifact_ref.clone(),
-                vec![
-                    "output_ref".to_string(),
-                    "created".to_string(),
-                    "shell_command".to_string(),
-                    format!("bytes:{}", raw_output.len()),
-                ],
-            )
-            .await;
-    }
     artifact_ref
 }
 

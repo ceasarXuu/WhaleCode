@@ -12,5 +12,5 @@ pub(crate) use telemetry::{
 };
 pub(crate) use types::{
     ActionMapControlDelta, ActionMapControlState, ActionMapTerminalOutcome,
-    SetTaskSpaceModeOutcome, TaskSpaceHardGateClass, format_action_map_snapshot,
+    SetTaskSpaceModeOutcome, format_action_map_snapshot,
 };

@@ -113,13 +113,6 @@ impl TaskSpaceEventStore {
         self.events.is_empty()
     }
 
-    pub(crate) fn event_id_for_call(&self, call_id: &str) -> Option<String> {
-        self.events
-            .iter()
-            .find(|event| event.call_id.as_deref() == Some(call_id))
-            .map(|event| event.id.clone())
-    }
-
     pub(crate) fn initialization_source_event_ids(&self, call_id: &str) -> Vec<String> {
         let call_event = self
             .events

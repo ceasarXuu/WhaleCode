@@ -329,3 +329,196 @@ fn rejection_json(current_revision: u64, code: &str, subject: &str) -> String {
     })
     .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use codex_protocol::ThreadId;
+
+    use crate::action_map::response::ActionMapDeclaredCall;
+    use crate::action_map::response::ActionMapResponseOperation;
+    use crate::action_map::rooted_dag::MapEdge;
+    use crate::action_map::rooted_dag::map_node;
+    use crate::action_map::runtime::ActionMapRuntimeState;
+
+    #[test]
+    fn prepare_initialize_uses_existing_active_identity() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+        runtime
+            .restore_store_map("store-map-9", owner, None)
+            .expect("restore empty identity");
+
+        let (prepared, events) = runtime
+            .prepare_response_for_main(
+                owner,
+                "control-call-1",
+                initialize_operation(),
+                vec![declared_call("call-1", "inspect", "exec_command")],
+            )
+            .expect("initialize response commits");
+
+        assert!(events.is_empty());
+        assert_eq!(prepared.action, "initialize_and_execute");
+        assert_eq!(prepared.map_id, "store-map-9");
+        assert_eq!(runtime.active_map_id(), Some("store-map-9"));
+        assert_eq!(
+            runtime.canonical_map_for_store().unwrap().map_id,
+            "store-map-9"
+        );
+        assert!(
+            prepared.prepared_calls[0]
+                .reservation_id
+                .contains("control-call-1")
+        );
+    }
+
+    #[test]
+    fn release_rejects_prepared_call_metadata_mismatch() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+        runtime
+            .restore_store_map("store-map-10", owner, None)
+            .expect("restore empty identity");
+        let (prepared, _) = runtime
+            .prepare_response_for_main(
+                owner,
+                "control-call-1",
+                initialize_operation(),
+                vec![declared_call("call-1", "inspect", "exec_command")],
+            )
+            .expect("initialize response commits");
+        let mut tampered = prepared.prepared_calls[0].clone();
+        tampered.tool_name = "different_tool".to_string();
+
+        let error = runtime
+            .release_main_action_result(owner, &tampered, true, "result-1".to_string())
+            .expect_err("tampered prepared call is rejected");
+
+        assert!(error.contains("reservation_invalid"));
+        assert!(
+            runtime
+                .canonical_map_for_store()
+                .unwrap()
+                .result_refs
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn multi_action_results_are_attributed_to_declared_nodes() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+        runtime
+            .restore_store_map("store-map-11", owner, None)
+            .expect("restore empty identity");
+        let (prepared, _) = runtime
+            .prepare_response_for_main(
+                owner,
+                "control-call-2",
+                parallel_initialize_operation(),
+                vec![
+                    declared_call_at(0, "call-read", "inspect", "read_file"),
+                    declared_call_at(1, "call-test", "verify", "exec_command"),
+                ],
+            )
+            .expect("parallel response commits");
+
+        assert_eq!(prepared.prepared_calls.len(), 2);
+        let revision_after_reservations = prepared.revision_after;
+        runtime
+            .release_main_action_result(
+                owner,
+                &prepared.prepared_calls[0],
+                true,
+                "tool-result://call/call-read".to_string(),
+            )
+            .expect("read result commits");
+        runtime
+            .release_main_action_result(
+                owner,
+                &prepared.prepared_calls[1],
+                false,
+                "tool-result://call/call-test".to_string(),
+            )
+            .expect("test result commits");
+
+        let map = runtime.canonical_map_for_store().expect("canonical map");
+        assert_eq!(map.revision, revision_after_reservations + 2);
+        assert!(map.action_reservations.is_empty());
+        assert_eq!(
+            map.result_refs["tool-result://call/call-read"].node_id,
+            "inspect"
+        );
+        assert!(!map.result_refs["tool-result://call/call-read"].is_error);
+        assert_eq!(
+            map.result_refs["tool-result://call/call-test"].node_id,
+            "verify"
+        );
+        assert!(map.result_refs["tool-result://call/call-test"].is_error);
+    }
+
+    fn initialize_operation() -> ActionMapResponseOperation {
+        ActionMapResponseOperation::Initialize {
+            root: map_node("root", "solve", vec!["turn-1".to_string()]),
+            work_nodes: vec![map_node("inspect", "inspect", Vec::new())],
+            finish: map_node("finish", "close the task", Vec::new()),
+            edges: vec![
+                MapEdge {
+                    from: "root".to_string(),
+                    to: "inspect".to_string(),
+                },
+                MapEdge {
+                    from: "inspect".to_string(),
+                    to: "finish".to_string(),
+                },
+            ],
+        }
+    }
+
+    fn declared_call(call_id: &str, node_id: &str, tool_name: &str) -> ActionMapDeclaredCall {
+        declared_call_at(0, call_id, node_id, tool_name)
+    }
+
+    fn declared_call_at(
+        call_index: usize,
+        call_id: &str,
+        node_id: &str,
+        tool_name: &str,
+    ) -> ActionMapDeclaredCall {
+        ActionMapDeclaredCall {
+            call_id: call_id.to_string(),
+            call_index,
+            node_id: node_id.to_string(),
+            tool_name: tool_name.to_string(),
+        }
+    }
+
+    fn parallel_initialize_operation() -> ActionMapResponseOperation {
+        ActionMapResponseOperation::Initialize {
+            root: map_node("root", "solve", vec!["turn-1".to_string()]),
+            work_nodes: vec![
+                map_node("inspect", "inspect", Vec::new()),
+                map_node("verify", "verify", Vec::new()),
+            ],
+            finish: map_node("finish", "close the task", Vec::new()),
+            edges: vec![
+                MapEdge {
+                    from: "root".to_string(),
+                    to: "inspect".to_string(),
+                },
+                MapEdge {
+                    from: "root".to_string(),
+                    to: "verify".to_string(),
+                },
+                MapEdge {
+                    from: "inspect".to_string(),
+                    to: "finish".to_string(),
+                },
+                MapEdge {
+                    from: "verify".to_string(),
+                    to: "finish".to_string(),
+                },
+            ],
+        }
+    }
+}

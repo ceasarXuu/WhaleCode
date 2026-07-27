@@ -150,8 +150,4 @@ impl ActionMapRuntimeState {
     ) -> Option<Vec<MapRuntimeEvent>> {
         Some(Vec::new())
     }
-
-    pub(crate) fn timeout_summary_requested_event(_target: &str) -> Option<MapRuntimeEvent> {
-        None
-    }
 }

@@ -13,10 +13,9 @@ use crate::tools::provider_tool_declaration::provider_response_failure_fact;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_preflight::ToolSequencePlan;
 use crate::tools::sequence_preflight::validate_tool_sequence;
-use crate::tools::taskspace_binding::is_initialization_binding;
-use crate::tools::taskspace_binding::taskspace_binding_kind;
 
 const PROVIDER_TOOL_DECLARATION_INVALID_CODE: &str = "provider_tool_declaration_invalid";
+const TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE: &str = "taskspace_response_state_commit_failed";
 
 pub(crate) struct TaskSpaceTerminalCompletion {
     pub(crate) call_id: String,
@@ -37,7 +36,6 @@ enum SequenceSegment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BarrierKind {
     TaskSpaceControl,
-    TaskSpaceInitialization,
     ApplyPatch,
 }
 
@@ -45,7 +43,6 @@ impl BarrierKind {
     fn as_str(self) -> &'static str {
         match self {
             Self::TaskSpaceControl => "taskspace_control",
-            Self::TaskSpaceInitialization => "taskspace_initialization",
             Self::ApplyPatch => "apply_patch",
         }
     }
@@ -176,12 +173,23 @@ pub(crate) async fn execute_response_tool_sequence(
     }
 
     let taskspace_active = runtime.taskspace_active().await;
+    if taskspace_active {
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace_response_preflight_started",
+            declared_tool_count = calls.len(),
+            call_ids = tool_sequence_call_ids(&calls),
+            sequence_sha256 = tool_sequence_sha256(&calls),
+            "started TaskSpace response preflight"
+        );
+    }
     let (manifest, plan) = match validate_tool_sequence(&calls, taskspace_active) {
         Ok((manifest, plan)) => (manifest, plan),
         Err(failure) => {
             let canonical_revision = runtime.taskspace_canonical_revision().await;
             tracing::warn!(
                 target: "codex_core::taskspace",
+                event_name = "taskspace_response_preflight_rejected",
                 reason_code = failure.reason_code,
                 request_patch_count = failure.request_patch_count,
                 declared_tool_count = failure.declared_tool_count,
@@ -204,10 +212,50 @@ pub(crate) async fn execute_response_tool_sequence(
         declared_calls,
     } = plan
     {
-        let prepared = runtime
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace_action_manifest_matched",
+            control_call_id = calls[control_index].call_id,
+            declared_action_count = declared_calls.len(),
+            request_patch_count = manifest.request_patch_count,
+            sequence_sha256 = tool_sequence_sha256(&calls),
+            "matched Agent-declared TaskSpace actions to native tool calls"
+        );
+        let prepared = match runtime
             .prepare_taskspace_response(&calls[control_index].call_id, args, declared_calls)
             .await
-            .map_err(codex_protocol::error::CodexErr::Fatal)?;
+        {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let canonical_revision = runtime.taskspace_canonical_revision().await;
+                tracing::warn!(
+                    target: "codex_core::taskspace",
+                    event_name = "taskspace_response_preflight_rejected",
+                    reason_code = TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE,
+                    control_call_id = calls[control_index].call_id,
+                    canonical_revision = ?canonical_revision,
+                    zero_dispatch = true,
+                    state_commit = false,
+                    error,
+                    "taskspace_response_preflight_rejected"
+                );
+                return Ok(taskspace_state_commit_failure_outcome(
+                    &calls,
+                    canonical_revision,
+                    error,
+                ));
+            }
+        };
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace_action_reservation_committed",
+            control_call_id = calls[control_index].call_id,
+            map_id = prepared.map_id,
+            revision_before = prepared.revision_before,
+            revision_after = prepared.revision_after,
+            reservation_count = prepared.prepared_calls.len(),
+            "committed TaskSpace action reservations"
+        );
         let control_output = ResponseInputItem::FunctionCallOutput {
             call_id: calls[control_index].call_id.clone(),
             output: codex_protocol::models::FunctionCallOutputPayload {
@@ -305,11 +353,9 @@ pub(crate) async fn execute_response_tool_sequence(
                     "tool_response_parallel_segment_started"
                 );
                 let futures = calls[start..end].iter().cloned().map(|call| {
-                    runtime.clone().handle_tool_call_for_sequence(
-                        call,
-                        None,
-                        cancellation_token.child_token(),
-                    )
+                    runtime
+                        .clone()
+                        .handle_tool_call_for_sequence(call, cancellation_token.child_token())
                 });
                 join_all(futures)
                     .await
@@ -329,7 +375,7 @@ pub(crate) async fn execute_response_tool_sequence(
                 vec![
                     runtime
                         .clone()
-                        .handle_tool_call_for_sequence(call, None, cancellation_token.child_token())
+                        .handle_tool_call_for_sequence(call, cancellation_token.child_token())
                         .await?,
                 ]
             }
@@ -403,6 +449,39 @@ pub(crate) async fn execute_response_tool_sequence(
     })
 }
 
+fn taskspace_state_commit_failure_outcome(
+    calls: &[ToolCall],
+    canonical_revision: Option<u64>,
+    error: String,
+) -> ToolSequenceOutcome {
+    let payload = serde_json::json!({
+        "schema_version": "TaskSpaceResponseCommitFailureV1",
+        "status": "state_rejected",
+        "success": false,
+        "state_commit": false,
+        "canonical_revision": canonical_revision,
+        "executed_tool_call_count": 0,
+        "error": {
+            "class": "state_machine",
+            "code": TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE,
+            "detail": error,
+        },
+    })
+    .to_string();
+    let responses = calls
+        .iter()
+        .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
+        .collect::<Vec<_>>();
+    let (mut pairing, supplemental): (Vec<_>, Vec<_>) = responses
+        .into_iter()
+        .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
+    pairing.extend(supplemental);
+    ToolSequenceOutcome {
+        outputs: pairing,
+        terminal_completion: None,
+    }
+}
+
 fn append_pairing_and_supplemental(
     pairing_outputs: &mut Vec<ResponseInputItem>,
     supplemental_outputs: &mut Vec<ResponseInputItem>,
@@ -450,9 +529,6 @@ fn calls_for_segment<'a>(calls: &'a [ToolCall], segment: &SequenceSegment) -> &'
 }
 
 fn barrier_kind(call: &ToolCall) -> Option<BarrierKind> {
-    if is_initialization_binding(call.taskspace_binding.as_deref()) {
-        return Some(BarrierKind::TaskSpaceInitialization);
-    }
     if call.tool_name.namespace.is_some() {
         return None;
     }
@@ -487,14 +563,6 @@ fn tool_sequence_sha256(calls: &[ToolCall]) -> String {
         hasher.update(call.call_id.as_bytes());
         hasher.update([0]);
         hasher.update(call.tool_name.display().as_bytes());
-        hasher.update([0]);
-        hasher.update(
-            call.taskspace_binding
-                .as_deref()
-                .and_then(taskspace_binding_kind)
-                .unwrap_or("")
-                .as_bytes(),
-        );
         hasher.update([0xff]);
     }
     format!("{:x}", hasher.finalize())
@@ -507,10 +575,27 @@ async fn execute_prepared_taskspace_siblings(
     control_output: ResponseInputItem,
     cancellation_token: CancellationToken,
 ) -> Result<ToolSequenceOutcome> {
-    let prepared_by_call_id = prepared_calls
+    let mut prepared_by_call_id = prepared_calls
         .into_iter()
         .map(|prepared| (prepared.call_id.clone(), prepared))
         .collect::<std::collections::HashMap<_, _>>();
+    let bound_calls = calls
+        .iter()
+        .map(|call| {
+            prepared_by_call_id.remove(&call.call_id).ok_or_else(|| {
+                codex_protocol::error::CodexErr::Fatal(format!(
+                    "TaskSpace response preparation omitted sibling call `{}`",
+                    call.call_id
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(unmatched) = prepared_by_call_id.values().next() {
+        return Err(codex_protocol::error::CodexErr::Fatal(format!(
+            "TaskSpace response preparation returned unmatched call `{}`",
+            unmatched.call_id
+        )));
+    }
     let segments = sequence_segments(&calls);
     let mut outputs = vec![control_output];
     let mut supplemental_outputs = Vec::new();
@@ -531,14 +616,20 @@ async fn execute_prepared_taskspace_siblings(
 
         let segment_executions = match segment {
             SequenceSegment::Parallel { start, end } => {
-                let futures = calls[start..end].iter().cloned().map(|call| {
-                    let prepared = prepared_by_call_id.get(&call.call_id).cloned();
-                    runtime.clone().handle_tool_call_for_sequence(
-                        call,
-                        prepared,
-                        cancellation_token.child_token(),
-                    )
-                });
+                let futures =
+                    calls[start..end]
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(offset, call)| {
+                            runtime
+                                .clone()
+                                .handle_taskspace_bound_tool_call_for_sequence(
+                                    call,
+                                    bound_calls[start + offset].clone(),
+                                    cancellation_token.child_token(),
+                                )
+                        });
                 join_all(futures)
                     .await
                     .into_iter()
@@ -546,11 +637,11 @@ async fn execute_prepared_taskspace_siblings(
             }
             SequenceSegment::Barrier { index, .. } => {
                 let call = calls[index].clone();
-                let prepared = prepared_by_call_id.get(&call.call_id).cloned();
+                let prepared = bound_calls[index].clone();
                 vec![
                     runtime
                         .clone()
-                        .handle_tool_call_for_sequence(
+                        .handle_taskspace_bound_tool_call_for_sequence(
                             call,
                             prepared,
                             cancellation_token.child_token(),

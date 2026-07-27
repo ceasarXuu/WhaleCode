@@ -172,6 +172,35 @@ pub(super) fn render_projection(
     }
 }
 
+pub(super) fn render_empty_projection(map_id: &str, envelope: ProjectionEnvelope) -> String {
+    let mut body = String::new();
+    body.push_str("TaskSpaceMapProjectionR7V1:\n");
+    push_field(
+        &mut body,
+        "schema_version",
+        "taskspace-map-projection-r7-v1",
+    );
+    push_field(&mut body, "projection_kind", envelope.kind());
+    push_field(&mut body, "map_id", map_id);
+    if envelope == ProjectionEnvelope::RequestSnapshot {
+        push_field(&mut body, "supersedes_all_prior_projections", "true");
+        push_field(&mut body, "current_state_rule", "last_projection_only");
+    }
+    push_field(&mut body, "map", "none");
+    push_field(&mut body, "bootstrap_required", "true");
+    push_field(
+        &mut body,
+        "required_initialization_action",
+        "taskspace_control.initialize_and_execute",
+    );
+    append_list(&mut body, "active_frontier", &[]);
+    append_list(&mut body, "map_nodes", &[]);
+    append_list(&mut body, "map_edges", &[]);
+    append_list(&mut body, "node_details", &[]);
+    body.push_str("TaskSpaceMapProjectionR7V1 end.\n");
+    body
+}
+
 fn push_field(body: &mut String, label: &str, value: &str) {
     body.push_str("- ");
     body.push_str(label);

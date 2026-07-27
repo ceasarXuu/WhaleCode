@@ -32,7 +32,9 @@ use tokio_util::sync::CancellationToken;
 
 pub type SharedTurnDiffTracker = Arc<Mutex<TurnDiffTracker>>;
 
+#[cfg(test)]
 const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES: usize = 64 * 1024;
+#[cfg(test)]
 const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES: usize = 320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -145,6 +147,7 @@ pub trait ToolOutput: Send {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn tool_output_model_visible_preview(
     output: &dyn ToolOutput,
     call_id: &str,
@@ -156,12 +159,14 @@ pub(crate) fn tool_output_model_visible_preview(
     super::append_taskspace_tool_tail_sentinels(preview, &model_visible_text)
 }
 
+#[cfg(test)]
 pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {
     let model_visible_text = response_input_item_model_visible_text(response);
     let preview = bounded_model_visible_text_preview(&model_visible_text);
     super::append_taskspace_tool_tail_sentinels(preview, &model_visible_text)
 }
 
+#[cfg(test)]
 pub(crate) fn bounded_model_visible_text_preview(content: &str) -> String {
     if taskspace_should_preserve_complete_read_preview(content) {
         return content.to_string();
@@ -169,6 +174,7 @@ pub(crate) fn bounded_model_visible_text_preview(content: &str) -> String {
     telemetry_preview(content)
 }
 
+#[cfg(test)]
 fn taskspace_should_preserve_complete_read_preview(content: &str) -> bool {
     if content.len() > TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES {
         return false;
@@ -180,6 +186,7 @@ fn taskspace_should_preserve_complete_read_preview(content: &str) -> bool {
         .is_some_and(|summary| summary.contains("eof_reached=true"))
 }
 
+#[cfg(test)]
 fn response_input_item_model_visible_text(response: &ResponseInputItem) -> String {
     match response {
         ResponseInputItem::Message { content, .. } => content

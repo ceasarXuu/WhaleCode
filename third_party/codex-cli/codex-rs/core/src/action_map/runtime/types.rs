@@ -6,21 +6,6 @@ use serde_json::json;
 use crate::action_map::map::ActionMapId;
 use crate::action_map::rooted_dag::EventBatch;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TaskSpaceHardGateClass {
-    StateMachine,
-    Protocol,
-}
-
-impl TaskSpaceHardGateClass {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::StateMachine => "state_machine",
-            Self::Protocol => "protocol",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapControlState {
     pub(crate) map_id: ActionMapId,
@@ -34,8 +19,11 @@ pub(crate) struct ActionMapControlState {
 }
 
 impl ActionMapControlState {
-    pub(crate) fn has_active_binding(&self) -> bool {
+    pub(crate) fn requires_named_taskspace_control(&self) -> bool {
         !self.complete
+            && self.finish_ready
+            && self.ready_work_node_count == 0
+            && self.inflight_work_node_count == 0
     }
 }
 
@@ -56,8 +44,15 @@ pub(crate) struct ActionMapTerminalOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceModeTransition {
+    pub(crate) previous_mode: MapRuntimeMode,
+    pub(crate) current_mode: MapRuntimeMode,
+    pub(crate) changed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SetTaskSpaceModeOutcome {
-    pub(crate) mode: MapRuntimeMode,
+    pub(crate) mode: TaskSpaceModeTransition,
     pub(crate) active_map_id: Option<ActionMapId>,
 }
 

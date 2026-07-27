@@ -16,8 +16,6 @@ pub(crate) mod sequence;
 pub(crate) mod sequence_manifest;
 pub(crate) mod sequence_preflight;
 pub(crate) mod spec;
-pub(crate) mod taskspace_binding;
-pub(crate) mod taskspace_initialization;
 pub(crate) mod tool_dispatch_trace;
 pub(crate) mod tool_search_entry;
 
@@ -155,6 +153,7 @@ fn build_content_with_timeout(exec_output: &ExecToolCallOutput) -> String {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn append_taskspace_tool_tail_sentinels(preview: String, full_text: &str) -> String {
     let Some(summary) = taskspace_read_file_summary_from_text(full_text) else {
         return preview;
@@ -172,6 +171,7 @@ pub(crate) fn append_taskspace_tool_tail_sentinels(preview: String, full_text: &
     output
 }
 
+#[cfg(test)]
 fn taskspace_read_file_summary_from_text(text: &str) -> Option<String> {
     text.lines()
         .rev()
@@ -183,6 +183,7 @@ fn taskspace_read_file_summary_from_text(text: &str) -> Option<String> {
         .next()
 }
 
+#[cfg(test)]
 fn taskspace_read_file_summary_has_parseable_eof(summary: &str) -> bool {
     summary
         .split_whitespace()

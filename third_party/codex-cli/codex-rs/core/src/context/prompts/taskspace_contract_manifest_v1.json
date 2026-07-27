@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.32",
+  "manifest_version": "1.0.33",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -13,23 +13,7 @@
     "carrier_repair_active",
     "carrier_result_repair_active_projection_baseline"
   ],
-  "activation_through": "FLA-7",
-  "evaluation_candidates": {
-    "FLA_9": {
-      "status": "production_path_evaluation_candidate",
-      "production_path_active": true,
-      "promoted": false
-    }
-  },
-  "repair_activation": [
-    "FLA-9-initialization-carrier",
-    "FLA-9-discriminated-binding",
-    "FLA-9-integrated-change-gate",
-    "FLA-9-initialization-role-structure-gate",
-    "R7.1-continuation-baseline",
-    "R7.1-adversarial-audit-correction",
-    "R7.1-persistent-map-ownership-blocker"
-  ],
+  "activation_through": "A2-B1X",
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
@@ -67,9 +51,9 @@
       "runtime_status": "active",
       "selected_targets": [
         {
-          "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
-          "sha256": "c91a270e5b3425376ab6f093ee47d9d4d27ccb5dc514b47352d4ab9952d72307",
-          "activation_phase": "FLA-2; FLA-9 initialization carrier and discriminated binding alignment"
+          "artifact": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v3.md",
+          "sha256": "4eed44daeccc23e1cdeb53b2dc54cf83fe49bc1f817595c52901839affa0ac8c",
+          "activation_phase": "A2-B1X response manifest alignment"
         }
       ]
     },
@@ -93,10 +77,9 @@
       "runtime_status": "active",
       "selected_targets": [
         {
-          "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v3.schema.json",
-          "sha256": "0c96d56183eacae0693a35b77599c31fbf3be32601b73272839e2111e909c028",
-          "activation_phase": "FLA-9",
-          "binding_schema_source": "third_party/codex-cli/codex-rs/tools/src/taskspace_binding.rs",
+          "artifact": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+          "sha256": "e04ad37d37ffc330dc9ed823cab5621dacac444b249d5c275e7c5853baaf983f",
+          "activation_phase": "A2-B1X five-action schema",
           "sequence_preflight": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"
         }
       ]
@@ -108,9 +91,9 @@
       "runtime_status": "active",
       "selected_targets": [
         {
-          "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
-          "sha256": "9bcad3a84389714d876f5c524ecac4c15d0cb689356b31c8513f75cf3b20bd15",
-          "activation_phase": "FLA-5; FLA-9 initialization carrier plus separate later boundary results"
+          "artifact": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
+          "sha256": "66df60dc64154aea567d2ab4fd348d85f4e066c24be2252947a632d1081f651f",
+          "activation_phase": "A2-B1X response preflight and factual feedback"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
@@ -118,9 +101,9 @@
           "activation_phase": "already_active; FLA-7 adds lifecycle conformance only"
         },
         {
-          "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
-          "sha256": "2df97b4577dfc7381c606719cc8479c034b410c720e6b0898ffbaeed3c900795",
-          "activation_phase": "FLA-7"
+          "artifact": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "sha256": "f5f66fe3e810a526f6581f415306a195eb17fc9345f9f7b21a245135228608a0",
+          "activation_phase": "A2-B1X native dispatch and explicit result attribution"
         }
       ]
     }

@@ -455,21 +455,6 @@ impl ToolHandler for UnifiedExecHandler {
                 .await
                 {
                     Ok(artifact_ref) => {
-                        if let Some(ref artifact_ref) = artifact_ref {
-                            session
-                                .record_action_map_output_ref_trace_event(
-                                    turn.as_ref(),
-                                    "output_ref.created",
-                                    Some(context.call_id.clone()),
-                                    artifact_ref.clone(),
-                                    vec![
-                                        "output_ref".to_string(),
-                                        "created".to_string(),
-                                        format!("bytes:{}", response.raw_output.len()),
-                                    ],
-                                )
-                                .await;
-                        }
                         response.artifact_ref = artifact_ref;
                     }
                     Err(err) => {

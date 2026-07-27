@@ -63,7 +63,6 @@ mod tests {
             payload: ToolPayload::Function {
                 arguments: "{}".into(),
             },
-            taskspace_binding: None,
         }
     }
 

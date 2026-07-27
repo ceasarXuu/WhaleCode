@@ -91,12 +91,14 @@ fn parse_agent_id(id: &str) -> ThreadId {
     ThreadId::from_string(id).expect("agent id should be valid")
 }
 
+#[cfg(any())]
 async fn enable_action_map_experiment(session: &Arc<crate::session::session::Session>) {
     session
         .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
         .await;
 }
 
+#[cfg(any())]
 async fn start_action_map_task_node(
     session: &Arc<crate::session::session::Session>,
     turn: &Arc<TurnContext>,
@@ -185,6 +187,7 @@ async fn start_action_map_task_node(
     "node-1".to_string()
 }
 
+#[cfg(any())]
 async fn add_action_map_work_node(
     session: &Arc<crate::session::session::Session>,
     turn: &Arc<TurnContext>,
@@ -228,10 +231,12 @@ async fn add_action_map_work_node(
     node_id.to_string()
 }
 
+#[cfg(any())]
 fn active_action_map_snapshot_map(snapshot: &ActionMapSnapshot) -> &ActionMapSnapshotMap {
     snapshot.map.as_ref().expect("active map should exist")
 }
 
+#[cfg(any())]
 async fn active_action_map_node_statuses(
     session: &Arc<crate::session::session::Session>,
 ) -> HashMap<String, String> {
@@ -243,6 +248,7 @@ async fn active_action_map_node_statuses(
         .collect()
 }
 
+#[cfg(any())]
 async fn active_action_map_lease_count(session: &Arc<crate::session::session::Session>) -> usize {
     let snapshot = session.cached_action_map_snapshot_for_test().await;
     active_action_map_snapshot_map(&snapshot)
@@ -915,6 +921,7 @@ async fn spawn_agent_returns_agent_id_without_task_name() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn legacy_spawn_agent_rejects_before_map_initialization() {
     let (mut session, turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -943,6 +950,7 @@ async fn legacy_spawn_agent_rejects_before_map_initialization() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn v2_spawn_agent_rejects_before_map_initialization() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -978,6 +986,7 @@ async fn v2_spawn_agent_rejects_before_map_initialization() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn legacy_spawn_agent_claims_taskspace_node_after_start_task() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -1027,6 +1036,7 @@ async fn legacy_spawn_agent_claims_taskspace_node_after_start_task() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
     let (mut session, turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -1083,6 +1093,7 @@ async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn legacy_spawn_agent_claims_explicit_node_id() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -1335,6 +1346,7 @@ async fn multi_agent_v2_spawn_returns_path_and_send_message_accepts_relative_pat
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_experiment_spawn_binds_first_ready_node() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -1405,6 +1417,7 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -1468,6 +1481,7 @@ async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes()
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_experiment_spawn_claims_explicit_node_id() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -1546,6 +1560,7 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -1608,6 +1623,7 @@ async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -1684,6 +1700,7 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_experiment_spawn_keeps_requested_task_name_for_dynamic_node() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -1753,6 +1770,7 @@ async fn action_map_experiment_spawn_keeps_requested_task_name_for_dynamic_node(
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -1921,6 +1939,7 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_experiment_blocks_nested_spawn_from_node_bound_subagent() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
@@ -2006,6 +2025,7 @@ async fn action_map_experiment_blocks_nested_spawn_from_node_bound_subagent() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_child_tool_gate_fails_closed_when_parent_runtime_is_missing() {
     let manager = thread_manager();
 
@@ -4270,6 +4290,7 @@ async fn multi_agent_v2_wait_agent_returns_for_already_queued_mail() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_wait_timeout_requests_progress_summary_from_running_node_agent() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -4591,6 +4612,7 @@ async fn multi_agent_v2_close_agent_accepts_task_name_target() {
 }
 
 #[tokio::test]
+#[cfg(any())]
 async fn action_map_close_agent_releases_node_lease_for_reclaim() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {

@@ -14,7 +14,6 @@ use crate::action_map::ActionMapExactPayloadScanEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
-use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::TaskSpaceEvent;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
@@ -916,30 +915,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn record_action_map_output_ref_trace_event(
-        &self,
-        turn_context: &TurnContext,
-        kind: &str,
-        call_id: Option<String>,
-        artifact_ref: String,
-        tags: Vec<String>,
-    ) {
-        let result = self
-            .mutate_canonical_action_map("record_output_ref", |runtime, _| {
-                match runtime.record_output_ref_trace_event(kind, call_id, artifact_ref, tags) {
-                    Some(events) => (true, events),
-                    None => (false, Vec::new()),
-                }
-            })
-            .await;
-        if let Ok((true, events)) = result {
-            self.emit_action_map_events_for_turn(turn_context, events)
-                .await;
-        } else if let Err(error) = result {
-            warn!(%error, "failed to persist TaskSpace output reference");
-        }
-    }
-
     pub(crate) async fn action_map_provider_request_budget_snapshot(
         &self,
     ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
@@ -1147,7 +1122,8 @@ impl Session {
     pub(crate) async fn request_action_map_reborn(&self, turn_context: &TurnContext) {
         match self
             .mutate_canonical_action_map("request_reborn", |runtime, _| {
-                ((), runtime.request_reborn())
+                runtime.clear_active_map();
+                ((), Vec::new())
             })
             .await
         {
@@ -2920,7 +2896,6 @@ impl Session {
         turn_context: &TurnContext,
     ) -> Vec<ResponseItem> {
         let mut developer_sections = Vec::<String>::with_capacity(8);
-        let mut taskspace_developer_sections = Vec::<String>::with_capacity(1);
         let mut contextual_user_sections = Vec::<String>::with_capacity(2);
         let shell = self.user_shell();
         let (
@@ -2997,10 +2972,6 @@ impl Session {
         {
             developer_sections.push(collab_instructions.render());
         }
-        let action_map_transition_notice = {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime.take_pending_transition_notice()
-        };
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
@@ -3109,9 +3080,6 @@ impl Session {
         {
             developer_sections.push(commit_message_instruction);
         }
-        if let Some(action_map_transition_notice) = action_map_transition_notice {
-            taskspace_developer_sections.push(action_map_transition_notice);
-        }
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             contextual_user_sections.push(
                 UserInstructions {
@@ -3139,13 +3107,6 @@ impl Session {
             crate::context_manager::updates::build_developer_update_item(developer_sections)
         {
             items.push(developer_message);
-        }
-        if let Some(taskspace_developer_message) =
-            crate::context_manager::updates::build_developer_update_item(
-                taskspace_developer_sections,
-            )
-        {
-            items.push(taskspace_developer_message);
         }
         if let Some(contextual_user_message) =
             crate::context_manager::updates::build_contextual_user_message(contextual_user_sections)
@@ -3333,10 +3294,10 @@ impl Session {
 
     pub(crate) async fn read_action_map_projection(
         &self,
-        turn_context: &TurnContext,
+        _turn_context: &TurnContext,
         call_id: &str,
     ) -> Result<String, String> {
-        let (policy, cursor, has_store_handle) = {
+        let (policy, cursor) = {
             let state = self.state.lock().await;
             (
                 state
@@ -3344,11 +3305,10 @@ impl Session {
                     .taskspace_projection_policy
                     .ok_or_else(|| "TaskSpace projection policy is missing.".to_string())?,
                 state.taskspace_projection_cursor.clone(),
-                state.action_map_store_handle.is_some(),
             )
         };
-        let perform_read = |runtime: &mut ActionMapRuntimeState| {
-            let read_result = (|| {
+        let read_result = self
+            .read_canonical_action_map("read_map_projection", |runtime, _| {
                 if runtime.mode() != MapRuntimeMode::Experiment {
                     return Err("TaskSpace map read requires TaskSpace mode.".to_string());
                 }
@@ -3371,42 +3331,9 @@ impl Session {
                         "TaskSpace explicit Map read did not select a tool result.".to_string()
                     );
                 }
-                let mut events = runtime.take_pending_projection_trace_events();
-                if let Some(read_events) = runtime.record_map_read_trace_event(
-                    call_id.to_string(),
-                    &policy.to_string(),
-                    identity.map_id.clone(),
-                    identity.revision,
-                    identity.canonical_sha256.clone(),
-                    identity.projection_sha256.clone(),
-                ) {
-                    events.extend(read_events);
-                }
-                Ok((projection, identity, decision.next_cursor, events))
-            })();
-            match read_result {
-                Ok((projection, identity, next_cursor, events)) => {
-                    (Ok((projection, identity, next_cursor)), events)
-                }
-                Err(error) => (Err(error), Vec::new()),
-            }
-        };
-        let (read_result, projection_events) = if has_store_handle {
-            self.mutate_canonical_action_map("read_map_projection", |runtime, _| {
-                perform_read(runtime)
+                Ok((projection, identity, decision.next_cursor))
             })
-            .await?
-        } else {
-            #[cfg(test)]
-            {
-                let mut state = self.state.lock().await;
-                perform_read(&mut state.action_map_runtime)
-            }
-            #[cfg(not(test))]
-            {
-                return Err("TaskSpace Map read requires a canonical Map Store handle.".to_string());
-            }
-        };
+            .await?;
         let (projection, identity, next_cursor) = read_result?;
         self.state.lock().await.taskspace_projection_cursor = next_cursor;
         {
@@ -3422,39 +3349,7 @@ impl Session {
                 "returned exact current TaskSpace Map projection"
             );
         }
-        if !projection_events.is_empty() {
-            self.emit_action_map_events_for_turn(turn_context, projection_events)
-                .await;
-        }
         Ok(projection)
-    }
-
-    pub(crate) async fn taskspace_event_id_for_call(
-        &self,
-        call_id: &str,
-    ) -> Result<String, String> {
-        let state = self.state.lock().await;
-        state
-            .taskspace_events
-            .event_id_for_call(call_id)
-            .ok_or_else(|| format!("TaskSpace canonical event is missing for call `{call_id}`."))
-    }
-
-    pub(crate) async fn taskspace_initialization_source_event_ids(
-        &self,
-        call_id: &str,
-    ) -> Result<Vec<String>, String> {
-        let state = self.state.lock().await;
-        let source_event_ids = state
-            .taskspace_events
-            .initialization_source_event_ids(call_id);
-        if source_event_ids.is_empty() {
-            Err(format!(
-                "TaskSpace canonical initialization sources are missing for call `{call_id}`."
-            ))
-        } else {
-            Ok(source_event_ids)
-        }
     }
 
     pub(crate) async fn prepare_provider_visible_prompt_items(
@@ -3462,7 +3357,7 @@ impl Session {
         turn_context: &TurnContext,
         mut items: Vec<ResponseItem>,
     ) -> Result<PreparedProviderPromptItems, String> {
-        let (policy, has_store_handle) = {
+        let policy = {
             let state = self.state.lock().await;
             if state.action_map_runtime.mode() != MapRuntimeMode::Experiment {
                 return Ok(PreparedProviderPromptItems {
@@ -3470,54 +3365,23 @@ impl Session {
                     projection_identity: None,
                 });
             }
-            (
-                state
-                    .session_configuration
-                    .taskspace_projection_policy
-                    .expect("TaskSpace mode requires an immutable projection policy"),
-                state.action_map_store_handle.is_some(),
-            )
+            state
+                .session_configuration
+                .taskspace_projection_policy
+                .expect("TaskSpace mode requires an immutable projection policy")
         };
-        let (context, projection_trace_events) = match policy {
-            TaskSpaceProjectionPolicy::MapRequest => (None, Vec::new()),
-            TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend
-                if has_store_handle =>
-            {
+        let context = match policy {
+            TaskSpaceProjectionPolicy::MapRequest => None,
+            TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {
                 let envelope = match policy {
                     TaskSpaceProjectionPolicy::MapAlways => ProjectionEnvelope::CurrentProjection,
                     TaskSpaceProjectionPolicy::MapAppend => ProjectionEnvelope::RequestSnapshot,
                     TaskSpaceProjectionPolicy::MapRequest => unreachable!(),
                 };
-                self.mutate_canonical_action_map("project_map_for_provider", move |runtime, _| {
-                    let context = runtime.build_developer_context(envelope);
-                    let events = runtime.take_pending_projection_trace_events();
-                    (context, events)
+                self.read_canonical_action_map("project_map_for_provider", move |runtime, _| {
+                    runtime.build_developer_context(envelope)
                 })
                 .await?
-            }
-            #[cfg(test)]
-            TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {
-                let mut state = self.state.lock().await;
-                let context = match policy {
-                    TaskSpaceProjectionPolicy::MapAlways => state
-                        .action_map_runtime
-                        .build_developer_context(ProjectionEnvelope::CurrentProjection),
-                    TaskSpaceProjectionPolicy::MapAppend => state
-                        .action_map_runtime
-                        .build_developer_context(ProjectionEnvelope::RequestSnapshot),
-                    TaskSpaceProjectionPolicy::MapRequest => unreachable!(),
-                };
-                let events = state
-                    .action_map_runtime
-                    .take_pending_projection_trace_events();
-                (context, events)
-            }
-            #[cfg(not(test))]
-            TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {
-                return Err(
-                    "TaskSpace provider projection requires a canonical Map Store handle."
-                        .to_string(),
-                );
             }
         };
         let (projection_item, map_handle_item) = {
@@ -3569,10 +3433,6 @@ impl Session {
             );
             (projection_item, map_handle_item)
         };
-        if !projection_trace_events.is_empty() {
-            self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
-                .await;
-        }
         match policy {
             TaskSpaceProjectionPolicy::MapAlways => {
                 items = remove_taskspace_projection_items(items);

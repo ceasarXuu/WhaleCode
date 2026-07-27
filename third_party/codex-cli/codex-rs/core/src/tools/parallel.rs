@@ -9,9 +9,7 @@ use tracing::Instrument;
 use tracing::instrument;
 use tracing::trace_span;
 
-use crate::action_map::ActionClass;
 use crate::action_map::ActionMapPreparedCall;
-use crate::action_map::ToolActionDescriptor;
 use crate::function_tool::FunctionCallError;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
@@ -19,8 +17,6 @@ use crate::tools::context::AbortedToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
-use crate::tools::context::response_input_model_visible_preview;
-use crate::tools::context::tool_output_model_visible_preview;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
@@ -28,16 +24,9 @@ use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
 use crate::tools::sequence_preflight::TaskSpaceDeclaredCall;
-use crate::tools::taskspace_binding::validate_taskspace_binding;
-use crate::tools::taskspace_initialization::InitializationAction;
-use crate::tools::taskspace_initialization::prepare_initialization;
-use crate::tools::taskspace_initialization::wrap_initialization_response;
-use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
-use codex_protocol::protocol::SessionSource;
-use codex_protocol::protocol::SubAgentSource;
 use codex_tools::ToolSpec;
 
 #[derive(Clone)]
@@ -121,93 +110,84 @@ impl ToolCallRuntime {
     pub(crate) fn handle_tool_call_for_sequence(
         self,
         call: ToolCall,
-        prepared_call: Option<ActionMapPreparedCall>,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
+        self.handle_native_tool_call_for_sequence(call, cancellation_token)
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub(crate) fn handle_taskspace_bound_tool_call_for_sequence(
+        self,
+        call: ToolCall,
+        prepared_call: ActionMapPreparedCall,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
         async move {
-            if cancellation_token.is_cancelled() {
-                let error = FunctionCallError::RespondToModel(
-                    "tool call cancelled before TaskSpace binding validation".to_string(),
-                );
-                return Ok(ToolCallExecution {
-                    response: Self::failure_response_for_error(&call, &error),
-                    supplemental_responses: Self::supplemental_failure_response(&call, &error)
-                        .into_iter()
-                        .collect(),
-                    succeeded: false,
-                    taskspace_terminal_carrier: None,
-                });
-            }
-            let initialization_action = match Box::pin(prepare_initialization(
-                &self.session,
-                &self.turn_context,
-                &call,
-            ))
-            .await
+            tracing::info!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace_native_tool_dispatched",
+                call_id = prepared_call.call_id,
+                call_index = prepared_call.call_index,
+                tool_name = prepared_call.tool_name,
+                map_id = prepared_call.map_id,
+                revision = prepared_call.revision,
+                node_id = prepared_call.node_id,
+                reservation_id = prepared_call.reservation_id,
+                "dispatched Agent-declared native tool action"
+            );
+            let mut execution = self
+                .clone()
+                .handle_native_tool_call_for_sequence(call, cancellation_token)
+                .await?;
+            match self
+                .record_taskspace_bound_tool_result(
+                    &prepared_call,
+                    execution.succeeded,
+                    &execution.response,
+                )
+                .await
             {
-                Ok(action) => action,
-                Err(FunctionCallError::Fatal(message)) => {
-                    return Err(CodexErr::Fatal(message));
+                Ok(()) => {
+                    tracing::info!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace_native_tool_result_attributed",
+                        call_id = prepared_call.call_id,
+                        call_index = prepared_call.call_index,
+                        tool_name = prepared_call.tool_name,
+                        map_id = prepared_call.map_id,
+                        node_id = prepared_call.node_id,
+                        reservation_id = prepared_call.reservation_id,
+                        tool_success = execution.succeeded,
+                        state_commit = true,
+                        "attributed native tool result to Agent-declared map node"
+                    );
                 }
-                Err(other) => {
-                    let mut response = Self::failure_response_for_error(&call, &other);
-                    let rejected = InitializationAction::Rejected(other.to_string());
-                    wrap_initialization_response(&mut response, &rejected, false);
-                    return Ok(ToolCallExecution {
-                        response,
-                        supplemental_responses: Self::supplemental_failure_response(&call, &other)
-                            .into_iter()
-                            .collect(),
-                        succeeded: false,
-                        taskspace_terminal_carrier: None,
-                    });
+                Err(error) => {
+                    Self::apply_failed_bound_result_commit(&mut execution, &prepared_call, error);
                 }
-            };
-            if let InitializationAction::Rejected(message) = &initialization_action {
-                let error = FunctionCallError::RespondToModel(message.clone());
-                let mut response = Self::failure_response_for_error(&call, &error);
-                wrap_initialization_response(&mut response, &initialization_action, false);
-                return Ok(ToolCallExecution {
-                    response,
-                    supplemental_responses: Self::supplemental_failure_response(&call, &error)
-                        .into_iter()
-                        .collect(),
-                    succeeded: false,
-                    taskspace_terminal_carrier: None,
-                });
             }
-            if prepared_call.is_none()
-                && let Err(message) = validate_taskspace_binding(&self.session, &call).await
-            {
-                let error = FunctionCallError::RespondToModel(message);
-                let mut response = Self::failure_response_for_error(&call, &error);
-                wrap_initialization_response(&mut response, &initialization_action, false);
-                return Ok(ToolCallExecution {
-                    response,
-                    supplemental_responses: Self::supplemental_failure_response(&call, &error)
-                        .into_iter()
-                        .collect(),
-                    succeeded: false,
-                    taskspace_terminal_carrier: None,
-                });
-            }
+            Ok(execution)
+        }
+        .in_current_span()
+    }
+
+    fn handle_native_tool_call_for_sequence(
+        self,
+        call: ToolCall,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
+        async move {
             let error_call = call.clone();
-            let future = self.clone().handle_tool_call_with_source_and_bound(
+            let future = self.clone().handle_tool_call_with_source(
                 call,
                 ToolCallSource::Direct,
-                prepared_call.is_some(),
                 cancellation_token,
             );
             match future.await {
                 Ok(response) => {
                     let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
                     let succeeded = response.result.success_for_logging();
-                    let mut response = response.into_response();
-                    if let Some(prepared) = prepared_call.as_ref() {
-                        self.record_taskspace_bound_tool_result(prepared, succeeded, &response)
-                            .await;
-                    }
-                    wrap_initialization_response(&mut response, &initialization_action, true);
+                    let response = response.into_response();
                     Ok(ToolCallExecution {
                         response,
                         supplemental_responses: Vec::new(),
@@ -220,13 +200,8 @@ impl ToolCallRuntime {
                     let supplemental_responses =
                         Self::supplemental_failure_response(&error_call, &other)
                             .into_iter()
-                            .collect();
-                    let mut response = Self::failure_response(error_call, other);
-                    if let Some(prepared) = prepared_call.as_ref() {
-                        self.record_taskspace_bound_tool_result(prepared, false, &response)
-                            .await;
-                    }
-                    wrap_initialization_response(&mut response, &initialization_action, true);
+                            .collect::<Vec<_>>();
+                    let response = Self::failure_response(error_call, other);
                     Ok(ToolCallExecution {
                         response,
                         supplemental_responses,
@@ -246,16 +221,6 @@ impl ToolCallRuntime {
         source: ToolCallSource,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<AnyToolResult, FunctionCallError>> {
-        self.handle_tool_call_with_source_and_bound(call, source, false, cancellation_token)
-    }
-
-    fn handle_tool_call_with_source_and_bound(
-        self,
-        call: ToolCall,
-        source: ToolCallSource,
-        taskspace_response_bound: bool,
-        cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<Output = Result<AnyToolResult, FunctionCallError>> {
         let supports_parallel = self.router.tool_supports_parallel(&call);
         let router = Arc::clone(&self.router);
         let session = Arc::clone(&self.session);
@@ -265,12 +230,6 @@ impl ToolCallRuntime {
         let invocation_cancellation_token = cancellation_token.clone();
         let started = Instant::now();
         let display_name = call.tool_name.display();
-        let taskspace_attributed =
-            !taskspace_response_bound && Self::should_attribute_taskspace_tool(&call, &source);
-        let taskspace_descriptor =
-            taskspace_attributed.then(|| Self::classify_taskspace_tool_action(&call));
-        let taskspace_tool_name = display_name.clone();
-        let taskspace_call_id = call.call_id.clone();
 
         let dispatch_span = trace_span!(
             "dispatch_tool_call_with_code_mode_result",
@@ -287,23 +246,6 @@ impl ToolCallRuntime {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
                         dispatch_span.record("aborted", true);
                         let response = Self::aborted_response(&call, secs);
-                        if let Some(descriptor) = taskspace_descriptor.as_ref() {
-                            let preview = tool_output_model_visible_preview(
-                                response.result.as_ref(),
-                                &response.call_id,
-                                &response.payload,
-                            );
-                            Self::record_taskspace_tool_result(
-                                &session,
-                                &turn,
-                                &taskspace_call_id,
-                                &taskspace_tool_name,
-                                Some(descriptor.action_class),
-                                false,
-                                preview,
-                            )
-                                .await;
-                        }
                         Ok(response)
                     },
                     res = async {
@@ -324,45 +266,7 @@ impl ToolCallRuntime {
                             )
                             .instrument(dispatch_span.clone())
                             .await;
-                        match result {
-                            Ok(result) => {
-                                if let Some(descriptor) = taskspace_descriptor.as_ref() {
-                                    let preview = tool_output_model_visible_preview(
-                                        result.result.as_ref(),
-                                        &result.call_id,
-                                        &result.payload,
-                                    );
-                                    Self::record_taskspace_tool_result(
-                                        &session,
-                                        &turn,
-                                        &taskspace_call_id,
-                                        &taskspace_tool_name,
-                                        Some(descriptor.action_class),
-                                        result.result.success_for_logging(),
-                                        preview,
-                                    )
-                                        .await;
-                                }
-                                Ok(result)
-                            }
-                            Err(err) => {
-                                if let Some(descriptor) = taskspace_descriptor.as_ref() {
-                                    let response = Self::failure_response_for_error(&call, &err);
-                                    let preview = response_input_model_visible_preview(&response);
-                                    Self::record_taskspace_tool_result(
-                                        &session,
-                                        &turn,
-                                        &taskspace_call_id,
-                                        &taskspace_tool_name,
-                                        Some(descriptor.action_class),
-                                        false,
-                                        preview,
-                                    )
-                                        .await;
-                                }
-                                Err(err)
-                            }
-                        }
+                        result
                     } => res,
                 }
             }));
@@ -545,51 +449,13 @@ impl ToolCallRuntime {
         }
     }
 
-    async fn record_taskspace_tool_result(
-        session: &Arc<Session>,
-        turn: &TurnContext,
-        call_id: &str,
-        tool_name: &str,
-        action_class: Option<ActionClass>,
-        success: bool,
-        preview: String,
-    ) {
-        if let Some(parent_thread_id) = taskspace_parent_thread_id(&turn.session_source) {
-            session
-                .services
-                .agent_control
-                .record_action_map_child_tool_result(
-                    parent_thread_id,
-                    session.conversation_id,
-                    call_id,
-                    tool_name,
-                    action_class,
-                    success,
-                    preview,
-                )
-                .await;
-        } else {
-            session
-                .record_action_map_main_tool_result(
-                    turn,
-                    call_id,
-                    tool_name,
-                    action_class,
-                    success,
-                    preview,
-                )
-                .await;
-        }
-    }
-
     async fn record_taskspace_bound_tool_result(
         &self,
         prepared: &ActionMapPreparedCall,
         success: bool,
         response: &ResponseInputItem,
-    ) {
-        if let Err(error) = self
-            .session
+    ) -> Result<(), String> {
+        self.session
             .record_taskspace_bound_tool_result(
                 &self.turn_context,
                 prepared,
@@ -597,50 +463,35 @@ impl ToolCallRuntime {
                 result_ref_id(response),
             )
             .await
-        {
-            tracing::warn!(
-                target: "codex_core::taskspace",
-                call_id = prepared.call_id,
-                node_id = prepared.node_id,
-                error,
-                "taskspace_bound_tool_result_record_failed"
-            );
-        }
     }
 
-    fn should_attribute_taskspace_tool(call: &ToolCall, source: &ToolCallSource) -> bool {
-        if *source != ToolCallSource::Direct {
-            return false;
-        }
-        if matches!(call.tool_name.name.as_str(), "update_plan") {
-            return false;
-        }
-        if call.tool_name.namespace.is_some() {
-            return true;
-        }
-        !matches!(
-            call.tool_name.name.as_str(),
-            "spawn_agent"
-                | "wait_agent"
-                | "close_agent"
-                | "resume_agent"
-                | "send_input"
-                | "send_message"
-                | "taskspace_control"
-                | "list_agents"
-                | "followup_task"
-        )
-    }
-
-    fn classify_taskspace_tool_action(call: &ToolCall) -> ToolActionDescriptor {
-        let tool_name = call.tool_name.display();
-        let preview = call
-            .payload
-            .log_payload_for_tool(&call.tool_name)
-            .to_string();
-        let class = taskspace_benchmark_action_class(&call.call_id)
-            .unwrap_or_else(|| classify_tool_payload(&tool_name, &call.payload));
-        ToolActionDescriptor::new(tool_name, class, preview).with_call_id(call.call_id.clone())
+    fn apply_failed_bound_result_commit(
+        execution: &mut ToolCallExecution,
+        prepared: &ActionMapPreparedCall,
+        error: String,
+    ) {
+        tracing::warn!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace_native_tool_result_attribution_failed",
+            call_id = prepared.call_id,
+            node_id = prepared.node_id,
+            reservation_id = prepared.reservation_id,
+            state_commit = false,
+            error = %error,
+            "taskspace_bound_tool_result_record_failed"
+        );
+        execution.succeeded = false;
+        execution
+            .supplemental_responses
+            .push(Self::factual_message(serde_json::json!({
+                "schema_version": "TaskSpaceBoundResultCommitFailureV1",
+                "status": "failed",
+                "success": false,
+                "state_commit": false,
+                "call_id": prepared.call_id,
+                "reservation_id": prepared.reservation_id,
+                "error": error,
+            })));
     }
 }
 
@@ -655,339 +506,6 @@ fn result_ref_id(response: &ResponseInputItem) -> String {
     format!("tool-result://call/{call_id}")
 }
 
-fn taskspace_benchmark_action_class(call_id: &str) -> Option<ActionClass> {
-    let suffix = call_id.strip_prefix("taskspace-action-contract-")?;
-    let (_, action) = suffix.rsplit_once('-')?;
-    match action {
-        "list_files" | "read_file" => Some(ActionClass::Read),
-        "search" => Some(ActionClass::Search),
-        "apply_patch" => Some(ActionClass::Edit),
-        "run_test" => Some(ActionClass::Test),
-        "taskspace_control" => Some(ActionClass::Control),
-        _ => None,
-    }
-}
-
-fn classify_tool_payload(tool_name: &str, payload: &ToolPayload) -> ActionClass {
-    let tool = tool_name.to_ascii_lowercase();
-    if tool.contains("apply_patch") {
-        return ActionClass::Edit;
-    }
-    if tool.contains("taskspace_control") {
-        return ActionClass::Control;
-    }
-    if tool.contains("spawn_agent") || tool.ends_with("spawn") {
-        return ActionClass::Spawn;
-    }
-    if tool.contains("wait_agent") || tool.contains("close_agent") || tool.contains("resume_agent")
-    {
-        return ActionClass::Wait;
-    }
-    if tool.contains("review") {
-        return ActionClass::Review;
-    }
-    match payload {
-        ToolPayload::ToolSearch { .. } => ActionClass::Search,
-        ToolPayload::LocalShell { params } => classify_shell_text(&params.command.join(" ")),
-        ToolPayload::Function { arguments }
-        | ToolPayload::Mcp {
-            raw_arguments: arguments,
-            ..
-        } => {
-            let command = extract_command_from_json(arguments).unwrap_or_else(|| arguments.clone());
-            if is_shell_like_tool(&tool) {
-                classify_shell_text(&command)
-            } else if tool.contains("search") || tool.contains("find") {
-                ActionClass::Search
-            } else if tool.contains("read") || tool.contains("open") || tool.contains("list") {
-                ActionClass::Read
-            } else {
-                ActionClass::Unknown
-            }
-        }
-        ToolPayload::Custom { input } => {
-            if tool.contains("apply_patch") {
-                ActionClass::Edit
-            } else {
-                classify_shell_text(input)
-            }
-        }
-    }
-}
-
-fn taskspace_parent_thread_id(session_source: &SessionSource) -> Option<ThreadId> {
-    match session_source {
-        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
-            parent_thread_id, ..
-        }) => Some(*parent_thread_id),
-        _ => None,
-    }
-}
-
-fn is_shell_like_tool(tool_name: &str) -> bool {
-    matches!(
-        tool_name,
-        "shell"
-            | "container.exec"
-            | "exec_command"
-            | "local_shell"
-            | "shell_command"
-            | "unified_exec"
-    ) || tool_name.ends_with(".shell_command")
-        || tool_name.ends_with(".shell")
-}
-
-fn extract_command_from_json(arguments: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
-    value
-        .get("command")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .or_else(|| {
-            value
-                .get("cmd")
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-        })
-}
-
-fn classify_shell_text(command: &str) -> ActionClass {
-    let lower = command.to_ascii_lowercase();
-    let trimmed = lower.trim();
-    if trimmed.is_empty() {
-        return ActionClass::Unknown;
-    }
-    let padded = format!(" {trimmed} ");
-    let command_words = normalized_shell_words(trimmed);
-    let has_test_action = contains_any(
-        &lower,
-        &[
-            "pytest",
-            "cargo test",
-            "cargo nextest",
-            "npm test",
-            "npm run test",
-            "pnpm test",
-            "pnpm run test",
-            "yarn test",
-            "dotnet test",
-            "go test",
-            "gradle test",
-            "gradlew test",
-            "mvn test",
-            "connecteddebugandroidtest",
-            "python -m unittest",
-            "python -m jsonschema",
-            "python3 -m jsonschema",
-            "py -m jsonschema",
-        ],
-    ) || has_common_test_command(&command_words)
-        || runs_python_test_file(&command_words)
-        || runs_python_diagnostic_script(&command_words);
-    let has_build_action = contains_any(
-        &lower,
-        &[
-            "cargo build",
-            "cargo check",
-            "cargo clippy",
-            "cargo fmt --check",
-            "npm run build",
-            "npm run lint",
-            "npm run typecheck",
-            "npm run check",
-            "pnpm run build",
-            "pnpm run lint",
-            "pnpm run typecheck",
-            "pnpm run check",
-            "pnpm build",
-            "pnpm lint",
-            "yarn build",
-            "yarn lint",
-            "yarn typecheck",
-            "yarn run typecheck",
-            "dotnet build",
-            "gradle build",
-            "gradle check",
-            "gradlew build",
-            "gradlew check",
-            "mvn package",
-            "mvn verify",
-            "rustfmt --check",
-            "tsc --noemit",
-            "tsc --no-emit",
-        ],
-    ) || has_common_build_command(trimmed, &command_words);
-    let has_edit_action = has_file_redirection(&lower)
-        || has_mutating_formatter_command(trimmed, &command_words)
-        || contains_any(
-            &lower,
-            &[
-                "apply_patch",
-                "set-content",
-                "add-content",
-                "out-file",
-                "new-item",
-                "remove-item",
-                "move-item",
-                "copy-item",
-                "rename-item",
-                "git stash",
-                "git commit",
-                "git add",
-                "git reset",
-                "git clean",
-                "git restore",
-                "git checkout",
-                "git switch",
-                "git merge",
-                "git rebase",
-                "git cherry-pick",
-                "git apply",
-                "cargo fix",
-                "prettier --write",
-                "eslint --fix",
-                "npm run format",
-                "pnpm format",
-                "yarn format",
-                "sed -i",
-                "perl -pi",
-                "python -c",
-                "python - <<",
-                "py -c",
-                "node -e",
-                "tee ",
-                " tee ",
-            ],
-        )
-        || contains_shell_token(
-            &command_words,
-            &[
-                "sc", "ac", "ni", "ri", "rm", "del", "erase", "rd", "rmdir", "mi", "mv", "cpi",
-                "cp", "ren", "mkdir", "touch",
-            ],
-        );
-    let has_search_action = contains_any(
-        &padded,
-        &[
-            "rg ",
-            " rg ",
-            "select-string",
-            "grep ",
-            " grep ",
-            "findstr",
-            "search",
-        ],
-    ) || lower.contains("rg.exe");
-    let has_read_action = contains_any(
-        &lower,
-        &[
-            "get-content",
-            "get-childitem",
-            "get-location",
-            "git diff",
-            "git status",
-            "git log",
-            "git show",
-        ],
-    ) || has_bounded_sed_read_command(trimmed, &command_words)
-        || contains_shell_token(&command_words, &["ls", "dir", "cat", "type", "pwd"]);
-    if has_edit_action {
-        return ActionClass::Edit;
-    }
-    if has_test_action {
-        return ActionClass::Test;
-    }
-    if has_build_action {
-        return ActionClass::Build;
-    }
-    if has_search_action {
-        return ActionClass::Search;
-    }
-    if has_read_action {
-        return ActionClass::Read;
-    }
-    ActionClass::Unknown
-}
-
-fn has_common_test_command(words: &str) -> bool {
-    (contains_shell_token(words, &["dotnet", "mvn", "mvnw"])
-        && contains_shell_token(words, &["test"]))
-        || (contains_shell_token(words, &["gradle", "gradlew"])
-            && contains_shell_token(words, &["test"]))
-        || (contains_shell_token(words, &["npm", "pnpm", "yarn"])
-            && contains_shell_token(words, &["test"]))
-}
-
-fn has_common_build_command(command: &str, words: &str) -> bool {
-    (contains_shell_token(words, &["gradle", "gradlew"])
-        && contains_shell_token(words, &["build", "check"]))
-        || (contains_shell_token(words, &["npm", "pnpm", "yarn"])
-            && contains_shell_token(words, &["build", "lint", "typecheck", "check"]))
-        || (command.contains("cargo fmt") && command.contains("--check"))
-        || (contains_shell_token(words, &["rustfmt"]) && command.contains("--check"))
-}
-
-fn has_mutating_formatter_command(command: &str, words: &str) -> bool {
-    (command.contains("cargo fmt") && !command.contains("--check"))
-        || (contains_shell_token(words, &["rustfmt"]) && !command.contains("--check"))
-}
-
-fn has_bounded_sed_read_command(command: &str, words: &str) -> bool {
-    contains_shell_token(words, &["sed"]) && command.contains("sed -n")
-}
-
-fn runs_python_test_file(words: &str) -> bool {
-    let tokens = words.split_whitespace().collect::<Vec<_>>();
-    tokens.windows(2).any(|pair| {
-        matches!(pair[0], "python" | "python3" | "py")
-            && pair[1]
-                .rsplit(['/', '\\'])
-                .next()
-                .is_some_and(|name| name.starts_with("test_") && name.ends_with(".py"))
-    })
-}
-
-fn runs_python_diagnostic_script(words: &str) -> bool {
-    let tokens = words.split_whitespace().collect::<Vec<_>>();
-    tokens.windows(2).any(|pair| {
-        matches!(pair[0], "python" | "python3" | "py")
-            && pair[1].ends_with(".py")
-            && !pair[1].starts_with('-')
-    })
-}
-
-fn has_file_redirection(command: &str) -> bool {
-    command.char_indices().any(|(index, ch)| {
-        if ch != '>' {
-            return false;
-        }
-        let after = command[index + ch.len_utf8()..].trim_start();
-        !after.is_empty() && !after.starts_with('&')
-    })
-}
-
-fn normalized_shell_words(command: &str) -> String {
-    let normalized: String = command
-        .chars()
-        .map(|ch| match ch {
-            ';' | '&' | '|' | '\n' | '\r' | '\t' | '(' | ')' | '{' | '}' | '[' | ']' | '"'
-            | '\'' | ',' => ' ',
-            _ => ch,
-        })
-        .collect();
-    format!(" {normalized} ")
-}
-
-fn contains_shell_token(words: &str, tokens: &[&str]) -> bool {
-    tokens
-        .iter()
-        .any(|token| words.contains(&format!(" {token} ")))
-}
-
-fn contains_any(haystack: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| haystack.contains(needle))
-}
-
 fn function_call_error_model_visible_message(err: &FunctionCallError) -> String {
     match err {
         FunctionCallError::RespondToModel(message) => message.clone(),
@@ -1000,11 +518,9 @@ fn function_call_error_model_visible_message(err: &FunctionCallError) -> String 
 
 #[cfg(test)]
 mod tests {
+    use super::ToolCallExecution;
     use super::ToolCallRuntime;
-    use super::classify_shell_text;
-    use super::classify_tool_payload;
-    use super::taskspace_benchmark_action_class;
-    use crate::action_map::ActionClass;
+    use crate::action_map::ActionMapPreparedCall;
     use crate::function_tool::FunctionCallError;
     use crate::tools::context::ToolPayload;
     use crate::tools::context::response_input_model_visible_preview;
@@ -1019,7 +535,6 @@ mod tests {
             payload: ToolPayload::Function {
                 arguments: "{}".to_string(),
             },
-            taskspace_binding: None,
         };
         let response = ToolCallRuntime::failure_response_for_error(&call, &err);
         response_input_model_visible_preview(&response)
@@ -1070,7 +585,6 @@ mod tests {
                     limit: None,
                 },
             },
-            taskspace_binding: Some("active".to_string()),
         };
         let error = FunctionCallError::RespondToModel("query must not be empty".to_string());
         let response = ToolCallRuntime::failure_response_for_error(&call, &error);
@@ -1102,184 +616,61 @@ mod tests {
     }
 
     #[test]
-    fn shell_action_classifier_identifies_core_taskspace_classes() {
-        assert_eq!(
-            classify_shell_text("Get-Content src/lib.rs"),
-            ActionClass::Read
-        );
-        assert_eq!(classify_shell_text("ls"), ActionClass::Read);
-        assert_eq!(classify_shell_text("dir src"), ActionClass::Read);
-        assert_eq!(classify_shell_text("Get-Location"), ActionClass::Read);
-        assert_eq!(
-            classify_shell_text(
-                "sed -n '1,240p' -- package.json && awk 'NR == 241 { exit }' package.json"
-            ),
-            ActionClass::Read
-        );
-        assert_eq!(
-            classify_shell_text(
-                "printf '===== %s\\n' package.json; sed -n '1,240p' -- package.json && awk 'NR == 241 { exit }' package.json"
-            ),
-            ActionClass::Read
-        );
-        assert_eq!(
-            classify_shell_text(
-                "printf '===== %s\\n' employees.csv; sed -n '1,240p' -- employees.csv && awk 'NR == 241 { truncated = 1; exit } { lines = NR } END { eof = truncated ? \"false\" : \"true\"; if (240 < lines) lines = 240; printf \"\\nTaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines=240\\n\", FILENAME, lines + 0, eof }' employees.csv"
-            ),
-            ActionClass::Read
-        );
-        assert_eq!(
-            classify_shell_text("cmd /c \"dir /s /b repo\\*.py\""),
-            ActionClass::Read
-        );
-        assert_eq!(
-            classify_shell_text("rg \"TaskSpace\" src"),
-            ActionClass::Search
-        );
-        assert_eq!(classify_shell_text("grep -R foo src"), ActionClass::Search);
-        assert_eq!(classify_shell_text("pytest -q"), ActionClass::Test);
-        assert_eq!(
-            classify_shell_text("python -m pytest tests/ -v 2>&1"),
-            ActionClass::Test
-        );
-        assert_eq!(
-            classify_shell_text(
-                "node process.js && python -m jsonschema -i organization.json schema.json"
-            ),
-            ActionClass::Test
-        );
-        assert_eq!(
-            classify_shell_text("python test_pricing.py"),
-            ActionClass::Test
-        );
-        assert_eq!(
-            classify_shell_text("python scripts/emit_large_log.py"),
-            ActionClass::Test
-        );
-        assert_eq!(
-            classify_shell_text("py tools\\diagnose_failure.py"),
-            ActionClass::Test
-        );
-        assert_eq!(
-            classify_shell_text("py tests\\test_pricing.py"),
-            ActionClass::Test
-        );
-        assert_eq!(
-            classify_shell_text("pytest -q > pytest.log"),
-            ActionClass::Edit
-        );
-        assert_eq!(
-            classify_shell_text("pytest -q 2> pytest.err.log"),
-            ActionClass::Edit
-        );
-        assert_eq!(
-            classify_shell_text("git stash push -- src/lib.rs; python -m pytest tests -q"),
-            ActionClass::Edit
-        );
-        assert_eq!(classify_shell_text("cargo check"), ActionClass::Build);
-        assert_eq!(
-            classify_shell_text("cargo build --release"),
-            ActionClass::Build
-        );
-        assert_eq!(classify_shell_text("cargo fmt --check"), ActionClass::Build);
-        assert_eq!(
-            classify_shell_text("rustfmt --check src/lib.rs"),
-            ActionClass::Build
-        );
-        assert_eq!(classify_shell_text("dotnet test"), ActionClass::Test);
-        assert_eq!(classify_shell_text("mvn -q test"), ActionClass::Test);
-        assert_eq!(classify_shell_text("gradlew build"), ActionClass::Build);
-        assert_eq!(classify_shell_text("npm run build"), ActionClass::Build);
-        assert_eq!(classify_shell_text("npm run typecheck"), ActionClass::Build);
-        assert_eq!(classify_shell_text("pnpm run build"), ActionClass::Build);
-        assert_eq!(
-            classify_shell_text("pnpm run typecheck"),
-            ActionClass::Build
-        );
-        assert_eq!(classify_shell_text("yarn typecheck"), ActionClass::Build);
-        assert_eq!(classify_shell_text("tsc --noEmit"), ActionClass::Build);
-        assert_eq!(
-            classify_shell_text("cargo build && cargo test"),
-            ActionClass::Test
-        );
-        assert_eq!(
-            classify_shell_text("Set-Content file.txt value"),
-            ActionClass::Edit
-        );
-        assert_eq!(
-            classify_shell_text("Set-Content file.txt value; pytest -q"),
-            ActionClass::Edit
-        );
-        assert_eq!(classify_shell_text("pytest -q>out.log"), ActionClass::Edit);
-        assert_eq!(classify_shell_text("rm file; pytest -q"), ActionClass::Edit);
-        assert_eq!(
-            classify_shell_text("del file & pytest -q"),
-            ActionClass::Edit
-        );
-        assert_eq!(
-            classify_shell_text("sc file value; pytest -q"),
-            ActionClass::Edit
-        );
-        assert_eq!(classify_shell_text("ni file; pytest -q"), ActionClass::Edit);
-        assert_eq!(classify_shell_text("mv a b; pytest -q"), ActionClass::Edit);
-        assert_eq!(
-            classify_shell_text("sed -i s/a/b/ file; pytest -q"),
-            ActionClass::Edit
-        );
-        assert_eq!(
-            classify_shell_text("python -c \"open('x','w').write('y')\"; pytest -q"),
-            ActionClass::Edit
-        );
-        assert_eq!(
-            classify_shell_text("python scripts/emit_large_log.py > out.log"),
-            ActionClass::Edit
-        );
-        assert_eq!(classify_shell_text("git stash"), ActionClass::Edit);
-        assert_eq!(classify_shell_text("cargo fmt"), ActionClass::Edit);
-        assert_eq!(classify_shell_text("rustfmt src/lib.rs"), ActionClass::Edit);
-        assert_eq!(
-            classify_shell_text("some-unknown-tool"),
-            ActionClass::Unknown
-        );
-    }
+    fn bound_result_commit_failure_is_factual_and_marks_execution_failed() {
+        let prepared = ActionMapPreparedCall {
+            map_id: "map-1".to_string(),
+            revision: 8,
+            call_id: "call-1".to_string(),
+            call_index: 0,
+            node_id: "inspect".to_string(),
+            tool_name: "read_file".to_string(),
+            reservation_id: "reservation-1".to_string(),
+        };
+        let original_error = "reservation release rejected: revision mismatch";
+        let native_response = codex_protocol::models::ResponseInputItem::FunctionCallOutput {
+            call_id: prepared.call_id.clone(),
+            output: codex_protocol::models::FunctionCallOutputPayload {
+                body: codex_protocol::models::FunctionCallOutputBody::Text(
+                    "native output".to_string(),
+                ),
+                success: Some(true),
+            },
+        };
+        let mut execution = ToolCallExecution {
+            response: native_response.clone(),
+            supplemental_responses: Vec::new(),
+            succeeded: true,
+            taskspace_terminal_carrier: None,
+        };
 
-    #[test]
-    fn exec_command_alias_uses_shell_action_classification() {
-        assert_eq!(
-            classify_tool_payload(
-                "exec_command",
-                &ToolPayload::Function {
-                    arguments: serde_json::json!({ "cmd": "cat README.md" }).to_string(),
-                },
-            ),
-            ActionClass::Read
+        ToolCallRuntime::apply_failed_bound_result_commit(
+            &mut execution,
+            &prepared,
+            original_error.to_string(),
         );
-        assert_eq!(
-            classify_tool_payload(
-                "exec_command",
-                &ToolPayload::Function {
-                    arguments: serde_json::json!({ "cmd": "pytest -q" }).to_string(),
-                },
-            ),
-            ActionClass::Test
-        );
-    }
 
-    #[test]
-    fn taskspace_benchmark_call_id_preserves_run_test_class() {
-        assert_eq!(
-            taskspace_benchmark_action_class("taskspace-action-contract-25-run_test"),
-            Some(ActionClass::Test)
-        );
-        assert_eq!(
-            taskspace_benchmark_action_class(
-                "taskspace-action-contract-bootstrap-taskspace_control"
-            ),
-            Some(ActionClass::Control)
-        );
-        assert_eq!(
-            classify_shell_text("bash /app/run_pipeline.sh"),
-            ActionClass::Unknown
-        );
+        assert!(!execution.succeeded);
+        assert_eq!(execution.response, native_response);
+        let codex_protocol::models::ResponseInputItem::Message { content, .. } = execution
+            .supplemental_responses
+            .pop()
+            .expect("supplemental failure")
+        else {
+            panic!("expected factual supplemental message");
+        };
+        let text = content
+            .into_iter()
+            .map(|item| match item {
+                codex_protocol::models::ContentItem::InputText { text }
+                | codex_protocol::models::ContentItem::OutputText { text } => text,
+                codex_protocol::models::ContentItem::InputImage { .. } => String::new(),
+            })
+            .collect::<String>();
+        let fact: serde_json::Value = serde_json::from_str(&text).expect("valid fact JSON");
+        assert_eq!(fact["state_commit"], false);
+        assert_eq!(fact["success"], false);
+        assert_eq!(fact["call_id"], prepared.call_id);
+        assert_eq!(fact["reservation_id"], prepared.reservation_id);
+        assert_eq!(fact["error"], original_error);
     }
 }

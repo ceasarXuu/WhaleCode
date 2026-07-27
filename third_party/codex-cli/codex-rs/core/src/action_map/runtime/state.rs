@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
+use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 
 use crate::action_map::map::ActionMapId;
@@ -10,6 +11,7 @@ use crate::action_map::map::ActionMapInstance;
 
 use super::types::ActionMapControlState;
 use super::types::SetTaskSpaceModeOutcome;
+use super::types::TaskSpaceModeTransition;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
@@ -57,6 +59,35 @@ mod tests {
         assert_eq!(runtime.active_map_id(), Some("map-1"));
         assert_eq!(runtime.canonical_map_for_store(), Some(map));
     }
+
+    #[test]
+    fn experiment_mode_retains_empty_map_identity_without_canonical_map() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+
+        runtime.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+        assert_eq!(runtime.mode(), MapRuntimeMode::Experiment);
+        assert_eq!(
+            runtime.active_map_id(),
+            Some(format!("map-{owner}").as_str())
+        );
+        assert_eq!(runtime.canonical_map_for_store(), None);
+    }
+
+    #[test]
+    fn restore_store_map_none_activates_explicit_empty_identity() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+
+        runtime
+            .restore_store_map("store-map-7", owner, None)
+            .expect("empty store identity restore");
+
+        assert_eq!(runtime.mode(), MapRuntimeMode::Experiment);
+        assert_eq!(runtime.active_map_id(), Some("store-map-7"));
+        assert_eq!(runtime.canonical_map_for_store(), None);
+    }
 }
 
 impl Default for ActionMapRuntimeState {
@@ -75,16 +106,31 @@ impl ActionMapRuntimeState {
         mode: MapRuntimeMode,
         owner_session_id: ThreadId,
     ) -> (SetTaskSpaceModeOutcome, Vec<MapRuntimeEvent>) {
+        let previous_mode = self.mode;
         self.mode = mode;
         if mode == MapRuntimeMode::Experiment && self.active_map_id.is_none() {
             self.active_map_id = Some(format!("map-{owner_session_id}"));
         }
+        let changed = previous_mode != mode;
+        let events = changed
+            .then(|| {
+                MapRuntimeEvent::ModeChanged(MapRuntimeModeChangedEvent {
+                    previous_mode,
+                    current_mode: mode,
+                })
+            })
+            .into_iter()
+            .collect();
         (
             SetTaskSpaceModeOutcome {
-                mode,
+                mode: TaskSpaceModeTransition {
+                    previous_mode,
+                    current_mode: mode,
+                    changed,
+                },
                 active_map_id: self.active_map_id.clone(),
             },
-            Vec::new(),
+            events,
         )
     }
 
@@ -92,6 +138,7 @@ impl ActionMapRuntimeState {
         self.mode
     }
 
+    #[cfg(test)]
     pub(crate) fn active_map_id(&self) -> Option<&str> {
         self.active_map_id.as_deref()
     }
@@ -105,6 +152,12 @@ impl ActionMapRuntimeState {
     pub(crate) fn active_map_mut(&mut self) -> Option<&mut ActionMapInstance> {
         let map_id = self.active_map_id.clone()?;
         self.maps.get_mut(&map_id)
+    }
+
+    pub(crate) fn clear_active_map(&mut self) {
+        if let Some(map_id) = self.active_map_id.as_deref() {
+            self.maps.remove(map_id);
+        }
     }
 
     pub(crate) fn control_state(&self, map_id_hint: Option<&str>) -> Option<ActionMapControlState> {

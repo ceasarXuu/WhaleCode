@@ -37,7 +37,6 @@ pub struct ToolCall {
     pub tool_name: ToolName,
     pub call_id: String,
     pub payload: ToolPayload,
-    pub taskspace_binding: Option<String>,
 }
 
 pub struct ToolRouter {
@@ -178,7 +177,6 @@ impl ToolRouter {
         session: &Session,
         item: ResponseItem,
     ) -> Result<Option<ToolCall>, FunctionCallError> {
-        let taskspace_active = session.taskspace_active().await;
         match item {
             ResponseItem::FunctionCall {
                 name,
@@ -188,8 +186,6 @@ impl ToolRouter {
                 ..
             } => {
                 let tool_name = ToolName::new(namespace, name);
-                let (arguments, taskspace_binding) =
-                    extract_taskspace_binding(arguments, taskspace_active)?;
                 if let Some(tool_info) = session.resolve_mcp_tool_info(&tool_name).await {
                     Ok(Some(ToolCall {
                         tool_name: tool_info.canonical_tool_name(),
@@ -199,7 +195,6 @@ impl ToolRouter {
                             tool: tool_info.tool.name.to_string(),
                             raw_arguments: arguments,
                         },
-                        taskspace_binding,
                     }))
                 } else {
                     let (tool_name, arguments) =
@@ -208,7 +203,6 @@ impl ToolRouter {
                         tool_name,
                         call_id,
                         payload: ToolPayload::Function { arguments },
-                        taskspace_binding,
                     }))
                 }
             }
@@ -218,8 +212,6 @@ impl ToolRouter {
                 arguments,
                 ..
             } if execution == "client" => {
-                let (arguments, taskspace_binding) =
-                    extract_taskspace_binding_value(arguments, taskspace_active)?;
                 let arguments: SearchToolCallParams =
                     serde_json::from_value(arguments).map_err(|err| {
                         FunctionCallError::RespondToModel(format!(
@@ -230,7 +222,6 @@ impl ToolRouter {
                     tool_name: ToolName::plain("tool_search"),
                     call_id,
                     payload: ToolPayload::ToolSearch { arguments },
-                    taskspace_binding,
                 }))
             }
             ResponseItem::ToolSearchCall {
@@ -250,7 +241,6 @@ impl ToolRouter {
                 tool_name: ToolName::plain(name),
                 call_id,
                 payload: ToolPayload::Custom { input },
-                taskspace_binding: None,
             })),
             ResponseItem::LocalShellCall {
                 id,
@@ -277,7 +267,6 @@ impl ToolRouter {
                             tool_name: ToolName::plain("local_shell"),
                             call_id,
                             payload: ToolPayload::LocalShell { params },
-                            taskspace_binding: None,
                         }))
                     }
                 }
@@ -300,7 +289,6 @@ impl ToolRouter {
             tool_name,
             call_id,
             payload,
-            taskspace_binding: _,
         } = call;
 
         let invocation = ToolInvocation {
@@ -315,79 +303,6 @@ impl ToolRouter {
         };
 
         self.registry.dispatch_any(invocation).await
-    }
-}
-
-fn extract_taskspace_binding(
-    arguments: String,
-    taskspace_active: bool,
-) -> Result<(String, Option<String>), FunctionCallError> {
-    const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
-    if !taskspace_active || !arguments.contains(FIELD) {
-        return Ok((arguments, None));
-    }
-    let mut value = serde_json::from_str::<JsonValue>(&arguments).map_err(|error| {
-        FunctionCallError::RespondToModel(format!(
-            "failed to parse tool arguments containing {FIELD}: {error}"
-        ))
-    })?;
-    let object = value.as_object_mut().ok_or_else(|| {
-        FunctionCallError::RespondToModel(format!(
-            "tool arguments containing {FIELD} must be an object"
-        ))
-    })?;
-    let Some(binding) = object.remove(FIELD) else {
-        return Ok((arguments, None));
-    };
-    let binding = normalize_taskspace_binding(binding)?;
-    Ok((value.to_string(), Some(binding)))
-}
-
-fn extract_taskspace_binding_value(
-    mut arguments: JsonValue,
-    taskspace_active: bool,
-) -> Result<(JsonValue, Option<String>), FunctionCallError> {
-    if !taskspace_active {
-        return Ok((arguments, None));
-    }
-    const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
-    let Some(object) = arguments.as_object_mut() else {
-        return Err(FunctionCallError::RespondToModel(format!(
-            "tool arguments containing {FIELD} must be an object"
-        )));
-    };
-    let binding = object
-        .remove(FIELD)
-        .map(normalize_taskspace_binding)
-        .transpose()?;
-    Ok((arguments, binding))
-}
-
-fn normalize_taskspace_binding(binding: JsonValue) -> Result<String, FunctionCallError> {
-    const FIELD: &str = codex_tools::TASKSPACE_BINDING_FIELD;
-    let action = binding
-        .as_object()
-        .and_then(|object| object.get("action"))
-        .and_then(JsonValue::as_str)
-        .ok_or_else(|| {
-            FunctionCallError::RespondToModel(format!(
-                "{FIELD} must be an object with action active, after_boundary, or initialize_map"
-            ))
-        })?;
-    match action {
-        "active" | "after_boundary" => {
-            let field_count = binding.as_object().map_or(0, serde_json::Map::len);
-            if field_count != 1 {
-                return Err(FunctionCallError::RespondToModel(format!(
-                    "{FIELD} action {action} accepts no additional fields"
-                )));
-            }
-            Ok(action.to_string())
-        }
-        "initialize_map" => Ok(binding.to_string()),
-        _ => Err(FunctionCallError::RespondToModel(format!(
-            "{FIELD} action must be active, after_boundary, or initialize_map"
-        ))),
     }
 }
 

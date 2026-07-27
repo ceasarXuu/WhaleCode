@@ -7,7 +7,6 @@ use std::ops::Deref;
 use codex_protocol::ThreadId;
 
 use super::rooted_dag::EventBatch;
-pub(crate) use super::rooted_dag::MapEdge;
 pub(crate) use super::rooted_dag::MapNode;
 pub(crate) use super::rooted_dag::NodeRole;
 pub(crate) use super::rooted_dag::NodeState;
@@ -300,6 +299,7 @@ mod tests {
     use super::*;
     use crate::action_map::rooted_dag::ActionReservation;
     use crate::action_map::rooted_dag::CompletionRecord;
+    use crate::action_map::rooted_dag::MapEdge;
     use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
     use std::collections::BTreeMap;
 
