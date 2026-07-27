@@ -135,10 +135,56 @@ impl ToolCallRuntime {
                 reservation_id = prepared_call.reservation_id,
                 "dispatched Agent-declared native tool action"
             );
-            let mut execution = self
+            let execution = self
                 .clone()
                 .handle_native_tool_call_for_sequence(call, cancellation_token)
-                .await?;
+                .await;
+            let mut execution = match execution {
+                Ok(execution) => execution,
+                Err(error) => {
+                    match self
+                        .record_taskspace_failed_tool_result(&prepared_call)
+                        .await
+                    {
+                        Ok(()) => {
+                            tracing::warn!(
+                                target: "codex_core::taskspace",
+                                event_name = "taskspace_native_tool_dispatch_failed_and_released",
+                                call_id = prepared_call.call_id,
+                                call_index = prepared_call.call_index,
+                                tool_name = prepared_call.tool_name,
+                                map_id = prepared_call.map_id,
+                                node_id = prepared_call.node_id,
+                                reservation_id = prepared_call.reservation_id,
+                                state_commit = true,
+                                error = %error,
+                                "recorded failed native dispatch and released its reservation"
+                            );
+                            return Err(error);
+                        }
+                        Err(release_error) => {
+                            tracing::error!(
+                                target: "codex_core::taskspace",
+                                event_name =
+                                    "taskspace_native_tool_dispatch_failure_release_failed",
+                                call_id = prepared_call.call_id,
+                                call_index = prepared_call.call_index,
+                                tool_name = prepared_call.tool_name,
+                                map_id = prepared_call.map_id,
+                                node_id = prepared_call.node_id,
+                                reservation_id = prepared_call.reservation_id,
+                                state_commit = false,
+                                error = %error,
+                                release_error = %release_error,
+                                "failed to release reservation after native dispatch failure"
+                            );
+                            return Err(CodexErr::Fatal(format!(
+                                "{error}; TaskSpace reservation release failed: {release_error}"
+                            )));
+                        }
+                    }
+                }
+            };
             match self
                 .record_taskspace_bound_tool_result(
                     &prepared_call,
@@ -466,6 +512,13 @@ impl ToolCallRuntime {
     }
 
     pub(crate) async fn record_taskspace_skipped_tool_result(
+        &self,
+        prepared: &ActionMapPreparedCall,
+    ) -> Result<(), String> {
+        self.record_taskspace_failed_tool_result(prepared).await
+    }
+
+    async fn record_taskspace_failed_tool_result(
         &self,
         prepared: &ActionMapPreparedCall,
     ) -> Result<(), String> {

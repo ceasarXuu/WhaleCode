@@ -1,6 +1,7 @@
 use super::taskspace_store::canonical_map_for_store;
 use super::taskspace_store::hydrate_action_map_store;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::ProjectionEnvelope;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::InitialHistory;
@@ -116,6 +117,24 @@ async fn resume_fork_and_child_hydrate_the_same_canonical_map() {
         .expect("fork binding");
     assert_eq!(fork_binding.relation, TaskSpaceMapRelation::Fork);
     assert_eq!(fork_binding.parent_thread_id, Some(owner));
+    let owner_projection = runtime
+        .build_developer_context(ProjectionEnvelope::CurrentProjection)
+        .expect("owner projection");
+    let resumed_projection = resumed
+        .runtime
+        .build_developer_context(ProjectionEnvelope::CurrentProjection)
+        .expect("resumed projection");
+    let child_projection = child_hydrated
+        .runtime
+        .build_developer_context(ProjectionEnvelope::CurrentProjection)
+        .expect("child projection");
+    let fork_projection = fork_hydrated
+        .runtime
+        .build_developer_context(ProjectionEnvelope::CurrentProjection)
+        .expect("fork projection");
+    assert_eq!(resumed_projection, owner_projection);
+    assert_eq!(child_projection, owner_projection);
+    assert_eq!(fork_projection, owner_projection);
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
