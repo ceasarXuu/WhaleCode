@@ -1,144 +1,139 @@
-use super::invariants::ViolationCode;
 use super::model::NodeId;
 use super::model::NodeRole;
-use super::model::NodeStatus;
+use super::model::NodeState;
+use super::model::NodeView;
 use super::model::TaskSpaceMap;
-use serde::Deserialize;
-use serde::Serialize;
+use super::model::node_ids;
+use super::model::node_role;
 use std::collections::BTreeSet;
-use std::collections::VecDeque;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum NodeTransition {
-    Bind,
-    Complete,
-    Block,
-    Unblock,
-    Rework,
-    ReleaseLease,
-}
-
-impl NodeTransition {
-    pub(crate) fn operation_name(self) -> &'static str {
-        match self {
-            Self::Bind => "bind_node",
-            Self::Complete => "complete_node",
-            Self::Block => "block_node",
-            Self::Unblock => "unblock_node",
-            Self::Rework => "rework_node",
-            Self::ReleaseLease => "release_lease",
-        }
+pub(crate) fn derive_node_state(map: &TaskSpaceMap, node_id: &str) -> Option<NodeState> {
+    node_role(map, node_id)?;
+    if map.completion_records.contains_key(node_id) {
+        return Some(NodeState::Completed);
     }
-}
-
-#[cfg(test)]
-mod operation_name_tests {
-    use super::NodeTransition;
-
-    #[test]
-    fn observable_operation_names_match_direct_control_actions() {
-        assert_eq!(NodeTransition::Bind.operation_name(), "bind_node");
-        assert_eq!(NodeTransition::Block.operation_name(), "block_node");
-        assert_eq!(NodeTransition::Unblock.operation_name(), "unblock_node");
-        assert_eq!(NodeTransition::Rework.operation_name(), "rework_node");
+    if map.block_records.contains_key(node_id) {
+        return Some(NodeState::Blocked);
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReadinessChange {
-    pub(super) node_id: NodeId,
-    pub(super) from: NodeStatus,
-    pub(super) to: NodeStatus,
-}
-
-pub(crate) fn transition_target(
-    role: NodeRole,
-    status: NodeStatus,
-    transition: NodeTransition,
-) -> Result<NodeStatus, ViolationCode> {
-    match (role, status, transition) {
-        (NodeRole::Work, NodeStatus::Ready, NodeTransition::Bind) => Ok(NodeStatus::Running),
-        (NodeRole::Work, NodeStatus::Running, NodeTransition::Complete) => {
-            Ok(NodeStatus::Completed)
-        }
-        (NodeRole::Work, NodeStatus::Running, NodeTransition::Block) => Ok(NodeStatus::Blocked),
-        (NodeRole::Work, NodeStatus::Blocked, NodeTransition::Unblock) => Ok(NodeStatus::Ready),
-        (NodeRole::Work, NodeStatus::Completed, NodeTransition::Rework) => Ok(NodeStatus::Ready),
-        (NodeRole::Work, NodeStatus::Running, NodeTransition::ReleaseLease) => {
-            Ok(NodeStatus::Ready)
-        }
-        _ => Err(ViolationCode::TransitionInvalid),
+    if map
+        .action_reservations
+        .values()
+        .any(|reservation| reservation.node_id == node_id)
+    {
+        return Some(NodeState::InFlight);
     }
+    Some(if predecessors_satisfied(map, node_id) {
+        NodeState::Ready
+    } else {
+        NodeState::Waiting
+    })
 }
 
-pub(crate) fn readiness_changes(map: &TaskSpaceMap) -> Vec<ReadinessChange> {
-    map.nodes
-        .iter()
-        .filter_map(|(id, node)| {
-            let to = match (node.role, node.status) {
-                (NodeRole::Work, NodeStatus::Pending) if predecessors_satisfied(map, id) => {
-                    NodeStatus::Ready
-                }
-                (NodeRole::Finish, NodeStatus::Pending) if predecessors_satisfied(map, id) => {
-                    NodeStatus::Ready
-                }
-                (NodeRole::Work | NodeRole::Finish, NodeStatus::Ready)
-                    if !predecessors_satisfied(map, id) =>
-                {
-                    NodeStatus::Pending
-                }
-                _ => return None,
-            };
-            Some(ReadinessChange {
-                node_id: id.clone(),
-                from: node.status,
-                to,
+pub(crate) fn derive_node_views(map: &TaskSpaceMap) -> Vec<NodeView> {
+    node_ids(map)
+        .into_iter()
+        .filter_map(|node_id| {
+            derive_node_state(map, node_id).map(|state| NodeView {
+                node_id: node_id.to_string(),
+                state,
             })
         })
         .collect()
 }
 
-pub(crate) fn rework_conflicts(map: &TaskSpaceMap, node_id: &NodeId) -> Vec<NodeId> {
-    let mut queue = VecDeque::from([node_id.clone()]);
-    let mut visited = BTreeSet::from([node_id.clone()]);
+pub(crate) fn ready_node_ids(map: &TaskSpaceMap) -> Vec<NodeId> {
+    derive_node_views(map)
+        .into_iter()
+        .filter(|view| view.state == NodeState::Ready)
+        .map(|view| view.node_id)
+        .collect()
+}
+
+pub(crate) fn predecessors(map: &TaskSpaceMap, node_id: &str) -> BTreeSet<NodeId> {
+    map.edges
+        .iter()
+        .filter(|edge| edge.to == node_id)
+        .map(|edge| edge.from.clone())
+        .collect()
+}
+
+pub(crate) fn predecessors_satisfied(map: &TaskSpaceMap, node_id: &str) -> bool {
+    let Some(role) = node_role(map, node_id) else {
+        return false;
+    };
+    if role == NodeRole::TaskRoot {
+        return true;
+    }
+    let predecessors = predecessors(map, node_id);
+    !predecessors.is_empty()
+        && predecessors.iter().all(|predecessor| {
+            predecessor == &map.root.node_id || map.completion_records.contains_key(predecessor)
+        })
+}
+
+pub(crate) fn downstream_started_nodes(map: &TaskSpaceMap, node_id: &str) -> Vec<NodeId> {
+    let started = super::model::started_node_ids(map);
+    let mut pending = vec![node_id.to_string()];
+    let mut visited = BTreeSet::new();
     let mut conflicts = BTreeSet::new();
-    while let Some(current) = queue.pop_front() {
+    while let Some(current) = pending.pop() {
         for successor in map
             .edges
             .iter()
             .filter(|edge| edge.from == current)
-            .map(|edge| &edge.to)
+            .map(|edge| edge.to.clone())
         {
-            if !visited.insert(successor.clone()) {
-                continue;
+            if visited.insert(successor.clone()) {
+                if started.contains(successor.as_str()) {
+                    conflicts.insert(successor.clone());
+                }
+                pending.push(successor);
             }
-            if map.node(successor).is_some_and(|node| {
-                node.role == NodeRole::Work
-                    && matches!(
-                        node.status,
-                        NodeStatus::Running | NodeStatus::Blocked | NodeStatus::Completed
-                    )
-            }) {
-                conflicts.insert(successor.clone());
-            }
-            queue.push_back(successor.clone());
         }
     }
     conflicts.into_iter().collect()
 }
 
-pub(crate) fn predecessors_satisfied(map: &TaskSpaceMap, node_id: &NodeId) -> bool {
-    let predecessors: Vec<_> = map
-        .edges
-        .iter()
-        .filter(|edge| &edge.to == node_id)
-        .filter_map(|edge| map.node(&edge.from))
-        .collect();
-    !predecessors.is_empty()
-        && predecessors.iter().all(|node| match node.role {
-            NodeRole::TaskRoot => node.status == NodeStatus::Open,
-            NodeRole::Work => node.status == NodeStatus::Completed,
-            NodeRole::Finish => false,
-        })
+#[cfg(test)]
+mod tests {
+    use super::super::model::MapEdge;
+    use super::super::model::map_node;
+    use super::super::model::new_map;
+    use super::*;
+
+    #[test]
+    fn multiple_root_children_are_ready_without_a_current_node() {
+        let map = new_map(
+            "map".into(),
+            map_node("root", "goal", vec![]),
+            vec![
+                map_node("left", "left", vec![]),
+                map_node("right", "right", vec![]),
+            ],
+            map_node("finish", "finish", vec![]),
+            vec![
+                MapEdge {
+                    from: "root".into(),
+                    to: "left".into(),
+                },
+                MapEdge {
+                    from: "root".into(),
+                    to: "right".into(),
+                },
+                MapEdge {
+                    from: "left".into(),
+                    to: "finish".into(),
+                },
+                MapEdge {
+                    from: "right".into(),
+                    to: "finish".into(),
+                },
+            ],
+        );
+
+        assert_eq!(
+            ready_node_ids(&map),
+            vec!["left".to_string(), "right".to_string(), "root".to_string()]
+        );
+    }
 }

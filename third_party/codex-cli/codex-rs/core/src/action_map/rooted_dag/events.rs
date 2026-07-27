@@ -1,163 +1,148 @@
 use super::invariants::Violation;
 use super::invariants::ViolationCode;
 use super::invariants::validate;
+use super::model::ActionReservation;
+use super::model::BlockRecord;
+use super::model::CompletionRecord;
+use super::model::EvidenceRef;
 use super::model::MapEdge;
 use super::model::MapId;
 use super::model::MapNode;
-use super::model::NodeId;
-use super::model::NodeStatus;
+use super::model::NodeRole;
+use super::model::NodeState;
+use super::model::ReservationId;
+use super::model::ResultRef;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
-use super::transitions::rework_conflicts;
+use super::model::TerminalRecord;
+use super::model::canonicalize;
+use super::model::new_map;
+use super::model::node;
+use super::model::node_role;
+use super::transitions::derive_node_state;
+use super::transitions::downstream_started_nodes;
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub(crate) enum MapEvent {
+#[serde(rename_all = "snake_case", tag = "fact")]
+pub(crate) enum MapFact {
     MapInitialized {
-        map: TaskSpaceMap,
+        map_id: MapId,
+        root: MapNode,
+        work_nodes: Vec<MapNode>,
+        finish: MapNode,
+        edges: Vec<MapEdge>,
     },
-    GraphMutationCommitted {
-        add_nodes: BTreeMap<NodeId, MapNode>,
-        add_edges: Vec<MapEdge>,
-        remove_edges: Vec<MapEdge>,
+    WorkNodeAdded {
+        node: MapNode,
     },
-    NodeBound {
-        node_id: NodeId,
+    EdgeAdded {
+        edge: MapEdge,
     },
-    NodeBlocked {
-        node_id: NodeId,
+    EdgeRemoved {
+        edge: MapEdge,
     },
     NodeCompleted {
-        node_id: NodeId,
+        node_id: String,
+        record: CompletionRecord,
+    },
+    NodeBlocked {
+        node_id: String,
+        record: BlockRecord,
     },
     NodeUnblocked {
-        node_id: NodeId,
+        node_id: String,
     },
     NodeReworked {
-        node_id: NodeId,
+        node_id: String,
     },
-    NodeLeaseReleased {
-        node_id: NodeId,
+    ActionReserved {
+        reservation_id: ReservationId,
+        reservation: ActionReservation,
     },
-    ReadinessChanged {
-        node_id: NodeId,
-        from: NodeStatus,
-        to: NodeStatus,
+    ResultAttributed {
+        result_ref_id: String,
+        result: ResultRef,
     },
-    TerminalCommitted {
-        final_summary: String,
+    EvidenceAttributed {
+        evidence_ref_id: String,
+        evidence: EvidenceRef,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct MapEventRecord {
-    pub(crate) event_id: String,
-    pub(crate) map_id: MapId,
-    pub(crate) revision: Revision,
-    pub(crate) sequence: u32,
-    pub(crate) event: MapEvent,
+    ActionReleased {
+        reservation_id: ReservationId,
+    },
+    TerminalRecorded {
+        finish_node_id: String,
+        terminal: TerminalRecord,
+        root_completion: CompletionRecord,
+        finish_completion: CompletionRecord,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct EventBatch {
     pub(crate) map_id: MapId,
     pub(crate) revision: Revision,
-    pub(crate) records: Vec<MapEventRecord>,
-}
-
-impl EventBatch {
-    pub(crate) fn new(map_id: MapId, revision: Revision, events: Vec<MapEvent>) -> Self {
-        let records = events
-            .into_iter()
-            .enumerate()
-            .map(|(sequence, event)| MapEventRecord {
-                event_id: event_id(&map_id, revision, sequence),
-                map_id: map_id.clone(),
-                revision,
-                sequence: u32::try_from(sequence).expect("event batch sequence fits u32"),
-                event,
-            })
-            .collect();
-        Self {
-            map_id,
-            revision,
-            records,
-        }
-    }
+    pub(crate) facts: Vec<MapFact>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ReplayError {
-    InitializationRequired,
-    DuplicateInitialization,
     EmptyBatch,
-    MapIdMismatch,
-    RevisionOutOfOrder {
+    MapIdentityMismatch,
+    RevisionMismatch {
         expected: Revision,
         actual: Revision,
     },
-    SequenceOutOfOrder {
-        expected: u32,
-        actual: u32,
-    },
-    EventIdMismatch,
-    EventInvalid {
+    InitializationRequired,
+    UnexpectedInitialization,
+    InvalidFact {
         code: ViolationCode,
         subjects: Vec<String>,
     },
     InvariantViolations(Vec<Violation>),
 }
 
+impl ReplayError {
+    fn invalid(code: ViolationCode, subject: impl Into<String>) -> Self {
+        Self::InvalidFact {
+            code,
+            subjects: vec![subject.into()],
+        }
+    }
+}
+
 pub(crate) fn apply_batch(
     current: Option<&TaskSpaceMap>,
     batch: &EventBatch,
 ) -> Result<TaskSpaceMap, ReplayError> {
-    if batch.records.is_empty() {
+    if batch.facts.is_empty() {
         return Err(ReplayError::EmptyBatch);
     }
-    let expected_revision = match current {
-        Some(map) => map
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| ReplayError::EventInvalid {
-                code: ViolationCode::TransitionInvalid,
-                subjects: vec!["revision_overflow".to_string()],
-            })?,
-        None => 1,
-    };
+    let expected_revision = current
+        .map(|map| map.revision.checked_add(1).unwrap_or(u64::MAX))
+        .unwrap_or(1);
     if batch.revision != expected_revision {
-        return Err(ReplayError::RevisionOutOfOrder {
+        return Err(ReplayError::RevisionMismatch {
             expected: expected_revision,
             actual: batch.revision,
         });
     }
-    if current.is_some_and(|map| map.id != batch.map_id) {
-        return Err(ReplayError::MapIdMismatch);
+    if current.is_some_and(|map| map.map_id != batch.map_id) {
+        return Err(ReplayError::MapIdentityMismatch);
     }
+
     let mut candidate = current.cloned();
-    for (index, record) in batch.records.iter().enumerate() {
-        let expected_sequence = u32::try_from(index).expect("event batch sequence fits u32");
-        if record.sequence != expected_sequence {
-            return Err(ReplayError::SequenceOutOfOrder {
-                expected: expected_sequence,
-                actual: record.sequence,
-            });
-        }
-        if record.map_id != batch.map_id || record.revision != batch.revision {
-            return Err(ReplayError::MapIdMismatch);
-        }
-        if record.event_id != event_id(&batch.map_id, batch.revision, index) {
-            return Err(ReplayError::EventIdMismatch);
-        }
-        apply_record(&mut candidate, record)?;
+    for fact in &batch.facts {
+        apply_fact(&mut candidate, fact)?;
     }
     let mut candidate = candidate.ok_or(ReplayError::InitializationRequired)?;
+    if candidate.map_id != batch.map_id {
+        return Err(ReplayError::MapIdentityMismatch);
+    }
     candidate.revision = batch.revision;
-    candidate.canonicalize();
+    canonicalize(&mut candidate);
     let violations = validate(&candidate);
     if !violations.is_empty() {
         return Err(ReplayError::InvariantViolations(violations));
@@ -165,11 +150,6 @@ pub(crate) fn apply_batch(
     Ok(candidate)
 }
 
-fn event_id(map_id: &MapId, revision: Revision, sequence: usize) -> String {
-    format!("event:{}:{}:{revision}:{sequence}", map_id.len(), map_id)
-}
-
-#[cfg(test)]
 pub(crate) fn replay_batches(batches: &[EventBatch]) -> Result<TaskSpaceMap, ReplayError> {
     let mut current = None;
     for batch in batches {
@@ -178,176 +158,297 @@ pub(crate) fn replay_batches(batches: &[EventBatch]) -> Result<TaskSpaceMap, Rep
     current.ok_or(ReplayError::InitializationRequired)
 }
 
-fn apply_record(
-    candidate: &mut Option<TaskSpaceMap>,
-    record: &MapEventRecord,
-) -> Result<(), ReplayError> {
-    match &record.event {
-        MapEvent::MapInitialized { map } => {
+fn apply_fact(candidate: &mut Option<TaskSpaceMap>, fact: &MapFact) -> Result<(), ReplayError> {
+    match fact {
+        MapFact::MapInitialized {
+            map_id,
+            root,
+            work_nodes,
+            finish,
+            edges,
+        } => {
             if candidate.is_some() {
-                return Err(ReplayError::DuplicateInitialization);
+                return Err(ReplayError::UnexpectedInitialization);
             }
-            if map.id != record.map_id || map.revision != 0 {
-                return Err(ReplayError::MapIdMismatch);
-            }
-            *candidate = Some(map.clone());
+            *candidate = Some(new_map(
+                map_id.clone(),
+                root.clone(),
+                work_nodes.clone(),
+                finish.clone(),
+                edges.clone(),
+            ));
+            Ok(())
         }
-        event => apply_existing_event(
+        _ => apply_existing_fact(
             candidate
                 .as_mut()
                 .ok_or(ReplayError::InitializationRequired)?,
-            event,
-            &record.event_id,
-        )?,
+            fact,
+        ),
     }
-    Ok(())
 }
 
-fn apply_existing_event(
-    map: &mut TaskSpaceMap,
-    event: &MapEvent,
-    event_id: &str,
-) -> Result<(), ReplayError> {
-    match event {
-        MapEvent::MapInitialized { .. } => return Err(ReplayError::DuplicateInitialization),
-        MapEvent::GraphMutationCommitted {
-            add_nodes,
-            add_edges,
-            remove_edges,
-        } => apply_graph_mutation(map, add_nodes, add_edges, remove_edges)?,
-        MapEvent::NodeBound { node_id } => {
-            if map.current_binding.is_some() {
-                return invalid(ViolationCode::TransitionInvalid, node_id);
+fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), ReplayError> {
+    if map.terminal_record.is_some() {
+        return Err(ReplayError::invalid(
+            ViolationCode::TransitionInvalid,
+            "terminal_map",
+        ));
+    }
+    match fact {
+        MapFact::MapInitialized { .. } => Err(ReplayError::UnexpectedInitialization),
+        MapFact::WorkNodeAdded { node: work_node } => {
+            if node(map, &work_node.node_id).is_some() {
+                return Err(ReplayError::invalid(
+                    ViolationCode::DuplicateNode,
+                    work_node.node_id.clone(),
+                ));
             }
-            set_status(map, node_id, NodeStatus::Ready, NodeStatus::Running)?;
-            map.current_binding = Some(node_id.clone());
+            map.work_nodes.push(work_node.clone());
+            Ok(())
         }
-        MapEvent::NodeBlocked { node_id } => {
-            require_binding(map, node_id)?;
-            set_status(map, node_id, NodeStatus::Running, NodeStatus::Blocked)?;
-            map.current_binding = None;
+        MapFact::EdgeAdded { edge } => {
+            require_unstarted_target(map, edge)?;
+            map.edges.push(edge.clone());
+            Ok(())
         }
-        MapEvent::NodeCompleted { node_id } => {
-            require_binding(map, node_id)?;
-            set_status(map, node_id, NodeStatus::Running, NodeStatus::Completed)?;
-            map.current_binding = None;
+        MapFact::EdgeRemoved { edge } => {
+            require_unstarted_target(map, edge)?;
+            let index = map
+                .edges
+                .iter()
+                .position(|candidate| candidate == edge)
+                .ok_or_else(|| {
+                    ReplayError::invalid(
+                        ViolationCode::TransitionInvalid,
+                        format!("{}->{}", edge.from, edge.to),
+                    )
+                })?;
+            map.edges.remove(index);
+            Ok(())
         }
-        MapEvent::NodeUnblocked { node_id } => {
-            set_status(map, node_id, NodeStatus::Blocked, NodeStatus::Ready)?;
+        MapFact::NodeCompleted { node_id, record } => {
+            require_work_state(map, node_id, NodeState::Ready)?;
+            if map
+                .completion_records
+                .insert(node_id.clone(), record.clone())
+                .is_some()
+            {
+                return Err(ReplayError::invalid(
+                    ViolationCode::TransitionInvalid,
+                    node_id.clone(),
+                ));
+            }
+            Ok(())
         }
-        MapEvent::NodeReworked { node_id } => {
-            let conflicts = rework_conflicts(map, node_id);
+        MapFact::NodeBlocked { node_id, record } => {
+            require_work_state(map, node_id, NodeState::Ready)?;
+            if map
+                .block_records
+                .insert(node_id.clone(), record.clone())
+                .is_some()
+            {
+                return Err(ReplayError::invalid(
+                    ViolationCode::TransitionInvalid,
+                    node_id.clone(),
+                ));
+            }
+            Ok(())
+        }
+        MapFact::NodeUnblocked { node_id } => {
+            if map.block_records.remove(node_id).is_none() {
+                return Err(ReplayError::invalid(
+                    ViolationCode::TransitionInvalid,
+                    node_id.clone(),
+                ));
+            }
+            Ok(())
+        }
+        MapFact::NodeReworked { node_id } => {
+            if node_role(map, node_id) != Some(NodeRole::Work)
+                || map.completion_records.remove(node_id).is_none()
+            {
+                return Err(ReplayError::invalid(
+                    ViolationCode::TransitionInvalid,
+                    node_id.clone(),
+                ));
+            }
+            let conflicts = downstream_started_nodes(map, node_id);
             if !conflicts.is_empty() {
-                return Err(ReplayError::EventInvalid {
+                return Err(ReplayError::InvalidFact {
                     code: ViolationCode::ExecutionCausalityConflict,
                     subjects: conflicts,
                 });
             }
-            set_status(map, node_id, NodeStatus::Completed, NodeStatus::Ready)?;
+            Ok(())
         }
-        MapEvent::NodeLeaseReleased { node_id } => {
-            require_binding(map, node_id)?;
-            set_status(map, node_id, NodeStatus::Running, NodeStatus::Ready)?;
-            map.current_binding = None;
-        }
-        MapEvent::ReadinessChanged { node_id, from, to } => {
-            set_status(map, node_id, *from, *to)?;
-        }
-        MapEvent::TerminalCommitted { final_summary } => {
-            if final_summary.trim().is_empty() {
-                return invalid_text(ViolationCode::FinalSummaryEmpty, "final_summary");
+        MapFact::ActionReserved {
+            reservation_id,
+            reservation,
+        } => reserve_action(map, reservation_id, reservation),
+        MapFact::ResultAttributed {
+            result_ref_id,
+            result,
+        } => {
+            require_matching_reservation(
+                map,
+                &result.reservation_id,
+                &result.action_id,
+                &result.node_id,
+            )?;
+            if map
+                .result_refs
+                .insert(result_ref_id.clone(), result.clone())
+                .is_some()
+            {
+                return Err(ReplayError::invalid(
+                    ViolationCode::FactReferenceInvalid,
+                    result_ref_id.clone(),
+                ));
             }
-            set_status(
-                map,
-                &map.finish_node_id.clone(),
-                NodeStatus::Ready,
-                NodeStatus::Closed,
-            )?;
-            set_status(
-                map,
-                &map.root_node_id.clone(),
-                NodeStatus::Open,
-                NodeStatus::Closed,
-            )?;
-            map.terminal_summary_ref = Some(event_id.to_string());
+            Ok(())
         }
+        MapFact::EvidenceAttributed {
+            evidence_ref_id,
+            evidence,
+        } => {
+            require_matching_reservation(
+                map,
+                &evidence.reservation_id,
+                &evidence.action_id,
+                &evidence.node_id,
+            )?;
+            if map
+                .evidence_refs
+                .insert(evidence_ref_id.clone(), evidence.clone())
+                .is_some()
+            {
+                return Err(ReplayError::invalid(
+                    ViolationCode::FactReferenceInvalid,
+                    evidence_ref_id.clone(),
+                ));
+            }
+            Ok(())
+        }
+        MapFact::ActionReleased { reservation_id } => {
+            if map.action_reservations.remove(reservation_id).is_none() {
+                return Err(ReplayError::invalid(
+                    ViolationCode::ReservationInvalid,
+                    reservation_id.clone(),
+                ));
+            }
+            Ok(())
+        }
+        MapFact::TerminalRecorded {
+            finish_node_id,
+            terminal,
+            root_completion,
+            finish_completion,
+        } => finish(
+            map,
+            finish_node_id,
+            terminal,
+            root_completion,
+            finish_completion,
+        ),
+    }
+}
+
+fn require_unstarted_target(map: &TaskSpaceMap, edge: &MapEdge) -> Result<(), ReplayError> {
+    if super::model::started_node_ids(map).contains(edge.to.as_str()) {
+        return Err(ReplayError::invalid(
+            ViolationCode::ExecutionCausalityConflict,
+            format!("{}->{}", edge.from, edge.to),
+        ));
     }
     Ok(())
 }
 
-fn apply_graph_mutation(
-    map: &mut TaskSpaceMap,
-    add_nodes: &BTreeMap<NodeId, MapNode>,
-    add_edges: &[MapEdge],
-    remove_edges: &[MapEdge],
+fn require_work_state(
+    map: &TaskSpaceMap,
+    node_id: &str,
+    expected: NodeState,
 ) -> Result<(), ReplayError> {
-    let causality_conflicts = add_edges
-        .iter()
-        .chain(remove_edges)
-        .filter(|&edge| {
-            map.node(&edge.to).is_some_and(|node| {
-                matches!(
-                    node.status,
-                    NodeStatus::Running | NodeStatus::Blocked | NodeStatus::Completed
-                )
-            })
-        })
-        .map(|edge| format!("{}->{}", edge.from, edge.to))
-        .collect::<BTreeSet<_>>();
-    if !causality_conflicts.is_empty() {
-        return Err(ReplayError::EventInvalid {
-            code: ViolationCode::ExecutionCausalityConflict,
-            subjects: causality_conflicts.into_iter().collect(),
+    if node_role(map, node_id) != Some(NodeRole::Work)
+        || derive_node_state(map, node_id) != Some(expected)
+    {
+        return Err(ReplayError::invalid(
+            ViolationCode::TransitionInvalid,
+            node_id,
+        ));
+    }
+    Ok(())
+}
+
+fn reserve_action(
+    map: &mut TaskSpaceMap,
+    reservation_id: &str,
+    reservation: &ActionReservation,
+) -> Result<(), ReplayError> {
+    let state = derive_node_state(map, &reservation.node_id);
+    if node_role(map, &reservation.node_id) != Some(NodeRole::Work)
+        || !matches!(state, Some(NodeState::Ready | NodeState::InFlight))
+        || map.action_reservations.contains_key(reservation_id)
+        || map
+            .action_reservations
+            .values()
+            .any(|current| current.action_id == reservation.action_id)
+    {
+        return Err(ReplayError::invalid(
+            ViolationCode::ReservationInvalid,
+            reservation_id,
+        ));
+    }
+    map.action_reservations
+        .insert(reservation_id.to_string(), reservation.clone());
+    Ok(())
+}
+
+fn require_matching_reservation(
+    map: &TaskSpaceMap,
+    reservation_id: &str,
+    action_id: &str,
+    node_id: &str,
+) -> Result<(), ReplayError> {
+    let matches = map
+        .action_reservations
+        .get(reservation_id)
+        .is_some_and(|reservation| {
+            reservation.action_id == action_id && reservation.node_id == node_id
         });
+    if matches {
+        Ok(())
+    } else {
+        Err(ReplayError::invalid(
+            ViolationCode::ReservationInvalid,
+            reservation_id,
+        ))
     }
-    for edge in remove_edges {
-        let Some(index) = map.edges.iter().position(|current| current == edge) else {
-            return invalid_text(
-                ViolationCode::TransitionInvalid,
-                format!("{}->{}", edge.from, edge.to),
-            );
-        };
-        map.edges.remove(index);
-    }
-    for (id, node) in add_nodes {
-        if map.nodes.insert(id.clone(), node.clone()).is_some() {
-            return invalid(ViolationCode::TransitionInvalid, id);
-        }
-    }
-    map.edges.extend(add_edges.iter().cloned());
-    Ok(())
 }
 
-fn require_binding(map: &TaskSpaceMap, node_id: &NodeId) -> Result<(), ReplayError> {
-    if map.current_binding.as_ref() != Some(node_id) {
-        return invalid(ViolationCode::TransitionInvalid, node_id);
-    }
-    Ok(())
-}
-
-fn set_status(
+fn finish(
     map: &mut TaskSpaceMap,
-    node_id: &NodeId,
-    expected: NodeStatus,
-    target: NodeStatus,
+    finish_node_id: &str,
+    terminal: &TerminalRecord,
+    root_completion: &CompletionRecord,
+    finish_completion: &CompletionRecord,
 ) -> Result<(), ReplayError> {
-    let Some(node) = map.nodes.get_mut(node_id) else {
-        return invalid(ViolationCode::TransitionInvalid, node_id);
-    };
-    if node.status != expected {
-        return invalid(ViolationCode::TransitionInvalid, node_id);
+    if finish_node_id != map.finish.node_id
+        || derive_node_state(map, finish_node_id) != Some(NodeState::Ready)
+        || !map.action_reservations.is_empty()
+        || terminal.summary_ref.trim().is_empty()
+        || root_completion.action_id != terminal.action_id
+        || finish_completion.action_id != terminal.action_id
+    {
+        return Err(ReplayError::invalid(
+            ViolationCode::FinishNotReady,
+            finish_node_id,
+        ));
     }
-    node.status = target;
+    map.completion_records
+        .insert(map.root.node_id.clone(), root_completion.clone());
+    map.completion_records
+        .insert(map.finish.node_id.clone(), finish_completion.clone());
+    map.terminal_record = Some(terminal.clone());
     Ok(())
-}
-
-fn invalid<T>(code: ViolationCode, subject: &NodeId) -> Result<T, ReplayError> {
-    invalid_text(code, subject.to_string())
-}
-
-fn invalid_text<T>(code: ViolationCode, subject: impl Into<String>) -> Result<T, ReplayError> {
-    Err(ReplayError::EventInvalid {
-        code,
-        subjects: vec![subject.into()],
-    })
 }

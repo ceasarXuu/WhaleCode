@@ -1,40 +1,103 @@
 use super::events::EventBatch;
-use super::events::MapEvent;
+use super::events::MapFact;
 use super::events::ReplayError;
 use super::events::apply_batch;
 use super::invariants::Violation;
 use super::invariants::ViolationCode;
-use super::invariants::validate;
+use super::model::ActionReservation;
+use super::model::BlockRecord;
+use super::model::CompletionRecord;
+use super::model::EvidenceRef;
 use super::model::MapEdge;
 use super::model::MapId;
 use super::model::MapNode;
-use super::model::NodeId;
-use super::model::NodeRole;
-use super::model::NodeStatus;
+use super::model::ReservationId;
+use super::model::ResultRef;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
-use super::transitions::NodeTransition;
-use super::transitions::readiness_changes;
-use super::transitions::transition_target;
-use std::collections::BTreeMap;
+use super::model::TerminalRecord;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReservationInput {
+    pub(crate) reservation_id: ReservationId,
+    pub(crate) reservation: ActionReservation,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InitializeMap {
     pub(crate) map_id: MapId,
-    pub(crate) root_node_id: NodeId,
-    pub(crate) root_goal: String,
-    pub(crate) source_refs: Vec<String>,
-    pub(crate) finish_node_id: NodeId,
-    pub(crate) work_nodes: BTreeMap<NodeId, String>,
+    pub(crate) root: MapNode,
+    pub(crate) work_nodes: Vec<MapNode>,
+    pub(crate) finish: MapNode,
     pub(crate) edges: Vec<MapEdge>,
+    pub(crate) reservations: Vec<ReservationInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct GraphMutation {
+    pub(crate) add_work_nodes: Vec<MapNode>,
+    pub(crate) add_edges: Vec<MapEdge>,
+    pub(crate) remove_edges: Vec<MapEdge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct GraphMutation {
+pub(crate) enum NodeMutation {
+    Complete {
+        node_id: String,
+        record: CompletionRecord,
+    },
+    Block {
+        node_id: String,
+        record: BlockRecord,
+    },
+    Unblock {
+        node_id: String,
+    },
+    Rework {
+        node_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExecuteTransaction {
     pub(crate) expected_revision: Revision,
-    pub(crate) add_nodes: BTreeMap<NodeId, String>,
-    pub(crate) add_edges: Vec<MapEdge>,
-    pub(crate) remove_edges: Vec<MapEdge>,
+    pub(crate) graph: GraphMutation,
+    pub(crate) node_mutations: Vec<NodeMutation>,
+    pub(crate) reservations: Vec<ReservationInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResultRefInput {
+    pub(crate) result_ref_id: String,
+    pub(crate) is_error: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EvidenceRefInput {
+    pub(crate) evidence_ref_id: String,
+    pub(crate) kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReservationRelease {
+    pub(crate) expected_revision: Revision,
+    pub(crate) reservation_id: ReservationId,
+    pub(crate) result_refs: Vec<ResultRefInput>,
+    pub(crate) evidence_refs: Vec<EvidenceRefInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FinishMap {
+    pub(crate) expected_revision: Revision,
+    pub(crate) finish_node_id: String,
+    pub(crate) final_completions: Vec<FinalCompletion>,
+    pub(crate) terminal: TerminalRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FinalCompletion {
+    pub(crate) node_id: String,
+    pub(crate) record: CompletionRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +125,27 @@ impl Rejection {
         }
     }
 
-    fn many(current_revision: Revision, violations: Vec<Violation>) -> Self {
+    fn from_replay(current_revision: Revision, error: ReplayError) -> Self {
+        let violations = match error {
+            ReplayError::InvariantViolations(violations) => violations,
+            ReplayError::InvalidFact { code, subjects } => {
+                vec![Violation { code, subjects }]
+            }
+            ReplayError::RevisionMismatch { .. } => vec![Violation {
+                code: ViolationCode::StaleRevision,
+                subjects: vec![],
+            }],
+            ReplayError::MapIdentityMismatch => vec![Violation {
+                code: ViolationCode::MapIdentityInvalid,
+                subjects: vec![],
+            }],
+            ReplayError::EmptyBatch
+            | ReplayError::InitializationRequired
+            | ReplayError::UnexpectedInitialization => vec![Violation {
+                code: ViolationCode::TransitionInvalid,
+                subjects: vec![],
+            }],
+        };
         Self {
             state_commit: false,
             current_revision,
@@ -72,321 +155,219 @@ impl Rejection {
 }
 
 pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
-    let mut nodes = BTreeMap::new();
-    nodes.insert(
-        input.root_node_id.clone(),
-        MapNode::task_root(input.root_goal, input.source_refs),
-    );
-    if input.root_node_id == input.finish_node_id {
+    if input.reservations.is_empty() {
         return Err(Rejection::one(
             0,
-            ViolationCode::FinishIdMismatch,
-            input.finish_node_id,
+            ViolationCode::ReservationInvalid,
+            "initialization_requires_action",
         ));
     }
-    nodes.insert(input.finish_node_id.clone(), MapNode::finish());
-    for (id, goal) in input.work_nodes {
-        if nodes.contains_key(&id) {
-            return Err(Rejection::one(0, ViolationCode::TransitionInvalid, id));
-        }
-        nodes.insert(id, MapNode::work(goal));
-    }
-    let mut candidate = TaskSpaceMap {
-        id: input.map_id.clone(),
-        root_node_id: input.root_node_id,
-        finish_node_id: input.finish_node_id,
-        nodes,
+    let mut facts = vec![MapFact::MapInitialized {
+        map_id: input.map_id.clone(),
+        root: input.root,
+        work_nodes: input.work_nodes,
+        finish: input.finish,
         edges: input.edges,
-        revision: 0,
-        current_binding: None,
-        terminal_summary_ref: None,
-    };
-    candidate.canonicalize();
-    let violations = validate(&candidate);
-    if !violations.is_empty() {
-        return Err(Rejection::many(0, violations));
-    }
-    let mut events = vec![MapEvent::MapInitialized {
-        map: candidate.clone(),
     }];
-    events.extend(readiness_events(&candidate));
-    commit(None, EventBatch::new(input.map_id, 1, events))
+    facts.extend(
+        input
+            .reservations
+            .into_iter()
+            .map(|input| MapFact::ActionReserved {
+                reservation_id: input.reservation_id,
+                reservation: input.reservation,
+            }),
+    );
+    commit(None, input.map_id, 1, facts)
 }
 
-pub(crate) fn mutate_graph(
+pub(crate) fn execute(
     current: &TaskSpaceMap,
-    mutation: GraphMutation,
+    input: ExecuteTransaction,
 ) -> Result<Commit, Rejection> {
-    require_revision(current, mutation.expected_revision)?;
-    let mut added_nodes = BTreeMap::new();
-    for (id, goal) in mutation.add_nodes {
-        if current.nodes.contains_key(&id) {
-            return Err(Rejection::one(
+    require_revision(current, input.expected_revision)?;
+    if input.reservations.is_empty() {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::ReservationInvalid,
+            "execute_requires_action",
+        ));
+    }
+    let mut facts = Vec::new();
+    facts.extend(
+        input
+            .graph
+            .add_work_nodes
+            .into_iter()
+            .map(|node| MapFact::WorkNodeAdded { node }),
+    );
+    facts.extend(
+        input
+            .graph
+            .remove_edges
+            .into_iter()
+            .map(|edge| MapFact::EdgeRemoved { edge }),
+    );
+    facts.extend(
+        input
+            .graph
+            .add_edges
+            .into_iter()
+            .map(|edge| MapFact::EdgeAdded { edge }),
+    );
+    facts.extend(input.node_mutations.into_iter().map(node_fact));
+    facts.extend(
+        input
+            .reservations
+            .into_iter()
+            .map(|input| MapFact::ActionReserved {
+                reservation_id: input.reservation_id,
+                reservation: input.reservation,
+            }),
+    );
+    commit(
+        Some(current),
+        current.map_id.clone(),
+        next_revision(current)?,
+        facts,
+    )
+}
+
+pub(crate) fn release_reservation(
+    current: &TaskSpaceMap,
+    input: ReservationRelease,
+) -> Result<Commit, Rejection> {
+    require_revision(current, input.expected_revision)?;
+    let reservation = current
+        .action_reservations
+        .get(&input.reservation_id)
+        .ok_or_else(|| {
+            Rejection::one(
                 current.revision,
-                ViolationCode::TransitionInvalid,
-                id,
-            ));
-        }
-        added_nodes.insert(id, MapNode::work(goal));
-    }
-    let event = MapEvent::GraphMutationCommitted {
-        add_nodes: added_nodes,
-        add_edges: mutation.add_edges,
-        remove_edges: mutation.remove_edges,
-    };
-    let revision = next_revision(current)?;
-    let provisional = EventBatch::new(current.id.clone(), revision, vec![event.clone()]);
-    let candidate = apply_batch(Some(current), &provisional)
-        .map_err(|error| rejection_from_replay(current.revision, error))?;
-    let mut events = vec![event];
-    events.extend(readiness_events(&candidate));
-    commit(
-        Some(current),
-        EventBatch::new(current.id.clone(), revision, events),
-    )
-}
-
-pub(crate) fn transition_node(
-    current: &TaskSpaceMap,
-    expected_revision: Revision,
-    node_id: NodeId,
-    transition: NodeTransition,
-) -> Result<Commit, Rejection> {
-    require_revision(current, expected_revision)?;
-    let Some(node) = current.node(&node_id) else {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::TransitionInvalid,
-            node_id,
-        ));
-    };
-    transition_target(node.role, node.status, transition)
-        .map_err(|code| Rejection::one(current.revision, code, node_id.to_string()))?;
-    let event = match transition {
-        NodeTransition::Bind => MapEvent::NodeBound { node_id },
-        NodeTransition::Complete => MapEvent::NodeCompleted { node_id },
-        NodeTransition::Block => MapEvent::NodeBlocked { node_id },
-        NodeTransition::Unblock => MapEvent::NodeUnblocked { node_id },
-        NodeTransition::Rework => MapEvent::NodeReworked { node_id },
-        NodeTransition::ReleaseLease => MapEvent::NodeLeaseReleased { node_id },
-    };
-    let revision = next_revision(current)?;
-    let provisional = EventBatch::new(current.id.clone(), revision, vec![event.clone()]);
-    let candidate = apply_batch(Some(current), &provisional)
-        .map_err(|error| rejection_from_replay(current.revision, error))?;
-    let mut events = vec![event];
-    if matches!(
-        transition,
-        NodeTransition::Complete | NodeTransition::Rework
-    ) {
-        events.extend(readiness_events(&candidate));
-    }
-    commit(
-        Some(current),
-        EventBatch::new(current.id.clone(), revision, events),
-    )
-}
-
-pub(crate) fn complete_then_bind(
-    current: &TaskSpaceMap,
-    expected_revision: Revision,
-    current_node_id: NodeId,
-    next_node_id: NodeId,
-) -> Result<Commit, Rejection> {
-    require_revision(current, expected_revision)?;
-    let revision = next_revision(current)?;
-    let mut events = completion_events(current, revision, current_node_id)?;
-    let candidate = apply_batch(
-        Some(current),
-        &EventBatch::new(current.id.clone(), revision, events.clone()),
-    )
-    .map_err(|error| rejection_from_replay(current.revision, error))?;
-    let Some(next_node) = candidate.node(&next_node_id) else {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::TransitionInvalid,
-            next_node_id,
-        ));
-    };
-    transition_target(next_node.role, next_node.status, NodeTransition::Bind)
-        .map_err(|code| Rejection::one(current.revision, code, next_node_id.to_string()))?;
-    events.push(MapEvent::NodeBound {
-        node_id: next_node_id,
+                ViolationCode::ReservationInvalid,
+                input.reservation_id.clone(),
+            )
+        })?;
+    let mut facts = Vec::new();
+    facts.extend(
+        input
+            .result_refs
+            .into_iter()
+            .map(|result| MapFact::ResultAttributed {
+                result_ref_id: result.result_ref_id,
+                result: ResultRef {
+                    node_id: reservation.node_id.clone(),
+                    action_id: reservation.action_id.clone(),
+                    reservation_id: input.reservation_id.clone(),
+                    is_error: result.is_error,
+                },
+            }),
+    );
+    facts.extend(
+        input
+            .evidence_refs
+            .into_iter()
+            .map(|evidence| MapFact::EvidenceAttributed {
+                evidence_ref_id: evidence.evidence_ref_id,
+                evidence: EvidenceRef {
+                    node_id: reservation.node_id.clone(),
+                    action_id: reservation.action_id.clone(),
+                    reservation_id: input.reservation_id.clone(),
+                    kind: evidence.kind,
+                },
+            }),
+    );
+    facts.push(MapFact::ActionReleased {
+        reservation_id: input.reservation_id,
     });
     commit(
         Some(current),
-        EventBatch::new(current.id.clone(), revision, events),
+        current.map_id.clone(),
+        next_revision(current)?,
+        facts,
     )
 }
 
-pub(crate) fn finish_map(
-    current: &TaskSpaceMap,
-    expected_revision: Revision,
-    terminal_node_id: NodeId,
-    final_summary: String,
-) -> Result<Commit, Rejection> {
-    require_revision(current, expected_revision)?;
-    let revision = next_revision(current)?;
-    let Some(terminal_node) = current.node(&terminal_node_id) else {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::TransitionInvalid,
-            terminal_node_id,
-        ));
-    };
-    let mut events = match terminal_node.role {
-        NodeRole::Work => {
-            let events = completion_events(current, revision, terminal_node_id)?;
-            let candidate = apply_batch(
-                Some(current),
-                &EventBatch::new(current.id.clone(), revision, events.clone()),
-            )
-            .map_err(|error| rejection_from_replay(current.revision, error))?;
-            validate_terminal_state(&candidate, &final_summary).map_err(|mut rejection| {
-                rejection.current_revision = current.revision;
-                rejection
-            })?;
-            events
-        }
-        NodeRole::Finish if terminal_node_id == current.finish_node_id => {
-            validate_terminal_state(current, &final_summary)?;
-            Vec::new()
-        }
-        NodeRole::Finish => {
-            return Err(Rejection::one(
-                current.revision,
-                ViolationCode::FinishIdMismatch,
-                terminal_node_id,
-            ));
-        }
-        NodeRole::TaskRoot => {
-            return Err(Rejection::one(
-                current.revision,
-                ViolationCode::TransitionInvalid,
-                terminal_node_id,
-            ));
-        }
-    };
-    events.push(MapEvent::TerminalCommitted { final_summary });
-    commit(
-        Some(current),
-        EventBatch::new(current.id.clone(), revision, events),
-    )
-}
-
-fn completion_events(
-    current: &TaskSpaceMap,
-    revision: Revision,
-    node_id: NodeId,
-) -> Result<Vec<MapEvent>, Rejection> {
-    let Some(node) = current.node(&node_id) else {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::TransitionInvalid,
-            node_id,
-        ));
-    };
-    transition_target(node.role, node.status, NodeTransition::Complete)
-        .map_err(|code| Rejection::one(current.revision, code, node_id.to_string()))?;
-    let event = MapEvent::NodeCompleted { node_id };
-    let provisional = EventBatch::new(current.id.clone(), revision, vec![event.clone()]);
-    let candidate = apply_batch(Some(current), &provisional)
-        .map_err(|error| rejection_from_replay(current.revision, error))?;
-    let mut events = vec![event];
-    events.extend(readiness_events(&candidate));
-    Ok(events)
-}
-
-fn validate_terminal_state(current: &TaskSpaceMap, final_summary: &str) -> Result<(), Rejection> {
-    if final_summary.trim().is_empty() {
+pub(crate) fn finish_map(current: &TaskSpaceMap, input: FinishMap) -> Result<Commit, Rejection> {
+    require_revision(current, input.expected_revision)?;
+    if input.terminal.summary_ref.trim().is_empty() {
         return Err(Rejection::one(
             current.revision,
             ViolationCode::FinalSummaryEmpty,
-            "final_summary",
+            input.finish_node_id,
         ));
     }
-    let finish_ready = current
-        .node(&current.finish_node_id)
-        .is_some_and(|node| node.status == NodeStatus::Ready);
-    if !finish_ready {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::FinishNotReady,
-            current.finish_node_id.to_string(),
-        ));
-    }
-    let unfinished: Vec<_> = current
-        .nodes
-        .iter()
-        .filter(|(_, node)| node.role == NodeRole::Work && node.status != NodeStatus::Completed)
-        .map(|(id, _)| id.to_string())
-        .collect();
-    if !unfinished.is_empty() {
-        return Err(Rejection {
-            state_commit: false,
-            current_revision: current.revision,
-            violations: vec![Violation {
-                code: ViolationCode::UnfinishedRequiredWork,
-                subjects: unfinished,
-            }],
-        });
-    }
-    Ok(())
-}
-
-fn readiness_events(map: &TaskSpaceMap) -> Vec<MapEvent> {
-    readiness_changes(map)
+    let completion = CompletionRecord {
+        action_id: input.terminal.action_id.clone(),
+        result_ref_ids: vec![],
+        evidence_ref_ids: vec![],
+    };
+    let mut facts = input
+        .final_completions
         .into_iter()
-        .map(|change| MapEvent::ReadinessChanged {
-            node_id: change.node_id,
-            from: change.from,
-            to: change.to,
+        .map(|completion| MapFact::NodeCompleted {
+            node_id: completion.node_id,
+            record: completion.record,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    facts.push(MapFact::TerminalRecorded {
+        finish_node_id: input.finish_node_id,
+        terminal: input.terminal,
+        root_completion: completion.clone(),
+        finish_completion: completion,
+    });
+    commit(
+        Some(current),
+        current.map_id.clone(),
+        next_revision(current)?,
+        facts,
+    )
 }
 
-fn commit(current: Option<&TaskSpaceMap>, events: EventBatch) -> Result<Commit, Rejection> {
+fn node_fact(mutation: NodeMutation) -> MapFact {
+    match mutation {
+        NodeMutation::Complete { node_id, record } => MapFact::NodeCompleted { node_id, record },
+        NodeMutation::Block { node_id, record } => MapFact::NodeBlocked { node_id, record },
+        NodeMutation::Unblock { node_id } => MapFact::NodeUnblocked { node_id },
+        NodeMutation::Rework { node_id } => MapFact::NodeReworked { node_id },
+    }
+}
+
+fn commit(
+    current: Option<&TaskSpaceMap>,
+    map_id: MapId,
+    revision: Revision,
+    facts: Vec<MapFact>,
+) -> Result<Commit, Rejection> {
+    let events = EventBatch {
+        map_id,
+        revision,
+        facts,
+    };
     let current_revision = current.map_or(0, |map| map.revision);
     let map = apply_batch(current, &events)
-        .map_err(|error| rejection_from_replay(current_revision, error))?;
+        .map_err(|error| Rejection::from_replay(current_revision, error))?;
     Ok(Commit { map, events })
 }
 
-fn require_revision(current: &TaskSpaceMap, expected: Revision) -> Result<(), Rejection> {
-    if current.revision != expected {
-        return Err(Rejection::one(
+fn require_revision(current: &TaskSpaceMap, expected_revision: Revision) -> Result<(), Rejection> {
+    if current.revision == expected_revision {
+        Ok(())
+    } else {
+        Err(Rejection::one(
             current.revision,
             ViolationCode::StaleRevision,
-            expected.to_string(),
-        ));
+            expected_revision.to_string(),
+        ))
     }
-    Ok(())
 }
 
 fn next_revision(current: &TaskSpaceMap) -> Result<Revision, Rejection> {
     current.revision.checked_add(1).ok_or_else(|| {
         Rejection::one(
             current.revision,
-            ViolationCode::TransitionInvalid,
-            "revision_overflow",
+            ViolationCode::RevisionInvalid,
+            current.revision.to_string(),
         )
     })
-}
-
-fn rejection_from_replay(current_revision: Revision, error: ReplayError) -> Rejection {
-    match error {
-        ReplayError::InvariantViolations(violations) => {
-            Rejection::many(current_revision, violations)
-        }
-        ReplayError::EventInvalid { code, subjects } => Rejection {
-            state_commit: false,
-            current_revision,
-            violations: vec![Violation { code, subjects }],
-        },
-        other => Rejection::one(
-            current_revision,
-            ViolationCode::TransitionInvalid,
-            format!("{other:?}"),
-        ),
-    }
 }

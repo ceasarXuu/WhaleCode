@@ -1,216 +1,321 @@
-use super::events::MapEvent;
 use super::invariants::ViolationCode;
+use super::model::ActionReservation;
+use super::model::CompletionRecord;
 use super::model::MapEdge;
-use super::model::NodeStatus;
+use super::model::NodeState;
 use super::model::TaskSpaceMap;
+use super::model::map_node;
+use super::model::state_sha256;
+use super::transactions::ExecuteTransaction;
 use super::transactions::GraphMutation;
 use super::transactions::InitializeMap;
+use super::transactions::NodeMutation;
+use super::transactions::ReservationInput;
+use super::transactions::ReservationRelease;
+use super::transactions::execute;
 use super::transactions::initialize;
-use super::transactions::mutate_graph;
-use super::transactions::transition_node;
-use super::transitions::NodeTransition;
+use super::transactions::release_reservation;
+use super::transitions::derive_node_state;
 use pretty_assertions::assert_eq;
-use std::collections::BTreeMap;
 
-fn map(work_nodes: &[&str], edges: &[(&str, &str)]) -> TaskSpaceMap {
+fn edge(from: &str, to: &str) -> MapEdge {
+    MapEdge {
+        from: from.into(),
+        to: to.into(),
+    }
+}
+
+fn reservation(id: &str, node_id: &str, index: u32) -> ReservationInput {
+    ReservationInput {
+        reservation_id: format!("reservation-{id}"),
+        reservation: ActionReservation {
+            action_id: format!("action-{id}"),
+            node_id: node_id.into(),
+            tool_name: "exec_command".into(),
+            response_call_index: index,
+        },
+    }
+}
+
+fn fork_join(reservations: Vec<ReservationInput>) -> TaskSpaceMap {
     initialize(InitializeMap {
-        map_id: "phase-d-map".into(),
-        root_node_id: "root".into(),
-        root_goal: "solve".into(),
-        source_refs: vec!["task-event".into()],
-        finish_node_id: "finish".into(),
-        work_nodes: work_nodes
-            .iter()
-            .map(|id| ((*id).to_string(), format!("work {id}")))
-            .collect(),
-        edges: edges
-            .iter()
-            .map(|(from, to)| MapEdge::new(*from, *to))
-            .collect(),
+        map_id: "phase-b1x".into(),
+        root: map_node("root", "solve", vec!["task-event".into()]),
+        work_nodes: vec![
+            map_node("left", "left", vec![]),
+            map_node("right", "right", vec![]),
+            map_node("join", "join", vec![]),
+        ],
+        finish: map_node("finish", "close task", vec![]),
+        edges: vec![
+            edge("root", "left"),
+            edge("root", "right"),
+            edge("left", "join"),
+            edge("right", "join"),
+            edge("join", "finish"),
+        ],
+        reservations,
     })
     .unwrap()
     .map
 }
 
-fn transition(map: TaskSpaceMap, node_id: &str, action: NodeTransition) -> TaskSpaceMap {
-    let revision = map.revision;
-    transition_node(&map, revision, node_id.into(), action)
-        .unwrap()
-        .map
-}
-
-fn complete(map: TaskSpaceMap, node_id: &str) -> TaskSpaceMap {
-    transition(
-        transition(map, node_id, NodeTransition::Bind),
-        node_id,
-        NodeTransition::Complete,
+fn release(map: TaskSpaceMap, reservation_id: &str) -> TaskSpaceMap {
+    release_reservation(
+        &map,
+        ReservationRelease {
+            expected_revision: map.revision,
+            reservation_id: reservation_id.into(),
+            result_refs: vec![],
+            evidence_refs: vec![],
+        },
     )
+    .unwrap()
+    .map
 }
 
-fn late_predecessor_mutation(map: &TaskSpaceMap) -> GraphMutation {
-    GraphMutation {
-        expected_revision: map.revision,
-        add_nodes: BTreeMap::from([("late".into(), "late prerequisite".into())]),
-        add_edges: vec![MapEdge::new("root", "late"), MapEdge::new("late", "work")],
-        remove_edges: Vec::new(),
+fn completion(action_id: &str) -> CompletionRecord {
+    CompletionRecord {
+        action_id: action_id.into(),
+        result_ref_ids: vec![],
+        evidence_ref_ids: vec![],
     }
 }
 
 #[test]
-fn ready_node_returns_to_pending_when_a_new_predecessor_is_unmet() {
-    let map = map(
-        &["left", "target"],
-        &[
-            ("root", "left"),
-            ("root", "target"),
-            ("left", "finish"),
-            ("target", "finish"),
-        ],
+fn initialization_exposes_multiple_ready_and_inflight_nodes() {
+    let map = fork_join(vec![reservation("left-a", "left", 0)]);
+
+    assert_eq!(derive_node_state(&map, "left"), Some(NodeState::InFlight));
+    assert_eq!(derive_node_state(&map, "right"), Some(NodeState::Ready));
+    assert_eq!(derive_node_state(&map, "join"), Some(NodeState::Waiting));
+    assert_eq!(map.action_reservations.len(), 1);
+}
+
+#[test]
+fn multiple_actions_can_reserve_the_same_ready_node() {
+    let map = fork_join(vec![
+        reservation("left-a", "left", 0),
+        reservation("left-b", "left", 1),
+        reservation("right", "right", 2),
+    ]);
+
+    assert_eq!(derive_node_state(&map, "left"), Some(NodeState::InFlight));
+    assert_eq!(derive_node_state(&map, "right"), Some(NodeState::InFlight));
+    assert_eq!(
+        map.action_reservations
+            .values()
+            .filter(|reservation| reservation.node_id == "left")
+            .count(),
+        2
     );
-    let committed = mutate_graph(
+}
+
+#[test]
+fn completion_and_next_actions_commit_in_one_revision() {
+    let map = release(
+        fork_join(vec![reservation("left-a", "left", 0)]),
+        "reservation-left-a",
+    );
+    let before_revision = map.revision;
+    let committed = execute(
         &map,
-        GraphMutation {
+        ExecuteTransaction {
             expected_revision: map.revision,
-            add_nodes: BTreeMap::new(),
-            add_edges: vec![MapEdge::new("left", "target")],
-            remove_edges: vec![MapEdge::new("left", "finish")],
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Complete {
+                node_id: "left".into(),
+                record: completion("control-complete-left"),
+            }],
+            reservations: vec![reservation("right-a", "right", 0)],
+        },
+    )
+    .unwrap();
+
+    assert_eq!(committed.map.revision, before_revision + 1);
+    assert_eq!(
+        derive_node_state(&committed.map, "left"),
+        Some(NodeState::Completed)
+    );
+    assert_eq!(
+        derive_node_state(&committed.map, "right"),
+        Some(NodeState::InFlight)
+    );
+    assert_eq!(committed.events.facts.len(), 2);
+}
+
+#[test]
+fn graph_mutation_and_new_node_reservation_are_atomic() {
+    let map = fork_join(vec![reservation("left-a", "left", 0)]);
+    let committed = execute(
+        &map,
+        ExecuteTransaction {
+            expected_revision: map.revision,
+            graph: GraphMutation {
+                add_work_nodes: vec![map_node("side", "side evidence", vec![])],
+                add_edges: vec![edge("root", "side"), edge("side", "finish")],
+                remove_edges: vec![],
+            },
+            node_mutations: vec![],
+            reservations: vec![reservation("side-a", "side", 1)],
         },
     )
     .unwrap();
 
     assert_eq!(
-        committed.map.node(&"target".into()).unwrap().status,
-        NodeStatus::Pending
+        derive_node_state(&committed.map, "side"),
+        Some(NodeState::InFlight)
     );
-    let completed_left = complete(committed.map, "left");
-    assert_eq!(
-        completed_left.node(&"target".into()).unwrap().status,
-        NodeStatus::Ready
-    );
+    assert_eq!(committed.map.revision, map.revision + 1);
 }
 
 #[test]
-fn started_work_rejects_incoming_edge_rewrites_without_state_change() {
-    for status in [
-        NodeStatus::Running,
-        NodeStatus::Blocked,
-        NodeStatus::Completed,
-    ] {
-        let mut map = map(&["work"], &[("root", "work"), ("work", "finish")]);
-        map = transition(map, "work", NodeTransition::Bind);
-        map = match status {
-            NodeStatus::Running => map,
-            NodeStatus::Blocked => transition(map, "work", NodeTransition::Block),
-            NodeStatus::Completed => transition(map, "work", NodeTransition::Complete),
-            _ => unreachable!(),
-        };
-        let before_hash = map.state_sha256().unwrap();
-
-        let rejection = mutate_graph(&map, late_predecessor_mutation(&map)).unwrap_err();
-
-        assert_eq!(
-            rejection.violations[0].code,
-            ViolationCode::ExecutionCausalityConflict
-        );
-        assert_eq!(rejection.violations[0].subjects, ["late->work"]);
-        assert_eq!(map.state_sha256().unwrap(), before_hash);
-    }
-}
-
-#[test]
-fn rework_reopens_completed_work_and_demotes_affected_frontier() {
-    let map = map(
-        &["first", "second"],
-        &[("root", "first"), ("first", "second"), ("second", "finish")],
-    );
-    let map = complete(map, "first");
-    assert_eq!(
-        map.node(&"second".into()).unwrap().status,
-        NodeStatus::Ready
-    );
-
-    let committed =
-        transition_node(&map, map.revision, "first".into(), NodeTransition::Rework).unwrap();
-
-    assert_eq!(
-        committed.map.node(&"first".into()).unwrap().status,
-        NodeStatus::Ready
-    );
-    assert_eq!(
-        committed.map.node(&"second".into()).unwrap().status,
-        NodeStatus::Pending
-    );
-    assert_eq!(
-        committed.events.records[0].event,
-        MapEvent::NodeReworked {
-            node_id: "first".into()
-        }
-    );
-}
-
-#[test]
-fn rework_rejects_when_a_downstream_execution_consumed_the_result() {
-    let map = map(
-        &["first", "second"],
-        &[("root", "first"), ("first", "second"), ("second", "finish")],
-    );
-    let map = complete(complete(map, "first"), "second");
-    let before_hash = map.state_sha256().unwrap();
-
-    let rejection =
-        transition_node(&map, map.revision, "first".into(), NodeTransition::Rework).unwrap_err();
-
-    assert_eq!(
-        rejection.violations[0].code,
-        ViolationCode::ExecutionCausalityConflict
-    );
-    assert_eq!(rejection.violations[0].subjects, ["second"]);
-    assert_eq!(map.state_sha256().unwrap(), before_hash);
-}
-
-#[test]
-fn same_revision_graph_writes_reject_the_stale_writer() {
-    let map = map(&["work"], &[("root", "work"), ("work", "finish")]);
-    let first = mutate_graph(
+fn invalid_mixed_transaction_has_zero_partial_commit() {
+    let map = fork_join(vec![reservation("left-a", "left", 0)]);
+    let before_hash = state_sha256(&map).unwrap();
+    let rejection = execute(
         &map,
-        GraphMutation {
+        ExecuteTransaction {
             expected_revision: map.revision,
-            add_nodes: BTreeMap::from([("side".into(), "side".into())]),
-            add_edges: vec![MapEdge::new("root", "side"), MapEdge::new("side", "finish")],
-            remove_edges: Vec::new(),
-        },
-    )
-    .unwrap();
-    let before_hash = first.map.state_sha256().unwrap();
-    let mut stale = late_predecessor_mutation(&first.map);
-    stale.expected_revision = map.revision;
-
-    let rejection = mutate_graph(&first.map, stale).unwrap_err();
-
-    assert_eq!(rejection.violations[0].code, ViolationCode::StaleRevision);
-    assert_eq!(first.map.state_sha256().unwrap(), before_hash);
-}
-
-#[test]
-fn invalid_mixed_mutation_has_zero_partial_commit() {
-    let map = map(&["work"], &[("root", "work"), ("work", "finish")]);
-    let before_hash = map.state_sha256().unwrap();
-
-    let rejection = mutate_graph(
-        &map,
-        GraphMutation {
-            expected_revision: map.revision,
-            add_nodes: BTreeMap::new(),
-            add_edges: vec![MapEdge::new("missing", "work")],
-            remove_edges: vec![MapEdge::new("root", "work")],
+            graph: GraphMutation {
+                add_work_nodes: vec![map_node("orphan", "orphan", vec![])],
+                add_edges: vec![edge("missing", "orphan")],
+                remove_edges: vec![],
+            },
+            node_mutations: vec![],
+            reservations: vec![reservation("orphan-a", "orphan", 1)],
         },
     )
     .unwrap_err();
 
     assert_eq!(rejection.state_commit, false);
-    assert_eq!(map.state_sha256().unwrap(), before_hash);
+    assert_eq!(state_sha256(&map).unwrap(), before_hash);
+    assert!(map.work_nodes.iter().all(|node| node.node_id != "orphan"));
+}
+
+#[test]
+fn stale_cas_rejects_without_changing_facts() {
+    let map = fork_join(vec![reservation("left-a", "left", 0)]);
+    let before_hash = state_sha256(&map).unwrap();
+    let rejection = execute(
+        &map,
+        ExecuteTransaction {
+            expected_revision: map.revision + 1,
+            graph: GraphMutation::default(),
+            node_mutations: vec![],
+            reservations: vec![reservation("right-a", "right", 1)],
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(rejection.violations[0].code, ViolationCode::StaleRevision);
+    assert_eq!(rejection.current_revision, map.revision);
+    assert_eq!(state_sha256(&map).unwrap(), before_hash);
+}
+
+#[test]
+fn standalone_nonterminal_mutation_is_rejected() {
+    let map = fork_join(vec![reservation("left-a", "left", 0)]);
+    let rejection = execute(
+        &map,
+        ExecuteTransaction {
+            expected_revision: map.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Block {
+                node_id: "right".into(),
+                record: super::model::BlockRecord {
+                    action_id: "control-block".into(),
+                    reason_ref: "reason-ref".into(),
+                },
+            }],
+            reservations: vec![],
+        },
+    )
+    .unwrap_err();
+
     assert_eq!(
-        map.edges,
-        [MapEdge::new("root", "work"), MapEdge::new("work", "finish")]
+        rejection.violations[0].code,
+        ViolationCode::ReservationInvalid
     );
+    assert!(!map.block_records.contains_key("right"));
+}
+
+#[test]
+fn block_unblock_and_rework_are_explicit_facts() {
+    let map = release(
+        fork_join(vec![reservation("left-a", "left", 0)]),
+        "reservation-left-a",
+    );
+    let blocked = execute(
+        &map,
+        ExecuteTransaction {
+            expected_revision: map.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Block {
+                node_id: "right".into(),
+                record: super::model::BlockRecord {
+                    action_id: "control-block-right".into(),
+                    reason_ref: "block-reason-ref".into(),
+                },
+            }],
+            reservations: vec![reservation("left-b", "left", 0)],
+        },
+    )
+    .unwrap()
+    .map;
+    assert_eq!(
+        derive_node_state(&blocked, "right"),
+        Some(NodeState::Blocked)
+    );
+
+    let unblocked = execute(
+        &blocked,
+        ExecuteTransaction {
+            expected_revision: blocked.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Unblock {
+                node_id: "right".into(),
+            }],
+            reservations: vec![reservation("left-c", "left", 0)],
+        },
+    )
+    .unwrap()
+    .map;
+    assert_eq!(
+        derive_node_state(&unblocked, "right"),
+        Some(NodeState::Ready)
+    );
+
+    let left_ready = release(unblocked, "reservation-left-b");
+    let left_ready = release(left_ready, "reservation-left-c");
+    let completed = execute(
+        &left_ready,
+        ExecuteTransaction {
+            expected_revision: left_ready.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Complete {
+                node_id: "left".into(),
+                record: completion("control-complete-left"),
+            }],
+            reservations: vec![reservation("right-b", "right", 0)],
+        },
+    )
+    .unwrap()
+    .map;
+    let reworked = execute(
+        &completed,
+        ExecuteTransaction {
+            expected_revision: completed.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Rework {
+                node_id: "left".into(),
+            }],
+            reservations: vec![reservation("right-c", "right", 1)],
+        },
+    )
+    .unwrap()
+    .map;
+
+    assert!(!reworked.completion_records.contains_key("left"));
+    assert_eq!(derive_node_state(&reworked, "left"), Some(NodeState::Ready));
 }

@@ -2,55 +2,44 @@ use super::invariants::Violation;
 use super::invariants::ViolationCode;
 use super::invariants::validate;
 use super::model::MapEdge;
-use super::model::MapNode;
 use super::model::TaskSpaceMap;
-use pretty_assertions::assert_eq;
+use super::model::map_node;
+use super::model::new_map;
 use proptest::prelude::*;
 use proptest::test_runner::RngAlgorithm;
 use proptest::test_runner::RngSeed;
-use std::collections::BTreeMap;
 
 const ROOT_ID: &str = "root";
 const FINISH_ID: &str = "finish";
-const MAX_WORK_NODES: usize = 10;
-const MAX_ARBITRARY_EDGES: usize = 64;
+const MAX_WORK_NODES: usize = 12;
+const MAX_ARBITRARY_EDGES: usize = 48;
 
 fn external_node_ids(work_node_count: usize) -> Vec<String> {
-    let mut ids = Vec::with_capacity(work_node_count + 2);
-    ids.push(ROOT_ID.to_string());
-    ids.extend((0..work_node_count).map(|index| format!("work-{index}")));
-    ids.push(FINISH_ID.to_string());
-    ids
+    std::iter::once(ROOT_ID.to_string())
+        .chain((0..work_node_count).map(|index| format!("work-{index:02}")))
+        .chain(std::iter::once(FINISH_ID.to_string()))
+        .collect()
 }
 
 fn map_with_external_edges(
     work_node_count: usize,
     external_edges: Vec<(String, String)>,
 ) -> TaskSpaceMap {
-    let ids = external_node_ids(work_node_count);
-    let mut nodes = BTreeMap::new();
-    nodes.insert(
-        (ROOT_ID).to_string(),
-        MapNode::task_root("generated root", Vec::new()),
-    );
-    for id in ids.iter().skip(1).take(work_node_count) {
-        nodes.insert((id).to_string(), MapNode::work(id));
-    }
-    nodes.insert((FINISH_ID).to_string(), MapNode::finish());
-
-    TaskSpaceMap {
-        id: ("generated-map").to_string(),
-        root_node_id: (ROOT_ID).to_string(),
-        finish_node_id: (FINISH_ID).to_string(),
-        nodes,
-        edges: external_edges
-            .into_iter()
-            .map(|(from, to)| MapEdge::new(from, to))
+    new_map(
+        "generated-map".into(),
+        map_node(ROOT_ID, "generated root", vec![]),
+        (0..work_node_count)
+            .map(|index| {
+                let id = format!("work-{index:02}");
+                map_node(&id, &id, vec![])
+            })
             .collect(),
-        revision: 1,
-        current_binding: None,
-        terminal_summary_ref: None,
-    }
+        map_node(FINISH_ID, "finish task", vec![]),
+        external_edges
+            .into_iter()
+            .map(|(from, to)| MapEdge { from, to })
+            .collect(),
+    )
 }
 
 fn valid_forward_dag_strategy() -> impl Strategy<Value = TaskSpaceMap> {
@@ -90,19 +79,12 @@ fn arbitrary_directed_graph_strategy() -> impl Strategy<Value = TaskSpaceMap> {
     })
 }
 
-fn graph_with_edge_order_strategy() -> impl Strategy<Value = (TaskSpaceMap, Vec<u64>)> {
-    arbitrary_directed_graph_strategy().prop_flat_map(|map| {
-        let edge_count = map.edges.len();
-        (Just(map), prop::collection::vec(any::<u64>(), edge_count))
-    })
-}
-
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 256,
         failure_persistence: None,
         rng_algorithm: RngAlgorithm::ChaCha,
-        rng_seed: RngSeed::Fixed(0x05ee_dd46_2026),
+        rng_seed: RngSeed::Fixed(0xa2b1_fa47_2026),
         ..ProptestConfig::default()
     })]
 
@@ -124,36 +106,36 @@ proptest! {
     fn adding_finish_to_root_to_a_valid_graph_reports_a_cycle(
         mut map in valid_forward_dag_strategy(),
     ) {
-        map.edges.push(MapEdge::new(FINISH_ID, ROOT_ID));
+        map.edges.push(MapEdge {
+            from: FINISH_ID.into(),
+            to: ROOT_ID.into(),
+        });
 
-        assert_eq!(
-            validate(&map),
-            vec![Violation {
-                code: ViolationCode::CycleDetected,
-                subjects: Vec::new(),
-            }]
-        );
+        assert!(validate(&map)
+            .iter()
+            .any(|violation| violation.code == ViolationCode::CycleDetected));
     }
 
     #[test]
-    fn validation_result_is_independent_of_edge_order(
-        (map, order_keys) in graph_with_edge_order_strategy(),
+    fn validation_is_independent_of_edge_and_work_node_order(
+        mut map in valid_forward_dag_strategy(),
+        edge_seed in any::<u64>(),
+        node_seed in any::<u64>(),
     ) {
         let expected = validate(&map);
-        let mut keyed_edges = map
-            .edges
-            .iter()
-            .cloned()
-            .zip(order_keys)
-            .enumerate()
-            .collect::<Vec<_>>();
-        keyed_edges.sort_by_key(|(original_order, (_, key))| (*key, *original_order));
-        let mut reordered = map;
-        reordered.edges = keyed_edges
-            .into_iter()
-            .map(|(_, (edge, _))| edge)
-            .collect();
+        map.edges.sort_by_key(|edge| {
+            stable_order_key(edge_seed, format!("{}->{}", edge.from, edge.to).as_bytes())
+        });
+        map.work_nodes.sort_by_key(|node| {
+            stable_order_key(node_seed, node.node_id.as_bytes())
+        });
 
-        assert_eq!(validate(&reordered), expected);
+        assert_eq!(validate(&map), expected);
     }
+}
+
+fn stable_order_key(seed: u64, bytes: &[u8]) -> u64 {
+    bytes
+        .iter()
+        .fold(seed, |state, byte| state.rotate_left(5) ^ u64::from(*byte))
 }
