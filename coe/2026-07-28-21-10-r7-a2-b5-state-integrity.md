@@ -1,7 +1,7 @@
 # Problem P-001: R7.1 A2-B5 仍存在破坏 canonical Map 完整性的生产旁路
-- Status: verifying
+- Status: fixed
 - Created: 2026-07-28 21:10
-- Updated: 2026-07-28 22:27
+- Updated: 2026-07-28 22:37
 - Objective: 删除旧生命周期旁路，并保证所有 action identity 错误在 canonical Store commit 前被拒绝
 - Symptoms:
   - `task-reborn` / `RestartActionMap` 可把已有 canonical Map 覆盖为 `null`
@@ -37,7 +37,7 @@
   - projection `active_frontier` 不包含 Root
   - 更新 benchmark marker、oracle、日志 reason code、真实 Store 测试和全量 B5 门
   - fresh closure reviewer 确认 blocking findings 关闭
-- Current conclusion: 两条 P0 生产旁路和 projection 缺口均已修复；定向、StateDB、全量核心和 B5 门已通过，等待 fresh closure reviewer
+- Current conclusion: 两条 P0 生产旁路和 projection 缺口均已修复；定向、StateDB、全量核心和 B5 门已通过，第二名 fresh closure reviewer 给出 0 blocking / 0 non-blocking 和 closure PASS
 - Related hypotheses:
   - H-001
   - H-002
@@ -48,8 +48,9 @@
   - CLI、TUI、App Server、protocol 和 runtime 的 reborn/restart 清空路径已删除
   - projection active_frontier 只包含可执行 Work
   - 当前 benchmark observer 和默认 harness 已切换到 reservation/canonical projection 合同
+  - 第二名不继承主会话上下文的只读 reviewer 独立确认固定修复范围闭合
 - Close reason:
-  - pending fresh closure review
+  - fixed；`d87d1af35` 关闭全部已接受 finding，fresh closure review 通过
 
 ## Hypothesis H-001: 旧 reborn/restart 入口绕过唯一 Map 生命周期
 - Status: confirmed
@@ -87,11 +88,11 @@
   - E-001
 - Conclusion: 活跃生产路径已由代码链直接证明
 - Repair design readiness: ready
-- Next step: 删除入口、Op、handler、schema 和清空实现，补残留门
+- Next step: none；入口、Op、handler、schema 和清空实现已删除，残留门已激活
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed by `d87d1af35`
 
 ## Hypothesis H-002: sibling call identity 校验晚于 canonical Store commit
 - Status: confirmed
@@ -130,11 +131,11 @@
   - E-002
 - Conclusion: 生产调用顺序已证明身份校验发生在 commit 后
 - Repair design readiness: ready
-- Next step: 将身份校验前移，并将 prepared calls 改为 index 保序配对
+- Next step: none；身份校验已前移，prepared calls 已改为 index 保序配对
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed by `d87d1af35`
 
 ## Hypothesis H-003: projection 将 Root 的派生状态误当成可执行动作前沿
 - Status: confirmed
@@ -172,11 +173,11 @@
   - E-003
 - Conclusion: 代码条件和 reviewer 独立测试均支持
 - Repair design readiness: ready
-- Next step: projection frontier 仅包含 Work，并补忠实性测试
+- Next step: none；projection frontier 已只包含 Work，忠实性测试已通过
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed by `d87d1af35`
 
 ## Evidence E-001: fresh reviewer 证明 reborn/restart 的生产可达链
 - Related hypotheses:
@@ -382,3 +383,27 @@ overall: PASS
   ```
 - Interpretation: 修复未破坏 Standard 隔离、App schema、multi-agent tools 或当前 Map 回归面
 - Time: 2026-07-28 22:26
+
+## Evidence E-011: fresh closure reviewer 独立确认修复闭合
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports
+- Type: external-review
+- Source: fresh reviewer `019fa925-3778-7da0-a8f2-30098be0962b`
+- Prediction or plan link:
+  - P-001 fresh closure reviewer fix criterion
+- Matched signal:
+  - blocking 0、non-blocking 0、closure PASS
+- Correlation keys:
+  - fixed commit `d87d1af35`
+  - review `vs_review/2026-07-28-r7-a2-b5-review.md`
+- Raw content:
+  ```text
+旧 restart/reborn 生产路径已删除；call identity 在 Store mutation 前拒绝；
+prepared calls 按 response order 配对；active_frontier 只包含 Work。
+未发现 fixed scope 内的 blocking 或 non-blocking finding。
+  ```
+- Interpretation: 首轮接受的六项 finding 和额外残留已由独立 reviewer 关闭
+- Time: 2026-07-28 22:37
