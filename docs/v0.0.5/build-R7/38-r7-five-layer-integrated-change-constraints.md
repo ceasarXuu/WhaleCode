@@ -167,7 +167,7 @@ Root/Finish 的关闭状态只由当前 terminal 派生，不与 Work completion
 | R-07 | 初始化成功结果未明确报告动作归属 | 初始化结果显式报告 Agent 声明的 action attribution、reservation 和 commit 事实 | closed |
 | R-08 | schema 只能描述单个 control，无法保证 top-level sibling | 完整 response 必须经过 Tool 类型、顺序和数量 preflight；连续动作使用原生 sibling Tool calls | closed；实现不得回退到无 preflight |
 | R-09 | 普通 Tool 归属缺失时曾静默漂移到错误节点 | 缺失或错位的动作归属必须在零执行 preflight 中失败，不得静默默认、推断或漂移 | closed；旧 current-binding 实现由 R-24 追踪替换 |
-| R-10 | 单独 complete/bind 被后置拒绝，增加请求和恢复；该问题曾因“能够拒绝”被错误记为已关闭 | 非终态 boundary 与真实后继动作必须在同一 response，response grammar 必须在零执行 preflight 中强制，并通过真实模型证明不形成稳定额外请求 | open |
+| R-10 | 非终态连续动作仍产生稳定拒绝和恢复；A2-C 进一步确认公开 Tool identity 被内部 dispatch identity 覆盖，且 ordinary result attribution 后的最终 revision 未进入 Agent 反馈 | 非终态 boundary 与真实后继动作必须在同一 response；manifest 使用 provider-visible Tool identity；完整 response 执行后的 canonical revision 必须忠实反馈；真实模型不得形成稳定额外请求 | open；A2-C blocked |
 | R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map` 负责关闭；Agent 同时声明最后完成的 Work 与 terminal，Runtime 验证 canonical frontier | closed；B2.5 扩充可达性合同 |
 | R-12 | Patch 被嵌套 JSON 转义破坏，或同 response 多 Patch 部分写入 | 原生顶层 Patch 保真；单 response 最多一个 Patch | closed |
 | R-13 | TaskSpace 装饰曾侵入 Standard 普通 Tool | shared ordinary Tool 在 Standard/TaskSpace 中保持原生 schema 与执行路径一致 | closed；新候选必须消除 TaskSpace 内装饰 |
@@ -176,10 +176,10 @@ Root/Finish 的关闭状态只由当前 terminal 派生，不与 Work completion
 | R-16 | 完整 lifecycle 联合复制到每个普通 Tool，固定 schema 约 60.7 KB | TaskSpace response grammar 不得复制到普通 Tool；唯一 control 集中拥有 Map action | closed；目标候选删除剩余 binding |
 | R-17 | 初始化成为独立 provider request，随后才执行真实 Tool | `initialize_map` 与至少一个原生普通 Tool 必须位于同一 response，并按 barrier 顺序执行 | closed；不要求同一 Tool call |
 | R-18 | `string \| object` binding 联合让模型稳定选择短而错误的分支 | provider-visible wire 只保留中央 control 的直接 action；删除普通 Tool binding 联合 | closed；目标候选删除旧联合 |
-| R-19 | 初始化图和 binding schema 被复制到每个普通 Tool，TaskSpace Tool section 仍为 46,926 B/request | shared ordinary Tool 与 Standard 字节一致；TaskSpace 固定增量只允许来自唯一 control 和明确能力集差异 | open |
+| R-19 | 初始化图和 binding schema 曾被复制到每个普通 Tool，TaskSpace Tool section 为 46,926 B/request | shared ordinary Tool 与 Standard 字节一致；TaskSpace 固定增量只允许来自唯一 control 和明确能力集差异 | open；A2-C 实测 26,822 B/request，held-out 待验证 |
 | R-20 | 为降成本把初始化角色抹平成 `nodes + role ids`，Agent 将 Finish 重复放入 Work 集合并连续初始化失败 | Root、`work_nodes[]`、Finish 在 wire 中保持角色分区；允许多个首批 Work，成本优化不得依赖跨字段自然语言互斥 | closed |
 | R-21 | 节点绑定的 TaskSpace 子代理在 child session 启动前从父 rollout 恢复了不一致的 assignment 状态 | child 按 Map 身份访问同一持久化状态；attach 失败原子回收，原失败与相邻 handoff 测试通过 | closed（R7.1-A1） |
-| R-22 | `map-request` 复杂样本稳定产生多 Patch sibling reject，部分运行在业务完成后才补 Map 生命周期 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
+| R-22 | 复杂样本仍产生多 Patch sibling reject；A2-C 在 18 次 TaskSpace run 中观测到 2 次 | 晋升证据不得保留重复 multi-Patch 协议拒绝或事后补账路径；L2/L3 明确每 response 最多一个 Patch；保持单 Patch 原子安全且不让 Runtime 代替 Agent 推进 Map | open |
 | R-23 | canonical Map 被 Session-local Runtime 持有，并依赖 rollout checkpoint/delta 重建 | 独立持久化 Map Store 已成为唯一事实源；Session/Runtime 只持有引用或可丢弃缓存，rollout 不承担 Map 恢复 | closed（R7.1-A0） |
 | R-24 | singleton `current_node/current_binding/main lease` 把多活跃节点 DAG 退化为 Runtime 驱动的线性游标 | Agent 为每个普通动作显式声明 `node_id`；Runtime 不维护 current/next，不代选节点，同一 response 可推进多个节点 | closed（R7.1-A2-B1X） |
 | R-25 | `Open` 作为持久化状态与依赖、阻塞、执行中和完成事实重复，产生双重状态源 | Store 只保存不可重复事实；`Waiting/Ready/InFlight/Blocked/Completed/open_nodes` 全部由事实计算 | closed（R7.1-A2-B1X） |
@@ -195,7 +195,8 @@ R-21、R-23 至 R-27 已关闭，但其 handoff、持久化、无 current、无�
 2. **静态门**：空 Map 与已初始化 Map 的同一 capability epoch 使用完全相同 Tool schema。
 3. **连续动作门**：初始化和所有非终态 mutation 与至少一个真实 Tool 均在同一 response。
 4. **普通 Tool 保真门**：shared ordinary Tool 不包含 TaskSpace 字段，Standard/TaskSpace schema byte-identical。
-5. **反馈门**：初始化失败、业务失败和 Map commit 事实分别忠实返回。
+5. **反馈门**：初始化失败、业务失败、reservation prepare、ordinary result attribution 和完整 response
+   执行后的最终 canonical revision 分别忠实返回；不得用中间 revision 冒充下一请求可用 revision。
 6. **Patch 门**：顶层原生 Patch、单 Patch 和 control + Patch 合法配对均保持。
 7. **Standard 门**：Standard Tool schema 与请求路径字节不变。
 8. **projection 门**：三个 TaskSpace policy 的 L1-L4 与 Runtime 行为一致。
@@ -225,6 +226,10 @@ R-21、R-23 至 R-27 已关闭，但其 handoff、持久化、无 current、无�
     保持，旧 terminal 进入历史，生产 schema/domain 不存在 `rework_node`。
 
 当前总计：`24 closed / 3 open`。R-10、R-19、R-22 仍阻止产品晋升。成本下降不能越过这些阻塞项单独晋升。
+
+A2-C live evidence：24/24 业务成功、18/18 Map terminal，但 104 个 sequence failure request、51 个 state
+failure request、0/18 首请求初始化提交。详细数据与根因见
+[`46-r7.1-a2-c-repeat3-result.md`](46-r7.1-a2-c-repeat3-result.md)。
 
 ## 6. 已淘汰方向
 

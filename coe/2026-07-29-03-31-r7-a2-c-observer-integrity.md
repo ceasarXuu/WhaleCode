@@ -1,7 +1,7 @@
 # Problem P-001: A2-C observer 错报 request 边界和 canonical Map
-- Status: open
+- Status: fixed
 - Created: 2026-07-29 03:31
-- Updated: 2026-07-29 03:31
+- Updated: 2026-07-29 04:11
 - Objective: 让 A2-C 报告从 frozen raw artifacts 忠实还原每个 provider request、控制结果和最终 canonical Map
 - Symptoms:
   - TaskSpace request path 把整个 run 的 Tool calls 全部放进 `request_index=1`
@@ -40,18 +40,21 @@
   - 支持现行 commit/failure/result schema，并区分 response failure 与 skipped sibling
   - 使用现有 raw artifacts 重建报告，无需伪造或重跑 provider
   - observer 单元测试、harness 回归和 A2-C 数据一致性门通过
-- Current conclusion: request、Store 和 Result schema 三个 observer 漂移均已有直接证据；可进入修复设计和实现
+- Current conclusion: request boundary、run-scoped Store、现行 result schema 和初始化预检失败计数均已修复；冻结 raw artifacts 已完成全量重算
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - 18/18 TaskSpace Store 导出 `availability=measured`，Map 均 terminal
+  - 24/24 request path 的边界数与 provider request 数一致
+  - 初始化计数恢复为 `54 total / 18 committed / 36 failed`
+  - 定向 observer、cost、performance 和 harness 回归通过
 - Close reason:
-  - not closed
+  - observer 已能从 frozen raw artifacts 忠实恢复 A2-C 事实
 
 ## Hypothesis H-001: request parser 错把稀疏 warning 当作逐 response 边界
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: `Get-R7TaskspaceRequestPath` 只在 `provider_response_actionability` trace event 上 flush，而生产仅在特定 warning 条件下发该事件，普通 run 因此直到 `task_complete` 才 flush
 - Layer: root-cause
@@ -88,14 +91,14 @@
   - E-001
 - Conclusion: 生产事件顺序与代码分支共同确认
 - Repair design readiness: ready
-- Next step: 使用逐 response `token_count` 边界并以 call_id 延迟回填 outcome
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - 已改用逐 response `token_count` 边界，并按全局 `call_id` 回填 outcome
 
 ## Hypothesis H-002: Map Store exporter 读取了宿主默认 StateDB
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: benchmark 在容器退出后从宿主调用 `whale debug taskspace-map`，但没有把 `WHALE_HOME` 指向该 run 的 `artifacts/home/.whale`
 - Layer: root-cause
@@ -131,14 +134,14 @@
   - E-002
 - Conclusion: 定向导出确认 observer 读错数据库
 - Repair design readiness: ready
-- Next step: 将 run-scoped Whale Home 作为显式 observer 输入并加入路径身份日志
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - exporter 显式切换并恢复 run-scoped `WHALE_HOME/CODEX_SQLITE_HOME`
 
 ## Hypothesis H-003: control usage parser 仍只识别旧结果 schema
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: `cost-instrumentation.ps1` 只把 `TaskSpaceControlResultV2` 计为已提交初始化，而现行 sequence prepare 成功输出 `TaskSpaceResponseCommitV1`
 - Layer: root-cause
@@ -173,11 +176,11 @@
   - E-003
 - Conclusion: raw result 与 parser 条件直接确认 schema 漂移
 - Repair design readiness: ready
-- Next step: 统一识别现行 response commit、commit failure 和 lifecycle result
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - 已覆盖 response commit、commit failure、lifecycle result 和 response preflight failure
 
 ## Evidence E-001: raw rollout 有逐请求边界但 analyzer 没有使用
 - Related hypotheses:
@@ -256,3 +259,28 @@ if ($schemaVersion -eq "TaskSpaceControlResultV2" -and
   ```
 - Interpretation: `committed_initialize_and_execute=0` 是 observer 漏计，不是运行时未提交
 - Time: 2026-07-29 03:31
+
+## Evidence E-004: 冻结 artifacts 重算通过完整性代数
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r7-five-layer-matrix/a2-c/abe2b872b/20260729-0315`
+- Prediction or plan link:
+  - P-001 Fix criteria
+- Matched signal:
+  - request、Map 和初始化结果均可从原始 rollout/Store 重建
+- Correlation keys:
+  - source commit `abe2b872b6708e666293d0018ecd3654bf5a65cc`
+  - observer fixes `342951999`、`7da03a15a`
+- Raw content:
+  ```text
+provider rollouts: 24/24 complete
+TaskSpace Map exports: 18/18 measured, terminal=true
+initialize_and_execute: 54 total = 18 committed + 36 failed
+request boundary mismatch: 0
+  ```
+- Interpretation: observer 不再把缺失证据默认为零，也不再混淆 call-level copied failure 与 request-level failure
+- Time: 2026-07-29 04:11

@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "3a8dd27f7da69b87e3b7a17ae0707abec580fe0d0c9eb0a8c22f67f95eac1512"
+    "sha256": "76a2dd3988315d6a93ea67de04d80cba8113944dc0a58bfbcaae2084a61044ba"
   },
   "architectural_constraints": [
     {
@@ -202,9 +202,12 @@
     {
       "id": "R-10",
       "status": "open",
-      "problem": "Standalone complete or bind was rejected only after an extra provider request.",
-      "required_behavior": "A nonterminal boundary and its real successor occur in one response under zero-dispatch response grammar and natural runs do not stably amplify requests through recovery.",
-      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
+      "problem": "Nonterminal continuous actions still produce stable rejection and recovery; A2-C found that provider-visible Tool identity is replaced by internal dispatch identity and response-final revision is absent from Agent feedback.",
+      "required_behavior": "A nonterminal boundary and its real successor occur in one response, the manifest uses provider-visible Tool identity, the response-final canonical revision is faithfully visible, and natural runs do not stably amplify requests through recovery.",
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "docs/v0.0.5/build-R7/46-r7.1-a2-c-repeat3-result.md"
+      ]
     },
     {
       "id": "R-11",
@@ -265,9 +268,12 @@
     {
       "id": "R-19",
       "status": "open",
-      "problem": "Initialization graph and binding schema are copied onto ordinary Tools and the current Tool section remains 46926 bytes per request.",
+      "problem": "Initialization graph and binding schema were copied onto ordinary Tools and the prior Tool section was 46926 bytes per request; A2-C measured the candidate at 26822 bytes but held-out validation remains pending.",
       "required_behavior": "Shared ordinary Tool bytes equal Standard and TaskSpace fixed overhead comes only from the single central control and explicit capability-set differences.",
-      "evidence": ["coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md"]
+      "evidence": [
+        "coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md",
+        "docs/v0.0.5/build-R7/46-r7.1-a2-c-repeat3-result.md"
+      ]
     },
     {
       "id": "R-20",
@@ -286,9 +292,12 @@
     {
       "id": "R-22",
       "status": "open",
-      "problem": "Map-request complex runs repeatedly generate multiple sibling Patch calls or postpone Map lifecycle bookkeeping until after business work.",
-      "required_behavior": "Promotion evidence shows no repeated multi-Patch protocol rejection or post-hoc Map closure pattern while preserving one-Patch atomic safety and Agent-owned lifecycle choices.",
-      "evidence": ["coe/2026-07-23-18-24-r7-fla-map-request-operation-drift.md"]
+      "problem": "Complex runs still generate multiple sibling Patch calls; A2-C observed two rejected responses across 18 TaskSpace runs.",
+      "required_behavior": "Promotion evidence shows no repeated multi-Patch protocol rejection or post-hoc Map closure pattern, L2/L3 state the one-Patch-per-response contract, and Runtime preserves atomic safety without taking over Agent lifecycle choices.",
+      "evidence": [
+        "coe/2026-07-23-18-24-r7-fla-map-request-operation-drift.md",
+        "docs/v0.0.5/build-R7/46-r7.1-a2-c-repeat3-result.md"
+      ]
     },
     {
       "id": "R-23",
@@ -340,7 +349,7 @@
     {"id": "G-02", "requirement": "Tool schema is byte-identical across Map states in one capability epoch.", "evidence_required": "Empty and initialized state schema hash test."},
     {"id": "G-03", "requirement": "Initialization and every nonterminal Map mutation stay in one response with one or more real actions.", "evidence_required": "Response grammar matrix and provider trace."},
     {"id": "G-04", "requirement": "Shared ordinary Tools contain no TaskSpace fields and are byte-identical across Standard and TaskSpace.", "evidence_required": "JSON schema golden, wire hash, and source residue scan."},
-    {"id": "G-05", "requirement": "Feedback preserves initialization, business, and commit outcomes separately.", "evidence_required": "ResultV2 snapshots and failure tests."},
+    {"id": "G-05", "requirement": "Feedback preserves initialization, business, reservation prepare, ordinary result attribution, and response-final canonical revision as separate mechanical facts.", "evidence_required": "Result snapshots, response-final revision traces, native ordinary-output fidelity, and failure tests."},
     {"id": "G-06", "requirement": "Native top-level single Patch behavior is unchanged.", "evidence_required": "Patch fidelity, multi-Patch reject, and control-plus-Patch tests."},
     {"id": "G-07", "requirement": "Standard Tool bytes and execution path are unchanged.", "evidence_required": "Standard schema snapshot and paired smoke."},
     {"id": "G-08", "requirement": "All three projection policies share L1 through L4 behavior.", "evidence_required": "Four-arm contract hashes and traces."},

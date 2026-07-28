@@ -62,17 +62,17 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "3a8dd27f7da69b87e3b7a17ae0707abec580fe0d0c9eb0a8c22f67f95eac1512",
+      "sha256": "76a2dd3988315d6a93ea67de04d80cba8113944dc0a58bfbcaae2084a61044ba",
       "role": "最高优先级架构约束、历史回归和整组准入门"
     },
     {
       "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "sha256": "bd15caf2059288ae36241847056a8f428d22853da22218f7b67c411b650c9380",
+      "sha256": "3e85dc803278dba32dcaa6af19af4f901a2aeceb40993a8fd5f14182785edd12",
       "role": "R7.1 状态、约束、阻塞项和续接入口"
     },
     {
       "path": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
-      "sha256": "e015bfaed08df1bb0e7f17a4b6e39365b1f668ecf17bfb92e4dbfea1191de725",
+      "sha256": "356015c7d4d1f95d41551a9f8dcfe48a53a494dfdc21b089a2a270840a9e9e61",
       "role": "A2 response-level Tool 序列、动作归属、终态和 reopen 设计"
     }
   ],
@@ -95,7 +95,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "R7.1-A2-B5",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "0c91afc8d96fa5b28b0446990c69bec27f05ed760d7fb96849bdfeebd966b314",
+      "sha256": "ad292699b784c6efcf1fce96065b317f4d8290c88734fff4ee1ac8b46f9c3318",
       "open_regressions": [
         "R-10",
         "R-19",

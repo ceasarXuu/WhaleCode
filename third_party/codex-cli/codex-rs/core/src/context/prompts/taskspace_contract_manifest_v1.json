@@ -17,7 +17,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "23ba54d234eaa6889c875680670aeb9b21beba2fae54b19f75e35c559e2a6494"
+    "sha256": "20756a0c3c5d94b6872db3dcf70901fc9dcf20f6e871e106a90566a6dfecc060"
   },
   "compatibility_policy": "none",
   "wire_order": {
