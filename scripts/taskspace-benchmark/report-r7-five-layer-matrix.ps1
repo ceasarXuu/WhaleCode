@@ -46,6 +46,7 @@ function Get-AggregateRow {
         tool_action_requests_total = ($Rows | Measure-Object -Property tool_action_requests -Sum).Sum
         assistant_only_requests_total = ($Rows | Measure-Object -Property assistant_only_requests -Sum).Sum
         multi_tool_requests_total = ($Rows | Measure-Object -Property multi_tool_requests -Sum).Sum
+        tool_sequence_protocol_failure_requests_total = ($Rows | Measure-Object -Property tool_sequence_protocol_failure_requests -Sum).Sum
         taskspace_protocol_failure_requests_total = ($Rows | Measure-Object -Property taskspace_protocol_failure_requests -Sum).Sum
         taskspace_state_failure_requests_total = ($Rows | Measure-Object -Property taskspace_state_failure_requests -Sum).Sum
         ordinary_failure_requests_total = ($Rows | Measure-Object -Property ordinary_failure_requests -Sum).Sum
@@ -169,6 +170,7 @@ foreach ($run in @($manifest.runs)) {
     $flat | Add-Member -NotePropertyName tool_action_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "tool_calls").Count
     $flat | Add-Member -NotePropertyName assistant_only_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "assistant_only").Count
     $flat | Add-Member -NotePropertyName multi_tool_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls).Count -gt 1 }).Count
+    $flat | Add-Member -NotePropertyName tool_sequence_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "tool_sequence_protocol").Count }).Count
     $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_protocol").Count }).Count
     $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_state_machine").Count }).Count
     $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "ordinary_tool").Count }).Count
@@ -283,10 +285,10 @@ foreach ($row in $overall) {
     $lines.Add("| $($row.arm) | $($row.successes)/$($row.runs) | $($row.requests_total) / $($row.requests_mean) / $($row.requests_median) | $($row.input_tokens_total) / $($row.input_tokens_mean) / $($row.input_tokens_median) | $($row.cached_input_tokens_total) | $($row.uncached_input_tokens_total) | $cacheRate | $($row.output_tokens_total) / $($row.output_tokens_mean) | $($row.wall_time_ms_total) / $($row.wall_time_ms_mean) / $($row.wall_time_ms_median) |")
 }
 $lines.Add("")
-$lines.Add("| arm | 工作/终答 request | 多工具 request | 首请求 input 均值 | Tools section/请求 | Projection section/请求 | TS 协议失败 request | TS 状态失败 request | multi-patch | 空动作交接 | patch prepare 失败 | Map nodes/edges 均值 |")
-$lines.Add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+$lines.Add("| arm | 工作/终答 request | 多工具 request | 首请求 input 均值 | Tools section/请求 | Projection section/请求 | sequence 协议失败 request | TS 协议失败 request | TS 状态失败 request | multi-patch | 空动作交接 | patch prepare 失败 | Map nodes/edges 均值 |")
+$lines.Add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 foreach ($row in $overall) {
-    $lines.Add("| $($row.arm) | $($row.tool_action_requests_total) / $($row.assistant_only_requests_total) | $($row.multi_tool_requests_total) | $($row.first_input_tokens_mean) | $($row.tools_section_tokens_mean) | $($row.projection_section_tokens_mean) | $($row.taskspace_protocol_failure_requests_total) | $($row.taskspace_state_failure_requests_total) | $($row.multi_patch_attempts_total) | $($row.echo_only_handoffs_total) | $($row.patch_prepare_failures_total) | $($row.map_nodes_mean) / $($row.map_edges_mean) |")
+    $lines.Add("| $($row.arm) | $($row.tool_action_requests_total) / $($row.assistant_only_requests_total) | $($row.multi_tool_requests_total) | $($row.first_input_tokens_mean) | $($row.tools_section_tokens_mean) | $($row.projection_section_tokens_mean) | $($row.tool_sequence_protocol_failure_requests_total) | $($row.taskspace_protocol_failure_requests_total) | $($row.taskspace_state_failure_requests_total) | $($row.multi_patch_attempts_total) | $($row.echo_only_handoffs_total) | $($row.patch_prepare_failures_total) | $($row.map_nodes_mean) / $($row.map_edges_mean) |")
 }
 $lines.Add("")
 $lines.Add("| arm | initialize_and_execute 提交/总/失败 | 首请求初始化 尝试/提交 | 直接 control 初始化 | no_task_path |")

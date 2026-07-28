@@ -126,6 +126,10 @@ function New-SideFixture {
             [pscustomobject]@{ id = "node-3"; title = "Validate"; kind = "smoke_test"; status = "completed"; results = @([pscustomobject]@{ id = "result-3" }) }
         )
         Write-Json ([pscustomobject]@{
+                source = [pscustomobject]@{
+                    mapStore = [pscustomobject]@{ availability = "measured" }
+                }
+                maps = @([pscustomobject]@{ id = "map-1" })
                 nodes = $nodes; edges = @([pscustomobject]@{ from = "node-1"; to = "node-2" }, [pscustomobject]@{ from = "node-2"; to = "node-3" })
                 tasks = @([pscustomobject]@{ id = "task-1"; status = "active" })
             }) (Join-Path $artifactDir "observability/action-map-observability.json")
@@ -335,6 +339,8 @@ Assert-True ([int]$standard.section_cost.active_projection_identity_summary.unav
 $taskspaceSystemSection = @($taskspace.section_cost.sections | Where-Object { $_.kind -eq "system_messages" })[0]
 Assert-True ([double]$taskspaceSystemSection.bytes_per_request_mean -eq 40 -and [double]$taskspaceSystemSection.bytes_per_request_median -eq 40 -and [int]$taskspaceSystemSection.request_sample_count -eq 18) "taskspace section request statistics are incorrect"
 $standardMeasuredRow = @($report.rows | Where-Object { $_.repeat -eq 1 -and $_.logical_mode -eq "standard" })[0]
+$taskspaceMeasuredRow = @($report.rows | Where-Object { $_.repeat -eq 1 -and $_.logical_mode -eq "taskspace" })[0]
+Assert-True ([string]$taskspaceMeasuredRow.map.map_store_availability -eq "measured") "measured Map Store availability was not preserved"
 $standardHistoricalRow = @($report.rows | Where-Object { $_.repeat -eq 2 -and $_.logical_mode -eq "standard" })[0]
 $standardActiveProjection = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "active_projection" })[0]
 $standardControlFeedback = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "taskspace_control_feedback" })[0]

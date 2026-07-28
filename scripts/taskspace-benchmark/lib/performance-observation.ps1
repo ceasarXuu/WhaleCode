@@ -136,7 +136,11 @@ function Get-PerformanceMapFacts {
     $nodes = @()
     $edges = @()
     $taskStatus = ""
+    $mapStoreAvailability = ""
     if ($observability) {
+        $source = Get-PerformanceProperty $observability "source"
+        $mapStore = Get-PerformanceProperty $source "mapStore"
+        $mapStoreAvailability = [string](Get-PerformanceProperty $mapStore "availability" "")
         $nodes = @((Get-PerformanceProperty $observability "nodes" @()) | ForEach-Object {
                 [pscustomobject]@{
                     id = [string](Get-PerformanceProperty $_ "id")
@@ -152,9 +156,21 @@ function Get-PerformanceMapFacts {
         $tasks = @((Get-PerformanceProperty $observability "tasks" @()))
         if ($tasks.Count -gt 0) { $taskStatus = [string](Get-PerformanceProperty $tasks[0] "status") }
     }
-    $mapCount = Get-PerformanceNumber (Get-PerformanceProperty $Metrics "maps")
-    $nodeCount = Get-PerformanceNumber (Get-PerformanceProperty $graph "node_count" (Get-PerformanceProperty $Metrics "nodes"))
-    $edgeCount = Get-PerformanceNumber (Get-PerformanceProperty $graph "edge_count" (Get-PerformanceProperty $Metrics "edges"))
+    $mapCount = if ($mapStoreAvailability -eq "measured") {
+        [double]@((Get-PerformanceProperty $observability "maps" @())).Count
+    } else {
+        Get-PerformanceNumber (Get-PerformanceProperty $Metrics "maps")
+    }
+    $nodeCount = if ($mapStoreAvailability -eq "measured") {
+        [double]$nodes.Count
+    } else {
+        Get-PerformanceNumber (Get-PerformanceProperty $graph "node_count" (Get-PerformanceProperty $Metrics "nodes"))
+    }
+    $edgeCount = if ($mapStoreAvailability -eq "measured") {
+        [double]$edges.Count
+    } else {
+        Get-PerformanceNumber (Get-PerformanceProperty $graph "edge_count" (Get-PerformanceProperty $Metrics "edges"))
+    }
     $openLeaves = Get-PerformanceNumber (Get-PerformanceProperty $Metrics "open_leaf_nodes")
     $resultCount = Get-PerformanceNumber (Get-PerformanceProperty $graph "result_count")
     $unreviewed = Get-PerformanceNumber (Get-PerformanceProperty $graph "unreviewed_result_count")
@@ -163,6 +179,7 @@ function Get-PerformanceMapFacts {
     if ($unreviewed -gt 0) { $Warnings.Add("unreviewed_results_present") }
     [pscustomobject]@{
         map_count = $mapCount
+        map_store_availability = $mapStoreAvailability
         node_count = $nodeCount
         edge_count = $edgeCount
         result_count = $resultCount

@@ -30,10 +30,11 @@ try {
     Write-Lines $taskspacePath @(
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t0"; rawPayload = @{ name = "taskspace_control"; arguments = $initControlArgs } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "shell_command"; arguments = '{"cmd":"ls"}' } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","success":true,"state_commit":true}' } } },
+        @{ type = "event_msg"; payload = @{ type = "token_count" } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceResponseCommitV1","action":"initialize_and_execute","success":true,"state_commit":true}' } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "taskspace_trace_event_recorded"; kind = "provider_response_actionability"; tags = @("request_count:1") } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t2"; rawPayload = @{ name = "taskspace_control"; arguments = $finishArgs } } },
+        @{ type = "event_msg"; payload = @{ type = "token_count" } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t2"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceControlResultV2","action":"finish_map","success":true,"state_commit":true}' } } },
         @{ type = "event_msg"; payload = @{ type = "task_complete" } }
     )
@@ -53,6 +54,15 @@ try {
         $initializationFailure.state_commit -ne $false) {
         throw "Initialization carrier failure was not classified"
     }
+    $missingBoundaryPath = Join-Path $tempRoot "taskspace-missing-boundary.jsonl"
+    Write-Lines $missingBoundaryPath @(
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "m1"; rawPayload = @{ name = "exec_command"; arguments = '{"cmd":"ls"}' } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "m1"; toolSuccess = $true; rawPayload = @{ output = "ok" } } }
+    )
+    $missingBoundaryRejected = $false
+    try { Get-R7TaskspaceRequestPath $missingBoundaryPath 1 | Out-Null }
+    catch { $missingBoundaryRejected = $_.Exception.Message -like "TaskSpace rollout request boundary mismatch:*" }
+    if (-not $missingBoundaryRejected) { throw "Missing TaskSpace request boundaries did not fail closed" }
 
     $wirePath = Join-Path $tempRoot "wire.jsonl"
     Write-Lines $wirePath @(

@@ -547,7 +547,8 @@ function Export-TaskspaceObservabilityIfAvailable {
     $stdoutPath = Join-Path $ArtifactDir "observability.stdout.log"
     $stderrPath = Join-Path $ArtifactDir "observability.stderr.log"
     $exportScript = Join-Path $RepoRoot "scripts\export-action-map-observability.ps1"
-    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhalePath, "-ThreadId", $ThreadId, "-ArtifactRoot", $RepoDir) $RepoDir $stdoutPath $stderrPath 180
+    $whaleHome = Join-Path $ArtifactDir "home/.whale"
+    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhalePath, "-ThreadId", $ThreadId, "-ArtifactRoot", $RepoDir, "-WhaleHome", $whaleHome) $RepoDir $stdoutPath $stderrPath 180
     $jsonPath = Join-Path $obsDir "action-map-observability.json"
     $obs = if (Test-Path -LiteralPath $jsonPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonPath | ConvertFrom-Json } else { $null }
     $availability = if ($obs -and $obs.source -and $obs.source.mapStore) { [string]$obs.source.mapStore.availability } elseif ($exitCode -eq 0) { "map_store_export_missing" } else { "map_store_failed" }
@@ -578,9 +579,14 @@ function Get-TaskspaceBenchmarkMetrics {
     })
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
     $observabilityAvailability = if ($ObservabilityResult -and $ObservabilityResult.PSObject.Properties.Name -contains "availability") { [string]$ObservabilityResult.availability } elseif ($Side.LogicalMode -eq "taskspace") { "missing" } else { "not_applicable" }
-    $observabilityReplayFailed = $Side.LogicalMode -eq "taskspace" -and $observabilityAvailability -eq "replay_failed"
-    if ($observabilityReplayFailed) {
-        $metricsTaints += "observability_map_store_failed:$([string]$ObservabilityResult.map_store_error_code)"
+    $observabilityFailed = $Side.LogicalMode -eq "taskspace" -and $observabilityAvailability -ne "measured"
+    if ($observabilityFailed) {
+        $observabilityErrorCode = if ($ObservabilityResult -and $ObservabilityResult.PSObject.Properties.Name -contains "map_store_error_code") {
+            [string]$ObservabilityResult.map_store_error_code
+        } else {
+            "observability_unavailable"
+        }
+        $metricsTaints += "observability_map_store_failed:$observabilityErrorCode"
     }
     $activeSentinelWarnings = @()
     if ($obs -and $obs.PSObject.Properties.Name -contains "sentinelWarnings") {
@@ -783,10 +789,10 @@ function Get-TaskspaceBenchmarkMetrics {
         public_validation_reached_tests = [bool]$lifecycle.tests_started_seen
         pretest_failure = [bool]$pretestFailure
         infra_signature = $infraSignature
-        business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0 -and -not $observabilityReplayFailed)
+        business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0 -and -not $observabilityFailed)
         invalid_prompt = $false
         invalid_pair = $false
-        harness_failure = $observabilityReplayFailed
+        harness_failure = $observabilityFailed
         diff_path = $diffPath
         jsonl_path = $Exec.jsonl_path
         last_message_path = $Exec.last_message_path
@@ -796,9 +802,9 @@ function Get-TaskspaceBenchmarkMetrics {
         oracle_stdout_path = $Oracle.stdout_path
         oracle_stderr_path = $Oracle.stderr_path
         oracle_isolation_level = $Oracle.oracle_isolation_level
-        maps = if ($obs) { @($obs.maps).Count } else { 0 }
-        nodes = if ($obs) { @($obs.nodes).Count } else { 0 }
-        edges = if ($obs) { @($obs.edges).Count } else { 0 }
+        maps = if ($observabilityAvailability -eq "measured" -and $obs) { @($obs.maps).Count } else { $null }
+        nodes = if ($observabilityAvailability -eq "measured" -and $obs) { @($obs.nodes).Count } else { $null }
+        edges = if ($observabilityAvailability -eq "measured" -and $obs) { @($obs.edges).Count } else { $null }
         edge_order_violations = $graphHealth.EdgeOrderViolationCount
         spawn_agent_calls = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count } else { 0 }
         subagent_results = if ($obs) { @($obs.nodes | ForEach-Object { @($_.results | Where-Object { $subagentThreadIds -contains [string]$_.sourceThreadId }) }).Count } else { 0 }

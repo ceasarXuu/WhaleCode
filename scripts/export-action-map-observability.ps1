@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputDir,
     [Parameter(Mandatory = $true)][string]$WhalePath,
     [Parameter(Mandatory = $true)][string]$ThreadId,
-    [string]$ArtifactRoot = ""
+    [string]$ArtifactRoot = "",
+    [string]$WhaleHome = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,7 +23,7 @@ $exportPolicy = Get-ActionMapObservabilityExportPolicy $RolloutPath
 $exportPolicyPath = Join-Path $output.FullName "action-map-observability-policy.json"
 ($exportPolicy | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $exportPolicyPath -Encoding UTF8
 
-$mapStore = Invoke-ActionMapStoreExport -WhalePath $WhalePath -ThreadId $ThreadId -OutputDir $output.FullName
+$mapStore = Invoke-ActionMapStoreExport -WhalePath $WhalePath -ThreadId $ThreadId -OutputDir $output.FullName -WhaleHome $WhaleHome
 $mapStoreSource = $mapStore | Select-Object * -ExcludeProperty canonical_map
 $scan = New-ActionMapObservabilityEventScan -RolloutPath $RolloutPath -JsonlPath $JsonlPath -Policy $exportPolicy -RolloutReadStats $rolloutReadStats -JsonlReadStats $jsonlReadStats
 $finalState = if ([string]$mapStore.availability -eq "measured" -and $mapStore.canonical_map) {

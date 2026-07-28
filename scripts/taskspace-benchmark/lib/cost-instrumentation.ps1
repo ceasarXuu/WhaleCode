@@ -1426,12 +1426,15 @@ function New-TaskspaceControlUsageSummary {
                     }
                 }
                 $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
-                if ($schemaVersion -eq "TaskSpaceControlResultV2" -and
-                    $rolloutInitializeCallIds.Contains($callId)) {
+                $isLifecycleResult = $schemaVersion -eq "TaskSpaceControlResultV2"
+                $isResponseCommit = $schemaVersion -eq "TaskSpaceResponseCommitV1"
+                $isResponseCommitFailure = $schemaVersion -eq "TaskSpaceResponseCommitFailureV1"
+                $isControlResult = $isLifecycleResult -or $isResponseCommit -or $isResponseCommitFailure
+                if ($isControlResult -and $rolloutInitializeCallIds.Contains($callId)) {
                     if ([bool](Get-TaskspaceCostProperty $batch @("success")) -and
                         [bool](Get-TaskspaceCostProperty $batch @("state_commit"))) {
                         [void]$rolloutCommittedInitializeCallIds.Add($callId)
-                        $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision", "canonical_revision")
+                        $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision", "canonical_revision", "revision_after")
                         if ($null -ne $committedRevision) {
                             $latestCommittedRevision = [int64]$committedRevision
                         }
@@ -1453,7 +1456,6 @@ function New-TaskspaceControlUsageSummary {
                 }
                 if (-not $isControlCall) { continue }
 
-                $isControlResult = $schemaVersion -eq "TaskSpaceControlResultV2"
                 $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV2"
                 $controlFailed = ($isControlResult -or $isControlPreflightResult) -and
                     $batch.PSObject.Properties.Name -contains "success" -and
@@ -1482,12 +1484,12 @@ function New-TaskspaceControlUsageSummary {
                         [void]$rolloutControlProtocolFailureCallIds.Add($callId)
                     }
                 }
-                $stateCommitted = $isControlResult -and
+                $stateCommitted = ($isLifecycleResult -or $isResponseCommit) -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -and
                     [bool](Get-TaskspaceCostProperty $batch @("state_commit"))
                 if ($stateCommitted) {
                     [void]$rolloutCommittedControlCallIds.Add($callId)
-                    $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision")
+                    $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision", "canonical_revision", "revision_after")
                     if ($null -ne $committedRevision) {
                         $latestCommittedRevision = [int64]$committedRevision
                     }

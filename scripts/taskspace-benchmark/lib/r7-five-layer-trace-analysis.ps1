@@ -149,8 +149,9 @@ function Complete-R7RequestRows {
 function Get-R7TaskspaceRequestPath {
     param([string]$RolloutPath, [int]$ProviderRequests)
     $requests = New-R7RequestRows $ProviderRequests
-    $buffer = [Collections.Generic.List[object]]::new()
-    $lastCommittedRequest = 0
+    $requestIndex = 1
+    $observedRequestCount = 0
+    $callsById = @{}
     foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $RolloutPath) {
         $event = $line | ConvertFrom-Json -Depth 100
         $payload = Get-R7JsonProperty $event "payload"
@@ -160,34 +161,40 @@ function Get-R7TaskspaceRequestPath {
             $eventType = [string](Get-R7JsonProperty $payload "eventType" "")
             $raw = Get-R7JsonProperty $payload "rawPayload"
             if ($eventType -eq "function_call") {
-                $buffer.Add((ConvertTo-R7CallDescriptor -CallId ([string]$payload.callId) -ToolName ([string]$raw.name) -Arguments ([string]$raw.arguments)))
-            } elseif ($eventType -eq "function_call_output") {
-                $outcome = Get-R7CallOutcome -ToolSuccess ([bool]$payload.toolSuccess) -Output ([string]$raw.output)
-                Set-R7CallOutcome $buffer ([string]$payload.callId) $outcome
-            }
-            continue
-        }
-        if ([string](Get-R7JsonProperty $event "type" "") -eq "event_msg" -and
-            [string](Get-R7JsonProperty $payload "type" "") -eq "map_runtime" -and
-            [string](Get-R7JsonProperty $payload "map_event_type" "") -eq "taskspace_trace_event_recorded" -and
-            [string](Get-R7JsonProperty $payload "kind" "") -eq "provider_response_actionability") {
-            $requestTag = @($payload.tags | Where-Object { [string]$_ -like "request_count:*" } | Select-Object -First 1)
-            if ($requestTag.Count) {
-                $requestIndex = [int](([string]$requestTag[0]).Substring("request_count:".Length))
-                if ($requestIndex -ge 1 -and $requestIndex -le $requests.Count) {
-                    foreach ($call in $buffer) { $requests[$requestIndex - 1].calls.Add($call) }
-                    $buffer.Clear()
-                    $lastCommittedRequest = $requestIndex
+                $call = ConvertTo-R7CallDescriptor -CallId ([string]$payload.callId) -ToolName ([string]$raw.name) -Arguments ([string]$raw.arguments)
+                if ($callsById.ContainsKey($call.call_id)) {
+                    throw "Duplicate Tool call id in TaskSpace rollout: $($call.call_id)"
                 }
+                $requests[$requestIndex - 1].calls.Add($call)
+                $callsById[$call.call_id] = $call
+            } elseif ($eventType -eq "function_call_output") {
+                if (-not $callsById.ContainsKey([string]$payload.callId)) {
+                    throw "Orphan Tool output in TaskSpace rollout: $([string]$payload.callId)"
+                }
+                $outcome = Get-R7CallOutcome -ToolSuccess ([bool]$payload.toolSuccess) -Output ([string]$raw.output)
+                $call = $callsById[[string]$payload.callId]
+                $call.success = [bool]$outcome.success
+                $call.failure_class = [string]$outcome.failure_class
+                $call.failure_code = [string]$outcome.failure_code
+                $call.state_commit = $outcome.state_commit
             }
             continue
         }
         if ([string](Get-R7JsonProperty $event "type" "") -eq "event_msg" -and
-            [string](Get-R7JsonProperty $payload "type" "") -eq "task_complete" -and $buffer.Count) {
-            $requestIndex = [Math]::Min($ProviderRequests, $lastCommittedRequest + 1)
-            foreach ($call in $buffer) { $requests[$requestIndex - 1].calls.Add($call) }
-            $buffer.Clear()
+            [string](Get-R7JsonProperty $payload "type" "") -eq "token_count") {
+            $observedRequestCount++
+            if ($observedRequestCount -gt $ProviderRequests) {
+                throw "TaskSpace rollout has more token_count boundaries than provider requests"
+            }
+            if ($requestIndex -lt $ProviderRequests) { $requestIndex++ }
         }
+    }
+    if ($observedRequestCount -ne $ProviderRequests) {
+        throw "TaskSpace rollout request boundary mismatch: observed=$observedRequestCount expected=$ProviderRequests"
+    }
+    $missingOutputs = @($callsById.Values | Where-Object { $null -eq $_.success })
+    if ($missingOutputs.Count) {
+        throw "TaskSpace rollout has $($missingOutputs.Count) Tool calls without outputs"
     }
     Complete-R7RequestRows $requests
 }

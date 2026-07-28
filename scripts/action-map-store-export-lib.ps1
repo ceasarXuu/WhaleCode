@@ -30,11 +30,41 @@ function Move-PreviousActionMapStoreExport {
     Move-Item -LiteralPath $ExportPath -Destination $backup
 }
 
+function Invoke-WithActionMapStoreHome {
+    param(
+        [string]$WhaleHome = "",
+        [Parameter(Mandatory = $true)][scriptblock]$Operation
+    )
+    $resolvedWhaleHome = ""
+    if (-not [string]::IsNullOrWhiteSpace($WhaleHome)) {
+        if (-not (Test-Path -LiteralPath $WhaleHome -PathType Container)) {
+            throw "Whale Home does not exist: $WhaleHome"
+        }
+        $resolvedWhaleHome = (Resolve-Path -LiteralPath $WhaleHome).Path
+    }
+    $previousWhaleHome = [Environment]::GetEnvironmentVariable("WHALE_HOME", "Process")
+    $previousSqliteHome = [Environment]::GetEnvironmentVariable("CODEX_SQLITE_HOME", "Process")
+    try {
+        if ($resolvedWhaleHome) {
+            $env:WHALE_HOME = $resolvedWhaleHome
+            $env:CODEX_SQLITE_HOME = $resolvedWhaleHome
+        }
+        & $Operation $resolvedWhaleHome
+    }
+    finally {
+        if ($null -eq $previousWhaleHome) { Remove-Item Env:\WHALE_HOME -ErrorAction SilentlyContinue }
+        else { $env:WHALE_HOME = $previousWhaleHome }
+        if ($null -eq $previousSqliteHome) { Remove-Item Env:\CODEX_SQLITE_HOME -ErrorAction SilentlyContinue }
+        else { $env:CODEX_SQLITE_HOME = $previousSqliteHome }
+    }
+}
+
 function Invoke-ActionMapStoreExport {
     param(
         [Parameter(Mandatory = $true)][string]$WhalePath,
         [Parameter(Mandatory = $true)][string]$ThreadId,
-        [Parameter(Mandatory = $true)][string]$OutputDir
+        [Parameter(Mandatory = $true)][string]$OutputDir,
+        [string]$WhaleHome = ""
     )
     if (-not (Test-Path -LiteralPath $WhalePath -PathType Leaf)) {
         throw "Whale binary does not exist: $WhalePath"
@@ -44,8 +74,18 @@ function Invoke-ActionMapStoreExport {
     $logPath = Join-Path $OutputDir "taskspace-map-store.stdout.log"
     Move-PreviousActionMapStoreExport $exportPath
 
-    $commandOutput = @(& $resolvedWhale debug taskspace-map --thread-id $ThreadId --output $exportPath 2>&1)
-    $exitCode = [int]$LASTEXITCODE
+    $commandResult = Invoke-WithActionMapStoreHome -WhaleHome $WhaleHome -Operation {
+        param($activeWhaleHome)
+        $capturedOutput = @(& $resolvedWhale debug taskspace-map --thread-id $ThreadId --output $exportPath 2>&1)
+        [pscustomobject]@{
+            command_output = $capturedOutput
+            exit_code = [int]$LASTEXITCODE
+            whale_home = $activeWhaleHome
+        }
+    }
+    $commandOutput = @($commandResult.command_output)
+    $exitCode = [int]$commandResult.exit_code
+    $resolvedWhaleHome = [string]$commandResult.whale_home
     @($commandOutput | ForEach-Object { [string]$_ }) | Set-Content -LiteralPath $logPath -Encoding UTF8
 
     $envelope = $null
@@ -99,6 +139,8 @@ function Invoke-ActionMapStoreExport {
         command_exit_code = $exitCode
         whale_path = $resolvedWhale
         whale_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedWhale).Hash.ToLowerInvariant()
+        whale_home = $resolvedWhaleHome
+        sqlite_home = $resolvedWhaleHome
         export_path = $exportPath
         command_log_path = $logPath
         map_id = [string](Get-ActionMapStoreProperty $map "map_id" "")
