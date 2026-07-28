@@ -50,7 +50,9 @@
   - 24/24 request path 的边界数与 provider request 数一致
   - 初始化计数恢复为 `54 total / 18 committed / 36 failed`
   - 定向 observer、cost、performance 和 harness 回归通过
-  - A2-C repair observer 已增加 response-final receipt 完整性与最新 canonical revision 指标
+  - cost instrumentation parser 已增加 response-final receipt 完整性与最新 canonical revision 指标；repair
+    rerun 发现矩阵 performance summary 尚未透出这些字段及 receipt-before cache 分组，该后续缺口记录在
+    `2026-07-29-04-11-r7-a2-c-revision-feedback-gap.md`
 - Close reason:
   - observer 已能从 frozen raw artifacts 忠实恢复 A2-C 事实
 

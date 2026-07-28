@@ -1,7 +1,7 @@
 # Problem P-001: 普通 Tool 结果提交后的 canonical revision 未进入 Agent 反馈
 - Status: open
 - Created: 2026-07-29 04:11
-- Updated: 2026-07-29 04:56
+- Updated: 2026-07-29 06:20
 - Objective: 让一次合法 TaskSpace response 完成后，Agent 忠实获得下一次控制操作所需的最终 canonical revision
 - Symptoms:
   - `taskspace_control` 成功返回 `revision_after=N`
@@ -40,13 +40,16 @@
   - response 完成后 Agent 可直接获得最终 canonical revision，无需先触发 stale reject
   - 三种 projection policy 共用同一反馈实现
   - A2-C repeat-3 中由隐藏 result attribution 引起的 stale retry 为零
-- Current conclusion: 这是反馈层语义缺失，不是 Agent 智能问题；修复应在 response 执行完成时补充机械 commit receipt，不应让 Runtime替 Agent 选择动作
+- Current conclusion: 原始根因仍是反馈层语义缺失，不是 Agent 智能问题；但把 receipt 作为独立 developer/system
+  历史项追加是错误载体，会确定性破坏 DeepSeek 缓存。最终事实必须回到同一 `taskspace_control` 调用的结果语义，
+  不应让 Runtime 替 Agent 选择动作，也不应新增中途 system 消息
 - Related hypotheses:
   - H-001
 - Resolution basis:
   - Store-backed `TaskSpaceResponseFinalReceiptV1` 工程修复已实施
   - prepare revision、普通 Tool 输出和 response-final revision 保持三个独立事实
-  - 定向事务与 sequence 回归通过，A2-C live rerun pending
+  - 定向事务与 sequence 回归通过
+  - A2-C live rerun 证明独立 developer/system receipt carrier 确定性破坏缓存，产品修复失败
 - Close reason:
   - not closed
 
@@ -90,7 +93,7 @@
   - E-002
 - Conclusion: production call graph 和 live trace 一致确认
 - Repair design readiness: implemented
-- Next step: 重跑 A2-C，确认隐藏 result attribution 引起的 stale retry 为零
+- Next step: 保留 Store-backed final revision，重构为同一 control call 的最终 Tool result，再重跑 A2-C
 - Blocker:
   - none
 - Close reason:
@@ -176,5 +179,105 @@ response_final_receipt_revision_is_accepted_by_the_next_execute: passed
 taskspace_response_final_receipt_emitted
 codex-core --lib with repository .env.local: 1915 passed, 3 ignored
   ```
-- Interpretation: 反馈缺失已在工程路径补齐；产品问题保持 open，直到 live trace 证明 stale amplification 消失
+- Interpretation: 反馈缺失已在工程路径补齐，但本证据只验证值可用，没有验证 carrier 对 Provider 缓存和 wire
+  角色的影响；后续 live evidence 已证明当前 carrier 不合格
 - Time: 2026-07-29 04:56
+
+## Hypothesis H-002: 独立 developer receipt 在 DeepSeek wire 上变成中途 system 消息并破坏缓存
+- Status: confirmed
+- Parent: P-001
+- Claim: sequence 在 Tool siblings 后追加 developer factual message；DeepSeek wire 将其表示为历史中途的 system
+  message，导致下一请求只复用基础缓存前缀
+- Layer: repair-regression
+- Factor relation: dependent_on
+- Depends on:
+  - H-001
+- Rationale:
+  - 修复前 `map-append` 保持约 95% request-2+ cache；修复后 exact message prefix 仍保持，但每个 receipt 后缓存
+    稳定退回约 7K 以下
+- Falsifiable predictions:
+  - If true: 紧跟 receipt 的请求稳定低缓存，不紧跟 receipt 的同一 run 请求恢复高缓存
+  - If false: 缓存低点与 receipt 无时间关联，或 Tool hash/tool choice/message prefix 同时变化
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 在保持 projection policy、Tool hash、tool choice 和消息前缀不变时，对齐 receipt
+    与下一 token_count
+  - Signal: receipt-before、input、cached input、wire role、prefix preservation
+  - Capture method: A2-C repair rerun raw rollout + provider wire trace
+  - Event name or marker:
+    - `TaskSpaceResponseFinalReceiptV1`
+    - `token_count`
+    - `provider_wire_request`
+  - Correlation keys:
+    - run path
+    - request index
+    - control_call_id
+  - Differentiates from:
+    - `map-append` projection 累加的正常 input 成本
+    - Tool schema/tool_choice 动态变化
+    - 单次 Provider 冷启动
+  - Supports if:
+    - receipt-before 请求系统性低缓存且无 receipt 请求高缓存
+  - Refutes if:
+    - 两组命中无显著路径差异
+  - Instrumentation status: existing-raw-evidence-sufficient / aggregate-report-gap
+  - Instrumentation lifecycle:
+    - 后续矩阵报告永久增加 receipt-before cache 分组
+- Evidence gate: satisfied
+- Related evidence:
+  - E-004
+  - E-005
+- Conclusion: 35/35 与 1/39 的分组结果及 wire role 共同确认
+- Repair design readiness: ready
+- Next step: 设计同一 control call 的最终 Tool result carrier；实施前保持五层职责和普通 Tool 零侵入
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-004: map-append receipt-before 与缓存坍缩完全对齐
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: reproduction
+- Source: A2-C repair rerun，全部 6 个 `map-append` runs
+- Prediction or plan link:
+  - H-002 的 receipt 时间关联预测
+- Matched signal:
+  - receipt-before：35 requests，35 个 cached input <= 7,000，命中率 23.64%
+  - no-receipt-before：39 requests，仅 1 个 cached input <= 7,000，命中率 93.69%
+- Correlation keys:
+  - run root `target/r7-five-layer-matrix/a2-c-repair/445499582/20260729-0546`
+- Raw content:
+  ```text
+receipt_before=false requests=39 collapse=1 input=860042 cached=805760 hit=93.69%
+receipt_before=true  requests=35 collapse=35 input=901614 cached=213120 hit=23.64%
+  ```
+- Interpretation: 同一 policy、同一 binary、同一矩阵内的请求级对照排除了普通 projection 累加和随机离群
+- Time: 2026-07-29 06:20
+
+## Evidence E-005: wire 保持前缀和 Tool 身份，但 receipt 作为 system 历史出现
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: diagnostic-log
+- Source: A2-C repair rerun provider wire trace
+- Prediction or plan link:
+  - H-002 的 role 与 prefix 判别
+- Matched signal:
+  - `prefix_preserved=true`
+  - `message_prefix_preserved=true`
+  - `tool_choice_changed=false`
+  - `tools_hash` 不变
+  - `TaskSpaceResponseFinalReceiptV1` 对应 message role 为 `system`
+- Correlation keys:
+  - `single-file-fast-fix / map-append / repeat 1`
+  - receipt control call IDs
+- Raw content:
+  ```text
+request 4: prefix_preserved=true, cached=5888
+message[14].role=system, content=TaskSpaceResponseFinalReceiptV1
+request 5 without new receipt: cached=15744
+request 6 after new receipt: cached=5888
+  ```
+- Interpretation: 缓存回归来自 receipt carrier，而不是 Tool schema 或自然历史前缀重写
+- Time: 2026-07-29 06:20

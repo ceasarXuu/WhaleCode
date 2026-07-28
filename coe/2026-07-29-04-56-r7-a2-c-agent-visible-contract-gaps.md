@@ -1,7 +1,7 @@
 # Problem P-001: A2-C 三项机械规则未完整进入 Agent 可见合同
 - Status: open
 - Created: 2026-07-29 04:56
-- Updated: 2026-07-29 04:56
+- Updated: 2026-07-29 06:20
 - Objective: 让 `mutations` 可选语义、完成节点动作归属和单 Patch 硬规则在 L2/L4 与 Runtime 一致
 - Symptoms:
   - Agent 省略文案称为 optional 的 `mutations` 时，wire 仍以缺字段拒绝
@@ -28,7 +28,8 @@
   - H-001
 - Resolution basis:
   - 工程修复与聚焦回归通过
-  - 同口径 A2-C live rerun pending
+  - 同口径 A2-C live rerun 中 control arguments invalid 降为零
+  - completed/blocked ownership 和单 Patch 的真实行为门仍未通过
 - Close reason:
   - not closed
 
@@ -48,7 +49,7 @@
   - E-001
 - Conclusion: 源码与 A2-C trace 同时满足预测
 - Repair design readiness: implemented
-- Next step: A2-C live rerun
+- Next step: 对 14 个 reservation invalid 和 1 次 multi-Patch 做逐 request 因果审计；不增加 Runtime 语义判断
 - Blocker:
   - none
 - Close reason:
@@ -81,3 +82,27 @@ tools::handlers::taskspace_control_args::tests: 13 passed
   ```
 - Interpretation: 三项 Agent 可见合同已工程闭合；行为稳定性仍由 live rerun 验证
 - Time: 2026-07-29 04:56
+
+## Evidence E-002: live rerun 只关闭参数缺口，未关闭两项行为门
+- Related hypotheses:
+  - H-001
+- Direction: mixed
+- Type: reproduction
+- Source: A2-C repair rerun
+- Prediction or plan link:
+  - P-001 Fix criteria
+- Matched signal:
+  - `taskspace_control_arguments_invalid` 从 19 个复制反馈降为 0
+  - 仍有 14 个 `reservation_invalid` control response
+  - 仍有 1 个 TaskSpace multi-Patch request，且由现有原子硬门零执行拒绝
+- Correlation keys:
+  - run root `target/r7-five-layer-matrix/a2-c-repair/445499582/20260729-0546`
+- Raw content:
+  ```text
+TaskSpace sequence failure requests: 104 -> 82
+TaskSpace state failure requests: 51 -> 34
+TaskSpace multi-Patch attempts: 2 -> 1
+  ```
+- Interpretation: `mutations` wire 缺口已关闭；L2/L4 的事前合同让另外两项有所改善，但没有达到 A2-C 的零失败
+  验收标准，不能将“合同已写入”表述为“产品行为已修复”
+- Time: 2026-07-29 06:20
