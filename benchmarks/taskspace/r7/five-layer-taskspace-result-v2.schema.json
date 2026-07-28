@@ -1,7 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://whalecode.dev/schemas/r7/taskspace-control-result-v2.json",
-  "title": "TaskSpaceControlResultV2",
+  "title": "TaskSpaceControlResultV2 (obsolete FLA binding-era artifact)",
+  "x-artifact-status": "obsolete_non_promotable",
+  "x-superseded-by": "benchmarks/taskspace/r7/five-layer-taskspace-result-v3.contract.json",
   "description": "Local and model-visible result contract for every taskspace_control action. DeepSeek receives conforming JSON as a tool result; this schema is not advertised as provider-enforced output_schema.",
   "type": "object",
   "properties": {

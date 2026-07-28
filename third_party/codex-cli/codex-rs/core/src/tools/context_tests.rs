@@ -5,13 +5,13 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 #[test]
-fn final_summary_is_redacted_only_from_tool_logs() {
+fn exact_summary_is_redacted_only_from_tool_logs() {
     let payload = ToolPayload::Function {
         arguments: serde_json::json!({
             "action": "finish_map",
             "expected_revision": 7,
-            "terminal_node_id": "finish",
-            "final_summary": "private final text"
+            "complete_work_node_ids": ["implement"],
+            "exact_summary": "private final text"
         })
         .to_string(),
     };

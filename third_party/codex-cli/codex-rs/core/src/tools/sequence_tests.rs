@@ -60,6 +60,24 @@ fn initialize_and_execute_control(call_id: &str, actions: serde_json::Value) -> 
     )
 }
 
+fn reopen_control(call_id: &str, actions: serde_json::Value) -> ToolCall {
+    function_call_with_arguments(
+        "taskspace_control",
+        call_id,
+        &serde_json::json!({
+            "action": "reopen_map",
+            "expected_revision": 9,
+            "work_nodes": [{"node_id": "address-feedback", "goal": "Address feedback"}],
+            "edges": [
+                {"from": "root", "to": "address-feedback"},
+                {"from": "address-feedback", "to": "finish"}
+            ],
+            "actions": actions,
+        })
+        .to_string(),
+    )
+}
+
 #[test]
 fn preserves_provider_order_around_state_barriers() {
     let calls = vec![
@@ -171,6 +189,45 @@ fn taskspace_execute_requires_action_tool_to_match_sibling_call() {
 }
 
 #[test]
+fn reopen_map_is_a_prepared_response_with_matching_native_siblings() {
+    let calls = vec![
+        reopen_control(
+            "reopen",
+            serde_json::json!([
+                {"node_id": "address-feedback", "tool": "read_file"}
+            ]),
+        ),
+        function_call_with_arguments("read_file", "read", r#"{"path":"README.md"}"#),
+    ];
+
+    let (_, plan) = validate_tool_sequence(&calls, true).expect("valid reopen response");
+    let ToolSequencePlan::TaskSpaceExecute {
+        args,
+        declared_calls,
+        ..
+    } = plan
+    else {
+        panic!("expected prepared reopen response");
+    };
+    assert_eq!(args.action_name(), "reopen_map");
+    assert_eq!(declared_calls.len(), 1);
+    assert_eq!(declared_calls[0].node_id, "address-feedback");
+}
+
+#[test]
+fn reopen_map_cannot_be_a_standalone_control_call() {
+    let calls = vec![reopen_control(
+        "reopen",
+        serde_json::json!([
+            {"node_id": "address-feedback", "tool": "read_file"}
+        ]),
+    )];
+
+    let failure = validate_tool_sequence(&calls, true).expect_err("reopen needs sibling calls");
+    assert_eq!(failure.reason_code, TASKSPACE_ACTION_COUNT_MISMATCH_CODE);
+}
+
+#[test]
 fn taskspace_control_only_plan_rejects_sibling_native_calls() {
     let calls = vec![
         function_call_with_arguments("taskspace_control", "read-map", r#"{"action":"read_map"}"#),
@@ -193,15 +250,9 @@ fn taskspace_control_only_plan_stays_with_control_handler() {
     )];
 
     let (_, plan) = validate_tool_sequence(&calls, true).expect("valid control-only");
-    let ToolSequencePlan::TaskSpaceControlOnly {
-        control_index,
-        args,
-    } = plan
-    else {
+    let ToolSequencePlan::TaskSpaceControlOnly = plan else {
         panic!("expected control-only plan");
     };
-    assert_eq!(control_index, 0);
-    assert_eq!(args.action_name(), "read_map");
 }
 
 #[test]

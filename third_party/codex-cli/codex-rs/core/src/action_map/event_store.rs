@@ -196,7 +196,9 @@ impl TaskSpaceEventStore {
         let first = self.events.first().ok_or_else(|| {
             TaskSpaceEventCodecError::InvalidCheckpoint("no events to compact".to_string())
         })?;
-        let last = self.events.last().expect("checked non-empty event store");
+        let last = self.events.last().ok_or_else(|| {
+            TaskSpaceEventCodecError::InvalidCheckpoint("no events to compact".to_string())
+        })?;
         let replacement_items = replacement_items
             .into_iter()
             .filter(|item| !is_taskspace_runtime_context_item(item))
@@ -252,12 +254,8 @@ impl TaskSpaceEventStore {
             .enumerate()
             .rev()
             .find_map(|(index, event)| {
-                let item = event
-                    .to_response_item()
-                    .expect("TaskSpaceEventStore only contains validated events");
-                checkpoint_from_item(&item)
-                    .expect("TaskSpaceEventStore only contains valid checkpoints")
-                    .map(|checkpoint| (index, checkpoint))
+                let item = validated_response_item(event);
+                validated_checkpoint(&item).map(|checkpoint| (index, checkpoint))
             });
         let (mut items, suffix_start) = match checkpoint {
             Some((index, checkpoint)) => {
@@ -270,16 +268,8 @@ impl TaskSpaceEventStore {
         items.extend(
             self.events[suffix_start..]
                 .iter()
-                .map(|event| {
-                    event
-                        .to_response_item()
-                        .expect("TaskSpaceEventStore only contains validated events")
-                })
-                .filter(|item| {
-                    checkpoint_from_item(item)
-                        .expect("TaskSpaceEventStore only contains valid checkpoints")
-                        .is_none()
-                }),
+                .map(validated_response_item)
+                .filter(|item| validated_checkpoint(item).is_none()),
         );
         items
     }
@@ -361,6 +351,20 @@ impl TaskSpaceEventStore {
             .last()
             .map(|event| event.sequence.saturating_add(1))
             .unwrap_or(1);
+    }
+}
+
+fn validated_response_item(event: &TaskSpaceEvent) -> ResponseItem {
+    match event.to_response_item() {
+        Ok(item) => item,
+        Err(error) => panic!("validated TaskSpace event failed to decode: {error}"),
+    }
+}
+
+fn validated_checkpoint(item: &ResponseItem) -> Option<TaskSpaceCompactionCheckpoint> {
+    match checkpoint_from_item(item) {
+        Ok(checkpoint) => checkpoint,
+        Err(error) => panic!("validated TaskSpace checkpoint failed to decode: {error}"),
     }
 }
 

@@ -33,10 +33,7 @@ pub(crate) struct TaskSpaceDeclaredCall {
 #[derive(Clone, Debug)]
 pub(crate) enum ToolSequencePlan {
     Standard,
-    TaskSpaceControlOnly {
-        control_index: usize,
-        args: TaskSpaceControlArgs,
-    },
+    TaskSpaceControlOnly,
     TaskSpaceExecute {
         control_index: usize,
         args: TaskSpaceControlArgs,
@@ -87,12 +84,9 @@ impl ToolSequencePreflightFailure {
             },
         })
         .to_string();
-        let responses = calls
+        let (mut pairing, supplemental): (Vec<_>, Vec<_>) = calls
             .iter()
             .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
-            .collect::<Vec<_>>();
-        let (mut pairing, supplemental): (Vec<_>, Vec<_>) = responses
-            .into_iter()
             .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
         pairing.extend(supplemental);
         pairing
@@ -164,7 +158,8 @@ pub(crate) fn validate_tool_sequence(
     let ordinary_calls = &calls[control_index + 1..];
     match &args {
         TaskSpaceControlArgs::InitializeAndExecute { actions, .. }
-        | TaskSpaceControlArgs::Execute { actions, .. } => {
+        | TaskSpaceControlArgs::Execute { actions, .. }
+        | TaskSpaceControlArgs::ReopenMap { actions, .. } => {
             let declared_calls = match_actions(actions, ordinary_calls, &manifest)?;
             Ok((
                 manifest,
@@ -188,13 +183,7 @@ pub(crate) fn validate_tool_sequence(
                     &manifest,
                 ));
             }
-            Ok((
-                manifest,
-                ToolSequencePlan::TaskSpaceControlOnly {
-                    control_index,
-                    args,
-                },
-            ))
+            Ok((manifest, ToolSequencePlan::TaskSpaceControlOnly))
         }
     }
 }

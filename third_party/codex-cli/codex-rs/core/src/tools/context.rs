@@ -107,7 +107,7 @@ impl ToolPayload {
             && let Self::Function { arguments } = self
             && let Ok(mut value) = serde_json::from_str::<JsonValue>(arguments)
             && let Some(object) = value.as_object_mut()
-            && let Some(candidate) = object.get_mut("final_summary")
+            && let Some(candidate) = object.get_mut("exact_summary")
             && let Some(text) = candidate.as_str()
         {
             *candidate = serde_json::json!({

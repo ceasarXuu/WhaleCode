@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 enum Action {
     InitializeAndExecute,
     Execute,
+    ReopenMap,
     ReadMap,
     ReadOutputRef,
     FinishMap,
@@ -46,6 +47,17 @@ struct ExecuteArgs {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReopenMapArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    expected_revision: u64,
+    work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+    edges: Vec<TaskSpaceGraphEdgeArgs>,
+    actions: Vec<TaskSpaceActionArgs>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 enum MutationWire {
     AddWorkNodes {
@@ -66,9 +78,6 @@ enum MutationWire {
     UnblockNode {
         node_id: String,
     },
-    ReworkNode {
-        node_id: String,
-    },
 }
 
 impl From<MutationWire> for TaskSpaceMutationArgs {
@@ -80,7 +89,6 @@ impl From<MutationWire> for TaskSpaceMutationArgs {
             MutationWire::CompleteNode { node_id } => Self::CompleteNode { node_id },
             MutationWire::BlockNode { node_id } => Self::BlockNode { node_id },
             MutationWire::UnblockNode { node_id } => Self::UnblockNode { node_id },
-            MutationWire::ReworkNode { node_id } => Self::ReworkNode { node_id },
         }
     }
 }
@@ -157,6 +165,7 @@ struct FinishMapArgs {
     _action: Action,
     expected_revision: u64,
     finish_node_id: String,
+    complete_work_node_ids: Vec<String>,
     exact_summary: String,
 }
 
@@ -180,6 +189,15 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 actions: parsed.actions,
             })
         }
+        Action::ReopenMap => {
+            let parsed = deserialize_arguments::<ReopenMapArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::ReopenMap {
+                expected_revision: parsed.expected_revision,
+                work_nodes: parsed.work_nodes,
+                edges: parsed.edges,
+                actions: parsed.actions,
+            })
+        }
         Action::ReadMap => {
             let _ = deserialize_arguments::<ReadMapArgs>(arguments)?;
             Ok(TaskSpaceControlArgs::ReadMap)
@@ -190,6 +208,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
             Ok(TaskSpaceControlArgs::FinishMap {
                 expected_revision: parsed.expected_revision,
                 finish_node_id: parsed.finish_node_id,
+                complete_work_node_ids: parsed.complete_work_node_ids,
                 exact_summary: parsed.exact_summary,
             })
         }

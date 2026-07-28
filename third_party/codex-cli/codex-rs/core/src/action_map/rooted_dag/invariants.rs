@@ -37,7 +37,7 @@ pub(crate) enum ViolationCode {
     StaleRevision,
     FinishNotReady,
     UnfinishedRequiredWork,
-    FinalSummaryEmpty,
+    ExactSummaryEmpty,
     TerminalRecordInvalid,
 }
 
@@ -67,7 +67,7 @@ impl ViolationCode {
             Self::StaleRevision => "stale_revision",
             Self::FinishNotReady => "finish_not_ready",
             Self::UnfinishedRequiredWork => "unfinished_required_work",
-            Self::FinalSummaryEmpty => "final_summary_empty",
+            Self::ExactSummaryEmpty => "exact_summary_empty",
             Self::TerminalRecordInvalid => "terminal_record_invalid",
         }
     }
@@ -216,7 +216,7 @@ fn validate_facts(map: &TaskSpaceMap, found: &mut Violations) {
         .keys()
         .chain(map.block_records.keys())
     {
-        if !ids.contains(node_id.as_str()) {
+        if !ids.contains(node_id.as_str()) || node_role(map, node_id) != Some(NodeRole::Work) {
             add(found, ViolationCode::RecordNodeInvalid, node_id.clone());
         }
     }
@@ -287,19 +287,19 @@ fn validate_references(map: &TaskSpaceMap, found: &mut Violations) {
     }
     for (node_id, completion) in &map.completion_records {
         for ref_id in &completion.result_ref_ids {
-            if !map
+            if map
                 .result_refs
                 .get(ref_id)
-                .is_some_and(|record| record.node_id == *node_id)
+                .is_none_or(|record| record.node_id != *node_id)
             {
                 add(found, ViolationCode::FactReferenceInvalid, ref_id.clone());
             }
         }
         for ref_id in &completion.evidence_ref_ids {
-            if !map
+            if map
                 .evidence_refs
                 .get(ref_id)
-                .is_some_and(|record| record.node_id == *node_id)
+                .is_none_or(|record| record.node_id != *node_id)
             {
                 add(found, ViolationCode::FactReferenceInvalid, ref_id.clone());
             }
@@ -308,32 +308,27 @@ fn validate_references(map: &TaskSpaceMap, found: &mut Violations) {
 }
 
 fn validate_terminal(map: &TaskSpaceMap, found: &mut Violations) {
-    let root_complete = map.completion_records.contains_key(&map.root.node_id);
-    let finish_complete = map.completion_records.contains_key(&map.finish.node_id);
-    match &map.terminal_record {
-        None if root_complete || finish_complete => {
+    for terminal in map
+        .terminal_history
+        .iter()
+        .chain(map.terminal_record.iter())
+    {
+        if terminal.action_id.trim().is_empty() || terminal.summary_ref.trim().is_empty() {
             add_empty(found, ViolationCode::TerminalRecordInvalid);
         }
-        Some(terminal) => {
-            if terminal.action_id.trim().is_empty()
-                || terminal.summary_ref.trim().is_empty()
-                || !root_complete
-                || !finish_complete
-                || !map.action_reservations.is_empty()
-                || !map.block_records.is_empty()
-            {
-                add_empty(found, ViolationCode::TerminalRecordInvalid);
-            }
-            for work_node in &map.work_nodes {
-                if !map.completion_records.contains_key(&work_node.node_id) {
-                    add(
-                        found,
-                        ViolationCode::UnfinishedRequiredWork,
-                        work_node.node_id.clone(),
-                    );
-                }
+    }
+    if map.terminal_record.is_some() {
+        if !map.action_reservations.is_empty() || !map.block_records.is_empty() {
+            add_empty(found, ViolationCode::TerminalRecordInvalid);
+        }
+        for work_node in &map.work_nodes {
+            if !map.completion_records.contains_key(&work_node.node_id) {
+                add(
+                    found,
+                    ViolationCode::UnfinishedRequiredWork,
+                    work_node.node_id.clone(),
+                );
             }
         }
-        None => {}
     }
 }

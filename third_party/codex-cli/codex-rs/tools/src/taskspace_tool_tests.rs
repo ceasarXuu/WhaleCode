@@ -40,7 +40,7 @@ fn variant<'a>(tool: &'a ResponsesApiTool, action: &str) -> &'a JsonSchema {
 }
 
 #[test]
-fn control_exposes_exactly_five_top_level_actions() {
+fn control_exposes_exactly_six_top_level_actions() {
     let tool = function_tool();
     let actions = variants(&tool)
         .iter()
@@ -55,6 +55,7 @@ fn control_exposes_exactly_five_top_level_actions() {
             "initialize_and_execute",
             "read_map",
             "read_output_ref",
+            "reopen_map",
         ])
     );
 }
@@ -115,10 +116,29 @@ fn execute_exposes_all_nonterminal_mutations_and_requires_actions() {
             "block_node",
             "complete_node",
             "remove_edges",
-            "rework_node",
             "unblock_node",
         ])
     );
+}
+
+#[test]
+fn reopen_map_requires_new_work_edges_and_immediate_actions() {
+    let tool = function_tool();
+    let reopen = variant(&tool, "reopen_map");
+    assert_eq!(
+        required_fields(reopen),
+        [
+            "action",
+            "expected_revision",
+            "work_nodes",
+            "edges",
+            "actions",
+        ]
+    );
+    let properties = reopen.properties.as_ref().expect("properties");
+    assert_eq!(properties["work_nodes"].min_items, Some(1));
+    assert_eq!(properties["edges"].min_items, Some(1));
+    assert_eq!(properties["actions"].min_items, Some(1));
 }
 
 #[test]
@@ -131,10 +151,12 @@ fn finish_map_uses_the_explicit_finish_identity_contract() {
             "action",
             "expected_revision",
             "finish_node_id",
+            "complete_work_node_ids",
             "exact_summary",
         ]
     );
     let properties = finish.properties.as_ref().expect("properties");
+    assert_eq!(properties["complete_work_node_ids"].min_items, Some(1));
     assert!(!properties.contains_key("terminal_node_id"));
     assert!(!properties.contains_key("final_summary"));
 }
@@ -157,12 +179,13 @@ fn schema_wire_shape_matches_the_b1x_golden() {
         vec![
             json!({"action":"initialize_and_execute","required":["action","root","work_nodes","finish","edges","actions"]}),
             json!({"action":"execute","required":["action","expected_revision","mutations","actions"]}),
+            json!({"action":"reopen_map","required":["action","expected_revision","work_nodes","edges","actions"]}),
             json!({"action":"read_map","required":["action"]}),
             json!({"action":"read_output_ref","required":["action","output_ref","mode","max_bytes"]}),
             json!({"action":"read_output_ref","required":["action","output_ref","mode","max_bytes"]}),
             json!({"action":"read_output_ref","required":["action","output_ref","mode","start_line","end_line","max_bytes"]}),
             json!({"action":"read_output_ref","required":["action","output_ref","mode","pattern","max_bytes"]}),
-            json!({"action":"finish_map","required":["action","expected_revision","finish_node_id","exact_summary"]}),
+            json!({"action":"finish_map","required":["action","expected_revision","finish_node_id","complete_work_node_ids","exact_summary"]}),
         ]
     );
 }
@@ -180,6 +203,7 @@ fn schema_contains_no_superseded_carrier_or_lifecycle_actions() {
         "expand_nodes",
         "terminal_node_id",
         "final_summary",
+        "rework_node",
     ] {
         assert!(
             !serialized.contains(removed),

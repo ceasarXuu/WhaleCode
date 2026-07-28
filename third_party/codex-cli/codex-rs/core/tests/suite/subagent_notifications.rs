@@ -118,12 +118,14 @@ fn with_spawn_override_test_models(
     builder: core_test_support::test_codex::TestCodexBuilder,
 ) -> core_test_support::test_codex::TestCodexBuilder {
     builder.with_config(|config| {
-        let mut response = bundled_models_response().expect("bundled models should parse");
-        let template = response
-            .models
-            .first()
-            .cloned()
-            .expect("bundled models should not be empty");
+        let mut response = match bundled_models_response() {
+            Ok(response) => response,
+            Err(error) => panic!("bundled models failed to parse: {error}"),
+        };
+        let template = match response.models.first().cloned() {
+            Some(template) => template,
+            None => panic!("bundled models are empty"),
+        };
         response.models = [INHERITED_MODEL, REQUESTED_MODEL, ROLE_MODEL]
             .into_iter()
             .map(|slug| {

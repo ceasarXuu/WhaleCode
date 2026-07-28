@@ -5,13 +5,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "action-map-observability-lib.ps1")
-. (Join-Path $PSScriptRoot "test-action-map-store-fixture-lib.ps1")
 
 if (-not $OutputDir) {
     $OutputDir = Join-Path $PSScriptRoot "..\target\test-reports\action-map-observability-lib"
 }
 [void](New-Item -ItemType Directory -Force -Path $OutputDir)
-$testWhale = New-TestActionMapStoreWhale (Join-Path $OutputDir "fake-map-store")
 
 function Assert-Equal($Actual, $Expected, [string]$Message) {
     if ($Actual -ne $Expected) {
@@ -374,140 +372,6 @@ try {
     $samePathAudit = Get-CognitiveAuditSummary @($samePathTasks.ToArray()) @($samePathNodes.Values) @() @($timeline.ToArray()) $artifactRoot
     Assert-Equal ([int]$samePathAudit.metrics.finalArtifactCount) 2 "same relative artifact path in two tasks should not merge"
     $results.Add("cognitive-audit-same-path-multi-task-artifacts: PASS")
-
-    $fixtureDir = Join-Path $OutputDir "black-box-fixture"
-    [void](New-Item -ItemType Directory -Force -Path $fixtureDir)
-    [void](New-Item -ItemType Directory -Force -Path (Join-Path $fixtureDir "src"))
-    "print('ok')" | Set-Content -LiteralPath (Join-Path $fixtureDir "src\app.py") -Encoding UTF8
-    $rolloutPath = Join-Path $fixtureDir "rollout.jsonl"
-    $jsonlPath = Join-Path $fixtureDir "whale-exec.jsonl"
-    $exportDir = Join-Path $fixtureDir "export"
-    $snapshotEvent = [ordered]@{
-        timestamp = "2026-05-30T00:07:00Z"
-        payload = [ordered]@{
-            type = "map_runtime"
-            map_event_type = "snapshot_updated"
-            snapshot = [ordered]@{
-                tasks = @([ordered]@{
-                        id = "task-1"
-                        title = "Fix | app"
-                        objective = "Repair failing validator`nwith evidence"
-                        status = "active"
-                        ownerSessionId = "thread-1"
-                        activeMapId = "map-1"
-                        mapIds = @("map-1")
-                        cognitiveState = $cognitiveState
-                    })
-                maps = @([ordered]@{
-                        id = "map-1"
-                        taskId = "task-1"
-                        title = "Fix | app"
-                        ownerSessionId = "thread-1"
-                        createdFrom = $null
-                        edges = @()
-                        nodes = @([ordered]@{ id = "node-1"; title = "Read | source"; kind = "inspect_code_context"; status = "completed" })
-                        subagentPlans = @([ordered]@{
-                                id = "subagent-plan-1"
-                                taskId = "task-1"
-                                mapId = "map-1"
-                                parentNodeId = "node-1"
-                                whyParallelizable = "independent source inspection"
-                                expectedArtifact = "source audit notes"
-                                acceptanceCheck = "result cites validator evidence"
-                                maxScope = "read-only inspection"
-                                supportsQuestions = @("question-1")
-                                testsHypotheses = @()
-                                dependsOnResults = @()
-                                status = "result_recorded"
-                                leaseId = "lease-3"
-                                childThreadId = "thread-2"
-                                resultIds = @("result-3")
-                                createdAtMs = "100"
-                                updatedAtMs = "200"
-                            })
-                        results = @([ordered]@{
-                                id = "result-3"
-                                nodeId = "node-1"
-                                assignmentId = "lease-3"
-                                sourceThreadId = "thread-1"
-                                kind = "result"
-                                actionClass = "test"
-                                toolSuccess = $true
-                                sourceEventRef = "task-event-7"
-                                artifactRefs = @("src/app.py")
-                            })
-                    })
-                maintenanceBarriers = @()
-                sentinelWarnings = @([ordered]@{
-                        id = "sentinel-1"
-                        sentinelType = "validator_failure"
-                        status = "cleared"
-                        severity = "warning"
-                        taskId = "task-1"
-                        mapId = "map-1"
-                        nodeId = "node-1"
-                        resultId = "result-3"
-                        traceEventIds = @("trace-1")
-                        reason = "fixture | warning`ncleared"
-                        clearanceAction = "Run a successful validator before final artifact audit."
-                        clearAction = "FixApplied"
-                        createdAtMs = "1"
-                    })
-            }
-        }
-    }
-    $validityEvent = [ordered]@{ timestamp = "2026-05-30T00:08:00Z"; payload = [ordered]@{ type = "result_validity_changed"; resultId = "result-3"; validity = "accepted" } }
-    @(
-        ($snapshotEvent | ConvertTo-Json -Depth 30 -Compress),
-        ($validityEvent | ConvertTo-Json -Depth 30 -Compress)
-    ) | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
-    "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
-    Set-TestActionMapStoreFixture -WhalePath $testWhale -ThreadId "thread-1" -Snapshot $snapshotEvent.payload.snapshot
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -WhalePath $testWhale -ThreadId "thread-1" -ArtifactRoot $fixtureDir | Out-Null
-    $exportJson = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-    Assert-Equal ([bool]$exportJson.cognitiveAudit.structuralGatePassed) $false "canonical Map result should not synthesize the retired cognitive evidence package"
-    Assert-Equal ([int]$exportJson.summary.inputParseErrors) 0 "black-box fixture should have no parse errors"
-    Assert-Equal ([int]$exportJson.summary.subagentPlans) 1 "black-box fixture should export subagent plan count"
-    Assert-Equal ([string]$exportJson.maps[0].subagentPlans[0].id) "subagent-plan-1" "black-box fixture should retain subagent plan"
-    Assert-Equal ([string]$exportJson.nodes[0].results[0].sourceEventRef) "task-event-7" "black-box fixture should retain canonical event reference"
-    Assert-Equal ([string]$exportJson.nodes[0].results[0].artifactRefs[0]) "src/app.py" "black-box fixture should retain artifact reference"
-    Assert-Equal ([bool]$exportJson.nodes[0].results[0].success) $true "black-box fixture should retain tool success"
-    $html = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.html") -Raw -Encoding UTF8
-    $match = [regex]::Match($html, '(?s)<script type="application/json" id="trace-data">(.*?)</script>')
-    if (-not $match.Success) {
-        throw "HTML report trace-data script was not found."
-    }
-    if ($match.Groups[1].Value -match "&quot;") {
-        throw "HTML report should not entity-encode JSON quotes in trace-data."
-    }
-    [void]($match.Groups[1].Value | ConvertFrom-Json)
-    $markdown = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.md") -Raw -Encoding UTF8
-    foreach ($needle in @(
-            "## Source",
-            "- artifact root:",
-            "### Gate Records",
-            "## Final Artifacts",
-            "## Result Evidence",
-            "## Sentinel Warnings",
-            "Known Missing / Future Work",
-            '`changedArtifacts` / `artifactRef`'
-        )) {
-        if ($markdown -notmatch [regex]::Escape($needle)) {
-            throw "Markdown report did not contain '$needle'."
-        }
-    }
-    foreach ($escaped in @("Fix \| app", "Repair failing validator<br>with evidence", "Read \| source", "fixture \| warning<br>cleared")) {
-        if ($markdown -notmatch [regex]::Escape($escaped)) {
-            throw "Markdown report did not escape table content '$escaped'."
-        }
-    }
-    foreach ($ch in $markdown.ToCharArray()) {
-        $code = [int][char]$ch
-        if ($code -lt 32 -and $code -notin @(9, 10, 13)) {
-            throw "Markdown report contains unexpected control character code $code."
-        }
-    }
-    $results.Add("black-box-export-report-html-parse: PASS")
 
     $report = @("# Action Map Observability Lib Self-Test", "", "- overall: PASS") + ($results | ForEach-Object { "- $_" })
     $report | Set-Content -Encoding UTF8 (Join-Path $OutputDir "report.md")

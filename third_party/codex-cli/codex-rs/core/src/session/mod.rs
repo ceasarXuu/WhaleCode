@@ -3368,7 +3368,9 @@ impl Session {
             state
                 .session_configuration
                 .taskspace_projection_policy
-                .expect("TaskSpace mode requires an immutable projection policy")
+                .ok_or_else(|| {
+                    "TaskSpace mode requires an immutable projection policy.".to_string()
+                })?
         };
         let context = match policy {
             TaskSpaceProjectionPolicy::MapRequest => None,
@@ -3402,7 +3404,7 @@ impl Session {
                 &state.taskspace_projection_cursor,
                 candidate.as_ref(),
             )
-            .expect("configured TaskSpace projection policy must be enabled");
+            .map_err(|error| format!("TaskSpace projection policy is unavailable: {error}"))?;
             state.taskspace_projection_cursor = decision.next_cursor;
             let projection_item = match decision.emission {
                 ProjectionEmission::ReplaceLatest | ProjectionEmission::AppendSnapshot => context
@@ -3448,9 +3450,13 @@ impl Session {
                     )
                     .await;
                     let projection_context = taskspace_projection_context(Some(&projection_item))
-                        .expect("appended TaskSpace item must contain a projection");
+                        .ok_or_else(|| {
+                        "appended TaskSpace item does not contain a projection.".to_string()
+                    })?;
                     let identity = projection_identity_from_context(projection_context)
-                        .expect("appended TaskSpace projection must have an identity");
+                        .ok_or_else(|| {
+                            "appended TaskSpace projection has no identity.".to_string()
+                        })?;
                     tracing::info!(
                         target: "codex_core::taskspace",
                         event_name = "taskspace.projection_request_tail_appended",
@@ -3475,8 +3481,10 @@ impl Session {
                 debug_assert!(projection_item.is_none());
                 items = remove_taskspace_map_handle_items(items);
                 if let Some(map_handle_item) = map_handle_item {
-                    let handle = taskspace_map_handle_context(Some(&map_handle_item))
-                        .expect("map-request handle item must contain a handle");
+                    let handle =
+                        taskspace_map_handle_context(Some(&map_handle_item)).ok_or_else(|| {
+                            "map-request handle item does not contain a handle.".to_string()
+                        })?;
                     tracing::info!(
                         target: "codex_core::taskspace",
                         event_name = "taskspace.map_handle_request_tail_emitted",

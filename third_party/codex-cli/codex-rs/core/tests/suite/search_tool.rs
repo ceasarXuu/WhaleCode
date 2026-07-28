@@ -989,7 +989,7 @@ async fn standard_dynamic_dispatch_preserves_business_taskspace_binding_field() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispatch() -> Result<()> {
+async fn taskspace_tool_search_keeps_native_schema_and_uses_outer_manifest() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -1001,35 +1001,62 @@ async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispat
         vec![
             sse(vec![
                 ev_response_created("taskspace-search-response"),
+                ev_function_call(
+                    "taskspace-init",
+                    "taskspace_control",
+                    &json!({
+                        "action": "initialize_and_execute",
+                        "root": {
+                            "node_id": "root",
+                            "goal": "Use the deferred automation tool"
+                        },
+                        "work_nodes": [{
+                            "node_id": "work",
+                            "goal": "Search and invoke the tool"
+                        }],
+                        "finish": {
+                            "node_id": "finish",
+                            "goal": "Close the task"
+                        },
+                        "edges": [
+                            {"from": "root", "to": "work"},
+                            {"from": "work", "to": "finish"}
+                        ],
+                        "actions": [{"node_id": "work", "tool": "tool_search"}]
+                    })
+                    .to_string(),
+                ),
                 ev_tool_search_call(
                     search_call_id,
                     &json!({
                         "query": "recurring automations",
                         "limit": 8,
-                        "taskspace_binding": {
-                        "action": "initialize_map",
-                        "root": {"id": "root", "goal": "Use the deferred automation tool"},
-                        "initial_work": {"id": "work", "goal": "Search and invoke the tool"},
-                        "additional_work": [],
-                        "finish_id": "finish",
-                        "edges": [
-                            {"from": "root", "to": "work"},
-                            {"from": "work", "to": "finish"}
-                        ]
-                        },
                     }),
                 ),
                 ev_completed("taskspace-search-response"),
             ]),
             sse(vec![
                 ev_response_created("taskspace-tool-response"),
+                ev_function_call(
+                    "taskspace-execute",
+                    "taskspace_control",
+                    &json!({
+                        "action": "execute",
+                        "expected_revision": 2,
+                        "mutations": [],
+                        "actions": [{
+                            "node_id": "work",
+                            "tool": "codex_appautomation_update"
+                        }]
+                    })
+                    .to_string(),
+                ),
                 ev_function_call_with_namespace(
                     dynamic_call_id,
                     "codex_app",
                     tool_name,
                     &json!({
                         "mode": "create",
-                        "taskspace_binding": {"action": "active"},
                     })
                     .to_string(),
                 ),
@@ -1042,9 +1069,10 @@ async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispat
                     "taskspace_control",
                     &json!({
                         "action": "finish_map",
-                        "expected_revision": 2,
-                        "terminal_node_id": "work",
-                        "final_summary": "Deferred tool invocation completed."
+                        "expected_revision": 4,
+                        "finish_node_id": "finish",
+                        "complete_work_node_ids": ["work"],
+                        "exact_summary": "Deferred tool invocation completed."
                     })
                     .to_string(),
                 ),
@@ -1139,15 +1167,15 @@ async fn taskspace_tool_search_binding_survives_search_and_is_stripped_at_dispat
     assert_eq!(requests.len(), 3);
     let tools = tool_search_output_tools(&requests[1], search_call_id);
     let parameters = &tools[0]["tools"][0]["parameters"];
-    assert!(
-        parameters["properties"].get("taskspace_binding").is_some(),
-        "deferred search result must expose the TaskSpace binding contract"
-    );
-    assert!(
-        parameters["required"]
-            .as_array()
-            .is_some_and(|required| required.iter().any(|field| field == "taskspace_binding")),
-        "deferred search result must require taskspace_binding"
+    assert_eq!(
+        parameters,
+        &json!({
+            "type": "object",
+            "properties": {"mode": {"type": "string"}},
+            "required": ["mode"],
+            "additionalProperties": false
+        }),
+        "TaskSpace must not rewrite an ordinary deferred Tool schema"
     );
     let output = requests[2]
         .function_call_output(dynamic_call_id)

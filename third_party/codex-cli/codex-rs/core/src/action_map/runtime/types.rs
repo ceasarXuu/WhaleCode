@@ -37,9 +37,10 @@ pub(crate) struct ActionMapControlDelta {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapTerminalOutcome {
     pub(crate) map_id: ActionMapId,
-    pub(crate) terminal_node_id: String,
+    pub(crate) finish_node_id: String,
+    pub(crate) completed_work_node_ids: Vec<String>,
     pub(crate) revision: u64,
-    pub(crate) final_summary: String,
+    pub(crate) exact_summary: String,
     pub(crate) delta: ActionMapControlDelta,
 }
 

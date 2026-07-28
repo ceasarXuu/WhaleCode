@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-five-layer-lifecycle-oracles-v2",
+  "status": "active_verified",
+  "activation_phase": "R7.1-A2-B2.5",
+  "canonical_schema": "taskspace-canonical-map-v2",
+  "global_invariants": [
+    "One Store-backed canonical Map identity survives restart, resume, fork, and child attachment.",
+    "Root and Finish are derived as completed only while a current terminal exists.",
+    "Only Work nodes have completion, block, result, evidence, or reservation facts.",
+    "finish_map atomically completes Agent-declared final Work and records the current terminal.",
+    "reopen_map moves the current terminal into terminal_history before adding new Work, edges, and action reservations.",
+    "Reopen never mutates historical Work completion, result, or evidence facts.",
+    "Every accepted mutation increments canonical revision exactly once; rejection has zero partial commit."
+  ],
+  "oracles": [
+    {
+      "id": "LC2-01-final-work-close",
+      "pre_state": "active_with_final_work_ready_or_inflight",
+      "action": "finish_map",
+      "required_arguments": ["complete_work_node_ids", "finish_node_id", "exact_summary"],
+      "post_state": "closed",
+      "assertions": [
+        "submitted_work_completed",
+        "current_terminal_present",
+        "root_and_finish_derived_completed",
+        "no_root_or_finish_completion_record"
+      ]
+    },
+    {
+      "id": "LC2-02-reopen-after-user-feedback",
+      "pre_state": "closed",
+      "action": "reopen_map_with_native_siblings",
+      "post_state": "active",
+      "assertions": [
+        "same_map_id",
+        "current_terminal_absent",
+        "previous_terminal_appended_to_history",
+        "new_work_and_edges_present",
+        "new_action_reservations_present",
+        "historical_work_facts_unchanged"
+      ]
+    },
+    {
+      "id": "LC2-03-invalid-reopen",
+      "pre_state": "active",
+      "action": "reopen_map",
+      "post_state": "unchanged",
+      "assertions": ["state_commit_false", "revision_unchanged"]
+    },
+    {
+      "id": "LC2-04-restart-round-trip",
+      "pre_state": "closed_after_reopen",
+      "action": "restart_and_load_from_store",
+      "post_state": "byte_equivalent_canonical_facts",
+      "assertions": [
+        "terminal_history_preserved",
+        "current_terminal_preserved",
+        "work_completion_preserved",
+        "no_rollout_rebuild"
+      ]
+    }
+  ],
+  "projection_requirements": [
+    "current_terminal",
+    "terminal_history",
+    "complete",
+    "active_frontier",
+    "map_nodes",
+    "map_edges",
+    "node_details"
+  ]
+}

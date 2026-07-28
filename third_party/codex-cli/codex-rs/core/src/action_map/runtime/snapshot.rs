@@ -46,6 +46,11 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             .terminal_record
             .as_ref()
             .map(|terminal| terminal.summary_ref.clone()),
+        terminal_history_summary_refs: graph
+            .terminal_history
+            .iter()
+            .map(|terminal| terminal.summary_ref.clone())
+            .collect(),
         complete: map.is_complete(),
         ready_work_node_count: map.ready_work_node_count(),
         inflight_work_node_count: map.inflight_work_node_count(),
@@ -86,7 +91,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
                 action_id: reservation.action_id.clone(),
                 node_id: reservation.node_id.clone(),
                 tool_name: reservation.tool_name.clone(),
-                response_call_index: reservation.response_call_index as u32,
+                response_call_index: reservation.response_call_index,
             })
             .collect(),
         results: graph

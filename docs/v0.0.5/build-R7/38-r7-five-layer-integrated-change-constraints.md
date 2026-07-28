@@ -183,12 +183,12 @@ Root/Finish 的关闭状态只由当前 terminal 派生，不与 Work completion
 | R-23 | canonical Map 被 Session-local Runtime 持有，并依赖 rollout checkpoint/delta 重建 | 独立持久化 Map Store 已成为唯一事实源；Session/Runtime 只持有引用或可丢弃缓存，rollout 不承担 Map 恢复 | closed（R7.1-A0） |
 | R-24 | singleton `current_node/current_binding/main lease` 把多活跃节点 DAG 退化为 Runtime 驱动的线性游标 | Agent 为每个普通动作显式声明 `node_id`；Runtime 不维护 current/next，不代选节点，同一 response 可推进多个节点 | closed（R7.1-A2-B1X） |
 | R-25 | `Open` 作为持久化状态与依赖、阻塞、执行中和完成事实重复，产生双重状态源 | Store 只保存不可重复事实；`Waiting/Ready/InFlight/Blocked/Completed/open_nodes` 全部由事实计算 | closed（R7.1-A2-B1X） |
-| R-26 | `execute` 强制完成后携带下一动作，而 `finish_map` 又要求所有 Work 事先完成，导致最后 Work 没有有限合法闭合路径 | `finish_map` 接受 Agent 显式声明的最后 Work，并在一个终态事务中完成 Work、Finish、Root 和总结 | open；A2-B2.5 designed |
-| R-27 | Map 关闭后缺少用户反馈驱动的继续路径，或通过 `rework_node` 倒退既有完成事实 | `reopen_map` 恢复同一 Map 并携带新增 Work、edges、actions；旧 terminal 进入历史，旧 Work 事实不变 | open；A2-B2.5 designed |
+| R-26 | `execute` 强制完成后携带下一动作，而 `finish_map` 又要求所有 Work 事先完成，导致最后 Work 没有有限合法闭合路径 | `finish_map` 接受 Agent 显式声明的最后 Work，并在一个终态事务中完成 Work、Finish、Root 和总结 | closed；A2-B2.5 verified |
+| R-27 | Map 关闭后缺少用户反馈驱动的继续路径，或通过旧 `rework_node` 倒退既有完成事实 | `reopen_map` 恢复同一 Map 并携带新增 Work、edges、actions；旧 terminal 进入历史，旧 Work 事实不变 | closed；A2-B2.5 verified |
 
-## 5. 当前 R-10/R-19/R-22/R-26/R-27 的整组准入门
+## 5. 当前 R-10/R-19/R-22 的整组准入门
 
-R-21/R-23/R-24/R-25 已关闭，但其 handoff、持久化、无 current 和无节点 Open 结论继续作为不可回退门。任何
+R-21、R-23 至 R-27 已关闭，但其 handoff、持久化、无 current、无节点 Open、终态可达和 reopen 结论继续作为不可回退门。任何
 实现候选必须一次通过以下全部条件：
 
 1. **职责门**：不把初始化、节点选择或图设计交给 Runtime。
@@ -224,8 +224,7 @@ R-21/R-23/R-24/R-25 已关闭，但其 handoff、持久化、无 current 和无�
 21. **用户反馈继续门**：已关闭 Map 只能通过 `reopen_map + 新 Work + edges + actions` 恢复；同一 `map_id`
     保持，旧 terminal 进入历史，生产 schema/domain 不存在 `rework_node`。
 
-当前总计：`22 closed / 5 open`。R-20、R-21、R-23、R-24、R-25 已关闭；R-10、R-19、R-22、R-26、R-27
-仍阻止产品晋升。成本下降不能越过这些阻塞项单独晋升。
+当前总计：`24 closed / 3 open`。R-10、R-19、R-22 仍阻止产品晋升。成本下降不能越过这些阻塞项单独晋升。
 
 ## 6. 已淘汰方向
 

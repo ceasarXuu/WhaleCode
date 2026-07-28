@@ -42,6 +42,7 @@ function Ensure-Node {
             mapId = ""
             taskId = ""
             leases = New-Object System.Collections.Generic.List[object]
+            reservations = New-Object System.Collections.Generic.List[object]
             results = New-Object System.Collections.Generic.List[object]
             blockedActions = New-Object System.Collections.Generic.List[object]
             maintenanceBarriers = New-Object System.Collections.Generic.List[object]
@@ -83,9 +84,9 @@ function Ensure-Map {
             rootNodeId = ""
             finishNodeId = ""
             revision = 0
-            currentNodeId = ""
             complete = $false
             terminalSummaryRef = ""
+            terminalHistorySummaryRefs = @()
             subagentPlans = New-Object System.Collections.Generic.List[object]
         }
         $MapById[$MapId] = $map

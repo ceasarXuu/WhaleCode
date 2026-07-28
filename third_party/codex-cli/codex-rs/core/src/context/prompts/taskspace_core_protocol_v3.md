@@ -1,4 +1,4 @@
-<taskspace_core_protocol version="taskspace-core-v3.3">
+<taskspace_core_protocol version="taskspace-core-v3.4">
 ## Working with the Map
 
 Use this loop for ordinary TaskSpace work:
@@ -8,9 +8,10 @@ Use this loop for ordinary TaskSpace work:
 3. `actions[i]` corresponds to ordinary sibling Tool call `i`. Keep each ordinary Tool's native arguments unchanged; node ownership belongs only to the response manifest.
 4. Multiple Work nodes may be Ready or InFlight at once. Choose the owning node for every action directly. Independent actions may share one response; calls that depend on an earlier Tool result wait for that result and use a later response.
 5. Keep each Work node focused on one coherent goal. Revise the Map when the real work structure or dependencies change, not after every minor observation.
-6. When work on a node is complete and more work remains, include `complete_node` and the next useful actions in one `execute` response. Use block, unblock, or rework mutations only when those facts are true.
+6. When work on a node is complete and more work remains, include `complete_node` and the next useful actions in one `execute` response. Use block or unblock mutations only when those facts are true. A completed Work node and its result or evidence facts are immutable.
 7. Use `read_map` or `read_output_ref` alone when an explicit factual read is needed. These reads do not declare sibling actions.
-8. Include validation in the Work graph. After all required Work is complete, call `finish_map` alone with the unique Finish node, current revision, and exact final summary. Final closure is always an explicit Agent action.
+8. Include validation in the Work graph. When the remaining final Work is complete, call `finish_map` alone with the current revision, unique Finish node, every final Work node completed by this transaction in `complete_work_node_ids[]`, and the exact summary. This atomically records those Work completions and closes Finish and Root.
+9. If the user provides follow-up work after the Map is closed, continue the same Map with `reopen_map`. Declare one or more new Work nodes, the dependency edges that connect them into the existing Root-to-Finish DAG, and immediate sibling actions in the same response. Reopen preserves the prior terminal in history and never rewrites completed Work.
 
 ## Reading results and recovering
 
@@ -18,5 +19,6 @@ Use this loop for ordinary TaskSpace work:
 - A response preflight rejection means no declared Tool call executed and no Map mutation or reservation was committed.
 - On a rejected control result, read action, submitted_expected_revision, canonical_revision, state_commit, error.actual, and error.expected, then choose your own correction.
 - A previously read projection is current only when its revision matches the latest canonical revision visible in TaskSpace feedback or the Map handle.
+- A closed Map is reopened only in response to later user work. An active Map continues through `execute`; it is not reopened.
 - If evidence changes the plan, revise the Map before continuing under the new structure.
 </taskspace_core_protocol>

@@ -8,6 +8,7 @@ use crate::action_map::projection::ProjectionEventRef;
 use crate::action_map::projection::ProjectionInput;
 use crate::action_map::projection::ProjectionNode;
 use crate::action_map::projection::ProjectionNodeDetailState;
+use crate::action_map::projection::ProjectionTerminal;
 use crate::action_map::projection::render_empty_projection;
 use crate::action_map::projection::render_projection;
 use crate::action_map::rooted_dag::state_sha256;
@@ -23,21 +24,33 @@ impl ActionMapRuntimeState {
 
     pub(crate) fn build_map_handle_context(&self) -> Option<String> {
         let map_id = self.active_map_id.as_deref()?;
-        let (revision, bootstrap_required, initialization_action) = self.active_map().map_or(
-            (
-                "none".to_string(),
-                true,
-                Some("taskspace_control.initialize_and_execute"),
-            ),
-            |map| (map.canonical_map().revision.to_string(), false, None),
-        );
+        let (revision, bootstrap_required, complete, initialization_action) =
+            self.active_map().map_or(
+                (
+                    "none".to_string(),
+                    true,
+                    false,
+                    Some("taskspace_control.initialize_and_execute"),
+                ),
+                |map| {
+                    (
+                        map.canonical_map().revision.to_string(),
+                        false,
+                        map.is_complete(),
+                        None,
+                    )
+                },
+            );
         let mut context = format!(
-            "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- map_id: {map_id}\n- revision: {revision}\n- bootstrap_required: {bootstrap_required}\n- available_read_action: taskspace_control.read_map\n"
+            "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- map_id: {map_id}\n- revision: {revision}\n- bootstrap_required: {bootstrap_required}\n- complete: {complete}\n- available_read_action: taskspace_control.read_map\n"
         );
         if let Some(action) = initialization_action {
             context.push_str("- required_initialization_action: ");
             context.push_str(action);
             context.push('\n');
+        }
+        if complete {
+            context.push_str("- available_reopen_action: taskspace_control.reopen_map\n");
         }
         context.push_str("TaskSpaceMapHandleR7V1 end.\n");
         Some(context)
@@ -106,6 +119,12 @@ fn projection_input(map: &ActionMapInstance) -> Result<ProjectionInput, serde_js
         root_node_id: graph.root.node_id.clone(),
         finish_node_id: graph.finish.node_id.clone(),
         complete: map.is_complete(),
+        current_terminal: graph.terminal_record.as_ref().map(projection_terminal),
+        terminal_history: graph
+            .terminal_history
+            .iter()
+            .map(projection_terminal)
+            .collect(),
         root_source_event_ids: graph.root.source_refs.clone(),
         active_frontier,
         map_nodes,
@@ -135,4 +154,13 @@ fn projection_input(map: &ActionMapInstance) -> Result<ProjectionInput, serde_js
             })
             .collect(),
     })
+}
+
+fn projection_terminal(
+    terminal: &codex_protocol::taskspace::TaskSpaceTerminalRecord,
+) -> ProjectionTerminal {
+    ProjectionTerminal {
+        action_id: terminal.action_id.clone(),
+        summary_ref: terminal.summary_ref.clone(),
+    }
 }

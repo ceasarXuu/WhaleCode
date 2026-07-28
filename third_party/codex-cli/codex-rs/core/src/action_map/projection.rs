@@ -24,11 +24,19 @@ pub(super) struct ProjectionInput {
     pub(super) root_node_id: String,
     pub(super) finish_node_id: String,
     pub(super) complete: bool,
+    pub(super) current_terminal: Option<ProjectionTerminal>,
+    pub(super) terminal_history: Vec<ProjectionTerminal>,
     pub(super) root_source_event_ids: Vec<String>,
     pub(super) active_frontier: Vec<String>,
     pub(super) map_nodes: Vec<ProjectionNode>,
     pub(super) map_edges: Vec<ProjectionEdge>,
     pub(super) node_details: Vec<ProjectionEventRef>,
+}
+
+#[derive(Clone)]
+pub(super) struct ProjectionTerminal {
+    pub(super) action_id: String,
+    pub(super) summary_ref: String,
 }
 
 #[derive(Clone)]
@@ -127,6 +135,20 @@ pub(super) fn render_projection(
         &mut body,
         "complete",
         if input.complete { "true" } else { "false" },
+    );
+    push_field(
+        &mut body,
+        "current_terminal",
+        &render_terminal(input.current_terminal.as_ref()),
+    );
+    append_list(
+        &mut body,
+        "terminal_history",
+        &input
+            .terminal_history
+            .iter()
+            .map(|terminal| render_terminal(Some(terminal)))
+            .collect::<Vec<_>>(),
     );
     size_breakdown.header_bytes += body.len() - section_start;
     let section_start = body.len();
@@ -264,6 +286,18 @@ fn render_edges(edges: &[ProjectionEdge]) -> Vec<String> {
         .iter()
         .map(|edge| format!("{}->{}", edge.from, edge.to))
         .collect()
+}
+
+fn render_terminal(terminal: Option<&ProjectionTerminal>) -> String {
+    terminal.map_or_else(
+        || "none".to_string(),
+        |terminal| {
+            format!(
+                "action_id={} summary_ref={:?}",
+                terminal.action_id, terminal.summary_ref
+            )
+        },
+    )
 }
 
 fn render_event_refs(events: &[ProjectionEventRef]) -> Vec<String> {

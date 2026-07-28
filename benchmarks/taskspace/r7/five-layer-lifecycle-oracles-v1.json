@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "contract_id": "r7-five-layer-lifecycle-oracles-v1",
-  "status": "active_verified",
+  "status": "obsolete_non_promotable",
+  "superseded_by": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json",
   "applies_to": "TaskSpaceControlResultV2 and the shared R7 projection-policy runtime",
   "global_invariants": [
     "Canonical Map mutation is atomic per taskspace_control call.",

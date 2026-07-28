@@ -155,9 +155,11 @@ impl SessionState {
         if self.action_map_runtime.mode() == MapRuntimeMode::Experiment {
             let mut store = TaskSpaceEventStore::new();
             for item in &items {
-                store
-                    .record_item(item, None, None, chrono::Utc::now().timestamp_millis())
-                    .expect("compacted TaskSpace history must be encodable");
+                if let Err(error) =
+                    store.record_item(item, None, None, chrono::Utc::now().timestamp_millis())
+                {
+                    panic!("compacted TaskSpace history is not encodable: {error}");
+                }
             }
             self.taskspace_events = store;
             self.taskspace_projection_cursor =
@@ -181,10 +183,13 @@ impl SessionState {
                 .set_reference_context_item(reference_context_item);
             return Vec::new();
         }
-        let checkpoint = self
+        let checkpoint = match self
             .taskspace_events
             .install_compaction_checkpoint(items, chrono::Utc::now().timestamp_millis())
-            .expect("TaskSpace compaction checkpoint must be valid");
+        {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => panic!("TaskSpace compaction checkpoint is invalid: {error}"),
+        };
         self.taskspace_projection_cursor = ProjectionCursor::default();
         self.history.replace(Vec::new());
         self.history
@@ -199,9 +204,14 @@ impl SessionState {
         let items = self.history.raw_items().to_vec();
         self.history.replace(Vec::new());
         for item in &items {
-            self.taskspace_events
-                .record_item(item, None, None, chrono::Utc::now().timestamp_millis())
-                .expect("existing history must be encodable as TaskSpace events");
+            if let Err(error) = self.taskspace_events.record_item(
+                item,
+                None,
+                None,
+                chrono::Utc::now().timestamp_millis(),
+            ) {
+                panic!("existing history is not encodable as TaskSpace events: {error}");
+            }
         }
         self.taskspace_projection_cursor =
             ProjectionCursor::from_items(&self.taskspace_events.linearize());
@@ -224,8 +234,10 @@ impl SessionState {
         self.history.replace(history_items);
         self.history
             .set_reference_context_item(reference_context_item);
-        self.taskspace_events = TaskSpaceEventStore::restore(taskspace_events)
-            .expect("reconstructed TaskSpace events must be valid");
+        self.taskspace_events = match TaskSpaceEventStore::restore(taskspace_events) {
+            Ok(store) => store,
+            Err(error) => panic!("reconstructed TaskSpace events are invalid: {error}"),
+        };
         self.taskspace_projection_cursor =
             ProjectionCursor::from_items(&self.taskspace_events.linearize());
     }
@@ -236,8 +248,10 @@ impl SessionState {
         taskspace_events: Vec<TaskSpaceEvent>,
         reference_context_item: Option<TurnContextItem>,
     ) {
-        let mut store = TaskSpaceEventStore::restore(taskspace_events)
-            .expect("forked TaskSpace events must be valid");
+        let mut store = match TaskSpaceEventStore::restore(taskspace_events) {
+            Ok(store) => store,
+            Err(error) => panic!("forked TaskSpace events are invalid: {error}"),
+        };
         let mut items = history_items;
         items.extend(store.take_linearized());
         self.history.replace(items);

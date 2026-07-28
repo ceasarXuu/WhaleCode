@@ -19,6 +19,7 @@ use super::transactions::FinishMap;
 use super::transactions::GraphMutation;
 use super::transactions::InitializeMap;
 use super::transactions::NodeMutation;
+use super::transactions::ReopenMap;
 use super::transactions::ReservationInput;
 use super::transactions::ReservationRelease;
 use super::transactions::ResultRefInput;
@@ -26,6 +27,7 @@ use super::transactions::execute;
 use super::transactions::finish_map;
 use super::transactions::initialize;
 use super::transactions::release_reservation;
+use super::transactions::reopen_map;
 use super::transitions::derive_node_state;
 use pretty_assertions::assert_eq;
 
@@ -298,7 +300,140 @@ fn explicit_finish_rejects_before_the_final_frontier_is_complete() {
 
     assert_eq!(
         rejection.violations[0].code,
-        super::invariants::ViolationCode::FinishNotReady
+        super::invariants::ViolationCode::UnfinishedRequiredWork
     );
     assert!(!is_complete(&initialized.map));
+}
+
+#[test]
+fn close_reopen_and_close_again_preserves_terminal_and_work_history() {
+    let initialized = initialize(InitializeMap {
+        map_id: "reopen-map".into(),
+        root: map_node("root", "deliver", vec!["source".into()]),
+        work_nodes: vec![map_node("initial", "initial work", vec![])],
+        finish: map_node("finish", "close task", vec![]),
+        edges: vec![edge("root", "initial"), edge("initial", "finish")],
+        reservations: vec![reservation("initial", "initial")],
+    })
+    .unwrap();
+    let released = release_reservation(
+        &initialized.map,
+        ReservationRelease {
+            expected_revision: initialized.map.revision,
+            reservation_id: "reservation-initial".into(),
+            result_refs: vec![ResultRefInput {
+                result_ref_id: "result-initial".into(),
+                is_error: false,
+            }],
+            evidence_refs: vec![],
+        },
+    )
+    .unwrap();
+    let first_terminal = TerminalRecord {
+        action_id: "finish-first".into(),
+        summary_ref: "first summary".into(),
+    };
+    let closed = finish_map(
+        &released.map,
+        FinishMap {
+            expected_revision: released.map.revision,
+            finish_node_id: "finish".into(),
+            final_completions: vec![FinalCompletion {
+                node_id: "initial".into(),
+                record: completion("finish-first", &["result-initial"], &[]),
+            }],
+            terminal: first_terminal.clone(),
+        },
+    )
+    .unwrap();
+
+    let reopened = reopen_map(
+        &closed.map,
+        ReopenMap {
+            expected_revision: closed.map.revision,
+            add_work_nodes: vec![map_node("follow-up", "address feedback", vec![])],
+            add_edges: vec![edge("root", "follow-up"), edge("follow-up", "finish")],
+            reservations: vec![reservation("follow-up", "follow-up")],
+        },
+    )
+    .unwrap();
+
+    assert_eq!(reopened.map.map_id, closed.map.map_id);
+    assert_eq!(reopened.map.terminal_record, None);
+    assert_eq!(reopened.map.terminal_history, vec![first_terminal.clone()]);
+    assert!(reopened.map.completion_records.contains_key("initial"));
+    assert_eq!(
+        derive_node_state(&reopened.map, "follow-up"),
+        Some(NodeState::InFlight)
+    );
+    assert_eq!(
+        derive_node_state(&reopened.map, "finish"),
+        Some(NodeState::Waiting)
+    );
+
+    let released_follow_up = release_reservation(
+        &reopened.map,
+        ReservationRelease {
+            expected_revision: reopened.map.revision,
+            reservation_id: "reservation-follow-up".into(),
+            result_refs: vec![ResultRefInput {
+                result_ref_id: "result-follow-up".into(),
+                is_error: false,
+            }],
+            evidence_refs: vec![],
+        },
+    )
+    .unwrap();
+    let second_terminal = TerminalRecord {
+        action_id: "finish-second".into(),
+        summary_ref: "second summary".into(),
+    };
+    let closed_again = finish_map(
+        &released_follow_up.map,
+        FinishMap {
+            expected_revision: released_follow_up.map.revision,
+            finish_node_id: "finish".into(),
+            final_completions: vec![FinalCompletion {
+                node_id: "follow-up".into(),
+                record: completion("finish-second", &["result-follow-up"], &[]),
+            }],
+            terminal: second_terminal.clone(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(closed_again.map.terminal_record, Some(second_terminal));
+    assert_eq!(closed_again.map.terminal_history, vec![first_terminal]);
+    assert!(closed_again.map.completion_records.contains_key("initial"));
+    assert!(
+        closed_again
+            .map
+            .completion_records
+            .contains_key("follow-up")
+    );
+    assert!(!closed_again.map.completion_records.contains_key("root"));
+    assert!(!closed_again.map.completion_records.contains_key("finish"));
+    assert!(is_complete(&closed_again.map));
+}
+
+#[test]
+fn reopen_rejects_an_active_map_without_mutating_it() {
+    let initialized = initialize_chain();
+    let before = initialized.map.clone();
+    let rejection = reopen_map(
+        &initialized.map,
+        ReopenMap {
+            expected_revision: initialized.map.revision,
+            add_work_nodes: vec![map_node("follow-up", "address feedback", vec![])],
+            add_edges: vec![edge("root", "follow-up"), edge("follow-up", "finish")],
+            reservations: vec![reservation("follow-up", "follow-up")],
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        rejection.violations[0].code,
+        super::invariants::ViolationCode::TransitionInvalid
+    );
+    assert_eq!(initialized.map, before);
 }

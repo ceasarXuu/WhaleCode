@@ -1391,26 +1391,24 @@ async fn run_debug_taskspace_map_command(
     };
 
     let envelope = serde_json::json!({
-        "schema_version": "TaskSpaceMapExportR7V1",
+        "schema_version": "TaskSpaceMapExportR7V2",
         "status": "ok",
         "map": {
-            "map_id": record.map_id,
+            "map_id": &record.map_id,
             "owner_thread_id": record.owner_thread_id,
-            "snapshot": record.snapshot,
-            "snapshot_sha256": record.snapshot_sha256,
+            "canonical_map": &record.canonical_map,
+            "canonical_sha256": &record.canonical_sha256,
             "store_revision": record.store_revision,
-            "graph_revision": record.graph_revision,
-            "complete": record.complete,
+            "map_revision": record.map_revision,
+            "terminal": record.terminal,
             "created_at_ms": record.created_at_ms,
             "updated_at_ms": record.updated_at_ms,
         },
         "binding": {
             "thread_id": binding.thread_id,
-            "map_id": binding.map_id,
+            "map_id": &binding.map_id,
             "relation": binding.relation.as_str(),
             "parent_thread_id": binding.parent_thread_id,
-            "node_id": binding.node_id,
-            "lease_id": binding.lease_id,
             "created_at_ms": binding.created_at_ms,
             "updated_at_ms": binding.updated_at_ms,
         }
@@ -1425,7 +1423,7 @@ async fn run_debug_taskspace_map_command(
         actor_thread_id = %thread_id,
         map_id = record.map_id,
         store_revision = record.store_revision,
-        graph_revision = record.graph_revision,
+        map_revision = record.map_revision,
         output_path = %cmd.output.display(),
         "exported canonical TaskSpace Map Store record"
     );

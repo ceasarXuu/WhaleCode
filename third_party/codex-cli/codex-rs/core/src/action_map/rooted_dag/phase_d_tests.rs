@@ -241,7 +241,7 @@ fn standalone_nonterminal_mutation_is_rejected() {
 }
 
 #[test]
-fn block_unblock_and_rework_are_explicit_facts() {
+fn block_unblock_and_completion_are_explicit_facts() {
     let map = release(
         fork_join(vec![reservation("left-a", "left", 0)]),
         "reservation-left-a",
@@ -302,20 +302,9 @@ fn block_unblock_and_rework_are_explicit_facts() {
     )
     .unwrap()
     .map;
-    let reworked = execute(
-        &completed,
-        ExecuteTransaction {
-            expected_revision: completed.revision,
-            graph: GraphMutation::default(),
-            node_mutations: vec![NodeMutation::Rework {
-                node_id: "left".into(),
-            }],
-            reservations: vec![reservation("right-c", "right", 1)],
-        },
-    )
-    .unwrap()
-    .map;
-
-    assert!(!reworked.completion_records.contains_key("left"));
-    assert_eq!(derive_node_state(&reworked, "left"), Some(NodeState::Ready));
+    assert!(completed.completion_records.contains_key("left"));
+    assert_eq!(
+        derive_node_state(&completed, "left"),
+        Some(NodeState::Completed)
+    );
 }

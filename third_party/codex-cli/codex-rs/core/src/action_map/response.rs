@@ -24,6 +24,11 @@ pub(crate) enum ActionMapResponseOperation {
         graph: GraphMutation,
         node_mutations: Vec<NodeMutation>,
     },
+    Reopen {
+        expected_revision: u64,
+        work_nodes: Vec<MapNode>,
+        edges: Vec<MapEdge>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

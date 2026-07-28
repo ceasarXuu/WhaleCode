@@ -59,6 +59,7 @@ pub(crate) fn new_map(
         result_refs: Default::default(),
         evidence_refs: Default::default(),
         terminal_record: None,
+        terminal_history: Vec::new(),
         revision: 1,
     }
 }

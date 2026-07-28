@@ -53,6 +53,7 @@ pub(crate) use transactions::GraphMutation;
 pub(crate) use transactions::InitializeMap;
 pub(crate) use transactions::NodeMutation;
 pub(crate) use transactions::Rejection;
+pub(crate) use transactions::ReopenMap;
 pub(crate) use transactions::ReservationInput;
 pub(crate) use transactions::ReservationRelease;
 pub(crate) use transactions::ResultRefInput;
@@ -60,6 +61,7 @@ pub(crate) use transactions::execute;
 pub(crate) use transactions::finish_map;
 pub(crate) use transactions::initialize;
 pub(crate) use transactions::release_reservation;
+pub(crate) use transactions::reopen_map;
 pub(crate) use transitions::derive_node_state;
 pub(crate) use transitions::derive_node_views;
 #[cfg(test)]

@@ -155,10 +155,6 @@ fn mutation_schema() -> JsonSchema {
                 "unblock_node",
                 "Remove the active block record from one Work node.",
             ),
-            node_mutation_schema(
-                "rework_node",
-                "Reopen one completed Work node for additional work.",
-            ),
         ],
         Some("One Agent-declared nonterminal Map mutation.".into()),
     )
@@ -224,6 +220,38 @@ fn execute_schema() -> JsonSchema {
     )
 }
 
+fn reopen_map_schema() -> JsonSchema {
+    described_object_variant(
+        "reopen_map",
+        BTreeMap::from([
+            ("expected_revision".into(), revision_schema()),
+            (
+                "work_nodes".into(),
+                JsonSchema::array(graph_node_schema(), None).with_min_items(1),
+            ),
+            (
+                "edges".into(),
+                JsonSchema::array(
+                    edge_schema(),
+                    Some(
+                        "Dependency edges connecting every new Work node to the existing Root and unique Finish."
+                            .into(),
+                    ),
+                )
+                .with_min_items(1),
+            ),
+            ("actions".into(), actions_schema()),
+        ]),
+        vec![
+            "expected_revision".into(),
+            "work_nodes".into(),
+            "edges".into(),
+            "actions".into(),
+        ],
+        "Continue the same closed TaskSpace Map after user feedback by adding new Work and immediately performing useful native ordinary sibling Tool calls. Prior terminal and Work facts remain immutable.",
+    )
+}
+
 fn finish_map_schema() -> JsonSchema {
     described_object_variant(
         "finish_map",
@@ -236,6 +264,19 @@ fn finish_map_schema() -> JsonSchema {
                 )),
             ),
             (
+                "complete_work_node_ids".into(),
+                JsonSchema::array(
+                    JsonSchema::string(Some(
+                        "Agent-declared Work node completed by this terminal transaction.".into(),
+                    )),
+                    Some(
+                        "One or more final Work nodes completed atomically before closing Finish and Root."
+                            .into(),
+                    ),
+                )
+                .with_min_items(1),
+            ),
+            (
                 "exact_summary".into(),
                 JsonSchema::string(Some(
                     "Agent-authored final Map summary retained without reinterpretation.".into(),
@@ -245,14 +286,19 @@ fn finish_map_schema() -> JsonSchema {
         vec![
             "expected_revision".into(),
             "finish_node_id".into(),
+            "complete_work_node_ids".into(),
             "exact_summary".into(),
         ],
-        "Explicitly close the unique Finish and Root after all required Work is complete. This terminal action has no ordinary sibling Tool calls.",
+        "Explicitly complete the declared final Work and close the unique Finish and Root in one terminal transaction. This action has no ordinary sibling Tool calls.",
     )
 }
 
 pub fn create_taskspace_control_tool() -> ToolSpec {
-    let mut variants = vec![initialize_and_execute_schema(), execute_schema()];
+    let mut variants = vec![
+        initialize_and_execute_schema(),
+        execute_schema(),
+        reopen_map_schema(),
+    ];
     variants.extend(read_action_schemas());
     variants.push(finish_map_schema());
     let parameters = JsonSchema::object_any_of(
@@ -262,7 +308,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Declare the TaskSpace Map initialization or nonterminal mutations together with the ordered node ownership of native ordinary sibling Tool calls. Use read_map or read_output_ref for factual reads, and finish_map for explicit terminal closure. The Runtime validates graph, revision, action count, Tool name, order, and reservation invariants without choosing nodes or interpreting ordinary Tool arguments.".into(),
+        description: "Declare TaskSpace initialization, continued execution, or user-feedback reopen together with the ordered node ownership of native ordinary sibling Tool calls. Use read_map or read_output_ref for factual reads, and finish_map to complete final Work and close the Map. The Runtime validates graph, revision, action count, Tool name, order, and reservation invariants without choosing nodes or interpreting ordinary Tool arguments.".into(),
         strict: false,
         defer_loading: None,
         parameters,

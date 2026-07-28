@@ -12,8 +12,9 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         expected_revision: u64,
-        terminal_node_id: String,
-        final_summary: String,
+        finish_node_id: String,
+        complete_work_node_ids: Vec<String>,
+        exact_summary: String,
         source_event_ref: String,
     ) -> Result<ActionMapTerminalOutcome, FinishActionMapError> {
         let (outcome, events) = self
@@ -21,8 +22,9 @@ impl Session {
                 match runtime.finish_map_for_main(
                     principal,
                     expected_revision,
-                    terminal_node_id,
-                    final_summary,
+                    finish_node_id,
+                    complete_work_node_ids,
+                    exact_summary,
                     source_event_ref,
                 ) {
                     Ok((outcome, events)) => (Ok(outcome), events),

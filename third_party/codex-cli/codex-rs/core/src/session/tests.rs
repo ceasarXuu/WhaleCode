@@ -1433,189 +1433,6 @@ async fn provider_map_request_exposes_current_request_tail_handle_until_explicit
 }
 
 #[tokio::test]
-#[cfg(any())]
-async fn map_request_read_returns_shared_current_projection_without_auto_injection() {
-    let (session, turn_context) = make_session_and_context().await;
-    let map_id_line = format!("- map_id: map-{}", session.conversation_id);
-    {
-        let mut state = session.state.lock().await;
-        state.session_configuration.taskspace_projection_policy =
-            Some(TaskSpaceProjectionPolicy::MapRequest);
-        state.action_map_runtime.set_mode_for_session(
-            codex_protocol::protocol::MapRuntimeMode::Experiment,
-            session.conversation_id,
-        );
-        state
-            .action_map_runtime
-            .initialize_map_for_main(
-                session.conversation_id,
-                crate::action_map::ActionMapInitializeInput {
-                    root: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "root".into(),
-                        goal: "Solve".into(),
-                    },
-                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "work".into(),
-                        goal: "Work".into(),
-                    },
-                    finish: crate::action_map::ActionMapInitializeFinishInput {
-                        id: "finish".into(),
-                    },
-                    work_nodes: Vec::new(),
-                    edges: vec![
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "root".into(),
-                            to: "work".into(),
-                        },
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "work".into(),
-                            to: "finish".into(),
-                        },
-                    ],
-                    source_event_ids: vec!["task-event".into()],
-                },
-            )
-            .expect("initialize map");
-    }
-
-    let initial_context = session.build_initial_context(&turn_context).await;
-    assert!(
-        developer_input_texts(&initial_context)
-            .iter()
-            .all(|text| !text.contains("TaskSpaceMapHandleR7V1:"))
-    );
-    let first_provider = session
-        .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
-        .await
-        .expect("prepare provider prompt");
-    let handle = taskspace_map_handle_context(first_provider.items.last())
-        .expect("provider request must end with a current map handle");
-    assert!(handle.contains("TaskSpaceMapHandleR7V1:"));
-    assert!(handle.contains(&map_id_line));
-    assert!(handle.contains("- revision: 2"));
-    assert!(handle.contains("- bootstrap_required: false"));
-    assert!(!handle.contains("map_nodes"));
-    assert!(!handle.contains("map_edges"));
-    assert_eq!(
-        first_provider
-            .items
-            .iter()
-            .filter(|item| taskspace_map_handle_context(Some(item)).is_some())
-            .count(),
-        1
-    );
-
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .mutate_graph_for_main(
-                session.conversation_id,
-                crate::action_map::ActionMapGraphMutationInput {
-                    expected_revision: 2,
-                    add_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                        id: "verify".into(),
-                        goal: "Verify".into(),
-                    }],
-                    add_edges: vec![
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "work".into(),
-                            to: "verify".into(),
-                        },
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "verify".into(),
-                            to: "finish".into(),
-                        },
-                    ],
-                    remove_edges: vec![crate::action_map::ActionMapEdgeInput {
-                        from: "work".into(),
-                        to: "finish".into(),
-                    }],
-                },
-            )
-            .expect("mutate map");
-    }
-    let refreshed_provider = session
-        .prepare_provider_visible_prompt_items(&turn_context, first_provider.items)
-        .await
-        .expect("prepare provider prompt");
-    let refreshed_handle = taskspace_map_handle_context(refreshed_provider.items.last())
-        .expect("provider request must refresh the map handle");
-    assert!(refreshed_handle.contains("- revision: 3"));
-    assert!(!refreshed_handle.contains("- revision: 2\n"));
-    assert_eq!(
-        refreshed_provider
-            .items
-            .iter()
-            .filter(|item| taskspace_map_handle_context(Some(item)).is_some())
-            .count(),
-        1
-    );
-
-    let projection = session
-        .read_action_map_projection(&turn_context, "read-map-1")
-        .await
-        .expect("explicit map read");
-    assert!(projection.starts_with("TaskSpaceMapProjectionR7V1:\n"));
-    assert!(projection.contains("- projection_kind: current_projection"));
-    assert!(projection.contains(&map_id_line));
-    assert!(projection.contains("- revision: 3"));
-    assert!(projection.contains("  map_nodes:\n"));
-    assert!(projection.contains("  map_edges:\n"));
-    assert!(projection.ends_with("TaskSpaceMapProjectionR7V1 end.\n"));
-
-    let repeated_projection = session
-        .read_action_map_projection(&turn_context, "read-map-2")
-        .await
-        .expect("repeated explicit map read");
-    assert_eq!(repeated_projection, projection);
-    let snapshot = session.cached_action_map_snapshot_for_test().await;
-    let read_events = snapshot
-        .trace_events
-        .iter()
-        .filter(|event| event.kind == "map.read_completed")
-        .collect::<Vec<_>>();
-    assert_eq!(read_events.len(), 2);
-    assert!(
-        read_events[1]
-            .tags
-            .iter()
-            .any(|tag| tag == "revision_advance_since_previous_read:0")
-    );
-    assert!(
-        read_events[1]
-            .tags
-            .iter()
-            .any(|tag| tag == "canonical_revision_lag:0")
-    );
-    assert!(
-        read_events[1]
-            .tags
-            .iter()
-            .any(|tag| tag == "repeated_revision:true")
-    );
-
-    let explicit_result = ResponseItem::FunctionCallOutput {
-        call_id: "read-map-1".into(),
-        output: FunctionCallOutputPayload::from_text(projection),
-    };
-    let mut history = initial_context;
-    history.push(explicit_result);
-    let provider = session
-        .prepare_provider_visible_prompt_items(&turn_context, history)
-        .await
-        .expect("prepare provider prompt");
-    assert!(
-        provider
-            .items
-            .iter()
-            .all(|item| taskspace_projection_context(Some(item)).is_none()),
-        "an explicit tool result must not be reclassified as automatic projection injection"
-    );
-    assert!(provider.projection_identity.is_some());
-}
-
-#[tokio::test]
 async fn provider_composer_keeps_projection_separate_from_skills() {
     let (session, mut turn_context) = make_session_and_context().await;
     let mut outcome = SkillLoadOutcome::default();
@@ -1680,515 +1497,6 @@ async fn provider_composer_keeps_projection_separate_from_skills() {
             .expect("stable skills developer item")
             .contains("TaskSpaceMapProjectionR7V1:")
     );
-}
-
-#[tokio::test]
-#[cfg(any())]
-async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
-    let (session, turn_context) = make_session_and_context().await;
-    let map_id_line = format!("map_id: map-{}", session.conversation_id);
-    {
-        let mut state = session.state.lock().await;
-        state.action_map_runtime.set_mode_for_session(
-            codex_protocol::protocol::MapRuntimeMode::Experiment,
-            session.conversation_id,
-        );
-    }
-    session
-        .record_context_updates_and_set_reference_context_item(&turn_context)
-        .await;
-    session
-        .record_conversation_items(
-            &turn_context,
-            &[ResponseItem::FunctionCall {
-                id: None,
-                name: "taskspace_control".to_string(),
-                namespace: None,
-                arguments: "{}".to_string(),
-                call_id: "init-control".to_string(),
-            }],
-        )
-        .await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .initialize_map_for_main(
-                session.conversation_id,
-                crate::action_map::ActionMapInitializeInput {
-                    root: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "root".into(),
-                        goal: "Initialize during turn".into(),
-                    },
-                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "inspect".to_string(),
-                        goal: "Inspect current code.".to_string(),
-                    },
-                    finish: crate::action_map::ActionMapInitializeFinishInput {
-                        id: "finish".into(),
-                    },
-                    source_event_ids: vec!["task-event-1".to_string()],
-                    work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                        id: "implement".to_string(),
-                        goal: "Implement the verified change.".to_string(),
-                    }],
-                    edges: vec![
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "root".into(),
-                            to: "inspect".into(),
-                        },
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "inspect".into(),
-                            to: "implement".into(),
-                        },
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "implement".into(),
-                            to: "finish".into(),
-                        },
-                    ],
-                },
-            )
-            .expect("map initializes");
-    }
-    session
-        .record_conversation_items(
-            &turn_context,
-            &[ResponseItem::FunctionCallOutput {
-                call_id: "init-control".to_string(),
-                output: FunctionCallOutputPayload::from_text("initialized".to_string()),
-            }],
-        )
-        .await;
-
-    let history = session.clone_history().await;
-    assert!(
-        !history
-            .raw_items()
-            .iter()
-            .any(is_action_map_projection_developer_item)
-    );
-    let first_provider = session
-        .prepare_provider_visible_prompt_items(&turn_context, history.raw_items().to_vec())
-        .await
-        .expect("prepare provider prompt");
-    let provider_text = developer_input_texts(&first_provider.items).join("\n");
-    assert_eq!(
-        provider_text.matches("TaskSpaceMapProjectionR7V1:").count(),
-        1
-    );
-    assert!(provider_text.contains(&map_id_line));
-    assert!(provider_text.contains("revision: 2"));
-    assert!(provider_text.contains("projection_kind: current_projection"));
-    assert!(provider_text.contains("canonical_sha256:"));
-    assert!(!provider_text.contains("- map: none"));
-    assert!(first_provider.projection_identity.is_some());
-    let history_before_transitions = history.raw_items().to_vec();
-    let first_provider_items = first_provider.items.clone();
-
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .transition_node_for_main(
-                session.conversation_id,
-                2,
-                "inspect".into(),
-                crate::action_map::NodeTransition::Complete,
-                "task-event-result".to_string(),
-            )
-            .expect("complete current node");
-        state
-            .action_map_runtime
-            .transition_node_for_main(
-                session.conversation_id,
-                3,
-                "implement".into(),
-                crate::action_map::NodeTransition::Bind,
-                "task-event-bind".to_string(),
-            )
-            .expect("bind next node");
-    }
-
-    session
-        .record_conversation_items(
-            &turn_context,
-            &[
-                ResponseItem::FunctionCall {
-                    id: None,
-                    name: "taskspace_control".to_string(),
-                    namespace: None,
-                    arguments:
-                        r#"{"action":"bind_node","expected_revision":3,"node_id":"implement"}"#
-                            .to_string(),
-                    call_id: "transition-control".to_string(),
-                },
-                ResponseItem::FunctionCallOutput {
-                    call_id: "transition-control".to_string(),
-                    output: FunctionCallOutputPayload::from_text(
-                        r#"{"status":"committed","committed_revision":4}"#.to_string(),
-                    ),
-                },
-                ResponseItem::FunctionCall {
-                    id: None,
-                    name: "shell_command".to_string(),
-                    namespace: None,
-                    arguments:
-                        r#"{"command":"pwd","taskspace_binding":{"action":"after_boundary"}}"#
-                            .to_string(),
-                    call_id: "ordinary-call".to_string(),
-                },
-            ],
-        )
-        .await;
-    let history = session.clone_history().await;
-    assert!(
-        !history
-            .raw_items()
-            .iter()
-            .any(is_action_map_projection_developer_item)
-    );
-    assert!(history.raw_items().iter().any(
-        |item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control")
-    ));
-    assert_eq!(
-        history.raw_items().get(..history_before_transitions.len()),
-        Some(history_before_transitions.as_slice())
-    );
-    let stale_projection = first_provider_items
-        .iter()
-        .cloned()
-        .into_iter()
-        .find(is_action_map_projection_developer_item)
-        .expect("first provider projection");
-    let mut source_with_stale_projection = history.raw_items().to_vec();
-    source_with_stale_projection.push(stale_projection);
-    let refreshed = session
-        .prepare_provider_visible_prompt_items(&turn_context, source_with_stale_projection)
-        .await
-        .expect("prepare provider prompt");
-    let refreshed_text = developer_input_texts(&refreshed.items).join("\n");
-    assert_eq!(
-        refreshed_text
-            .matches("TaskSpaceMapProjectionR7V1:")
-            .count(),
-        1
-    );
-    assert!(refreshed_text.contains("revision: 4"));
-    assert!(refreshed_text.contains("current_node: implement"));
-    assert_eq!(
-        refreshed.items.get(..history.raw_items().len()),
-        Some(history.raw_items()),
-        "map-always must preserve natural history and replace only the automatic projection"
-    );
-    assert_eq!(refreshed.items.len(), history.raw_items().len() + 1);
-    assert!(is_action_map_projection_developer_item(
-        refreshed.items.last().expect("latest projection item")
-    ));
-    let refreshed_json = serde_json::to_string(&refreshed.items).unwrap();
-    assert!(refreshed_json.contains("transition-control"));
-    assert!(refreshed_json.contains("committed_revision\\\":4"));
-}
-
-#[tokio::test]
-#[cfg(any())]
-async fn provider_map_append_persists_latest_projection_at_each_request_tail() {
-    let (session, turn_context) = make_session_and_context().await;
-    {
-        let mut state = session.state.lock().await;
-        state.session_configuration.taskspace_projection_policy =
-            Some(TaskSpaceProjectionPolicy::MapAppend);
-        state.action_map_runtime.set_mode_for_session(
-            codex_protocol::protocol::MapRuntimeMode::Experiment,
-            session.conversation_id,
-        );
-    }
-    let control_call = ResponseItem::FunctionCall {
-        id: None,
-        name: "taskspace_control".to_string(),
-        namespace: None,
-        arguments: "{}".to_string(),
-        call_id: "append-init".to_string(),
-    };
-    session
-        .record_conversation_items(&turn_context, std::slice::from_ref(&control_call))
-        .await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .initialize_map_for_main(
-                session.conversation_id,
-                crate::action_map::ActionMapInitializeInput {
-                    root: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "root".into(),
-                        goal: "Append projection request snapshots".into(),
-                    },
-                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "work".into(),
-                        goal: "Perform work".into(),
-                    },
-                    finish: crate::action_map::ActionMapInitializeFinishInput {
-                        id: "finish".into(),
-                    },
-                    source_event_ids: vec!["task-event-1".into()],
-                    work_nodes: Vec::new(),
-                    edges: vec![
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "root".into(),
-                            to: "work".into(),
-                        },
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "work".into(),
-                            to: "finish".into(),
-                        },
-                    ],
-                },
-            )
-            .expect("map initializes");
-    }
-    let control_output = ResponseItem::FunctionCallOutput {
-        call_id: "append-init".to_string(),
-        output: FunctionCallOutputPayload::from_text("initialized".to_string()),
-    };
-    session
-        .record_conversation_items(&turn_context, std::slice::from_ref(&control_output))
-        .await;
-    let history_before_request = session.clone_history().await;
-    assert!(
-        !history_before_request
-            .raw_items()
-            .iter()
-            .any(is_action_map_projection_developer_item),
-        "map mutation must not append a projection outside request construction"
-    );
-
-    let first = session
-        .prepare_provider_visible_prompt_items(
-            &turn_context,
-            history_before_request.raw_items().to_vec(),
-        )
-        .await
-        .expect("prepare provider prompt");
-    assert!(matches!(
-        first.items.last(),
-        Some(ResponseItem::Message { role, .. }) if role == "user"
-    ));
-    let first_context = taskspace_projection_context(first.items.last())
-        .expect("first provider request must end in a projection");
-    let first_identity =
-        projection_identity_from_context(first_context).expect("first projection identity");
-
-    let natural_history = ResponseItem::Message {
-        id: None,
-        role: "assistant".into(),
-        content: vec![ContentItem::OutputText {
-            text: "Continue with the same map revision".into(),
-        }],
-        end_turn: None,
-        phase: None,
-    };
-    session
-        .record_conversation_items(&turn_context, &[natural_history])
-        .await;
-    let second_history = session.clone_history().await;
-    let second = session
-        .prepare_provider_visible_prompt_items(&turn_context, second_history.raw_items().to_vec())
-        .await
-        .expect("prepare provider prompt");
-    let second_context = taskspace_projection_context(second.items.last())
-        .expect("second provider request must end in a projection");
-    let second_identity =
-        projection_identity_from_context(second_context).expect("second projection identity");
-    assert_eq!(first_identity, second_identity);
-    assert!(second_context.contains("projection_kind: request_snapshot"));
-    assert!(second_context.contains("current_state_rule: last_projection_only"));
-    assert!(second.items.iter().all(|item| {
-        taskspace_projection_context(Some(item)).is_none()
-            || matches!(item, ResponseItem::Message { role, .. } if role == "user")
-    }));
-
-    let history_after_second = session.clone_history().await;
-    let projection_count = history_after_second
-        .raw_items()
-        .iter()
-        .filter(|item| is_action_map_projection_developer_item(item))
-        .count();
-    assert_eq!(projection_count, 2);
-    let retry = session
-        .prepare_provider_visible_prompt_items(
-            &turn_context,
-            history_after_second.raw_items().to_vec(),
-        )
-        .await
-        .expect("prepare provider prompt");
-    assert!(taskspace_projection_context(retry.items.last()).is_some());
-    let history_after_retry = session.clone_history().await;
-    assert_eq!(
-        history_after_retry
-            .raw_items()
-            .iter()
-            .filter(|item| is_action_map_projection_developer_item(item))
-            .count(),
-        projection_count,
-        "an exact request retry must not persist the same tail twice"
-    );
-}
-
-#[tokio::test]
-#[cfg(any())]
-async fn map_projection_is_canonical_map_derived_and_provider_only() {
-    let (session, turn_context) = make_session_and_context().await;
-    let map_id_line = format!("map_id: map-{}", session.conversation_id);
-    {
-        let mut state = session.state.lock().await;
-        state.action_map_runtime.set_mode_for_session(
-            codex_protocol::protocol::MapRuntimeMode::Experiment,
-            session.conversation_id,
-        );
-        state
-            .action_map_runtime
-            .initialize_map_for_main(
-                session.conversation_id,
-                crate::action_map::ActionMapInitializeInput {
-                    root: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "root".into(),
-                        goal: "Architecture review".into(),
-                    },
-                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
-                        id: "scope".to_string(),
-                        goal: "Collect current architecture scope.".to_string(),
-                    },
-                    finish: crate::action_map::ActionMapInitializeFinishInput {
-                        id: "finish".into(),
-                    },
-                    source_event_ids: vec!["task-event-1".to_string()],
-                    work_nodes: Vec::new(),
-                    edges: vec![
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "root".into(),
-                            to: "scope".into(),
-                        },
-                        crate::action_map::ActionMapEdgeInput {
-                            from: "scope".into(),
-                            to: "finish".into(),
-                        },
-                    ],
-                },
-            )
-            .expect("map initializes");
-    }
-
-    session
-        .record_context_updates_and_set_reference_context_item(&turn_context)
-        .await;
-
-    let canonical_history = session.clone_history().await;
-    let canonical_developer_text = developer_input_texts(canonical_history.raw_items()).join("\n");
-    assert!(!canonical_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
-
-    let provider = session
-        .prepare_provider_visible_prompt_items(
-            &turn_context,
-            canonical_history.raw_items().to_vec(),
-        )
-        .await
-        .expect("prepare provider prompt");
-    let developer_text = developer_input_texts(&provider.items).join("\n");
-    assert!(
-        developer_text.contains("TaskSpaceMapProjectionR7V1:"),
-        "expected R7 map projection in provider context: {developer_text}"
-    );
-    assert!(
-        developer_text.contains(&map_id_line)
-            && developer_text.contains("revision: 2")
-            && developer_text.contains("canonical_sha256:")
-            && developer_text.contains("root_node_id: root")
-            && developer_text.contains("finish_node_id: finish"),
-        "expected rooted revision identity in steady-state context: {developer_text}"
-    );
-    assert!(
-        developer_text.contains("root_source_event_ids:"),
-        "expected active objective in steady-state context: {developer_text}"
-    );
-    assert!(
-        developer_text.contains("node_details:"),
-        "expected compact result reference section in steady-state context: {developer_text}"
-    );
-    assert!(
-        !developer_text.contains("next_valid_actions:"),
-        "active projection must not inject next-valid-action guidance: {developer_text}"
-    );
-    assert!(
-        !developer_text.contains("ContextProjectionV1 shadow (not active replacement):"),
-        "steady-state active profile should not inject shadow projection: {developer_text}"
-    );
-
-    session
-        .record_context_updates_and_set_reference_context_item(&turn_context)
-        .await;
-    let history_after_second_update = session.clone_history().await;
-    assert!(
-        !history_after_second_update
-            .raw_items()
-            .iter()
-            .any(is_action_map_projection_developer_item)
-    );
-    let second_provider = session
-        .prepare_provider_visible_prompt_items(
-            &turn_context,
-            history_after_second_update.raw_items().to_vec(),
-        )
-        .await
-        .expect("prepare provider prompt");
-    let developer_text = developer_input_texts(&second_provider.items).join("\n");
-    assert!(
-        developer_text.contains(&map_id_line)
-            && developer_text.contains("root->scope")
-            && developer_text.contains("scope->finish"),
-        "provider history should expose the current map projection: {developer_text}"
-    );
-    assert_eq!(
-        developer_text
-            .matches("TaskSpaceMapProjectionR7V1:")
-            .count(),
-        1,
-        "provider request must contain exactly one current map projection: {developer_text}"
-    );
-
-    let canonical_developer_text = {
-        let state = session.state.lock().await;
-        developer_input_texts(state.clone_history().raw_items()).join("\n")
-    };
-    assert!(!canonical_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
-    assert!(!canonical_developer_text.contains("task_status:"));
-    assert!(!canonical_developer_text.contains("map_status:"));
-}
-
-#[tokio::test]
-#[cfg(any())]
-async fn session_standard_mode_main_tool_result_does_not_record_trace() {
-    let (session, turn_context) = make_session_and_context().await;
-
-    session
-        .record_action_map_main_tool_result(
-            &turn_context,
-            "call-standard",
-            "shell_command",
-            Some(ActionClass::Test),
-            false,
-            "pytest failed".to_string(),
-        )
-        .await;
-
-    let snapshot = session.cached_action_map_snapshot_for_test().await;
-    assert_eq!(
-        snapshot.mode,
-        codex_protocol::protocol::MapRuntimeMode::Standard
-    );
-    assert_eq!(snapshot.trace_summary.total_event_count, 0);
-    assert!(snapshot.trace_events.is_empty());
-    assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
-    assert!(snapshot.sentinel_warnings.is_empty());
 }
 
 #[tokio::test]
@@ -4426,7 +3734,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         agent_status: agent_status_tx,
         out_of_band_elicitation_paused: watch::channel(false).0,
         state: Mutex::new(state),
-        taskspace_store_write_lock: Mutex::new(()),
+        taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
         managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
         features: config.features.clone(),
         pending_mcp_server_refresh_config: Mutex::new(None),
@@ -5795,7 +5103,7 @@ where
         agent_status: agent_status_tx,
         out_of_band_elicitation_paused: watch::channel(false).0,
         state: Mutex::new(state),
-        taskspace_store_write_lock: Mutex::new(()),
+        taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
         managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
         features: config.features.clone(),
         pending_mcp_server_refresh_config: Mutex::new(None),
@@ -8362,8 +7670,7 @@ async fn assert_missing_client_tool_search_call_id_zero_dispatch(
         "status": "completed",
         "execution": "client",
         "arguments": {
-            "query": "must fail before dispatch",
-            "taskspace_binding": {"action": "active"}
+            "query": "must fail before dispatch"
         }
     });
     if let Some(provider_item_id) = provider_item_id {
@@ -8375,36 +7682,48 @@ async fn assert_missing_client_tool_search_call_id_zero_dispatch(
             sse(vec![
                 ev_response_created("initialize-before-missing-search-id"),
                 ev_function_call(
-                    "initialize-action",
-                    "exec_command",
+                    "initialize-control",
+                    "taskspace_control",
                     &json!({
-                        "cmd": "pwd",
-                        "taskspace_binding": {
-                        "action": "initialize_map",
-                        "root": {"id": "root", "goal": "Exercise response preflight"},
-                        "initial_work": {"id": "work", "goal": "Run the work"},
-                        "additional_work": [],
-                        "finish_id": "finish",
+                        "action": "initialize_and_execute",
+                        "root": {"node_id": "root", "goal": "Exercise response preflight"},
+                        "work_nodes": [{"node_id": "work", "goal": "Run the work"}],
+                        "finish": {"node_id": "finish", "goal": "Close the task"},
                         "edges": [
                             {"from": "root", "to": "work"},
                             {"from": "work", "to": "finish"}
-                        ]
-                        },
+                        ],
+                        "actions": [{"node_id": "work", "tool": "exec_command"}]
                     })
                     .to_string(),
+                ),
+                ev_function_call(
+                    "initialize-action",
+                    "exec_command",
+                    &json!({"cmd": "pwd"}).to_string(),
                 ),
                 ev_completed("initialize-before-missing-search-id"),
             ]),
             sse(vec![
                 ev_response_created("missing-search-id-response"),
                 ev_function_call(
-                    "side-effect-prefix",
-                    "exec_command",
+                    "execute-control",
+                    "taskspace_control",
                     &json!({
-                        "cmd": format!("printf executed > {side_effect_file}"),
-                        "taskspace_binding": {"action": "active"}
+                        "action": "execute",
+                        "expected_revision": 2,
+                        "mutations": [],
+                        "actions": [
+                            {"node_id": "work", "tool": "exec_command"},
+                            {"node_id": "work", "tool": "tool_search"}
+                        ]
                     })
                     .to_string(),
+                ),
+                ev_function_call(
+                    "side-effect-prefix",
+                    "exec_command",
+                    &json!({"cmd": format!("printf executed > {side_effect_file}")}).to_string(),
                 ),
                 json!({
                     "type": "response.output_item.done",

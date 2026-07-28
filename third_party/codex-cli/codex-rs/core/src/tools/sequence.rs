@@ -142,12 +142,9 @@ fn invalid_provider_declaration_outcome(
         "response": response_payload,
     })
     .to_string();
-    let responses = declarations
+    let (mut pairing_outputs, supplemental_outputs): (Vec<_>, Vec<_>) = declarations
         .iter()
         .flat_map(|declaration| declaration.rejection_responses(&failure_payload))
-        .collect::<Vec<_>>();
-    let (mut pairing_outputs, supplemental_outputs): (Vec<_>, Vec<_>) = responses
-        .into_iter()
         .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
     pairing_outputs.extend(supplemental_outputs);
     pairing_outputs.push(provider_response_failure_fact(
@@ -256,6 +253,18 @@ pub(crate) async fn execute_response_tool_sequence(
             reservation_count = prepared.prepared_calls.len(),
             "committed TaskSpace action reservations"
         );
+        if prepared.action == "reopen_map" {
+            tracing::info!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace_map_reopened",
+                control_call_id = calls[control_index].call_id,
+                map_id = prepared.map_id,
+                revision_before = prepared.revision_before,
+                revision_after = prepared.revision_after,
+                reservation_count = prepared.prepared_calls.len(),
+                "reopened canonical TaskSpace Map from Agent-declared user-feedback work"
+            );
+        }
         let control_output = ResponseInputItem::FunctionCallOutput {
             call_id: calls[control_index].call_id.clone(),
             output: codex_protocol::models::FunctionCallOutputPayload {
@@ -468,12 +477,9 @@ fn taskspace_state_commit_failure_outcome(
         },
     })
     .to_string();
-    let responses = calls
+    let (mut pairing, supplemental): (Vec<_>, Vec<_>) = calls
         .iter()
         .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
-        .collect::<Vec<_>>();
-    let (mut pairing, supplemental): (Vec<_>, Vec<_>) = responses
-        .into_iter()
         .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
     pairing.extend(supplemental);
     ToolSequenceOutcome {

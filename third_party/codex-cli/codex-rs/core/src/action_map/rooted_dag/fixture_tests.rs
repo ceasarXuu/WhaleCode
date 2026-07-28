@@ -38,7 +38,7 @@ fn edge(from: &str, to: &str) -> MapEdge {
 #[test]
 fn canonical_json_fixture_is_strict_and_fact_only() {
     let fixture = serde_json::json!({
-        "schema_version": "taskspace-canonical-map-v1",
+        "schema_version": "taskspace-canonical-map-v2",
         "map_id": "fixture-map",
         "root": {
             "node_id": "root",
@@ -65,6 +65,7 @@ fn canonical_json_fixture_is_strict_and_fact_only() {
         "result_refs": {},
         "evidence_refs": {},
         "terminal_record": null,
+        "terminal_history": [],
         "revision": 1
     });
 

@@ -627,7 +627,8 @@ TaskSpaceMapProjectionR7V1:
 - finish_node_id: finish
 - complete: false
 - root_source_event_ids: none
-- current_node: work
+- current_terminal: none
+- terminal_history: none
 - active_frontier: work
 - map_nodes: root|work|finish
 - map_edges: root->work|work->finish
@@ -791,43 +792,34 @@ New-Item -ItemType Directory -Path $rolloutControlDir -Force | Out-Null
 $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
 '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}' | Set-Content -LiteralPath $rolloutControlJsonl -Encoding UTF8
 @(
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\",\"expected_revision\":4,\"node_id\":\"work\"}","call_id":"native-control-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"mutate_graph\",\"expected_revision\":4,\"add_nodes\":[],\"add_edges\":[],\"remove_edges\":[]}","call_id":"native-control-2"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"initialize_map\"}","call_id":"native-control-3"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"initialize_map\"}","call_id":"native-control-4"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"execute\",\"expected_revision\":4,\"mutations\":[],\"actions\":[{\"node_id\":\"work\",\"tool\":\"exec_command\"}]}","call_id":"native-control-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"execute\",\"expected_revision\":4,\"mutations\":[],\"actions\":[{\"node_id\":\"work\",\"tool\":\"apply_patch\"}]}","call_id":"native-control-2"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"initialize_and_execute\",\"root\":{\"node_id\":\"root\",\"goal\":\"solve\"},\"work_nodes\":[{\"node_id\":\"work\",\"goal\":\"work\"}],\"finish\":{\"node_id\":\"finish\",\"goal\":\"finish\"},\"edges\":[],\"actions\":[{\"node_id\":\"work\",\"tool\":\"exec_command\"}]}","call_id":"native-control-3"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"initialize_and_execute\",\"root\":{\"node_id\":\"root\",\"goal\":\"solve\"},\"work_nodes\":[{\"node_id\":\"work\",\"goal\":\"work\"}],\"finish\":{\"node_id\":\"finish\",\"goal\":\"finish\"},\"edges\":[{\"from\":\"root\",\"to\":\"work\"},{\"from\":\"work\",\"to\":\"finish\"}],\"actions\":[{\"node_id\":\"work\",\"tool\":\"exec_command\"}]}","call_id":"native-control-4"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"read_map\"}","call_id":"native-read-map-1"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"read_map\"}","call_id":"native-read-map-2"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\",\"taskspace_binding\":{\"action\":\"active\"}}","call_id":"ordinary-gate-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"{\"input\":\"*** Begin Patch\",\"taskspace_binding\":{\"action\":\"after_boundary\"}}","call_id":"orphan-boundary-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"pwd\",\"taskspace_binding\":{\"action\":\"initialize_map\"}}","call_id":"initialization-carrier-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"ToolSequencePreflightResultV1\",\"status\":\"protocol_failed\",\"success\":false,\"error\":{\"class\":\"protocol\",\"code\":\"taskspace_boundary_requires_after_boundary_action\",\"message\":\"missing paired action\"},\"request\":{\"executed_tool_call_count\":0}}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"mutate_graph\",\"success\":false,\"status\":\"state_machine_failed\",\"state_commit\":false,\"error\":{\"class\":\"state_machine\",\"code\":\"TASKSPACE_GRAPH_INVARIANT\",\"message\":\"invalid\"}}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-3","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_map\",\"success\":false,\"status\":\"argument_failed\",\"state_commit\":false,\"error\":{\"class\":\"argument\",\"code\":\"TASKSPACE_INVALID_ARGUMENT\",\"message\":\"invalid\"}}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-4","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_map\",\"success\":true,\"status\":\"committed\",\"state_commit\":true,\"committed_revision\":5}"}}',
-    '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"graph_revision_committed","mapId":"map-1","revision":4}}',
-    '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"graph_revision_committed","mapId":"map-1","revision":5}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"ordinary-gate-1","output":"{\"schema_version\":\"TaskSpaceGateResultV1\",\"success\":false,\"status\":\"state_machine_failed\",\"error\":{\"class\":\"state_machine\",\"code\":\"no_task_path\",\"message\":\"no path\"}}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"orphan-boundary-1","output":"{\"schema_version\":\"ToolSequencePreflightResultV1\",\"status\":\"protocol_failed\",\"success\":false,\"error\":{\"class\":\"protocol\",\"code\":\"taskspace_after_boundary_requires_boundary_control\",\"message\":\"missing boundary control\"},\"request\":{\"executed_tool_call_count\":0}}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"initialization-carrier-1","output":"{\"schema_version\":\"TaskSpaceInitializationCarrierResultV1\",\"initialization_result\":{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_map\",\"success\":true,\"state_commit\":true,\"committed_revision\":5},\"tool_dispatched\":true}\nok"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"ToolSequencePreflightResultV2\",\"status\":\"protocol_failed\",\"success\":false,\"error\":{\"class\":\"protocol\",\"code\":\"taskspace_action_tool_mismatch\",\"message\":\"missing paired action\"},\"request\":{\"executed_tool_call_count\":0}}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"execute\",\"success\":false,\"status\":\"state_machine_failed\",\"state_commit\":false,\"error\":{\"class\":\"state_machine\",\"code\":\"TASKSPACE_GRAPH_INVARIANT\",\"message\":\"invalid\"}}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-3","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_and_execute\",\"success\":false,\"status\":\"argument_failed\",\"state_commit\":false,\"error\":{\"class\":\"argument\",\"code\":\"TASKSPACE_INVALID_ARGUMENT\",\"message\":\"invalid\"}}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-4","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_and_execute\",\"success\":true,\"status\":\"committed\",\"state_commit\":true,\"committed_revision\":5}"}}',
+    '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"store_committed","mapId":"map-1","mapRevision":4}}',
+    '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"store_committed","mapId":"map-1","mapRevision":5}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-read-map-1","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"read_map\",\"success\":true,\"status\":\"read_ok\",\"state_commit\":false,\"read\":{\"kind\":\"map_projection\",\"revision\":5,\"content\":\"TaskSpaceMapProjectionR7V1:\\n- revision: 5\\nTaskSpaceMapProjectionR7V1 end.\"}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-read-map-2","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"read_map\",\"success\":true,\"status\":\"read_ok\",\"state_commit\":false,\"read\":{\"kind\":\"map_projection\",\"revision\":5,\"content\":\"TaskSpaceMapProjectionR7V1:\\n- revision: 5\\nTaskSpaceMapProjectionR7V1 end.\"}}"}}'
 ) | Set-Content -LiteralPath (Join-Path $rolloutControlDir "rollout.jsonl") -Encoding UTF8
 $rolloutControlInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $rolloutControlDir -JsonlPath $rolloutControlJsonl -ObservabilityJsonPath ""
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 7) "rollout taskspace_control calls were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 6) "rollout taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.native_taskspace_control_count -eq 6) "rollout native taskspace_control calls were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count -eq 1) "rollout action-contract taskspace_control calls were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.bind_node -eq 2) "direct lifecycle actions were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.mutate_graph -eq 1) "graph mutation was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.initialize_map -eq 3) "map initialization attempts were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count -eq 0) "obsolete action-contract calls were counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.execute -eq 2) "execute actions were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.initialize_and_execute -eq 2) "map initialization attempts were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.read_map -eq 2) "explicit map reads were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.ordinary_binding_count -eq 3) "ordinary TaskSpace bindings were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.active_binding_count -eq 1) "active binding was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.after_boundary_binding_count -eq 1) "after-boundary binding was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.initialization_carrier_count -eq 1) "initialization carrier was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.committed_initialization_carrier_count -eq 1) "committed initialization carrier was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.failed_initialization_carrier_count -eq 0) "successful initialization carrier was classified as failed"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.sequence_preflight_rejected_call_count -eq 2) "sequence preflight rejected calls were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_manifest_count -eq 4) "action manifests were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.declared_action_count -eq 4) "declared actions were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.initialize_and_execute_count -eq 2) "initializations were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.committed_initialize_and_execute_count -eq 1) "committed initialization was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.failed_initialize_and_execute_count -eq 1) "failed initialization was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.sequence_preflight_rejected_call_count -eq 1) "sequence preflight rejected calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_failure_count -eq 3) "rollout control failures were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_protocol_failure_count -eq 1) "protocol control failures were not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_preflight_failure_count -eq 1) "control preflight failures were not separated"
@@ -835,7 +827,7 @@ Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_state_failure_count -eq 1) "state control failure was not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_argument_failure_count -eq 1) "argument control failure was not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.nested_action_failure_count -eq 0) "removed nested action contract reappeared"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.ordinary_gate_failure_count -eq 1) "ordinary-tool gate failure was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.ordinary_gate_failure_count -eq 0) "ordinary-tool gate logic reappeared"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.committed_control_count -eq 1) "committed controls were not counted from V2 state_commit"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.state_commit_count -eq 1) "state_commit_count does not reflect committed V2 controls"
 Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.state_commit_count_source -eq "control_result_state_commit") "state commit source is ambiguous"

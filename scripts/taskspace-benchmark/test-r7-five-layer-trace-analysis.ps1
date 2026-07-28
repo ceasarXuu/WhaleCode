@@ -25,26 +25,29 @@ try {
     if ($standard[0].calls[0].failure_code -ne "shell_exit_1") { throw "Standard failure was not classified" }
 
     $taskspacePath = Join-Path $tempRoot "taskspace.jsonl"
-    $initActionArgs = '{"cmd":"ls","taskspace_binding":{"action":"initialize_map","root":{"id":"root","goal":"task"},"initial_work":{"id":"explore","goal":"inspect"},"additional_work":[],"finish_id":"finish","edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}]}}'
-    $finishArgs = '{"action":"finish_map","terminal_node_id":"verify"}'
+    $initControlArgs = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"task"},"work_nodes":[{"node_id":"explore","goal":"inspect"}],"finish":{"node_id":"finish","goal":"summarize"},"edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}],"actions":[{"node_id":"explore","tool":"shell_command"}]}'
+    $finishArgs = '{"action":"finish_map","expected_revision":2,"finish_node_id":"finish","complete_work_node_ids":["explore"],"exact_summary":"done"}'
     Write-Lines $taskspacePath @(
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "exec_command"; arguments = $initActionArgs } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceInitializationCarrierResultV1","initialization_result":{"schema_version":"TaskSpaceControlResultV2","action":"initialize_map","success":true,"state_commit":true},"tool_dispatched":true}`nok' } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t0"; rawPayload = @{ name = "taskspace_control"; arguments = $initControlArgs } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "shell_command"; arguments = '{"cmd":"ls"}' } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","success":true,"state_commit":true}' } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "taskspace_trace_event_recorded"; kind = "provider_response_actionability"; tags = @("request_count:1") } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t2"; rawPayload = @{ name = "taskspace_control"; arguments = $finishArgs } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t2"; toolSuccess = $true; rawPayload = @{ output = '{"action":"finish_map","success":true,"state_commit":true}' } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t2"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceControlResultV2","action":"finish_map","success":true,"state_commit":true}' } } },
         @{ type = "event_msg"; payload = @{ type = "task_complete" } }
     )
     $taskspace = @(Get-R7TaskspaceRequestPath $taskspacePath 2)
-    if ($taskspace[0].calls[0].taskspace_binding -ne "initialize_map") { throw "TaskSpace initialization carrier was not parsed" }
+    if ($taskspace[0].calls[0].control_action -ne "initialize_and_execute") { throw "TaskSpace initialization manifest was not parsed" }
+    if ($taskspace[0].calls[1].declared_node_id -ne "explore") { throw "TaskSpace sibling ownership was not reconstructed" }
     if ($taskspace[1].calls[0].control_action -ne "finish_map") { throw "TaskSpace terminal request was not flushed" }
     $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_LIFECYCLE_INVARIANT"}}'
     if ($stateFailure.failure_class -ne "taskspace_state_machine" -or $stateFailure.failure_code -ne "TASKSPACE_LIFECYCLE_INVARIANT") {
         throw "TaskSpace state failure was not classified"
     }
-    $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV1","error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
+    $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV2","error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
     if ($multiPatchFailure.failure_class -ne "tool_sequence_protocol") { throw "Multi-patch failure was not separated" }
-    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceInitializationCarrierResultV1","initialization_result":{"success":false,"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID"}},"tool_dispatched":false}'
+    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","success":false,"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID"}}'
     if ($initializationFailure.failure_class -ne "taskspace_state_machine" -or
         $initializationFailure.failure_code -ne "TASKSPACE_INITIAL_GRAPH_INVALID" -or
         $initializationFailure.state_commit -ne $false) {

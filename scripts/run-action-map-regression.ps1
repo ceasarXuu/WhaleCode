@@ -75,6 +75,10 @@ function Select-FailureLines($Lines) {
 }
 
 function Select-RelevantCrashEvents([datetime]$StartTime, [datetime]$EndTime) {
+    if (-not ($IsWindows -or $env:OS -eq "Windows_NT") -or
+        $null -eq (Get-Command Get-WinEvent -ErrorAction SilentlyContinue)) {
+        return @()
+    }
     $events = Get-WinEvent -FilterHashtable @{
         LogName = "Application"
         StartTime = $StartTime
@@ -153,12 +157,12 @@ $useDefaultMatrix = -not $PSBoundParameters.ContainsKey("Package") -and -not $PS
 if ($useDefaultMatrix) {
     $testRuns = @(
         New-CargoTestRun "core-action-map" @("codex-core") "action_map"
-        New-CargoTestRun "core-taskspace-trace" @("codex-core") "taskspace_trace"
-        New-CargoTestRun "core-session-standard-trace" @("codex-core") "session_standard_mode_main_tool_result_does_not_record_trace"
+        New-CargoTestRun "core-ordinary-tool-schema-isolation" @("codex-core") "ordinary_tool_schema_is_identical_in_standard_and_taskspace"
+        New-CargoTestRun "core-standard-tool-isolation" @("codex-core") "standard_native_tools_hide_map_control_but_keep_linear_plan"
         New-CargoTestRun "protocol-action-map-snapshot" @("codex-protocol") "action_map_snapshot"
-        New-CargoTestRun "protocol-sentinel-warning" @("codex-protocol") "sentinel_warning_raised"
+        New-CargoTestRun "protocol-map-runtime-trace" @("codex-protocol") "map_runtime_trace_event_recorded_serializes_refs_without_raw_output"
         New-CargoTestRun "app-server-schema-fixtures" @("codex-app-server-protocol") "" "schema_fixtures"
-        New-CargoTestRun "core-legacy-spawn-agent" @("codex-core") "legacy_spawn_agent"
+        New-CargoTestRun "core-standard-child-map-isolation" @("codex-core") "standard_child_does_not_inherit_taskspace_binding"
         New-CargoTestRun "tools-spawn-agent" @("codex-tools") "spawn_agent"
         New-CargoTestRun "tools-multi-agent-task-names" @("codex-tools") "multi_agent_v2_uses_task_names"
         New-CargoTestRun "tools-registry-plan" @("codex-tools") "tool_registry_plan"

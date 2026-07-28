@@ -707,9 +707,11 @@ function Get-TaskspaceBenchmarkMetrics {
         taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_control_count
         native_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.native_taskspace_control_count
         action_contract_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count
-        ordinary_binding_count = [int]$costInstrumentation.taskspace_control_usage.ordinary_binding_count
-        active_binding_count = [int]$costInstrumentation.taskspace_control_usage.active_binding_count
-        after_boundary_binding_count = [int]$costInstrumentation.taskspace_control_usage.after_boundary_binding_count
+        action_manifest_count = [int]$costInstrumentation.taskspace_control_usage.action_manifest_count
+        declared_action_count = [int]$costInstrumentation.taskspace_control_usage.declared_action_count
+        initialize_and_execute_count = [int]$costInstrumentation.taskspace_control_usage.initialize_and_execute_count
+        committed_initialize_and_execute_count = [int]$costInstrumentation.taskspace_control_usage.committed_initialize_and_execute_count
+        failed_initialize_and_execute_count = [int]$costInstrumentation.taskspace_control_usage.failed_initialize_and_execute_count
         sequence_preflight_rejected_call_count = [int]$costInstrumentation.taskspace_control_usage.sequence_preflight_rejected_call_count
         control_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_failure_count
         control_preflight_failure_count = [int]$costInstrumentation.taskspace_control_usage.control_preflight_failure_count

@@ -28,6 +28,12 @@ pub(crate) enum TaskSpaceControlArgs {
         mutations: Vec<TaskSpaceMutationArgs>,
         actions: Vec<TaskSpaceActionArgs>,
     },
+    ReopenMap {
+        expected_revision: u64,
+        work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+        edges: Vec<TaskSpaceGraphEdgeArgs>,
+        actions: Vec<TaskSpaceActionArgs>,
+    },
     ReadMap,
     ReadOutputRef {
         output_ref: String,
@@ -40,6 +46,7 @@ pub(crate) enum TaskSpaceControlArgs {
     FinishMap {
         expected_revision: u64,
         finish_node_id: String,
+        complete_work_node_ids: Vec<String>,
         exact_summary: String,
     },
 }
@@ -85,9 +92,6 @@ pub(crate) enum TaskSpaceMutationArgs {
     UnblockNode {
         node_id: String,
     },
-    ReworkNode {
-        node_id: String,
-    },
 }
 
 impl TaskSpaceControlArgs {
@@ -95,6 +99,7 @@ impl TaskSpaceControlArgs {
         match self {
             Self::InitializeAndExecute { .. } => "initialize_and_execute",
             Self::Execute { .. } => "execute",
+            Self::ReopenMap { .. } => "reopen_map",
             Self::ReadMap => "read_map",
             Self::ReadOutputRef { .. } => "read_output_ref",
             Self::FinishMap { .. } => "finish_map",
@@ -104,6 +109,9 @@ impl TaskSpaceControlArgs {
     pub(crate) fn submitted_expected_revision(&self) -> Option<u64> {
         match self {
             Self::Execute {
+                expected_revision, ..
+            }
+            | Self::ReopenMap {
                 expected_revision, ..
             }
             | Self::FinishMap {
@@ -128,6 +136,19 @@ impl TaskSpaceControlArgs {
                 validate_mutations(mutations)?;
                 validate_actions(actions)
             }
+            Self::ReopenMap {
+                work_nodes,
+                edges,
+                actions,
+                ..
+            } => {
+                require_non_empty(work_nodes, "reopen_map.work_nodes")?;
+                require_non_empty(edges, "reopen_map.edges")?;
+                validate_unique_nodes(work_nodes, "reopen_map.work_nodes")?;
+                validate_edges(edges, "reopen_map.edges")?;
+                validate_unique_edges(edges, "reopen_map.edges")?;
+                validate_actions(actions)
+            }
             Self::ReadMap => Ok(()),
             Self::ReadOutputRef {
                 output_ref,
@@ -146,10 +167,16 @@ impl TaskSpaceControlArgs {
             ),
             Self::FinishMap {
                 finish_node_id,
+                complete_work_node_ids,
                 exact_summary,
                 ..
             } => {
                 validate_node_id("finish_map.finish_node_id", finish_node_id)?;
+                require_non_empty(complete_work_node_ids, "finish_map.complete_work_node_ids")?;
+                validate_unique_node_ids(
+                    complete_work_node_ids,
+                    "finish_map.complete_work_node_ids",
+                )?;
                 if exact_summary.trim().is_empty() {
                     return invalid("finish_map requires a non-empty exact_summary");
                 }
@@ -210,9 +237,6 @@ fn validate_mutations(mutations: &[TaskSpaceMutationArgs]) -> Result<(), Functio
             }
             TaskSpaceMutationArgs::UnblockNode { node_id } => {
                 validate_node_id("execute.unblock_node", node_id)?;
-            }
-            TaskSpaceMutationArgs::ReworkNode { node_id } => {
-                validate_node_id("execute.rework_node", node_id)?;
             }
         }
     }
@@ -326,6 +350,17 @@ fn validate_node_id(field: &str, node_id: &str) -> Result<(), FunctionCallError>
     } else {
         Ok(())
     }
+}
+
+fn validate_unique_node_ids(node_ids: &[String], field: &str) -> Result<(), FunctionCallError> {
+    let mut unique = HashSet::with_capacity(node_ids.len());
+    for node_id in node_ids {
+        validate_node_id(field, node_id)?;
+        if !unique.insert(node_id.as_str()) {
+            return invalid(format!("{field} requires unique node_id values"));
+        }
+    }
+    Ok(())
 }
 
 fn invalid<T>(message: impl Into<String>) -> Result<T, FunctionCallError> {

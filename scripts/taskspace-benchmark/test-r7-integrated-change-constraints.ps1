@@ -40,8 +40,8 @@ Assert-Contract ($documentHash -eq [string]$contract.governing_document.sha256) 
 
 $closed = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "closed" })
 $open = @($contract.regression_invariants | Where-Object { [string]$_.status -eq "open" })
-Assert-Contract ($closed.Count -eq 22) "Exactly 22 historical regressions must remain closed"
-Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-22,R-26,R-27") "R-10, R-19, R-22, R-26, and R-27 must remain open until all continuation gates pass"
+Assert-Contract ($closed.Count -eq 24) "Exactly 24 regressions must be closed through A2-B5"
+Assert-Contract (($open.id -join ",") -eq "R-10,R-19,R-22") "Only R-10, R-19, and R-22 remain open after A2-B5"
 
 $knownIds = @{}
 foreach ($item in @($contract.architectural_constraints) + @($contract.regression_invariants)) {
@@ -77,8 +77,10 @@ $derivedLifecycleRegression = @($contract.regression_invariants | Where-Object {
 Assert-Contract ([string]$derivedLifecycleRegression.required_behavior -match "derives Waiting, Ready, InFlight, Blocked, Completed") "Fact-derived lifecycle gate is missing"
 $terminalReachabilityRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-26" })[0]
 Assert-Contract ([string]$terminalReachabilityRegression.required_behavior -match "final Work") "Final Work terminal reachability gate is missing"
+Assert-Contract ([string]$terminalReachabilityRegression.status -eq "closed") "Final Work terminal reachability is not closed"
 $reopenRegression = @($contract.regression_invariants | Where-Object { [string]$_.id -eq "R-27" })[0]
 Assert-Contract ([string]$reopenRegression.required_behavior -match "reopen_map") "User-feedback Map reopen gate is missing"
+Assert-Contract ([string]$reopenRegression.status -eq "closed") "User-feedback Map reopen is not closed"
 
 $document = Get-Content -Raw -Encoding UTF8 -LiteralPath $documentPath
 foreach ($id in @(

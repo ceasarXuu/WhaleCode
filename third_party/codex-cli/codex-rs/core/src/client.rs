@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::MutexGuard as StdMutexGuard;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -159,8 +160,9 @@ const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
     "root_node_id",
     "finish_node_id",
     "complete",
+    "current_terminal",
+    "terminal_history",
     "root_source_event_ids",
-    "current_node",
     "active_frontier",
     "map_nodes",
     "map_edges",
@@ -543,11 +545,7 @@ impl ProviderRequestBudgetContext {
             dynamic_suffix_hash: None,
             payload_scan: None,
         };
-        *self
-            .state
-            .active_request
-            .lock()
-            .expect("provider request budget active mutex poisoned") = Some(active_request);
+        *lock_std_mutex(&self.state.active_request) = Some(active_request);
         self.push_event(ProviderRequestBudgetEvent {
             request_id: request_id.clone(),
             logical_request_id: request_identity.logical_request_id.clone(),
@@ -628,11 +626,7 @@ impl ProviderRequestBudgetContext {
             self.state.expected_projection_identity.as_ref(),
         );
         let active_request = {
-            let mut active_request = self
-                .state
-                .active_request
-                .lock()
-                .expect("provider request budget active mutex poisoned");
+            let mut active_request = lock_std_mutex(&self.state.active_request);
             let Some(active_request) = active_request.as_mut() else {
                 return;
             };
@@ -701,12 +695,7 @@ impl ProviderRequestBudgetContext {
         if !self.state.enabled {
             return;
         }
-        let active_request = self
-            .state
-            .active_request
-            .lock()
-            .expect("provider request budget active mutex poisoned")
-            .take();
+        let active_request = lock_std_mutex(&self.state.active_request).take();
         if let Some(active_request) = active_request {
             let completed_at_ms = provider_request_budget_now_ms();
             self.push_event(ProviderRequestBudgetEvent {
@@ -773,20 +762,12 @@ impl ProviderRequestBudgetContext {
     }
 
     pub(crate) fn drain_events(&self) -> Vec<ProviderRequestBudgetEvent> {
-        let mut events = self
-            .state
-            .events
-            .lock()
-            .expect("provider request budget event mutex poisoned");
+        let mut events = lock_std_mutex(&self.state.events);
         std::mem::take(&mut *events)
     }
 
     fn push_event(&self, event: ProviderRequestBudgetEvent) {
-        self.state
-            .events
-            .lock()
-            .expect("provider request budget event mutex poisoned")
-            .push(event);
+        lock_std_mutex(&self.state.events).push(event);
     }
 
     fn build_request_identity(
@@ -815,16 +796,19 @@ impl ProviderRequestBudgetContext {
         &self,
         request_id: &str,
     ) -> Option<ProviderRequestBudgetActiveRequest> {
-        let active_request = self
-            .state
-            .active_request
-            .lock()
-            .expect("provider request budget active mutex poisoned");
+        let active_request = lock_std_mutex(&self.state.active_request);
         let active_request = active_request.as_ref()?;
         if active_request.request_id != request_id {
             return None;
         }
         Some(active_request.clone())
+    }
+}
+
+fn lock_std_mutex<T>(mutex: &StdMutex<T>) -> StdMutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }
 

@@ -7,8 +7,10 @@ use crate::TaskSpaceMapWriteOutcome;
 use codex_protocol::ThreadId;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
+use codex_protocol::taskspace::TaskSpaceCompletionRecord;
 use codex_protocol::taskspace::TaskSpaceMapEdge;
 use codex_protocol::taskspace::TaskSpaceMapNode;
+use codex_protocol::taskspace::TaskSpaceTerminalRecord;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -52,6 +54,7 @@ fn initialized_map(map_id: &str, revision: u64) -> Option<TaskSpaceCanonicalMap>
         result_refs: BTreeMap::new(),
         evidence_refs: BTreeMap::new(),
         terminal_record: None,
+        terminal_history: Vec::new(),
         revision,
     })
 }
@@ -113,7 +116,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
             expected_store_revision: loaded.store_revision,
             canonical_map: initialized_map(&loaded.map_id, 3),
             commit_id: "commit-1".to_string(),
-            operation: "initialize_map".to_string(),
+            operation: "initialize_and_execute".to_string(),
             actor_thread_id: fork,
             binding: None,
         })
@@ -153,7 +156,7 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
         expected_store_revision: 1,
         canonical_map: initialized_map(&map_id, 1),
         commit_id: "commit-idempotent".to_string(),
-        operation: "initialize_map".to_string(),
+        operation: "initialize_and_execute".to_string(),
         actor_thread_id: owner,
         binding: None,
     };
@@ -396,11 +399,28 @@ async fn taskspace_map_survives_state_runtime_restart() {
     let (home, runtime) = runtime().await;
     let owner = ThreadId::new();
     let map_id = format!("map-{owner}");
+    let mut canonical = initialized_map(&map_id, 9).expect("initialized map");
+    canonical.completion_records.insert(
+        "work".to_string(),
+        TaskSpaceCompletionRecord {
+            action_id: "complete-work".to_string(),
+            result_ref_ids: Vec::new(),
+            evidence_ref_ids: Vec::new(),
+        },
+    );
+    canonical.terminal_history.push(TaskSpaceTerminalRecord {
+        action_id: "terminal-1".to_string(),
+        summary_ref: "initial completion".to_string(),
+    });
+    canonical.terminal_record = Some(TaskSpaceTerminalRecord {
+        action_id: "terminal-2".to_string(),
+        summary_ref: "feedback completion".to_string(),
+    });
     runtime
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
             owner_thread_id: owner,
-            canonical_map: blank_map(),
+            canonical_map: Some(canonical),
             commit_id: "create-restart".to_string(),
             operation: "activate_taskspace".to_string(),
         })
@@ -418,5 +438,20 @@ async fn taskspace_map_survives_state_runtime_restart() {
         .expect("persisted map exists");
     assert_eq!(record.owner_thread_id, owner);
     assert_eq!(record.store_revision, 1);
+    let canonical = record.canonical_map.expect("canonical map");
+    assert_eq!(canonical.revision, 9);
+    assert_eq!(canonical.terminal_history.len(), 1);
+    assert_eq!(
+        canonical.terminal_history[0].summary_ref,
+        "initial completion"
+    );
+    assert_eq!(
+        canonical
+            .terminal_record
+            .expect("current terminal")
+            .summary_ref,
+        "feedback completion"
+    );
+    assert!(canonical.completion_records.contains_key("work"));
     let _ = tokio::fs::remove_dir_all(home).await;
 }

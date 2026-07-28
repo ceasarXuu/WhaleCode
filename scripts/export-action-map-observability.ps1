@@ -23,10 +23,10 @@ $exportPolicyPath = Join-Path $output.FullName "action-map-observability-policy.
 ($exportPolicy | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $exportPolicyPath -Encoding UTF8
 
 $mapStore = Invoke-ActionMapStoreExport -WhalePath $WhalePath -ThreadId $ThreadId -OutputDir $output.FullName
-$mapStoreSource = $mapStore | Select-Object * -ExcludeProperty snapshot
+$mapStoreSource = $mapStore | Select-Object * -ExcludeProperty canonical_map
 $scan = New-ActionMapObservabilityEventScan -RolloutPath $RolloutPath -JsonlPath $JsonlPath -Policy $exportPolicy -RolloutReadStats $rolloutReadStats -JsonlReadStats $jsonlReadStats
-$finalState = if ([string]$mapStore.availability -eq "measured") {
-    ConvertFrom-ActionMapStoreSnapshot $mapStore.snapshot
+$finalState = if ([string]$mapStore.availability -eq "measured" -and $mapStore.canonical_map) {
+    ConvertFrom-TaskSpaceCanonicalMap $mapStore.canonical_map $mapStore.owner_thread_id
 }
 else {
     [pscustomobject]@{ tasks = @(); maps = @(); nodes = @(); edges = @(); sentinelWarnings = @(); agents = @() }

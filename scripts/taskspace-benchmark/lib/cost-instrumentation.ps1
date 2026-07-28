@@ -1365,12 +1365,11 @@ function New-TaskspaceControlUsageSummary {
     $rolloutActions = @{}
     $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutActiveBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutAfterBoundaryBindingCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutInitializationCarrierCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutCommittedInitializationCarrierCallIds = [System.Collections.Generic.HashSet[string]]::new()
-    $rolloutFailedInitializationCarrierCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutManifestCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutInitializeCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutCommittedInitializeCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutFailedInitializeCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutDeclaredActionCount = 0
     $rolloutSequencePreflightFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlPreflightFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
@@ -1399,9 +1398,9 @@ function New-TaskspaceControlUsageSummary {
             try { $row = $line | ConvertFrom-Json } catch { continue }
             if ([string]$row.type -eq "event_msg" -and $null -ne $row.payload -and
                 [string]$row.payload.type -eq "map_runtime" -and
-                [string]$row.payload.map_event_type -eq "graph_revision_committed") {
+                [string]$row.payload.map_event_type -eq "store_committed") {
                 $mapId = [string](Get-TaskspaceCostProperty $row.payload @("mapId", "map_id"))
-                $revision = Get-TaskspaceCostProperty $row.payload @("revision")
+                $revision = Get-TaskspaceCostProperty $row.payload @("mapRevision", "map_revision")
                 [void]$rolloutGraphRevisionCommitKeys.Add("${mapId}:${revision}")
             }
             $payload = Get-TaskspaceCanonicalResponseItem $row
@@ -1427,18 +1426,17 @@ function New-TaskspaceControlUsageSummary {
                     }
                 }
                 $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
-                if ($schemaVersion -eq "TaskSpaceInitializationCarrierResultV1" -and
-                    $rolloutInitializationCarrierCallIds.Contains($callId)) {
-                    $initializationResult = Get-TaskspaceCostProperty $batch @("initialization_result")
-                    if ([bool](Get-TaskspaceCostProperty $initializationResult @("success")) -and
-                        [bool](Get-TaskspaceCostProperty $initializationResult @("state_commit"))) {
-                        [void]$rolloutCommittedInitializationCarrierCallIds.Add($callId)
-                        $committedRevision = Get-TaskspaceCostProperty $initializationResult @("committed_revision")
+                if ($schemaVersion -eq "TaskSpaceControlResultV2" -and
+                    $rolloutInitializeCallIds.Contains($callId)) {
+                    if ([bool](Get-TaskspaceCostProperty $batch @("success")) -and
+                        [bool](Get-TaskspaceCostProperty $batch @("state_commit"))) {
+                        [void]$rolloutCommittedInitializeCallIds.Add($callId)
+                        $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision", "canonical_revision")
                         if ($null -ne $committedRevision) {
                             $latestCommittedRevision = [int64]$committedRevision
                         }
                     } else {
-                        [void]$rolloutFailedInitializationCarrierCallIds.Add($callId)
+                        [void]$rolloutFailedInitializeCallIds.Add($callId)
                     }
                 }
                 if ($schemaVersion -eq "TaskSpaceGateResultV1" -and
@@ -1449,14 +1447,14 @@ function New-TaskspaceControlUsageSummary {
                 $isControlCall = -not [string]::IsNullOrWhiteSpace($callId) -and
                     ($rolloutNativeCallIds.Contains($callId) -or
                         $rolloutActionContractCallIds.Contains($callId))
-                if ($schemaVersion -eq "ToolSequencePreflightResultV1" -and
+                if ($schemaVersion -eq "ToolSequencePreflightResultV2" -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false) {
                     [void]$rolloutSequencePreflightFailureCallIds.Add($callId)
                 }
                 if (-not $isControlCall) { continue }
 
-                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2", "TaskSpaceControlResultR6V1")
-                $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV1"
+                $isControlResult = $schemaVersion -eq "TaskSpaceControlResultV2"
+                $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV2"
                 $controlFailed = ($isControlResult -or $isControlPreflightResult) -and
                     $batch.PSObject.Properties.Name -contains "success" -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
@@ -1555,26 +1553,7 @@ function New-TaskspaceControlUsageSummary {
             } elseif ($null -ne $arguments) {
                 $parsedArguments = $arguments
             }
-            if ($toolName -ne "taskspace_control") {
-                $bindingValue = Get-TaskspaceCostProperty $parsedArguments @("taskspace_binding")
-                $binding = if ($bindingValue -is [string]) {
-                    [string]$bindingValue
-                } else {
-                    [string](Get-TaskspaceCostProperty $bindingValue @("action"))
-                }
-                if (-not [string]::IsNullOrWhiteSpace($binding) -and
-                    $rolloutBindingCallIds.Add($callId)) {
-                    if ($binding -eq "active") {
-                        [void]$rolloutActiveBindingCallIds.Add($callId)
-                    } elseif ($binding -eq "after_boundary") {
-                        [void]$rolloutAfterBoundaryBindingCallIds.Add($callId)
-                    } elseif ($binding -eq "initialize_map") {
-                        [void]$rolloutInitializationCarrierCallIds.Add($callId)
-                        Add-TaskspaceCostCount $rolloutActions "initialize_map"
-                    }
-                }
-                continue
-            }
+            if ($toolName -ne "taskspace_control") { continue }
             $isActionContract = $callId.StartsWith("taskspace-action-contract-")
             $added = if ($isActionContract) {
                 $rolloutActionContractCallIds.Add($callId)
@@ -1585,6 +1564,15 @@ function New-TaskspaceControlUsageSummary {
             $action = ""
             $action = [string](Get-TaskspaceCostProperty $parsedArguments @("action"))
             Add-TaskspaceCostCount $rolloutActions $action
+            if ($action -in @("initialize_and_execute", "execute", "reopen_map")) {
+                [void]$rolloutManifestCallIds.Add($callId)
+                $rolloutDeclaredActionCount += @(
+                    Get-TaskspaceCostProperty $parsedArguments @("actions")
+                ).Count
+            }
+            if ($action -eq "initialize_and_execute") {
+                [void]$rolloutInitializeCallIds.Add($callId)
+            }
             if ($action -eq "read_map") {
                 [void]$rolloutReadMapCallIds.Add($callId)
             }
@@ -1687,7 +1675,7 @@ function New-TaskspaceControlUsageSummary {
         }
     }
     [pscustomobject]@{
-        schema_version = "taskspace-control-usage-v4"
+        schema_version = "taskspace-control-usage-v5"
         source_path = $JsonlPath
         observability_source_path = $ObservabilityJsonPath
         rollout_source_path = $RolloutJsonlPath
@@ -1709,12 +1697,11 @@ function New-TaskspaceControlUsageSummary {
         taskspace_control_count = [int]$total
         native_taskspace_control_count = [int]$nativeTotal
         action_contract_taskspace_control_count = [int]$actionContractTotal
-        ordinary_binding_count = [int]$rolloutBindingCallIds.Count
-        active_binding_count = [int]$rolloutActiveBindingCallIds.Count
-        after_boundary_binding_count = [int]$rolloutAfterBoundaryBindingCallIds.Count
-        initialization_carrier_count = [int]$rolloutInitializationCarrierCallIds.Count
-        committed_initialization_carrier_count = [int]$rolloutCommittedInitializationCarrierCallIds.Count
-        failed_initialization_carrier_count = [int]$rolloutFailedInitializationCarrierCallIds.Count
+        action_manifest_count = [int]$rolloutManifestCallIds.Count
+        declared_action_count = [int]$rolloutDeclaredActionCount
+        initialize_and_execute_count = [int]$rolloutInitializeCallIds.Count
+        committed_initialize_and_execute_count = [int]$rolloutCommittedInitializeCallIds.Count
+        failed_initialize_and_execute_count = [int]$rolloutFailedInitializeCallIds.Count
         sequence_preflight_rejected_call_count = [int]$rolloutSequencePreflightFailureCallIds.Count
         control_failure_count = [int]$rolloutControlFailureCallIds.Count
         control_preflight_failure_count = [int]$rolloutControlPreflightFailureCallIds.Count
@@ -1908,20 +1895,12 @@ function Get-TaskspaceContextProjectionBlocks {
     }
     if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath -PathType Leaf)) {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
-            if ($line -notmatch 'ContextProjectionV1|TaskSpaceMapProjectionR7V1|TaskSpaceMapEpochSnapshotR6V1') { continue }
+            if ($line -notmatch 'TaskSpaceMapProjectionR7V1') { continue }
             $texts.Add(($line -replace "\\r\\n", "`n" -replace "\\n", "`n"))
         }
     }
     $blocks = New-Object System.Collections.Generic.List[string]
     foreach ($text in @($texts.ToArray())) {
-        foreach ($match in [regex]::Matches($text, "(?s)ContextProjectionV1 active replacement:.*?ContextProjectionV1 active replacement end\.|ContextProjectionV1 shadow \(not active replacement\):.*?- estimated_tokens:\s*\d+")) {
-            $block = [string]$match.Value
-            if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
-        }
-        foreach ($match in [regex]::Matches($text, "(?s)TaskSpaceMapEpochSnapshotR6V1:.*?TaskSpaceMapEpochSnapshotR6V1 end\.")) {
-            $block = [string]$match.Value
-            if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
-        }
         foreach ($match in [regex]::Matches($text, "(?s)TaskSpaceMapProjectionR7V1:.*?TaskSpaceMapProjectionR7V1 end\.")) {
             $block = [string]$match.Value
             if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
@@ -1933,15 +1912,9 @@ function Get-TaskspaceContextProjectionBlocks {
 function New-TaskspaceContextProjectionEvent {
     param([Parameter(Mandatory = $true)][string]$Block)
     $r7ProjectionKind = [regex]::Match($Block, "(?m)^-\s*projection_kind:\s*(.+?)\s*$")
-    $projectionKind = if ($Block -match "TaskSpaceMapProjectionR7V1:" -and $Block -match "(?m)^- map:\s*none\s*$") { "bootstrap_required" } elseif ($Block -match "TaskSpaceMapProjectionR7V1:" -and $Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "integrity_error" } elseif ($Block -match "TaskSpaceMapProjectionR7V1:" -and $r7ProjectionKind.Success) { $r7ProjectionKind.Groups[1].Value.Trim() } elseif ($Block -match "TaskSpaceMapProjectionR7V1:") { "unknown" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- map:\s*none\s*$") { "r6_bootstrap" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "r6_integrity_error" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:") { "r6_rooted_map_epoch" } elseif ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
+    $projectionKind = if ($Block -match "(?m)^- map:\s*none\s*$") { "bootstrap_required" } elseif ($Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "integrity_error" } elseif ($r7ProjectionKind.Success) { $r7ProjectionKind.Groups[1].Value.Trim() } else { "unknown" }
     $requiredSections = if ($projectionKind -in @("current_projection", "request_snapshot")) {
-        @("schema_version", "projection_kind", "map_id", "revision", "canonical_sha256", "root_node_id", "finish_node_id", "complete", "root_source_event_ids", "current_node", "active_frontier", "map_nodes", "map_edges", "node_details")
-    } elseif ($projectionKind -eq "r6_rooted_map_epoch") {
-        @("map_id", "revision", "root_node_id", "finish_node_id", "complete", "root_source_event_ids", "current_node", "active_frontier", "map_nodes", "map_edges", "node_details")
-    } elseif ($projectionKind -eq "active_replacement") {
-        @("task_id", "map_id", "current_node", "map_nodes", "current_node_recent_events", "result_refs_available")
-    } elseif ($projectionKind -eq "shadow") {
-        @("success_criteria", "current_node", "blockers", "decisions", "facts", "relevant_results", "verified_input_evidence", "fact_source_coverage", "result_refs_available")
+        @("schema_version", "projection_kind", "map_id", "revision", "canonical_sha256", "root_node_id", "finish_node_id", "complete", "root_source_event_ids", "current_terminal", "terminal_history", "active_frontier", "map_nodes", "map_edges", "node_details")
     } else {
         @()
     }
@@ -1965,7 +1938,7 @@ function New-TaskspaceContextProjectionEvent {
     $tokenMatch = [regex]::Match($Block, "(?m)^-\s*estimated_tokens:\s*(\d+)\s*$")
     if ($tokenMatch.Success) { $estimatedTokens = [int64]$tokenMatch.Groups[1].Value }
     [pscustomobject]@{
-        schema_version = "taskspace-context-projection-event-v1"
+        schema_version = "taskspace-context-projection-event-v2"
         projection_id = $projectionId
         task_id = $taskId
         map_id = $mapId

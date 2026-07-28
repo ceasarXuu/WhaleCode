@@ -27,7 +27,7 @@ fn json_schema_fixtures_match_generated() -> Result<()> {
 }
 
 #[test]
-fn action_map_result_schema_is_mechanical_and_source_linked() -> Result<()> {
+fn action_map_result_schema_is_mechanical_and_reservation_linked() -> Result<()> {
     let schema_root = schema_root()?;
     let typescript_tree = read_tree(&schema_root, "typescript")?;
     let result_ts = fixture_utf8(
@@ -35,37 +35,31 @@ fn action_map_result_schema_is_mechanical_and_source_linked() -> Result<()> {
         Path::new("ActionMapSnapshotResult.ts"),
         "typescript",
     )?;
-    assert!(result_ts.contains("toolSuccess: boolean | null"));
-    assert!(result_ts.contains("sourceEventRef: string"));
-    assert!(result_ts.contains("artifactRefs: Array<string>"));
+    assert!(result_ts.contains("actionId: string"));
+    assert!(result_ts.contains("reservationId: string"));
+    assert!(result_ts.contains("isError: boolean"));
     assert!(!result_ts.contains("evidencePackage"));
-    assert!(!result_ts.contains("tool_success"));
+    assert!(!result_ts.contains("assignmentId"));
 
     for (bundle_path, value) in json_bundles(&schema_root)? {
         let result = schema(&value, "ActionMapSnapshotResult")
             .with_context(|| format!("locate ActionMapSnapshotResult in {bundle_path}"))?;
         let properties = properties(result, "ActionMapSnapshotResult")?;
-        for field in [
-            "toolSuccess",
-            "sourceEventRef",
-            "artifactRefs",
-            "sourceThreadId",
-        ] {
+        for field in ["actionId", "reservationId", "nodeId", "isError"] {
             anyhow::ensure!(
                 properties.contains_key(field),
                 "{bundle_path} must expose result {field}"
             );
         }
         anyhow::ensure!(
-            !properties.contains_key("evidencePackage"),
-            "{bundle_path} must not expose semantic result evidencePackage"
+            !properties.contains_key("evidencePackage")
+                && !properties.contains_key("assignmentId")
+                && !properties.contains_key("sourceEventRef"),
+            "{bundle_path} must not expose retired result ownership or semantic evidence"
         );
         assert_eq!(
-            properties.get("toolSuccess"),
-            Some(&serde_json::json!({
-                "default": null,
-                "type": ["boolean", "null"],
-            }))
+            properties.get("isError"),
+            Some(&serde_json::json!({"type": "boolean"}))
         );
     }
     Ok(())
@@ -102,13 +96,16 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
         "complete: boolean",
         "nodes: Array<ActionMapSnapshotNode>",
         "edges: Array<ActionMapSnapshotEdge>",
+        "reservations: Array<ActionMapSnapshotReservation>",
+        "terminalHistorySummaryRefs: Array<string>",
     ] {
         assert!(map_ts.contains(field), "map fixture must expose {field}");
     }
-    for field in ["role: string", "goal: string", "status: string"] {
+    for field in ["role: string", "goal: string", "state: string"] {
         assert!(node_ts.contains(field), "node fixture must expose {field}");
     }
     assert!(!node_ts.contains("kind:"));
+    assert!(!node_ts.contains("activeLease:"));
 
     for (bundle_path, value) in json_bundles(&schema_root)? {
         let snapshot = schema(&value, "ActionMapSnapshot")
@@ -137,6 +134,8 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
             "complete",
             "nodes",
             "edges",
+            "reservations",
+            "terminalHistorySummaryRefs",
             "nodeEvents",
         ] {
             anyhow::ensure!(
@@ -148,15 +147,17 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
         let node = schema(&value, "ActionMapSnapshotNode")
             .with_context(|| format!("locate ActionMapSnapshotNode in {bundle_path}"))?;
         let node_properties = properties(node, "ActionMapSnapshotNode")?;
-        for field in ["id", "role", "goal", "status", "sourceRefs"] {
+        for field in ["id", "role", "goal", "state", "sourceRefs"] {
             anyhow::ensure!(
                 node_properties.contains_key(field),
                 "{bundle_path} must expose node {field}"
             );
         }
         anyhow::ensure!(
-            !node_properties.contains_key("kind"),
-            "{bundle_path} must not expose NodeKind"
+            !node_properties.contains_key("kind")
+                && !node_properties.contains_key("status")
+                && !node_properties.contains_key("activeLease"),
+            "{bundle_path} must not expose retired NodeKind or persisted lifecycle fields"
         );
     }
     Ok(())

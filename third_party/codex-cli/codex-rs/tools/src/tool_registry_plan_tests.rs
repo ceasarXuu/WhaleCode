@@ -254,6 +254,7 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
         vec![
             "initialize_and_execute",
             "execute",
+            "reopen_map",
             "read_map",
             "read_output_ref",
             "read_output_ref",

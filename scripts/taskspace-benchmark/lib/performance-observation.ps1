@@ -176,12 +176,11 @@ function Get-PerformanceMapFacts {
         protected_miss_count = Get-PerformanceNumber (Get-PerformanceProperty $managed "protected_miss_count")
         compaction_event_count = Get-PerformanceNumber (Get-PerformanceProperty $managed "compaction_event_count")
         control_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_control_count")
-        ordinary_binding_count = Get-PerformanceNumber (Get-PerformanceProperty $control "ordinary_binding_count")
-        active_binding_count = Get-PerformanceNumber (Get-PerformanceProperty $control "active_binding_count")
-        after_boundary_binding_count = Get-PerformanceNumber (Get-PerformanceProperty $control "after_boundary_binding_count")
-        initialization_carrier_count = Get-PerformanceNumber (Get-PerformanceProperty $control "initialization_carrier_count")
-        committed_initialization_carrier_count = Get-PerformanceNumber (Get-PerformanceProperty $control "committed_initialization_carrier_count")
-        failed_initialization_carrier_count = Get-PerformanceNumber (Get-PerformanceProperty $control "failed_initialization_carrier_count")
+        action_manifest_count = Get-PerformanceNumber (Get-PerformanceProperty $control "action_manifest_count")
+        declared_action_count = Get-PerformanceNumber (Get-PerformanceProperty $control "declared_action_count")
+        initialize_and_execute_count = Get-PerformanceNumber (Get-PerformanceProperty $control "initialize_and_execute_count")
+        committed_initialize_and_execute_count = Get-PerformanceNumber (Get-PerformanceProperty $control "committed_initialize_and_execute_count")
+        failed_initialize_and_execute_count = Get-PerformanceNumber (Get-PerformanceProperty $control "failed_initialize_and_execute_count")
         sequence_preflight_rejected_call_count = Get-PerformanceNumber (Get-PerformanceProperty $control "sequence_preflight_rejected_call_count")
         control_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_failure_count")
         control_preflight_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_preflight_failure_count")
@@ -264,12 +263,11 @@ function Get-PerformanceSideObservation {
             provider_outer_tool_calls = $actions.provider_outer_tool_calls
             nested_actions = $actions.nested_action_count
             shell = $actions.shell; patch = $actions.patch; taskspace_control = $map.control_count
-            ordinary_bindings = $map.ordinary_binding_count
-            active_bindings = $map.active_binding_count
-            after_boundary_bindings = $map.after_boundary_binding_count
-            initialization_carriers = Get-PerformanceNumber (Get-PerformanceProperty $map "initialization_carrier_count" 0)
-            committed_initialization_carriers = Get-PerformanceNumber (Get-PerformanceProperty $map "committed_initialization_carrier_count" 0)
-            failed_initialization_carriers = Get-PerformanceNumber (Get-PerformanceProperty $map "failed_initialization_carrier_count" 0)
+            action_manifests = $map.action_manifest_count
+            declared_actions = $map.declared_action_count
+            initialize_and_execute = $map.initialize_and_execute_count
+            committed_initialize_and_execute = $map.committed_initialize_and_execute_count
+            failed_initialize_and_execute = $map.failed_initialize_and_execute_count
             sequence_preflight_rejected_calls = $map.sequence_preflight_rejected_call_count
             control_failures = $map.control_failure_count
             control_preflight_failures = $map.control_preflight_failure_count
@@ -286,20 +284,17 @@ function Get-PerformanceSideObservation {
             control_responses = $cadence.control_response_count
             mixed_control_action_responses = $cadence.mixed_control_action_response_count
             multi_control_responses = $cadence.multi_control_response_count
-            boundary_actions = $cadence.boundary_action_count
-            boundary_pairs = $cadence.boundary_pair_count
-            boundary_violations = $cadence.boundary_violation_count
-            orphan_after_boundary = $cadence.orphan_after_boundary_count
-            cadence_ordinary_bindings = $cadence.ordinary_binding_count
-            cadence_active_bindings = $cadence.active_binding_count
-            cadence_after_boundary_bindings = $cadence.after_boundary_binding_count
-            initialize_pairs = $cadence.initialize_pair_count
-            bind_pairs = $cadence.bind_pair_count
-            complete_handoffs = $cadence.complete_handoff_count
-            complete_handoff_pairs = $cadence.complete_handoff_pair_count
+            action_manifest_count = $cadence.action_manifest_count
+            action_manifest_pairs = $cadence.action_manifest_pair_count
+            action_manifest_violations = $cadence.action_manifest_violation_count
+            orphan_siblings = $cadence.orphan_sibling_count
+            cadence_declared_actions = $cadence.declared_action_count
+            cadence_owned_siblings = $cadence.owned_sibling_count
+            initialize_and_execute_pairs = $cadence.initialize_and_execute_pair_count
+            execute_pairs = $cadence.execute_pair_count
+            reopen_pairs = $cadence.reopen_pair_count
             finish_maps = $cadence.finish_map_count
-            finish_map_last_running_work = $cadence.finish_map_last_running_work_count
-            finish_map_ready_finish = $cadence.finish_map_ready_finish_count
+            finish_map_final_work = $cadence.finish_map_final_work_count
             standalone_control_responses = $cadence.standalone_control_response_count
             terminal_candidates = $cadence.terminal_candidate_count
             terminal_extra_requests = $cadence.terminal_extra_request_count
@@ -343,7 +338,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "ordinary_bindings", "active_bindings", "after_boundary_bindings", "initialization_carriers", "committed_initialization_carriers", "failed_initialization_carriers", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "boundary_actions", "boundary_pairs", "boundary_violations", "orphan_after_boundary", "cadence_ordinary_bindings", "cadence_active_bindings", "cadence_after_boundary_bindings", "initialize_pairs", "bind_pairs", "complete_handoffs", "complete_handoff_pairs", "finish_maps", "finish_map_last_running_work", "finish_map_ready_finish", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
+    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.actions.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }
@@ -452,13 +447,13 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("")
     $lines.Add("## TaskSpace sequence")
     $lines.Add("")
-    $lines.Add("| Repeat | Mode | Tool responses | Control responses | Mixed responses | Multi-control | Bound tools | Active | After boundary | Boundary actions | Paired | Violations | Orphans | Init pairs | Bind pairs | Handoffs | Handoff pairs | Finish Map | Work-entry commit | Finish-entry commit | Standalone control | Protocol failures | State failures | Parse errors | Source |")
-    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+    $lines.Add("| Repeat | Mode | Tool responses | Control responses | Mixed responses | Multi-control | Manifests | Paired | Violations | Orphan siblings | Declared actions | Owned siblings | Init pairs | Execute pairs | Reopen pairs | Finish Map | Final Work close | Standalone control | Protocol failures | State failures | Parse errors | Source |")
+    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     foreach ($row in $rows) {
         if ($row.observation_status -eq "skipped") {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.provider_tool_responses) | $(Format-PerformanceValue $row.actions.control_responses) | $(Format-PerformanceValue $row.actions.mixed_control_action_responses) | $(Format-PerformanceValue $row.actions.multi_control_responses) | $(Format-PerformanceValue $row.actions.cadence_ordinary_bindings) | $(Format-PerformanceValue $row.actions.cadence_active_bindings) | $(Format-PerformanceValue $row.actions.cadence_after_boundary_bindings) | $(Format-PerformanceValue $row.actions.boundary_actions) | $(Format-PerformanceValue $row.actions.boundary_pairs) | $(Format-PerformanceValue $row.actions.boundary_violations) | $(Format-PerformanceValue $row.actions.orphan_after_boundary) | $(Format-PerformanceValue $row.actions.initialize_pairs) | $(Format-PerformanceValue $row.actions.bind_pairs) | $(Format-PerformanceValue $row.actions.complete_handoffs) | $(Format-PerformanceValue $row.actions.complete_handoff_pairs) | $(Format-PerformanceValue $row.actions.finish_maps) | $(Format-PerformanceValue $row.actions.finish_map_last_running_work) | $(Format-PerformanceValue $row.actions.finish_map_ready_finish) | $(Format-PerformanceValue $row.actions.standalone_control_responses) | $(Format-PerformanceValue $row.actions.control_protocol_failures) | $(Format-PerformanceValue $row.actions.control_state_failures) | $(Format-PerformanceValue $row.actions.cadence_parse_errors) | $(Format-PerformanceValue $row.actions.cadence_source) |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.provider_tool_responses) | $(Format-PerformanceValue $row.actions.control_responses) | $(Format-PerformanceValue $row.actions.mixed_control_action_responses) | $(Format-PerformanceValue $row.actions.multi_control_responses) | $(Format-PerformanceValue $row.actions.action_manifest_count) | $(Format-PerformanceValue $row.actions.action_manifest_pairs) | $(Format-PerformanceValue $row.actions.action_manifest_violations) | $(Format-PerformanceValue $row.actions.orphan_siblings) | $(Format-PerformanceValue $row.actions.cadence_declared_actions) | $(Format-PerformanceValue $row.actions.cadence_owned_siblings) | $(Format-PerformanceValue $row.actions.initialize_and_execute_pairs) | $(Format-PerformanceValue $row.actions.execute_pairs) | $(Format-PerformanceValue $row.actions.reopen_pairs) | $(Format-PerformanceValue $row.actions.finish_maps) | $(Format-PerformanceValue $row.actions.finish_map_final_work) | $(Format-PerformanceValue $row.actions.standalone_control_responses) | $(Format-PerformanceValue $row.actions.control_protocol_failures) | $(Format-PerformanceValue $row.actions.control_state_failures) | $(Format-PerformanceValue $row.actions.cadence_parse_errors) | $(Format-PerformanceValue $row.actions.cadence_source) |")
         }
     }
     $lines.Add("")

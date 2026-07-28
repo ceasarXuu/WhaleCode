@@ -167,7 +167,10 @@ uv run --with pyyaml python \
   .agents/skills/observe-taskspace-performance
 ```
 
-## R4 Tools Feedback 调试内循环
+## R4 Tools Feedback 调试内循环（历史）
+
+本节只适用于 R4 历史复盘，不得用于 R7.1 TaskSpace 实现或验收。R7.1 Map Store、终态和 reopen 的现行操作见
+[`r7-taskspace-map-store.md`](r7-taskspace-map-store.md)。
 
 R4 tools 链路问题优先按 feedback semantics 分类，不要直接归因为模型策略。常见判断：
 
@@ -533,6 +536,30 @@ about:
 Runtime feature changes should also add structured logs or session events where
 they help future diagnosis. Documentation is not a substitute for runtime
 observability.
+
+## App Server Schema 与跨平台回归
+
+修改 `codex-protocol` 中会暴露给 App Server 的类型后，必须在 Codex vendor 根目录刷新生成物，再运行
+fixture 测试：
+
+```bash
+cd third_party/codex-cli
+just write-app-server-schema
+cd codex-rs
+cargo test -p codex-app-server-protocol --test schema_fixtures --locked
+```
+
+不能只刷新 JSON/TypeScript 文件；`schema_fixtures.rs` 中的结构断言也必须同步到现行合同。旧字段断言通过失败
+来提示 wire 残留，不应增加兼容字段让测试通过。
+
+默认 Action Map 回归在 Linux/Docker 中运行：
+
+```bash
+pwsh scripts/run-action-map-regression.ps1
+```
+
+Windows Application Event Log 只在 Windows 且 `Get-WinEvent` 可用时采集；Linux/Docker 返回空 crash-event
+集合。每个 Cargo filter 必须至少命中一个测试，零命中不能算通过。
 
 ## Official Codex Isolation
 

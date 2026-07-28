@@ -4,15 +4,15 @@ use sha2::Sha256;
 use codex_protocol::protocol::MapRuntimeMode;
 
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_ID: &str = "r7-taskspace-five-layer-production-v1";
-pub(crate) const TASKSPACE_CONTRACT_MANIFEST_VERSION: &str = "1.0.36";
+pub(crate) const TASKSPACE_CONTRACT_MANIFEST_VERSION: &str = "1.0.37";
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_SHA256: &str =
-    "be03a056845ff0ff7ec9488cf7e8728f0cff29097877e35acfe4eaffd1dfa9b0";
+    "510a6f2259b6fd3a2814f5744ee937f4eb477db2794602e2bda07710848559ed";
 
 const TASKSPACE_CONTRACT_MANIFEST: &str =
     include_str!("prompts/taskspace_contract_manifest_v1.json");
-pub(crate) const TASKSPACE_CORE_PROTOCOL_VERSION: &str = "taskspace-core-v3.3";
+pub(crate) const TASKSPACE_CORE_PROTOCOL_VERSION: &str = "taskspace-core-v3.4";
 pub(crate) const TASKSPACE_CORE_PROTOCOL_SHA256: &str =
-    "4eed44daeccc23e1cdeb53b2dc54cf83fe49bc1f817595c52901839affa0ac8c";
+    "41c2ec6f1553598798e18d60bc872020cc25812f8905934a323ffeedecb091f8";
 pub(crate) const TASKSPACE_CORE_PROTOCOL: &str =
     include_str!("prompts/taskspace_core_protocol_v3.md");
 

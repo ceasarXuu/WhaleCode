@@ -95,9 +95,10 @@ fn finalize_active_segment<'a>(
         && let Some(segment_base_replacement_history) = active_segment.base_replacement_history
     {
         *base_replacement_history = Some(segment_base_replacement_history);
-        *rollout_suffix_start = active_segment
-            .replacement_history_suffix_start
-            .expect("replacement history suffix must be recorded with its checkpoint");
+        *rollout_suffix_start = match active_segment.replacement_history_suffix_start {
+            Some(suffix_start) => suffix_start,
+            None => panic!("replacement history checkpoint is missing its rollout suffix"),
+        };
     }
 
     // `previous_turn_settings` come from the newest surviving user turn that established them.

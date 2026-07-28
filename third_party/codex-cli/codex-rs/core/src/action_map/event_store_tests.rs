@@ -303,7 +303,7 @@ fn initialization_sources_reference_user_and_control_events() {
         id: None,
         name: "taskspace_control".into(),
         namespace: None,
-        arguments: r#"{"action":"initialize_map"}"#.into(),
+        arguments: r#"{"action":"initialize_and_execute"}"#.into(),
         call_id: "control-call".into(),
     };
     store.record_item(&user, None, None, 1).unwrap();
@@ -499,7 +499,7 @@ fn restore_rejects_checkpoint_when_covered_raw_event_changed() {
     );
 }
 
-fn terminal_control_call(final_summary: &str, call_id: &str) -> ResponseItem {
+fn terminal_control_call(exact_summary: &str, call_id: &str) -> ResponseItem {
     ResponseItem::FunctionCall {
         id: None,
         name: "taskspace_control".into(),
@@ -507,8 +507,9 @@ fn terminal_control_call(final_summary: &str, call_id: &str) -> ResponseItem {
         arguments: serde_json::json!({
             "action": "finish_map",
             "expected_revision": 4,
-            "terminal_node_id": "finish",
-            "final_summary": final_summary
+            "finish_node_id": "finish",
+            "complete_work_node_ids": ["verify"],
+            "exact_summary": exact_summary
         })
         .to_string(),
         call_id: call_id.into(),

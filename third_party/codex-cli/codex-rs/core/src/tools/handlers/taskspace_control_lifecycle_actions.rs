@@ -15,6 +15,7 @@ pub(super) async fn finish_map(
     call_id: &str,
     expected_revision: u64,
     finish_node_id: String,
+    complete_work_node_ids: Vec<String>,
     exact_summary: String,
 ) -> Result<ControlExecution, FunctionCallError> {
     let outcome = session
@@ -22,6 +23,7 @@ pub(super) async fn finish_map(
             turn,
             expected_revision,
             finish_node_id.clone(),
+            complete_work_node_ids.clone(),
             exact_summary,
             call_id.to_string(),
         )
@@ -35,7 +37,8 @@ pub(super) async fn finish_map(
                 map_id = outcome.map_id,
                 revision = outcome.revision,
                 finish_node_id,
-                summary_bytes = outcome.final_summary.len(),
+                completed_work_node_count = complete_work_node_ids.len(),
+                summary_bytes = outcome.exact_summary.len(),
                 "committed Agent-declared TaskSpace terminal"
             );
             Ok(terminal_execution(outcome))
@@ -47,6 +50,7 @@ pub(super) async fn finish_map(
                 call_id,
                 expected_revision,
                 finish_node_id,
+                completed_work_node_count = complete_work_node_ids.len(),
                 state_commit = false,
                 "rejected Agent-declared TaskSpace terminal"
             );
@@ -75,7 +79,8 @@ fn terminal_execution(outcome: crate::action_map::ActionMapTerminalOutcome) -> C
         format_state_batch(
             vec![serde_json::json!({
                 "kind": "finish_map",
-                "finish_node_id": outcome.terminal_node_id,
+                "finish_node_id": outcome.finish_node_id,
+                "completed_work_node_ids": outcome.completed_work_node_ids,
                 "map_id": outcome.map_id,
                 "revision": outcome.revision,
                 "finish_closed": true,
@@ -89,7 +94,7 @@ fn terminal_execution(outcome: crate::action_map::ActionMapTerminalOutcome) -> C
         Some(TaskSpaceTerminalCarrier {
             map_id: outcome.map_id,
             revision: outcome.revision,
-            summary: outcome.final_summary,
+            summary: outcome.exact_summary,
         }),
     )
 }

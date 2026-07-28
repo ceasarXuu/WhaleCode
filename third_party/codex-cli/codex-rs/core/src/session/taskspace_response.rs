@@ -167,9 +167,6 @@ fn response_operation(
                     TaskSpaceMutationArgs::UnblockNode { node_id } => {
                         node_mutations.push(NodeMutation::Unblock { node_id });
                     }
-                    TaskSpaceMutationArgs::ReworkNode { node_id } => {
-                        node_mutations.push(NodeMutation::Rework { node_id });
-                    }
                 }
             }
             Ok(ActionMapResponseOperation::Execute {
@@ -178,6 +175,19 @@ fn response_operation(
                 node_mutations,
             })
         }
+        TaskSpaceControlArgs::ReopenMap {
+            expected_revision,
+            work_nodes,
+            edges,
+            ..
+        } => Ok(ActionMapResponseOperation::Reopen {
+            expected_revision,
+            work_nodes: work_nodes
+                .into_iter()
+                .map(|node| map_node(node, Vec::new()))
+                .collect(),
+            edges: edges.into_iter().map(map_edge).collect(),
+        }),
         TaskSpaceControlArgs::ReadMap
         | TaskSpaceControlArgs::ReadOutputRef { .. }
         | TaskSpaceControlArgs::FinishMap { .. } => Err(format!(

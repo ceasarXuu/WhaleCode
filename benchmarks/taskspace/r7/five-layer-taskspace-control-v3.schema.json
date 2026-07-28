@@ -1,7 +1,8 @@
 {
   "artifact_schema_version": 2,
   "contract_id": "r7-five-layer-taskspace-control-v3",
-  "status": "active_repair_verified",
+  "status": "obsolete_non_promotable",
+  "superseded_by": "benchmarks/taskspace/r7/five-layer-taskspace-control-v4.contract.json",
   "activation_phase": "FLA-9",
   "baseline_tool_count": 1,
   "strict": false,

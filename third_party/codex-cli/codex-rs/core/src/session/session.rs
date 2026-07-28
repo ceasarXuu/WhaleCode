@@ -14,7 +14,7 @@ pub(crate) struct Session {
     pub(super) state: Mutex<SessionState>,
     /// Serializes canonical TaskSpace Store compare-and-swap transactions.
     /// Native Tool execution remains parallel; only factual commits are ordered.
-    pub(super) taskspace_store_write_lock: Mutex<()>,
+    pub(super) taskspace_store_write_lock: Semaphore,
     /// Serializes rebuild/apply cycles for the running proxy; each cycle
     /// rebuilds from the current SessionState while holding this lock.
     pub(super) managed_network_proxy_refresh_lock: Semaphore,
@@ -806,7 +806,7 @@ impl Session {
                 agent_status,
                 out_of_band_elicitation_paused,
                 state: Mutex::new(state),
-                taskspace_store_write_lock: Mutex::new(()),
+                taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
                 managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
                 features: config.features.clone(),
                 pending_mcp_server_refresh_config: Mutex::new(None),

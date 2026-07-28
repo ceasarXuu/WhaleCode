@@ -8,7 +8,10 @@ use super::model::node_role;
 use std::collections::BTreeSet;
 
 pub(crate) fn derive_node_state(map: &TaskSpaceMap, node_id: &str) -> Option<NodeState> {
-    node_role(map, node_id)?;
+    let role = node_role(map, node_id)?;
+    if map.terminal_record.is_some() && matches!(role, NodeRole::TaskRoot | NodeRole::Finish) {
+        return Some(NodeState::Completed);
+    }
     if map.completion_records.contains_key(node_id) {
         return Some(NodeState::Completed);
     }
@@ -69,29 +72,6 @@ pub(crate) fn predecessors_satisfied(map: &TaskSpaceMap, node_id: &str) -> bool 
         && predecessors.iter().all(|predecessor| {
             predecessor == &map.root.node_id || map.completion_records.contains_key(predecessor)
         })
-}
-
-pub(crate) fn downstream_started_nodes(map: &TaskSpaceMap, node_id: &str) -> Vec<NodeId> {
-    let started = super::model::started_node_ids(map);
-    let mut pending = vec![node_id.to_string()];
-    let mut visited = BTreeSet::new();
-    let mut conflicts = BTreeSet::new();
-    while let Some(current) = pending.pop() {
-        for successor in map
-            .edges
-            .iter()
-            .filter(|edge| edge.from == current)
-            .map(|edge| edge.to.clone())
-        {
-            if visited.insert(successor.clone()) {
-                if started.contains(successor.as_str()) {
-                    conflicts.insert(successor.clone());
-                }
-                pending.push(successor);
-            }
-        }
-    }
-    conflicts.into_iter().collect()
 }
 
 #[cfg(test)]

@@ -77,8 +77,8 @@ function Write-ActionMapObservabilityReport {
     if ($Reduced.source.PSObject.Properties.Name -contains "replay") {
         $md.Add("- canonical Map Store: $($Reduced.source.mapStore.availability)")
         $md.Add("- Map Store error code: $($Reduced.source.mapStore.error_code)")
-        $md.Add("- current snapshot SHA256: $($Reduced.source.mapStore.snapshot_sha256)")
-        $md.Add("- store/graph revision: $($Reduced.source.mapStore.store_revision) / $($Reduced.source.mapStore.graph_revision)")
+        $md.Add("- canonical Map SHA256: $($Reduced.source.mapStore.canonical_sha256)")
+        $md.Add("- store/map revision: $($Reduced.source.mapStore.store_revision) / $($Reduced.source.mapStore.map_revision)")
     }
     $md.Add("")
     $md.Add("## Summary")

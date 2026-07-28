@@ -53,9 +53,6 @@ pub(crate) enum NodeMutation {
     Unblock {
         node_id: String,
     },
-    Rework {
-        node_id: String,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +89,14 @@ pub(crate) struct FinishMap {
     pub(crate) finish_node_id: String,
     pub(crate) final_completions: Vec<FinalCompletion>,
     pub(crate) terminal: TerminalRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReopenMap {
+    pub(crate) expected_revision: Revision,
+    pub(crate) add_work_nodes: Vec<MapNode>,
+    pub(crate) add_edges: Vec<MapEdge>,
+    pub(crate) reservations: Vec<ReservationInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,15 +298,17 @@ pub(crate) fn finish_map(current: &TaskSpaceMap, input: FinishMap) -> Result<Com
     if input.terminal.summary_ref.trim().is_empty() {
         return Err(Rejection::one(
             current.revision,
-            ViolationCode::FinalSummaryEmpty,
+            ViolationCode::ExactSummaryEmpty,
             input.finish_node_id,
         ));
     }
-    let completion = CompletionRecord {
-        action_id: input.terminal.action_id.clone(),
-        result_ref_ids: vec![],
-        evidence_ref_ids: vec![],
-    };
+    if input.final_completions.is_empty() {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::UnfinishedRequiredWork,
+            "finish_requires_final_work",
+        ));
+    }
     let mut facts = input
         .final_completions
         .into_iter()
@@ -313,9 +320,56 @@ pub(crate) fn finish_map(current: &TaskSpaceMap, input: FinishMap) -> Result<Com
     facts.push(MapFact::TerminalRecorded {
         finish_node_id: input.finish_node_id,
         terminal: input.terminal,
-        root_completion: completion.clone(),
-        finish_completion: completion,
     });
+    commit(
+        Some(current),
+        current.map_id.clone(),
+        next_revision(current)?,
+        facts,
+    )
+}
+
+pub(crate) fn reopen_map(current: &TaskSpaceMap, input: ReopenMap) -> Result<Commit, Rejection> {
+    require_revision(current, input.expected_revision)?;
+    if input.add_work_nodes.is_empty()
+        || input.add_edges.is_empty()
+        || input.reservations.is_empty()
+    {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::TransitionInvalid,
+            "reopen_requires_work_edges_and_actions",
+        ));
+    }
+    let terminal = current.terminal_record.clone().ok_or_else(|| {
+        Rejection::one(
+            current.revision,
+            ViolationCode::TransitionInvalid,
+            "active_map",
+        )
+    })?;
+    let mut facts = vec![MapFact::MapReopened { terminal }];
+    facts.extend(
+        input
+            .add_work_nodes
+            .into_iter()
+            .map(|node| MapFact::WorkNodeAdded { node }),
+    );
+    facts.extend(
+        input
+            .add_edges
+            .into_iter()
+            .map(|edge| MapFact::EdgeAdded { edge }),
+    );
+    facts.extend(
+        input
+            .reservations
+            .into_iter()
+            .map(|input| MapFact::ActionReserved {
+                reservation_id: input.reservation_id,
+                reservation: input.reservation,
+            }),
+    );
     commit(
         Some(current),
         current.map_id.clone(),
@@ -329,7 +383,6 @@ fn node_fact(mutation: NodeMutation) -> MapFact {
         NodeMutation::Complete { node_id, record } => MapFact::NodeCompleted { node_id, record },
         NodeMutation::Block { node_id, record } => MapFact::NodeBlocked { node_id, record },
         NodeMutation::Unblock { node_id } => MapFact::NodeUnblocked { node_id },
-        NodeMutation::Rework { node_id } => MapFact::NodeReworked { node_id },
     }
 }
 

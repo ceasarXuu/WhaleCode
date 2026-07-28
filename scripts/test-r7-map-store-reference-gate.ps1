@@ -82,3 +82,4 @@ if ($violations.Count -gt 0) {
 }
 
 Write-Host "R7 Map Store reference gate: PASS"
+Write-Host "Overall: PASS"

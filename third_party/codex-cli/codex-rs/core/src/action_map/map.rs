@@ -353,6 +353,7 @@ mod tests {
             result_refs: BTreeMap::new(),
             evidence_refs: BTreeMap::new(),
             terminal_record: None,
+            terminal_history: Vec::new(),
             revision: 1,
         }
     }

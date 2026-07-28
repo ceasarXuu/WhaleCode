@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "eef985e74eaabef33574e395e338c116850b5ab486ccc0cb34972738b1d65b98"
+    "sha256": "3a8dd27f7da69b87e3b7a17ae0707abec580fe0d0c9eb0a8c22f67f95eac1512"
   },
   "architectural_constraints": [
     {
@@ -302,7 +302,10 @@
       "status": "closed",
       "problem": "A singleton current_node/current_binding/main lease reduces the multi-active-node DAG to a Runtime-driven linear cursor.",
       "required_behavior": "The Agent declares node_id per ordinary action, Runtime keeps no current or next node, and one response can advance multiple declared nodes.",
-      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json"
+      ]
     },
     {
       "id": "R-25",
@@ -313,17 +316,23 @@
     },
     {
       "id": "R-26",
-      "status": "open",
+      "status": "closed",
       "problem": "The final Work has no finite legal closure because execute completion requires a next action while finish_map requires all Work to be completed beforehand.",
       "required_behavior": "finish_map accepts Agent-declared final Work node ids and atomically completes those Work nodes before validating and closing the unique Finish and Root.",
-      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json"
+      ]
     },
     {
       "id": "R-27",
-      "status": "open",
+      "status": "closed",
       "problem": "A closed Task Map cannot continue after user feedback, or continuation reverses historical completion through rework_node.",
       "required_behavior": "reopen_map continues the same map with new Work, edges, actions, and native sibling Tools while moving the prior terminal into history and preserving all prior Work facts.",
-      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json"
+      ]
     }
   ],
   "candidate_gates": [

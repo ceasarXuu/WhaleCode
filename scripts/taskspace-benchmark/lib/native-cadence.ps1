@@ -16,20 +16,17 @@ function Get-TaskspaceNativeCadenceFacts {
             control_response_count = $null
             mixed_control_action_response_count = $null
             multi_control_response_count = $null
-            boundary_action_count = $null
-            boundary_pair_count = $null
-            boundary_violation_count = $null
-            orphan_after_boundary_count = $null
-            ordinary_binding_count = $null
-            active_binding_count = $null
-            after_boundary_binding_count = $null
-            initialize_pair_count = $null
-            bind_pair_count = $null
-            complete_handoff_count = $null
-            complete_handoff_pair_count = $null
+            action_manifest_count = $null
+            action_manifest_pair_count = $null
+            action_manifest_violation_count = $null
+            orphan_sibling_count = $null
+            declared_action_count = $null
+            owned_sibling_count = $null
+            initialize_and_execute_pair_count = $null
+            execute_pair_count = $null
+            reopen_pair_count = $null
             finish_map_count = $null
-            finish_map_last_running_work_count = $null
-            finish_map_ready_finish_count = $null
+            finish_map_final_work_count = $null
             standalone_control_response_count = $null
             terminal_candidate_count = $null
             terminal_extra_request_count = $null
@@ -44,8 +41,7 @@ function Get-TaskspaceNativeCadenceFacts {
     $lastFinalIndex = -1
     $terminalCandidateCount = 0
     $finishMapCount = 0
-    $finishMapLastWorkCount = 0
-    $finishMapReadyFinishCount = 0
+    $finishMapFinalWorkCount = 0
     $controlArgumentParseErrors = 0
     $finishCallsAwaitingCanonicalRole = @{}
 
@@ -89,7 +85,7 @@ function Get-TaskspaceNativeCadenceFacts {
                 ""
             }
             $action = ""
-            $binding = ""
+            $declaredActions = @()
             $hasTerminalCandidate = $false
             try {
                 $argumentsProperty = $payload.PSObject.Properties["arguments"]
@@ -109,7 +105,7 @@ function Get-TaskspaceNativeCadenceFacts {
                         $finishMapCount++
                         $lastFinishIndex = $rowIndex
                         $hasTerminalCandidate = -not [string]::IsNullOrWhiteSpace(
-                            [string]$arguments.final_summary
+                            [string]$arguments.exact_summary
                         )
                         if ($hasTerminalCandidate) { $terminalCandidateCount++ }
                         $callIdProperty = $payload.PSObject.Properties["call_id"]
@@ -118,13 +114,16 @@ function Get-TaskspaceNativeCadenceFacts {
                             $finishCallsAwaitingCanonicalRole[[string]$callIdProperty.Value] = $true
                         }
                     }
-                } else {
-                    $bindingValue = $arguments.taskspace_binding
-                    if ($bindingValue -is [string]) {
-                        $binding = [string]$bindingValue
-                    } elseif ($null -ne $bindingValue -and
-                        $bindingValue.PSObject.Properties.Name -contains "action") {
-                        $binding = [string]$bindingValue.action
+                    if ($action -in @("initialize_and_execute", "execute", "reopen_map")) {
+                        $declaredActions = @(
+                            $arguments.actions |
+                                ForEach-Object {
+                                    [pscustomobject]@{
+                                        node_id = [string]$_.node_id
+                                        tool = [string]$_.tool
+                                    }
+                                }
+                        )
                     }
                 }
             } catch {
@@ -143,7 +142,7 @@ function Get-TaskspaceNativeCadenceFacts {
             $current.Add([pscustomobject]@{
                     name = $name
                     action = $action
-                    taskspace_binding = $binding
+                    declared_actions = $declaredActions
                     terminal_candidate = [bool]$hasTerminalCandidate
                 })
             continue
@@ -165,11 +164,8 @@ function Get-TaskspaceNativeCadenceFacts {
                             Select-Object -First 1
                     )
                     if ($terminalStep.Count -gt 0) {
-                        if ([string]$terminalStep[0].terminal_node_role -eq "work") {
-                            $finishMapLastWorkCount++
-                        }
-                        if ([string]$terminalStep[0].terminal_node_role -eq "finish") {
-                            $finishMapReadyFinishCount++
+                        if (@($terminalStep[0].completed_work_node_ids).Count -gt 0) {
+                            $finishMapFinalWorkCount++
                         }
                     }
                 } catch {
@@ -210,18 +206,16 @@ function Get-TaskspaceNativeCadenceFacts {
     $mixedResponses = 0
     $multiControlResponses = 0
     $standaloneControlResponses = 0
-    $boundaryActions = 0
-    $boundaryPairs = 0
-    $boundaryViolations = 0
-    $orphanAfterBoundary = 0
-    $ordinaryBindings = 0
-    $activeBindings = 0
-    $afterBoundaryBindings = 0
+    $actionManifests = 0
+    $actionManifestPairs = 0
+    $actionManifestViolations = 0
+    $orphanSiblings = 0
+    $declaredActions = 0
+    $ownedSiblings = 0
     $initializePairs = 0
-    $bindPairs = 0
-    $completeHandoffs = 0
-    $completePairs = 0
-    $boundaryNames = @("bind_node", "complete_then_continue")
+    $executePairs = 0
+    $reopenPairs = 0
+    $manifestActions = @("initialize_and_execute", "execute", "reopen_map")
 
     foreach ($batch in $batches) {
         $calls = @($batch)
@@ -233,47 +227,40 @@ function Get-TaskspaceNativeCadenceFacts {
             $standaloneControlResponses++
         }
 
-        for ($index = 0; $index -lt $calls.Count; $index++) {
-            $call = $calls[$index]
-            if ($call.name -ne "taskspace_control" -and $call.taskspace_binding) {
-                $ordinaryBindings++
-                if ($call.taskspace_binding -eq "active") { $activeBindings++ }
-                if ($call.taskspace_binding -eq "after_boundary") { $afterBoundaryBindings++ }
-                if ($call.taskspace_binding -eq "initialize_map") {
-                    $boundaryActions++
-                    $boundaryPairs++
-                    $initializePairs++
+        $manifestControl = @($controls | Where-Object { $_.action -in $manifestActions })
+        if ($manifestControl.Count -gt 0) {
+            $actionManifests += $manifestControl.Count
+            if ($manifestControl.Count -ne 1 -or $calls[0].name -ne "taskspace_control") {
+                $actionManifestViolations++
+                continue
+            }
+            $declared = @($manifestControl[0].declared_actions)
+            $siblings = @($calls | Where-Object name -ne "taskspace_control")
+            $declaredActions += $declared.Count
+            $matched = $declared.Count -eq $siblings.Count
+            if ($matched) {
+                for ($index = 0; $index -lt $declared.Count; $index++) {
+                    if ([string]$declared[$index].tool -ne [string]$siblings[$index].name -or
+                        [string]::IsNullOrWhiteSpace([string]$declared[$index].node_id)) {
+                        $matched = $false
+                        break
+                    }
                 }
             }
-            if ($call.name -eq "taskspace_control" -and $call.action -eq "complete_then_continue") {
-                $completeHandoffs++
-            }
-            if ($call.name -eq "taskspace_control" -and $call.action -in $boundaryNames) {
-                $boundaryActions++
-                $next = if ($index + 1 -lt $calls.Count) { $calls[$index + 1] } else { $null }
-                $paired = $null -ne $next -and
-                    $next.name -ne "taskspace_control" -and
-                    $next.taskspace_binding -eq "after_boundary"
-                if ($paired) {
-                    $boundaryPairs++
-                    if ($call.action -eq "initialize_map") { $initializePairs++ }
-                    if ($call.action -eq "bind_node") { $bindPairs++ }
-                    if ($call.action -eq "complete_then_continue") { $completePairs++ }
-                } else {
-                    $boundaryViolations++
+            if ($matched -and $declared.Count -gt 0) {
+                $actionManifestPairs++
+                $ownedSiblings += $siblings.Count
+                switch ([string]$manifestControl[0].action) {
+                    "initialize_and_execute" { $initializePairs++ }
+                    "execute" { $executePairs++ }
+                    "reopen_map" { $reopenPairs++ }
                 }
+            } else {
+                $actionManifestViolations++
+                $orphanSiblings += $siblings.Count
             }
-            if ($call.name -eq "taskspace_control" -and $call.action -eq "initialize_map") {
-                $boundaryActions++
-                $boundaryViolations++
-            }
-            if ($call.name -ne "taskspace_control" -and $call.taskspace_binding -eq "after_boundary") {
-                $previous = if ($index -gt 0) { $calls[$index - 1] } else { $null }
-                $paired = $null -ne $previous -and
-                    $previous.name -eq "taskspace_control" -and
-                    $previous.action -in $boundaryNames
-                if (-not $paired) { $orphanAfterBoundary++ }
-            }
+        } elseif ($controls.Count -eq 0 -and $calls.Count -gt 0) {
+            $orphanSiblings += $calls.Count
         }
     }
 
@@ -294,20 +281,17 @@ function Get-TaskspaceNativeCadenceFacts {
         control_response_count = [int]$controlResponses
         mixed_control_action_response_count = [int]$mixedResponses
         multi_control_response_count = [int]$multiControlResponses
-        boundary_action_count = [int]$boundaryActions
-        boundary_pair_count = [int]$boundaryPairs
-        boundary_violation_count = [int]$boundaryViolations
-        orphan_after_boundary_count = [int]$orphanAfterBoundary
-        ordinary_binding_count = [int]$ordinaryBindings
-        active_binding_count = [int]$activeBindings
-        after_boundary_binding_count = [int]$afterBoundaryBindings
-        initialize_pair_count = [int]$initializePairs
-        bind_pair_count = [int]$bindPairs
-        complete_handoff_count = [int]$completeHandoffs
-        complete_handoff_pair_count = [int]$completePairs
+        action_manifest_count = [int]$actionManifests
+        action_manifest_pair_count = [int]$actionManifestPairs
+        action_manifest_violation_count = [int]$actionManifestViolations
+        orphan_sibling_count = [int]$orphanSiblings
+        declared_action_count = [int]$declaredActions
+        owned_sibling_count = [int]$ownedSiblings
+        initialize_and_execute_pair_count = [int]$initializePairs
+        execute_pair_count = [int]$executePairs
+        reopen_pair_count = [int]$reopenPairs
         finish_map_count = [int]$finishMapCount
-        finish_map_last_running_work_count = [int]$finishMapLastWorkCount
-        finish_map_ready_finish_count = [int]$finishMapReadyFinishCount
+        finish_map_final_work_count = [int]$finishMapFinalWorkCount
         standalone_control_response_count = [int]$standaloneControlResponses
         terminal_candidate_count = [int]$terminalCandidateCount
         terminal_extra_request_count = $terminalExtra

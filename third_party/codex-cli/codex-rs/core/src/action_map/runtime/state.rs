@@ -113,12 +113,10 @@ impl ActionMapRuntimeState {
         }
         let changed = previous_mode != mode;
         let events = changed
-            .then(|| {
-                MapRuntimeEvent::ModeChanged(MapRuntimeModeChangedEvent {
-                    previous_mode,
-                    current_mode: mode,
-                })
-            })
+            .then_some(MapRuntimeEvent::ModeChanged(MapRuntimeModeChangedEvent {
+                previous_mode,
+                current_mode: mode,
+            }))
             .into_iter()
             .collect();
         (

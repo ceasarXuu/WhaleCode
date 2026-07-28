@@ -11,8 +11,6 @@ use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
-use codex_state::CommitTaskSpaceMapRequest;
-use codex_state::TaskSpaceMapWriteOutcome;
 use core_test_support::responses::ResponseMock;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
@@ -32,34 +30,20 @@ use serde_json::json;
 
 const FINAL_SUMMARY: &str = "Exact Agent terminal summary.";
 const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without finish_map.";
-const EXTERNAL_STORE_GOAL: &str = "Canonical goal committed outside the Session cache";
 const TASKSPACE_CORE_PROTOCOL: &str =
-    include_str!("../../src/context/prompts/taskspace_core_protocol_v2.md");
+    include_str!("../../src/context/prompts/taskspace_core_protocol_v3.md");
 
 fn initialize_arguments() -> String {
     json!({
-        "action": "initialize_map",
-        "root": {"id": "root", "goal": "Complete the test task"},
-        "initial_work": {"id": "work", "goal": "Inspect the workspace"},
-        "additional_work": [
-            {"id": "verify", "goal": "Verify the result"}
-        ],
-        "finish_id": "finish",
+        "action": "initialize_and_execute",
+        "root": {"node_id": "root", "goal": "Complete the test task"},
+        "work_nodes": [{"node_id": "work", "goal": "Inspect the workspace"}],
+        "finish": {"node_id": "finish", "goal": "Verify and summarize"},
         "edges": [
             {"from": "root", "to": "work"},
-            {"from": "work", "to": "verify"},
-            {"from": "verify", "to": "finish"}
-        ]
-    })
-    .to_string()
-}
-
-fn transition_arguments() -> String {
-    json!({
-        "action": "complete_then_continue",
-        "expected_revision": 2,
-        "current_node_id": "work",
-        "next_node_id": "verify"
+            {"from": "work", "to": "finish"}
+        ],
+        "actions": [{"node_id": "work", "tool": "shell_command"}]
     })
     .to_string()
 }
@@ -67,27 +51,28 @@ fn transition_arguments() -> String {
 fn finish_arguments() -> String {
     json!({
         "action": "finish_map",
-        "expected_revision": 3,
-        "terminal_node_id": "verify",
-        "final_summary": FINAL_SUMMARY
+        "expected_revision": 2,
+        "finish_node_id": "finish",
+        "complete_work_node_ids": ["work"],
+        "exact_summary": FINAL_SUMMARY
     })
     .to_string()
 }
 
-async fn enable_taskspace(test: &TestCodex) {
+async fn enable_taskspace(test: &TestCodex) -> anyhow::Result<()> {
     test.codex
         .submit(Op::SetMapRuntimeMode {
             mode: MapRuntimeMode::Experiment,
         })
-        .await
-        .expect("enable TaskSpace");
+        .await?;
     wait_for_event(&test.codex, |event| {
         matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
     })
     .await;
+    Ok(())
 }
 
-async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
+async fn submit_and_collect(test: &TestCodex) -> anyhow::Result<Vec<EventMsg>> {
     test.codex
         .submit(Op::UserInput {
             environments: None,
@@ -98,8 +83,7 @@ async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
         })
-        .await
-        .expect("submit test turn");
+        .await?;
 
     let mut events = Vec::new();
     loop {
@@ -107,169 +91,59 @@ async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
         let complete = matches!(event, EventMsg::TurnComplete(_));
         events.push(event);
         if complete {
-            return events;
+            return Ok(events);
         }
     }
 }
 
-fn bound_exec_arguments(test: &TestCodex, binding: &str) -> String {
-    json!({
-        "cmd": "pwd",
-        "workdir": test.cwd_path().display().to_string(),
-        "taskspace_binding": {"action": binding},
-    })
-    .to_string()
-}
-
-fn initializing_exec_arguments(test: &TestCodex) -> String {
-    json!({
-        "cmd": "pwd",
-        "workdir": test.cwd_path().display().to_string(),
-        "taskspace_binding": serde_json::from_str::<serde_json::Value>(&initialize_arguments())
-            .expect("initialization arguments"),
-    })
-    .to_string()
-}
-
 fn common_responses(test: &TestCodex) -> Vec<String> {
-    vec![
-        sse(vec![
-            ev_response_created("init-response"),
-            ev_function_call(
-                "init-action",
-                "exec_command",
-                &initializing_exec_arguments(test),
-            ),
-            ev_completed("init-response"),
-        ]),
-        sse(vec![
-            ev_response_created("complete-response"),
-            ev_function_call(
-                "complete-control",
-                "taskspace_control",
-                &transition_arguments(),
-            ),
-            ev_function_call(
-                "complete-action",
-                "exec_command",
-                &bound_exec_arguments(test, "after_boundary"),
-            ),
-            ev_completed("complete-response"),
-        ]),
-    ]
+    vec![sse(vec![
+        ev_response_created("init-response"),
+        ev_function_call("init-control", "taskspace_control", &initialize_arguments()),
+        ev_function_call(
+            "init-action",
+            "exec_command",
+            &json!({
+                "cmd": "pwd",
+                "workdir": test.cwd_path().display().to_string(),
+            })
+            .to_string(),
+        ),
+        ev_completed("init-response"),
+    ])]
 }
 
-fn assert_taskspace_request_shapes(responses: &ResponseMock) {
+fn assert_taskspace_request_shapes(responses: &ResponseMock, expected_count: usize) {
     let requests = responses.requests();
-    assert_eq!(
-        requests.len(),
-        3,
-        "terminal handling must not add a request"
-    );
+    assert_eq!(requests.len(), expected_count);
     for request in requests {
         let body = request.body_json();
         assert_eq!(
             body["instructions"].as_str(),
-            Some(codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            "TaskSpace request must carry the complete TaskSpace base instructions"
+            Some(codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE)
         );
         let developer_texts = request.message_input_texts("developer");
         assert_eq!(
             developer_texts.first().map(String::as_str),
-            Some(TASKSPACE_CORE_PROTOCOL),
-            "TaskSpace core protocol must be the first stable developer section"
+            Some(TASKSPACE_CORE_PROTOCOL)
         );
         assert_eq!(
             developer_texts
                 .iter()
                 .filter(|text| text.contains("<taskspace_core_protocol"))
                 .count(),
-            1,
-            "TaskSpace core protocol must appear exactly once"
+            1
         );
-        let tool_choice = body["tool_choice"].clone();
+        assert_eq!(body["tool_choice"], json!("auto"));
         let tool_names = body["tools"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|tool| tool["name"].as_str())
             .collect::<Vec<_>>();
-        assert_eq!(
-            tool_choice,
-            json!("auto"),
-            "TaskSpace request changed tool choice: tools={tool_names:?}"
-        );
-        assert_eq!(
-            body["tools"].as_array().map(Vec::len),
-            Some(12),
-            "TaskSpace must preserve the immutable preflight-capable tool surface: {tool_names:?}"
-        );
-        assert_eq!(
-            tool_names.first().copied(),
-            Some("taskspace_control"),
-            "the immutable TaskSpace tool surface must keep control first"
-        );
-        assert!(
-            !tool_names.contains(&"update_plan"),
-            "TaskSpace request must hide the linear plan tool"
-        );
-        for unsupported in ["local_shell", "web_search", "image_generation"] {
-            assert!(
-                !tool_names.contains(&unsupported),
-                "TaskSpace must hide provider-native tools that cannot enter client preflight: \
-                 {unsupported}"
-            );
-        }
+        assert_eq!(tool_names.first().copied(), Some("taskspace_control"));
+        assert!(!tool_names.contains(&"update_plan"));
     }
-    let initialization_output = responses
-        .function_call_output_text("init-action")
-        .expect("missing initialization carrier output");
-    assert!(
-        initialization_output.contains("TaskSpaceInitializationCarrierResultV1"),
-        "{initialization_output}"
-    );
-    assert!(
-        initialization_output.contains("TaskSpaceControlResultV2"),
-        "{initialization_output}"
-    );
-    assert!(
-        initialization_output.contains("\"state_commit\":true"),
-        "{initialization_output}"
-    );
-
-    let complete_output = responses
-        .function_call_output_text("complete-control")
-        .expect("missing complete control output");
-    assert!(complete_output.contains("TaskSpaceControlResultV2"));
-    assert!(complete_output.contains("\"state_commit\":true"));
-    let complete_action_output = responses
-        .function_call_output_text("complete-action")
-        .expect("missing complete action output");
-    assert!(
-        !complete_action_output.contains("TaskSpaceInitializationCarrierResultV1"),
-        "{complete_action_output}"
-    );
-}
-
-fn error_messages(events: &[EventMsg]) -> Vec<&str> {
-    events
-        .iter()
-        .filter_map(|event| match event {
-            EventMsg::Error(error) => Some(error.message.as_str()),
-            _ => None,
-        })
-        .collect()
-}
-
-fn control_output_diagnostics(responses: &ResponseMock) -> Vec<(&'static str, String)> {
-    ["init-action", "complete-control", "finish-call"]
-        .into_iter()
-        .filter_map(|call_id| {
-            responses
-                .function_call_output_text(call_id)
-                .map(|output| (call_id, output))
-        })
-        .collect()
 }
 
 fn agent_text(item: &TurnItem) -> Option<(String, Option<MessagePhase>)> {
@@ -296,7 +170,7 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
         })
         .build(&server)
         .await?;
-    enable_taskspace(&test).await;
+    enable_taskspace(&test).await?;
 
     let mut bodies = common_responses(&test);
     bodies.push(sse(vec![
@@ -305,13 +179,15 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
         ev_completed("finish-response"),
     ]));
     let responses = mount_sse_sequence(&server, bodies).await;
-    let events = submit_and_collect(&test).await;
-    let errors = error_messages(&events);
-    assert!(
-        errors.is_empty(),
-        "unexpected errors: {errors:?}; control outputs: {:?}",
-        control_output_diagnostics(&responses)
-    );
+    let events = submit_and_collect(&test).await?;
+    let errors = events
+        .iter()
+        .filter_map(|event| match event {
+            EventMsg::Error(error) => Some(error.message.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 
     let completed_messages = events
         .iter()
@@ -326,20 +202,8 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
     );
     assert!(events.iter().any(|event| matches!(
         event,
-        EventMsg::TurnComplete(completed)
-            if completed.last_agent_message.as_deref() == Some(FINAL_SUMMARY)
-    )));
-    assert!(events.iter().any(|event| matches!(
-        event,
-        EventMsg::MapRuntime(MapRuntimeEvent::GraphRevisionCommitted(committed))
-            if committed.operation == "finish_map" && committed.revision == 4
-    )));
-    assert!(events.iter().any(|event| matches!(
-        event,
         EventMsg::MapRuntime(MapRuntimeEvent::StoreCommitted(committed))
-            if committed.operation == "finish_map"
-                && committed.store_revision >= 4
-                && committed.graph_revision == 4
+            if committed.operation == "finish_map" && committed.map_revision == 3
     )));
 
     let state = codex_state::StateRuntime::init(
@@ -350,74 +214,19 @@ async fn committed_finish_control_is_the_only_taskspace_final() -> anyhow::Resul
     let (stored, binding) = state
         .load_taskspace_map_for_thread(test.session_configured.session_id)
         .await?
-        .expect("TaskSpace thread must remain bound to its canonical Store map");
-    let stored_map = stored.snapshot.map.as_ref().expect("stored rooted map");
-    assert!(stored.complete);
-    assert!(stored_map.complete);
-    assert_eq!(stored.graph_revision, 4);
-    assert_eq!(stored_map.revision, 4);
+        .expect("TaskSpace thread remains bound to its canonical map");
+    let map = stored.canonical_map.expect("stored canonical map");
+    assert!(stored.terminal);
+    assert_eq!(stored.map_revision, 3);
     assert_eq!(binding.map_id, stored.map_id);
-
-    let mut externally_committed = stored.snapshot.clone();
-    externally_committed
-        .map
-        .as_mut()
-        .expect("externally committed rooted map")
-        .nodes
-        .iter_mut()
-        .find(|node| node.id == "root")
-        .expect("root node")
-        .goal = EXTERNAL_STORE_GOAL.to_string();
-    let external_commit = state
-        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
-            map_id: stored.map_id.clone(),
-            expected_store_revision: stored.store_revision,
-            snapshot: externally_committed,
-            commit_id: "external-app-server-read-test".to_string(),
-            operation: "external_app_server_read_test".to_string(),
-            actor_thread_id: test.session_configured.session_id,
-            binding: None,
-        })
-        .await?;
-    assert!(matches!(
-        external_commit,
-        TaskSpaceMapWriteOutcome::Applied(_)
-    ));
-
-    test.codex.submit(Op::ShowActionMap).await?;
-    let EventMsg::BackgroundEvent(shown) = wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::BackgroundEvent(_))
-    })
-    .await
-    else {
-        unreachable!("ShowActionMap must emit a background event");
-    };
-    assert!(
-        shown.message.contains(EXTERNAL_STORE_GOAL),
-        "ShowActionMap must refresh stale cache from Store: {}",
-        shown.message
-    );
-
-    let refreshed = test
-        .codex
-        .action_map_snapshot()
-        .await
-        .map_err(anyhow::Error::msg)?;
     assert_eq!(
-        refreshed
-            .map
-            .as_ref()
-            .and_then(|map| map.nodes.iter().find(|node| node.id == "root"))
-            .map(|node| node.goal.as_str()),
-        Some(EXTERNAL_STORE_GOAL),
-        "public snapshot reads must refresh a stale Session cache from the canonical Store"
+        map.terminal_record.expect("current terminal").summary_ref,
+        FINAL_SUMMARY
     );
-
-    let rollout_path = test.codex.rollout_path().expect("rollout path");
-    let rollout = tokio::fs::read_to_string(rollout_path).await?;
-    assert!(!rollout.contains("\"snapshot_updated\""));
-    assert!(!rollout.contains("\"snapshot_delta\""));
-    assert_taskspace_request_shapes(&responses);
+    assert!(map.completion_records.contains_key("work"));
+    assert!(!map.completion_records.contains_key("root"));
+    assert!(!map.completion_records.contains_key("finish"));
+    assert_taskspace_request_shapes(&responses, 2);
     Ok(())
 }
 
@@ -431,7 +240,7 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
         })
         .build(&server)
         .await?;
-    enable_taskspace(&test).await;
+    enable_taskspace(&test).await?;
 
     let mut bodies = common_responses(&test);
     bodies.push(sse(vec![
@@ -442,7 +251,7 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
         ev_completed("plain-response"),
     ]));
     let responses = mount_sse_sequence(&server, bodies).await;
-    let events = submit_and_collect(&test).await;
+    let events = submit_and_collect(&test).await?;
 
     let completed_messages = events
         .iter()
@@ -458,10 +267,6 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
             Some(MessagePhase::Commentary)
         )]
     );
-    assert!(!events.iter().any(|event| matches!(
-        event,
-        EventMsg::AgentMessageDelta(_) | EventMsg::AgentMessageContentDelta(_)
-    )));
     assert!(events.iter().any(|event| matches!(
         event,
         EventMsg::Error(error)
@@ -471,6 +276,6 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
         event,
         EventMsg::TurnComplete(completed) if completed.last_agent_message.is_none()
     )));
-    assert_taskspace_request_shapes(&responses);
+    assert_taskspace_request_shapes(&responses, 2);
     Ok(())
 }

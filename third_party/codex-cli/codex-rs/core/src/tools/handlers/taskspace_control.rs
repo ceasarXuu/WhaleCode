@@ -168,13 +168,15 @@ async fn execute_action(
         // TODO(A2-B1X-response-preflight): these manifests must be consumed before
         // ToolHandler dispatch. Do not add a nested dispatcher or old Runtime fallback here.
         TaskSpaceControlArgs::InitializeAndExecute { .. }
-        | TaskSpaceControlArgs::Execute { .. } => Err(protocol_error(
+        | TaskSpaceControlArgs::Execute { .. }
+        | TaskSpaceControlArgs::ReopenMap { .. } => Err(protocol_error(
             "TaskSpace action manifests require complete-response preflight".into(),
             "taskspace_action_manifest_requires_response_preflight",
         )),
         TaskSpaceControlArgs::FinishMap {
             expected_revision,
             finish_node_id,
+            complete_work_node_ids,
             exact_summary,
         } => {
             lifecycle_actions::finish_map(
@@ -183,6 +185,7 @@ async fn execute_action(
                 call_id,
                 expected_revision,
                 finish_node_id,
+                complete_work_node_ids,
                 exact_summary,
             )
             .await

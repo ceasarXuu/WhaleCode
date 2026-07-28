@@ -216,10 +216,10 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                graph_revision: record.map_revision,
+                map_revision: record.map_revision,
                 operation: "activate_taskspace".to_string(),
                 actor_thread_id: self.conversation_id,
-                snapshot_sha256: record.canonical_sha256.clone(),
+                canonical_sha256: record.canonical_sha256.clone(),
             },
         ));
         tracing::info!(
@@ -251,7 +251,11 @@ impl Session {
         binding: Option<BindTaskSpaceMapRequest>,
         mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
     ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
-        let _write_guard = self.taskspace_store_write_lock.lock().await;
+        let _write_permit = self
+            .taskspace_store_write_lock
+            .acquire()
+            .await
+            .map_err(|_| "TaskSpace Store write serializer is closed.".to_string())?;
         {
             let mut state = self.state.lock().await;
             if state.action_map_store_handle.is_none() {
@@ -363,10 +367,10 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                graph_revision: record.map_revision,
+                map_revision: record.map_revision,
                 operation: operation.to_string(),
                 actor_thread_id: self.conversation_id,
-                snapshot_sha256: record.canonical_sha256.clone(),
+                canonical_sha256: record.canonical_sha256.clone(),
             },
         ));
         tracing::info!(

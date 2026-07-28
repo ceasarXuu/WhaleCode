@@ -132,7 +132,7 @@
         {"const": ["selected_not_active", "active", "repair_active", "result_repair_active_projection_baseline", "carrier_active_projection_baseline", "carrier_repair_active", "carrier_result_repair_active_projection_baseline"]}
       ]
     },
-    "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8", "A2-B1X", "A2-B2"]},
+    "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8", "A2-B1X", "A2-B2", "A2-B5"]},
     "evaluation_candidates": {
       "type": "object",
       "required": ["FLA_9"],

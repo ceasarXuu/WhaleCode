@@ -1836,6 +1836,8 @@ pub struct ActionMapSnapshotMap {
     pub finish_node_id: String,
     pub revision: u64,
     pub terminal_summary_ref: Option<String>,
+    #[serde(default)]
+    pub terminal_history_summary_refs: Vec<String>,
     pub complete: bool,
     pub ready_work_node_count: usize,
     pub inflight_work_node_count: usize,
@@ -2083,10 +2085,10 @@ pub struct MapRuntimeTaskContextOwnershipChangedEvent {
 pub struct MapRuntimeStoreCommittedEvent {
     pub map_id: String,
     pub store_revision: u64,
-    pub graph_revision: u64,
+    pub map_revision: u64,
     pub operation: String,
     pub actor_thread_id: ThreadId,
-    pub snapshot_sha256: String,
+    pub canonical_sha256: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -5870,10 +5872,10 @@ mod tests {
         let event = MapRuntimeEvent::StoreCommitted(MapRuntimeStoreCommittedEvent {
             map_id: "map-1".to_string(),
             store_revision: 5,
-            graph_revision: 4,
+            map_revision: 4,
             operation: "finish_map".to_string(),
             actor_thread_id: ThreadId::new(),
-            snapshot_sha256: "abcd".to_string(),
+            canonical_sha256: "abcd".to_string(),
         });
 
         let value = serde_json::to_value(&event)?;
@@ -5881,7 +5883,8 @@ mod tests {
         assert_eq!(value["map_event_type"], "store_committed");
         assert_eq!(value["mapId"], "map-1");
         assert_eq!(value["storeRevision"], 5);
-        assert_eq!(value["graphRevision"], 4);
+        assert_eq!(value["mapRevision"], 4);
+        assert_eq!(value["canonicalSha256"], "abcd");
         assert_eq!(value["operation"], "finish_map");
         assert_eq!(serde_json::from_value::<MapRuntimeEvent>(value)?, event);
         Ok(())

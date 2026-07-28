@@ -19,30 +19,19 @@ function ConvertTo-R7CallDescriptor {
     } else {
         ""
     }
-    $bindingValue = Get-R7JsonProperty $parsed "taskspace_binding"
-    $taskspaceBinding = if ($ToolName -eq "taskspace_control") {
-        ""
-    } elseif ($bindingValue -is [string]) {
-        [string]$bindingValue
+    $declaredActions = @(
+        Get-R7JsonProperty $parsed "actions" @() |
+            ForEach-Object {
+                [pscustomobject]@{
+                    node_id = [string](Get-R7JsonProperty $_ "node_id" "")
+                    tool = [string](Get-R7JsonProperty $_ "tool" "")
+                }
+            }
+    )
+    $node = if ($controlAction -eq "finish_map") {
+        [string](Get-R7JsonProperty $parsed "finish_node_id" "")
     } else {
-        [string](Get-R7JsonProperty $bindingValue "action" "")
-    }
-    $currentNode = [string](Get-R7JsonProperty $parsed "current_node_id" "")
-    $nextNode = [string](Get-R7JsonProperty $parsed "next_node_id" "")
-    $initialization = if ($taskspaceBinding -eq "initialize_map") { $bindingValue } else { $parsed }
-    $initialWork = Get-R7JsonProperty $initialization "initial_work"
-    $initialNode = [string](Get-R7JsonProperty $initialWork "id" "")
-    $terminalNode = [string](Get-R7JsonProperty $parsed "terminal_node_id" "")
-    $node = if ($currentNode -and $nextNode) {
-        "$currentNode->$nextNode"
-    } elseif ($currentNode) {
-        $currentNode
-    } elseif ($nextNode) {
-        $nextNode
-    } elseif ($initialNode) {
-        $initialNode
-    } else {
-        $terminalNode
+        @($declaredActions | ForEach-Object node_id) -join ","
     }
     $detail = ""
     if ($ToolName -eq "exec_command") {
@@ -58,7 +47,8 @@ function ConvertTo-R7CallDescriptor {
         call_id = $CallId
         tool = $ToolName
         control_action = $controlAction
-        taskspace_binding = $taskspaceBinding
+        declared_node_id = ""
+        declared_actions = $declaredActions
         node = $node
         detail = $detail
         success = $null
@@ -80,23 +70,15 @@ function Get-R7CallOutcome {
     }
     if ($null -ne $payload) {
         $stateCommitValue = Get-R7JsonProperty $payload "state_commit"
-        if ([string](Get-R7JsonProperty $payload "schema_version" "") -eq "TaskSpaceInitializationCarrierResultV1") {
-            $initializationResult = Get-R7JsonProperty $payload "initialization_result"
-            $stateCommitValue = Get-R7JsonProperty $initializationResult "state_commit"
-        }
         if ($null -ne $stateCommitValue) { $stateCommit = [bool]$stateCommitValue }
     }
     if (-not $ToolSuccess) {
         $schemaVersion = [string](Get-R7JsonProperty $payload "schema_version" "")
-        $failurePayload = if ($schemaVersion -eq "TaskSpaceInitializationCarrierResultV1") {
-            Get-R7JsonProperty $payload "initialization_result"
-        } else {
-            $payload
-        }
+        $failurePayload = $payload
         $error = Get-R7JsonProperty $failurePayload "error"
         $errorClass = [string](Get-R7JsonProperty $error "class" "")
         $errorCode = [string](Get-R7JsonProperty $error "code" "")
-        if ($schemaVersion -eq "ToolSequencePreflightResultV1") {
+        if ($schemaVersion -eq "ToolSequencePreflightResultV2") {
             $failureClass = "tool_sequence_protocol"
             $failureCode = $errorCode
         } elseif ($errorCode) {
@@ -149,6 +131,14 @@ function Complete-R7RequestRows {
     param([Collections.Generic.List[object]]$Requests)
     foreach ($request in $Requests) {
         $calls = @($request.calls)
+        $control = @($calls | Where-Object tool -eq "taskspace_control" | Select-Object -First 1)
+        if ($control.Count -eq 1 -and @($control[0].declared_actions).Count) {
+            $ordinary = @($calls | Where-Object tool -ne "taskspace_control")
+            for ($index = 0; $index -lt [Math]::Min($ordinary.Count, @($control[0].declared_actions).Count); $index++) {
+                $ordinary[$index].declared_node_id = [string]$control[0].declared_actions[$index].node_id
+                $ordinary[$index].node = [string]$control[0].declared_actions[$index].node_id
+            }
+        }
         $request.calls = $calls
         $request | Add-Member -NotePropertyName action_kind -NotePropertyValue $(if ($calls.Count) { "tool_calls" } else { "assistant_only" })
         $request | Add-Member -NotePropertyName failure_codes -NotePropertyValue @($calls | Where-Object failure_code | ForEach-Object failure_code)

@@ -230,46 +230,30 @@
       ],
       "type": "object"
     },
-    "ActionMapSnapshotLease": {
+    "ActionMapSnapshotEvidenceRef": {
       "properties": {
-        "agentPath": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "agentThreadId": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ThreadId"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "holder": {
+        "actionId": {
           "type": "string"
         },
         "id": {
           "type": "string"
         },
-        "mapId": {
+        "kind": {
           "type": "string"
         },
         "nodeId": {
           "type": "string"
         },
-        "previousNodeStatus": {
+        "reservationId": {
           "type": "string"
         }
       },
       "required": [
-        "holder",
+        "actionId",
         "id",
-        "mapId",
+        "kind",
         "nodeId",
-        "previousNodeStatus"
+        "reservationId"
       ],
       "type": "object"
     },
@@ -314,15 +298,15 @@
           "minimum": 0.0,
           "type": "integer"
         },
-        "currentNodeId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "edges": {
           "items": {
             "$ref": "#/definitions/ActionMapSnapshotEdge"
+          },
+          "type": "array"
+        },
+        "evidenceRefs": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotEvidenceRef"
           },
           "type": "array"
         },
@@ -335,11 +319,10 @@
         "id": {
           "type": "string"
         },
-        "leases": {
-          "items": {
-            "$ref": "#/definitions/ActionMapSnapshotLease"
-          },
-          "type": "array"
+        "inflightWorkNodeCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
         },
         "nodeEvents": {
           "default": [],
@@ -369,6 +352,12 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "reservations": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotReservation"
+          },
+          "type": "array"
+        },
         "results": {
           "items": {
             "$ref": "#/definitions/ActionMapSnapshotResult"
@@ -383,16 +372,18 @@
         "rootNodeId": {
           "type": "string"
         },
-        "runningWorkNodeCount": {
-          "format": "uint",
-          "minimum": 0.0,
-          "type": "integer"
-        },
         "taskId": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "terminalHistorySummaryRefs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "terminalSummaryRef": {
           "type": [
@@ -405,26 +396,27 @@
         "complete",
         "completedWorkNodeCount",
         "edges",
+        "evidenceRefs",
         "finishNodeId",
         "finishReady",
         "id",
-        "leases",
+        "inflightWorkNodeCount",
         "nodes",
         "readyWorkNodeCount",
+        "reservations",
         "results",
         "revision",
-        "rootNodeId",
-        "runningWorkNodeCount"
+        "rootNodeId"
       ],
       "type": "object"
     },
     "ActionMapSnapshotNode": {
       "properties": {
-        "activeLease": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "evidenceRefIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "goal": {
           "type": "string"
@@ -454,17 +446,18 @@
           },
           "type": "array"
         },
-        "status": {
+        "state": {
           "type": "string"
         }
       },
       "required": [
+        "evidenceRefIds",
         "goal",
         "id",
         "resultIds",
         "role",
         "sourceRefs",
-        "status"
+        "state"
       ],
       "type": "object"
     },
@@ -549,64 +542,59 @@
       ],
       "type": "object"
     },
-    "ActionMapSnapshotResult": {
+    "ActionMapSnapshotReservation": {
       "properties": {
-        "actionClass": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "artifactRefs": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "assignmentId": {
+        "actionId": {
           "type": "string"
-        },
-        "createdAtMs": {
-          "format": "int64",
-          "type": "integer"
         },
         "id": {
-          "type": "string"
-        },
-        "kind": {
-          "type": "string"
-        },
-        "mapId": {
           "type": "string"
         },
         "nodeId": {
           "type": "string"
         },
-        "sourceEventRef": {
+        "responseCallIndex": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "toolName": {
           "type": "string"
-        },
-        "sourceThreadId": {
-          "$ref": "#/definitions/ThreadId"
-        },
-        "toolSuccess": {
-          "default": null,
-          "type": [
-            "boolean",
-            "null"
-          ]
         }
       },
       "required": [
-        "artifactRefs",
-        "assignmentId",
-        "createdAtMs",
+        "actionId",
         "id",
-        "kind",
-        "mapId",
         "nodeId",
-        "sourceEventRef",
-        "sourceThreadId"
+        "responseCallIndex",
+        "toolName"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotResult": {
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "reservationId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "actionId",
+        "id",
+        "isError",
+        "nodeId",
+        "reservationId"
       ],
       "type": "object"
     },

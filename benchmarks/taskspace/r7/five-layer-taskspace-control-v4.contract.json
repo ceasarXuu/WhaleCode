@@ -1,0 +1,77 @@
+{
+  "artifact_schema_version": 1,
+  "contract_id": "r7-five-layer-taskspace-control-v4",
+  "status": "active_verified",
+  "activation_phase": "R7.1-A2-B2.5",
+  "compatibility_policy": "none",
+  "tool": {
+    "name": "taskspace_control",
+    "strict": false,
+    "output_schema": null,
+    "top_level_actions": [
+      {
+        "action": "initialize_and_execute",
+        "required": ["action", "root", "work_nodes", "finish", "edges", "actions"],
+        "ordinary_siblings": "one_or_more"
+      },
+      {
+        "action": "execute",
+        "required": ["action", "expected_revision", "mutations", "actions"],
+        "ordinary_siblings": "one_or_more"
+      },
+      {
+        "action": "reopen_map",
+        "required": ["action", "expected_revision", "work_nodes", "edges", "actions"],
+        "ordinary_siblings": "one_or_more"
+      },
+      {
+        "action": "read_map",
+        "required": ["action"],
+        "ordinary_siblings": "none"
+      },
+      {
+        "action": "read_output_ref",
+        "required": ["action", "output_ref", "mode", "max_bytes"],
+        "ordinary_siblings": "none"
+      },
+      {
+        "action": "finish_map",
+        "required": [
+          "action",
+          "expected_revision",
+          "finish_node_id",
+          "complete_work_node_ids",
+          "exact_summary"
+        ],
+        "ordinary_siblings": "none"
+      }
+    ]
+  },
+  "response_manifest": {
+    "position": "first_tool_call",
+    "ordinary_tool_arguments": "native_unchanged",
+    "ownership": "agent_declared_actions_index_matches_ordinary_sibling_index",
+    "runtime_validates": ["revision", "graph", "count", "tool_name", "order", "reservation"],
+    "runtime_must_not": ["choose_node", "infer_ownership", "rewrite_tool_arguments", "repair_agent_semantics"]
+  },
+  "lifecycle": {
+    "map_states": ["absent", "active", "closed"],
+    "transitions": [
+      "absent_to_active_initialize_and_execute",
+      "active_to_closed_finish_map",
+      "closed_to_active_reopen_map"
+    ],
+    "completion_facts": "work_only",
+    "root_and_finish_completion": "derived_from_current_terminal",
+    "historical_work_facts": "immutable"
+  },
+  "forbidden": [
+    "taskspace_binding",
+    "initialize_map",
+    "bind_node",
+    "complete_then_continue",
+    "rework_node",
+    "current_node",
+    "singleton_main_lease"
+  ]
+}

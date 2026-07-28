@@ -76,28 +76,16 @@ pub(super) fn normalize_control_result(
         .cloned()
         .or_else(|| parsed.pointer("/error/violations").cloned())
         .unwrap_or_else(|| serde_json::json!([]));
-    let stale_revision = violations.as_array().is_some_and(|violations| {
-        violations.iter().any(|violation| {
-            violation.get("code").and_then(JsonValue::as_str) == Some("stale_revision")
-        })
-    });
-    let graph_action = matches!(action, "initialize_map" | "mutate_graph");
-    let (code, message) = if stale_revision {
-        (
-            "TASKSPACE_STALE_REVISION",
-            "expected_revision does not match the current canonical revision",
-        )
-    } else if graph_action {
-        (
-            "TASKSPACE_GRAPH_INVARIANT",
-            "the submitted mutation violates a rooted DAG invariant",
-        )
-    } else {
-        (
-            "TASKSPACE_LIFECYCLE_INVARIANT",
-            "the submitted transition is not valid from the observed lifecycle state",
-        )
-    };
+    let code = violations
+        .as_array()
+        .and_then(|violations| violations.first())
+        .and_then(|violation| violation.get("code"))
+        .and_then(JsonValue::as_str)
+        .unwrap_or("taskspace_state_rejected");
+    let condition = parsed
+        .pointer("/error/message")
+        .cloned()
+        .unwrap_or_else(|| parsed.clone());
     serde_json::json!({
         "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
         "action": action,
@@ -114,11 +102,11 @@ pub(super) fn normalize_control_result(
         "error": {
             "class": "state_machine",
             "code": code,
-            "message": message,
+            "message": "canonical TaskSpace state rejected the submitted action",
             "actual": {
                 "canonical_revision": canonical_revision,
                 "violations": violations,
-                "condition": parsed.pointer("/error/message").cloned().unwrap_or(JsonValue::Null),
+                "condition": condition,
             },
             "expected": {
                 "action": action,
@@ -333,5 +321,36 @@ mod tests {
         });
 
         assert!(step_has_required_identity(&terminal));
+    }
+
+    #[test]
+    fn rejected_control_result_preserves_structured_runtime_error() {
+        let source = serde_json::json!({
+            "error": {
+                "class": "protocol",
+                "code": "revision_conflict",
+                "message": "expected revision 3, actual revision 4",
+                "actual": {"revision": 4},
+                "expected": {"revision": 3},
+            }
+        });
+
+        let result = rejected_control_result(&source.to_string());
+
+        assert_eq!(
+            serde_json::from_str::<JsonValue>(&result).expect("structured rejection"),
+            source
+        );
+    }
+
+    #[test]
+    fn rejected_control_result_wraps_unstructured_runtime_error_without_reinterpreting_it() {
+        let result = rejected_control_result("storage unavailable");
+        let value = serde_json::from_str::<JsonValue>(&result).expect("fallback rejection");
+
+        assert_eq!(
+            value,
+            serde_json::json!({"error": {"message": "storage unavailable"}})
+        );
     }
 }

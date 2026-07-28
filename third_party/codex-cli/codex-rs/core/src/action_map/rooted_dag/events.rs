@@ -20,7 +20,6 @@ use super::model::new_map;
 use super::model::node;
 use super::model::node_role;
 use super::transitions::derive_node_state;
-use super::transitions::downstream_started_nodes;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -54,9 +53,6 @@ pub(crate) enum MapFact {
     NodeUnblocked {
         node_id: String,
     },
-    NodeReworked {
-        node_id: String,
-    },
     ActionReserved {
         reservation_id: ReservationId,
         reservation: ActionReservation,
@@ -75,8 +71,9 @@ pub(crate) enum MapFact {
     TerminalRecorded {
         finish_node_id: String,
         terminal: TerminalRecord,
-        root_completion: CompletionRecord,
-        finish_completion: CompletionRecord,
+    },
+    MapReopened {
+        terminal: TerminalRecord,
     },
 }
 
@@ -121,7 +118,7 @@ pub(crate) fn apply_batch(
         return Err(ReplayError::EmptyBatch);
     }
     let expected_revision = current
-        .map(|map| map.revision.checked_add(1).unwrap_or(u64::MAX))
+        .map(|map| map.revision.saturating_add(1))
         .unwrap_or(1);
     if batch.revision != expected_revision {
         return Err(ReplayError::RevisionMismatch {
@@ -189,6 +186,9 @@ fn apply_fact(candidate: &mut Option<TaskSpaceMap>, fact: &MapFact) -> Result<()
 }
 
 fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), ReplayError> {
+    if matches!(fact, MapFact::MapReopened { .. }) {
+        return reopen(map, fact);
+    }
     if map.terminal_record.is_some() {
         return Err(ReplayError::invalid(
             ViolationCode::TransitionInvalid,
@@ -264,24 +264,6 @@ fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), Rep
             }
             Ok(())
         }
-        MapFact::NodeReworked { node_id } => {
-            if node_role(map, node_id) != Some(NodeRole::Work)
-                || map.completion_records.remove(node_id).is_none()
-            {
-                return Err(ReplayError::invalid(
-                    ViolationCode::TransitionInvalid,
-                    node_id.clone(),
-                ));
-            }
-            let conflicts = downstream_started_nodes(map, node_id);
-            if !conflicts.is_empty() {
-                return Err(ReplayError::InvalidFact {
-                    code: ViolationCode::ExecutionCausalityConflict,
-                    subjects: conflicts,
-                });
-            }
-            Ok(())
-        }
         MapFact::ActionReserved {
             reservation_id,
             reservation,
@@ -342,15 +324,8 @@ fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), Rep
         MapFact::TerminalRecorded {
             finish_node_id,
             terminal,
-            root_completion,
-            finish_completion,
-        } => finish(
-            map,
-            finish_node_id,
-            terminal,
-            root_completion,
-            finish_completion,
-        ),
+        } => finish(map, finish_node_id, terminal),
+        MapFact::MapReopened { .. } => unreachable!("handled before terminal-state guard"),
     }
 }
 
@@ -430,25 +405,38 @@ fn finish(
     map: &mut TaskSpaceMap,
     finish_node_id: &str,
     terminal: &TerminalRecord,
-    root_completion: &CompletionRecord,
-    finish_completion: &CompletionRecord,
 ) -> Result<(), ReplayError> {
     if finish_node_id != map.finish.node_id
         || derive_node_state(map, finish_node_id) != Some(NodeState::Ready)
         || !map.action_reservations.is_empty()
         || terminal.summary_ref.trim().is_empty()
-        || root_completion.action_id != terminal.action_id
-        || finish_completion.action_id != terminal.action_id
     {
         return Err(ReplayError::invalid(
             ViolationCode::FinishNotReady,
             finish_node_id,
         ));
     }
-    map.completion_records
-        .insert(map.root.node_id.clone(), root_completion.clone());
-    map.completion_records
-        .insert(map.finish.node_id.clone(), finish_completion.clone());
     map.terminal_record = Some(terminal.clone());
+    Ok(())
+}
+
+fn reopen(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), ReplayError> {
+    let MapFact::MapReopened { terminal } = fact else {
+        unreachable!("reopen only accepts MapReopened");
+    };
+    let Some(current) = map.terminal_record.take() else {
+        return Err(ReplayError::invalid(
+            ViolationCode::TransitionInvalid,
+            "active_map",
+        ));
+    };
+    if current != *terminal {
+        map.terminal_record = Some(current);
+        return Err(ReplayError::invalid(
+            ViolationCode::TerminalRecordInvalid,
+            "reopen_terminal_mismatch",
+        ));
+    }
+    map.terminal_history.push(current);
     Ok(())
 }

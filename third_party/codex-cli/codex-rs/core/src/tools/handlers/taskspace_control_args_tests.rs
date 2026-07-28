@@ -37,11 +37,29 @@ fn execute_fixture() -> JsonValue {
     })
 }
 
+fn reopen_fixture() -> JsonValue {
+    json!({
+        "action": "reopen_map",
+        "expected_revision": 14,
+        "work_nodes": [
+            {"node_id": "address-feedback", "goal": "Address user feedback"}
+        ],
+        "edges": [
+            {"from": "root", "to": "address-feedback"},
+            {"from": "address-feedback", "to": "finish"}
+        ],
+        "actions": [
+            {"node_id": "address-feedback", "tool": "read_file"}
+        ]
+    })
+}
+
 #[test]
-fn parser_accepts_exactly_the_five_top_level_actions() {
+fn parser_accepts_exactly_the_six_top_level_actions() {
     let fixtures = [
         initialize_fixture(),
         execute_fixture(),
+        reopen_fixture(),
         json!({"action": "read_map"}),
         json!({
             "action": "read_output_ref",
@@ -53,6 +71,7 @@ fn parser_accepts_exactly_the_five_top_level_actions() {
             "action": "finish_map",
             "expected_revision": 13,
             "finish_node_id": "finish",
+            "complete_work_node_ids": ["verify"],
             "exact_summary": "All required work is complete."
         }),
     ];
@@ -139,8 +158,7 @@ fn execute_accepts_every_frozen_mutation_variant() {
             },
             {"action": "complete_node", "node_id": "implement"},
             {"action": "block_node", "node_id": "verify"},
-            {"action": "unblock_node", "node_id": "verify"},
-            {"action": "rework_node", "node_id": "implement"}
+            {"action": "unblock_node", "node_id": "verify"}
         ],
         "actions": [{"node_id": "verify", "tool": "exec_command"}]
     });
@@ -154,7 +172,7 @@ fn execute_accepts_every_frozen_mutation_variant() {
     };
 
     assert_eq!(expected_revision, 7);
-    assert_eq!(mutations.len(), 7);
+    assert_eq!(mutations.len(), 6);
     assert_eq!(
         actions,
         vec![TaskSpaceActionArgs {
@@ -197,9 +215,10 @@ fn top_level_contract_rejects_missing_extra_and_wrong_types() {
     let fixtures = [
         initialize_fixture(),
         execute_fixture(),
+        reopen_fixture(),
         json!({"action":"read_map"}),
         json!({"action":"read_output_ref","output_ref":"ref","mode":"tail","max_bytes":64}),
-        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","exact_summary":"Done"}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","complete_work_node_ids":["verify"],"exact_summary":"Done"}),
     ];
 
     for fixture in fixtures {
@@ -225,7 +244,7 @@ fn top_level_contract_rejects_missing_extra_and_wrong_types() {
 
     for fixture in [
         json!({"action":"execute","expected_revision":"7","mutations":[],"actions":[{"node_id":"n","tool":"t"}]}),
-        json!({"action":"finish_map","expected_revision":3,"finish_node_id":7,"exact_summary":"Done"}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":7,"complete_work_node_ids":["verify"],"exact_summary":"Done"}),
         json!({"action":"read_output_ref","output_ref":"ref","mode":"head","max_bytes":"64"}),
     ] {
         assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
@@ -329,9 +348,22 @@ fn old_carriers_and_lifecycle_actions_are_rejected() {
 fn finish_map_rejects_old_identity_fields_and_empty_values() {
     for fixture in [
         json!({"action":"finish_map","expected_revision":3,"terminal_node_id":"work","final_summary":"Done"}),
-        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"","exact_summary":"Done"}),
-        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","exact_summary":""}),
-        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","exact_summary":"Done","actions":[]}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"","complete_work_node_ids":["verify"],"exact_summary":"Done"}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","complete_work_node_ids":[],"exact_summary":"Done"}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","complete_work_node_ids":["verify","verify"],"exact_summary":"Done"}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","complete_work_node_ids":["verify"],"exact_summary":""}),
+        json!({"action":"finish_map","expected_revision":3,"finish_node_id":"finish","complete_work_node_ids":["verify"],"exact_summary":"Done","actions":[]}),
+    ] {
+        assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
+    }
+}
+
+#[test]
+fn reopen_map_rejects_empty_structure_and_standalone_shape() {
+    for fixture in [
+        json!({"action":"reopen_map","expected_revision":14,"work_nodes":[],"edges":[{"from":"root","to":"finish"}],"actions":[{"node_id":"work","tool":"read_file"}]}),
+        json!({"action":"reopen_map","expected_revision":14,"work_nodes":[{"node_id":"work","goal":"Work"}],"edges":[],"actions":[{"node_id":"work","tool":"read_file"}]}),
+        json!({"action":"reopen_map","expected_revision":14,"work_nodes":[{"node_id":"work","goal":"Work"}],"edges":[{"from":"root","to":"work"}],"actions":[]}),
     ] {
         assert!(parse_taskspace_control_args(&fixture.to_string()).is_err());
     }

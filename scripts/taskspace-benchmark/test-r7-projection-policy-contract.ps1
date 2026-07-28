@@ -76,9 +76,10 @@ foreach ($name in @("AlwaysRuntime", "AppendRuntime", "RequestRuntime", "r6_migr
 }
 
 $requiredProjectionFields = @(
-    "schema_version", "map_id", "revision", "root", "finish", "nodes", "edges",
-    "frontier", "current_binding", "source_refs", "result_refs", "folding_facts",
-    "canonical_sha256"
+    "schema_version", "projection_kind", "map_id", "revision", "canonical_sha256",
+    "root_node_id", "finish_node_id", "complete", "current_terminal",
+    "terminal_history", "root_source_event_ids", "active_frontier", "map_nodes",
+    "map_edges", "node_details"
 )
 Assert-Equal $contract.rendered_projection_contract.policy_dependent_content_allowed $false "Projection content must not vary by policy"
 Assert-Equal $contract.rendered_projection_contract.next_action_suggestions_allowed $false "Projection must not suggest next actions"
@@ -118,11 +119,14 @@ foreach ($policy in $contract.policy_values) {
 
 $request = $contract.policies."map-request"
 foreach ($gate in @(
-    "agent_must_initialize_legal_map_before_ordinary_tools_or_subagents",
-    "ordinary_tool_must_bind_valid_work_node_and_lease",
-    "root_remains_open_until_explicit_terminal_close",
+    "agent_must_initialize_legal_map_with_ordinary_sibling_actions",
+    "ordinary_tool_must_have_agent_declared_node_ownership_in_outer_manifest",
+    "call_and_result_must_be_mechanically_attributed_to_reserved_node",
+    "map_mutation_finish_and_reopen_only_via_taskspace_control",
+    "update_plan_hidden_in_taskspace",
+    "root_and_finish_close_only_through_explicit_current_terminal",
     "cannot_end_taskspace_before_legal_map_termination",
-    "subagent_node_and_lease_constraints_unchanged"
+    "subagent_store_map_identity_constraints_unchanged"
 )) {
     Assert-True (@($request.hard_gates) -contains $gate) "map-request hard gate missing: $gate"
 }

@@ -160,8 +160,7 @@ fn explicit_load_failure_fact_is_exact_and_does_not_fallback() {
 #[test]
 fn new_taskspace_session_creates_exact_content_addressed_snapshot() {
     let temp = tempdir().expect("temp dir");
-    let codex_home =
-        AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf()).expect("absolute temp path");
+    let codex_home = AbsolutePathBuf::from_absolute_path(temp.path()).expect("absolute temp path");
 
     let identity = resolve_session_snapshot(
         Some(TaskSpaceProjectionPolicy::MapRequest),
@@ -182,8 +181,7 @@ fn new_taskspace_session_creates_exact_content_addressed_snapshot() {
 #[test]
 fn standard_session_has_no_snapshot_or_catalog_entry() {
     let temp = tempdir().expect("temp dir");
-    let codex_home =
-        AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf()).expect("absolute temp path");
+    let codex_home = AbsolutePathBuf::from_absolute_path(temp.path()).expect("absolute temp path");
     assert_eq!(
         resolve_session_snapshot(None, &InitialHistory::New, &codex_home)
             .expect("resolve Standard snapshot"),
@@ -247,8 +245,7 @@ fn taskspace_session_continues_when_bundled_skills_are_disabled() {
 #[test]
 fn resume_and_fork_restore_the_persisted_identity_without_materializing_latest() {
     let temp = tempdir().expect("temp dir");
-    let codex_home =
-        AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf()).expect("absolute temp path");
+    let codex_home = AbsolutePathBuf::from_absolute_path(temp.path()).expect("absolute temp path");
     let persisted = identity_at(temp.path(), &"a".repeat(64));
 
     for history in [
@@ -271,8 +268,7 @@ fn resume_and_fork_restore_the_persisted_identity_without_materializing_latest()
 #[test]
 fn resumed_taskspace_session_without_identity_is_rejected() {
     let temp = tempdir().expect("temp dir");
-    let codex_home =
-        AbsolutePathBuf::from_absolute_path(temp.path().to_path_buf()).expect("absolute temp path");
+    let codex_home = AbsolutePathBuf::from_absolute_path(temp.path()).expect("absolute temp path");
     let history = InitialHistory::Forked(vec![RolloutItem::SessionMeta(SessionMetaLine {
         meta: SessionMeta {
             id: ThreadId::new(),

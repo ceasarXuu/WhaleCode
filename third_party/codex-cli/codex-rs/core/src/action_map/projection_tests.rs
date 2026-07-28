@@ -9,6 +9,8 @@ fn projection_keeps_complete_skeleton_and_typed_details() {
         root_node_id: "root".into(),
         finish_node_id: "finish".into(),
         complete: false,
+        current_terminal: None,
+        terminal_history: vec![],
         root_source_event_ids: vec!["task-event-1".into()],
         active_frontier: vec!["node-1".into()],
         map_nodes: vec![ProjectionNode {
@@ -90,6 +92,8 @@ fn projection_does_not_page_large_skeletons() {
             root_node_id: "node-0".into(),
             finish_node_id: "node-999".into(),
             complete: false,
+            current_terminal: None,
+            terminal_history: vec![],
             root_source_event_ids: vec!["task-event-root".into()],
             active_frontier: vec!["node-999".into()],
             map_nodes: (0..node_count)
@@ -144,6 +148,8 @@ fn request_snapshot_envelope_marks_all_prior_projections_superseded() {
             root_node_id: "root".into(),
             finish_node_id: "finish".into(),
             complete: false,
+            current_terminal: None,
+            terminal_history: vec![],
             root_source_event_ids: vec![],
             active_frontier: vec!["work".into()],
             map_nodes: vec![],

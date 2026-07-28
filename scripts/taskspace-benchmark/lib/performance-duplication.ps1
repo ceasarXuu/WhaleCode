@@ -46,50 +46,6 @@ function ConvertTo-PerformanceCanonicalJson {
     (ConvertTo-PerformanceStableObject $Value) | ConvertTo-Json -Compress -Depth 40
 }
 
-function Test-PerformanceNestedActionMatch {
-    param($OuterAction, [string]$NestedToolName, $NestedArguments)
-    if ([string](Get-PerformanceProperty $OuterAction "tool_name") -ne $NestedToolName) { return $false }
-    $outerArguments = Get-PerformanceProperty $OuterAction "arguments"
-    (ConvertTo-PerformanceCanonicalJson $outerArguments) -eq (ConvertTo-PerformanceCanonicalJson $NestedArguments)
-}
-
-function Get-PerformanceDeclaredNestedActions {
-    param($Arguments)
-    $continuation = Get-PerformanceProperty $Arguments "continuation"
-    if ($null -eq $continuation) { return @() }
-    if ($continuation -is [string]) { return @() }
-    $kind = [string](Get-PerformanceProperty $continuation "kind")
-    if ($kind -eq "actions") {
-        return @((Get-PerformanceProperty $continuation "actions" @()))
-    }
-    if ($kind -eq "patch_then_actions") {
-        $declared = New-Object System.Collections.Generic.List[object]
-        $patch = Get-PerformanceProperty $continuation "patch"
-        if ($null -ne $patch) { $declared.Add($patch) }
-        foreach ($action in @((Get-PerformanceProperty $continuation "actions" @()))) {
-            $declared.Add($action)
-        }
-        return @($declared.ToArray())
-    }
-    @()
-}
-
-function Test-PerformanceObjectContainsStringValue {
-    param($Value, [string]$Needle)
-    if ([string]::IsNullOrWhiteSpace($Needle) -or $null -eq $Value) { return $false }
-    if ($Value -is [string] -or $Value -is [ValueType]) { return ([string]$Value) -eq $Needle }
-    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string] -and $Value -isnot [pscustomobject]) {
-        foreach ($item in @($Value)) {
-            if (Test-PerformanceObjectContainsStringValue $item $Needle) { return $true }
-        }
-        return $false
-    }
-    foreach ($property in @($Value.PSObject.Properties)) {
-        if (Test-PerformanceObjectContainsStringValue $property.Value $Needle) { return $true }
-    }
-    $false
-}
-
 function Get-PerformanceAssistantText {
     param($Payload)
     $content = Get-PerformanceProperty $Payload "content"
@@ -109,26 +65,27 @@ function Get-PerformanceCrossCarrierLineage {
         return [pscustomobject]@{
             availability = "unavailable"; unknown_count = $null
             final_candidate_count = $null; final_candidate_assistant_exact_equal_count = $null; final_candidate_assistant_exact_equal_bytes = $null
-            control_continuation_action_count = $null; expanded_nested_call_count = $null; expanded_nested_call_exact_json_match_count = $null
-            control_output_step_count = $null; control_output_init_node_id_echo_count = $null; control_output_init_current_node_id_echo_count = $null
-            control_output_finished_node_id_echo_count = $null; control_output_next_node_echo_count = $null; control_output_current_node_echo_count = $null
-            control_success_count = $null; control_identity_step_count = $null; control_identity_missing_count = $null
+            declared_action_count = $null; ordinary_sibling_count = $null; declared_action_name_match_count = $null
+            control_output_step_count = $null; control_output_completed_work_id_count = $null; control_output_finish_id_count = $null
+            control_success_count = $null
             control_delta_present_count = $null; control_delta_missing_count = $null; control_graph_event_ref_count = $null; control_node_detail_event_ref_count = $null
             terminal_failure_nonzero_commit_count = $null
-            stale_blank_developer_marker_count = $null; stale_mode_developer_marker_count = $null
         }
     }
     $unknown = 0
     $finalCandidates = New-Object System.Collections.Generic.List[object]
     $assistantFinals = New-Object System.Collections.Generic.List[object]
-    $outerActionsByCall = @{}
-    $expandedNested = 0; $expandedMatches = 0
     $controlCalls = @{}
-    $stepCount = 0; $initNodeEcho = 0; $initCurrentEcho = 0
-    $finishedNodeEcho = 0; $nextNodeEcho = 0; $currentNodeEcho = 0
-    $controlSuccess = 0; $identitySteps = 0; $identityMissing = 0
+    $pendingManifest = $null
+    $pendingManifestIndex = 0
+    $declaredActionCount = 0
+    $ordinarySiblingCount = 0
+    $declaredActionNameMatchCount = 0
+    $stepCount = 0
+    $completedWorkIdCount = 0
+    $finishIdCount = 0
+    $controlSuccess = 0
     $deltaPresent = 0; $deltaMissing = 0; $graphEventRefCount = 0; $nodeDetailEventRefCount = 0; $terminalFailureNonzeroCommit = 0
-    $blankDeveloper = 0; $modeDeveloper = 0
     $index = 0
     foreach ($line in [System.IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -140,11 +97,6 @@ function Get-PerformanceCrossCarrierLineage {
             if ($null -eq $payload) { $payload = Get-PerformanceProperty $row "payload" $row }
             $type = [string](Get-PerformanceProperty $payload "type")
             $role = [string](Get-PerformanceProperty $payload "role")
-            if ($role -eq "developer") {
-                $text = Get-PerformanceAssistantText $payload
-                if ([string]$text -match 'active_task_path_without_nodes|TaskSpace blank|TaskSpace v0\.0\.5 thin bootstrap') { $blankDeveloper++ }
-                if ([string]$text -match 'TaskSpace mode is now active\.') { $modeDeveloper++ }
-            }
             if ($type -eq "message" -and $role -eq "assistant") {
                 $phase = [string](Get-PerformanceProperty $payload "phase")
                 if ($phase -eq "final_answer") {
@@ -158,11 +110,11 @@ function Get-PerformanceCrossCarrierLineage {
             if ($type -in @("function_call", "custom_tool_call")) {
                 $name = [string](Get-PerformanceProperty $payload "name")
                 $argsText = [string](Get-PerformanceProperty $payload "arguments")
-                $parentCallId = [string](Get-PerformanceProperty $payload "parentCallId")
-                if ([string]::IsNullOrWhiteSpace($parentCallId)) { $parentCallId = [string](Get-PerformanceProperty $payload "parent_call_id") }
-                if ([string]::IsNullOrWhiteSpace($parentCallId) -and $null -ne $envelope) { $parentCallId = [string](Get-PerformanceProperty $envelope "parentCallId") }
-                if ([string]::IsNullOrWhiteSpace($parentCallId) -and $null -ne $envelope) { $parentCallId = [string](Get-PerformanceProperty $envelope "parent_call_id") }
                 $args = $null
+                $parentCallId = [string](Get-PerformanceProperty $payload "parentCallId")
+                if ([string]::IsNullOrWhiteSpace($parentCallId)) {
+                    $parentCallId = [string](Get-PerformanceProperty $envelope "parentCallId")
+                }
                 if (-not [string]::IsNullOrWhiteSpace($argsText)) {
                     try { $args = $argsText | ConvertFrom-Json } catch { $unknown++ }
                 }
@@ -170,16 +122,21 @@ function Get-PerformanceCrossCarrierLineage {
                     $controlCalls[$callId] = $args
                     $action = [string](Get-PerformanceProperty $args "action")
                     if ($action -eq "finish_map") {
-                        $candidate = Get-PerformanceProperty $args "final_summary"
+                        $candidate = Get-PerformanceProperty $args "exact_summary"
                         if ($null -ne $candidate) { $finalCandidates.Add([pscustomobject]@{ index = $index; text = [string]$candidate }) }
                     }
-                    if ($null -ne (Get-PerformanceProperty $args "continuation") -and -not [string]::IsNullOrWhiteSpace($callId)) {
-                        $outerActionsByCall[$callId] = @(Get-PerformanceDeclaredNestedActions $args)
+                    if ($action -in @("initialize_and_execute", "execute", "reopen_map")) {
+                        $pendingManifest = @((Get-PerformanceProperty $args "actions" @()))
+                        $pendingManifestIndex = 0
+                        $declaredActionCount += $pendingManifest.Count
                     }
-                } elseif (-not [string]::IsNullOrWhiteSpace($parentCallId) -and $outerActionsByCall.ContainsKey($parentCallId)) {
-                    $expandedNested++
-                    $nestedArgs = if ($null -ne $args) { $args } else { $argsText }
-                    if (@($outerActionsByCall[$parentCallId] | Where-Object { Test-PerformanceNestedActionMatch $_ $name $nestedArgs }).Count -gt 0) { $expandedMatches++ }
+                } elseif ($null -ne $pendingManifest -and [string]::IsNullOrWhiteSpace($parentCallId)) {
+                    $ordinarySiblingCount++
+                    if ($pendingManifestIndex -lt $pendingManifest.Count -and
+                        [string](Get-PerformanceProperty $pendingManifest[$pendingManifestIndex] "tool") -eq $name) {
+                        $declaredActionNameMatchCount++
+                    }
+                    $pendingManifestIndex++
                 }
                 continue
             }
@@ -188,7 +145,7 @@ function Get-PerformanceCrossCarrierLineage {
             try {
                 $outputObject = if ($output -is [string]) { $output | ConvertFrom-Json } else { $output }
                 $schemaVersion = [string](Get-PerformanceProperty $outputObject "schema_version")
-                $isControlResult = $schemaVersion -in @("TaskSpaceControlResultR6V1", "TaskSpaceControlResultV2")
+                $isControlResult = $schemaVersion -eq "TaskSpaceControlResultV2"
                 if ($isControlResult -and [bool](Get-PerformanceProperty $outputObject "success" $false)) { $controlSuccess++ }
                 if ($isControlResult) {
                     $delta = Get-PerformanceProperty $outputObject "delta"
@@ -208,50 +165,9 @@ function Get-PerformanceCrossCarrierLineage {
                 }
                 foreach ($step in @((Get-PerformanceProperty $outputObject "steps" @()))) {
                     $stepCount++
-                    $kind = [string](Get-PerformanceProperty $step "kind")
-                    $finishedNodeId = [string](Get-PerformanceProperty $step "finished_node_id")
-                    $next = Get-PerformanceProperty $step "next"
-                    $nextNodeId = [string](Get-PerformanceProperty $next "node_id")
-                    $currentNodeId = [string](Get-PerformanceProperty $step "current_node_id")
-                    if ($kind -eq "complete_then_continue") {
-                        if ([string]::IsNullOrWhiteSpace($finishedNodeId)) { $finishedNodeId = $currentNodeId }
-                        if ([string]::IsNullOrWhiteSpace($nextNodeId)) { $nextNodeId = [string](Get-PerformanceProperty $step "next_node_id") }
-                    }
-                    if ($kind -eq "node_bound" -and [string]::IsNullOrWhiteSpace($currentNodeId)) {
-                        $currentNodeId = [string](Get-PerformanceProperty $step "node_id")
-                    }
-                    if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $finishedNodeId) { $finishedNodeEcho++ }
-                    if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $nextNodeId) { $nextNodeEcho++ }
-                    if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $currentNodeId) { $currentNodeEcho++ }
-                    if ($kind -eq "map_initialized") {
-                        foreach ($nodeId in @((Get-PerformanceProperty $step "created_node_ids" @()))) {
-                            if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] ([string]$nodeId)) { $initNodeEcho++ }
-                        }
-                        if (Test-PerformanceObjectContainsStringValue $controlCalls[$callId] $currentNodeId) { $initCurrentEcho++ }
-                    }
-                    if ($isControlResult -and $kind -in @(
-                            "map_initialized", "graph_mutation", "node_transition", "terminal_transition", "node_detail_expanded",
-                            "node_bound", "node_blocked", "node_unblocked", "node_reworked",
-                            "complete_then_continue", "finish_map"
-                        ) -and
-                        -not ([bool](Get-PerformanceProperty $step "success" $true) -eq $false)) {
-                        $identitySteps++
-                        $complete = if ($kind -eq "map_initialized") {
-                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and $null -ne (Get-PerformanceProperty $step "revision")
-                        } elseif ($kind -eq "graph_mutation") {
-                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and $null -ne (Get-PerformanceProperty $step "revision")
-                        } elseif ($kind -eq "node_transition") {
-                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "node_id")) -and $null -ne (Get-PerformanceProperty $step "revision") -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "status"))
-                        } elseif ($kind -eq "node_detail_expanded") {
-                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "node_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "expansion_event_id"))
-                        } elseif ($kind -in @("node_bound", "node_blocked", "node_unblocked", "node_reworked")) {
-                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "node_id")) -and $null -ne (Get-PerformanceProperty $step "revision") -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "status"))
-                        } elseif ($kind -eq "complete_then_continue") {
-                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "current_node_id")) -and -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "next_node_id")) -and $null -ne (Get-PerformanceProperty $step "revision")
-                        } else {
-                            -not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "map_id")) -and $null -ne (Get-PerformanceProperty $step "revision") -and [bool](Get-PerformanceProperty $step "finish_closed" $false) -and [bool](Get-PerformanceProperty $step "root_closed" $false)
-                        }
-                        if (-not $complete) { $identityMissing++ }
+                    $completedWorkIdCount += @((Get-PerformanceProperty $step "completed_work_node_ids" @())).Count
+                    if (-not [string]::IsNullOrWhiteSpace([string](Get-PerformanceProperty $step "finish_node_id"))) {
+                        $finishIdCount++
                     }
                 }
             } catch {
@@ -279,25 +195,18 @@ function Get-PerformanceCrossCarrierLineage {
         final_candidate_count = $finalCandidates.Count
         final_candidate_assistant_exact_equal_count = $finalMatches
         final_candidate_assistant_exact_equal_bytes = $finalBytes
-        control_continuation_action_count = [int](@($outerActionsByCall.Values | ForEach-Object { @($_).Count } | Measure-Object -Sum).Sum)
-        expanded_nested_call_count = $expandedNested
-        expanded_nested_call_exact_json_match_count = $expandedMatches
+        declared_action_count = $declaredActionCount
+        ordinary_sibling_count = $ordinarySiblingCount
+        declared_action_name_match_count = $declaredActionNameMatchCount
         control_output_step_count = $stepCount
-        control_output_init_node_id_echo_count = $initNodeEcho
-        control_output_init_current_node_id_echo_count = $initCurrentEcho
-        control_output_finished_node_id_echo_count = $finishedNodeEcho
-        control_output_next_node_echo_count = $nextNodeEcho
-        control_output_current_node_echo_count = $currentNodeEcho
+        control_output_completed_work_id_count = $completedWorkIdCount
+        control_output_finish_id_count = $finishIdCount
         control_success_count = $controlSuccess
-        control_identity_step_count = $identitySteps
-        control_identity_missing_count = $identityMissing
         control_delta_present_count = $deltaPresent
         control_delta_missing_count = $deltaMissing
         control_graph_event_ref_count = $graphEventRefCount
         control_node_detail_event_ref_count = $nodeDetailEventRefCount
         terminal_failure_nonzero_commit_count = $terminalFailureNonzeroCommit
-        stale_blank_developer_marker_count = $blankDeveloper
-        stale_mode_developer_marker_count = $modeDeveloper
     }
 }
 
@@ -453,11 +362,11 @@ function Add-PerformanceDuplicationMarkdown {
     $Lines.Add("")
     $Lines.Add("## Cross carrier lineage")
     $Lines.Add("")
-    $Lines.Add("| Repeat | Mode | Availability | Unknown | Final candidates | Final exact | Continuation actions | Nested exact | Control success | Identity steps | Identity missing | Delta | Delta missing | Graph event refs | Detail event refs | Terminal bad commit | Init IDs | Finished IDs | Next IDs | Current IDs |")
-    $Lines.Add("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    $Lines.Add("| Repeat | Mode | Availability | Unknown | Final candidates | Final exact | Declared actions | Siblings | Name matches | Control success | Steps | Completed Work IDs | Finish IDs | Delta | Delta missing | Graph event refs | Detail event refs | Terminal bad commit |")
+    $Lines.Add("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $Rows) {
         $lineage = $row.duplication.cross_carrier_lineage
-        $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $lineage.availability) | $(Format-PerformanceValue $lineage.unknown_count) | $(Format-PerformanceValue $lineage.final_candidate_count) | $(Format-PerformanceValue $lineage.final_candidate_assistant_exact_equal_count) | $(Format-PerformanceValue $lineage.control_continuation_action_count) | $(Format-PerformanceValue $lineage.expanded_nested_call_exact_json_match_count) | $(Format-PerformanceValue $lineage.control_success_count) | $(Format-PerformanceValue $lineage.control_identity_step_count) | $(Format-PerformanceValue $lineage.control_identity_missing_count) | $(Format-PerformanceValue $lineage.control_delta_present_count) | $(Format-PerformanceValue $lineage.control_delta_missing_count) | $(Format-PerformanceValue $lineage.control_graph_event_ref_count) | $(Format-PerformanceValue $lineage.control_node_detail_event_ref_count) | $(Format-PerformanceValue $lineage.terminal_failure_nonzero_commit_count) | $(Format-PerformanceValue $lineage.control_output_init_node_id_echo_count) | $(Format-PerformanceValue $lineage.control_output_finished_node_id_echo_count) | $(Format-PerformanceValue $lineage.control_output_next_node_echo_count) | $(Format-PerformanceValue $lineage.control_output_current_node_echo_count) |")
+        $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $lineage.availability) | $(Format-PerformanceValue $lineage.unknown_count) | $(Format-PerformanceValue $lineage.final_candidate_count) | $(Format-PerformanceValue $lineage.final_candidate_assistant_exact_equal_count) | $(Format-PerformanceValue $lineage.declared_action_count) | $(Format-PerformanceValue $lineage.ordinary_sibling_count) | $(Format-PerformanceValue $lineage.declared_action_name_match_count) | $(Format-PerformanceValue $lineage.control_success_count) | $(Format-PerformanceValue $lineage.control_output_step_count) | $(Format-PerformanceValue $lineage.control_output_completed_work_id_count) | $(Format-PerformanceValue $lineage.control_output_finish_id_count) | $(Format-PerformanceValue $lineage.control_delta_present_count) | $(Format-PerformanceValue $lineage.control_delta_missing_count) | $(Format-PerformanceValue $lineage.control_graph_event_ref_count) | $(Format-PerformanceValue $lineage.control_node_detail_event_ref_count) | $(Format-PerformanceValue $lineage.terminal_failure_nonzero_commit_count) |")
     }
     $Lines.Add("")
     $Lines.Add("## Rollout storage")

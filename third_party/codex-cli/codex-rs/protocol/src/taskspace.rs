@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const TASKSPACE_CANONICAL_SCHEMA_VERSION: &str = "taskspace-canonical-map-v1";
+pub const TASKSPACE_CANONICAL_SCHEMA_VERSION: &str = "taskspace-canonical-map-v2";
 
 pub type TaskSpaceActionId = String;
 pub type TaskSpaceEvidenceRefId = String;
@@ -91,6 +91,7 @@ pub struct TaskSpaceCanonicalMap {
     pub result_refs: BTreeMap<TaskSpaceResultRefId, TaskSpaceResultRef>,
     pub evidence_refs: BTreeMap<TaskSpaceEvidenceRefId, TaskSpaceEvidenceRef>,
     pub terminal_record: Option<TaskSpaceTerminalRecord>,
+    pub terminal_history: Vec<TaskSpaceTerminalRecord>,
     pub revision: TaskSpaceRevision,
 }
 
@@ -150,6 +151,7 @@ mod tests {
             result_refs: BTreeMap::new(),
             evidence_refs: BTreeMap::new(),
             terminal_record: None,
+            terminal_history: Vec::new(),
             revision: 1,
         }
     }

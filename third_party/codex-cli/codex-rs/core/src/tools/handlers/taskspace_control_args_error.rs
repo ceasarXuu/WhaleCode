@@ -111,6 +111,11 @@ pub(crate) fn with_argument_error_canonical_revision(
 fn supported_action(action: &str) -> bool {
     matches!(
         action,
-        "initialize_and_execute" | "execute" | "finish_map" | "read_map" | "read_output_ref"
+        "initialize_and_execute"
+            | "execute"
+            | "reopen_map"
+            | "finish_map"
+            | "read_map"
+            | "read_output_ref"
     )
 }
