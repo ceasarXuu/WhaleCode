@@ -1429,8 +1429,10 @@ function New-TaskspaceControlUsageSummary {
                 $isLifecycleResult = $schemaVersion -eq "TaskSpaceControlResultV2"
                 $isResponseCommit = $schemaVersion -eq "TaskSpaceResponseCommitV1"
                 $isResponseCommitFailure = $schemaVersion -eq "TaskSpaceResponseCommitFailureV1"
+                $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV2"
                 $isControlResult = $isLifecycleResult -or $isResponseCommit -or $isResponseCommitFailure
-                if ($isControlResult -and $rolloutInitializeCallIds.Contains($callId)) {
+                if (($isControlResult -or $isControlPreflightResult) -and
+                    $rolloutInitializeCallIds.Contains($callId)) {
                     if ([bool](Get-TaskspaceCostProperty $batch @("success")) -and
                         [bool](Get-TaskspaceCostProperty $batch @("state_commit"))) {
                         [void]$rolloutCommittedInitializeCallIds.Add($callId)
@@ -1456,7 +1458,6 @@ function New-TaskspaceControlUsageSummary {
                 }
                 if (-not $isControlCall) { continue }
 
-                $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV2"
                 $controlFailed = ($isControlResult -or $isControlPreflightResult) -and
                     $batch.PSObject.Properties.Name -contains "success" -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
