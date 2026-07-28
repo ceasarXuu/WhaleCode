@@ -47,6 +47,7 @@ $projectionSourcePath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core
 $contextLogPath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/context.rs"
 $controlOutputPath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_output.rs"
 $sessionTestsPath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/session/tests.rs"
+$multiAgentTestsPath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_tests.rs"
 $cliPath = Join-Path $repoRoot "third_party/codex-cli/codex-rs/cli/src/main.rs"
 $storeExportPath = Join-Path $repoRoot "scripts/action-map-store-export-lib.ps1"
 $observabilityPath = Join-Path $repoRoot "scripts/action-map-observability-lib.ps1"
@@ -58,6 +59,22 @@ $observerPaths = @(
     "scripts/taskspace-benchmark/lib/performance-observation.ps1",
     "scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1",
     "scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1"
+) | ForEach-Object { Join-Path $repoRoot $_ }
+$lifecycleProductionPaths = @(
+    "third_party/codex-cli/codex-rs/exec/src/cli.rs",
+    "third_party/codex-cli/codex-rs/exec/src/lib.rs",
+    "third_party/codex-cli/codex-rs/protocol/src/protocol.rs",
+    "third_party/codex-cli/codex-rs/core/src/action_map/runtime/state.rs",
+    "third_party/codex-cli/codex-rs/core/src/session/handlers.rs",
+    "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+    "third_party/codex-cli/codex-rs/app-server-protocol/src/protocol/common.rs",
+    "third_party/codex-cli/codex-rs/app-server-protocol/src/protocol/v2.rs",
+    "third_party/codex-cli/codex-rs/app-server/src/codex_message_processor.rs",
+    "third_party/codex-cli/codex-rs/tui/src/app_server_session.rs",
+    "third_party/codex-cli/codex-rs/tui/src/app/thread_routing.rs",
+    "third_party/codex-cli/codex-rs/tui/src/app_command.rs",
+    "third_party/codex-cli/codex-rs/tui/src/chatwidget/slash_dispatch.rs",
+    "third_party/codex-cli/codex-rs/tui/src/slash_command.rs"
 ) | ForEach-Object { Join-Path $repoRoot $_ }
 
 $authorityRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityPath
@@ -97,6 +114,11 @@ Assert-Equal ([string]$manifest.source_authority.sha256) (Get-Sha256 $authorityP
 Assert-Equal @($manifest.layers).Count 5 "Production manifest must retain exactly five content layers"
 foreach ($layer in @($manifest.layers)) {
     Assert-Equal ([string]$layer.runtime_status) "active" "Layer $($layer.id) is not active"
+    foreach ($target in @($layer.selected_targets)) {
+        $targetPath = Join-Path $repoRoot ([string]$target.artifact)
+        Assert-True (Test-Path -LiteralPath $targetPath -PathType Leaf) "Production target missing: $($target.artifact)"
+        Assert-Equal (Get-Sha256 $targetPath) ([string]$target.sha256) "Production target hash drifted: $($target.artifact)"
+    }
 }
 
 $control = Read-StrictJson $controlContractPath "current control contract"
@@ -148,6 +170,16 @@ Assert-SourceExcludes $sessionTestsPath @(
     "rework_node",
     "#[cfg(any())]"
 ) "session tests"
+Assert-SourceExcludes $multiAgentTestsPath @(
+    "taskspace_binding",
+    "bind_node",
+    "complete_then_continue",
+    "current_node",
+    "current_binding",
+    "start_action_map_task_node",
+    "active_action_map_lease_count",
+    "#[cfg(any())]"
+) "multi-agent TaskSpace tests"
 foreach ($observerPath in $observerPaths) {
     Assert-SourceExcludes $observerPath @(
         "taskspace_binding",
@@ -159,6 +191,18 @@ foreach ($observerPath in $observerPaths) {
         "current_binding",
         "mutate_graph"
     ) "active benchmark observer $observerPath"
+}
+foreach ($productionPath in $lifecycleProductionPaths) {
+    Assert-SourceExcludes $productionPath @(
+        "RestartActionMap",
+        "request_action_map_reborn",
+        "clear_active_map",
+        "ThreadActionMapRestart",
+        "reborn_requested",
+        "TaskReborn",
+        "task_reborn",
+        "map_restart"
+    ) "TaskSpace lifecycle production source $productionPath"
 }
 Assert-SourceExcludes $cliPath @(
     "TaskSpaceMapExportR7V1",

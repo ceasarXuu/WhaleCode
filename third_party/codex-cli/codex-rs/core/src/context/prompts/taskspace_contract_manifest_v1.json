@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.37",
+  "manifest_version": "1.0.38",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -17,7 +17,7 @@
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "0b2e2b1db43efb0d86ab535010479988f0b65b4f1c23aa030c6a203a0c0e2457"
+    "sha256": "85a7ffd0cccac9ac0af934c8a3919c5755093a757bc1a88d9af018a1a3c0cd98"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -92,7 +92,7 @@
       "selected_targets": [
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
-          "sha256": "a9fed70fe51430faf12a6265321b39c6678885ca4d40ae05f6af0b76bc4dc36f",
+          "sha256": "5b3a62005187b885260f6cd69866471ce9b5fbd5c3eed7a0dd135567ebdcd28e",
           "activation_phase": "A2-B2.5 response preflight, final close, reopen, factual feedback, and skipped action closure"
         },
         {
@@ -112,7 +112,7 @@
         },
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json",
-          "sha256": "2cb862d7ec2501d9f796b112491919c4256897f22db4435e7c21a0fc2bddc624",
+          "sha256": "1370322dac73bab51ed1d2b78738bed28af1e37140a968a58ddd0964f5a13847",
           "activation_phase": "A2-B2.5 close, reopen, terminal history, restart, and replay"
         }
       ]

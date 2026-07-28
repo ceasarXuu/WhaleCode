@@ -24,12 +24,24 @@ impl Session {
         args: TaskSpaceControlArgs,
         declared_calls: Vec<TaskSpaceDeclaredCall>,
     ) -> Result<ActionMapPreparedResponse, String> {
-        let source_refs = self
-            .state
-            .lock()
-            .await
-            .taskspace_events
-            .initialization_source_event_ids(control_call_id);
+        let source_refs = {
+            let state = self.state.lock().await;
+            for call in &declared_calls {
+                crate::action_map::TaskSpaceEventStore::validate_call_owner(
+                    &call.call_id,
+                    &call.node_id,
+                )
+                .map_err(|error| {
+                    format!(
+                        "TaskSpace call attribution preflight failed for `{}`: {error}",
+                        call.call_id
+                    )
+                })?;
+            }
+            state
+                .taskspace_events
+                .initialization_source_event_ids(control_call_id)
+        };
         let operation = response_operation(args, control_call_id, &source_refs)?;
         let declared_calls = declared_calls
             .into_iter()
@@ -59,13 +71,7 @@ impl Session {
             for call in &prepared.prepared_calls {
                 state
                     .taskspace_events
-                    .bind_call_owner(&call.call_id, &call.node_id)
-                    .map_err(|error| {
-                        format!(
-                            "TaskSpace call attribution failed for `{}`: {error}",
-                            call.call_id
-                        )
-                    })?;
+                    .bind_validated_call_owner(call.call_id.clone(), call.node_id.clone());
             }
         }
         self.emit_action_map_events_for_turn(turn_context, events)

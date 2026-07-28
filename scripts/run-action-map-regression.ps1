@@ -162,7 +162,7 @@ if ($useDefaultMatrix) {
         New-CargoTestRun "protocol-action-map-snapshot" @("codex-protocol") "action_map_snapshot"
         New-CargoTestRun "protocol-map-runtime-trace" @("codex-protocol") "map_runtime_trace_event_recorded_serializes_refs_without_raw_output"
         New-CargoTestRun "app-server-schema-fixtures" @("codex-app-server-protocol") "" "schema_fixtures"
-        New-CargoTestRun "core-standard-child-map-isolation" @("codex-core") "standard_child_does_not_inherit_taskspace_binding"
+        New-CargoTestRun "core-standard-child-map-isolation" @("codex-core") "standard_child_does_not_inherit_parent_map_store_identity"
         New-CargoTestRun "tools-spawn-agent" @("codex-tools") "spawn_agent"
         New-CargoTestRun "tools-multi-agent-task-names" @("codex-tools") "multi_agent_v2_uses_task_names"
         New-CargoTestRun "tools-registry-plan" @("codex-tools") "tool_registry_plan"

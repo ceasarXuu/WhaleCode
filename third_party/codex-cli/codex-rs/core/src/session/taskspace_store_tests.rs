@@ -220,9 +220,9 @@ async fn taskspace_child_requires_parent_binding() {
 }
 
 #[tokio::test]
-async fn standard_child_does_not_inherit_taskspace_binding() {
+async fn standard_child_does_not_inherit_parent_map_store_identity() {
     let home = std::env::temp_dir().join(format!(
-        "codex-standard-child-binding-test-{}",
+        "codex-standard-child-map-store-test-{}",
         Uuid::new_v4()
     ));
     let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".to_string())

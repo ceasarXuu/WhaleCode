@@ -22,23 +22,24 @@ function Assert-Equal {
     }
 }
 
-$ordinaryBeforeBinding = Join-Path $RunRoot "ordinary-before-binding.jsonl"
+$ordinaryBeforeReservation = Join-Path $RunRoot "ordinary-before-reservation.jsonl"
 @(
     '{"type":"response_item","payload":{"type":"message","role":"user","content":[]}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"rg --files\"}"}}',
-    '{"type":"event_msg","payload":{"type":"lease_created","mapId":"map-1","nodeId":"node-1","leaseId":"lease-1"}}'
-) | Set-Content -Encoding UTF8 -LiteralPath $ordinaryBeforeBinding
+    '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"read-1","arguments":"{\"command\":\"rg --files\"}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"read-1","output":"ok"}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $ordinaryBeforeReservation
 
-$bindingFirst = Join-Path $RunRoot "binding-first.jsonl"
+$reservationFirst = Join-Path $RunRoot "reservation-first.jsonl"
 @(
-    '{"type":"event_msg","payload":{"type":"lease_created","mapId":"map-1","nodeId":"node-1","leaseId":"lease-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"rg --files\"}"}}'
-) | Set-Content -Encoding UTF8 -LiteralPath $bindingFirst
+    '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"read-1","arguments":"{\"command\":\"rg --files\"}"}}',
+    '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"store_committed","map_id":"map-1","operation":"prepare_response"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"read-1","output":"ok"}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $reservationFirst
 
-$largeBindingFirst = Join-Path $RunRoot "large-binding-first.jsonl"
-$writer = [System.IO.StreamWriter]::new($largeBindingFirst, $false, [System.Text.UTF8Encoding]::new($false))
+$largeReservationFirst = Join-Path $RunRoot "large-reservation-first.jsonl"
+$writer = [System.IO.StreamWriter]::new($largeReservationFirst, $false, [System.Text.UTF8Encoding]::new($false))
 try {
-    $writer.WriteLine('{"type":"event_msg","payload":{"type":"taskspace_trace_event_recorded","kind":"mechanical_blank_map_initialized","taskId":"task-1","mapId":"map-1","nodeId":"node-1"}}')
+    $writer.WriteLine('{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"store_committed","map_id":"map-1","operation":"prepare_response"}}')
     for ($i = 0; $i -lt 20000; $i++) {
         $writer.WriteLine('{"type":"event_msg","payload":{"type":"message","text":"' + ('x' * 200) + '"}}')
     }
@@ -46,9 +47,9 @@ try {
     $writer.Dispose()
 }
 
-Assert-Equal (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $ordinaryBeforeBinding) $true "ordinary tool before binding was not detected"
-Assert-Equal (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $bindingFirst) $false "binding-first rollout was incorrectly flagged"
-Assert-Equal (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $largeBindingFirst) $false "large binding-first rollout was incorrectly flagged"
+Assert-Equal (Test-TaskspaceOrdinaryToolBeforeReservationInRollout $ordinaryBeforeReservation) $true "ordinary output before reservation was not detected"
+Assert-Equal (Test-TaskspaceOrdinaryToolBeforeReservationInRollout $reservationFirst) $false "reservation-first rollout was incorrectly flagged"
+Assert-Equal (Test-TaskspaceOrdinaryToolBeforeReservationInRollout $largeReservationFirst) $false "large reservation-first rollout was incorrectly flagged"
 
 $toolStatsPath = Join-Path $RunRoot "tool-stats.jsonl"
 @(
@@ -109,7 +110,7 @@ $taskspaceJ3Jsonl = Join-Path $completionDir "taskspace-j3.jsonl"
 ) | Set-Content -Encoding UTF8 -LiteralPath $taskspaceJ3Jsonl
 $taskspaceJ3Rollout = Join-Path $completionDir "taskspace-j3-rollout.jsonl"
 @(
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"finish-1","arguments":"{\\"action\\":\\"finish_node\\",\\"final_candidate\\":\\"Done.\\"}"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"finish-1","arguments":"{\\"action\\":\\"finish_map\\",\\"finish_node_id\\":\\"finish\\",\\"complete_work_node_ids\\":[\\"work\\"],\\"exact_summary\\":\\"Done.\\"}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"finish-1","output":"ok"}}',
     '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done."}]}}'
 ) | Set-Content -Encoding UTF8 -LiteralPath $taskspaceJ3Rollout

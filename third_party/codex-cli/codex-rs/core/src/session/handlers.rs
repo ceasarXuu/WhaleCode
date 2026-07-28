@@ -1075,13 +1075,6 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
     sess.notify_background_event(&turn_context, status).await;
 }
 
-pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
-    let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    sess.request_action_map_reborn(&turn_context).await;
-    let status = "Task reborn requested. Runtime did not create a task path automatically; the next agent turn must route or start a task through taskspace_control.".to_string();
-    sess.notify_background_event(&turn_context, status).await;
-}
-
 pub async fn show_action_map(sess: &Arc<Session>, sub_id: String) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
     let status = match sess.canonical_action_map_snapshot().await {
@@ -1373,10 +1366,6 @@ pub(super) async fn submission_loop(
                 }
                 Op::SetMapRuntimeMode { mode } => {
                     set_map_runtime_mode(&sess, sub.id.clone(), mode).await;
-                    false
-                }
-                Op::RestartActionMap => {
-                    restart_action_map(&sess, sub.id.clone()).await;
                     false
                 }
                 Op::ShowActionMap => {

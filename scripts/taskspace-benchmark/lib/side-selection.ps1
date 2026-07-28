@@ -159,7 +159,7 @@ function New-TaskspaceSideSelectionSkipMetrics {
         spawn_agent_calls = 0
         subagent_results = 0
         open_leaf_nodes = 0
-        ordinary_before_binding = $false
+        ordinary_before_reservation = $false
         accepted_results = 0
         unreviewed_results = 0
         questioned_or_invalid_results = 0

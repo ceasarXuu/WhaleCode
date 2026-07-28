@@ -66,6 +66,23 @@ try {
     Assert-Equal (Count-UnexpectedFailedCollabToolCalls $obs) 1 "recovered runtime gates should not count as unexpected"
     $results.Add("unexpected-failed-collab-filter: PASS")
 
+    $reservationFirst = @(
+        '{"timestamp":"2026-07-28T00:00:00Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"read-1"}}',
+        '{"timestamp":"2026-07-28T00:00:01Z","type":"event_msg","payload":{"type":"map_runtime","map_event_type":"store_committed","operation":"prepare_response"}}',
+        '{"timestamp":"2026-07-28T00:00:02Z","type":"response_item","payload":{"type":"function_call_output","call_id":"read-1","output":"ok"}}'
+    ) -join "`n"
+    $validOrdering = Get-SuccessfulTaskspaceOrdering $reservationFirst
+    Assert-Equal $validOrdering.OrdinaryToolBeforeReservation $false "Store commit before Tool output should pass"
+    Assert-Equal $validOrdering.FirstReservationEvidence "store_committed:prepare_response" "current Store fact should be the reservation evidence"
+
+    $outputBeforeReservation = @(
+        '{"timestamp":"2026-07-28T00:00:00Z","type":"response_item","payload":{"type":"function_call","name":"shell_command","call_id":"read-1"}}',
+        '{"timestamp":"2026-07-28T00:00:01Z","type":"response_item","payload":{"type":"function_call_output","call_id":"read-1","output":"ok"}}'
+    ) -join "`n"
+    $invalidOrdering = Get-SuccessfulTaskspaceOrdering $outputBeforeReservation
+    Assert-Equal $invalidOrdering.OrdinaryToolBeforeReservation $true "Tool output without a reservation commit should fail"
+    $results.Add("taskspace-reservation-ordering: PASS")
+
     $report = @("# Action Map Real User E2E Lib Self-Test", "", "- overall: PASS") + ($results | ForEach-Object { "- $_" })
     $report | Set-Content -Encoding UTF8 (Join-Path $OutputDir "report.md")
     Write-Host "Report: $(Join-Path $OutputDir "report.md")"

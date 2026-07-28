@@ -623,10 +623,6 @@ impl App {
                     .await?;
                 Ok(true)
             }
-            AppCommandView::RestartActionMap => {
-                app_server.thread_action_map_restart(thread_id).await?;
-                Ok(true)
-            }
             AppCommandView::ShowActionMap => {
                 self.open_action_map_viewer(app_server, thread_id).await?;
                 Ok(true)

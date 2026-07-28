@@ -16,7 +16,7 @@
   "oracles": [
     {
       "id": "LC2-01-final-work-close",
-      "pre_state": "active_with_final_work_ready_or_inflight",
+      "pre_state": "active_with_final_work_ready_and_no_action_reservations",
       "action": "finish_map",
       "required_arguments": ["complete_work_node_ids", "finish_node_id", "exact_summary"],
       "post_state": "closed",

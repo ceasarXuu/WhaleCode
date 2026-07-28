@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use codex_protocol::models::ResponseInputItem;
 
 use crate::function_tool::FunctionCallError;
@@ -19,6 +21,8 @@ pub(crate) const TASKSPACE_CONTROL_ARGUMENTS_INVALID_CODE: &str =
     "taskspace_control_arguments_invalid";
 pub(crate) const TASKSPACE_ACTION_COUNT_MISMATCH_CODE: &str = "taskspace_action_count_mismatch";
 pub(crate) const TASKSPACE_ACTION_TOOL_MISMATCH_CODE: &str = "taskspace_action_tool_mismatch";
+pub(crate) const TASKSPACE_DUPLICATE_CALL_ID_CODE: &str = "taskspace_duplicate_call_id";
+pub(crate) const TASKSPACE_EMPTY_CALL_ID_CODE: &str = "taskspace_empty_call_id";
 pub(crate) const TASKSPACE_CONTROL_ONLY_ACTION_HAS_SIBLINGS_CODE: &str =
     "taskspace_control_only_action_has_siblings";
 
@@ -111,6 +115,7 @@ pub(crate) fn validate_tool_sequence(
     if !taskspace_active {
         return Ok((manifest, ToolSequencePlan::Standard));
     }
+    validate_taskspace_call_ids(calls, &manifest)?;
 
     let control_indices = calls
         .iter()
@@ -186,6 +191,35 @@ pub(crate) fn validate_tool_sequence(
             Ok((manifest, ToolSequencePlan::TaskSpaceControlOnly))
         }
     }
+}
+
+fn validate_taskspace_call_ids(
+    calls: &[ToolCall],
+    manifest: &ToolSequenceManifest,
+) -> Result<(), ToolSequencePreflightFailure> {
+    let mut seen = HashSet::with_capacity(calls.len());
+    for (index, call) in calls.iter().enumerate() {
+        if call.call_id.trim().is_empty() {
+            return Err(failure(
+                TASKSPACE_EMPTY_CALL_ID_CODE,
+                format!(
+                    "TaskSpace response Tool call at index {index} requires a non-empty call_id"
+                ),
+                manifest,
+            ));
+        }
+        if !seen.insert(call.call_id.as_str()) {
+            return Err(failure(
+                TASKSPACE_DUPLICATE_CALL_ID_CODE,
+                format!(
+                    "TaskSpace response call_id `{}` is duplicated at index {index}",
+                    call.call_id
+                ),
+                manifest,
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn match_actions(

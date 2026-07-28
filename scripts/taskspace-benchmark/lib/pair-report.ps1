@@ -496,7 +496,7 @@ function Write-TaskspacePairReport {
             @("spawn_agent_calls", $sideMetrics.spawn_agent_calls),
             @("subagent_results", $sideMetrics.subagent_results),
             @("open_leaf_nodes", $sideMetrics.open_leaf_nodes),
-            @("ordinary_before_binding", $sideMetrics.ordinary_before_binding)
+            @("ordinary_before_reservation", $sideMetrics.ordinary_before_reservation)
         )) { $lines.Add("- $($row[0]): $($row[1])") }
     }
     $lines | Set-Content -LiteralPath $Path -Encoding UTF8

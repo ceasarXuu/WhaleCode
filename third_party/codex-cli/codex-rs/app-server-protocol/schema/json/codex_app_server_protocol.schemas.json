@@ -5370,10 +5370,6 @@
           "mode": {
             "$ref": "#/definitions/v2/MapRuntimeMode"
           },
-          "rebornRequested": {
-            "default": false,
-            "type": "boolean"
-          },
           "routingRequired": {
             "default": false,
             "type": "boolean"

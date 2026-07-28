@@ -249,9 +249,11 @@ fn agent_manifest_owner_applies_to_call_and_output_without_a_current_node() {
         .unwrap();
     let mut store = TaskSpaceEventStore::new();
     store.record_item(&call, None, None, 1).unwrap();
-    store
-        .bind_call_owner("function-call", "node-from-agent-manifest")
-        .unwrap();
+    TaskSpaceEventStore::validate_call_owner("function-call", "node-from-agent-manifest").unwrap();
+    store.bind_validated_call_owner(
+        "function-call".to_string(),
+        "node-from-agent-manifest".to_string(),
+    );
     store.record_item(&output, None, None, 2).unwrap();
 
     assert!(store.events().iter().all(|event| {

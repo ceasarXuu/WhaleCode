@@ -1119,24 +1119,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn request_action_map_reborn(&self, turn_context: &TurnContext) {
-        match self
-            .mutate_canonical_action_map("request_reborn", |runtime, _| {
-                runtime.clear_active_map();
-                ((), Vec::new())
-            })
-            .await
-        {
-            Ok(((), events)) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-            }
-            Err(error) => {
-                tracing::error!(%error, "failed to persist TaskSpace reborn request");
-            }
-        }
-    }
-
     async fn emit_action_map_events_for_turn(
         &self,
         turn_context: &TurnContext,

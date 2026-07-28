@@ -59,6 +59,65 @@ fn finish_arguments() -> String {
     .to_string()
 }
 
+fn two_action_initialize_arguments() -> String {
+    json!({
+        "action": "initialize_and_execute",
+        "root": {"node_id": "root", "goal": "Complete the test task"},
+        "work_nodes": [
+            {"node_id": "inspect", "goal": "Inspect the workspace"},
+            {"node_id": "verify", "goal": "Verify the workspace"}
+        ],
+        "finish": {"node_id": "finish", "goal": "Finish"},
+        "edges": [
+            {"from": "root", "to": "inspect"},
+            {"from": "root", "to": "verify"},
+            {"from": "inspect", "to": "finish"},
+            {"from": "verify", "to": "finish"}
+        ],
+        "actions": [
+            {"node_id": "inspect", "tool": "exec_command"},
+            {"node_id": "verify", "tool": "exec_command"}
+        ]
+    })
+    .to_string()
+}
+
+fn execute_arguments() -> String {
+    json!({
+        "action": "execute",
+        "expected_revision": 2,
+        "mutations": [],
+        "actions": [{"node_id": "work", "tool": "exec_command"}]
+    })
+    .to_string()
+}
+
+fn reopen_arguments() -> String {
+    json!({
+        "action": "reopen_map",
+        "expected_revision": 3,
+        "work_nodes": [{"node_id": "follow-up", "goal": "Address user feedback"}],
+        "edges": [
+            {"from": "root", "to": "follow-up"},
+            {"from": "follow-up", "to": "finish"}
+        ],
+        "actions": [{"node_id": "follow-up", "tool": "exec_command"}]
+    })
+    .to_string()
+}
+
+fn plain_response(response_id: &str) -> String {
+    let message_id = format!("{response_id}-message");
+    let text = "The invalid tool response was rejected.";
+    sse(vec![
+        ev_response_created(response_id),
+        ev_message_item_added(&message_id, "The invalid tool "),
+        ev_output_text_delta("response was rejected."),
+        ev_assistant_message(&message_id, text),
+        ev_completed(response_id),
+    ])
+}
+
 async fn enable_taskspace(test: &TestCodex) -> anyhow::Result<()> {
     test.codex
         .submit(Op::SetMapRuntimeMode {
@@ -94,6 +153,22 @@ async fn submit_and_collect(test: &TestCodex) -> anyhow::Result<Vec<EventMsg>> {
             return Ok(events);
         }
     }
+}
+
+async fn submit_and_wait_for_store(test: &TestCodex) -> anyhow::Result<()> {
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise invalid TaskSpace identity handling".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+    tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+    Ok(())
 }
 
 fn common_responses(test: &TestCodex) -> Vec<String> {
@@ -277,5 +352,155 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
         EventMsg::TurnComplete(completed) if completed.last_agent_message.is_none()
     )));
     assert_taskspace_request_shapes(&responses, 2);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn duplicate_initialize_call_ids_leave_store_empty_and_dispatch_nothing() -> anyhow::Result<()>
+{
+    skip_if_no_network!(Ok(()));
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAppend);
+        })
+        .build(&server)
+        .await?;
+    enable_taskspace(&test).await?;
+    let marker = test.cwd_path().join("duplicate-init-dispatched");
+    let invalid = sse(vec![
+        ev_response_created("invalid-init"),
+        ev_function_call(
+            "init-control",
+            "taskspace_control",
+            &two_action_initialize_arguments(),
+        ),
+        ev_function_call(
+            "duplicate",
+            "exec_command",
+            &json!({"cmd": format!("touch {}", marker.display())}).to_string(),
+        ),
+        ev_function_call(
+            "duplicate",
+            "exec_command",
+            &json!({"cmd": format!("touch {}", marker.display())}).to_string(),
+        ),
+        ev_completed("invalid-init"),
+    ]);
+    mount_sse_sequence(&server, vec![invalid, plain_response("after-invalid-init")]).await;
+
+    submit_and_wait_for_store(&test).await?;
+
+    assert!(!marker.exists(), "invalid sibling calls must not dispatch");
+    let state = codex_state::StateRuntime::init(
+        test.codex_home_path().to_path_buf(),
+        "test-provider".to_string(),
+    )
+    .await?;
+    let (stored, _) = state
+        .load_taskspace_map_for_thread(test.session_configured.session_id)
+        .await?
+        .expect("mechanical TaskSpace identity");
+    assert_eq!(stored.map_revision, 0);
+    assert!(stored.canonical_map.is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn empty_execute_call_id_preserves_active_store_revision() -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAppend);
+        })
+        .build(&server)
+        .await?;
+    enable_taskspace(&test).await?;
+    let marker = test.cwd_path().join("empty-execute-dispatched");
+    let invalid = sse(vec![
+        ev_response_created("invalid-execute"),
+        ev_function_call("execute-control", "taskspace_control", &execute_arguments()),
+        ev_function_call(
+            " ",
+            "exec_command",
+            &json!({"cmd": format!("touch {}", marker.display())}).to_string(),
+        ),
+        ev_completed("invalid-execute"),
+    ]);
+    let mut responses = common_responses(&test);
+    responses.extend([invalid, plain_response("after-invalid-execute")]);
+    mount_sse_sequence(&server, responses).await;
+
+    submit_and_wait_for_store(&test).await?;
+
+    assert!(!marker.exists(), "invalid sibling call must not dispatch");
+    let state = codex_state::StateRuntime::init(
+        test.codex_home_path().to_path_buf(),
+        "test-provider".to_string(),
+    )
+    .await?;
+    let (stored, _) = state
+        .load_taskspace_map_for_thread(test.session_configured.session_id)
+        .await?
+        .expect("active canonical map");
+    let map = stored.canonical_map.expect("initialized canonical map");
+    assert_eq!(stored.map_revision, 2);
+    assert_eq!(map.revision, 2);
+    assert!(map.action_reservations.is_empty());
+    assert_eq!(map.result_refs.len(), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn duplicate_reopen_call_id_preserves_closed_store_and_terminal() -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAppend);
+        })
+        .build(&server)
+        .await?;
+    enable_taskspace(&test).await?;
+    let marker = test.cwd_path().join("duplicate-reopen-dispatched");
+    let invalid = sse(vec![
+        ev_response_created("invalid-reopen"),
+        ev_function_call("duplicate", "taskspace_control", &reopen_arguments()),
+        ev_function_call(
+            "duplicate",
+            "exec_command",
+            &json!({"cmd": format!("touch {}", marker.display())}).to_string(),
+        ),
+        ev_completed("invalid-reopen"),
+    ]);
+    let mut responses = common_responses(&test);
+    responses.push(sse(vec![
+        ev_response_created("finish-response"),
+        ev_function_call("finish-call", "taskspace_control", &finish_arguments()),
+        ev_completed("finish-response"),
+    ]));
+    responses.extend([invalid, plain_response("after-invalid-reopen")]);
+    mount_sse_sequence(&server, responses).await;
+
+    submit_and_collect(&test).await?;
+    submit_and_wait_for_store(&test).await?;
+
+    assert!(!marker.exists(), "invalid reopen sibling must not dispatch");
+    let state = codex_state::StateRuntime::init(
+        test.codex_home_path().to_path_buf(),
+        "test-provider".to_string(),
+    )
+    .await?;
+    let (stored, _) = state
+        .load_taskspace_map_for_thread(test.session_configured.session_id)
+        .await?
+        .expect("closed canonical map");
+    let map = stored.canonical_map.expect("closed canonical facts");
+    assert_eq!(stored.map_revision, 3);
+    assert!(stored.terminal);
+    assert!(map.terminal_record.is_some());
+    assert!(map.terminal_history.is_empty());
+    assert!(map.action_reservations.is_empty());
     Ok(())
 }

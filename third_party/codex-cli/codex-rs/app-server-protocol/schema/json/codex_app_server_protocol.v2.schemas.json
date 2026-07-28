@@ -155,10 +155,6 @@
         "mode": {
           "$ref": "#/definitions/MapRuntimeMode"
         },
-        "rebornRequested": {
-          "default": false,
-          "type": "boolean"
-        },
         "routingRequired": {
           "default": false,
           "type": "boolean"

@@ -9,4 +9,4 @@ import type { ActionMapSnapshotTraceEventRef } from "./ActionMapSnapshotTraceEve
 import type { ActionMapSnapshotTraceSummary } from "./ActionMapSnapshotTraceSummary";
 import type { MapRuntimeMode } from "./MapRuntimeMode";
 
-export type ActionMapSnapshot = { schemaVersion: string, mode: MapRuntimeMode, routingRequired: boolean, bootstrapRequired: boolean, rebornRequested: boolean, map: ActionMapSnapshotMap | null, maintenanceBarriers: Array<ActionMapSnapshotMaintenanceBarrier>, traceSummary: ActionMapSnapshotTraceSummary, traceEvents: Array<ActionMapSnapshotTraceEventRef>, sentinelSummary: ActionMapSnapshotSentinelSummary, sentinelWarnings: Array<ActionMapSnapshotSentinelWarningRef>, };
+export type ActionMapSnapshot = { schemaVersion: string, mode: MapRuntimeMode, routingRequired: boolean, bootstrapRequired: boolean, map: ActionMapSnapshotMap | null, maintenanceBarriers: Array<ActionMapSnapshotMaintenanceBarrier>, traceSummary: ActionMapSnapshotTraceSummary, traceEvents: Array<ActionMapSnapshotTraceEventRef>, sentinelSummary: ActionMapSnapshotSentinelSummary, sentinelWarnings: Array<ActionMapSnapshotSentinelWarningRef>, };

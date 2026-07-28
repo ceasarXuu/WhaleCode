@@ -152,12 +152,6 @@ impl ActionMapRuntimeState {
         self.maps.get_mut(&map_id)
     }
 
-    pub(crate) fn clear_active_map(&mut self) {
-        if let Some(map_id) = self.active_map_id.as_deref() {
-            self.maps.remove(map_id);
-        }
-    }
-
     pub(crate) fn control_state(&self, map_id_hint: Option<&str>) -> Option<ActionMapControlState> {
         let map = match map_id_hint {
             Some(map_id) => self.maps.get(map_id)?,

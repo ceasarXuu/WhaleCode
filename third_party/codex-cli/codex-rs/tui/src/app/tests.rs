@@ -4971,16 +4971,15 @@ async fn action_map_commands_are_routed_through_app_server_in_tui_impl() {
     assert_eq!(observed_mode, MapRuntimeMode::Experiment);
     assert_eq!(observed_map_present, false);
 
-    for op in [
-        AppCommand::restart_action_map(),
-        AppCommand::show_action_map(),
-    ] {
-        let handled = app
-            .try_submit_active_thread_op_via_app_server(&mut app_server, thread_id, &op)
-            .await
-            .expect("action-map command submission should not fail");
-        assert_eq!(handled, true);
-    }
+    let handled = app
+        .try_submit_active_thread_op_via_app_server(
+            &mut app_server,
+            thread_id,
+            &AppCommand::show_action_map(),
+        )
+        .await
+        .expect("action-map command submission should not fail");
+    assert_eq!(handled, true);
 
     let viewer_url = app
         .action_map_viewer

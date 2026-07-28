@@ -783,12 +783,6 @@ pub enum Op {
     /// It does not select between legacy and current TaskSpace implementations.
     SetMapRuntimeMode { mode: MapRuntimeMode },
 
-    /// Reborn the active TaskSpace path using the existing map runtime.
-    ///
-    /// This is a local-only operation handled by codex-core; it does not
-    /// involve the model.
-    RestartActionMap,
-
     /// Show a human-readable snapshot of the current TaskSpace path.
     ///
     /// This is a local-only operation handled by codex-core; it does not
@@ -928,7 +922,6 @@ impl Op {
             Self::SetThreadName { .. } => "set_thread_name",
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
             Self::SetMapRuntimeMode { .. } => "set_map_runtime_mode",
-            Self::RestartActionMap => "restart_action_map",
             Self::ShowActionMap => "show_action_map",
             Self::Undo => "undo",
             Self::ThreadRollback { .. } => "thread_rollback",
@@ -1811,8 +1804,6 @@ pub struct ActionMapSnapshot {
     pub routing_required: bool,
     #[serde(default)]
     pub bootstrap_required: bool,
-    #[serde(default)]
-    pub reborn_requested: bool,
     pub map: Option<ActionMapSnapshotMap>,
     pub maintenance_barriers: Vec<ActionMapSnapshotMaintenanceBarrier>,
     #[serde(default)]

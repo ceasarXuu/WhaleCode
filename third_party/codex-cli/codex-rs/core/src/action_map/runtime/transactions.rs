@@ -1,6 +1,7 @@
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::taskspace::TaskSpaceTerminalRecord;
+use std::collections::HashSet;
 
 use crate::action_map::map::ActionMapInstance;
 use crate::action_map::response::ActionMapDeclaredCall;
@@ -35,9 +36,7 @@ impl ActionMapRuntimeState {
         operation: ActionMapResponseOperation,
         calls: Vec<ActionMapDeclaredCall>,
     ) -> Result<(ActionMapPreparedResponse, Vec<MapRuntimeEvent>), String> {
-        if calls.is_empty() {
-            return Err(rejection_json(0, "reservation_invalid", "empty_response"));
-        }
+        validate_declared_calls(control_call_id, &calls)?;
         let revision_before = self
             .active_map()
             .map_or(0, |map| map.canonical_map().revision);
@@ -285,6 +284,45 @@ impl ActionMapRuntimeState {
         map.commit_graph(commit.map, commit.events);
         Ok((map_id, revision, "reopen_map", prepared))
     }
+}
+
+fn validate_declared_calls(
+    control_call_id: &str,
+    calls: &[ActionMapDeclaredCall],
+) -> Result<(), String> {
+    if control_call_id.trim().is_empty() {
+        return Err(rejection_json(
+            0,
+            "reservation_invalid",
+            "empty_control_call_id",
+        ));
+    }
+    if calls.is_empty() {
+        return Err(rejection_json(0, "reservation_invalid", "empty_response"));
+    }
+    let mut call_ids = HashSet::with_capacity(calls.len() + 1);
+    call_ids.insert(control_call_id);
+    for (index, call) in calls.iter().enumerate() {
+        if call.call_id.trim().is_empty()
+            || call.node_id.trim().is_empty()
+            || call.tool_name.trim().is_empty()
+            || call.call_index != index
+        {
+            return Err(rejection_json(
+                0,
+                "reservation_invalid",
+                &format!("call_identity:{index}"),
+            ));
+        }
+        if !call_ids.insert(call.call_id.as_str()) {
+            return Err(rejection_json(
+                0,
+                "reservation_invalid",
+                &format!("duplicate_call_id:{}", call.call_id),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn reservation_inputs(

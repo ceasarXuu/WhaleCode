@@ -74,19 +74,24 @@ fn parses_config_isolation_flags() {
 
 #[test]
 fn parses_taskspace_exec_flags() {
-    let cli = Cli::parse_from(["codex-exec", "--taskspace", "--task-reborn", "summarize"]);
+    let cli = Cli::parse_from(["codex-exec", "--taskspace", "summarize"]);
 
     assert!(cli.taskspace);
-    assert!(cli.task_reborn);
     assert_eq!(cli.prompt.as_deref(), Some("summarize"));
 }
 
 #[test]
-fn hides_legacy_map_exec_flags_from_help() {
+fn retired_map_lifecycle_flags_are_rejected() {
     let help = Cli::command().render_long_help().to_string();
 
     assert!(help.contains("--taskspace"));
-    assert!(help.contains("--task-reborn"));
+    assert!(!help.contains("--task-reborn"));
     assert!(!help.contains("--map-mode"));
     assert!(!help.contains("--map-restart"));
+    for flag in ["--task-reborn", "--map-mode", "--map-restart"] {
+        assert!(
+            Cli::try_parse_from(["codex-exec", flag, "summarize"]).is_err(),
+            "{flag} must not remain as a hidden compatibility path"
+        );
+    }
 }

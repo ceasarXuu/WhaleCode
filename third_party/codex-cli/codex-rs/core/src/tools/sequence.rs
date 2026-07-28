@@ -586,27 +586,15 @@ async fn execute_prepared_taskspace_siblings(
     control_output: ResponseInputItem,
     cancellation_token: CancellationToken,
 ) -> Result<ToolSequenceOutcome> {
-    let mut prepared_by_call_id = prepared_calls
-        .into_iter()
-        .map(|prepared| (prepared.call_id.clone(), prepared))
-        .collect::<std::collections::HashMap<_, _>>();
-    let bound_calls = calls
-        .iter()
-        .map(|call| {
-            prepared_by_call_id.remove(&call.call_id).ok_or_else(|| {
-                codex_protocol::error::CodexErr::Fatal(format!(
-                    "TaskSpace response preparation omitted sibling call `{}`",
-                    call.call_id
-                ))
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    if let Some(unmatched) = prepared_by_call_id.values().next() {
-        return Err(codex_protocol::error::CodexErr::Fatal(format!(
-            "TaskSpace response preparation returned unmatched call `{}`",
-            unmatched.call_id
-        )));
-    }
+    debug_assert_eq!(calls.len(), prepared_calls.len());
+    debug_assert!(calls.iter().zip(&prepared_calls).enumerate().all(
+        |(index, (call, prepared))| {
+            prepared.call_index == index
+                && prepared.call_id == call.call_id
+                && prepared.tool_name == call.tool_name.display()
+        }
+    ));
+    let bound_calls = prepared_calls;
     let segments = sequence_segments(&calls);
     let mut outputs = vec![control_output];
     let mut supplemental_outputs = Vec::new();
@@ -773,3 +761,7 @@ mod tests;
 #[cfg(test)]
 #[path = "sequence_taskspace_tests.rs"]
 mod taskspace_tests;
+
+#[cfg(test)]
+#[path = "sequence_identity_tests.rs"]
+mod identity_tests;

@@ -75,8 +75,9 @@ fn projection_input(map: &ActionMapInstance) -> Result<ProjectionInput, serde_js
         .node_views()
         .into_iter()
         .filter(|view| {
-            view.state == crate::action_map::rooted_dag::NodeState::Ready
-                || view.state == crate::action_map::rooted_dag::NodeState::InFlight
+            map.node_role(&view.node_id) == Some(crate::action_map::map::NodeRole::Work)
+                && (view.state == crate::action_map::rooted_dag::NodeState::Ready
+                    || view.state == crate::action_map::rooted_dag::NodeState::InFlight)
         })
         .map(|view| view.node_id)
         .collect();
@@ -162,5 +163,58 @@ fn projection_terminal(
     ProjectionTerminal {
         action_id: terminal.action_id.clone(),
         summary_ref: terminal.summary_ref.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use codex_protocol::ThreadId;
+
+    use super::projection_input;
+    use crate::action_map::ActionMapDeclaredCall;
+    use crate::action_map::ActionMapResponseOperation;
+    use crate::action_map::MapEdge;
+    use crate::action_map::rooted_dag::map_node;
+    use crate::action_map::runtime::ActionMapRuntimeState;
+
+    #[test]
+    fn active_frontier_contains_executable_work_but_not_root() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+        runtime
+            .restore_store_map("projection-map", owner, None)
+            .expect("restore map identity");
+        runtime
+            .prepare_response_for_main(
+                owner,
+                "control",
+                ActionMapResponseOperation::Initialize {
+                    root: map_node("root", "Complete the task", Vec::new()),
+                    work_nodes: vec![map_node("inspect", "Inspect", Vec::new())],
+                    finish: map_node("finish", "Finish", Vec::new()),
+                    edges: vec![
+                        MapEdge {
+                            from: "root".into(),
+                            to: "inspect".into(),
+                        },
+                        MapEdge {
+                            from: "inspect".into(),
+                            to: "finish".into(),
+                        },
+                    ],
+                },
+                vec![ActionMapDeclaredCall {
+                    call_id: "inspect-call".into(),
+                    call_index: 0,
+                    node_id: "inspect".into(),
+                    tool_name: "read_file".into(),
+                }],
+            )
+            .expect("initialize map");
+
+        let input =
+            projection_input(runtime.active_map().expect("active map")).expect("projection input");
+
+        assert_eq!(input.active_frontier, vec!["inspect"]);
     }
 }

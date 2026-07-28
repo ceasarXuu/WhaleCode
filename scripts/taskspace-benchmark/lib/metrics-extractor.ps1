@@ -54,22 +54,24 @@ function Get-TaskspaceChangedPaths {
     @((Get-TaskspaceChangedFileInventory $RepoDir $DiffText) | ForEach-Object { $_.path })
 }
 
-function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
+function Test-TaskspaceOrdinaryToolBeforeReservationInRollout {
     param([AllowEmptyString()][string]$RolloutPath = "")
     if ([string]::IsNullOrWhiteSpace($RolloutPath)) { return $false }
     if (-not (Test-Path -LiteralPath $RolloutPath -PathType Leaf)) { return $false }
 
-    $bindingEstablished = $false
+    $ordinaryCallIds = @{}
+    $reservedCallIds = @{}
     foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $event = $line | ConvertFrom-Json } catch { continue }
         $payload = $event.payload
         if ($null -eq $payload) { continue }
         $payloadType = Get-TaskspaceRolloutPayloadType $payload
-        if ($payloadType -eq "lease_created" -or
-            ($payloadType -eq "taskspace_trace_event_recorded" -and
-                [string]$payload.kind -eq "mechanical_blank_map_initialized")) {
-            $bindingEstablished = $true
+        if ($payloadType -eq "store_committed" -and
+            [string]$payload.operation -eq "prepare_response") {
+            foreach ($callId in @($ordinaryCallIds.Keys)) {
+                $reservedCallIds[$callId] = $true
+            }
             continue
         }
         $responseItem = Get-TaskspaceCanonicalResponseItem $event
@@ -80,13 +82,25 @@ function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
                 "custom_tool_call",
                 "tool_search_call",
                 "mcp_tool_call"
-            ) -and
-            [string]$responseItem.name -ne "taskspace_control" -and
-            -not $bindingEstablished) {
-            return $true
+            ) -and [string]$responseItem.name -ne "taskspace_control") {
+            $ordinaryCallIds[[string]$responseItem.call_id] = $true
+            continue
         }
-        if ($responseType -eq "local_shell_call" -and -not $bindingEstablished) {
-            return $true
+        if ($responseType -eq "local_shell_call") {
+            $ordinaryCallIds[[string]$responseItem.call_id] = $true
+            continue
+        }
+        if ($responseType -in @(
+                "function_call_output",
+                "custom_tool_call_output",
+                "tool_search_output",
+                "mcp_tool_call_output",
+                "local_shell_call_output"
+            )) {
+            $callId = [string]$responseItem.call_id
+            if ($ordinaryCallIds.ContainsKey($callId) -and -not $reservedCallIds.ContainsKey($callId)) {
+                return $true
+            }
         }
     }
     return $false
@@ -789,9 +803,9 @@ function Get-TaskspaceBenchmarkMetrics {
         spawn_agent_calls = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count } else { 0 }
         subagent_results = if ($obs) { @($obs.nodes | ForEach-Object { @($_.results | Where-Object { $subagentThreadIds -contains [string]$_.sourceThreadId }) }).Count } else { 0 }
         open_leaf_nodes = $graphHealth.OpenLeafNodeCount
-        ordinary_before_binding = if ($Side.LogicalMode -eq "taskspace" -and $ObservabilityResult) {
+        ordinary_before_reservation = if ($Side.LogicalMode -eq "taskspace" -and $ObservabilityResult) {
             $rolloutPath = [string]$ObservabilityResult.rollout_path
-            Test-TaskspaceOrdinaryToolBeforeBindingInRollout $rolloutPath
+            Test-TaskspaceOrdinaryToolBeforeReservationInRollout $rolloutPath
         } else { $false }
         graph_health_path = $graphHealthPath
         graph_health_warnings = @($graphHealthReport.warnings)

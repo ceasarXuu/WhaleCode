@@ -12,7 +12,6 @@ pub(crate) mod exec_events;
 
 pub use cli::Cli;
 pub use cli::Command;
-use cli::ExecMapRuntimeMode;
 pub use cli::ReviewArgs;
 use codex_app_server_client::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
 use codex_app_server_client::EnvironmentManager;
@@ -33,8 +32,6 @@ use codex_app_server_protocol::ReviewTarget as ApiReviewTarget;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::Thread as AppServerThread;
-use codex_app_server_protocol::ThreadActionMapRestartParams;
-use codex_app_server_protocol::ThreadActionMapRestartResponse;
 use codex_app_server_protocol::ThreadItem as AppServerThreadItem;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
@@ -83,6 +80,7 @@ use codex_otel::traceparent_context_from_env;
 use codex_protocol::config_types::SandboxMode;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::ReviewTarget;
 use codex_protocol::protocol::RolloutItem;
@@ -203,8 +201,7 @@ struct ExecRunArgs {
     images: Vec<PathBuf>,
     json_mode: bool,
     last_message_file: Option<PathBuf>,
-    map_mode: Option<ExecMapRuntimeMode>,
-    map_restart: bool,
+    map_mode: Option<MapRuntimeMode>,
     model_provider: Option<String>,
     oss: bool,
     output_schema_path: Option<PathBuf>,
@@ -237,22 +234,14 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         color,
         last_message_file,
         taskspace,
-        task_reborn,
-        map_mode,
-        map_restart,
         json: json_mode,
         prompt,
         output_schema: output_schema_path,
         config_overrides,
     } = cli;
     let mut config_overrides = config_overrides;
-    let effective_map_mode = if taskspace {
-        Some(ExecMapRuntimeMode::Experiment)
-    } else {
-        map_mode
-    };
-    let effective_map_restart = map_restart || task_reborn;
-    if effective_map_mode == Some(ExecMapRuntimeMode::Experiment) {
+    let effective_map_mode = taskspace.then_some(MapRuntimeMode::Experiment);
+    if effective_map_mode == Some(MapRuntimeMode::Experiment) {
         config_overrides
             .raw_overrides
             .push("features.multi_agent_v2.enabled=true".to_string());
@@ -543,7 +532,6 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         json_mode,
         last_message_file,
         map_mode: effective_map_mode,
-        map_restart: effective_map_restart,
         model_provider,
         oss,
         output_schema_path,
@@ -566,7 +554,6 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         json_mode,
         last_message_file,
         map_mode,
-        map_restart,
         model_provider,
         oss,
         output_schema_path,
@@ -740,32 +727,16 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     exec_span.record("thread.id", primary_thread_id_for_span.as_str());
 
     if let Some(map_mode) = map_mode {
-        let mode = map_mode.into();
         send_request_with_response::<ThreadMapRuntimeModeSetResponse>(
             &client,
             ClientRequest::ThreadMapRuntimeModeSet {
                 request_id: request_ids.next(),
                 params: ThreadMapRuntimeModeSetParams {
                     thread_id: primary_thread_id_for_span.clone(),
-                    mode,
+                    mode: map_mode,
                 },
             },
             "thread/mapRuntimeMode/set",
-        )
-        .await
-        .map_err(anyhow::Error::msg)?;
-    }
-
-    if map_restart {
-        send_request_with_response::<ThreadActionMapRestartResponse>(
-            &client,
-            ClientRequest::ThreadActionMapRestart {
-                request_id: request_ids.next(),
-                params: ThreadActionMapRestartParams {
-                    thread_id: primary_thread_id_for_span.clone(),
-                },
-            },
-            "thread/actionMap/restart",
         )
         .await
         .map_err(anyhow::Error::msg)?;

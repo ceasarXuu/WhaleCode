@@ -327,7 +327,7 @@ if ([string]::IsNullOrWhiteSpace($gitDiffText)) { $failures.Add("repository diff
 if (-not $rollout) { $failures.Add("could not find the rollout for this thread") }
 if ($rollout -and $obsExitCode -ne 0) { $failures.Add("observability export failed with exit code $obsExitCode") }
 if ($rollout -and $obsExitCode -eq 0 -and -not $cognitiveHardGatePassed) { $failures.Add("cognitive hard gate failed: $($cognitiveHardGateFailures -join ', ')") }
-if ($ordering.OrdinaryToolBeforeBinding) { $failures.Add("ordinary tool succeeded before first TaskSpace binding") }
+if ($ordering.OrdinaryToolBeforeReservation) { $failures.Add("ordinary tool succeeded before its TaskSpace reservation commit") }
 if ($mapCount -lt 1) { $failures.Add("no map was observed") }
 if ($nodeCount -lt 5) { $failures.Add("map did not grow to at least 5 nodes; observed $nodeCount") }
 if ($graphHealth.EdgeCount -lt 2) { $failures.Add("map did not create enough dependency edges; observed $($graphHealth.EdgeCount)") }
@@ -403,7 +403,7 @@ foreach ($row in @(
     @("changed_paths_without_implementation_owner", $implementationOwnershipGap.MissingCount),
     @("unexpected_taskspace_gate_failures", $unexpectedTaskspaceGateFailures),
     @("test_node_has_passing_pytest", $testNodeHasPassingPytest),
-    @("ordinary_before_binding", $ordering.OrdinaryToolBeforeBinding), @("command_executions", $commandExecutionCount)
+    @("ordinary_before_reservation", $ordering.OrdinaryToolBeforeReservation), @("command_executions", $commandExecutionCount)
 )) { Add-ReportLine $report $row[0] $row[1] }
 $report.Add("")
 $report.Add("## Failures")

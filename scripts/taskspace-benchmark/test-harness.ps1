@@ -469,10 +469,10 @@ $costObs = Join-Path $costDir "observability.json"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costDir "taskspace.graph.final.json") -Encoding UTF8
 @(
     (@{ type = "response.completed"; response = @{ usage = @{ input_tokens = 120; output_tokens = 30; input_tokens_details = @{ cached_tokens = 20 } } } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"start_task","title":"x"}' } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_nodes","finishes":[{"node_id":"node-1"}]}' } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action_name":"start_task"}}' } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"command":"finish_nodes","node_id":"node-1"}}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"x"},"work_nodes":[{"node_id":"node-1","goal":"work"}],"finish":{"node_id":"finish","goal":"finish"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"actions":[{"node_id":"node-1","tool":"exec_command"}]}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_map","expected_revision":2,"finish_node_id":"finish","complete_work_node_ids":["node-1"],"exact_summary":"done"}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action_name":"initialize_and_execute"}}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"finish","args":{"command":"finish_map","node_id":"finish"}}' } } | ConvertTo-Json -Compress -Depth 8),
     (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
 @(
@@ -517,8 +517,8 @@ Assert-True ([int]$costArtifacts.request_summary.rollout_trace.last_input_tokens
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 4) "taskspace_control count was not parsed"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.native_taskspace_control_count -eq 2) "native taskspace_control count was not parsed"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.action_contract_taskspace_control_count -eq 2) "action-contract taskspace_control count was not parsed"
-Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.start_task -eq 2) "taskspace_control start_task action was not counted"
-Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_nodes -eq 2) "taskspace_control finish_nodes action was not counted"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.initialize_and_execute -eq 2) "taskspace_control initialize_and_execute action was not counted"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_map -eq 2) "taskspace_control finish_map action was not counted"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_runtime_event_count -eq 5) "taskspace runtime event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_state_commit_count -eq 1) "runtime state_commit event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_output_ref_created_count -eq 1) "runtime output_ref.created count was not parsed from observability"
@@ -528,109 +528,43 @@ Assert-True ([int]$costArtifacts.replay_summary.output_reference_count -eq 1) "o
 Assert-True ([int]$costArtifacts.replay_summary.output_slice_count -eq 1) "output slice count was not parsed"
 Assert-True ([int]$costArtifacts.replay_summary.large_output_replay_count -eq 0) "output reference artifact was incorrectly treated as raw replay"
 $projectionJsonl = Join-Path $costDir "projection-source.jsonl"
-$activeProjectionBlock = @"
-ContextProjectionV1 active replacement:
-- projection_id: projection-taskspace-task-1-map-1
-- task_id: task-1
+$currentProjectionBlock = @"
+TaskSpaceMapProjectionR7V1:
+- schema_version: taskspace-map-projection-r7-v1
+- projection_kind: request_snapshot
+- supersedes_all_prior_projections: true
+- current_state_rule: last_projection_only
 - map_id: map-1
-- mode: taskspace
-- active_objective: Verify projection metrics.
-- current_node: node-1 kind=inspect_code_context status=running
-- sections:
-  map_nodes:
-    - node-1 kind=inspect_code_context status=running
-  current_node_recent_events:
-    - node-event-1 source=main_tool tool_success=true
-  result_refs_available:
-    - result:abc
-ContextProjectionV1 active replacement end.
-"@
-$shadowProjectionBlock = @"
-ContextProjectionV1 shadow (not active replacement):
-- projection_id: projection-shadow-task-1-map-1
-- task_id: task-1
-- mode: default_compact
-- active_objective: Verify projection metrics.
-- sections:
-  success_criteria:
-    - projected criteria
-  current_node: node-1
-  blockers:
-    - none
-  decisions:
-    - decision: keep shadow mode
-  facts:
-    - fact: output refs active
-  relevant_results:
-    - result:abc
-  verified_input_evidence:
-    - none
-  fact_source_coverage:
-    - /data/source_a/users.json status=observed
-  result_refs_available:
-    - result:abc
-- estimated_tokens: 123
+- revision: 4
+- canonical_sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+- root_node_id: root
+- finish_node_id: finish
+- complete: false
+- root_source_event_ids: event-1
+- current_terminal: none
+- terminal_history: none
+- active_frontier: work
+- map_nodes: root|work|finish
+- map_edges: root->work|work->finish
+- node_details: none
+TaskSpaceMapProjectionR7V1 end.
 "@
 @(
-    (@{ type = "response.created"; input = $activeProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
+    (@{ type = "response.created"; input = $currentProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $projectionJsonl -Encoding UTF8
 $projectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection") $projectionJsonl ""
 Assert-True ([string]$projectionArtifacts.context_projection_summary.availability -eq "measured") "context projection summary was not marked measured"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_count -eq 1) "context projection block was not counted"
-Assert-True ($null -eq $projectionArtifacts.context_projection_summary.projection_tokens_total) "active projection should not expose an estimated token field"
+Assert-True ($null -eq $projectionArtifacts.context_projection_summary.projection_tokens_total) "current projection should not expose an estimated token field"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.protected_miss_count -eq 0) "context projection protected sections were reported missing"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.active_projection_count -eq 1) "active projection count was not reported"
-Assert-True ([int]$projectionArtifacts.context_projection_summary.shadow_projection_count -eq 0) "active projection fixture was counted as shadow"
+Assert-True ([int]$projectionArtifacts.context_projection_summary.shadow_projection_count -eq 0) "current projection fixture was counted as shadow"
 $projectionEventLine = Get-Content -LiteralPath $projectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $projectionEvent = $projectionEventLine | ConvertFrom-Json
-Assert-True ([string]$projectionEvent.projection_id -eq "projection-taskspace-task-1-map-1") "active projection event id was not parsed"
-Assert-True ([string]$projectionEvent.projection_kind -eq "active_replacement") "active projection kind was not parsed"
-$shadowProjectionJsonl = Join-Path $costDir "projection-shadow-source.jsonl"
-@(
-    (@{ type = "response.created"; input = $shadowProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
-) | Set-Content -LiteralPath $shadowProjectionJsonl -Encoding UTF8
-$shadowProjectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection-shadow") $shadowProjectionJsonl ""
-Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.projection_count -eq 1) "legacy shadow projection block was not counted"
-Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.active_projection_count -eq 0) "shadow projection fixture was counted as active"
-Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.shadow_projection_count -eq 1) "shadow projection count was not reported"
-$shadowProjectionEventLine = Get-Content -LiteralPath $shadowProjectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
-$shadowProjectionEvent = $shadowProjectionEventLine | ConvertFrom-Json
-Assert-True ([string]$shadowProjectionEvent.projection_kind -eq "shadow") "legacy shadow projection kind was not parsed"
-$r7ProjectionJsonl = Join-Path $costDir "projection-r7-current.jsonl"
-[pscustomobject]@{
-    message = @'
-TaskSpaceMapProjectionR7V1:
-- schema_version: taskspace-map-projection-r7-v1
-- projection_kind: current_projection
-- map_id: map-1
-- revision: 4
-- canonical_sha256: canonical-4
-- root_node_id: root
-- finish_node_id: finish
-- complete: false
-  root_source_event_ids:
-    - event-1
-- current_node: work
-  active_frontier:
-    - work
-  map_nodes:
-    - root role=task_root status=open
-    - work role=work status=running
-    - finish role=finish status=pending
-  map_edges:
-    - root->work
-    - work->finish
-  node_details:
-    - none
-TaskSpaceMapProjectionR7V1 end.
-'@
-} | ConvertTo-Json -Compress | Set-Content -LiteralPath $r7ProjectionJsonl -Encoding UTF8
-$r7ProjectionSummary = New-TaskspaceContextProjectionSummary $r7ProjectionJsonl "" ""
-Assert-True ([int]$r7ProjectionSummary.projection_count -eq 1) "R7 current projection block was not counted"
-Assert-True ([string]$r7ProjectionSummary.events[0].projection_kind -eq "current_projection") "R7 projection kind was not parsed"
-Assert-True ([int64]$r7ProjectionSummary.events[0].revision -eq 4) "R7 projection revision was not parsed"
-Assert-True ([string]$r7ProjectionSummary.events[0].canonical_sha256 -eq "canonical-4") "R7 canonical hash was not parsed"
-Assert-True ([int]$r7ProjectionSummary.events[0].protected_miss_count -eq 0) "R7 projection required sections were not preserved"
+Assert-True ([string]$projectionEvent.map_id -eq "map-1") "current projection map id was not parsed"
+Assert-True ([string]$projectionEvent.projection_kind -eq "request_snapshot") "current projection kind was not parsed"
+Assert-True ([int64]$projectionEvent.revision -eq 4) "current projection revision was not parsed"
+Assert-True ([string]$projectionEvent.canonical_sha256 -eq "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc") "current projection canonical hash was not parsed"
 $epochProjectionRollout = Join-Path $costDir "projection-epoch-rollout.jsonl"
 @(
     ([pscustomobject]@{
@@ -1033,7 +967,7 @@ $metrics = [pscustomobject]@{
     changed_file_inventory = @([pscustomobject]@{ path = "src/tax_calc.py"; status = "M "; source = "git_status"; sha256 = "abc123"; size_bytes = 12 })
     validator_environment_mismatch = $false
     maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0
-    subagent_results = 0; open_leaf_nodes = 0; ordinary_before_binding = $false
+    subagent_results = 0; open_leaf_nodes = 0; ordinary_before_reservation = $false
     graph_health_path = ""; graph_health_warnings = @(); decision_count = 0; decision_density = 0.0
     accepted_results = 0; unreviewed_results = 0; questioned_or_invalid_results = 0
     result_adoption_rate = 0.0; subagent_decision_yield = 0.0
@@ -1289,7 +1223,7 @@ $finalizeLeftMetrics = [pscustomobject]@{
     changed_paths = @(); changed_file_inventory = @(); metrics_warnings = @(); metrics_taints = @("metrics_critical_artifact_unhashed:tests/x.py")
     validator_environment_failures = @("public_validation_timeout", "docker_cleanup_container_failure")
     docker_build_result_path = ""; validator_environment_mismatch = $false
-    maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0; subagent_results = 0; open_leaf_nodes = 0; ordinary_before_binding = $false
+    maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0; subagent_results = 0; open_leaf_nodes = 0; ordinary_before_reservation = $false
 }
 $finalizeRightMetrics = $finalizeLeftMetrics.PSObject.Copy()
 $finalizeRightMetrics.mode = "right"; $finalizeRightMetrics.logical_mode = "taskspace"; $finalizeRightMetrics.business_success = $true; $finalizeRightMetrics.public_validation_exit_code = 0

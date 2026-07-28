@@ -182,27 +182,26 @@ function Get-CommandStats([string]$JsonlText) {
 }
 
 function Get-SuccessfulTaskspaceOrdering([string]$RolloutText) {
-    $firstBinding = $null
+    $firstReservation = $null
     $firstOrdinary = $null
     $pendingOrdinary = @{}
     foreach ($line in ($RolloutText -split "`r?`n")) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $evt = $line | ConvertFrom-Json } catch { continue }
-        if (-not $firstBinding -and $evt.type -eq "event_msg") {
+        if (-not $firstReservation -and $evt.type -eq "event_msg") {
             $eventKind = if ([string]$evt.payload.type -eq "map_runtime") {
                 [string]$evt.payload.map_event_type
             } else {
                 [string]$evt.payload.type
             }
-            if ($eventKind -eq "lease_created") {
-                $firstBinding = [pscustomobject]@{ Timestamp = [string]$evt.timestamp; Evidence = "lease_created" }
+            if ($eventKind -eq "store_committed" -and [string]$evt.payload.operation -eq "prepare_response") {
+                $firstReservation = [pscustomobject]@{ Timestamp = [string]$evt.timestamp; Evidence = "store_committed:prepare_response" }
             }
         }
         if ($evt.type -eq "response_item" -and $evt.payload.type -eq "function_call") {
             $name = [string]$evt.payload.name
             if ($name -match "^(shell_command|apply_patch|spawn_agent)$" -and $evt.payload.call_id) {
                 $pendingOrdinary[[string]$evt.payload.call_id] = [pscustomobject]@{
-                    Timestamp = [string]$evt.timestamp
                     Tool = $name
                 }
             }
@@ -213,22 +212,25 @@ function Get-SuccessfulTaskspaceOrdering([string]$RolloutText) {
                 $output = [string]$evt.payload.output
                 $blockedByTaskspace = $output -match "TaskSpace (mode is active|blocked this tool call)|Call taskspace_control"
                 if (-not $blockedByTaskspace) {
-                    $firstOrdinary = $pendingOrdinary[$callId]
+                    $firstOrdinary = [pscustomobject]@{
+                        Timestamp = [string]$evt.timestamp
+                        Tool = $pendingOrdinary[$callId].Tool
+                    }
                 }
             }
         }
     }
-    $ordinaryBeforeBinding = $false
-    if ($firstOrdinary -and -not $firstBinding) { $ordinaryBeforeBinding = $true }
-    elseif ($firstOrdinary -and $firstBinding) {
-        $ordinaryBeforeBinding = ([datetime]$firstOrdinary.Timestamp) -lt ([datetime]$firstBinding.Timestamp)
+    $ordinaryBeforeReservation = $false
+    if ($firstOrdinary -and -not $firstReservation) { $ordinaryBeforeReservation = $true }
+    elseif ($firstOrdinary -and $firstReservation) {
+        $ordinaryBeforeReservation = ([datetime]$firstOrdinary.Timestamp) -lt ([datetime]$firstReservation.Timestamp)
     }
     [pscustomobject]@{
-        FirstBindingTimestamp = if ($firstBinding) { $firstBinding.Timestamp } else { "" }
-        FirstBindingEvidence = if ($firstBinding) { $firstBinding.Evidence } else { "" }
+        FirstReservationTimestamp = if ($firstReservation) { $firstReservation.Timestamp } else { "" }
+        FirstReservationEvidence = if ($firstReservation) { $firstReservation.Evidence } else { "" }
         FirstOrdinaryToolTimestamp = if ($firstOrdinary) { $firstOrdinary.Timestamp } else { "" }
         FirstOrdinaryTool = if ($firstOrdinary) { $firstOrdinary.Tool } else { "" }
-        OrdinaryToolBeforeBinding = $ordinaryBeforeBinding
+        OrdinaryToolBeforeReservation = $ordinaryBeforeReservation
     }
 }
 

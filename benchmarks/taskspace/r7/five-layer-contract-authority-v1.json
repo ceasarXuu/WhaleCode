@@ -163,7 +163,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "R7.1-A2-B2.5",
       "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json",
-      "sha256": "2cb862d7ec2501d9f796b112491919c4256897f22db4435e7c21a0fc2bddc624",
+      "sha256": "1370322dac73bab51ed1d2b78738bed28af1e37140a968a58ddd0964f5a13847",
       "canonical_schema": "taskspace-canonical-map-v2",
       "store_ownership": "persistent_single_source_of_truth"
     },

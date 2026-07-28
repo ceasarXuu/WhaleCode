@@ -87,7 +87,7 @@ Assert-True (Test-Path -LiteralPath $cost.cost_scan_policy_path) "cost scan poli
 $toolShapePath = Join-Path $artifactDir "tool-shapes-rollout.jsonl"
 $toolShapeWriter = [System.IO.StreamWriter]::new($toolShapePath, $false, [System.Text.UTF8Encoding]::new($false))
 try {
-    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_call","execution":"client","call_id":"search-1","arguments":{"query":"calendar","taskspace_binding":{"action":"active"}}}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_call","execution":"client","call_id":"search-1","arguments":{"query":"calendar"}}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_output","execution":"client","call_id":"search-1","status":"completed","tools":[]}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"{\"schema_version\":\"ToolSearchFailureV1\",\"status\":\"failed\",\"success\":false,\"call_id\":\"search-1\"}"}]}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"local_shell_call","call_id":"shell-1","action":{"type":"exec","command":["pwd"]}}}')
@@ -100,7 +100,7 @@ try {
 $toolShapeStats = Get-TaskspaceRolloutToolStats $toolShapePath
 Assert-True ([int]$toolShapeStats.Completed -eq 3) "ToolSearch, LocalShell, or MCP call shape was not counted"
 Assert-True ([int]$toolShapeStats.Failed -eq 1) "ToolSearch supplemental failure fact was not counted"
-Assert-True (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $toolShapePath) "ToolSearch before Map binding was not detected"
+Assert-True (Test-TaskspaceOrdinaryToolBeforeReservationInRollout $toolShapePath) "ToolSearch output before reservation was not detected"
 
 if ($failures.Count -gt 0) {
     Write-Host "TaskSpace metrics extractor harness self-test: FAIL"

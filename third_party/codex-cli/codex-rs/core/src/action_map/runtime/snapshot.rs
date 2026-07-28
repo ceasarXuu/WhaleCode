@@ -22,7 +22,6 @@ impl ActionMapRuntimeState {
             mode: self.mode,
             routing_required: false,
             bootstrap_required: self.active_map().is_none(),
-            reborn_requested: false,
             map: self.active_map().map(snapshot_map),
             maintenance_barriers: Vec::new(),
             trace_summary: ActionMapSnapshotTraceSummary::default(),

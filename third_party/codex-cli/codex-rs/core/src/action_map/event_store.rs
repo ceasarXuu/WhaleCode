@@ -135,13 +135,10 @@ impl TaskSpaceEventStore {
         source_event_ids
     }
 
-    pub(crate) fn bind_call_owner(
-        &mut self,
-        call_id: impl Into<String>,
-        node_id: impl Into<String>,
+    pub(crate) fn validate_call_owner(
+        call_id: &str,
+        node_id: &str,
     ) -> Result<(), TaskSpaceEventCodecError> {
-        let call_id = call_id.into();
-        let node_id = node_id.into();
         if call_id.trim().is_empty() {
             return Err(TaskSpaceEventCodecError::InvalidPayload(
                 "call owner requires a non-empty call_id".to_string(),
@@ -150,6 +147,11 @@ impl TaskSpaceEventStore {
         if node_id.trim().is_empty() {
             return Err(TaskSpaceEventCodecError::EmptyNodeOwner);
         }
+        Ok(())
+    }
+
+    pub(crate) fn bind_validated_call_owner(&mut self, call_id: String, node_id: String) {
+        debug_assert!(Self::validate_call_owner(&call_id, &node_id).is_ok());
         let owner = TaskSpaceEventOwner::Node(node_id);
         for event in &mut self.events {
             if event.call_id.as_deref() == Some(call_id.as_str()) && is_call_event(event.event_type)
@@ -158,7 +160,6 @@ impl TaskSpaceEventStore {
             }
         }
         self.call_owners.insert(call_id, owner);
-        Ok(())
     }
 
     pub(crate) fn record_item(
