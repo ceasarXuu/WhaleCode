@@ -22,9 +22,9 @@ impl ToolSequenceManifest {
             .iter()
             .map(|call| ToolSequenceManifestEntry {
                 call_id: call.call_id.clone(),
-                tool_name: call.tool_name.display(),
-                is_apply_patch: call.tool_name.namespace.is_none()
-                    && call.tool_name.name == "apply_patch",
+                tool_name: call.provider_tool_name_display(),
+                is_apply_patch: call.provider_tool_name.namespace.is_none()
+                    && call.provider_tool_name.name == "apply_patch",
                 is_taskspace_control: is_taskspace_control(call),
                 payload_kind: payload_kind(&call.payload),
             })
@@ -38,7 +38,8 @@ impl ToolSequenceManifest {
 }
 
 pub(crate) fn is_taskspace_control(call: &ToolCall) -> bool {
-    call.tool_name.namespace.is_none() && call.tool_name.name == "taskspace_control"
+    call.provider_tool_name.namespace.is_none()
+        && call.provider_tool_name.name == "taskspace_control"
 }
 
 fn payload_kind(payload: &ToolPayload) -> &'static str {
@@ -58,7 +59,8 @@ mod tests {
 
     fn call(name: &str, call_id: &str) -> ToolCall {
         ToolCall {
-            tool_name: ToolName::plain(name),
+            provider_tool_name: ToolName::plain(name),
+            dispatch_tool_name: ToolName::plain(name),
             call_id: call_id.into(),
             payload: ToolPayload::Function {
                 arguments: "{}".into(),

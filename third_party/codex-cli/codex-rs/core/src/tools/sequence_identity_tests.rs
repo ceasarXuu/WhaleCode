@@ -7,7 +7,8 @@ use crate::tools::router::ToolCall;
 
 fn function_call(name: &str, call_id: &str, arguments: impl Into<String>) -> ToolCall {
     ToolCall {
-        tool_name: ToolName::plain(name),
+        provider_tool_name: ToolName::plain(name),
+        dispatch_tool_name: ToolName::plain(name),
         call_id: call_id.to_string(),
         payload: ToolPayload::Function {
             arguments: arguments.into(),
@@ -148,4 +149,55 @@ fn taskspace_preflight_rejects_control_and_sibling_with_same_call_id() {
         validate_tool_sequence(&calls, true).expect_err("response-wide duplicate must fail");
     assert_eq!(failure.reason_code, "taskspace_duplicate_call_id");
     assert_zero_commit_failure(&failure, &calls);
+}
+
+#[test]
+fn taskspace_manifest_matches_provider_identity_not_internal_dispatch_alias() {
+    for action in ["initialize_and_execute", "execute", "reopen_map"] {
+        let calls = vec![
+            control(
+                action,
+                serde_json::json!([{"node_id": "inspect", "tool": "exec_command"}]),
+            ),
+            ToolCall {
+                provider_tool_name: ToolName::plain("exec_command"),
+                dispatch_tool_name: ToolName::plain("shell_command"),
+                call_id: "exec".to_string(),
+                payload: ToolPayload::Function {
+                    arguments: r#"{"command":"true"}"#.to_string(),
+                },
+            },
+        ];
+
+        let (manifest, plan) =
+            validate_tool_sequence(&calls, true).expect("provider-visible identity must match");
+        assert_eq!(manifest.entries[1].tool_name, "exec_command");
+        let super::ToolSequencePlan::TaskSpaceExecute { declared_calls, .. } = plan else {
+            panic!("expected TaskSpace execute plan");
+        };
+        assert_eq!(declared_calls[0].tool_name, "exec_command");
+    }
+}
+
+#[test]
+fn taskspace_manifest_rejects_internal_dispatch_alias_as_public_identity() {
+    let calls = vec![
+        control(
+            "execute",
+            serde_json::json!([{"node_id": "inspect", "tool": "shell_command"}]),
+        ),
+        ToolCall {
+            provider_tool_name: ToolName::plain("exec_command"),
+            dispatch_tool_name: ToolName::plain("shell_command"),
+            call_id: "exec".to_string(),
+            payload: ToolPayload::Function {
+                arguments: r#"{"command":"true"}"#.to_string(),
+            },
+        },
+    ];
+
+    let failure = validate_tool_sequence(&calls, true)
+        .expect_err("internal dispatch identity must not satisfy the public manifest");
+    assert_eq!(failure.reason_code, "taskspace_action_tool_mismatch");
+    assert!(failure.message.contains("sibling Tool is `exec_command`"));
 }

@@ -1,8 +1,8 @@
 {
   "artifact_schema_version": 1,
   "contract_id": "r7-five-layer-taskspace-control-v4",
-  "status": "active_verified",
-  "activation_phase": "R7.1-A2-B2.5",
+  "status": "active_repair_verified",
+  "activation_phase": "R7.1-A2-C repair",
   "compatibility_policy": "none",
   "tool": {
     "name": "taskspace_control",
@@ -16,7 +16,8 @@
       },
       {
         "action": "execute",
-        "required": ["action", "expected_revision", "mutations", "actions"],
+        "required": ["action", "expected_revision", "actions"],
+        "optional": ["mutations"],
         "ordinary_siblings": "one_or_more"
       },
       {
@@ -51,6 +52,9 @@
     "position": "first_tool_call",
     "ordinary_tool_arguments": "native_unchanged",
     "ownership": "agent_declared_actions_index_matches_ordinary_sibling_index",
+    "tool_identity": "exact_provider_visible_name",
+    "completed_or_blocked_node_owns_sibling": false,
+    "max_apply_patch_siblings": 1,
     "runtime_validates": ["revision", "graph", "count", "tool_name", "order", "reservation"],
     "runtime_must_not": ["choose_node", "infer_ownership", "rewrite_tool_arguments", "repair_agent_semantics"]
   },

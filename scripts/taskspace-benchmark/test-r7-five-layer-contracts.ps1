@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("A2-B5", "All")]
+    [ValidateSet("A2-B5", "A2-C", "All")]
     [string]$Phase = "All"
 )
 
@@ -109,7 +109,7 @@ $manifestRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
 Assert-StrictJson $manifestRaw "production manifest"
 Assert-True ($manifestRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Production manifest does not match its schema"
 $manifest = $manifestRaw | ConvertFrom-Json -Depth 50
-Assert-Equal ([string]$manifest.activation_through) "A2-B5" "Production manifest is not activated through A2-B5"
+Assert-Equal ([string]$manifest.activation_through) "A2-C repair" "Production manifest is not activated through the A2-C repair"
 Assert-Equal ([string]$manifest.source_authority.sha256) (Get-Sha256 $authorityPath) "Production manifest authority hash drifted"
 Assert-Equal @($manifest.layers).Count 5 "Production manifest must retain exactly five content layers"
 foreach ($layer in @($manifest.layers)) {
@@ -126,9 +126,18 @@ $actions = @($control.tool.top_level_actions | ForEach-Object { [string]$_.actio
 Assert-Equal ($actions -join ",") "initialize_and_execute,execute,reopen_map,read_map,read_output_ref,finish_map" "Top-level action set drifted"
 Assert-Equal ([string]$control.response_manifest.ordinary_tool_arguments) "native_unchanged" "Ordinary Tool arguments are not native"
 Assert-Equal ([string]$control.response_manifest.ownership) "agent_declared_actions_index_matches_ordinary_sibling_index" "Action ownership is not Agent-declared"
+Assert-Equal ([string]$control.response_manifest.tool_identity) "exact_provider_visible_name" "Action manifest does not use provider-visible Tool identity"
+Assert-Equal ([bool]$control.response_manifest.completed_or_blocked_node_owns_sibling) $false "Completed or blocked nodes may own sibling actions"
+Assert-Equal ([int]$control.response_manifest.max_apply_patch_siblings) 1 "Single-Patch response contract drifted"
+$executeContract = @($control.tool.top_level_actions | Where-Object action -eq "execute")[0]
+Assert-True (-not (@($executeContract.required) -contains "mutations")) "execute.mutations remains mechanically required"
+Assert-True (@($executeContract.optional) -contains "mutations") "execute.mutations is not declared optional"
 
 $result = Read-StrictJson $resultContractPath "current result contract"
 Assert-Equal ([string]$result.model_visible_schema_version) "TaskSpaceControlResultV2" "Model-visible result version drifted"
+Assert-Equal ([string]$result.response_final_receipt_schema_version) "TaskSpaceResponseFinalReceiptV1" "Response-final receipt version drifted"
+Assert-Equal ([string]$result.response_final_receipt.canonical_source) "persistent_map_store" "Response-final receipt is not Store-backed"
+Assert-Equal ([bool]$result.response_final_receipt.receipt_only) $true "Response-final receipt incorrectly claims its own state mutation"
 Assert-Equal ([bool]$result.partial_commit) $false "TaskSpace result permits partial commit"
 Assert-Equal (@($result.accepted_actions) -join ",") ($actions -join ",") "Control and result action sets disagree"
 
@@ -258,4 +267,4 @@ Assert-Equal ([string]$manifestL2.selected_targets[0].sha256) $l2Hash "L2 manife
 $l4 = @($manifest.layers | Where-Object id -eq "L4")[0]
 Assert-Equal ([string]$l4.selected_targets[0].sha256) (Get-Sha256 $toolPath) "L4 manifest hash drifted"
 
-Write-Output "R7.1 A2-B5 five-layer contract validation passed for $Phase."
+Write-Output "R7.1 five-layer contract validation passed for $Phase."

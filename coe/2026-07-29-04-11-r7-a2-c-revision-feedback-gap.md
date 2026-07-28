@@ -1,7 +1,7 @@
 # Problem P-001: 普通 Tool 结果提交后的 canonical revision 未进入 Agent 反馈
 - Status: open
 - Created: 2026-07-29 04:11
-- Updated: 2026-07-29 04:11
+- Updated: 2026-07-29 04:56
 - Objective: 让一次合法 TaskSpace response 完成后，Agent 忠实获得下一次控制操作所需的最终 canonical revision
 - Symptoms:
   - `taskspace_control` 成功返回 `revision_after=N`
@@ -44,7 +44,9 @@
 - Related hypotheses:
   - H-001
 - Resolution basis:
-  - not satisfied
+  - Store-backed `TaskSpaceResponseFinalReceiptV1` 工程修复已实施
+  - prepare revision、普通 Tool 输出和 response-final revision 保持三个独立事实
+  - 定向事务与 sequence 回归通过，A2-C live rerun pending
 - Close reason:
   - not closed
 
@@ -87,10 +89,10 @@
   - E-001
   - E-002
 - Conclusion: production call graph 和 live trace 一致确认
-- Repair design readiness: ready
-- Next step: 决定 response-final commit receipt 的最简 wire 形态，再实施单变量修复
+- Repair design readiness: implemented
+- Next step: 重跑 A2-C，确认隐藏 result attribution 引起的 stale retry 为零
 - Blocker:
-  - 需要确认是更新 control result 为 response-final receipt，还是增加独立机械 feedback；不得污染 ordinary Tool 原生输出
+  - none
 - Close reason:
   - not closed
 
@@ -144,3 +146,35 @@ release_reservation(expected_revision = current map revision)
   ```
 - Interpretation: Runtime 产生了 Agent 不可见的后续 canonical revision
 - Time: 2026-07-29 04:11
+
+## Evidence E-003: response-final canonical revision 已作为独立事实返回
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: test
+- Source:
+  - `core/src/action_map/response.rs`
+  - `core/src/action_map/runtime/transactions.rs`
+  - `core/src/tools/sequence.rs`
+  - `core/src/tools/sequence_taskspace_tests.rs`
+- Prediction or plan link:
+  - P-001 Fix criteria
+- Matched signal:
+  - sibling result attribution 全部结束后从 persistent Map Store 读取 canonical revision
+  - developer factual message 追加 `TaskSpaceResponseFinalReceiptV1`
+  - 下一次 execute 使用回执 revision 可直接提交
+  - 普通 Tool 原生 output 不被包装或改写
+- Correlation keys:
+  - map_id
+  - control_call_id
+  - reservation_revision_after
+  - canonical_revision
+- Raw content:
+  ```text
+tools::sequence::taskspace_tests: 5 passed
+response_final_receipt_revision_is_accepted_by_the_next_execute: passed
+taskspace_response_final_receipt_emitted
+codex-core --lib with repository .env.local: 1915 passed, 3 ignored
+  ```
+- Interpretation: 反馈缺失已在工程路径补齐；产品问题保持 open，直到 live trace 证明 stale amplification 消失
+- Time: 2026-07-29 04:56

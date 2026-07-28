@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.39",
+  "manifest_version": "1.0.40",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -13,11 +13,11 @@
     "carrier_repair_active",
     "carrier_result_repair_active_projection_baseline"
   ],
-  "activation_through": "A2-B5",
+  "activation_through": "A2-C repair",
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "20756a0c3c5d94b6872db3dcf70901fc9dcf20f6e871e106a90566a6dfecc060"
+    "sha256": "2c5d51b7f80adf0d5436c6c214b29afa4137124f6aab0c1e56160c28578a3a02"
   },
   "compatibility_policy": "none",
   "wire_order": {
@@ -52,8 +52,8 @@
       "selected_targets": [
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v3.md",
-          "sha256": "41c2ec6f1553598798e18d60bc872020cc25812f8905934a323ffeedecb091f8",
-          "activation_phase": "A2-B2.5 six-action lifecycle alignment"
+          "sha256": "45a013c2ce2b68d78b8dc8b01c7fd84b0965342c9b1fd61336854ece23672a14",
+          "activation_phase": "A2-C Agent-visible execution contract repair"
         }
       ]
     },
@@ -78,8 +78,8 @@
       "selected_targets": [
         {
           "artifact": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
-          "sha256": "bc7635b8710aa18d2a2b9d2fd914188a4faf0c16cd171165bc49053f9767a7d5",
-          "activation_phase": "A2-B2.5 six-action schema",
+          "sha256": "657105bf9fba6d25e2e8fdbeb4284935150ce6626317ca04350df6023e0d4851",
+          "activation_phase": "A2-C optional mutations, provider identity, ownership, and single-Patch contract",
           "sequence_preflight": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"
         }
       ]
@@ -92,8 +92,8 @@
       "selected_targets": [
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
-          "sha256": "5b3a62005187b885260f6cd69866471ce9b5fbd5c3eed7a0dd135567ebdcd28e",
-          "activation_phase": "A2-B2.5 response preflight, final close, reopen, factual feedback, and skipped action closure"
+          "sha256": "6692075021e61317b37c802b08962810038ff75bdea72784606933317b73205d",
+          "activation_phase": "A2-C provider identity preflight and response-final canonical receipt"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
@@ -102,13 +102,13 @@
         },
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
-          "sha256": "fdd84661ec6cde73b79c418fe1cc22c27a1bb663e6f14d16ae86bc149b722c58",
-          "activation_phase": "A2-B2 native dispatch, cancellation/timeout closure, and explicit dispatched/skipped/fatal result attribution"
+          "sha256": "898b47214631f8a74fbdc796e9d33c5b889b93a23f7573b3ebb2a22a61398968",
+          "activation_phase": "A2-C provider/dispatch identity separation and explicit dispatched/skipped/fatal result attribution"
         },
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v3.contract.json",
-          "sha256": "25dcc8c8b9153465b9be012b4b2b23685cf015d0a12ea95a833f40460faec912",
-          "activation_phase": "A2-B2.5 six-action factual result contract"
+          "sha256": "ce4d045253a4593adce831e2b2432d2d791ea24caf9c1819242dd3e5bb1c0890",
+          "activation_phase": "A2-C prepare and response-final factual result contract"
         },
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json",

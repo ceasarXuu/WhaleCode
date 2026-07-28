@@ -184,16 +184,19 @@ fn execute_accepts_every_frozen_mutation_variant() {
 
 #[test]
 fn execute_allows_no_mutation_but_never_allows_no_action() {
-    parse_taskspace_control_args(
+    let parsed = parse_taskspace_control_args(
         &json!({
             "action": "execute",
             "expected_revision": 7,
-            "mutations": [],
             "actions": [{"node_id": "inspect", "tool": "read_file"}]
         })
         .to_string(),
     )
     .expect("ordinary progress without a mutation");
+    let TaskSpaceControlArgs::Execute { mutations, .. } = parsed else {
+        panic!("execute expected");
+    };
+    assert!(mutations.is_empty());
 
     for fixture in [
         json!({"action":"execute","expected_revision":7,"mutations":[],"actions":[]}),
@@ -223,6 +226,9 @@ fn top_level_contract_rejects_missing_extra_and_wrong_types() {
 
     for fixture in fixtures {
         for required in fixture.as_object().expect("object").keys() {
+            if fixture["action"] == "execute" && required == "mutations" {
+                continue;
+            }
             let mut missing = fixture.clone();
             missing.as_object_mut().expect("object").remove(required);
             assert!(

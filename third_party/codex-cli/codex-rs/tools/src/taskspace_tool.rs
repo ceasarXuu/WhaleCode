@@ -145,7 +145,7 @@ fn mutation_schema() -> JsonSchema {
             ),
             node_mutation_schema(
                 "complete_node",
-                "Record Agent-declared completion of one Work node.",
+                "Record Agent-declared completion of one Work node. That node cannot own an ordinary sibling Tool call in the same response.",
             ),
             node_mutation_schema(
                 "block_node",
@@ -211,12 +211,8 @@ fn execute_schema() -> JsonSchema {
             ),
             ("actions".into(), actions_schema()),
         ]),
-        vec![
-            "expected_revision".into(),
-            "mutations".into(),
-            "actions".into(),
-        ],
-        "Declare optional nonterminal Map mutations and one or more native ordinary sibling Tool calls in the same response.",
+        vec!["expected_revision".into(), "actions".into()],
+        "Declare optional nonterminal Map mutations and one or more native ordinary sibling Tool calls in the same response. Omit mutations when no Map change is needed. A node completed or blocked by this transaction cannot own a sibling action. At most one sibling may be apply_patch.",
     )
 }
 
@@ -308,7 +304,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Declare TaskSpace initialization, continued execution, or user-feedback reopen together with the ordered node ownership of native ordinary sibling Tool calls. Use read_map or read_output_ref for factual reads, and finish_map to complete final Work and close the Map. The Runtime validates graph, revision, action count, Tool name, order, and reservation invariants without choosing nodes or interpreting ordinary Tool arguments.".into(),
+        description: "Declare TaskSpace initialization, continued execution, or user-feedback reopen together with the ordered node ownership of native ordinary sibling Tool calls. Use the exact provider-visible sibling Tool name in each action. A response may contain at most one apply_patch sibling. Use read_map or read_output_ref for factual reads, and finish_map to complete final Work and close the Map. The Runtime validates graph, revision, action count, Tool name, order, and reservation invariants without choosing nodes or interpreting ordinary Tool arguments.".into(),
         strict: false,
         defer_loading: None,
         parameters,

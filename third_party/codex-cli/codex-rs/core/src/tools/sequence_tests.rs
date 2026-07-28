@@ -19,7 +19,8 @@ fn function_call(name: &str, call_id: &str) -> ToolCall {
 
 fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> ToolCall {
     ToolCall {
-        tool_name: ToolName::plain(name),
+        provider_tool_name: ToolName::plain(name),
+        dispatch_tool_name: ToolName::plain(name),
         call_id: call_id.to_string(),
         payload: ToolPayload::Function {
             arguments: arguments.to_string(),
@@ -291,6 +292,28 @@ fn tool_sequence_identity_is_stable_and_order_sensitive() {
 }
 
 #[test]
+fn tool_sequence_identity_uses_provider_names_before_shared_dispatch_aliases() {
+    let exec = ToolCall {
+        provider_tool_name: ToolName::plain("exec_command"),
+        dispatch_tool_name: ToolName::plain("shell_command"),
+        call_id: "same-call".to_string(),
+        payload: ToolPayload::Function {
+            arguments: r#"{"command":"true"}"#.to_string(),
+        },
+    };
+    let read = ToolCall {
+        provider_tool_name: ToolName::plain("read_file"),
+        dispatch_tool_name: ToolName::plain("shell_command"),
+        call_id: "same-call".to_string(),
+        payload: ToolPayload::Function {
+            arguments: r#"{"command":"cat README.md"}"#.to_string(),
+        },
+    };
+
+    assert_ne!(tool_sequence_sha256(&[exec]), tool_sequence_sha256(&[read]));
+}
+
+#[test]
 fn provider_build_failure_closes_all_pairings_before_factual_feedback() {
     let declarations = vec![
         ProviderToolDeclaration::ready(function_call("read_file", "ready-prefix")),
@@ -413,7 +436,8 @@ fn tool_pairing_outputs_precede_supplemental_failure_facts() {
     let mut pairing = Vec::new();
     let mut supplemental = Vec::new();
     let search = ToolCall {
-        tool_name: ToolName::plain("tool_search"),
+        provider_tool_name: ToolName::plain("tool_search"),
+        dispatch_tool_name: ToolName::plain("tool_search"),
         call_id: "search-failed".into(),
         payload: ToolPayload::ToolSearch {
             arguments: codex_protocol::models::SearchToolCallParams {

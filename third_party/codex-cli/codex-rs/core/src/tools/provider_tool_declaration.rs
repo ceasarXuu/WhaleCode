@@ -160,7 +160,7 @@ impl ProviderToolDeclaration {
             Self::Ready(call) => serde_json::json!({
                 "status": "ready",
                 "call_id": call.call_id,
-                "tool": call.tool_name.display(),
+                "tool": call.provider_tool_name_display(),
                 "payload_kind": payload_kind(&call.payload),
             }),
             Self::BuildFailed(failed) => serde_json::json!({

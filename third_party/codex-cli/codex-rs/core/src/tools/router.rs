@@ -34,9 +34,20 @@ pub use crate::tools::context::ToolCallSource;
 
 #[derive(Clone, Debug)]
 pub struct ToolCall {
-    pub tool_name: ToolName,
+    /// Exact identity emitted by the provider and visible in the Tool schema.
+    ///
+    /// This remains distinct from `dispatch_tool_name`, which may be normalized
+    /// to an internal handler identity before dispatch.
+    pub provider_tool_name: ToolName,
+    pub dispatch_tool_name: ToolName,
     pub call_id: String,
     pub payload: ToolPayload,
+}
+
+impl ToolCall {
+    pub(crate) fn provider_tool_name_display(&self) -> String {
+        self.provider_tool_name.display()
+    }
 }
 
 pub struct ToolRouter {
@@ -168,7 +179,7 @@ impl ToolRouter {
             // tools that may not have a matching spec entry. Use the parsed payload
             // server so similarly named servers/tools cannot collide.
             ToolPayload::Mcp { server, .. } => self.parallel_mcp_server_names.contains(server),
-            _ => self.configured_tool_supports_parallel(&call.tool_name),
+            _ => self.configured_tool_supports_parallel(&call.dispatch_tool_name),
         }
     }
 
@@ -188,7 +199,8 @@ impl ToolRouter {
                 let tool_name = ToolName::new(namespace, name);
                 if let Some(tool_info) = session.resolve_mcp_tool_info(&tool_name).await {
                     Ok(Some(ToolCall {
-                        tool_name: tool_info.canonical_tool_name(),
+                        provider_tool_name: tool_name,
+                        dispatch_tool_name: tool_info.canonical_tool_name(),
                         call_id,
                         payload: ToolPayload::Mcp {
                             server: tool_info.server_name,
@@ -197,10 +209,12 @@ impl ToolRouter {
                         },
                     }))
                 } else {
+                    let provider_tool_name = tool_name.clone();
                     let (tool_name, arguments) =
                         normalize_native_function_alias(tool_name, arguments)?;
                     Ok(Some(ToolCall {
-                        tool_name,
+                        provider_tool_name,
+                        dispatch_tool_name: tool_name,
                         call_id,
                         payload: ToolPayload::Function { arguments },
                     }))
@@ -219,7 +233,8 @@ impl ToolRouter {
                         ))
                     })?;
                 Ok(Some(ToolCall {
-                    tool_name: ToolName::plain("tool_search"),
+                    provider_tool_name: ToolName::plain("tool_search"),
+                    dispatch_tool_name: ToolName::plain("tool_search"),
                     call_id,
                     payload: ToolPayload::ToolSearch { arguments },
                 }))
@@ -238,7 +253,8 @@ impl ToolRouter {
                 call_id,
                 ..
             } => Ok(Some(ToolCall {
-                tool_name: ToolName::plain(name),
+                provider_tool_name: ToolName::plain(name.clone()),
+                dispatch_tool_name: ToolName::plain(name),
                 call_id,
                 payload: ToolPayload::Custom { input },
             })),
@@ -264,7 +280,8 @@ impl ToolRouter {
                             justification: None,
                         };
                         Ok(Some(ToolCall {
-                            tool_name: ToolName::plain("local_shell"),
+                            provider_tool_name: ToolName::plain("local_shell"),
+                            dispatch_tool_name: ToolName::plain("local_shell"),
                             call_id,
                             payload: ToolPayload::LocalShell { params },
                         }))
@@ -286,7 +303,8 @@ impl ToolRouter {
         source: ToolCallSource,
     ) -> Result<AnyToolResult, FunctionCallError> {
         let ToolCall {
-            tool_name,
+            provider_tool_name: _,
+            dispatch_tool_name: tool_name,
             call_id,
             payload,
         } = call;

@@ -3,6 +3,7 @@ use super::TurnContext;
 use crate::action_map::ActionMapDeclaredCall;
 use crate::action_map::ActionMapPreparedCall;
 use crate::action_map::ActionMapPreparedResponse;
+use crate::action_map::ActionMapResponseFinalReceipt;
 use crate::action_map::ActionMapResponseOperation;
 use crate::action_map::BlockRecord;
 use crate::action_map::CompletionRecord;
@@ -17,6 +18,19 @@ use crate::tools::handlers::taskspace_control_args::TaskSpaceMutationArgs;
 use crate::tools::sequence_preflight::TaskSpaceDeclaredCall;
 
 impl Session {
+    pub(crate) async fn taskspace_response_final_receipt(
+        &self,
+        prepared: &ActionMapPreparedResponse,
+        control_call_id: &str,
+    ) -> Result<ActionMapResponseFinalReceipt, String> {
+        let prepared = prepared.clone();
+        let control_call_id = control_call_id.to_string();
+        self.read_canonical_action_map("response_final_receipt", move |runtime, _| {
+            runtime.response_final_receipt_for_main(&prepared, &control_call_id)
+        })
+        .await?
+    }
+
     pub(crate) async fn prepare_taskspace_response(
         &self,
         turn_context: &TurnContext,

@@ -323,6 +323,7 @@ async fn call_nested_tool(
             "{PUBLIC_TOOL_NAME} cannot invoke itself"
         )));
     }
+    let provider_tool_name = tool_name.clone();
 
     let (tool_call_name, payload) =
         if let Some(tool_info) = exec.session.resolve_mcp_tool_info(&tool_name).await {
@@ -346,7 +347,8 @@ async fn call_nested_tool(
         };
 
     let call = ToolCall {
-        tool_name: tool_call_name,
+        provider_tool_name,
+        dispatch_tool_name: tool_call_name,
         call_id: format!("{PUBLIC_TOOL_NAME}-{}", uuid::Uuid::new_v4()),
         payload,
     };

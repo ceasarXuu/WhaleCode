@@ -4,15 +4,15 @@ use sha2::Sha256;
 use codex_protocol::protocol::MapRuntimeMode;
 
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_ID: &str = "r7-taskspace-five-layer-production-v1";
-pub(crate) const TASKSPACE_CONTRACT_MANIFEST_VERSION: &str = "1.0.39";
+pub(crate) const TASKSPACE_CONTRACT_MANIFEST_VERSION: &str = "1.0.40";
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_SHA256: &str =
-    "16239bbe12afca4396c652c48b0ac117e4ddbcb7f652b0dca8b2e4fbec2d37de";
+    "9ebde2fadf26c639969b1048cd42edf783c8ced6a3f1e21759d117a54b140918";
 
 const TASKSPACE_CONTRACT_MANIFEST: &str =
     include_str!("prompts/taskspace_contract_manifest_v1.json");
-pub(crate) const TASKSPACE_CORE_PROTOCOL_VERSION: &str = "taskspace-core-v3.4";
+pub(crate) const TASKSPACE_CORE_PROTOCOL_VERSION: &str = "taskspace-core-v3.5";
 pub(crate) const TASKSPACE_CORE_PROTOCOL_SHA256: &str =
-    "41c2ec6f1553598798e18d60bc872020cc25812f8905934a323ffeedecb091f8";
+    "45a013c2ce2b68d78b8dc8b01c7fd84b0965342c9b1fd61336854ece23672a14";
 pub(crate) const TASKSPACE_CORE_PROTOCOL: &str =
     include_str!("prompts/taskspace_core_protocol_v3.md");
 
@@ -65,6 +65,12 @@ mod tests {
         assert_eq!(
             taskspace_core_protocol(MapRuntimeMode::Experiment),
             Some(TASKSPACE_CORE_PROTOCOL)
+        );
+        assert!(TASKSPACE_CORE_PROTOCOL.contains("exact provider-visible Tool name"));
+        assert!(TASKSPACE_CORE_PROTOCOL.contains("at most one `apply_patch` call"));
+        assert!(
+            TASKSPACE_CORE_PROTOCOL
+                .contains("a node completed or blocked by this transaction cannot own them")
         );
     }
 }

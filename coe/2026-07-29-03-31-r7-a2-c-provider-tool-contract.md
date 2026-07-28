@@ -1,7 +1,7 @@
 # Problem P-001: A2-C 中 Agent 可见 Tool 名与 Runtime 校验名不一致
 - Status: open
 - Created: 2026-07-29 03:31
-- Updated: 2026-07-29 04:11
+- Updated: 2026-07-29 04:56
 - Objective: 证明并消除 provider-visible Tool 名称与 TaskSpace response preflight 名称空间不一致造成的稳定拒绝
 - Symptoms:
   - 18/18 TaskSpace run 的首次 `initialize_and_execute` 都因 `exec_command` 与 `shell_command` 不一致被拒绝
@@ -43,7 +43,9 @@
   - H-001
   - H-002
 - Resolution basis:
-  - 根因证据门已满足，产品修复尚未实施
+  - 根因证据门已满足
+  - provider/dispatch identity 工程修复与定向 preflight/router 回归通过
+  - 同口径 A2-C live rerun 尚未执行
 - Close reason:
   - not closed
 
@@ -83,8 +85,8 @@
 - Related evidence:
   - E-001
 - Conclusion: `exec_command` 在 provider registry 中公开，Router 将其归一化为 `shell_command`，preflight 随后直接比较内部 `ToolCall.tool_name`
-- Repair design readiness: ready
-- Next step: 为 `ToolCall` 保留独立的 provider-visible identity，并让 manifest/preflight/Map reservation 使用该 identity；内部 dispatch name 仅供 Router
+- Repair design readiness: implemented
+- Next step: 重跑 A2-C，验证首次初始化和后续 execute 不再出现公开名/内部名错位
 - Blocker:
   - none
 - Close reason:
@@ -185,3 +187,32 @@ manifest contract: Exact name of the matching ordinary sibling Tool call.
   ```
 - Interpretation: Agent 按公开合同填写 `exec_command` 是正确行为；拒绝由 Runtime 跨名称空间比较造成
 - Time: 2026-07-29 04:11
+
+## Evidence E-003: provider/dispatch identity 已分离并通过定向回归
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: test
+- Source:
+  - `core/src/tools/router.rs`
+  - `core/src/tools/sequence_identity_tests.rs`
+  - `core/src/tools/router_tests.rs`
+- Prediction or plan link:
+  - P-001 Fix criteria
+- Matched signal:
+  - `ToolCall` 独立保存 `provider_tool_name` 和 `dispatch_tool_name`
+  - manifest、preflight、reservation 和 sequence identity 使用 provider 名
+  - handler dispatch 使用 internal 名
+  - `exec_command -> shell_command` fixture 接受公开名并拒绝内部名
+- Correlation keys:
+  - provider `exec_command`
+  - dispatch `shell_command`
+- Raw content:
+  ```text
+tools::sequence::identity_tests: 5 passed
+taskspace_manifest_matches_provider_identity_not_internal_dispatch_alias: passed
+taskspace_manifest_rejects_internal_dispatch_alias_as_public_identity: passed
+codex-core --lib with repository .env.local: 1915 passed, 3 ignored
+  ```
+- Interpretation: 工程修复满足身份边界；产品问题保持 open，直到 live rerun 证明稳定拒绝消失
+- Time: 2026-07-29 04:56

@@ -86,12 +86,12 @@ fn initialize_and_execute_keeps_roles_and_action_manifest_separate() {
 }
 
 #[test]
-fn execute_exposes_all_nonterminal_mutations_and_requires_actions() {
+fn execute_exposes_optional_nonterminal_mutations_and_requires_actions() {
     let tool = function_tool();
     let execute = variant(&tool, "execute");
     assert_eq!(
         required_fields(execute),
-        ["action", "expected_revision", "mutations", "actions"]
+        ["action", "expected_revision", "actions"]
     );
     let properties = execute.properties.as_ref().expect("properties");
     assert_eq!(properties["actions"].min_items, Some(1));
@@ -178,7 +178,7 @@ fn schema_wire_shape_matches_the_b1x_golden() {
         summary,
         vec![
             json!({"action":"initialize_and_execute","required":["action","root","work_nodes","finish","edges","actions"]}),
-            json!({"action":"execute","required":["action","expected_revision","mutations","actions"]}),
+            json!({"action":"execute","required":["action","expected_revision","actions"]}),
             json!({"action":"reopen_map","required":["action","expected_revision","work_nodes","edges","actions"]}),
             json!({"action":"read_map","required":["action"]}),
             json!({"action":"read_output_ref","required":["action","output_ref","mode","max_bytes"]}),
@@ -216,4 +216,39 @@ fn schema_contains_no_superseded_carrier_or_lifecycle_actions() {
             "schema still exposes {removed_action}"
         );
     }
+}
+
+#[test]
+fn schema_exposes_response_level_identity_patch_and_node_ownership_contracts() {
+    let tool = function_tool();
+    assert!(
+        tool.description
+            .contains("provider-visible sibling Tool name")
+    );
+    assert!(tool.description.contains("at most one apply_patch sibling"));
+
+    let execute = variant(&tool, "execute");
+    let description = execute.description.as_deref().expect("execute description");
+    assert!(description.contains("Omit mutations"));
+    assert!(description.contains("completed or blocked"));
+    assert!(description.contains("At most one sibling may be apply_patch"));
+
+    let mutations = execute.properties.as_ref().expect("properties")["mutations"]
+        .items
+        .as_deref()
+        .expect("mutation item")
+        .any_of
+        .as_ref()
+        .expect("mutation variants");
+    let complete = mutations
+        .iter()
+        .find(|mutation| action_name(mutation) == "complete_node")
+        .expect("complete_node variant");
+    assert!(
+        complete
+            .description
+            .as_deref()
+            .expect("complete description")
+            .contains("cannot own an ordinary sibling")
+    );
 }

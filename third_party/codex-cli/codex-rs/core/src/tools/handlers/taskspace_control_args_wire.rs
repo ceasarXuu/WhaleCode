@@ -42,6 +42,7 @@ struct ExecuteArgs {
     #[serde(rename = "action")]
     _action: Action,
     expected_revision: u64,
+    #[serde(default)]
     mutations: Vec<MutationWire>,
     actions: Vec<TaskSpaceActionArgs>,
 }

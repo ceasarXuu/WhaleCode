@@ -5,7 +5,6 @@ use sha2::Digest;
 use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 
-use crate::action_map::ActionMapPreparedCall;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
@@ -265,15 +264,7 @@ pub(crate) async fn execute_response_tool_sequence(
                 "reopened canonical TaskSpace Map from Agent-declared user-feedback work"
             );
         }
-        let control_output = ResponseInputItem::FunctionCallOutput {
-            call_id: calls[control_index].call_id.clone(),
-            output: codex_protocol::models::FunctionCallOutputPayload {
-                body: codex_protocol::models::FunctionCallOutputBody::Text(
-                    prepared.model_visible_result(),
-                ),
-                success: Some(true),
-            },
-        };
+        let control_call_id = calls[control_index].call_id.clone();
         let sibling_calls = calls
             .iter()
             .enumerate()
@@ -282,8 +273,8 @@ pub(crate) async fn execute_response_tool_sequence(
         return execute_prepared_taskspace_siblings(
             runtime,
             sibling_calls,
-            prepared.prepared_calls,
-            control_output,
+            prepared,
+            control_call_id,
             cancellation_token,
         )
         .await;
@@ -315,7 +306,7 @@ pub(crate) async fn execute_response_tool_sequence(
                     target: "codex_core::taskspace",
                     segment_index,
                     call_id = call.call_id,
-                    tool_name = call.tool_name.display(),
+                    tool_name = call.provider_tool_name_display(),
                     terminal_call_id = terminal.call_id,
                     "tool_response_sequence_call_skipped"
                 );
@@ -333,7 +324,7 @@ pub(crate) async fn execute_response_tool_sequence(
                     target: "codex_core::taskspace",
                     segment_index,
                     call_id = call.call_id,
-                    tool_name = call.tool_name.display(),
+                    tool_name = call.provider_tool_name_display(),
                     prior_call_id,
                     "tool_response_sequence_call_skipped"
                 );
@@ -377,7 +368,7 @@ pub(crate) async fn execute_response_tool_sequence(
                     target: "codex_core::taskspace",
                     segment_index,
                     call_id = call.call_id,
-                    tool_name = call.tool_name.display(),
+                    tool_name = call.provider_tool_name_display(),
                     barrier_kind = kind.as_str(),
                     "tool.barrier_started"
                 );
@@ -540,10 +531,10 @@ fn segment_range(segment: &SequenceSegment) -> std::ops::Range<usize> {
 }
 
 fn barrier_kind(call: &ToolCall) -> Option<BarrierKind> {
-    if call.tool_name.namespace.is_some() {
+    if call.provider_tool_name.namespace.is_some() {
         return None;
     }
-    match call.tool_name.name.as_str() {
+    match call.provider_tool_name.name.as_str() {
         "taskspace_control" => Some(BarrierKind::TaskSpaceControl),
         "apply_patch" => Some(BarrierKind::ApplyPatch),
         _ => None,
@@ -573,7 +564,7 @@ fn tool_sequence_sha256(calls: &[ToolCall]) -> String {
     for call in calls {
         hasher.update(call.call_id.as_bytes());
         hasher.update([0]);
-        hasher.update(call.tool_name.display().as_bytes());
+        hasher.update(call.provider_tool_name_display().as_bytes());
         hasher.update([0xff]);
     }
     format!("{:x}", hasher.finalize())
@@ -582,21 +573,36 @@ fn tool_sequence_sha256(calls: &[ToolCall]) -> String {
 async fn execute_prepared_taskspace_siblings(
     runtime: ToolCallRuntime,
     calls: Vec<ToolCall>,
-    prepared_calls: Vec<ActionMapPreparedCall>,
-    control_output: ResponseInputItem,
+    prepared: crate::action_map::ActionMapPreparedResponse,
+    control_call_id: String,
     cancellation_token: CancellationToken,
 ) -> Result<ToolSequenceOutcome> {
+    let prepared_calls = &prepared.prepared_calls;
     debug_assert_eq!(calls.len(), prepared_calls.len());
-    debug_assert!(calls.iter().zip(&prepared_calls).enumerate().all(
-        |(index, (call, prepared))| {
-            prepared.call_index == index
-                && prepared.call_id == call.call_id
-                && prepared.tool_name == call.tool_name.display()
-        }
-    ));
+    debug_assert!(
+        calls
+            .iter()
+            .zip(prepared_calls)
+            .enumerate()
+            .all(|(index, (call, prepared))| {
+                prepared.call_index == index
+                    && prepared.call_id == call.call_id
+                    && prepared.tool_name == call.provider_tool_name_display()
+            })
+    );
     let bound_calls = prepared_calls;
     let segments = sequence_segments(&calls);
-    let mut outputs = vec![control_output];
+    let control_output = ResponseInputItem::FunctionCallOutput {
+        call_id: control_call_id.clone(),
+        output: codex_protocol::models::FunctionCallOutputPayload {
+            body: codex_protocol::models::FunctionCallOutputBody::Text(
+                prepared.model_visible_result(),
+            ),
+            success: Some(true),
+        },
+    };
+    let mut outputs = Vec::with_capacity(calls.len() + 2);
+    outputs.push(control_output);
     let mut supplemental_outputs = Vec::new();
     let mut prior_failure: Option<String> = None;
     let mut terminal_completion: Option<TaskSpaceTerminalCompletion> = None;
@@ -731,6 +737,36 @@ async fn execute_prepared_taskspace_siblings(
         "audited TaskSpace prepared action closure attempts"
     );
     outputs.extend(supplemental_outputs);
+    let receipt = match runtime
+        .taskspace_response_final_receipt(&prepared, &control_call_id)
+        .await
+    {
+        Ok(receipt) => receipt,
+        Err(error) => crate::action_map::ActionMapResponseFinalReceipt::unavailable(
+            &prepared,
+            &control_call_id,
+            error,
+        ),
+    };
+    tracing::info!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace_response_final_receipt_emitted",
+        control_call_id,
+        map_id = prepared.map_id,
+        reservation_revision_after = prepared.revision_after,
+        canonical_revision = receipt.canonical_revision,
+        prepared_action_count,
+        attributed_result_count = receipt.attributed_result_count,
+        outstanding_reservation_count = receipt.outstanding_reservation_count,
+        receipt_complete = receipt.complete(),
+        "emitted response-final canonical TaskSpace receipt"
+    );
+    outputs.push(ResponseInputItem::Message {
+        role: "developer".to_string(),
+        content: vec![codex_protocol::models::ContentItem::InputText {
+            text: receipt.model_visible_result(),
+        }],
+    });
     Ok(ToolSequenceOutcome {
         outputs,
         terminal_completion,

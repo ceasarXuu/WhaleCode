@@ -91,6 +91,12 @@ fn multi_action_results_are_attributed_to_declared_nodes() {
 
     assert_eq!(prepared.prepared_calls.len(), 2);
     let revision_after_reservations = prepared.revision_after;
+    let prepared_receipt = runtime
+        .response_final_receipt_for_main(&prepared, "control-call-2")
+        .expect("prepared receipt");
+    assert!(!prepared_receipt.complete());
+    assert_eq!(prepared_receipt.attributed_result_count, 0);
+    assert_eq!(prepared_receipt.outstanding_reservation_count, 2);
     runtime
         .release_main_action_result(
             owner,
@@ -121,6 +127,13 @@ fn multi_action_results_are_attributed_to_declared_nodes() {
         "verify"
     );
     assert!(map.result_refs["tool-result://call/call-test"].is_error);
+    let final_receipt = runtime
+        .response_final_receipt_for_main(&prepared, "control-call-2")
+        .expect("final receipt");
+    assert!(final_receipt.complete());
+    assert_eq!(final_receipt.canonical_revision, Some(map.revision));
+    assert_eq!(final_receipt.attributed_result_count, 2);
+    assert_eq!(final_receipt.outstanding_reservation_count, 0);
 }
 
 #[test]

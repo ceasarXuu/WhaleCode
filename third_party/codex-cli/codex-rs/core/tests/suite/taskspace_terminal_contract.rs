@@ -43,7 +43,7 @@ fn initialize_arguments() -> String {
             {"from": "root", "to": "work"},
             {"from": "work", "to": "finish"}
         ],
-        "actions": [{"node_id": "work", "tool": "shell_command"}]
+        "actions": [{"node_id": "work", "tool": "exec_command"}]
     })
     .to_string()
 }

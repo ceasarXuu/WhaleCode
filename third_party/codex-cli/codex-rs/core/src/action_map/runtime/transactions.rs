@@ -7,6 +7,7 @@ use crate::action_map::map::ActionMapInstance;
 use crate::action_map::response::ActionMapDeclaredCall;
 use crate::action_map::response::ActionMapPreparedCall;
 use crate::action_map::response::ActionMapPreparedResponse;
+use crate::action_map::response::ActionMapResponseFinalReceipt;
 use crate::action_map::response::ActionMapResponseOperation;
 use crate::action_map::rooted_dag;
 use crate::action_map::rooted_dag::ActionReservation;
@@ -29,6 +30,22 @@ use super::types::ActionMapControlDelta;
 use super::types::ActionMapTerminalOutcome;
 
 impl ActionMapRuntimeState {
+    pub(crate) fn response_final_receipt_for_main(
+        &self,
+        prepared: &ActionMapPreparedResponse,
+        control_call_id: &str,
+    ) -> Result<ActionMapResponseFinalReceipt, String> {
+        let map = self
+            .maps
+            .get(&prepared.map_id)
+            .ok_or_else(|| rejection_json(0, "map_missing", &prepared.map_id))?;
+        Ok(ActionMapResponseFinalReceipt::from_canonical_map(
+            prepared,
+            control_call_id,
+            map.canonical_map(),
+        ))
+    }
+
     pub(crate) fn prepare_response_for_main(
         &mut self,
         owner_session_id: ThreadId,

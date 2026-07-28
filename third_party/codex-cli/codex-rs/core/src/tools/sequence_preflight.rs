@@ -243,7 +243,7 @@ fn match_actions(
         .zip(calls)
         .enumerate()
         .map(|(offset, (action, call))| {
-            let actual = call.tool_name.display();
+            let actual = call.provider_tool_name_display();
             if action.tool != actual {
                 return Err(failure(
                     TASKSPACE_ACTION_TOOL_MISMATCH_CODE,

@@ -1,7 +1,7 @@
 # Problem P-001: A2-C observer 错报 request 边界和 canonical Map
 - Status: fixed
 - Created: 2026-07-29 03:31
-- Updated: 2026-07-29 04:11
+- Updated: 2026-07-29 04:56
 - Objective: 让 A2-C 报告从 frozen raw artifacts 忠实还原每个 provider request、控制结果和最终 canonical Map
 - Symptoms:
   - TaskSpace request path 把整个 run 的 Tool calls 全部放进 `request_index=1`
@@ -50,6 +50,7 @@
   - 24/24 request path 的边界数与 provider request 数一致
   - 初始化计数恢复为 `54 total / 18 committed / 36 failed`
   - 定向 observer、cost、performance 和 harness 回归通过
+  - A2-C repair observer 已增加 response-final receipt 完整性与最新 canonical revision 指标
 - Close reason:
   - observer 已能从 frozen raw artifacts 忠实恢复 A2-C 事实
 

@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "76a2dd3988315d6a93ea67de04d80cba8113944dc0a58bfbcaae2084a61044ba"
+    "sha256": "640066fa82aea78b7b4c5de603b5f6b05cd13bebb5893c04dff7e31043a46f78"
   },
   "architectural_constraints": [
     {
@@ -202,7 +202,7 @@
     {
       "id": "R-10",
       "status": "open",
-      "problem": "Nonterminal continuous actions still produce stable rejection and recovery; A2-C found that provider-visible Tool identity is replaced by internal dispatch identity and response-final revision is absent from Agent feedback.",
+      "problem": "Nonterminal continuous actions produced stable rejection and recovery; A2-C found that provider-visible Tool identity was replaced by internal dispatch identity and response-final revision was absent from Agent feedback. The engineering repair is active and awaits same-matrix live verification.",
       "required_behavior": "A nonterminal boundary and its real successor occur in one response, the manifest uses provider-visible Tool identity, the response-final canonical revision is faithfully visible, and natural runs do not stably amplify requests through recovery.",
       "evidence": [
         "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
@@ -292,8 +292,8 @@
     {
       "id": "R-22",
       "status": "open",
-      "problem": "Complex runs still generate multiple sibling Patch calls; A2-C observed two rejected responses across 18 TaskSpace runs.",
-      "required_behavior": "Promotion evidence shows no repeated multi-Patch protocol rejection or post-hoc Map closure pattern, L2/L3 state the one-Patch-per-response contract, and Runtime preserves atomic safety without taking over Agent lifecycle choices.",
+      "problem": "Complex runs generated multiple sibling Patch calls; A2-C observed two rejected responses across 18 TaskSpace runs. L2/L4 now expose the existing hard contract and await same-matrix live verification.",
+      "required_behavior": "Promotion evidence shows no repeated multi-Patch protocol rejection or post-hoc Map closure pattern, L2/L4 state the one-Patch-per-response contract, and Runtime preserves atomic safety without taking over Agent lifecycle choices.",
       "evidence": [
         "coe/2026-07-23-18-24-r7-fla-map-request-operation-drift.md",
         "docs/v0.0.5/build-R7/46-r7.1-a2-c-repeat3-result.md"

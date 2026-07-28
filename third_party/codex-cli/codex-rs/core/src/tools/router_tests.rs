@@ -41,7 +41,8 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
         .into_iter()
         .find(|name| {
             router.tool_supports_parallel(&ToolCall {
-                tool_name: ToolName::plain(*name),
+                provider_tool_name: ToolName::plain(*name),
+                dispatch_tool_name: ToolName::plain(*name),
                 call_id: "call-parallel-tool".to_string(),
                 payload: ToolPayload::Function {
                     arguments: "{}".to_string(),
@@ -51,7 +52,8 @@ async fn parallel_support_does_not_match_namespaced_local_tool_names() -> anyhow
         .expect("test session should expose a parallel shell-like tool");
 
     assert!(!router.tool_supports_parallel(&ToolCall {
-        tool_name: ToolName::namespaced("mcp__server__", parallel_tool_name),
+        provider_tool_name: ToolName::namespaced("mcp__server__", parallel_tool_name),
+        dispatch_tool_name: ToolName::namespaced("mcp__server__", parallel_tool_name),
         call_id: "call-namespaced-tool".to_string(),
         payload: ToolPayload::Function {
             arguments: "{}".to_string(),
@@ -81,7 +83,7 @@ async fn build_tool_call_uses_namespace_for_registry_name() -> anyhow::Result<()
     .expect("function_call should produce a tool call");
 
     assert_eq!(
-        call.tool_name,
+        call.dispatch_tool_name,
         ToolName::namespaced("mcp__codex_apps__calendar", tool_name)
     );
     assert_eq!(call.call_id, "call-namespace");
@@ -117,7 +119,12 @@ async fn build_tool_call_normalizes_exec_command_alias_to_shell_command() -> any
     .await?
     .expect("function_call should produce a tool call");
 
-    assert_eq!(call.tool_name, ToolName::plain("shell_command"));
+    assert_eq!(
+        call.provider_tool_name,
+        ToolName::plain("exec_command"),
+        "provider-visible identity must survive internal alias normalization"
+    );
+    assert_eq!(call.dispatch_tool_name, ToolName::plain("shell_command"));
     match call.payload {
         ToolPayload::Function { arguments } => {
             let params: ShellCommandToolCallParams = serde_json::from_str(&arguments)?;
@@ -153,7 +160,12 @@ async fn build_tool_call_normalizes_read_file_alias_to_shell_command() -> anyhow
     .await?
     .expect("function_call should produce a tool call");
 
-    assert_eq!(call.tool_name, ToolName::plain("shell_command"));
+    assert_eq!(
+        call.provider_tool_name,
+        ToolName::plain("read_file"),
+        "provider-visible identity must survive internal alias normalization"
+    );
+    assert_eq!(call.dispatch_tool_name, ToolName::plain("shell_command"));
     match call.payload {
         ToolPayload::Function { arguments } => {
             let params: ShellCommandToolCallParams = serde_json::from_str(&arguments)?;
@@ -184,7 +196,8 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
     );
 
     let deferred_call = ToolCall {
-        tool_name: ToolName::namespaced("mcp__echo__", "query_with_delay"),
+        provider_tool_name: ToolName::namespaced("mcp__echo__", "query_with_delay"),
+        dispatch_tool_name: ToolName::namespaced("mcp__echo__", "query_with_delay"),
         call_id: "call-deferred".to_string(),
         payload: ToolPayload::Mcp {
             server: "echo".to_string(),
@@ -195,7 +208,8 @@ async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> 
     assert!(router.tool_supports_parallel(&deferred_call));
 
     let different_server_call = ToolCall {
-        tool_name: ToolName::namespaced("mcp__hello_echo__", "query_with_delay"),
+        provider_tool_name: ToolName::namespaced("mcp__hello_echo__", "query_with_delay"),
+        dispatch_tool_name: ToolName::namespaced("mcp__hello_echo__", "query_with_delay"),
         call_id: "call-other-server".to_string(),
         payload: ToolPayload::Mcp {
             server: "hello_echo".to_string(),

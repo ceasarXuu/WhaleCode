@@ -238,12 +238,14 @@ pub(crate) async fn handle_output_item_done(
 
             let payload_preview = call
                 .payload
-                .log_payload_for_tool(&call.tool_name)
+                .log_payload_for_tool(&call.provider_tool_name)
                 .into_owned();
             tracing::info!(
                 thread_id = %ctx.sess.conversation_id,
+                provider_tool_name = %call.provider_tool_name.display(),
+                dispatch_tool_name = %call.dispatch_tool_name.display(),
                 "ToolCall: {} {}",
-                call.tool_name.display(),
+                call.provider_tool_name.display(),
                 payload_preview
             );
 

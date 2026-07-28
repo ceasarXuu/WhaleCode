@@ -94,6 +94,16 @@ impl ToolCallRuntime {
             .await
     }
 
+    pub(crate) async fn taskspace_response_final_receipt(
+        &self,
+        prepared: &crate::action_map::ActionMapPreparedResponse,
+        control_call_id: &str,
+    ) -> Result<crate::action_map::ActionMapResponseFinalReceipt, String> {
+        self.session
+            .taskspace_response_final_receipt(prepared, control_call_id)
+            .await
+    }
+
     pub(crate) fn invalid_call_responses(
         call: &ToolCall,
         message: impl Into<String>,
@@ -275,12 +285,14 @@ impl ToolCallRuntime {
         let lock = Arc::clone(&self.parallel_execution);
         let invocation_cancellation_token = cancellation_token.clone();
         let started = Instant::now();
-        let display_name = call.tool_name.display();
+        let display_name = call.dispatch_tool_name.display();
+        let provider_display_name = call.provider_tool_name_display();
 
         let dispatch_span = trace_span!(
             "dispatch_tool_call_with_code_mode_result",
             otel.name = display_name.as_str(),
-            tool_name = display_name.as_str(),
+            dispatch_tool_name = display_name.as_str(),
+            provider_tool_name = provider_display_name.as_str(),
             call_id = call.call_id.as_str(),
             aborted = false,
         );
@@ -369,7 +381,7 @@ impl ToolCallRuntime {
                 "status": "failed",
                 "success": false,
                 "call_id": call.call_id,
-                "tool": call.tool_name.display(),
+                "tool": call.provider_tool_name_display(),
                 "error": {
                     "class": "tool",
                     "message": message,
@@ -478,9 +490,9 @@ impl ToolCallRuntime {
     }
 
     fn abort_message(call: &ToolCall, secs: f32) -> String {
-        if call.tool_name.namespace.is_none()
+        if call.dispatch_tool_name.namespace.is_none()
             && matches!(
-                call.tool_name.name.as_str(),
+                call.dispatch_tool_name.name.as_str(),
                 "shell"
                     | "container.exec"
                     | "exec_command"
@@ -608,7 +620,8 @@ mod tests {
 
     fn failure_response_preview(err: FunctionCallError) -> String {
         let call = ToolCall {
-            tool_name: ToolName::plain("apply_patch"),
+            provider_tool_name: ToolName::plain("apply_patch"),
+            dispatch_tool_name: ToolName::plain("apply_patch"),
             call_id: "call-test".to_string(),
             payload: ToolPayload::Function {
                 arguments: "{}".to_string(),
@@ -655,7 +668,8 @@ mod tests {
     #[test]
     fn tool_search_failure_keeps_pairing_output_and_exact_error_fact() {
         let call = ToolCall {
-            tool_name: ToolName::plain("tool_search"),
+            provider_tool_name: ToolName::plain("tool_search"),
+            dispatch_tool_name: ToolName::plain("tool_search"),
             call_id: "search-1".to_string(),
             payload: ToolPayload::ToolSearch {
                 arguments: SearchToolCallParams {

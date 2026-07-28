@@ -25,6 +25,7 @@ pub(crate) use projection_policy::projection_identity_from_context;
 pub(crate) use response::ActionMapDeclaredCall;
 pub(crate) use response::ActionMapPreparedCall;
 pub(crate) use response::ActionMapPreparedResponse;
+pub(crate) use response::ActionMapResponseFinalReceipt;
 pub(crate) use response::ActionMapResponseOperation;
 pub(crate) use rooted_dag::BlockRecord;
 pub(crate) use rooted_dag::CompletionRecord;

@@ -1383,6 +1383,10 @@ function New-TaskspaceControlUsageSummary {
     $rolloutCommittedControlCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutGraphRevisionCommitKeys = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutReadMapCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $responseFinalReceiptCount = 0
+    $responseFinalReceiptCompleteCount = 0
+    $responseFinalReceiptIncompleteCount = 0
+    $latestResponseFinalRevision = $null
     $readMapCompletionCount = 0
     $readMapRepeatedRevisionCount = 0
     $readMapRevisionLagSampleCount = 0
@@ -1407,6 +1411,30 @@ function New-TaskspaceControlUsageSummary {
             if ($null -eq $payload) { continue }
             $rolloutResponseItemCount++
             $payloadType = [string](Get-TaskspaceCostProperty $payload @("type"))
+            if ($payloadType -eq "message") {
+                foreach ($contentItem in @(Get-TaskspaceCostProperty $payload @("content"))) {
+                    $text = [string](Get-TaskspaceCostProperty $contentItem @("text"))
+                    if ([string]::IsNullOrWhiteSpace($text)) { continue }
+                    $fact = $null
+                    try { $fact = $text | ConvertFrom-Json } catch {}
+                    if ([string](Get-TaskspaceCostProperty $fact @("schema_version")) -ne
+                        "TaskSpaceResponseFinalReceiptV1") {
+                        continue
+                    }
+                    $responseFinalReceiptCount++
+                    if ([string](Get-TaskspaceCostProperty $fact @("status")) -eq "complete" -and
+                        [bool](Get-TaskspaceCostProperty $fact @("success"))) {
+                        $responseFinalReceiptCompleteCount++
+                    } else {
+                        $responseFinalReceiptIncompleteCount++
+                    }
+                    $finalRevision = Get-TaskspaceCostProperty $fact @("canonical_revision")
+                    if ($null -ne $finalRevision) {
+                        $latestResponseFinalRevision = [int64]$finalRevision
+                        $latestCommittedRevision = [int64]$finalRevision
+                    }
+                }
+            }
             if ($payloadType -in @(
                     "function_call_output",
                     "custom_tool_call_output",
@@ -1717,6 +1745,10 @@ function New-TaskspaceControlUsageSummary {
         ordinary_gate_failure_count = [int]$rolloutOrdinaryGateFailureCallIds.Count
         committed_control_count = [int]$rolloutCommittedControlCallIds.Count
         graph_revision_commit_count = [int]$rolloutGraphRevisionCommitKeys.Count
+        response_final_receipt_count = [int]$responseFinalReceiptCount
+        response_final_receipt_complete_count = [int]$responseFinalReceiptCompleteCount
+        response_final_receipt_incomplete_count = [int]$responseFinalReceiptIncompleteCount
+        latest_response_final_revision = $latestResponseFinalRevision
         read_map_request_count = $readMapRequestCount
         read_map_completion_count = [int]$readMapCompletionCount
         read_map_failure_count = [int]$readMapFailureCount

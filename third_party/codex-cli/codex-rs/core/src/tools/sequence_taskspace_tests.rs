@@ -18,7 +18,8 @@ use crate::turn_diff_tracker::TurnDiffTracker;
 
 fn function_call(name: &str, call_id: &str, arguments: impl Into<String>) -> ToolCall {
     ToolCall {
-        tool_name: ToolName::plain(name),
+        provider_tool_name: ToolName::plain(name),
+        dispatch_tool_name: ToolName::plain(name),
         call_id: call_id.to_string(),
         payload: ToolPayload::Function {
             arguments: arguments.into(),
@@ -68,6 +69,25 @@ fn initialize_two_actions() -> ToolCall {
     initialize_actions(&[("edit", "apply_patch"), ("verify", "exec_command")])
 }
 
+fn execute_actions(expected_revision: u64, actions: &[(&str, &str)]) -> ToolCall {
+    function_call(
+        "taskspace_control",
+        "control-next",
+        serde_json::json!({
+            "action": "execute",
+            "expected_revision": expected_revision,
+            "actions": actions
+                .iter()
+                .map(|(node_id, tool)| serde_json::json!({
+                    "node_id": node_id,
+                    "tool": tool,
+                }))
+                .collect::<Vec<_>>(),
+        })
+        .to_string(),
+    )
+}
+
 fn router_for_turn(turn: &crate::session::turn_context::TurnContext) -> ToolRouter {
     ToolRouter::from_config(
         &turn.tools_config,
@@ -80,6 +100,81 @@ fn router_for_turn(turn: &crate::session::turn_context::TurnContext) -> ToolRout
             dynamic_tools: turn.dynamic_tools.as_slice(),
         },
     )
+}
+
+fn final_receipt(outputs: &[codex_protocol::models::ResponseInputItem]) -> serde_json::Value {
+    let codex_protocol::models::ResponseInputItem::Message { content, .. } =
+        outputs.last().expect("final receipt")
+    else {
+        panic!("response-final receipt must be the final factual message");
+    };
+    let text = content
+        .iter()
+        .find_map(|item| match item {
+            codex_protocol::models::ContentItem::InputText { text } => Some(text),
+            _ => None,
+        })
+        .expect("final receipt text");
+    serde_json::from_str(text).expect("final receipt JSON")
+}
+
+#[tokio::test]
+async fn response_final_receipt_revision_is_accepted_by_the_next_execute() {
+    let (session, mut turn) = make_session_and_context().await;
+    turn.tools_config
+        .experimental_supported_tools
+        .push("test_sync_tool".to_string());
+    session
+        .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
+        .await;
+    let router = router_for_turn(&turn);
+    let session = Arc::new(session);
+    let runtime = ToolCallRuntime::new(
+        Arc::new(router),
+        Arc::clone(&session),
+        Arc::new(turn),
+        Arc::new(Mutex::new(TurnDiffTracker::new())),
+    );
+
+    let initialized = execute_response_tool_sequence(
+        runtime.clone(),
+        vec![
+            initialize_actions(&[("work", "test_sync_tool")]),
+            function_call("test_sync_tool", "initial-work", "{}"),
+        ],
+        CancellationToken::new(),
+    )
+    .await
+    .expect("initialize response");
+    let initial_receipt = final_receipt(&initialized.outputs);
+    let final_revision = initial_receipt["canonical_revision"]
+        .as_u64()
+        .expect("canonical revision");
+    assert!(
+        final_revision
+            > initial_receipt["reservation_revision_after"]
+                .as_u64()
+                .expect("reservation revision")
+    );
+
+    let continued = execute_response_tool_sequence(
+        runtime,
+        vec![
+            execute_actions(final_revision, &[("work", "test_sync_tool")]),
+            function_call("test_sync_tool", "continued-work", "{}"),
+        ],
+        CancellationToken::new(),
+    )
+    .await
+    .expect("next execute response");
+    let continued_receipt = final_receipt(&continued.outputs);
+    assert_eq!(continued_receipt["status"], "complete");
+    assert!(
+        continued_receipt["canonical_revision"]
+            .as_u64()
+            .expect("continued revision")
+            > final_revision
+    );
 }
 
 #[tokio::test]
@@ -110,7 +205,7 @@ async fn prior_failure_releases_every_prepared_taskspace_reservation() {
         .await
         .expect("response sequence");
 
-    assert_eq!(outcome.outputs.len(), 3);
+    assert_eq!(outcome.outputs.len(), 4);
     let map = session
         .canonical_action_map_snapshot()
         .await
@@ -129,6 +224,15 @@ async fn prior_failure_releases_every_prepared_taskspace_reservation() {
             .any(|result| result.id == "tool-result://call/verify" && result.is_error),
         "the skipped action must be attributed as a failed result"
     );
+    let receipt = final_receipt(&outcome.outputs);
+    assert_eq!(receipt["schema_version"], "TaskSpaceResponseFinalReceiptV1");
+    assert_eq!(receipt["status"], "complete");
+    assert_eq!(receipt["receipt_only"], true);
+    assert_eq!(receipt["reservation_revision_after"], 1);
+    assert_eq!(receipt["canonical_revision"], map.revision);
+    assert_eq!(receipt["prepared_action_count"], 2);
+    assert_eq!(receipt["attributed_result_count"], 2);
+    assert_eq!(receipt["outstanding_reservation_count"], 0);
 }
 
 #[tokio::test]
@@ -168,7 +272,7 @@ async fn cancelled_parallel_actions_release_every_prepared_reservation() {
         .await
         .expect("cancelled response sequence");
 
-    assert_eq!(outcome.outputs.len(), 3);
+    assert_eq!(outcome.outputs.len(), 4);
     let map = session
         .canonical_action_map_snapshot()
         .await
@@ -178,6 +282,9 @@ async fn cancelled_parallel_actions_release_every_prepared_reservation() {
     assert!(map.reservations.is_empty());
     assert_eq!(map.results.len(), 2);
     assert!(map.results.iter().all(|result| result.is_error));
+    let receipt = final_receipt(&outcome.outputs);
+    assert_eq!(receipt["status"], "complete");
+    assert_eq!(receipt["canonical_revision"], map.revision);
 }
 
 #[tokio::test]
@@ -215,7 +322,7 @@ async fn parallel_tool_timeouts_release_every_prepared_reservation() {
         .await
         .expect("timed out response sequence");
 
-    assert_eq!(outcome.outputs.len(), 3);
+    assert_eq!(outcome.outputs.len(), 4);
     let map = session
         .canonical_action_map_snapshot()
         .await
@@ -225,6 +332,9 @@ async fn parallel_tool_timeouts_release_every_prepared_reservation() {
     assert!(map.reservations.is_empty());
     assert_eq!(map.results.len(), 2);
     assert!(map.results.iter().all(|result| result.is_error));
+    let receipt = final_receipt(&outcome.outputs);
+    assert_eq!(receipt["status"], "complete");
+    assert_eq!(receipt["canonical_revision"], map.revision);
 }
 
 #[tokio::test]
@@ -242,7 +352,8 @@ async fn fatal_dispatch_error_releases_the_prepared_reservation() {
         Arc::new(Mutex::new(TurnDiffTracker::new())),
     );
     let malformed_exec = ToolCall {
-        tool_name: ToolName::plain("exec_command"),
+        provider_tool_name: ToolName::plain("exec_command"),
+        dispatch_tool_name: ToolName::plain("exec_command"),
         call_id: "fatal".to_string(),
         payload: ToolPayload::ToolSearch {
             arguments: SearchToolCallParams {
