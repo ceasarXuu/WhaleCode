@@ -175,7 +175,7 @@ fn taskspace_execute_requires_action_count_to_match_sibling_calls() {
 
     let failure = validate_tool_sequence(&calls, true).expect_err("count mismatch must fail");
     assert_eq!(failure.reason_code, TASKSPACE_ACTION_COUNT_MISMATCH_CODE);
-    assert_eq!(failure.outputs(&calls, Some(7)).len(), calls.len());
+    assert_eq!(failure.outputs(&calls, Some(7)).len(), calls.len() + 1);
 }
 
 #[test]
@@ -379,9 +379,9 @@ fn taskspace_state_commit_failure_closes_every_call_without_dispatch() {
     ));
     let outcome = taskspace_prepare_failure_outcome(&calls, Some(9), &error);
 
-    assert_eq!(outcome.outputs.len(), calls.len());
+    assert_eq!(outcome.outputs.len(), calls.len() + 1);
     assert!(outcome.terminal_completion.is_none());
-    for (output, call) in outcome.outputs.iter().zip(&calls) {
+    for (output, call) in outcome.outputs.iter().take(calls.len()).zip(&calls) {
         assert_eq!(response_input_call_id(output), call.call_id);
         assert!(!response_input_succeeded(output));
         let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
@@ -401,6 +401,10 @@ fn taskspace_state_commit_failure_closes_every_call_without_dispatch() {
         assert_eq!(value["error"]["violations"][0]["code"], "stale_revision");
         assert!(value["error"].get("detail").is_none());
     }
+    assert!(matches!(
+        outcome.outputs.last(),
+        Some(ResponseInputItem::Message { .. })
+    ));
 }
 
 #[test]
@@ -494,8 +498,8 @@ fn multi_patch_preflight_closes_every_call_without_execution_claims() {
     assert_eq!(failure.reason_code, REQUEST_MULTIPLE_PATCHES_CODE);
 
     let outputs = failure.outputs(&calls, None);
-    assert_eq!(outputs.len(), calls.len());
-    for (output, call) in outputs.iter().zip(&calls) {
+    assert_eq!(outputs.len(), calls.len() + 1);
+    for (output, call) in outputs.iter().take(calls.len()).zip(&calls) {
         assert_eq!(response_input_call_id(output), call.call_id);
         assert!(!response_input_succeeded(output));
         let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
@@ -508,6 +512,10 @@ fn multi_patch_preflight_closes_every_call_without_execution_claims() {
         assert_eq!(value["request"]["executed_tool_call_count"], 0);
         assert_eq!(value["request"]["patch_call_count"], 2);
     }
+    assert!(matches!(
+        outputs.last(),
+        Some(ResponseInputItem::Message { .. })
+    ));
 }
 
 #[test]

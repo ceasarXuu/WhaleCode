@@ -65,8 +65,8 @@ fn assert_zero_commit_failure(
     calls: &[ToolCall],
 ) {
     let outputs = failure.outputs(calls, Some(17));
-    assert_eq!(outputs.len(), calls.len());
-    for output in outputs {
+    assert_eq!(outputs.len(), calls.len() + 1);
+    for output in outputs.into_iter().take(calls.len()) {
         let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
             panic!("test calls should receive function outputs");
         };

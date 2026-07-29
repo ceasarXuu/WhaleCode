@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.41",
+  "manifest_version": "1.0.42",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -92,8 +92,8 @@
       "selected_targets": [
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
-          "sha256": "a68b0663affa420d6b13ded228f01eaf2991cd7884d912c5020def5c38d247e8",
-          "activation_phase": "A2-C provider identity preflight and response-final canonical receipt"
+          "sha256": "fae453aa2137ad88e175d7c4640763c6e321b4e1f6b466a13deebd4bebd0dd00",
+          "activation_phase": "W0 trusted provider-response failure carrier"
         },
         {
           "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
@@ -102,8 +102,8 @@
         },
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
-          "sha256": "fbbf2e21d1276b9305e17444a07abe07d24a6b669644a8863e81e10cff4956ce",
-          "activation_phase": "A2-C provider/dispatch identity separation and explicit dispatched/skipped/fatal result attribution"
+          "sha256": "9fd89bd55324dbeb75e6703e28070e56b6cf06237000f6452c874daa6b58cc59",
+          "activation_phase": "W0 exact failure provenance and trusted supplemental carrier"
         },
         {
           "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v3.contract.json",

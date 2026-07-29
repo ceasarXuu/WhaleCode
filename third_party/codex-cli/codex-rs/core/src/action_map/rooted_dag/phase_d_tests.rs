@@ -137,15 +137,15 @@ fn waiting_node_rejection_preserves_multi_parent_state_facts() {
     assert_eq!(violation.code, ViolationCode::NodeStateInvalid);
     assert_eq!(violation.node_id.as_deref(), Some("join"));
     assert_eq!(
-        violation.evaluated_state_at_violation,
+        violation.uncommitted_candidate_state_at_violation,
         Some(NodeState::Waiting)
     );
     assert_eq!(
-        violation.allowed_states_at_violation,
+        violation.allowed_uncommitted_candidate_states_at_violation,
         vec![NodeState::Ready, NodeState::InFlight]
     );
     assert_eq!(
-        violation.evaluated_unsatisfied_predecessor_ids_at_violation,
+        violation.uncommitted_candidate_unsatisfied_predecessor_ids_at_violation,
         vec!["left".to_string(), "right".to_string()]
     );
 }
@@ -181,7 +181,7 @@ fn completed_and_blocked_node_rejections_preserve_actual_state() {
     )
     .unwrap_err();
     assert_eq!(
-        completed_rejection.violations[0].evaluated_state_at_violation,
+        completed_rejection.violations[0].uncommitted_candidate_state_at_violation,
         Some(NodeState::Completed)
     );
 
@@ -217,7 +217,7 @@ fn completed_and_blocked_node_rejections_preserve_actual_state() {
     )
     .unwrap_err();
     assert_eq!(
-        blocked_rejection.violations[0].evaluated_state_at_violation,
+        blocked_rejection.violations[0].uncommitted_candidate_state_at_violation,
         Some(NodeState::Blocked)
     );
 }
@@ -244,11 +244,15 @@ fn rejected_transaction_distinguishes_canonical_and_evaluated_node_state() {
 
     let violation = &rejection.violations[0];
     assert_eq!(
+        violation.canonical_node_present_before_transaction,
+        Some(true)
+    );
+    assert_eq!(
         violation.canonical_state_before_transaction,
         Some(NodeState::Ready)
     );
     assert_eq!(
-        violation.evaluated_state_at_violation,
+        violation.uncommitted_candidate_state_at_violation,
         Some(NodeState::Completed)
     );
     assert!(
@@ -258,7 +262,7 @@ fn rejected_transaction_distinguishes_canonical_and_evaluated_node_state() {
     );
     assert!(
         violation
-            .evaluated_unsatisfied_predecessor_ids_at_violation
+            .uncommitted_candidate_unsatisfied_predecessor_ids_at_violation
             .is_empty()
     );
 }

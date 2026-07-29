@@ -2,7 +2,8 @@ function ConvertTo-R7CallDescriptor {
     param(
         [Parameter(Mandatory = $true)][string]$CallId,
         [Parameter(Mandatory = $true)][string]$ToolName,
-        [Parameter(Mandatory = $true)][string]$Arguments
+        [Parameter(Mandatory = $true)][string]$Arguments,
+        [string]$CallType = "function_call"
     )
     $parsed = $null
     $argumentParseStatus = "not_applicable"
@@ -49,6 +50,7 @@ function ConvertTo-R7CallDescriptor {
     [pscustomobject]@{
         call_id = $CallId
         tool = $ToolName
+        call_type = $CallType
         control_action = $controlAction
         declared_node_id = ""
         declared_actions = $declaredActions
@@ -59,10 +61,14 @@ function ConvertTo-R7CallDescriptor {
         failure_class = ""
         failure_code = ""
         failure_schema_version = ""
+        failure_provenance_scope = ""
         failure_copy_group_id = ""
+        failure_affected_call_ids = @()
         zero_dispatch = $false
         parse_status = "output_pending"
         evidence_valid = $true
+        output_count = 0
+        supplemental_count = 0
         violation_codes = @()
         violation_contexts = @()
         state_commit = $null
@@ -86,18 +92,21 @@ function Get-R7StructuredFailureOutcome {
     $schemaVersion = [string](Get-R7JsonProperty $Payload "schema_version" "")
     $knownSchemas = @(
         "TaskSpaceControlResultV2",
-        "TaskSpaceResponseCommitFailureV2",
+        "TaskSpaceResponseCommitFailureV3",
         "ToolSequencePreflightResultV3",
         "ProviderToolResponsePreflightV2",
-        "ToolSearchFailureV2",
-        "TaskSpaceToolSkippedV1"
+        "ToolSearchFailureV3",
+        "TaskSpaceToolSkippedV2",
+        "TaskSpaceBoundResultCommitFailureV2"
     )
     if ($schemaVersion -notin $knownSchemas) {
         return [pscustomobject]@{
             failure_class = "evidence_unclassified"
             failure_code = "failure_schema_unknown"
             failure_schema_version = $schemaVersion
+            failure_provenance_scope = ""
             failure_copy_group_id = ""
+            failure_affected_call_ids = @()
             zero_dispatch = $false
             parse_status = "unknown_failure_schema"
             evidence_valid = $false
@@ -108,22 +117,8 @@ function Get-R7StructuredFailureOutcome {
     }
 
     $error = Get-R7JsonProperty $Payload "error"
-    if ($schemaVersion -eq "ToolSearchFailureV2") {
-        $cause = Get-R7JsonProperty $error "cause"
-        if ($null -ne $cause -and [string](Get-R7JsonProperty $cause "format" "") -ne "text") {
-            $causeOutcome = Get-R7StructuredFailureOutcome $cause
-            $causeOutcome.failure_schema_version = $schemaVersion
-            return $causeOutcome
-        }
-    }
     $errorClass = [string](Get-R7JsonProperty $error "class" "")
     $errorCode = [string](Get-R7JsonProperty $error "code" "")
-    if ($schemaVersion -eq "ToolSearchFailureV2" -and [string]::IsNullOrWhiteSpace($errorCode)) {
-        $cause = Get-R7JsonProperty $error "cause"
-        $causeText = [string](Get-R7JsonProperty $cause "text" "")
-        $errorCode = Get-TaskspaceOrdinaryToolFailureCode $causeText
-        if ([string]::IsNullOrWhiteSpace($errorCode)) { $errorCode = "tool_failed_unclassified" }
-    }
     $violations = @(Get-R7JsonProperty $error "violations" @())
     if (-not $violations.Count) { $violations = @(Get-R7JsonProperty $Payload "violations" @()) }
     $provenance = Get-R7JsonProperty $Payload "failure_provenance"
@@ -136,7 +131,12 @@ function Get-R7StructuredFailureOutcome {
         }
         failure_code = if ($valid) { $errorCode } else { "failure_code_missing" }
         failure_schema_version = $schemaVersion
+        failure_provenance_scope = [string](Get-R7JsonProperty $provenance "scope" "")
         failure_copy_group_id = [string](Get-R7JsonProperty $provenance "copy_group_id" "")
+        failure_affected_call_ids = @(
+            Get-R7JsonProperty $provenance "affected_call_ids" @() |
+                ForEach-Object { [string]$_ }
+        )
         zero_dispatch = [bool](Get-R7JsonProperty $provenance "zero_dispatch" $false)
         parse_status = if ($valid) { "structured_failure" } else { "incomplete_failure_payload" }
         evidence_valid = $valid
@@ -152,7 +152,12 @@ function Get-R7StructuredFailureOutcome {
 }
 
 function Get-R7CallOutcome {
-    param([bool]$ToolSuccess, [string]$Output)
+    param(
+        [bool]$ToolSuccess,
+        [string]$Output,
+        [string]$ToolName = "",
+        [switch]$TrustedRuntimeCarrier
+    )
     if ($ToolSuccess) {
         $stateCommit = $null
         $trimmed = $Output.Trim()
@@ -167,7 +172,9 @@ function Get-R7CallOutcome {
             failure_class = ""
             failure_code = ""
             failure_schema_version = ""
+            failure_provenance_scope = ""
             failure_copy_group_id = ""
+            failure_affected_call_ids = @()
             zero_dispatch = $false
             parse_status = "success"
             evidence_valid = $true
@@ -187,7 +194,9 @@ function Get-R7CallOutcome {
                 failure_class = "evidence_unclassified"
                 failure_code = "failure_payload_parse_failed"
                 failure_schema_version = ""
+                failure_provenance_scope = ""
                 failure_copy_group_id = ""
+                failure_affected_call_ids = @()
                 zero_dispatch = $false
                 parse_status = "malformed_failure_json"
                 evidence_valid = $false
@@ -196,8 +205,28 @@ function Get-R7CallOutcome {
                 state_commit = $null
             }
         }
-        if (-not [string]::IsNullOrWhiteSpace([string](Get-R7JsonProperty $payload "schema_version" "")) -or
-            $null -ne (Get-R7JsonProperty $payload "error")) {
+        $schemaVersion = [string](Get-R7JsonProperty $payload "schema_version" "")
+        if (-not [string]::IsNullOrWhiteSpace($schemaVersion)) {
+            $trustedControlResult =
+                $schemaVersion -eq "TaskSpaceControlResultV2" -and
+                $ToolName -eq "taskspace_control"
+            if (-not $TrustedRuntimeCarrier -and -not $trustedControlResult) {
+                return [pscustomobject]@{
+                    success = $false
+                    failure_class = "evidence_unclassified"
+                    failure_code = "taskspace_failure_untrusted_carrier"
+                    failure_schema_version = $schemaVersion
+                    failure_provenance_scope = ""
+                    failure_copy_group_id = ""
+                    failure_affected_call_ids = @()
+                    zero_dispatch = $false
+                    parse_status = "untrusted_structured_failure_carrier"
+                    evidence_valid = $false
+                    violation_codes = @()
+                    violation_contexts = @()
+                    state_commit = Get-R7JsonProperty $payload "state_commit"
+                }
+            }
             $structured = Get-R7StructuredFailureOutcome $payload
             $structured | Add-Member -Force -NotePropertyName success -NotePropertyValue $false
             return $structured
@@ -211,7 +240,9 @@ function Get-R7CallOutcome {
         failure_class = if ($valid) { "ordinary_tool" } else { "evidence_unclassified" }
         failure_code = if ($valid) { $ordinaryCode } else { "tool_failed_unclassified" }
         failure_schema_version = ""
+        failure_provenance_scope = ""
         failure_copy_group_id = ""
+        failure_affected_call_ids = @()
         zero_dispatch = $false
         parse_status = if ($valid) { "ordinary_failure" } else { "ordinary_failure_unclassified" }
         evidence_valid = $valid
@@ -225,7 +256,8 @@ function Set-R7CallOutcome {
     param($Call, $Outcome)
     foreach ($name in @(
             "success", "failure_class", "failure_code", "failure_schema_version",
-            "failure_copy_group_id", "zero_dispatch", "parse_status", "evidence_valid",
+            "failure_provenance_scope", "failure_copy_group_id",
+            "failure_affected_call_ids", "zero_dispatch", "parse_status", "evidence_valid",
             "violation_codes", "violation_contexts", "state_commit"
         )) {
         $Call.$name = $Outcome.$name

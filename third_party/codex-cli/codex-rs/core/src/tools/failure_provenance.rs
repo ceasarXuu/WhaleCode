@@ -3,14 +3,26 @@ use serde_json::Value;
 pub(crate) fn provider_response_failure_provenance<'a>(
     call_ids: impl IntoIterator<Item = &'a str>,
 ) -> Value {
-    let first_call_id = call_ids
+    let affected_call_ids = call_ids
         .into_iter()
-        .find(|call_id| !call_id.trim().is_empty())
-        .unwrap_or("unpaired");
+        .filter(|call_id| !call_id.trim().is_empty())
+        .collect::<Vec<_>>();
+    let first_call_id = affected_call_ids.first().copied().unwrap_or("unpaired");
     serde_json::json!({
         "scope": "provider_response",
         "copy_group_id": format!("provider_response:{first_call_id}"),
         "zero_dispatch": true,
+        "affected_call_ids": affected_call_ids,
+    })
+}
+
+pub(crate) fn skipped_call_failure_provenance(call_id: &str, cause_call_id: &str) -> Value {
+    serde_json::json!({
+        "scope": "tool_sequence_skip",
+        "copy_group_id": format!("tool_sequence_skip:{cause_call_id}"),
+        "zero_dispatch": true,
+        "affected_call_ids": [call_id],
+        "cause_call_id": cause_call_id,
     })
 }
 
@@ -35,6 +47,18 @@ mod tests {
             serde_json::json!("provider_response:call-2")
         );
         assert_eq!(value["zero_dispatch"], serde_json::json!(true));
+        assert_eq!(
+            value["affected_call_ids"],
+            serde_json::json!(["call-2", "call-3"])
+        );
+    }
+
+    #[test]
+    fn skipped_call_provenance_names_the_causal_call() {
+        let value = skipped_call_failure_provenance("call-2", "call-1");
+        assert_eq!(value["scope"], "tool_sequence_skip");
+        assert_eq!(value["cause_call_id"], "call-1");
+        assert_eq!(value["affected_call_ids"], serde_json::json!(["call-2"]));
     }
 
     #[test]

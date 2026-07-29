@@ -2603,6 +2603,13 @@ impl ModelClientSession {
             .as_ref()
             .map(AuthManager::unauthorized_recovery);
         let mut pending_retry = PendingUnauthorizedRetry::default();
+        let wire_epoch_id = self.client.current_window_id();
+        let wire_logical_request_id = self
+            .client
+            .state
+            .provider_wire_trace
+            .begin_logical_request(wire_epoch_id.as_str());
+        let mut wire_attempt_seq = 0usize;
         loop {
             let client_setup = self.client.current_client_setup().await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
@@ -2638,10 +2645,15 @@ impl ModelClientSession {
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
             let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
+            wire_attempt_seq += 1;
             let wire_value = self.client.state.provider_wire_trace.record_request(
-                self.client.current_window_id().as_str(),
+                wire_epoch_id.as_str(),
+                &wire_logical_request_id,
+                wire_attempt_seq,
+                "responses_http",
                 provider_wire_api,
                 &request,
+                None,
             );
             if let Some(payload) =
                 provider_payload_digest_for_wire_value(&wire_value, provider_wire_api)
@@ -2722,6 +2734,13 @@ impl ModelClientSession {
             .as_ref()
             .map(AuthManager::unauthorized_recovery);
         let mut pending_retry = PendingUnauthorizedRetry::default();
+        let wire_epoch_id = self.client.current_window_id();
+        let wire_logical_request_id = self
+            .client
+            .state
+            .provider_wire_trace
+            .begin_logical_request(wire_epoch_id.as_str());
+        let mut wire_attempt_seq = 0usize;
         loop {
             let client_setup = self.client.current_client_setup().await?;
             let request_auth_context = AuthRequestTelemetryContext::new(
@@ -2809,6 +2828,23 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
+            if !warmup {
+                wire_attempt_seq += 1;
+                let wire_value =
+                    serde_json::to_value(&ws_request).unwrap_or(serde_json::Value::Null);
+                self.client.state.provider_wire_trace.record_request(
+                    wire_epoch_id.as_str(),
+                    &wire_logical_request_id,
+                    wire_attempt_seq,
+                    "responses_websocket",
+                    provider_wire_api,
+                    self.websocket_session
+                        .last_request
+                        .as_ref()
+                        .expect("websocket request source is retained"),
+                    Some(wire_value),
+                );
+            }
             if let Some(payload) = provider_payload_digest_for_wire(&ws_request, provider_wire_api)
             {
                 budget_dispatch.record_provider_payload(payload);
@@ -2818,6 +2854,9 @@ impl ModelClientSession {
                 .await
                 .map_err(|err| {
                     let err = map_api_error(err);
+                    if !warmup {
+                        self.record_provider_wire_terminal("response_failed", None);
+                    }
                     budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     err

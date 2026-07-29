@@ -45,6 +45,7 @@ pub(crate) struct ProviderWireTrace {
 #[derive(Debug, Default)]
 struct ProviderWireTraceState {
     epoch_id: String,
+    next_logical_request_index: usize,
     next_request_index: usize,
     previous: Option<WireRequestShape>,
     active_request_identity: Option<ProviderWireRequestIdentity>,
@@ -55,6 +56,7 @@ pub(crate) struct ProviderWireRequestIdentity {
     pub(crate) request_id: String,
     pub(crate) logical_request_id: String,
     pub(crate) attempt_seq: usize,
+    transport: String,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +84,7 @@ struct WireShapeEvent<'a> {
     request_id: &'a str,
     logical_request_id: &'a str,
     attempt_seq: usize,
+    transport: &'a str,
     epoch_id: &'a str,
     request_index: usize,
     provider_wire_api: String,
@@ -188,6 +191,7 @@ struct WireTerminalEvent<'a> {
     request_id: &'a str,
     logical_request_id: &'a str,
     attempt_seq: usize,
+    transport: &'a str,
     status: &'a str,
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
@@ -207,17 +211,34 @@ impl ProviderWireTrace {
         }
     }
 
+    pub(crate) fn begin_logical_request(&self, epoch_id: &str) -> String {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_epoch_if_needed(&mut state, epoch_id);
+        state.next_logical_request_index += 1;
+        format!(
+            "provider-wire:{epoch_id}:logical-{}",
+            state.next_logical_request_index
+        )
+    }
+
     pub(crate) fn record_request(
         &self,
         epoch_id: &str,
+        logical_request_id: &str,
+        attempt_seq: usize,
+        transport: &str,
         provider_wire_api: WireApi,
         request: &ResponsesApiRequest,
+        wire_override: Option<Value>,
     ) -> Value {
         let pre_wire = serde_json::to_value(request).unwrap_or(Value::Null);
-        let wire = match provider_wire_api {
+        let wire = wire_override.unwrap_or_else(|| match provider_wire_api {
             WireApi::ChatCompletions => build_chat_completions_body(request),
             WireApi::Responses => pre_wire.clone(),
-        };
+        });
         let Some(path) = self.path.as_ref() else {
             return wire;
         };
@@ -252,22 +273,14 @@ impl ProviderWireTrace {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.epoch_id != epoch_id {
-            state.epoch_id = epoch_id.to_string();
-            state.next_request_index = 0;
-            state.previous = None;
-            state.active_request_identity = None;
-        }
+        reset_epoch_if_needed(&mut state, epoch_id);
         state.next_request_index += 1;
-        let request_id = format!("provider-wire:{epoch_id}:{}", state.next_request_index);
-        let logical_request_id = format!(
-            "provider-wire:{epoch_id}:logical-{}",
-            state.next_request_index
-        );
+        let request_id = format!("{logical_request_id}:attempt-{attempt_seq}");
         let request_identity = ProviderWireRequestIdentity {
             request_id: request_id.clone(),
-            logical_request_id,
-            attempt_seq: 1,
+            logical_request_id: logical_request_id.to_string(),
+            attempt_seq,
+            transport: transport.to_string(),
         };
         let comparison = state.previous.as_ref().map(|previous| {
             compare_shapes(
@@ -299,11 +312,12 @@ impl ProviderWireTrace {
             &taskspace_wire_contract_identity,
         );
         let event = WireShapeEvent {
-            schema_version: "provider-chat-wire-trace-v9",
+            schema_version: "provider-chat-wire-trace-v10",
             event_name,
             request_id: &request_identity.request_id,
             logical_request_id: &request_identity.logical_request_id,
             attempt_seq: request_identity.attempt_seq,
+            transport,
             epoch_id,
             request_index: state.next_request_index,
             provider_wire_api: format!("{provider_wire_api:?}"),
@@ -381,11 +395,12 @@ impl ProviderWireTrace {
             return None;
         };
         let event = WireTerminalEvent {
-            schema_version: "provider-chat-wire-trace-v9",
+            schema_version: "provider-chat-wire-trace-v10",
             event_name: "provider.chat_wire_request_terminal",
             request_id: &request_identity.request_id,
             logical_request_id: &request_identity.logical_request_id,
             attempt_seq: request_identity.attempt_seq,
+            transport: &request_identity.transport,
             status,
             input_tokens: usage.map(|value| value.input_tokens),
             cached_input_tokens: usage.map(|value| value.cached_input_tokens),
@@ -396,6 +411,17 @@ impl ProviderWireTrace {
         append_json(path, &event);
         Some(request_identity)
     }
+}
+
+fn reset_epoch_if_needed(state: &mut ProviderWireTraceState, epoch_id: &str) {
+    if state.epoch_id == epoch_id {
+        return;
+    }
+    state.epoch_id = epoch_id.to_string();
+    state.next_logical_request_index = 0;
+    state.next_request_index = 0;
+    state.previous = None;
+    state.active_request_identity = None;
 }
 
 fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentity {
@@ -868,6 +894,117 @@ mod tests {
 
     fn message(role: &str, content: &str) -> Value {
         serde_json::json!({"role": role, "content": content})
+    }
+
+    fn trace_request() -> ResponsesApiRequest {
+        ResponsesApiRequest {
+            model: "test-model".to_string(),
+            instructions: String::new(),
+            input: Vec::new(),
+            tools: Vec::new(),
+            tool_choice: "auto".into(),
+            parallel_tool_calls: true,
+            reasoning: None,
+            store: false,
+            stream: true,
+            include: Vec::new(),
+            service_tier: None,
+            prompt_cache_key: None,
+            text: None,
+            client_metadata: None,
+        }
+    }
+
+    #[test]
+    fn wire_trace_preserves_logical_attempt_terminal_and_transport_identity() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("provider-wire.jsonl");
+        let trace = ProviderWireTrace {
+            path: Some(path.clone()),
+            state: Mutex::new(ProviderWireTraceState::default()),
+        };
+        let request = trace_request();
+        let logical = trace.begin_logical_request("epoch-1");
+
+        trace.record_request(
+            "epoch-1",
+            &logical,
+            1,
+            "responses_http",
+            WireApi::Responses,
+            &request,
+            None,
+        );
+        let first = trace
+            .record_terminal("retry_unauthorized", None)
+            .expect("first terminal identity");
+        trace.record_request(
+            "epoch-1",
+            &logical,
+            2,
+            "responses_http",
+            WireApi::Responses,
+            &request,
+            None,
+        );
+        let usage = TokenUsage {
+            input_tokens: 10,
+            cached_input_tokens: 8,
+            output_tokens: 2,
+            reasoning_output_tokens: 0,
+            total_tokens: 12,
+        };
+        let second = trace
+            .record_terminal("response_completed", Some(&usage))
+            .expect("second terminal identity");
+
+        let websocket_logical = trace.begin_logical_request("epoch-1");
+        trace.record_request(
+            "epoch-1",
+            &websocket_logical,
+            1,
+            "responses_websocket",
+            WireApi::Responses,
+            &request,
+            Some(serde_json::json!({"input": [], "tools": []})),
+        );
+        let websocket = trace
+            .record_terminal("cancelled", None)
+            .expect("websocket terminal identity");
+
+        assert_eq!(first.logical_request_id, logical);
+        assert_eq!(first.attempt_seq, 1);
+        assert_eq!(second.logical_request_id, logical);
+        assert_eq!(second.attempt_seq, 2);
+        assert_eq!(websocket.logical_request_id, websocket_logical);
+        assert_eq!(websocket.attempt_seq, 1);
+
+        let rows = std::fs::read_to_string(path)
+            .expect("wire trace")
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("trace row"))
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 6);
+        assert!(rows.iter().all(|row| {
+            row.get("schema_version").and_then(Value::as_str)
+                == Some("provider-chat-wire-trace-v10")
+        }));
+        assert_eq!(
+            rows[0].get("request_id").and_then(Value::as_str),
+            Some(first.request_id.as_str())
+        );
+        assert_eq!(
+            rows[2].get("request_id").and_then(Value::as_str),
+            Some(second.request_id.as_str())
+        );
+        assert_eq!(
+            rows[4].get("transport").and_then(Value::as_str),
+            Some("responses_websocket")
+        );
+        assert_eq!(
+            rows[5].get("status").and_then(Value::as_str),
+            Some("cancelled")
+        );
     }
 
     #[test]

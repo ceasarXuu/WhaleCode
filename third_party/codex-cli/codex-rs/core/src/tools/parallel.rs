@@ -18,6 +18,7 @@ use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
 use crate::tools::failure_provenance::exact_failure_cause;
+use crate::tools::failure_provenance::skipped_call_failure_provenance;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
@@ -378,22 +379,33 @@ impl ToolCallRuntime {
         call: &ToolCall,
         err: &FunctionCallError,
     ) -> Option<ResponseInputItem> {
-        matches!(call.payload, ToolPayload::ToolSearch { .. }).then(|| {
-            let message = function_call_error_model_visible_message(err);
-            Self::factual_message(serde_json::json!({
-                "schema_version": "ToolSearchFailureV2",
-                "status": "failed",
-                "success": false,
-                "call_id": call.call_id,
-                "tool": call.provider_tool_name_display(),
-                "pairing_status": "completed",
-                "execution_status": "failed",
-                "error": {
-                    "class": "tool",
-                    "cause": exact_failure_cause(&message),
-                },
-            }))
-        })
+        if !matches!(call.payload, ToolPayload::ToolSearch { .. }) {
+            return None;
+        }
+        let message = function_call_error_model_visible_message(err);
+        let cause = exact_failure_cause(&message);
+        let is_provider_response_fact = cause
+            .get("failure_provenance")
+            .and_then(|value| value.get("scope"))
+            .and_then(serde_json::Value::as_str)
+            == Some("provider_response");
+        if is_provider_response_fact {
+            return None;
+        }
+        Some(Self::factual_message(serde_json::json!({
+            "schema_version": "ToolSearchFailureV3",
+            "status": "failed",
+            "success": false,
+            "call_id": call.call_id,
+            "tool": call.provider_tool_name_display(),
+            "pairing_status": "completed",
+            "execution_status": "failed",
+            "error": {
+                "class": "tool",
+                "code": "tool_search_failed",
+                "cause": cause,
+            },
+        })))
     }
 
     pub(crate) fn skipped_responses(
@@ -426,8 +438,24 @@ impl ToolCallRuntime {
         cause_field: &str,
         cause_call_id: &str,
     ) -> Vec<ResponseInputItem> {
-        let message =
-            format!("TaskSpaceToolSkippedV1:\nstatus: {status}\n{cause_field}: {cause_call_id}");
+        let failure_provenance = skipped_call_failure_provenance(&call.call_id, cause_call_id);
+        let payload = serde_json::json!({
+            "schema_version": "TaskSpaceToolSkippedV2",
+            "status": status,
+            "success": false,
+            "call_id": call.call_id,
+            "tool": call.provider_tool_name_display(),
+            "failure_provenance": failure_provenance,
+            "error": {
+                "class": "tool",
+                "code": status,
+            },
+            "cause": {
+                "field": cause_field,
+                "call_id": cause_call_id,
+            },
+        });
+        let message = payload.to_string();
         let response = match &call.payload {
             ToolPayload::ToolSearch { .. } => ResponseInputItem::ToolSearchOutput {
                 call_id: call.call_id.clone(),
@@ -458,22 +486,11 @@ impl ToolCallRuntime {
             }
         };
         let mut responses = vec![response];
-        if matches!(call.payload, ToolPayload::ToolSearch { .. }) {
-            responses.push(Self::factual_message(serde_json::json!({
-                "schema_version": "TaskSpaceToolSkippedV1",
-                "status": status,
-                "success": false,
-                "call_id": call.call_id,
-                "cause": {
-                    "field": cause_field,
-                    "call_id": cause_call_id,
-                },
-            })));
-        }
+        responses.push(Self::factual_message(payload));
         responses
     }
 
-    fn factual_message(value: serde_json::Value) -> ResponseInputItem {
+    pub(crate) fn factual_message(value: serde_json::Value) -> ResponseInputItem {
         ResponseInputItem::Message {
             role: "developer".to_string(),
             content: vec![ContentItem::InputText {
@@ -555,13 +572,23 @@ impl ToolCallRuntime {
         error: String,
     ) -> ResponseInputItem {
         Self::factual_message(serde_json::json!({
-            "schema_version": "TaskSpaceBoundResultCommitFailureV1",
+            "schema_version": "TaskSpaceBoundResultCommitFailureV2",
             "status": "failed",
             "success": false,
             "state_commit": false,
             "call_id": prepared.call_id,
             "reservation_id": prepared.reservation_id,
-            "error": error,
+            "failure_provenance": {
+                "scope": "tool_result_attribution",
+                "copy_group_id": format!("tool_result_attribution:{}", prepared.call_id),
+                "zero_dispatch": false,
+                "affected_call_ids": [prepared.call_id.clone()],
+            },
+            "error": {
+                "class": "resource",
+                "code": "taskspace_bound_result_commit_failed",
+                "detail": error,
+            },
         }))
     }
 
@@ -708,7 +735,7 @@ mod tests {
                 codex_protocol::models::ContentItem::InputImage { .. } => String::new(),
             })
             .collect::<String>();
-        assert!(text.contains("ToolSearchFailureV2"));
+        assert!(text.contains("ToolSearchFailureV3"));
         assert!(text.contains("query must not be empty"));
         assert!(text.contains("\"success\":false"));
         assert!(text.contains("\"pairing_status\":\"completed\""));
@@ -771,6 +798,15 @@ mod tests {
         assert_eq!(fact["success"], false);
         assert_eq!(fact["call_id"], prepared.call_id);
         assert_eq!(fact["reservation_id"], prepared.reservation_id);
-        assert_eq!(fact["error"], original_error);
+        assert_eq!(fact["error"]["class"], "resource");
+        assert_eq!(
+            fact["error"]["code"],
+            "taskspace_bound_result_commit_failed"
+        );
+        assert_eq!(fact["error"]["detail"], original_error);
+        assert_eq!(
+            fact["failure_provenance"]["affected_call_ids"],
+            serde_json::json!([prepared.call_id])
+        );
     }
 }

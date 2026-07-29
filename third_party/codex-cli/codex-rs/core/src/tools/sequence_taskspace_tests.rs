@@ -205,7 +205,7 @@ async fn prior_failure_releases_every_prepared_taskspace_reservation() {
         .await
         .expect("response sequence");
 
-    assert_eq!(outcome.outputs.len(), 4);
+    assert_eq!(outcome.outputs.len(), 5);
     let map = session
         .canonical_action_map_snapshot()
         .await

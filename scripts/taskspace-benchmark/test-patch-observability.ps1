@@ -47,7 +47,7 @@ $rows = @(
     New-Call "apply_patch" "prepare-fail" @{ input = $singlePatch }
     New-Call "exec_command" "post-skip" @{ cmd = "pytest" }
     New-Output "prepare-fail" "apply_patch verification failed: context mismatch"
-    New-Output "post-skip" "TaskSpaceToolSkippedV1: skipped_due_to_prior_failure"
+    New-Output "post-skip" "TaskSpaceToolSkippedV2: skipped_due_to_prior_failure"
 
     New-Call "apply_patch" "multi-1" @{ input = $singlePatch }
     New-Call "apply_patch" "multi-2" @{ input = $singlePatch }

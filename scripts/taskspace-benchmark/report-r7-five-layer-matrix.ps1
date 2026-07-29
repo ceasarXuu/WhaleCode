@@ -44,6 +44,15 @@ function Get-AggregateRow {
         requests_total = $requestTotal
         requests_mean = if ($Rows.Count) { [Math]::Round($requestTotal / $Rows.Count, 3) } else { $null }
         requests_median = Get-Median @($Rows.provider_requests)
+        completed_provider_responses_total = (
+            $Rows | Measure-Object -Property completed_provider_responses -Sum
+        ).Sum
+        failed_or_cancelled_provider_attempts_total = (
+            $Rows | Measure-Object -Property failed_or_cancelled_provider_attempts -Sum
+        ).Sum
+        retried_logical_requests_total = (
+            $Rows | Measure-Object -Property retried_logical_requests -Sum
+        ).Sum
         tool_action_requests_total = ($Rows | Measure-Object -Property tool_action_requests -Sum).Sum
         assistant_only_requests_total = ($Rows | Measure-Object -Property assistant_only_requests -Sum).Sum
         multi_tool_requests_total = ($Rows | Measure-Object -Property multi_tool_requests -Sum).Sum
@@ -135,6 +144,12 @@ foreach ($run in @($manifest.runs)) {
     $rolloutPath = Join-Path ([string]$row.artifact_dir) "rollout.jsonl"
     $requestSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-summary.json") | ConvertFrom-Json -Depth 50
     $sectionSummary = Get-R7WireSectionSummary $wireTracePath
+    $wireInventory = @(Get-R7WireRequestInventory $wireTracePath)
+    $wireAttemptSummary = Get-R7WireAttemptSummary $wireInventory
+    $completedProviderResponses = [int](Get-Value $requestSummary "model_request_count" 0)
+    if ($completedProviderResponses -lt 1) {
+        throw "Completed provider response count is unavailable for $($run.sample) repeat $($run.repeat) $($run.arm)"
+    }
     $flat = [pscustomobject]@{
         sample = [string]$run.sample
         repeat = [int]$run.repeat
@@ -145,6 +160,9 @@ foreach ($run in @($manifest.runs)) {
         business_success = [bool]$row.result.business_success
         agent_completion_status = [string]$row.result.agent_completion_status
         provider_requests = [double](Get-Value $row.actions "provider_requests" 0)
+        completed_provider_responses = [double]$completedProviderResponses
+        failed_or_cancelled_provider_attempts = [double]$wireAttemptSummary.failed_or_cancelled_attempt_count
+        retried_logical_requests = [double]$wireAttemptSummary.retried_logical_request_count
         ordinary_tools = [double](Get-Value $row.actions "ordinary_tools" 0)
         failed_tools = [double](Get-Value $row.actions "failed_tools" 0)
         taskspace_control = [double](Get-Value $row.actions "taskspace_control" 0)
@@ -185,11 +203,16 @@ foreach ($run in @($manifest.runs)) {
         run_dir = [string]$run.run_dir
     }
     $requestPath = if ($flat.logical_mode -eq "standard") {
-        Get-R7StandardRequestPath $rolloutPath ([int]$flat.provider_requests)
+        Get-R7StandardRequestPath $rolloutPath $completedProviderResponses
     } else {
-        Get-R7TaskspaceRequestPath $rolloutPath ([int]$flat.provider_requests)
+        Get-R7TaskspaceRequestPath $rolloutPath $completedProviderResponses
     }
-    $requestPath = @(Add-R7WireFactsToRequestPath @($requestPath) $wireTracePath)
+    $requestPath = @(
+        Add-R7WireFactsToRequestPath `
+            @($requestPath) `
+            $wireTracePath `
+            ([int]$flat.provider_requests)
+    )
     $requestObservability = Get-R7RequestObservabilitySummary @($requestPath)
     if (-not [bool]$requestObservability.classification_reconciled) {
         throw "Request failure taxonomy does not reconcile for $($run.sample) repeat $($run.repeat) $($run.arm)"
@@ -281,6 +304,7 @@ foreach ($run in @($manifest.runs)) {
             echo_only_handoff_count = $echoOnlyHandoffs
             request_observability = $requestObservability
             request_path = @($requestPath)
+            provider_attempts = $wireAttemptSummary
             wire_sections = $sectionSummary
             observation_json = $observationPath
             provider_wire_trace = $wireTracePath

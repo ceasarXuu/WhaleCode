@@ -90,13 +90,14 @@ impl ToolSequencePreflightFailure {
                 "executed_tool_call_count": 0,
                 "actual_sequence": actual_sequence,
             },
-        })
-        .to_string();
+        });
+        let payload_text = payload.to_string();
         let (mut pairing, supplemental): (Vec<_>, Vec<_>) = calls
             .iter()
-            .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
+            .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload_text.clone()))
             .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
         pairing.extend(supplemental);
+        pairing.push(ToolCallRuntime::factual_message(payload));
         pairing
     }
 }

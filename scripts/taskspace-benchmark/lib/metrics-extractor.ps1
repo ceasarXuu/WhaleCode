@@ -246,8 +246,7 @@ function Get-TaskspaceRolloutToolStats {
                 "custom_tool_call_output",
                 "local_shell_call_output",
                 "tool_search_output",
-                "tool_search_call_output",
-                "mcp_tool_call_output"
+                "tool_search_call_output"
             )) {
             $callId = [string]$payload.call_id
             if ([string]::IsNullOrWhiteSpace($callId)) { continue }
@@ -261,7 +260,7 @@ function Get-TaskspaceRolloutToolStats {
         }
         if ($payloadType -eq "message" -and [string]$payload.role -eq "developer") {
             $content = @($payload.content | ForEach-Object { [string]$_.text }) -join ""
-            if ($content -match '"schema_version"\s*:\s*"ToolSearchFailureV2"') {
+            if ($content -match '"schema_version"\s*:\s*"ToolSearchFailureV3"') {
                 try {
                     $failure = $content | ConvertFrom-Json
                     $callId = [string]$failure.call_id

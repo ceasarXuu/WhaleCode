@@ -30,11 +30,12 @@ function New-WireShape(
     [object[]]$Receipts = @()
 ) {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v9"
+        schema_version = "provider-chat-wire-trace-v10"
         event_name = if ($Index -eq 1) { "provider.chat_wire_shape_recorded" } else { "provider.chat_wire_prefix_broken" }
         request_id = $RequestId
         logical_request_id = "$RequestId-logical"
         attempt_seq = 1
+        transport = "responses_http"
         request_index = $Index
         provider_wire_api = "ChatCompletions"
         lcp_message_count = $Lcp
@@ -51,11 +52,12 @@ function New-WireShape(
 
 function New-WireTerminal([string]$RequestId, [int]$InputTokens, [int]$CachedInputTokens) {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v9"
+        schema_version = "provider-chat-wire-trace-v10"
         event_name = "provider.chat_wire_request_terminal"
         request_id = $RequestId
         logical_request_id = "$RequestId-logical"
         attempt_seq = 1
+        transport = "responses_http"
         status = "response_completed"
         input_tokens = $InputTokens
         cached_input_tokens = $CachedInputTokens
@@ -176,6 +178,7 @@ try {
         }
         Write-Json (Join-Path $artifactDir "request-summary.json") @{
             first_input_tokens_per_request = 100
+            model_request_count = $requests
         }
 
         if ($logicalMode -eq "standard") {

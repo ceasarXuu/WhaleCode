@@ -54,7 +54,7 @@ function Get-TaskspaceProviderSectionMedian {
 function ConvertTo-TaskspaceProviderSectionCost {
     param([Parameter(Mandatory = $true)]$Shape)
     $traceSchema = [string](Get-TaskspaceCostProperty $Shape @("schema_version"))
-    if ($traceSchema -ne "provider-chat-wire-trace-v9") {
+    if ($traceSchema -ne "provider-chat-wire-trace-v10") {
         return New-TaskspaceUnavailableProviderSectionCost "unsupported_provider_wire_trace_schema"
     }
     $raw = Get-TaskspaceCostProperty $Shape @("section_cost")
@@ -330,7 +330,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $TracePath -ErrorAction SilentlyContinue)) {
         if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
         try { $event = $line | ConvertFrom-Json } catch { continue }
-        if ([string]$event.schema_version -ne "provider-chat-wire-trace-v9") { continue }
+        if ([string]$event.schema_version -ne "provider-chat-wire-trace-v10") { continue }
         $requestId = [string]$event.request_id
         if ([string]::IsNullOrWhiteSpace($requestId)) { continue }
         if ([string]$event.status -eq "payload_captured") {
@@ -363,9 +363,10 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
         $inputTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("input_tokens") } else { $null }
         $cachedTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("cached_input_tokens") } else { $null }
         $uncachedTokens = $null
+        $terminalStatus = if ($null -ne $terminal) { [string]$terminal.status } else { "terminal_missing" }
         if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
             $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
-        } else {
+        } elseif ($terminalStatus -eq "response_completed") {
             $missingUsage++
         }
         $hitRate = if ($null -ne $cachedTokens -and $null -ne $uncachedTokens -and ([double]$cachedTokens + [double]$uncachedTokens) -gt 0) {
@@ -411,10 +412,14 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
             ([string]$shape.schema_version)
         $baseInstructionsIdentities.Add($baseInstructionsIdentity)
         $events.Add([pscustomobject]@{
-            schema_version = "TaskSpaceProviderCacheTraceV3"
-            request_id = $requestId; logical_request_id = $requestId; model_request_index = $requestIndex; attempt_seq = 1
+            schema_version = "TaskSpaceProviderCacheTraceV4"
+            request_id = $requestId
+            logical_request_id = [string]$shape.logical_request_id
+            model_request_index = $requestIndex
+            attempt_seq = Convert-TaskspaceTraceInt $shape.attempt_seq
             request_phase = "transport_observed"; task_id = ""; map_id = ""; node_id = ""
-            provider_wire_api = [string]$shape.provider_wire_api; transport = "responses_http"
+            provider_wire_api = [string]$shape.provider_wire_api
+            transport = [string]$shape.transport
             tools_count = $toolsCount; tools_present = ($toolsCount -gt 0); request_shape_classifier = $classifier
             stable_prefix_hash = $cacheShapeHash; dynamic_suffix_hash = ""; messages_hash = [string]$shape.messages_hash
             tools_hash = [string]$shape.tools_hash; cache_shape_hash = $cacheShapeHash
@@ -435,7 +440,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
             cache_warmup_candidate = [bool]$cacheWarmupCandidate; same_shape_zero_hit = [bool]$sameShapeZeroHit
             section_cost = $sectionCost
             base_instructions_identity = $baseInstructionsIdentity
-            status = if ($null -ne $terminal) { [string]$terminal.status } else { "terminal_missing" }
+            status = $terminalStatus
         })
         if (-not [string]::IsNullOrWhiteSpace($cacheShapeHash)) { $seenCacheShapes[$cacheShapeHash] = $true }
         $previousCacheShapeHash = $cacheShapeHash
@@ -448,8 +453,16 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     [pscustomobject]@{
         provider_cache_trace_events = @($events.ToArray())
         provider_cache_trace_summary = [pscustomobject]@{
-            schema_version = "TaskSpaceProviderCacheTraceSummaryV3"; source = "provider_final_wire_trace"
+            schema_version = "TaskSpaceProviderCacheTraceSummaryV4"; source = "provider_final_wire_trace"
             provider_request_count = $count
+            completed_response_count = @(
+                $events.ToArray() | Where-Object status -eq "response_completed"
+            ).Count
+            failed_or_cancelled_attempt_count = @(
+                $events.ToArray() | Where-Object {
+                    [string]$_.status -notin @("response_completed", "terminal_missing")
+                }
+            ).Count
             trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
             cache_usage_missing_count = [int]$missingUsage
             request_shape_counts = Convert-TaskspaceCostTable $shapeCounts

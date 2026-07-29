@@ -37,7 +37,7 @@ function Get-R7ResponseItemCallDescriptor {
     if ([string]::IsNullOrWhiteSpace($type)) { $type = $OuterType }
     if ($type -notin @(
             "function_call", "custom_tool_call", "tool_search_call",
-            "local_shell_call", "mcp_tool_call"
+            "local_shell_call"
         )) {
         return $null
     }
@@ -49,8 +49,10 @@ function Get-R7ResponseItemCallDescriptor {
     $toolName = switch ($type) {
         "tool_search_call" { "tool_search" }
         "local_shell_call" { "local_shell" }
-        "mcp_tool_call" { "mcp" }
-        default { [string](Get-R7JsonProperty $Item "name" "") }
+        default {
+            $namespace = [string](Get-R7JsonProperty $Item "namespace" "")
+            $namespace + [string](Get-R7JsonProperty $Item "name" "")
+        }
     }
     if ([string]::IsNullOrWhiteSpace($toolName)) {
         throw "Executable Tool call has no tool name: $callId"
@@ -65,7 +67,11 @@ function Get-R7ResponseItemCallDescriptor {
         }
         default { [string](Get-R7JsonProperty $Item "arguments" "") }
     }
-    ConvertTo-R7CallDescriptor -CallId $callId -ToolName $toolName -Arguments $arguments
+    ConvertTo-R7CallDescriptor `
+        -CallId $callId `
+        -ToolName $toolName `
+        -Arguments $arguments `
+        -CallType $type
 }
 
 function Get-R7OutputText {
@@ -89,7 +95,7 @@ function Get-R7ResponseItemOutcome {
     if ($type -notin @(
             "function_call_output", "custom_tool_call_output",
             "tool_search_output", "tool_search_call_output",
-            "local_shell_call_output", "mcp_tool_call_output"
+            "local_shell_call_output"
         )) {
         return $null
     }
@@ -105,7 +111,13 @@ function Get-R7ResponseItemOutcome {
         $success = $status -eq "completed"
         return [pscustomobject]@{
             call_id = $callId
-            outcome = Get-R7CallOutcome -ToolSuccess $success -Output "ToolSearch pairing status: $status"
+            carrier_type = $type
+            tool_success = $success
+            output_text = "ToolSearch pairing status: $status"
+            outcome = Get-R7CallOutcome `
+                -ToolSuccess $success `
+                -Output "ToolSearch pairing status: $status" `
+                -ToolName "tool_search"
         }
     }
     $output = Get-R7JsonProperty $Item "output"
@@ -116,15 +128,18 @@ function Get-R7ResponseItemOutcome {
         [bool]$toolSuccess
     } elseif ($null -ne $successProperty) {
         [bool]$successProperty
-    } elseif ($type -eq "mcp_tool_call_output") {
-        -not [bool](Get-R7JsonProperty $output "is_error" $false)
     } else {
         -not ($text -match 'Shell exit code: [1-9]' -or
             $text -match 'apply_patch verification failed')
     }
     [pscustomobject]@{
         call_id = $callId
-        outcome = Get-R7CallOutcome -ToolSuccess $success -Output $text
+        carrier_type = $type
+        tool_success = $success
+        output_text = $text
+        outcome = Get-R7CallOutcome `
+            -ToolSuccess $success `
+            -Output $text
     }
 }
 
@@ -154,24 +169,111 @@ function Apply-R7ObservedOutcome {
     if (-not $CallsById.ContainsKey([string]$Observed.call_id)) {
         throw "Orphan Tool output in rollout: $([string]$Observed.call_id)"
     }
-    Set-R7CallOutcome $CallsById[[string]$Observed.call_id] $Observed.outcome
+    $call = $CallsById[[string]$Observed.call_id]
+    if ([int]$call.output_count -ne 0) {
+        throw "Duplicate Tool output in rollout: $([string]$Observed.call_id)"
+    }
+    $compatibleCarriers = switch ([string]$call.call_type) {
+        "custom_tool_call" { @("custom_tool_call_output") }
+        "tool_search_call" { @("tool_search_output", "tool_search_call_output") }
+        "local_shell_call" { @("local_shell_call_output", "function_call_output") }
+        default { @("function_call_output") }
+    }
+    if ([string]$Observed.carrier_type -notin $compatibleCarriers) {
+        throw "Tool call/output carrier mismatch for $([string]$Observed.call_id)"
+    }
+    $call.output_count = 1
+    $outcome = if ([string]$call.tool -eq "taskspace_control") {
+        Get-R7CallOutcome `
+            -ToolSuccess ([bool]$Observed.tool_success) `
+            -Output ([string]$Observed.output_text) `
+            -ToolName ([string]$call.tool)
+    } else {
+        $Observed.outcome
+    }
+    Set-R7CallOutcome $call $outcome
 }
 
 function Apply-R7SupplementalFailure {
-    param([hashtable]$CallsById, [string]$Text)
+    param(
+        [hashtable]$CallsById,
+        [object[]]$RequestCalls,
+        [string]$Text,
+        [string]$OriginalRole
+    )
     $trimmed = $Text.Trim()
     if (-not $trimmed.StartsWith("{")) { return }
     try { $payload = $trimmed | ConvertFrom-Json -Depth 100 } catch { return }
-    if ([string](Get-R7JsonProperty $payload "schema_version" "") -ne "ToolSearchFailureV2") {
+    $schemaVersion = [string](Get-R7JsonProperty $payload "schema_version" "")
+    $knownSupplementalSchemas = @(
+        "TaskSpaceResponseCommitFailureV3",
+        "ToolSequencePreflightResultV3",
+        "ProviderToolResponsePreflightV2",
+        "ToolSearchFailureV3",
+        "TaskSpaceToolSkippedV2",
+        "TaskSpaceBoundResultCommitFailureV2"
+    )
+    if ($schemaVersion -notin $knownSupplementalSchemas) {
         return
     }
-    $callId = [string](Get-R7JsonProperty $payload "call_id" "")
-    if (-not $CallsById.ContainsKey($callId)) {
-        throw "ToolSearch failure fact has no matching call: $callId"
+    if ($OriginalRole -ne "developer") {
+        throw "Structured TaskSpace failure used an untrusted message role: $OriginalRole"
     }
-    Set-R7CallOutcome $CallsById[$callId] (
-        Get-R7CallOutcome -ToolSuccess $false -Output $trimmed
+    $provenance = Get-R7JsonProperty $payload "failure_provenance"
+    $scope = [string](Get-R7JsonProperty $provenance "scope" "")
+    $affectedCallIds = @(
+        Get-R7JsonProperty $provenance "affected_call_ids" @() |
+            ForEach-Object { [string]$_ }
     )
+    if ($schemaVersion -eq "ToolSearchFailureV3") {
+        $callId = [string](Get-R7JsonProperty $payload "call_id" "")
+        $affectedCallIds = @($callId)
+        if (-not $CallsById.ContainsKey($callId) -or
+            [string]$CallsById[$callId].call_type -ne "tool_search_call") {
+            throw "ToolSearch failure fact has no matching ToolSearch call: $callId"
+        }
+    } elseif ($schemaVersion -eq "TaskSpaceToolSkippedV2" -or
+        $schemaVersion -eq "TaskSpaceBoundResultCommitFailureV2") {
+        $callId = [string](Get-R7JsonProperty $payload "call_id" "")
+        if ($affectedCallIds.Count -ne 1 -or $affectedCallIds[0] -ne $callId) {
+            throw "Per-call TaskSpace failure provenance does not match call_id: $callId"
+        }
+        $expectedScope = if ($schemaVersion -eq "TaskSpaceToolSkippedV2") {
+            "tool_sequence_skip"
+        } else {
+            "tool_result_attribution"
+        }
+        if ($scope -ne $expectedScope) {
+            throw "Per-call TaskSpace failure provenance has the wrong scope: $callId"
+        }
+    } else {
+        $requestCallIds = @($RequestCalls | ForEach-Object { [string]$_.call_id })
+        if ($scope -ne "provider_response" -or
+            -not [bool](Get-R7JsonProperty $provenance "zero_dispatch" $false) -or
+            [string]::IsNullOrWhiteSpace(
+                [string](Get-R7JsonProperty $provenance "copy_group_id" "")
+            ) -or
+            (Compare-Object @($requestCallIds | Sort-Object) @($affectedCallIds | Sort-Object))) {
+            throw "Provider-response failure provenance does not match the request call set"
+        }
+    }
+    foreach ($callId in $affectedCallIds) {
+        if (-not $CallsById.ContainsKey($callId)) {
+            throw "Structured failure fact has no matching call: $callId"
+        }
+        $call = $CallsById[$callId]
+        if ([int]$call.supplemental_count -ne 0) {
+            throw "Duplicate structured failure fact for call: $callId"
+        }
+        $call.supplemental_count = 1
+        Set-R7CallOutcome $call (
+            Get-R7CallOutcome `
+                -ToolSuccess $false `
+                -Output $trimmed `
+                -ToolName ([string]$call.tool) `
+                -TrustedRuntimeCarrier
+        )
+    }
 }
 
 function Complete-R7RequestRows {
@@ -232,7 +334,11 @@ function Get-R7TaskspaceRequestPath {
                 Apply-R7ObservedOutcome $callsById $observedOutcome
             }
             foreach ($text in @(Get-R7MessageTexts $raw $eventType)) {
-                Apply-R7SupplementalFailure $callsById $text
+                Apply-R7SupplementalFailure `
+                    $callsById `
+                    @($requests[$requestIndex - 1].calls) `
+                    $text `
+                    ([string](Get-R7JsonProperty $payload "originalRole" ""))
                 if ($text -match '"schema_version"\s*:\s*"TaskSpaceResponseFinalReceiptV1"') {
                     $request = $requests[$requestIndex - 1]
                     $request.receipt_before = $true
@@ -249,6 +355,11 @@ function Get-R7TaskspaceRequestPath {
             $logicalRequestId =
                 [string](Get-R7JsonProperty $payload "provider_logical_request_id" "")
             $attemptSeq = [int](Get-R7JsonProperty $payload "provider_attempt_seq" 0)
+            $hasAnyIdentity = -not [string]::IsNullOrWhiteSpace($providerRequestId) -or
+                -not [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -gt 0
+            if (-not $hasAnyIdentity) {
+                continue
+            }
             if ([string]::IsNullOrWhiteSpace($providerRequestId) -or
                 [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -lt 1) {
                 throw "TaskSpace token_count boundary has incomplete provider request identity"
@@ -266,7 +377,7 @@ function Get-R7TaskspaceRequestPath {
     if ($observedRequestCount -ne $ProviderRequests) {
         throw "TaskSpace rollout request boundary mismatch: observed=$observedRequestCount expected=$ProviderRequests"
     }
-    $missingOutputs = @($callsById.Values | Where-Object { $null -eq $_.success })
+    $missingOutputs = @($callsById.Values | Where-Object { [int]$_.output_count -ne 1 })
     if ($missingOutputs.Count) {
         throw "TaskSpace rollout has $($missingOutputs.Count) Tool calls without outputs"
     }
@@ -293,13 +404,22 @@ function Get-R7StandardRequestPath {
                 Apply-R7ObservedOutcome $callsById $observedOutcome
             }
             foreach ($text in @(Get-R7MessageTexts $payload)) {
-                Apply-R7SupplementalFailure $callsById $text
+                Apply-R7SupplementalFailure `
+                    $callsById `
+                    @($requests[$requestIndex - 1].calls) `
+                    $text `
+                    ([string](Get-R7JsonProperty $payload "role" ""))
             }
         } elseif ($type -eq "event_msg" -and [string](Get-R7JsonProperty $payload "type" "") -eq "token_count") {
             $providerRequestId = [string](Get-R7JsonProperty $payload "provider_request_id" "")
             $logicalRequestId =
                 [string](Get-R7JsonProperty $payload "provider_logical_request_id" "")
             $attemptSeq = [int](Get-R7JsonProperty $payload "provider_attempt_seq" 0)
+            $hasAnyIdentity = -not [string]::IsNullOrWhiteSpace($providerRequestId) -or
+                -not [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -gt 0
+            if (-not $hasAnyIdentity) {
+                continue
+            }
             if ([string]::IsNullOrWhiteSpace($providerRequestId) -or
                 [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -lt 1) {
                 throw "Standard token_count boundary has incomplete provider request identity"
@@ -317,7 +437,7 @@ function Get-R7StandardRequestPath {
     if ($observedRequestCount -ne $ProviderRequests) {
         throw "Standard rollout request boundary mismatch: observed=$observedRequestCount expected=$ProviderRequests"
     }
-    $missingOutputs = @($callsById.Values | Where-Object { $null -eq $_.success })
+    $missingOutputs = @($callsById.Values | Where-Object { [int]$_.output_count -ne 1 })
     if ($missingOutputs.Count) {
         throw "Standard rollout has $($missingOutputs.Count) Tool calls without outputs"
     }

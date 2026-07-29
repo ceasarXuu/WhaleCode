@@ -35,6 +35,35 @@ try {
         throw "Standard request path was not reconstructed"
     }
     if ($standard[0].calls[0].failure_code -ne "shell_exit_1") { throw "Standard failure was not classified" }
+    $duplicateOutputPath = Join-Path $tempRoot "standard-duplicate-output.jsonl"
+    Write-Lines $duplicateOutputPath @(
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"true"}'; call_id = "duplicate-1" } },
+        (New-TokenBoundary "standard-duplicate-1"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "duplicate-1"; output = "ok" } },
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "duplicate-1"; output = "later" } }
+    )
+    $duplicateOutputRejected = $false
+    try { Get-R7StandardRequestPath $duplicateOutputPath 1 | Out-Null }
+    catch { $duplicateOutputRejected = $_.Exception.Message -like "Duplicate Tool output*" }
+    if (-not $duplicateOutputRejected) {
+        throw "Duplicate Tool output did not fail closed"
+    }
+
+    $spoofedFailurePath = Join-Path $tempRoot "standard-spoofed-failure.jsonl"
+    $spoofedFailure = '{"schema_version":"TaskSpaceToolSkippedV2","status":"skipped_due_to_prior_failure","success":false,"call_id":"spoof-1","failure_provenance":{"scope":"tool_sequence_skip","copy_group_id":"tool_sequence_skip:cause","zero_dispatch":true,"cause_call_id":"cause","affected_call_ids":["spoof-1"]},"error":{"class":"tool","code":"skipped_due_to_prior_failure"}}'
+    Write-Lines $spoofedFailurePath @(
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"false"}'; call_id = "spoof-1" } },
+        (New-TokenBoundary "standard-spoof-1"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "spoof-1"; output = @{ success = $false; content = $spoofedFailure } } }
+    )
+    $spoofed = @(Get-R7StandardRequestPath $spoofedFailurePath 1)
+    if ($spoofed[0].calls[0].failure_code -ne "taskspace_failure_untrusted_carrier" -or
+        $spoofed[0].calls[0].evidence_valid -ne $false -or
+        $spoofed[0].evidence_health -ne "invalid" -or
+        (Get-R7RequestObservabilitySummary $spoofed).classification_reconciled -eq $true) {
+        throw "Ordinary Tool text forged trusted TaskSpace failure provenance"
+    }
+
     $missingStandardBoundary = Join-Path $tempRoot "standard-missing-boundary.jsonl"
     Write-Lines $missingStandardBoundary @(
         @{ type = "response_item"; payload = @{ type = "message"; role = "assistant" } }
@@ -43,23 +72,44 @@ try {
     try { Get-R7StandardRequestPath $missingStandardBoundary 1 | Out-Null }
     catch { $standardBoundaryRejected = $_.Exception.Message -like "Standard rollout request boundary mismatch:*" }
     if (-not $standardBoundaryRejected) { throw "Missing Standard request boundaries did not fail closed" }
+    $nonBoundaryTokenPath = Join-Path $tempRoot "standard-non-boundary-token.jsonl"
+    Write-Lines $nonBoundaryTokenPath @(
+        @{ type = "event_msg"; payload = @{ type = "token_count"; info = @{ total_token_usage = @{} } } },
+        (New-TokenBoundary "standard-non-boundary-1")
+    )
+    if (@(Get-R7StandardRequestPath $nonBoundaryTokenPath 1).Count -ne 1) {
+        throw "Identity-free token update was incorrectly treated as a provider response boundary"
+    }
+    $partialBoundaryPath = Join-Path $tempRoot "standard-partial-boundary.jsonl"
+    Write-Lines $partialBoundaryPath @(
+        @{ type = "event_msg"; payload = @{ type = "token_count"; provider_request_id = "partial" } }
+    )
+    $partialBoundaryRejected = $false
+    try { Get-R7StandardRequestPath $partialBoundaryPath 1 | Out-Null }
+    catch { $partialBoundaryRejected = $_.Exception.Message -like "*incomplete provider request identity" }
+    if (-not $partialBoundaryRejected) {
+        throw "Partially identified token boundary did not fail closed"
+    }
 
     $standardShapesPath = Join-Path $tempRoot "standard-shapes.jsonl"
-    $toolSearchFailure = '{"schema_version":"ToolSearchFailureV2","status":"failed","success":false,"call_id":"search-1","tool":"tool_search","pairing_status":"completed","execution_status":"failed","error":{"class":"tool","cause":{"schema_version":"ProviderToolResponsePreflightV2","failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:search-1","zero_dispatch":true},"error":{"class":"protocol","code":"provider_tool_declaration_invalid"}}}}'
+    $toolSearchFailure = '{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"search-1","tool":"tool_search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_sequence_skip","copy_group_id":"provider_response:search-1","zero_dispatch":true,"cause_call_id":"control-1","affected_call_ids":["search-1"]},"error":{"class":"tool","code":"tool_skipped_due_to_prior_failure"}}'
     Write-Lines $standardShapesPath @(
         @{ type = "response_item"; payload = @{ type = "custom_tool_call"; name = "apply_patch"; input = "*** Begin Patch"; call_id = "custom-1" } },
         @{ type = "response_item"; payload = @{ type = "tool_search_call"; arguments = @{ query = "read_file" }; call_id = "search-1" } },
         @{ type = "response_item"; payload = @{ type = "local_shell_call"; action = @{ command = @("pwd") }; call_id = "local-1"; status = "completed" } },
+        @{ type = "response_item"; payload = @{ type = "function_call"; namespace = "mcp__mail__"; name = "search"; arguments = '{"query":"subject:test"}'; call_id = "mcp-1" } },
         (New-TokenBoundary "standard-shapes-1"),
         @{ type = "response_item"; payload = @{ type = "custom_tool_call_output"; call_id = "custom-1"; output = "Done!" } },
         @{ type = "response_item"; payload = @{ type = "tool_search_output"; call_id = "search-1"; status = "completed"; execution = "client"; tools = @() } },
         @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "local-1"; output = "Execution outcome: exited`nShell exit code: 0" } },
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "mcp-1"; output = '{"matches":[]}' } },
         @{ type = "response_item"; payload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = $toolSearchFailure }) } }
     )
     $standardShapes = @(Get-R7StandardRequestPath $standardShapesPath 1)
-    if ($standardShapes[0].calls.Count -ne 3 -or
+    if ($standardShapes[0].calls.Count -ne 4 -or
         @($standardShapes[0].calls | Where-Object tool -eq "tool_search")[0].success -ne $false -or
-        @($standardShapes[0].calls | Where-Object tool -eq "local_shell")[0].success -ne $true) {
+        @($standardShapes[0].calls | Where-Object tool -eq "local_shell")[0].success -ne $true -or
+        @($standardShapes[0].calls | Where-Object tool -eq "mcp__mail__search")[0].success -ne $true) {
         throw "Standard non-function Tool shapes were not reconciled"
     }
 
@@ -85,15 +135,15 @@ try {
     if (-not $taskspace[1].receipt_before -or $taskspace[1].receipt_original_role -ne "developer") {
         throw "TaskSpace response-final receipt was not assigned to the following provider request"
     }
-    $stateFailureJson = '{"schema_version":"TaskSpaceResponseCommitFailureV2","state_commit":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:copy-control","zero_dispatch":true},"error":{"class":"state_machine","code":"taskspace_response_state_commit_failed","violations":[{"code":"node_state_invalid","subjects":["reservation-1"],"node_id":"join","canonical_state_before_transaction":"waiting","evaluated_state_at_violation":"completed","allowed_states_at_violation":["ready","in_flight"],"canonical_unsatisfied_predecessor_ids_before_transaction":["left"],"evaluated_unsatisfied_predecessor_ids_at_violation":[]}]}}'
-    $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output $stateFailureJson
+    $stateFailureJson = '{"schema_version":"TaskSpaceResponseCommitFailureV3","state_commit":false,"rejected_candidate_committed":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:copy-control","zero_dispatch":true,"affected_call_ids":["copy-control","copy-sibling"]},"error":{"class":"state_machine","code":"taskspace_response_state_commit_failed","violations":[{"code":"node_state_invalid","subjects":["reservation-1"],"node_id":"join","canonical_before_transaction":{"node_present":true,"state":"waiting","unsatisfied_predecessor_ids":["left"]},"rejected_candidate_at_violation":{"committed":false,"state":"completed","allowed_states":["ready","in_flight"],"unsatisfied_predecessor_ids":[]}}]}}'
+    $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output $stateFailureJson -TrustedRuntimeCarrier
     if ($stateFailure.failure_class -ne "taskspace_state_machine" -or
         $stateFailure.failure_code -ne "taskspace_response_state_commit_failed") {
         throw "TaskSpace state failure was not classified"
     }
     if (@($stateFailure.violation_codes) -notcontains "node_state_invalid" -or
-        [string]$stateFailure.violation_contexts[0].canonical_state_before_transaction -ne "waiting" -or
-        [string]$stateFailure.violation_contexts[0].evaluated_state_at_violation -ne "completed") {
+        [string]$stateFailure.violation_contexts[0].canonical_before_transaction.state -ne "waiting" -or
+        [string]$stateFailure.violation_contexts[0].rejected_candidate_at_violation.state -ne "completed") {
         throw "TaskSpace structured state violation was not preserved"
     }
     $copiedRequests = New-R7RequestRows 1
@@ -106,6 +156,7 @@ try {
         $copy.failure_class = $stateFailure.failure_class
         $copy.failure_code = $stateFailure.failure_code
         $copy.failure_schema_version = $stateFailure.failure_schema_version
+        $copy.failure_provenance_scope = $stateFailure.failure_provenance_scope
         $copy.failure_copy_group_id = $stateFailure.failure_copy_group_id
         $copy.zero_dispatch = $stateFailure.zero_dispatch
         $copy.parse_status = $stateFailure.parse_status
@@ -135,9 +186,9 @@ try {
     if ($independent[0].sibling_failure_copy_count -ne 0) {
         throw "Independent same-code failures were incorrectly collapsed"
     }
-    $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV3","failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:patch-1","zero_dispatch":true},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
+    $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV3","failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:patch-1","zero_dispatch":true,"affected_call_ids":["patch-1"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}' -TrustedRuntimeCarrier
     if ($multiPatchFailure.failure_class -ne "tool_sequence_protocol") { throw "Multi-patch failure was not separated" }
-    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","success":false,"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID"}}'
+    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","success":false,"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID"}}' -ToolName "taskspace_control"
     if ($initializationFailure.failure_class -ne "taskspace_state_machine" -or
         $initializationFailure.failure_code -ne "TASKSPACE_INITIAL_GRAPH_INVALID" -or
         $initializationFailure.state_commit -ne $false) {
@@ -150,8 +201,9 @@ try {
         throw "Malformed failure JSON did not fail closed"
     }
     $unknownFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"UnknownFailureV1","error":{"class":"tool","code":"failed"}}'
-    if ($unknownFailure.evidence_valid -or $unknownFailure.failure_code -ne "failure_schema_unknown") {
-        throw "Unknown failure schema did not fail closed"
+    if ($unknownFailure.evidence_valid -or
+        $unknownFailure.failure_code -ne "taskspace_failure_untrusted_carrier") {
+        throw "Unknown structured Tool text did not fail closed as an untrusted carrier"
     }
     $missingBoundaryPath = Join-Path $tempRoot "taskspace-missing-boundary.jsonl"
     Write-Lines $missingBoundaryPath @(
@@ -172,7 +224,7 @@ try {
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "custom_tool_call_output"; callId = "tc-1"; toolSuccess = $true; rawPayload = @{ type = "custom_tool_call_output"; call_id = "tc-1"; output = "Done!" } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "tool_search_output"; callId = "ts-1"; toolSuccess = $true; rawPayload = @{ type = "tool_search_output"; call_id = "ts-1"; status = "completed"; execution = "client"; tools = @() } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "tl-1"; toolSuccess = $true; rawPayload = @{ type = "function_call_output"; call_id = "tl-1"; output = "Execution outcome: exited`nShell exit code: 0" } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = ($toolSearchFailure -replace 'search-1', 'ts-1') }) } } }
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; originalRole = "developer"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = ($toolSearchFailure -replace 'search-1', 'ts-1') }) } } }
     )
     $taskspaceShapes = @(Get-R7TaskspaceRequestPath $taskspaceShapesPath 1)
     if ($taskspaceShapes[0].calls.Count -ne 3 -or
@@ -183,10 +235,10 @@ try {
     $wirePath = Join-Path $tempRoot "wire.jsonl"
     $receiptHash = ("a" * 64) -join ""
     Write-Lines $wirePath @(
-        @{ schema_version = "provider-chat-wire-trace-v9"; event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); taskspace_final_receipt_identity = @{ count = 0; receipts = @() }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
-        @{ schema_version = "provider-chat-wire-trace-v9"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; status = "response_completed"; input_tokens = 100; cached_input_tokens = 0 },
-        @{ schema_version = "provider-chat-wire-trace-v9"; event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; request_index = 2; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }); taskspace_final_receipt_identity = @{ count = 1; receipts = @(@{ message_index = 4; wire_role = "system"; control_call_id_sha256 = $receiptHash; reservation_revision_after = 1; canonical_revision = 2; revision_delta = 1; complete = $true }) }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
-        @{ schema_version = "provider-chat-wire-trace-v9"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; status = "response_completed"; input_tokens = 200; cached_input_tokens = 20 }
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); taskspace_final_receipt_identity = @{ count = 0; receipts = @() }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; status = "response_completed"; input_tokens = 100; cached_input_tokens = 0 },
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; request_index = 2; provider_wire_api = "Responses"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }); taskspace_final_receipt_identity = @{ count = 1; receipts = @(@{ message_index = 4; wire_role = "system"; control_call_id_sha256 = $receiptHash; reservation_revision_after = 1; canonical_revision = 2; revision_delta = 1; complete = $true }) }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; status = "response_completed"; input_tokens = 200; cached_input_tokens = 20 }
     )
     $sections = Get-R7WireSectionSummary $wirePath
     if ($sections.request_count -ne 2 -or $sections.estimated_tokens_total.tools -ne 200 -or $sections.estimated_tokens_mean.tools -ne 100 -or $sections.estimated_tokens_mean.active_projection -ne 30) {
@@ -210,6 +262,63 @@ try {
     catch { $identityRejected = $_.Exception.Message -like "Rollout provider request identity is absent*" }
     if (-not $identityRejected) {
         throw "Rollout/wire identity mismatch did not fail closed"
+    }
+
+    $retryWirePath = Join-Path $tempRoot "wire-retry.jsonl"
+    Write-Lines $retryWirePath @(
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_shape_recorded"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(); taskspace_final_receipt_identity = @{ count = 0; receipts = @() } },
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; status = "retry_unauthorized" },
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_prefix_preserved"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; request_index = 2; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(); taskspace_final_receipt_identity = @{ count = 0; receipts = @() } },
+        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; status = "response_completed"; input_tokens = 120; cached_input_tokens = 100 }
+    )
+    $retryRequests = New-R7RequestRows 1
+    $retryRequests[0].rollout_provider_request_id = "retry-logical:attempt-2"
+    $retryRequests[0].rollout_provider_logical_request_id = "retry-logical"
+    $retryRequests[0].rollout_provider_attempt_seq = 2
+    $retryPath = @(
+        Add-R7WireFactsToRequestPath `
+            @(Complete-R7RequestRows $retryRequests) `
+            $retryWirePath `
+            2
+    )
+    $retrySummary = Get-R7WireAttemptSummary @(Get-R7WireRequestInventory $retryWirePath)
+    if ($retryPath[0].provider_attempt_count -ne 2 -or
+        $retryPath[0].provider_prior_failed_attempt_count -ne 1 -or
+        $retryPath[0].provider_prior_terminal_statuses[0] -ne "retry_unauthorized" -or
+        $retrySummary.physical_attempt_count -ne 2 -or
+        $retrySummary.retried_logical_request_count -ne 1) {
+        throw "Provider retry attempts were not causally reconciled"
+    }
+
+    $duplicateTerminalPath = Join-Path $tempRoot "wire-duplicate-terminal.jsonl"
+    $duplicateTerminalRows = @(
+        Get-Content -Encoding UTF8 -LiteralPath $retryWirePath |
+            ForEach-Object { $_ | ConvertFrom-Json -Depth 100 }
+    )
+    $duplicateTerminalRows += $duplicateTerminalRows[-1]
+    Write-Lines $duplicateTerminalPath $duplicateTerminalRows
+    $duplicateTerminalRejected = $false
+    try { Get-R7WireRequestInventory $duplicateTerminalPath | Out-Null }
+    catch { $duplicateTerminalRejected = $_.Exception.Message -like "*incomplete physical request rows" }
+    if (-not $duplicateTerminalRejected) {
+        throw "Duplicate provider terminal did not fail closed"
+    }
+
+    $reorderedAttemptPath = Join-Path $tempRoot "wire-reordered-attempt.jsonl"
+    $reorderedAttemptRows = @(
+        Get-Content -Encoding UTF8 -LiteralPath $retryWirePath |
+            ForEach-Object { $_ | ConvertFrom-Json -Depth 100 }
+    )
+    $reorderedAttemptRows[0].attempt_seq = 2
+    $reorderedAttemptRows[1].attempt_seq = 2
+    $reorderedAttemptRows[2].attempt_seq = 1
+    $reorderedAttemptRows[3].attempt_seq = 1
+    Write-Lines $reorderedAttemptPath $reorderedAttemptRows
+    $reorderedAttemptRejected = $false
+    try { Get-R7WireRequestInventory $reorderedAttemptPath | Out-Null }
+    catch { $reorderedAttemptRejected = $_.Exception.Message -like "*attempts are missing, duplicated, or reordered*" }
+    if (-not $reorderedAttemptRejected) {
+        throw "Reordered provider retry attempts did not fail closed"
     }
 
     $badReceiptPath = Join-Path $tempRoot "wire-bad-receipt.jsonl"

@@ -47,7 +47,16 @@ function Add-R7RequestFailureFacts {
     $Request | Add-Member -Force -NotePropertyName secondary_failure_tags -NotePropertyValue $secondaryTags
     $Request | Add-Member -Force -NotePropertyName failed_call_count -NotePropertyValue $failedCalls.Count
     $Request | Add-Member -Force -NotePropertyName sibling_failure_copy_count -NotePropertyValue (
-        ($copyGroups | ForEach-Object { [Math]::Max(0, $_.Count - 1) } | Measure-Object -Sum).Sum
+        ($copyGroups | ForEach-Object {
+                $scope = [string]$_.Group[0].failure_provenance_scope
+                if ($scope -eq "tool_sequence_skip") {
+                    $_.Count
+                } elseif ($scope -eq "provider_response") {
+                    [Math]::Max(0, $_.Count - 1)
+                } else {
+                    0
+                }
+            } | Measure-Object -Sum).Sum
     )
     $invalidEvidence = @($Request.calls | Where-Object { -not [bool]$_.evidence_valid })
     $Request | Add-Member -Force -NotePropertyName invalid_evidence_count -NotePropertyValue (
@@ -58,7 +67,7 @@ function Add-R7RequestFailureFacts {
         ) { "invalid" } else { "valid" })
 }
 
-function Get-R7WireRequestFacts {
+function Get-R7WireRequestInventory {
     param([Parameter(Mandatory = $true)][string]$WireTracePath)
     $facts = @{}
     foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $WireTracePath) {
@@ -69,9 +78,13 @@ function Get-R7WireRequestFacts {
             $facts[$requestId] = [ordered]@{
                 request_id = $requestId
                 logical_request_id = ""
+                terminal_logical_request_id = ""
                 attempt_seq = 0
+                terminal_attempt_seq = 0
                 request_index = 0
                 trace_schema = ""
+                transport = ""
+                terminal_transport = ""
                 provider_wire_api = ""
                 lcp_message_count = 0
                 message_shapes = @()
@@ -91,6 +104,7 @@ function Get-R7WireRequestFacts {
             $fact.logical_request_id =
                 [string](Get-R7JsonProperty $event "logical_request_id" "")
             $fact.attempt_seq = [int](Get-R7JsonProperty $event "attempt_seq" 0)
+            $fact.transport = [string](Get-R7JsonProperty $event "transport" "")
             $fact.provider_wire_api = [string](Get-R7JsonProperty $event "provider_wire_api" "")
             $fact.lcp_message_count = [int](Get-R7JsonProperty $event "lcp_message_count" 0)
             $fact.message_shapes = @(Get-R7JsonProperty $event "message_shapes" @())
@@ -102,47 +116,108 @@ function Get-R7WireRequestFacts {
         if ([string](Get-R7JsonProperty $event "event_name" "") -eq "provider.chat_wire_request_terminal") {
             $fact.terminal_event_count = [int]$fact.terminal_event_count + 1
             $fact.terminal_status = [string](Get-R7JsonProperty $event "status" "")
-            if ([string](Get-R7JsonProperty $event "logical_request_id" "") -ne
-                [string]$fact.logical_request_id -or
-                [int](Get-R7JsonProperty $event "attempt_seq" 0) -ne [int]$fact.attempt_seq) {
-                throw "Provider wire shape/terminal identity mismatch: $requestId"
-            }
+            $fact.terminal_logical_request_id =
+                [string](Get-R7JsonProperty $event "logical_request_id" "")
+            $fact.terminal_attempt_seq = [int](Get-R7JsonProperty $event "attempt_seq" 0)
+            $fact.terminal_transport = [string](Get-R7JsonProperty $event "transport" "")
             $fact.input_tokens = Get-R7JsonProperty $event "input_tokens"
             $fact.cached_input_tokens = Get-R7JsonProperty $event "cached_input_tokens"
         }
     }
     $ordered = @(
         $facts.Values |
-            Where-Object {
-                [int]$_.request_index -gt 0 -and
-                [string]$_.terminal_status -eq "response_completed"
-            } |
             Sort-Object { [int]$_.request_index } |
             ForEach-Object { [pscustomobject]$_ }
     )
     $incomplete = @($ordered | Where-Object {
-            [string]$_.trace_schema -ne "provider-chat-wire-trace-v9" -or
+            [string]$_.trace_schema -ne "provider-chat-wire-trace-v10" -or
             [string]::IsNullOrWhiteSpace([string]$_.logical_request_id) -or
+            [string]$_.logical_request_id -ne [string]$_.terminal_logical_request_id -or
+            [string]::IsNullOrWhiteSpace([string]$_.transport) -or
+            [string]$_.transport -ne [string]$_.terminal_transport -or
+            [int]$_.request_index -lt 1 -or
             [int]$_.attempt_seq -lt 1 -or
+            [int]$_.attempt_seq -ne [int]$_.terminal_attempt_seq -or
             [int]$_.shape_event_count -ne 1 -or
             [int]$_.terminal_event_count -ne 1 -or
-            $null -eq $_.input_tokens -or
-            $null -eq $_.cached_input_tokens
+            [string]$_.terminal_status -notin @(
+                "response_completed", "response_failed", "cancelled", "retry_unauthorized"
+            ) -or
+            (
+                [string]$_.terminal_status -eq "response_completed" -and
+                ($null -eq $_.input_tokens -or $null -eq $_.cached_input_tokens)
+            )
         })
     if ($incomplete.Count) {
-        throw "Provider wire trace has $($incomplete.Count) request rows without terminal cache facts"
+        throw "Provider wire trace has $($incomplete.Count) incomplete physical request rows"
+    }
+    $expectedIndexes = @(1..$ordered.Count)
+    $actualIndexes = @($ordered | ForEach-Object { [int]$_.request_index })
+    if ($ordered.Count -eq 0 -or
+        (Compare-Object $expectedIndexes $actualIndexes -SyncWindow 0)) {
+        throw "Provider wire physical request indexes are missing, duplicated, or reordered"
+    }
+    foreach ($group in @($ordered | Group-Object logical_request_id)) {
+        $attempts = @($group.Group | Sort-Object { [int]$_.request_index })
+        $expectedAttempts = @(1..$attempts.Count)
+        $actualAttempts = @($attempts | ForEach-Object { [int]$_.attempt_seq })
+        if (Compare-Object $expectedAttempts $actualAttempts -SyncWindow 0) {
+            throw "Provider wire logical request attempts are missing, duplicated, or reordered: $($group.Name)"
+        }
+        $completed = @($attempts | Where-Object terminal_status -eq "response_completed")
+        if ($completed.Count -gt 1) {
+            throw "Provider wire logical request has multiple completed attempts: $($group.Name)"
+        }
+        if ($completed.Count -eq 1 -and
+            [int]$completed[0].attempt_seq -ne [int]$attempts[-1].attempt_seq) {
+            throw "Provider wire logical request completed before its final attempt: $($group.Name)"
+        }
     }
     $ordered
+}
+
+function Get-R7WireRequestFacts {
+    param([Parameter(Mandatory = $true)][string]$WireTracePath)
+    @(
+        Get-R7WireRequestInventory $WireTracePath |
+            Where-Object terminal_status -eq "response_completed"
+    )
+}
+
+function Get-R7WireAttemptSummary {
+    param([Parameter(Mandatory = $true)][object[]]$Inventory)
+    $statusCounts = [ordered]@{}
+    foreach ($status in @("response_completed", "response_failed", "cancelled", "retry_unauthorized")) {
+        $statusCounts[$status] = @($Inventory | Where-Object terminal_status -eq $status).Count
+    }
+    [pscustomobject]@{
+        physical_attempt_count = $Inventory.Count
+        logical_request_count = @($Inventory | Group-Object logical_request_id).Count
+        completed_response_count = [int]$statusCounts.response_completed
+        failed_or_cancelled_attempt_count = @(
+            $Inventory | Where-Object terminal_status -ne "response_completed"
+        ).Count
+        retried_logical_request_count = @(
+            $Inventory | Group-Object logical_request_id | Where-Object Count -gt 1
+        ).Count
+        transports = @($Inventory | ForEach-Object transport | Sort-Object -Unique)
+        terminal_status_counts = [pscustomobject]$statusCounts
+    }
 }
 
 function Add-R7WireFactsToRequestPath {
     param(
         [Parameter(Mandatory = $true)][object[]]$RequestPath,
-        [Parameter(Mandatory = $true)][string]$WireTracePath
+        [Parameter(Mandatory = $true)][string]$WireTracePath,
+        [int]$ExpectedProviderAttempts = 0
     )
-    $wire = @(Get-R7WireRequestFacts $WireTracePath)
+    $inventory = @(Get-R7WireRequestInventory $WireTracePath)
+    if ($ExpectedProviderAttempts -gt 0 -and $inventory.Count -ne $ExpectedProviderAttempts) {
+        throw "Provider wire physical attempt count mismatch: wire=$($inventory.Count) expected=$ExpectedProviderAttempts"
+    }
+    $wire = @($inventory | Where-Object terminal_status -eq "response_completed")
     if ($wire.Count -ne $RequestPath.Count) {
-        throw "Provider wire/request path count mismatch: wire=$($wire.Count) request_path=$($RequestPath.Count)"
+        throw "Completed provider response/request path count mismatch: wire=$($wire.Count) request_path=$($RequestPath.Count)"
     }
     $wireById = @{}
     foreach ($fact in $wire) {
@@ -173,6 +248,20 @@ function Add-R7WireFactsToRequestPath {
         $request | Add-Member -Force -NotePropertyName provider_wire_request_id -NotePropertyValue $fact.request_id
         $request | Add-Member -Force -NotePropertyName provider_wire_trace_schema -NotePropertyValue $fact.trace_schema
         $request | Add-Member -Force -NotePropertyName provider_wire_api -NotePropertyValue $fact.provider_wire_api
+        $request | Add-Member -Force -NotePropertyName provider_transport -NotePropertyValue $fact.transport
+        $logicalAttempts = @(
+            $inventory |
+                Where-Object logical_request_id -eq $fact.logical_request_id |
+                Sort-Object { [int]$_.attempt_seq }
+        )
+        $priorAttempts = @(
+            $logicalAttempts | Where-Object { [int]$_.attempt_seq -lt [int]$fact.attempt_seq }
+        )
+        $request | Add-Member -Force -NotePropertyName provider_attempt_count -NotePropertyValue $logicalAttempts.Count
+        $request | Add-Member -Force -NotePropertyName provider_prior_failed_attempt_count -NotePropertyValue $priorAttempts.Count
+        $request | Add-Member -Force -NotePropertyName provider_prior_terminal_statuses -NotePropertyValue @(
+            $priorAttempts | ForEach-Object terminal_status
+        )
         $request | Add-Member -Force -NotePropertyName input_tokens -NotePropertyValue $inputTokens
         $request | Add-Member -Force -NotePropertyName cached_input_tokens -NotePropertyValue $cachedTokens
         $request | Add-Member -Force -NotePropertyName cache_hit_rate -NotePropertyValue $cacheHitRate

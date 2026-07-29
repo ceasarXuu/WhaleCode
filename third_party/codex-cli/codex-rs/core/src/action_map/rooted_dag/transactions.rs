@@ -16,6 +16,7 @@ use super::model::ResultRef;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
 use super::model::TerminalRecord;
+use super::model::node;
 use super::transitions::derive_node_state;
 use super::transitions::predecessors;
 
@@ -158,8 +159,11 @@ impl Rejection {
                 continue;
             };
             let Some(canonical) = current else {
+                violation.canonical_node_present_before_transaction = Some(false);
                 continue;
             };
+            violation.canonical_node_present_before_transaction =
+                Some(node(canonical, node_id).is_some());
             violation.canonical_state_before_transaction = derive_node_state(canonical, node_id);
             violation.canonical_unsatisfied_predecessor_ids_before_transaction =
                 unsatisfied_predecessors(canonical, node_id);

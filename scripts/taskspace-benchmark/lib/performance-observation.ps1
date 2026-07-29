@@ -44,7 +44,10 @@ function Get-PerformanceWireRequestCount {
     if (Test-Path -LiteralPath $wirePath) {
         $count = 0
         foreach ($line in [System.IO.File]::ReadLines($wirePath)) {
-            if ($line -match '"event_name"\s*:\s*"provider\.chat_wire_shape_recorded"') { $count++ }
+            if ($line -match '"schema_version"\s*:\s*"provider-chat-wire-trace-v10"' -and
+                $line -match '"status"\s*:\s*"payload_captured"') {
+                $count++
+            }
         }
         if ($count -gt 0) { return [pscustomobject]@{ value = [double]$count; source = "provider_wire_trace" } }
     }

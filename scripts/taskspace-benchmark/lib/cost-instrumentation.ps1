@@ -879,7 +879,7 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
     [pscustomobject]@{
         provider_cache_trace_events = @($eventLines.ToArray())
         provider_cache_trace_summary = [pscustomobject]@{
-            schema_version = "TaskSpaceProviderCacheTraceSummaryV3"
+            schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
             provider_request_count = [int]$providerRequestCount
             trace_coverage = if ($providerRequestCount -gt 0) { [Math]::Round([double]$coveredCount / [double]$providerRequestCount, 6) } else { 0.0 }
             cache_usage_missing_count = [int]$missingUsage
@@ -1440,8 +1440,7 @@ function New-TaskspaceControlUsageSummary {
                     "custom_tool_call_output",
                     "local_shell_call_output",
                     "tool_search_output",
-                    "tool_search_call_output",
-                    "mcp_tool_call_output"
+                    "tool_search_call_output"
                 )) {
                 $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
                 $output = [string](Get-TaskspaceCostProperty $payload @("output"))
@@ -1452,7 +1451,7 @@ function New-TaskspaceControlUsageSummary {
                 $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
                 $isLifecycleResult = $schemaVersion -eq "TaskSpaceControlResultV2"
                 $isResponseCommit = $schemaVersion -eq "TaskSpaceResponseCommitV1"
-                $isResponseCommitFailure = $schemaVersion -eq "TaskSpaceResponseCommitFailureV2"
+                $isResponseCommitFailure = $schemaVersion -eq "TaskSpaceResponseCommitFailureV3"
                 $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV3"
                 $isControlResult = $isLifecycleResult -or $isResponseCommit -or $isResponseCommitFailure
                 if (($isControlResult -or $isControlPreflightResult) -and

@@ -83,15 +83,17 @@ pub(crate) struct Violation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) node_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) canonical_node_present_before_transaction: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) canonical_state_before_transaction: Option<NodeState>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) evaluated_state_at_violation: Option<NodeState>,
+    pub(crate) uncommitted_candidate_state_at_violation: Option<NodeState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) allowed_states_at_violation: Vec<NodeState>,
+    pub(crate) allowed_uncommitted_candidate_states_at_violation: Vec<NodeState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) canonical_unsatisfied_predecessor_ids_before_transaction: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) evaluated_unsatisfied_predecessor_ids_at_violation: Vec<String>,
+    pub(crate) uncommitted_candidate_unsatisfied_predecessor_ids_at_violation: Vec<String>,
 }
 
 impl Violation {
@@ -100,11 +102,12 @@ impl Violation {
             code,
             subjects,
             node_id: None,
+            canonical_node_present_before_transaction: None,
             canonical_state_before_transaction: None,
-            evaluated_state_at_violation: None,
-            allowed_states_at_violation: Vec::new(),
+            uncommitted_candidate_state_at_violation: None,
+            allowed_uncommitted_candidate_states_at_violation: Vec::new(),
             canonical_unsatisfied_predecessor_ids_before_transaction: Vec::new(),
-            evaluated_unsatisfied_predecessor_ids_at_violation: Vec::new(),
+            uncommitted_candidate_unsatisfied_predecessor_ids_at_violation: Vec::new(),
         }
     }
 
@@ -119,11 +122,13 @@ impl Violation {
             code: ViolationCode::NodeStateInvalid,
             subjects: vec![node_id.clone()],
             node_id: Some(node_id),
+            canonical_node_present_before_transaction: None,
             canonical_state_before_transaction: None,
-            evaluated_state_at_violation: actual_state,
-            allowed_states_at_violation: allowed_states,
+            uncommitted_candidate_state_at_violation: actual_state,
+            allowed_uncommitted_candidate_states_at_violation: allowed_states,
             canonical_unsatisfied_predecessor_ids_before_transaction: Vec::new(),
-            evaluated_unsatisfied_predecessor_ids_at_violation: unsatisfied_predecessor_ids,
+            uncommitted_candidate_unsatisfied_predecessor_ids_at_violation:
+                unsatisfied_predecessor_ids,
         }
     }
 }

@@ -479,6 +479,9 @@ fn taskspace_prepare_failure_outcome(
         .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
         .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
     pairing.extend(supplemental);
+    let factual_payload = serde_json::from_str(&payload)
+        .expect("TaskSpace response failure is produced by serde_json");
+    pairing.push(ToolCallRuntime::factual_message(factual_payload));
     ToolSequenceOutcome {
         outputs: pairing,
         terminal_completion: None,

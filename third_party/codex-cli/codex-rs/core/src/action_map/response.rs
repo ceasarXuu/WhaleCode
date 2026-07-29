@@ -154,7 +154,7 @@ impl ActionMapResponsePrepareError {
         failure_provenance: serde_json::Value,
     ) -> String {
         let mut payload = serde_json::json!({
-            "schema_version": "TaskSpaceResponseCommitFailureV2",
+            "schema_version": "TaskSpaceResponseCommitFailureV3",
             "status": match self {
                 Self::State(_) => "state_rejected",
                 Self::Protocol { .. } => "protocol_rejected",
@@ -163,6 +163,7 @@ impl ActionMapResponsePrepareError {
             "success": false,
             "state_commit": false,
             "canonical_revision": canonical_revision,
+            "rejected_candidate_committed": false,
             "executed_tool_call_count": 0,
             "failure_provenance": failure_provenance,
             "error": {
@@ -184,24 +185,25 @@ impl ActionMapResponsePrepareError {
                             });
                             if let Some(node_id) = violation.node_id.as_ref() {
                                 value["node_id"] = serde_json::json!(node_id);
-                                value["canonical_state_before_transaction"] =
-                                    serde_json::json!(
-                                        violation.canonical_state_before_transaction
-                                    );
-                                value["evaluated_state_at_violation"] =
-                                    serde_json::json!(violation.evaluated_state_at_violation);
-                                value["allowed_states_at_violation"] =
-                                    serde_json::json!(violation.allowed_states_at_violation);
-                                value["canonical_unsatisfied_predecessor_ids_before_transaction"] =
-                                    serde_json::json!(
+                                value["canonical_before_transaction"] = serde_json::json!({
+                                    "node_present":
+                                        violation.canonical_node_present_before_transaction,
+                                    "state": violation.canonical_state_before_transaction,
+                                    "unsatisfied_predecessor_ids":
                                         violation
-                                            .canonical_unsatisfied_predecessor_ids_before_transaction
-                                    );
-                                value["evaluated_unsatisfied_predecessor_ids_at_violation"] =
-                                    serde_json::json!(
+                                            .canonical_unsatisfied_predecessor_ids_before_transaction,
+                                });
+                                value["rejected_candidate_at_violation"] = serde_json::json!({
+                                    "committed": false,
+                                    "state":
+                                        violation.uncommitted_candidate_state_at_violation,
+                                    "allowed_states":
                                         violation
-                                            .evaluated_unsatisfied_predecessor_ids_at_violation
-                                    );
+                                            .allowed_uncommitted_candidate_states_at_violation,
+                                    "unsatisfied_predecessor_ids":
+                                        violation
+                                            .uncommitted_candidate_unsatisfied_predecessor_ids_at_violation,
+                                });
                             }
                             value
                         })
@@ -345,7 +347,9 @@ mod tests {
         ))
         .unwrap();
 
+        assert_eq!(value["schema_version"], "TaskSpaceResponseCommitFailureV3");
         assert_eq!(value["current_revision"], 7);
+        assert_eq!(value["rejected_candidate_committed"], false);
         assert_eq!(
             value["error"]["code"],
             ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE
@@ -356,16 +360,25 @@ mod tests {
         );
         assert_eq!(value["error"]["violations"][0]["node_id"], "verify");
         assert_eq!(
-            value["error"]["violations"][0]["evaluated_state_at_violation"],
+            value["error"]["violations"][0]["rejected_candidate_at_violation"]["state"],
             "waiting"
         );
         assert_eq!(
-            value["error"]["violations"][0]["allowed_states_at_violation"],
+            value["error"]["violations"][0]["rejected_candidate_at_violation"]["allowed_states"],
             serde_json::json!(["ready", "in_flight"])
         );
         assert_eq!(
-            value["error"]["violations"][0]["evaluated_unsatisfied_predecessor_ids_at_violation"],
+            value["error"]["violations"][0]["rejected_candidate_at_violation"]["unsatisfied_predecessor_ids"],
             serde_json::json!(["inspect", "patch"])
+        );
+        assert_eq!(
+            value["error"]["violations"][0]["rejected_candidate_at_violation"]["committed"],
+            false
+        );
+        assert!(
+            value["error"]["violations"][0]
+                .get("evaluated_state_at_violation")
+                .is_none()
         );
         assert_eq!(
             value["failure_provenance"]["copy_group_id"],
