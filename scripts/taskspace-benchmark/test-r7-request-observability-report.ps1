@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $runRoot = Join-Path ([IO.Path]::GetTempPath()) "r7-request-observer-$([guid]::NewGuid().ToString('N'))"
+. (Join-Path $PSScriptRoot "lib/harness-health.ps1")
+. (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
 
 function Write-Json([string]$Path, $Value) {
     $parent = Split-Path -Parent $Path
@@ -131,18 +133,24 @@ try {
     New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
     $repoCommit = ((& git -C $repoRoot rev-parse HEAD) | Select-Object -First 1).Trim()
     $sourceCommit = ((& git -C $repoRoot rev-list -1 HEAD -- third_party/codex-cli) | Select-Object -First 1).Trim()
-    $fixtureBinary = Join-Path $runRoot "fixture-whale"
-    [IO.File]::WriteAllText($fixtureBinary, "fixture whale", [Text.UTF8Encoding]::new($false))
+    $gitIdentity = Get-TaskspaceGitBuildIdentity $repoRoot
+    $fixtureBinary = (Get-Process -Id $PID).Path
     $fixtureBinarySha = (Get-FileHash -Algorithm SHA256 -LiteralPath $fixtureBinary).Hash.ToLowerInvariant()
-    $attestationPath = "$fixtureBinary.taskspace-build-attestation.json"
+    $attestationPath = Join-Path $runRoot "fixture-binary-attestation.json"
+    $probe = Get-TaskspaceWhaleVersionProbe $fixtureBinary
     Write-Json $attestationPath @{
-        schema_version = 1
+        schema_version = 2
         status = "pass"
         repo_root = $repoRoot
         current_git_head = $repoCommit
+        head_tree_id = [string]$gitIdentity.head_tree_id
+        codex_tree_id = [string]$gitIdentity.codex_tree_id
+        worktree_clean = $true
         codex_source_latest_commit = $sourceCommit
         whale_bin = $fixtureBinary
         whale_binary_sha256 = $fixtureBinarySha
+        build_command = "fixture executable identity"
+        executable_probe = $probe
     }
     $runs = [Collections.Generic.List[object]]::new()
     foreach ($arm in @("standard", "map-always", "map-append", "map-request")) {
@@ -210,6 +218,7 @@ try {
                 (New-WireTerminal "$arm-2" 200 20)
             )
         }
+        $evidenceFact = Write-R7RunArtifactEvidenceManifest $runDir $logicalMode
         $runs.Add([pscustomobject]@{
                 sample = "fixture"
                 repeat = 1
@@ -218,6 +227,8 @@ try {
                 projection_policy = if ($logicalMode -eq "taskspace") { $arm.Substring(4) } else { "standard" }
                 run_dir = $runDir
                 exit_code = 0
+                evidence_manifest_path = [string]$evidenceFact.path
+                evidence_manifest_sha256 = [string]$evidenceFact.sha256
             })
     }
     Write-Json (Join-Path $runRoot "run-manifest.json") @{
@@ -245,10 +256,59 @@ try {
         throw "Matrix report lost receipt/cache carrier facts"
     }
     if ([int]$trace.schema_version -ne 3 -or
-        [string]$trace.artifact_provenance.status -ne "valid" -or
+        [string]$trace.input_artifact_provenance.status -ne "valid" -or
         [string]$trace.runs[2].request_path[1].primary_failure_class -ne "none") {
         throw "Trace analysis did not publish request-level taxonomy and provenance"
     }
+    $finalProvenancePath = Join-Path $runRoot "artifact-provenance.json"
+    $finalProvenance = Get-Content -Raw -Encoding UTF8 -LiteralPath $finalProvenancePath |
+        ConvertFrom-Json -Depth 100
+    $matrixStatusPath = Join-Path $runRoot "matrix-final-status.json"
+    $matrixStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $matrixStatusPath |
+        ConvertFrom-Json -Depth 100
+    if ([int]$finalProvenance.schema_version -ne 2 -or
+        [string]$finalProvenance.phase -ne "final" -or
+        [string]$finalProvenance.status -ne "valid" -or
+        [int]$finalProvenance.raw_artifact_count -ne 32 -or
+        -not [bool]$matrixStatus.final_aggregate_ready) {
+        throw "Matrix report did not publish sealed final aggregate provenance"
+    }
+
+    $appendRolloutPath = Join-Path $runRoot "map-append/artifacts/rollout.jsonl"
+    $appendRollout = [IO.File]::ReadAllText($appendRolloutPath)
+    [IO.File]::AppendAllText($appendRolloutPath, "{}$([Environment]::NewLine)")
+    $rawMutationRejected = $false
+    try {
+        & (Join-Path $PSScriptRoot "report-r7-five-layer-matrix.ps1") -RunRoot $runRoot | Out-Null
+    } catch {
+        $rawMutationRejected = $_.Exception.Message -match "Matrix artifact provenance is invalid"
+    }
+    $rawMutationProvenance = Get-Content -Raw -Encoding UTF8 -LiteralPath $finalProvenancePath |
+        ConvertFrom-Json -Depth 100
+    if (-not $rawMutationRejected -or
+        "run_evidence_artifact_hash_mismatch" -notin @($rawMutationProvenance.findings.code)) {
+        throw "Matrix report accepted a post-seal raw artifact mutation"
+    }
+    [IO.File]::WriteAllText($appendRolloutPath, $appendRollout, [Text.UTF8Encoding]::new($false))
+    & (Join-Path $PSScriptRoot "report-r7-five-layer-matrix.ps1") -RunRoot $runRoot | Out-Null
+
+    $reportPath = Join-Path $runRoot "report.md"
+    $reportContent = [IO.File]::ReadAllText($reportPath)
+    [IO.File]::AppendAllText($reportPath, "`nmutation")
+    $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $runRoot "run-manifest.json") |
+        ConvertFrom-Json -Depth 100
+    $mutatedFinal = Get-R7MatrixArtifactProvenance `
+        $repoRoot `
+        (Join-Path $runRoot "run-manifest.json") `
+        $manifest `
+        (Join-Path $PSScriptRoot "report-r7-five-layer-matrix.ps1") `
+        $matrixStatusPath
+    if ([string]$mutatedFinal.status -ne "invalid" -or
+        "matrix_final_output_hash_mismatch" -notin @($mutatedFinal.findings.code)) {
+        throw "Final provenance accepted a mutated aggregate output"
+    }
+    [IO.File]::WriteAllText($reportPath, $reportContent, [Text.UTF8Encoding]::new($false))
+
     $invalidAttestation = Get-Content -Raw -Encoding UTF8 -LiteralPath $attestationPath | ConvertFrom-Json
     $invalidAttestation.status = "invalid"
     Write-Json $attestationPath $invalidAttestation
@@ -258,7 +318,7 @@ try {
     } catch {
         $provenanceRejected = $_.Exception.Message -match "Matrix artifact provenance is invalid"
     }
-    $invalidProvenance = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $runRoot "artifact-provenance.json") |
+    $invalidProvenance = Get-Content -Raw -Encoding UTF8 -LiteralPath $finalProvenancePath |
         ConvertFrom-Json -Depth 100
     if (-not $provenanceRejected -or [string]$invalidProvenance.status -ne "invalid") {
         throw "Matrix report accepted an invalid binary attestation"

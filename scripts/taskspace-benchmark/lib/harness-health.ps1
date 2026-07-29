@@ -248,6 +248,50 @@ function Get-TaskspaceWhaleBinaryAttestationPath {
     "$WhaleBin.build-attestation.json"
 }
 
+function Get-TaskspaceSha256Text {
+    param([AllowEmptyString()][string]$Text = "")
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        ([BitConverter]::ToString($hasher.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+    } finally {
+        $hasher.Dispose()
+    }
+}
+
+function Get-TaskspaceGitBuildIdentity {
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+    $head = ((& git -C $RepoRoot rev-parse HEAD 2>$null) | Select-Object -First 1).Trim()
+    $headTree = ((& git -C $RepoRoot rev-parse "HEAD^{tree}" 2>$null) | Select-Object -First 1).Trim()
+    $codexTree = ((& git -C $RepoRoot rev-parse "HEAD:third_party/codex-cli" 2>$null) | Select-Object -First 1).Trim()
+    $dirty = @(& git -C $RepoRoot status --porcelain --untracked-files=all 2>$null)
+    if ($LASTEXITCODE -ne 0 -or
+        $head -notmatch '^[0-9a-f]{40,64}$' -or
+        $headTree -notmatch '^[0-9a-f]{40,64}$' -or
+        $codexTree -notmatch '^[0-9a-f]{40,64}$') {
+        throw "Cannot resolve clean Git build identity for $RepoRoot"
+    }
+    [pscustomobject]@{
+        current_git_head = $head
+        head_tree_id = $headTree
+        codex_tree_id = $codexTree
+        worktree_clean = $dirty.Count -eq 0
+        dirty_paths = @($dirty)
+    }
+}
+
+function Get-TaskspaceWhaleVersionProbe {
+    param([Parameter(Mandatory = $true)][string]$WhaleBin)
+    $result = Invoke-TaskspaceShortCommand $WhaleBin @("--version") 20
+    $output = (@($result.output) -join "`n").Trim()
+    [pscustomobject]@{
+        argv = @($WhaleBin, "--version")
+        exit_code = [int]$result.exit_code
+        output = $output
+        output_sha256 = Get-TaskspaceSha256Text $output
+    }
+}
+
 function Get-TaskspaceWhaleBinaryAttestation {
     param(
         [Parameter(Mandatory = $true)][string]$WhaleBin,
@@ -269,9 +313,24 @@ function Get-TaskspaceWhaleBinaryAttestation {
     $binaryShaMatches = ([string]$marker.whale_binary_sha256).ToLowerInvariant() -eq ([string]$ExpectedBinarySha256).ToLowerInvariant()
     $sourceMatches = [string]$marker.codex_source_latest_commit -eq [string]$ExpectedSourceCommit
     $repoMatches = [string]::Equals($markerRepoRoot, $repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)
-    $schemaMatches = [int]$marker.schema_version -eq 1
+    $schemaMatches = [int]$marker.schema_version -eq 2
     $statusMatches = [string]$marker.status -eq "pass"
-    if ($schemaMatches -and $statusMatches -and $binaryShaMatches -and $sourceMatches -and $repoMatches) {
+    $gitIdentity = try { Get-TaskspaceGitBuildIdentity $RepoRoot } catch { $null }
+    $gitMatches = $null -ne $gitIdentity -and
+        [bool]$marker.worktree_clean -and
+        [string]$marker.current_git_head -eq [string]$gitIdentity.current_git_head -and
+        [string]$marker.head_tree_id -eq [string]$gitIdentity.head_tree_id -and
+        [string]$marker.codex_tree_id -eq [string]$gitIdentity.codex_tree_id
+    $buildCommandMatches = -not [string]::IsNullOrWhiteSpace([string]$marker.build_command)
+    $probe = try { Get-TaskspaceWhaleVersionProbe $WhaleBin } catch { $null }
+    $markerProbe = $marker.executable_probe
+    $probeMatches = $null -ne $probe -and $null -ne $markerProbe -and
+        [int]$probe.exit_code -eq 0 -and
+        [int]$markerProbe.exit_code -eq 0 -and
+        -not [string]::IsNullOrWhiteSpace([string]$probe.output) -and
+        [string]$markerProbe.output_sha256 -eq [string]$probe.output_sha256
+    if ($schemaMatches -and $statusMatches -and $binaryShaMatches -and $sourceMatches -and
+        $repoMatches -and $gitMatches -and $buildCommandMatches -and $probeMatches) {
         return [pscustomobject]@{ status = "pass"; path = $path; reason = ""; marker = $marker }
     }
     $reasons = New-Object System.Collections.Generic.List[string]
@@ -280,6 +339,9 @@ function Get-TaskspaceWhaleBinaryAttestation {
     if (-not $binaryShaMatches) { $reasons.Add("binary_sha_mismatch") }
     if (-not $sourceMatches) { $reasons.Add("codex_source_commit_mismatch") }
     if (-not $repoMatches) { $reasons.Add("repo_root_mismatch") }
+    if (-not $gitMatches) { $reasons.Add("git_build_identity_mismatch") }
+    if (-not $buildCommandMatches) { $reasons.Add("build_command_missing") }
+    if (-not $probeMatches) { $reasons.Add("executable_probe_mismatch") }
     [pscustomobject]@{ status = "invalid"; path = $path; reason = (@($reasons.ToArray()) -join ","); marker = $marker }
 }
 
@@ -292,25 +354,38 @@ function Write-TaskspaceWhaleBinaryAttestation {
     if (-not (Test-Path -LiteralPath $WhaleBin -PathType Leaf)) {
         throw "Whale binary does not exist: $WhaleBin"
     }
+    if ([string]::IsNullOrWhiteSpace($BuildCommand)) {
+        throw "BuildCommand is required for a binary attestation."
+    }
     $item = Get-Item -LiteralPath $WhaleBin
     $sourceInfo = Get-TaskspaceRepoPathLatestCommitInfo $RepoRoot "third_party/codex-cli"
     if (-not $sourceInfo) { throw "Cannot resolve latest third_party/codex-cli commit." }
-    $headHash = ""
-    try { $headHash = ((& git -C $RepoRoot rev-parse HEAD 2>$null) | Select-Object -First 1).Trim() } catch { $headHash = "" }
+    $gitIdentity = Get-TaskspaceGitBuildIdentity $RepoRoot
+    if (-not [bool]$gitIdentity.worktree_clean) {
+        throw "Cannot attest a binary from a dirty worktree."
+    }
+    $probe = Get-TaskspaceWhaleVersionProbe $item.FullName
+    if ([int]$probe.exit_code -ne 0 -or [string]::IsNullOrWhiteSpace([string]$probe.output)) {
+        throw "Whale binary executable probe failed: $($probe.exit_code)"
+    }
     $binarySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $item.FullName).Hash.ToLowerInvariant()
     $attestationPath = Get-TaskspaceWhaleBinaryAttestationPath $item.FullName
     [pscustomobject]@{
-        schema_version = 1
+        schema_version = 2
         status = "pass"
         producer = "write-whale-binary-attestation.ps1"
         repo_root = [System.IO.Path]::GetFullPath($RepoRoot)
-        current_git_head = $headHash
+        current_git_head = [string]$gitIdentity.current_git_head
+        head_tree_id = [string]$gitIdentity.head_tree_id
+        codex_tree_id = [string]$gitIdentity.codex_tree_id
+        worktree_clean = $true
         codex_source_latest_commit = [string]$sourceInfo.hash
         codex_source_latest_commit_time_utc = [string]$sourceInfo.time_utc
         whale_bin = $item.FullName
         whale_binary_sha256 = $binarySha256
         whale_binary_last_write_utc = $item.LastWriteTimeUtc.ToUniversalTime().ToString("o")
         build_command = $BuildCommand
+        executable_probe = $probe
         generated_at = (Get-Date).ToString("o")
     } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $attestationPath -Encoding UTF8
     $attestationPath

@@ -110,15 +110,19 @@ function Get-AggregateRow {
 if ([string]$manifest.status -ne "completed") { throw "Matrix run is not completed: $($manifest.status)" }
 $expectedRuns = [int]$manifest.repeats_per_arm_per_sample * @($manifest.samples).Count * 4
 if ([int]$manifest.completed_run_count -ne $expectedRuns) { throw "Matrix run count is incomplete" }
-$artifactProvenance = Get-R7MatrixArtifactProvenance $repoRoot $manifestPath $manifest $PSCommandPath
 $artifactProvenancePath = Join-Path $RunRoot "artifact-provenance.json"
-[IO.File]::WriteAllText(
-    $artifactProvenancePath,
-    (($artifactProvenance | ConvertTo-Json -Depth 50) + "`n"),
-    [Text.UTF8Encoding]::new($false)
-)
-if ([string]$artifactProvenance.status -ne "valid") {
-    $codes = @($artifactProvenance.findings | ForEach-Object { [string]$_.code } | Sort-Object -Unique) -join ","
+$inputProvenance = Get-R7MatrixArtifactProvenance `
+    $repoRoot `
+    $manifestPath `
+    $manifest `
+    $PSCommandPath
+if ([string]$inputProvenance.status -ne "valid") {
+    [IO.File]::WriteAllText(
+        $artifactProvenancePath,
+        (($inputProvenance | ConvertTo-Json -Depth 100) + "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $codes = @($inputProvenance.findings | ForEach-Object { [string]$_.code } | Sort-Object -Unique) -join ","
     throw "Matrix artifact provenance is invalid: $codes"
 }
 
@@ -127,9 +131,6 @@ $traceRuns = [Collections.Generic.List[object]]::new()
 $imageDigests = [Collections.Generic.List[string]]::new()
 foreach ($run in @($manifest.runs)) {
     $observationPath = Join-Path ([string]$run.run_dir) "performance-observation.json"
-    if (-not (Test-Path -LiteralPath $observationPath -PathType Leaf)) {
-        & (Join-Path $PSScriptRoot "write-performance-observation.ps1") -RunRoot ([string]$run.run_dir) | Out-Null
-    }
     $observation = Get-Content -Raw -Encoding UTF8 -LiteralPath $observationPath | ConvertFrom-Json -Depth 100
     $actualRows = @($observation.rows | Where-Object { [string]$_.observation_status -eq "complete" -and [string]$_.logical_mode -eq [string]$run.logical_mode })
     if ($actualRows.Count -ne 1) { throw "Expected one complete row for $($run.sample) repeat $($run.repeat) $($run.arm)" }
@@ -335,7 +336,7 @@ $traceAnalysis = [ordered]@{
     contract_id = [string]$manifest.contract_id
     status = "initial_observation_only_no_policy_claim"
     docker_image_digest = $uniqueImages[0]
-    artifact_provenance = $artifactProvenance
+    input_artifact_provenance = $inputProvenance
     run_count = $rows.Count
     runs = @($traceRuns)
 }
@@ -348,7 +349,7 @@ $lines.Add("# R7 五层改造后四臂首轮观测")
 $lines.Add("")
 $lines.Add("- 运行：$($rows.Count)/$expectedRuns")
 $lines.Add("- Docker image：``$($uniqueImages[0])``")
-$lines.Add("- 工件来源：``$($artifactProvenance.status)``，commit ``$($artifactProvenance.repo_commit)``，binary ``$($artifactProvenance.whale_binary_sha256)``。")
+$lines.Add("- 输入工件来源：``$($inputProvenance.status)``，commit ``$($inputProvenance.repo_commit)``，binary ``$($inputProvenance.whale_binary_sha256)``。")
 $lines.Add("- 结论边界：repeat 3 只用于发现回归和执行路径差异，不选择默认 policy。")
 $lines.Add("")
 $lines.Add("| arm | 成功 | request 总/均/中位 | input 总/均/中位 | cached | uncached | req2+ cache | output 总/均 | wall ms 总/均/中位 |")
@@ -385,8 +386,59 @@ $lines.Add("")
 $lines.Add("逐运行明细：``summary.csv``；分样本和全局聚合：``aggregate.csv``；trace 索引与初筛异常：``trace-analysis.json``。")
 $reportPath = Join-Path $RunRoot "report.md"
 $lines | Set-Content -Encoding UTF8 -LiteralPath $reportPath
+
+$matrixStatusPath = Join-Path $RunRoot "matrix-final-status.json"
+$matrixOutputs = @(
+    $rowsPath,
+    $aggregatePath,
+    $tracePath,
+    $reportPath
+) | ForEach-Object {
+    $item = Get-Item -LiteralPath $_
+    [pscustomobject]@{
+        path = $item.FullName
+        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $item.FullName).Hash.ToLowerInvariant()
+        bytes = [int64]$item.Length
+    }
+}
+$matrixStatus = [ordered]@{
+    schema_version = 1
+    status = "finalized"
+    final_aggregate_ready = $true
+    repo_commit = [string]$manifest.repo_commit
+    run_count = $rows.Count
+    inputs = @((New-R7ProvenanceFileFact $manifestPath "run_manifest"))
+    outputs = @($matrixOutputs)
+    finalized_at = (Get-Date).ToString("o")
+}
+[IO.File]::WriteAllText(
+    $matrixStatusPath,
+    (($matrixStatus | ConvertTo-Json -Depth 20) + "`n"),
+    [Text.UTF8Encoding]::new($false)
+)
+
+$artifactProvenance = Get-R7MatrixArtifactProvenance `
+    $repoRoot `
+    $manifestPath `
+    $manifest `
+    $PSCommandPath `
+    $matrixStatusPath
+[IO.File]::WriteAllText(
+    $artifactProvenancePath,
+    (($artifactProvenance | ConvertTo-Json -Depth 100) + "`n"),
+    [Text.UTF8Encoding]::new($false)
+)
+if ([string]$artifactProvenance.status -ne "valid") {
+    $codes = @(
+        $artifactProvenance.findings |
+            ForEach-Object { [string]$_.code } |
+            Sort-Object -Unique
+    ) -join ","
+    throw "Matrix final artifact provenance is invalid: $codes"
+}
 Write-Output "R7FiveLayerReport: $reportPath"
 Write-Output "R7FiveLayerSummary: $rowsPath"
 Write-Output "R7FiveLayerAggregate: $aggregatePath"
 Write-Output "R7FiveLayerTraceAnalysis: $tracePath"
+Write-Output "R7FiveLayerMatrixFinalStatus: $matrixStatusPath"
 Write-Output "R7FiveLayerArtifactProvenance: $artifactProvenancePath"

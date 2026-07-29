@@ -17,6 +17,7 @@ $contractPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-evaluati
 $baseRunner = Join-Path $repoRoot "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 50
 . (Join-Path $PSScriptRoot "lib/harness-health.ps1")
+. (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
 
 function Write-Utf8Json {
     param([Parameter(Mandatory = $true)]$Value, [Parameter(Mandatory = $true)][string]$Path)
@@ -223,6 +224,14 @@ foreach ($group in $groups) {
     $firstPlan = @($group.Group)[0]
     $resultPath = Join-Path (Split-Path -Parent $firstPlan.arm_run_root) "group-result.json"
     foreach ($record in @(Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json -Depth 20)) {
+        & (Join-Path $PSScriptRoot "write-performance-observation.ps1") `
+            -RunRoot ([string]$record.run_dir) |
+            Out-Null
+        $evidenceFact = Write-R7RunArtifactEvidenceManifest `
+            ([string]$record.run_dir) `
+            ([string]$record.logical_mode)
+        $record | Add-Member -NotePropertyName evidence_manifest_path -NotePropertyValue ([string]$evidenceFact.path)
+        $record | Add-Member -NotePropertyName evidence_manifest_sha256 -NotePropertyValue ([string]$evidenceFact.sha256)
         $completed.Add($record)
     }
 }

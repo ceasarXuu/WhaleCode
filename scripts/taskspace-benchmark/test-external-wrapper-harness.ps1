@@ -7,6 +7,23 @@ $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 $failures = New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { $script:failures.Add($Message) } }
+function Write-FixtureWhale([string]$Path, [string]$Version) {
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        [IO.File]::WriteAllText(
+            $Path,
+            "@echo off`r`nif `"%1`"==`"--version`" (`r`n  echo $Version`r`n  exit /b 0`r`n)`r`nexit /b 1`r`n",
+            [Text.ASCIIEncoding]::new()
+        )
+    } else {
+        [IO.File]::WriteAllText(
+            $Path,
+            "#!/usr/bin/env sh`nif [ `"`$1`" = `"--version`" ]; then`n  echo `"$Version`"`n  exit 0`nfi`nexit 1`n",
+            [Text.UTF8Encoding]::new($false)
+        )
+        & chmod +x $Path
+        if ($LASTEXITCODE -ne 0) { throw "Cannot make fixture whale executable: $Path" }
+    }
+}
 
 $taskDir = Join-Path $runDir "terminal-bench-no-env"
 New-Item -ItemType Directory -Path $taskDir | Out-Null
@@ -47,8 +64,9 @@ if ($AllowNonE2Result) { Write-Host "stub diagnostic allowed"; exit 0 }
 Write-Host "stub target unsatisfied"
 exit 1
 '@ | Set-Content -LiteralPath $runnerStub -Encoding UTF8
-$freshWhaleBin = Join-Path $runDir "fresh-whale.exe"
-"fake fresh whale" | Set-Content -LiteralPath $freshWhaleBin -Encoding UTF8
+$fixtureSuffix = if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) { ".cmd" } else { "" }
+$freshWhaleBin = Join-Path $runDir "fresh-whale$fixtureSuffix"
+Write-FixtureWhale $freshWhaleBin "whale fixture fresh"
 (Get-Item -LiteralPath $freshWhaleBin).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(1)
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 $freshUnattestedHealth = New-TaskspaceWhaleBinaryHealth $freshWhaleBin $repoRoot
@@ -91,8 +109,8 @@ Assert-True (($diagnosticOutput -join "`n") -match "DiagnosticNonTargetResultAll
 Assert-True (($diagnosticOutput -join "`n") -match "validation_timeout=77") "external benchmark wrapper did not pass validation timeout separately"
 Assert-True (($diagnosticOutput -join "`n") -match "source_version=pinned") "external benchmark wrapper did not pass source version to runner"
 
-$staleWhaleBin = Join-Path $runDir "stale-whale.exe"
-"fake stale whale" | Set-Content -LiteralPath $staleWhaleBin -Encoding UTF8
+$staleWhaleBin = Join-Path $runDir "stale-whale$fixtureSuffix"
+Write-FixtureWhale $staleWhaleBin "whale fixture stale"
 (Get-Item -LiteralPath $staleWhaleBin).LastWriteTimeUtc = ([DateTimeOffset]::FromUnixTimeSeconds(0)).UtcDateTime
 $staleRunRoot = Join-Path $runDir "stale-wrapper-run"
 $staleOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $taskDir -SourceVersion "pinned" -RunRoot $staleRunRoot -RunnerPath $runnerStub -WhaleBin $staleWhaleBin 2>&1
@@ -102,8 +120,8 @@ $staleSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $st
 Assert-True ([string]$staleSampleStatus.run_validity -eq "invalid_harness") "stale whale binary was not classified as invalid_harness"
 Assert-True ([string]$staleSampleStatus.abort_reason -eq "whale_binary_attestation_invalid") "stale whale binary abort reason was not stable"
 
-$directStaleWhaleBin = Join-Path $runDir "direct-stale-whale.exe"
-"fake direct stale whale" | Set-Content -LiteralPath $directStaleWhaleBin -Encoding UTF8
+$directStaleWhaleBin = Join-Path $runDir "direct-stale-whale$fixtureSuffix"
+Write-FixtureWhale $directStaleWhaleBin "whale fixture direct stale"
 (Get-Item -LiteralPath $directStaleWhaleBin).LastWriteTimeUtc = ([DateTimeOffset]::FromUnixTimeSeconds(0)).UtcDateTime
 $directStaleRunRoot = Join-Path $runDir "direct-unattested-stale-run"
 $directStaleOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-benchmark.ps1") -Scenario single-file-fast-fix -RunRoot $directStaleRunRoot -WhaleBin $directStaleWhaleBin 2>&1
