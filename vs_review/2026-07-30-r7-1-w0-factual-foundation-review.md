@@ -153,7 +153,9 @@ W0 新增 request 级失败 taxonomy 和 provider wire receipt identity，扩展
 
 ### Reviewer Launch Records
 
-待内部子代理启动后记录。
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| implementation-completeness-adversary | `multi_agent_v1.spawn_agent` | `019faf52-85fa-7260-897c-55634799451c` (`Heisenberg`) | spawn tool result in parent session | `fork_context=false` | Round 1 Review Input | main-agent history、reasoning、drafts、conclusions、full diff dump | yes |
 
 ### Reviewer Timeout Records
 
