@@ -1,8 +1,8 @@
 # R7 五层架构整体变更约束
 
 - Created: 2026-07-24
-- Updated: 2026-07-27
-- Version: 1.4
+- Updated: 2026-07-30
+- Version: 1.5
 - Status: Active change gate
 - Machine contract:
   [`five-layer-integrated-change-constraints-v1.json`](../../../benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json)
@@ -10,15 +10,19 @@
   [`23-r7-taskspace-five-layer-architecture-design.md`](23-r7-taskspace-five-layer-architecture-design.md)
 - Current L4 redesign:
   [`42-r7.1-a2-nonterminal-action-ownership-design.md`](42-r7.1-a2-nonterminal-action-ownership-design.md)
+- Current issue authority:
+  [`47-r7.1-global-issue-register.md`](47-r7.1-global-issue-register.md)
 
 ## 1. 目的
 
 此前若干修复只验证了一个局部目标，造成“解决 A、重新引入 B；再解决 B、又恢复 A”的往复。本合同把五层架构
-原则、已经关闭的回归和当前未关闭问题放入同一个准入面。后续任何候选必须同时满足全部硬约束，不能用局部收益
-抵消既有能力，也不能把历史已关闭问题重新解释为可接受的设计特征。
+原则、历史回归和准入门放入同一个约束面。后续任何候选必须同时满足全部硬约束，不能用局部收益抵消既有能力，
+也不能把历史已关闭问题重新解释为可接受的设计特征。
 
 本合同是变更治理合同，不是新的语义层。它不进入 Agent provider context，不增加提示词，不参与 Runtime 决策，
-只约束 WhaleCode 开发、评审、测试和发布。
+只约束 WhaleCode 开发、评审、测试和发布。当前开放问题、数量、优先级和状态只由
+[`47-r7.1-global-issue-register.md`](47-r7.1-global-issue-register.md) 维护；本文件中的 `R-xx` 是准入约束，
+不是第二份问题清单。
 
 ## 2. 五层职责
 
@@ -225,7 +229,9 @@ R-21、R-23 至 R-27 已关闭，但其 handoff、持久化、无 current、无�
 21. **用户反馈继续门**：已关闭 Map 只能通过 `reopen_map + 新 Work + edges + actions` 恢复；同一 `map_id`
     保持，旧 terminal 进入历史，生产 schema/domain 不存在 `rework_node`。
 
-当前总计：`24 closed / 3 open`。R-10、R-19、R-22 仍阻止产品晋升。成本下降不能越过这些阻塞项单独晋升。
+本节冻结的历史准入门快照为 `24 closed / 3 open`。该数字不表示当前问题数量；R-10、R-19、R-22 对应的
+当前问题拆分、状态和关闭标准以
+[`47-r7.1-global-issue-register.md`](47-r7.1-global-issue-register.md) 为准。成本下降不能越过这些准入门单独晋升。
 
 A2-C live evidence：24/24 业务成功、18/18 Map terminal，但 104 个 sequence failure request、51 个 state
 failure request、0/18 首请求初始化提交。详细数据与根因见
