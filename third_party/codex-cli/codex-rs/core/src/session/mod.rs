@@ -3545,11 +3545,29 @@ impl Session {
         turn_context: &TurnContext,
         token_usage: Option<&TokenUsage>,
     ) {
+        self.update_token_usage_info_for_provider(turn_context, token_usage, None, None, None)
+            .await;
+    }
+
+    pub(crate) async fn update_token_usage_info_for_provider(
+        &self,
+        turn_context: &TurnContext,
+        token_usage: Option<&TokenUsage>,
+        provider_request_id: Option<String>,
+        provider_logical_request_id: Option<String>,
+        provider_attempt_seq: Option<usize>,
+    ) {
         if let Some(token_usage) = token_usage {
             let mut state = self.state.lock().await;
             state.update_token_info_from_usage(token_usage, turn_context.model_context_window());
         }
-        self.send_token_count_event(turn_context).await;
+        self.send_token_count_event(
+            turn_context,
+            provider_request_id,
+            provider_logical_request_id,
+            provider_attempt_seq,
+        )
+        .await;
     }
 
     pub(crate) async fn recompute_token_usage(&self, turn_context: &TurnContext) {
@@ -3582,7 +3600,8 @@ impl Session {
 
             state.set_token_info(Some(info));
         }
-        self.send_token_count_event(turn_context).await;
+        self.send_token_count_event(turn_context, None, None, None)
+            .await;
     }
 
     pub(crate) async fn update_rate_limits(
@@ -3594,7 +3613,8 @@ impl Session {
             let mut state = self.state.lock().await;
             state.set_rate_limits(new_rate_limits);
         }
-        self.send_token_count_event(turn_context).await;
+        self.send_token_count_event(turn_context, None, None, None)
+            .await;
     }
 
     pub(crate) async fn mcp_dependency_prompted(&self) -> HashSet<String> {
@@ -3625,12 +3645,24 @@ impl Session {
         state.set_server_reasoning_included(included);
     }
 
-    async fn send_token_count_event(&self, turn_context: &TurnContext) {
+    async fn send_token_count_event(
+        &self,
+        turn_context: &TurnContext,
+        provider_request_id: Option<String>,
+        provider_logical_request_id: Option<String>,
+        provider_attempt_seq: Option<usize>,
+    ) {
         let (info, rate_limits) = {
             let state = self.state.lock().await;
             state.token_info_and_rate_limits()
         };
-        let event = EventMsg::TokenCount(TokenCountEvent { info, rate_limits });
+        let event = EventMsg::TokenCount(TokenCountEvent {
+            info,
+            rate_limits,
+            provider_request_id,
+            provider_logical_request_id,
+            provider_attempt_seq,
+        });
         self.send_event(turn_context, event).await;
     }
 
@@ -3639,7 +3671,8 @@ impl Session {
             let mut state = self.state.lock().await;
             state.set_token_usage_full(context_window);
         }
-        self.send_token_count_event(turn_context).await;
+        self.send_token_count_event(turn_context, None, None, None)
+            .await;
     }
 
     pub(crate) async fn record_response_item_and_emit_turn_item(

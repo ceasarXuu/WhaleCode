@@ -47,7 +47,14 @@ struct ProviderWireTraceState {
     epoch_id: String,
     next_request_index: usize,
     previous: Option<WireRequestShape>,
-    active_request_id: Option<String>,
+    active_request_identity: Option<ProviderWireRequestIdentity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderWireRequestIdentity {
+    pub(crate) request_id: String,
+    pub(crate) logical_request_id: String,
+    pub(crate) attempt_seq: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +80,8 @@ struct WireShapeEvent<'a> {
     schema_version: &'static str,
     event_name: &'static str,
     request_id: &'a str,
+    logical_request_id: &'a str,
+    attempt_seq: usize,
     epoch_id: &'a str,
     request_index: usize,
     provider_wire_api: String,
@@ -177,6 +186,8 @@ struct WireTerminalEvent<'a> {
     schema_version: &'static str,
     event_name: &'static str,
     request_id: &'a str,
+    logical_request_id: &'a str,
+    attempt_seq: usize,
     status: &'a str,
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
@@ -245,10 +256,19 @@ impl ProviderWireTrace {
             state.epoch_id = epoch_id.to_string();
             state.next_request_index = 0;
             state.previous = None;
-            state.active_request_id = None;
+            state.active_request_identity = None;
         }
         state.next_request_index += 1;
         let request_id = format!("provider-wire:{epoch_id}:{}", state.next_request_index);
+        let logical_request_id = format!(
+            "provider-wire:{epoch_id}:logical-{}",
+            state.next_request_index
+        );
+        let request_identity = ProviderWireRequestIdentity {
+            request_id: request_id.clone(),
+            logical_request_id,
+            attempt_seq: 1,
+        };
         let comparison = state.previous.as_ref().map(|previous| {
             compare_shapes(
                 previous,
@@ -279,9 +299,11 @@ impl ProviderWireTrace {
             &taskspace_wire_contract_identity,
         );
         let event = WireShapeEvent {
-            schema_version: "provider-chat-wire-trace-v8",
+            schema_version: "provider-chat-wire-trace-v9",
             event_name,
-            request_id: &request_id,
+            request_id: &request_identity.request_id,
+            logical_request_id: &request_identity.logical_request_id,
+            attempt_seq: request_identity.attempt_seq,
             epoch_id,
             request_index: state.next_request_index,
             provider_wire_api: format!("{provider_wire_api:?}"),
@@ -338,26 +360,32 @@ impl ProviderWireTrace {
             tool_choice_name: tool_choice_name.map(str::to_string),
             messages: message_shapes,
         });
-        state.active_request_id = Some(request_id);
+        state.active_request_identity = Some(request_identity);
         wire
     }
 
-    pub(crate) fn record_terminal(&self, status: &str, usage: Option<&TokenUsage>) {
+    pub(crate) fn record_terminal(
+        &self,
+        status: &str,
+        usage: Option<&TokenUsage>,
+    ) -> Option<ProviderWireRequestIdentity> {
         let Some(path) = self.path.as_ref() else {
-            return;
+            return None;
         };
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(request_id) = state.active_request_id.take() else {
+        let Some(request_identity) = state.active_request_identity.take() else {
             warn!(event.name = "provider.chat_wire_shape_missing", status);
-            return;
+            return None;
         };
         let event = WireTerminalEvent {
-            schema_version: "provider-chat-wire-trace-v2",
+            schema_version: "provider-chat-wire-trace-v9",
             event_name: "provider.chat_wire_request_terminal",
-            request_id: &request_id,
+            request_id: &request_identity.request_id,
+            logical_request_id: &request_identity.logical_request_id,
+            attempt_seq: request_identity.attempt_seq,
             status,
             input_tokens: usage.map(|value| value.input_tokens),
             cached_input_tokens: usage.map(|value| value.cached_input_tokens),
@@ -366,6 +394,7 @@ impl ProviderWireTrace {
             total_tokens: usage.map(|value| value.total_tokens),
         };
         append_json(path, &event);
+        Some(request_identity)
     }
 }
 

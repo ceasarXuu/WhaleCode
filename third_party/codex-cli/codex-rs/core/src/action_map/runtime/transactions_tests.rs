@@ -81,11 +81,15 @@ fn prepare_initialize_rejects_waiting_action_with_exact_state_facts() {
     let violation = &error.violations[0];
     assert_eq!(violation.code, ViolationCode::NodeStateInvalid);
     assert_eq!(violation.node_id.as_deref(), Some("verify"));
-    assert_eq!(violation.actual_state, Some(NodeState::Waiting));
     assert_eq!(
-        violation.unsatisfied_predecessor_ids,
+        violation.evaluated_state_at_violation,
+        Some(NodeState::Waiting)
+    );
+    assert_eq!(
+        violation.evaluated_unsatisfied_predecessor_ids_at_violation,
         vec!["inspect".to_string()]
     );
+    assert_eq!(violation.canonical_state_before_transaction, None);
     assert!(runtime.canonical_map_for_store().is_none());
 }
 

@@ -261,7 +261,7 @@ function Get-TaskspaceRolloutToolStats {
         }
         if ($payloadType -eq "message" -and [string]$payload.role -eq "developer") {
             $content = @($payload.content | ForEach-Object { [string]$_.text }) -join ""
-            if ($content -match '"schema_version"\s*:\s*"ToolSearchFailureV1"') {
+            if ($content -match '"schema_version"\s*:\s*"ToolSearchFailureV2"') {
                 try {
                     $failure = $content | ConvertFrom-Json
                     $callId = [string]$failure.call_id

@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 . (Join-Path $PSScriptRoot "lib/r7-five-layer-trace-analysis.ps1")
+. (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
 if (-not [IO.Path]::IsPathRooted($RunRoot)) { $RunRoot = Join-Path $repoRoot $RunRoot }
 $manifestPath = Join-Path $RunRoot "run-manifest.json"
 $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json -Depth 50
@@ -100,6 +101,17 @@ function Get-AggregateRow {
 if ([string]$manifest.status -ne "completed") { throw "Matrix run is not completed: $($manifest.status)" }
 $expectedRuns = [int]$manifest.repeats_per_arm_per_sample * @($manifest.samples).Count * 4
 if ([int]$manifest.completed_run_count -ne $expectedRuns) { throw "Matrix run count is incomplete" }
+$artifactProvenance = Get-R7MatrixArtifactProvenance $repoRoot $manifestPath $manifest $PSCommandPath
+$artifactProvenancePath = Join-Path $RunRoot "artifact-provenance.json"
+[IO.File]::WriteAllText(
+    $artifactProvenancePath,
+    (($artifactProvenance | ConvertTo-Json -Depth 50) + "`n"),
+    [Text.UTF8Encoding]::new($false)
+)
+if ([string]$artifactProvenance.status -ne "valid") {
+    $codes = @($artifactProvenance.findings | ForEach-Object { [string]$_.code } | Sort-Object -Unique) -join ","
+    throw "Matrix artifact provenance is invalid: $codes"
+}
 
 $rows = [Collections.Generic.List[object]]::new()
 $traceRuns = [Collections.Generic.List[object]]::new()
@@ -295,10 +307,11 @@ $aggregatePath = Join-Path $RunRoot "aggregate.csv"
 $aggregates | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $aggregatePath
 
 $traceAnalysis = [ordered]@{
-    schema_version = 2
+    schema_version = 3
     contract_id = [string]$manifest.contract_id
     status = "initial_observation_only_no_policy_claim"
     docker_image_digest = $uniqueImages[0]
+    artifact_provenance = $artifactProvenance
     run_count = $rows.Count
     runs = @($traceRuns)
 }
@@ -311,6 +324,7 @@ $lines.Add("# R7 五层改造后四臂首轮观测")
 $lines.Add("")
 $lines.Add("- 运行：$($rows.Count)/$expectedRuns")
 $lines.Add("- Docker image：``$($uniqueImages[0])``")
+$lines.Add("- 工件来源：``$($artifactProvenance.status)``，commit ``$($artifactProvenance.repo_commit)``，binary ``$($artifactProvenance.whale_binary_sha256)``。")
 $lines.Add("- 结论边界：repeat 3 只用于发现回归和执行路径差异，不选择默认 policy。")
 $lines.Add("")
 $lines.Add("| arm | 成功 | request 总/均/中位 | input 总/均/中位 | cached | uncached | req2+ cache | output 总/均 | wall ms 总/均/中位 |")
@@ -351,3 +365,4 @@ Write-Output "R7FiveLayerReport: $reportPath"
 Write-Output "R7FiveLayerSummary: $rowsPath"
 Write-Output "R7FiveLayerAggregate: $aggregatePath"
 Write-Output "R7FiveLayerTraceAnalysis: $tracePath"
+Write-Output "R7FiveLayerArtifactProvenance: $artifactProvenancePath"

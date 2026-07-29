@@ -50,6 +50,13 @@ exit 1
 $freshWhaleBin = Join-Path $runDir "fresh-whale.exe"
 "fake fresh whale" | Set-Content -LiteralPath $freshWhaleBin -Encoding UTF8
 (Get-Item -LiteralPath $freshWhaleBin).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(1)
+. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+$freshUnattestedHealth = New-TaskspaceWhaleBinaryHealth $freshWhaleBin $repoRoot
+Assert-True ([string]$freshUnattestedHealth.status -eq "fail") "fresh-mtime binary without attestation was accepted"
+Assert-True ([string]@($freshUnattestedHealth.findings)[0].stable_code -eq "whale_binary_attestation_invalid") "fresh-mtime binary provenance failure did not use the stable attestation code"
+Write-TaskspaceWhaleBinaryAttestation $freshWhaleBin $repoRoot "fixture build" | Out-Null
+$freshAttestedHealth = New-TaskspaceWhaleBinaryHealth $freshWhaleBin $repoRoot
+Assert-True ([string]$freshAttestedHealth.status -eq "pass") "fresh-mtime binary with matching attestation was rejected"
 
 . (Join-Path $PSScriptRoot "lib\source-guard.ps1")
 $sensitiveSource = Join-Path $runDir "sensitive-validator.txt"
@@ -93,7 +100,7 @@ Assert-True ($LASTEXITCODE -eq 3) "external benchmark wrapper did not reject sta
 Assert-True (($staleOutput -join "`n") -match "WhaleBinaryHealth:") "external benchmark wrapper did not print stale binary health path"
 $staleSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $staleRunRoot "sample-status.json") | ConvertFrom-Json
 Assert-True ([string]$staleSampleStatus.run_validity -eq "invalid_harness") "stale whale binary was not classified as invalid_harness"
-Assert-True ([string]$staleSampleStatus.abort_reason -eq "whale_binary_stale_for_codex_source") "stale whale binary abort reason was not stable"
+Assert-True ([string]$staleSampleStatus.abort_reason -eq "whale_binary_attestation_invalid") "stale whale binary abort reason was not stable"
 
 $directStaleWhaleBin = Join-Path $runDir "direct-stale-whale.exe"
 "fake direct stale whale" | Set-Content -LiteralPath $directStaleWhaleBin -Encoding UTF8
@@ -107,7 +114,7 @@ Assert-True ($null -ne $directStaleStatusPath) "direct benchmark runner did not 
 if ($directStaleStatusPath) {
     $directStaleSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $directStaleStatusPath.FullName | ConvertFrom-Json
     Assert-True ([string]$directStaleSampleStatus.abort_phase -eq "whale_binary_preflight") "direct stale whale binary abort phase was not stable"
-    Assert-True ([string]$directStaleSampleStatus.abort_reason -eq "whale_binary_stale_for_codex_source") "direct stale whale binary abort reason was not stable"
+    Assert-True ([string]$directStaleSampleStatus.abort_reason -eq "whale_binary_attestation_invalid") "direct stale whale binary abort reason was not stable"
 }
 
 $providerRunRoot = Join-Path $runDir "provider-credential-run"
@@ -152,7 +159,6 @@ Assert-True ([string]$attestedHealth.status -eq "pass") "attested stale-mtime wh
 Assert-True ([string]$attestedHealth.build_attestation_status -eq "pass") "attested stale-mtime whale binary did not record passing attestation"
 Assert-True (-not [bool]$attestedHealth.stale_for_codex_source) "attested stale-mtime whale binary remained stale_for_codex_source"
 
-. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 $directAttestedHealth = New-TaskspaceWhaleBinaryHealth $staleWhaleBin $repoRoot
 Assert-True ([string]$directAttestedHealth.status -eq "pass") "direct binary health rejected attested stale-mtime whale binary"
 Assert-True ([string]$directAttestedHealth.build_attestation_status -eq "pass") "direct binary health did not consume attestation"

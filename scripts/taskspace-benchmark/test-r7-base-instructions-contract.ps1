@@ -64,7 +64,7 @@ Assert-BaseInstructionsContract ($turnSource.Contains("resolved_base_instruction
 Assert-BaseInstructionsContract (-not $turnSource.Contains("prepend_taskspace_working_protocol")) "obsolete TaskSpace developer protocol injection remains"
 Assert-BaseInstructionsContract ($sessionSource.Contains("taskspace_core_protocol(map_runtime_mode)")) "TaskSpace core protocol is not mode-scoped"
 Assert-BaseInstructionsContract ($sessionSource.Contains("developer_sections.push(core_protocol.to_string())")) "TaskSpace core protocol is not first in the stable developer bundle"
-Assert-BaseInstructionsContract ($wireTraceSource.Contains('schema_version: "provider-chat-wire-trace-v8"')) "wire trace v8 identity carrier is missing"
+Assert-BaseInstructionsContract ($wireTraceSource.Contains('schema_version: "provider-chat-wire-trace-v9"')) "wire trace v9 identity carrier is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("base_instructions_identity")) "wire trace base identity observer is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_core_protocol_identity")) "wire trace core protocol identity observer is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_wire_contract_identity")) "wire trace complete TaskSpace message-shape observer is missing"

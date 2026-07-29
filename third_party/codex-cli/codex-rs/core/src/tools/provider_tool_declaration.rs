@@ -232,15 +232,17 @@ impl BuildFailedToolDeclaration {
 pub(crate) fn provider_response_failure_fact(
     reason_code: &'static str,
     payload: serde_json::Value,
+    failure_provenance: serde_json::Value,
 ) -> ResponseInputItem {
     ResponseInputItem::Message {
         role: "developer".to_string(),
         content: vec![ContentItem::InputText {
             text: serde_json::json!({
-                "schema_version": "ProviderToolResponsePreflightV1",
+                "schema_version": "ProviderToolResponsePreflightV2",
                 "status": "protocol_failed",
                 "success": false,
                 "state_commit": false,
+                "failure_provenance": failure_provenance,
                 "error": {
                     "class": "protocol",
                     "code": reason_code,

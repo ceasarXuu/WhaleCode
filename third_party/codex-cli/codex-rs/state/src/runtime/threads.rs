@@ -1756,6 +1756,9 @@ mod tests {
                     model_context_window: None,
                 }),
                 rate_limits: None,
+                provider_request_id: None,
+                provider_logical_request_id: None,
+                provider_attempt_seq: None,
             },
         ))];
         let override_updated_at =

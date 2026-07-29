@@ -89,7 +89,7 @@ $toolShapeWriter = [System.IO.StreamWriter]::new($toolShapePath, $false, [System
 try {
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_call","execution":"client","call_id":"search-1","arguments":{"query":"calendar"}}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"tool_search_output","execution":"client","call_id":"search-1","status":"completed","tools":[]}}')
-    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"{\"schema_version\":\"ToolSearchFailureV1\",\"status\":\"failed\",\"success\":false,\"call_id\":\"search-1\"}"}]}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"{\"schema_version\":\"ToolSearchFailureV2\",\"status\":\"failed\",\"success\":false,\"call_id\":\"search-1\"}"}]}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"local_shell_call","call_id":"shell-1","action":{"type":"exec","command":["pwd"]}}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"local_shell_call_output","call_id":"shell-1","output":"ok"}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"mcp_tool_call","call_id":"mcp-1","name":"calendar"}}')

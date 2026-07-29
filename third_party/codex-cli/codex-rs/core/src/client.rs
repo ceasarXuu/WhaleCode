@@ -2221,11 +2221,11 @@ impl ModelClientSession {
         &self,
         status: &str,
         token_usage: Option<&TokenUsage>,
-    ) {
+    ) -> Option<crate::provider_wire_trace::ProviderWireRequestIdentity> {
         self.client
             .state
             .provider_wire_trace
-            .record_terminal(status, token_usage);
+            .record_terminal(status, token_usage)
     }
 
     pub(crate) fn reset_websocket_session(&mut self) {

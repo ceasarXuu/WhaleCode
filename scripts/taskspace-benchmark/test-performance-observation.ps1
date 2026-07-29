@@ -63,7 +63,7 @@ function New-SideFixture {
         [pscustomobject]@{
             schema_version = "provider-wire-active-projection-identity-summary-v1"
             bootstrap_count = 0; active_count = 0; unavailable_count = $Requests
-            unavailable_reason_counts = [pscustomobject]@{ historical_provider_wire_trace_v2 = $Requests }
+            unavailable_reason_counts = [pscustomobject]@{ unsupported_provider_wire_trace_schema = $Requests }
             projection_sha256_counts = [pscustomobject]@{}; revision_counts = [pscustomobject]@{}
             unique_projection_sha256_count = 0; unique_revision_count = 0
         }
@@ -97,7 +97,7 @@ function New-SideFixture {
         [pscustomobject]@{
             schema_version = "provider-wire-section-cost-summary-v1"; availability = "unavailable"
             request_count = $Requests; measured_request_count = 0; unavailable_request_count = $Requests
-            unavailable_reason_counts = [pscustomobject]@{ historical_provider_wire_trace_v2 = $Requests }
+            unavailable_reason_counts = [pscustomobject]@{ unsupported_provider_wire_trace_schema = $Requests }
             section_bytes_total = $null; estimated_tokens_total = $null; sections = @()
             active_projection_identity_summary = $projectionIdentity
         }
@@ -358,7 +358,7 @@ $standardHistoricalRow = @($report.rows | Where-Object { $_.repeat -eq 2 -and $_
 $standardActiveProjection = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "active_projection" })[0]
 $standardControlFeedback = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "taskspace_control_feedback" })[0]
 Assert-True ([int64]$standardActiveProjection.bytes -eq 0 -and [int64]$standardControlFeedback.bytes -eq 0) "measured Standard side should report zero TaskSpace-only sections"
-Assert-True ($null -eq $standardHistoricalRow.section_cost.section_bytes_total -and [int]$standardHistoricalRow.section_cost.unavailable_reason_counts.historical_provider_wire_trace_v2 -eq 4) "historical v2 side fabricated section totals"
+Assert-True ($null -eq $standardHistoricalRow.section_cost.section_bytes_total -and [int]$standardHistoricalRow.section_cost.unavailable_reason_counts.unsupported_provider_wire_trace_schema -eq 4) "unsupported wire side fabricated section totals"
 Assert-True ([int64](($standardMeasuredRow.section_cost.sections | Measure-Object -Property bytes -Sum).Sum) -eq [int64]$standardMeasuredRow.section_cost.section_bytes_total) "side section bytes did not reconcile exactly"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
 Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_count -eq 1) "skipped side contaminated the aggregate"
@@ -407,7 +407,7 @@ Assert-True ($markdown -match "## Patch lifecycle") "markdown omitted patch life
 Assert-True ($markdown -match "## Provider wire section cost" -and $markdown -match "active_projection") "markdown omitted provider section totals"
 Assert-True ($markdown -match "### Active projection identity" -and $markdown -match "active_projection_missing=6") "markdown omitted projection identity freshness evidence"
 Assert-True ($markdown -match "Bytes/request mean" -and $markdown -match "Bytes/request median") "markdown omitted section request distribution statistics"
-Assert-True ($markdown -match "historical_provider_wire_trace_v2=4") "markdown omitted historical section-cost unavailability"
+Assert-True ($markdown -match "unsupported_provider_wire_trace_schema=4") "markdown omitted unsupported section-cost provenance"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
 if ($failures.Count -gt 0) {

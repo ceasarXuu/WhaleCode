@@ -16,6 +16,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $contractPath = Join-Path $repoRoot "benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json"
 $baseRunner = Join-Path $repoRoot "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 50
+. (Join-Path $PSScriptRoot "lib/harness-health.ps1")
 
 function Write-Utf8Json {
     param([Parameter(Mandatory = $true)]$Value, [Parameter(Mandatory = $true)][string]$Path)
@@ -80,6 +81,24 @@ if ([string]::IsNullOrWhiteSpace($ExecutionRoot)) {
     $ExecutionRoot = Join-Path $repoRoot $ExecutionRoot
 }
 New-Item -ItemType Directory -Force -Path $ExecutionRoot | Out-Null
+$whaleSha256 = ""
+if (-not $PlanOnly) {
+    $dirtyPaths = @(& git -C $repoRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw "Cannot inspect repository worktree state." }
+    if ($dirtyPaths.Count -gt 0) {
+        throw "Formal R7 matrix requires a clean committed worktree."
+    }
+    if (-not [IO.Path]::IsPathRooted($WhaleBin)) { $WhaleBin = Join-Path $repoRoot $WhaleBin }
+    if (-not (Test-Path -LiteralPath $WhaleBin -PathType Leaf)) { throw "Whale binary not found: $WhaleBin" }
+    $matrixBinaryHealth = New-TaskspaceWhaleBinaryHealth $WhaleBin $repoRoot
+    $matrixBinaryHealthPath = Join-Path $RunRoot "matrix-whale-binary-preflight-health.json"
+    Write-Utf8Json $matrixBinaryHealth $matrixBinaryHealthPath
+    if ([string]$matrixBinaryHealth.status -ne "pass") {
+        $codes = @($matrixBinaryHealth.findings | ForEach-Object { [string]$_.stable_code }) -join ","
+        throw "Formal R7 matrix binary provenance failed: $codes"
+    }
+    $whaleSha256 = [string]$matrixBinaryHealth.whale_binary_sha256
+}
 
 $plans = [Collections.Generic.List[object]]::new()
 $armCodes = @{ standard = "a0"; "map-always" = "a1"; "map-append" = "a2"; "map-request" = "a3" }
@@ -110,7 +129,7 @@ $manifest = [ordered]@{
     generated_at = (Get-Date).ToString("o")
     repo_commit = $commit
     whale_bin = $WhaleBin
-    whale_sha256 = if (-not $PlanOnly -and (Test-Path -LiteralPath $WhaleBin -PathType Leaf)) { (Get-FileHash -Algorithm SHA256 -LiteralPath $WhaleBin).Hash.ToLowerInvariant() } else { "" }
+    whale_sha256 = $whaleSha256
     model = $Model
     execution = "docker"
     execution_root = $ExecutionRoot
@@ -130,8 +149,6 @@ if ($PlanOnly) {
 }
 
 Import-DeepSeekCredential
-if (-not [IO.Path]::IsPathRooted($WhaleBin)) { $WhaleBin = Join-Path $repoRoot $WhaleBin }
-if (-not (Test-Path -LiteralPath $WhaleBin -PathType Leaf)) { throw "Whale binary not found: $WhaleBin" }
 & docker info *> $null
 if ($LASTEXITCODE -ne 0) { throw "Docker daemon is unavailable." }
 

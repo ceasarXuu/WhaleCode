@@ -1,6 +1,7 @@
 pub(crate) mod code_mode;
 pub(crate) mod context;
 pub(crate) mod events;
+pub(crate) mod failure_provenance;
 pub(crate) mod handlers;
 pub(crate) mod hook_names;
 pub(crate) mod network_approval;

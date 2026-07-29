@@ -355,7 +355,8 @@ fn provider_build_failure_closes_all_pairings_before_factual_feedback() {
             _ => None,
         })
         .expect("factual failure payload");
-    assert!(text.contains("ProviderToolResponsePreflightV1"));
+    assert!(text.contains("ProviderToolResponsePreflightV2"));
+    assert!(text.contains(r#""copy_group_id":"provider_response:ready-prefix""#));
     assert!(text.contains("malformed-search"));
     assert!(text.contains("query must be a string"));
     assert!(text.contains(r#""executed_tool_call_count":0"#));

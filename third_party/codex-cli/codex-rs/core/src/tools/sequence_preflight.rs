@@ -4,6 +4,7 @@ use codex_protocol::models::ResponseInputItem;
 
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::ToolPayload;
+use crate::tools::failure_provenance::provider_response_failure_provenance;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceActionArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
@@ -69,12 +70,15 @@ impl ToolSequencePreflightFailure {
                 })
             })
             .collect::<Vec<_>>();
+        let failure_provenance =
+            provider_response_failure_provenance(calls.iter().map(|call| call.call_id.as_str()));
         let payload = serde_json::json!({
-            "schema_version": "ToolSequencePreflightResultV2",
+            "schema_version": "ToolSequencePreflightResultV3",
             "status": "protocol_failed",
             "success": false,
             "state_commit": false,
             "canonical_revision": canonical_revision,
+            "failure_provenance": failure_provenance,
             "error": {
                 "class": "protocol",
                 "code": self.reason_code,

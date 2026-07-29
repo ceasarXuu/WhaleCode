@@ -1577,24 +1577,36 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
         TokenCountEvent {
             info: Some(info1),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
     rollout_items.push(RolloutItem::EventMsg(EventMsg::TokenCount(
         TokenCountEvent {
             info: None,
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
     rollout_items.push(RolloutItem::EventMsg(EventMsg::TokenCount(
         TokenCountEvent {
             info: Some(info2.clone()),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
     rollout_items.push(RolloutItem::EventMsg(EventMsg::TokenCount(
         TokenCountEvent {
             info: None,
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
 
@@ -7574,7 +7586,7 @@ async fn mailbox_preemption_never_executes_an_uncompleted_tool_prefix() -> anyho
             test.codex.flush_rollout().await.expect("flush rollout");
             if std::fs::read_to_string(&rollout_path)
                 .unwrap_or_default()
-                .contains("ToolSequencePreflightResultV2")
+                .contains("ToolSequencePreflightResultV3")
             {
                 break;
             }
@@ -7632,7 +7644,7 @@ async fn malformed_suffix_rejects_the_complete_provider_tool_response() -> anyho
             test.codex.flush_rollout().await.expect("flush rollout");
             if std::fs::read_to_string(&rollout_path)
                 .unwrap_or_default()
-                .contains("ProviderToolResponsePreflightV1")
+                .contains("ProviderToolResponsePreflightV2")
             {
                 break;
             }
@@ -7853,7 +7865,7 @@ async fn taskspace_rejects_hidden_image_added_event_before_artifact_write() -> a
             test.codex.flush_rollout().await.expect("flush rollout");
             if std::fs::read_to_string(&rollout_path)
                 .unwrap_or_default()
-                .contains("ProviderToolResponsePreflightV1")
+                .contains("ProviderToolResponsePreflightV2")
             {
                 break;
             }

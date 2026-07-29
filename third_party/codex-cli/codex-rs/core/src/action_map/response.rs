@@ -148,9 +148,13 @@ impl ActionMapResponsePrepareError {
         }
     }
 
-    pub(crate) fn model_visible_failure(&self, canonical_revision: Option<u64>) -> String {
+    pub(crate) fn model_visible_failure(
+        &self,
+        canonical_revision: Option<u64>,
+        failure_provenance: serde_json::Value,
+    ) -> String {
         let mut payload = serde_json::json!({
-            "schema_version": "TaskSpaceResponseCommitFailureV1",
+            "schema_version": "TaskSpaceResponseCommitFailureV2",
             "status": match self {
                 Self::State(_) => "state_rejected",
                 Self::Protocol { .. } => "protocol_rejected",
@@ -160,6 +164,7 @@ impl ActionMapResponsePrepareError {
             "state_commit": false,
             "canonical_revision": canonical_revision,
             "executed_tool_call_count": 0,
+            "failure_provenance": failure_provenance,
             "error": {
                 "class": self.class(),
                 "code": self.reason_code(),
@@ -179,11 +184,24 @@ impl ActionMapResponsePrepareError {
                             });
                             if let Some(node_id) = violation.node_id.as_ref() {
                                 value["node_id"] = serde_json::json!(node_id);
-                                value["actual_state"] = serde_json::json!(violation.actual_state);
-                                value["allowed_states"] =
-                                    serde_json::json!(violation.allowed_states);
-                                value["unsatisfied_predecessor_ids"] =
-                                    serde_json::json!(violation.unsatisfied_predecessor_ids);
+                                value["canonical_state_before_transaction"] =
+                                    serde_json::json!(
+                                        violation.canonical_state_before_transaction
+                                    );
+                                value["evaluated_state_at_violation"] =
+                                    serde_json::json!(violation.evaluated_state_at_violation);
+                                value["allowed_states_at_violation"] =
+                                    serde_json::json!(violation.allowed_states_at_violation);
+                                value["canonical_unsatisfied_predecessor_ids_before_transaction"] =
+                                    serde_json::json!(
+                                        violation
+                                            .canonical_unsatisfied_predecessor_ids_before_transaction
+                                    );
+                                value["evaluated_unsatisfied_predecessor_ids_at_violation"] =
+                                    serde_json::json!(
+                                        violation
+                                            .evaluated_unsatisfied_predecessor_ids_at_violation
+                                    );
                             }
                             value
                         })
@@ -317,8 +335,15 @@ mod tests {
             )],
         });
 
-        let value: serde_json::Value =
-            serde_json::from_str(&error.model_visible_failure(Some(7))).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&error.model_visible_failure(
+            Some(7),
+            serde_json::json!({
+                "scope": "provider_response",
+                "copy_group_id": "provider_response:control",
+                "zero_dispatch": true,
+            }),
+        ))
+        .unwrap();
 
         assert_eq!(value["current_revision"], 7);
         assert_eq!(
@@ -330,14 +355,21 @@ mod tests {
             "node_state_invalid"
         );
         assert_eq!(value["error"]["violations"][0]["node_id"], "verify");
-        assert_eq!(value["error"]["violations"][0]["actual_state"], "waiting");
         assert_eq!(
-            value["error"]["violations"][0]["allowed_states"],
+            value["error"]["violations"][0]["evaluated_state_at_violation"],
+            "waiting"
+        );
+        assert_eq!(
+            value["error"]["violations"][0]["allowed_states_at_violation"],
             serde_json::json!(["ready", "in_flight"])
         );
         assert_eq!(
-            value["error"]["violations"][0]["unsatisfied_predecessor_ids"],
+            value["error"]["violations"][0]["evaluated_unsatisfied_predecessor_ids_at_violation"],
             serde_json::json!(["inspect", "patch"])
+        );
+        assert_eq!(
+            value["failure_provenance"]["copy_group_id"],
+            "provider_response:control"
         );
         assert!(value["error"].get("detail").is_none());
     }

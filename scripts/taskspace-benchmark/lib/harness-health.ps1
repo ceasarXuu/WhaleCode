@@ -351,6 +351,19 @@ function New-TaskspaceWhaleBinaryHealth {
     $attestation = $null
     if ($exists -and $sourceInfo) {
         $attestation = Get-TaskspaceWhaleBinaryAttestation $resolvedPath $binarySha256 ([string]$sourceInfo.hash) $RepoRoot
+        if ([string]$attestation.status -ne "pass") {
+            $findings.Add([pscustomobject]@{
+                    severity = "fail"
+                    stable_code = "whale_binary_attestation_invalid"
+                    message = "Whale binary provenance is not proven by a matching build attestation."
+                    path = $resolvedPath
+                    stage = "whale_binary_preflight"
+                    source_commit = [string]$sourceInfo.hash
+                    attestation_path = [string]$attestation.path
+                    attestation_status = [string]$attestation.status
+                    attestation_reason = [string]$attestation.reason
+                })
+        }
     }
     if ($exists -and $sourceInfo -and $binaryEpoch -lt [int64]$sourceInfo.epoch) {
         if ($attestation -and [string]$attestation.status -eq "pass") {
@@ -367,12 +380,11 @@ function New-TaskspaceWhaleBinaryHealth {
                 })
         } else {
             $stale = $true
-            $severity = if ($AllowStale) { "warn" } else { "fail" }
             $attestationReason = if ($attestation) { [string]$attestation.reason } else { "attestation_unavailable" }
             $findings.Add([pscustomobject]@{
-                    severity = $severity
+                    severity = "warn"
                     stable_code = "whale_binary_stale_for_codex_source"
-                    message = "Whale binary is older than the latest codex source commit for third_party/codex-cli and no matching build attestation was found."
+                    message = "Whale binary mtime is older than the latest codex source commit; the provenance failure is reported by whale_binary_attestation_invalid."
                     path = $resolvedPath
                     stage = "whale_binary_preflight"
                     binary_last_write_utc = $binaryLastWriteUtc

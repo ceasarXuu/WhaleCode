@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::action_map::ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE;
 use crate::action_map::ActionMapResponsePrepareError;
 use crate::tools::context::TaskSpaceTerminalCarrier;
+use crate::tools::failure_provenance::provider_response_failure_provenance;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::provider_tool_declaration::provider_response_failure_fact;
@@ -122,6 +123,12 @@ fn invalid_provider_declaration_outcome(
         .iter()
         .map(ProviderToolDeclaration::descriptor)
         .collect::<Vec<_>>();
+    let failure_provenance =
+        provider_response_failure_provenance(descriptors.iter().filter_map(|descriptor| {
+            descriptor
+                .get("call_id")
+                .and_then(serde_json::Value::as_str)
+        }));
     let response_payload = serde_json::json!({
         "canonical_revision": canonical_revision,
         "declared_tool_count": declarations.len(),
@@ -131,10 +138,11 @@ fn invalid_provider_declaration_outcome(
         "declarations": descriptors,
     });
     let failure_payload = serde_json::json!({
-        "schema_version": "ProviderToolResponsePreflightV1",
+        "schema_version": "ProviderToolResponsePreflightV2",
         "status": "protocol_failed",
         "success": false,
         "state_commit": false,
+        "failure_provenance": failure_provenance.clone(),
         "error": {
             "class": "protocol",
             "code": PROVIDER_TOOL_DECLARATION_INVALID_CODE,
@@ -151,6 +159,7 @@ fn invalid_provider_declaration_outcome(
     pairing_outputs.push(provider_response_failure_fact(
         PROVIDER_TOOL_DECLARATION_INVALID_CODE,
         response_payload,
+        failure_provenance,
     ));
     ToolSequenceOutcome {
         outputs: pairing_outputs,
@@ -462,7 +471,9 @@ fn taskspace_prepare_failure_outcome(
     canonical_revision: Option<u64>,
     error: &ActionMapResponsePrepareError,
 ) -> ToolSequenceOutcome {
-    let payload = error.model_visible_failure(canonical_revision);
+    let failure_provenance =
+        provider_response_failure_provenance(calls.iter().map(|call| call.call_id.as_str()));
+    let payload = error.model_visible_failure(canonical_revision, failure_provenance);
     let (mut pairing, supplemental): (Vec<_>, Vec<_>) = calls
         .iter()
         .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))

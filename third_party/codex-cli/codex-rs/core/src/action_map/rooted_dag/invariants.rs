@@ -83,11 +83,15 @@ pub(crate) struct Violation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) node_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) actual_state: Option<NodeState>,
+    pub(crate) canonical_state_before_transaction: Option<NodeState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) evaluated_state_at_violation: Option<NodeState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) allowed_states: Vec<NodeState>,
+    pub(crate) allowed_states_at_violation: Vec<NodeState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) unsatisfied_predecessor_ids: Vec<String>,
+    pub(crate) canonical_unsatisfied_predecessor_ids_before_transaction: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) evaluated_unsatisfied_predecessor_ids_at_violation: Vec<String>,
 }
 
 impl Violation {
@@ -96,9 +100,11 @@ impl Violation {
             code,
             subjects,
             node_id: None,
-            actual_state: None,
-            allowed_states: Vec::new(),
-            unsatisfied_predecessor_ids: Vec::new(),
+            canonical_state_before_transaction: None,
+            evaluated_state_at_violation: None,
+            allowed_states_at_violation: Vec::new(),
+            canonical_unsatisfied_predecessor_ids_before_transaction: Vec::new(),
+            evaluated_unsatisfied_predecessor_ids_at_violation: Vec::new(),
         }
     }
 
@@ -113,9 +119,11 @@ impl Violation {
             code: ViolationCode::NodeStateInvalid,
             subjects: vec![node_id.clone()],
             node_id: Some(node_id),
-            actual_state,
-            allowed_states,
-            unsatisfied_predecessor_ids,
+            canonical_state_before_transaction: None,
+            evaluated_state_at_violation: actual_state,
+            allowed_states_at_violation: allowed_states,
+            canonical_unsatisfied_predecessor_ids_before_transaction: Vec::new(),
+            evaluated_unsatisfied_predecessor_ids_at_violation: unsatisfied_predecessor_ids,
         }
     }
 }

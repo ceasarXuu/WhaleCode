@@ -54,10 +54,7 @@ function Get-TaskspaceProviderSectionMedian {
 function ConvertTo-TaskspaceProviderSectionCost {
     param([Parameter(Mandatory = $true)]$Shape)
     $traceSchema = [string](Get-TaskspaceCostProperty $Shape @("schema_version"))
-    if ($traceSchema -eq "provider-chat-wire-trace-v2") {
-        return New-TaskspaceUnavailableProviderSectionCost "historical_provider_wire_trace_v2"
-    }
-    if ($traceSchema -notin @("provider-chat-wire-trace-v3", "provider-chat-wire-trace-v4", "provider-chat-wire-trace-v5", "provider-chat-wire-trace-v6", "provider-chat-wire-trace-v7", "provider-chat-wire-trace-v8")) {
+    if ($traceSchema -ne "provider-chat-wire-trace-v9") {
         return New-TaskspaceUnavailableProviderSectionCost "unsupported_provider_wire_trace_schema"
     }
     $raw = Get-TaskspaceCostProperty $Shape @("section_cost")
@@ -333,7 +330,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $TracePath -ErrorAction SilentlyContinue)) {
         if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
         try { $event = $line | ConvertFrom-Json } catch { continue }
-        if ([string]$event.schema_version -notin @("provider-chat-wire-trace-v2", "provider-chat-wire-trace-v3", "provider-chat-wire-trace-v4", "provider-chat-wire-trace-v5", "provider-chat-wire-trace-v6", "provider-chat-wire-trace-v7", "provider-chat-wire-trace-v8")) { continue }
+        if ([string]$event.schema_version -ne "provider-chat-wire-trace-v9") { continue }
         $requestId = [string]$event.request_id
         if ([string]::IsNullOrWhiteSpace($requestId)) { continue }
         if ([string]$event.status -eq "payload_captured") {

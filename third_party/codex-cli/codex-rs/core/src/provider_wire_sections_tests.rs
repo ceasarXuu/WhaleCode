@@ -72,7 +72,7 @@ fn current_taskspace_feedback_family_and_final_receipt_share_one_section() {
             },
             {
                 "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceResponseCommitFailureV1\",\"success\":false}"
+                "content": "{\"schema_version\":\"TaskSpaceResponseCommitFailureV2\",\"success\":false}"
             },
             {
                 "role": "system",

@@ -16,6 +16,8 @@ use super::model::ResultRef;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
 use super::model::TerminalRecord;
+use super::transitions::derive_node_state;
+use super::transitions::predecessors;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReservationInput {
@@ -131,8 +133,12 @@ impl Rejection {
         }
     }
 
-    fn from_replay(current_revision: Revision, error: ReplayError) -> Self {
-        let violations = match error {
+    fn from_replay(
+        current: Option<&TaskSpaceMap>,
+        current_revision: Revision,
+        error: ReplayError,
+    ) -> Self {
+        let mut violations = match error {
             ReplayError::InvariantViolations(violations) => violations,
             ReplayError::InvalidFact(violation) => vec![violation],
             ReplayError::RevisionMismatch { .. } => {
@@ -147,6 +153,17 @@ impl Rejection {
                 vec![Violation::simple(ViolationCode::TransitionInvalid, vec![])]
             }
         };
+        for violation in &mut violations {
+            let Some(node_id) = violation.node_id.as_deref() else {
+                continue;
+            };
+            let Some(canonical) = current else {
+                continue;
+            };
+            violation.canonical_state_before_transaction = derive_node_state(canonical, node_id);
+            violation.canonical_unsatisfied_predecessor_ids_before_transaction =
+                unsatisfied_predecessors(canonical, node_id);
+        }
         Self {
             state_commit: false,
             current_revision,
@@ -395,8 +412,17 @@ fn commit(
     };
     let current_revision = current.map_or(0, |map| map.revision);
     let map = apply_batch(current, &events)
-        .map_err(|error| Rejection::from_replay(current_revision, error))?;
+        .map_err(|error| Rejection::from_replay(current, current_revision, error))?;
     Ok(Commit { map, events })
+}
+
+fn unsatisfied_predecessors(map: &TaskSpaceMap, node_id: &str) -> Vec<String> {
+    predecessors(map, node_id)
+        .into_iter()
+        .filter(|predecessor| {
+            predecessor != &map.root.node_id && !map.completion_records.contains_key(predecessor)
+        })
+        .collect()
 }
 
 fn require_revision(current: &TaskSpaceMap, expected_revision: Revision) -> Result<(), Rejection> {

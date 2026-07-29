@@ -1448,16 +1448,12 @@ function New-TaskspaceControlUsageSummary {
                 $batch = $null
                 if (-not [string]::IsNullOrWhiteSpace($output)) {
                     try { $batch = $output | ConvertFrom-Json } catch {}
-                    if ($null -eq $batch) {
-                        $firstLine = @($output -split "`r?`n", 2)[0]
-                        try { $batch = $firstLine | ConvertFrom-Json } catch {}
-                    }
                 }
                 $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
                 $isLifecycleResult = $schemaVersion -eq "TaskSpaceControlResultV2"
                 $isResponseCommit = $schemaVersion -eq "TaskSpaceResponseCommitV1"
-                $isResponseCommitFailure = $schemaVersion -eq "TaskSpaceResponseCommitFailureV1"
-                $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV2"
+                $isResponseCommitFailure = $schemaVersion -eq "TaskSpaceResponseCommitFailureV2"
+                $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV3"
                 $isControlResult = $isLifecycleResult -or $isResponseCommit -or $isResponseCommitFailure
                 if (($isControlResult -or $isControlPreflightResult) -and
                     $rolloutInitializeCallIds.Contains($callId)) {
@@ -1480,7 +1476,7 @@ function New-TaskspaceControlUsageSummary {
                 $isControlCall = -not [string]::IsNullOrWhiteSpace($callId) -and
                     ($rolloutNativeCallIds.Contains($callId) -or
                         $rolloutActionContractCallIds.Contains($callId))
-                if ($schemaVersion -eq "ToolSequencePreflightResultV2" -and
+                if ($schemaVersion -eq "ToolSequencePreflightResultV3" -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false) {
                     [void]$rolloutSequencePreflightFailureCallIds.Add($callId)
                 }

@@ -136,13 +136,16 @@ fn waiting_node_rejection_preserves_multi_parent_state_facts() {
     let violation = &rejection.violations[0];
     assert_eq!(violation.code, ViolationCode::NodeStateInvalid);
     assert_eq!(violation.node_id.as_deref(), Some("join"));
-    assert_eq!(violation.actual_state, Some(NodeState::Waiting));
     assert_eq!(
-        violation.allowed_states,
+        violation.evaluated_state_at_violation,
+        Some(NodeState::Waiting)
+    );
+    assert_eq!(
+        violation.allowed_states_at_violation,
         vec![NodeState::Ready, NodeState::InFlight]
     );
     assert_eq!(
-        violation.unsatisfied_predecessor_ids,
+        violation.evaluated_unsatisfied_predecessor_ids_at_violation,
         vec!["left".to_string(), "right".to_string()]
     );
 }
@@ -178,7 +181,7 @@ fn completed_and_blocked_node_rejections_preserve_actual_state() {
     )
     .unwrap_err();
     assert_eq!(
-        completed_rejection.violations[0].actual_state,
+        completed_rejection.violations[0].evaluated_state_at_violation,
         Some(NodeState::Completed)
     );
 
@@ -214,8 +217,49 @@ fn completed_and_blocked_node_rejections_preserve_actual_state() {
     )
     .unwrap_err();
     assert_eq!(
-        blocked_rejection.violations[0].actual_state,
+        blocked_rejection.violations[0].evaluated_state_at_violation,
         Some(NodeState::Blocked)
+    );
+}
+
+#[test]
+fn rejected_transaction_distinguishes_canonical_and_evaluated_node_state() {
+    let current = release(
+        fork_join(vec![reservation("left-a", "left", 0)]),
+        "reservation-left-a",
+    );
+    let rejection = execute(
+        &current,
+        ExecuteTransaction {
+            expected_revision: current.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Complete {
+                node_id: "left".into(),
+                record: completion("complete-left"),
+            }],
+            reservations: vec![reservation("left-b", "left", 0)],
+        },
+    )
+    .unwrap_err();
+
+    let violation = &rejection.violations[0];
+    assert_eq!(
+        violation.canonical_state_before_transaction,
+        Some(NodeState::Ready)
+    );
+    assert_eq!(
+        violation.evaluated_state_at_violation,
+        Some(NodeState::Completed)
+    );
+    assert!(
+        violation
+            .canonical_unsatisfied_predecessor_ids_before_transaction
+            .is_empty()
+    );
+    assert!(
+        violation
+            .evaluated_unsatisfied_predecessor_ids_at_violation
+            .is_empty()
     );
 }
 

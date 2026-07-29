@@ -3051,10 +3051,22 @@ async fn try_run_sampling_request(
                     &mut assistant_message_stream_parsers,
                 )
                 .await;
-                sess.update_token_usage_info(&turn_context, token_usage.as_ref())
-                    .await;
-                client_session
+                let provider_request_identity = client_session
                     .record_provider_wire_terminal("response_completed", token_usage.as_ref());
+                sess.update_token_usage_info_for_provider(
+                    &turn_context,
+                    token_usage.as_ref(),
+                    provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.request_id.clone()),
+                    provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.logical_request_id.clone()),
+                    provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.attempt_seq),
+                )
+                .await;
                 provider_request_budget.record_response_completed(token_usage.as_ref());
                 if let Some(snapshot) = provider_budget_snapshot.as_ref() {
                     let events = provider_request_budget.drain_events();

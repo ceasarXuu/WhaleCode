@@ -17,6 +17,7 @@ use crate::tools::context::AbortedToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
+use crate::tools::failure_provenance::exact_failure_cause;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
@@ -380,14 +381,16 @@ impl ToolCallRuntime {
         matches!(call.payload, ToolPayload::ToolSearch { .. }).then(|| {
             let message = function_call_error_model_visible_message(err);
             Self::factual_message(serde_json::json!({
-                "schema_version": "ToolSearchFailureV1",
+                "schema_version": "ToolSearchFailureV2",
                 "status": "failed",
                 "success": false,
                 "call_id": call.call_id,
                 "tool": call.provider_tool_name_display(),
+                "pairing_status": "completed",
+                "execution_status": "failed",
                 "error": {
                     "class": "tool",
-                    "message": message,
+                    "cause": exact_failure_cause(&message),
                 },
             }))
         })
@@ -705,9 +708,11 @@ mod tests {
                 codex_protocol::models::ContentItem::InputImage { .. } => String::new(),
             })
             .collect::<String>();
-        assert!(text.contains("ToolSearchFailureV1"));
+        assert!(text.contains("ToolSearchFailureV2"));
         assert!(text.contains("query must not be empty"));
         assert!(text.contains("\"success\":false"));
+        assert!(text.contains("\"pairing_status\":\"completed\""));
+        assert!(text.contains("\"execution_status\":\"failed\""));
     }
 
     #[test]
