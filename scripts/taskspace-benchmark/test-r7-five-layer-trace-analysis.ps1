@@ -112,6 +112,48 @@ try {
         @($standardShapes[0].calls | Where-Object tool -eq "mcp__mail__search")[0].success -ne $true) {
         throw "Standard non-function Tool shapes were not reconciled"
     }
+    $mismatchedToolSearchFailure = $toolSearchFailure.Replace(
+        '"affected_call_ids":["search-1"]',
+        '"affected_call_ids":["custom-1"]'
+    )
+    $mismatchedToolSearchPath = Join-Path $tempRoot "tool-search-call-id-mismatch.jsonl"
+    Write-Lines $mismatchedToolSearchPath @(
+        @{ type = "response_item"; payload = @{ type = "tool_search_call"; arguments = @{ query = "read_file" }; call_id = "search-1" } },
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"true"}'; call_id = "custom-1" } },
+        (New-TokenBoundary "tool-search-mismatch-1"),
+        @{ type = "response_item"; payload = @{ type = "tool_search_output"; call_id = "search-1"; status = "completed"; execution = "client"; tools = @() } },
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "custom-1"; output = "ok" } },
+        @{ type = "response_item"; payload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = $mismatchedToolSearchFailure }) } }
+    )
+    $mismatchedToolSearchRejected = $false
+    try { Get-R7StandardRequestPath $mismatchedToolSearchPath 1 | Out-Null }
+    catch { $mismatchedToolSearchRejected = $_.Exception.Message -like "ToolSearch failure provenance does not match call_id:*" }
+    if (-not $mismatchedToolSearchRejected) {
+        throw "ToolSearch failure accepted mismatched affected_call_ids"
+    }
+    $postBoundarySupplementalPath =
+        Join-Path $tempRoot "standard-post-boundary-supplemental.jsonl"
+    $postBoundaryFailure = '{"schema_version":"ToolSequencePreflightResultV3","success":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:post-boundary","zero_dispatch":true,"affected_call_ids":["post-boundary-1","post-boundary-2"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
+    Write-Lines $postBoundarySupplementalPath @(
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"one"}'; call_id = "post-boundary-1" } },
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"two"}'; call_id = "post-boundary-2" } },
+        (New-TokenBoundary "post-boundary-request-1"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-1"; output = @{ success = $false; content = $postBoundaryFailure } } },
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-2"; output = @{ success = $false; content = $postBoundaryFailure } } },
+        @{ type = "response_item"; payload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = $postBoundaryFailure }) } },
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"true"}'; call_id = "post-boundary-3" } },
+        (New-TokenBoundary "post-boundary-request-2"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-3"; output = "ok" } }
+    )
+    $postBoundaryRequests = @(
+        Get-R7StandardRequestPath $postBoundarySupplementalPath 2
+    )
+    if ($postBoundaryRequests[0].calls.Count -ne 2 -or
+        $postBoundaryRequests[0].primary_failure_class -ne "tool_sequence_protocol" -or
+        $postBoundaryRequests[1].calls.Count -ne 1 -or
+        $postBoundaryRequests[1].calls[0].success -ne $true) {
+        throw "Post-boundary supplemental failure was not bound by causal call identity"
+    }
 
     $taskspacePath = Join-Path $tempRoot "taskspace.jsonl"
     $initControlArgs = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"task"},"work_nodes":[{"node_id":"explore","goal":"inspect"}],"finish":{"node_id":"finish","goal":"summarize"},"edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}],"actions":[{"node_id":"explore","tool":"shell_command"}]}'

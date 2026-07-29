@@ -197,7 +197,7 @@ function Apply-R7ObservedOutcome {
 function Apply-R7SupplementalFailure {
     param(
         [hashtable]$CallsById,
-        [object[]]$RequestCalls,
+        [Collections.Generic.List[object]]$Requests,
         [string]$Text,
         [string]$OriginalRole
     )
@@ -225,9 +225,20 @@ function Apply-R7SupplementalFailure {
         Get-R7JsonProperty $provenance "affected_call_ids" @() |
             ForEach-Object { [string]$_ }
     )
+    if (-not $affectedCallIds.Count -or
+        @($affectedCallIds | Sort-Object -Unique).Count -ne $affectedCallIds.Count) {
+        throw "Structured failure fact has missing or duplicate affected_call_ids"
+    }
+    foreach ($affectedCallId in $affectedCallIds) {
+        if (-not $CallsById.ContainsKey($affectedCallId)) {
+            throw "Structured failure fact has no matching call: $affectedCallId"
+        }
+    }
     if ($schemaVersion -eq "ToolSearchFailureV3") {
         $callId = [string](Get-R7JsonProperty $payload "call_id" "")
-        $affectedCallIds = @($callId)
+        if ($affectedCallIds.Count -ne 1 -or $affectedCallIds[0] -ne $callId) {
+            throw "ToolSearch failure provenance does not match call_id: $callId"
+        }
         if (-not $CallsById.ContainsKey($callId) -or
             [string]$CallsById[$callId].call_type -ne "tool_search_call") {
             throw "ToolSearch failure fact has no matching ToolSearch call: $callId"
@@ -247,7 +258,21 @@ function Apply-R7SupplementalFailure {
             throw "Per-call TaskSpace failure provenance has the wrong scope: $callId"
         }
     } else {
-        $requestCallIds = @($RequestCalls | ForEach-Object { [string]$_.call_id })
+        $owningRequests = @(
+            $Requests |
+                Where-Object {
+                    $requestCallIds = @(
+                        $_.calls | ForEach-Object { [string]$_.call_id }
+                    )
+                    @($affectedCallIds | Where-Object { $_ -in $requestCallIds }).Count
+                }
+        )
+        if ($owningRequests.Count -ne 1) {
+            throw "Provider-response failure provenance spans multiple or no requests"
+        }
+        $requestCallIds = @(
+            $owningRequests[0].calls | ForEach-Object { [string]$_.call_id }
+        )
         if ($scope -ne "provider_response" -or
             -not [bool](Get-R7JsonProperty $provenance "zero_dispatch" $false) -or
             [string]::IsNullOrWhiteSpace(
@@ -258,9 +283,6 @@ function Apply-R7SupplementalFailure {
         }
     }
     foreach ($callId in $affectedCallIds) {
-        if (-not $CallsById.ContainsKey($callId)) {
-            throw "Structured failure fact has no matching call: $callId"
-        }
         $call = $CallsById[$callId]
         if ([int]$call.supplemental_count -ne 0) {
             throw "Duplicate structured failure fact for call: $callId"
@@ -336,7 +358,7 @@ function Get-R7TaskspaceRequestPath {
             foreach ($text in @(Get-R7MessageTexts $raw $eventType)) {
                 Apply-R7SupplementalFailure `
                     $callsById `
-                    @($requests[$requestIndex - 1].calls) `
+                    $requests `
                     $text `
                     ([string](Get-R7JsonProperty $payload "originalRole" ""))
                 if ($text -match '"schema_version"\s*:\s*"TaskSpaceResponseFinalReceiptV1"') {
@@ -406,7 +428,7 @@ function Get-R7StandardRequestPath {
             foreach ($text in @(Get-R7MessageTexts $payload)) {
                 Apply-R7SupplementalFailure `
                     $callsById `
-                    @($requests[$requestIndex - 1].calls) `
+                    $requests `
                     $text `
                     ([string](Get-R7JsonProperty $payload "role" ""))
             }

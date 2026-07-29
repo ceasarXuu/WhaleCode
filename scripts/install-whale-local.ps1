@@ -216,5 +216,8 @@ Get-FileHash -LiteralPath $Destination -Algorithm SHA256 | Select-Object Path, H
 
 $AttestationScript = Join-Path $RepoRoot "scripts\taskspace-benchmark\write-whale-binary-attestation.ps1"
 if (Test-Path -LiteralPath $AttestationScript -PathType Leaf) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $AttestationScript -WhaleBin $Destination
+    $InstallProvenance = "Copy-Item -LiteralPath '$Source' -Destination '$Destination'"
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $AttestationScript `
+        -WhaleBin $Destination `
+        -BuildCommand $InstallProvenance
 }
