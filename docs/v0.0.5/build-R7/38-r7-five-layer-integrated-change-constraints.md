@@ -167,7 +167,7 @@ Root/Finish 的关闭状态只由当前 terminal 派生，不与 Work completion
 | R-07 | 初始化成功结果未明确报告动作归属 | 初始化结果显式报告 Agent 声明的 action attribution、reservation 和 commit 事实 | closed |
 | R-08 | schema 只能描述单个 control，无法保证 top-level sibling | 完整 response 必须经过 Tool 类型、顺序和数量 preflight；连续动作使用原生 sibling Tool calls | closed；实现不得回退到无 preflight |
 | R-09 | 普通 Tool 归属缺失时曾静默漂移到错误节点 | 缺失或错位的动作归属必须在零执行 preflight 中失败，不得静默默认、推断或漂移 | closed；旧 current-binding 实现由 R-24 追踪替换 |
-| R-10 | 非终态连续动作仍产生稳定拒绝和恢复；A2-C 进一步确认公开 Tool identity 被内部 dispatch identity 覆盖，且 ordinary result attribution 后的最终 revision 未进入 Agent 反馈 | 非终态 boundary 与真实后继动作必须在同一 response；manifest 使用 provider-visible Tool identity；完整 response 执行后的 canonical revision 必须忠实反馈；真实模型不得形成稳定额外请求 | open；identity 修复生效，final receipt carrier 缓存回归，rerun 仍有 82 个 sequence failure request |
+| R-10 | 非终态连续动作仍产生稳定拒绝和恢复；A2-C 进一步确认 Tool identity、final revision 和持续 control 遵循问题 | 非终态 boundary 与真实后继动作必须在同一 response；manifest 使用 provider-visible Tool identity；完整 response 执行后的 canonical revision 必须以唯一权威值忠实反馈；真实模型不得形成稳定额外请求 | open；identity 修复生效，但 final receipt 产生 revision 歧义和缓存回归；rerun 277 个 TaskSpace request 中 116 个零执行拒绝 |
 | R-11 | 过早或错误终态 action、多个 terminal 分支歧义 | 只有 `finish_map` 负责关闭；Agent 同时声明最后完成的 Work 与 terminal，Runtime 验证 canonical frontier | closed；B2.5 扩充可达性合同 |
 | R-12 | Patch 被嵌套 JSON 转义破坏，或同 response 多 Patch 部分写入 | 原生顶层 Patch 保真；单 response 最多一个 Patch | closed |
 | R-13 | TaskSpace 装饰曾侵入 Standard 普通 Tool | shared ordinary Tool 在 Standard/TaskSpace 中保持原生 schema 与执行路径一致 | closed；新候选必须消除 TaskSpace 内装饰 |
@@ -237,6 +237,16 @@ A2-C repair evidence：provider/dispatch identity 已拆分；Store-backed respo
 failure request、1 次 multi-Patch，首请求初始化提交仅 1/18。独立 developer final receipt 在 DeepSeek wire
 上成为中途 system 消息；`map-append` 中紧跟 receipt 的 35/35 个请求缓存均退回约 7K 以下，未紧跟 receipt 的
 请求为 1/39。该载体违反 C-03/C-13，不得以“最终 revision 已可见”为由晋升。
+
+Repair trace 深入复审进一步确认：
+
+- 277 个 TaskSpace request 中 116 个被流程或状态硬门零执行拒绝；
+- 63 个 `taskspace_control_required` 中 41 个发生在 Map 初始化后，59/63 的下一 response 会携带 control，
+  说明错误反馈可理解但跨 response 协议没有稳定形成；
+- 17 个 stale 全部使用前一 control prepare revision，尽管 receipt/projection 已提供最终 revision，原缺失已
+  转化为两个竞争事实的歧义；
+- 14 个 `reservation_invalid` 中 12 个是 waiting 后继节点动作，2 个是 completed-owner；公开反馈只含
+  reservation ID，缺少 Runtime 已知的节点状态和机械前置条件。
 
 ## 6. 已淘汰方向
 

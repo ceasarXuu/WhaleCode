@@ -1,7 +1,7 @@
 # Problem P-001: A2-C 三项机械规则未完整进入 Agent 可见合同
 - Status: open
 - Created: 2026-07-29 04:56
-- Updated: 2026-07-29 06:20
+- Updated: 2026-07-29 19:18
 - Objective: 让 `mutations` 可选语义、完成节点动作归属和单 Patch 硬规则在 L2/L4 与 Runtime 一致
 - Symptoms:
   - Agent 省略文案称为 optional 的 `mutations` 时，wire 仍以缺字段拒绝
@@ -49,7 +49,7 @@
   - E-001
 - Conclusion: 源码与 A2-C trace 同时满足预测
 - Repair design readiness: implemented
-- Next step: 对 14 个 reservation invalid 和 1 次 multi-Patch 做逐 request 因果审计；不增加 Runtime 语义判断
+- Next step: completed-owner 仅按 2 个对应 request 验收；waiting-node reservation 反馈另案处理
 - Blocker:
   - none
 - Close reason:
@@ -93,7 +93,8 @@ tools::handlers::taskspace_control_args::tests: 13 passed
   - P-001 Fix criteria
 - Matched signal:
   - `taskspace_control_arguments_invalid` 从 19 个复制反馈降为 0
-  - 仍有 14 个 `reservation_invalid` control response
+  - baseline 9 个 `reservation_invalid` 中，8 个是 waiting 后继节点动作，1 个是 completed-owner
+  - 14 个 `reservation_invalid` 中，12 个是 waiting 后继节点动作，只有 2 个是完成节点继续拥有 sibling action
   - 仍有 1 个 TaskSpace multi-Patch request，且由现有原子硬门零执行拒绝
 - Correlation keys:
   - run root `target/r7-five-layer-matrix/a2-c-repair/445499582/20260729-0546`
@@ -103,6 +104,7 @@ TaskSpace sequence failure requests: 104 -> 82
 TaskSpace state failure requests: 51 -> 34
 TaskSpace multi-Patch attempts: 2 -> 1
   ```
-- Interpretation: `mutations` wire 缺口已关闭；L2/L4 的事前合同让另外两项有所改善，但没有达到 A2-C 的零失败
-  验收标准，不能将“合同已写入”表述为“产品行为已修复”
-- Time: 2026-07-29 06:20
+- Interpretation: `mutations` wire 缺口已关闭；completed-owner 合同已进入 L2/L4，但对应错误由 baseline 1 次
+  变为 rerun 2 次，当前 repeat-3 不能证明行为收益；不能再用全部 `reservation_invalid` 评价该合同。单 Patch
+  仍有 1 次，两个行为门都未关闭
+- Time: 2026-07-29 19:18

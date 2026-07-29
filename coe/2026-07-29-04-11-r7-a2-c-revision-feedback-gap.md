@@ -1,7 +1,7 @@
 # Problem P-001: 普通 Tool 结果提交后的 canonical revision 未进入 Agent 反馈
 - Status: open
 - Created: 2026-07-29 04:11
-- Updated: 2026-07-29 06:20
+- Updated: 2026-07-29 19:18
 - Objective: 让一次合法 TaskSpace response 完成后，Agent 忠实获得下一次控制操作所需的最终 canonical revision
 - Symptoms:
   - `taskspace_control` 成功返回 `revision_after=N`
@@ -40,9 +40,10 @@
   - response 完成后 Agent 可直接获得最终 canonical revision，无需先触发 stale reject
   - 三种 projection policy 共用同一反馈实现
   - A2-C repeat-3 中由隐藏 result attribution 引起的 stale retry 为零
-- Current conclusion: 原始根因仍是反馈层语义缺失，不是 Agent 智能问题；但把 receipt 作为独立 developer/system
-  历史项追加是错误载体，会确定性破坏 DeepSeek 缓存。最终事实必须回到同一 `taskspace_control` 调用的结果语义，
-  不应让 Runtime 替 Agent 选择动作，也不应新增中途 system 消息
+- Current conclusion: 原始缺失已被补值，但产品语义仍未修复。prepare `revision_after` 与 final
+  `canonical_revision` 同时进入历史，17 次 stale 全部继续选择前者；独立 developer/system receipt 还会确定性
+  破坏 DeepSeek 缓存。最终事实必须收敛到同一 `taskspace_control` 调用的唯一下一 revision，不应让 Runtime 替
+  Agent 选择动作，也不应新增中途 system 消息
 - Related hypotheses:
   - H-001
 - Resolution basis:
@@ -254,6 +255,59 @@ receipt_before=true  requests=35 collapse=35 input=901614 cached=213120 hit=23.6
   ```
 - Interpretation: 同一 policy、同一 binary、同一矩阵内的请求级对照排除了普通 projection 累加和随机离群
 - Time: 2026-07-29 06:20
+
+## Hypothesis H-003: final revision 已可见，但中间 revision 仍是更强的竞争事实
+- Status: confirmed
+- Parent: P-001
+- Claim: 独立 receipt 没有替换 control prepare 的 `revision_after`；Agent 面对两个 revision 时稳定沿用前者，
+  因此原始“缺失”转化为“歧义”
+- Layer: feedback-semantics
+- Factor relation: dependent_on
+- Depends on:
+  - H-001
+- Falsifiable predictions:
+  - If true: 最新 stale 的 submitted revision 等于前一 control `revision_after`，同时历史中存在更高的 receipt
+    `canonical_revision`
+  - If false: stale 前没有 final receipt，或 Agent 已提交 receipt revision
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+- Conclusion: 14 个 response stale 和 3 个 finish stale 全部符合预测，且只出现在 map-always
+- Repair design readiness: ready
+- Next step: 延迟构造 control Tool result，完整 sibling attribution 后一次性返回
+  `reservation_revision_after` 与唯一 `canonical_revision/next_expected_revision`
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-006: 17 次 stale 全部选择 prepare revision 而非 final revision
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: reproduction
+- Source: A2-C repair rerun raw rollout
+- Prediction or plan link:
+  - H-003 revision 竞争预测
+- Matched signal:
+  - 14 个 response commit stale
+  - 3 个 `finish_map` stale
+  - submitted revision 均等于前一 control `revision_after`
+  - 同一历史的 receipt/projection 已包含更高 canonical revision
+- Correlation keys:
+  - run root `target/r7-five-layer-matrix/a2-c-repair/445499582/20260729-0546`
+  - control call ID
+  - request index
+- Raw content:
+  ```text
+control revision_after=3
+final receipt canonical_revision=5
+current projection revision=5
+next execute expected_revision=3
+reject current_revision=5
+  ```
+- Interpretation: final revision 不再缺失，但反馈没有形成唯一权威语义；单纯“再追加一条更晚消息”不足以修复
+- Time: 2026-07-29 19:18
 
 ## Evidence E-005: wire 保持前缀和 Tool 身份，但 receipt 作为 system 历史出现
 - Related hypotheses:
