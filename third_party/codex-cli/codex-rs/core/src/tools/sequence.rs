@@ -5,6 +5,9 @@ use sha2::Digest;
 use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 
+#[cfg(test)]
+use crate::action_map::ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE;
+use crate::action_map::ActionMapResponsePrepareError;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
@@ -14,7 +17,6 @@ use crate::tools::sequence_preflight::ToolSequencePlan;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 
 const PROVIDER_TOOL_DECLARATION_INVALID_CODE: &str = "provider_tool_declaration_invalid";
-const TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE: &str = "taskspace_response_state_commit_failed";
 
 pub(crate) struct TaskSpaceTerminalCompletion {
     pub(crate) call_id: String,
@@ -224,21 +226,27 @@ pub(crate) async fn execute_response_tool_sequence(
             Ok(prepared) => prepared,
             Err(error) => {
                 let canonical_revision = runtime.taskspace_canonical_revision().await;
+                let violation_codes = error.violation_codes();
+                let violation_facts_json = error.violation_facts_json();
                 tracing::warn!(
                     target: "codex_core::taskspace",
                     event_name = "taskspace_response_preflight_rejected",
-                    reason_code = TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE,
+                    reason_code = error.reason_code(),
+                    error_class = error.class(),
+                    violation_codes = ?violation_codes,
+                    violation_facts_json = violation_facts_json.as_deref().unwrap_or(""),
+                    rejection_revision = ?error.current_revision(),
                     control_call_id = calls[control_index].call_id,
                     canonical_revision = ?canonical_revision,
                     zero_dispatch = true,
                     state_commit = false,
-                    error,
+                    error = ?error,
                     "taskspace_response_preflight_rejected"
                 );
-                return Ok(taskspace_state_commit_failure_outcome(
+                return Ok(taskspace_prepare_failure_outcome(
                     &calls,
                     canonical_revision,
-                    error,
+                    &error,
                 ));
             }
         };
@@ -449,25 +457,12 @@ pub(crate) async fn execute_response_tool_sequence(
     })
 }
 
-fn taskspace_state_commit_failure_outcome(
+fn taskspace_prepare_failure_outcome(
     calls: &[ToolCall],
     canonical_revision: Option<u64>,
-    error: String,
+    error: &ActionMapResponsePrepareError,
 ) -> ToolSequenceOutcome {
-    let payload = serde_json::json!({
-        "schema_version": "TaskSpaceResponseCommitFailureV1",
-        "status": "state_rejected",
-        "success": false,
-        "state_commit": false,
-        "canonical_revision": canonical_revision,
-        "executed_tool_call_count": 0,
-        "error": {
-            "class": "state_machine",
-            "code": TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE,
-            "detail": error,
-        },
-    })
-    .to_string();
+    let payload = error.model_visible_failure(canonical_revision);
     let (mut pairing, supplemental): (Vec<_>, Vec<_>) = calls
         .iter()
         .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))

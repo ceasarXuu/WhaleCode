@@ -1,4 +1,5 @@
 use super::model::NodeRole;
+use super::model::NodeState;
 use super::model::TaskSpaceMap;
 use super::model::node_ids;
 use super::model::node_role;
@@ -32,6 +33,7 @@ pub(crate) enum ViolationCode {
     FactConflict,
     FactReferenceInvalid,
     ReservationInvalid,
+    NodeStateInvalid,
     TransitionInvalid,
     ExecutionCausalityConflict,
     StaleRevision,
@@ -62,6 +64,7 @@ impl ViolationCode {
             Self::FactConflict => "fact_conflict",
             Self::FactReferenceInvalid => "fact_reference_invalid",
             Self::ReservationInvalid => "reservation_invalid",
+            Self::NodeStateInvalid => "node_state_invalid",
             Self::TransitionInvalid => "transition_invalid",
             Self::ExecutionCausalityConflict => "execution_causality_conflict",
             Self::StaleRevision => "stale_revision",
@@ -77,6 +80,44 @@ impl ViolationCode {
 pub(crate) struct Violation {
     pub(crate) code: ViolationCode,
     pub(crate) subjects: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) node_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) actual_state: Option<NodeState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) allowed_states: Vec<NodeState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) unsatisfied_predecessor_ids: Vec<String>,
+}
+
+impl Violation {
+    pub(crate) fn simple(code: ViolationCode, subjects: Vec<String>) -> Self {
+        Self {
+            code,
+            subjects,
+            node_id: None,
+            actual_state: None,
+            allowed_states: Vec::new(),
+            unsatisfied_predecessor_ids: Vec::new(),
+        }
+    }
+
+    pub(crate) fn node_state(
+        node_id: impl Into<String>,
+        actual_state: Option<NodeState>,
+        allowed_states: Vec<NodeState>,
+        unsatisfied_predecessor_ids: Vec<String>,
+    ) -> Self {
+        let node_id = node_id.into();
+        Self {
+            code: ViolationCode::NodeStateInvalid,
+            subjects: vec![node_id.clone()],
+            node_id: Some(node_id),
+            actual_state,
+            allowed_states,
+            unsatisfied_predecessor_ids,
+        }
+    }
 }
 
 type Violations = BTreeMap<ViolationCode, BTreeSet<String>>;
@@ -91,10 +132,7 @@ pub(crate) fn validate(map: &TaskSpaceMap) -> Vec<Violation> {
     validate_terminal(map, &mut found);
     found
         .into_iter()
-        .map(|(code, subjects)| Violation {
-            code,
-            subjects: subjects.into_iter().collect(),
-        })
+        .map(|(code, subjects)| Violation::simple(code, subjects.into_iter().collect()))
         .collect()
 }
 

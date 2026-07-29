@@ -248,10 +248,8 @@ fn replay_rejects_result_attribution_without_its_reservation() {
 
     assert!(matches!(
         apply_batch(Some(&initialized.map), &invalid),
-        Err(ReplayError::InvalidFact {
-            code: super::invariants::ViolationCode::ReservationInvalid,
-            ..
-        })
+        Err(ReplayError::InvalidFact(violation))
+            if violation.code == super::invariants::ViolationCode::ReservationInvalid
     ));
 }
 

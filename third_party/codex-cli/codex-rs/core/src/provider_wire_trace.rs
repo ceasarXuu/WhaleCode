@@ -576,11 +576,11 @@ fn taskspace_final_receipt_identity(messages: &[Value]) -> TaskspaceFinalReceipt
                     .map(|value| json_hash(&Value::String(value.to_string()))),
                 reservation_revision_after,
                 canonical_revision,
-                revision_delta: reservation_revision_after
-                    .zip(canonical_revision)
-                    .and_then(|(before, after)| {
+                revision_delta: reservation_revision_after.zip(canonical_revision).and_then(
+                    |(before, after)| {
                         Some(i64::try_from(after).ok()? - i64::try_from(before).ok()?)
-                    }),
+                    },
+                ),
                 complete: payload.get("status").and_then(Value::as_str) == Some("complete")
                     && payload.get("success").and_then(Value::as_bool) == Some(true),
             })

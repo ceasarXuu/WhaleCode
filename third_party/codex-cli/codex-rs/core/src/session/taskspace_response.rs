@@ -5,6 +5,7 @@ use crate::action_map::ActionMapPreparedCall;
 use crate::action_map::ActionMapPreparedResponse;
 use crate::action_map::ActionMapResponseFinalReceipt;
 use crate::action_map::ActionMapResponseOperation;
+use crate::action_map::ActionMapResponsePrepareError;
 use crate::action_map::BlockRecord;
 use crate::action_map::CompletionRecord;
 use crate::action_map::GraphMutation;
@@ -37,7 +38,7 @@ impl Session {
         control_call_id: &str,
         args: TaskSpaceControlArgs,
         declared_calls: Vec<TaskSpaceDeclaredCall>,
-    ) -> Result<ActionMapPreparedResponse, String> {
+    ) -> Result<ActionMapPreparedResponse, ActionMapResponsePrepareError> {
         let source_refs = {
             let state = self.state.lock().await;
             for call in &declared_calls {
@@ -46,9 +47,12 @@ impl Session {
                     &call.node_id,
                 )
                 .map_err(|error| {
-                    format!(
-                        "TaskSpace call attribution preflight failed for `{}`: {error}",
-                        call.call_id
+                    ActionMapResponsePrepareError::protocol(
+                        "taskspace_call_attribution_invalid",
+                        format!(
+                            "TaskSpace call attribution preflight failed for `{}`: {error}",
+                            call.call_id
+                        ),
                     )
                 })?;
             }
@@ -56,7 +60,13 @@ impl Session {
                 .taskspace_events
                 .initialization_source_event_ids(control_call_id)
         };
-        let operation = response_operation(args, control_call_id, &source_refs)?;
+        let operation =
+            response_operation(args, control_call_id, &source_refs).map_err(|error| {
+                ActionMapResponsePrepareError::protocol(
+                    "taskspace_control_operation_invalid",
+                    error,
+                )
+            })?;
         let declared_calls = declared_calls
             .into_iter()
             .map(|call| ActionMapDeclaredCall {
@@ -78,8 +88,14 @@ impl Session {
                     Err(error) => (Err(error), Vec::new()),
                 }
             })
-            .await?;
-        let prepared = prepared?;
+            .await
+            .map_err(|error| {
+                ActionMapResponsePrepareError::resource(
+                    "taskspace_canonical_store_unavailable",
+                    error,
+                )
+            })?;
+        let prepared = prepared.map_err(ActionMapResponsePrepareError::state)?;
         {
             let mut state = self.state.lock().await;
             for call in &prepared.prepared_calls {

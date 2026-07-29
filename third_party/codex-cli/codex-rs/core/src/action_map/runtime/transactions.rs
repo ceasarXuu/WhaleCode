@@ -20,10 +20,12 @@ use crate::action_map::rooted_dag::InitializeMap;
 use crate::action_map::rooted_dag::MapEdge;
 use crate::action_map::rooted_dag::MapNode;
 use crate::action_map::rooted_dag::NodeMutation;
+use crate::action_map::rooted_dag::Rejection;
 use crate::action_map::rooted_dag::ReopenMap;
 use crate::action_map::rooted_dag::ReservationInput;
 use crate::action_map::rooted_dag::ReservationRelease;
 use crate::action_map::rooted_dag::ResultRefInput;
+use crate::action_map::rooted_dag::ViolationCode;
 
 use super::state::ActionMapRuntimeState;
 use super::types::ActionMapControlDelta;
@@ -52,7 +54,7 @@ impl ActionMapRuntimeState {
         control_call_id: &str,
         operation: ActionMapResponseOperation,
         calls: Vec<ActionMapDeclaredCall>,
-    ) -> Result<(ActionMapPreparedResponse, Vec<MapRuntimeEvent>), String> {
+    ) -> Result<(ActionMapPreparedResponse, Vec<MapRuntimeEvent>), Rejection> {
         validate_declared_calls(control_call_id, &calls)?;
         let revision_before = self
             .active_map()
@@ -219,13 +221,20 @@ impl ActionMapRuntimeState {
         finish: MapNode,
         edges: Vec<MapEdge>,
         calls: Vec<ActionMapDeclaredCall>,
-    ) -> Result<(String, u64, &'static str, Vec<ActionMapPreparedCall>), String> {
-        let map_id = self
-            .active_map_id
-            .clone()
-            .ok_or_else(|| rejection_json(0, "map_identity_missing", control_call_id))?;
+    ) -> Result<(String, u64, &'static str, Vec<ActionMapPreparedCall>), Rejection> {
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            Rejection::one(
+                0,
+                ViolationCode::MapIdentityInvalid,
+                format!("map_identity_missing:{control_call_id}"),
+            )
+        })?;
         if self.maps.contains_key(&map_id) {
-            return Err(rejection_json(0, "transition_invalid", "map_exists"));
+            return Err(Rejection::one(
+                0,
+                ViolationCode::TransitionInvalid,
+                "map_exists",
+            ));
         }
         let reservations = reservation_inputs(&map_id, control_call_id, &calls);
         let commit = rooted_dag::initialize(InitializeMap {
@@ -235,8 +244,7 @@ impl ActionMapRuntimeState {
             finish,
             edges,
             reservations,
-        })
-        .map_err(rejection)?;
+        })?;
         let revision = commit.map.revision;
         let prepared = prepared_calls(&map_id, revision, control_call_id, &calls);
         self.maps.insert(
@@ -253,10 +261,14 @@ impl ActionMapRuntimeState {
         graph: GraphMutation,
         node_mutations: Vec<NodeMutation>,
         calls: Vec<ActionMapDeclaredCall>,
-    ) -> Result<(String, u64, &'static str, Vec<ActionMapPreparedCall>), String> {
-        let map = self
-            .active_map_mut()
-            .ok_or_else(|| rejection_json(0, "map_missing", "active_map"))?;
+    ) -> Result<(String, u64, &'static str, Vec<ActionMapPreparedCall>), Rejection> {
+        let map = self.active_map_mut().ok_or_else(|| {
+            Rejection::one(
+                0,
+                ViolationCode::MapIdentityInvalid,
+                "map_missing:active_map",
+            )
+        })?;
         let map_id = map.map_id.clone();
         let commit = rooted_dag::execute(
             map.canonical_map(),
@@ -266,8 +278,7 @@ impl ActionMapRuntimeState {
                 node_mutations,
                 reservations: reservation_inputs(&map_id, control_call_id, &calls),
             },
-        )
-        .map_err(rejection)?;
+        )?;
         let revision = commit.map.revision;
         let prepared = prepared_calls(&map_id, revision, control_call_id, &calls);
         map.commit_graph(commit.map, commit.events);
@@ -281,10 +292,14 @@ impl ActionMapRuntimeState {
         work_nodes: Vec<MapNode>,
         edges: Vec<MapEdge>,
         calls: Vec<ActionMapDeclaredCall>,
-    ) -> Result<(String, u64, &'static str, Vec<ActionMapPreparedCall>), String> {
-        let map = self
-            .active_map_mut()
-            .ok_or_else(|| rejection_json(0, "map_missing", "active_map"))?;
+    ) -> Result<(String, u64, &'static str, Vec<ActionMapPreparedCall>), Rejection> {
+        let map = self.active_map_mut().ok_or_else(|| {
+            Rejection::one(
+                0,
+                ViolationCode::MapIdentityInvalid,
+                "map_missing:active_map",
+            )
+        })?;
         let map_id = map.map_id.clone();
         let commit = rooted_dag::reopen_map(
             map.canonical_map(),
@@ -294,8 +309,7 @@ impl ActionMapRuntimeState {
                 add_edges: edges,
                 reservations: reservation_inputs(&map_id, control_call_id, &calls),
             },
-        )
-        .map_err(rejection)?;
+        )?;
         let revision = commit.map.revision;
         let prepared = prepared_calls(&map_id, revision, control_call_id, &calls);
         map.commit_graph(commit.map, commit.events);
@@ -306,16 +320,20 @@ impl ActionMapRuntimeState {
 fn validate_declared_calls(
     control_call_id: &str,
     calls: &[ActionMapDeclaredCall],
-) -> Result<(), String> {
+) -> Result<(), Rejection> {
     if control_call_id.trim().is_empty() {
-        return Err(rejection_json(
+        return Err(Rejection::one(
             0,
-            "reservation_invalid",
+            ViolationCode::ReservationInvalid,
             "empty_control_call_id",
         ));
     }
     if calls.is_empty() {
-        return Err(rejection_json(0, "reservation_invalid", "empty_response"));
+        return Err(Rejection::one(
+            0,
+            ViolationCode::ReservationInvalid,
+            "empty_response",
+        ));
     }
     let mut call_ids = HashSet::with_capacity(calls.len() + 1);
     call_ids.insert(control_call_id);
@@ -325,17 +343,17 @@ fn validate_declared_calls(
             || call.tool_name.trim().is_empty()
             || call.call_index != index
         {
-            return Err(rejection_json(
+            return Err(Rejection::one(
                 0,
-                "reservation_invalid",
-                &format!("call_identity:{index}"),
+                ViolationCode::ReservationInvalid,
+                format!("call_identity:{index}"),
             ));
         }
         if !call_ids.insert(call.call_id.as_str()) {
-            return Err(rejection_json(
+            return Err(Rejection::one(
                 0,
-                "reservation_invalid",
-                &format!("duplicate_call_id:{}", call.call_id),
+                ViolationCode::ReservationInvalid,
+                format!("duplicate_call_id:{}", call.call_id),
             ));
         }
     }

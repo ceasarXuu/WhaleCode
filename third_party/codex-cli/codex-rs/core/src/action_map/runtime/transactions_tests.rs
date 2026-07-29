@@ -3,6 +3,8 @@ use codex_protocol::ThreadId;
 use crate::action_map::response::ActionMapDeclaredCall;
 use crate::action_map::response::ActionMapResponseOperation;
 use crate::action_map::rooted_dag::MapEdge;
+use crate::action_map::rooted_dag::NodeState;
+use crate::action_map::rooted_dag::ViolationCode;
 use crate::action_map::rooted_dag::map_node;
 use crate::action_map::runtime::ActionMapRuntimeState;
 
@@ -36,6 +38,55 @@ fn prepare_initialize_uses_existing_active_identity() {
             .reservation_id
             .contains("control-call-1")
     );
+}
+
+#[test]
+fn prepare_initialize_rejects_waiting_action_with_exact_state_facts() {
+    let owner = ThreadId::new();
+    let mut runtime = ActionMapRuntimeState::default();
+    runtime
+        .restore_store_map("store-map-waiting", owner, None)
+        .expect("restore empty identity");
+
+    let error = runtime
+        .prepare_response_for_main(
+            owner,
+            "control-call-waiting",
+            ActionMapResponseOperation::Initialize {
+                root: map_node("root", "solve", vec!["turn-1".to_string()]),
+                work_nodes: vec![
+                    map_node("inspect", "inspect", Vec::new()),
+                    map_node("verify", "verify", Vec::new()),
+                ],
+                finish: map_node("finish", "close the task", Vec::new()),
+                edges: vec![
+                    MapEdge {
+                        from: "root".into(),
+                        to: "inspect".into(),
+                    },
+                    MapEdge {
+                        from: "inspect".into(),
+                        to: "verify".into(),
+                    },
+                    MapEdge {
+                        from: "verify".into(),
+                        to: "finish".into(),
+                    },
+                ],
+            },
+            vec![declared_call("call-verify", "verify", "exec_command")],
+        )
+        .expect_err("waiting action must be rejected");
+
+    let violation = &error.violations[0];
+    assert_eq!(violation.code, ViolationCode::NodeStateInvalid);
+    assert_eq!(violation.node_id.as_deref(), Some("verify"));
+    assert_eq!(violation.actual_state, Some(NodeState::Waiting));
+    assert_eq!(
+        violation.unsatisfied_predecessor_ids,
+        vec!["inspect".to_string()]
+    );
+    assert!(runtime.canonical_map_for_store().is_none());
 }
 
 #[test]

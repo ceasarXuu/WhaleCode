@@ -119,37 +119,33 @@ pub(crate) struct Rejection {
 }
 
 impl Rejection {
-    fn one(current_revision: Revision, code: ViolationCode, subject: impl Into<String>) -> Self {
+    pub(crate) fn one(
+        current_revision: Revision,
+        code: ViolationCode,
+        subject: impl Into<String>,
+    ) -> Self {
         Self {
             state_commit: false,
             current_revision,
-            violations: vec![Violation {
-                code,
-                subjects: vec![subject.into()],
-            }],
+            violations: vec![Violation::simple(code, vec![subject.into()])],
         }
     }
 
     fn from_replay(current_revision: Revision, error: ReplayError) -> Self {
         let violations = match error {
             ReplayError::InvariantViolations(violations) => violations,
-            ReplayError::InvalidFact { code, subjects } => {
-                vec![Violation { code, subjects }]
+            ReplayError::InvalidFact(violation) => vec![violation],
+            ReplayError::RevisionMismatch { .. } => {
+                vec![Violation::simple(ViolationCode::StaleRevision, vec![])]
             }
-            ReplayError::RevisionMismatch { .. } => vec![Violation {
-                code: ViolationCode::StaleRevision,
-                subjects: vec![],
-            }],
-            ReplayError::MapIdentityMismatch => vec![Violation {
-                code: ViolationCode::MapIdentityInvalid,
-                subjects: vec![],
-            }],
+            ReplayError::MapIdentityMismatch => {
+                vec![Violation::simple(ViolationCode::MapIdentityInvalid, vec![])]
+            }
             ReplayError::EmptyBatch
             | ReplayError::InitializationRequired
-            | ReplayError::UnexpectedInitialization => vec![Violation {
-                code: ViolationCode::TransitionInvalid,
-                subjects: vec![],
-            }],
+            | ReplayError::UnexpectedInitialization => {
+                vec![Violation::simple(ViolationCode::TransitionInvalid, vec![])]
+            }
         };
         Self {
             state_commit: false,

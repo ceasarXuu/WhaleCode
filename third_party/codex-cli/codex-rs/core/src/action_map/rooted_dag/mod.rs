@@ -15,7 +15,6 @@ pub(crate) use events::apply_batch;
 pub(crate) use events::replay_batches;
 #[cfg(test)]
 pub(crate) use invariants::Violation;
-#[cfg(test)]
 pub(crate) use invariants::ViolationCode;
 #[cfg(test)]
 pub(crate) use invariants::validate;

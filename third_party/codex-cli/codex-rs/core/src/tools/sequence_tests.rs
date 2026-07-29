@@ -1,4 +1,7 @@
 use super::*;
+use crate::action_map::ActionMapResponsePrepareError;
+use crate::action_map::ActionMapStateRejection;
+use crate::action_map::ActionMapViolationCode;
 use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallExecution;
 use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
@@ -368,8 +371,12 @@ fn taskspace_state_commit_failure_closes_every_call_without_dispatch() {
         function_call("read_file", "read"),
     ];
 
-    let outcome =
-        taskspace_state_commit_failure_outcome(&calls, Some(9), "revision mismatch".to_string());
+    let error = ActionMapResponsePrepareError::state(ActionMapStateRejection::one(
+        9,
+        ActionMapViolationCode::StaleRevision,
+        "expected_revision",
+    ));
+    let outcome = taskspace_prepare_failure_outcome(&calls, Some(9), &error);
 
     assert_eq!(outcome.outputs.len(), calls.len());
     assert!(outcome.terminal_completion.is_none());
@@ -384,12 +391,14 @@ fn taskspace_state_commit_failure_closes_every_call_without_dispatch() {
                 .expect("failure json");
         assert_eq!(
             value["error"]["code"],
-            TASKSPACE_RESPONSE_STATE_COMMIT_FAILED_CODE
+            ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE
         );
         assert_eq!(value["executed_tool_call_count"], 0);
         assert_eq!(value["state_commit"], false);
         assert_eq!(value["canonical_revision"], 9);
-        assert_eq!(value["error"]["detail"], "revision mismatch");
+        assert_eq!(value["current_revision"], 9);
+        assert_eq!(value["error"]["violations"][0]["code"], "stale_revision");
+        assert!(value["error"].get("detail").is_none());
     }
 }
 

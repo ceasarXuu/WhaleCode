@@ -20,6 +20,7 @@ use super::model::new_map;
 use super::model::node;
 use super::model::node_role;
 use super::transitions::derive_node_state;
+use super::transitions::predecessors;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -94,19 +95,34 @@ pub(crate) enum ReplayError {
     },
     InitializationRequired,
     UnexpectedInitialization,
-    InvalidFact {
-        code: ViolationCode,
-        subjects: Vec<String>,
-    },
+    InvalidFact(Violation),
     InvariantViolations(Vec<Violation>),
 }
 
 impl ReplayError {
     fn invalid(code: ViolationCode, subject: impl Into<String>) -> Self {
-        Self::InvalidFact {
-            code,
-            subjects: vec![subject.into()],
-        }
+        Self::InvalidFact(Violation::simple(code, vec![subject.into()]))
+    }
+
+    fn invalid_node_state(
+        map: &TaskSpaceMap,
+        node_id: &str,
+        actual_state: Option<NodeState>,
+        allowed_states: Vec<NodeState>,
+    ) -> Self {
+        let unsatisfied_predecessor_ids = predecessors(map, node_id)
+            .into_iter()
+            .filter(|predecessor| {
+                predecessor != &map.root.node_id
+                    && !map.completion_records.contains_key(predecessor)
+            })
+            .collect();
+        Self::InvalidFact(Violation::node_state(
+            node_id,
+            actual_state,
+            allowed_states,
+            unsatisfied_predecessor_ids,
+        ))
     }
 }
 
@@ -361,9 +377,21 @@ fn reserve_action(
     reservation: &ActionReservation,
 ) -> Result<(), ReplayError> {
     let state = derive_node_state(map, &reservation.node_id);
-    if node_role(map, &reservation.node_id) != Some(NodeRole::Work)
-        || !matches!(state, Some(NodeState::Ready | NodeState::InFlight))
-        || map.action_reservations.contains_key(reservation_id)
+    if node_role(map, &reservation.node_id) != Some(NodeRole::Work) {
+        return Err(ReplayError::invalid(
+            ViolationCode::TransitionInvalid,
+            &reservation.node_id,
+        ));
+    }
+    if !matches!(state, Some(NodeState::Ready | NodeState::InFlight)) {
+        return Err(ReplayError::invalid_node_state(
+            map,
+            &reservation.node_id,
+            state,
+            vec![NodeState::Ready, NodeState::InFlight],
+        ));
+    }
+    if map.action_reservations.contains_key(reservation_id)
         || map
             .action_reservations
             .values()

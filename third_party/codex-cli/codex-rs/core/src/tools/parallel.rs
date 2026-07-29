@@ -88,7 +88,10 @@ impl ToolCallRuntime {
         control_call_id: &str,
         args: TaskSpaceControlArgs,
         declared_calls: Vec<TaskSpaceDeclaredCall>,
-    ) -> Result<crate::action_map::ActionMapPreparedResponse, String> {
+    ) -> Result<
+        crate::action_map::ActionMapPreparedResponse,
+        crate::action_map::ActionMapResponsePrepareError,
+    > {
         self.session
             .prepare_taskspace_response(&self.turn_context, control_call_id, args, declared_calls)
             .await

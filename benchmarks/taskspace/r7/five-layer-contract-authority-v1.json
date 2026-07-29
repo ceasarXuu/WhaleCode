@@ -62,12 +62,12 @@
   "governing_documents": [
     {
       "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-      "sha256": "640066fa82aea78b7b4c5de603b5f6b05cd13bebb5893c04dff7e31043a46f78",
+      "sha256": "bcf80059540957975e9c79a4b3b583dd8e122229a5c136b222e89daa8d67ff51",
       "role": "最高优先级架构约束、历史回归和整组准入门"
     },
     {
       "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
-      "sha256": "4523ec64b26aaba72c89d4634d9d3fa43b8a69f99e39c263fcb290db5b580551",
+      "sha256": "3a226fa2f3fa3c79807731ae4d0ad3f1986222ab6b54194333af997b02674224",
       "role": "R7.1 状态、约束、阻塞项和续接入口"
     },
     {
@@ -95,7 +95,7 @@
       "implementation_status": "active_verified",
       "activation_phase": "R7.1-A2-C repair",
       "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
-      "sha256": "fc41fedc8bc5b13f65aebfd830dc47af8806af9b131a97abd32b497c36dbea37",
+      "sha256": "c634a151d69533547f16aafd13782e2892a16688866c6a3596b0231631e8a9b5",
       "open_regressions": [
         "R-10",
         "R-19",

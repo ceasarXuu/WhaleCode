@@ -22,17 +22,24 @@ pub(crate) use projection_policy::ProjectionEmission;
 pub(crate) use projection_policy::ProjectionTrigger;
 pub(crate) use projection_policy::decide_projection_emission;
 pub(crate) use projection_policy::projection_identity_from_context;
+#[cfg(test)]
+pub(crate) use response::ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE;
 pub(crate) use response::ActionMapDeclaredCall;
 pub(crate) use response::ActionMapPreparedCall;
 pub(crate) use response::ActionMapPreparedResponse;
 pub(crate) use response::ActionMapResponseFinalReceipt;
 pub(crate) use response::ActionMapResponseOperation;
+pub(crate) use response::ActionMapResponsePrepareError;
 pub(crate) use rooted_dag::BlockRecord;
 pub(crate) use rooted_dag::CompletionRecord;
 pub(crate) use rooted_dag::GraphMutation;
 pub(crate) use rooted_dag::MapEdge;
 pub(crate) use rooted_dag::MapNode;
 pub(crate) use rooted_dag::NodeMutation;
+#[cfg(test)]
+pub(crate) use rooted_dag::Rejection as ActionMapStateRejection;
+#[cfg(test)]
+pub(crate) use rooted_dag::ViolationCode as ActionMapViolationCode;
 pub(crate) use runtime::ActionMapControlDelta;
 pub(crate) use runtime::ActionMapControlState;
 pub(crate) use runtime::ActionMapExactPayloadScanEventInput;

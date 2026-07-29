@@ -112,6 +112,134 @@ fn multiple_actions_can_reserve_the_same_ready_node() {
 }
 
 #[test]
+fn waiting_node_rejection_preserves_multi_parent_state_facts() {
+    let rejection = initialize(InitializeMap {
+        map_id: "phase-b1x".into(),
+        root: map_node("root", "solve", vec!["task-event".into()]),
+        work_nodes: vec![
+            map_node("left", "left", vec![]),
+            map_node("right", "right", vec![]),
+            map_node("join", "join", vec![]),
+        ],
+        finish: map_node("finish", "close task", vec![]),
+        edges: vec![
+            edge("root", "left"),
+            edge("root", "right"),
+            edge("left", "join"),
+            edge("right", "join"),
+            edge("join", "finish"),
+        ],
+        reservations: vec![reservation("join", "join", 0)],
+    })
+    .unwrap_err();
+
+    let violation = &rejection.violations[0];
+    assert_eq!(violation.code, ViolationCode::NodeStateInvalid);
+    assert_eq!(violation.node_id.as_deref(), Some("join"));
+    assert_eq!(violation.actual_state, Some(NodeState::Waiting));
+    assert_eq!(
+        violation.allowed_states,
+        vec![NodeState::Ready, NodeState::InFlight]
+    );
+    assert_eq!(
+        violation.unsatisfied_predecessor_ids,
+        vec!["left".to_string(), "right".to_string()]
+    );
+}
+
+#[test]
+fn completed_and_blocked_node_rejections_preserve_actual_state() {
+    let map = release(
+        fork_join(vec![reservation("left-a", "left", 0)]),
+        "reservation-left-a",
+    );
+    let completed = execute(
+        &map,
+        ExecuteTransaction {
+            expected_revision: map.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Complete {
+                node_id: "left".into(),
+                record: completion("complete-left"),
+            }],
+            reservations: vec![reservation("right-a", "right", 0)],
+        },
+    )
+    .unwrap()
+    .map;
+    let completed_rejection = execute(
+        &completed,
+        ExecuteTransaction {
+            expected_revision: completed.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![],
+            reservations: vec![reservation("left-b", "left", 0)],
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        completed_rejection.violations[0].actual_state,
+        Some(NodeState::Completed)
+    );
+
+    let map = release(
+        fork_join(vec![reservation("left-a", "left", 0)]),
+        "reservation-left-a",
+    );
+    let blocked = execute(
+        &map,
+        ExecuteTransaction {
+            expected_revision: map.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Block {
+                node_id: "right".into(),
+                record: super::model::BlockRecord {
+                    action_id: "block-right".into(),
+                    reason_ref: "blocked".into(),
+                },
+            }],
+            reservations: vec![reservation("left-b", "left", 0)],
+        },
+    )
+    .unwrap()
+    .map;
+    let blocked_rejection = execute(
+        &blocked,
+        ExecuteTransaction {
+            expected_revision: blocked.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![],
+            reservations: vec![reservation("right-b", "right", 0)],
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        blocked_rejection.violations[0].actual_state,
+        Some(NodeState::Blocked)
+    );
+}
+
+#[test]
+fn duplicate_reservation_identity_remains_reservation_invalid() {
+    let duplicate = reservation("left-a", "left", 0);
+    let rejection = initialize(InitializeMap {
+        map_id: "phase-b1x".into(),
+        root: map_node("root", "solve", vec!["task-event".into()]),
+        work_nodes: vec![map_node("left", "left", vec![])],
+        finish: map_node("finish", "close task", vec![]),
+        edges: vec![edge("root", "left"), edge("left", "finish")],
+        reservations: vec![duplicate.clone(), duplicate],
+    })
+    .unwrap_err();
+
+    assert_eq!(
+        rejection.violations[0].code,
+        ViolationCode::ReservationInvalid
+    );
+    assert_eq!(rejection.violations[0].node_id, None);
+}
+
+#[test]
 fn completion_and_next_actions_commit_in_one_revision() {
     let map = release(
         fork_join(vec![reservation("left-a", "left", 0)]),

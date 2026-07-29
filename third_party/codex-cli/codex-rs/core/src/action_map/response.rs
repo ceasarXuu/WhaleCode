@@ -2,8 +2,12 @@ use super::rooted_dag::GraphMutation;
 use super::rooted_dag::MapEdge;
 use super::rooted_dag::MapNode;
 use super::rooted_dag::NodeMutation;
+use super::rooted_dag::Rejection;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 use std::collections::HashSet;
+
+pub(crate) const ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE: &str =
+    "taskspace_response_state_commit_failed";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapDeclaredCall {
@@ -75,6 +79,122 @@ impl ActionMapPreparedResponse {
             }).collect::<Vec<_>>(),
         })
         .to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ActionMapResponsePrepareError {
+    State(Rejection),
+    Protocol { code: &'static str, detail: String },
+    Resource { code: &'static str, detail: String },
+}
+
+impl ActionMapResponsePrepareError {
+    pub(crate) fn state(rejection: Rejection) -> Self {
+        Self::State(rejection)
+    }
+
+    pub(crate) fn protocol(code: &'static str, detail: impl Into<String>) -> Self {
+        Self::Protocol {
+            code,
+            detail: detail.into(),
+        }
+    }
+
+    pub(crate) fn resource(code: &'static str, detail: impl Into<String>) -> Self {
+        Self::Resource {
+            code,
+            detail: detail.into(),
+        }
+    }
+
+    pub(crate) fn class(&self) -> &'static str {
+        match self {
+            Self::State(_) => "state_machine",
+            Self::Protocol { .. } => "protocol",
+            Self::Resource { .. } => "resource",
+        }
+    }
+
+    pub(crate) fn reason_code(&self) -> &'static str {
+        match self {
+            Self::State(_) => ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE,
+            Self::Protocol { code, .. } | Self::Resource { code, .. } => code,
+        }
+    }
+
+    pub(crate) fn violation_codes(&self) -> Vec<&'static str> {
+        match self {
+            Self::State(rejection) => rejection
+                .violations
+                .iter()
+                .map(|violation| violation.code.as_str())
+                .collect(),
+            Self::Protocol { .. } | Self::Resource { .. } => Vec::new(),
+        }
+    }
+
+    pub(crate) fn violation_facts_json(&self) -> Option<String> {
+        match self {
+            Self::State(rejection) => serde_json::to_string(&rejection.violations).ok(),
+            Self::Protocol { .. } | Self::Resource { .. } => None,
+        }
+    }
+
+    pub(crate) fn current_revision(&self) -> Option<u64> {
+        match self {
+            Self::State(rejection) => Some(rejection.current_revision),
+            Self::Protocol { .. } | Self::Resource { .. } => None,
+        }
+    }
+
+    pub(crate) fn model_visible_failure(&self, canonical_revision: Option<u64>) -> String {
+        let mut payload = serde_json::json!({
+            "schema_version": "TaskSpaceResponseCommitFailureV1",
+            "status": match self {
+                Self::State(_) => "state_rejected",
+                Self::Protocol { .. } => "protocol_rejected",
+                Self::Resource { .. } => "resource_failed",
+            },
+            "success": false,
+            "state_commit": false,
+            "canonical_revision": canonical_revision,
+            "executed_tool_call_count": 0,
+            "error": {
+                "class": self.class(),
+                "code": self.reason_code(),
+            },
+        });
+        match self {
+            Self::State(rejection) => {
+                payload["current_revision"] = serde_json::json!(rejection.current_revision);
+                payload["error"]["violations"] = serde_json::Value::Array(
+                    rejection
+                        .violations
+                        .iter()
+                        .map(|violation| {
+                            let mut value = serde_json::json!({
+                                "code": violation.code.as_str(),
+                                "subjects": violation.subjects,
+                            });
+                            if let Some(node_id) = violation.node_id.as_ref() {
+                                value["node_id"] = serde_json::json!(node_id);
+                                value["actual_state"] = serde_json::json!(violation.actual_state);
+                                value["allowed_states"] =
+                                    serde_json::json!(violation.allowed_states);
+                                value["unsatisfied_predecessor_ids"] =
+                                    serde_json::json!(violation.unsatisfied_predecessor_ids);
+                            }
+                            value
+                        })
+                        .collect(),
+                );
+            }
+            Self::Protocol { detail, .. } | Self::Resource { detail, .. } => {
+                payload["error"]["detail"] = serde_json::json!(detail);
+            }
+        }
+        payload.to_string()
     }
 }
 
@@ -175,5 +295,50 @@ impl ActionMapResponseFinalReceipt {
             });
         }
         result.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::action_map::rooted_dag::NodeState;
+    use crate::action_map::rooted_dag::Violation;
+
+    #[test]
+    fn state_rejection_exposes_node_facts_without_nested_json() {
+        let error = ActionMapResponsePrepareError::state(Rejection {
+            state_commit: false,
+            current_revision: 7,
+            violations: vec![Violation::node_state(
+                "verify",
+                Some(NodeState::Waiting),
+                vec![NodeState::Ready, NodeState::InFlight],
+                vec!["inspect".into(), "patch".into()],
+            )],
+        });
+
+        let value: serde_json::Value =
+            serde_json::from_str(&error.model_visible_failure(Some(7))).unwrap();
+
+        assert_eq!(value["current_revision"], 7);
+        assert_eq!(
+            value["error"]["code"],
+            ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE
+        );
+        assert_eq!(
+            value["error"]["violations"][0]["code"],
+            "node_state_invalid"
+        );
+        assert_eq!(value["error"]["violations"][0]["node_id"], "verify");
+        assert_eq!(value["error"]["violations"][0]["actual_state"], "waiting");
+        assert_eq!(
+            value["error"]["violations"][0]["allowed_states"],
+            serde_json::json!(["ready", "in_flight"])
+        );
+        assert_eq!(
+            value["error"]["violations"][0]["unsatisfied_predecessor_ids"],
+            serde_json::json!(["inspect", "patch"])
+        );
+        assert!(value["error"].get("detail").is_none());
     }
 }
