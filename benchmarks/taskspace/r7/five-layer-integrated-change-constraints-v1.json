@@ -5,7 +5,7 @@
   "status": "active_change_gate",
   "governing_document": {
     "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
-    "sha256": "640066fa82aea78b7b4c5de603b5f6b05cd13bebb5893c04dff7e31043a46f78"
+    "sha256": "bcf80059540957975e9c79a4b3b583dd8e122229a5c136b222e89daa8d67ff51"
   },
   "architectural_constraints": [
     {
