@@ -94,12 +94,16 @@ try {
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"local_shell_call_output","call_id":"shell-1","output":"ok"}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"mcp_tool_call","call_id":"mcp-1","name":"calendar"}}')
     $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"mcp_tool_call_output","call_id":"mcp-1","output":"ok"}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"shell-failed","arguments":"{\"cmd\":\"pytest\"}"}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"function_call_output","call_id":"shell-failed","output":"Execution outcome: exited\nShell exit code: 1\nOutput:\nfailed"}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","call_id":"patch-failed","input":"*** Begin Patch"}}')
+    $toolShapeWriter.WriteLine('{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"patch-failed","output":"apply_patch verification failed: missing context"}}')
 } finally {
     $toolShapeWriter.Dispose()
 }
 $toolShapeStats = Get-TaskspaceRolloutToolStats $toolShapePath
-Assert-True ([int]$toolShapeStats.Completed -eq 3) "ToolSearch, LocalShell, or MCP call shape was not counted"
-Assert-True ([int]$toolShapeStats.Failed -eq 1) "ToolSearch supplemental failure fact was not counted"
+Assert-True ([int]$toolShapeStats.Completed -eq 5) "ordinary Tool call shapes were not counted"
+Assert-True ([int]$toolShapeStats.Failed -eq 3) "current shell or Patch failure envelopes were not counted"
 Assert-True (Test-TaskspaceOrdinaryToolBeforeReservationInRollout $toolShapePath) "ToolSearch output before reservation was not detected"
 
 if ($failures.Count -gt 0) {

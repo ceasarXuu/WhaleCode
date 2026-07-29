@@ -7,6 +7,9 @@ function Get-R7JsonProperty {
 }
 
 . (Join-Path $PSScriptRoot "r7-request-observability.ps1")
+if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "ordinary-tool-outcome.ps1")
+}
 
 function ConvertTo-R7CallDescriptor {
     param(
@@ -108,12 +111,11 @@ function Get-R7CallOutcome {
                 default { "taskspace" }
             }
             $failureCode = $errorCode
-        } elseif ($Output -match 'apply_patch verification failed') {
+        } elseif (-not [string]::IsNullOrWhiteSpace(
+                ($ordinaryFailureCode = Get-TaskspaceOrdinaryToolFailureCode $Output)
+            )) {
             $failureClass = "ordinary_tool"
-            $failureCode = "apply_patch_verification_failed"
-        } elseif ($Output -match 'Shell exit code: ([0-9]+)') {
-            $failureClass = "ordinary_tool"
-            $failureCode = "shell_exit_$($Matches[1])"
+            $failureCode = $ordinaryFailureCode
         } else {
             $failureClass = "ordinary_tool"
             $failureCode = "tool_failed_unclassified"

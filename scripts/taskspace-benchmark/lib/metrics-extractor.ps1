@@ -7,6 +7,9 @@ if (-not (Get-Command Write-TaskspaceCostInstrumentationArtifacts -ErrorAction S
 if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
 }
+if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "ordinary-tool-outcome.ps1")
+}
 
 function Get-TaskspaceDiffText {
     param(
@@ -250,11 +253,8 @@ function Get-TaskspaceRolloutToolStats {
             if ([string]::IsNullOrWhiteSpace($callId)) { continue }
             $name = if ($callNames.ContainsKey($callId)) { [string]$callNames[$callId] } else { "" }
             if ($name -eq "taskspace_control") { continue }
-            $output = [string]$payload.output
-            if ($output -match "Tool call failed" -or
-                $output -match "local_validator_infra_failure" -or
-                $output -match "(?m)^Exit code:\s*(?!0\b)\d+" -or
-                $output -match '"exit_code"\s*:\s*(?!0\b)\d+') {
+            $failureCode = Get-TaskspaceOrdinaryToolFailureCode ([string]$payload.output)
+            if (-not [string]::IsNullOrWhiteSpace($failureCode)) {
                 [void]$failedCallIds.Add($callId)
             }
             continue
