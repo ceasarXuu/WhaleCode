@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: open
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-29 19:18
+- Updated: 2026-07-30 16:20
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -135,3 +135,73 @@ next response contains control=59/63
   ```
 - Interpretation: 硬门本身符合状态机底线，反馈层却没有忠实保留 Runtime 已知的机械失败原因
 - Time: 2026-07-29 19:18
+
+## Hypothesis H-003: Observer 缺少 request-level 唯一主分类和 receipt/cache 一等关联
+- Status: confirmed
+- Parent: P-001
+- Claim: 当前矩阵先按 call-level `failure_class` 分别扫描多个集合，再按“request 内存在该类 call”计数；
+  同一零执行拒绝复制到 sibling Tool 后会产生重复 call 事实，且 request 没有唯一主分类。receipt、wire role
+  和下一请求 cache 也没有进入同一 request row，只能依赖事后脚本临时关联
+- Layer: observability
+- Factor relation: single
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: request row 只有 `calls[].failure_class` 和 `failure_codes`，没有唯一
+    `primary_failure_class`、复制计数或 receipt-before cache 字段
+  - If false: 每个 provider request 已被唯一分类，分类总和可与 provider request 对账，且 receipt carrier/cache
+    已自动输出
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查 trace reconstruction、matrix aggregation 和 provider wire terminal 的数据连接
+  - Signal: request row 字段、分类计数算法、request_id/index、receipt marker、input/cached input
+  - Capture method: `r7-five-layer-trace-analysis.ps1`、`report-r7-five-layer-matrix.ps1` 和聚焦 fixture
+  - Correlation keys:
+    - run
+    - provider request index
+    - call ID
+    - provider wire request ID
+  - Supports if:
+    - report 通过四个独立 `Where-Object` 集合计数，且 receipt/cache 不在 request row
+  - Refutes if:
+    - request 已有互斥主分类和自动 carrier/cache 关联
+  - Instrumentation status: permanent-observer-change-required
+  - Instrumentation lifecycle:
+    - 新 request taxonomy、sibling copy count 和 receipt/cache facts 永久保留
+- Evidence gate: satisfied
+- Related evidence:
+  - E-003
+- Conclusion: 生产 observer 当前按 call 集合派生多个 request 计数，缺少唯一主分类和自动 cache carrier 归因
+- Repair design readiness: ready
+- Next step: 先在 request reconstruction 生成唯一主分类和 secondary tags，再由 matrix report 只聚合 request facts
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-003: 当前矩阵分类集合可重叠且 receipt/cache 不在 request row
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: code-location
+- Source:
+  - `scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1`
+  - `scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1`
+- Prediction or plan link:
+  - H-003 的 request row 与分类算法预测
+- Matched signal:
+  - `Complete-R7RequestRows` 只写 `failure_codes`，不写 request-level 主分类
+  - report 分别扫描 `tool_sequence_protocol`、`taskspace_protocol`、`taskspace_state_machine` 和
+    `ordinary_tool` call，四个集合没有互斥合同
+  - provider wire terminal 已有 request-level input/cached input，但没有与 receipt marker 自动对齐
+- Correlation keys:
+  - request index
+  - call ID
+  - provider wire request ID
+- Raw content:
+  ```text
+request row: calls[], action_kind, failure_codes
+report: four independent requestPath Where-Object scans
+wire terminal: request_id + input_tokens + cached_input_tokens
+  ```
+- Interpretation: Observer 有足够原始事实，但构造层没有把它们归一为可对账的一等 request 事实
+- Time: 2026-07-30 16:20
