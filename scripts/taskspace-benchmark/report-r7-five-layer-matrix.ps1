@@ -46,10 +46,14 @@ function Get-AggregateRow {
         tool_action_requests_total = ($Rows | Measure-Object -Property tool_action_requests -Sum).Sum
         assistant_only_requests_total = ($Rows | Measure-Object -Property assistant_only_requests -Sum).Sum
         multi_tool_requests_total = ($Rows | Measure-Object -Property multi_tool_requests -Sum).Sum
+        no_failure_requests_total = ($Rows | Measure-Object -Property no_failure_requests -Sum).Sum
         tool_sequence_protocol_failure_requests_total = ($Rows | Measure-Object -Property tool_sequence_protocol_failure_requests -Sum).Sum
         taskspace_protocol_failure_requests_total = ($Rows | Measure-Object -Property taskspace_protocol_failure_requests -Sum).Sum
         taskspace_state_failure_requests_total = ($Rows | Measure-Object -Property taskspace_state_failure_requests -Sum).Sum
+        taskspace_resource_failure_requests_total = ($Rows | Measure-Object -Property taskspace_resource_failure_requests -Sum).Sum
         ordinary_failure_requests_total = ($Rows | Measure-Object -Property ordinary_failure_requests -Sum).Sum
+        sibling_failure_copy_count_total = ($Rows | Measure-Object -Property sibling_failure_copy_count -Sum).Sum
+        classification_unreconciled_runs = @($Rows | Where-Object classification_reconciled -ne $true).Count
         echo_only_handoffs_total = ($Rows | Measure-Object -Property echo_only_handoffs -Sum).Sum
         initialize_and_execute_total = ($Rows | Measure-Object -Property initialize_and_execute -Sum).Sum
         committed_initialize_and_execute_total = ($Rows | Measure-Object -Property committed_initialize_and_execute -Sum).Sum
@@ -67,6 +71,13 @@ function Get-AggregateRow {
         output_tokens_mean = if ($Rows.Count) { [Math]::Round($outputTotal / $Rows.Count, 3) } else { $null }
         output_tokens_median = Get-Median @($Rows.output_tokens)
         request_2_plus_cache_hit_rate = if ($request2Input -gt 0) { [Math]::Round($request2Cached / $request2Input, 6) } else { $null }
+        receipt_before_requests_total = ($Rows | Measure-Object -Property receipt_before_requests -Sum).Sum
+        receipt_before_input_tokens_total = ($Rows | Measure-Object -Property receipt_before_input_tokens -Sum).Sum
+        receipt_before_cached_input_tokens_total = ($Rows | Measure-Object -Property receipt_before_cached_input_tokens -Sum).Sum
+        no_receipt_before_requests_total = ($Rows | Measure-Object -Property no_receipt_before_requests -Sum).Sum
+        no_receipt_before_input_tokens_total = ($Rows | Measure-Object -Property no_receipt_before_input_tokens -Sum).Sum
+        no_receipt_before_cached_input_tokens_total = ($Rows | Measure-Object -Property no_receipt_before_cached_input_tokens -Sum).Sum
+        receipt_wire_role_unresolved_count_total = ($Rows | Measure-Object -Property receipt_wire_role_unresolved_count -Sum).Sum
         wall_time_ms_total = $wallTotal
         wall_time_ms_mean = if ($Rows.Count) { [Math]::Round($wallTotal / $Rows.Count, 3) } else { $null }
         wall_time_ms_median = Get-Median @($Rows.wall_time_ms)
@@ -166,14 +177,37 @@ foreach ($run in @($manifest.runs)) {
     } else {
         Get-R7TaskspaceRequestPath $rolloutPath ([int]$flat.provider_requests)
     }
+    $requestPath = @(Add-R7WireFactsToRequestPath @($requestPath) $wireTracePath)
+    $requestObservability = Get-R7RequestObservabilitySummary @($requestPath)
+    if (-not [bool]$requestObservability.classification_reconciled) {
+        throw "Request failure taxonomy does not reconcile for $($run.sample) repeat $($run.repeat) $($run.arm)"
+    }
     $requestCalls = @($requestPath | ForEach-Object { @($_.calls) })
     $flat | Add-Member -NotePropertyName tool_action_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "tool_calls").Count
     $flat | Add-Member -NotePropertyName assistant_only_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "assistant_only").Count
     $flat | Add-Member -NotePropertyName multi_tool_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls).Count -gt 1 }).Count
-    $flat | Add-Member -NotePropertyName tool_sequence_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "tool_sequence_protocol").Count }).Count
-    $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_protocol").Count }).Count
-    $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "taskspace_state_machine").Count }).Count
-    $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls | Where-Object failure_class -eq "ordinary_tool").Count }).Count
+    $flat | Add-Member -NotePropertyName no_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.none)
+    $flat | Add-Member -NotePropertyName tool_sequence_protocol_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.tool_sequence_protocol)
+    $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue (
+        [int]$requestObservability.primary_failure_counts.taskspace_protocol +
+        [int]$requestObservability.primary_failure_counts.taskspace
+    )
+    $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.taskspace_state_machine)
+    $flat | Add-Member -NotePropertyName taskspace_resource_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.taskspace_resource)
+    $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.ordinary_tool)
+    $flat | Add-Member -NotePropertyName sibling_failure_copy_count -NotePropertyValue ([int]$requestObservability.sibling_failure_copy_count)
+    $flat | Add-Member -NotePropertyName classification_reconciled -NotePropertyValue ([bool]$requestObservability.classification_reconciled)
+    $flat | Add-Member -NotePropertyName receipt_before_requests -NotePropertyValue ([int]$requestObservability.receipt_before_requests)
+    $flat | Add-Member -NotePropertyName receipt_before_input_tokens -NotePropertyValue ([double]$requestObservability.receipt_before_input_tokens)
+    $flat | Add-Member -NotePropertyName receipt_before_cached_input_tokens -NotePropertyValue ([double]$requestObservability.receipt_before_cached_input_tokens)
+    $flat | Add-Member -NotePropertyName receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.receipt_before_cache_hit_rate
+    $flat | Add-Member -NotePropertyName no_receipt_before_requests -NotePropertyValue ([int]$requestObservability.no_receipt_before_requests)
+    $flat | Add-Member -NotePropertyName no_receipt_before_input_tokens -NotePropertyValue ([double]$requestObservability.no_receipt_before_input_tokens)
+    $flat | Add-Member -NotePropertyName no_receipt_before_cached_input_tokens -NotePropertyValue ([double]$requestObservability.no_receipt_before_cached_input_tokens)
+    $flat | Add-Member -NotePropertyName no_receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.no_receipt_before_cache_hit_rate
+    $flat | Add-Member -NotePropertyName receipt_original_roles -NotePropertyValue (@($requestObservability.receipt_original_roles) -join ",")
+    $flat | Add-Member -NotePropertyName receipt_wire_roles -NotePropertyValue (@($requestObservability.receipt_wire_roles) -join ",")
+    $flat | Add-Member -NotePropertyName receipt_wire_role_unresolved_count -NotePropertyValue ([int]$requestObservability.receipt_wire_role_unresolved_count)
     $firstRequestInitialization = if ($requestPath.Count) {
         @($requestPath[0].calls | Where-Object {
                 $_.tool -eq "taskspace_control" -and $_.control_action -eq "initialize_and_execute"
@@ -233,6 +267,7 @@ foreach ($run in @($manifest.runs)) {
             anomalies = @($anomalies)
             solo_nonterminal_transition_count = $soloNonterminal
             echo_only_handoff_count = $echoOnlyHandoffs
+            request_observability = $requestObservability
             request_path = @($requestPath)
             wire_sections = $sectionSummary
             observation_json = $observationPath
@@ -260,7 +295,7 @@ $aggregatePath = Join-Path $RunRoot "aggregate.csv"
 $aggregates | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $aggregatePath
 
 $traceAnalysis = [ordered]@{
-    schema_version = 1
+    schema_version = 2
     contract_id = [string]$manifest.contract_id
     status = "initial_observation_only_no_policy_claim"
     docker_image_digest = $uniqueImages[0]
@@ -285,10 +320,22 @@ foreach ($row in $overall) {
     $lines.Add("| $($row.arm) | $($row.successes)/$($row.runs) | $($row.requests_total) / $($row.requests_mean) / $($row.requests_median) | $($row.input_tokens_total) / $($row.input_tokens_mean) / $($row.input_tokens_median) | $($row.cached_input_tokens_total) | $($row.uncached_input_tokens_total) | $cacheRate | $($row.output_tokens_total) / $($row.output_tokens_mean) | $($row.wall_time_ms_total) / $($row.wall_time_ms_mean) / $($row.wall_time_ms_median) |")
 }
 $lines.Add("")
-$lines.Add("| arm | 工作/终答 request | 多工具 request | 首请求 input 均值 | Tools section/请求 | Projection section/请求 | sequence 协议失败 request | TS 协议失败 request | TS 状态失败 request | multi-patch | 空动作交接 | patch prepare 失败 | Map nodes/edges 均值 |")
+$lines.Add("| arm | 工作/终答 request | 多工具 request | 无失败 request | sequence 协议失败 | TS 协议失败 | TS 状态失败 | TS 资源失败 | ordinary 失败 | sibling 复制 | 分类未对账 run | multi-patch | Map nodes/edges 均值 |")
 $lines.Add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 foreach ($row in $overall) {
-    $lines.Add("| $($row.arm) | $($row.tool_action_requests_total) / $($row.assistant_only_requests_total) | $($row.multi_tool_requests_total) | $($row.first_input_tokens_mean) | $($row.tools_section_tokens_mean) | $($row.projection_section_tokens_mean) | $($row.tool_sequence_protocol_failure_requests_total) | $($row.taskspace_protocol_failure_requests_total) | $($row.taskspace_state_failure_requests_total) | $($row.multi_patch_attempts_total) | $($row.echo_only_handoffs_total) | $($row.patch_prepare_failures_total) | $($row.map_nodes_mean) / $($row.map_edges_mean) |")
+    $lines.Add("| $($row.arm) | $($row.tool_action_requests_total) / $($row.assistant_only_requests_total) | $($row.multi_tool_requests_total) | $($row.no_failure_requests_total) | $($row.tool_sequence_protocol_failure_requests_total) | $($row.taskspace_protocol_failure_requests_total) | $($row.taskspace_state_failure_requests_total) | $($row.taskspace_resource_failure_requests_total) | $($row.ordinary_failure_requests_total) | $($row.sibling_failure_copy_count_total) | $($row.classification_unreconciled_runs) | $($row.multi_patch_attempts_total) | $($row.map_nodes_mean) / $($row.map_edges_mean) |")
+}
+$lines.Add("")
+$lines.Add("| arm | receipt-before request | receipt input/cached/hit | no-receipt request | no-receipt input/cached/hit | unresolved wire role |")
+$lines.Add("|---|---:|---:|---:|---:|---:|")
+foreach ($row in $overall) {
+    $receiptRate = if ([double]$row.receipt_before_input_tokens_total -gt 0) {
+        "{0:P2}" -f ([double]$row.receipt_before_cached_input_tokens_total / [double]$row.receipt_before_input_tokens_total)
+    } else { "N/A" }
+    $otherRate = if ([double]$row.no_receipt_before_input_tokens_total -gt 0) {
+        "{0:P2}" -f ([double]$row.no_receipt_before_cached_input_tokens_total / [double]$row.no_receipt_before_input_tokens_total)
+    } else { "N/A" }
+    $lines.Add("| $($row.arm) | $($row.receipt_before_requests_total) | $($row.receipt_before_input_tokens_total) / $($row.receipt_before_cached_input_tokens_total) / $receiptRate | $($row.no_receipt_before_requests_total) | $($row.no_receipt_before_input_tokens_total) / $($row.no_receipt_before_cached_input_tokens_total) / $otherRate | $($row.receipt_wire_role_unresolved_count_total) |")
 }
 $lines.Add("")
 $lines.Add("| arm | initialize_and_execute 提交/总/失败 | 首请求初始化 尝试/提交 | 直接 control 初始化 | no_task_path |")

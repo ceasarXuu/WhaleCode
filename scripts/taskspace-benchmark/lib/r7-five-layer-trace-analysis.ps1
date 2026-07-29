@@ -6,6 +6,8 @@ function Get-R7JsonProperty {
     $Default
 }
 
+. (Join-Path $PSScriptRoot "r7-request-observability.ps1")
+
 function ConvertTo-R7CallDescriptor {
     param(
         [Parameter(Mandatory = $true)][string]$CallId,
@@ -54,6 +56,8 @@ function ConvertTo-R7CallDescriptor {
         success = $null
         failure_class = ""
         failure_code = ""
+        violation_codes = @()
+        violation_contexts = @()
         state_commit = $null
     }
 }
@@ -62,6 +66,8 @@ function Get-R7CallOutcome {
     param([bool]$ToolSuccess, [string]$Output)
     $failureClass = ""
     $failureCode = ""
+    $violationCodes = @()
+    $violationContexts = @()
     $stateCommit = $null
     $firstLine = @($Output -split "`r?`n", 2)[0]
     $payload = $null
@@ -78,11 +84,29 @@ function Get-R7CallOutcome {
         $error = Get-R7JsonProperty $failurePayload "error"
         $errorClass = [string](Get-R7JsonProperty $error "class" "")
         $errorCode = [string](Get-R7JsonProperty $error "code" "")
+        $violations = @(Get-R7JsonProperty $error "violations" @())
+        if (-not $violations.Count) {
+            $violations = @(Get-R7JsonProperty $failurePayload "violations" @())
+        }
+        $violationCodes = @(
+            $violations |
+                ForEach-Object { [string](Get-R7JsonProperty $_ "code" "") } |
+                Where-Object { $_ } |
+                Sort-Object -Unique
+        )
+        $violationContexts = @($violations)
         if ($schemaVersion -eq "ToolSequencePreflightResultV2") {
             $failureClass = "tool_sequence_protocol"
             $failureCode = $errorCode
         } elseif ($errorCode) {
-            $failureClass = if ($errorClass) { "taskspace_$errorClass" } else { "taskspace" }
+            $failureClass = switch ($errorClass) {
+                "state_machine" { "taskspace_state_machine" }
+                "protocol" { "taskspace_protocol" }
+                "argument" { "taskspace_protocol" }
+                "resource" { "taskspace_resource" }
+                "tool" { "ordinary_tool" }
+                default { "taskspace" }
+            }
             $failureCode = $errorCode
         } elseif ($Output -match 'apply_patch verification failed') {
             $failureClass = "ordinary_tool"
@@ -99,6 +123,8 @@ function Get-R7CallOutcome {
         success = $ToolSuccess
         failure_class = $failureClass
         failure_code = $failureCode
+        violation_codes = $violationCodes
+        violation_contexts = $violationContexts
         state_commit = $stateCommit
     }
 }
@@ -110,6 +136,8 @@ function Set-R7CallOutcome {
         $call.success = [bool]$Outcome.success
         $call.failure_class = [string]$Outcome.failure_class
         $call.failure_code = [string]$Outcome.failure_code
+        $call.violation_codes = @($Outcome.violation_codes)
+        $call.violation_contexts = @($Outcome.violation_contexts)
         $call.state_commit = $Outcome.state_commit
         return
     }
@@ -119,9 +147,12 @@ function New-R7RequestRows {
     param([int]$ProviderRequests)
     $requests = [Collections.Generic.List[object]]::new()
     foreach ($index in 1..$ProviderRequests) {
-        $requests.Add([pscustomobject]@{
+            $requests.Add([pscustomobject]@{
                 request_index = $index
                 calls = [Collections.Generic.List[object]]::new()
+                receipt_before = $false
+                receipt_count = 0
+                receipt_original_role = ""
             })
     }
     $requests
@@ -141,7 +172,10 @@ function Complete-R7RequestRows {
         }
         $request.calls = $calls
         $request | Add-Member -NotePropertyName action_kind -NotePropertyValue $(if ($calls.Count) { "tool_calls" } else { "assistant_only" })
-        $request | Add-Member -NotePropertyName failure_codes -NotePropertyValue @($calls | Where-Object failure_code | ForEach-Object failure_code)
+        $request | Add-Member -NotePropertyName failure_codes -NotePropertyValue @(
+            $calls | Where-Object failure_code | ForEach-Object failure_code | Sort-Object -Unique
+        )
+        Add-R7RequestFailureFacts $request
     }
     @($Requests)
 }
@@ -176,7 +210,15 @@ function Get-R7TaskspaceRequestPath {
                 $call.success = [bool]$outcome.success
                 $call.failure_class = [string]$outcome.failure_class
                 $call.failure_code = [string]$outcome.failure_code
+                $call.violation_codes = @($outcome.violation_codes)
+                $call.violation_contexts = @($outcome.violation_contexts)
                 $call.state_commit = $outcome.state_commit
+            } elseif ($eventType -eq "message" -and
+                (($raw | ConvertTo-Json -Compress -Depth 100) -match 'TaskSpaceResponseFinalReceiptV1')) {
+                $request = $requests[$requestIndex - 1]
+                $request.receipt_before = $true
+                $request.receipt_count = [int]$request.receipt_count + 1
+                $request.receipt_original_role = [string](Get-R7JsonProperty $payload "originalRole" "")
             }
             continue
         }
@@ -222,6 +264,8 @@ function Get-R7StandardRequestPath {
                 $call.success = [bool]$outcome.success
                 $call.failure_class = [string]$outcome.failure_class
                 $call.failure_code = [string]$outcome.failure_code
+                $call.violation_codes = @($outcome.violation_codes)
+                $call.violation_contexts = @($outcome.violation_contexts)
             }
         } elseif ($type -eq "event_msg" -and [string](Get-R7JsonProperty $payload "type" "") -eq "token_count") {
             if ($requestIndex -lt $ProviderRequests) { $requestIndex++ }
