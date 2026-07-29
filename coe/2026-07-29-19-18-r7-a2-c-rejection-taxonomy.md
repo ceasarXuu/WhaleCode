@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: open
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 16:20
+- Updated: 2026-07-30 17:15
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -86,7 +86,7 @@ next response contains control=59/63
 - Time: 2026-07-29 19:18
 
 ## Hypothesis H-002: reservation_invalid 的反馈丢失了机械原因
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: Runtime 内部知道 reservation 目标节点及其 Ready/InFlight/Waiting/Completed 状态，但 model-visible
   failure 只返回 reservation ID
@@ -100,15 +100,14 @@ next response contains control=59/63
 - Evidence gate: satisfied
 - Related evidence:
   - E-002
-- Conclusion: 14 个 failure 中 12 个是 waiting 后继节点、2 个是完成节点 ownership；反馈均只含 reservation ID，
-  并产生 4 次同形重复。baseline 也已有 8 个 waiting-node failure，因此不是本轮新引入
-- Repair design readiness: ready
-- Next step: 在 Rejection 中保留 node ID、actual state、allowed states 和 unsatisfied predecessors，并由 response
-  原样结构化透传
+- Conclusion: 根因已修复。状态拒绝现在直接保留节点 ID、实际状态、允许状态和未满足前驱；live trace 中两个
+  状态失败分别是 Waiting `fix` 和 Completed `explore`，没有重复同一失败事实
+- Repair design readiness: implemented-and-verified
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - E-004 同时提供聚焦测试和真实模型 trace，满足原问题的修复标准
 
 ## Evidence E-002: reservation failure 根因与公开 detail 不一致
 - Related hypotheses:
@@ -137,7 +136,7 @@ next response contains control=59/63
 - Time: 2026-07-29 19:18
 
 ## Hypothesis H-003: Observer 缺少 request-level 唯一主分类和 receipt/cache 一等关联
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: 当前矩阵先按 call-level `failure_class` 分别扫描多个集合，再按“request 内存在该类 call”计数；
   同一零执行拒绝复制到 sibling Tool 后会产生重复 call 事实，且 request 没有唯一主分类。receipt、wire role
@@ -170,13 +169,14 @@ next response contains control=59/63
 - Evidence gate: satisfied
 - Related evidence:
   - E-003
-- Conclusion: 生产 observer 当前按 call 集合派生多个 request 计数，缺少唯一主分类和自动 cache carrier 归因
-- Repair design readiness: ready
-- Next step: 先在 request reconstruction 生成唯一主分类和 secondary tags，再由 matrix report 只聚合 request facts
+- Conclusion: request reconstruction 已生成互斥一级分类、非互斥次级标签、sibling copy 数量和 receipt/cache
+  关联；live 21 个请求能够精确对账
+- Repair design readiness: implemented-and-verified
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - E-005 证明生产报告口径可对账，且解析失败会显式降级
 
 ## Evidence E-003: 当前矩阵分类集合可重叠且 receipt/cache 不在 request row
 - Related hypotheses:
@@ -205,3 +205,69 @@ wire terminal: request_id + input_tokens + cached_input_tokens
   ```
 - Interpretation: Observer 有足够原始事实，但构造层没有把它们归一为可对账的一等 request 事实
 - Time: 2026-07-30 16:20
+
+## Evidence E-004: 节点状态拒绝事实已原样进入模型上下文
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - `core/src/action_map/rooted_dag/phase_d_tests.rs`
+  - `core/src/tools/sequence_tests.rs`
+  - W0 live rollout
+- Prediction or plan link:
+  - H-002 的结构化机械事实和无同形重复标准
+- Matched signal:
+  - `node_state_invalid` 直接返回 `node_id`、`actual_state`、`allowed_states`、
+    `unsatisfied_predecessor_ids`
+  - request 12 返回 `fix / waiting / [explore]`
+  - request 13 返回 `explore / completed / []`
+  - request 14 转向合法 `fix` reservation；没有第三次重复前两种状态事实
+- Correlation keys:
+  - run `target/r7-w0-live-credentialed/subscription-billing-repair/20260730-025642-404`
+  - request index 12、13、14
+  - node ID
+- Raw content:
+  ```text
+request 12: node_state_invalid node=fix actual=waiting unsatisfied=[explore]
+request 13: node_state_invalid node=explore actual=completed unsatisfied=[]
+request 14: taskspace_control execute node=fix state_commit=true
+  ```
+- Interpretation: Runtime 只透传状态机已经知道的事实，没有建议下一动作；Agent 第二次仍选错节点属于可独立观察的
+  行为，不是反馈缺失或同形重试
+- Time: 2026-07-30 17:15
+
+## Evidence E-005: request taxonomy、receipt/cache 与解析健康度已成为同一观测事实
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - `scripts/taskspace-benchmark/lib/r7-request-observability.ps1`
+  - W0 live provider wire trace
+  - performance observer self-test
+- Prediction or plan link:
+  - H-003 的一级分类对账、carrier/cache 自动关联和 fail-closed 标准
+- Matched signal:
+  - 21 个请求唯一归类为 `none=8`、`tool_sequence_protocol=8`、
+    `taskspace_state_machine=2`、`ordinary_tool=3`
+  - 一级分类总和为 21，未知分类为 0
+  - sibling failure copies 为 9
+  - 9 个 receipt-before request 均解析出原始 `developer`、wire `system`、精确 revision 和 cache
+  - 共享普通 Tool 失败解析器从同一 live rollout 对账出 Standard 2 次、TaskSpace 3 次失败
+  - 畸形 control 参数使 cadence availability 变为 `partial_with_parse_errors`
+- Correlation keys:
+  - provider request index
+  - provider wire request ID
+  - control call ID hash
+- Raw content:
+  ```text
+classification_reconciled=true
+ordinary failures: standard=2 taskspace=3
+receipt-before cache=23.7208%
+no-receipt-before cache=86.4687%
+receipt wire role unresolved=0
+  ```
+- Interpretation: W0 只建立可信事实口径；低 receipt-before cache 和大量 sequence failure 仍分别归属
+  R71-GI-002、003，不能因观测器完成而视为已修复
+- Time: 2026-07-30 17:15
