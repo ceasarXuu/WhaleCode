@@ -100,12 +100,12 @@ function Write-R7RunArtifactEvidenceManifest {
     $rows = @(
         Get-R7ProvenanceProperty $observation "rows" @() |
             Where-Object {
-                [string]$_.observation_status -eq "complete" -and
+                [string]$_.observation_status -in @("complete", "incomplete") -and
                 [string]$_.logical_mode -eq $LogicalMode
             }
     )
     if ($rows.Count -ne 1) {
-        throw "Cannot seal R7 run without exactly one complete $LogicalMode observation: $RunDir"
+        throw "Cannot seal R7 run without exactly one observed $LogicalMode side: $RunDir"
     }
     $artifactDir = [string]$rows[0].artifact_dir
     $healthPath = Join-Path $RunDir "whale-binary-preflight-health.json"
@@ -279,7 +279,7 @@ function Get-R7MatrixArtifactProvenance {
             $matchingRows = @(
                 Get-R7ProvenanceProperty $observation "rows" @() |
                     Where-Object {
-                        [string]$_.observation_status -eq "complete" -and
+                        [string]$_.observation_status -in @("complete", "incomplete") -and
                         [string]$_.logical_mode -eq [string]$run.logical_mode
                     }
             )

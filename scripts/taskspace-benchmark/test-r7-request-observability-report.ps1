@@ -81,6 +81,7 @@ function New-TokenBoundary([string]$RequestId) {
 function New-ObservationRow([string]$LogicalMode, [string]$ArtifactDir, [int]$Requests) {
     [pscustomobject]@{
         observation_status = "complete"
+        comparison_eligible = $true
         logical_mode = $LogicalMode
         artifact_dir = $ArtifactDir
         result = @{ business_success = $true; agent_completion_status = "completed" }
@@ -159,8 +160,15 @@ try {
         $artifactDir = Join-Path $runDir "artifacts"
         $requests = if ($logicalMode -eq "taskspace") { 2 } else { 1 }
         New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+        $observationRow = New-ObservationRow $logicalMode $artifactDir $requests
+        if ($arm -eq "map-always") {
+            $observationRow.observation_status = "incomplete"
+            $observationRow.comparison_eligible = $false
+            $observationRow.result.business_success = $false
+            $observationRow.result.agent_completion_status = "interrupted"
+        }
         Write-Json (Join-Path $runDir "performance-observation.json") @{
-            rows = @((New-ObservationRow $logicalMode $artifactDir $requests))
+            rows = @($observationRow)
         }
         Write-Json (Join-Path $runDir "pair-001/manifest.resolved.json") @{
             container_image_digest = "sha256:request-observer-test"
@@ -248,6 +256,12 @@ try {
         ConvertFrom-Json -Depth 100
     if ($summary.Count -ne 4 -or @($summary | Where-Object classification_reconciled -ne "True").Count) {
         throw "Matrix report did not reconcile every run"
+    }
+    $incomplete = @($summary | Where-Object arm -eq "map-always")[0]
+    if ([string]$incomplete.observation_status -ne "incomplete" -or
+        [string]$incomplete.comparison_eligible -ne "False" -or
+        [string]$incomplete.business_success -ne "False") {
+        throw "Matrix report removed or reclassified a validly observed Agent failure"
     }
     $append = @($summary | Where-Object arm -eq "map-append")[0]
     if ([int]$append.receipt_before_requests -ne 1 -or

@@ -132,8 +132,13 @@ $imageDigests = [Collections.Generic.List[string]]::new()
 foreach ($run in @($manifest.runs)) {
     $observationPath = Join-Path ([string]$run.run_dir) "performance-observation.json"
     $observation = Get-Content -Raw -Encoding UTF8 -LiteralPath $observationPath | ConvertFrom-Json -Depth 100
-    $actualRows = @($observation.rows | Where-Object { [string]$_.observation_status -eq "complete" -and [string]$_.logical_mode -eq [string]$run.logical_mode })
-    if ($actualRows.Count -ne 1) { throw "Expected one complete row for $($run.sample) repeat $($run.repeat) $($run.arm)" }
+    $actualRows = @($observation.rows | Where-Object {
+            [string]$_.observation_status -in @("complete", "incomplete") -and
+            [string]$_.logical_mode -eq [string]$run.logical_mode
+        })
+    if ($actualRows.Count -ne 1) {
+        throw "Expected one observed row for $($run.sample) repeat $($run.repeat) $($run.arm)"
+    }
     $row = $actualRows[0]
     $request2Input = [double](Get-Value $row.cache "request_2_plus_cached_input_tokens" 0) + [double](Get-Value $row.cache "request_2_plus_uncached_input_tokens" 0)
     $finishNode = @((Get-Value $row.map "nodes" @()) | Where-Object { [string]$_.kind -eq "finish" } | Select-Object -First 1)
@@ -158,6 +163,7 @@ foreach ($run in @($manifest.runs)) {
         logical_mode = [string]$run.logical_mode
         projection_policy = [string]$run.projection_policy
         observation_status = [string]$row.observation_status
+        comparison_eligible = [bool]$row.comparison_eligible
         business_success = [bool]$row.result.business_success
         agent_completion_status = [string]$row.result.agent_completion_status
         provider_requests = [double](Get-Value $row.actions "provider_requests" 0)
