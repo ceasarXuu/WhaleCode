@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: open
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 17:15
+- Updated: 2026-07-30 03:45
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -26,12 +26,22 @@
   - state failure 输出结构化 violation context
   - observer 输出 request-level 根因，不重复统计 sibling copies
   - observer 字段名和文档明确区分 sequence、control-call、state 和 ordinary failure
+  - observer 覆盖生产支持的全部执行型 ResponseItem，畸形或不完整证据 fail-closed
+  - sibling copy 只由显式 causal identity 判定，不从相同错误内容推断
+  - ToolSearch sibling 保留 typed state facts，不把底层 JSON 再包装为字符串
+  - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
-- Current conclusion: 当前主要剩余问题不是普通工具执行能力，而是 control 跨调用协议不稳定、revision 反馈歧义和
-  reservation 拒绝原因缺失
+- Current conclusion: W0 首轮只修复了 Function/Custom Tool 状态事实和 Function-call 样本观测子集。
+  对抗性审查已确认 observer 完整性、sibling 因果身份、ToolSearch carrier、state scope 和 retained
+  evidence provenance 仍不满足关闭标准
 - Related hypotheses:
   - H-001
   - H-002
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
 - Resolution basis:
   - latest 24-run matrix
   - raw rollout request reconstruction
@@ -86,7 +96,7 @@ next response contains control=59/63
 - Time: 2026-07-29 19:18
 
 ## Hypothesis H-002: reservation_invalid 的反馈丢失了机械原因
-- Status: closed
+- Status: confirmed
 - Parent: P-001
 - Claim: Runtime 内部知道 reservation 目标节点及其 Ready/InFlight/Waiting/Completed 状态，但 model-visible
   failure 只返回 reservation ID
@@ -100,14 +110,14 @@ next response contains control=59/63
 - Evidence gate: satisfied
 - Related evidence:
   - E-002
-- Conclusion: 根因已修复。状态拒绝现在直接保留节点 ID、实际状态、允许状态和未满足前驱；live trace 中两个
-  状态失败分别是 Waiting `fix` 和 Completed `explore`，没有重复同一失败事实
-- Repair design readiness: implemented-and-verified
-- Next step: none
+- Conclusion: 原始“完全缺失”已修复，但 E-008/E-009 证明 ToolSearch sibling 和状态域仍会扭曲或歧义化
+  同一机械原因，因此原关闭结论无效
+- Repair design readiness: repair-authorized
+- Next step: 按 H-006/H-007 修复所有 model-visible carrier 和状态域合同
 - Blocker:
   - none
 - Close reason:
-  - E-004 同时提供聚焦测试和真实模型 trace，满足原问题的修复标准
+  - reopened by W0 adversarial review; E-004 的 request 14 叙述被 E-008 证伪
 
 ## Evidence E-002: reservation failure 根因与公开 detail 不一致
 - Related hypotheses:
@@ -136,7 +146,7 @@ next response contains control=59/63
 - Time: 2026-07-29 19:18
 
 ## Hypothesis H-003: Observer 缺少 request-level 唯一主分类和 receipt/cache 一等关联
-- Status: closed
+- Status: confirmed
 - Parent: P-001
 - Claim: 当前矩阵先按 call-level `failure_class` 分别扫描多个集合，再按“request 内存在该类 call”计数；
   同一零执行拒绝复制到 sibling Tool 后会产生重复 call 事实，且 request 没有唯一主分类。receipt、wire role
@@ -169,14 +179,14 @@ next response contains control=59/63
 - Evidence gate: satisfied
 - Related evidence:
   - E-003
-- Conclusion: request reconstruction 已生成互斥一级分类、非互斥次级标签、sibling copy 数量和 receipt/cache
-  关联；live 21 个请求能够精确对账
-- Repair design readiness: implemented-and-verified
-- Next step: none
+- Conclusion: Function-call live 子集可以对账，但 E-006/E-007/E-010 证明完整生产载体、证据健康度、
+  sibling 因果身份和最终 artifact provenance 仍未闭合
+- Repair design readiness: repair-authorized
+- Next step: 按 H-004/H-005 修复 observer input model、fail-closed 和因果 identity
 - Blocker:
   - none
 - Close reason:
-  - E-005 证明生产报告口径可对账，且解析失败会显式降级
+  - reopened by W0 adversarial review; E-005 只证明单一 Function-call 样本
 
 ## Evidence E-003: 当前矩阵分类集合可重叠且 receipt/cache 不在 request row
 - Related hypotheses:
@@ -271,3 +281,275 @@ receipt wire role unresolved=0
 - Interpretation: W0 只建立可信事实口径；低 receipt-before cache 和大量 sequence failure 仍分别归属
   R71-GI-002、003，不能因观测器完成而视为已修复
 - Time: 2026-07-30 17:15
+
+## Hypothesis H-004: Observer 输入模型和健康门窄于生产事件模型
+- Status: confirmed
+- Parent: P-001
+- Claim: trace analyzer 只消费 Function call/output，且 failure/receipt/provenance 解析失败不参与
+  comparison eligibility，所以不完整证据仍可形成表面完整的 request 对账
+- Layer: observability
+- Factor relation: single
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: event codec 支持的 Custom、ToolSearch、LocalShell 形态没有 observer 分支；畸形
+    TaskSpace failure 仍归为已知 ordinary Tool
+  - If false: 所有执行型 ResponseItem 都有 typed parser，任一 parse/schema/identity 缺失都会让报告失效
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 比较生产 event codec 与两个模式的 trace parser，并注入 malformed failure
+  - Signal: event type 支持集合、per-call parse health、顶层 `classification_reconciled`
+  - Capture method: 代码路径审计和内存 PowerShell probe
+  - Supports if: 支持集合不一致，或 malformed failure 仍 reconciled
+  - Refutes if: observer 完整覆盖且 probe fail-closed
+  - Instrumentation status: permanent-observer-change-required
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+- Conclusion: 两条独立证据路径均支持；这是 GI-007 的生产实现缺口
+- Repair design readiness: repair-authorized
+- Next step: 建立 typed observed-call model、parse/schema health 和 observation eligibility
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-005: sibling copy 使用内容签名错误推断因果身份
+- Status: confirmed
+- Parent: P-001
+- Claim: `class|code|violations` 相同只能证明内容相同，不能证明失败是同一零执行拒绝的复制；
+  当前算法因此合并独立失败
+- Layer: observability
+- Factor relation: single
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: 两个独立 `shell_exit_1` call 会得到 `sibling_failure_copy_count=1`
+  - If false: 只有携带相同 explicit cause identity 的 derivative outputs 才计为 copy
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 构造两个独立同码失败和一组 response-scoped derivative failures
+  - Signal: `failed_call_count`、`sibling_failure_copy_count`、cause identity
+  - Capture method: in-memory observer probe
+  - Supports if: 独立失败被合并
+  - Refutes if: 独立失败保持两份且真正复制可由 identity 关联
+  - Instrumentation status: permanent-causal-identity-required
+- Evidence gate: satisfied
+- Related evidence:
+  - E-007
+- Conclusion: 反例稳定复现，signature heuristic 不能保留
+- Repair design readiness: repair-authorized
+- Next step: 从 response-scoped zero-dispatch failure 生成 stable cause/copy identity
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-006: ToolSearch sibling 的专用载体重新扭曲 typed state failure
+- Status: confirmed
+- Parent: P-001
+- Claim: ToolSearch pairing 不能直接承载失败，因此 supplemental message 把原始
+  `TaskSpaceResponseCommitFailureV1` JSON 放进 `error.message` 字符串，恢复了嵌套 JSON，并与
+  `status=completed` pairing 形成冲突信号
+- Layer: feedback-semantics
+- Factor relation: single
+- Depends on:
+  - H-002
+- Falsifiable predictions:
+  - If true: state rejection + ToolSearch 产生空 completed pairing 和嵌套 failure message
+  - If false: supplemental failure 直接保留 typed cause object，且 carrier 明确区分 pairing 与执行失败
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 调用 `invalid_call_responses` 的 ToolSearch 分支
+  - Signal: ResponseInputItem 类型、pairing status、supplemental JSON shape
+  - Capture method: 代码路径审计与聚焦 Rust 测试
+  - Supports if: original JSON 出现在 JSON string 字段
+  - Refutes if: typed cause 保留且无 JSON-in-string
+  - Instrumentation status: permanent-carrier-shape-telemetry-required
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-009
+- Conclusion: sequence 将同一 state rejection 发送到每个 sibling，ToolSearch 分支确定性重包装
+- Repair design readiness: repair-authorized
+- Next step: 让 supplemental failure 直接携带 parsed mechanical cause，并记录 derivative identity
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-007: `actual_state` 没有声明 rejected transaction 的状态域
+- Status: confirmed
+- Parent: P-001
+- Claim: transaction 先应用 node mutation 再校验 reservation，violation 的 `actual_state` 来自临时
+  candidate；事务拒绝后 canonical Map 回滚，但反馈字段没有区分两者
+- Layer: feedback-semantics
+- Factor relation: single
+- Depends on:
+  - H-002
+- Falsifiable predictions:
+  - If true: 同事务 `complete_node(explore) + reserve(explore)` 返回
+    `actual_state=completed,state_commit=false`，随后 read_map 显示 canonical `explore=ready`
+  - If false: feedback 明确输出 canonical state 和 evaluated-at-violation state，Agent 无需猜测
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 重放 live request 13 的事务顺序
+  - Signal: fact application order、rejection state、canonical read、Agent 下一动作
+  - Capture method: rooted DAG 代码路径和 retained rollout
+  - Supports if: candidate/canonical 不同且字段未标明 scope
+  - Refutes if: 两个机械状态域均明确可见
+  - Instrumentation status: permanent-feedback-contract-change-required
+- Evidence gate: satisfied
+- Related evidence:
+  - E-008
+  - E-009
+- Conclusion: live Agent 已将 candidate state 误解为 canonical state，因果链完整
+- Repair design readiness: repair-authorized
+- Next step: violation 同时携带 `canonical_state_before_transaction` 与
+  `evaluated_state_at_violation`，不添加建议
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-006: fresh implementation-completeness review 推翻 W0 关闭
+- Related hypotheses:
+  - H-002
+  - H-003
+  - H-004
+  - H-006
+- Direction: supports
+- Type: independent-review
+- Source:
+  - `vs_review/2026-07-30-r7-1-w0-factual-foundation-review.md`
+- Prediction or plan link:
+  - W0 close criteria
+- Matched signal:
+  - 非 Function event shapes 未进入 request taxonomy
+  - malformed failure 和不完整 receipt 可 fail-open
+  - ToolSearch sibling 恢复 nested JSON
+  - retained run attestation 和 final implementation provenance 不合格
+- Correlation keys:
+  - reviewer session `019faf52-85fa-7260-897c-55634799451c`
+  - reviewed commits `1d086fd7e^..a9264f5ff`
+- Raw content:
+  ```text
+closure is not supported; reopen R71-GI-005 and R71-GI-007
+  ```
+- Interpretation: 独立路径找到多个能直接违反 W0 关闭标准的生产反例
+- Time: 2026-07-30 03:30
+
+## Evidence E-007: malformed failure 和独立同码失败反例
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+- Direction: supports
+- Type: reproduction
+- Source:
+  - in-memory PowerShell observer probe
+- Prediction or plan link:
+  - H-004 malformed evidence
+  - H-005 independent same-code failures
+- Matched signal:
+  - 两个独立 `shell_exit_1` 得到 `reported_sibling_copies=1`
+  - malformed `TaskSpaceResponseCommitFailureV1` 得到
+    `ordinary_tool/tool_failed_unclassified`
+  - 顶层 `classification_reconciled=true`
+- Correlation keys:
+  - synthetic call IDs `independent-a`、`independent-b`
+- Raw content:
+  ```json
+  {
+    "independent_failed_calls": 2,
+    "reported_sibling_copies": 1,
+    "malformed_failure_class": "ordinary_tool",
+    "malformed_failure_code": "tool_failed_unclassified",
+    "classification_reconciled": true
+  }
+  ```
+- Interpretation: 旧测试通过不能证明 observer 正确，两个原始症状均可确定性复现
+- Time: 2026-07-30 03:32
+
+## Evidence E-008: live Agent 将 candidate completed 误认为 canonical completed
+- Related hypotheses:
+  - H-002
+  - H-007
+- Direction: supports
+- Type: production-trace
+- Source:
+  - `target/r7-w0-live-credentialed/subscription-billing-repair/20260730-025642-404/pair-001/right/artifacts/rollout.jsonl`
+- Prediction or plan link:
+  - H-007 state scope
+- Matched signal:
+  - request 13 提交 `complete_node(explore) + action(explore)`
+  - rejection 返回 `state_commit=false,actual_state=completed,canonical_revision=17`
+  - Agent 明确判断 “explore node is already completed”
+  - request 14 `read_map` 显示 revision 17 的 `explore=ready`
+- Correlation keys:
+  - call `call_00_mTwXeScYxbbhWRfwhdp09577`
+  - request 13、14
+  - node `explore`
+- Raw content:
+  ```text
+rejection: state_commit=false actual_state=completed canonical_revision=17
+agent: "explore node is already completed"
+read_map: revision=17 explore state=ready
+  ```
+- Interpretation: 这是反馈状态域歧义导致 Agent 额外读取，不是 Agent 无视完整事实
+- Time: 2026-07-30 03:34
+
+## Evidence E-009: 代码路径确定 candidate state 与 ToolSearch 重包装机制
+- Related hypotheses:
+  - H-006
+  - H-007
+- Direction: supports
+- Type: code-location
+- Source:
+  - `core/src/action_map/rooted_dag/transactions.rs`
+  - `core/src/action_map/rooted_dag/events.rs`
+  - `core/src/tools/parallel.rs`
+  - `core/src/tools/sequence.rs`
+- Prediction or plan link:
+  - H-006/H-007
+- Matched signal:
+  - transaction facts 先加入 node mutations，后加入 reservations
+  - `apply_batch` 在 mutable candidate 上顺序执行 facts
+  - reservation rejection 从 candidate `derive_node_state`
+  - ToolSearch supplemental 把 model-visible failure 字符串放入 `error.message`
+- Correlation keys:
+  - event batch revision
+  - Tool call ID
+- Raw content:
+  ```text
+facts.extend(node_mutations); facts.extend(reservations)
+actual_state = derive_node_state(candidate, reservation.node_id)
+ToolSearchFailureV1.error.message = function_call_error_model_visible_message(error)
+  ```
+- Interpretation: 两个反馈问题均由确定的生产路径产生，不依赖模型随机性
+- Time: 2026-07-30 03:36
+
+## Evidence E-010: retained run 缺最终实现和二进制有效溯源
+- Related hypotheses:
+  - H-003
+  - H-004
+- Direction: supports
+- Type: artifact-health
+- Source:
+  - W0 `whale-binary-preflight-health.json`
+  - W0 `run-status.json`
+  - artifact mtimes
+- Prediction or plan link:
+  - H-004 provenance health
+- Matched signal:
+  - build attestation 为 `binary_sha_mismatch,codex_source_commit_mismatch`
+  - `final_aggregate_ready=false`，suite/source provenance 为空
+  - performance/request-observability artifact 早于最终 metrics commit `4a136ca32`
+- Correlation keys:
+  - run `20260730-025642-404`
+  - implementation commit `4a136ca32`
+- Raw content:
+  ```text
+build_attestation_status=invalid
+final_aggregate_ready=false
+artifact generated before final implementation commit
+  ```
+- Interpretation: retained run 可以作为诊断原始数据，不能作为最终候选关闭证据
+- Time: 2026-07-30 03:37
