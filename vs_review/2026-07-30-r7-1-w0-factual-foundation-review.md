@@ -1,7 +1,7 @@
 # Subagent VS Review: R7.1 W0 事实基础
 
 - Created: 2026-07-30T03:19:45+08:00
-- Updated: 2026-07-30T03:37:36+08:00
+- Updated: 2026-07-30T07:47:41+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 W0 的实现、测试、真实样本证据与问题关闭是否成立
 - Report path: `vs_review/2026-07-30-r7-1-w0-factual-foundation-review.md`
@@ -582,3 +582,81 @@ C-01 至 C-21 越界。阻断项集中在忠实反馈、观测全集和证据可
   3. Tool carrier 与可信 supplemental evidence；
   4. build/raw artifact/final aggregate provenance；
   5. final committed repeat-live 与 fresh closure review。
+
+## Round 3: W0 修复闭环完整性复审
+
+### Review Input
+
+- Objective: 对当前 W0 候选重新证伪 GI-005/GI-007 的关闭条件，并逐项复查 Round 1/2 blocker
+  与 C-01 至 C-21。
+- Reviewed commit: `d64b74191`
+- Review mode: fresh internal subagent，`fork_context=false`，只读。
+- Verification supplied:
+  - 24-run current-commit matrix；
+  - Rust 全量、构建、PowerShell gates；
+  - Round 1/2 修复链和 artifact provenance。
+- Required output: `PASS/BLOCKED`、可复现 blocker、全局约束矩阵、旧 blocker closure matrix，
+  不得修改文件。
+
+### Reviewer Launch Record
+
+| Reviewer | Session / Job ID | Context Forked | Read-only | Result |
+|---|---|---:|---:|---|
+| implementation-completeness-adversary (`Banach`) | `019fb018-6196-7522-a1e6-f8b9eca3c468` | false | yes | blocked |
+
+### Reviewer Output
+
+Reviewer 接受此前 candidate/canonical、provider identity、artifact provenance、ordinary Tool
+可信边界等修复，也明确裁定 4 次 `map-request` 保守 `read_map` 不是反馈丢失或扭曲。但发现三个新的
+blocking closure gap：
+
+1. **生产 `ToolSearchFailureV3` 与 observer provenance 合同漂移。**
+   - producer 没有 `failure_provenance`，observer 却强制要求；
+   - fixture 注入了生产不存在的 `tool_sequence_skip` provenance；
+   - 合法 ToolSearch 执行失败因此会被报告误判为证据损坏。
+2. **缺少 state rejection + ToolSearch 的精确组合测试。**
+   - state rejection、ToolSearch 和 complete/reserve canonical/candidate 反例分别有测试；
+   - 没有一条测试穿过真实状态机、sequence preflight 和 ToolSearch sibling 的完整路径。
+3. **TaskSpace MCP 双模式生产 fixture 不完整。**
+   - Standard 已使用 namespaced Function MCP；
+   - TaskSpace 缺同形 fixture，metrics 测试仍使用生产不存在的 `mcp_tool_call`。
+
+Round 3 的 C-01、C-14、C-15 因上述合同漂移失败，其余 C-02 至 C-21 未发现 Runtime 越界、普通
+Tool 参数侵入、Map 权威分叉或生命周期回归。
+
+### Main Agent Triage
+
+三个 blocking finding 全部 `accept`，四个 non-blocking test gap 也全部纳入同一修复：
+
+- canonical node absent 直接序列化测试；
+- provider response cross-request affected calls 反例；
+- affected call subset 与 duplicate 反例；
+- duplicate supplemental 继续 fail-closed。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| ToolSearch provenance 漂移 | 新增 `tool_execution_failure_provenance(call_id)`；producer、observer、fixture 统一要求 `scope=tool_execution`、self cause、精确单 call set、`zero_dispatch=false` | Rust producer JSON 断言；Standard/TaskSpace 正例；错误 scope、缺失/残缺/重复/cross-request 反例 |
+| state rejection + ToolSearch 缺口 | 使用真实 Map 初始化、release、complete+reserve 冲突和 ToolSearch sibling 走 production response path | canonical=`ready`、candidate=`completed`、ToolSearch execution=`failed`、完整 affected calls、零 dispatch、零 state commit |
+| TaskSpace MCP fixture 缺口 | TaskSpace observer 与 metrics fixture 改为 namespaced `function_call/function_call_output` | 两个 PowerShell harness 通过 |
+| canonical absent | 直接断言 `node_present=false`、canonical state=`null`、candidate state 保留 | Rust 单测通过 |
+
+修复还发现旧 `sync-r7-five-layer-contract-manifest.ps1` 会把当前合同降级到 FLA-1。该脚本已收敛为只生成
+当前 A2-C 五层合同，删除旧 phase/兼容分支，并由 14 项合同与 inventory gate 验证。
+
+### Replacement Review Readiness
+
+- Fix commit: `1196b4e99ca507d5cb3bcb619343053463cf752c`
+- Rust: 1931 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 14/14 passed
+- Current-commit matrix: 24/24，artifact provenance=`valid`，final aggregate=`finalized`
+- Replacement requirement: 因 Round 3 存在接受的 blocker，必须由另一名 `fork_context=false`
+  reviewer 重新审查，Banach 不得作为自己的修复关闭 reviewer。
+
+## Current Conclusion
+
+W0 当前保持 `validating`。Round 1/2/3 接受的 blocker 已完成工程修复，但 fresh replacement
+blocking closure review 尚未通过；在 replacement review 完成前，不得关闭 R71-GI-005/R71-GI-007，
+也不得进入 W1。

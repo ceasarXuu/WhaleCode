@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 05:05
+- Updated: 2026-07-30 07:47
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -31,9 +31,11 @@
   - ToolSearch sibling 保留 typed state facts，不把底层 JSON 再包装为字符串
   - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
-- Current conclusion: 对抗性审查确认的 W0 根因已按其证据门完成修复。聚焦测试、Rust 全量核心测试和
-  final-commit 24-run matrix 均通过；GI-005/GI-007 进入 fresh closure review。矩阵仍暴露的 sequence、
-  stale revision 和 lifecycle failure 不属于 W0 修复收益，由其他全局问题继续追踪
+- Current conclusion: 三轮对抗性审查确认的 W0 根因已按其证据门完成修复。生产 ToolSearch
+  provenance、state rejection + ToolSearch 精确组合路径、TaskSpace MCP 生产 fixture 及 observer
+  负向因果反例均已补齐；聚焦测试、Rust 全量核心测试和 current-commit 24-run matrix 均通过。
+  GI-005/GI-007 等待 fresh replacement closure review。矩阵仍暴露的 sequence、stale revision、
+  lifecycle 和成本问题不属于 W0 修复收益，由其他全局问题继续追踪
 - Related hypotheses:
   - H-001
   - H-002
@@ -734,3 +736,45 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: W0 的事实链和 fail-closed observer 已在当前 committed candidate 上成立；4 次保守
   `read_map` 是否表示反馈显著性缺口仍需 fresh reviewer 裁决，但不能据此增加 Runtime 建议或自动推进
 - Time: 2026-07-30 06:51
+
+## Evidence E-016: Round 3 blocker 修复与 replacement-review 候选矩阵
+- Related hypotheses:
+  - H-002
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - `third_party/codex-cli/codex-rs/core/src/tools/failure_provenance.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/sequence_tests.rs`
+  - `scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1`
+  - `scripts/taskspace-benchmark/test-metrics-extractor-harness.ps1`
+  - `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/1196b4e99ca507d5cb3bcb619343053463cf752c/20260730-073211-169`
+- Prediction or plan link:
+  - Round 3 blocking findings 1-3
+- Matched signal:
+  - 生产 `ToolSearchFailureV3` 使用 `scope=tool_execution`、self cause、精确单 call set 和
+    `zero_dispatch=false`；错误 skip scope 被拒绝
+  - 真实状态机 complete/reserve 冲突与 ToolSearch sibling 组合路径得到 canonical=`ready`、
+    candidate=`completed`、完整 affected call set、零 dispatch 和零 state commit
+  - Standard/TaskSpace 和 metrics fixture 均使用生产 namespaced Function MCP 形态
+  - cross-request、affected-call subset、duplicate affected call 和重复 supplemental 均 fail-closed
+  - 24/24 run 完成且可比较，artifact provenance=`valid`，final aggregate=`finalized`
+- Correlation keys:
+  - fix commit `1196b4e99ca507d5cb3bcb619343053463cf752c`
+  - matrix run `20260730-073211-169`
+  - binary SHA-256 `6ad84803fade763843a2dce2297460f5f9e75384997b62d85fe3ad02a8fc5298`
+- Raw content:
+  ```text
+  cargo test -p codex-core --lib: 1931 passed, 0 failed, 3 ignored
+  PowerShell gates: 14/14 passed
+  matrix: 24/24, provenance valid, final aggregate finalized
+  ```
+- Interpretation: Round 3 的生产合同漂移和组合测试缺口已在同一候选提交闭合。正式矩阵没有自然产生
+  ToolSearch/MCP live call，因此这些载体的行为保证来自生产路径确定性测试和静态接线；replacement
+  reviewer 必须判断这是否满足 W0 关闭标准，不能用矩阵未触发来伪造 live 收益
+- Time: 2026-07-30 07:47
