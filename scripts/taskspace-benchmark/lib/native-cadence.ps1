@@ -51,7 +51,7 @@ function Get-TaskspaceNativeCadenceFacts {
         try {
             $row = $line | ConvertFrom-Json
         } catch {
-            if ($Events) {
+            if ($null -ne $Events) {
                 $Events.Add([pscustomobject]@{
                         event = "cadence_rollout_line_parse_failed"
                         path = $rolloutPath
@@ -129,7 +129,7 @@ function Get-TaskspaceNativeCadenceFacts {
             } catch {
                 if ($name -eq "taskspace_control") {
                     $controlArgumentParseErrors++
-                    if ($Events) {
+                    if ($null -ne $Events) {
                         $Events.Add([pscustomobject]@{
                                 event = "cadence_control_arguments_parse_failed"
                                 path = $rolloutPath
@@ -169,7 +169,7 @@ function Get-TaskspaceNativeCadenceFacts {
                         }
                     }
                 } catch {
-                    if ($Events) {
+                    if ($null -ne $Events) {
                         $Events.Add([pscustomobject]@{
                                 event = "cadence_finish_result_parse_failed"
                                 path = $rolloutPath

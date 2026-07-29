@@ -300,6 +300,17 @@ $cadenceViolation = Get-TaskspaceNativeCadenceFacts $cadenceViolationFixture $nu
 Assert-True ($cadenceViolation.action_manifest_count -eq 1) "invalid action manifest was not counted"
 Assert-True ($cadenceViolation.action_manifest_pair_count -eq 0 -and $cadenceViolation.action_manifest_violation_count -eq 1) "invalid action manifest was not classified"
 
+$cadenceParseFixture = Join-Path $RunRoot "cadence-parse-fixture"
+Write-JsonLines @(
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "malformed-control"; arguments = "{not-json" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "malformed-control"; output = "invalid_arguments" } }
+) (Join-Path $cadenceParseFixture "rollout.jsonl")
+$cadenceParseEvents = [Collections.Generic.List[object]]::new()
+$cadenceParse = Get-TaskspaceNativeCadenceFacts $cadenceParseFixture $cadenceParseEvents
+Assert-True ($cadenceParse.availability -eq "partial_with_parse_errors") "malformed control arguments did not degrade cadence availability"
+Assert-True ($cadenceParse.control_argument_parse_error_count -eq 1) "malformed control arguments were not counted"
+Assert-True (@($cadenceParseEvents | Where-Object event -eq "cadence_control_arguments_parse_failed").Count -eq 1) "malformed control arguments were not logged"
+
 if (Test-Path -LiteralPath $RunRoot) { Remove-Item -LiteralPath $RunRoot -Recurse -Force }
 $pair1 = Join-Path $RunRoot "pair-001"; $pair2 = Join-Path $RunRoot "pair-002"
 Write-Json ([pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" }) (Join-Path $pair1 "logical-mode-map.json")
@@ -323,6 +334,8 @@ $taskspace = @($report.aggregates | Where-Object { $_.logical_mode -eq "taskspac
 Assert-True ($report.rows.Count -eq 5) "report did not include measured and skipped sides"
 Assert-True ($standard.totals.provider_requests -eq 10) "standard request aggregate ignored alternating side mapping"
 Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggregate ignored alternating side mapping"
+Assert-True ($taskspace.totals.nested_actions -eq 0) "taskspace action declarations were misclassified as nested tool executions"
+Assert-True (@(Get-Content -Encoding UTF8 -LiteralPath $result.event_log_path | Where-Object { $_ -match '"event":"control_arguments_parse_failed"' }).Count -eq 0) "performance observer used a second control argument parser"
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
 Assert-True ($taskspace.totals.unreviewed_result_count -eq 6) "result lifecycle totals are incorrect"
 Assert-True ($taskspace.totals.control_failures -eq 2) "control failures are missing"

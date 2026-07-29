@@ -16,7 +16,7 @@ function Read-PerformanceJson {
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $null }
     try { Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json }
     catch {
-        if ($Events) {
+        if ($null -ne $Events) {
             $Events.Add([pscustomobject]@{ event = "artifact_parse_failed"; path = $Path; error = [string]$_.Exception.Message })
         }
         $null
@@ -71,24 +71,8 @@ function Get-PerformanceActionCounts {
                     "taskspace_control" { $control++ }
                     default { $other++ }
                 }
-                if ($name -ne "taskspace_control") { continue }
-                try {
-                    $arguments = ([string](Get-PerformanceProperty $payload "arguments")) | ConvertFrom-Json
-                    foreach ($nested in @(Get-PerformanceDeclaredNestedActions $arguments)) {
-                        $nestedActions++
-                        switch ([string](Get-PerformanceProperty $nested "tool_name")) {
-                            "exec_command" { $shell++ }
-                            "apply_patch" { $patch++ }
-                            default { $other++ }
-                        }
-                    }
-                } catch {
-                    if ($Events) {
-                        $Events.Add([pscustomobject]@{ event = "control_arguments_parse_failed"; path = $rolloutPath; error = [string]$_.Exception.Message })
-                    }
-                }
             } catch {
-                if ($Events) {
+                if ($null -ne $Events) {
                     $Events.Add([pscustomobject]@{ event = "rollout_line_parse_failed"; path = $rolloutPath; error = [string]$_.Exception.Message })
                 }
             }
@@ -112,7 +96,7 @@ function Get-PerformanceActionCounts {
                     "file_change" { $patch++ }
                 }
             } catch {
-                if ($Events) {
+                if ($null -ne $Events) {
                     $Events.Add([pscustomobject]@{ event = "exec_line_parse_failed"; path = $execPath; error = [string]$_.Exception.Message })
                 }
             }
