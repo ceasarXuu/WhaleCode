@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
-- Status: open
+- Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 03:45
+- Updated: 2026-07-30 05:05
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -31,9 +31,9 @@
   - ToolSearch sibling 保留 typed state facts，不把底层 JSON 再包装为字符串
   - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
-- Current conclusion: W0 首轮只修复了 Function/Custom Tool 状态事实和 Function-call 样本观测子集。
-  对抗性审查已确认 observer 完整性、sibling 因果身份、ToolSearch carrier、state scope 和 retained
-  evidence provenance 仍不满足关闭标准
+- Current conclusion: 对抗性审查确认的 W0 根因已按其证据门完成修复。聚焦测试、Rust 全量核心测试和
+  final-commit 24-run matrix 均通过；GI-005/GI-007 进入 fresh closure review。矩阵仍暴露的 sequence、
+  stale revision 和 lifecycle failure 不属于 W0 修复收益，由其他全局问题继续追踪
 - Related hypotheses:
   - H-001
   - H-002
@@ -46,7 +46,7 @@
   - latest 24-run matrix
   - raw rollout request reconstruction
 - Close reason:
-  - not closed
+  - awaiting fresh blocking closure review
 
 ## Hypothesis H-001: control_required 是持续协议遵循问题，不是拒绝反馈缺失
 - Status: confirmed
@@ -553,3 +553,106 @@ artifact generated before final implementation commit
   ```
 - Interpretation: retained run 可以作为诊断原始数据，不能作为最终候选关闭证据
 - Time: 2026-07-30 03:37
+
+## Evidence E-011: W0 反例回归全部 fail-closed
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - `scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1`
+  - `scripts/taskspace-benchmark/test-r7-request-observability-report.ps1`
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/rooted_dag/phase_d_tests.rs`
+- Prediction or plan link:
+  - H-003 至 H-007 fix criteria
+- Matched signal:
+  - Standard/TaskSpace 均覆盖 Function、Custom、ToolSearch、LocalShell、MCP call/output
+  - malformed/unknown failure、orphan/duplicate/missing output、不完整 receipt 和 request identity
+    mismatch 均阻断观察
+  - 两个独立同码失败保持独立；只有相同 explicit copy group 且 zero-dispatch 才计 sibling copy
+  - ToolSearch pairing=`completed` 与 execution=`failed` 分开，typed cause 不再进入 JSON string
+  - rejected complete/reserve 同时返回 canonical=`ready`、evaluated=`completed`
+- Correlation keys:
+  - commit `e9d705a23558d3f777179ad8696351866e79081a`
+  - provider wire schema `provider-chat-wire-trace-v9`
+- Raw content:
+  ```text
+R7 five-layer trace analysis passed
+R7 request observability report passed
+cargo test -p codex-core --lib: 1926 passed, 0 failed, 3 ignored
+  ```
+- Interpretation: 首轮 reviewer 给出的确定性反例均已有正向与反向回归，且 parser 不再通过旧 schema
+  fallback
+- Time: 2026-07-30 04:45
+
+## Evidence E-012: final-commit 24-run 工件来源与 request taxonomy 全部对账
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+- Direction: supports
+- Type: production-trace
+- Source:
+  - `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/e9d705a23558d3f777179ad8696351866e79081a/20260730-045032-584`
+- Prediction or plan link:
+  - GI-007 retained artifact close criteria
+- Matched signal:
+  - 2 个 development sample × 4 arms × repeat 3 = 24/24 run 完成且业务成功
+  - artifact provenance=`valid`，findings=0
+  - source commit=`e9d705a23558d3f777179ad8696351866e79081a`
+  - binary SHA-256=`c04fe7a5ba45d7c0e9898799556779498bd0722eddda5313f1b444d08d84fa02`
+  - 24/24 run `classification_reconciled=true`
+  - receipt wire role unresolved=0
+- Correlation keys:
+  - matrix run `20260730-045032-584`
+  - Docker image `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+- Raw content:
+  ```json
+  {
+    "status": "valid",
+    "run_count": 24,
+    "findings": []
+  }
+  ```
+- Interpretation: 旧 retained run 的 invalid attestation 和旧脚本污染已被 final-commit 证据替代；
+  现存 sequence/state/ordinary failure 仍被分类出来，没有被成功率掩盖
+- Time: 2026-07-30 05:00
+
+## Evidence E-013: repeat live 未复现 candidate state 被当作 canonical commit
+- Related hypotheses:
+  - H-002
+  - H-006
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - W0 retained matrix `trace-analysis.json`
+- Prediction or plan link:
+  - H-007 feedback state-scope fix
+- Matched signal:
+  - 39 个 state-failure request 全部保留 typed violation 或 typed direct control failure
+  - 未观察到旧 trace 中“Agent 声明 canonical 已 completed，但实际只在 rejected candidate
+    completed”的判断
+  - simple `map-request` 有 2 次 Waiting 拒绝后 `read_map`；两次拒绝已直接携带
+    canonical/evaluated=`waiting`、未满足前驱与 canonical revision，后续均正确完成前驱并继续
+- Correlation keys:
+  - sample `single-file-fast-fix`
+  - arm `map-request`
+  - repeats 1、3
+- Raw content:
+  ```text
+node_state_invalid:
+canonical_state_before_transaction=waiting
+evaluated_state_at_violation=waiting
+evaluated_unsatisfied_predecessor_ids_at_violation=[explore]
+next: read_map
+then: complete_node(explore) + action(fix)
+  ```
+- Interpretation: 原 candidate/canonical 语义扭曲未复现；显式读取发生在 map-request 外部资料模式，
+  现有证据不支持让 Runtime 增加建议或自动状态推进
+- Time: 2026-07-30 05:03
