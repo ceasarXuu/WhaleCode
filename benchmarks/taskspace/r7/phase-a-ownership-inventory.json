@@ -217,6 +217,7 @@
       "covered_paths": [
         "scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1",
         "scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1",
+        "scripts/taskspace-benchmark/test-r7-request-observability-report.ps1",
         "third_party/codex-cli/codex-rs/core/src/action_map/runtime/telemetry.rs"
       ]
     },
