@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.42",
+  "manifest_version": "1.0.43",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -102,7 +102,7 @@
         },
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
-          "sha256": "9fd89bd55324dbeb75e6703e28070e56b6cf06237000f6452c874daa6b58cc59",
+          "sha256": "cfb1194870135403bc08d27a8ecb9f1f29da089d7f96f68fc6aeef943cb12ee9",
           "activation_phase": "W0 exact failure provenance and trusted supplemental carrier"
         },
         {

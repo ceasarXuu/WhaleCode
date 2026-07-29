@@ -386,4 +386,39 @@ mod tests {
         );
         assert!(value["error"].get("detail").is_none());
     }
+
+    #[test]
+    fn state_rejection_serializes_absent_canonical_node_explicitly() {
+        let mut violation = Violation::node_state(
+            "missing",
+            Some(NodeState::Completed),
+            vec![NodeState::Ready],
+            Vec::new(),
+        );
+        violation.canonical_node_present_before_transaction = Some(false);
+        let error = ActionMapResponsePrepareError::state(Rejection {
+            state_commit: false,
+            current_revision: 7,
+            violations: vec![violation],
+        });
+
+        let value: serde_json::Value = serde_json::from_str(&error.model_visible_failure(
+            Some(7),
+            serde_json::json!({
+                "scope": "provider_response",
+                "copy_group_id": "provider_response:control",
+                "zero_dispatch": true,
+                "affected_call_ids": ["control"],
+            }),
+        ))
+        .unwrap();
+
+        let canonical = &value["error"]["violations"][0]["canonical_before_transaction"];
+        assert_eq!(canonical["node_present"], false);
+        assert!(canonical["state"].is_null());
+        assert_eq!(
+            value["error"]["violations"][0]["rejected_candidate_at_violation"]["state"],
+            "completed"
+        );
+    }
 }

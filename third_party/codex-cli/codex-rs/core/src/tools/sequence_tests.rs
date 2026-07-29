@@ -1,7 +1,19 @@
 use super::*;
+use crate::action_map::ActionMapActionReservation;
+use crate::action_map::ActionMapExecuteTransaction;
+use crate::action_map::ActionMapInitialize;
+use crate::action_map::ActionMapReservationInput;
+use crate::action_map::ActionMapReservationRelease;
 use crate::action_map::ActionMapResponsePrepareError;
 use crate::action_map::ActionMapStateRejection;
 use crate::action_map::ActionMapViolationCode;
+use crate::action_map::CompletionRecord;
+use crate::action_map::MapEdge;
+use crate::action_map::NodeMutation;
+use crate::action_map::action_map_node;
+use crate::action_map::execute_action_map_transaction;
+use crate::action_map::initialize_action_map;
+use crate::action_map::release_action_map_reservation;
 use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallExecution;
 use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
@@ -27,6 +39,20 @@ fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> T
         call_id: call_id.to_string(),
         payload: ToolPayload::Function {
             arguments: arguments.to_string(),
+        },
+    }
+}
+
+fn tool_search_call(call_id: &str, query: &str) -> ToolCall {
+    ToolCall {
+        provider_tool_name: ToolName::plain("tool_search"),
+        dispatch_tool_name: ToolName::plain("tool_search"),
+        call_id: call_id.to_string(),
+        payload: ToolPayload::ToolSearch {
+            arguments: codex_protocol::models::SearchToolCallParams {
+                query: query.to_string(),
+                limit: None,
+            },
         },
     }
 }
@@ -405,6 +431,143 @@ fn taskspace_state_commit_failure_closes_every_call_without_dispatch() {
         outcome.outputs.last(),
         Some(ResponseInputItem::Message { .. })
     ));
+}
+
+#[test]
+fn taskspace_complete_then_reserve_rejection_closes_tool_search_without_dispatch() {
+    let calls = vec![
+        execute_control(
+            "control",
+            serde_json::json!([{"node_id": "verify", "tool": "tool_search"}]),
+        ),
+        tool_search_call("search", "read_file"),
+    ];
+    let initial_reservation = "initial-reservation".to_string();
+    let initialized = initialize_action_map(ActionMapInitialize {
+        map_id: "state-tool-search".into(),
+        root: action_map_node("root", "solve", Vec::new()),
+        work_nodes: vec![action_map_node("verify", "verify", Vec::new())],
+        finish: action_map_node("finish", "finish", Vec::new()),
+        edges: vec![
+            MapEdge {
+                from: "root".into(),
+                to: "verify".into(),
+            },
+            MapEdge {
+                from: "verify".into(),
+                to: "finish".into(),
+            },
+        ],
+        reservations: vec![ActionMapReservationInput {
+            reservation_id: initial_reservation.clone(),
+            reservation: ActionMapActionReservation {
+                action_id: "initial-action".into(),
+                node_id: "verify".into(),
+                tool_name: "read_file".into(),
+                response_call_index: 0,
+            },
+        }],
+    })
+    .expect("initialize map")
+    .map;
+    let canonical = release_action_map_reservation(
+        &initialized,
+        ActionMapReservationRelease {
+            expected_revision: initialized.revision,
+            reservation_id: initial_reservation,
+            result_refs: Vec::new(),
+            evidence_refs: Vec::new(),
+        },
+    )
+    .expect("release initial reservation")
+    .map;
+    let rejection = execute_action_map_transaction(
+        &canonical,
+        ActionMapExecuteTransaction {
+            expected_revision: canonical.revision,
+            graph: Default::default(),
+            node_mutations: vec![NodeMutation::Complete {
+                node_id: "verify".into(),
+                record: CompletionRecord {
+                    action_id: "complete-verify".into(),
+                    result_ref_ids: Vec::new(),
+                    evidence_ref_ids: Vec::new(),
+                },
+            }],
+            reservations: vec![ActionMapReservationInput {
+                reservation_id: "search-reservation".into(),
+                reservation: ActionMapActionReservation {
+                    action_id: "search-action".into(),
+                    node_id: "verify".into(),
+                    tool_name: "tool_search".into(),
+                    response_call_index: 0,
+                },
+            }],
+        },
+    )
+    .expect_err("completing and reserving the same node must be rejected");
+    assert_eq!(
+        rejection.violations[0].code,
+        ActionMapViolationCode::NodeStateInvalid
+    );
+    let error = ActionMapResponsePrepareError::state(rejection);
+
+    let outcome = taskspace_prepare_failure_outcome(&calls, Some(canonical.revision), &error);
+
+    assert_eq!(outcome.outputs.len(), calls.len() + 1);
+    assert!(outcome.terminal_completion.is_none());
+    let ResponseInputItem::FunctionCallOutput { call_id, output } = &outcome.outputs[0] else {
+        panic!("control call must receive its native pairing");
+    };
+    assert_eq!(call_id, "control");
+    assert_eq!(output.success, Some(false));
+    let control_failure: serde_json::Value =
+        serde_json::from_str(output.body.to_text().as_deref().expect("failure payload"))
+            .expect("failure JSON");
+    assert_eq!(control_failure["state_commit"], false);
+    assert_eq!(control_failure["rejected_candidate_committed"], false);
+    assert_eq!(control_failure["executed_tool_call_count"], 0);
+    assert_eq!(
+        control_failure["failure_provenance"]["affected_call_ids"],
+        serde_json::json!(["control", "search"])
+    );
+    let violation = &control_failure["error"]["violations"][0];
+    assert_eq!(violation["canonical_before_transaction"]["state"], "ready");
+    assert_eq!(
+        violation["rejected_candidate_at_violation"]["state"],
+        "completed"
+    );
+    assert_eq!(
+        violation["rejected_candidate_at_violation"]["allowed_states"],
+        serde_json::json!(["ready", "in_flight"])
+    );
+
+    assert!(matches!(
+        &outcome.outputs[1],
+        ResponseInputItem::ToolSearchOutput {
+            call_id,
+            status,
+            tools,
+            ..
+        } if call_id == "search" && status == "completed" && tools.is_empty()
+    ));
+    let ResponseInputItem::Message { role, content } = &outcome.outputs[2] else {
+        panic!("response-level failure fact must follow both pairings");
+    };
+    assert_eq!(role, "developer");
+    let fact = content
+        .iter()
+        .find_map(|item| match item {
+            codex_protocol::models::ContentItem::InputText { text } => Some(text),
+            _ => None,
+        })
+        .expect("response-level failure fact");
+    let fact: serde_json::Value = serde_json::from_str(fact).expect("factual failure JSON");
+    assert_eq!(
+        fact["failure_provenance"]["affected_call_ids"],
+        serde_json::json!(["control", "search"])
+    );
+    assert_eq!(fact["executed_tool_call_count"], 0);
 }
 
 #[test]

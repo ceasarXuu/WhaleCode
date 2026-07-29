@@ -26,6 +26,16 @@ pub(crate) fn skipped_call_failure_provenance(call_id: &str, cause_call_id: &str
     })
 }
 
+pub(crate) fn tool_execution_failure_provenance(call_id: &str) -> Value {
+    serde_json::json!({
+        "scope": "tool_execution",
+        "copy_group_id": format!("tool_execution:{call_id}"),
+        "zero_dispatch": false,
+        "affected_call_ids": [call_id],
+        "cause_call_id": call_id,
+    })
+}
+
 pub(crate) fn exact_failure_cause(message: &str) -> Value {
     serde_json::from_str(message).unwrap_or_else(|_| {
         serde_json::json!({
@@ -59,6 +69,16 @@ mod tests {
         assert_eq!(value["scope"], "tool_sequence_skip");
         assert_eq!(value["cause_call_id"], "call-1");
         assert_eq!(value["affected_call_ids"], serde_json::json!(["call-2"]));
+    }
+
+    #[test]
+    fn tool_execution_provenance_records_real_dispatch_and_self_cause() {
+        let value = tool_execution_failure_provenance("call-1");
+        assert_eq!(value["scope"], "tool_execution");
+        assert_eq!(value["copy_group_id"], "tool_execution:call-1");
+        assert_eq!(value["zero_dispatch"], false);
+        assert_eq!(value["cause_call_id"], "call-1");
+        assert_eq!(value["affected_call_ids"], serde_json::json!(["call-1"]));
     }
 
     #[test]

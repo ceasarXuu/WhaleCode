@@ -1,8 +1,6 @@
 param(
     [string]$AuthorityPath = "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    [string]$OutputPath = "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json",
-    [ValidateSet("FLA-1", "FLA-2", "FLA-3")]
-    [string]$ActivationThrough = "FLA-1"
+    [string]$OutputPath = "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,9 +10,25 @@ $outputFile = Join-Path $repoRoot $OutputPath
 $authority = Get-Content -Raw -Encoding UTF8 -LiteralPath $authorityFile | ConvertFrom-Json -Depth 50
 $authoritySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $authorityFile).Hash.ToLowerInvariant()
 
-function Get-Target {
-    param([string]$Layer)
-    @($authority.selected_targets | Where-Object { [string]$_.layer -eq $Layer })[0]
+function New-Target {
+    param(
+        [string]$Artifact,
+        [string]$ActivationPhase,
+        [string]$SequencePreflight = ""
+    )
+    $artifactPath = Join-Path $repoRoot $Artifact
+    if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+        throw "Production target does not exist: $Artifact"
+    }
+    $target = [ordered]@{
+        artifact = $Artifact.Replace("\", "/")
+        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
+        activation_phase = $ActivationPhase
+    }
+    if (-not [string]::IsNullOrWhiteSpace($SequencePreflight)) {
+        $target.sequence_preflight = $SequencePreflight.Replace("\", "/")
+    }
+    $target
 }
 
 function New-Layer {
@@ -22,41 +36,55 @@ function New-Layer {
         [string]$Id,
         [string]$Owner,
         [string]$Carrier,
-        [string]$RuntimeStatus,
         [object[]]$Targets
     )
     [ordered]@{
         id = $Id
         owner = $Owner
         carrier = $Carrier
-        runtime_status = $RuntimeStatus
-        selected_targets = @($Targets | ForEach-Object {
-                [ordered]@{
-                    artifact = [string]$_.artifact
-                    sha256 = [string]$_.sha256
-                    activation_phase = [string]$_.activation_phase
-                }
-            })
+        runtime_status = "active"
+        selected_targets = @($Targets)
     }
 }
 
-$activationRank = switch ($ActivationThrough) {
-    "FLA-1" { 1 }
-    "FLA-2" { 2 }
-    "FLA-3" { 3 }
-}
-$l1Status = if ($activationRank -ge 2) { "active" } else { "selected_not_active" }
-$l2Status = if ($activationRank -ge 2) { "active" } else { "selected_not_active" }
-$l3Status = if ($activationRank -ge 3) { "active" } else { "selected_not_active" }
 $layers = @(
-    New-Layer "L1" "base_instructions_profile" "first_system_message" $l1Status @((Get-Target "L1"))
-    New-Layer "L2" "taskspace_contract" "stable_developer_bundle_first_section" $l2Status @((Get-Target "L2"))
-    New-Layer "L3" "bundled_skill_registry" "skill_catalog_and_explicit_load" $l3Status @((Get-Target "L3"))
-    New-Layer "L4" "taskspace_tool" "provider_tools" "repair_active" @((Get-Target "L4"))
-    New-Layer "L5" "taskspace_runtime" "tool_result_and_projection" "result_repair_active_projection_baseline" @(
-        (Get-Target "L5-result"),
-        (Get-Target "L5-projection"),
-        (Get-Target "L5-lifecycle")
+    New-Layer "L1" "base_instructions_profile" "first_system_message" @(
+        (New-Target `
+            "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md" `
+            "FLA-2")
+    )
+    New-Layer "L2" "taskspace_contract" "stable_developer_bundle_first_section" @(
+        (New-Target `
+            "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v3.md" `
+            "A2-C Agent-visible execution contract repair")
+    )
+    New-Layer "L3" "bundled_skill_registry" "skill_catalog_and_explicit_load" @(
+        (New-Target `
+            "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md" `
+            "FLA-3")
+    )
+    New-Layer "L4" "taskspace_tool" "provider_tools" @(
+        (New-Target `
+            "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs" `
+            "A2-C optional mutations, provider identity, ownership, and single-Patch contract" `
+            "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs")
+    )
+    New-Layer "L5" "taskspace_runtime" "tool_result_and_projection" @(
+        (New-Target `
+            "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs" `
+            "W0 trusted provider-response failure carrier"),
+        (New-Target `
+            "benchmarks/taskspace/r7/projection-policy-contract.json" `
+            "A2-B2.5 current terminal and terminal history projection"),
+        (New-Target `
+            "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs" `
+            "W0 exact failure provenance and trusted supplemental carrier"),
+        (New-Target `
+            "benchmarks/taskspace/r7/five-layer-taskspace-result-v3.contract.json" `
+            "A2-C prepare and response-final factual result contract"),
+        (New-Target `
+            "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json" `
+            "A2-B2.5 close, reopen, terminal history, restart, and replay")
     )
 )
 
@@ -64,7 +92,7 @@ $manifest = [ordered]@{
     schema_version = 1
     schema_path = "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"
     contract_id = "r7-taskspace-five-layer-production-v1"
-    manifest_version = "1.0.4"
+    manifest_version = "1.0.43"
     contract_status = "production_active"
     runtime_status_enum = @(
         "selected_not_active",
@@ -75,8 +103,7 @@ $manifest = [ordered]@{
         "carrier_repair_active",
         "carrier_result_repair_active_projection_baseline"
     )
-    activation_through = $ActivationThrough
-    repair_activation = @("L4", "L5-result")
+    activation_through = "A2-C repair"
     source_authority = [ordered]@{
         contract_id = [string]$authority.contract_id
         path = $AuthorityPath.Replace("\", "/")
@@ -95,4 +122,4 @@ if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
 }
 $json = $manifest | ConvertTo-Json -Depth 20
 [System.IO.File]::WriteAllText($outputFile, "$json`n", [System.Text.UTF8Encoding]::new($false))
-Write-Output "Wrote $OutputPath from $AuthorityPath ($ActivationThrough)."
+Write-Output "Wrote $OutputPath from $AuthorityPath (A2-C repair)."

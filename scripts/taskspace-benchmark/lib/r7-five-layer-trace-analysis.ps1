@@ -243,6 +243,17 @@ function Apply-R7SupplementalFailure {
             [string]$CallsById[$callId].call_type -ne "tool_search_call") {
             throw "ToolSearch failure fact has no matching ToolSearch call: $callId"
         }
+        $expectedCopyGroupId = "tool_execution:$callId"
+        $hasZeroDispatch = $null -ne $provenance -and
+            $provenance.PSObject.Properties.Name -contains "zero_dispatch"
+        if ($scope -ne "tool_execution" -or
+            -not $hasZeroDispatch -or
+            [bool](Get-R7JsonProperty $provenance "zero_dispatch" $true) -or
+            [string](Get-R7JsonProperty $provenance "copy_group_id" "") -ne
+                $expectedCopyGroupId -or
+            [string](Get-R7JsonProperty $provenance "cause_call_id" "") -ne $callId) {
+            throw "ToolSearch failure provenance is not a real execution: $callId"
+        }
     } elseif ($schemaVersion -eq "TaskSpaceToolSkippedV2" -or
         $schemaVersion -eq "TaskSpaceBoundResultCommitFailureV2") {
         $callId = [string](Get-R7JsonProperty $payload "call_id" "")

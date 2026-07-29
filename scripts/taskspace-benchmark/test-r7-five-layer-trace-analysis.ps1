@@ -92,7 +92,7 @@ try {
     }
 
     $standardShapesPath = Join-Path $tempRoot "standard-shapes.jsonl"
-    $toolSearchFailure = '{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"search-1","tool":"tool_search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_sequence_skip","copy_group_id":"provider_response:search-1","zero_dispatch":true,"cause_call_id":"control-1","affected_call_ids":["search-1"]},"error":{"class":"tool","code":"tool_skipped_due_to_prior_failure"}}'
+    $toolSearchFailure = '{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"search-1","tool":"tool_search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:search-1","zero_dispatch":false,"cause_call_id":"search-1","affected_call_ids":["search-1"]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"query must not be empty"}}}'
     Write-Lines $standardShapesPath @(
         @{ type = "response_item"; payload = @{ type = "custom_tool_call"; name = "apply_patch"; input = "*** Begin Patch"; call_id = "custom-1" } },
         @{ type = "response_item"; payload = @{ type = "tool_search_call"; arguments = @{ query = "read_file" }; call_id = "search-1" } },
@@ -131,6 +131,26 @@ try {
     if (-not $mismatchedToolSearchRejected) {
         throw "ToolSearch failure accepted mismatched affected_call_ids"
     }
+    $skippedToolSearchFailure = $toolSearchFailure.Replace(
+        '"scope":"tool_execution"',
+        '"scope":"tool_sequence_skip"'
+    )
+    $skippedToolSearchPath = Join-Path $tempRoot "tool-search-false-skip.jsonl"
+    Write-Lines $skippedToolSearchPath @(
+        @{ type = "response_item"; payload = @{ type = "tool_search_call"; arguments = @{ query = "read_file" }; call_id = "search-1" } },
+        (New-TokenBoundary "tool-search-false-skip-1"),
+        @{ type = "response_item"; payload = @{ type = "tool_search_output"; call_id = "search-1"; status = "completed"; execution = "client"; tools = @() } },
+        @{ type = "response_item"; payload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = $skippedToolSearchFailure }) } }
+    )
+    $skippedToolSearchRejected = $false
+    try { Get-R7StandardRequestPath $skippedToolSearchPath 1 | Out-Null }
+    catch {
+        $skippedToolSearchRejected =
+            $_.Exception.Message -like "ToolSearch failure provenance is not a real execution:*"
+    }
+    if (-not $skippedToolSearchRejected) {
+        throw "ToolSearch execution failure accepted a false sequence-skip provenance"
+    }
     $postBoundarySupplementalPath =
         Join-Path $tempRoot "standard-post-boundary-supplemental.jsonl"
     $postBoundaryFailure = '{"schema_version":"ToolSequencePreflightResultV3","success":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:post-boundary","zero_dispatch":true,"affected_call_ids":["post-boundary-1","post-boundary-2"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
@@ -153,6 +173,74 @@ try {
         $postBoundaryRequests[1].calls.Count -ne 1 -or
         $postBoundaryRequests[1].calls[0].success -ne $true) {
         throw "Post-boundary supplemental failure was not bound by causal call identity"
+    }
+    $crossRequestFailure =
+        $postBoundaryFailure.Replace(
+            '["post-boundary-1","post-boundary-2"]',
+            '["post-boundary-1","post-boundary-3"]'
+        )
+    $crossRequestPath = Join-Path $tempRoot "provider-failure-cross-request.jsonl"
+    Write-Lines $crossRequestPath @(
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"one"}'; call_id = "post-boundary-1" } },
+        (New-TokenBoundary "cross-request-1"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-1"; output = "ok" } },
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"two"}'; call_id = "post-boundary-3" } },
+        (New-TokenBoundary "cross-request-2"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-3"; output = "ok" } },
+        @{ type = "response_item"; payload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = $crossRequestFailure }) } }
+    )
+    $crossRequestRejected = $false
+    try { Get-R7StandardRequestPath $crossRequestPath 2 | Out-Null }
+    catch {
+        $crossRequestRejected =
+            $_.Exception.Message -like "Provider-response failure provenance spans multiple or no requests"
+    }
+    if (-not $crossRequestRejected) {
+        throw "Provider-response failure accepted affected calls from multiple requests"
+    }
+
+    $subsetFailure = $postBoundaryFailure.Replace(
+        '["post-boundary-1","post-boundary-2"]',
+        '["post-boundary-1"]'
+    )
+    $subsetFailurePath = Join-Path $tempRoot "provider-failure-subset.jsonl"
+    Write-Lines $subsetFailurePath @(
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"one"}'; call_id = "post-boundary-1" } },
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"two"}'; call_id = "post-boundary-2" } },
+        (New-TokenBoundary "subset-request-1"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-1"; output = "ok" } },
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-2"; output = "ok" } },
+        @{ type = "response_item"; payload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = $subsetFailure }) } }
+    )
+    $subsetRejected = $false
+    try { Get-R7StandardRequestPath $subsetFailurePath 1 | Out-Null }
+    catch {
+        $subsetRejected =
+            $_.Exception.Message -like "Provider-response failure provenance does not match the request call set"
+    }
+    if (-not $subsetRejected) {
+        throw "Provider-response failure accepted an incomplete affected call set"
+    }
+
+    $duplicateAffectedFailure = $postBoundaryFailure.Replace(
+        '["post-boundary-1","post-boundary-2"]',
+        '["post-boundary-1","post-boundary-1"]'
+    )
+    $duplicateAffectedPath = Join-Path $tempRoot "provider-failure-duplicate-affected.jsonl"
+    Write-Lines $duplicateAffectedPath @(
+        @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"one"}'; call_id = "post-boundary-1" } },
+        (New-TokenBoundary "duplicate-affected-1"),
+        @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "post-boundary-1"; output = "ok" } },
+        @{ type = "response_item"; payload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = $duplicateAffectedFailure }) } }
+    )
+    $duplicateAffectedRejected = $false
+    try { Get-R7StandardRequestPath $duplicateAffectedPath 1 | Out-Null }
+    catch {
+        $duplicateAffectedRejected =
+            $_.Exception.Message -like "Structured failure fact has missing or duplicate affected_call_ids"
+    }
+    if (-not $duplicateAffectedRejected) {
+        throw "Structured failure accepted duplicate affected_call_ids"
     }
 
     $taskspacePath = Join-Path $tempRoot "taskspace.jsonl"
@@ -262,15 +350,18 @@ try {
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "custom_tool_call"; callId = "tc-1"; rawPayload = @{ type = "custom_tool_call"; name = "apply_patch"; input = "*** Begin Patch"; call_id = "tc-1" } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "tool_search_call"; callId = "ts-1"; rawPayload = @{ type = "tool_search_call"; arguments = @{ query = "read_file" }; call_id = "ts-1" } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "local_shell_call"; callId = "tl-1"; rawPayload = @{ type = "local_shell_call"; action = @{ command = @("pwd") }; call_id = "tl-1"; status = "completed" } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "tm-1"; rawPayload = @{ type = "function_call"; namespace = "mcp__mail__"; name = "search"; arguments = '{"query":"subject:test"}'; call_id = "tm-1" } } },
         (New-TokenBoundary "taskspace-shapes-1"),
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "custom_tool_call_output"; callId = "tc-1"; toolSuccess = $true; rawPayload = @{ type = "custom_tool_call_output"; call_id = "tc-1"; output = "Done!" } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "tool_search_output"; callId = "ts-1"; toolSuccess = $true; rawPayload = @{ type = "tool_search_output"; call_id = "ts-1"; status = "completed"; execution = "client"; tools = @() } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "tl-1"; toolSuccess = $true; rawPayload = @{ type = "function_call_output"; call_id = "tl-1"; output = "Execution outcome: exited`nShell exit code: 0" } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "tm-1"; toolSuccess = $true; rawPayload = @{ type = "function_call_output"; call_id = "tm-1"; output = '{"matches":[]}' } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; originalRole = "developer"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = ($toolSearchFailure -replace 'search-1', 'ts-1') }) } } }
     )
     $taskspaceShapes = @(Get-R7TaskspaceRequestPath $taskspaceShapesPath 1)
-    if ($taskspaceShapes[0].calls.Count -ne 3 -or
-        @($taskspaceShapes[0].calls | Where-Object tool -eq "tool_search")[0].success -ne $false) {
+    if ($taskspaceShapes[0].calls.Count -ne 4 -or
+        @($taskspaceShapes[0].calls | Where-Object tool -eq "tool_search")[0].success -ne $false -or
+        @($taskspaceShapes[0].calls | Where-Object tool -eq "mcp__mail__search")[0].success -ne $true) {
         throw "TaskSpace non-function Tool shapes were not reconciled"
     }
 

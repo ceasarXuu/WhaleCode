@@ -30,16 +30,34 @@ pub(crate) use response::ActionMapPreparedResponse;
 pub(crate) use response::ActionMapResponseFinalReceipt;
 pub(crate) use response::ActionMapResponseOperation;
 pub(crate) use response::ActionMapResponsePrepareError;
+#[cfg(test)]
+pub(crate) use rooted_dag::ActionReservation as ActionMapActionReservation;
 pub(crate) use rooted_dag::BlockRecord;
 pub(crate) use rooted_dag::CompletionRecord;
+#[cfg(test)]
+pub(crate) use rooted_dag::ExecuteTransaction as ActionMapExecuteTransaction;
 pub(crate) use rooted_dag::GraphMutation;
+#[cfg(test)]
+pub(crate) use rooted_dag::InitializeMap as ActionMapInitialize;
 pub(crate) use rooted_dag::MapEdge;
 pub(crate) use rooted_dag::MapNode;
 pub(crate) use rooted_dag::NodeMutation;
 #[cfg(test)]
 pub(crate) use rooted_dag::Rejection as ActionMapStateRejection;
 #[cfg(test)]
+pub(crate) use rooted_dag::ReservationInput as ActionMapReservationInput;
+#[cfg(test)]
+pub(crate) use rooted_dag::ReservationRelease as ActionMapReservationRelease;
+#[cfg(test)]
 pub(crate) use rooted_dag::ViolationCode as ActionMapViolationCode;
+#[cfg(test)]
+pub(crate) use rooted_dag::execute as execute_action_map_transaction;
+#[cfg(test)]
+pub(crate) use rooted_dag::initialize as initialize_action_map;
+#[cfg(test)]
+pub(crate) use rooted_dag::map_node as action_map_node;
+#[cfg(test)]
+pub(crate) use rooted_dag::release_reservation as release_action_map_reservation;
 pub(crate) use runtime::ActionMapControlDelta;
 pub(crate) use runtime::ActionMapControlState;
 pub(crate) use runtime::ActionMapExactPayloadScanEventInput;

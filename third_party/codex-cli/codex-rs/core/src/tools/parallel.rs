@@ -19,6 +19,7 @@ use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
 use crate::tools::failure_provenance::exact_failure_cause;
 use crate::tools::failure_provenance::skipped_call_failure_provenance;
+use crate::tools::failure_provenance::tool_execution_failure_provenance;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
@@ -392,6 +393,7 @@ impl ToolCallRuntime {
         if is_provider_response_fact {
             return None;
         }
+        let failure_provenance = tool_execution_failure_provenance(&call.call_id);
         Some(Self::factual_message(serde_json::json!({
             "schema_version": "ToolSearchFailureV3",
             "status": "failed",
@@ -400,6 +402,7 @@ impl ToolCallRuntime {
             "tool": call.provider_tool_name_display(),
             "pairing_status": "completed",
             "execution_status": "failed",
+            "failure_provenance": failure_provenance,
             "error": {
                 "class": "tool",
                 "code": "tool_search_failed",
@@ -735,11 +738,23 @@ mod tests {
                 codex_protocol::models::ContentItem::InputImage { .. } => String::new(),
             })
             .collect::<String>();
-        assert!(text.contains("ToolSearchFailureV3"));
-        assert!(text.contains("query must not be empty"));
-        assert!(text.contains("\"success\":false"));
-        assert!(text.contains("\"pairing_status\":\"completed\""));
-        assert!(text.contains("\"execution_status\":\"failed\""));
+        let value: serde_json::Value =
+            serde_json::from_str(&text).expect("production ToolSearch failure JSON");
+        assert_eq!(value["schema_version"], "ToolSearchFailureV3");
+        assert_eq!(value["success"], false);
+        assert_eq!(value["pairing_status"], "completed");
+        assert_eq!(value["execution_status"], "failed");
+        assert_eq!(value["failure_provenance"]["scope"], "tool_execution");
+        assert_eq!(value["failure_provenance"]["zero_dispatch"], false);
+        assert_eq!(
+            value["failure_provenance"]["affected_call_ids"],
+            serde_json::json!(["search-1"])
+        );
+        assert_eq!(value["failure_provenance"]["cause_call_id"], "search-1");
+        assert_eq!(
+            value["error"]["cause"],
+            serde_json::json!({"format": "text", "text": "query must not be empty"})
+        );
     }
 
     #[test]
