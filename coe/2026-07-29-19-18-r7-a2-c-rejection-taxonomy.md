@@ -656,3 +656,81 @@ then: complete_node(explore) + action(fix)
 - Interpretation: 原 candidate/canonical 语义扭曲未复现；显式读取发生在 map-request 外部资料模式，
   现有证据不支持让 Runtime 增加建议或自动状态推进
 - Time: 2026-07-30 05:03
+
+## Evidence E-014: Round 2 反例与 post-boundary 因果归属已 fail-closed
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - `scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1`
+  - `scripts/taskspace-benchmark/test-r7-request-observability-report.ps1`
+  - `scripts/taskspace-benchmark/test-external-wrapper-harness.ps1`
+  - `third_party/codex-cli/codex-rs/core/src/tools/sequence_tests.rs`
+- Prediction or plan link:
+  - W0 Round 2 blocking findings 1-5
+- Matched signal:
+  - rejected candidate 明确 `committed=false`，canonical 明确 `node_present`
+  - provider wire v10 保留 logical request、attempt、HTTP/WS 与所有 terminal
+  - ordinary Tool 文本不能伪造 trusted TaskSpace failure；重复 output/supplemental 阻断解析
+  - ToolSearch V3 的 `call_id` 与 `affected_call_ids` 必须一致
+  - supplemental 即使在 `token_count` 后出现，也由 affected calls 反查 owning request；跨请求、残缺、
+    重复 call identity 均 fail-closed
+  - 每个正式 run 的 8 份 raw artifact 由 evidence manifest 哈希封存，final report 只接受 clean
+    commit、matching binary probe 和 finalized aggregate
+- Correlation keys:
+  - commits `787070d88`、`79a1e1c96`、`242414c8a`、`f602e6c90`
+  - provider wire schema `provider-chat-wire-trace-v10`
+- Raw content:
+  ```text
+R7 five-layer trace analysis passed
+R7 request observability report passed
+TaskSpace external wrapper self-test: PASS
+R7 five-layer evidence freshness self-test passed
+  ```
+- Interpretation: observer 不再用事件遍历位置猜测失败属于哪个 provider request；严格集合相等门保留，
+  没有为适配真实顺序而放宽 provenance
+- Time: 2026-07-30 06:39
+
+## Evidence E-015: current-commit 24-run 正式矩阵完成 W0 事实链复验
+- Related hypotheses:
+  - H-002
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: supports
+- Type: production-trace
+- Source:
+  - `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/f602e6c90203016c38970af3b1c359f6bb1bceac/20260730-064119-500`
+- Prediction or plan link:
+  - GI-005/GI-007 fresh closure review
+- Matched signal:
+  - 24/24 business success、24/24 comparison eligible、24/24 classification reconciled
+  - artifact provenance=`valid`、findings=0、final aggregate=`finalized`
+  - commit=`f602e6c90203016c38970af3b1c359f6bb1bceac`
+  - binary SHA-256=`2e8dfd644a3c6f12120cb968844a4055d8b894b3c12fa48919695911a5894218`
+  - 281 个 TaskSpace request 对账为 149 none、83 sequence、1 TaskSpace protocol、26 state、
+    22 ordinary；138 份 sibling copy 有 explicit causal identity
+  - 7 个 `node_state_invalid` 均保留 canonical/evaluated/unsatisfied facts；3 次直接纠正，4 次
+    `map-request` 先 `read_map` 再纠正
+- Correlation keys:
+  - matrix run `20260730-064119-500`
+  - Docker image `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+- Raw content:
+  ```json
+  {
+    "status": "valid",
+    "run_count": 24,
+    "findings": [],
+    "final_aggregate_ready": true
+  }
+  ```
+- Interpretation: W0 的事实链和 fail-closed observer 已在当前 committed candidate 上成立；4 次保守
+  `read_map` 是否表示反馈显著性缺口仍需 fresh reviewer 裁决，但不能据此增加 Runtime 建议或自动推进
+- Time: 2026-07-30 06:51
