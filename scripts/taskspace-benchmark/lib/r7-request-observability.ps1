@@ -60,9 +60,11 @@ function Get-R7WireRequestFacts {
             $facts[$requestId] = [ordered]@{
                 request_id = $requestId
                 request_index = 0
+                trace_schema = ""
                 provider_wire_api = ""
                 lcp_message_count = 0
                 message_shapes = @()
+                receipt_identities = @()
                 input_tokens = $null
                 cached_input_tokens = $null
             }
@@ -70,9 +72,14 @@ function Get-R7WireRequestFacts {
         $fact = $facts[$requestId]
         if ($null -ne (Get-R7JsonProperty $event "request_index")) {
             $fact.request_index = [int]$event.request_index
+            $fact.trace_schema = [string](Get-R7JsonProperty $event "schema_version" "")
             $fact.provider_wire_api = [string](Get-R7JsonProperty $event "provider_wire_api" "")
             $fact.lcp_message_count = [int](Get-R7JsonProperty $event "lcp_message_count" 0)
             $fact.message_shapes = @(Get-R7JsonProperty $event "message_shapes" @())
+            $receiptIdentity = Get-R7JsonProperty $event "taskspace_final_receipt_identity"
+            $fact.receipt_identities = @(
+                Get-R7JsonProperty $receiptIdentity "receipts" @()
+            )
         }
         if ([string](Get-R7JsonProperty $event "event_name" "") -eq "provider.chat_wire_request_terminal") {
             $fact.input_tokens = Get-R7JsonProperty $event "input_tokens"
@@ -117,24 +124,45 @@ function Add-R7WireFactsToRequestPath {
             $null
         }
         $request | Add-Member -Force -NotePropertyName provider_wire_request_id -NotePropertyValue $fact.request_id
+        $request | Add-Member -Force -NotePropertyName provider_wire_trace_schema -NotePropertyValue $fact.trace_schema
         $request | Add-Member -Force -NotePropertyName provider_wire_api -NotePropertyValue $fact.provider_wire_api
         $request | Add-Member -Force -NotePropertyName input_tokens -NotePropertyValue $inputTokens
         $request | Add-Member -Force -NotePropertyName cached_input_tokens -NotePropertyValue $cachedTokens
         $request | Add-Member -Force -NotePropertyName cache_hit_rate -NotePropertyValue $cacheHitRate
-        $wireRole = ""
+        $receiptWireIdentity = $null
         if ([bool]$request.receipt_before) {
-            $candidateRoles = @(
-                $fact.message_shapes |
-                    Where-Object {
-                        [int]$_.index -ge [int]$fact.lcp_message_count -and
-                        [string]$_.role -in @("developer", "system")
-                    } |
-                    Sort-Object { [int]$_.index } |
-                    ForEach-Object { [string]$_.role }
+            $newReceipts = @(
+                $fact.receipt_identities |
+                    Where-Object { [int]$_.message_index -ge [int]$fact.lcp_message_count } |
+                    Sort-Object { [int]$_.message_index }
             )
-            if ($candidateRoles.Count) { $wireRole = $candidateRoles[-1] }
+            if ($newReceipts.Count) { $receiptWireIdentity = $newReceipts[-1] }
+            if ($fact.trace_schema -eq "provider-chat-wire-trace-v8" -and
+                $null -eq $receiptWireIdentity) {
+                throw "Provider wire v8 lost the response-final receipt identity for request $($index + 1)"
+            }
         }
-        $request | Add-Member -Force -NotePropertyName receipt_wire_role -NotePropertyValue $wireRole
+        $request | Add-Member -Force -NotePropertyName receipt_wire_role -NotePropertyValue (
+            [string](Get-R7JsonProperty $receiptWireIdentity "wire_role" "")
+        )
+        $request | Add-Member -Force -NotePropertyName receipt_message_index -NotePropertyValue (
+            Get-R7JsonProperty $receiptWireIdentity "message_index"
+        )
+        $request | Add-Member -Force -NotePropertyName receipt_control_call_id_sha256 -NotePropertyValue (
+            [string](Get-R7JsonProperty $receiptWireIdentity "control_call_id_sha256" "")
+        )
+        $request | Add-Member -Force -NotePropertyName receipt_reservation_revision -NotePropertyValue (
+            Get-R7JsonProperty $receiptWireIdentity "reservation_revision_after"
+        )
+        $request | Add-Member -Force -NotePropertyName receipt_canonical_revision -NotePropertyValue (
+            Get-R7JsonProperty $receiptWireIdentity "canonical_revision"
+        )
+        $request | Add-Member -Force -NotePropertyName receipt_revision_delta -NotePropertyValue (
+            Get-R7JsonProperty $receiptWireIdentity "revision_delta"
+        )
+        $request | Add-Member -Force -NotePropertyName receipt_complete -NotePropertyValue (
+            Get-R7JsonProperty $receiptWireIdentity "complete"
+        )
     }
     $RequestPath
 }

@@ -63,6 +63,35 @@ fn standard_payload_has_zero_taskspace_section_cost() {
 }
 
 #[test]
+fn current_taskspace_feedback_family_and_final_receipt_share_one_section() {
+    let wire = json!({
+        "messages": [
+            {
+                "role": "tool",
+                "content": "{\"schema_version\":\"TaskSpaceResponseCommitV1\",\"success\":true}"
+            },
+            {
+                "role": "tool",
+                "content": "{\"schema_version\":\"TaskSpaceResponseCommitFailureV1\",\"success\":false}"
+            },
+            {
+                "role": "system",
+                "content": "{\"schema_version\":\"TaskSpaceResponseFinalReceiptV1\",\"success\":true}"
+            }
+        ]
+    });
+
+    let cost = ProviderWireSectionCost::measure(&wire, "messages");
+
+    assert_eq!(
+        section(&cost, SectionKind::TaskspaceControlFeedback).count,
+        3
+    );
+    assert_eq!(section(&cost, SectionKind::SystemMessages).count, 0);
+    assert_eq!(section(&cost, SectionKind::OrdinaryToolFeedback).count, 0);
+}
+
+#[test]
 fn tool_output_containing_projection_block_remains_ordinary_feedback() {
     let wire = json!({
         "messages": [{

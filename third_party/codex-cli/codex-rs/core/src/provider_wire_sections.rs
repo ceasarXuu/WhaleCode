@@ -8,7 +8,14 @@ use sha2::Sha256;
 
 const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
 const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
-const TASKSPACE_CONTROL_RESULT_MARKER: &str = "TaskSpaceControlResultV2";
+const TASKSPACE_FEEDBACK_SCHEMAS: [&str; 6] = [
+    "TaskSpaceControlResultV2",
+    "TaskSpaceResponseCommitV1",
+    "TaskSpaceResponseCommitFailureV1",
+    "TaskSpaceResponseFinalReceiptV1",
+    "ToolSequencePreflightResultV2",
+    "ProviderToolResponsePreflightV1",
+];
 
 #[derive(Debug, Serialize)]
 pub(super) struct ProviderWireSectionCost {
@@ -229,10 +236,10 @@ fn classify_message(message: &Value) -> SectionKind {
         {
             SectionKind::ActiveProjection
         }
-        Some("system" | "developer") => SectionKind::SystemMessages,
-        Some("tool") if is_taskspace_control_feedback(message) => {
+        Some("system" | "developer" | "tool") if is_taskspace_control_feedback(message) => {
             SectionKind::TaskspaceControlFeedback
         }
+        Some("system" | "developer") => SectionKind::SystemMessages,
         Some("tool") => SectionKind::OrdinaryToolFeedback,
         Some(_) | None => SectionKind::NaturalHistory,
     }
@@ -242,15 +249,9 @@ fn is_taskspace_control_feedback(message: &Value) -> bool {
     let Some(content) = message.get("content") else {
         return false;
     };
-    let has_control_schema = |value: &Value| {
-        value.get("schema_version").and_then(Value::as_str) == Some(TASKSPACE_CONTROL_RESULT_MARKER)
-    };
-    match content {
-        Value::String(text) => serde_json::from_str::<Value>(text)
-            .ok()
-            .is_some_and(|value| has_control_schema(&value)),
-        value => has_control_schema(value),
-    }
+    TASKSPACE_FEEDBACK_SCHEMAS
+        .iter()
+        .any(|schema| super::exact_schema_payload(content, schema).is_some())
 }
 
 fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {

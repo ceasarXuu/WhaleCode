@@ -245,6 +245,7 @@ function Get-R7StandardRequestPath {
     param([string]$RolloutPath, [int]$ProviderRequests)
     $requests = New-R7RequestRows $ProviderRequests
     $requestIndex = 1
+    $observedRequestCount = 0
     $callsById = @{}
     foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $RolloutPath) {
         $event = $line | ConvertFrom-Json -Depth 100
@@ -268,8 +269,19 @@ function Get-R7StandardRequestPath {
                 $call.violation_contexts = @($outcome.violation_contexts)
             }
         } elseif ($type -eq "event_msg" -and [string](Get-R7JsonProperty $payload "type" "") -eq "token_count") {
+            $observedRequestCount++
+            if ($observedRequestCount -gt $ProviderRequests) {
+                throw "Standard rollout has more token_count boundaries than provider requests"
+            }
             if ($requestIndex -lt $ProviderRequests) { $requestIndex++ }
         }
+    }
+    if ($observedRequestCount -ne $ProviderRequests) {
+        throw "Standard rollout request boundary mismatch: observed=$observedRequestCount expected=$ProviderRequests"
+    }
+    $missingOutputs = @($callsById.Values | Where-Object { $null -eq $_.success })
+    if ($missingOutputs.Count) {
+        throw "Standard rollout has $($missingOutputs.Count) Tool calls without outputs"
     }
     Complete-R7RequestRows $requests
 }

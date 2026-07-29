@@ -22,15 +22,22 @@ function Write-JsonLines([string]$Path, [object[]]$Values) {
     )
 }
 
-function New-WireShape([string]$RequestId, [int]$Index, [object[]]$Messages, [int]$Lcp) {
+function New-WireShape(
+    [string]$RequestId,
+    [int]$Index,
+    [object[]]$Messages,
+    [int]$Lcp,
+    [object[]]$Receipts = @()
+) {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v7"
+        schema_version = "provider-chat-wire-trace-v8"
         event_name = if ($Index -eq 1) { "provider.chat_wire_shape_recorded" } else { "provider.chat_wire_prefix_broken" }
         request_id = $RequestId
         request_index = $Index
         provider_wire_api = "ChatCompletions"
         lcp_message_count = $Lcp
         message_shapes = $Messages
+        taskspace_final_receipt_identity = @{ count = $Receipts.Count; receipts = $Receipts }
         section_cost = @{
             sections = @(
                 @{ kind = "tools"; estimated_tokens = 100 },
@@ -131,7 +138,9 @@ try {
             Write-JsonLines (Join-Path $artifactDir "provider-wire-trace.jsonl") @(
                 (New-WireShape "$arm-1" 1 @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }) 0),
                 @{ event_name = "provider.chat_wire_request_terminal"; request_id = "$arm-1"; input_tokens = 100; cached_input_tokens = 0 },
-                (New-WireShape "$arm-2" 2 @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }) 2),
+                (New-WireShape "$arm-2" 2 @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }) 2 @(
+                    @{ message_index = 4; wire_role = "system"; control_call_id_sha256 = "hash"; reservation_revision_after = 1; canonical_revision = 2; revision_delta = 1; complete = $true }
+                )),
                 @{ event_name = "provider.chat_wire_request_terminal"; request_id = "$arm-2"; input_tokens = 200; cached_input_tokens = 20 }
             )
         }

@@ -26,9 +26,9 @@
     }
   },
   "taskspace_core_protocol": {
-    "version": "taskspace-core-v3.0",
-    "sha256": "8ae643f9e874aedbc8f459f2640b69e2268b98a28cf97f7855a43edcc9d7f98a",
-    "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
+    "version": "taskspace-core-v3.5",
+    "sha256": "45a013c2ce2b68d78b8dc8b01c7fd84b0965342c9b1fd61336854ece23672a14",
+    "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v3.md",
     "wire_role": "system",
     "message_index": 1,
     "section_order": 0,
@@ -45,7 +45,7 @@
     "difference_boundary": "base_instructions_core_protocol_and_plan_tool_visibility"
   },
   "observability": {
-    "wire_trace_schema": "provider-chat-wire-trace-v7",
+    "wire_trace_schema": "provider-chat-wire-trace-v8",
     "selection_event": "base_instructions.profile_selected",
     "prewarm_selection_event": "base_instructions.prewarm_profile_selected",
     "wire_identity_field": "base_instructions_identity",

@@ -3,8 +3,6 @@ param(
     [string]$CodexBasePath = "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/default.md",
     [string]$ModelCatalogPath = "third_party/codex-cli/codex-rs/models-manager/models.json",
     [string]$ProfileSourcePath = "third_party/codex-cli/codex-rs/core/src/context/base_instructions_profile.rs",
-    [string]$CoreProtocolPath = "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md",
-    [string]$SelectedCoreProtocolPath = "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
     [string]$SessionSourcePath = "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
     [string]$TurnSourcePath = "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
     [string]$WireTraceSourcePath = "third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs"
@@ -22,6 +20,7 @@ $profileSource = Get-Content -Raw -Encoding UTF8 -LiteralPath $ProfileSourcePath
 $sessionSource = Get-Content -Raw -Encoding UTF8 -LiteralPath $SessionSourcePath
 $turnSource = Get-Content -Raw -Encoding UTF8 -LiteralPath $TurnSourcePath
 $wireTraceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath $WireTraceSourcePath
+$coreProtocolPath = [string]$contract.taskspace_core_protocol.source
 
 $standard = $contract.profiles.standard
 $taskspace = $contract.profiles.taskspace
@@ -45,8 +44,7 @@ Assert-BaseInstructionsContract ([string]$taskspace.sha256 -match '^[0-9a-f]{64}
 Assert-BaseInstructionsContract ($standardDiffCount -eq 3) "standard base must differ from Codex in exactly two branding lines plus one Tool-wire boundary line"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath ([string]$standard.source)).Hash.ToLowerInvariant() -eq [string]$standard.sha256) "standard file hash does not match contract"
 Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath ([string]$taskspace.source)).Hash.ToLowerInvariant() -eq [string]$taskspace.sha256) "TaskSpace file hash does not match contract"
-Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath $CoreProtocolPath).Hash.ToLowerInvariant() -eq [string]$contract.taskspace_core_protocol.sha256) "Core protocol hash does not match contract"
-Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath $CoreProtocolPath).Hash.ToLowerInvariant() -eq (Get-FileHash -Algorithm SHA256 -LiteralPath $SelectedCoreProtocolPath).Hash.ToLowerInvariant()) "Production and selected core protocol bytes differ"
+Assert-BaseInstructionsContract ((Get-FileHash -Algorithm SHA256 -LiteralPath $coreProtocolPath).Hash.ToLowerInvariant() -eq [string]$contract.taskspace_core_protocol.sha256) "Core protocol hash does not match contract"
 Assert-BaseInstructionsContract (-not (($standardBase -join "`n").Contains("Codex agent foundation") -or ($standardBase -join "`n").Contains("optimized for DeepSeek"))) "standard base contains non-operational product background"
 Assert-BaseInstructionsContract (-not ($taskspaceBase.Contains("Codex agent foundation") -or $taskspaceBase.Contains("optimized for DeepSeek"))) "TaskSpace base contains non-operational product background"
 $forbiddenToolWireFragments = @('*** Begin Patch', '*** Update File:', '{"command"', '{"input"', '"arguments"')
@@ -66,9 +64,10 @@ Assert-BaseInstructionsContract ($turnSource.Contains("resolved_base_instruction
 Assert-BaseInstructionsContract (-not $turnSource.Contains("prepend_taskspace_working_protocol")) "obsolete TaskSpace developer protocol injection remains"
 Assert-BaseInstructionsContract ($sessionSource.Contains("taskspace_core_protocol(map_runtime_mode)")) "TaskSpace core protocol is not mode-scoped"
 Assert-BaseInstructionsContract ($sessionSource.Contains("developer_sections.push(core_protocol.to_string())")) "TaskSpace core protocol is not first in the stable developer bundle"
-Assert-BaseInstructionsContract ($wireTraceSource.Contains('schema_version: "provider-chat-wire-trace-v7"')) "wire trace v7 identity carrier is missing"
+Assert-BaseInstructionsContract ($wireTraceSource.Contains('schema_version: "provider-chat-wire-trace-v8"')) "wire trace v8 identity carrier is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("base_instructions_identity")) "wire trace base identity observer is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_core_protocol_identity")) "wire trace core protocol identity observer is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_wire_contract_identity")) "wire trace complete TaskSpace message-shape observer is missing"
+Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_final_receipt_identity")) "wire trace final receipt identity observer is missing"
 
 Write-Output "R7 dual base instructions contract tests passed."

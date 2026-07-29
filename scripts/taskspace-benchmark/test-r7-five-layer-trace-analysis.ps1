@@ -23,6 +23,14 @@ try {
         throw "Standard request path was not reconstructed"
     }
     if ($standard[0].calls[0].failure_code -ne "shell_exit_1") { throw "Standard failure was not classified" }
+    $missingStandardBoundary = Join-Path $tempRoot "standard-missing-boundary.jsonl"
+    Write-Lines $missingStandardBoundary @(
+        @{ type = "response_item"; payload = @{ type = "message"; role = "assistant" } }
+    )
+    $standardBoundaryRejected = $false
+    try { Get-R7StandardRequestPath $missingStandardBoundary 1 | Out-Null }
+    catch { $standardBoundaryRejected = $_.Exception.Message -like "Standard rollout request boundary mismatch:*" }
+    if (-not $standardBoundaryRejected) { throw "Missing Standard request boundaries did not fail closed" }
 
     $taskspacePath = Join-Path $tempRoot "taskspace.jsonl"
     $initControlArgs = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"task"},"work_nodes":[{"node_id":"explore","goal":"inspect"}],"finish":{"node_id":"finish","goal":"summarize"},"edges":[{"from":"root","to":"explore"},{"from":"explore","to":"finish"}],"actions":[{"node_id":"explore","tool":"shell_command"}]}'
@@ -91,9 +99,9 @@ try {
 
     $wirePath = Join-Path $tempRoot "wire.jsonl"
     Write-Lines $wirePath @(
-        @{ event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v8"; event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); taskspace_final_receipt_identity = @{ count = 0; receipts = @() }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
         @{ event_name = "provider.chat_wire_request_terminal"; request_id = "wire-1"; input_tokens = 100; cached_input_tokens = 0 },
-        @{ event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; request_index = 2; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }); section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v8"; event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; request_index = 2; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }); taskspace_final_receipt_identity = @{ count = 1; receipts = @(@{ message_index = 4; wire_role = "system"; control_call_id_sha256 = "hash"; reservation_revision_after = 1; canonical_revision = 2; revision_delta = 1; complete = $true }) }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
         @{ event_name = "provider.chat_wire_request_terminal"; request_id = "wire-2"; input_tokens = 200; cached_input_tokens = 20 }
     )
     $sections = Get-R7WireSectionSummary $wirePath

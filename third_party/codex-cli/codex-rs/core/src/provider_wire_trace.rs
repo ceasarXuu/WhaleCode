@@ -34,6 +34,7 @@ mod provider_wire_sections;
 use provider_wire_sections::ProviderWireSectionCost;
 
 const TRACE_PATH_ENV: &str = "WHALE_PROVIDER_WIRE_TRACE_PATH";
+const TASKSPACE_FINAL_RECEIPT_SCHEMA: &str = "TaskSpaceResponseFinalReceiptV1";
 
 #[derive(Debug)]
 pub(crate) struct ProviderWireTrace {
@@ -89,6 +90,7 @@ struct WireShapeEvent<'a> {
     message_shapes: &'a [WireMessageShape],
     base_instructions_identity: BaseInstructionsWireIdentity,
     taskspace_wire_contract_identity: TaskspaceWireContractIdentity,
+    taskspace_final_receipt_identity: TaskspaceFinalReceiptIdentity,
     taskspace_contract_manifest_identity: TaskspaceContractManifestWireIdentity,
     taskspace_core_protocol_identity: TaskspaceCoreProtocolWireIdentity,
     previous_request_id: Option<&'a str>,
@@ -151,6 +153,23 @@ struct TaskspaceWireContractIdentity {
     map_handle_is_request_tail: bool,
     matches_current_contract: bool,
     unavailable_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct TaskspaceFinalReceiptIdentity {
+    count: usize,
+    receipts: Vec<TaskspaceFinalReceiptMessageIdentity>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct TaskspaceFinalReceiptMessageIdentity {
+    message_index: usize,
+    wire_role: String,
+    control_call_id_sha256: Option<String>,
+    reservation_revision_after: Option<u64>,
+    canonical_revision: Option<u64>,
+    revision_delta: Option<i64>,
+    complete: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -253,13 +272,14 @@ impl ProviderWireTrace {
             taskspace_core_protocol_identity(&messages, &base_instructions_identity);
         let taskspace_wire_contract_identity =
             taskspace_wire_contract_identity(&messages, &base_instructions_identity);
+        let taskspace_final_receipt_identity = taskspace_final_receipt_identity(&messages);
         let taskspace_contract_manifest_identity = taskspace_contract_manifest_identity(
             &base_instructions_identity,
             &taskspace_core_protocol_identity,
             &taskspace_wire_contract_identity,
         );
         let event = WireShapeEvent {
-            schema_version: "provider-chat-wire-trace-v7",
+            schema_version: "provider-chat-wire-trace-v8",
             event_name,
             request_id: &request_id,
             epoch_id,
@@ -279,6 +299,7 @@ impl ProviderWireTrace {
             message_shapes: &message_shapes,
             base_instructions_identity,
             taskspace_wire_contract_identity,
+            taskspace_final_receipt_identity,
             taskspace_contract_manifest_identity,
             taskspace_core_protocol_identity,
             previous_request_id,
@@ -529,6 +550,66 @@ fn taskspace_wire_contract_identity(
         } else {
             "taskspace_map_handle_position_invalid"
         }),
+    }
+}
+
+fn taskspace_final_receipt_identity(messages: &[Value]) -> TaskspaceFinalReceiptIdentity {
+    let receipts = messages
+        .iter()
+        .enumerate()
+        .filter_map(|(message_index, message)| {
+            let wire_role = message.get("role").and_then(Value::as_str)?;
+            let payload = exact_schema_payload(
+                message.get("content").unwrap_or(&Value::Null),
+                TASKSPACE_FINAL_RECEIPT_SCHEMA,
+            )?;
+            let reservation_revision_after = payload
+                .get("reservation_revision_after")
+                .and_then(Value::as_u64);
+            let canonical_revision = payload.get("canonical_revision").and_then(Value::as_u64);
+            Some(TaskspaceFinalReceiptMessageIdentity {
+                message_index,
+                wire_role: wire_role.to_string(),
+                control_call_id_sha256: payload
+                    .get("control_call_id")
+                    .and_then(Value::as_str)
+                    .map(|value| json_hash(&Value::String(value.to_string()))),
+                reservation_revision_after,
+                canonical_revision,
+                revision_delta: reservation_revision_after
+                    .zip(canonical_revision)
+                    .and_then(|(before, after)| {
+                        Some(i64::try_from(after).ok()? - i64::try_from(before).ok()?)
+                    }),
+                complete: payload.get("status").and_then(Value::as_str) == Some("complete")
+                    && payload.get("success").and_then(Value::as_bool) == Some(true),
+            })
+        })
+        .collect::<Vec<_>>();
+    TaskspaceFinalReceiptIdentity {
+        count: receipts.len(),
+        receipts,
+    }
+}
+
+fn exact_schema_payload(content: &Value, schema: &str) -> Option<Value> {
+    match content {
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .ok()
+            .filter(|value| value.get("schema_version").and_then(Value::as_str) == Some(schema)),
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| exact_schema_payload(value, schema)),
+        Value::Object(object) => {
+            if object.get("schema_version").and_then(Value::as_str) == Some(schema) {
+                return Some(content.clone());
+            }
+            object
+                .get("text")
+                .or_else(|| object.get("content"))
+                .and_then(|value| exact_schema_payload(value, schema))
+        }
+        _ => None,
     }
 }
 
@@ -912,6 +993,48 @@ mod tests {
         assert!(!identity.map_handle_is_request_tail);
         assert!(identity.matches_current_contract);
         assert_eq!(identity.unavailable_reason, None);
+    }
+
+    #[test]
+    fn final_receipt_identity_preserves_exact_wire_role_and_revision_facts() {
+        let receipt = serde_json::json!({
+            "schema_version": TASKSPACE_FINAL_RECEIPT_SCHEMA,
+            "status": "complete",
+            "success": true,
+            "control_call_id": "control-1",
+            "reservation_revision_after": 4,
+            "canonical_revision": 6,
+        })
+        .to_string();
+        let messages = vec![
+            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            message("user", "task"),
+            message("system", &receipt),
+        ];
+
+        let identity = taskspace_final_receipt_identity(&messages);
+
+        assert_eq!(identity.count, 1);
+        assert_eq!(identity.receipts[0].message_index, 2);
+        assert_eq!(identity.receipts[0].wire_role, "system");
+        assert_eq!(identity.receipts[0].reservation_revision_after, Some(4));
+        assert_eq!(identity.receipts[0].canonical_revision, Some(6));
+        assert_eq!(identity.receipts[0].revision_delta, Some(2));
+        assert!(identity.receipts[0].control_call_id_sha256.is_some());
+        assert!(identity.receipts[0].complete);
+    }
+
+    #[test]
+    fn final_receipt_identity_ignores_user_text_that_only_mentions_schema() {
+        let messages = vec![message(
+            "user",
+            "please explain TaskSpaceResponseFinalReceiptV1 without emitting one",
+        )];
+
+        let identity = taskspace_final_receipt_identity(&messages);
+
+        assert_eq!(identity.count, 0);
+        assert!(identity.receipts.is_empty());
     }
 
     #[test]
