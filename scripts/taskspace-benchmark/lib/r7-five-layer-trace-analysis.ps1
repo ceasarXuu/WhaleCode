@@ -7,6 +7,7 @@ function Get-R7JsonProperty {
 }
 
 . (Join-Path $PSScriptRoot "r7-request-observability.ps1")
+. (Join-Path $PSScriptRoot "r7-state-rejection-summary.ps1")
 if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "ordinary-tool-outcome.ps1")
 }

@@ -100,8 +100,8 @@ function Get-R7SupplementalFailureShapeError {
     if ([string]::IsNullOrWhiteSpace([string]$Payload.status)) {
         return "$schemaVersion has an empty status"
     }
-    if ([bool]$Payload.success) {
-        return "$schemaVersion does not describe a failure"
+    if ($Payload.success -isnot [bool] -or [bool]$Payload.success) {
+        return "$schemaVersion success must be boolean false"
     }
     $error = Get-R7JsonProperty $Payload "error"
     foreach ($field in @("class", "code")) {

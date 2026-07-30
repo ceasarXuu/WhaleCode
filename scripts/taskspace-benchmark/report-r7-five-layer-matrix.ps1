@@ -391,16 +391,16 @@ foreach ($row in $overall) {
     $lines.Add("| $($row.arm) | $($row.committed_initialize_and_execute_total) / $($row.initialize_and_execute_total) / $($row.failed_initialize_and_execute_total) | $($row.first_request_initialization_total) / $($row.first_request_initialization_commits_total) | $($row.direct_initialize_control_total) | $($row.no_task_path_rejections_total) |")
 }
 $lines.Add("")
-$lines.Add("| arm | node_state_invalid request | 状态对 | 下一请求 read_map |")
-$lines.Add("|---|---:|---|---:|")
+$lines.Add("| arm | node_state_invalid 请求 | 违规事实 | 状态对（违规数） | 下一请求 read_map |")
+$lines.Add("|---|---:|---:|---|---:|")
 foreach ($row in @($nodeStateRejections.by_arm)) {
     $pairs = @(
         $row.state_pairs |
             ForEach-Object {
-                "$($_.canonical_state)->$($_.candidate_state):$($_.request_count)"
+                "$($_.canonical_state)->$($_.candidate_state):$($_.violation_count)"
             }
     ) -join ", "
-    $lines.Add("| $($row.arm) | $($row.request_count) | $pairs | $($row.next_read_map_count) |")
+    $lines.Add("| $($row.arm) | $($row.request_count) | $($row.violation_count) | $pairs | $($row.next_read_map_request_count) |")
 }
 $lines.Add("")
 $lines.Add("逐运行明细：``summary.csv``；分样本和全局聚合：``aggregate.csv``；trace 索引与初筛异常：``trace-analysis.json``。")

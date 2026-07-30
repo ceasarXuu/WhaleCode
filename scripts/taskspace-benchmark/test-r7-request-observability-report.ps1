@@ -294,6 +294,17 @@ try {
                                         [pscustomobject]@{ state = "ready" }
                                     rejected_candidate_at_violation =
                                         [pscustomobject]@{ state = "completed" }
+                                },
+                                [pscustomobject]@{
+                                    code = "node_state_invalid"
+                                    node_id = "work"
+                                    canonical_before_transaction =
+                                        [pscustomobject]@{
+                                            node_present = $false
+                                            state = ""
+                                        }
+                                    rejected_candidate_at_violation =
+                                        [pscustomobject]@{ state = "waiting" }
                                 }
                             )
                         }
@@ -312,9 +323,19 @@ try {
         }
     )
     if ([int]$stateSummary.request_count -ne 1 -or
-        [int]$stateSummary.next_read_map_count -ne 1 -or
-        [string]$stateSummary.by_arm[0].state_pairs[0].canonical_state -ne "ready" -or
-        [string]$stateSummary.by_arm[0].state_pairs[0].candidate_state -ne "completed") {
+        [int]$stateSummary.violation_count -ne 2 -or
+        [int]$stateSummary.next_read_map_request_count -ne 1 -or
+        [int]$stateSummary.by_arm[0].request_count -ne 1 -or
+        [int]$stateSummary.by_arm[0].violation_count -ne 2 -or
+        [int]$stateSummary.by_arm[0].state_pairs.Count -ne 2 -or
+        @(
+            $stateSummary.by_arm[0].state_pairs |
+                Where-Object {
+                    [string]$_.canonical_state -eq "ready" -and
+                    [string]$_.candidate_state -eq "completed" -and
+                    [int]$_.violation_count -eq 1
+                }
+        ).Count -ne 1) {
         throw "Node-state rejection summary did not preserve state pairs and follow-up actions: $($stateSummary | ConvertTo-Json -Compress -Depth 20)"
     }
     $finalProvenancePath = Join-Path $runRoot "artifact-provenance.json"

@@ -93,6 +93,10 @@ try {
         "incomplete" `
         @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"failure_provenance":{},"error":{"class":"tool","code":"tool_search_failed"}}') `
         "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "non-boolean-success" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":"false","call_id":"non-boolean-success-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:non-boolean-success-search","zero_dispatch":false,"cause_call_id":"non-boolean-success-search","affected_call_ids":["non-boolean-success-search"]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
 
     $duplicateCall = "duplicate-search"
     $duplicate = $valid.Replace($callId, $duplicateCall)
