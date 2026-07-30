@@ -4,6 +4,8 @@ function Assert-R7ExecutionPlan {
         throw $Message
     }
 }
+. (Join-Path $PSScriptRoot "r7-execution-plan-evidence.ps1")
+. (Join-Path $PSScriptRoot "r7-execution-plan-projection.ps1")
 function Assert-R7ExecutionPlanUniqueJsonProperties {
     param(
         [System.Text.Json.JsonElement]$Element,
@@ -90,39 +92,6 @@ function Test-R7ExecutionPlanReady {
     }
     $true
 }
-function Get-R7ExecutionPlanEvidence {
-    param($Reference, [string]$RepoRoot, [string]$Label)
-    $relativePath = [string]$Reference.path
-    Assert-R7ExecutionPlan (-not [IO.Path]::IsPathRooted($relativePath)) `
-        "$Label evidence path must be repository-relative"
-    Assert-R7ExecutionPlan ($relativePath -notmatch '(^|[\\/])\.\.([\\/]|$)') `
-        "$Label evidence path escapes the repository"
-    Assert-R7ExecutionPlan ($relativePath -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*:') `
-        "$Label evidence path must not be a URI"
-    $root = [IO.Path]::GetFullPath($RepoRoot).TrimEnd(
-        [IO.Path]::DirectorySeparatorChar,
-        [IO.Path]::AltDirectorySeparatorChar
-    )
-    $fullPath = [IO.Path]::GetFullPath((Join-Path $root $relativePath))
-    $prefix = $root + [IO.Path]::DirectorySeparatorChar
-    Assert-R7ExecutionPlan (
-        $fullPath.StartsWith($prefix, [StringComparison]::Ordinal)
-    ) "$Label evidence path resolves outside the repository"
-    Assert-R7ExecutionPlan (Test-Path -LiteralPath $fullPath -PathType Leaf) `
-        "$Label evidence artifact is missing: $relativePath"
-    $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $fullPath).Hash.ToLowerInvariant()
-    Assert-R7ExecutionPlan ($actualHash -eq [string]$Reference.sha256) `
-        "$Label evidence SHA-256 does not match: $relativePath"
-    $artifact = Get-Content -Raw -Encoding UTF8 -LiteralPath $fullPath |
-        ConvertFrom-Json -Depth 100 -NoEnumerate
-    Assert-R7ExecutionPlan (
-        [string]$artifact.schema_version -eq [string]$Reference.schema_version
-    ) "$Label evidence schema_version does not match: $relativePath"
-    Assert-R7ExecutionPlan (
-        [string]$artifact.artifact_type -eq [string]$Reference.artifact_type
-    ) "$Label evidence artifact_type does not match: $relativePath"
-    $artifact
-}
 function Assert-R7ExecutionPlanSemantics {
     param($Manifest, [string]$RepoRoot)
     $phases = @($Manifest.phases)
@@ -171,6 +140,39 @@ function Assert-R7ExecutionPlanSemantics {
         "Promotion must depend directly and only on formal evaluation"
     Assert-R7ExecutionPlan ($promotionId -eq [string]$phases[-1].id) `
         "Promotion decision must be the final phase"
+    $routeRoleContracts = @{
+        nested_dispatch_boundary = @{
+            kind = "implementation"; domain = "nested_capability.boundary"
+        }
+        multi_patch_runtime_safety = @{
+            kind = "validation"; domain = "benchmark.multi_patch_runtime_boundary"
+        }
+        multi_patch_agent_behavior = @{
+            kind = "diagnosis"; domain = "benchmark.multi_patch_agent_behavior"
+        }
+    }
+    $routeRoleIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($role in $routeRoleContracts.Keys) {
+        $phaseId = [string]$Manifest.route_role_phase_ids.$role
+        Assert-R7ExecutionPlan $byId.ContainsKey($phaseId) `
+            "Route role $role references unknown phase $phaseId"
+        Assert-R7ExecutionPlan $routeRoleIds.Add($phaseId) `
+            "Route roles must bind to distinct phases"
+        $phase = $byId[$phaseId]
+        Assert-R7ExecutionPlan (
+            [string]$phase.kind -eq [string]$routeRoleContracts[$role].kind -and
+            [string]$phase.change_domain_key -eq [string]$routeRoleContracts[$role].domain
+        ) "Route role $role is bound to the wrong phase"
+    }
+    $nestedBoundaryId = [string]$Manifest.route_role_phase_ids.nested_dispatch_boundary
+    $runtimeSafetyId = [string]$Manifest.route_role_phase_ids.multi_patch_runtime_safety
+    $agentBehaviorId = [string]$Manifest.route_role_phase_ids.multi_patch_agent_behavior
+    Assert-R7ExecutionPlan (
+        $nestedBoundaryId -in @($byId[$runtimeSafetyId].depends_on)
+    ) "Runtime safety route role must depend on the nested boundary role"
+    Assert-R7ExecutionPlan (
+        (@($byId[$agentBehaviorId].depends_on) -join ",") -eq $runtimeSafetyId
+    ) "Agent behavior route role must depend directly and only on runtime safety"
     $expectedRoots = @(1..10 | ForEach-Object { "R71-GI-{0:D3}" -f $_ })
     $declaredRoots = @($Manifest.defect_roots | ForEach-Object { [string]$_ } | Sort-Object)
     Assert-R7ExecutionPlan (($declaredRoots -join ",") -eq ($expectedRoots -join ",")) `
@@ -178,6 +180,7 @@ function Assert-R7ExecutionPlanSemantics {
     $coveredRoots = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $inProgressDomains = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $eventNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $evidenceTypes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     Assert-R7ExecutionPlan $eventNames.Add([string]$Manifest.state_transition_audit.event_name) `
         "Duplicate state transition audit event name"
     foreach ($field in @(
@@ -214,23 +217,15 @@ function Assert-R7ExecutionPlanSemantics {
         ) "$phaseId closure outcome is not allowed"
         Assert-R7ExecutionPlan $eventNames.Add([string]$phase.observability.event_name) `
             "Duplicate execution plan event name: $($phase.observability.event_name)"
-        if ($null -ne $phase.failure_route) {
-            foreach ($forbiddenId in @($phase.failure_route.forbidden_target_ids)) {
-                Assert-R7ExecutionPlan $byId.ContainsKey([string]$forbiddenId) `
-                    "$phaseId failure route names unknown phase $forbiddenId"
-            }
-        }
+        Assert-R7ExecutionPlan $evidenceTypes.Add([string]$phase.acceptance_evidence_type) `
+            "Duplicate acceptance_evidence_type: $($phase.acceptance_evidence_type)"
 
         if ([string]$phase.status -eq "closed") {
             foreach ($dependency in @($phase.depends_on)) {
                 Assert-R7ExecutionPlan ([string]$byId[[string]$dependency].status -eq "closed") `
                     "$phaseId is closed before dependency $dependency"
             }
-            Assert-R7ExecutionPlan (
-                [string]$phase.evidence_artifact.artifact_type -eq
-                [string]$phase.acceptance_evidence_type
-            ) "$phaseId evidence artifact_type does not match its acceptance contract"
-            [void](Get-R7ExecutionPlanEvidence $phase.evidence_artifact $RepoRoot $phaseId)
+            Assert-R7ExecutionPlanPhaseEvidence $phase $RepoRoot
         }
         if ([string]$phase.status -in @("decision_pending", "in_progress")) {
             foreach ($dependency in @($phase.depends_on)) {
@@ -313,30 +308,9 @@ function Assert-R7ExecutionPlanSemantics {
         Assert-R7ExecutionPlan $spawnedTargets.ContainsKey([string]$phase.id) `
             "$($phase.id) declares a parent diagnosis without a spawned repair mapping"
     }
-    $phaseByEvidence = @{}
-    foreach ($phase in $phases) {
-        $phaseByEvidence[[string]$phase.acceptance_evidence_type] = [string]$phase.id
-    }
-    $routeContracts = @{
-        patch_dispatch_safety_matrix = @(
-            $phaseByEvidence.nested_boundary_pair,
-            $phaseByEvidence.patch_attempt_behavior_matrix
-        )
-        patch_attempt_behavior_matrix = @(
-            $phaseByEvidence.nested_boundary_pair,
-            $phaseByEvidence.patch_dispatch_safety_matrix
-        )
-    }
-    foreach ($evidenceType in $routeContracts.Keys) {
-        $phase = $phases | Where-Object {
-            [string]$_.acceptance_evidence_type -eq $evidenceType
-        }
-        Assert-R7ExecutionPlan ($null -ne $phase.failure_route) `
-            "$evidenceType lacks a machine failure route"
-        $actual = @($phase.failure_route.forbidden_target_ids | Sort-Object)
-        $expected = @($routeContracts[$evidenceType] | Sort-Object)
-        Assert-R7ExecutionPlan (($actual -join ",") -eq ($expected -join ",")) `
-            "$evidenceType forbidden failure targets drifted"
+    foreach ($phaseId in @($runtimeSafetyId, $agentBehaviorId)) {
+        Assert-R7ExecutionPlan ($null -ne $byId[$phaseId].failure_route) `
+            "$phaseId lacks a machine failure route"
     }
 
     $current = $byId[[string]$Manifest.current_phase_id]
@@ -365,14 +339,10 @@ function Assert-R7ExecutionPlanSemantics {
                 "$($entry.identity) lacks a sealed sample manifest"
         }
         if ($null -ne $entry.sample_manifest) {
-            Assert-R7ExecutionPlan (
-                [string]$entry.sample_manifest.artifact_type -eq "held_out_sample_manifest"
-            ) "$($entry.identity) uses the wrong artifact_type"
-            $artifact = Get-R7ExecutionPlanEvidence `
-                $entry.sample_manifest $RepoRoot "$($entry.identity) sample set"
-            Assert-R7ExecutionPlan (@($artifact.sample_ids).Count -gt 0) `
-                "$($entry.identity) sample manifest has no sample_ids"
-            $heldOutSamples[[string]$entry.identity] = @($artifact.sample_ids)
+            $heldOutSamples[[string]$entry.identity] = @(
+                Get-R7ExecutionPlanHeldOutSamples `
+                    $entry.sample_manifest $RepoRoot "$($entry.identity) sample set"
+            )
         }
     }
     if ($heldOutSamples.Count -eq 2) {
@@ -383,117 +353,4 @@ function Assert-R7ExecutionPlanSemantics {
         Assert-R7ExecutionPlan ($overlap.Count -eq 0) `
             "Engineering and promotion held-out sample sets overlap"
     }
-}
-
-function Assert-R7ExecutionPlanDefinitionRoutes {
-    param([string]$DocumentText, $Manifest)
-    foreach ($phase in @($Manifest.phases | Where-Object { $null -ne $_.failure_route })) {
-        $start = "### $($phase.id)："
-        $startIndex = $DocumentText.IndexOf($start, [StringComparison]::Ordinal)
-        Assert-R7ExecutionPlan ($startIndex -ge 0) "Missing definition for $($phase.id)"
-        $exitIndex = $DocumentText.IndexOf("- 退出/分流：", $startIndex, [StringComparison]::Ordinal)
-        $rollbackIndex = $DocumentText.IndexOf("- 回退：", $exitIndex, [StringComparison]::Ordinal)
-        Assert-R7ExecutionPlan ($exitIndex -ge 0 -and $rollbackIndex -gt $exitIndex) `
-            "Missing failure routing prose for $($phase.id)"
-        $routingText = $DocumentText.Substring($exitIndex, $rollbackIndex - $exitIndex)
-        foreach ($forbiddenId in @($phase.failure_route.forbidden_target_ids)) {
-            Assert-R7ExecutionPlan (-not $routingText.Contains([string]$forbiddenId)) `
-                "$($phase.id) prose routes a failure to forbidden target $forbiddenId"
-        }
-    }
-}
-
-function Compress-R7ExecutionPlanIds {
-    param([object[]]$Ids)
-    if (-not $Ids.Count) {
-        return "无"
-    }
-    $numbers = @($Ids | ForEach-Object { [int]([string]$_).Substring(4) } | Sort-Object)
-    $segments = [Collections.Generic.List[string]]::new()
-    $start = $numbers[0]
-    $previous = $start
-    for ($index = 1; $index -le $numbers.Count; $index++) {
-        $current = if ($index -lt $numbers.Count) { $numbers[$index] } else { $null }
-        if ($null -ne $current -and $current -eq $previous + 1) {
-            $previous = $current
-            continue
-        }
-        if ($previous -gt $start) {
-            $segments.Add(("R71-{0:D2}～{1:D2}" -f $start, $previous))
-        } else {
-            $segments.Add(("R71-{0:D2}" -f $start))
-        }
-        if ($null -ne $current) {
-            $start = $current
-            $previous = $current
-        }
-    }
-    $segments -join "、"
-}
-
-function Get-R7ExecutionPlanProjectionTable {
-    param($Manifest)
-    $kindMap = @{
-        repair = "返修"; implementation = "实现"; decision = "决策"
-        diagnosis = "诊断"; validation = "复验"; audit = "审计"
-        evaluation = "验收"; release = "发布准备"; promotion = "用户决策"
-    }
-    $statusMap = @{
-        repair = "返修"; planned = "待实施"; decision_pending = "待决策"
-        verification_pending = "待复验"; gated = "待准入"
-        in_progress = "实施中"; closed = "已关闭"
-    }
-    $lines = [Collections.Generic.List[string]]::new()
-    $lines.Add("| ID | 单一主题 | 类型 | 严重度 | 状态 | Ready | 直接依赖 | 根因 | 关闭结果 | 派生修复 | 独立退出证据 |")
-    $lines.Add("|---|---|---|---|---|---|---|---|---|---|---|")
-    $byId = @{}
-    foreach ($phase in @($Manifest.phases)) {
-        $byId[[string]$phase.id] = $phase
-    }
-    foreach ($phase in @($Manifest.phases)) {
-        $severity = if ([string]$phase.severity -eq "blocking") { "阻断级" } else { "高" }
-        $roots = if (@($phase.root_ids).Count) {
-            @($phase.root_ids | ForEach-Object { ([string]$_).Replace("R71-", "") }) -join "、"
-        } else {
-            "无"
-        }
-        $evidence = ([string]$phase.acceptance_evidence_type).Replace("_", " ")
-        $ready = if (Test-R7ExecutionPlanReady $phase $byId) { "是" } else { "否" }
-        $outcome = if ([string]$phase.closure_outcome -eq "pending") {
-            "待关闭"
-        } else {
-            [string]$phase.closure_outcome
-        }
-        $spawned = if (@($phase.spawned_repairs).Count) {
-            @($phase.spawned_repairs | ForEach-Object {
-                "$($_.root_cause_id)→$($_.phase_id)"
-            }) -join "、"
-        } else {
-            "无"
-        }
-        $lines.Add(
-            "| $($phase.id) | $($phase.title) | $($kindMap[[string]$phase.kind]) | " +
-            "$severity | $($statusMap[[string]$phase.status]) | $ready | " +
-            "$(Compress-R7ExecutionPlanIds @($phase.depends_on)) | $roots | " +
-            "$outcome | $spawned | $evidence |"
-        )
-    }
-    $lines -join "`n"
-}
-
-function Assert-R7ExecutionPlanProjection {
-    param([string]$DocumentText, $Manifest)
-    $begin = "<!-- R71_EXECUTION_PLAN_TABLE_BEGIN -->"
-    $end = "<!-- R71_EXECUTION_PLAN_TABLE_END -->"
-    $beginIndex = $DocumentText.IndexOf($begin, [StringComparison]::Ordinal)
-    $endIndex = $DocumentText.IndexOf($end, [StringComparison]::Ordinal)
-    Assert-R7ExecutionPlan ($beginIndex -ge 0 -and $endIndex -gt $beginIndex) `
-        "Execution plan projection markers are missing"
-    $actual = $DocumentText.Substring(
-        $beginIndex + $begin.Length,
-        $endIndex - $beginIndex - $begin.Length
-    ).Trim()
-    $expected = (Get-R7ExecutionPlanProjectionTable $Manifest).Trim()
-    Assert-R7ExecutionPlan ($actual -eq $expected) `
-        "Execution plan reader projection drifted from the embedded manifest"
 }

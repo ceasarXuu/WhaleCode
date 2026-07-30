@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/r7-phase-evidence-v1.schema.json",
+  "title": "R7.1 phase acceptance evidence",
+  "type": "object",
+  "required": ["schema_version", "artifact_type", "records"],
+  "properties": {
+    "schema_version": {"const": "r71-phase-evidence-v1"},
+    "artifact_type": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.-]+$"
+    },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "minProperties": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

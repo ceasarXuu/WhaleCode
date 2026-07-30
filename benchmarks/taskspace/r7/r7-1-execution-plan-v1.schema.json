@@ -13,6 +13,7 @@
     "candidate_freeze_phase_id",
     "formal_evaluation_phase_id",
     "promotion_decision_phase_id",
+    "route_role_phase_ids",
     "defect_roots",
     "held_out_sets",
     "state_transition_audit",
@@ -30,6 +31,20 @@
     "candidate_freeze_phase_id": {"$ref": "#/$defs/phaseId"},
     "formal_evaluation_phase_id": {"$ref": "#/$defs/phaseId"},
     "promotion_decision_phase_id": {"$ref": "#/$defs/phaseId"},
+    "route_role_phase_ids": {
+      "type": "object",
+      "required": [
+        "nested_dispatch_boundary",
+        "multi_patch_runtime_safety",
+        "multi_patch_agent_behavior"
+      ],
+      "properties": {
+        "nested_dispatch_boundary": {"$ref": "#/$defs/phaseId"},
+        "multi_patch_runtime_safety": {"$ref": "#/$defs/phaseId"},
+        "multi_patch_agent_behavior": {"$ref": "#/$defs/phaseId"}
+      },
+      "additionalProperties": false
+    },
     "defect_roots": {
       "type": "array",
       "minItems": 1,
@@ -92,11 +107,12 @@
     },
     "evidenceRef": {
       "type": "object",
-      "required": ["path", "sha256", "artifact_type", "schema_version"],
+      "required": ["path", "sha256", "artifact_type", "schema_path", "schema_version"],
       "properties": {
         "path": {"type": "string", "minLength": 1},
         "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "artifact_type": {"type": "string", "pattern": "^[a-z0-9_.-]+$"},
+        "schema_path": {"type": "string", "minLength": 1},
         "schema_version": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
@@ -112,15 +128,11 @@
     },
     "failureRoute": {
       "type": "object",
-      "required": ["failure_signal", "action", "forbidden_target_ids"],
+      "required": ["failure_signal", "action", "existing_phase_reuse"],
       "properties": {
         "failure_signal": {"type": "string", "minLength": 1},
         "action": {"const": "spawn_atomic_phase"},
-        "forbidden_target_ids": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/phaseId"}
-        }
+        "existing_phase_reuse": {"const": "forbidden"}
       },
       "additionalProperties": false
     },

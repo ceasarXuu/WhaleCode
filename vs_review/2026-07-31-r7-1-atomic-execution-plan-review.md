@@ -489,3 +489,209 @@ SHA-256 和证据 schema/version，门禁必须验证真实文件与摘要。
 
 ARCH-B01/B02 已关闭；ARCH-B03 仍开放，并新增 ARCH-NB01/NB02。主 Agent 已接受并实施第二轮修复，
 但依据 review hard rule，必须由新的 fresh reviewer 完成 Round 3 后才能关闭报告。
+
+## Round 3: Validator bypass closure
+
+### Review Input
+
+#### Objective
+
+只验证提交 `0d5a02f9c` 是否关闭 Round 2 的 ARCH-B03、ARCH-NB01、ARCH-NB02，并确认修复没有建立
+平行事实源、不可维护的固定编号合同或虚假 evidence 证明。
+
+#### Review Target
+
+- Phase DAG、ready/current、诊断派生修复和成本/晋升祖先关系；
+- dynamic cost、candidate freeze、formal evaluation、promotion 特殊角色；
+- evidence path、SHA-256、artifact type、schema/version 与 held-out sample 隔离；
+- machine failure route、读者投影、状态转移审计和插入 Phase 正向 fixture。
+
+#### Target Locations
+
+- `docs/v0.0.5/build-R7/47-r7.1-global-issue-register.md`
+- `benchmarks/taskspace/r7/r7-1-execution-plan-v1.schema.json`
+- `scripts/taskspace-benchmark/lib/r7-execution-plan-contract.ps1`
+- `scripts/taskspace-benchmark/test-r7-unified-execution-plan.ps1`
+- Round 2 findings and responses in this report
+
+#### Change Introduction
+
+- 删除 `blocks_dynamic_cost` / `blocks_promotion`，从编号位置和 DAG 祖先关系推导阻断；
+- 特殊角色绑定 kind、最终四段直接依赖链和最终 promotion 位置；
+- `in_progress`、`decision_pending`、`current_phase_id` 必须 open + ready；
+- `spawned_repairs` 建立 root-cause/phase 映射，派生 Phase 反向引用父诊断；
+- evidence 改为仓库相对路径、SHA-256、artifact type、schema/version，并验证真实文件；
+- held-out 使用 sealed sample manifest，验证内容摘要和 sample ID 不相交；
+- failure route 声明禁止目标，工程说明的退出段不得回退禁止目标；
+- 增加 20 类负向 mutant、held-out 正反 fixture 和 20 -> 21 Phase 插入/重编号正向 fixture。
+
+#### Risk Focus
+
+- 是否还能通过重绑定特殊 ID、改变 kind 或断开末端链绕过用户晋升；
+- 是否存在早于 dynamic cost 但不是其祖先的 Phase；
+- 派生 Phase 是否能指向自身、祖先、已关闭节点，或伪造 parent/root 映射；
+- `in_progress` 或 current 是否仍能指向依赖未关闭的 Phase；
+- 任意真实 JSON 是否能因自报 artifact type/schema 而冒充验收证据；
+- held-out 是否只比较字符串，没有验证实际 sample 集合；
+- failure route 是否只是另一段不受校验的文字；
+- 正向插入 fixture 是否真正重编号全部引用，还是只迎合固定 20 Phase；
+- helper/test 是否因本轮扩张形成超过必要复杂度或第二事实源。
+
+#### User-Perspective Focus
+
+- 接手者能否从读者投影直接判断 ready、关闭结果和派生修复；
+- current 是否始终指向可实际推进的 Phase；
+- 用户晋升决策是否仍是不可绕过的唯一最终节点；
+- 验收证据错误时，失败原因是否能定位到路径、摘要、类型或依赖。
+
+#### Implementation-Completeness Focus
+
+- Schema、semantic validator、projection validator 和 mutant 是否覆盖同一合同；
+- 测试是否包含 reviewer Round 2 的真实绕过方式；
+- 插入新 Phase 是否自动阻断成本/晋升，并保持特殊链正确；
+- 关闭证据和 held-out 引用是否读取真实文件而非只校验字符串。
+
+#### Target-Benefit Focus
+
+- 目标收益是计划门可以拒绝构造性绕过，不是声称 Runtime/Agent 性能提升；
+- 基线为 Round 2 reviewer 成功通过的五类 mutant；
+- 验证方法为同类负向 mutant、真实文件摘要反例和扩展正向 fixture；
+- 本轮未改生产行为，因此 sample 性能不是关闭条件。
+
+#### Assumptions To Attack
+
+- “编号在成本 Phase 前”天然意味着依赖成本 Phase；
+- 特殊角色有正确名字就不会被重绑定；
+- 真实存在且 SHA 正确的 JSON 一定是正确类型的证据；
+- parent 反向引用天然与 source 的 spawned mapping 一致；
+- 两套 held-out manifest 不同就表示 sample 集合不重叠；
+- 失败路由禁止目标不会在工程说明中重新出现；
+- 单个插入 fixture 足以证明无固定 20 Phase 假设。
+
+#### Adversarial Lenses
+
+- architecture
+- state
+- failure
+- data integrity
+- maintenance
+- testing
+- observability
+- implementation completeness
+- user comprehension
+
+#### Verification Status
+
+- `test-r7-unified-execution-plan.ps1`: PASS
+- `test-r7-five-layer-contracts.ps1 -Phase All`: PASS
+- `cargo test -p codex-core context::taskspace_contract --lib`: 2 passed
+- PowerShell parser: PASS
+- `git diff --check`: PASS
+- helper 499 lines；test 461 lines
+- no production Agent/Runtime change; no sample run
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session，`fork_context=false`；
+- 直接读取提交和目标文件，不继承主 Agent 或 Round 2 reviewer 上下文；
+- 只读，不修改文件；
+- 优先亲自构造 mutant，不以现有测试 PASS 代替审查；
+- 对 ARCH-B03/NB01/NB02 分别给出 `closed` 或 `still_open`；
+- 新 blocking 必须给出可复现输入、影响和所需证明；
+- 不把风格偏好或未实现的未来产品收益升级为 blocking。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| high-risk | 20 minutes | one 10-minute extension when alive | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| architecture-adversary | 本轮是接受 blocker 后的机器合同关闭审查，需要 fresh 独立 falsification | DAG、角色、证据、扩展与维护 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb50e-0f7e-7a72-a454-4f1e658e0879` | spawn result + completion notification | `fork_context=false` | Round 3 Review Input | main-agent history、reasoning、uncommitted drafts、Round 2 reviewer context | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| round3-architecture | architecture-adversary | 1 | `019fb50e-0f7e-7a72-a454-4f1e658e0879` | under 20 minutes | completed | reviewer returned before timeout | completed |
+
+### Reviewer Outputs
+
+#### round3-architecture
+
+##### Verdict
+
+**BLOCKED**
+
+##### R3-B01：结构为空的 evidence 可以关闭任意 Phase
+
+reviewer 构造了只有 `schema_version` 和 `artifact_type` 的真实 JSON，计算正确 SHA-256 后用于关闭 R71-02。
+Schema、semantic、projection 和 definition-route validator 全部接受，输出
+`FULL_TARGET_VALIDATORS_ACCEPTED_BOGUS_CLOSURE`。
+
+根因：当前只验证 evidence reference envelope、文件存在性、摘要和文件自报的 type/version；
+没有用权威 artifact schema 验证内容，也没有验证 Phase observability 所需字段。
+
+影响：空元数据壳可以宣称实现、评测、冻结甚至晋升完成。SHA-256 只能证明内容身份，不能证明验收有效。
+
+##### R3-B02：failure route 可通过角色重绑定和标题别名绕过
+
+reviewer 将 `nested_boundary_pair` 从 R71-08 移到 R71-13，同步修改禁止 ID，并在 R71-14 工程说明中使用
+“nested dispatcher 硬边界实现”标题而非 ID 表达回退。所有 validator 接受，输出
+`FULL_TARGET_VALIDATORS_ACCEPTED_ROUTE_ROLE_REBIND`。
+
+根因：受保护角色从可变、非唯一的 `acceptance_evidence_type` 推导；工程说明只搜索禁止 ID 字符串，
+形成可用标题别名绕过的平行语义源。
+
+影响：Runtime safety 失败仍可重新打开既有 Runtime 实现 Phase，恢复 Round 1 的责任循环。
+
+##### Requested Closure Status
+
+- ARCH-B03：`still_open`；DAG/ready/parent 部分已关闭，但 false evidence 和 failure route 仍可绕过；
+- ARCH-NB01：`still_open`；reference identity 已建立，artifact 内容有效性仍是自报；
+- ARCH-NB02：`still_open`；编号扩展已通过，failure routing 仍是机器与文字双源。
+
+##### Positive Controls
+
+特殊角色重绑定、promotion kind 漂移、末端链断开、成本前孤儿、blocked current/in-progress 和伪造父诊断均被拒绝。
+reviewer 还在 R71-10 任意位置插入 Phase，生产 validator 正确接受 21 Phase 并重排成本与 promotion，
+证明生产 validator 不依赖固定 20 个编号。
+
+##### Non-blocking Risks
+
+- 自带 insertion helper 只测试临近成本门插入，不测试任意位置；
+- evidence 路径 containment 未处理 symlink canonicalization；
+- state-transition audit 只验证声明，未校验已发出的 audit artifact/replay；
+- 缺少 same-type/same-hash 但内容结构非法的 evidence mutant。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| R3-B01 | accept | reviewer 的空壳 artifact 在完整 validator 路径通过，反例可复现 | 为 Phase evidence 和 held-out 各建立固定权威 schema；reference 固定 schema path/version；Phase evidence records 必须满足 observability required fields | Round 4 fresh closure review |
+| R3-B02 | accept | evidence label 不是稳定 routing role；substring 检查不能约束标题别名 | 新增独立 route role IDs 并绑定 kind/change domain；evidence type 全局唯一；删除 substring 门，改为机器生成 failure-route 读者投影和 canonical 工程引用 | Round 4 fresh closure review |
+| 任意位置 insertion | accept passed | reviewer 的 R71-10 插入证明生产 validator 不硬编码 20 Phase | 保留生产逻辑；扩展自带正向 fixture 到任意插入位置 | Round 4 复核 |
+| symlink containment | accept | lexical prefix 不能证明真实路径仍在 repo | evidence resolver 增加 symlink/reparse-point 拒绝 | Round 4 复核 |
+| transition audit artifact | defer non-blocking | 本轮是静态计划治理；真实 transition 尚未发生 | 在首次状态变更实现时要求 audit artifact/replay，不以声明替代运行证据 | R71-01 状态变更前 |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, pending fresh verification
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Allowed to proceed: no
+
+## Round 3 Conclusion
+
+图、状态、特殊末端链和编号扩展门禁有效，但 evidence 内容与 failure route 仍存在自证循环。两项 blocker
+均接受，必须完成权威 artifact schema、稳定 route roles 和单一机器投影后再启动 fresh Round 4。

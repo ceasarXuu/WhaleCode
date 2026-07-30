@@ -36,117 +36,22 @@ function Assert-Plan {
     Assert-R7ExecutionPlanSemantics $Plan $repoRoot
 }
 
-function Update-PhaseReference {
-    param([string]$Id, [int]$InsertNumber)
-    if ($null -eq $Id) {
-        return $null
-    }
-    $number = [int]$Id.Substring(4)
-    if ($number -ge $InsertNumber) {
-        return "R71-{0:D2}" -f ($number + 1)
-    }
-    $Id
-}
-
-function Add-PlanPhaseBeforeCost {
-    param($Plan)
-    $expanded = Copy-Plan $Plan
-    $insertNumber = [int]([string]$expanded.dynamic_cost_phase_id).Substring(4) - 1
-    foreach ($phase in @($expanded.phases)) {
-        $phase.id = Update-PhaseReference ([string]$phase.id) $insertNumber
-        $phase.depends_on = @($phase.depends_on | ForEach-Object {
-            Update-PhaseReference ([string]$_) $insertNumber
-        })
-        if ($null -ne $phase.parent_diagnosis_id) {
-            $phase.parent_diagnosis_id = Update-PhaseReference `
-                ([string]$phase.parent_diagnosis_id) $insertNumber
-        }
-        foreach ($repair in @($phase.spawned_repairs)) {
-            $repair.phase_id = Update-PhaseReference ([string]$repair.phase_id) $insertNumber
-        }
-        if ($null -ne $phase.failure_route) {
-            $phase.failure_route.forbidden_target_ids = @(
-                $phase.failure_route.forbidden_target_ids | ForEach-Object {
-                    Update-PhaseReference ([string]$_) $insertNumber
-                }
-            )
-        }
-    }
-    foreach ($property in @(
-            "current_phase_id",
-            "dynamic_cost_phase_id",
-            "candidate_freeze_phase_id",
-            "formal_evaluation_phase_id",
-            "promotion_decision_phase_id"
-        )) {
-        $expanded.$property = Update-PhaseReference ([string]$expanded.$property) $insertNumber
-    }
-    $expanded.held_out_sets.engineering.owner_phase_id = Update-PhaseReference `
-        ([string]$expanded.held_out_sets.engineering.owner_phase_id) $insertNumber
-    $expanded.held_out_sets.promotion.owner_phase_id = Update-PhaseReference `
-        ([string]$expanded.held_out_sets.promotion.owner_phase_id) $insertNumber
-
-    $newPhase = @'
-{
-  "id":"R71-16",
-  "title":"正向插入夹具",
-  "kind":"implementation",
-  "severity":"high",
-  "status":"planned",
-  "root_ids":["R71-GI-003"],
-  "depends_on":["R71-12"],
-  "change_domain_key":"fixture.inserted_phase",
-  "parent_diagnosis_id":null,
-  "allowed_closure_outcomes":["implemented"],
-  "closure_outcome":"pending",
-  "evidence_artifact":null,
-  "spawned_repairs":[],
-  "failure_route":null,
-  "acceptance_evidence_type":"insertion_fixture",
-  "observability":{
-    "mode":"artifact",
-    "event_name":"r71_insertion_fixture",
-    "required_fields":["fixture_id"]
-  }
-}
-'@ | ConvertFrom-Json -Depth 100 -NoEnumerate
-    $before = @($expanded.phases | Where-Object {
-        [int]([string]$_.id).Substring(4) -lt $insertNumber
-    })
-    $after = @($expanded.phases | Where-Object {
-        [int]([string]$_.id).Substring(4) -gt $insertNumber
-    })
-    $expanded.phases = @($before) + @($newPhase) + @($after)
-    $fixedCost = $expanded.phases | Where-Object {
-        [string]$_.acceptance_evidence_type -eq "fixed_component_ledger"
-    }
-    $fixedCost.depends_on = @($fixedCost.depends_on) + @($newPhase.id)
-    $expanded.phase_count = @($expanded.phases).Count
-    $expanded
-}
-
-function New-TestEvidenceReference {
-    param([string]$ArtifactType, [string]$Name, [string]$SchemaVersion = "r71-plan-evidence-v1")
-    $relativePath = "target/r7-execution-plan-selftest/$Name.json"
-    $path = Join-Path $repoRoot $relativePath
-    [void](New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path))
-    [ordered]@{schema_version = $SchemaVersion; artifact_type = $ArtifactType} |
-        ConvertTo-Json -Compress | Set-Content -NoNewline -Encoding UTF8 -LiteralPath $path
-    [pscustomobject]@{
-        path = $relativePath
-        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
-        artifact_type = $ArtifactType
-        schema_version = $SchemaVersion
-    }
-}
+. (Join-Path $PSScriptRoot "lib/r7-execution-plan-test-fixtures.ps1")
 
 $currentPath = Join-Path $repoRoot "docs/v0.0.5/build-R7/47-r7.1-global-issue-register.md"
 $legacyPath = Join-Path $repoRoot "docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md"
 $milestonePath = Join-Path $repoRoot "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md"
 $w0Path = Join-Path $repoRoot "docs/v0.0.5/build-R7/48-r7.1-w0-factual-foundation-result.md"
 $schemaPath = Join-Path $repoRoot "benchmarks/taskspace/r7/r7-1-execution-plan-v1.schema.json"
+$phaseEvidenceSchemaPath = Join-Path $repoRoot `
+    "benchmarks/taskspace/r7/r7-phase-evidence-v1.schema.json"
+$heldOutSchemaPath = Join-Path $repoRoot `
+    "benchmarks/taskspace/r7/r7-held-out-set-v1.schema.json"
 
-foreach ($path in @($currentPath, $legacyPath, $milestonePath, $w0Path, $schemaPath)) {
+foreach ($path in @(
+        $currentPath, $legacyPath, $milestonePath, $w0Path,
+        $schemaPath, $phaseEvidenceSchemaPath, $heldOutSchemaPath
+    )) {
     Assert-R7ExecutionPlan (Test-Path -LiteralPath $path -PathType Leaf) `
         "Missing R7.1 plan artifact: $path"
 }
@@ -169,7 +74,7 @@ Assert-R7ExecutionPlan ($current.Contains(
 
 Assert-Plan $manifest
 Assert-R7ExecutionPlanProjection $current $manifest
-Assert-R7ExecutionPlanDefinitionRoutes $current $manifest
+Assert-R7ExecutionPlanFailureRoutes $current $manifest
 
 $definitionSection = Get-Section $current "## 4. 原子 Phase 工程说明" "## 5. 依赖、并行与停止规则"
 $requiredFields = @(
@@ -227,10 +132,16 @@ Assert-R7ExecutionPlan ($w0.Contains("- Current mapping: R71-01～R71-04、R71-0
     "Historical W0 result lacks the current atomic mapping"
 
 # Dependency graph, state, closure, evidence, routing, and promotion mutants.
-$directFailureEvidence = New-TestEvidenceReference "strict_failure_carrier" "direct-failure"
-$nestedBoundaryEvidence = New-TestEvidenceReference "nested_boundary_pair" "nested-boundary"
-$responseDiagnosisEvidence = New-TestEvidenceReference `
-    "sealed_response_action_trace" "response-diagnosis"
+$directFailurePhase = $manifest.phases[0]
+$nestedBoundaryPhase = $manifest.phases[7]
+$responseDiagnosisPhase = $manifest.phases[11]
+$directFailureEvidence = New-R7TestEvidenceReference "strict_failure_carrier" `
+    "direct-failure" @($directFailurePhase.observability.required_fields)
+$nestedBoundaryEvidence = New-R7TestEvidenceReference "nested_boundary_pair" `
+    "nested-boundary" @($nestedBoundaryPhase.observability.required_fields)
+$responseDiagnosisEvidence = New-R7TestEvidenceReference `
+    "sealed_response_action_trace" "response-diagnosis" `
+    @($responseDiagnosisPhase.observability.required_fields)
 $engineeringSetPath = "target/r7-execution-plan-selftest/engineering-samples.json"
 $promotionSetPath = "target/r7-execution-plan-selftest/promotion-samples.json"
 '{"schema_version":"r71-held-out-set-v1","artifact_type":"held_out_sample_manifest","sample_ids":["engineering-a"]}' |
@@ -242,6 +153,7 @@ $engineeringSetRef = [pscustomobject]@{
     sha256 = (Get-FileHash -Algorithm SHA256 `
         -LiteralPath (Join-Path $repoRoot $engineeringSetPath)).Hash.ToLowerInvariant()
     artifact_type = "held_out_sample_manifest"
+    schema_path = "benchmarks/taskspace/r7/r7-held-out-set-v1.schema.json"
     schema_version = "r71-held-out-set-v1"
 }
 $promotionSetRef = [pscustomobject]@{
@@ -249,6 +161,7 @@ $promotionSetRef = [pscustomobject]@{
     sha256 = (Get-FileHash -Algorithm SHA256 `
         -LiteralPath (Join-Path $repoRoot $promotionSetPath)).Hash.ToLowerInvariant()
     artifact_type = "held_out_sample_manifest"
+    schema_path = "benchmarks/taskspace/r7/r7-held-out-set-v1.schema.json"
     schema_version = "r71-held-out-set-v1"
 }
 
@@ -331,8 +244,9 @@ foreach ($phaseId in @(
     $phase = $spawnedAncestor.phases | Where-Object { [string]$_.id -eq $phaseId }
     $phase.status = "closed"
     $phase.closure_outcome = [string]$phase.allowed_closure_outcomes[0]
-    $phase.evidence_artifact = New-TestEvidenceReference `
-        ([string]$phase.acceptance_evidence_type) "closed-$phaseId"
+    $phase.evidence_artifact = New-R7TestEvidenceReference `
+        ([string]$phase.acceptance_evidence_type) "closed-$phaseId" `
+        @($phase.observability.required_fields)
 }
 $spawnedAncestor.phases[11].status = "closed"
 $spawnedAncestor.phases[11].closure_outcome = "root_causes_identified"
@@ -377,6 +291,25 @@ Assert-Rejected "special_role_rebound" {
     Assert-Plan $specialRoleRebind
 }
 
+$routeRoleRebind = Copy-Plan $manifest
+$routeRoleRebind.route_role_phase_ids.nested_dispatch_boundary = "R71-13"
+Assert-Rejected "failure_route_role_rebound" {
+    Assert-Plan $routeRoleRebind
+}
+
+$duplicateEvidenceType = Copy-Plan $manifest
+$duplicateEvidenceType.phases[12].acceptance_evidence_type = `
+    [string]$duplicateEvidenceType.phases[7].acceptance_evidence_type
+Assert-Rejected "duplicate_acceptance_evidence_type" {
+    Assert-Plan $duplicateEvidenceType
+}
+
+$existingPhaseReuse = Copy-Plan $manifest
+$existingPhaseReuse.phases[13].failure_route.existing_phase_reuse = "permitted"
+Assert-Rejected "existing_phase_reuse_permitted" {
+    Assert-Plan $existingPhaseReuse
+}
+
 $duplicateEvent = Copy-Plan $manifest
 $duplicateEvent.phases[1].observability.event_name = `
     [string]$duplicateEvent.phases[0].observability.event_name
@@ -391,7 +324,8 @@ $missingEvidence.phases[0].evidence_artifact = [pscustomobject]@{
     path = "missing://phase-evidence.json"
     sha256 = "0" * 64
     artifact_type = "strict_failure_carrier"
-    schema_version = "r71-plan-evidence-v1"
+    schema_path = "benchmarks/taskspace/r7/r7-phase-evidence-v1.schema.json"
+    schema_version = "r71-phase-evidence-v1"
 }
 $missingEvidence.current_phase_id = "R71-02"
 Assert-Rejected "closed_with_missing_evidence" {
@@ -417,6 +351,54 @@ Assert-Rejected "closed_with_wrong_evidence_type" {
     Assert-Plan $wrongEvidenceType
 }
 
+$wrongEvidenceSchema = Copy-Plan $manifest
+$wrongEvidenceSchema.phases[0].status = "closed"
+$wrongEvidenceSchema.phases[0].closure_outcome = "implemented"
+$wrongEvidenceSchema.phases[0].evidence_artifact = Copy-Plan $directFailureEvidence
+$wrongEvidenceSchema.phases[0].evidence_artifact.schema_version = "unknown"
+$wrongEvidenceSchema.current_phase_id = "R71-02"
+Assert-Rejected "closed_with_unapproved_evidence_schema" {
+    Assert-Plan $wrongEvidenceSchema
+}
+
+$evidenceLinkPath = "target/r7-execution-plan-selftest/direct-failure-link.json"
+$evidenceLinkFullPath = Join-Path $repoRoot $evidenceLinkPath
+if (-not (Test-Path -LiteralPath $evidenceLinkFullPath)) {
+    [void](New-Item -ItemType SymbolicLink -Path $evidenceLinkFullPath `
+        -Target (Join-Path $repoRoot $directFailureEvidence.path))
+}
+$symlinkEvidence = Copy-Plan $directFailureEvidence
+$symlinkEvidence.path = $evidenceLinkPath
+$symlinkClosure = Copy-Plan $manifest
+$symlinkClosure.phases[0].status = "closed"
+$symlinkClosure.phases[0].closure_outcome = "implemented"
+$symlinkClosure.phases[0].evidence_artifact = $symlinkEvidence
+$symlinkClosure.current_phase_id = "R71-02"
+Assert-Rejected "evidence_symlink_escape_surface" {
+    Assert-Plan $symlinkClosure
+}
+
+$malformedEvidencePath = "target/r7-execution-plan-selftest/malformed-same-type.json"
+$malformedEvidenceFullPath = Join-Path $repoRoot $malformedEvidencePath
+'{"schema_version":"r71-phase-evidence-v1","artifact_type":"strict_failure_carrier","records":[{"unrelated":"fixture"}]}' |
+    Set-Content -NoNewline -Encoding UTF8 -LiteralPath $malformedEvidenceFullPath
+$malformedEvidence = [pscustomobject]@{
+    path = $malformedEvidencePath
+    sha256 = (Get-FileHash -Algorithm SHA256 `
+        -LiteralPath $malformedEvidenceFullPath).Hash.ToLowerInvariant()
+    artifact_type = "strict_failure_carrier"
+    schema_path = "benchmarks/taskspace/r7/r7-phase-evidence-v1.schema.json"
+    schema_version = "r71-phase-evidence-v1"
+}
+$sameTypeInvalidEvidence = Copy-Plan $manifest
+$sameTypeInvalidEvidence.phases[0].status = "closed"
+$sameTypeInvalidEvidence.phases[0].closure_outcome = "implemented"
+$sameTypeInvalidEvidence.phases[0].evidence_artifact = $malformedEvidence
+$sameTypeInvalidEvidence.current_phase_id = "R71-02"
+Assert-Rejected "same_type_evidence_missing_required_fields" {
+    Assert-Plan $sameTypeInvalidEvidence
+}
+
 $projectionDrift = $current.Replace(
     "direct failure carrier 证据合同 | 返修",
     "direct failure carrier 漂移 | 返修"
@@ -425,12 +407,28 @@ Assert-Rejected "reader_projection_drift" {
     Assert-R7ExecutionPlanProjection $projectionDrift $manifest
 }
 
-$forbiddenRouteDrift = $current.Replace(
-    "只有真实 bypass 才把对应生产入口返修为独立 Phase。",
-    "只有真实 bypass 才回退 R71-08。"
+$failureRouteProjectionDrift = $current.Replace(
+    "actual_dispatch_or_commit_bypass | spawn_atomic_phase | forbidden",
+    "actual_dispatch_or_commit_bypass | spawn_atomic_phase | permitted"
 )
-Assert-Rejected "failure_route_to_forbidden_phase" {
-    Assert-R7ExecutionPlanDefinitionRoutes $forbiddenRouteDrift $manifest
+Assert-Rejected "failure_route_projection_drift" {
+    Assert-R7ExecutionPlanFailureRoutes $failureRouteProjectionDrift $manifest
+}
+
+$failureRouteAlias = $current.Replace(
+    "- 退出/分流：关闭结果使用机器合同；失败路由只使用第 3.1 节机器投影，不复用既有 Phase。",
+    "- 退出/分流：把 nested dispatcher 硬边界实现直接返修。"
+)
+Assert-Rejected "failure_route_title_alias" {
+    Assert-R7ExecutionPlanFailureRoutes $failureRouteAlias $manifest
+}
+
+$failureRollbackAlias = $current.Replace(
+    "- 回退：本节不维护失败目标；只使用第 3.1 节机器投影。",
+    "- 回退：重新打开 nested dispatcher 硬边界实现。"
+)
+Assert-Rejected "failure_route_rollback_alias" {
+    Assert-R7ExecutionPlanFailureRoutes $failureRollbackAlias $manifest
 }
 
 $duplicateJson = '{"plan_id":"R7.1","plan_id":"drift"}'
@@ -449,7 +447,8 @@ Assert-Rejected "schema_invalid_status" {
     Assert-Plan $invalidSchema
 }
 
-$insertedPhasePlan = Add-PlanPhaseBeforeCost $manifest
+$nearCostInsertNumber = [int]([string]$manifest.dynamic_cost_phase_id).Substring(4) - 1
+$insertedPhasePlan = Add-R7TestPlanPhaseAt $manifest $nearCostInsertNumber
 Assert-Plan $insertedPhasePlan
 Assert-R7ExecutionPlan (
     [int]$insertedPhasePlan.phase_count -eq [int]$manifest.phase_count + 1
@@ -457,5 +456,10 @@ Assert-R7ExecutionPlan (
 Assert-R7ExecutionPlan (
     [string]$insertedPhasePlan.promotion_decision_phase_id -eq "R71-21"
 ) "Positive insertion fixture did not reindex the promotion phase"
+$arbitraryInsertionPlan = Add-R7TestPlanPhaseAt $manifest 10
+Assert-Plan $arbitraryInsertionPlan
+Assert-R7ExecutionPlan (
+    [string]$arbitraryInsertionPlan.route_role_phase_ids.multi_patch_runtime_safety -eq "R71-15"
+) "Arbitrary insertion fixture did not reindex route roles"
 
 Write-Output "R7.1 execution plan contract, mutants, and insertion fixture passed."
