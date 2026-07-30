@@ -1169,3 +1169,22 @@ Runtime 语义或约束 Agent。
 - Agent status before shutdown: `running`。
 - Disposition: session 已关闭，本轮不产生 PASS/BLOCKED 结论；不得用主线程检查替代 fresh review。
 - Replacement requirement: 使用 Hubble 之外的新 `fork_context=false` reviewer，重新执行完整审查包。
+
+## Round 12: W0 timeout-replacement full review
+
+### Review Input
+
+- Objective: 完整重跑 Round 11 未产出结论的 closure review；独立证伪 Round 1 至 Round 10、
+  `6e487f057`、C-01 至 C-21 和 GI-005/GI-007 关闭标准。
+- Product/evidence candidate: `6e487f0578be834afc178a7a377393383346c296`
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/6e487f0578be834afc178a7a377393383346c296/20260730-145945-966`
+- Reviewer: W0-timeout-replacement-adversary (`Copernicus`)
+- Session / Job ID: `019fb204-0400-74c2-97e8-a061521e41af`
+- Mechanism: internal `spawn_agent`，`fork_context=false`，未继承主线程或 Hubble 上下文。
+- Access: repository read-only review instruction，禁止修改文件。
+- Model: `gpt-5.6-sol`，reasoning effort `xhigh`，priority tier。
+- Required output: PASS/BLOCKED、blocking/non-blocking、C-01 至 C-21 逐项判定、GI-005/GI-007
+  分别裁决、current matrix 与 192 raw seal 独立复算、Runtime 边界/旧逻辑/平行事实源检查。
+- Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
+- Status: running
