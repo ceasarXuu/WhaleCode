@@ -35,6 +35,14 @@ try {
         throw "Standard request path was not reconstructed"
     }
     if ($standard[0].calls[0].failure_code -ne "shell_exit_1") { throw "Standard failure was not classified" }
+    $metadataExit = Get-R7CallOutcome `
+        -ToolSuccess $false `
+        -ToolName "apply_patch" `
+        -Output '{"output":"Patch contains conflicting operations","metadata":{"execution_outcome":"exited","shell_exit_code":1}}'
+    if ($metadataExit.failure_code -ne "shell_exit_1" -or
+        $metadataExit.evidence_valid -ne $true) {
+        throw "Structured ordinary Tool shell_exit_code was not classified"
+    }
     $duplicateOutputPath = Join-Path $tempRoot "standard-duplicate-output.jsonl"
     Write-Lines $duplicateOutputPath @(
         @{ type = "response_item"; payload = @{ type = "function_call"; name = "exec_command"; arguments = '{"cmd":"true"}'; call_id = "duplicate-1" } },

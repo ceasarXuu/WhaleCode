@@ -13,6 +13,9 @@ function Get-TaskspaceOrdinaryToolFailureCode {
     if ($Output -match '"exit_code"\s*:\s*([1-9]\d*)') {
         return "shell_exit_$($Matches[1])"
     }
+    if ($Output -match '"shell_exit_code"\s*:\s*([1-9]\d*)') {
+        return "shell_exit_$($Matches[1])"
+    }
     if ($Output -match 'local_validator_infra_failure') {
         return "local_validator_infra_failure"
     }
