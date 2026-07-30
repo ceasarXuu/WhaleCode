@@ -92,7 +92,7 @@ $manifest = [ordered]@{
     schema_version = 1
     schema_path = "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"
     contract_id = "r7-taskspace-five-layer-production-v1"
-    manifest_version = "1.0.46"
+    manifest_version = "1.0.47"
     contract_status = "production_active"
     runtime_status_enum = @(
         "selected_not_active",
@@ -122,4 +122,4 @@ if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
 }
 $json = $manifest | ConvertTo-Json -Depth 20
 [System.IO.File]::WriteAllText($outputFile, "$json`n", [System.Text.UTF8Encoding]::new($false))
-Write-Output "Wrote $OutputPath from $AuthorityPath (W0 evidence authority repair)."
+Write-Output "Wrote $OutputPath from $AuthorityPath (R7.1 atomic execution plan authority sync)."
