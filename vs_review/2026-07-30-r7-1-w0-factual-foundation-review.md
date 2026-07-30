@@ -1200,3 +1200,42 @@ Runtime 语义或约束 Agent。
 - Closure status: W0 保持 `validating`；GI-005/GI-007 不关闭，开放问题仍为 8。
 - Next action requires user choice: 再尝试一次、缩小审查包、改用其他 reviewer 类型，或明确接受未完成独立
   审查的风险。未经用户选择不得把本轮记为通过。
+
+## Round 13: W0 independent review shards
+
+### Timeout Root Cause
+
+用户选择将审查拆成无依赖小块。Rollout 复核证明 Round 11/12 不是 Tool、模型服务或长命令挂起：
+
+- Hubble 在 41 分钟内完成 66 次只读 Tool 调用，关闭前仍在约束扫描；
+- Copernicus 在 40 分钟内完成 49 次只读 Tool 调用，关闭前仍在 raw matrix 重算；
+- 两者的 Tool 均正常返回；单体包同时要求 21 条约束、10 轮 blocker、两项 GI、生产代码和 192 个
+  artifact，超过固定 `20 + 20` 分钟窗口；
+- `wait_agent` 只等待最终状态，主线程未及时读取 rollout 中间进度，过早将两个活跃 session 关闭。
+
+因此 Round 13 不再建立一个全量 reviewer。以下 shard 各自无前置依赖、使用一个 fresh reviewer、只产生局部
+PASS/BLOCKED；任何 blocker 只使自己的 shard 复审。
+
+### Coverage Matrix
+
+| Shard | 独立审查目标 | 约束/GI | 明确不做 |
+|---|---|---|---|
+| A | state rejection 的 direct/lifecycle/ToolSearch carrier、canonical/evaluated scope 与 live read 归因 | GI-005；C-01、C-03、C-12 | 不复算全部 token/seal，不审成本 |
+| B | direct `TaskSpaceControlResultV2` 完整 envelope 与 ordinary exit 严格解析 | GI-007；C-01、C-03、C-11、C-12、C-14 | 不扫描其他 count，不复算矩阵 |
+| C | request/report/duplication/provenance/final-status 的精确 Int64 与 fail-closed | GI-007；C-01、C-03、C-14 | 不审 Tool carrier，不重跑 live sample |
+| D | retained 24-run 的 request/token/taxonomy/hash/authority/final aggregate 独立复算 | GI-007；C-06、C-07、C-13、C-14 | 不审 parser 实现，不重跑模型 |
+| E | Runtime 底线、连续动作、普通 Tool/Patch 保真、Agent 显式 `node_id` | C-02、C-05、C-09～C-12、C-18 | 不审 Map 存储实现，不审成本数字 |
+| F | rooted DAG、持久化唯一 Map、无 current/Open、finish/reopen 与历史事实 | C-08、C-15～C-17、C-19～C-21 | 不审 observer/seal，不审 Tool 文案 |
+| G | 五层内容归属、immutable capability epoch、三 projection 仅 L5 不同、固定成本观测 | C-04、C-06、C-07、C-13 | 不判断默认 policy，不修成本 |
+
+### Aggregation Rules
+
+1. Shard 之间不读取彼此输出，不互相等待，不以另一 shard 的 PASS 补足本 shard 证据；
+2. GI-005 只有 A 通过才可关闭；
+3. GI-007 只有 B、C、D 全部通过才可关闭；
+4. C-01 至 C-21 的全局回归结论只有 A 至 G 全部完成后才汇总；已知 GI-002/GI-006/GI-008 现象可记录，
+   但不得偷换为 W0 blocker；
+5. 每块最多读取指定实现、测试和最小文档行段，目标 12 分钟，最多一次 8 分钟延长；
+6. reviewer 发现 blocker 后只需给出一个最小可复现反例和生产调用路径，无需继续扩大为全仓审计；
+7. 每项 finding 仍由主线程逐一 `accept`、`reject` 或 `defer`；accepted blocker 修复后只启动对应 shard 的
+   fresh replacement review。
