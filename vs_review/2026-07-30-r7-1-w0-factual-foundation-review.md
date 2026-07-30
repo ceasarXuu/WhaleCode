@@ -1376,3 +1376,38 @@ GI-007 保持 `validating`。
 
 Reviewer 使用 `gpt-5.6-sol/xhigh/priority`，仅收到分层、projection、Tool epoch 和现成观测导航；不读取其他 shard
 输出，目标 12 分钟，最多一次 8 分钟延长。
+
+### Wave 3 Output
+
+#### Shard G: Layering, Epoch And Projection
+
+- Status: `BLOCKED`
+- Blocking finding: `built_tools()` 每请求可因 MCP inventory、connector selection 或 discovery 改变可见 Tool
+  capability，但 `wire_epoch_id` 只由 `conversation_id:window_generation` 构成；未发生 compaction 时，同一
+  epoch 可出现不同 tools hash，违反 C-06 的明确 capability epoch。
+- Passed sub-gates:
+  - C-04：L1 宏观、L2 常规协议、L3 可选经验、L4 schema、L5 动态事实职责清楚；
+  - C-07：三 projection 共用 Base/L2/L3/Tool/Map/Runtime/feedback，只在 L5 emission 不同；
+  - C-13 observation：24 observations 与 298 requests 均有 tools/messages/input/cache/section/wall-time；
+  - 未发现 policy/Map revision/lifecycle 驱动的动态 schema、平行架构或重复固定上下文。
+- Fixed Tool observation: Standard `21,195 bytes / 5,299 estimated tokens / 12 tools`；TaskSpace
+  `27,166 bytes / 6,792 tokens / 13 tools`；每 request 增量 `5,971 bytes / 1,493 tokens / 1 tool`。
+- Non-blocking observation: 226 个 TaskSpace request 的
+  `taskspace_contract_manifest_identity.matches_current_contract=false`，原因均为
+  `taskspace_wire_shape_invalid`；Base/L2 自身仍 exact-once/hash match。该字段是否构成 GI-007 fail-open
+  交由独立 Shard H 裁决。
+
+### Wave 3 Main Agent Triage
+
+| Finding | Decision | Reason |
+|---|---|---|
+| discovery 未换 capability epoch | `accept` | visible tools 由每请求 discovery 输入重建；现有 epoch ID 不含 profile/provider capability/tools hash，也不随 discovery 变化 |
+
+### Wave 4 Launch Record
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| H | contract-identity-adversary (`Tesla`) | `019fb2c7-c7e6-7523-ac9c-2ac46355d8f1` | 226 个 contract mismatch 与 eligibility；C-03/C-04/C-14、GI-007 | internal fresh，`fork_context=false`，只读 | running |
+
+Reviewer 使用 `gpt-5.6-sol/xhigh/priority`，只读取 manifest identity producer、freshness gate 和最小 matrix
+字段，不复算其他工件；目标 10 分钟。
