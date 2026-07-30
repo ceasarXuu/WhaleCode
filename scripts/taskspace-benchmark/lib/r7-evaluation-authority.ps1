@@ -19,6 +19,34 @@ function Test-R7ExactSequence {
     $true
 }
 
+function Test-R7TrackedFileMatchesCommit {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Commit,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+    if ($Commit -notmatch '^[0-9a-fA-F]{40,64}$' -or
+        -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $false
+    }
+    $repoPath = [IO.Path]::GetFullPath($RepoRoot).TrimEnd("\", "/")
+    $filePath = [IO.Path]::GetFullPath($Path)
+    $prefix = $repoPath + [IO.Path]::DirectorySeparatorChar
+    if (-not $filePath.StartsWith($prefix, [StringComparison]::Ordinal)) {
+        return $false
+    }
+    $relative = $filePath.Substring($prefix.Length).Replace("\", "/")
+    $workingBlob = @(
+        & git -C $repoPath hash-object --no-filters -- $relative 2>$null
+    )
+    if ($LASTEXITCODE -ne 0 -or $workingBlob.Count -ne 1) { return $false }
+    $committedBlob = @(
+        & git -C $repoPath rev-parse "${Commit}:$relative" 2>$null
+    )
+    if ($LASTEXITCODE -ne 0 -or $committedBlob.Count -ne 1) { return $false }
+    [string]$workingBlob[0] -ceq [string]$committedBlob[0]
+}
+
 function Get-R7CanonicalScenarioDirectorySha256 {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -192,6 +220,19 @@ function Get-R7MatrixEvaluationAuthorityCheck {
         $manifestContractHash -ne $authority.contract_sha256 -or
         [string]$Manifest.contract_id -ne [string]$authority.contract.contract_id) {
         $findings.Add("matrix_evaluation_contract_identity_mismatch")
+    }
+    $repoCommit = [string](Get-R7EvaluationProperty $Manifest "repo_commit" "")
+    if (-not (Test-R7TrackedFileMatchesCommit `
+            $RepoRoot `
+            $repoCommit `
+            $authority.contract_path)) {
+        $findings.Add("matrix_evaluation_contract_not_committed")
+    }
+    if (-not (Test-R7TrackedFileMatchesCommit `
+            $RepoRoot `
+            $repoCommit `
+            $authority.production_authority_path)) {
+        $findings.Add("matrix_production_authority_not_committed")
     }
     if (-not (Test-R7ExactSequence @($authority.samples) @($Manifest.samples)) -or
         -not (Test-R7ExactSequence @($authority.arms) @($Manifest.arms)) -or

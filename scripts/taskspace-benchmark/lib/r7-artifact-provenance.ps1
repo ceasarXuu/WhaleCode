@@ -174,6 +174,12 @@ function Get-R7MatrixArtifactProvenance {
     if ($null -eq $gitIdentity -or [string]$gitIdentity.current_git_head -ne $repoCommit) {
         Add-R7ProvenanceFinding $findings "matrix_repo_commit_not_current_head" $ManifestPath
     }
+    if ($null -eq $gitIdentity -or -not [bool]$gitIdentity.worktree_clean) {
+        Add-R7ProvenanceFinding $findings "matrix_worktree_dirty" $ManifestPath
+    }
+    if (-not (Test-R7TrackedFileMatchesCommit $RepoRoot $repoCommit $ReportScriptPath)) {
+        Add-R7ProvenanceFinding $findings "matrix_report_script_not_committed" $ReportScriptPath
+    }
     if ($manifestBinarySha -notmatch '^[0-9a-f]{64}$') {
         Add-R7ProvenanceFinding $findings "matrix_binary_sha_invalid" $ManifestPath
     }

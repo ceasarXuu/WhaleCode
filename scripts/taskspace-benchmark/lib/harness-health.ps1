@@ -317,6 +317,7 @@ function Get-TaskspaceWhaleBinaryAttestation {
     $statusMatches = [string]$marker.status -eq "pass"
     $gitIdentity = try { Get-TaskspaceGitBuildIdentity $RepoRoot } catch { $null }
     $gitMatches = $null -ne $gitIdentity -and
+        [bool]$gitIdentity.worktree_clean -and
         [bool]$marker.worktree_clean -and
         [string]$marker.current_git_head -eq [string]$gitIdentity.current_git_head -and
         [string]$marker.head_tree_id -eq [string]$gitIdentity.head_tree_id -and
