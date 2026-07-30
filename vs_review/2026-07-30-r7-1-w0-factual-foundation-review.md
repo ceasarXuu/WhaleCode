@@ -1,7 +1,7 @@
 # Subagent VS Review: R7.1 W0 事实基础
 
 - Created: 2026-07-30T03:19:45+08:00
-- Updated: 2026-07-30T07:47:41+08:00
+- Updated: 2026-07-30T11:53:00+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 W0 的实现、测试、真实样本证据与问题关闭是否成立
 - Report path: `vs_review/2026-07-30-r7-1-w0-factual-foundation-review.md`
@@ -876,8 +876,73 @@ GI-007 与 W0 因四个证据身份缺口继续 `BLOCKED`：
 - Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Curie 不得关闭自己的
   blocker。
 
+## Round 7: W0 evaluation-authority replacement review
+
+### Review Input
+
+- Objective: 对 Round 6 修复、retained matrix、GI-005/GI-007 关闭条件和 C-01 至 C-21 执行完整
+  replacement review。
+- Reviewed production commit: `2005442d34416820a888dc7395ac8ba1b3812635`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: evidence-authority-adversary (`Turing`)
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 接受 Round 1-6 中 ToolSearch carrier、canonical/evaluated state、provider attempt、reserved
+family 基础门、request token 字段完整性和 resolved manifest 内容校验的主要修复，但发现四个更深的证据权威
+blocker：
+
+1. **保留 supplemental JSON 仍可 fail-open。**
+   - root/object 形态之外，递归重复保留属性和相关畸形结构没有被唯一属性门拒绝；
+   - malformed family 仍可能被当作没有 supplemental 的请求。
+2. **failure provenance 与真实 request/output 顺序没有完全绑定。**
+   - reservation/cause 可以跨 request 引用；
+   - supplemental 可以在受影响 call 的实际 output 缺失时成立；
+   - 后续 ordinary output 可以覆盖 supplemental failure；
+   - skip/bound 没有证明 cause output 或 reservation 属于同一个 owning request。
+3. **token identity 不是精确整数身份。**
+   - string、fraction、double 和超过 IEEE-754 精确范围的值可能通过数值比较；
+   - 多层求和即使总数表面相同，也不能证明逐 request token 没有被舍入或替换。
+4. **评估身份仍可由同一轮 mutable manifest 自证。**
+   - sample、repeat、arm、model、image、sandbox、provider API/transport 和 Tool identity 没有由独立冻结
+     authority 声明；
+   - resolved manifest 与 matrix manifest 可以同步篡改后继续相互通过。
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`，归 GI-007/C-01/C-03/C-14。
+- GI-005：reviewer 未给出新的 carrier 扭曲反例，但继续依赖 GI-007 的可信 observer，暂不关闭。
+- C-10/C-13：current matrix 中的 multi-Patch 和成本问题继续归 GI-006/GI-008，不扩大 W0 范围。
+- 结论：Round 7 不通过；修复后必须由 Turing 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| supplemental fail-open | 严格识别保留 JSON family，递归拒绝重复属性和畸形 root/schema；字段顺序不影响识别 | 扩展 supplemental malformed/duplicate 负向矩阵 |
+| provenance/order 可伪造 | actual output、owning request、copy group、affected calls、cause output、reservation 和 ordinal 全部精确绑定；普通后续 output 不得覆盖已识别 failure | cross-request、missing-output、overwrite、skip/bound forgery 反例 |
+| token 非精确身份 | token/count 只接受非负 Int64；拒绝 string/fraction/double/越界，request/run/report 使用精确求和 | provider token 与 performance observation 类型/守恒门 |
+| mutable manifest 自证 | 新增冻结 evaluation contract 和 production authority hash chain；逐 run 校验 sample/repeat/arm/model/reasoning/image/sandbox/API/transport，实际 wire tools hash/count 必须稳定且匹配权威 | resolved manifest、matrix harness 和 artifact provenance 篡改反例 |
+
+### Replacement Review Readiness
+
+- Fix commits: `93985d3f5`、`a2f697c6b`、`9dc9add2d`、`a67737478`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 14/14 scripts passed
+- 第一份矩阵因 observation 将整数 token 转成 double，在 report gate 被拒绝并弃用。
+- Retained current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/a677374782ff4ac15ad3242af19e1a681fec7e08/20260730-114506-875`
+- Matrix: 24/24 finalized，24/24 business success，24/24 comparison eligible，
+  artifact provenance=`valid`，0 findings。
+- Request token identity: 360 requests；input `8,794,679`、cached `3,649,536`、output
+  `146,406`、reasoning `64,166`、total `8,941,085`。
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Turing 不得关闭自己的
+  blocker。
+
 ## Current Conclusion
 
-W0 当前保持 `validating`。Round 1/2/3/4/5/6 接受的 blocker 已完成工程修复，但最新 fresh replacement
+W0 当前保持 `validating`。Round 1/2/3/4/5/6/7 接受的 blocker 已完成工程修复，但最新 fresh replacement
 blocking closure review 尚未通过；在 replacement review 完成前，不得关闭 R71-GI-005/R71-GI-007，
 也不得进入 W1。
