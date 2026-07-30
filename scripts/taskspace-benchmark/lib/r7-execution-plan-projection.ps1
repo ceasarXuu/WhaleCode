@@ -119,6 +119,16 @@ function Assert-R7ExecutionPlanProjection {
         (Get-R7ExecutionPlanProjectionTable $Manifest) "Execution plan reader"
 }
 
+function ConvertTo-R7RouteLabelText {
+    param([string]$Text)
+    $normalized = $Text.Normalize([Text.NormalizationForm]::FormKC)
+    $normalized = [regex]::Replace($normalized, '<[^>]+>', '')
+    $normalized = [regex]::Replace($normalized, '\]\([^)]+\)', ']')
+    $normalized = [regex]::Replace($normalized, '[\\*_~`\[\]\(\)]', '')
+    $normalized = [regex]::Replace($normalized, '\s+', '')
+    return [regex]::Replace($normalized, '[∕⁄]', '/')
+}
+
 function Assert-R7ExecutionPlanFailureRoutes {
     param([string]$DocumentText, $Manifest)
     Assert-R7ExecutionPlanMarkerProjection $DocumentText `
@@ -136,8 +146,9 @@ function Assert-R7ExecutionPlanFailureRoutes {
             $nextIndex = $DocumentText.IndexOf("## 5.", $startIndex)
         }
         $section = $DocumentText.Substring($startIndex, $nextIndex - $startIndex)
-        $exitLabels = @([regex]::Matches($section, [regex]::Escape("退出/分流")))
-        $rollbackLabels = @([regex]::Matches($section, [regex]::Escape("回退")))
+        $routeLabelText = ConvertTo-R7RouteLabelText $section
+        $exitLabels = @([regex]::Matches($routeLabelText, [regex]::Escape("退出/分流")))
+        $rollbackLabels = @([regex]::Matches($routeLabelText, [regex]::Escape("回退")))
         $canonicalExitLines = @(
             [regex]::Matches($section, "(?m)^$([regex]::Escape($canonical))$")
         )

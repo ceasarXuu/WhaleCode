@@ -1,7 +1,7 @@
 # Subagent VS Review: R7.1 原子执行计划
 
 - Created: 2026-07-31T04:17:18+08:00
-- Updated: 2026-07-31T06:41:02+08:00
+- Updated: 2026-07-31T06:47:31+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 是否已拆成工程边界明确、可独立验证的小主题，避免 Phase 聚合造成工程混乱
 - Report path: `vs_review/2026-07-31-r7-1-atomic-execution-plan-review.md`
@@ -965,3 +965,92 @@ reviewer 未扩大 evidence/DAG 范围，也未发现该范围回归。
 
 Round 4 修复只关闭了单一 Markdown 形态，没有关闭同一语义标签的等价表达。门禁已收敛为标签唯一性和
 canonical 行双重合同，必须由 fresh Round 6 再验证。
+
+## Round 6: Structural failure-route closure
+
+### Review Input
+
+#### Objective
+
+只验证提交 `70181a1f6` 是否结构性关闭 Round 5 blocker：每个 failure-route 工程段的 `退出/分流` 和
+`回退` 标签各自唯一，且唯一标签必须存在于 exact canonical 行。
+
+#### Required Mutants
+
+- dash、star、indent、bold additive exit；
+- dash、star、indent、bold additive rollback；
+- duplicate canonical exit/rollback；
+- replacement alias；
+- 正向权威文档。
+
+#### Scope Guard
+
+可攻击合理的标点和 Markdown 包装变体，但不要求 Runtime 解析任意自然语言同义句；不重新扩大到已关闭的
+evidence/DAG 范围，除非发现明确回归。
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb531-070c-7e11-9d3a-294dfb029d67` | spawn result + completion notification | `fork_context=false` | Round 6 Review Input | main-agent history、reasoning、uncommitted drafts、Round 5 reviewer context | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| round6-architecture | architecture-adversary | 1 | `019fb531-070c-7e11-9d3a-294dfb029d67` | under 20 minutes | completed | reviewer returned before timeout | blocker accepted |
+
+### Reviewer Outputs
+
+#### round6-architecture
+
+##### Verdict
+
+**BLOCKED**
+
+- R3-B02：`still_open`
+- ARCH-NB01：`still_open`
+- 不允许关闭整轮审查。
+
+##### Blocking Finding
+
+在 canonical rollback 后追加 `- 回**退**：重新打开既有 Phase。`，Markdown 可见标签仍为“回退”，但
+原始文本不存在连续 `回退` 子串，因此 validator 得到 `rollback_raw_label=1`、`canonical_line=1` 并接受。
+partial italic、全角/空格/Markdown 转义斜杠也存在同类绕过。
+
+##### Verification
+
+- 固定提交 `70181a1f6`；
+- unified contract：PASS；
+- five-layer contract：PASS；
+- 规定的 dash/star/indent/bold、duplicate canonical 和 replacement alias 均按预期拒绝；
+- 扩展格式攻击有 6 项意外接受；
+- 未发现 evidence/DAG 明确回归。
+
+##### Minimum Closure
+
+1. 唯一性基于 Markdown 规范化后的可见标签，而非原始连续子串；
+2. 原始 exact canonical 行仍必须恰好一次；
+3. 持久化 partial emphasis 和合理斜杠变体；
+4. fresh closure review。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| inline Markdown label bypass | accept | `回**退**` 在 Markdown 中保持同一可见标签，但 raw substring 计数失效 | 增加机械可见文本规范化：Unicode NFKC、去 inline emphasis/escape/whitespace、统一常见 slash，再计数标签 | Round 7 fresh closure review |
+| extended mutant gap | accept | 现有 bold 只包裹完整标签，没有拆分标签字符 | 新增 partial bold/italic、fullwidth slash、escaped slash mutants；保留 exact canonical 断言 | Round 7 fresh closure review |
+| R3-B02 / ARCH-NB01 | accept still open | Round 6 仍提供原 blocker 的可复现格式变体 | 修复完成但不自行关闭 | Round 7 fresh closure review |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, pending fresh verification
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Allowed to proceed: no
+
+## Round 6 Conclusion
+
+raw label count 不是 Markdown 可见语义合同。修复已提升为有限、机械、无语义推断的 Markdown 标签规范化，
+并继续以原始 exact canonical 行作为唯一权威值。
