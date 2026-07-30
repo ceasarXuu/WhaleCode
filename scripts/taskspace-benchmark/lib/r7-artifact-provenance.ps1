@@ -6,6 +6,7 @@ function Get-R7ProvenanceProperty {
     $Default
 }
 
+. (Join-Path $PSScriptRoot "r7-integer-facts.ps1")
 if (-not (Get-Command Get-TaskspaceGitBuildIdentity -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "harness-health.ps1")
 }
@@ -184,7 +185,9 @@ function Get-R7MatrixArtifactProvenance {
         Add-R7ProvenanceFinding $findings "matrix_binary_sha_invalid" $ManifestPath
     }
     $runs = @(Get-R7ProvenanceProperty $Manifest "runs" @())
-    if ([int](Get-R7ProvenanceProperty $Manifest "completed_run_count" -1) -ne $runs.Count) {
+    if ((Get-R7RequiredNonnegativeInt64Fact `
+            $Manifest "completed_run_count" "matrix provenance manifest") -ne
+        [int64]$runs.Count) {
         Add-R7ProvenanceFinding $findings "matrix_completed_run_count_mismatch" $ManifestPath
     }
     $uniqueRunDirs = @($runs | ForEach-Object { [string]$_.run_dir } | Sort-Object -Unique)
@@ -478,11 +481,11 @@ function Get-R7MatrixArtifactProvenance {
         } else { "" }
         report_script_path = $ReportScriptPath
         report_script_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $ReportScriptPath).Hash.ToLowerInvariant()
-        run_count = $runs.Count
+        run_count = [int64]$runs.Count
         runs = @($runFacts)
-        raw_artifact_count = (
-            $runFacts | ForEach-Object { @($_.raw_artifacts).Count } | Measure-Object -Sum
-        ).Sum
+        raw_artifact_count = Get-R7ExactInt64Sum @(
+            $runFacts | ForEach-Object { [int64]@($_.raw_artifacts).Count }
+        ) "raw_artifact_count"
         matrix_final_status = $matrixStatus
         matrix_final_status_fact = $matrixStatusFact
         findings = @($findings)

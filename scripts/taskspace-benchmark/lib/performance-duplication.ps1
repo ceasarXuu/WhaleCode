@@ -12,14 +12,35 @@ function Get-PerformanceSha256 {
 
 function Get-PerformanceDuplicateStats {
     param([object[]]$Entries, [string]$HashField, [string]$BytesField)
-    $duplicateCount = 0
-    $duplicateBytes = 0
+    [bigint]$duplicateCount = 0
+    [bigint]$duplicateBytes = 0
     foreach ($group in @($Entries | Group-Object -Property $HashField)) {
         if ([string]::IsNullOrWhiteSpace([string]$group.Name) -or $group.Count -lt 2) { continue }
         $duplicateCount += $group.Count - 1
-        $duplicateBytes += @($group.Group | Select-Object -Skip 1 | ForEach-Object { [int64]$_.$BytesField } | Measure-Object -Sum).Sum
+        foreach ($entry in @($group.Group | Select-Object -Skip 1)) {
+            $duplicateBytes += [bigint][int64]$entry.$BytesField
+        }
     }
-    [pscustomobject]@{ count = $duplicateCount; bytes = $duplicateBytes }
+    if ($duplicateCount -gt [int64]::MaxValue -or
+        $duplicateBytes -gt [int64]::MaxValue) {
+        throw "Performance duplicate statistics exceed Int64"
+    }
+    [pscustomobject]@{
+        count = [int64]$duplicateCount
+        bytes = [int64]$duplicateBytes
+    }
+}
+
+function Get-PerformanceExactExcessCount {
+    param($Counts)
+    [bigint]$total = 0
+    foreach ($count in $Counts) {
+        if ([bigint]$count -gt 1) { $total += [bigint]$count - 1 }
+    }
+    if ($total -gt [int64]::MaxValue) {
+        throw "Performance duplicate record count exceeds Int64"
+    }
+    [int64]$total
 }
 
 function ConvertTo-PerformanceStableObject {
@@ -274,15 +295,15 @@ function Get-PerformanceRolloutDuplication {
             $callId = [string](Get-PerformanceProperty $payload "call_id")
             if ($type -in @("function_call", "custom_tool_call", "local_shell_call", "mcp_tool_call")) {
                 if (-not [string]::IsNullOrWhiteSpace($callId)) {
-                    $prior = if ($calls.ContainsKey($callId)) { [int]$calls[$callId] } else { 0 }
-                    $calls[$callId] = $prior + 1
+                    $prior = if ($calls.ContainsKey($callId)) { [int64]$calls[$callId] } else { [int64]0 }
+                    $calls[$callId] = [int64]$prior + 1
                 }
                 continue
             }
             if ($type -notin @("function_call_output", "custom_tool_call_output", "local_shell_call_output", "mcp_tool_call_output")) { continue }
             if (-not [string]::IsNullOrWhiteSpace($callId)) {
-                $prior = if ($callOutputs.ContainsKey($callId)) { [int]$callOutputs[$callId] } else { 0 }
-                $callOutputs[$callId] = $prior + 1
+                $prior = if ($callOutputs.ContainsKey($callId)) { [int64]$callOutputs[$callId] } else { [int64]0 }
+                $callOutputs[$callId] = [int64]$prior + 1
             }
             $output = Get-PerformanceProperty $payload "output"
             $outputJson = if ($output -is [string]) { [string]$output } else { $output | ConvertTo-Json -Compress -Depth 40 }
@@ -300,8 +321,8 @@ function Get-PerformanceRolloutDuplication {
         exact_payload_duplicates = $payloadDup.count
         duplicate_output_bodies = $outputDup.count
         duplicate_output_body_bytes = $outputDup.bytes
-        duplicate_call_records = @($calls.GetEnumerator() | Where-Object Value -gt 1 | ForEach-Object { $_.Value - 1 } | Measure-Object -Sum).Sum
-        duplicate_output_records = @($callOutputs.GetEnumerator() | Where-Object Value -gt 1 | ForEach-Object { $_.Value - 1 } | Measure-Object -Sum).Sum
+        duplicate_call_records = Get-PerformanceExactExcessCount @($calls.Values)
+        duplicate_output_records = Get-PerformanceExactExcessCount @($callOutputs.Values)
         orphan_calls = @($calls.Keys | Where-Object { -not $callOutputs.ContainsKey($_) }).Count
         orphan_outputs = @($callOutputs.Keys | Where-Object { -not $calls.ContainsKey($_) }).Count
     }
@@ -330,7 +351,9 @@ function Get-PerformanceWireDuplication {
         request_count = $requests.Count
         final_content_duplicates = if ($final.Count) { $final[0].count } else { $null }
         final_duplicate_content_bytes = if ($final.Count) { $final[0].bytes } else { $null }
-        max_content_duplicates = if ($requests.Count) { @($requests.ToArray() | Measure-Object count -Maximum).Maximum } else { $null }
+        max_content_duplicates = if ($requests.Count) {
+            [int64]@($requests.ToArray() | Sort-Object count -Descending)[0].count
+        } else { $null }
     }
 }
 

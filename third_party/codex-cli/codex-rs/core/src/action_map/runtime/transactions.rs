@@ -9,6 +9,7 @@ use crate::action_map::response::ActionMapPreparedCall;
 use crate::action_map::response::ActionMapPreparedResponse;
 use crate::action_map::response::ActionMapResponseFinalReceipt;
 use crate::action_map::response::ActionMapResponseOperation;
+use crate::action_map::response::model_visible_state_violations;
 use crate::action_map::rooted_dag;
 use crate::action_map::rooted_dag::ActionReservation;
 use crate::action_map::rooted_dag::CompletionRecord;
@@ -434,12 +435,7 @@ fn rejection(rejection: rooted_dag::Rejection) -> String {
     serde_json::json!({
         "state_commit": rejection.state_commit,
         "current_revision": rejection.current_revision,
-        "violations": rejection.violations.iter().map(|violation| {
-            serde_json::json!({
-                "code": violation.code.as_str(),
-                "subjects": violation.subjects,
-            })
-        }).collect::<Vec<_>>()
+        "violations": model_visible_state_violations(&rejection),
     })
     .to_string()
 }

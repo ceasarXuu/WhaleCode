@@ -174,41 +174,7 @@ impl ActionMapResponsePrepareError {
         match self {
             Self::State(rejection) => {
                 payload["current_revision"] = serde_json::json!(rejection.current_revision);
-                payload["error"]["violations"] = serde_json::Value::Array(
-                    rejection
-                        .violations
-                        .iter()
-                        .map(|violation| {
-                            let mut value = serde_json::json!({
-                                "code": violation.code.as_str(),
-                                "subjects": violation.subjects,
-                            });
-                            if let Some(node_id) = violation.node_id.as_ref() {
-                                value["node_id"] = serde_json::json!(node_id);
-                                value["canonical_before_transaction"] = serde_json::json!({
-                                    "node_present":
-                                        violation.canonical_node_present_before_transaction,
-                                    "state": violation.canonical_state_before_transaction,
-                                    "unsatisfied_predecessor_ids":
-                                        violation
-                                            .canonical_unsatisfied_predecessor_ids_before_transaction,
-                                });
-                                value["rejected_candidate_at_violation"] = serde_json::json!({
-                                    "committed": false,
-                                    "state":
-                                        violation.uncommitted_candidate_state_at_violation,
-                                    "allowed_states":
-                                        violation
-                                            .allowed_uncommitted_candidate_states_at_violation,
-                                    "unsatisfied_predecessor_ids":
-                                        violation
-                                            .uncommitted_candidate_unsatisfied_predecessor_ids_at_violation,
-                                });
-                            }
-                            value
-                        })
-                        .collect(),
-                );
+                payload["error"]["violations"] = model_visible_state_violations(rejection);
             }
             Self::Protocol { detail, .. } | Self::Resource { detail, .. } => {
                 payload["error"]["detail"] = serde_json::json!(detail);
@@ -216,6 +182,39 @@ impl ActionMapResponsePrepareError {
         }
         payload.to_string()
     }
+}
+
+pub(crate) fn model_visible_state_violations(rejection: &Rejection) -> serde_json::Value {
+    serde_json::Value::Array(
+        rejection
+            .violations
+            .iter()
+            .map(|violation| {
+                let mut value = serde_json::json!({
+                    "code": violation.code.as_str(),
+                    "subjects": violation.subjects,
+                });
+                if let Some(node_id) = violation.node_id.as_ref() {
+                    value["node_id"] = serde_json::json!(node_id);
+                    value["canonical_before_transaction"] = serde_json::json!({
+                        "node_present": violation.canonical_node_present_before_transaction,
+                        "state": violation.canonical_state_before_transaction,
+                        "unsatisfied_predecessor_ids":
+                            violation.canonical_unsatisfied_predecessor_ids_before_transaction,
+                    });
+                    value["rejected_candidate_at_violation"] = serde_json::json!({
+                        "committed": false,
+                        "state": violation.uncommitted_candidate_state_at_violation,
+                        "allowed_states":
+                            violation.allowed_uncommitted_candidate_states_at_violation,
+                        "unsatisfied_predecessor_ids":
+                            violation.uncommitted_candidate_unsatisfied_predecessor_ids_at_violation,
+                    });
+                }
+                value
+            })
+            .collect(),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

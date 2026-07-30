@@ -38,6 +38,13 @@ function New-ControlFailure {
         status = "state_machine_failed"
         success = $false
         state_commit = $false
+        partial_commit = $false
+        canonical_revision = 4
+        submitted_expected_revision = 4
+        committed_revision = $null
+        delta = $null
+        steps = @()
+        read = $null
         error = [pscustomobject]@{
             class = "state_machine"
             code = "node_state_invalid"
@@ -68,6 +75,40 @@ Assert-True (
     -not $incomplete.evidence_valid -and
     $incomplete.parse_status -eq "incomplete_failure_payload"
 ) "node state failure without candidate facts remained valid"
+
+$protocol = New-ControlFailure
+$protocol.action = $null
+$protocol.status = "protocol_failed"
+$protocol.canonical_revision = $null
+$protocol.submitted_expected_revision = $null
+$protocol.error = [pscustomobject]@{
+    class = "protocol"
+    code = "TASKSPACE_PROTOCOL_FAILURE"
+    message = "invalid carrier"
+    actual = [pscustomobject]@{ condition = "invalid_carrier" }
+    expected = $null
+}
+Assert-True (
+    (Get-R7StructuredFailureOutcome $protocol).evidence_valid
+) "complete non-state control failure was rejected"
+
+$missingEnvelope = New-ControlFailure
+$missingEnvelope.PSObject.Properties.Remove("steps")
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $missingEnvelope).evidence_valid
+) "control failure with an incomplete envelope remained valid"
+
+$mismatchedStatus = New-ControlFailure
+$mismatchedStatus.status = "protocol_failed"
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $mismatchedStatus).evidence_valid
+) "control failure with a mismatched status remained valid"
+
+$fractionalRevision = New-ControlFailure
+$fractionalRevision.canonical_revision = 1.5
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $fractionalRevision).evidence_valid
+) "control failure with a fractional revision remained valid"
 
 $supplemental = [pscustomobject]@{
     schema_version = "TaskSpaceResponseCommitFailureV3"

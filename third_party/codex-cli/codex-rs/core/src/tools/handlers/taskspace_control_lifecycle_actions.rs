@@ -44,6 +44,18 @@ pub(super) async fn finish_map(
             Ok(terminal_execution(outcome))
         }
         Err(FinishActionMapError::Rejected(error)) => {
+            let rejection = serde_json::from_str::<serde_json::Value>(&error).ok();
+            let violations = rejection
+                .as_ref()
+                .and_then(|value| value.get("violations"))
+                .and_then(serde_json::Value::as_array);
+            let violation_codes = violations
+                .into_iter()
+                .flatten()
+                .filter_map(|violation| violation.get("code"))
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(",");
             tracing::warn!(
                 target: "codex_core::taskspace",
                 event_name = "taskspace_finish_rejected",
@@ -52,6 +64,8 @@ pub(super) async fn finish_map(
                 finish_node_id,
                 completed_work_node_count = complete_work_node_ids.len(),
                 state_commit = false,
+                violation_count = violations.map_or(0, Vec::len),
+                violation_codes,
                 "rejected Agent-declared TaskSpace terminal"
             );
             Ok((rejected_control_result(&error), false, None))

@@ -50,3 +50,22 @@ function Get-R7ExactPropertyInt64Sum {
     }
     [int64]$sum
 }
+
+function Get-R7ExactInt64Sum {
+    param([object[]]$Values, [string]$FieldName = "value")
+    [bigint]$sum = 0
+    foreach ($value in $Values) {
+        if ($null -eq $value) {
+            throw "R7 exact sum contains a missing $FieldName"
+        }
+        $number = ConvertTo-R7NonnegativeInt64Fact $value
+        if ($null -eq $number) {
+            throw "R7 exact sum contains an invalid nonnegative Int64 $FieldName"
+        }
+        $sum += [bigint]$number
+    }
+    if ($sum -gt [int64]::MaxValue) {
+        throw "R7 exact sum exceeds Int64 for $FieldName"
+    }
+    [int64]$sum
+}

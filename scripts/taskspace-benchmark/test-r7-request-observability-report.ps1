@@ -386,6 +386,18 @@ try {
         -not [bool]$matrixStatus.final_aggregate_ready) {
         throw "Matrix report did not publish sealed final aggregate provenance"
     }
+    $typedManifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $matrixManifestPath |
+        ConvertFrom-Json -Depth 100
+    $typedFinalProvenance = Get-R7MatrixArtifactProvenance `
+        $repoRoot `
+        (Join-Path $runRoot "run-manifest.json") `
+        $typedManifest `
+        (Join-Path $PSScriptRoot "report-r7-five-layer-matrix.ps1") `
+        $matrixStatusPath
+    if ($typedFinalProvenance.run_count -isnot [int64] -or
+        $typedFinalProvenance.raw_artifact_count -isnot [int64]) {
+        throw "Matrix provenance counts are not exact Int64 facts"
+    }
 
     $appendRun = @($runs | Where-Object {
             $_.sample -eq $evaluationAuthority.samples[0] -and

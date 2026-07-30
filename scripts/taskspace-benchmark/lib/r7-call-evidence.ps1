@@ -295,7 +295,7 @@ function Get-R7StructuredFailureOutcome {
     }
 
     $shapeError = if ($schemaVersion -eq "TaskSpaceControlResultV2") {
-        Get-R7StateFailureShapeError $Payload
+        Get-R7ControlFailureEnvelopeShapeError $Payload
     } else {
         Get-R7SupplementalFailureShapeError $Payload
     }

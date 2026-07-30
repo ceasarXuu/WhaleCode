@@ -4,6 +4,8 @@ use crate::action_map::response::ActionMapDeclaredCall;
 use crate::action_map::response::ActionMapResponseOperation;
 use crate::action_map::rooted_dag::MapEdge;
 use crate::action_map::rooted_dag::NodeState;
+use crate::action_map::rooted_dag::Rejection;
+use crate::action_map::rooted_dag::Violation;
 use crate::action_map::rooted_dag::ViolationCode;
 use crate::action_map::rooted_dag::map_node;
 use crate::action_map::runtime::ActionMapRuntimeState;
@@ -355,6 +357,48 @@ fn runtime_close_reopen_close_preserves_one_map_and_terminal_history() {
             .expect("current terminal")
             .summary_ref,
         "Feedback addressed"
+    );
+}
+
+#[test]
+fn direct_rejection_preserves_canonical_and_candidate_node_facts() {
+    let mut violation = Violation::node_state(
+        "verify",
+        Some(NodeState::Waiting),
+        vec![NodeState::Ready, NodeState::InFlight],
+        vec!["inspect".into()],
+    );
+    violation.canonical_node_present_before_transaction = Some(true);
+    violation.canonical_state_before_transaction = Some(NodeState::Waiting);
+    violation.canonical_unsatisfied_predecessor_ids_before_transaction = vec!["inspect".into()];
+    let error = super::rejection(Rejection {
+        state_commit: false,
+        current_revision: 4,
+        violations: vec![violation],
+    });
+    let payload: serde_json::Value = serde_json::from_str(&error).expect("typed rejection");
+    let violation = &payload["violations"][0];
+    assert_eq!(violation["code"], "node_state_invalid");
+    assert_eq!(violation["node_id"], "verify");
+    assert_eq!(
+        violation["canonical_before_transaction"]["state"],
+        "waiting"
+    );
+    assert_eq!(
+        violation["rejected_candidate_at_violation"]["state"],
+        "waiting"
+    );
+    assert_eq!(
+        violation["rejected_candidate_at_violation"]["allowed_states"],
+        serde_json::json!(["ready", "in_flight"])
+    );
+    assert_eq!(
+        violation["canonical_before_transaction"]["unsatisfied_predecessor_ids"],
+        serde_json::json!(["inspect"])
+    );
+    assert_eq!(
+        violation["rejected_candidate_at_violation"]["committed"],
+        false
     );
 }
 

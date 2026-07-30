@@ -41,8 +41,8 @@ function Get-AggregateRow {
         scope = $Scope
         sample = $Sample
         arm = $Arm
-        runs = $Rows.Count
-        successes = @($Rows | Where-Object { [bool]$_.business_success }).Count
+        runs = [int64]$Rows.Count
+        successes = [int64]@($Rows | Where-Object { [bool]$_.business_success }).Count
         requests_total = $requestTotal
         requests_mean = if ($Rows.Count) { [Math]::Round($requestTotal / $Rows.Count, 3) } else { $null }
         requests_median = Get-Median @($Rows.provider_requests)
@@ -59,7 +59,9 @@ function Get-AggregateRow {
         taskspace_resource_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "taskspace_resource_failure_requests" "matrix aggregate"
         ordinary_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "ordinary_failure_requests" "matrix aggregate"
         sibling_failure_copy_count_total = Get-R7ExactPropertyInt64Sum $Rows "sibling_failure_copy_count" "matrix aggregate"
-        classification_unreconciled_runs = @($Rows | Where-Object classification_reconciled -ne $true).Count
+        classification_unreconciled_runs = [int64]@(
+            $Rows | Where-Object classification_reconciled -ne $true
+        ).Count
         echo_only_handoffs_total = Get-R7ExactPropertyInt64Sum $Rows "echo_only_handoffs" "matrix aggregate"
         initialize_and_execute_total = Get-R7ExactPropertyInt64Sum $Rows "initialize_and_execute" "matrix aggregate"
         committed_initialize_and_execute_total = Get-R7ExactPropertyInt64Sum $Rows "committed_initialize_and_execute" "matrix aggregate"
@@ -108,8 +110,15 @@ function Get-AggregateRow {
 }
 
 if ([string]$manifest.status -ne "completed") { throw "Matrix run is not completed: $($manifest.status)" }
-$expectedRuns = [int]$manifest.repeats_per_arm_per_sample * @($manifest.samples).Count * 4
-if ([int]$manifest.completed_run_count -ne $expectedRuns) { throw "Matrix run count is incomplete" }
+$repeatCount = Get-R7RequiredNonnegativeInt64Fact `
+    $manifest "repeats_per_arm_per_sample" "matrix manifest"
+[bigint]$expectedRunsBig = [bigint]$repeatCount * @($manifest.samples).Count * 4
+if ($expectedRunsBig -gt [int64]::MaxValue) {
+    throw "Matrix expected run count exceeds Int64"
+}
+$expectedRuns = [int64]$expectedRunsBig
+$completedRuns = Get-R7RequiredNonnegativeInt64Fact $manifest "completed_run_count" "matrix manifest"
+if ($completedRuns -ne $expectedRuns) { throw "Matrix run count is incomplete" }
 $artifactProvenancePath = Join-Path $RunRoot "artifact-provenance.json"
 $inputProvenance = Get-R7MatrixArtifactProvenance `
     $repoRoot `
@@ -248,31 +257,29 @@ foreach ($run in @($manifest.runs)) {
         [int64]$requestObservability.total_tokens
     )
     $requestCalls = @($requestPath | ForEach-Object { @($_.calls) })
-    $flat | Add-Member -NotePropertyName tool_action_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "tool_calls").Count
-    $flat | Add-Member -NotePropertyName assistant_only_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "assistant_only").Count
-    $flat | Add-Member -NotePropertyName multi_tool_requests -NotePropertyValue @($requestPath | Where-Object { @($_.calls).Count -gt 1 }).Count
-    $flat | Add-Member -NotePropertyName no_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.none)
-    $flat | Add-Member -NotePropertyName tool_sequence_protocol_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.tool_sequence_protocol)
-    $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue (
-        [int]$requestObservability.primary_failure_counts.taskspace_protocol +
-        [int]$requestObservability.primary_failure_counts.taskspace
-    )
-    $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.taskspace_state_machine)
-    $flat | Add-Member -NotePropertyName taskspace_resource_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.taskspace_resource)
-    $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue ([int]$requestObservability.primary_failure_counts.ordinary_tool)
-    $flat | Add-Member -NotePropertyName sibling_failure_copy_count -NotePropertyValue ([int]$requestObservability.sibling_failure_copy_count)
+    $flat | Add-Member -NotePropertyName tool_action_requests -NotePropertyValue ([int64]@($requestPath | Where-Object action_kind -eq "tool_calls").Count)
+    $flat | Add-Member -NotePropertyName assistant_only_requests -NotePropertyValue ([int64]@($requestPath | Where-Object action_kind -eq "assistant_only").Count)
+    $flat | Add-Member -NotePropertyName multi_tool_requests -NotePropertyValue ([int64]@($requestPath | Where-Object { @($_.calls).Count -gt 1 }).Count)
+    $flat | Add-Member -NotePropertyName no_failure_requests -NotePropertyValue ([int64]$requestObservability.primary_failure_counts.none)
+    $flat | Add-Member -NotePropertyName tool_sequence_protocol_failure_requests -NotePropertyValue ([int64]$requestObservability.primary_failure_counts.tool_sequence_protocol)
+    $taskspaceProtocolRequests = Get-R7ExactInt64Sum @($requestObservability.primary_failure_counts.taskspace_protocol, $requestObservability.primary_failure_counts.taskspace) "taskspace_protocol_failure_requests"
+    $flat | Add-Member -NotePropertyName taskspace_protocol_failure_requests -NotePropertyValue $taskspaceProtocolRequests
+    $flat | Add-Member -NotePropertyName taskspace_state_failure_requests -NotePropertyValue ([int64]$requestObservability.primary_failure_counts.taskspace_state_machine)
+    $flat | Add-Member -NotePropertyName taskspace_resource_failure_requests -NotePropertyValue ([int64]$requestObservability.primary_failure_counts.taskspace_resource)
+    $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue ([int64]$requestObservability.primary_failure_counts.ordinary_tool)
+    $flat | Add-Member -NotePropertyName sibling_failure_copy_count -NotePropertyValue ([int64]$requestObservability.sibling_failure_copy_count)
     $flat | Add-Member -NotePropertyName classification_reconciled -NotePropertyValue ([bool]$requestObservability.classification_reconciled)
-    $flat | Add-Member -NotePropertyName receipt_before_requests -NotePropertyValue ([int]$requestObservability.receipt_before_requests)
+    $flat | Add-Member -NotePropertyName receipt_before_requests -NotePropertyValue ([int64]$requestObservability.receipt_before_requests)
     $flat | Add-Member -NotePropertyName receipt_before_input_tokens -NotePropertyValue ([int64]$requestObservability.receipt_before_input_tokens)
     $flat | Add-Member -NotePropertyName receipt_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.receipt_before_cached_input_tokens)
     $flat | Add-Member -NotePropertyName receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.receipt_before_cache_hit_rate
-    $flat | Add-Member -NotePropertyName no_receipt_before_requests -NotePropertyValue ([int]$requestObservability.no_receipt_before_requests)
+    $flat | Add-Member -NotePropertyName no_receipt_before_requests -NotePropertyValue ([int64]$requestObservability.no_receipt_before_requests)
     $flat | Add-Member -NotePropertyName no_receipt_before_input_tokens -NotePropertyValue ([int64]$requestObservability.no_receipt_before_input_tokens)
     $flat | Add-Member -NotePropertyName no_receipt_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.no_receipt_before_cached_input_tokens)
     $flat | Add-Member -NotePropertyName no_receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.no_receipt_before_cache_hit_rate
     $flat | Add-Member -NotePropertyName receipt_original_roles -NotePropertyValue (@($requestObservability.receipt_original_roles) -join ",")
     $flat | Add-Member -NotePropertyName receipt_wire_roles -NotePropertyValue (@($requestObservability.receipt_wire_roles) -join ",")
-    $flat | Add-Member -NotePropertyName receipt_wire_role_unresolved_count -NotePropertyValue ([int]$requestObservability.receipt_wire_role_unresolved_count)
+    $flat | Add-Member -NotePropertyName receipt_wire_role_unresolved_count -NotePropertyValue ([int64]$requestObservability.receipt_wire_role_unresolved_count)
     $firstRequestInitialization = if ($requestPath.Count) {
         @($requestPath[0].calls | Where-Object {
                 $_.tool -eq "taskspace_control" -and $_.control_action -eq "initialize_and_execute"
@@ -293,7 +300,9 @@ foreach ($run in @($manifest.runs)) {
     $directInitializeControl = @($requestCalls | Where-Object {
             $_.tool -eq "taskspace_control" -and $_.control_action -eq "initialize_and_execute"
         }).Count
-    $noTaskPathRejections = @($requestCalls | Where-Object failure_code -eq "no_task_path").Count
+    $noTaskPathRejections = [int64]@(
+        $requestCalls | Where-Object failure_code -eq "no_task_path"
+    ).Count
     $flat | Add-Member -NotePropertyName first_request_initialization -NotePropertyValue $firstRequestInitialization
     $flat | Add-Member -NotePropertyName first_request_initialization_commits -NotePropertyValue $firstRequestInitializationCommits
     $flat | Add-Member -NotePropertyName direct_initialize_control -NotePropertyValue $directInitializeControl
@@ -367,7 +376,7 @@ $traceAnalysis = [ordered]@{
     status = "initial_observation_only_no_policy_claim"
     docker_image_digest = $uniqueImages[0]
     input_artifact_provenance = $inputProvenance
-    run_count = $rows.Count
+    run_count = [int64]$rows.Count
     node_state_rejections = $nodeStateRejections
     runs = @($traceRuns)
 }
@@ -449,7 +458,7 @@ $matrixStatus = [ordered]@{
     status = "finalized"
     final_aggregate_ready = $true
     repo_commit = [string]$manifest.repo_commit
-    run_count = $rows.Count
+    run_count = [int64]$rows.Count
     inputs = @(
         (New-R7ProvenanceFileFact $manifestPath "run_manifest"),
         (New-R7ProvenanceFileFact $inputProvenance.evaluation_contract_path "evaluation_contract")

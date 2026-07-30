@@ -128,7 +128,9 @@ try {
     try {
         Get-R7WireRequestInventory $identityPath | Out-Null
     } catch {
-        $identityRejected = $_.Exception.Message -match "incomplete physical request rows"
+        $identityRejected = $_.Exception.Message -match (
+            "invalid nonnegative Int64|incomplete physical request rows"
+        )
     }
     if (-not $identityRejected) {
         throw "Provider string request identity was accepted"
