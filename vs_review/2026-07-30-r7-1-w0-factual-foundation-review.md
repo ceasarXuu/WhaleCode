@@ -1317,3 +1317,62 @@ GI-007 保持 `validating`。
 
 三块均使用 `gpt-5.6-sol/xhigh/priority`，只收到局部导航和输出合同；不继承其他 shard 结论。目标 12 分钟，
 最多一次 8 分钟延长。
+
+### Wave 2 Outputs
+
+#### Shard D: Retained Matrix
+
+- Status: `PASS`
+- Independent recomputation:
+  - 24/24 complete、business success、comparison eligible；
+  - 298 requests；input `6,322,711`、cached `2,970,624`、uncached `3,352,087`、output
+    `127,666`、reasoning `58,076`、total `6,450,377`；
+  - primary class `none=181`、`sequence=65`、`state=27`、`taskspace_protocol=1`、
+    `ordinary=24`，总和 298；sibling copy 98；
+  - state rejection 12 requests / 12 violations / 2 next `read_map`；
+  - 24 evidence manifests × 8 facts = 192/192，逐文件 bytes/hash 0 mismatch；
+  - commit、binary、image、Tool identity、evaluation contract、attestation、final inputs/outputs 全部匹配。
+- Local conclusion: GI-007 retained-matrix、C-06/C-07/C-13/C-14 的工件切片 PASS。该 PASS 只证明当前
+  retained matrix 自洽，不抵消 B/C 对同类无效输入入口的 blocker。
+
+#### Shard E: Runtime And Ordinary Tool Boundary
+
+- Status: `BLOCKED`
+- Blocking finding: CodeMode `exec` 的 nested registry 只关闭再次嵌套 CodeMode，仍保留
+  `apply_patch` 和 `taskspace_control`；nested filter 只排除 `exec/wait`。外层 response preflight 只看到一个
+  ordinary `exec`，无法逐项校验内部 Patch/control 的 node ownership、顺序、单 Patch、reservation 和
+  zero-dispatch。
+- Passed sub-gate: 直接顶层路径保持 control-first、数量/名称/顺序、连续动作、control+Patch、零执行拒绝、
+  原始 ordinary output 和无 current/binding；未发现直接装饰普通 Tool schema/handler。
+- Local conclusion: C-02/C-05/C-09～C-12/C-18 在 nested capability 下 BLOCKED。
+
+#### Shard F: Map Persistence And Lifecycle
+
+- Status: `BLOCKED`
+- Blocking finding: Store hydrate 的 `restore_store_map` 只核对 `map_id`，随后直接安装 canonical map；没有在
+  恢复边界验证 canonical schema 或 rooted-DAG。旧 schema 或存在不可达/无入边 Work 的 Map 可进入 Runtime
+  cache。
+- Passed sub-gates:
+  - Store CAS 是唯一持久事实，resume/fork/child 使用同 Map，缺 Store 不从 rollout 重建；
+  - 无 persisted Open/current/next/lease，节点状态由事实派生；
+  - init schema 保持 root/work_nodes/finish 分区；
+  - finish 可同事务完成最后 Work，reopen 保留旧 completion/result/terminal history；
+  - 无生产 `rework_node`、current 或平行 Map 权威源。
+- Local conclusion: C-08/C-15 BLOCKED；C-16/C-17/C-19/C-20/C-21 PASS。
+
+### Wave 2 Main Agent Triage
+
+| Shard/Finding | Decision | Reason |
+|---|---|---|
+| D retained matrix | `accept-pass` | 独立 raw 重算覆盖 request/token/taxonomy/seal/authority，数字与工件逐项一致 |
+| E nested dispatcher bypass | `accept` | `for_code_mode_nested_tools` 保留 collab/Patch，nested eligibility 只排除 exec/wait；生产 nested router 同样构造该 capability |
+| F Store hydrate validation gap | `accept` | `runtime_from_record -> restore_store_map -> restore_canonical_map` 只校验 map_id，未调用 schema/rooted-DAG validator |
+
+### Wave 3 Launch Record
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| G | layer-epoch-projection-adversary (`Hooke`) | `019fb2be-4f80-7162-924a-7bc2c7ae4f6f` | L1-L5/epoch/projection/cost observation；C-04/C-06/C-07/C-13 | internal fresh，`fork_context=false`，只读 | running |
+
+Reviewer 使用 `gpt-5.6-sol/xhigh/priority`，仅收到分层、projection、Tool epoch 和现成观测导航；不读取其他 shard
+输出，目标 12 分钟，最多一次 8 分钟延长。
