@@ -1,11 +1,27 @@
 {
   "schema_version": 1,
   "contract_id": "r7-five-layer-evaluation-contract-v1",
-  "status": "selected_four_arm_design_target_not_implemented",
+  "status": "active_initial_evaluation_authority",
   "environment": {
     "runner": "scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1",
     "base_runner": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
     "execution": "Docker only",
+    "model_identifier": "deepseek-v4-flash",
+    "model_reasoning_effort": "max",
+    "sandbox_mode": "docker_hard_boundary",
+    "docker_image_digest": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
+    "provider_wire_api": "ChatCompletions",
+    "provider_transport": "responses_http",
+    "tool_capability_profiles": {
+      "standard": {
+        "tools_hash": "007fa4f530eca9c779cffc644d0a78beccd436c19f3f41d415847417900e3efc",
+        "tools_count": 12
+      },
+      "taskspace": {
+        "tools_hash": "8fb902a75a89a15fc3ae1ffd2c972841054c06fd34a4b2f57139eec640d8201a",
+        "tools_count": 13
+      }
+    },
     "image_identity": "record immutable image digest, WhaleCode commit, model identifier, provider endpoint family and tool profile in every run",
     "api_key_source": ".env.local DEEPSEEK_API_KEY; never copy the value into artifacts or logs",
     "concurrency": "parallelize repeats across isolated containers; keep every arm isolated and record the actual execution order",

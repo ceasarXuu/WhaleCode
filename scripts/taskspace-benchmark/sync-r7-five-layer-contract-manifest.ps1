@@ -92,7 +92,7 @@ $manifest = [ordered]@{
     schema_version = 1
     schema_path = "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"
     contract_id = "r7-taskspace-five-layer-production-v1"
-    manifest_version = "1.0.44"
+    manifest_version = "1.0.45"
     contract_status = "production_active"
     runtime_status_enum = @(
         "selected_not_active",
@@ -103,7 +103,7 @@ $manifest = [ordered]@{
         "carrier_repair_active",
         "carrier_result_repair_active_projection_baseline"
     )
-    activation_through = "A2-C repair"
+    activation_through = "W0 evidence authority repair"
     source_authority = [ordered]@{
         contract_id = [string]$authority.contract_id
         path = $AuthorityPath.Replace("\", "/")
@@ -122,4 +122,4 @@ if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
 }
 $json = $manifest | ConvertTo-Json -Depth 20
 [System.IO.File]::WriteAllText($outputFile, "$json`n", [System.Text.UTF8Encoding]::new($false))
-Write-Output "Wrote $OutputPath from $AuthorityPath (A2-C repair)."
+Write-Output "Wrote $OutputPath from $AuthorityPath (W0 evidence authority repair)."

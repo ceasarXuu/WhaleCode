@@ -170,10 +170,10 @@
     },
     {
       "layer": "evaluation",
-      "implementation_status": "selected_not_implemented",
+      "implementation_status": "active_repair_verified",
       "activation_phase": "R7.1-C",
       "artifact": "benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json",
-      "sha256": "f628217a775fe0eed26f4a38329695bd58a352b4f7ca9083fa26411d7303f380",
+      "sha256": "0c9e7a96e116500486fd0d2151285cb3da80a3dd36b95c3eaf816054db98bf5c",
       "next_gate": "four-arm repeat-3 for R-10/R-19/R-22"
     }
   ],

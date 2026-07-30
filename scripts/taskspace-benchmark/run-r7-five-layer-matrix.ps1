@@ -18,6 +18,7 @@ $baseRunner = Join-Path $repoRoot "scripts/taskspace-benchmark/run-taskspace-ben
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 50
 . (Join-Path $PSScriptRoot "lib/harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
+$evaluationAuthority = Get-R7EvaluationAuthority $repoRoot $Stage
 
 function Write-Utf8Json {
     param([Parameter(Mandatory = $true)]$Value, [Parameter(Mandatory = $true)][string]$Path)
@@ -51,18 +52,17 @@ if ($Stage -eq "extended" -and -not $AllowExtended) {
     throw "Extended repeat-10 evaluation requires explicit -AllowExtended after the initial report."
 }
 $stageContract = if ($Stage -eq "initial") { $contract.run_design.initial_observation } else { $contract.run_design.extended_observation }
-$expectedRepeats = [int]$stageContract.repeats_per_arm_per_sample
+$expectedRepeats = [int]$evaluationAuthority.repeats
 if ($Repeats -eq 0) { $Repeats = $expectedRepeats }
 if ($Repeats -ne $expectedRepeats) {
     throw "$Stage evaluation requires exactly $expectedRepeats repeats per arm per sample."
 }
 if ($ThrottleLimit -lt 1) { throw "ThrottleLimit must be at least 1." }
-
-$samples = if ($Stage -eq "initial") {
-    @($contract.samples.development_smoke | ForEach-Object { [string]$_ })
-} else {
-    @($contract.samples.development_smoke + $contract.samples.held_out_formal | ForEach-Object { [string]$_ })
+if ($Model -ne [string]$evaluationAuthority.model) {
+    throw "$Stage evaluation requires model $($evaluationAuthority.model)."
 }
+
+$samples = @($evaluationAuthority.samples)
 $armOrders = if ($Stage -eq "initial") { @($stageContract.arm_order) } else { @($stageContract.arm_order_cycle) }
 $commit = (& git -C $repoRoot rev-parse HEAD).Trim()
 $runId = Get-Date -Format "yyyyMMdd-HHmmss-fff"
@@ -125,6 +125,8 @@ $manifestPath = Join-Path $RunRoot "run-manifest.json"
 $manifest = [ordered]@{
     schema_version = 1
     contract_id = [string]$contract.contract_id
+    evaluation_contract_path = [string]$evaluationAuthority.contract_relative_path
+    evaluation_contract_sha256 = [string]$evaluationAuthority.contract_sha256
     stage = $Stage
     status = if ($PlanOnly) { "planned" } else { "running" }
     generated_at = (Get-Date).ToString("o")
@@ -132,11 +134,16 @@ $manifest = [ordered]@{
     whale_bin = $WhaleBin
     whale_sha256 = $whaleSha256
     model = $Model
+    model_reasoning_effort = [string]$evaluationAuthority.reasoning_effort
     execution = "docker"
+    sandbox_mode = [string]$evaluationAuthority.sandbox_mode
+    expected_container_image_digest = [string]$evaluationAuthority.container_image_digest
+    provider_wire_api = [string]$evaluationAuthority.provider_wire_api
+    provider_transport = [string]$evaluationAuthority.provider_transport
     execution_root = $ExecutionRoot
     repeats_per_arm_per_sample = $Repeats
     samples = $samples
-    arms = @("standard", "map-always", "map-append", "map-request")
+    arms = @($evaluationAuthority.arms)
     throttle_limit = $ThrottleLimit
     planned_run_count = $plans.Count
     completed_run_count = 0

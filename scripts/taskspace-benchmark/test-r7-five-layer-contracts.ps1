@@ -109,7 +109,10 @@ $manifestRaw = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath
 Assert-StrictJson $manifestRaw "production manifest"
 Assert-True ($manifestRaw | Test-Json -SchemaFile $manifestSchemaPath -ErrorAction Stop) "Production manifest does not match its schema"
 $manifest = $manifestRaw | ConvertFrom-Json -Depth 50
-Assert-Equal ([string]$manifest.activation_through) "A2-C repair" "Production manifest is not activated through the A2-C repair"
+Assert-Equal `
+    ([string]$manifest.activation_through) `
+    "W0 evidence authority repair" `
+    "Production manifest is not activated through the W0 evidence authority repair"
 Assert-Equal ([string]$manifest.source_authority.sha256) (Get-Sha256 $authorityPath) "Production manifest authority hash drifted"
 Assert-Equal @($manifest.layers).Count 5 "Production manifest must retain exactly five content layers"
 foreach ($layer in @($manifest.layers)) {

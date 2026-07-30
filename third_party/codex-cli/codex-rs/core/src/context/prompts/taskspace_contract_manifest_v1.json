@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.44",
+  "manifest_version": "1.0.45",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -13,11 +13,11 @@
     "carrier_repair_active",
     "carrier_result_repair_active_projection_baseline"
   ],
-  "activation_through": "A2-C repair",
+  "activation_through": "W0 evidence authority repair",
   "source_authority": {
     "contract_id": "r7-five-layer-contract-authority-v1",
     "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
-    "sha256": "a5bc37242616a0fd0272aeb93b0d4303a0185d8ebbee134eb5bcaa941d4b920a"
+    "sha256": "82fd6f814276955dd8bc0fd4a948e582511953a7af5d474a7f0d08c07206a276"
   },
   "compatibility_policy": "none",
   "wire_order": {

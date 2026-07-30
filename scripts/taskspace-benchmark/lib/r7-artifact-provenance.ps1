@@ -9,6 +9,8 @@ function Get-R7ProvenanceProperty {
 if (-not (Get-Command Get-TaskspaceGitBuildIdentity -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "harness-health.ps1")
 }
+. (Join-Path $PSScriptRoot "r7-evaluation-authority.ps1")
+. (Join-Path $PSScriptRoot "r7-final-status-provenance.ps1")
 . (Join-Path $PSScriptRoot "r7-resolved-manifest-identity.ps1")
 
 function Get-R7ProvenanceFileFact {
@@ -160,6 +162,11 @@ function Get-R7MatrixArtifactProvenance {
     $repoCommit = [string](Get-R7ProvenanceProperty $Manifest "repo_commit" "")
     $manifestBinarySha = ([string](Get-R7ProvenanceProperty $Manifest "whale_sha256" "")).ToLowerInvariant()
     $gitIdentity = try { Get-TaskspaceGitBuildIdentity $RepoRoot } catch { $null }
+    $authorityCheck = Get-R7MatrixEvaluationAuthorityCheck $RepoRoot $ManifestPath $Manifest
+    $evaluationAuthority = $authorityCheck.authority
+    foreach ($code in @($authorityCheck.findings)) {
+        Add-R7ProvenanceFinding $findings $code $ManifestPath
+    }
 
     if ($repoCommit -notmatch '^[0-9a-f]{40,64}$') {
         Add-R7ProvenanceFinding $findings "matrix_repo_commit_invalid" $ManifestPath
@@ -194,17 +201,6 @@ function Get-R7MatrixArtifactProvenance {
             "run_resolved_manifest_missing" `
             "run_resolved_manifest_invalid"
         $resolvedIdentity = $null
-        if ($resolved) {
-            $resolvedIdentity = Get-R7ResolvedManifestIdentityCheck $Manifest $run $resolved
-            foreach ($code in @($resolvedIdentity.findings)) {
-                Add-R7ProvenanceFinding `
-                    $findings `
-                    "run_resolved_manifest_$code" `
-                    $resolvedManifestPath `
-                    $runDir
-            }
-            $resolvedIdentities.Add($resolvedIdentity)
-        }
 
         if ([int](Get-R7ProvenanceProperty $run "exit_code" -1) -ne 0) {
             Add-R7ProvenanceFinding $findings "matrix_run_exit_nonzero" $ManifestPath $runDir
@@ -308,6 +304,37 @@ function Get-R7MatrixArtifactProvenance {
                 $artifactDir = [string]$matchingRows[0].artifact_dir
             }
         }
+        if ($resolved -and $evaluationAuthority -and
+            -not [string]::IsNullOrWhiteSpace($artifactDir)) {
+            $wireCapability = try {
+                Get-R7ProviderWireCapabilityIdentity (
+                    Join-Path $artifactDir "provider-wire-trace.jsonl"
+                )
+            } catch {
+                Add-R7ProvenanceFinding `
+                    $findings `
+                    "run_provider_wire_capability_invalid" `
+                    (Join-Path $artifactDir "provider-wire-trace.jsonl") `
+                    $runDir
+                $null
+            }
+            if ($wireCapability) {
+                $resolvedIdentity = Get-R7ResolvedManifestIdentityCheck `
+                    $evaluationAuthority `
+                    $Manifest `
+                    $run `
+                    $resolved `
+                    $wireCapability
+                foreach ($code in @($resolvedIdentity.findings)) {
+                    Add-R7ProvenanceFinding `
+                        $findings `
+                        "run_resolved_manifest_$code" `
+                        $resolvedManifestPath `
+                        $runDir
+                }
+                $resolvedIdentities.Add($resolvedIdentity)
+            }
+        }
         $expectedEvidencePath = Join-Path $runDir "r7-artifact-evidence-manifest.json"
         $evidencePath = [string](Get-R7ProvenanceProperty $run "evidence_manifest_path" "")
         $evidenceSha = ([string](Get-R7ProvenanceProperty $run "evidence_manifest_sha256" "")).ToLowerInvariant()
@@ -379,7 +406,7 @@ function Get-R7MatrixArtifactProvenance {
             })
     }
 
-    $expectedArms = @(Get-R7ProvenanceProperty $Manifest "arms" @())
+    $expectedArms = if ($evaluationAuthority) { @($evaluationAuthority.arms) } else { @() }
     if ($resolvedIdentities.Count -ne $runs.Count -or $expectedArms.Count -ne 4) {
         Add-R7ProvenanceFinding $findings "matrix_comparison_identity_incomplete" $ManifestPath
     } else {
@@ -405,60 +432,27 @@ function Get-R7MatrixArtifactProvenance {
                         $group.Name
                 }
             }
+            foreach ($field in @("provider_wire_api", "provider_transport")) {
+                if (@($group.Group | ForEach-Object { $_.$field } | Sort-Object -Unique).Count -ne 1) {
+                    Add-R7ProvenanceFinding `
+                        $findings `
+                        "matrix_comparison_${field}_mismatch" `
+                        $ManifestPath `
+                        $group.Name
+                }
+            }
         }
     }
 
-    $matrixStatus = $null
-    $matrixStatusFact = $null
-    if (-not [string]::IsNullOrWhiteSpace($MatrixStatusPath)) {
-        $matrixStatus = Read-R7ProvenanceJson `
-            $MatrixStatusPath `
-            $findings `
-            "matrix_final_status_missing" `
-            "matrix_final_status_invalid"
-        $matrixStatusFact = Get-R7ProvenanceFileFact `
-            $MatrixStatusPath `
-            $findings `
-            "matrix_final_status_missing"
-        if ($matrixStatus) {
-            $inputFacts = @(Get-R7ProvenanceProperty $matrixStatus "inputs" @())
-            $outputFacts = @(Get-R7ProvenanceProperty $matrixStatus "outputs" @())
-            $requiredNames = @("summary.csv", "aggregate.csv", "trace-analysis.json", "report.md")
-            $actualNames = @($outputFacts | ForEach-Object { Split-Path -Leaf ([string]$_.path) })
-            $manifestInputs = @($inputFacts | Where-Object { [string]$_.role -eq "run_manifest" })
-            if ([int]$matrixStatus.schema_version -ne 1 -or
-                [string]$matrixStatus.status -ne "finalized" -or
-                -not [bool]$matrixStatus.final_aggregate_ready -or
-                [string]$matrixStatus.repo_commit -ne $repoCommit -or
-                [int]$matrixStatus.run_count -ne $runs.Count -or
-                $inputFacts.Count -ne 1 -or
-                $manifestInputs.Count -ne 1 -or
-                -not [string]::Equals(
-                    [IO.Path]::GetFullPath([string]$manifestInputs[0].path),
-                    [IO.Path]::GetFullPath($ManifestPath),
-                    [StringComparison]::OrdinalIgnoreCase
-                ) -or
-                (Compare-Object $requiredNames $actualNames)) {
-                Add-R7ProvenanceFinding $findings "matrix_final_status_identity_mismatch" $MatrixStatusPath
-            }
-            foreach ($inputFact in $inputFacts) {
-                if (-not (Test-R7ProvenanceFileFact $inputFact)) {
-                    Add-R7ProvenanceFinding `
-                        $findings `
-                        "matrix_final_input_hash_mismatch" `
-                        ([string]$inputFact.path)
-                }
-            }
-            foreach ($outputFact in $outputFacts) {
-                if (-not (Test-R7ProvenanceFileFact $outputFact)) {
-                    Add-R7ProvenanceFinding `
-                        $findings `
-                        "matrix_final_output_hash_mismatch" `
-                        ([string]$outputFact.path)
-                }
-            }
-        }
-    }
+    $finalStatus = Get-R7MatrixFinalStatusProvenance `
+        $MatrixStatusPath `
+        $ManifestPath `
+        $repoCommit `
+        $runs.Count `
+        $evaluationAuthority `
+        $findings
+    $matrixStatus = $finalStatus.status
+    $matrixStatusFact = $finalStatus.fact
 
     [pscustomobject]@{
         schema_version = 2
@@ -469,6 +463,12 @@ function Get-R7MatrixArtifactProvenance {
         manifest_path = $ManifestPath
         manifest_sha256 = if (Test-Path -LiteralPath $ManifestPath) {
             (Get-FileHash -Algorithm SHA256 -LiteralPath $ManifestPath).Hash.ToLowerInvariant()
+        } else { "" }
+        evaluation_contract_path = if ($evaluationAuthority) {
+            [string]$evaluationAuthority.contract_path
+        } else { "" }
+        evaluation_contract_sha256 = if ($evaluationAuthority) {
+            [string]$evaluationAuthority.contract_sha256
         } else { "" }
         report_script_path = $ReportScriptPath
         report_script_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $ReportScriptPath).Hash.ToLowerInvariant()

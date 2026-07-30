@@ -455,7 +455,10 @@ $matrixStatus = [ordered]@{
     final_aggregate_ready = $true
     repo_commit = [string]$manifest.repo_commit
     run_count = $rows.Count
-    inputs = @((New-R7ProvenanceFileFact $manifestPath "run_manifest"))
+    inputs = @(
+        (New-R7ProvenanceFileFact $manifestPath "run_manifest"),
+        (New-R7ProvenanceFileFact $inputProvenance.evaluation_contract_path "evaluation_contract")
+    )
     outputs = @($matrixOutputs)
     finalized_at = (Get-Date).ToString("o")
 }

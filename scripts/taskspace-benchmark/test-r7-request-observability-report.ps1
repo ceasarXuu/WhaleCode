@@ -4,6 +4,7 @@ $runRoot = Join-Path ([IO.Path]::GetTempPath()) "r7-request-observer-$([guid]::N
 . (Join-Path $PSScriptRoot "lib/harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
 . (Join-Path $PSScriptRoot "lib/r7-five-layer-trace-analysis.ps1")
+$evaluationAuthority = Get-R7EvaluationAuthority $repoRoot "initial"
 
 function Write-Json([string]$Path, $Value) {
     $parent = Split-Path -Parent $Path
@@ -28,6 +29,7 @@ function Write-JsonLines([string]$Path, [object[]]$Values) {
 function New-WireShape(
     [string]$RequestId,
     [int]$Index,
+    [string]$LogicalMode,
     [object[]]$Messages,
     [int]$Lcp,
     [object[]]$Receipts = @()
@@ -40,7 +42,9 @@ function New-WireShape(
         attempt_seq = 1
         transport = "responses_http"
         request_index = $Index
-        provider_wire_api = "ChatCompletions"
+        provider_wire_api = $evaluationAuthority.provider_wire_api
+        tools_hash = $evaluationAuthority.tool_capability_profiles.$LogicalMode.tools_hash
+        tools_count = [int64]$evaluationAuthority.tool_capability_profiles.$LogicalMode.tools_count
         lcp_message_count = $Lcp
         message_shapes = $Messages
         taskspace_final_receipt_identity = @{ count = $Receipts.Count; receipts = $Receipts }
@@ -158,10 +162,13 @@ try {
         executable_probe = $probe
     }
     $runs = [Collections.Generic.List[object]]::new()
-    foreach ($arm in @("standard", "map-always", "map-append", "map-request")) {
+    foreach ($sample in @($evaluationAuthority.samples)) {
+      foreach ($repeat in 1..$evaluationAuthority.repeats) {
+       foreach ($arm in @($evaluationAuthority.arms)) {
         $logicalMode = if ($arm -eq "standard") { "standard" } else { "taskspace" }
-        $runDir = Join-Path $runRoot $arm
+        $runDir = Join-Path $runRoot "$sample/r-$repeat/$arm"
         $artifactDir = Join-Path $runDir "artifacts"
+        $scenarioIdentity = $evaluationAuthority.scenarios[$sample]
         $requests = if ($logicalMode -eq "taskspace") { 2 } else { 1 }
         New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
         $observationRow = New-ObservationRow $logicalMode $artifactDir $requests
@@ -175,25 +182,25 @@ try {
             rows = @($observationRow)
         }
         Write-Json (Join-Path $runDir "pair-001/manifest.resolved.json") @{
-            scenario = "fixture"
+            scenario = $sample
             repeat = 1
-            prompt_sha256_left = "a" * 64
-            prompt_sha256_right = "a" * 64
-            fixture_sha256_left = "b" * 64
-            fixture_sha256_right = "b" * 64
+            prompt_sha256_left = $scenarioIdentity.prompt_sha256
+            prompt_sha256_right = $scenarioIdentity.prompt_sha256
+            fixture_sha256_left = $scenarioIdentity.fixture_sha256
+            fixture_sha256_right = $scenarioIdentity.fixture_sha256
             whale_sha256_left = $fixtureBinarySha
             whale_sha256_right = $fixtureBinarySha
-            model_left = "deepseek-v4-flash"
-            model_right = "deepseek-v4-flash"
+            model_left = $evaluationAuthority.model
+            model_right = $evaluationAuthority.model
             execution_substrate = "docker"
-            container_image_digest = "sha256:$("c" * 64)"
+            container_image_digest = $evaluationAuthority.container_image_digest
             provider_param_status = @{
                 complete = $true
                 required = @("model", "model_reasoning_effort", "sandbox_mode")
                 explicit = @{
-                    model = "deepseek-v4-flash"
-                    model_reasoning_effort = "max"
-                    sandbox_mode = "docker_hard_boundary"
+                    model = $evaluationAuthority.model
+                    model_reasoning_effort = $evaluationAuthority.reasoning_effort
+                    sandbox_mode = $evaluationAuthority.sandbox_mode
                 }
                 missing = @()
             }
@@ -202,7 +209,7 @@ try {
             } else {
                 $arm
             }
-            sandbox_mode = "docker_hard_boundary"
+            sandbox_mode = $evaluationAuthority.sandbox_mode
             logical_mode_map = @{ left = "standard"; right = "taskspace" }
             run_side = if ($logicalMode -eq "standard") { "left" } else { "right" }
             selected_sides = @(
@@ -235,37 +242,37 @@ try {
 
         if ($logicalMode -eq "standard") {
             Write-JsonLines (Join-Path $artifactDir "rollout.jsonl") @(
-                (New-TokenBoundary "$arm-1")
+                (New-TokenBoundary "$sample-$repeat-$arm-1")
             )
             Write-JsonLines (Join-Path $artifactDir "provider-wire-trace.jsonl") @(
-                (New-WireShape "$arm-1" 1 @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }) 0),
-                (New-WireTerminal "$arm-1" 100 0)
+                (New-WireShape "$sample-$repeat-$arm-1" 1 $logicalMode @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }) 0),
+                (New-WireTerminal "$sample-$repeat-$arm-1" 100 0)
             )
         } else {
             $controlArgs = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"task"},"work_nodes":[{"node_id":"work","goal":"work"}],"finish":{"node_id":"finish","goal":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"actions":[{"node_id":"work","tool":"exec_command"}]}'
             Write-JsonLines (Join-Path $artifactDir "rollout.jsonl") @(
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "$arm-control"; rawPayload = @{ name = "taskspace_control"; arguments = $controlArgs } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "$arm-tool"; rawPayload = @{ name = "exec_command"; arguments = '{"cmd":"true"}' } } },
-                (New-TokenBoundary "$arm-1"),
+                (New-TokenBoundary "$sample-$repeat-$arm-1"),
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-control"; toolSuccess = $true; rawPayload = @{ output = '{"success":true,"state_commit":true}' } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-tool"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; originalRole = "developer"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = '{"schema_version":"TaskSpaceResponseFinalReceiptV1"}' }) } } },
-                (New-TokenBoundary "$arm-2")
+                (New-TokenBoundary "$sample-$repeat-$arm-2")
             )
             $receiptHash = ("a" * 64) -join ""
             Write-JsonLines (Join-Path $artifactDir "provider-wire-trace.jsonl") @(
-                (New-WireShape "$arm-1" 1 @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }) 0),
-                (New-WireTerminal "$arm-1" 100 0),
-                (New-WireShape "$arm-2" 2 @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }) 2 @(
+                (New-WireShape "$sample-$repeat-$arm-1" 1 $logicalMode @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }) 0),
+                (New-WireTerminal "$sample-$repeat-$arm-1" 100 0),
+                (New-WireShape "$sample-$repeat-$arm-2" 2 $logicalMode @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }) 2 @(
                     @{ message_index = 4; wire_role = "system"; control_call_id_sha256 = $receiptHash; reservation_revision_after = 1; canonical_revision = 2; revision_delta = 1; complete = $true }
                 )),
-                (New-WireTerminal "$arm-2" 200 20)
+                (New-WireTerminal "$sample-$repeat-$arm-2" 200 20)
             )
         }
         $evidenceFact = Write-R7RunArtifactEvidenceManifest $runDir $logicalMode
         $runs.Add([pscustomobject]@{
-                sample = "fixture"
-                repeat = 1
+                sample = $sample
+                repeat = $repeat
                 arm = $arm
                 logical_mode = $logicalMode
                 projection_policy = if ($logicalMode -eq "taskspace") { $arm } else { "map-request" }
@@ -275,18 +282,28 @@ try {
                 evidence_manifest_path = [string]$evidenceFact.path
                 evidence_manifest_sha256 = [string]$evidenceFact.sha256
             })
+       }
+      }
     }
     $matrixManifest = @{
         status = "completed"
-        contract_id = "request-observer-test"
+        contract_id = [string]$evaluationAuthority.contract.contract_id
+        evaluation_contract_path = [string]$evaluationAuthority.contract_relative_path
+        evaluation_contract_sha256 = [string]$evaluationAuthority.contract_sha256
+        stage = "initial"
         repo_commit = $repoCommit
         whale_sha256 = $fixtureBinarySha
-        model = "deepseek-v4-flash"
+        model = [string]$evaluationAuthority.model
+        model_reasoning_effort = [string]$evaluationAuthority.reasoning_effort
         execution = "docker"
-        repeats_per_arm_per_sample = 1
-        samples = @("fixture")
-        arms = @("standard", "map-always", "map-append", "map-request")
-        completed_run_count = 4
+        sandbox_mode = [string]$evaluationAuthority.sandbox_mode
+        expected_container_image_digest = [string]$evaluationAuthority.container_image_digest
+        provider_wire_api = [string]$evaluationAuthority.provider_wire_api
+        provider_transport = [string]$evaluationAuthority.provider_transport
+        repeats_per_arm_per_sample = [int]$evaluationAuthority.repeats
+        samples = @($evaluationAuthority.samples)
+        arms = @($evaluationAuthority.arms)
+        completed_run_count = $runs.Count
         runs = @($runs)
     }
     $matrixManifestPath = Join-Path $runRoot "run-manifest.json"
@@ -319,7 +336,7 @@ try {
             @($identityProvenance.findings.code)) {
         throw "Matrix provenance accepted a forged resolved manifest identity"
     }
-    $identityResolved.scenario = "fixture"
+    $identityResolved.scenario = [string]$identityRun.sample
     Write-Json $identityResolvedPath $identityResolved
     $identityEvidence = Write-R7RunArtifactEvidenceManifest `
         $identityRun.run_dir `
@@ -332,7 +349,7 @@ try {
     $summary = @(Import-Csv -LiteralPath (Join-Path $runRoot "summary.csv"))
     $trace = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $runRoot "trace-analysis.json") |
         ConvertFrom-Json -Depth 100
-    if ($summary.Count -ne 4 -or @($summary | Where-Object classification_reconciled -ne "True").Count) {
+    if ($summary.Count -ne 24 -or @($summary | Where-Object classification_reconciled -ne "True").Count) {
         throw "Matrix report did not reconcile every run"
     }
     $incomplete = @($summary | Where-Object arm -eq "map-always")[0]
@@ -365,12 +382,16 @@ try {
     if ([int]$finalProvenance.schema_version -ne 2 -or
         [string]$finalProvenance.phase -ne "final" -or
         [string]$finalProvenance.status -ne "valid" -or
-        [int]$finalProvenance.raw_artifact_count -ne 32 -or
+        [int]$finalProvenance.raw_artifact_count -ne 192 -or
         -not [bool]$matrixStatus.final_aggregate_ready) {
         throw "Matrix report did not publish sealed final aggregate provenance"
     }
 
-    $appendRolloutPath = Join-Path $runRoot "map-append/artifacts/rollout.jsonl"
+    $appendRun = @($runs | Where-Object {
+            $_.sample -eq $evaluationAuthority.samples[0] -and
+            $_.repeat -eq 1 -and $_.arm -eq "map-append"
+        })[0]
+    $appendRolloutPath = Join-Path $appendRun.run_dir "artifacts/rollout.jsonl"
     $appendRollout = [IO.File]::ReadAllText($appendRolloutPath)
     [IO.File]::AppendAllText($appendRolloutPath, "{}$([Environment]::NewLine)")
     $rawMutationRejected = $false
