@@ -265,7 +265,7 @@ try {
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t0"; rawPayload = @{ name = "taskspace_control"; arguments = $initControlArgs } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "shell_command"; arguments = '{"cmd":"ls"}' } } },
         (New-TokenBoundary "wire-1"),
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceResponseCommitV1","action":"initialize_and_execute","success":true,"state_commit":true}' } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceResponseCommitV1","status":"accepted","success":true,"state_commit":true,"map_id":"map-1","action":"initialize_and_execute","revision_before":0,"revision_after":2,"reserved_actions":[{"call_index":0,"call_id":"t1","node_id":"explore","tool":"shell_command","reservation_id":"reservation:t1"}]}' } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; originalRole = "developer"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = '{"schema_version":"TaskSpaceResponseFinalReceiptV1"}' }) } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t2"; rawPayload = @{ name = "taskspace_control"; arguments = $finishArgs } } },
@@ -333,7 +333,7 @@ try {
     }
     $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV3","status":"protocol_failed","success":false,"state_commit":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:patch-1","zero_dispatch":true,"affected_call_ids":["patch-1"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}' -TrustedRuntimeCarrier
     if ($multiPatchFailure.failure_class -ne "tool_sequence_protocol") { throw "Multi-patch failure was not separated" }
-    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","status":"state_machine_failed","success":false,"state_commit":false,"partial_commit":false,"canonical_revision":0,"submitted_expected_revision":null,"committed_revision":null,"delta":null,"steps":[],"read":null,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID","message":"invalid initial graph","actual":{"violations":[{"code":"stale_revision","subjects":["map"]}]},"expected":{"action":"initialize_and_execute"}}}' -ToolName "taskspace_control"
+    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","status":"state_machine_failed","success":false,"state_commit":false,"partial_commit":false,"canonical_revision":0,"submitted_expected_revision":null,"committed_revision":null,"delta":null,"steps":[],"read":null,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID","message":"invalid initial graph","actual":{"violations":[{"code":"TASKSPACE_INITIAL_GRAPH_INVALID","subjects":["map"]}]},"expected":{"action":"initialize_and_execute"}}}' -ToolName "taskspace_control"
     if ($initializationFailure.failure_class -ne "taskspace_state_machine" -or
         $initializationFailure.failure_code -ne "TASKSPACE_INITIAL_GRAPH_INVALID" -or
         $initializationFailure.state_commit -ne $false) {
@@ -347,8 +347,8 @@ try {
     }
     $unknownFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"UnknownFailureV1","error":{"class":"tool","code":"failed"}}'
     if ($unknownFailure.evidence_valid -or
-        $unknownFailure.failure_code -ne "taskspace_failure_untrusted_carrier") {
-        throw "Unknown structured Tool text did not fail closed as an untrusted carrier"
+        $unknownFailure.failure_code -ne "tool_failed_unclassified") {
+        throw "Unknown ordinary Tool schema did not remain isolated and fail closed"
     }
     $missingBoundaryPath = Join-Path $tempRoot "taskspace-missing-boundary.jsonl"
     Write-Lines $missingBoundaryPath @(

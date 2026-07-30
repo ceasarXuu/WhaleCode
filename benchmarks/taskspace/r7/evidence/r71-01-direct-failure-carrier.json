@@ -1,0 +1,34 @@
+{
+  "schema_version": "r71-phase-evidence-v1",
+  "artifact_type": "strict_failure_carrier",
+  "records": [
+    {
+      "request_id": "r71-01-fixture",
+      "call_id": "valid-direct-failure",
+      "carrier_schema": "TaskSpaceControlResultV2",
+      "parse_status": "structured_failure",
+      "reason_code": "TASKSPACE_INVALID_ARGUMENT"
+    },
+    {
+      "request_id": "r71-01-fixture",
+      "call_id": "duplicate-json",
+      "carrier_schema": "untrusted_duplicate_json",
+      "parse_status": "duplicate_failure_json_property",
+      "reason_code": "failure_payload_duplicate_property"
+    },
+    {
+      "request_id": "r71-01-fixture",
+      "call_id": "outer-inner-mismatch",
+      "carrier_schema": "TaskSpaceControlResultV2",
+      "parse_status": "outer_inner_success_mismatch",
+      "reason_code": "outer_inner_success_mismatch"
+    },
+    {
+      "request_id": "r71-01-fixture",
+      "call_id": "ordinary-schema-isolation",
+      "carrier_schema": "OrdinaryExecResultV1",
+      "parse_status": "ordinary_failure",
+      "reason_code": "shell_exit_1"
+    }
+  ]
+}

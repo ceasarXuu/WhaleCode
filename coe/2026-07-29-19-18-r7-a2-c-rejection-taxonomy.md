@@ -1422,3 +1422,46 @@ R7 five-layer evidence freshness self-test passed
   ```
 - Interpretation: H-009 达到修复门；旧测试通过证明当前缺口尚未被持久化回归覆盖。
 - Time: 2026-07-31 07:34
+
+## Evidence E-035: R71-01 严格 direct carrier 合同通过正反矩阵
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: repair-verification
+- Source:
+  - `scripts/taskspace-benchmark/test-r71-direct-failure-carrier.ps1`
+  - `benchmarks/taskspace/r7/evidence/r71-01-direct-failure-carrier.json`
+  - `scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1`
+  - `scripts/taskspace-benchmark/test-r7-state-failure-contract.ps1`
+  - `scripts/taskspace-benchmark/test-r7-supplemental-failure-evidence.ps1`
+  - `scripts/taskspace-benchmark/test-performance-observation.ps1`
+  - `scripts/taskspace-benchmark/test-cost-instrumentation.ps1`
+- Prediction or plan link:
+  - H-009 的四条支持条件反转为退出门
+- Matched signal:
+  - root、nested 和大小写变体 duplicate JSON 均以
+    `duplicate_failure_json_property` fail closed；
+  - 非法 action、expected/action 冲突和 state code/violation 冲突均不能形成有效证据；
+  - outer/inner success 任一方向冲突均以 `outer_inner_success_mismatch` fail closed；
+  - 普通 Tool 自有 schema 进入 ordinary exit，冒用保留 TaskSpace schema 时才标记为 untrusted；
+  - 当前生产使用的 `TaskSpaceResponseCommitV1` 成功载体按独立完整 shape 验证；
+  - evidence artifact 通过 `r7-phase-evidence-v1.schema.json`，7 组定向/关联回归均通过。
+- Correlation keys:
+  - `r71-01-fixture`
+  - `carrier_schema`
+  - `parse_status`
+  - `reason_code`
+- Raw content:
+  ```text
+  R71-01 direct failure carrier contract passed.
+  R7 five-layer trace analysis passed.
+  R7 state failure contract passed.
+  R7 supplemental failure evidence passed.
+  performance observation self-test passed
+  cost instrumentation selftest passed
+  R7.1 five-layer contract validation passed for All.
+  evidence records=4; schema validation=PASS
+  ```
+- Interpretation: 修复保持 observer 边界：只验证来源、JSON 和事实一致性，不改变 Runtime、Map、
+  lifecycle、dispatch 或 Agent 决策。
+- Time: 2026-07-31 08:20

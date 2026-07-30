@@ -141,17 +141,18 @@ function Get-R7ControlFailureEnvelopeShapeError {
             return "TaskSpaceControlResultV2 is missing $field"
         }
     }
+    $acceptedActions = @(Get-R7ControlActionNames)
     $action = Get-R7JsonProperty $Payload "action"
     if ($null -ne $action -and
-        ($action -isnot [string] -or
-            [string]::IsNullOrWhiteSpace([string]$action))) {
-        return "TaskSpaceControlResultV2 action must be null or a non-empty string"
+        ($action -isnot [string] -or [string]$action -notin $acceptedActions)) {
+        return "TaskSpaceControlResultV2 action is unsupported"
     }
     $error = Get-R7JsonProperty $Payload "error"
     if ($error -isnot [pscustomobject]) {
         return "TaskSpaceControlResultV2 error must be an object"
     }
     $errorClass = Get-R7JsonProperty $error "class"
+    $errorCode = Get-R7JsonProperty $error "code"
     $status = Get-R7JsonProperty $Payload "status"
     $statusByClass = @{
         state_machine = "state_machine_failed"
@@ -178,6 +179,35 @@ function Get-R7ControlFailureEnvelopeShapeError {
         if (-not (Test-R7FailureHasProperty $error $field)) {
             return "TaskSpaceControlResultV2 error is missing $field"
         }
+        $value = Get-R7JsonProperty $error $field
+        if ($null -ne $value -and $value -isnot [pscustomobject]) {
+            return "TaskSpaceControlResultV2 error.$field must be null or an object"
+        }
+    }
+    $actual = Get-R7JsonProperty $error "actual"
+    $expected = Get-R7JsonProperty $error "expected"
+    if ($null -ne $action) {
+        $actualAction = Get-R7JsonProperty $actual "action"
+        if ($null -ne $actualAction -and [string]$actualAction -ne [string]$action) {
+            return "TaskSpaceControlResultV2 actual.action does not match action"
+        }
+        $expectedAction = Get-R7JsonProperty $expected "action"
+        $expectedContract = [string](Get-R7JsonProperty $expected "contract" "")
+        if ($null -ne $expectedAction) {
+            if ([string]$expectedAction -ne [string]$action) {
+                return "TaskSpaceControlResultV2 expected.action does not match action"
+            }
+        } elseif ($expectedContract -ne "selected action schema") {
+            return "TaskSpaceControlResultV2 expected does not identify the action contract"
+        }
+    }
+    if ($null -ne $expected -and
+        (Test-R7FailureHasProperty $expected "submitted_expected_revision")) {
+        $expectedRevision = Get-R7JsonProperty $expected "submitted_expected_revision"
+        $submittedRevision = Get-R7JsonProperty $Payload "submitted_expected_revision"
+        if ($expectedRevision -ne $submittedRevision) {
+            return "TaskSpaceControlResultV2 expected revision does not match envelope"
+        }
     }
     foreach ($field in @("success", "state_commit", "partial_commit")) {
         if ((Get-R7JsonProperty $Payload $field) -isnot [bool] -or
@@ -201,5 +231,26 @@ function Get-R7ControlFailureEnvelopeShapeError {
     if ($steps -isnot [System.Array] -or $steps.Count -ne 0) {
         return "TaskSpaceControlResultV2 steps must be an empty array on failure"
     }
-    Get-R7StateFailureShapeError $Payload
+    $stateShapeError = Get-R7StateFailureShapeError $Payload
+    if (-not [string]::IsNullOrWhiteSpace($stateShapeError)) {
+        return $stateShapeError
+    }
+    if ([string]$errorClass -eq "state_machine") {
+        if ($null -eq $action) {
+            return "TaskSpaceControlResultV2 state failure requires an action"
+        }
+        $violations = @(Get-R7JsonProperty $actual "violations" @())
+        $firstCode = [string](Get-R7JsonProperty $violations[0] "code" "")
+        if ([string]$errorCode -ne $firstCode) {
+            return "TaskSpaceControlResultV2 error.code does not match first violation"
+        }
+    }
+    ""
+}
+
+function Get-R7ControlActionNames {
+    @(
+        "initialize_and_execute", "execute", "reopen_map",
+        "read_map", "read_output_ref", "finish_map"
+    )
 }

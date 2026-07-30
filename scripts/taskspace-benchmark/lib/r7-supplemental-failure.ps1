@@ -12,30 +12,6 @@ function Test-R7ReservedFailureFamilyText {
     )
 }
 
-function Assert-R7UniqueJsonProperties {
-    param(
-        [System.Text.Json.JsonElement]$Element,
-        [string]$Path = "$"
-    )
-    if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
-        $names = [Collections.Generic.HashSet[string]]::new(
-            [StringComparer]::OrdinalIgnoreCase
-        )
-        foreach ($property in $Element.EnumerateObject()) {
-            if (-not $names.Add([string]$property.Name)) {
-                throw "Duplicate JSON property: $Path.$($property.Name)"
-            }
-            Assert-R7UniqueJsonProperties $property.Value "$Path.$($property.Name)"
-        }
-    } elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
-        $index = 0
-        foreach ($item in $Element.EnumerateArray()) {
-            Assert-R7UniqueJsonProperties $item "$Path[$index]"
-            $index++
-        }
-    }
-}
-
 function Apply-R7SupplementalFailure {
     param(
         [hashtable]$CallsById,
