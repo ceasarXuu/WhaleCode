@@ -1239,3 +1239,14 @@ PASS/BLOCKED；任何 blocker 只使自己的 shard 复审。
 6. reviewer 发现 blocker 后只需给出一个最小可复现反例和生产调用路径，无需继续扩大为全仓审计；
 7. 每项 finding 仍由主线程逐一 `accept`、`reject` 或 `defer`；accepted blocker 修复后只启动对应 shard 的
    fresh replacement review。
+
+### Wave 1 Launch Records
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| A | state-feedback-adversary (`Hume`) | `019fb2ae-8c6d-7401-bdb4-2fbd0c5065cc` | GI-005 carrier/state scope；C-01/C-03/C-12 | internal fresh，`fork_context=false`，只读 | running |
+| B | direct-parser-adversary (`Huygens`) | `019fb2ae-c0c5-78f1-a560-3eed1b9201d6` | direct V2 envelope、ordinary exit；C-01/C-03/C-11/C-12/C-14 | internal fresh，`fork_context=false`，只读 | running |
+| C | exact-count-adversary (`Pascal`) | `019fb2ae-fb1a-7bc2-8299-dcb6149e5276` | count/provenance/final status；C-01/C-03/C-14 | internal fresh，`fork_context=false`，只读 | running |
+
+三块均使用 `gpt-5.6-sol/xhigh/priority`。输入只包含各自文件导航、局部反例和输出合同，未继承主线程、其他
+reviewer、Round 11/12 rollout 或既有结论；每块目标 12 分钟，最多延长 8 分钟。
