@@ -353,6 +353,17 @@ $taskspaceSystemSection = @($taskspace.section_cost.sections | Where-Object { $_
 Assert-True ([double]$taskspaceSystemSection.bytes_per_request_mean -eq 40 -and [double]$taskspaceSystemSection.bytes_per_request_median -eq 40 -and [int]$taskspaceSystemSection.request_sample_count -eq 18) "taskspace section request statistics are incorrect"
 $standardMeasuredRow = @($report.rows | Where-Object { $_.repeat -eq 1 -and $_.logical_mode -eq "standard" })[0]
 $taskspaceMeasuredRow = @($report.rows | Where-Object { $_.repeat -eq 1 -and $_.logical_mode -eq "taskspace" })[0]
+foreach ($value in @(
+        $standardMeasuredRow.cost.input_tokens,
+        $standardMeasuredRow.cost.cached_input_tokens,
+        $standardMeasuredRow.cost.uncached_input_tokens,
+        $standardMeasuredRow.cost.output_tokens,
+        $standardMeasuredRow.cache.request_2_plus_cached_input_tokens,
+        $standardMeasuredRow.cache.request_2_plus_uncached_input_tokens
+    )) {
+    Assert-True ($value -is [int64]) "provider token fact was coerced away from int64"
+}
+Assert-True ($null -eq (Get-PerformanceNonnegativeInt64 1.5)) "fractional token fact was accepted"
 Assert-True ([string]$taskspaceMeasuredRow.map.map_store_availability -eq "measured") "measured Map Store availability was not preserved"
 $standardHistoricalRow = @($report.rows | Where-Object { $_.repeat -eq 2 -and $_.logical_mode -eq "standard" })[0]
 $standardActiveProjection = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "active_projection" })[0]
