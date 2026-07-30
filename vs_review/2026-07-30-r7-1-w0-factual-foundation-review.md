@@ -1250,3 +1250,70 @@ PASS/BLOCKED；任何 blocker 只使自己的 shard 复审。
 
 三块均使用 `gpt-5.6-sol/xhigh/priority`。输入只包含各自文件导航、局部反例和输出合同，未继承主线程、其他
 reviewer、Round 11/12 rollout 或既有结论；每块目标 12 分钟，最多延长 8 分钟。
+
+### Wave 1 Outputs
+
+#### Shard A: State Feedback
+
+- Status: `BLOCKED`
+- Blocking finding: lifecycle `normalize_control_result` 在
+  `error.actual.violations` 保留权威 violation 的同时，又把包含同一 `violations` 的原始 rejection 放进
+  `error.actual.condition`，形成确定性重复包装，违反 C-03。
+- Passed sub-gates:
+  - shared serializer 完整保留 node、canonical/evaluated state、allowed state、两侧 predecessor、subjects；
+  - direct、response-commit 和 ToolSearch sibling 均保留 typed failure、顺序和零执行事实；
+  - current matrix 12 个 state rejection 的 24 份 call copy 均保持失败语义；
+  - 2 次后续 `read_map` 的 trace 已先正确理解 waiting node 和未满足前驱，属于 Agent 保守读取，不是 carrier
+    扭曲；
+  - 未发现建议、自动改绑或 Runtime 语义越界。
+- GI-005: keep-open，只剩 lifecycle authoritative violation 去重子门。
+
+#### Shard B: Direct Envelope And Ordinary Exit
+
+- Status: `BLOCKED`
+- Blocking findings:
+  1. direct control JSON 使用 last-wins parser，重复 `schema_version/success/error.code` 可进入 valid evidence；
+  2. action 只要求非空字符串，非 state `actual/expected` 只要求存在，action/expected 和
+     error code/first violation 缺少一致性校验；
+  3. outer `toolSuccess=true` 在解析 inner failure 前直接返回 success，可产生
+     `success=true + state_commit=false`；
+  4. 任意普通 Tool 自有非空 `schema_version` 被误认成 TaskSpace untrusted carrier，破坏 ordinary Tool
+     隔离。
+- Passed sub-gate: ordinary exit 的正 Int64、错误 scope/root、string/fraction/zero/negative/overflow、
+  duplicate/malformed 和两种 line 形态全部符合合同。
+- GI-007: ordinary-exit 子门 PASS；direct carrier/fail-closed/ordinary isolation 子门 keep-open。
+
+#### Shard C: Exact Count And Provenance
+
+- Status: `BLOCKED`
+- Blocking finding: `Test-R7ProvenanceFileFact` 通过 `[int64]$Fact.bytes` 强转比较，匹配的 string、
+  fraction 和零字节 missing `bytes` 可通过；run/final-status provenance 不产生 finding，最终 aggregate
+  仍可标记 ready。
+- Passed sub-gate: shared integer helper 使用 CLR integer type gate、BigInt 中间和及 Int64 上界；
+  `2^53+1` 精确保留，helper 层 string/fraction/overflow 均被拒绝。
+- GI-007: count/provenance 子门 keep-open。
+
+### Wave 1 Main Agent Triage
+
+| Shard/Finding | Decision | Reason |
+|---|---|---|
+| A lifecycle duplicate violation | `accept` | 生产 normalizer 同时构造 `actual.violations` 和包含同一数组的 `actual.condition`；属于忠实反馈重复，不是 Agent/Runtime 边界问题 |
+| B duplicate JSON properties | `accept` | direct parser 使用 `ConvertFrom-Json`，未复用严格唯一属性门 |
+| B incomplete/cross-field envelope | `accept` | action domain、actual/expected shape 和机械字段间一致性均未完整校验 |
+| B outer success overrides inner failure | `accept` | success early-return 发生在 structured payload 校验之前 |
+| B ordinary schema misclassification | `accept` | 任意非空 `schema_version` 都进入 TaskSpace carrier 分支，违反普通 Tool 保真 |
+| C provenance bytes coercion | `accept` | verifier 绕过 shared Int64 helper，非法类型可进入 valid final provenance |
+
+这些 finding 均属于反馈/observer/seal 的机械事实边界，不授权 Runtime 增加语义决策。修复前 GI-005、
+GI-007 保持 `validating`。
+
+### Wave 2 Launch Records
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| D | retained-matrix-adversary (`Gauss`) | `019fb2b6-afaf-7550-9614-4d36af63196a` | raw matrix/seal；GI-007、C-06/C-07/C-13/C-14 | internal fresh，`fork_context=false`，只读 | running |
+| E | runtime-boundary-adversary (`Avicenna`) | `019fb2b6-e17f-7a60-ae07-a2aeb833be16` | Runtime/ordinary Tool/Patch；C-02/C-05/C-09～C-12/C-18 | internal fresh，`fork_context=false`，只读 | running |
+| F | map-lifecycle-adversary (`Lorentz`) | `019fb2b7-2592-7211-8587-985e90edaa53` | Map/persistence/lifecycle；C-08/C-15～C-17/C-19～C-21 | internal fresh，`fork_context=false`，只读 | running |
+
+三块均使用 `gpt-5.6-sol/xhigh/priority`，只收到局部导航和输出合同；不继承其他 shard 结论。目标 12 分钟，
+最多一次 8 分钟延长。
