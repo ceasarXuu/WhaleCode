@@ -136,7 +136,7 @@ function Assert-R7ExecutionPlanDefinitionShape {
         $prefix = "- ${field}："
         $matches = @($lines | Where-Object {
                 $_.StartsWith($prefix, [StringComparison]::Ordinal) -and
-                $_.Length -gt $prefix.Length
+                -not [string]::IsNullOrWhiteSpace($_.Substring($prefix.Length))
             })
         Assert-R7ExecutionPlan ($matches.Count -eq 1) `
             "$PhaseId definition must contain exactly one populated $field field"

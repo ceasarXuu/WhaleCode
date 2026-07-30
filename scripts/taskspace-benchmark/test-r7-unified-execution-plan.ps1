@@ -459,6 +459,12 @@ foreach ($mutant in $routeDirectiveMutants) {
         Assert-R7ExecutionPlanFailureRoutes $mutatedDocument $manifest
     }
 }
+foreach ($emptyValue in @("", " ", "`t")) {
+    $emptyFieldDocument = $current.Replace("- 入口：测量与反馈前置关闭。", "- 入口：$emptyValue")
+    Assert-Rejected "failure_route_empty_entry" {
+        Assert-R7ExecutionPlanFailureRoutes $emptyFieldDocument $manifest
+    }
+}
 
 $duplicateJson = '{"plan_id":"R7.1","plan_id":"drift"}'
 $duplicateDocument = [System.Text.Json.JsonDocument]::Parse($duplicateJson)

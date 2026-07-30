@@ -1,7 +1,7 @@
 # Subagent VS Review: R7.1 原子执行计划
 
 - Created: 2026-07-31T04:17:18+08:00
-- Updated: 2026-07-31T06:53:55+08:00
+- Updated: 2026-07-31T07:00:03+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 是否已拆成工程边界明确、可独立验证的小主题，避免 Phase 聚合造成工程混乱
 - Report path: `vs_review/2026-07-31-r7-1-atomic-execution-plan-review.md`
@@ -1117,3 +1117,55 @@ HTML emphasis 也有同类绕过。
 
 继续扩张正则不是正确方向。当前修复改为验证文档本来就声明的 8 字段结构：额外 directive 无论采用何种
 Markdown 表达都会增加未知行或重复字段并 fail closed；route 的唯一值仍由 exact canonical 行约束。
+
+## Round 8: Structured definition closure
+
+### Review Input
+
+只验证提交 `6d36bcb3a` 是否最终关闭 R3-B02/ARCH-NB01。除历次格式 mutants 外，攻击额外自由行、未知
+字段、重复已知字段、缺字段替换和空字段；不要求静态门理解任意自然语言同义句或证明其他字段值的业务真实性。
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb53c-b77c-7bb1-9a14-960d6e31c13e` | spawn result + completion notification | `fork_context=false` | Round 8 Review Input | main-agent history、reasoning、uncommitted drafts、Round 7 reviewer context | yes |
+
+### Reviewer Outputs
+
+#### round8-architecture
+
+##### Verdict
+
+**BLOCKED**
+
+- R3-B02：`still_open`
+- ARCH-NB01：`still_open`
+- 不允许关闭总审查。
+
+##### Blocking Finding
+
+`R71-12` 的 `- 入口：测量与反馈前置关闭。` 替换为 `- 入口：   ` 后，unified 和 five-layer 均意外
+PASS。根因是 populated 检查只比较原始长度，没有判断字段值是否全为空白。
+
+既有格式、链接、HTML、duplicate、replacement、额外自由行、未知字段、重复字段、缺字段替换和零字符
+空值均正确拒绝；仅 space/tab-only 值存在缺口。未扩大 evidence/DAG。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| whitespace-only field value | accept | `Length > prefix.Length` 把空格和 Tab 当成内容 | 截取字段值后使用 `IsNullOrWhiteSpace`；新增 zero-char、space-only、tab-only mutants | Round 9 fresh closure review |
+| R3-B02 / ARCH-NB01 | accept still open | 结构合同尚有一个机械空值缺口 | 修复完成但不自行关闭 | Round 9 fresh closure review |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, pending fresh verification
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Allowed to proceed: no
+
+## Round 8 Conclusion
+
+结构合同方向有效，剩余缺陷已收敛为字段空白判定。修复不改变合同边界，只补全 populated 的机械定义。
