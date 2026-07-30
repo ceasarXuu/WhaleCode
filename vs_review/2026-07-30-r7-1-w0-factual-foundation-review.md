@@ -1073,10 +1073,19 @@ Mencius 之外的 fresh replacement reviewer 复审。通过前不得关闭 R71-
   这些是待 reviewer 独立复算的主线程声明，不是预设结论。
 - Reviewer requirement: fresh internal subagent，`fork_context=false`，只读，
   `gpt-5.6-sol/xhigh`，不得使用 Mencius 或 Jason。
+- Reviewer: evidence-authority-adversary (`Euclid`)
+- Session / Job ID: `019fb1a2-b8cd-7fe2-9430-91e90a6a1a10`
+- Mechanism: internal `spawn_agent`，`fork_context=false`，未继承主线程上下文。
+- Trace source: runtime spawn record returned the session ID above.
+- Context excluded: 主线程聊天、隐藏 reasoning、既有结论和说服性摘要；只发送中性文件导航、
+  反例目标和输出合同。
+- Access: repository read-only review instruction，禁止修改文件。
+- Model: `gpt-5.6-sol`，reasoning effort `xhigh`，priority tier。
 - Required challenge surface:
   - producer → observer → report → seal 的全链路身份与 fail-closed；
   - direct/supplemental state violation 完整性、affected call ordinal、actual Tool output 绑定；
   - token/count 精确整数、缺失字段、candidate/current bytes 和文档唯一权威；
   - Runtime 边界、C-01 至 C-21、GI-005/GI-007 分别关闭意见；
   - 对 24 run、request/token/state rejection 和 192 seal 的独立复算。
-- Status: launching
+- Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
+- Status: running
