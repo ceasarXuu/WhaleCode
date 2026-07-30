@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 13:02
+- Updated: 2026-07-30 14:12
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -31,13 +31,12 @@
   - ToolSearch sibling 保留 typed state facts，不把底层 JSON 再包装为字符串
   - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
-- Current conclusion: 第八轮 fresh review 独立重算了正式矩阵并确认 GI-005 的机械反馈事实完整，
-  但又证明 GI-007 仍有三条真实 fail-open：provider supplemental 没有绑定实际 Tool output、
-  observation 可把错误类型的零 token 当成完整证据、候选工件没有绑定当前 clean worktree 及
-  候选提交内的报告/合同字节。Reviewer 关于“所有未完成业务运行不得 finalized”的宽泛结论被
-  C-14 和现有保留 Agent 失败样本的合同反驳；修复边界是让基础设施或计量无效证据不能封存，
-  而不是删除 Agent 的真实失败。W0 保持 blocked，等待三项修复、current-commit matrix 和新的
-  无上下文 closure review
+- Current conclusion: Round 8/9 接受的 output、token/count、候选字节、state violation、call 顺序和
+  文档权威缺口均已转为回归门。post-repair 正式汇总又暴露普通 Tool
+  `metadata.shell_exit_code` 未被 observer 识别，完整 Patch 失败被误判为无效证据；`ab2595847`
+  已按显式退出码机械修复。最新 current-candidate 矩阵 24/24 完整、业务成功、可比较，354 request
+  全部分类守恒，192 个证据工件 hash 无偏差。W0 保持 validating，等待新的无上下文 closure review，
+  不以业务成功、成本波动或 Agent 行为替代事实链验收
 - Related hypotheses:
   - H-001
   - H-002
@@ -1184,3 +1183,55 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: 修复只收紧机械事实结构、类型与顺序，没有增加 Runtime 对 Agent 语义或状态推进的干预；
   仍需 current-commit 正式矩阵和 fresh replacement reviewer 才能关闭 H-008
 - Time: 2026-07-30 13:36
+
+## Evidence E-028: post-repair 正式汇总发现普通 Tool 机械退出码形状遗漏
+- Related hypotheses:
+  - H-003
+  - H-008
+- Direction: supports
+- Type: live-failure-and-fix
+- Source:
+  - failed report attempt
+    `905d7fdd5883856945ffd83fd3cde6864fdbcb24/20260730-134259-002`
+  - commit `ab2595847238443a33795652174a744ef2dfd093`
+  - `test-r7-five-layer-trace-analysis.ps1`
+- Matched signal:
+  - 真实 `apply_patch` 失败返回
+    `metadata.execution_outcome=exited` 与 `metadata.shell_exit_code=1`
+  - observer 只识别 `exit_code`，将完整普通 Tool 失败标为
+    `evidence_unclassified/tool_failed_unclassified`
+  - report 因 classification 不守恒 fail-closed，没有封存错误矩阵
+  - 修复后同一 payload 机械分类为 `ordinary_tool/shell_exit_1`
+- Correlation keys:
+  - request 18
+  - call `call_01_R5aAkNcd0eajnXG5ixYk7508`
+  - failed candidate matrix
+- Interpretation: 根因是反馈观测器遗漏显式运行时字段，不是 Agent 幻觉，也不是 Runtime 状态约束不足。
+  修复不解释 Patch 文本，只读取既有退出码
+- Time: 2026-07-30 14:04
+
+## Evidence E-029: current-candidate 正式矩阵通过严格事实链
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-008
+- Direction: challenges
+- Type: fix-validation
+- Source:
+  - candidate `ab2595847238443a33795652174a744ef2dfd093`
+  - matrix run `20260730-135544-601`
+- Matched signal:
+  - 24/24 observation complete、business success、comparison eligible
+  - 354 provider request 的一级分类全部守恒
+  - input `8,294,969`、cached `3,609,344`、uncached `4,685,625`、
+    output `143,899`、reasoning `61,774`、total `8,438,868`
+  - 16 个 `node_state_invalid` request 完整保留 16 份 violation，2 个下一请求为 `read_map`
+  - 192 个证据工件逐文件 hash 复算无偏差，final aggregate finalized
+- Correlation keys:
+  - candidate commit
+  - matrix run
+  - artifact manifest
+- Interpretation: 当前候选已具备进入 fresh closure review 的生产、observer、report 和 seal 证据；
+  该结果不自行关闭 H-008，也不证明 request、缓存或 Agent 行为问题已解决
+- Time: 2026-07-30 14:12

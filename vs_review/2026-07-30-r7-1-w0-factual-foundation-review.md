@@ -1056,6 +1056,27 @@ Reviewer 独立复算 retained matrix，确认 24/24 run、385 request、token �
 
 ## Current Conclusion
 
-W0 当前保持 `validating`。Round 9 四项 blocker 已在 `ea6f27b1b` 修复；必须完成 current-commit 正式
-矩阵，并由 Mencius 之外的 fresh replacement reviewer 复审。通过前不得关闭 R71-GI-005/R71-GI-007，
-也不得进入 W1。
+W0 当前保持 `validating`。Round 9 四项 blocker 已在 `ea6f27b1b` 修复；post-repair 汇总发现的普通
+Tool `shell_exit_code` 形状遗漏已在 `ab2595847` 修复。current-candidate 正式矩阵已完成，必须由
+Mencius 之外的 fresh replacement reviewer 复审。通过前不得关闭 R71-GI-005/R71-GI-007，也不得进入 W1。
+
+## Round 10: W0 fresh full-constraint replacement review
+
+### Review Input
+
+- Objective: 对 Round 1 至 Round 9 的全部 accepted blocker、Round 9 修复、普通 Tool
+  `shell_exit_code` 修复、GI-005/GI-007 关闭条件和 C-01 至 C-21 重新执行空白对抗性审查。
+- Candidate commit: `ab2595847238443a33795652174a744ef2dfd093`
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/ab2595847238443a33795652174a744ef2dfd093/20260730-135544-601`
+- Matrix boundary: 24/24 complete/business/eligible，354 request，192 evidence artifacts；
+  这些是待 reviewer 独立复算的主线程声明，不是预设结论。
+- Reviewer requirement: fresh internal subagent，`fork_context=false`，只读，
+  `gpt-5.6-sol/xhigh`，不得使用 Mencius 或 Jason。
+- Required challenge surface:
+  - producer → observer → report → seal 的全链路身份与 fail-closed；
+  - direct/supplemental state violation 完整性、affected call ordinal、actual Tool output 绑定；
+  - token/count 精确整数、缺失字段、candidate/current bytes 和文档唯一权威；
+  - Runtime 边界、C-01 至 C-21、GI-005/GI-007 分别关闭意见；
+  - 对 24 run、request/token/state rejection 和 192 seal 的独立复算。
+- Status: launching
