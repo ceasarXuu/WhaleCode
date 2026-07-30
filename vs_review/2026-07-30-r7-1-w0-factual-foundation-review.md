@@ -655,8 +655,70 @@ Tool 参数侵入、Map 权威分叉或生命周期回归。
 - Replacement requirement: 因 Round 3 存在接受的 blocker，必须由另一名 `fork_context=false`
   reviewer 重新审查，Banach 不得作为自己的修复关闭 reviewer。
 
+## Round 4: W0 replacement closure review
+
+### Review Input
+
+- Objective: 对 Round 3 修复候选和 current-commit retained matrix 执行 replacement closure review，
+  逐项复查 GI-005、GI-007、Round 1/2/3 blocker 与 C-01 至 C-21。
+- Reviewed commit: `3b0831208`
+- Review mode: fresh internal subagent，`fork_context=false`，只读。
+- Reviewer: implementation-completeness-adversary (`Ampere`)
+- Session / Job ID: `019fb049-4437-7331-be0e-104759654f9c`
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 接受了 Round 1/2 的主要生产链修复，但发现四个新的 blocking closure gap：
+
+1. **supplemental failure 对畸形、未知和残缺结构仍可能 fail-open。**
+   - observer 只对已成功解析且 schema 已知的 payload 做严格校验；
+   - malformed JSON、未知保留 schema family 或缺少关键字段的可信 developer carrier 可能被跳过。
+2. **state rejection + ToolSearch 组合测试没有穿过异步生产入口。**
+   - 现有测试覆盖内部 sequence helper，但没有证明 `execute_response_tool_sequence` 在 dispatch 前执行相同
+     preflight 和零提交路径。
+3. **状态拒绝的文档统计与 retained artifact 不一致。**
+   - 文档声称 7 个 `node_state_invalid`、4 个后续 `read_map`；
+   - 被审工件实际有 13 个状态拒绝，按 arm 为 7/2/4，只有 3 个下一请求 `read_map`。
+4. **ToolSearch failure origin 仍由错误文本中的 scope 推断。**
+   - execution failure helper 从嵌套错误 payload 读取 scope；
+   - provider-response rejection 与真实 ToolSearch execution failure 没有由 typed control flow 结构性分离。
+
+Reviewer 另将 C-10 单 Patch 和 C-13 成本标记为失败。主线程不把它们作为 W0 新 blocker：两项始终分别由
+R71-GI-006、R71-GI-008 公开追踪，W0 从未声明关闭；但 current matrix 必须继续如实报告，不得用该边界
+掩盖现象。
+
+### Main Agent Triage
+
+- 四个 W0 blocking findings：全部 `accept`。
+- C-10/C-13：作为已知下游开放问题保留，不并入 GI-005/GI-007，不作为 W0 修复范围漂移的理由。
+- 结论：Round 4 不通过；完成修复后必须由 Ampere 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| supplemental fail-open | 对保留 schema family 的 malformed/unknown/incomplete/duplicate payload、非布尔 `success`、错误 role/scope/call set 全部 fail-closed | `test-r7-supplemental-failure-evidence.ps1` 正反例 |
+| 异步生产入口缺口 | 新增真实 Map 初始化、release、complete+reserve 和 ToolSearch sibling 的 `execute_response_tool_sequence` 回归；将 ToolSearch dispatch 指向必失败 handler，证明 preflight 已零执行拦截 | `production_entry_rejects_complete_then_tool_search_before_dispatch` |
+| 文档手工错计 | 报告自动输出被拒请求数、违规事实数、canonical/candidate 状态对和下一请求动作；同一请求多个 violation 不重复计为多个请求 | request observer fixture 与 current matrix `trace-analysis.json` |
+| ToolSearch origin 推断 | provider-response rejection 只生成原生 pairing；仅真实 ToolSearch dispatch error 生成 `tool_execution` supplemental，不读取错误文本决定来源 | Rust 正例与伪造 `scope=provider_response` 错误文本反例 |
+| 合同身份漂移 | 同步生产 manifest 内容 SHA；全量合同身份测试重新通过 | `production_manifest_matches_its_identity` |
+
+### Replacement Review Readiness
+
+- Fix commits: `2c6d65ddb`、`92cccd7e0`、`50c2b77d1`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 15/15 passed
+- Current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/50c2b77d199cfa41615f03e97f8dc07e72cd4c74/20260730-083136-712`
+- Matrix: 24/24，artifact provenance=`valid`，final aggregate=`finalized`
+- State rejection facts: 11 requests / 11 violations / 2 next-request `read_map`
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Ampere 不得关闭自己的
+  blocker。
+
 ## Current Conclusion
 
-W0 当前保持 `validating`。Round 1/2/3 接受的 blocker 已完成工程修复，但 fresh replacement
+W0 当前保持 `validating`。Round 1/2/3/4 接受的 blocker 已完成工程修复，但最新 fresh replacement
 blocking closure review 尚未通过；在 replacement review 完成前，不得关闭 R71-GI-005/R71-GI-007，
 也不得进入 W1。

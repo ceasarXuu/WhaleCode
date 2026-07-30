@@ -778,3 +778,72 @@ R7 five-layer evidence freshness self-test passed
   ToolSearch/MCP live call，因此这些载体的行为保证来自生产路径确定性测试和静态接线；replacement
   reviewer 必须判断这是否满足 W0 关闭标准，不能用矩阵未触发来伪造 live 收益
 - Time: 2026-07-30 07:47
+
+## Evidence E-017: Round 4 证明 supplemental、typed origin、生产入口和人工统计仍有缺口
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: challenges
+- Type: adversarial-review
+- Source:
+  - reviewer `Ampere`，session `019fb049-4437-7331-be0e-104759654f9c`
+  - `scripts/taskspace-benchmark/lib/r7-supplemental-failure.ps1`
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/sequence.rs`
+  - W0 retained matrix `1196b4e99c/20260730-073211-169`
+- Prediction or plan link:
+  - GI-005/GI-007 fresh closure review
+- Matched signal:
+  - malformed/unknown/incomplete supplemental 仍有跳过路径
+  - state rejection + ToolSearch 回归没有穿过异步生产入口
+  - ToolSearch execution origin 仍可由嵌套错误文本中的 scope 影响
+  - 文档声称 7 个状态拒绝、4 个后续 `read_map`，与工件的 13 个、3 个不一致
+- Correlation keys:
+  - reviewed commit `3b0831208`
+- Interpretation: Round 3 修复没有完全闭合 producer/observer/production-entry/documentation 四条证据链；
+  四项均接受为 W0 blocker。Reviewer 对 C-10/C-13 的失败判断属于已公开的 GI-006/GI-008，不改变 W0
+  范围，但不能从报告中删除。
+- Time: 2026-07-30 08:00
+
+## Evidence E-018: Round 4 blocker 修复与 current-commit 正式矩阵
+- Related hypotheses:
+  - H-002
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - commits `2c6d65ddb`、`92cccd7e0`、`50c2b77d1`
+  - `scripts/taskspace-benchmark/test-r7-supplemental-failure-evidence.ps1`
+  - `third_party/codex-cli/codex-rs/core/src/tools/sequence_taskspace_rejection_tests.rs`
+  - `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/50c2b77d199cfa41615f03e97f8dc07e72cd4c74/20260730-083136-712`
+- Prediction or plan link:
+  - Round 4 blocking findings 1-4
+- Matched signal:
+  - malformed/unknown/incomplete/duplicate supplemental、非布尔失败和错误 provenance 全部 fail-closed
+  - provider-response rejection 与 ToolSearch execution failure 使用不同的 typed 生产分支
+  - 异步 `execute_response_tool_sequence` 回归证明 complete/reserve 拒绝发生在 ToolSearch dispatch 前，
+    canonical Map、revision、reservations 和 result 均未提交
+  - 自动汇总区分 request 与 violation，current matrix 输出 11/11；状态对包含
+    `ready->completed`、`absent->waiting`，只有 2 个下一请求 `read_map`
+  - 24/24 run 完成且可比较，artifact provenance=`valid`，final aggregate=`finalized`
+- Correlation keys:
+  - source commit `50c2b77d199cfa41615f03e97f8dc07e72cd4c74`
+  - binary SHA-256 `aa9042dbc049ab68560dec219cd03becbeb95534f07bd8137477f5a129d2d660`
+  - Docker image `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+- Raw content:
+  ```text
+  cargo test -p codex-core --lib: 1933 passed, 0 failed, 3 ignored
+  PowerShell gates: 15/15 passed
+  matrix: 24/24, provenance valid, final aggregate finalized
+  TaskSpace requests: 292, classification unreconciled runs: 0
+  ```
+- Interpretation: Round 4 的四个 W0 blocker 已形成代码、负向门禁和 current-commit live artifact 三层证据；
+  GI-005/GI-007 仍需由新的无上下文 reviewer 关闭，不能由主线程自证完成。
+- Time: 2026-07-30 08:43
