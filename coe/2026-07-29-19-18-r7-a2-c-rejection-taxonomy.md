@@ -847,3 +847,81 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: Round 4 的四个 W0 blocker 已形成代码、负向门禁和 current-commit live artifact 三层证据；
   GI-005/GI-007 仍需由新的无上下文 reviewer 关闭，不能由主线程自证完成。
 - Time: 2026-07-30 08:43
+
+## Evidence E-019: Round 5 复现 supplemental 类型 fail-open 与 violation signature 合并
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+- Direction: challenges
+- Type: adversarial-review
+- Source:
+  - reviewer `Franklin`，session `019fb07d-cd31-7f92-9aa3-db1901e1a5f1`
+  - `scripts/taskspace-benchmark/lib/r7-supplemental-failure.ps1`
+  - `scripts/taskspace-benchmark/lib/r7-call-evidence.ps1`
+  - `scripts/taskspace-benchmark/lib/r7-state-rejection-summary.ps1`
+- Prediction or plan link:
+  - GI-007 fresh closure review
+- Matched signal:
+  - malformed payload 在 `schema_version` 不位于首字段时被静默忽略
+  - `affected_call_ids` 字符串被 PowerShell 隐式提升为单元素数组并接受
+  - 同 node/canonical/candidate state、但 subjects/allowed/predecessors 不同的两条 violation 被汇总为一条
+- Correlation keys:
+  - reviewed HEAD `ddab5f12c`
+  - production code `50c2b77d1`
+- Raw content:
+  ```json
+  {
+    "malformed_reordered": {
+      "classification_reconciled": true,
+      "evidence_health": "valid"
+    },
+    "scalar_affected_call_ids": {
+      "supplemental_count": 1,
+      "evidence_valid": true
+    },
+    "input_violation_count": 2,
+    "reported_violation_count": 1
+  }
+  ```
+- Interpretation: 前一轮只覆盖了首字段截断和不同状态对，没有证明字段顺序、JSON 类型与同状态对独立事实；
+  两项均违反 C-03/C-14，接受为 GI-007 blocker。
+- Time: 2026-07-30 09:08
+
+## Evidence E-020: 严格 supplemental 合同、显式 violation copy identity 与新正式矩阵
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - commit `e72637d070764c2f2de03a978761a6739780f37b`
+  - `scripts/taskspace-benchmark/test-r7-supplemental-failure-evidence.ps1`
+  - `scripts/taskspace-benchmark/test-r7-request-observability-report.ps1`
+  - `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/e72637d070764c2f2de03a978761a6739780f37b/20260730-091713-589`
+- Prediction or plan link:
+  - Round 5 blocking findings 1-2
+- Matched signal:
+  - 保留 schema family 的 malformed 识别不依赖字段顺序
+  - status/success/provenance/error/call identity 使用严格 object/array/string/boolean 与值合同
+  - scalar/object/boolean/array 混淆、错误 status/class、未知/残缺/重复 payload 全部 fail-closed
+  - 状态汇总只按显式 copy group/affected calls 合并 sibling，完整保留 subjects、allowed states、
+    canonical/candidate predecessor sets 和原始 ordinal
+  - 负向 fixture 中同状态对的 3 条独立 violation 全部保留，两个 sibling carrier 只计一次
+  - 24/24 run finalized，23/24 business success 原样保留，24/24 comparison eligible；
+    289 个 TaskSpace request 全部对账
+- Correlation keys:
+  - matrix run `20260730-091713-589`
+  - binary SHA-256 `aa9042dbc049ab68560dec219cd03becbeb95534f07bd8137477f5a129d2d660`
+  - Docker image `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+- Raw content:
+  ```text
+  PowerShell gates: 15/15 passed
+  matrix: 24/24 finalized, provenance valid
+  TaskSpace taxonomy: none=152, sequence=82, state=34, ordinary=21
+  node_state_invalid: 11 requests, 11 violations, 3 next-request read_map
+  ```
+- Interpretation: 新 observer 在不修改 Rust Runtime、Agent prompt、Tool schema 或 projection 的前提下收紧证据
+  完整性；真实 Agent 失败没有被删除。GI-007 仍需新的无上下文 reviewer 关闭。
+- Time: 2026-07-30 09:28

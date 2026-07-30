@@ -717,8 +717,92 @@ R71-GI-006、R71-GI-008 公开追踪，W0 从未声明关闭；但 current matri
 - Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Ampere 不得关闭自己的
   blocker。
 
+## Round 5: W0 strict-evidence replacement review
+
+### Review Input
+
+- Objective: 对 Round 4 修复、current-commit retained matrix、GI-005/GI-007 关闭条件和 C-01 至
+  C-21 执行完整 replacement review。
+- Reviewed HEAD: `ddab5f12c`
+- Production code through: `50c2b77d1`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: implementation-completeness-adversary (`Franklin`)
+- Session / Job ID: `019fb07d-cd31-7f92-9aa3-db1901e1a5f1`
+- Timeout record: 10 分钟检查点未完成；在 20 分钟 high-risk 初始窗口内完成。
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 将 GI-007 与 W0 判定为 `BLOCKED`；GI-005 的 Rust 生产实现未被证伪，但因 GI-007 是验收
+前置，不能单独关闭。两个 blocking finding 均由独立内存反例复现：
+
+1. **畸形及类型混淆 supplemental evidence 仍可 fail-open。**
+   - `{"padding":0,"schema_version":"ToolSearchFailureV3"` 因 schema 不在首字段而被忽略，request 仍为
+     `primary_failure_class=none`、`evidence_health=valid`；
+   - `affected_call_ids` 使用字符串而非数组时，PowerShell pipeline 将其提升为单元素数组并接受；
+   - 根因分别是 malformed 识别依赖字段位置，以及 shape validator 没有验证 provenance JSON 类型。
+2. **状态 violation 汇总按内容三元组合并不同事实。**
+   - 同一 request 的两个 violation 使用相同 node/canonical/candidate state，但 subjects、allowed states
+     和前驱集合不同；
+   - 汇总仍从 2 条压成 1 条；
+   - 根因是去重 key 只有 `node_id|canonical_state|candidate_state`，重新引入了 Round 1 已淘汰的
+     signature heuristic。
+
+Reviewer 对 Round 1-4 其他 blocker 均判定 `PASS`：异步生产入口、ToolSearch typed origin、
+canonical/candidate 状态域、provider attempt/WS 接线、ordinary Tool trust boundary、MCP 生产形态、
+artifact provenance 和 manifest identity 未发现回归。
+
+### Global Constraint Result
+
+| Constraint | Result | Review conclusion |
+|---|---|---|
+| C-03 | fail | malformed supplemental 可静默遗漏，独立 violation 可被合并 |
+| C-14 | fail | 上述两项可产生虚假 comparison eligibility 或错误归因 |
+| C-10 | fail, known downstream | current matrix 有 3 次 TaskSpace multi-Patch，由 GI-006 追踪 |
+| C-13 | fail, known downstream | receipt/cache 成本未达发布门，由 GI-002/GI-008 追踪 |
+| C-01/C-02/C-04 至 C-09/C-11/C-12/C-15 至 C-21 | pass | 未发现 Runtime 越界、普通 Tool 侵入、双 Map 权威、current/Open 回归或兼容分叉 |
+
+C-10/C-13 没有被 W0 隐藏或恶化，不作为本轮新 W0 blocker；C-03/C-14 是必须修复的新证伪结果。
+
+### User-Perspective And Benefit Checks
+
+- 11 个 live state rejection 中 10 个后续 reasoning 正确区分 canonical/candidate；
+- 1 个 Agent 将 `allowed_states` 误读为状态迁移集合，但反馈仍是纯机械事实，没有建议、自动改绑或自动推进；
+  该现象继续作为 GI-003/GI-004 下游理解风险，不要求 Runtime 增加语义纠正；
+- 当前矩阵 provenance、11/11/2 状态统计与文档一致；
+- W0 只主张事实保真与可归因，不主张性能收益，24/24 业务成功不能作为 W0 收益证明。
+
+### Main Agent Triage
+
+- Finding 1：`accept`，归 GI-007/C-03/C-14。
+- Finding 2：`accept`，归 GI-007/C-03/C-14。
+- 用户理解风险：`accept` 为下游观察，不扩大 W0 Runtime 语义。
+- C-10/C-13：保留在 GI-006 与 GI-002/GI-008，不重复建账。
+- 结论：Round 5 不通过；修复后必须由 Franklin 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| malformed/type-confused supplemental | 保留 schema family 使用顺序无关识别；严格验证 status/success、object/array/string/boolean、error class、scope、call identity 和 schema-specific 字段 | reordered malformed、scalar/object/boolean/array mutation 负向矩阵 |
+| violation signature merge | 删除状态内容 key；仅按 producer 的 `copy_group_id + affected_call_ids + zero_dispatch` 合并 sibling carrier，按原始 ordinal 保存完整 violation | 同状态对不同 subjects/allowed/predecessors 保留 3 条；同 copy group 两个 sibling 只计一次 |
+
+### Replacement Review Readiness
+
+- Fix commit: `e72637d070764c2f2de03a978761a6739780f37b`
+- Rust production baseline: 1933 passed、0 failed、3 ignored
+- PowerShell gates: 15/15 passed
+- Current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/e72637d070764c2f2de03a978761a6739780f37b/20260730-091713-589`
+- Matrix: 24/24 run finalized，23/24 business success，24/24 comparison eligible，
+  artifact provenance=`valid`
+- TaskSpace requests: 289，classification unreconciled run=0
+- State rejection facts: 11 requests / 11 violations / 3 next-request `read_map`
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Franklin 不得关闭自己的
+  blocker。
+
 ## Current Conclusion
 
-W0 当前保持 `validating`。Round 1/2/3/4 接受的 blocker 已完成工程修复，但最新 fresh replacement
+W0 当前保持 `validating`。Round 1/2/3/4/5 接受的 blocker 已完成工程修复，但最新 fresh replacement
 blocking closure review 尚未通过；在 replacement review 完成前，不得关闭 R71-GI-005/R71-GI-007，
 也不得进入 W1。
