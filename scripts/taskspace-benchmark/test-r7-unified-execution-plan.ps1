@@ -431,6 +431,24 @@ Assert-Rejected "failure_route_rollback_alias" {
     Assert-R7ExecutionPlanFailureRoutes $failureRollbackAlias $manifest
 }
 
+$canonicalExit = "- 退出/分流：关闭结果使用机器合同；失败路由只使用第 3.1 节机器投影，不复用既有 Phase。"
+$additiveExitAlias = $current.Replace(
+    $canonicalExit,
+    "$canonicalExit`n- 退出/分流：失败时重新打开 nested dispatcher 硬边界实现。"
+)
+Assert-Rejected "failure_route_additive_exit_alias" {
+    Assert-R7ExecutionPlanFailureRoutes $additiveExitAlias $manifest
+}
+
+$canonicalRollback = "- 回退：本节不维护失败目标；只使用第 3.1 节机器投影。"
+$additiveRollbackAlias = $current.Replace(
+    $canonicalRollback,
+    "$canonicalRollback`n- 回退：重新打开 nested dispatcher 硬边界实现。"
+)
+Assert-Rejected "failure_route_additive_rollback_alias" {
+    Assert-R7ExecutionPlanFailureRoutes $additiveRollbackAlias $manifest
+}
+
 $duplicateJson = '{"plan_id":"R7.1","plan_id":"drift"}'
 $duplicateDocument = [System.Text.Json.JsonDocument]::Parse($duplicateJson)
 try {

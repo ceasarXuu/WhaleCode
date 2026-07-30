@@ -136,11 +136,13 @@ function Assert-R7ExecutionPlanFailureRoutes {
             $nextIndex = $DocumentText.IndexOf("## 5.", $startIndex)
         }
         $section = $DocumentText.Substring($startIndex, $nextIndex - $startIndex)
+        $exitLines = @([regex]::Matches($section, '(?m)^- 退出/分流：.*$'))
+        $rollbackLines = @([regex]::Matches($section, '(?m)^- 回退：.*$'))
         Assert-R7ExecutionPlan (
-            [regex]::IsMatch($section, "(?m)^$([regex]::Escape($canonical))$")
-        ) "$($phase.id) engineering definition does not use the canonical failure route"
+            $exitLines.Count -eq 1 -and $exitLines[0].Value -eq $canonical
+        ) "$($phase.id) must contain exactly one canonical failure-route exit"
         Assert-R7ExecutionPlan (
-            [regex]::IsMatch($section, "(?m)^$([regex]::Escape($canonicalRollback))$")
-        ) "$($phase.id) engineering definition does not use the canonical route rollback"
+            $rollbackLines.Count -eq 1 -and $rollbackLines[0].Value -eq $canonicalRollback
+        ) "$($phase.id) must contain exactly one canonical failure-route rollback"
     }
 }

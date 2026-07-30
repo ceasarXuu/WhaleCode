@@ -1,7 +1,7 @@
 # Subagent VS Review: R7.1 原子执行计划
 
 - Created: 2026-07-31T04:17:18+08:00
-- Updated: 2026-07-31T05:35:16+08:00
+- Updated: 2026-07-31T06:34:14+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 是否已拆成工程边界明确、可独立验证的小主题，避免 Phase 聚合造成工程混乱
 - Report path: `vs_review/2026-07-31-r7-1-atomic-execution-plan-review.md`
@@ -695,3 +695,166 @@ reviewer 还在 R71-10 任意位置插入 Phase，生产 validator 正确接受 
 
 图、状态、特殊末端链和编号扩展门禁有效，但 evidence 内容与 failure route 仍存在自证循环。两项 blocker
 均接受，必须完成权威 artifact schema、稳定 route roles 和单一机器投影后再启动 fresh Round 4。
+
+## Round 4: Evidence and failure-route closure
+
+### Review Input
+
+#### Objective
+
+只验证提交 `fc9197080` 是否关闭 R3-B01/R3-B02，以及 ARCH-B03/NB01/NB02 是否可以最终关闭。
+
+#### Review Target
+
+- Phase evidence 固定 schema、required record fields、path/hash/type/version 和 symlink 防护；
+- held-out 固定 schema 与 sample IDs；
+- stable route role IDs、role kind/change-domain/dependency 绑定；
+- `spawn_atomic_phase + existing_phase_reuse: forbidden`；
+- 机器生成 phase/failure-route 投影与 canonical 工程引用；
+- 任意位置 Phase 插入和 route role 重编号。
+
+#### Target Locations
+
+- `docs/v0.0.5/build-R7/47-r7.1-global-issue-register.md`
+- `benchmarks/taskspace/r7/r7-1-execution-plan-v1.schema.json`
+- `benchmarks/taskspace/r7/r7-phase-evidence-v1.schema.json`
+- `benchmarks/taskspace/r7/r7-held-out-set-v1.schema.json`
+- `scripts/taskspace-benchmark/lib/r7-execution-plan-contract.ps1`
+- `scripts/taskspace-benchmark/lib/r7-execution-plan-evidence.ps1`
+- `scripts/taskspace-benchmark/lib/r7-execution-plan-projection.ps1`
+- `scripts/taskspace-benchmark/test-r7-unified-execution-plan.ps1`
+- Round 3 reviewer output and main-agent response in this report
+
+#### Change Introduction
+
+- evidence reference 的 schema path/version 只能指向固定权威 schema；
+- Phase evidence 至少一条 record，且每条 record 必须包含该 Phase observability required fields；
+- held-out 使用独立 schema，sample IDs 非空、唯一且两套集合不相交；
+- evidence/schema 路径拒绝 symlink/reparse point；
+- route roles 不再从 evidence label 推导，而由固定 role key 绑定 kind/change domain/依赖关系；
+- failure route 不列举可重绑定 ID，统一禁止复用全部既有 Phase；
+- failure-route 表和工程 exit/rollback 都从机器合同受控，不再 substring 搜索禁止 ID；
+- 正向 fixture 同时覆盖临近成本门和 R71-10 任意位置插入。
+
+#### Risk Focus
+
+- 同 type/hash/version 但缺 required fields 的 artifact 是否仍能关闭 Phase；
+- 改成未知或宽松 schema path/version 是否可通过；
+- symlink 是否能绕过 repo containment；
+- route role 是否能重绑到 R71-13，或通过修改 evidence label 改变受保护角色；
+- title alias 是否能写入 exit/rollback 并绕过机器 route；
+- `existing_phase_reuse` 是否存在允许值或投影再解释；
+- 通用 evidence schema + Phase required-fields validator 是否形成可被空 record 绕过的组合；
+- 新 helper 分层是否形成重复权威或固定 20 Phase 假设。
+
+#### User-Perspective Focus
+
+- 读者看到 closed 时是否至少有结构上满足本 Phase 验收字段的真实 artifact；
+- 失败后是否只有“新增原子 Phase”一个路径，不会被文字引导回旧 Runtime Phase；
+- ready、允许关闭结果、当前结果和派生修复是否仍可直接读取。
+
+#### Verification Status
+
+- `test-r7-unified-execution-plan.ps1`: PASS
+- `test-r7-five-layer-contracts.ps1 -Phase All`: PASS
+- PowerShell parser: PASS
+- `git diff --check`: PASS
+- all changed code files < 500 lines
+- no production Agent/Runtime change; no sample run
+
+#### Reviewer Instructions
+
+- Fresh internal subagent，`fork_context=false`，只读；
+- 直接重放 R3-B01 的空壳/same-type 缺字段 evidence 和 R3-B02 的 role-rebind/title-alias；
+- 对 R3-B01、R3-B02、ARCH-B03、ARCH-NB01、ARCH-NB02 分别给出 closed/still_open；
+- 新 blocking 必须包含可复现 mutant、影响和所需证明；
+- 不将 value-level 业务真实性无法由静态结构完全证明本身视作 blocker，除非计划声称已证明该语义；
+- 不修改文件。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| high-risk | 20 minutes | one 10-minute extension when alive | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| architecture-adversary | R3 accepted blocker 的独立 closure review | evidence validity、route identity、single source |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb522-f443-7453-9377-ec5f2badf5ff` | spawn result + completion notification | `fork_context=false` | Round 4 Review Input | main-agent history、reasoning、uncommitted drafts、Round 3 reviewer context | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| round4-architecture | architecture-adversary | 1 | `019fb522-f443-7453-9377-ec5f2badf5ff` | under 20 minutes | completed | reviewer returned before timeout | completed |
+
+### Reviewer Outputs
+
+#### round4-architecture
+
+##### Verdict
+
+**BLOCKED**
+
+##### Blocking Finding
+
+R3-B02 `still_open`：保留 canonical exit/rollback 后，再追加第二条冲突的同名 directive，完整统一门仍 PASS。
+当前 validator 只验证 canonical 行存在，没有验证每个工程段落恰好只有一条 exit 和一条 rollback。
+
+影响：机器表禁止复用既有 Phase，但同一读者段落可以额外指示重新打开 Runtime Phase，恢复平行语义源。
+
+##### Closure Status
+
+- R3-B01：`closed`；空 records、空 record、同类型缺字段、宽松 schema path、未知 schema version 均被拒绝；
+- R3-B02：`still_open`；简单 role rebind、`existing_phase_reuse=permitted` 和替换式 alias 已拒绝，
+  但 additive alias 仍通过；
+- ARCH-B03：`closed`（本轮限定的图/状态/角色结构范围）；
+- ARCH-NB01：`still_open`，由 R3-B02 additive prose 问题包含；
+- ARCH-NB02：`closed`；计数、末端门和任意位置插入均由 manifest/DAG 推导。
+
+##### Non-blocking Risks
+
+- 协同重写所有身份事实仍能改变 route role，属于静态权威文件本身被整体改写，不单列 blocker；
+- required fields 可填无意义非空值；当前合同只声明结构证据，不声明静态门可证明现实真实性；
+- 尚未修改生产 Agent/Runtime，因此没有 sample 运行或实际性能收益。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| R3-B01 | accept closed | reviewer 重放空壳、缺字段、未知 schema 均失败 | 保持固定 schema + required fields 设计 | Round 5 最终复核 |
+| R3-B02 additive alias | accept | canonical 存在性不能排除第二条冲突 directive | 每个 failure-route Phase 精确计数：exit=1、rollback=1，且值必须 canonical；新增 additive exit/rollback mutants | Round 5 最终复核 |
+| ARCH-B03 | accept closed | DAG、ready、special/route role 和 held-out 反例均关闭 | 不扩大修改 | Round 5 最终复核 |
+| ARCH-NB01 | accept | 唯一剩余来源是 additive prose | 由 exact-count 修复统一关闭 | Round 5 最终复核 |
+| ARCH-NB02 | accept closed | 任意位置插入与末端链已通过 | 不扩大修改 | Round 5 最终复核 |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, pending fresh verification
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Allowed to proceed: no
+
+## Round 4 Conclusion
+
+evidence、DAG、角色与扩展门已通过；只剩工程说明允许追加第二条冲突 exit/rollback。修复必须限定为
+exact-count + exact-value，不再扩张合同。
+
+### Round 4 Fix Verification
+
+- `failure_route_additive_exit_alias`: rejected
+- `failure_route_additive_rollback_alias`: rejected
+- `test-r7-unified-execution-plan.ps1`: PASS
+- `test-r7-five-layer-contracts.ps1 -Phase All`: PASS
+- PowerShell parser: PASS
+- `git diff --check`: PASS
+- changed code files: all below 500 lines
+- production Agent/Runtime behavior: unchanged, so no sample run
