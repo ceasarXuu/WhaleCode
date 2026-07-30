@@ -258,6 +258,10 @@ function Get-R7SupplementalFailureShapeError {
             [string]::IsNullOrWhiteSpace([string]$Payload.reservation_id))) {
         return "$schemaVersion reservation_id must be a non-empty string"
     }
+    $stateShapeError = Get-R7StateFailureShapeError $Payload
+    if (-not [string]::IsNullOrWhiteSpace($stateShapeError)) {
+        return $stateShapeError
+    }
     ""
 }
 
@@ -290,20 +294,31 @@ function Get-R7StructuredFailureOutcome {
         }
     }
 
+    $shapeError = if ($schemaVersion -eq "TaskSpaceControlResultV2") {
+        Get-R7StateFailureShapeError $Payload
+    } else {
+        Get-R7SupplementalFailureShapeError $Payload
+    }
     $error = Get-R7JsonProperty $Payload "error"
     $errorClass = [string](Get-R7JsonProperty $error "class" "")
     $errorCode = [string](Get-R7JsonProperty $error "code" "")
+    $actual = Get-R7JsonProperty $error "actual"
     $violations = @(Get-R7JsonProperty $error "violations" @())
-    if (-not $violations.Count) { $violations = @(Get-R7JsonProperty $Payload "violations" @()) }
+    if (-not $violations.Count -and $actual -is [pscustomobject]) {
+        $violations = @(Get-R7JsonProperty $actual "violations" @())
+    }
     $provenance = Get-R7JsonProperty $Payload "failure_provenance"
-    $valid = -not [string]::IsNullOrWhiteSpace($errorCode)
+    $valid = [string]::IsNullOrWhiteSpace($shapeError) -and
+        -not [string]::IsNullOrWhiteSpace($errorCode)
     [pscustomobject]@{
-        failure_class = if ($schemaVersion -eq "ToolSequencePreflightResultV3") {
+        failure_class = if (-not $valid) {
+            "evidence_unclassified"
+        } elseif ($schemaVersion -eq "ToolSequencePreflightResultV3") {
             "tool_sequence_protocol"
         } else {
             Get-R7FailureClass $errorClass
         }
-        failure_code = if ($valid) { $errorCode } else { "failure_code_missing" }
+        failure_code = if ($valid) { $errorCode } else { "failure_payload_incomplete" }
         failure_schema_version = $schemaVersion
         failure_provenance_scope = [string](Get-R7JsonProperty $provenance "scope" "")
         failure_copy_group_id = [string](Get-R7JsonProperty $provenance "copy_group_id" "")

@@ -312,11 +312,24 @@ function Assert-R7ProviderResponseFailureProvenance {
         $owningRequests[0].calls | ForEach-Object { [string]$_.call_id }
     )
     $expectedCopyGroupId = "provider_response:$($requestCallIds[0])"
+    $callOrderMatches = $requestCallIds.Count -eq $AffectedCallIds.Count
+    if ($callOrderMatches) {
+        for ($index = 0; $index -lt $requestCallIds.Count; $index++) {
+            if (-not [string]::Equals(
+                    $requestCallIds[$index],
+                    $AffectedCallIds[$index],
+                    [StringComparison]::Ordinal
+                )) {
+                $callOrderMatches = $false
+                break
+            }
+        }
+    }
     if ($Scope -ne "provider_response" -or
         -not [bool](Get-R7JsonProperty $Provenance "zero_dispatch" $false) -or
         [string](Get-R7JsonProperty $Provenance "copy_group_id" "") -ne
             $expectedCopyGroupId -or
-        (Compare-Object @($requestCallIds | Sort-Object) @($AffectedCallIds | Sort-Object))) {
+        -not $callOrderMatches) {
         throw "Provider-response failure provenance does not match the request call set"
     }
     foreach ($callId in $AffectedCallIds) {

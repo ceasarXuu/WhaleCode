@@ -3,7 +3,9 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "patch-observability.ps1")
 . (Join-Path $PSScriptRoot "performance-duplication.ps1")
 . (Join-Path $PSScriptRoot "performance-section-cost.ps1")
+. (Join-Path $PSScriptRoot "r7-integer-facts.ps1")
 . (Join-Path $PSScriptRoot "performance-token-identity.ps1")
+. (Join-Path $PSScriptRoot "performance-count-identity.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
     if ($null -ne $Object) {
@@ -27,6 +29,10 @@ function Get-PerformanceNumber {
     param($Value)
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
     try { [double]$Value } catch { $null }
+}
+function Get-PerformanceCount {
+    param($Value)
+    ConvertTo-R7NonnegativeInt64Fact $Value
 }
 function Get-PerformanceRatio {
     param($Numerator, $Denominator)
@@ -156,23 +162,23 @@ function Get-PerformanceMapFacts {
         if ($tasks.Count -gt 0) { $taskStatus = [string](Get-PerformanceProperty $tasks[0] "status") }
     }
     $mapCount = if ($mapStoreAvailability -eq "measured") {
-        [double]@((Get-PerformanceProperty $observability "maps" @())).Count
+        [int64]@((Get-PerformanceProperty $observability "maps" @())).Count
     } else {
-        Get-PerformanceNumber (Get-PerformanceProperty $Metrics "maps")
+        Get-PerformanceCount (Get-PerformanceProperty $Metrics "maps")
     }
     $nodeCount = if ($mapStoreAvailability -eq "measured") {
-        [double]$nodes.Count
+        [int64]$nodes.Count
     } else {
-        Get-PerformanceNumber (Get-PerformanceProperty $graph "node_count" (Get-PerformanceProperty $Metrics "nodes"))
+        Get-PerformanceCount (Get-PerformanceProperty $graph "node_count" (Get-PerformanceProperty $Metrics "nodes"))
     }
     $edgeCount = if ($mapStoreAvailability -eq "measured") {
-        [double]$edges.Count
+        [int64]$edges.Count
     } else {
-        Get-PerformanceNumber (Get-PerformanceProperty $graph "edge_count" (Get-PerformanceProperty $Metrics "edges"))
+        Get-PerformanceCount (Get-PerformanceProperty $graph "edge_count" (Get-PerformanceProperty $Metrics "edges"))
     }
-    $openLeaves = Get-PerformanceNumber (Get-PerformanceProperty $Metrics "open_leaf_nodes")
-    $resultCount = Get-PerformanceNumber (Get-PerformanceProperty $graph "result_count")
-    $unreviewed = Get-PerformanceNumber (Get-PerformanceProperty $graph "unreviewed_result_count")
+    $openLeaves = Get-PerformanceCount (Get-PerformanceProperty $Metrics "open_leaf_nodes")
+    $resultCount = Get-PerformanceCount (Get-PerformanceProperty $graph "result_count")
+    $unreviewed = Get-PerformanceCount (Get-PerformanceProperty $graph "unreviewed_result_count")
     if ($mapCount -gt 0 -and $nodeCount -gt 1 -and $edgeCount -eq 0) { $Warnings.Add("multi_node_map_without_edges") }
     if ($mapCount -gt 0 -and $openLeaves -eq 0 -and $taskStatus -eq "active") { $Warnings.Add("root_task_active_after_nodes_closed") }
     if ($unreviewed -gt 0) { $Warnings.Add("unreviewed_results_present") }
@@ -184,42 +190,42 @@ function Get-PerformanceMapFacts {
         result_count = $resultCount
         open_leaf_nodes = $openLeaves
         root_task_status = $taskStatus
-        accepted_result_count = Get-PerformanceNumber (Get-PerformanceProperty $graph "accepted_result_count")
+        accepted_result_count = Get-PerformanceCount (Get-PerformanceProperty $graph "accepted_result_count")
         unreviewed_result_count = $unreviewed
         retention_coverage_ratio = Get-PerformanceNumber (Get-PerformanceProperty $managed "retention_coverage_ratio")
         salience_coverage_ratio = Get-PerformanceNumber (Get-PerformanceProperty $managed "salience_coverage_ratio")
         semantic_replacement_rate = Get-PerformanceNumber (Get-PerformanceProperty $managed "semantic_replacement_rate")
-        protected_miss_count = Get-PerformanceNumber (Get-PerformanceProperty $managed "protected_miss_count")
-        compaction_event_count = Get-PerformanceNumber (Get-PerformanceProperty $managed "compaction_event_count")
-        control_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_control_count")
-        action_manifest_count = Get-PerformanceNumber (Get-PerformanceProperty $control "action_manifest_count")
-        declared_action_count = Get-PerformanceNumber (Get-PerformanceProperty $control "declared_action_count")
-        initialize_and_execute_count = Get-PerformanceNumber (Get-PerformanceProperty $control "initialize_and_execute_count")
-        committed_initialize_and_execute_count = Get-PerformanceNumber (Get-PerformanceProperty $control "committed_initialize_and_execute_count")
-        failed_initialize_and_execute_count = Get-PerformanceNumber (Get-PerformanceProperty $control "failed_initialize_and_execute_count")
-        sequence_preflight_rejected_call_count = Get-PerformanceNumber (Get-PerformanceProperty $control "sequence_preflight_rejected_call_count")
-        control_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_failure_count")
-        control_preflight_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_preflight_failure_count")
-        control_handler_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_handler_failure_count")
-        control_protocol_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_protocol_failure_count")
-        control_state_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_state_failure_count")
-        control_argument_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_argument_failure_count")
-        control_resource_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_resource_failure_count")
-        nested_action_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "nested_action_failure_count")
-        ordinary_gate_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "ordinary_gate_failure_count")
-        committed_control_count = Get-PerformanceNumber (Get-PerformanceProperty $control "committed_control_count")
-        graph_revision_commit_count = Get-PerformanceNumber (Get-PerformanceProperty $control "graph_revision_commit_count")
-        read_map_request_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_request_count")
-        read_map_completion_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_completion_count")
-        read_map_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_failure_count")
-        read_map_repeated_revision_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_repeated_revision_count")
-        read_map_revision_lag_sample_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_revision_lag_sample_count")
+        protected_miss_count = Get-PerformanceCount (Get-PerformanceProperty $managed "protected_miss_count")
+        compaction_event_count = Get-PerformanceCount (Get-PerformanceProperty $managed "compaction_event_count")
+        control_count = Get-PerformanceCount (Get-PerformanceProperty $control "taskspace_control_count")
+        action_manifest_count = Get-PerformanceCount (Get-PerformanceProperty $control "action_manifest_count")
+        declared_action_count = Get-PerformanceCount (Get-PerformanceProperty $control "declared_action_count")
+        initialize_and_execute_count = Get-PerformanceCount (Get-PerformanceProperty $control "initialize_and_execute_count")
+        committed_initialize_and_execute_count = Get-PerformanceCount (Get-PerformanceProperty $control "committed_initialize_and_execute_count")
+        failed_initialize_and_execute_count = Get-PerformanceCount (Get-PerformanceProperty $control "failed_initialize_and_execute_count")
+        sequence_preflight_rejected_call_count = Get-PerformanceCount (Get-PerformanceProperty $control "sequence_preflight_rejected_call_count")
+        control_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "control_failure_count")
+        control_preflight_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "control_preflight_failure_count")
+        control_handler_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "control_handler_failure_count")
+        control_protocol_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "control_protocol_failure_count")
+        control_state_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "control_state_failure_count")
+        control_argument_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "control_argument_failure_count")
+        control_resource_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "control_resource_failure_count")
+        nested_action_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "nested_action_failure_count")
+        ordinary_gate_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "ordinary_gate_failure_count")
+        committed_control_count = Get-PerformanceCount (Get-PerformanceProperty $control "committed_control_count")
+        graph_revision_commit_count = Get-PerformanceCount (Get-PerformanceProperty $control "graph_revision_commit_count")
+        read_map_request_count = Get-PerformanceCount (Get-PerformanceProperty $control "read_map_request_count")
+        read_map_completion_count = Get-PerformanceCount (Get-PerformanceProperty $control "read_map_completion_count")
+        read_map_failure_count = Get-PerformanceCount (Get-PerformanceProperty $control "read_map_failure_count")
+        read_map_repeated_revision_count = Get-PerformanceCount (Get-PerformanceProperty $control "read_map_repeated_revision_count")
+        read_map_revision_lag_sample_count = Get-PerformanceCount (Get-PerformanceProperty $control "read_map_revision_lag_sample_count")
         read_map_revision_lag_mean = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_revision_lag_mean")
         read_map_revision_lag_max = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_revision_lag_max")
-        read_map_stale_revision_error_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_stale_revision_error_count")
+        read_map_stale_revision_error_count = Get-PerformanceCount (Get-PerformanceProperty $control "read_map_stale_revision_error_count")
         control_actions = Get-PerformanceProperty $control "action_counts" ([pscustomobject]@{})
-        runtime_event_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_runtime_event_count")
-        snapshot_update_count = Get-PerformanceNumber (Get-PerformanceProperty (Get-PerformanceProperty $control "runtime_event_counts") "snapshot_updated")
+        runtime_event_count = Get-PerformanceCount (Get-PerformanceProperty $control "taskspace_runtime_event_count")
+        snapshot_update_count = Get-PerformanceCount (Get-PerformanceProperty (Get-PerformanceProperty $control "runtime_event_counts") "snapshot_updated")
         nodes = $nodes
         edges = $edges
     }
@@ -259,6 +265,8 @@ function Get-PerformanceSideObservation {
         $cache `
         $requests.value `
         $skipped
+    $countIdentity = Get-PerformanceCountIdentity `
+        $metrics $actions $map $cadence $patchObservation $cache $mode $skipped
     if (-not $tokenIdentity.valid) {
         $warnings.Add("performance_token_identity_invalid")
         if ($null -ne $Events) {
@@ -276,10 +284,27 @@ function Get-PerformanceSideObservation {
                 })
         }
     }
+    if (-not $countIdentity.valid) {
+        $warnings.Add("performance_count_identity_invalid")
+        if ($null -ne $Events) {
+            $Events.Add([pscustomobject]@{
+                    event = "performance_count_identity_invalid"
+                    code = "count_identity_invalid"
+                    case_id = $caseId
+                    pair = $pair
+                    repeat = $repeat
+                    side = $side
+                    logical_mode = $mode
+                    metric_path = $MetricPath
+                    artifact_dir = $artifactDir
+                    invalid_fields = @($countIdentity.invalid_fields)
+                })
+        }
+    }
     $agentStatus = [string](Get-PerformanceProperty $metrics "agent_completion_status")
     $observationStatus = if ($skipped) {
         "skipped"
-    } elseif (-not $tokenIdentity.valid) {
+    } elseif (-not $tokenIdentity.valid -or -not $countIdentity.valid) {
         "invalid"
     } elseif ($agentStatus -eq "complete") {
         "complete"
@@ -287,6 +312,7 @@ function Get-PerformanceSideObservation {
         "incomplete"
     }
     $comparisonEligible = -not $skipped -and $tokenIdentity.valid -and
+        $countIdentity.valid -and
         $agentStatus -eq "complete"
     [pscustomobject]@{
         case_id = $caseId; pair = $pair; repeat = $repeat; side = $side; logical_mode = $mode
@@ -303,8 +329,8 @@ function Get-PerformanceSideObservation {
         }
         actions = [pscustomobject]@{
             provider_requests = $requests.value; provider_request_source = $requests.source
-            ordinary_tools = Get-PerformanceNumber (Get-PerformanceProperty $metrics "tool_call_count")
-            failed_tools = Get-PerformanceNumber (Get-PerformanceProperty $metrics "failed_tool_call_count")
+            ordinary_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "tool_call_count")
+            failed_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "failed_tool_call_count")
             provider_outer_tool_calls = $actions.provider_outer_tool_calls
             nested_actions = $actions.nested_action_count
             shell = $actions.shell; patch = $actions.patch; taskspace_control = $map.control_count
@@ -365,14 +391,14 @@ function Get-PerformanceSideObservation {
             request_2_plus_uncached_input_tokens =
                 $tokenIdentity.request_2_plus_uncached_input_tokens
             request_2_plus_hit_rate = Get-PerformanceNumber (Get-PerformanceProperty $cache "request_2_plus_hit_rate")
-            prefix_comparison_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_comparison_count")
-            prefix_preserved_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_preserved_count")
+            prefix_comparison_count = Get-PerformanceCount (Get-PerformanceProperty $cache "prefix_comparison_count")
+            prefix_preserved_count = Get-PerformanceCount (Get-PerformanceProperty $cache "prefix_preserved_count")
             prefix_preserved_rate = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_preserved_rate")
-            zero_cache_hit_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "zero_cache_hit_count")
-            cache_warmup_candidate_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "cache_warmup_candidate_count")
-            same_shape_zero_hit_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "same_shape_zero_hit_count")
-            tool_choice_transition_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "tool_choice_transition_count")
-            cache_shape_transition_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "cache_shape_transition_count")
+            zero_cache_hit_count = Get-PerformanceCount (Get-PerformanceProperty $cache "zero_cache_hit_count")
+            cache_warmup_candidate_count = Get-PerformanceCount (Get-PerformanceProperty $cache "cache_warmup_candidate_count")
+            same_shape_zero_hit_count = Get-PerformanceCount (Get-PerformanceProperty $cache "same_shape_zero_hit_count")
+            tool_choice_transition_count = Get-PerformanceCount (Get-PerformanceProperty $cache "tool_choice_transition_count")
+            cache_shape_transition_count = Get-PerformanceCount (Get-PerformanceProperty $cache "cache_shape_transition_count")
             trace_coverage = Get-PerformanceNumber (Get-PerformanceProperty $cache "trace_coverage")
         }
         section_cost = Get-PerformanceSectionCostFacts $cache
@@ -389,8 +415,8 @@ function Get-PerformanceModeAggregate {
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
     foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
-        $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.actions.$field } | Where-Object { $null -ne $_ })
-        $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
+        $values = @($selected | ForEach-Object { $_.actions.$field })
+        $sum[$field] = Get-PerformanceOptionalExactInt64Sum $values $field
     }
     foreach ($field in @("wall_time_ms")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.cost.$field } | Where-Object { $null -ne $_ })
@@ -402,8 +428,8 @@ function Get-PerformanceModeAggregate {
             $field
     }
     foreach ($field in @("map_count", "node_count", "edge_count", "result_count", "open_leaf_nodes", "unreviewed_result_count", "runtime_event_count")) {
-        $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.map.$field } | Where-Object { $null -ne $_ })
-        $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
+        $values = @($selected | ForEach-Object { $_.map.$field })
+        $sum[$field] = Get-PerformanceOptionalExactInt64Sum $values $field
     }
     Add-TaskspacePatchAggregateFields $sum $selected
     $cache2 = Get-PerformanceExactInt64Sum `
@@ -412,8 +438,12 @@ function Get-PerformanceModeAggregate {
     $uncached2 = Get-PerformanceExactInt64Sum `
         @($selected | ForEach-Object { $_.cache.request_2_plus_uncached_input_tokens }) `
         "request_2_plus_uncached_input_tokens"
-    $prefixCount = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.prefix_comparison_count } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
-    $prefixKept = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.prefix_preserved_count } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
+    $prefixCounts = @($selected | ForEach-Object { $_.cache.prefix_comparison_count })
+    $prefixKepts = @($selected | ForEach-Object { $_.cache.prefix_preserved_count })
+    $prefixCount = Get-PerformanceOptionalExactInt64Sum `
+        $prefixCounts "prefix_comparison_count"
+    $prefixKept = Get-PerformanceOptionalExactInt64Sum `
+        $prefixKepts "prefix_preserved_count"
     [pscustomobject]@{
         logical_mode = $Mode; side_count = $selected.Count; observed_side_count = $observed.Count
         excluded_side_count = $observed.Count - $selected.Count

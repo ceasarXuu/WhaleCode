@@ -475,6 +475,21 @@ Assert-True (
             $_ -match '"code":"token_identity_invalid"'
         }).Count -eq 1
 ) "invalid token identity did not emit its stable event"
+$invalidMetrics.cached_input_tokens = 50
+$invalidMetrics.uncached_input_tokens = 50
+$invalidMetrics.output_tokens = 0
+$invalidMetrics.tool_call_count = "1.5"
+Write-Json $invalidMetrics $invalidMetricPath
+$invalidResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot
+$invalidReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $invalidResult.json_path |
+    ConvertFrom-Json
+Assert-True (
+    @($invalidReport.rows)[0].observation_status -eq "invalid"
+) "fractional count identity remained complete"
+Assert-True (
+    (Get-Content -Raw $invalidResult.event_log_path) -match
+        '"event":"performance_count_identity_invalid"'
+) "invalid count identity did not emit its stable event"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

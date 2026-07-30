@@ -1,15 +1,6 @@
 function Get-PerformanceNonnegativeInt64 {
     param($Value)
-    if ($null -eq $Value) { return $null }
-    if ($Value -isnot [byte] -and $Value -isnot [uint16] -and
-        $Value -isnot [uint32] -and $Value -isnot [uint64] -and
-        $Value -isnot [sbyte] -and $Value -isnot [int16] -and
-        $Value -isnot [int32] -and $Value -isnot [int64]) {
-        return $null
-    }
-    [bigint]$number = $Value
-    if ($number -lt 0 -or $number -gt [int64]::MaxValue) { return $null }
-    [int64]$number
+    ConvertTo-R7NonnegativeInt64Fact $Value
 }
 
 function Get-PerformanceExactInt64Sum {
@@ -26,6 +17,12 @@ function Get-PerformanceExactInt64Sum {
         throw "Performance exact sum exceeds int64 for $FieldName"
     }
     [int64]$sum
+}
+
+function Get-PerformanceOptionalExactInt64Sum {
+    param([object[]]$Values, [string]$FieldName = "value")
+    if (@($Values | Where-Object { $null -eq $_ }).Count -gt 0) { return $null }
+    Get-PerformanceExactInt64Sum $Values $FieldName
 }
 
 function Get-PerformanceTokenIdentity {

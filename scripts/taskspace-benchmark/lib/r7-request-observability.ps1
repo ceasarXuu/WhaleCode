@@ -69,7 +69,7 @@ function Add-R7RequestFailureFacts {
 
 function Test-R7NonnegativeJsonInteger {
     param($Value)
-    $Value -is [int64] -and [int64]$Value -ge 0
+    $null -ne (ConvertTo-R7NonnegativeInt64Fact $Value)
 }
 
 function Get-R7ExactInt64Sum {

@@ -94,6 +94,7 @@ function New-ProvenanceFixture([string]$Kind) {
             error = [pscustomobject]@{
                 class = "state_machine"
                 code = "taskspace_response_state_commit_failed"
+                violations = @([pscustomobject]@{ code = "stale_revision"; subjects = @("map") })
             }
         }
     } elseif ($Kind -eq "skip") {
@@ -346,6 +347,12 @@ try {
     }
     Assert-ProvenanceContract "provider-copy-group" "provider" {
         param($payload) $payload.failure_provenance.copy_group_id = "forged"
+    } $false
+    Assert-ProvenanceContract "provider-call-order" "provider" {
+        param($payload) [array]::Reverse($payload.failure_provenance.affected_call_ids)
+    } $false
+    Assert-ProvenanceContract "provider-missing-violations" "provider" {
+        param($payload) $payload.error.PSObject.Properties.Remove("violations")
     } $false
     Assert-ProvenanceContract "provider-without-output" "provider" {
         param($payload, $calls) $calls[0].output_count = 2

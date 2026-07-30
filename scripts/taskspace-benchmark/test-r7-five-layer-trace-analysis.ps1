@@ -272,7 +272,7 @@ try {
     if (-not $taskspace[1].receipt_before -or $taskspace[1].receipt_original_role -ne "developer") {
         throw "TaskSpace response-final receipt was not assigned to the following provider request"
     }
-    $stateFailureJson = '{"schema_version":"TaskSpaceResponseCommitFailureV3","state_commit":false,"rejected_candidate_committed":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:copy-control","zero_dispatch":true,"affected_call_ids":["copy-control","copy-sibling"]},"error":{"class":"state_machine","code":"taskspace_response_state_commit_failed","violations":[{"code":"node_state_invalid","subjects":["reservation-1"],"node_id":"join","canonical_before_transaction":{"node_present":true,"state":"waiting","unsatisfied_predecessor_ids":["left"]},"rejected_candidate_at_violation":{"committed":false,"state":"completed","allowed_states":["ready","in_flight"],"unsatisfied_predecessor_ids":[]}}]}}'
+    $stateFailureJson = '{"schema_version":"TaskSpaceResponseCommitFailureV3","status":"state_rejected","success":false,"state_commit":false,"rejected_candidate_committed":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:copy-control","zero_dispatch":true,"affected_call_ids":["copy-control","copy-sibling"]},"error":{"class":"state_machine","code":"taskspace_response_state_commit_failed","violations":[{"code":"node_state_invalid","subjects":["reservation-1"],"node_id":"join","canonical_before_transaction":{"node_present":true,"state":"waiting","unsatisfied_predecessor_ids":["left"]},"rejected_candidate_at_violation":{"committed":false,"state":"completed","allowed_states":["ready","in_flight"],"unsatisfied_predecessor_ids":[]}}]}}'
     $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output $stateFailureJson -TrustedRuntimeCarrier
     if ($stateFailure.failure_class -ne "taskspace_state_machine" -or
         $stateFailure.failure_code -ne "taskspace_response_state_commit_failed") {
@@ -323,9 +323,9 @@ try {
     if ($independent[0].sibling_failure_copy_count -ne 0) {
         throw "Independent same-code failures were incorrectly collapsed"
     }
-    $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV3","failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:patch-1","zero_dispatch":true,"affected_call_ids":["patch-1"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}' -TrustedRuntimeCarrier
+    $multiPatchFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"ToolSequencePreflightResultV3","status":"protocol_failed","success":false,"state_commit":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:patch-1","zero_dispatch":true,"affected_call_ids":["patch-1"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}' -TrustedRuntimeCarrier
     if ($multiPatchFailure.failure_class -ne "tool_sequence_protocol") { throw "Multi-patch failure was not separated" }
-    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","success":false,"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID"}}' -ToolName "taskspace_control"
+    $initializationFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":"TaskSpaceControlResultV2","action":"initialize_and_execute","status":"state_machine_failed","success":false,"state_commit":false,"error":{"class":"state_machine","code":"TASKSPACE_INITIAL_GRAPH_INVALID","message":"invalid initial graph","actual":{"violations":[{"code":"stale_revision","subjects":["map"]}]},"expected":{"action":"initialize_and_execute"}}}' -ToolName "taskspace_control"
     if ($initializationFailure.failure_class -ne "taskspace_state_machine" -or
         $initializationFailure.failure_code -ne "TASKSPACE_INITIAL_GRAPH_INVALID" -or
         $initializationFailure.state_commit -ne $false) {

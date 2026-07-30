@@ -6,12 +6,14 @@ function Get-R7JsonProperty {
     $Default
 }
 
+. (Join-Path $PSScriptRoot "r7-integer-facts.ps1")
 . (Join-Path $PSScriptRoot "r7-request-observability.ps1")
 . (Join-Path $PSScriptRoot "r7-state-rejection-summary.ps1")
 if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "ordinary-tool-outcome.ps1")
 }
 . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
+. (Join-Path $PSScriptRoot "r7-state-failure-contract.ps1")
 . (Join-Path $PSScriptRoot "r7-call-evidence.ps1")
 . (Join-Path $PSScriptRoot "r7-supplemental-failure.ps1")
 

@@ -27,7 +27,7 @@ function Get-Median {
 
 function Get-AggregateRow {
     param([object[]]$Rows, [string]$Scope, [string]$Sample, [string]$Arm)
-    $requestTotal = ($Rows | Measure-Object -Property provider_requests -Sum).Sum
+    $requestTotal = Get-R7ExactPropertyInt64Sum $Rows "provider_requests" "matrix aggregate"
     $inputTotal = Get-R7ExactInt64Sum @($Rows.input_tokens) "input_tokens"
     $cachedTotal = Get-R7ExactInt64Sum @($Rows.cached_input_tokens) "cached_input_tokens"
     $uncachedTotal = Get-R7ExactInt64Sum @($Rows.uncached_input_tokens) "uncached_input_tokens"
@@ -46,34 +46,28 @@ function Get-AggregateRow {
         requests_total = $requestTotal
         requests_mean = if ($Rows.Count) { [Math]::Round($requestTotal / $Rows.Count, 3) } else { $null }
         requests_median = Get-Median @($Rows.provider_requests)
-        completed_provider_responses_total = (
-            $Rows | Measure-Object -Property completed_provider_responses -Sum
-        ).Sum
-        failed_or_cancelled_provider_attempts_total = (
-            $Rows | Measure-Object -Property failed_or_cancelled_provider_attempts -Sum
-        ).Sum
-        retried_logical_requests_total = (
-            $Rows | Measure-Object -Property retried_logical_requests -Sum
-        ).Sum
-        tool_action_requests_total = ($Rows | Measure-Object -Property tool_action_requests -Sum).Sum
-        assistant_only_requests_total = ($Rows | Measure-Object -Property assistant_only_requests -Sum).Sum
-        multi_tool_requests_total = ($Rows | Measure-Object -Property multi_tool_requests -Sum).Sum
-        no_failure_requests_total = ($Rows | Measure-Object -Property no_failure_requests -Sum).Sum
-        tool_sequence_protocol_failure_requests_total = ($Rows | Measure-Object -Property tool_sequence_protocol_failure_requests -Sum).Sum
-        taskspace_protocol_failure_requests_total = ($Rows | Measure-Object -Property taskspace_protocol_failure_requests -Sum).Sum
-        taskspace_state_failure_requests_total = ($Rows | Measure-Object -Property taskspace_state_failure_requests -Sum).Sum
-        taskspace_resource_failure_requests_total = ($Rows | Measure-Object -Property taskspace_resource_failure_requests -Sum).Sum
-        ordinary_failure_requests_total = ($Rows | Measure-Object -Property ordinary_failure_requests -Sum).Sum
-        sibling_failure_copy_count_total = ($Rows | Measure-Object -Property sibling_failure_copy_count -Sum).Sum
+        completed_provider_responses_total = Get-R7ExactPropertyInt64Sum $Rows "completed_provider_responses" "matrix aggregate"
+        failed_or_cancelled_provider_attempts_total = Get-R7ExactPropertyInt64Sum $Rows "failed_or_cancelled_provider_attempts" "matrix aggregate"
+        retried_logical_requests_total = Get-R7ExactPropertyInt64Sum $Rows "retried_logical_requests" "matrix aggregate"
+        tool_action_requests_total = Get-R7ExactPropertyInt64Sum $Rows "tool_action_requests" "matrix aggregate"
+        assistant_only_requests_total = Get-R7ExactPropertyInt64Sum $Rows "assistant_only_requests" "matrix aggregate"
+        multi_tool_requests_total = Get-R7ExactPropertyInt64Sum $Rows "multi_tool_requests" "matrix aggregate"
+        no_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "no_failure_requests" "matrix aggregate"
+        tool_sequence_protocol_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "tool_sequence_protocol_failure_requests" "matrix aggregate"
+        taskspace_protocol_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "taskspace_protocol_failure_requests" "matrix aggregate"
+        taskspace_state_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "taskspace_state_failure_requests" "matrix aggregate"
+        taskspace_resource_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "taskspace_resource_failure_requests" "matrix aggregate"
+        ordinary_failure_requests_total = Get-R7ExactPropertyInt64Sum $Rows "ordinary_failure_requests" "matrix aggregate"
+        sibling_failure_copy_count_total = Get-R7ExactPropertyInt64Sum $Rows "sibling_failure_copy_count" "matrix aggregate"
         classification_unreconciled_runs = @($Rows | Where-Object classification_reconciled -ne $true).Count
-        echo_only_handoffs_total = ($Rows | Measure-Object -Property echo_only_handoffs -Sum).Sum
-        initialize_and_execute_total = ($Rows | Measure-Object -Property initialize_and_execute -Sum).Sum
-        committed_initialize_and_execute_total = ($Rows | Measure-Object -Property committed_initialize_and_execute -Sum).Sum
-        failed_initialize_and_execute_total = ($Rows | Measure-Object -Property failed_initialize_and_execute -Sum).Sum
-        first_request_initialization_total = ($Rows | Measure-Object -Property first_request_initialization -Sum).Sum
-        first_request_initialization_commits_total = ($Rows | Measure-Object -Property first_request_initialization_commits -Sum).Sum
-        direct_initialize_control_total = ($Rows | Measure-Object -Property direct_initialize_control -Sum).Sum
-        no_task_path_rejections_total = ($Rows | Measure-Object -Property no_task_path_rejections -Sum).Sum
+        echo_only_handoffs_total = Get-R7ExactPropertyInt64Sum $Rows "echo_only_handoffs" "matrix aggregate"
+        initialize_and_execute_total = Get-R7ExactPropertyInt64Sum $Rows "initialize_and_execute" "matrix aggregate"
+        committed_initialize_and_execute_total = Get-R7ExactPropertyInt64Sum $Rows "committed_initialize_and_execute" "matrix aggregate"
+        failed_initialize_and_execute_total = Get-R7ExactPropertyInt64Sum $Rows "failed_initialize_and_execute" "matrix aggregate"
+        first_request_initialization_total = Get-R7ExactPropertyInt64Sum $Rows "first_request_initialization" "matrix aggregate"
+        first_request_initialization_commits_total = Get-R7ExactPropertyInt64Sum $Rows "first_request_initialization_commits" "matrix aggregate"
+        direct_initialize_control_total = Get-R7ExactPropertyInt64Sum $Rows "direct_initialize_control" "matrix aggregate"
+        no_task_path_rejections_total = Get-R7ExactPropertyInt64Sum $Rows "no_task_path_rejections" "matrix aggregate"
         input_tokens_total = $inputTotal
         input_tokens_mean = if ($Rows.Count) { [Math]::Round($inputTotal / $Rows.Count, 3) } else { $null }
         input_tokens_median = Get-Median @($Rows.input_tokens)
@@ -87,24 +81,24 @@ function Get-AggregateRow {
         total_tokens_total = $tokenTotal
         total_tokens_mean = if ($Rows.Count) { [Math]::Round($tokenTotal / $Rows.Count, 3) } else { $null }
         request_2_plus_cache_hit_rate = if ($request2Input -gt 0) { [Math]::Round($request2Cached / $request2Input, 6) } else { $null }
-        receipt_before_requests_total = ($Rows | Measure-Object -Property receipt_before_requests -Sum).Sum
-        receipt_before_input_tokens_total = ($Rows | Measure-Object -Property receipt_before_input_tokens -Sum).Sum
-        receipt_before_cached_input_tokens_total = ($Rows | Measure-Object -Property receipt_before_cached_input_tokens -Sum).Sum
-        no_receipt_before_requests_total = ($Rows | Measure-Object -Property no_receipt_before_requests -Sum).Sum
-        no_receipt_before_input_tokens_total = ($Rows | Measure-Object -Property no_receipt_before_input_tokens -Sum).Sum
-        no_receipt_before_cached_input_tokens_total = ($Rows | Measure-Object -Property no_receipt_before_cached_input_tokens -Sum).Sum
-        receipt_wire_role_unresolved_count_total = ($Rows | Measure-Object -Property receipt_wire_role_unresolved_count -Sum).Sum
+        receipt_before_requests_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_before_requests" "matrix aggregate"
+        receipt_before_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_before_input_tokens" "matrix aggregate"
+        receipt_before_cached_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_before_cached_input_tokens" "matrix aggregate"
+        no_receipt_before_requests_total = Get-R7ExactPropertyInt64Sum $Rows "no_receipt_before_requests" "matrix aggregate"
+        no_receipt_before_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "no_receipt_before_input_tokens" "matrix aggregate"
+        no_receipt_before_cached_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "no_receipt_before_cached_input_tokens" "matrix aggregate"
+        receipt_wire_role_unresolved_count_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_wire_role_unresolved_count" "matrix aggregate"
         wall_time_ms_total = $wallTotal
         wall_time_ms_mean = if ($Rows.Count) { [Math]::Round($wallTotal / $Rows.Count, 3) } else { $null }
         wall_time_ms_median = Get-Median @($Rows.wall_time_ms)
-        tool_calls_total = ($Rows | Measure-Object -Property ordinary_tools -Sum).Sum
-        failed_tools_total = ($Rows | Measure-Object -Property failed_tools -Sum).Sum
-        taskspace_control_total = ($Rows | Measure-Object -Property taskspace_control -Sum).Sum
-        control_failures_total = ($Rows | Measure-Object -Property control_failures -Sum).Sum
-        control_protocol_failures_total = ($Rows | Measure-Object -Property control_protocol_failures -Sum).Sum
-        control_state_failures_total = ($Rows | Measure-Object -Property control_state_failures -Sum).Sum
-        multi_patch_attempts_total = ($Rows | Measure-Object -Property multi_patch_attempts -Sum).Sum
-        patch_prepare_failures_total = ($Rows | Measure-Object -Property patch_prepare_failures -Sum).Sum
+        tool_calls_total = Get-R7ExactPropertyInt64Sum $Rows "ordinary_tools" "matrix aggregate"
+        failed_tools_total = Get-R7ExactPropertyInt64Sum $Rows "failed_tools" "matrix aggregate"
+        taskspace_control_total = Get-R7ExactPropertyInt64Sum $Rows "taskspace_control" "matrix aggregate"
+        control_failures_total = Get-R7ExactPropertyInt64Sum $Rows "control_failures" "matrix aggregate"
+        control_protocol_failures_total = Get-R7ExactPropertyInt64Sum $Rows "control_protocol_failures" "matrix aggregate"
+        control_state_failures_total = Get-R7ExactPropertyInt64Sum $Rows "control_state_failures" "matrix aggregate"
+        multi_patch_attempts_total = Get-R7ExactPropertyInt64Sum $Rows "multi_patch_attempts" "matrix aggregate"
+        patch_prepare_failures_total = Get-R7ExactPropertyInt64Sum $Rows "patch_prepare_failures" "matrix aggregate"
         map_nodes_mean = [Math]::Round((($Rows | Measure-Object -Property map_nodes -Average).Average), 3)
         map_edges_mean = [Math]::Round((($Rows | Measure-Object -Property map_edges -Average).Average), 3)
         first_input_tokens_mean = [Math]::Round((($Rows | Measure-Object -Property first_input_tokens -Average).Average), 3)
@@ -161,7 +155,8 @@ foreach ($run in @($manifest.runs)) {
     $sectionSummary = Get-R7WireSectionSummary $wireTracePath
     $wireInventory = @(Get-R7WireRequestInventory $wireTracePath)
     $wireAttemptSummary = Get-R7WireAttemptSummary $wireInventory
-    $completedProviderResponses = [int](Get-Value $requestSummary "model_request_count" 0)
+    $completedProviderResponses = Get-R7RequiredNonnegativeInt64Fact `
+        $requestSummary "model_request_count" "request summary"
     if ($completedProviderResponses -lt 1) {
         throw "Completed provider response count is unavailable for $($run.sample) repeat $($run.repeat) $($run.arm)"
     }
@@ -175,21 +170,21 @@ foreach ($run in @($manifest.runs)) {
         comparison_eligible = [bool]$row.comparison_eligible
         business_success = [bool]$row.result.business_success
         agent_completion_status = [string]$row.result.agent_completion_status
-        provider_requests = [double](Get-Value $row.actions "provider_requests" 0)
-        completed_provider_responses = [double]$completedProviderResponses
-        failed_or_cancelled_provider_attempts = [double]$wireAttemptSummary.failed_or_cancelled_attempt_count
-        retried_logical_requests = [double]$wireAttemptSummary.retried_logical_request_count
-        ordinary_tools = [double](Get-Value $row.actions "ordinary_tools" 0)
-        failed_tools = [double](Get-Value $row.actions "failed_tools" 0)
-        taskspace_control = [double](Get-Value $row.actions "taskspace_control" 0)
-        initialize_and_execute = [double](Get-Value $row.actions "initialize_and_execute" 0)
-        committed_initialize_and_execute = [double](Get-Value $row.actions "committed_initialize_and_execute" 0)
-        failed_initialize_and_execute = [double](Get-Value $row.actions "failed_initialize_and_execute" 0)
-        control_failures = [double](Get-Value $row.actions "control_failures" 0)
-        control_protocol_failures = [double](Get-Value $row.actions "control_protocol_failures" 0)
-        control_state_failures = [double](Get-Value $row.actions "control_state_failures" 0)
-        multi_patch_attempts = [double](Get-Value $row.patch "request_multi_patch_attempt_count" 0)
-        patch_prepare_failures = [double](Get-Value $row.patch "patch_prepare_failure_count" 0)
+        provider_requests = Get-R7RequiredNonnegativeInt64Fact $row.actions "provider_requests" "performance observation"
+        completed_provider_responses = $completedProviderResponses
+        failed_or_cancelled_provider_attempts = Get-R7RequiredNonnegativeInt64Fact $wireAttemptSummary "failed_or_cancelled_attempt_count" "wire attempt summary"
+        retried_logical_requests = Get-R7RequiredNonnegativeInt64Fact $wireAttemptSummary "retried_logical_request_count" "wire attempt summary"
+        ordinary_tools = Get-R7RequiredNonnegativeInt64Fact $row.actions "ordinary_tools" "performance observation"
+        failed_tools = Get-R7RequiredNonnegativeInt64Fact $row.actions "failed_tools" "performance observation"
+        taskspace_control = Get-R7RequiredNonnegativeInt64Fact $row.actions "taskspace_control" "performance observation"
+        initialize_and_execute = Get-R7RequiredNonnegativeInt64Fact $row.actions "initialize_and_execute" "performance observation"
+        committed_initialize_and_execute = Get-R7RequiredNonnegativeInt64Fact $row.actions "committed_initialize_and_execute" "performance observation"
+        failed_initialize_and_execute = Get-R7RequiredNonnegativeInt64Fact $row.actions "failed_initialize_and_execute" "performance observation"
+        control_failures = Get-R7RequiredNonnegativeInt64Fact $row.actions "control_failures" "performance observation"
+        control_protocol_failures = Get-R7RequiredNonnegativeInt64Fact $row.actions "control_protocol_failures" "performance observation"
+        control_state_failures = Get-R7RequiredNonnegativeInt64Fact $row.actions "control_state_failures" "performance observation"
+        multi_patch_attempts = Get-R7RequiredNonnegativeInt64Fact $row.patch "request_multi_patch_attempt_count" "performance observation"
+        patch_prepare_failures = Get-R7RequiredNonnegativeInt64Fact $row.patch "patch_prepare_failure_count" "performance observation"
         input_tokens = Get-R7ExactInt64Sum @((Get-Value $row.cost "input_tokens")) "input_tokens"
         cached_input_tokens = Get-R7ExactInt64Sum @((Get-Value $row.cost "cached_input_tokens")) "cached_input_tokens"
         uncached_input_tokens = Get-R7ExactInt64Sum @((Get-Value $row.cost "uncached_input_tokens")) "uncached_input_tokens"
@@ -199,11 +194,11 @@ foreach ($run in @($manifest.runs)) {
         request_2_plus_cached_input_tokens = Get-R7ExactInt64Sum @((Get-Value $row.cache "request_2_plus_cached_input_tokens")) "request_2_plus_cached_input_tokens"
         request_2_plus_cache_hit_rate = Get-Value $row.cache "request_2_plus_hit_rate"
         cache_prefix_preserved_rate = Get-Value $row.cache "prefix_preserved_rate"
-        same_shape_zero_hit_count = [double](Get-Value $row.cache "same_shape_zero_hit_count" 0)
-        map_count = [double](Get-Value $row.map "map_count" 0)
-        map_nodes = [double](Get-Value $row.map "node_count" 0)
-        map_edges = [double](Get-Value $row.map "edge_count" 0)
-        map_open_leaves = [double](Get-Value $row.map "open_leaf_nodes" 0)
+        same_shape_zero_hit_count = Get-R7RequiredNonnegativeInt64Fact $row.cache "same_shape_zero_hit_count" "performance observation"
+        map_count = Get-R7OptionalNonnegativeInt64Fact $row.map "map_count" "performance observation"
+        map_nodes = Get-R7OptionalNonnegativeInt64Fact $row.map "node_count" "performance observation"
+        map_edges = Get-R7OptionalNonnegativeInt64Fact $row.map "edge_count" "performance observation"
+        map_open_leaves = Get-R7OptionalNonnegativeInt64Fact $row.map "open_leaf_nodes" "performance observation"
         map_root_status = if ($rootNode.Count) { [string]$rootNode[0].status } else { "" }
         map_observer_root_task_status = [string](Get-Value $row.map "root_task_status" "")
         map_finish_status = if ($finishNode.Count) { [string]$finishNode[0].status } else { "" }
