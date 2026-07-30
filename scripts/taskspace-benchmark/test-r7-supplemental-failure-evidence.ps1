@@ -214,6 +214,23 @@ try {
         '","affected_call_ids":["' +
         $callId +
         '"]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}'
+    $serializedOutcome = Get-R7ResponseItemOutcome ([pscustomobject]@{
+            type = "function_call_output"
+            call_id = "serialized"
+            output = $valid
+        })
+    if ($serializedOutcome.tool_success -ne $false -or
+        [string]$serializedOutcome.output_text -cne $valid) {
+        throw "Serialized structured Tool output lost its explicit success fact"
+    }
+    $nonBooleanOutcome = Get-R7ResponseItemOutcome ([pscustomobject]@{
+            type = "function_call_output"
+            call_id = "non-boolean"
+            output = '{"success":"false"}'
+        })
+    if ($nonBooleanOutcome.tool_success -ne $true) {
+        throw "Non-boolean serialized success was coerced into a Tool fact"
+    }
 
     Assert-StandardSupplementalRejected `
         "malformed" `

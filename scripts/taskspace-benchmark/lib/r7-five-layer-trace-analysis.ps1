@@ -125,10 +125,21 @@ function Get-R7ResponseItemOutcome {
     $output = Get-R7JsonProperty $Item "output"
     $text = Get-R7OutputText $output
     $successProperty = Get-R7JsonProperty $output "success"
+    if ($null -eq $successProperty -and $output -is [string] -and
+        $text.TrimStart().StartsWith("{")) {
+        try {
+            $structuredOutput = $text | ConvertFrom-Json -Depth 100 -NoEnumerate
+            if ($structuredOutput -is [pscustomobject]) {
+                $successProperty = Get-R7JsonProperty $structuredOutput "success"
+            }
+        } catch {
+            $successProperty = $null
+        }
+    }
     $toolSuccess = Get-R7JsonProperty $OuterPayload "toolSuccess"
-    $success = if ($null -ne $toolSuccess) {
+    $success = if ($toolSuccess -is [bool]) {
         [bool]$toolSuccess
-    } elseif ($null -ne $successProperty) {
+    } elseif ($successProperty -is [bool]) {
         [bool]$successProperty
     } else {
         -not ($text -match 'Shell exit code: [1-9]' -or
