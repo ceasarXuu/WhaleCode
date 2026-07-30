@@ -97,18 +97,95 @@ function Get-R7SupplementalFailureShapeError {
             return "$schemaVersion is missing $field"
         }
     }
-    if ([string]::IsNullOrWhiteSpace([string]$Payload.status)) {
-        return "$schemaVersion has an empty status"
+    if ($Payload.status -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$Payload.status)) {
+        return "$schemaVersion status must be a non-empty string"
     }
     if ($Payload.success -isnot [bool] -or [bool]$Payload.success) {
         return "$schemaVersion success must be boolean false"
     }
+    $provenance = Get-R7JsonProperty $Payload "failure_provenance"
+    if ($provenance -isnot [pscustomobject]) {
+        return "$schemaVersion failure_provenance must be an object"
+    }
+    foreach ($field in @("scope", "copy_group_id")) {
+        if ($provenance.$field -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$provenance.$field)) {
+            return "$schemaVersion failure_provenance.$field must be a non-empty string"
+        }
+    }
+    if ($provenance.zero_dispatch -isnot [bool]) {
+        return "$schemaVersion failure_provenance.zero_dispatch must be boolean"
+    }
+    if (-not ($provenance.PSObject.Properties.Name -contains "affected_call_ids")) {
+        return "$schemaVersion failure_provenance.affected_call_ids is missing"
+    }
+    $affectedCallIds = $provenance.affected_call_ids
+    if ($affectedCallIds -isnot [System.Array] -or $affectedCallIds.Count -eq 0) {
+        return "$schemaVersion failure_provenance.affected_call_ids must be a non-empty array"
+    }
+    foreach ($callId in $affectedCallIds) {
+        if ($callId -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$callId)) {
+            return "$schemaVersion affected_call_ids entries must be non-empty strings"
+        }
+    }
     $error = Get-R7JsonProperty $Payload "error"
+    if ($error -isnot [pscustomobject]) {
+        return "$schemaVersion error must be an object"
+    }
     foreach ($field in @("class", "code")) {
-        if ($null -eq $error -or
-            -not ($error.PSObject.Properties.Name -contains $field) -or
+        if (-not ($error.PSObject.Properties.Name -contains $field) -or
+            $error.$field -isnot [string] -or
             [string]::IsNullOrWhiteSpace([string]$error.$field)) {
-            return "$schemaVersion has an incomplete error.$field"
+            return "$schemaVersion error.$field must be a non-empty string"
+        }
+    }
+    $allowedStatuses = @(
+        switch ($schemaVersion) {
+            "TaskSpaceResponseCommitFailureV3" {
+                "state_rejected"
+                "protocol_rejected"
+                "resource_failed"
+            }
+            "ToolSequencePreflightResultV3" { "protocol_failed" }
+            "ProviderToolResponsePreflightV2" { "protocol_failed" }
+            "ToolSearchFailureV3" { "failed" }
+            "TaskSpaceToolSkippedV2" {
+                "skipped_due_to_prior_failure"
+                "skipped_due_to_terminal_completion"
+            }
+            "TaskSpaceBoundResultCommitFailureV2" { "failed" }
+        }
+    )
+    if ([string]$Payload.status -notin $allowedStatuses) {
+        return "$schemaVersion has an invalid status"
+    }
+    $allowedErrorClasses = @(
+        switch ($schemaVersion) {
+            "TaskSpaceResponseCommitFailureV3" {
+                "state_machine"
+                "protocol"
+                "resource"
+            }
+            "ToolSequencePreflightResultV3" { "protocol" }
+            "ProviderToolResponsePreflightV2" { "protocol" }
+            "ToolSearchFailureV3" { "tool" }
+            "TaskSpaceToolSkippedV2" { "tool" }
+            "TaskSpaceBoundResultCommitFailureV2" { "resource" }
+        }
+    )
+    if ([string]$error.class -notin $allowedErrorClasses) {
+        return "$schemaVersion has an invalid error.class"
+    }
+    if ($schemaVersion -notin @(
+            "ToolSearchFailureV3",
+            "TaskSpaceToolSkippedV2"
+        )) {
+        if (-not ($Payload.PSObject.Properties.Name -contains "state_commit") -or
+            $Payload.state_commit -isnot [bool] -or
+            [bool]$Payload.state_commit) {
+            return "$schemaVersion state_commit must be boolean false"
         }
     }
     if ($schemaVersion -eq "ToolSearchFailureV3") {
@@ -123,9 +200,44 @@ function Get-R7SupplementalFailureShapeError {
             return "$schemaVersion has invalid pairing or execution status"
         }
         if (-not ($error.PSObject.Properties.Name -contains "cause") -or
-            $null -eq $error.cause) {
-            return "$schemaVersion is missing error.cause"
+            $error.cause -isnot [pscustomobject]) {
+            return "$schemaVersion error.cause must be an object"
         }
+        if ($Payload.tool -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.tool)) {
+            return "$schemaVersion tool must be a non-empty string"
+        }
+    }
+    if ($schemaVersion -in @(
+            "ToolSearchFailureV3",
+            "TaskSpaceToolSkippedV2",
+            "TaskSpaceBoundResultCommitFailureV2"
+        )) {
+        if ($Payload.call_id -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.call_id)) {
+            return "$schemaVersion call_id must be a non-empty string"
+        }
+    }
+    if ($schemaVersion -in @(
+            "ToolSearchFailureV3",
+            "TaskSpaceToolSkippedV2"
+        )) {
+        if ($provenance.cause_call_id -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$provenance.cause_call_id)) {
+            return "$schemaVersion failure_provenance.cause_call_id must be a non-empty string"
+        }
+    }
+    if ($schemaVersion -eq "TaskSpaceToolSkippedV2") {
+        if ($Payload.tool -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.tool) -or
+            $Payload.cause -isnot [pscustomobject]) {
+            return "$schemaVersion has an invalid tool or cause"
+        }
+    }
+    if ($schemaVersion -eq "TaskSpaceBoundResultCommitFailureV2" -and
+        ($Payload.reservation_id -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.reservation_id))) {
+        return "$schemaVersion reservation_id must be a non-empty string"
     }
     ""
 }

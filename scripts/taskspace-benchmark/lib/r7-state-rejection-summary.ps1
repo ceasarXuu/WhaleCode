@@ -5,54 +5,99 @@ function Get-R7NodeStateRejectionSummary {
         $requestPath = @($run.request_path)
         for ($index = 0; $index -lt $requestPath.Count; $index++) {
             $request = $requestPath[$index]
-            $seen = @{}
-            foreach ($violation in @(
-                    $request.calls |
-                        ForEach-Object { @($_.violation_contexts) } |
-                        Where-Object { [string]$_.code -eq "node_state_invalid" }
-                )) {
-                $canonical = Get-R7JsonProperty $violation "canonical_before_transaction"
-                $candidate = Get-R7JsonProperty $violation "rejected_candidate_at_violation"
-                $nodeId = [string](Get-R7JsonProperty $violation "node_id" "")
-                $canonicalNodePresent = [bool](
-                    Get-R7JsonProperty $canonical "node_present" $true
+            $seenCopyGroups = @{}
+            foreach ($call in @($request.calls)) {
+                $copyGroupId = [string](
+                    Get-R7JsonProperty $call "failure_copy_group_id" ""
                 )
-                $canonicalState = [string](Get-R7JsonProperty $canonical "state" "")
-                if (-not $canonicalNodePresent -and
-                    [string]::IsNullOrWhiteSpace($canonicalState)) {
-                    $canonicalState = "absent"
-                }
-                $candidateState = [string](Get-R7JsonProperty $candidate "state" "")
-                $key = "$nodeId|$canonicalState|$candidateState"
-                if ($seen.ContainsKey($key)) { continue }
-                $seen[$key] = $true
-                $nextRequest = if ($index + 1 -lt $requestPath.Count) {
-                    $requestPath[$index + 1]
+                $affectedCallIds = @(
+                    Get-R7JsonProperty $call "failure_affected_call_ids" @() |
+                        ForEach-Object { [string]$_ }
+                )
+                $isCopiedProviderFailure =
+                    [bool](Get-R7JsonProperty $call "zero_dispatch" $false) -and
+                    -not [string]::IsNullOrWhiteSpace($copyGroupId) -and
+                    $affectedCallIds.Count -gt 0
+                $carrierIdentity = if ($isCopiedProviderFailure) {
+                    "$copyGroupId|$(@($affectedCallIds | Sort-Object) -join ',')"
                 } else {
-                    $null
+                    "call:$([string](Get-R7JsonProperty $call 'call_id' ''))"
                 }
-                $nextControlAction = @(
-                    Get-R7JsonProperty $nextRequest "calls" @() |
-                        Where-Object tool -eq "taskspace_control" |
-                        ForEach-Object { [string]$_.control_action } |
-                        Where-Object { $_ } |
-                        Select-Object -First 1
+                if ($isCopiedProviderFailure -and
+                    $seenCopyGroups.ContainsKey($carrierIdentity)) {
+                    continue
+                }
+                if ($isCopiedProviderFailure) {
+                    $seenCopyGroups[$carrierIdentity] = $true
+                }
+                $violations = @(
+                    Get-R7JsonProperty $call "violation_contexts" @() |
+                        Where-Object { [string]$_.code -eq "node_state_invalid" }
                 )
-                $facts.Add([pscustomobject]@{
-                        sample = [string]$run.sample
-                        repeat = [int]$run.repeat
-                        arm = [string]$run.arm
-                        request_index = [int]$request.request_index
-                        node_id = $nodeId
-                        canonical_node_present = $canonicalNodePresent
-                        canonical_state = $canonicalState
-                        candidate_state = $candidateState
-                        next_control_action = if ($nextControlAction.Count) {
-                            [string]$nextControlAction[0]
-                        } else {
-                            ""
-                        }
-                    })
+                for ($ordinal = 0; $ordinal -lt $violations.Count; $ordinal++) {
+                    $violation = $violations[$ordinal]
+                    $canonical = Get-R7JsonProperty $violation "canonical_before_transaction"
+                    $candidate = Get-R7JsonProperty $violation "rejected_candidate_at_violation"
+                    $nodeId = [string](Get-R7JsonProperty $violation "node_id" "")
+                    $canonicalNodePresent = [bool](
+                        Get-R7JsonProperty $canonical "node_present" $true
+                    )
+                    $canonicalState = [string](Get-R7JsonProperty $canonical "state" "")
+                    if (-not $canonicalNodePresent -and
+                        [string]::IsNullOrWhiteSpace($canonicalState)) {
+                        $canonicalState = "absent"
+                    }
+                    $candidateState = [string](Get-R7JsonProperty $candidate "state" "")
+                    $nextRequest = if ($index + 1 -lt $requestPath.Count) {
+                        $requestPath[$index + 1]
+                    } else {
+                        $null
+                    }
+                    $nextControlAction = @(
+                        Get-R7JsonProperty $nextRequest "calls" @() |
+                            Where-Object tool -eq "taskspace_control" |
+                            ForEach-Object { [string]$_.control_action } |
+                            Where-Object { $_ } |
+                            Select-Object -First 1
+                    )
+                    $facts.Add([pscustomobject]@{
+                            sample = [string]$run.sample
+                            repeat = [int]$run.repeat
+                            arm = [string]$run.arm
+                            request_index = [int]$request.request_index
+                            call_id = [string](Get-R7JsonProperty $call "call_id" "")
+                            failure_copy_group_id = $copyGroupId
+                            affected_call_ids = $affectedCallIds
+                            violation_ordinal = $ordinal
+                            node_id = $nodeId
+                            subjects = @(
+                                Get-R7JsonProperty $violation "subjects" @()
+                            )
+                            canonical_node_present = $canonicalNodePresent
+                            canonical_state = $canonicalState
+                            canonical_unsatisfied_predecessor_ids = @(
+                                Get-R7JsonProperty `
+                                    $canonical `
+                                    "unsatisfied_predecessor_ids" `
+                                    @()
+                            )
+                            candidate_state = $candidateState
+                            candidate_allowed_states = @(
+                                Get-R7JsonProperty $candidate "allowed_states" @()
+                            )
+                            candidate_unsatisfied_predecessor_ids = @(
+                                Get-R7JsonProperty `
+                                    $candidate `
+                                    "unsatisfied_predecessor_ids" `
+                                    @()
+                            )
+                            next_control_action = if ($nextControlAction.Count) {
+                                [string]$nextControlAction[0]
+                            } else {
+                                ""
+                            }
+                        })
+                }
             }
         }
     }

@@ -7,12 +7,16 @@ function Apply-R7SupplementalFailure {
     )
     $trimmed = $Text.Trim()
     if (-not $trimmed.StartsWith("{")) { return }
+    $reservedFamily =
+        '(TaskSpaceResponseCommitFailure|ToolSequencePreflightResult|' +
+        'ProviderToolResponsePreflight|ToolSearchFailure|' +
+        'TaskSpaceToolSkipped|TaskSpaceBoundResultCommitFailure)'
+    $reservedSchemaMarker = '"schema_version"\s*:\s*"' + $reservedFamily
     try {
         $payload = $trimmed | ConvertFrom-Json -Depth 100
     } catch {
-        if ($OriginalRole -eq "developer" -and
-            $trimmed -match '^\{\s*"schema_version"\s*:') {
-            throw "Malformed structured developer message"
+        if ($trimmed -match $reservedSchemaMarker) {
+            throw "Malformed structured failure message"
         }
         return
     }
@@ -26,11 +30,7 @@ function Apply-R7SupplementalFailure {
         "TaskSpaceBoundResultCommitFailureV2"
     )
     if ($schemaVersion -notin $knownSchemas) {
-        $reservedFamily =
-            '^(TaskSpaceResponseCommitFailure|ToolSequencePreflightResult|' +
-            'ProviderToolResponsePreflight|ToolSearchFailure|' +
-            'TaskSpaceToolSkipped|TaskSpaceBoundResultCommitFailure)'
-        if ($schemaVersion -match $reservedFamily) {
+        if ($schemaVersion -match "^$reservedFamily") {
             throw "Unknown structured failure schema: $schemaVersion"
         }
         return

@@ -59,13 +59,15 @@ function Assert-StandardSupplementalRejected(
     }
     Write-Lines $path @($rows)
     $rejected = $false
+    $observedError = ""
     try {
         Get-R7StandardRequestPath $path 1 | Out-Null
     } catch {
+        $observedError = $_.Exception.Message
         $rejected = $_.Exception.Message -like $ExpectedError
     }
     if (-not $rejected) {
-        throw "$Name supplemental evidence did not fail closed"
+        throw "$Name supplemental evidence did not fail closed: $observedError"
     }
 }
 
@@ -84,7 +86,11 @@ try {
     Assert-StandardSupplementalRejected `
         "malformed" `
         @('{"schema_version":"ToolSearchFailureV3"') `
-        "Malformed structured developer message"
+        "Malformed structured failure message"
+    Assert-StandardSupplementalRejected `
+        "malformed-reordered" `
+        @('{"padding":0,"schema_version":"ToolSearchFailureV3"') `
+        "Malformed structured failure message"
     Assert-StandardSupplementalRejected `
         "unknown" `
         @('{"schema_version":"ToolSearchFailureV4","status":"failed","success":false}') `
@@ -96,6 +102,38 @@ try {
     Assert-StandardSupplementalRejected `
         "non-boolean-success" `
         @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":"false","call_id":"non-boolean-success-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:non-boolean-success-search","zero_dispatch":false,"cause_call_id":"non-boolean-success-search","affected_call_ids":["non-boolean-success-search"]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "non-string-status" `
+        @('{"schema_version":"ToolSearchFailureV3","status":1,"success":false,"call_id":"non-string-status-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:non-string-status-search","zero_dispatch":false,"cause_call_id":"non-string-status-search","affected_call_ids":["non-string-status-search"]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "invalid-status" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"completed","success":false,"call_id":"invalid-status-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:invalid-status-search","zero_dispatch":false,"cause_call_id":"invalid-status-search","affected_call_ids":["invalid-status-search"]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "scalar-provenance" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"scalar-provenance-search","pairing_status":"completed","execution_status":"failed","failure_provenance":"tool_execution","error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "scalar-affected" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"scalar-affected-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:scalar-affected-search","zero_dispatch":false,"cause_call_id":"scalar-affected-search","affected_call_ids":"scalar-affected-search"},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "string-zero-dispatch" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"string-zero-dispatch-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:string-zero-dispatch-search","zero_dispatch":"","cause_call_id":"string-zero-dispatch-search","affected_call_ids":["string-zero-dispatch-search"]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "scalar-cause" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"scalar-cause-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:scalar-cause-search","zero_dispatch":false,"cause_call_id":"scalar-cause-search","affected_call_ids":["scalar-cause-search"]},"error":{"class":"tool","code":"tool_search_failed","cause":"failed"}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "numeric-affected" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"numeric-affected-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:numeric-affected-search","zero_dispatch":false,"cause_call_id":"numeric-affected-search","affected_call_ids":[1]},"error":{"class":"tool","code":"tool_search_failed","cause":{"format":"text","text":"failed"}}}') `
+        "Incomplete structured failure fact:*"
+    Assert-StandardSupplementalRejected `
+        "scalar-error" `
+        @('{"schema_version":"ToolSearchFailureV3","status":"failed","success":false,"call_id":"scalar-error-search","pairing_status":"completed","execution_status":"failed","failure_provenance":{"scope":"tool_execution","copy_group_id":"tool_execution:scalar-error-search","zero_dispatch":false,"cause_call_id":"scalar-error-search","affected_call_ids":["scalar-error-search"]},"error":"failed"}') `
         "Incomplete structured failure fact:*"
 
     $duplicateCall = "duplicate-search"
