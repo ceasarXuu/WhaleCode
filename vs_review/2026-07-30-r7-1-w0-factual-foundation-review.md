@@ -1411,3 +1411,68 @@ Reviewer 使用 `gpt-5.6-sol/xhigh/priority`，仅收到分层、projection、To
 
 Reviewer 使用 `gpt-5.6-sol/xhigh/priority`，只读取 manifest identity producer、freshness gate 和最小 matrix
 字段，不复算其他工件；目标 10 分钟。
+
+### Wave 4 Output
+
+#### Shard H: Contract Identity And Eligibility
+
+- Status: `BLOCKED`
+- Blocking finding:
+  - 238 个 TaskSpace request 中 226 个 manifest/wire identity 为 false：
+    `map-always=100/100`、`map-append=67/73`、`map-request=59/65`；
+  - observer 将 Chat Completions wire 上所有 `system` role 一并计数并硬要求总数为 2，但额外项是生产合同允许
+    的 L5 active projection/control feedback；真正静态 `system_messages.count` 在 226/226 中均为 2；
+  - 因此 `taskspace_system_message_count_invalid/taskspace_wire_shape_invalid` 是错误事实和错误命名；
+  - freshness 能产生 manifest/wire mismatch finding，但 retained matrix observation/report/finalize 没有调用该
+    gate，也没有等价 run-level gate；同一 request 可同时 identity=false、observation complete、comparison
+    eligible。
+- Local conclusion: C-03/C-04/C-14 FAIL；GI-007 evidence-health/eligibility 子门 keep-open。
+
+### Wave 4 Main Agent Triage
+
+| Finding | Decision | Reason |
+|---|---|---|
+| legal L5 carrier 被计为静态 system mismatch | `accept` | section classifier 已能识别 active projection/control feedback，manifest identity 却重新按 transport role 总数解释 |
+| freshness finding 未进入 eligibility | `accept` | performance observation/report 只消费 token/count/Agent completion，未调用 freshness 或等价 gate |
+
+## Round 13 Closure
+
+- Overall status: `BLOCKED`
+- Reviewer attempts: 8 fresh shards，8/8 在目标窗口内完成，0 timeout。
+- Accepted blocking findings: 10；accepted PASS shard: D。
+- GI-005: keep-open；大部分关闭门已通过，只剩 lifecycle authoritative violation 重复包装。
+- GI-007: keep-open；ordinary exit 和 retained raw matrix 子门通过，但 direct carrier、provenance integer、
+  contract identity/eligibility 仍阻断。
+- Global regressions:
+  - CodeMode nested dispatcher 绕过 response-level Patch/control 硬门，归入 GI-006；
+  - Store hydrate 未验证 canonical schema/rooted-DAG，新增独立问题；
+  - discovery 改变 capability set 但未换明确 epoch，新增独立问题。
+
+### Constraint Summary
+
+| 约束 | Round 13 结论 |
+|---|---|
+| C-01 | FAIL：direct envelope 和 provenance verifier 重解释生产合同 |
+| C-02 | FAIL：nested exec 内部动作绕过 reservation 底线 |
+| C-03 | FAIL：lifecycle 重复、direct failure 误判、provenance coercion、wire identity 扭曲 |
+| C-04 | FAIL：manifest identity 把合法 L5 carrier 混入静态 system 计数；五层实现本身通过 |
+| C-05 | FAIL：ordinary exec 可承载 nested TaskSpace control/Patch |
+| C-06 | FAIL：discovery 变化没有建立明确 capability epoch；静态矩阵 epoch 切片通过 |
+| C-07 | PASS：三 policy 只在 L5 emission 不同 |
+| C-08 | FAIL：Store hydrate 绕过 rooted-DAG 门 |
+| C-09 | FAIL：nested calls 不在 response manifest 中逐项声明 |
+| C-10 | FAIL：nested Patch 绕过顶层单 Patch 计数 |
+| C-11 | FAIL：nested control/Patch 和 observer 普通 schema 误分类破坏隔离 |
+| C-12 | FAIL：nested dispatch 与 direct carrier 不能保证原子事实失败 |
+| C-13 | 观测完整性 PASS；发布成本仍由 GI-008 保持开放 |
+| C-14 | FAIL：无效 direct/provenance/freshness evidence 仍可比较/finalize |
+| C-15 | FAIL：Store hydrate 不拒绝旧 canonical schema |
+| C-16 | PASS：root/work_nodes/finish 机械角色分区 |
+| C-17 | PASS：Store 是唯一权威，resume/fork/child 不从 rollout 重建 |
+| C-18 | FAIL：nested calls 缺 Agent 逐项 node ownership |
+| C-19 | PASS：无 persisted Open/current/next，状态由事实派生 |
+| C-20 | PASS：finish/reopen 生命周期闭合且可继续 |
+| C-21 | PASS：reopen 不倒退历史 completion/result |
+
+Round 13 证明拆分策略有效：每个 finding 都有唯一局部 owner，后续修复和 replacement review 必须继续按
+A/B/C/E/F/G/H 分块；D 只在新候选生成 retained matrix 后重跑。

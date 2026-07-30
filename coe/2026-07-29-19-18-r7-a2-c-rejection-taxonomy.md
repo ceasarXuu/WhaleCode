@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 15:20
+- Updated: 2026-07-30 19:37
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -31,12 +31,12 @@
   - ToolSearch sibling 保留 typed state facts，不把底层 JSON 再包装为字符串
   - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
-- Current conclusion: Round 8/9 接受的 output、token/count、候选字节、state violation、call 顺序和
-  文档权威缺口均已转为回归门。Round 10 又证伪了 direct rejection、ordinary exit、direct control
-  envelope 和普通 count 精度四个入口；`6e487f057` 已按共享机械构造器、严格 JSON/envelope 与 BigInt
-  精确求和修复。最新 current-candidate 矩阵 24/24 完整、业务成功、可比较，298 request 全部分类守恒，
-  192 个证据工件 hash 无偏差。W0 保持 validating，等待新的无上下文 closure review，不以业务成功、
-  成本波动或 Agent 行为替代事实链验收
+- Current conclusion: Round 13 分块 closure review 证明 `6e487f057` 的 ordinary exit、state scope、
+  ToolSearch sibling 和 retained 298-request/192-artifact raw facts 子门成立，但 GI-005/GI-007 仍被四类
+  机械事实缺口阻断：lifecycle violation 重复包装；direct carrier JSON/envelope/success 与普通 Tool 隔离
+  不严；provenance bytes 类型强转；合法 L5 carrier 被错误记为 wire identity mismatch，且 freshness 未进入
+  eligibility。原 24/24 comparison eligible 声明失效，W0 保持 validating。修复只允许收紧构造、解析、
+  分类和证据门，不得增加 Runtime 对 Agent 的语义控制
 - Related hypotheses:
   - H-001
   - H-002
@@ -1283,3 +1283,31 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: Round 10 的确定性反例均已转为回归门，且 current candidate 具备 fresh replacement
   review 条件；该证据不自行关闭 H-008，也不证明 GI-002/GI-006/GI-008 的行为和成本问题已解决
 - Time: 2026-07-30 15:20
+
+## Evidence E-032: Round 13 分块 review 使通过子门与剩余 blocker 独立可归因
+- Related hypotheses:
+  - H-006
+  - H-007
+  - H-008
+- Direction: supports
+- Type: adversarial-review
+- Source:
+  - Shard A `Hume`：`019fb2ae-8c6d-7401-bdb4-2fbd0c5065cc`
+  - Shard B `Huygens`：`019fb2ae-c0c5-78f1-a560-3eed1b9201d6`
+  - Shard C `Pascal`：`019fb2ae-fb1a-7bc2-8299-dcb6149e5276`
+  - Shard D `Gauss`：`019fb2b6-afaf-7550-9614-4d36af63196a`
+  - Shard H `Tesla`：`019fb2c7-c7e6-7523-ac9c-2ac46355d8f1`
+  - candidate `6e487f0578be834afc178a7a377393383346c296`
+  - matrix run `20260730-145945-966`
+- Matched signal:
+  - A：typed state facts、canonical/evaluated scope、ToolSearch 和 2 次 read 归因通过；lifecycle
+    `actual.violations` 与 `actual.condition.violations` 重复同一事实
+  - B：ordinary exit 全部正反门通过；direct JSON 重复属性、非法 action/shape、outer success 覆盖 inner
+    failure 和普通 Tool schema 误分类可复现
+  - C：shared exact integer helper 通过；provenance file bytes 仍接受 string/fraction/zero-byte missing
+  - D：24 run、298 request、token taxonomy、12 state rejection 和 192 raw hashes 独立复算无偏差
+  - H：226/238 TaskSpace request 的合法 L5 projection/control feedback 被误计为第三个静态 system；
+    freshness 能发现 mismatch，但 retained observation/report 没有消费该 gate
+- Interpretation: 当前 retained artifact 内容自洽与事实入口完备是两个独立验收面。前者通过不能覆盖后者；
+  GI-005/GI-007 继续开放，但修复不得回退 ordinary exit、state scope、ToolSearch 或 raw seal 子门
+- Time: 2026-07-30 19:37
