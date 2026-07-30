@@ -24,7 +24,8 @@ function New-TokenBoundary([string]$RequestId) {
 function Assert-StandardSupplementalRejected(
     [string]$Name,
     [string[]]$Messages,
-    [string]$ExpectedError
+    [string]$ExpectedError,
+    [switch]$OutputAfterMessages
 ) {
     $path = Join-Path $tempRoot "$Name.jsonl"
     $rows = [Collections.Generic.List[object]]::new()
@@ -37,16 +38,17 @@ function Assert-StandardSupplementalRejected(
             }
         })
     $rows.Add((New-TokenBoundary "$Name-request"))
-    $rows.Add(@{
-            type = "response_item"
-            payload = @{
-                type = "tool_search_output"
-                call_id = "$Name-search"
-                status = "completed"
-                execution = "client"
-                tools = @()
-            }
-        })
+    $output = @{
+        type = "response_item"
+        payload = @{
+            type = "tool_search_output"
+            call_id = "$Name-search"
+            status = "completed"
+            execution = "client"
+            tools = @()
+        }
+    }
+    if (-not $OutputAfterMessages) { $rows.Add($output) }
     foreach ($message in $Messages) {
         $rows.Add(@{
                 type = "response_item"
@@ -57,6 +59,7 @@ function Assert-StandardSupplementalRejected(
                 }
             })
     }
+    if ($OutputAfterMessages) { $rows.Add($output) }
     Write-Lines $path @($rows)
     $rejected = $false
     $observedError = ""
@@ -94,10 +97,14 @@ function New-ProvenanceFixture([string]$Kind) {
             }
         }
     } elseif ($Kind -eq "skip") {
-        $calls = @(
-            (ConvertTo-R7CallDescriptor "skip-cause" "exec_command" "{}"),
-            (ConvertTo-R7CallDescriptor "skip-target" "exec_command" "{}")
+        $causeCall = ConvertTo-R7CallDescriptor "skip-cause" "exec_command" "{}"
+        $causeCall.output_count = 1
+        Set-R7CallOutcome $causeCall (
+            Get-R7CallOutcome -ToolSuccess $false -Output "Shell exit code: 1"
         )
+        $targetCall = ConvertTo-R7CallDescriptor "skip-target" "exec_command" "{}"
+        $targetCall.output_count = 1
+        $calls = @($causeCall, $targetCall)
         $payload = [pscustomobject]@{
             schema_version = "TaskSpaceToolSkippedV2"
             status = "skipped_due_to_prior_failure"
@@ -123,6 +130,8 @@ function New-ProvenanceFixture([string]$Kind) {
     } else {
         $call = ConvertTo-R7CallDescriptor "bound-target" "exec_command" "{}"
         $call.expected_reservation_id = "reservation:bound-target"
+        $call.output_count = 1
+        Set-R7CallOutcome $call (Get-R7CallOutcome -ToolSuccess $true -Output "ok")
         $calls = @($call)
         $payload = [pscustomobject]@{
             schema_version = "TaskSpaceBoundResultCommitFailureV2"
@@ -157,7 +166,7 @@ function Assert-ProvenanceContract(
     [bool]$ExpectedAccepted
 ) {
     $fixture = New-ProvenanceFixture $Kind
-    if ($null -ne $Mutation) { & $Mutation $fixture.payload }
+    if ($null -ne $Mutation) { & $Mutation $fixture.payload $fixture.calls }
     $callsById = @{}
     $requestCalls = [Collections.Generic.List[object]]::new()
     foreach ($call in $fixture.calls) {
@@ -214,6 +223,18 @@ try {
         @('{"schema_version":["ToolSearchFailureV3"]}') `
         "Incomplete structured failure fact:*"
     Assert-StandardSupplementalRejected `
+        "root-scalar" `
+        @('"Tool\u0053earchFailureV3"') `
+        "Structured failure root must be an object"
+    Assert-StandardSupplementalRejected `
+        "duplicate-escaped-schema" `
+        @('{"schema_version":"ToolSearchFailureV3","schema_\u0076ersion":"benign"}') `
+        "Duplicate JSON property:*"
+    Assert-StandardSupplementalRejected `
+        "nested-reserved-family" `
+        @('{"schema_version":"benign","detail":"ToolSearchFailureV3"}') `
+        "Unknown structured failure schema:*"
+    Assert-StandardSupplementalRejected `
         "unknown" `
         @('{"schema_version":"ToolSearchFailureV4","status":"failed","success":false}') `
         "Unknown structured failure schema:*"
@@ -262,12 +283,36 @@ try {
         Assert-ProvenanceContract "$kind-valid" $kind $null $true
     }
     $reservedCall = ConvertTo-R7CallDescriptor "reserved-call" "exec_command" "{}"
-    $reservationCalls = @{ "reserved-call" = $reservedCall }
+    $reservedCall.request_index = 1
+    $reservationControl = ConvertTo-R7CallDescriptor `
+        "reservation-control" `
+        "taskspace_control" `
+        '{"action":"execute"}'
+    $reservationControl.request_index = 1
+    $reservationCalls = @{
+        "reservation-control" = $reservationControl
+        "reserved-call" = $reservedCall
+    }
     Set-R7ExpectedReservations `
         $reservationCalls `
+        $reservationControl `
         '{"schema_version":"TaskSpaceResponseCommitV1","reserved_actions":[{"call_id":"reserved-call","reservation_id":"reservation:reserved-call"}]}'
     if ([string]$reservedCall.expected_reservation_id -ne "reservation:reserved-call") {
         throw "Control result reservation identity was not preserved"
+    }
+    $reservedCall.request_index = 2
+    $crossRequestRejected = $false
+    try {
+        Set-R7ExpectedReservations `
+            $reservationCalls `
+            $reservationControl `
+            '{"schema_version":"TaskSpaceResponseCommitV1","reserved_actions":[{"call_id":"reserved-call","reservation_id":"forged"}]}'
+    } catch {
+        $crossRequestRejected =
+            $_.Exception.Message -like "TaskSpace control result reservation crosses request identity:*"
+    }
+    if (-not $crossRequestRejected) {
+        throw "Control result reservation crossed request identity"
     }
     Assert-ProvenanceContract "provider-copy-group" "provider" {
         param($payload) $payload.failure_provenance.copy_group_id = "forged"
@@ -282,6 +327,10 @@ try {
         param($payload)
         $payload.failure_provenance.cause_call_id = "missing"
         $payload.cause.call_id = "missing"
+    } $false
+    Assert-ProvenanceContract "skip-successful-cause" "skip" {
+        param($payload, $calls)
+        Set-R7CallOutcome $calls[0] (Get-R7CallOutcome -ToolSuccess $true -Output "ok")
     } $false
     Assert-ProvenanceContract "skip-tool-and-field" "skip" {
         param($payload)
@@ -300,6 +349,9 @@ try {
     Assert-ProvenanceContract "bound-error-code" "bound" {
         param($payload) $payload.error.code = "forged"
     } $false
+    Assert-ProvenanceContract "bound-without-output" "bound" {
+        param($payload, $calls) $calls[0].output_count = 0
+    } $false
 
     $duplicateCall = "duplicate-search"
     $duplicate = $valid.Replace($callId, $duplicateCall)
@@ -307,6 +359,11 @@ try {
         "duplicate" `
         @($duplicate, $duplicate) `
         "Duplicate structured failure fact for call:*"
+    Assert-StandardSupplementalRejected `
+        "supplemental-before-output" `
+        @($valid.Replace($callId, "supplemental-before-output-search")) `
+        "ToolSearch failure precedes its pairing output:*" `
+        -OutputAfterMessages
 
     $taskspacePath = Join-Path $tempRoot "taskspace-incomplete.jsonl"
     Write-Lines $taskspacePath @(

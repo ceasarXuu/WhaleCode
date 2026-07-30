@@ -162,12 +162,13 @@ function Add-R7ObservedCall {
     if ($CallsById.ContainsKey($Call.call_id)) {
         throw "Duplicate Tool call id in rollout: $($Call.call_id)"
     }
+    $Call.request_index = $RequestIndex
     $Requests[$RequestIndex - 1].calls.Add($Call)
     $CallsById[$Call.call_id] = $Call
 }
 
 function Set-R7ExpectedReservations {
-    param([hashtable]$CallsById, [string]$Output)
+    param([hashtable]$CallsById, $ControlCall, [string]$Output)
     $payload = try {
         $Output | ConvertFrom-Json -Depth 100
     } catch {
@@ -185,7 +186,12 @@ function Set-R7ExpectedReservations {
             -not $CallsById.ContainsKey($callId)) {
             throw "TaskSpace control result has an unpaired reservation identity"
         }
-        $CallsById[$callId].expected_reservation_id = $reservationId
+        $targetCall = $CallsById[$callId]
+        if ([int]$ControlCall.request_index -lt 1 -or
+            [int]$targetCall.request_index -ne [int]$ControlCall.request_index) {
+            throw "TaskSpace control result reservation crosses request identity: $callId"
+        }
+        $targetCall.expected_reservation_id = $reservationId
     }
 }
 
@@ -208,9 +214,12 @@ function Apply-R7ObservedOutcome {
         throw "Tool call/output carrier mismatch for $([string]$Observed.call_id)"
     }
     $call.output_count = 1
+    if ([int]$call.supplemental_count -ne 0) {
+        return
+    }
     $outcome = if ([string]$call.tool -eq "taskspace_control") {
         if ([bool]$Observed.tool_success) {
-            Set-R7ExpectedReservations $CallsById ([string]$Observed.output_text)
+            Set-R7ExpectedReservations $CallsById $call ([string]$Observed.output_text)
         }
         Get-R7CallOutcome `
             -ToolSuccess ([bool]$Observed.tool_success) `

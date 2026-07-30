@@ -51,6 +51,7 @@ function ConvertTo-R7CallDescriptor {
         call_id = $CallId
         tool = $ToolName
         call_type = $CallType
+        request_index = 0
         control_action = $controlAction
         declared_node_id = ""
         declared_actions = $declaredActions

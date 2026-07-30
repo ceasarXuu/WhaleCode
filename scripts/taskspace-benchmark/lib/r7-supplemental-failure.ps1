@@ -12,6 +12,30 @@ function Test-R7ReservedFailureFamilyText {
     )
 }
 
+function Assert-R7UniqueJsonProperties {
+    param(
+        [System.Text.Json.JsonElement]$Element,
+        [string]$Path = "$"
+    )
+    if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+        $names = [Collections.Generic.HashSet[string]]::new(
+            [StringComparer]::OrdinalIgnoreCase
+        )
+        foreach ($property in $Element.EnumerateObject()) {
+            if (-not $names.Add([string]$property.Name)) {
+                throw "Duplicate JSON property: $Path.$($property.Name)"
+            }
+            Assert-R7UniqueJsonProperties $property.Value "$Path.$($property.Name)"
+        }
+    } elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+        $index = 0
+        foreach ($item in $Element.EnumerateArray()) {
+            Assert-R7UniqueJsonProperties $item "$Path[$index]"
+            $index++
+        }
+    }
+}
+
 function Apply-R7SupplementalFailure {
     param(
         [hashtable]$CallsById,
@@ -20,20 +44,40 @@ function Apply-R7SupplementalFailure {
         [string]$OriginalRole
     )
     $trimmed = $Text.Trim()
-    if (-not ($trimmed.StartsWith("{") -or $trimmed.StartsWith("["))) { return }
     $reservedFamily =
         '(TaskSpaceResponseCommitFailure|ToolSequencePreflightResult|' +
         'ProviderToolResponsePreflight|ToolSearchFailure|' +
         'TaskSpaceToolSkipped|TaskSpaceBoundResultCommitFailure)'
     $containsReservedFamily = Test-R7ReservedFailureFamilyText $trimmed
+    if (-not (
+            $trimmed.StartsWith("{") -or
+            $trimmed.StartsWith("[") -or
+            $trimmed.StartsWith('"')
+        )) {
+        return
+    }
+    $document = $null
     try {
-        $payload = $trimmed | ConvertFrom-Json -Depth 100 -NoEnumerate
+        $document = [System.Text.Json.JsonDocument]::Parse($trimmed)
     } catch {
         if ($containsReservedFamily) {
             throw "Malformed structured failure message"
         }
         return
     }
+    try {
+        Assert-R7UniqueJsonProperties $document.RootElement
+        if ($document.RootElement.ValueKind -ne
+            [System.Text.Json.JsonValueKind]::Object) {
+            if ($containsReservedFamily) {
+                throw "Structured failure root must be an object"
+            }
+            return
+        }
+    } finally {
+        $document.Dispose()
+    }
+    $payload = $trimmed | ConvertFrom-Json -Depth 100 -NoEnumerate
     if ($payload -is [System.Array] -or $payload -isnot [pscustomobject]) {
         if ($containsReservedFamily) {
             throw "Structured failure root must be an object"
@@ -57,7 +101,7 @@ function Apply-R7SupplementalFailure {
         "TaskSpaceBoundResultCommitFailureV2"
     )
     if ($schemaVersion -notin $knownSchemas) {
-        if ($schemaVersion -match "^$reservedFamily") {
+        if ($containsReservedFamily -or $schemaVersion -match "^$reservedFamily") {
             throw "Unknown structured failure schema: $schemaVersion"
         }
         return
@@ -82,6 +126,9 @@ function Apply-R7SupplementalFailure {
     foreach ($affectedCallId in $affectedCallIds) {
         if (-not $CallsById.ContainsKey($affectedCallId)) {
             throw "Structured failure fact has no matching call: $affectedCallId"
+        }
+        if ([int]$CallsById[$affectedCallId].supplemental_count -ne 0) {
+            throw "Duplicate structured failure fact for call: $affectedCallId"
         }
     }
     if ($schemaVersion -eq "ToolSearchFailureV3") {
@@ -110,9 +157,6 @@ function Apply-R7SupplementalFailure {
     }
     foreach ($callId in $affectedCallIds) {
         $call = $CallsById[$callId]
-        if ([int]$call.supplemental_count -ne 0) {
-            throw "Duplicate structured failure fact for call: $callId"
-        }
         $call.supplemental_count = 1
         Set-R7CallOutcome $call (
             Get-R7CallOutcome `
@@ -133,6 +177,10 @@ function Assert-R7ToolSearchFailureProvenance {
     if (-not $CallsById.ContainsKey($callId) -or
         [string]$CallsById[$callId].call_type -ne "tool_search_call") {
         throw "ToolSearch failure fact has no matching ToolSearch call: $callId"
+    }
+    $call = $CallsById[$callId]
+    if ([int]$call.output_count -ne 1 -or -not [bool]$call.success) {
+        throw "ToolSearch failure precedes its pairing output: $callId"
     }
     $error = Get-R7JsonProperty $Payload "error"
     $hasZeroDispatch = $Provenance.PSObject.Properties.Name -contains "zero_dispatch"
@@ -177,7 +225,8 @@ function Assert-R7PerCallFailureProvenance {
     }
     if ($SchemaVersion -eq "TaskSpaceBoundResultCommitFailureV2") {
         $expectedReservationId = [string]$call.expected_reservation_id
-        if ($zeroDispatch -or
+        if ([int]$call.output_count -ne 1 -or
+            $zeroDispatch -or
             $copyGroupId -ne "tool_result_attribution:$callId" -or
             [string](Get-R7JsonProperty $error "code" "") -ne
                 "taskspace_bound_result_commit_failed" -or
@@ -207,13 +256,31 @@ function Assert-R7PerCallFailureProvenance {
     }
     $callIndex = [array]::IndexOf($requestCallIds, $callId)
     $causeIndex = [array]::IndexOf($requestCallIds, $causeCallId)
+    $causeCall = if ($CallsById.ContainsKey($causeCallId)) {
+        $CallsById[$causeCallId]
+    } else {
+        $null
+    }
+    $causeOutcomeMatches = if ($status -eq "skipped_due_to_prior_failure") {
+        $null -ne $causeCall -and
+            [int]$causeCall.output_count -eq 1 -and
+            $causeCall.success -eq $false
+    } else {
+        $null -ne $causeCall -and
+            [int]$causeCall.output_count -eq 1 -and
+            [bool]$causeCall.success -and
+            [string]$causeCall.tool -eq "taskspace_control" -and
+            [string]$causeCall.control_action -eq "finish_map"
+    }
     if (-not $zeroDispatch -or
+        [int]$call.output_count -ne 1 -or
         $copyGroupId -ne "tool_sequence_skip:$causeCallId" -or
         [string](Get-R7JsonProperty $Payload "tool" "") -ne [string]$call.tool -or
         [string](Get-R7JsonProperty $error "code" "") -ne $status -or
         [string](Get-R7JsonProperty $cause "field" "") -ne $expectedCauseField -or
         [string](Get-R7JsonProperty $cause "call_id" "") -ne $causeCallId -or
-        $callIndex -lt 1 -or $causeIndex -lt 0 -or $causeIndex -ge $callIndex) {
+        $callIndex -lt 1 -or $causeIndex -lt 0 -or $causeIndex -ge $callIndex -or
+        -not $causeOutcomeMatches) {
         throw "Skipped-call failure provenance does not match its causal call: $callId"
     }
 }

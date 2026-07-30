@@ -28,15 +28,15 @@ function Get-Median {
 function Get-AggregateRow {
     param([object[]]$Rows, [string]$Scope, [string]$Sample, [string]$Arm)
     $requestTotal = ($Rows | Measure-Object -Property provider_requests -Sum).Sum
-    $inputTotal = ($Rows | Measure-Object -Property input_tokens -Sum).Sum
-    $cachedTotal = ($Rows | Measure-Object -Property cached_input_tokens -Sum).Sum
-    $uncachedTotal = ($Rows | Measure-Object -Property uncached_input_tokens -Sum).Sum
-    $outputTotal = ($Rows | Measure-Object -Property output_tokens -Sum).Sum
-    $reasoningTotal = ($Rows | Measure-Object -Property reasoning_output_tokens -Sum).Sum
-    $tokenTotal = ($Rows | Measure-Object -Property total_tokens -Sum).Sum
+    $inputTotal = Get-R7ExactInt64Sum @($Rows.input_tokens) "input_tokens"
+    $cachedTotal = Get-R7ExactInt64Sum @($Rows.cached_input_tokens) "cached_input_tokens"
+    $uncachedTotal = Get-R7ExactInt64Sum @($Rows.uncached_input_tokens) "uncached_input_tokens"
+    $outputTotal = Get-R7ExactInt64Sum @($Rows.output_tokens) "output_tokens"
+    $reasoningTotal = Get-R7ExactInt64Sum @($Rows.reasoning_output_tokens) "reasoning_output_tokens"
+    $tokenTotal = Get-R7ExactInt64Sum @($Rows.total_tokens) "total_tokens"
     $wallTotal = ($Rows | Measure-Object -Property wall_time_ms -Sum).Sum
-    $request2Input = ($Rows | Measure-Object -Property request_2_plus_input_tokens -Sum).Sum
-    $request2Cached = ($Rows | Measure-Object -Property request_2_plus_cached_input_tokens -Sum).Sum
+    $request2Input = Get-R7ExactInt64Sum @($Rows.request_2_plus_input_tokens) "request_2_plus_input_tokens"
+    $request2Cached = Get-R7ExactInt64Sum @($Rows.request_2_plus_cached_input_tokens) "request_2_plus_cached_input_tokens"
     [pscustomobject]@{
         scope = $Scope
         sample = $Sample
@@ -146,7 +146,10 @@ foreach ($run in @($manifest.runs)) {
         throw "Expected one observed row for $($run.sample) repeat $($run.repeat) $($run.arm)"
     }
     $row = $actualRows[0]
-    $request2Input = [double](Get-Value $row.cache "request_2_plus_cached_input_tokens" 0) + [double](Get-Value $row.cache "request_2_plus_uncached_input_tokens" 0)
+    $request2Input = Get-R7ExactInt64Sum @(
+        (Get-Value $row.cache "request_2_plus_cached_input_tokens" 0),
+        (Get-Value $row.cache "request_2_plus_uncached_input_tokens" 0)
+    ) "request_2_plus_input_tokens"
     $finishNode = @((Get-Value $row.map "nodes" @()) | Where-Object { [string]$_.kind -eq "finish" } | Select-Object -First 1)
     $rootNode = @((Get-Value $row.map "nodes" @()) | Where-Object { [string]$_.kind -eq "task_root" } | Select-Object -First 1)
     $resolvedPath = Join-Path ([string]$run.run_dir) "pair-001/manifest.resolved.json"
@@ -187,13 +190,13 @@ foreach ($run in @($manifest.runs)) {
         control_state_failures = [double](Get-Value $row.actions "control_state_failures" 0)
         multi_patch_attempts = [double](Get-Value $row.patch "request_multi_patch_attempt_count" 0)
         patch_prepare_failures = [double](Get-Value $row.patch "patch_prepare_failure_count" 0)
-        input_tokens = [double](Get-Value $row.cost "input_tokens" 0)
-        cached_input_tokens = [double](Get-Value $row.cost "cached_input_tokens" 0)
-        uncached_input_tokens = [double](Get-Value $row.cost "uncached_input_tokens" 0)
-        output_tokens = [double](Get-Value $row.cost "output_tokens" 0)
+        input_tokens = [int64](Get-Value $row.cost "input_tokens" 0)
+        cached_input_tokens = [int64](Get-Value $row.cost "cached_input_tokens" 0)
+        uncached_input_tokens = [int64](Get-Value $row.cost "uncached_input_tokens" 0)
+        output_tokens = [int64](Get-Value $row.cost "output_tokens" 0)
         wall_time_ms = [double](Get-Value $row.cost "wall_time_ms" 0)
         request_2_plus_input_tokens = $request2Input
-        request_2_plus_cached_input_tokens = [double](Get-Value $row.cache "request_2_plus_cached_input_tokens" 0)
+        request_2_plus_cached_input_tokens = [int64](Get-Value $row.cache "request_2_plus_cached_input_tokens" 0)
         request_2_plus_cache_hit_rate = Get-Value $row.cache "request_2_plus_hit_rate"
         cache_prefix_preserved_rate = Get-Value $row.cache "prefix_preserved_rate"
         same_shape_zero_hit_count = [double](Get-Value $row.cache "same_shape_zero_hit_count" 0)
@@ -230,20 +233,24 @@ foreach ($run in @($manifest.runs)) {
     if (-not [bool]$requestObservability.classification_reconciled) {
         throw "Request failure taxonomy does not reconcile for $($run.sample) repeat $($run.repeat) $($run.arm)"
     }
-    $requestInputTokens = [double]$requestObservability.receipt_before_input_tokens +
-        [double]$requestObservability.no_receipt_before_input_tokens
-    $requestCachedTokens = [double]$requestObservability.receipt_before_cached_input_tokens +
-        [double]$requestObservability.no_receipt_before_cached_input_tokens
-    if ($requestInputTokens -ne [double]$flat.input_tokens -or
-        $requestCachedTokens -ne [double]$flat.cached_input_tokens -or
-        [double]$requestObservability.output_tokens -ne [double]$flat.output_tokens) {
+    $requestInputTokens = Get-R7ExactInt64Sum @(
+        $requestObservability.receipt_before_input_tokens,
+        $requestObservability.no_receipt_before_input_tokens
+    ) "input_tokens"
+    $requestCachedTokens = Get-R7ExactInt64Sum @(
+        $requestObservability.receipt_before_cached_input_tokens,
+        $requestObservability.no_receipt_before_cached_input_tokens
+    ) "cached_input_tokens"
+    if ($requestInputTokens -ne [int64]$flat.input_tokens -or
+        $requestCachedTokens -ne [int64]$flat.cached_input_tokens -or
+        [int64]$requestObservability.output_tokens -ne [int64]$flat.output_tokens) {
         throw "Request token facts do not reconcile with the run aggregate for $($run.sample) repeat $($run.repeat) $($run.arm)"
     }
     $flat | Add-Member -NotePropertyName reasoning_output_tokens -NotePropertyValue (
-        [double]$requestObservability.reasoning_output_tokens
+        [int64]$requestObservability.reasoning_output_tokens
     )
     $flat | Add-Member -NotePropertyName total_tokens -NotePropertyValue (
-        [double]$requestObservability.total_tokens
+        [int64]$requestObservability.total_tokens
     )
     $requestCalls = @($requestPath | ForEach-Object { @($_.calls) })
     $flat | Add-Member -NotePropertyName tool_action_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "tool_calls").Count
@@ -261,12 +268,12 @@ foreach ($run in @($manifest.runs)) {
     $flat | Add-Member -NotePropertyName sibling_failure_copy_count -NotePropertyValue ([int]$requestObservability.sibling_failure_copy_count)
     $flat | Add-Member -NotePropertyName classification_reconciled -NotePropertyValue ([bool]$requestObservability.classification_reconciled)
     $flat | Add-Member -NotePropertyName receipt_before_requests -NotePropertyValue ([int]$requestObservability.receipt_before_requests)
-    $flat | Add-Member -NotePropertyName receipt_before_input_tokens -NotePropertyValue ([double]$requestObservability.receipt_before_input_tokens)
-    $flat | Add-Member -NotePropertyName receipt_before_cached_input_tokens -NotePropertyValue ([double]$requestObservability.receipt_before_cached_input_tokens)
+    $flat | Add-Member -NotePropertyName receipt_before_input_tokens -NotePropertyValue ([int64]$requestObservability.receipt_before_input_tokens)
+    $flat | Add-Member -NotePropertyName receipt_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.receipt_before_cached_input_tokens)
     $flat | Add-Member -NotePropertyName receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.receipt_before_cache_hit_rate
     $flat | Add-Member -NotePropertyName no_receipt_before_requests -NotePropertyValue ([int]$requestObservability.no_receipt_before_requests)
-    $flat | Add-Member -NotePropertyName no_receipt_before_input_tokens -NotePropertyValue ([double]$requestObservability.no_receipt_before_input_tokens)
-    $flat | Add-Member -NotePropertyName no_receipt_before_cached_input_tokens -NotePropertyValue ([double]$requestObservability.no_receipt_before_cached_input_tokens)
+    $flat | Add-Member -NotePropertyName no_receipt_before_input_tokens -NotePropertyValue ([int64]$requestObservability.no_receipt_before_input_tokens)
+    $flat | Add-Member -NotePropertyName no_receipt_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.no_receipt_before_cached_input_tokens)
     $flat | Add-Member -NotePropertyName no_receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.no_receipt_before_cache_hit_rate
     $flat | Add-Member -NotePropertyName receipt_original_roles -NotePropertyValue (@($requestObservability.receipt_original_roles) -join ",")
     $flat | Add-Member -NotePropertyName receipt_wire_roles -NotePropertyValue (@($requestObservability.receipt_wire_roles) -join ",")

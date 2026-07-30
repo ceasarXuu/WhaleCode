@@ -76,6 +76,22 @@ try {
     Assert-InvalidTokenFixture "string-output" {
         param($terminal) $terminal.output_tokens = "12"
     }
+    Assert-InvalidTokenFixture "fractional-output" {
+        param($terminal)
+        $terminal.input_tokens = 100.5
+        $terminal.cached_input_tokens = 20.25
+        $terminal.output_tokens = 12.5
+        $terminal.reasoning_output_tokens = 5.25
+        $terminal.total_tokens = 113.0
+    }
+    Assert-InvalidTokenFixture "precision-loss" {
+        param($terminal)
+        $terminal.input_tokens = [int64]9007199254740993
+        $terminal.cached_input_tokens = 0
+        $terminal.output_tokens = 1
+        $terminal.reasoning_output_tokens = 0
+        $terminal.total_tokens = [int64]9007199254740993
+    }
     Assert-InvalidTokenFixture "reasoning-over-output" {
         param($terminal) $terminal.reasoning_output_tokens = 13
     }
@@ -84,6 +100,38 @@ try {
     }
     Assert-InvalidTokenFixture "total-mismatch" {
         param($terminal) $terminal.total_tokens = 111
+    }
+    $stringIdentity = New-Terminal
+    $stringIdentity.attempt_seq = "1"
+    $identityPath = Join-Path $tempRoot "string-identity.jsonl"
+    $shape = [pscustomobject]@{
+        schema_version = "provider-chat-wire-trace-v10"
+        event_name = "provider.chat_wire_shape_recorded"
+        request_id = "request-1"
+        logical_request_id = "logical-1"
+        attempt_seq = "1"
+        transport = "responses_http"
+        request_index = "1"
+        provider_wire_api = "ChatCompletions"
+        lcp_message_count = 0
+        message_shapes = @()
+        taskspace_final_receipt_identity = @{ count = 0; receipts = @() }
+    }
+    [IO.File]::WriteAllLines(
+        $identityPath,
+        @($shape, $stringIdentity | ForEach-Object {
+                $_ | ConvertTo-Json -Compress -Depth 30
+            }),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $identityRejected = $false
+    try {
+        Get-R7WireRequestInventory $identityPath | Out-Null
+    } catch {
+        $identityRejected = $_.Exception.Message -match "incomplete physical request rows"
+    }
+    if (-not $identityRejected) {
+        throw "Provider string request identity was accepted"
     }
     Write-Output "R7 provider token identity passed."
 } finally {
