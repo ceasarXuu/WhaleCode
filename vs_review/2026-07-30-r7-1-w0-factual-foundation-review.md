@@ -1160,4 +1160,12 @@ Runtime 语义或约束 Agent。
   - 24 run、298 request、token/state/sibling/multi-Patch 和 192 raw seal 独立复算；
   - Runtime 边界、普通 Tool 非侵入、C-01 至 C-21、GI-005/GI-007 分别关闭意见。
 - Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
-- Status: running
+- Status: timed-out
+
+### Timeout Record
+
+- First wait: 20 minutes，no final status。
+- Single extension: 20 minutes，no final status。
+- Agent status before shutdown: `running`。
+- Disposition: session 已关闭，本轮不产生 PASS/BLOCKED 结论；不得用主线程检查替代 fresh review。
+- Replacement requirement: 使用 Hubble 之外的新 `fork_context=false` reviewer，重新执行完整审查包。
