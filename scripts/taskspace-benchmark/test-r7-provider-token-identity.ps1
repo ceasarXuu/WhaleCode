@@ -133,6 +133,23 @@ try {
     if (-not $identityRejected) {
         throw "Provider string request identity was accepted"
     }
+    $missingRejected = $false
+    try {
+        Get-R7ExactInt64Sum @($null) "input_tokens" | Out-Null
+    } catch {
+        $missingRejected =
+            $_.Exception.Message -eq "R7 exact sum contains a missing input_tokens"
+    }
+    if (-not $missingRejected) {
+        throw "Missing aggregate token fact was treated as zero"
+    }
+    $largeSum = Get-R7ExactInt64Sum @(
+        [int64]"9007199254740991",
+        [int64]1
+    ) "input_tokens"
+    if ($largeSum -ne [int64]"9007199254740992") {
+        throw "Exact aggregate token sum lost large integer identity"
+    }
     Write-Output "R7 provider token identity passed."
 } finally {
     if (Test-Path -LiteralPath $tempRoot) {

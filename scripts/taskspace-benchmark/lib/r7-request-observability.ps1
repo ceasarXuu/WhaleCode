@@ -76,7 +76,9 @@ function Get-R7ExactInt64Sum {
     param([object[]]$Values, [string]$FieldName = "value")
     [bigint]$sum = 0
     foreach ($value in $Values) {
-        if ($null -eq $value) { continue }
+        if ($null -eq $value) {
+            throw "R7 exact sum contains a missing $FieldName"
+        }
         if (-not (Test-R7NonnegativeJsonInteger $value)) {
             throw "R7 exact sum contains a non-integer $FieldName"
         }
@@ -387,10 +389,18 @@ function Get-R7RequestObservabilitySummary {
     $invalidEvidence = @($RequestPath | Where-Object evidence_health -ne "valid")
     $receipt = @($RequestPath | Where-Object receipt_before -eq $true)
     $withoutReceipt = @($RequestPath | Where-Object receipt_before -ne $true)
-    $receiptInput = Get-R7ExactInt64Sum @($receipt.input_tokens) "input_tokens"
-    $receiptCached = Get-R7ExactInt64Sum @($receipt.cached_input_tokens) "cached_input_tokens"
-    $otherInput = Get-R7ExactInt64Sum @($withoutReceipt.input_tokens) "input_tokens"
-    $otherCached = Get-R7ExactInt64Sum @($withoutReceipt.cached_input_tokens) "cached_input_tokens"
+    $receiptInput = Get-R7ExactInt64Sum @(
+        $receipt | ForEach-Object { $_.input_tokens }
+    ) "input_tokens"
+    $receiptCached = Get-R7ExactInt64Sum @(
+        $receipt | ForEach-Object { $_.cached_input_tokens }
+    ) "cached_input_tokens"
+    $otherInput = Get-R7ExactInt64Sum @(
+        $withoutReceipt | ForEach-Object { $_.input_tokens }
+    ) "input_tokens"
+    $otherCached = Get-R7ExactInt64Sum @(
+        $withoutReceipt | ForEach-Object { $_.cached_input_tokens }
+    ) "cached_input_tokens"
     [pscustomobject]@{
         provider_requests = $RequestPath.Count
         primary_failure_counts = [pscustomobject]$classes

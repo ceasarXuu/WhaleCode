@@ -3,6 +3,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "patch-observability.ps1")
 . (Join-Path $PSScriptRoot "performance-duplication.ps1")
 . (Join-Path $PSScriptRoot "performance-section-cost.ps1")
+. (Join-Path $PSScriptRoot "performance-token-identity.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
     if ($null -ne $Object) {
@@ -27,19 +28,6 @@ function Get-PerformanceNumber {
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
     try { [double]$Value } catch { $null }
 }
-function Get-PerformanceNonnegativeInt64 {
-    param($Value)
-    if ($null -eq $Value) { return $null }
-    if ($Value -isnot [byte] -and $Value -isnot [uint16] -and
-        $Value -isnot [uint32] -and $Value -isnot [uint64] -and
-        $Value -isnot [sbyte] -and $Value -isnot [int16] -and
-        $Value -isnot [int32] -and $Value -isnot [int64]) {
-        return $null
-    }
-    [bigint]$number = $Value
-    if ($number -lt 0 -or $number -gt [int64]::MaxValue) { return $null }
-    [int64]$number
-}
 function Get-PerformanceRatio {
     param($Numerator, $Denominator)
     $num = Get-PerformanceNumber $Numerator
@@ -49,9 +37,15 @@ function Get-PerformanceRatio {
 }
 function Get-PerformanceWireRequestCount {
     param([string]$ArtifactDir, $CacheSummary)
-    $summaryCount = Get-PerformanceNumber (Get-PerformanceProperty $CacheSummary "provider_request_count")
-    if ($null -ne $summaryCount) {
-        return [pscustomobject]@{ value = $summaryCount; source = "provider_cache_trace_summary" }
+    $summaryRaw = Get-PerformanceProperty $CacheSummary "provider_request_count"
+    if ($null -ne $summaryRaw) {
+        $summaryCount = Get-PerformanceNonnegativeInt64 $summaryRaw
+        $source = if ($null -ne $summaryCount) {
+            "provider_cache_trace_summary"
+        } else {
+            "provider_cache_trace_summary_invalid"
+        }
+        return [pscustomobject]@{ value = $summaryCount; source = $source }
     }
     $wirePath = Join-Path $ArtifactDir "provider-wire-trace.jsonl"
     if (Test-Path -LiteralPath $wirePath) {
@@ -62,7 +56,12 @@ function Get-PerformanceWireRequestCount {
                 $count++
             }
         }
-        if ($count -gt 0) { return [pscustomobject]@{ value = [double]$count; source = "provider_wire_trace" } }
+        if ($count -gt 0) {
+            return [pscustomobject]@{
+                value = [int64]$count
+                source = "provider_wire_trace"
+            }
+        }
     }
     [pscustomobject]@{ value = $null; source = "unavailable" }
 }
@@ -255,11 +254,40 @@ function Get-PerformanceSideObservation {
     }
     $map = Get-PerformanceMapFacts $artifactDir $metrics $warnings
     $duplication = Get-PerformanceDuplicationFacts $artifactDir $Events
-    $input = Get-PerformanceNonnegativeInt64 (Get-PerformanceProperty $metrics "input_tokens")
-    $cached = Get-PerformanceNonnegativeInt64 (Get-PerformanceProperty $metrics "cached_input_tokens")
+    $tokenIdentity = Get-PerformanceTokenIdentity `
+        $metrics `
+        $cache `
+        $requests.value `
+        $skipped
+    if (-not $tokenIdentity.valid) {
+        $warnings.Add("performance_token_identity_invalid")
+        if ($null -ne $Events) {
+            $Events.Add([pscustomobject]@{
+                    event = "performance_token_identity_invalid"
+                    code = "token_identity_invalid"
+                    case_id = $caseId
+                    pair = $pair
+                    repeat = $repeat
+                    side = $side
+                    logical_mode = $mode
+                    metric_path = $MetricPath
+                    artifact_dir = $artifactDir
+                    invalid_fields = @($tokenIdentity.invalid_fields)
+                })
+        }
+    }
     $agentStatus = [string](Get-PerformanceProperty $metrics "agent_completion_status")
-    $observationStatus = if ($skipped) { "skipped" } elseif ($agentStatus -eq "complete") { "complete" } else { "incomplete" }
-    $comparisonEligible = -not $skipped -and $agentStatus -eq "complete" -and $null -ne $requests.value -and $input -gt 0
+    $observationStatus = if ($skipped) {
+        "skipped"
+    } elseif (-not $tokenIdentity.valid) {
+        "invalid"
+    } elseif ($agentStatus -eq "complete") {
+        "complete"
+    } else {
+        "incomplete"
+    }
+    $comparisonEligible = -not $skipped -and $tokenIdentity.valid -and
+        $agentStatus -eq "complete"
     [pscustomobject]@{
         case_id = $caseId; pair = $pair; repeat = $repeat; side = $side; logical_mode = $mode
         artifact_dir = $artifactDir
@@ -321,16 +349,21 @@ function Get-PerformanceSideObservation {
         }
         cost = [pscustomobject]@{
             wall_time_ms = Get-PerformanceNumber (Get-PerformanceProperty $metrics "wall_time_ms")
-            input_tokens = $input; cached_input_tokens = $cached
-            uncached_input_tokens = Get-PerformanceNonnegativeInt64 (Get-PerformanceProperty $metrics "uncached_input_tokens")
-            output_tokens = Get-PerformanceNonnegativeInt64 (Get-PerformanceProperty $metrics "output_tokens")
-            full_cache_hit_rate = Get-PerformanceRatio $cached $input
+            input_tokens = $tokenIdentity.input_tokens
+            cached_input_tokens = $tokenIdentity.cached_input_tokens
+            uncached_input_tokens = $tokenIdentity.uncached_input_tokens
+            output_tokens = $tokenIdentity.output_tokens
+            full_cache_hit_rate = Get-PerformanceRatio `
+                $tokenIdentity.cached_input_tokens `
+                $tokenIdentity.input_tokens
             monetary_cost = $null; monetary_cost_status = "unavailable_no_unit_price_artifact"
         }
         cache = [pscustomobject]@{
-            request_2_plus_count = Get-PerformanceNonnegativeInt64 (Get-PerformanceProperty $cache "request_2_plus_count")
-            request_2_plus_cached_input_tokens = Get-PerformanceNonnegativeInt64 (Get-PerformanceProperty $cache "request_2_plus_cached_input_tokens")
-            request_2_plus_uncached_input_tokens = Get-PerformanceNonnegativeInt64 (Get-PerformanceProperty $cache "request_2_plus_uncached_input_tokens")
+            request_2_plus_count = $tokenIdentity.request_2_plus_count
+            request_2_plus_cached_input_tokens =
+                $tokenIdentity.request_2_plus_cached_input_tokens
+            request_2_plus_uncached_input_tokens =
+                $tokenIdentity.request_2_plus_uncached_input_tokens
             request_2_plus_hit_rate = Get-PerformanceNumber (Get-PerformanceProperty $cache "request_2_plus_hit_rate")
             prefix_comparison_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_comparison_count")
             prefix_preserved_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_preserved_count")
@@ -359,17 +392,26 @@ function Get-PerformanceModeAggregate {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.actions.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }
-    foreach ($field in @("wall_time_ms", "input_tokens", "cached_input_tokens", "uncached_input_tokens", "output_tokens")) {
+    foreach ($field in @("wall_time_ms")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.cost.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
+    }
+    foreach ($field in @("input_tokens", "cached_input_tokens", "uncached_input_tokens", "output_tokens")) {
+        $sum[$field] = Get-PerformanceExactInt64Sum `
+            @($selected | ForEach-Object { $_.cost.$field }) `
+            $field
     }
     foreach ($field in @("map_count", "node_count", "edge_count", "result_count", "open_leaf_nodes", "unreviewed_result_count", "runtime_event_count")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.map.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }
     Add-TaskspacePatchAggregateFields $sum $selected
-    $cache2 = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.request_2_plus_cached_input_tokens } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
-    $uncached2 = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.request_2_plus_uncached_input_tokens } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
+    $cache2 = Get-PerformanceExactInt64Sum `
+        @($selected | ForEach-Object { $_.cache.request_2_plus_cached_input_tokens }) `
+        "request_2_plus_cached_input_tokens"
+    $uncached2 = Get-PerformanceExactInt64Sum `
+        @($selected | ForEach-Object { $_.cache.request_2_plus_uncached_input_tokens }) `
+        "request_2_plus_uncached_input_tokens"
     $prefixCount = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.prefix_comparison_count } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
     $prefixKept = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.prefix_preserved_count } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
     [pscustomobject]@{

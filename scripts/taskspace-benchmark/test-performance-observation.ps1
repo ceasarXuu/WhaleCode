@@ -421,6 +421,61 @@ Assert-True ($markdown -match "Bytes/request mean" -and $markdown -match "Bytes/
 Assert-True ($markdown -match "unsupported_provider_wire_trace_schema=4") "markdown omitted unsupported section-cost provenance"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
+$largeLeft = [int64]"9007199254740991"
+$largeRight = [int64]1
+Assert-True (
+    (Get-PerformanceExactInt64Sum @($largeLeft, $largeRight) "large_tokens") -eq
+        [int64]"9007199254740992"
+) "large exact token sum lost integer identity"
+foreach ($invalidToken in @(
+        "0",
+        [double]0,
+        [decimal]0,
+        [int64]-1,
+        [uint64]::MaxValue
+    )) {
+    Assert-True (
+        $null -eq (Get-PerformanceNonnegativeInt64 $invalidToken)
+    ) "invalid token CLR type or range was accepted"
+}
+$overflowRejected = $false
+try {
+    Get-PerformanceExactInt64Sum @([int64]::MaxValue, [int64]1) "overflow" |
+        Out-Null
+} catch {
+    $overflowRejected = $_.Exception.Message -like "*exceeds int64*"
+}
+Assert-True $overflowRejected "overflowing exact token sum was accepted"
+
+$invalidRoot = Join-Path ([IO.Path]::GetTempPath()) "performance-token-$([guid]::NewGuid().ToString('N'))"
+$invalidPair = Join-Path $invalidRoot "pair-001"
+Write-Json ([pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" }) (
+    Join-Path $invalidPair "logical-mode-map.json"
+)
+New-SideFixture $invalidPair "left" "standard" 2 1 100 50 0
+$invalidMetricPath = Join-Path $invalidPair "left/artifacts/metrics.json"
+$invalidMetrics = Get-Content -Raw -Encoding UTF8 -LiteralPath $invalidMetricPath |
+    ConvertFrom-Json
+$invalidMetrics.cached_input_tokens = "0"
+$invalidMetrics.uncached_input_tokens = "0"
+$invalidMetrics.output_tokens = "0"
+Write-Json $invalidMetrics $invalidMetricPath
+$invalidResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot
+$invalidReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $invalidResult.json_path |
+    ConvertFrom-Json
+$invalidRow = @($invalidReport.rows)[0]
+Assert-True (
+    $invalidRow.observation_status -eq "invalid" -and
+    -not [bool]$invalidRow.comparison_eligible
+) "invalid token identity remained complete or comparison eligible"
+$invalidEvents = Get-Content -Encoding UTF8 -LiteralPath $invalidResult.event_log_path
+Assert-True (
+    @($invalidEvents | Where-Object {
+            $_ -match '"event":"performance_token_identity_invalid"' -and
+            $_ -match '"code":"token_identity_invalid"'
+        }).Count -eq 1
+) "invalid token identity did not emit its stable event"
+
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }
     exit 1
