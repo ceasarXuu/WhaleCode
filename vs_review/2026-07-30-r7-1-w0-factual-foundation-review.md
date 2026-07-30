@@ -1016,10 +1016,14 @@ Reviewer 另建议所有 business-incomplete run 不得进入 finalized report�
 - Matrix:
   `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22/20260730-125939-756`
 - Reviewer mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: evidence-authority-adversary (`Mencius`)
+- Session / Job ID: `019fb16d-c10a-7082-b81a-7c328f19e9da`
+- Mechanism: internal `spawn_agent`，未继承主线程上下文。
 - Context excluded: 主线程聊天、隐藏 reasoning、既有结论和说服性摘要。
 - Required output: summary、blocking findings、non-blocking risks、C-01 至 C-21 逐项结论、GI-005/GI-007
   关闭意见、对矩阵关键数字和 seal 的独立复算、每项 finding 的路径/行号与可复现证据。
-- Status: reviewer launch pending
+- Timeout policy: high-risk，初始等待 20 分钟，必要时只延长一次。
+- Status: launched
 
 ## Current Conclusion
 
