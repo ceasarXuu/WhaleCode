@@ -941,8 +941,88 @@ blocker：
 - Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Turing 不得关闭自己的
   blocker。
 
+## Round 8: W0 output/token/candidate-authority review
+
+### Review Input
+
+- Objective: 对 Round 7 修复、retained matrix、GI-005/GI-007 和 C-01 至 C-21 执行 fresh
+  closure review。
+- Reviewed HEAD: `f167616ff`
+- Reviewed candidate: `a677374782ff4ac15ad3242af19e1a681fec7e08`
+- Primary reviewer: `Halley`，session `019fb12c-...`，fresh、`fork_context=false`、只读；
+  platform safety classifier 终止，没有 reviewer output，不能计为通过。
+- Replacement reviewer: evidence-authority-adversary (`Jason`)
+- Session / Job ID: `019fb136-da88-7031-bbd4-a723998d9aff`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 独立重算了 24/24 run、360 request、token 汇总和 192/192 raw seal，与报告一致；GI-005 的
+机械反馈事实被判定 `PASS`。GI-007 仍有三个真实 blocker：
+
+1. provider supplemental 只绑定 call set，没有绑定每个 call 的实际 output 内容与先后关系；
+2. observation 把字符串 `"0"` token 归一为 null 后，仍可标记 complete/eligible，report 又把缺失值
+   默认成零；
+3. current dirty worktree 没有进入 binary/provenance 一致性条件，报告脚本、evaluation contract 和
+   production authority 的当前字节也没有绑定候选提交 blob。
+
+Reviewer 另建议所有 business-incomplete run 不得进入 finalized report。
+
+### Main Agent Triage
+
+- output binding：`accept`，归 GI-007/C-03/C-14。
+- token fail-open：`accept`，归 GI-007/C-03/C-14。
+- dirty/current commit bytes：`accept`，归 GI-007/C-01/C-14。
+- business-incomplete 不得 finalized：`reject`。C-14 要求保留 Agent 的真实失败；`finalized` 表示证据
+  已封存，不表示所有业务运行成功。基础设施/token 无效 run 必须 fail-closed，但合法观察到的 Agent
+  incomplete run 必须保留。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| supplemental 未绑定 actual output | call 保存实际 output 原文；provider supplemental 要求全部 affected call 已有一次失败 output 且原文逐字相同；supplemental-before-output 和覆盖均拒绝 | `test-r7-supplemental-failure-evidence.ps1` 与 live serialized carrier |
+| token 缺失/类型 fail-open | performance observation 与 request/report 只接受非负精确 Int64；字符串、浮点、负数、溢出、缺失及算术不守恒均 `invalid`，并记录稳定事件 | `test-performance-observation.ps1`、`test-r7-provider-token-identity.ps1` |
+| candidate authority 未闭合 | current worktree 必须 clean；evaluation contract、production authority、report script 当前字节必须匹配 manifest candidate commit 的 Git blob | `test-r7-candidate-authority.ps1`、matrix harness、artifact provenance |
+| production serialized output 差异 | production output 为 JSON string；observer 机械解码显式 bool `success`，不再回退文本启发式误判；exact-output 合同不放宽 | 第一轮 matrix report fail-closed、E-025、serialized fixture |
+
+### Replacement Review Readiness
+
+- Fix commits: `ba8cf3564`、`7b13b6bc6`、`4869e3f65`、`f2dea4765`、`ebaedcf6c`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 15/15 passed
+- 第一份 `f2dea4765` matrix 的 24/24 raw run 完成，但 report 发现 production serialized output
+  解码缺口并 fail-closed；没有把失败候选作为有效结果。
+- Retained current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22/20260730-125939-756`
+- Matrix: 24/24 complete、24/24 business success、24/24 comparison eligible；
+  artifact provenance=`valid`、192 raw artifacts、0 findings、final aggregate=`finalized`。
+- Request tokens: 385 requests；input `8,991,942`、cached `4,454,912`、uncached
+  `4,537,030`、output `140,946`、reasoning `62,246`、total `9,132,888`。
+- State rejection facts: 12 requests / 12 violations / 2 next-request `read_map`。
+- Replacement requirement: 必须由 Jason 之外的新 `fork_context=false` reviewer 关闭 blocker。
+
+## Round 9: W0 full-constraint closure review
+
+### Review Input
+
+- Objective: 尝试证伪 Round 8 修复、retained current-commit matrix、GI-005/GI-007 关闭条件和
+  C-01 至 C-21；不得把业务成功当作证据正确性的替代。
+- Review target: production/observer implementation、负向 fixtures、冻结评估 authority、current-commit
+  matrix 与 R7.1 全局约束。
+- Candidate commit: `ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22`
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22/20260730-125939-756`
+- Reviewer mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Context excluded: 主线程聊天、隐藏 reasoning、既有结论和说服性摘要。
+- Required output: summary、blocking findings、non-blocking risks、C-01 至 C-21 逐项结论、GI-005/GI-007
+  关闭意见、对矩阵关键数字和 seal 的独立复算、每项 finding 的路径/行号与可复现证据。
+- Status: reviewer launch pending
+
 ## Current Conclusion
 
-W0 当前保持 `validating`。Round 1/2/3/4/5/6/7 接受的 blocker 已完成工程修复，但最新 fresh replacement
-blocking closure review 尚未通过；在 replacement review 完成前，不得关闭 R71-GI-005/R71-GI-007，
-也不得进入 W1。
+W0 当前保持 `validating`。Round 8 接受的三个 blocker 和 production serialized carrier 差异已修复并通过
+current-commit 正式矩阵，但必须等待 Round 9 fresh replacement review；在该审查完成前不得关闭
+R71-GI-005/R71-GI-007，也不得进入 W1。
