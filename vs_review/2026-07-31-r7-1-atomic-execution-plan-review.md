@@ -1,14 +1,14 @@
 # Subagent VS Review: R7.1 原子执行计划
 
 - Created: 2026-07-31T04:17:18+08:00
-- Updated: 2026-07-31T04:27:50+08:00
+- Updated: 2026-07-31T05:35:16+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 是否已拆成工程边界明确、可独立验证的小主题，避免 Phase 聚合造成工程混乱
 - Report path: `vs_review/2026-07-31-r7-1-atomic-execution-plan-review.md`
 - Review mode: fresh internal subagent
 - Source session policy: no inherited main-agent context
 - Review target commit: `cfffa1fe0c578aff28e83a5f4f94e30781fad2c1`
-- Status: blocked
+- Status: open
 
 ## Round 1: 原子边界、依赖与机器门禁
 
@@ -331,3 +331,161 @@ Evidence：`47-r7.1-global-issue-register.md:284`、`:308`。
 当前原子化方向正确，历史 10 个缺陷根因也没有漏项，但该版本还不能作为实施权威继续推进。必须先修复
 multi-Patch 失败归属、条件 Phase 关闭语义和机器门禁三项 blocking，再由新的
 `architecture-adversary` 只读复审关闭；本轮未修改被审计划，因此不能标记 passed。
+
+## Round 2: ARCH-B01/B02/B03 blocking closure
+
+### Review Input
+
+#### Objective
+
+只复审 Round 1 接受的三个 blocking 是否在提交
+`e6f6ffc0c79542f4b7928534a3e256cd25b1a10d` 中真正关闭，并检查修复是否引入新的同级架构问题。
+
+#### Review Target
+
+- ARCH-B01：multi-Patch attempt、preflight rejection、execution、top-level/nested 的责任分离；
+- ARCH-B02：删除条件占位或建立一致的关闭结果和下游可达性；
+- ARCH-B03：单一结构化事实源、DAG/状态/根因/晋升门语义验证与负向 fixture。
+
+#### Target Locations
+
+- `docs/v0.0.5/build-R7/47-r7.1-global-issue-register.md`
+- `benchmarks/taskspace/r7/r7-1-execution-plan-v1.schema.json`
+- `scripts/taskspace-benchmark/lib/r7-execution-plan-contract.ps1`
+- `scripts/taskspace-benchmark/test-r7-unified-execution-plan.ps1`
+- `docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md`
+- Round 1 findings in this report
+
+#### Change Introduction
+
+- 删除未触发的 response-action 决策/实现占位 Phase；
+- 将 multi-Patch 拆为 Runtime 安全边界复验与 Agent 行为诊断；
+- 在同一 Markdown 权威文档中嵌入唯一 JSON 机器合同，读者表为受校验投影；
+- 增加 JSON Schema、语义 validator 和 13 类负向 mutant fixture；
+- 区分 engineering/promotion held-out identity，并为各 Phase 定义证据事件及字段。
+
+#### Risk Focus
+
+- multi-Patch 失败是否仍错误返修 Runtime，或只是在文字上拆分；
+- 诊断 `root_causes_identified` 是否能独立关闭且确保新增 Phase 阻断成本/晋升；
+- 嵌入 JSON 与读者说明是否形成事实重复或无法同步；
+- graph validator 是否会漏掉循环、未来依赖、未知 ID、孤儿 blocker 和过早决策；
+- 新 Phase 插入与重编号规则是否可执行；
+- 负向 fixture 是否真的攻击 validator，而不是固定文本自证；
+- 修复是否超过用户要求，形成新的计划管理子系统或不必要复杂度。
+
+#### Verification Status
+
+- `test-r7-unified-execution-plan.ps1`: PASS
+- `test-r7-five-layer-contracts.ps1 -Phase All`: PASS
+- `cargo test -p codex-core context::taskspace_contract --lib`: 2 passed
+- `git diff --check`: PASS
+- 本轮没有 Agent/Tool/Runtime 行为变化，因此未运行真实 sample
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session，`fork_context=false`。
+- 不继承 Round 1 reviewer 上下文；直接读取 Round 1 findings 与目标提交。
+- 只读，不修改文件。
+- 每个 blocking 必须给出 `closed` 或 `still_open`，并提供反例与路径行号。
+- 若发现新的 blocking，必须说明是否由本轮修复引入。
+- 不把风格偏好或未来产品收益未实现升级成 blocking。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| high-risk | 20 minutes | one 10-minute extension when alive | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| architecture-adversary | Round 1 blocking 均属于责任边界、依赖和事实源设计，需要 fresh 同角色复核 | B01/B02/B03 closure 与新架构回归 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb4f4-bbb0-7c62-adc9-afcf2681cc22` | spawn result + completion notification | `fork_context=false` | Round 2 Review Input | main-agent history、reasoning、uncommitted drafts、Round 1 reviewer context | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| round2-architecture | architecture-adversary | 1 | `019fb4f4-bbb0-7c62-adc9-afcf2681cc22` | under 20 minutes | completed | reviewer returned before timeout | completed |
+
+### Reviewer Outputs
+
+#### round2-architecture
+
+##### Summary
+
+**Verdict: BLOCKED。**
+
+- ARCH-B01 `closed`：multi-Patch Runtime 安全与 Agent 行为已经拆成不同 Phase；
+- ARCH-B02 `closed`：不可关闭的条件占位 Phase 已删除；
+- ARCH-B03 `still_open`：结构化事实源已建立，但语义 validator 仍信任可篡改声明值；
+- 新增两个同级 blocker：特殊角色可以重绑定；关闭证据可以用任意非空字符串伪造。
+
+##### Blocking Findings
+
+###### ARCH-B03：图与状态约束仍可被构造性绕过
+
+审查者实际构造并通过了以下 mutant：
+
+1. R71-12 的派生 Phase 指向已有祖先 R71-01；
+2. R71-07 未关闭时将 R71-08 标记为 `in_progress`；
+3. 清空 blocker 布尔量并删除依赖，使开放根因单元脱离成本/晋升路径；
+4. 工程说明改成失败后回退 R71-08，机器合同仍通过。
+
+所需修复：派生修复必须带根因映射和父诊断反向引用；active/current 必须 ready；成本和晋升阻断必须从
+DAG 推导；失败路由与禁止目标必须机器化。
+
+###### ARCH-NB01：特殊 Phase 角色可被重新绑定
+
+将 `promotion_decision_phase_id` 指向 R71-19，并同步清空声明 blocker 后，validator 仍可接受，绕过用户
+产品晋升决策。所需修复：特殊角色 ID 唯一、绑定正确 kind，并形成严格
+dynamic-cost -> freeze -> formal-evaluation -> promotion 末端链。
+
+###### ARCH-NB02：evidence_artifact 不证明真实证据存在
+
+当前只要求非空字符串；所有 Phase 可引用 `missing://...` 后关闭。所需修复：证据引用至少包含仓库相对路径、
+SHA-256 和证据 schema/version，门禁必须验证真实文件与摘要。
+
+##### Non-blocking Risks
+
+- held-out 只验证 identity 字符串，不验证 sealed sample manifest、摘要和集合不相交；
+- observability event name 未验证唯一；
+- 缺少新增 Phase 插入、重编号并保持晋升门闭合的正向 fixture；
+- 状态变化缺少统一 transition audit event；
+- 读者投影未直接暴露 ready、closure outcome 和 spawned repair；
+- `current_phase_id` 只验证存在，没有验证 open + ready；
+- 工程说明中的失败目标没有与机器合同绑定。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| ARCH-B01 | accept closed | R71-14/15 已分离 Runtime safety 与 Agent behavior | 保持拆分，不再改回聚合 Phase | Round 3 复核 |
+| ARCH-B02 | accept closed | 条件占位已删除，诊断用明确 closure outcome 独立关闭 | 保持当前删除结果 | Round 3 复核 |
+| ARCH-B03 | accept | reviewer 四个 mutant 均暴露 validator 信任声明值 | 删除 mutable blocker；新增 ready、派生根因/父诊断、DAG 祖先和机器 failure route 校验 | Round 3 复核 |
+| ARCH-NB01 | accept | 特殊 ID 缺少 role/kind/顺序绑定 | 校验四个角色唯一、kind 正确、严格末端直连且 promotion 为最终 Phase | Round 3 复核 |
+| ARCH-NB02 | accept | 非空字符串不能证明 evidence 存在 | evidence 改为 path + SHA-256 + schema_version，并校验仓库内真实文件 | Round 3 复核 |
+| held-out 隔离 | accept | 两个 label 不足以证明样本未复用 | 增加 sealed sample manifest 引用、摘要和 sample ID 不相交校验 | Round 3 复核 |
+| event/transition | accept | 当前 event identity 可重复，状态改变不可审计 | event name 唯一；新增统一 state transition audit contract | Round 3 复核 |
+| insertion fixture | accept | 固定 20/R71-20 的测试无法证明扩展安全 | 增加插入 Phase、全引用重编号并通过 21 Phase 合同的正向 fixture | Round 3 复核 |
+| reader/current | accept | 接手者仍需手算 ready，current 可指向 blocked Phase | 投影增加 Ready/关闭结果/派生修复；current 强制 open + ready | Round 3 复核 |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, pending fresh verification
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Allowed to proceed: no
+
+## Round 2 Conclusion
+
+ARCH-B01/B02 已关闭；ARCH-B03 仍开放，并新增 ARCH-NB01/NB02。主 Agent 已接受并实施第二轮修复，
+但依据 review hard rule，必须由新的 fresh reviewer 完成 Round 3 后才能关闭报告。
