@@ -1136,3 +1136,28 @@ Runtime 语义或约束 Agent。
 - State rejection facts: 12 requests / 12 violations / 2 next-request `read_map`。
 - Replacement requirement: 必须由 Euclid、Mencius、Jason 之外的全新 reviewer 独立复算并对
   C-01 至 C-21 逐项裁决。
+
+## Round 11: W0 final full-constraint replacement review
+
+### Review Input
+
+- Objective: 从空白上下文独立证伪 Round 1 至 Round 10 的全部 accepted blocker、`6e487f057` 修复、
+  current-candidate matrix、GI-005/GI-007 关闭条件和 C-01 至 C-21。
+- Product/evidence candidate: `6e487f0578be834afc178a7a377393383346c296`
+- Review-time HEAD: `3c0ced9db`；候选后只增加 COE、问题清单、W0 结果和审查记录，reviewer 必须独立核对。
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/6e487f0578be834afc178a7a377393383346c296/20260730-145945-966`
+- Reviewer: W0-final-constraint-adversary (`Hubble`)
+- Session / Job ID: `019fb1dd-b0fc-7ad1-b0a5-334d791e073d`
+- Mechanism: internal `spawn_agent`，`fork_context=false`，未继承主线程上下文。
+- Context excluded: 主线程聊天、隐藏 reasoning、既有结论和说服性摘要；只发送中性文件导航、待证伪
+  反例和输出合同。
+- Access: repository read-only review instruction，禁止修改文件。
+- Model: `gpt-5.6-sol`，reasoning effort `xhigh`，priority tier。
+- Required challenge surface:
+  - Round 10 direct violation serializer、ordinary exit、direct control envelope、精确 count；
+  - Round 1 至 Round 9 全部 producer/observer/report/seal 反例；
+  - 24 run、298 request、token/state/sibling/multi-Patch 和 192 raw seal 独立复算；
+  - Runtime 边界、普通 Tool 非侵入、C-01 至 C-21、GI-005/GI-007 分别关闭意见。
+- Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
+- Status: running
