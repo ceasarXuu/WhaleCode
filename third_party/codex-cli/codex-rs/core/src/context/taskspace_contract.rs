@@ -4,9 +4,9 @@ use sha2::Sha256;
 use codex_protocol::protocol::MapRuntimeMode;
 
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_ID: &str = "r7-taskspace-five-layer-production-v1";
-pub(crate) const TASKSPACE_CONTRACT_MANIFEST_VERSION: &str = "1.0.47";
+pub(crate) const TASKSPACE_CONTRACT_MANIFEST_VERSION: &str = "1.0.48";
 pub(crate) const TASKSPACE_CONTRACT_MANIFEST_SHA256: &str =
-    "90a4af6d21c79be6a634acfcd636b4d945fb88a843e13ddbd1e29b6352a7553d";
+    "59783aa03103af97f6592d778fe2389df5d27d92266e054ec09090946082e567";
 
 const TASKSPACE_CONTRACT_MANIFEST: &str =
     include_str!("prompts/taskspace_contract_manifest_v1.json");
