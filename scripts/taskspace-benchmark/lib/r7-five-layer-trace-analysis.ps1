@@ -213,10 +213,12 @@ function Apply-R7ObservedOutcome {
     if ([string]$Observed.carrier_type -notin $compatibleCarriers) {
         throw "Tool call/output carrier mismatch for $([string]$Observed.call_id)"
     }
-    $call.output_count = 1
     if ([int]$call.supplemental_count -ne 0) {
-        return
+        throw "Tool output followed its supplemental failure: $([string]$Observed.call_id)"
     }
+    $call.output_count = 1
+    $call.observed_output_text = [string]$Observed.output_text
+    $call.observed_output_tool_success = [bool]$Observed.tool_success
     $outcome = if ([string]$call.tool -eq "taskspace_control") {
         if ([bool]$Observed.tool_success) {
             Set-R7ExpectedReservations $CallsById $call ([string]$Observed.output_text)

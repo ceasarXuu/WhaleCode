@@ -167,6 +167,19 @@ function Assert-ProvenanceContract(
 ) {
     $fixture = New-ProvenanceFixture $Kind
     if ($null -ne $Mutation) { & $Mutation $fixture.payload $fixture.calls }
+    $rawPayload = $fixture.payload | ConvertTo-Json -Compress -Depth 30
+    if ($Kind -eq "provider") {
+        foreach ($call in $fixture.calls) {
+            if ([int]$call.output_count -eq 0) {
+                $call.output_count = 1
+                $call.observed_output_text = $rawPayload
+                $call.observed_output_tool_success = $false
+                Set-R7CallOutcome $call (
+                    Get-R7CallOutcome -ToolSuccess $false -Output $rawPayload
+                )
+            }
+        }
+    }
     $callsById = @{}
     $requestCalls = [Collections.Generic.List[object]]::new()
     foreach ($call in $fixture.calls) {
@@ -180,7 +193,7 @@ function Assert-ProvenanceContract(
         Apply-R7SupplementalFailure `
             $callsById `
             $requests `
-            ($fixture.payload | ConvertTo-Json -Compress -Depth 30) `
+            $rawPayload `
             "developer"
     } catch {
         $accepted = $false
@@ -316,6 +329,20 @@ try {
     }
     Assert-ProvenanceContract "provider-copy-group" "provider" {
         param($payload) $payload.failure_provenance.copy_group_id = "forged"
+    } $false
+    Assert-ProvenanceContract "provider-without-output" "provider" {
+        param($payload, $calls) $calls[0].output_count = 2
+    } $false
+    Assert-ProvenanceContract "provider-successful-output" "provider" {
+        param($payload, $calls)
+        $calls[0].output_count = 1
+        $calls[0].observed_output_tool_success = $true
+    } $false
+    Assert-ProvenanceContract "provider-different-output" "provider" {
+        param($payload, $calls)
+        $calls[0].output_count = 1
+        $calls[0].observed_output_text = "different"
+        $calls[0].observed_output_tool_success = $false
     } $false
     Assert-ProvenanceContract "skip-copy-group" "skip" {
         param($payload) $payload.failure_provenance.copy_group_id = "forged"

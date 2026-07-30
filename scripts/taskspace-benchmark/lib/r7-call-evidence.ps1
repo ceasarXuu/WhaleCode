@@ -70,6 +70,8 @@ function ConvertTo-R7CallDescriptor {
         parse_status = "output_pending"
         evidence_valid = $true
         output_count = 0
+        observed_output_text = ""
+        observed_output_tool_success = $null
         supplemental_count = 0
         violation_codes = @()
         violation_contexts = @()

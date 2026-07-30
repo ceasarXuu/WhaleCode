@@ -148,12 +148,14 @@ function Apply-R7SupplementalFailure {
             $affectedCallIds
     } else {
         Assert-R7ProviderResponseFailureProvenance `
+            $CallsById `
             $Requests `
             $schemaVersion `
             $payload `
             $provenance `
             $scope `
-            $affectedCallIds
+            $affectedCallIds `
+            $trimmed
     }
     foreach ($callId in $affectedCallIds) {
         $call = $CallsById[$callId]
@@ -287,12 +289,14 @@ function Assert-R7PerCallFailureProvenance {
 
 function Assert-R7ProviderResponseFailureProvenance {
     param(
+        $CallsById,
         $Requests,
         [string]$SchemaVersion,
         $Payload,
         $Provenance,
         [string]$Scope,
-        [string[]]$AffectedCallIds
+        [string[]]$AffectedCallIds,
+        [string]$RawText
     )
     $owningRequests = @(
         $Requests |
@@ -314,6 +318,18 @@ function Assert-R7ProviderResponseFailureProvenance {
             $expectedCopyGroupId -or
         (Compare-Object @($requestCallIds | Sort-Object) @($AffectedCallIds | Sort-Object))) {
         throw "Provider-response failure provenance does not match the request call set"
+    }
+    foreach ($callId in $AffectedCallIds) {
+        $call = $CallsById[$callId]
+        if ([int]$call.output_count -ne 1 -or
+            $call.observed_output_tool_success -ne $false -or
+            -not [string]::Equals(
+                [string]$call.observed_output_text,
+                $RawText,
+                [StringComparison]::Ordinal
+            )) {
+            throw "Provider-response failure does not match its Tool output: $callId"
+        }
     }
     $status = [string](Get-R7JsonProperty $Payload "status" "")
     $error = Get-R7JsonProperty $Payload "error"
