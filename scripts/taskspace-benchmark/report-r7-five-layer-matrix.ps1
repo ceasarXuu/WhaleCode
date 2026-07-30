@@ -337,6 +337,7 @@ foreach ($group in @($rows | Group-Object arm)) {
 $aggregatePath = Join-Path $RunRoot "aggregate.csv"
 $aggregates | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $aggregatePath
 
+$nodeStateRejections = Get-R7NodeStateRejectionSummary @($traceRuns)
 $traceAnalysis = [ordered]@{
     schema_version = 3
     contract_id = [string]$manifest.contract_id
@@ -344,6 +345,7 @@ $traceAnalysis = [ordered]@{
     docker_image_digest = $uniqueImages[0]
     input_artifact_provenance = $inputProvenance
     run_count = $rows.Count
+    node_state_rejections = $nodeStateRejections
     runs = @($traceRuns)
 }
 $tracePath = Join-Path $RunRoot "trace-analysis.json"
@@ -387,6 +389,18 @@ $lines.Add("| arm | initialize_and_execute 提交/总/失败 | 首请求初始�
 $lines.Add("|---|---:|---:|---:|---:|")
 foreach ($row in $overall) {
     $lines.Add("| $($row.arm) | $($row.committed_initialize_and_execute_total) / $($row.initialize_and_execute_total) / $($row.failed_initialize_and_execute_total) | $($row.first_request_initialization_total) / $($row.first_request_initialization_commits_total) | $($row.direct_initialize_control_total) | $($row.no_task_path_rejections_total) |")
+}
+$lines.Add("")
+$lines.Add("| arm | node_state_invalid request | 状态对 | 下一请求 read_map |")
+$lines.Add("|---|---:|---|---:|")
+foreach ($row in @($nodeStateRejections.by_arm)) {
+    $pairs = @(
+        $row.state_pairs |
+            ForEach-Object {
+                "$($_.canonical_state)->$($_.candidate_state):$($_.request_count)"
+            }
+    ) -join ", "
+    $lines.Add("| $($row.arm) | $($row.request_count) | $pairs | $($row.next_read_map_count) |")
 }
 $lines.Add("")
 $lines.Add("逐运行明细：``summary.csv``；分样本和全局聚合：``aggregate.csv``；trace 索引与初筛异常：``trace-analysis.json``。")

@@ -94,7 +94,9 @@ impl ToolSequencePreflightFailure {
         let payload_text = payload.to_string();
         let (mut pairing, supplemental): (Vec<_>, Vec<_>) = calls
             .iter()
-            .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload_text.clone()))
+            .flat_map(|call| {
+                ToolCallRuntime::provider_response_rejection_responses(call, payload_text.clone())
+            })
             .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
         pairing.extend(supplemental);
         pairing.push(ToolCallRuntime::factual_message(payload));

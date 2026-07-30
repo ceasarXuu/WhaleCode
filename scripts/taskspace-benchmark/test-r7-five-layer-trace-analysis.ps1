@@ -153,7 +153,7 @@ try {
     }
     $postBoundarySupplementalPath =
         Join-Path $tempRoot "standard-post-boundary-supplemental.jsonl"
-    $postBoundaryFailure = '{"schema_version":"ToolSequencePreflightResultV3","success":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:post-boundary","zero_dispatch":true,"affected_call_ids":["post-boundary-1","post-boundary-2"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
+    $postBoundaryFailure = '{"schema_version":"ToolSequencePreflightResultV3","status":"protocol_failed","success":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:post-boundary","zero_dispatch":true,"affected_call_ids":["post-boundary-1","post-boundary-2"]},"error":{"class":"protocol","code":"request_multiple_apply_patch_calls_not_allowed"}}'
     Write-Lines $postBoundarySupplementalPath @(
         @{ type = "response_item"; payload = @{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"one"}'; call_id = "post-boundary-1" } },
         @{ type = "response_item"; payload = @{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"two"}'; call_id = "post-boundary-2" } },

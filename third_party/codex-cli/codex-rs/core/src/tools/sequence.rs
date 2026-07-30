@@ -476,7 +476,9 @@ fn taskspace_prepare_failure_outcome(
     let payload = error.model_visible_failure(canonical_revision, failure_provenance);
     let (mut pairing, supplemental): (Vec<_>, Vec<_>) = calls
         .iter()
-        .flat_map(|call| ToolCallRuntime::invalid_call_responses(call, payload.clone()))
+        .flat_map(|call| {
+            ToolCallRuntime::provider_response_rejection_responses(call, payload.clone())
+        })
         .partition(|response| !matches!(response, ResponseInputItem::Message { .. }));
     pairing.extend(supplemental);
     let factual_payload = serde_json::from_str(&payload)
@@ -806,6 +808,10 @@ mod tests;
 #[cfg(test)]
 #[path = "sequence_taskspace_tests.rs"]
 mod taskspace_tests;
+
+#[cfg(test)]
+#[path = "sequence_taskspace_rejection_tests.rs"]
+mod taskspace_rejection_tests;
 
 #[cfg(test)]
 #[path = "sequence_identity_tests.rs"]

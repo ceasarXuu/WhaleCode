@@ -87,6 +87,49 @@ function Get-R7FailureClass {
     }
 }
 
+function Get-R7SupplementalFailureShapeError {
+    param($Payload)
+    $schemaVersion = [string](Get-R7JsonProperty $Payload "schema_version" "")
+    $required = @("status", "success", "failure_provenance", "error")
+    foreach ($field in $required) {
+        if ($null -eq $Payload -or
+            -not ($Payload.PSObject.Properties.Name -contains $field)) {
+            return "$schemaVersion is missing $field"
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$Payload.status)) {
+        return "$schemaVersion has an empty status"
+    }
+    if ([bool]$Payload.success) {
+        return "$schemaVersion does not describe a failure"
+    }
+    $error = Get-R7JsonProperty $Payload "error"
+    foreach ($field in @("class", "code")) {
+        if ($null -eq $error -or
+            -not ($error.PSObject.Properties.Name -contains $field) -or
+            [string]::IsNullOrWhiteSpace([string]$error.$field)) {
+            return "$schemaVersion has an incomplete error.$field"
+        }
+    }
+    if ($schemaVersion -eq "ToolSearchFailureV3") {
+        foreach ($field in @("call_id", "pairing_status", "execution_status")) {
+            if (-not ($Payload.PSObject.Properties.Name -contains $field) -or
+                [string]::IsNullOrWhiteSpace([string]$Payload.$field)) {
+                return "$schemaVersion is missing $field"
+            }
+        }
+        if ([string]$Payload.pairing_status -ne "completed" -or
+            [string]$Payload.execution_status -ne "failed") {
+            return "$schemaVersion has invalid pairing or execution status"
+        }
+        if (-not ($error.PSObject.Properties.Name -contains "cause") -or
+            $null -eq $error.cause) {
+            return "$schemaVersion is missing error.cause"
+        }
+    }
+    ""
+}
+
 function Get-R7StructuredFailureOutcome {
     param($Payload)
     $schemaVersion = [string](Get-R7JsonProperty $Payload "schema_version" "")

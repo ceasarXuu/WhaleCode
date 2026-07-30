@@ -3,6 +3,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $runRoot = Join-Path ([IO.Path]::GetTempPath()) "r7-request-observer-$([guid]::NewGuid().ToString('N'))"
 . (Join-Path $PSScriptRoot "lib/harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
+. (Join-Path $PSScriptRoot "lib/r7-five-layer-trace-analysis.ps1")
 
 function Write-Json([string]$Path, $Value) {
     $parent = Split-Path -Parent $Path
@@ -271,8 +272,50 @@ try {
     }
     if ([int]$trace.schema_version -ne 3 -or
         [string]$trace.input_artifact_provenance.status -ne "valid" -or
+        [int]$trace.node_state_rejections.request_count -ne 0 -or
         [string]$trace.runs[2].request_path[1].primary_failure_class -ne "none") {
         throw "Trace analysis did not publish request-level taxonomy and provenance"
+    }
+    $stateSummary = Get-R7NodeStateRejectionSummary @(
+        [pscustomobject]@{
+            sample = "state-fixture"
+            repeat = 1
+            arm = "map-request"
+            request_path = @(
+                [pscustomobject]@{
+                    request_index = 1
+                    calls = @(
+                        [pscustomobject]@{
+                            violation_contexts = @(
+                                [pscustomobject]@{
+                                    code = "node_state_invalid"
+                                    node_id = "verify"
+                                    canonical_before_transaction =
+                                        [pscustomobject]@{ state = "ready" }
+                                    rejected_candidate_at_violation =
+                                        [pscustomobject]@{ state = "completed" }
+                                }
+                            )
+                        }
+                    )
+                },
+                [pscustomobject]@{
+                    request_index = 2
+                    calls = @(
+                        [pscustomobject]@{
+                            tool = "taskspace_control"
+                            control_action = "read_map"
+                        }
+                    )
+                }
+            )
+        }
+    )
+    if ([int]$stateSummary.request_count -ne 1 -or
+        [int]$stateSummary.next_read_map_count -ne 1 -or
+        [string]$stateSummary.by_arm[0].state_pairs[0].canonical_state -ne "ready" -or
+        [string]$stateSummary.by_arm[0].state_pairs[0].candidate_state -ne "completed") {
+        throw "Node-state rejection summary did not preserve state pairs and follow-up actions: $($stateSummary | ConvertTo-Json -Compress -Depth 20)"
     }
     $finalProvenancePath = Join-Path $runRoot "artifact-provenance.json"
     $finalProvenance = Get-Content -Raw -Encoding UTF8 -LiteralPath $finalProvenancePath |

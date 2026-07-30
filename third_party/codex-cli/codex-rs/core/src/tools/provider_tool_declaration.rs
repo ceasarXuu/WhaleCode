@@ -192,9 +192,10 @@ impl ProviderToolDeclaration {
         response_failure_payload: &str,
     ) -> Vec<ResponseInputItem> {
         match self {
-            Self::Ready(call) => {
-                ToolCallRuntime::invalid_call_responses(call, response_failure_payload)
-            }
+            Self::Ready(call) => ToolCallRuntime::provider_response_rejection_responses(
+                call,
+                response_failure_payload,
+            ),
             Self::BuildFailed(failed) => {
                 vec![failed.pairing_response(response_failure_payload)]
             }

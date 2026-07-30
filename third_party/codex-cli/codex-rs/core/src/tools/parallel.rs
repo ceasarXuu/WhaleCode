@@ -110,16 +110,12 @@ impl ToolCallRuntime {
             .await
     }
 
-    pub(crate) fn invalid_call_responses(
+    pub(crate) fn provider_response_rejection_responses(
         call: &ToolCall,
         message: impl Into<String>,
     ) -> Vec<ResponseInputItem> {
         let error = FunctionCallError::RespondToModel(message.into());
-        let mut responses = vec![Self::failure_response_for_error(call, &error)];
-        if let Some(supplemental) = Self::supplemental_failure_response(call, &error) {
-            responses.push(supplemental);
-        }
-        responses
+        vec![Self::failure_response_for_error(call, &error)]
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -260,7 +256,7 @@ impl ToolCallRuntime {
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
                 Err(other) => {
                     let supplemental_responses =
-                        Self::supplemental_failure_response(&error_call, &other)
+                        Self::tool_execution_failure_response(&error_call, &other)
                             .into_iter()
                             .collect::<Vec<_>>();
                     let response = Self::failure_response(error_call, other);
@@ -376,7 +372,7 @@ impl ToolCallRuntime {
         }
     }
 
-    fn supplemental_failure_response(
+    fn tool_execution_failure_response(
         call: &ToolCall,
         err: &FunctionCallError,
     ) -> Option<ResponseInputItem> {
@@ -385,14 +381,6 @@ impl ToolCallRuntime {
         }
         let message = function_call_error_model_visible_message(err);
         let cause = exact_failure_cause(&message);
-        let is_provider_response_fact = cause
-            .get("failure_provenance")
-            .and_then(|value| value.get("scope"))
-            .and_then(serde_json::Value::as_str)
-            == Some("provider_response");
-        if is_provider_response_fact {
-            return None;
-        }
         let failure_provenance = tool_execution_failure_provenance(&call.call_id);
         Some(Self::factual_message(serde_json::json!({
             "schema_version": "ToolSearchFailureV3",
@@ -717,7 +705,7 @@ mod tests {
         let error = FunctionCallError::RespondToModel("query must not be empty".to_string());
         let response = ToolCallRuntime::failure_response_for_error(&call, &error);
         let supplemental =
-            ToolCallRuntime::supplemental_failure_response(&call, &error).expect("error fact");
+            ToolCallRuntime::tool_execution_failure_response(&call, &error).expect("error fact");
 
         let codex_protocol::models::ResponseInputItem::ToolSearchOutput { status, tools, .. } =
             response
@@ -754,6 +742,52 @@ mod tests {
         assert_eq!(
             value["error"]["cause"],
             serde_json::json!({"format": "text", "text": "query must not be empty"})
+        );
+    }
+
+    #[test]
+    fn tool_search_execution_origin_does_not_depend_on_error_text() {
+        let call = ToolCall {
+            provider_tool_name: ToolName::plain("tool_search"),
+            dispatch_tool_name: ToolName::plain("tool_search"),
+            call_id: "search-typed-origin".to_string(),
+            payload: ToolPayload::ToolSearch {
+                arguments: SearchToolCallParams {
+                    query: "read_file".to_string(),
+                    limit: None,
+                },
+            },
+        };
+        let embedded_provider_fact = serde_json::json!({
+            "failure_provenance": {
+                "scope": "provider_response",
+                "zero_dispatch": true,
+            }
+        })
+        .to_string();
+        let error = FunctionCallError::RespondToModel(embedded_provider_fact);
+        let supplemental = ToolCallRuntime::tool_execution_failure_response(&call, &error)
+            .expect("native ToolSearch failure must keep its typed execution origin");
+        let codex_protocol::models::ResponseInputItem::Message { content, .. } = supplemental
+        else {
+            panic!("expected supplemental factual message");
+        };
+        let text = content
+            .into_iter()
+            .find_map(|item| match item {
+                codex_protocol::models::ContentItem::InputText { text }
+                | codex_protocol::models::ContentItem::OutputText { text } => Some(text),
+                codex_protocol::models::ContentItem::InputImage { .. } => None,
+            })
+            .expect("factual JSON");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("failure JSON");
+        assert_eq!(
+            value["failure_provenance"]["scope"],
+            serde_json::json!("tool_execution")
+        );
+        assert_eq!(
+            value["failure_provenance"]["zero_dispatch"],
+            serde_json::json!(false)
         );
     }
 

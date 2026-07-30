@@ -2,7 +2,7 @@
   "schema_version": 1,
   "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
   "contract_id": "r7-taskspace-five-layer-production-v1",
-  "manifest_version": "1.0.43",
+  "manifest_version": "1.0.44",
   "contract_status": "production_active",
   "runtime_status_enum": [
     "selected_not_active",
@@ -92,7 +92,7 @@
       "selected_targets": [
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
-          "sha256": "fae453aa2137ad88e175d7c4640763c6e321b4e1f6b466a13deebd4bebd0dd00",
+          "sha256": "b126aad1c514823aa57b77d36a635e04b7768e11381e327b4e658d416ef24437",
           "activation_phase": "W0 trusted provider-response failure carrier"
         },
         {
@@ -102,7 +102,7 @@
         },
         {
           "artifact": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
-          "sha256": "cfb1194870135403bc08d27a8ecb9f1f29da089d7f96f68fc6aeef943cb12ee9",
+          "sha256": "11e4378aa87ab7cc7e79e2c59ccb7e6c7c70232577c1fb17c01dc4cfa5669aa2",
           "activation_phase": "W0 exact failure provenance and trusted supplemental carrier"
         },
         {

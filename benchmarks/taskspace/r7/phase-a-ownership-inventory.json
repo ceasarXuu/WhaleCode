@@ -154,7 +154,11 @@
       "target_phase": "B-F",
       "r7_owner": "single_shared_sequence_executor",
       "reason": "tool ordering and stop-after-failure remain policy independent",
-      "covered_paths": []
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_tests.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_taskspace_tests.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_taskspace_rejection_tests.rs"
+      ]
     },
     {
       "id": "compaction_epoch_policy_emission",
@@ -216,7 +220,9 @@
       "reason": "map-always must be observable in Phase B and the same metrics extend to all policies in Phase F",
       "covered_paths": [
         "scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1",
+        "scripts/taskspace-benchmark/lib/r7-supplemental-failure.ps1",
         "scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1",
+        "scripts/taskspace-benchmark/test-r7-supplemental-failure-evidence.ps1",
         "scripts/taskspace-benchmark/test-r7-request-observability-report.ps1",
         "third_party/codex-cli/codex-rs/core/src/action_map/runtime/telemetry.rs"
       ]
