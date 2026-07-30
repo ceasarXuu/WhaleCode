@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 14:12
+- Updated: 2026-07-30 15:20
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -32,11 +32,11 @@
   - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
 - Current conclusion: Round 8/9 接受的 output、token/count、候选字节、state violation、call 顺序和
-  文档权威缺口均已转为回归门。post-repair 正式汇总又暴露普通 Tool
-  `metadata.shell_exit_code` 未被 observer 识别，完整 Patch 失败被误判为无效证据；`ab2595847`
-  已按显式退出码机械修复。最新 current-candidate 矩阵 24/24 完整、业务成功、可比较，354 request
-  全部分类守恒，192 个证据工件 hash 无偏差。W0 保持 validating，等待新的无上下文 closure review，
-  不以业务成功、成本波动或 Agent 行为替代事实链验收
+  文档权威缺口均已转为回归门。Round 10 又证伪了 direct rejection、ordinary exit、direct control
+  envelope 和普通 count 精度四个入口；`6e487f057` 已按共享机械构造器、严格 JSON/envelope 与 BigInt
+  精确求和修复。最新 current-candidate 矩阵 24/24 完整、业务成功、可比较，298 request 全部分类守恒，
+  192 个证据工件 hash 无偏差。W0 保持 validating，等待新的无上下文 closure review，不以业务成功、
+  成本波动或 Agent 行为替代事实链验收
 - Related hypotheses:
   - H-001
   - H-002
@@ -1235,3 +1235,51 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: 当前候选已具备进入 fresh closure review 的生产、observer、report 和 seal 证据；
   该结果不自行关闭 H-008，也不证明 request、缓存或 Agent 行为问题已解决
 - Time: 2026-07-30 14:12
+
+## Evidence E-030: Round 10 复算通过但四个事实入口仍可丢失或放宽
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: adversarial-review
+- Source:
+  - reviewer `Euclid`，session `019fb1a2-b8cd-7fe2-9430-91e90a6a1a10`
+  - candidate `ab2595847238443a33795652174a744ef2dfd093`
+  - matrix run `20260730-135544-601`
+- Matched signal:
+  - retained matrix 的 24 run、354 request、token 守恒和 192 raw seal 独立复算一致
+  - direct Runtime rejection 未复用完整 state violation serializer
+  - structured ordinary exit 可从错误 scope、fraction/string/duplicate/malformed JSON 进入
+  - direct `TaskSpaceControlResultV2` 可用残缺 non-state failure envelope 通过
+  - 普通 count 经 double 求和后无法区分 `2^53` 与 `2^53+1`
+- Interpretation: sealed 工件自洽不代表同类输入均被忠实构造和验证。四项接受为
+  C-01/C-03/C-09/C-12/C-13/C-14 blocker；修复目标是机械事实链，不是增加 Runtime 语义控制
+- Time: 2026-07-30 14:35
+
+## Evidence E-031: Round 10 修复及 current-candidate 矩阵通过
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-008
+- Direction: challenges
+- Type: fix-validation
+- Source:
+  - candidate `6e487f0578be834afc178a7a377393383346c296`
+  - matrix run `20260730-145945-966`
+  - `test-r7-ordinary-tool-outcome.ps1`
+  - `test-r7-state-failure-contract.ps1`
+  - `test-r7-exact-counts.ps1`
+- Matched signal:
+  - direct Runtime/lifecycle 共用完整 model-visible violation serializer
+  - ordinary exit 仅接受完整 JSON 的顶层唯一正 Int64 `metadata.shell_exit_code`
+  - direct control failure 必须满足完整 typed envelope 和 failure 语义
+  - request/report/provenance/duplication count 使用 BigInt 中间和 Int64 边界，`2^53+1` 精确保留
+  - Rust 1934 passed、0 failed、3 ignored；workspace check 与 locked build 通过
+  - 24/24 observation complete、business success、comparison eligible
+  - 298 provider request 分类守恒；input `6,322,711`、cached `2,970,624`、uncached `3,352,087`、
+    output `127,666`、reasoning `58,076`、total `6,450,377`
+  - 12 个 state rejection request 完整保留 12 份 violation，2 个下一请求为 `read_map`
+  - 192 个 raw artifact hash 独立复算无偏差，final aggregate finalized
+- Interpretation: Round 10 的确定性反例均已转为回归门，且 current candidate 具备 fresh replacement
+  review 条件；该证据不自行关闭 H-008，也不证明 GI-002/GI-006/GI-008 的行为和成本问题已解决
+- Time: 2026-07-30 15:20

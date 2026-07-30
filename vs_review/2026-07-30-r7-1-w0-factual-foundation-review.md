@@ -1088,4 +1088,51 @@ Mencius 之外的 fresh replacement reviewer 复审。通过前不得关闭 R71-
   - Runtime 边界、C-01 至 C-21、GI-005/GI-007 分别关闭意见；
   - 对 24 run、request/token/state rejection 和 192 seal 的独立复算。
 - Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
-- Status: running
+- Status: blocked
+
+### Reviewer Output
+
+Euclid 独立复算 `ab2595847` retained matrix，确认 24/24 run、354 request、token 守恒和 192 个 raw
+artifact seal 与报告一致，但复现四项 blocker：
+
+1. 直接 Runtime rejection 与 lifecycle 路径没有复用同一份 model-visible state violation 构造器，
+   `canonical/evaluated/allowed/predecessor/subject` 等机械事实可在直接载体中被裁剪；
+2. ordinary Tool 的 structured exit parser 接受非顶层 `metadata.shell_exit_code`、fraction/string/zero、
+   重复字段或畸形 JSON，可能把无效事实归类为真实退出；
+3. 直接 `TaskSpaceControlResultV2` 非状态失败只凭 schema/status/class 等局部字段即可通过，缺少完整
+   success/error/state-commit/canonical-revision envelope 仍被视为有效；
+4. request/report/provenance 的普通 count 使用 PowerShell `Measure-Object`/double 中间值，
+   `2^53+1` 可静默变成 `2^53`，破坏 report 与 seal 的精确身份。
+
+判定：C-01/C-03/C-09/C-12/C-13/C-14 FAIL；GI-005 和 GI-007 均不可关闭。其余观察不要求扩大
+Runtime 语义或约束 Agent。
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`。四项均是 producer/observer/report/seal 的机械事实完整性问题；
+- 不接受把问题归因到 Agent 理解能力或状态机约束不足，也不增加动作建议、自动改绑、自动推进或普通 Tool
+  参数侵入；
+- Round 10 不通过；修复后必须使用 Euclid 之外的新 `fork_context=false` reviewer。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| 直接 rejection 丢失事实 | `response.rs` 提取共享 `model_visible_state_violations`；direct runtime 与 lifecycle 共用完整 serializer，日志增加 violation count/codes | Rust direct rejection 回归断言 canonical/candidate/allowed/predecessor/subjects 全量一致 |
+| ordinary exit 解析过宽 | 只接受完整 JSON 顶层唯一 `metadata.shell_exit_code` 的正 Int64，保留明确 line 形态；错误 scope、fraction、string、zero、duplicate、malformed 全部拒绝 | `test-r7-ordinary-tool-outcome.ps1` 正反 fixture |
+| direct control envelope 残缺 | `TaskSpaceControlResultV2` 按完整字段、类型、status/class/null/failure 语义和 state violation 合同校验 | `test-r7-state-failure-contract.ps1` incomplete direct envelope 反例 |
+| 普通 count 浮点失真 | request/report/provenance/duplication 统一使用 BigInt 中间求和和 Int64 边界，移除 count 的 `Measure-Object -Sum` | `test-r7-exact-counts.ps1` 覆盖 `2^53+1`、invalid 和 overflow |
+
+### Replacement Review Readiness
+
+- Repair commit: `6e487f0578be834afc178a7a377393383346c296`
+- Rust: 1934 passed、0 failed、3 ignored；workspace check 与 locked Whale build 通过。
+- Current matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/6e487f0578be834afc178a7a377393383346c296/20260730-145945-966`
+- Matrix: 24/24 complete、business success、comparison eligible；298 request，192 raw artifacts，
+  provenance 0 findings，final aggregate finalized。
+- Request token identity: input `6,322,711`、cached `2,970,624`、uncached `3,352,087`、
+  output `127,666`、reasoning `58,076`、total `6,450,377`。
+- State rejection facts: 12 requests / 12 violations / 2 next-request `read_map`。
+- Replacement requirement: 必须由 Euclid、Mencius、Jason 之外的全新 reviewer 独立复算并对
+  C-01 至 C-21 逐项裁决。
