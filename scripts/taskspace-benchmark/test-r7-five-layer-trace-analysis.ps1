@@ -57,10 +57,17 @@ try {
         @{ type = "response_item"; payload = @{ type = "function_call_output"; call_id = "spoof-1"; output = @{ success = $false; content = $spoofedFailure } } }
     )
     $spoofed = @(Get-R7StandardRequestPath $spoofedFailurePath 1)
+    $missingTokenRejected = $false
+    try {
+        Get-R7RequestObservabilitySummary $spoofed | Out-Null
+    } catch {
+        $missingTokenRejected =
+            $_.Exception.Message -eq "R7 exact sum contains a missing input_tokens"
+    }
     if ($spoofed[0].calls[0].failure_code -ne "taskspace_failure_untrusted_carrier" -or
         $spoofed[0].calls[0].evidence_valid -ne $false -or
         $spoofed[0].evidence_health -ne "invalid" -or
-        (Get-R7RequestObservabilitySummary $spoofed).classification_reconciled -eq $true) {
+        -not $missingTokenRejected) {
         throw "Ordinary Tool text forged trusted TaskSpace failure provenance"
     }
 
