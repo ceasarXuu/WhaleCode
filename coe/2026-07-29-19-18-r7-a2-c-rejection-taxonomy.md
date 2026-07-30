@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 10:28
+- Updated: 2026-07-30 12:18
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -31,12 +31,13 @@
   - ToolSearch sibling 保留 typed state facts，不把底层 JSON 再包装为字符串
   - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
-- Current conclusion: 六轮对抗性审查接受的 W0 blocker 已按其证据门完成修复。生产 ToolSearch
-  provenance、state rejection + ToolSearch 精确组合路径、TaskSpace MCP 生产 fixture、reserved
-  supplemental fail-closed、request token identity 与 resolved manifest 内容身份均已补齐；聚焦测试、
-  Rust 全量核心测试和 current-commit 24-run matrix 均通过。
-  GI-005/GI-007 等待 fresh replacement closure review。矩阵仍暴露的 sequence、stale revision、
-  lifecycle 和成本问题不属于 W0 修复收益，由其他全局问题继续追踪
+- Current conclusion: 第八轮 fresh review 独立重算了正式矩阵并确认 GI-005 的机械反馈事实完整，
+  但又证明 GI-007 仍有三条真实 fail-open：provider supplemental 没有绑定实际 Tool output、
+  observation 可把错误类型的零 token 当成完整证据、候选工件没有绑定当前 clean worktree 及
+  候选提交内的报告/合同字节。Reviewer 关于“所有未完成业务运行不得 finalized”的宽泛结论被
+  C-14 和现有保留 Agent 失败样本的合同反驳；修复边界是让基础设施或计量无效证据不能封存，
+  而不是删除 Agent 的真实失败。W0 保持 blocked，等待三项修复、current-commit matrix 和新的
+  无上下文 closure review
 - Related hypotheses:
   - H-001
   - H-002
@@ -45,11 +46,12 @@
   - H-005
   - H-006
   - H-007
+  - H-008
 - Resolution basis:
   - latest 24-run matrix
   - raw rollout request reconstruction
 - Close reason:
-  - awaiting fresh blocking closure review
+  - blocked by E-023/E-024; repair authorized by diagnostic evidence
 
 ## Hypothesis H-001: control_required 是持续协议遵循问题，不是拒绝反馈缺失
 - Status: confirmed
@@ -995,3 +997,113 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: 修复只收紧 observer、artifact identity 和日志完整性，没有改动 Runtime 决策、Tool schema、
   Agent prompt 或 projection；W0 仍需 Curie 之外的 fresh reviewer 关闭。
 - Time: 2026-07-30 10:28
+
+## Hypothesis H-008: W0 证据链仍会接受未绑定 output、错误 token 类型或脏工作区候选
+- Status: confirmed
+- Parent: P-001
+- Claim: 当前 producer/observer/artifact authority 只校验了部分身份字段，没有证明 provider supplemental
+  就是对应 Tool output、所有 token 都保持精确整数身份，也没有证明当前工作区及评估脚本字节与候选提交一致
+- Layer: evidence-authority
+- Factor relation: combined
+- Depends on:
+  - H-003
+  - H-004
+  - H-005
+- Falsifiable predictions:
+  - If true: supplemental 可先于 output 或覆盖成功 output，字符串零 token 可成为 complete observation，
+    当前 dirty worktree 或提交外脚本字节不会让 provenance 失败
+  - If false: 三类构造都会稳定产生 invalid/rejected，且不能进入 finalized report
+- Diagnostic evidence plan:
+  - Prediction or clause under test: provider output 顺序与内容、token CLR 类型、current Git identity
+  - Signal: reconstructed call 的 output/supplemental 次序和原文、observation status/eligibility、provenance findings
+  - Capture method: 最小 PowerShell 构造、生产代码路径检查和 fresh reviewer 独立复现
+  - Correlation keys:
+    - request index
+    - call ID
+    - metric path
+    - candidate commit
+  - Supports if:
+    - supplemental-before-output 或 successful-output-after-supplemental 仍 evidence_valid
+    - string `"0"` token 返回 complete/eligible
+    - current worktree clean 不参与候选一致性判断
+  - Refutes if:
+    - 任一构造被既有合同 fail-closed
+  - Instrumentation status: permanent-observer-change-required
+  - Instrumentation lifecycle:
+    - 稳定错误码、精确 output/token identity 和 Git blob identity 永久保留
+- Evidence gate: satisfied
+- Related evidence:
+  - E-023
+  - E-024
+- Conclusion: 三项预测均被 reviewer 与本地独立路径支持；根因不是 Agent 智能或 Runtime 状态机，
+  而是评估证据构造器没有完成精确身份绑定
+- Repair design readiness: repair-authorized
+- Next step: 分别收紧 output、token 和 candidate authority，并以负向 fixture 与正式矩阵验证
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-023: Round 8 fresh review 发现三类真实 fail-open
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-008
+- Direction: challenges
+- Type: adversarial-review
+- Source:
+  - reviewer `Jason`，session `019fb136-da88-7031-bbd4-a723998d9aff`
+  - reviewed HEAD `f167616ff`
+  - formal matrix `a677374782ff4ac15ad3242af19e1a681fec7e08/20260730-114506-875`
+- Prediction or plan link:
+  - GI-005/GI-007 fresh closure review
+- Matched signal:
+  - provider supplemental 可在 output 前写入并覆盖后续成功 output
+  - string `"0"` 的 cached/uncached/output token 被归一成 null，但 observation 仍 complete/eligible
+  - current dirty worktree 未进入 binary/provenance 一致性条件，报告与 authority 文件未绑定候选提交 blob
+  - reviewer 独立重算 24/24 run、360 request、token 汇总和 192/192 seal 均与报告一致
+  - GI-005 被独立判定 PASS；GI-007 因上述证据边界保持 BLOCKED
+- Correlation keys:
+  - reviewer session
+  - candidate commit
+  - matrix run
+- Interpretation: 当前正式矩阵本身可以复算，但生成同类“有效”工件的入口仍允许错误证据；三项接受为
+  C-01/C-03/C-14 blocker。Reviewer 要求所有 business-incomplete run 不得 finalized 的建议不接受，
+  因为 C-14 要求忠实保留 Agent 失败，finalized 表示证据已封存而非任务全部成功
+- Time: 2026-07-30 12:08
+
+## Evidence E-024: 主线程最小构造复现 output 与 token 缺口，并确认 Git 条件遗漏
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: reproduction
+- Source:
+  - `scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1`
+  - `scripts/taskspace-benchmark/lib/performance-observation.ps1`
+  - `scripts/taskspace-benchmark/lib/harness-health.ps1`
+  - `scripts/taskspace-benchmark/lib/r7-artifact-provenance.ps1`
+- Prediction or plan link:
+  - H-008 的三条支持条件
+- Matched signal:
+  - 两个 call 先应用 provider supplemental、再应用成功 output 后，均得到
+    `success=false`、`output_count=1`、`supplemental_count=1`、`evidence_valid=true`
+  - input token 为整数 100、其他 token 为字符串 `"0"` 时，返回
+    `observation_status=complete`、`comparison_eligible=true`，三个字符串 token 为 null
+  - binary attestation 的 `gitMatches` 只比较 marker 中的 clean/head/tree，没有比较当前
+    `gitIdentity.worktree_clean`；artifact provenance 也只取 current HEAD
+  - inner run 的 `final_aggregate_ready=false` 是外层矩阵禁用通用 aggregate 的结果，外层
+    `matrix-final-status.final_aggregate_ready=true` 是独立封存状态；已有测试有意保留 Agent incomplete row
+- Correlation keys:
+  - call ID
+  - temporary metric path
+  - candidate commit
+- Raw content:
+  ```text
+  provider repro: output_count=1 supplemental_count=1 evidence_valid=true success=false
+  token repro: input=100 cached=null uncached=null output=null status=complete eligible=true
+  git condition: current worktree_clean absent from gitMatches
+  ```
+- Interpretation: H-008 达到修复证据门。修复必须只收紧证据完整性，不能把 Agent 业务失败误判为
+  基础设施失败，也不能改动 Runtime/Tool/Map 语义
+- Time: 2026-07-30 12:18
