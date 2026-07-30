@@ -119,14 +119,28 @@ function Assert-R7ExecutionPlanProjection {
         (Get-R7ExecutionPlanProjectionTable $Manifest) "Execution plan reader"
 }
 
-function ConvertTo-R7RouteLabelText {
-    param([string]$Text)
-    $normalized = $Text.Normalize([Text.NormalizationForm]::FormKC)
-    $normalized = [regex]::Replace($normalized, '<[^>]+>', '')
-    $normalized = [regex]::Replace($normalized, '\]\([^)]+\)', ']')
-    $normalized = [regex]::Replace($normalized, '[\\*_~`\[\]\(\)]', '')
-    $normalized = [regex]::Replace($normalized, '\s+', '')
-    return [regex]::Replace($normalized, '[∕⁄]', '/')
+function Assert-R7ExecutionPlanDefinitionShape {
+    param([string]$Section, [string]$PhaseId)
+    $requiredFields = @(
+        "入口", "唯一改动域", "不包含", "产物",
+        "预期收益", "独立验收", "退出/分流", "回退"
+    )
+    $lines = @(
+        @($Section -split '\r?\n') |
+            Select-Object -Skip 1 |
+            Where-Object { $_.Trim().Length -gt 0 }
+    )
+    Assert-R7ExecutionPlan ($lines.Count -eq $requiredFields.Count) `
+        "$PhaseId definition must contain exactly eight structured fields"
+    foreach ($field in $requiredFields) {
+        $prefix = "- ${field}："
+        $matches = @($lines | Where-Object {
+                $_.StartsWith($prefix, [StringComparison]::Ordinal) -and
+                $_.Length -gt $prefix.Length
+            })
+        Assert-R7ExecutionPlan ($matches.Count -eq 1) `
+            "$PhaseId definition must contain exactly one populated $field field"
+    }
 }
 
 function Assert-R7ExecutionPlanFailureRoutes {
@@ -146,9 +160,7 @@ function Assert-R7ExecutionPlanFailureRoutes {
             $nextIndex = $DocumentText.IndexOf("## 5.", $startIndex)
         }
         $section = $DocumentText.Substring($startIndex, $nextIndex - $startIndex)
-        $routeLabelText = ConvertTo-R7RouteLabelText $section
-        $exitLabels = @([regex]::Matches($routeLabelText, [regex]::Escape("退出/分流")))
-        $rollbackLabels = @([regex]::Matches($routeLabelText, [regex]::Escape("回退")))
+        Assert-R7ExecutionPlanDefinitionShape $section ([string]$phase.id)
         $canonicalExitLines = @(
             [regex]::Matches($section, "(?m)^$([regex]::Escape($canonical))$")
         )
@@ -156,10 +168,10 @@ function Assert-R7ExecutionPlanFailureRoutes {
             [regex]::Matches($section, "(?m)^$([regex]::Escape($canonicalRollback))$")
         )
         Assert-R7ExecutionPlan (
-            $exitLabels.Count -eq 1 -and $canonicalExitLines.Count -eq 1
+            $canonicalExitLines.Count -eq 1
         ) "$($phase.id) must contain exactly one canonical failure-route exit"
         Assert-R7ExecutionPlan (
-            $rollbackLabels.Count -eq 1 -and $canonicalRollbackLines.Count -eq 1
+            $canonicalRollbackLines.Count -eq 1
         ) "$($phase.id) must contain exactly one canonical failure-route rollback"
     }
 }

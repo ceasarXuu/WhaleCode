@@ -1,7 +1,7 @@
 # Subagent VS Review: R7.1 原子执行计划
 
 - Created: 2026-07-31T04:17:18+08:00
-- Updated: 2026-07-31T06:47:31+08:00
+- Updated: 2026-07-31T06:53:55+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 是否已拆成工程边界明确、可独立验证的小主题，避免 Phase 聚合造成工程混乱
 - Report path: `vs_review/2026-07-31-r7-1-atomic-execution-plan-review.md`
@@ -1054,3 +1054,66 @@ partial italic、全角/空格/Markdown 转义斜杠也存在同类绕过。
 
 raw label count 不是 Markdown 可见语义合同。修复已提升为有限、机械、无语义推断的 Markdown 标签规范化，
 并继续以原始 exact canonical 行作为唯一权威值。
+
+## Round 7: Normalized label closure
+
+### Review Input
+
+只验证提交 `3d16c016e` 是否关闭 Round 6 blocker。必须重放标准 additive/duplicate/replacement
+mutants，以及 partial emphasis、fullwidth slash、escaped slash 和常见 inline Markdown 包装；不要求解析
+任意自然语言同义句、Unicode 欺骗字符或完整 CommonMark。
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb536-de9f-7b80-a08a-bf4d5837770a` | spawn result + completion notification | `fork_context=false` | Round 7 Review Input | main-agent history、reasoning、uncommitted drafts、Round 6 reviewer context | yes |
+
+### Reviewer Outputs
+
+#### round7-architecture
+
+##### Verdict
+
+**BLOCKED**
+
+- R3-B02：`still_open`
+- ARCH-NB01：`still_open`
+- 不允许关闭总审查。
+
+##### Blocking Finding
+
+规范化器仍在自行解析 Markdown。canonical rollback 后追加带括号 title 的 inline link：
+`- [回](https://example.invalid "route (rollback)")退：重新打开既有 Phase。` 时，页面可见第二个“回退”，
+但正则残留 link metadata，导致 normalized label 计数仍为 1。reference-style link 和带 `>` 引号属性的
+HTML emphasis 也有同类绕过。
+
+##### Verification
+
+- 固定提交 `3d16c016e`；
+- unified/five-layer contract：PASS；
+-既有格式矩阵均正确拒绝；
+- 扩展 inline Markdown 攻击有 6 项意外接受；
+- 未发现 evidence/DAG 回归。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| home-grown Markdown normalization | accept root cause | 不完整 Markdown parser 必然继续追逐格式变体 | 删除 Markdown 规范化器；把 Phase 工程段作为已有结构化合同验证 | Round 8 fresh closure review |
+| structured definition contract | adopt | 每个 Phase 已声明固定 8 字段，失败路由无需从任意 Markdown 推断 | failure-route Phase 只允许 8 条非空字段行，每个已知字段恰好一次且非空；exit/rollback 值仍须 exact canonical | Round 8 fresh closure review |
+| extended mutant gap | accept | link/reference/HTML 包装未持久化 | 新增 reference link、带 title inline link、带属性 HTML mutants | Round 8 fresh closure review |
+| R3-B02 / ARCH-NB01 | accept still open | Round 7 仍有可复现绕过 | 修复完成但不自行关闭 | Round 8 fresh closure review |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, pending fresh verification
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Allowed to proceed: no
+
+## Round 7 Conclusion
+
+继续扩张正则不是正确方向。当前修复改为验证文档本来就声明的 8 字段结构：额外 directive 无论采用何种
+Markdown 表达都会增加未知行或重复字段并 fail closed；route 的唯一值仍由 exact canonical 行约束。

@@ -441,6 +441,7 @@ $routeDirectiveMutants = @(
     @{ Name = "additive_exit_partial_bold"; Anchor = $canonicalExit; Addition = "- 退**出/分流**：重新打开既有 Phase。" }
     @{ Name = "additive_exit_fullwidth_slash"; Anchor = $canonicalExit; Addition = "- 退出／分流：重新打开既有 Phase。" }
     @{ Name = "additive_exit_escaped_slash"; Anchor = $canonicalExit; Addition = "- 退出\/分流：重新打开既有 Phase。" }
+    @{ Name = "additive_exit_reference_link"; Anchor = $canonicalExit; Addition = "- [退出][route]/分流：重新打开既有 Phase。`n[route]: https://example.invalid" }
     @{ Name = "duplicate_canonical_exit"; Anchor = $canonicalExit; Addition = $canonicalExit }
     @{ Name = "additive_rollback_dash"; Anchor = $canonicalRollback; Addition = "- 回退：重新打开既有 Phase。" }
     @{ Name = "additive_rollback_star"; Anchor = $canonicalRollback; Addition = "* 回退：重新打开既有 Phase。" }
@@ -448,6 +449,8 @@ $routeDirectiveMutants = @(
     @{ Name = "additive_rollback_bold"; Anchor = $canonicalRollback; Addition = "- **回退：**重新打开既有 Phase。" }
     @{ Name = "additive_rollback_partial_bold"; Anchor = $canonicalRollback; Addition = "- 回**退**：重新打开既有 Phase。" }
     @{ Name = "additive_rollback_partial_italic"; Anchor = $canonicalRollback; Addition = "- 回_退_：重新打开既有 Phase。" }
+    @{ Name = "additive_rollback_link_title"; Anchor = $canonicalRollback; Addition = '- [回](https://example.invalid "route (rollback)")退：重新打开既有 Phase。' }
+    @{ Name = "additive_rollback_html"; Anchor = $canonicalRollback; Addition = '- 回<strong title="route > rollback">退</strong>：重新打开既有 Phase。' }
     @{ Name = "duplicate_canonical_rollback"; Anchor = $canonicalRollback; Addition = $canonicalRollback }
 )
 foreach ($mutant in $routeDirectiveMutants) {
