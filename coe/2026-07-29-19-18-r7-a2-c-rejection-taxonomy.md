@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 19:37
+- Updated: 2026-07-31 07:34
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -46,6 +46,7 @@
   - H-006
   - H-007
   - H-008
+  - H-009
 - Resolution basis:
   - latest 24-run matrix
   - raw rollout request reconstruction
@@ -1311,3 +1312,113 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: 当前 retained artifact 内容自洽与事实入口完备是两个独立验收面。前者通过不能覆盖后者；
   GI-005/GI-007 继续开放，但修复不得回退 ordinary exit、state scope、ToolSearch 或 raw seal 子门
 - Time: 2026-07-30 19:37
+
+## Hypothesis H-009: direct failure adapter 的宽松解析破坏单一 carrier 合同
+- Status: confirmed
+- Parent: P-001
+- Claim: `Get-R7CallOutcome` 在同一个 direct failure 入口中依次存在 last-wins JSON、外层 success
+  早返回、任意 schema 进入 TaskSpace 分支，以及 envelope 跨字段校验不足；四者共同使 observer
+  无法忠实区分有效 TaskSpace failure、矛盾 carrier 和普通 Tool 失败。
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - H-008
+- Rationale:
+  - Round 13 Shard B 已给出四个最小反例，当前代码仍对应相同控制流。
+- Falsifiable predictions:
+  - If true: duplicate direct JSON、非法 action、outer success + inner failure 会被标记为有效，普通 Tool
+    自有 schema 会被误记为 TaskSpace untrusted carrier。
+  - If false: 四类输入均能由当前入口正确拒绝或隔离。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 在当前 HEAD 直接调用 `Get-R7CallOutcome` 重放四类最小输入。
+  - Signal: `success`、`evidence_valid`、`parse_status`、`failure_class`、`failure_code`、`state_commit`。
+  - Capture method: 内存 PowerShell probe，并运行现有 trace/state/supplemental 三组回归。
+  - Event name or marker:
+    - `r71_direct_failure_evidence`
+  - Correlation keys:
+    - case name
+  - Differentiates from:
+    - Runtime output 缺失
+    - ordinary Tool 执行失败
+  - Supports if:
+    - 四个 probe 结果与预测一致，且旧回归仍全部通过。
+  - Refutes if:
+    - 任一反例已被严格分类，或 carrier 原文没有进入 observer。
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - 将稳定 `carrier_schema/parse_status/reason_code` 保留为 R71-01 Phase evidence。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-033
+  - E-034
+- Conclusion: 四项表现来自同一个 observer contract boundary，R71-01 可按一个原子 Phase 修复。
+- Repair design readiness: repair-authorized
+- Next step: 严格 JSON、carrier identity、outer/inner 一致性和 envelope validator 一次收敛。
+- Blocker:
+  - none
+- Close reason:
+  - user authorized R71-01 implementation after evidence-backed reproduction
+
+## Evidence E-033: 当前 direct failure 调用链保留四个宽松入口
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: code-location
+- Source:
+  - `scripts/taskspace-benchmark/lib/r7-call-evidence.ps1`
+  - `scripts/taskspace-benchmark/lib/r7-state-failure-contract.ps1`
+  - [Microsoft ConvertFrom-Json 文档](https://learn.microsoft.com/powershell/module/microsoft.powershell.utility/convertfrom-json)
+- Prediction or plan link:
+  - H-009 的控制流预测
+- Matched signal:
+  - `ConvertFrom-Json` 对重复属性使用最后一个值；
+  - `ToolSuccess` 在 structured payload 校验前直接返回；
+  - 任意非空 `schema_version` 进入 TaskSpace carrier 分支；
+  - action 只要求非空，`actual/expected` 只检查属性存在。
+- Correlation keys:
+  - `Get-R7CallOutcome`
+  - `Get-R7ControlFailureEnvelopeShapeError`
+- Raw content:
+  ```text
+  ConvertFrom-Json: duplicate keys keep only the last key
+  Get-R7CallOutcome: if ($ToolSuccess) { return success }
+  schema gate: if (-not IsNullOrWhiteSpace($schemaVersion)) { ... }
+  action gate: null or non-empty string
+  ```
+- Interpretation: 代码路径足以解释四个反例，但仍需当前 HEAD 的直接运行证据。
+- Time: 2026-07-31 07:34
+
+## Evidence E-034: 当前 HEAD 确定性复现四类 direct carrier 缺口
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: reproduction
+- Source:
+  - 当前提交 `3f466a989`
+  - 内存 PowerShell probe
+  - `test-r7-five-layer-trace-analysis.ps1`
+  - `test-r7-state-failure-contract.ps1`
+  - `test-r7-supplemental-failure-evidence.ps1`
+- Prediction or plan link:
+  - H-009 四条支持条件
+- Matched signal:
+  - duplicate JSON：`evidence_valid=true/structured_failure`；
+  - 非法 action：`evidence_valid=true/structured_failure`；
+  - outer success + inner failure：`success=true/evidence_valid=true/state_commit=false`；
+  - ordinary schema：`taskspace_failure_untrusted_carrier`，未进入 ordinary exit；
+  - 三组旧回归均 exit 0。
+- Correlation keys:
+  - `duplicate_json`
+  - `invalid_action`
+  - `outer_success_inner_failure`
+  - `ordinary_schema`
+- Raw content:
+  ```text
+  duplicate_json: false / true / structured_failure
+  invalid_action: false / true / structured_failure
+  outer_success_inner_failure: true / true / success / state_commit=false
+  ordinary_schema: false / false / untrusted_structured_failure_carrier
+  existing tests: 3/3 PASS
+  ```
+- Interpretation: H-009 达到修复门；旧测试通过证明当前缺口尚未被持久化回归覆盖。
+- Time: 2026-07-31 07:34
