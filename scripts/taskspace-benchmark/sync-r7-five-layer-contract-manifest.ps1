@@ -92,7 +92,7 @@ $manifest = [ordered]@{
     schema_version = 1
     schema_path = "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"
     contract_id = "r7-taskspace-five-layer-production-v1"
-    manifest_version = "1.0.45"
+    manifest_version = "1.0.46"
     contract_status = "production_active"
     runtime_status_enum = @(
         "selected_not_active",

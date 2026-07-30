@@ -85,6 +85,7 @@ Assert-Equal ([string]$authority.compatibility_policy) "none" "R7.1 must not ret
 Assert-Equal ([string]$authority.current_milestone.id) "R7.1" "Unexpected milestone"
 
 & (Join-Path $PSScriptRoot "test-r7-integrated-change-constraints.ps1")
+& (Join-Path $PSScriptRoot "test-r7-unified-execution-plan.ps1")
 $integrated = Read-StrictJson $integratedPath "integrated constraints"
 $openRegressions = @(
     $integrated.regression_invariants |
