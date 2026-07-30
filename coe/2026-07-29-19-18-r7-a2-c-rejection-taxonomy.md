@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 12:18
+- Updated: 2026-07-30 13:02
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -1107,3 +1107,35 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: H-008 达到修复证据门。修复必须只收紧证据完整性，不能把 Agent 业务失败误判为
   基础设施失败，也不能改动 Runtime/Tool/Map 语义
 - Time: 2026-07-30 12:18
+
+## Evidence E-025: 正式矩阵证明 serialized Tool output 的显式 success 事实未被 observer 读取
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - candidate commit `f2dea47652e635543c305cd1905a964c7c840a81`
+  - matrix run `20260730-124902-146`
+  - `scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1`
+- Prediction or plan link:
+  - H-008 provider output 精确绑定的 current-commit 验证
+- Matched signal:
+  - 24/24 raw run 完成，但 report 在 call
+    `call_00_HICyAiW9DnYHU3uPTy4I5404` 的 exact output gate fail-closed
+  - 三个 Function output 与 developer supplemental 的 JSON 原文逐字相同
+  - JSON payload 内含显式布尔 `success:false`
+  - `Get-R7ResponseItemOutcome` 只对 object output 读取 `success`；生产 rollout 的 output 是 serialized
+    JSON string，因此回退到 Shell/apply_patch 文本启发式并误判 `tool_success=true`
+- Correlation keys:
+  - matrix commit
+  - matrix run
+  - call ID
+- Raw content:
+  ```text
+  output: {"schema_version":"ToolSequencePreflightResultV3",...,"success":false,...}
+  supplemental: same ordinal JSON text
+  report: Provider-response failure does not match its Tool output
+  ```
+- Interpretation: exact-output 合同本身正确，不应放宽；缺口位于 observer 对生产 serialized structured
+  output 的机械解码。修复只读取显式 bool `success`，不得从任意文本再解释成功语义
+- Time: 2026-07-30 13:02
