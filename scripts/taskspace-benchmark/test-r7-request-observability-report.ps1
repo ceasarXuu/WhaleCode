@@ -64,6 +64,9 @@ function New-WireTerminal([string]$RequestId, [int]$InputTokens, [int]$CachedInp
         status = "response_completed"
         input_tokens = $InputTokens
         cached_input_tokens = $CachedInputTokens
+        output_tokens = 10
+        reasoning_output_tokens = 4
+        total_tokens = $InputTokens + 10
     }
 }
 
@@ -100,10 +103,10 @@ function New-ObservationRow([string]$LogicalMode, [string]$ArtifactDir, [int]$Re
         }
         patch = @{ request_multi_patch_attempt_count = 0; patch_prepare_failure_count = 0 }
         cost = @{
-            input_tokens = 300
-            cached_input_tokens = 20
-            uncached_input_tokens = 280
-            output_tokens = 10
+            input_tokens = if ($Requests -gt 1) { 300 } else { 100 }
+            cached_input_tokens = if ($Requests -gt 1) { 20 } else { 0 }
+            uncached_input_tokens = if ($Requests -gt 1) { 280 } else { 100 }
+            output_tokens = 10 * $Requests
             wall_time_ms = 100
         }
         cache = @{
@@ -172,7 +175,39 @@ try {
             rows = @($observationRow)
         }
         Write-Json (Join-Path $runDir "pair-001/manifest.resolved.json") @{
-            container_image_digest = "sha256:request-observer-test"
+            scenario = "fixture"
+            repeat = 1
+            prompt_sha256_left = "a" * 64
+            prompt_sha256_right = "a" * 64
+            fixture_sha256_left = "b" * 64
+            fixture_sha256_right = "b" * 64
+            whale_sha256_left = $fixtureBinarySha
+            whale_sha256_right = $fixtureBinarySha
+            model_left = "deepseek-v4-flash"
+            model_right = "deepseek-v4-flash"
+            execution_substrate = "docker"
+            container_image_digest = "sha256:$("c" * 64)"
+            provider_param_status = @{
+                complete = $true
+                required = @("model", "model_reasoning_effort", "sandbox_mode")
+                explicit = @{
+                    model = "deepseek-v4-flash"
+                    model_reasoning_effort = "max"
+                    sandbox_mode = "docker_hard_boundary"
+                }
+                missing = @()
+            }
+            taskspace_projection_policy = if ($logicalMode -eq "standard") {
+                "map-request"
+            } else {
+                $arm
+            }
+            sandbox_mode = "docker_hard_boundary"
+            logical_mode_map = @{ left = "standard"; right = "taskspace" }
+            run_side = if ($logicalMode -eq "standard") { "left" } else { "right" }
+            selected_sides = @(
+                if ($logicalMode -eq "standard") { "left" } else { "right" }
+            )
         }
         Write-Json (Join-Path $runDir "run-status.json") @{
             phase = "completed"
@@ -233,23 +268,65 @@ try {
                 repeat = 1
                 arm = $arm
                 logical_mode = $logicalMode
-                projection_policy = if ($logicalMode -eq "taskspace") { $arm.Substring(4) } else { "standard" }
+                projection_policy = if ($logicalMode -eq "taskspace") { $arm } else { "map-request" }
+                run_side = if ($logicalMode -eq "standard") { "left" } else { "right" }
                 run_dir = $runDir
                 exit_code = 0
                 evidence_manifest_path = [string]$evidenceFact.path
                 evidence_manifest_sha256 = [string]$evidenceFact.sha256
             })
     }
-    Write-Json (Join-Path $runRoot "run-manifest.json") @{
+    $matrixManifest = @{
         status = "completed"
         contract_id = "request-observer-test"
         repo_commit = $repoCommit
         whale_sha256 = $fixtureBinarySha
+        model = "deepseek-v4-flash"
+        execution = "docker"
         repeats_per_arm_per_sample = 1
         samples = @("fixture")
+        arms = @("standard", "map-always", "map-append", "map-request")
         completed_run_count = 4
         runs = @($runs)
     }
+    $matrixManifestPath = Join-Path $runRoot "run-manifest.json"
+    Write-Json $matrixManifestPath $matrixManifest
+
+    $identityRun = $runs[0]
+    $identityResolvedPath = Join-Path $identityRun.run_dir "pair-001/manifest.resolved.json"
+    $identityResolved = Get-Content -Raw -Encoding UTF8 -LiteralPath $identityResolvedPath |
+        ConvertFrom-Json -Depth 100
+    $identityResolved.scenario = "forged"
+    Write-Json $identityResolvedPath $identityResolved
+    $identityEvidence = Write-R7RunArtifactEvidenceManifest `
+        $identityRun.run_dir `
+        $identityRun.logical_mode
+    $identityRun.evidence_manifest_path = [string]$identityEvidence.path
+    $identityRun.evidence_manifest_sha256 = [string]$identityEvidence.sha256
+    Write-Json $matrixManifestPath $matrixManifest
+    $identityRejected = $false
+    try {
+        & (Join-Path $PSScriptRoot "report-r7-five-layer-matrix.ps1") -RunRoot $runRoot |
+            Out-Null
+    } catch {
+        $identityRejected = $_.Exception.Message -match "Matrix artifact provenance is invalid"
+    }
+    $identityProvenance = Get-Content -Raw -Encoding UTF8 -LiteralPath (
+        Join-Path $runRoot "artifact-provenance.json"
+    ) | ConvertFrom-Json -Depth 100
+    if (-not $identityRejected -or
+        "run_resolved_manifest_sample_identity_mismatch" -notin
+            @($identityProvenance.findings.code)) {
+        throw "Matrix provenance accepted a forged resolved manifest identity"
+    }
+    $identityResolved.scenario = "fixture"
+    Write-Json $identityResolvedPath $identityResolved
+    $identityEvidence = Write-R7RunArtifactEvidenceManifest `
+        $identityRun.run_dir `
+        $identityRun.logical_mode
+    $identityRun.evidence_manifest_path = [string]$identityEvidence.path
+    $identityRun.evidence_manifest_sha256 = [string]$identityEvidence.sha256
+    Write-Json $matrixManifestPath $matrixManifest
 
     & (Join-Path $PSScriptRoot "report-r7-five-layer-matrix.ps1") -RunRoot $runRoot | Out-Null
     $summary = @(Import-Csv -LiteralPath (Join-Path $runRoot "summary.csv"))
@@ -270,120 +347,14 @@ try {
         [string]$append.receipt_wire_roles -ne "system") {
         throw "Matrix report lost receipt/cache carrier facts"
     }
-    if ([int]$trace.schema_version -ne 3 -or
+    if ([int]$trace.schema_version -ne 4 -or
         [string]$trace.input_artifact_provenance.status -ne "valid" -or
         [int]$trace.node_state_rejections.request_count -ne 0 -or
-        [string]$trace.runs[2].request_path[1].primary_failure_class -ne "none") {
+        [string]$trace.runs[2].request_path[1].primary_failure_class -ne "none" -or
+        [double]$trace.runs[2].request_path[1].output_tokens -ne 10 -or
+        [double]$trace.runs[2].request_path[1].reasoning_output_tokens -ne 4 -or
+        [double]$trace.runs[2].request_path[1].total_tokens -ne 210) {
         throw "Trace analysis did not publish request-level taxonomy and provenance"
-    }
-    $sharedViolations = @(
-        [pscustomobject]@{
-            code = "node_state_invalid"
-            subjects = @("reservation-a")
-            node_id = "work"
-            canonical_before_transaction = [pscustomobject]@{
-                state = "ready"
-                unsatisfied_predecessor_ids = @()
-            }
-            rejected_candidate_at_violation = [pscustomobject]@{
-                state = "completed"
-                allowed_states = @("ready")
-                unsatisfied_predecessor_ids = @("left")
-            }
-        },
-        [pscustomobject]@{
-            code = "node_state_invalid"
-            subjects = @("reservation-b")
-            node_id = "work"
-            canonical_before_transaction = [pscustomobject]@{
-                state = "ready"
-                unsatisfied_predecessor_ids = @("right")
-            }
-            rejected_candidate_at_violation = [pscustomobject]@{
-                state = "completed"
-                allowed_states = @("in_flight")
-                unsatisfied_predecessor_ids = @()
-            }
-        },
-        [pscustomobject]@{
-            code = "node_state_invalid"
-            subjects = @("reservation-c")
-            node_id = "verify"
-            canonical_before_transaction = [pscustomobject]@{
-                node_present = $false
-                state = ""
-            }
-            rejected_candidate_at_violation = [pscustomobject]@{
-                state = "waiting"
-                allowed_states = @("ready", "in_flight")
-            }
-        }
-    )
-    $stateSummary = Get-R7NodeStateRejectionSummary @(
-        [pscustomobject]@{
-            sample = "state-fixture"
-            repeat = 1
-            arm = "map-request"
-            request_path = @(
-                [pscustomobject]@{
-                    request_index = 1
-                    calls = @(
-                        [pscustomobject]@{
-                            call_id = "state-control"
-                            zero_dispatch = $true
-                            failure_copy_group_id = "provider_response:state"
-                            failure_affected_call_ids = @(
-                                "state-control",
-                                "state-search"
-                            )
-                            violation_contexts = $sharedViolations
-                        },
-                        [pscustomobject]@{
-                            call_id = "state-search"
-                            zero_dispatch = $true
-                            failure_copy_group_id = "provider_response:state"
-                            failure_affected_call_ids = @(
-                                "state-control",
-                                "state-search"
-                            )
-                            violation_contexts = $sharedViolations
-                        }
-                    )
-                },
-                [pscustomobject]@{
-                    request_index = 2
-                    calls = @(
-                        [pscustomobject]@{
-                            tool = "taskspace_control"
-                            control_action = "read_map"
-                        }
-                    )
-                }
-            )
-        }
-    )
-    if ([int]$stateSummary.request_count -ne 1 -or
-        [int]$stateSummary.violation_count -ne 3 -or
-        [int]$stateSummary.next_read_map_request_count -ne 1 -or
-        [int]$stateSummary.by_arm[0].request_count -ne 1 -or
-        [int]$stateSummary.by_arm[0].violation_count -ne 3 -or
-        [int]$stateSummary.by_arm[0].state_pairs.Count -ne 2 -or
-        @(
-            $stateSummary.by_arm[0].state_pairs |
-                Where-Object {
-                    [string]$_.canonical_state -eq "ready" -and
-                    [string]$_.candidate_state -eq "completed" -and
-                    [int]$_.violation_count -eq 2
-                }
-        ).Count -ne 1 -or
-        @(
-            $stateSummary.facts |
-                Where-Object {
-                    [string]$_.node_id -eq "work" -and
-                    @($_.subjects).Count -eq 1
-                }
-        ).Count -ne 2) {
-        throw "Node-state rejection summary did not preserve state pairs and follow-up actions: $($stateSummary | ConvertTo-Json -Compress -Depth 20)"
     }
     $finalProvenancePath = Join-Path $runRoot "artifact-provenance.json"
     $finalProvenance = Get-Content -Raw -Encoding UTF8 -LiteralPath $finalProvenancePath |

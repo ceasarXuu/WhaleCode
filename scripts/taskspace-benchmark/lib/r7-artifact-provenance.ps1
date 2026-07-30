@@ -9,6 +9,7 @@ function Get-R7ProvenanceProperty {
 if (-not (Get-Command Get-TaskspaceGitBuildIdentity -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "harness-health.ps1")
 }
+. (Join-Path $PSScriptRoot "r7-resolved-manifest-identity.ps1")
 
 function Get-R7ProvenanceFileFact {
     param(
@@ -154,6 +155,7 @@ function Get-R7MatrixArtifactProvenance {
     )
     $findings = [System.Collections.Generic.List[object]]::new()
     $runFacts = [System.Collections.Generic.List[object]]::new()
+    $resolvedIdentities = [System.Collections.Generic.List[object]]::new()
     $binaryHashes = @{}
     $repoCommit = [string](Get-R7ProvenanceProperty $Manifest "repo_commit" "")
     $manifestBinarySha = ([string](Get-R7ProvenanceProperty $Manifest "whale_sha256" "")).ToLowerInvariant()
@@ -186,6 +188,23 @@ function Get-R7MatrixArtifactProvenance {
         $runStatus = Read-R7ProvenanceJson $runStatusPath $findings "run_status_missing" "run_status_invalid"
         $health = Read-R7ProvenanceJson $healthPath $findings "run_binary_health_missing" "run_binary_health_invalid"
         $observation = Read-R7ProvenanceJson $observationPath $findings "run_observation_missing" "run_observation_invalid"
+        $resolved = Read-R7ProvenanceJson `
+            $resolvedManifestPath `
+            $findings `
+            "run_resolved_manifest_missing" `
+            "run_resolved_manifest_invalid"
+        $resolvedIdentity = $null
+        if ($resolved) {
+            $resolvedIdentity = Get-R7ResolvedManifestIdentityCheck $Manifest $run $resolved
+            foreach ($code in @($resolvedIdentity.findings)) {
+                Add-R7ProvenanceFinding `
+                    $findings `
+                    "run_resolved_manifest_$code" `
+                    $resolvedManifestPath `
+                    $runDir
+            }
+            $resolvedIdentities.Add($resolvedIdentity)
+        }
 
         if ([int](Get-R7ProvenanceProperty $run "exit_code" -1) -ne 0) {
             Add-R7ProvenanceFinding $findings "matrix_run_exit_nonzero" $ManifestPath $runDir
@@ -353,10 +372,40 @@ function Get-R7MatrixArtifactProvenance {
                 artifact_dir = $artifactDir
                 evidence_manifest_path = $evidencePath
                 evidence_manifest_sha256 = $evidenceSha
+                resolved_manifest_identity = $resolvedIdentity
                 raw_artifacts = @($rawFacts)
                 final_aggregate_ready = if ($runStatus) { [bool]$runStatus.final_aggregate_ready } else { $false }
                 status = if (@($findings | Where-Object run_dir -eq $runDir).Count) { "invalid" } else { "valid" }
             })
+    }
+
+    $expectedArms = @(Get-R7ProvenanceProperty $Manifest "arms" @())
+    if ($resolvedIdentities.Count -ne $runs.Count -or $expectedArms.Count -ne 4) {
+        Add-R7ProvenanceFinding $findings "matrix_comparison_identity_incomplete" $ManifestPath
+    } else {
+        foreach ($group in @($resolvedIdentities | Group-Object sample_repeat)) {
+            $actualArms = @($group.Group | ForEach-Object arm | Sort-Object)
+            if ((Compare-Object @($expectedArms | Sort-Object) $actualArms) -or
+                $group.Count -ne $expectedArms.Count) {
+                Add-R7ProvenanceFinding `
+                    $findings `
+                    "matrix_comparison_arm_set_mismatch" `
+                    $ManifestPath `
+                    $group.Name
+            }
+            foreach ($field in @(
+                    "prompt_sha256", "fixture_sha256", "model", "reasoning_effort",
+                    "sandbox_mode", "container_image_digest", "whale_sha256"
+                )) {
+                if (@($group.Group | ForEach-Object { $_.$field } | Sort-Object -Unique).Count -ne 1) {
+                    Add-R7ProvenanceFinding `
+                        $findings `
+                        "matrix_comparison_${field}_mismatch" `
+                        $ManifestPath `
+                        $group.Name
+                }
+            }
+        }
     }
 
     $matrixStatus = $null

@@ -67,6 +67,14 @@ function Add-R7RequestFailureFacts {
         ) { "invalid" } else { "valid" })
 }
 
+function Test-R7NonnegativeJsonNumber {
+    param($Value)
+    $null -ne $Value -and
+        $Value -is [ValueType] -and
+        $Value -isnot [bool] -and
+        [double]$Value -ge 0
+}
+
 function Get-R7WireRequestInventory {
     param([Parameter(Mandatory = $true)][string]$WireTracePath)
     $facts = @{}
@@ -91,6 +99,9 @@ function Get-R7WireRequestInventory {
                 receipt_identities = @()
                 input_tokens = $null
                 cached_input_tokens = $null
+                output_tokens = $null
+                reasoning_output_tokens = $null
+                total_tokens = $null
                 terminal_status = ""
                 shape_event_count = 0
                 terminal_event_count = 0
@@ -122,6 +133,10 @@ function Get-R7WireRequestInventory {
             $fact.terminal_transport = [string](Get-R7JsonProperty $event "transport" "")
             $fact.input_tokens = Get-R7JsonProperty $event "input_tokens"
             $fact.cached_input_tokens = Get-R7JsonProperty $event "cached_input_tokens"
+            $fact.output_tokens = Get-R7JsonProperty $event "output_tokens"
+            $fact.reasoning_output_tokens =
+                Get-R7JsonProperty $event "reasoning_output_tokens"
+            $fact.total_tokens = Get-R7JsonProperty $event "total_tokens"
         }
     }
     $ordered = @(
@@ -145,7 +160,17 @@ function Get-R7WireRequestInventory {
             ) -or
             (
                 [string]$_.terminal_status -eq "response_completed" -and
-                ($null -eq $_.input_tokens -or $null -eq $_.cached_input_tokens)
+                (
+                    -not (Test-R7NonnegativeJsonNumber $_.input_tokens) -or
+                    -not (Test-R7NonnegativeJsonNumber $_.cached_input_tokens) -or
+                    -not (Test-R7NonnegativeJsonNumber $_.output_tokens) -or
+                    -not (Test-R7NonnegativeJsonNumber $_.reasoning_output_tokens) -or
+                    -not (Test-R7NonnegativeJsonNumber $_.total_tokens) -or
+                    [double]$_.cached_input_tokens -gt [double]$_.input_tokens -or
+                    [double]$_.reasoning_output_tokens -gt [double]$_.output_tokens -or
+                    [double]$_.total_tokens -ne
+                        ([double]$_.input_tokens + [double]$_.output_tokens)
+                )
             )
         })
     if ($incomplete.Count) {
@@ -240,6 +265,9 @@ function Add-R7WireFactsToRequestPath {
         }
         $inputTokens = [double]$fact.input_tokens
         $cachedTokens = [double]$fact.cached_input_tokens
+        $outputTokens = [double]$fact.output_tokens
+        $reasoningTokens = [double]$fact.reasoning_output_tokens
+        $totalTokens = [double]$fact.total_tokens
         $cacheHitRate = if ($inputTokens -gt 0) {
             [Math]::Round($cachedTokens / $inputTokens, 6)
         } else {
@@ -264,6 +292,9 @@ function Add-R7WireFactsToRequestPath {
         )
         $request | Add-Member -Force -NotePropertyName input_tokens -NotePropertyValue $inputTokens
         $request | Add-Member -Force -NotePropertyName cached_input_tokens -NotePropertyValue $cachedTokens
+        $request | Add-Member -Force -NotePropertyName output_tokens -NotePropertyValue $outputTokens
+        $request | Add-Member -Force -NotePropertyName reasoning_output_tokens -NotePropertyValue $reasoningTokens
+        $request | Add-Member -Force -NotePropertyName total_tokens -NotePropertyValue $totalTokens
         $request | Add-Member -Force -NotePropertyName cache_hit_rate -NotePropertyValue $cacheHitRate
         $receiptWireIdentity = $null
         $newReceipts = @(
@@ -362,6 +393,11 @@ function Get-R7RequestObservabilitySummary {
         sibling_failure_copy_count = (
             $RequestPath | Measure-Object -Property sibling_failure_copy_count -Sum
         ).Sum
+        output_tokens = ($RequestPath | Measure-Object -Property output_tokens -Sum).Sum
+        reasoning_output_tokens = (
+            $RequestPath | Measure-Object -Property reasoning_output_tokens -Sum
+        ).Sum
+        total_tokens = ($RequestPath | Measure-Object -Property total_tokens -Sum).Sum
         receipt_before_requests = $receipt.Count
         receipt_before_input_tokens = $receiptInput
         receipt_before_cached_input_tokens = $receiptCached

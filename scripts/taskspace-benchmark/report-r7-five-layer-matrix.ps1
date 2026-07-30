@@ -32,6 +32,8 @@ function Get-AggregateRow {
     $cachedTotal = ($Rows | Measure-Object -Property cached_input_tokens -Sum).Sum
     $uncachedTotal = ($Rows | Measure-Object -Property uncached_input_tokens -Sum).Sum
     $outputTotal = ($Rows | Measure-Object -Property output_tokens -Sum).Sum
+    $reasoningTotal = ($Rows | Measure-Object -Property reasoning_output_tokens -Sum).Sum
+    $tokenTotal = ($Rows | Measure-Object -Property total_tokens -Sum).Sum
     $wallTotal = ($Rows | Measure-Object -Property wall_time_ms -Sum).Sum
     $request2Input = ($Rows | Measure-Object -Property request_2_plus_input_tokens -Sum).Sum
     $request2Cached = ($Rows | Measure-Object -Property request_2_plus_cached_input_tokens -Sum).Sum
@@ -80,6 +82,10 @@ function Get-AggregateRow {
         output_tokens_total = $outputTotal
         output_tokens_mean = if ($Rows.Count) { [Math]::Round($outputTotal / $Rows.Count, 3) } else { $null }
         output_tokens_median = Get-Median @($Rows.output_tokens)
+        reasoning_output_tokens_total = $reasoningTotal
+        reasoning_output_tokens_mean = if ($Rows.Count) { [Math]::Round($reasoningTotal / $Rows.Count, 3) } else { $null }
+        total_tokens_total = $tokenTotal
+        total_tokens_mean = if ($Rows.Count) { [Math]::Round($tokenTotal / $Rows.Count, 3) } else { $null }
         request_2_plus_cache_hit_rate = if ($request2Input -gt 0) { [Math]::Round($request2Cached / $request2Input, 6) } else { $null }
         receipt_before_requests_total = ($Rows | Measure-Object -Property receipt_before_requests -Sum).Sum
         receipt_before_input_tokens_total = ($Rows | Measure-Object -Property receipt_before_input_tokens -Sum).Sum
@@ -224,6 +230,21 @@ foreach ($run in @($manifest.runs)) {
     if (-not [bool]$requestObservability.classification_reconciled) {
         throw "Request failure taxonomy does not reconcile for $($run.sample) repeat $($run.repeat) $($run.arm)"
     }
+    $requestInputTokens = [double]$requestObservability.receipt_before_input_tokens +
+        [double]$requestObservability.no_receipt_before_input_tokens
+    $requestCachedTokens = [double]$requestObservability.receipt_before_cached_input_tokens +
+        [double]$requestObservability.no_receipt_before_cached_input_tokens
+    if ($requestInputTokens -ne [double]$flat.input_tokens -or
+        $requestCachedTokens -ne [double]$flat.cached_input_tokens -or
+        [double]$requestObservability.output_tokens -ne [double]$flat.output_tokens) {
+        throw "Request token facts do not reconcile with the run aggregate for $($run.sample) repeat $($run.repeat) $($run.arm)"
+    }
+    $flat | Add-Member -NotePropertyName reasoning_output_tokens -NotePropertyValue (
+        [double]$requestObservability.reasoning_output_tokens
+    )
+    $flat | Add-Member -NotePropertyName total_tokens -NotePropertyValue (
+        [double]$requestObservability.total_tokens
+    )
     $requestCalls = @($requestPath | ForEach-Object { @($_.calls) })
     $flat | Add-Member -NotePropertyName tool_action_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "tool_calls").Count
     $flat | Add-Member -NotePropertyName assistant_only_requests -NotePropertyValue @($requestPath | Where-Object action_kind -eq "assistant_only").Count
@@ -339,7 +360,7 @@ $aggregates | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $aggrega
 
 $nodeStateRejections = Get-R7NodeStateRejectionSummary @($traceRuns)
 $traceAnalysis = [ordered]@{
-    schema_version = 3
+    schema_version = 4
     contract_id = [string]$manifest.contract_id
     status = "initial_observation_only_no_policy_claim"
     docker_image_digest = $uniqueImages[0]

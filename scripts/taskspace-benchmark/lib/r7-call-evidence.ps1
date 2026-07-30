@@ -54,6 +54,7 @@ function ConvertTo-R7CallDescriptor {
         control_action = $controlAction
         declared_node_id = ""
         declared_actions = $declaredActions
+        expected_reservation_id = ""
         node = $node
         detail = $detail
         argument_parse_status = $argumentParseStatus
@@ -89,7 +90,15 @@ function Get-R7FailureClass {
 
 function Get-R7SupplementalFailureShapeError {
     param($Payload)
-    $schemaVersion = [string](Get-R7JsonProperty $Payload "schema_version" "")
+    if ($Payload -is [System.Array] -or $Payload -isnot [pscustomobject]) {
+        return "structured failure root must be an object"
+    }
+    if (-not ($Payload.PSObject.Properties.Name -contains "schema_version") -or
+        $Payload.schema_version -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$Payload.schema_version)) {
+        return "schema_version must be a non-empty string"
+    }
+    $schemaVersion = [string]$Payload.schema_version
     $required = @("status", "success", "failure_provenance", "error")
     foreach ($field in $required) {
         if ($null -eq $Payload -or
@@ -191,6 +200,7 @@ function Get-R7SupplementalFailureShapeError {
     if ($schemaVersion -eq "ToolSearchFailureV3") {
         foreach ($field in @("call_id", "pairing_status", "execution_status")) {
             if (-not ($Payload.PSObject.Properties.Name -contains $field) -or
+                $Payload.$field -isnot [string] -or
                 [string]::IsNullOrWhiteSpace([string]$Payload.$field)) {
                 return "$schemaVersion is missing $field"
             }
@@ -232,6 +242,12 @@ function Get-R7SupplementalFailureShapeError {
             [string]::IsNullOrWhiteSpace([string]$Payload.tool) -or
             $Payload.cause -isnot [pscustomobject]) {
             return "$schemaVersion has an invalid tool or cause"
+        }
+        foreach ($field in @("field", "call_id")) {
+            if ($Payload.cause.$field -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$Payload.cause.$field)) {
+                return "$schemaVersion cause.$field must be a non-empty string"
+            }
         }
     }
     if ($schemaVersion -eq "TaskSpaceBoundResultCommitFailureV2" -and

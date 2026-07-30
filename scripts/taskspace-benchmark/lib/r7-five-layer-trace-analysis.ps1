@@ -166,6 +166,29 @@ function Add-R7ObservedCall {
     $CallsById[$Call.call_id] = $Call
 }
 
+function Set-R7ExpectedReservations {
+    param([hashtable]$CallsById, [string]$Output)
+    $payload = try {
+        $Output | ConvertFrom-Json -Depth 100
+    } catch {
+        return
+    }
+    if ([string](Get-R7JsonProperty $payload "schema_version" "") -ne
+        "TaskSpaceResponseCommitV1") {
+        return
+    }
+    foreach ($reservation in @(Get-R7JsonProperty $payload "reserved_actions" @())) {
+        $callId = [string](Get-R7JsonProperty $reservation "call_id" "")
+        $reservationId = [string](Get-R7JsonProperty $reservation "reservation_id" "")
+        if ([string]::IsNullOrWhiteSpace($callId) -or
+            [string]::IsNullOrWhiteSpace($reservationId) -or
+            -not $CallsById.ContainsKey($callId)) {
+            throw "TaskSpace control result has an unpaired reservation identity"
+        }
+        $CallsById[$callId].expected_reservation_id = $reservationId
+    }
+}
+
 function Apply-R7ObservedOutcome {
     param([hashtable]$CallsById, $Observed)
     if (-not $CallsById.ContainsKey([string]$Observed.call_id)) {
@@ -186,6 +209,9 @@ function Apply-R7ObservedOutcome {
     }
     $call.output_count = 1
     $outcome = if ([string]$call.tool -eq "taskspace_control") {
+        if ([bool]$Observed.tool_success) {
+            Set-R7ExpectedReservations $CallsById ([string]$Observed.output_text)
+        }
         Get-R7CallOutcome `
             -ToolSuccess ([bool]$Observed.tool_success) `
             -Output ([string]$Observed.output_text) `
