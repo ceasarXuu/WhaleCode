@@ -1187,4 +1187,16 @@ Runtime 语义或约束 Agent。
 - Required output: PASS/BLOCKED、blocking/non-blocking、C-01 至 C-21 逐项判定、GI-005/GI-007
   分别裁决、current matrix 与 192 raw seal 独立复算、Runtime 边界/旧逻辑/平行事实源检查。
 - Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
-- Status: running
+- Status: blocked_due_to_review_unavailable
+
+### Timeout And Closure Record
+
+- First wait: 20 minutes，no final status。
+- Single extension: 20 minutes，no final status。
+- Agent status before shutdown: `running`。
+- Role attempts: primary Hubble 与 replacement Copernicus 均达到 high-risk 超时上限。
+- Disposition: Round 12 不产生 reviewer output 或无 finding 结论；fresh internal review 角色标记为
+  `blocked_due_to_review_unavailable`。
+- Closure status: W0 保持 `validating`；GI-005/GI-007 不关闭，开放问题仍为 8。
+- Next action requires user choice: 再尝试一次、缩小审查包、改用其他 reviewer 类型，或明确接受未完成独立
+  审查的风险。未经用户选择不得把本轮记为通过。
