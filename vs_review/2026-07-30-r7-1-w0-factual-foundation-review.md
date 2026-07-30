@@ -801,8 +801,83 @@ C-10/C-13 没有被 W0 隐藏或恶化，不作为本轮新 W0 blocker；C-03/C-
 - Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Franklin 不得关闭自己的
   blocker。
 
+## Round 6: W0 evidence-identity replacement review
+
+### Review Input
+
+- Objective: 对 Round 5 修复、current-commit retained matrix、GI-005/GI-007 关闭条件和 C-01 至
+  C-21 执行完整 replacement review。
+- Reviewed HEAD: `905f8adf3`
+- Production code through: `e72637d07`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: evidence-identity-adversary (`Curie`)
+- Session / Job ID: `019fb0a6-6602-7c90-b655-9d4048351510`
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 独立重算了 GI-005 的 11 个状态拒绝：11/11 反馈均保留机械事实，11 个后续 reasoning 均引用了
+正确状态事实，3 次 `read_map` 发生在正确理解之后，没有证据表明 carrier 继续扭曲或丢失语义。GI-005
+生产路径本身未被证伪，但其关闭仍依赖 GI-007 的可信 observer。
+
+GI-007 与 W0 因四个证据身份缺口继续 `BLOCKED`：
+
+1. **保留 supplemental schema family 仍存在 fail-open 形态。**
+   - schema array、root array 和使用 JSON unicode escape 的畸形截断可以绕过保留 family 识别；
+   - 这些输入可能被静默当作无 supplemental 的普通请求。
+2. **provider/skip/bound provenance 可以伪造。**
+   - observer 验证了部分字段存在，但未证明 copy group、cause call、reservation 和 owning request
+     是该 call 的精确生产身份。
+3. **request 级 token 事实不完整。**
+   - wire 已有 output/reasoning/total token，但 request path 只保留 input/cached；
+   - 因而报告无法证明输出 token 没有在 join/aggregate 中丢失，也无法做总量守恒。
+4. **resolved manifest 只封存文件哈希，没有验证内容身份。**
+   - sample、repeat、side、mode、projection、model、capability、prompt/fixture 和 Docker image 可以与
+     四臂合同不一致，但旧 provenance 仍可能判定 valid。
+
+### Global Constraint Result
+
+| Constraint | Result | Review conclusion |
+|---|---|---|
+| C-01/C-03/C-14 | fail | F1-F4 可导致事实静默遗漏、伪造因果身份或错误比较资格 |
+| C-13 | fail, known downstream | TaskSpace 成本仍高于 Standard，由 GI-002/GI-008 追踪；F3 属于 W0 观测缺口 |
+| C-10 | fail, known downstream | multi-Patch 仍由 GI-006 追踪 |
+| C-02/C-04 至 C-09/C-11/C-12/C-15 至 C-21 | pass | 未发现 Runtime 语义决策、普通 Tool 入侵、Map 双权威或生命周期扩张 |
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`，归 GI-007/C-01/C-03/C-14。
+- GI-005 语义路径：接受 reviewer 的独立重算结论，但在 GI-007 关闭前不单独关闭。
+- C-10/C-13：继续留在 GI-006 与 GI-002/GI-008，不扩大 W0 产品范围。
+- 结论：Round 6 不通过；修复后必须由 Curie 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| reserved family fail-open | JSON unicode escape 归一化后识别保留 family；root/schema array、非 object root、畸形截断和严格 schema 字符串类型全部 fail-closed | 扩展 supplemental 正反例矩阵 |
+| provenance 可伪造 | provider、ToolSearch、skip、bound 分别校验精确 copy group、call set、cause call、reservation、scope、zero-dispatch 和先后关系；state/status/class code 也进入语义合同 | provider/skip/bound forged provenance 负向测试 |
+| request token 丢失 | request path 保留 input/cached/output/reasoning/total 五字段；校验非负数、字段不等式与 `total=input+output`；run aggregate 与 request sum 对账 | `test-r7-provider-token-identity.ps1` 和 347-request live 汇总 |
+| resolved manifest 内容未验 | 新增 resolved manifest identity validator；逐 run 校验 sample/repeat/side/mode/policy/model/binary/provider/capability，逐 sample-repeat 校验精确四臂及共享 prompt/fixture/model/image/binary | `test-r7-resolved-manifest-identity.ps1` 与 24-run provenance |
+
+### Replacement Review Readiness
+
+- Fix commit: `2005442d34416820a888dc7395ac8ba1b3812635`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 14/14 scripts passed
+- Current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/2005442d34416820a888dc7395ac8ba1b3812635/20260730-101516-783`
+- Matrix: 24/24 run finalized，24/24 business success，24/24 comparison eligible，
+  artifact provenance=`valid`
+- Request token identity: 347 requests；input `7,947,276`、cached `3,519,488`、output
+  `135,380`、reasoning `54,288`、total `8,082,656`，request/run aggregate 全部对账
+- State rejection facts: 5 requests / 5 violations / 2 next-request `read_map`
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Curie 不得关闭自己的
+  blocker。
+
 ## Current Conclusion
 
-W0 当前保持 `validating`。Round 1/2/3/4/5 接受的 blocker 已完成工程修复，但最新 fresh replacement
+W0 当前保持 `validating`。Round 1/2/3/4/5/6 接受的 blocker 已完成工程修复，但最新 fresh replacement
 blocking closure review 尚未通过；在 replacement review 完成前，不得关闭 R71-GI-005/R71-GI-007，
 也不得进入 W1。

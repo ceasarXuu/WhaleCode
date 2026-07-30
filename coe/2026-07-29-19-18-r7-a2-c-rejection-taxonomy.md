@@ -1,7 +1,7 @@
 # Problem P-001: A2-C repair rerun 的零执行拒绝仍占主要请求成本
 - Status: validating
 - Created: 2026-07-29 19:18
-- Updated: 2026-07-30 07:47
+- Updated: 2026-07-30 10:28
 - Objective: 区分协议遵循、状态反馈和 Agent 普通工具错误，避免继续用汇总 failure code 错判根因
 - Symptoms:
   - 24/24 业务成功和 18/18 Map terminal 掩盖了大量零执行拒绝
@@ -31,9 +31,10 @@
   - ToolSearch sibling 保留 typed state facts，不把底层 JSON 再包装为字符串
   - 状态拒绝区分 canonical state 与 rejected transaction 的 evaluated state
   - 不修改 ordinary Tool schema，不让 Runtime 替 Agent 选择节点或动作
-- Current conclusion: 三轮对抗性审查确认的 W0 根因已按其证据门完成修复。生产 ToolSearch
-  provenance、state rejection + ToolSearch 精确组合路径、TaskSpace MCP 生产 fixture 及 observer
-  负向因果反例均已补齐；聚焦测试、Rust 全量核心测试和 current-commit 24-run matrix 均通过。
+- Current conclusion: 六轮对抗性审查接受的 W0 blocker 已按其证据门完成修复。生产 ToolSearch
+  provenance、state rejection + ToolSearch 精确组合路径、TaskSpace MCP 生产 fixture、reserved
+  supplemental fail-closed、request token identity 与 resolved manifest 内容身份均已补齐；聚焦测试、
+  Rust 全量核心测试和 current-commit 24-run matrix 均通过。
   GI-005/GI-007 等待 fresh replacement closure review。矩阵仍暴露的 sequence、stale revision、
   lifecycle 和成本问题不属于 W0 修复收益，由其他全局问题继续追踪
 - Related hypotheses:
@@ -925,3 +926,72 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: 新 observer 在不修改 Rust Runtime、Agent prompt、Tool schema 或 projection 的前提下收紧证据
   完整性；真实 Agent 失败没有被删除。GI-007 仍需新的无上下文 reviewer 关闭。
 - Time: 2026-07-30 09:28
+
+## Evidence E-021: Round 6 发现四类证据身份缺口
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: challenges
+- Type: adversarial-review
+- Source:
+  - reviewer `Curie`，session `019fb0a6-6602-7c90-b655-9d4048351510`
+  - `scripts/taskspace-benchmark/lib/r7-supplemental-failure.ps1`
+  - `scripts/taskspace-benchmark/lib/r7-request-observability.ps1`
+  - `scripts/taskspace-benchmark/lib/r7-artifact-provenance.ps1`
+- Prediction or plan link:
+  - GI-007 fresh closure review
+- Matched signal:
+  - schema/root array 与 unicode escaped malformed supplemental 可以绕过保留 family gate
+  - provider、skip、bound provenance 没有绑定精确 producer identity
+  - request path 丢弃 output/reasoning/total token，无法证明 join 与聚合守恒
+  - resolved manifest 只验证封存哈希，没有验证四臂内容身份
+  - GI-005 的 11 个状态拒绝被独立重算为机械事实完整，3 次 `read_map` 均发生在正确理解之后
+- Correlation keys:
+  - reviewed HEAD `905f8adf3`
+  - production code `e72637d07`
+- Interpretation: GI-005 的反馈语义未发现新缺口，但 GI-007 仍可能允许错误证据进入完整报告；四项均接受为
+  C-01/C-03/C-14 blocker。
+- Time: 2026-07-30 09:55
+
+## Evidence E-022: 证据身份修复与 current-commit 正式矩阵
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source:
+  - commit `2005442d34416820a888dc7395ac8ba1b3812635`
+  - `scripts/taskspace-benchmark/test-r7-supplemental-failure-evidence.ps1`
+  - `scripts/taskspace-benchmark/test-r7-provider-token-identity.ps1`
+  - `scripts/taskspace-benchmark/test-r7-resolved-manifest-identity.ps1`
+  - `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/2005442d34416820a888dc7395ac8ba1b3812635/20260730-101516-783`
+- Prediction or plan link:
+  - Round 6 blocking findings 1-4
+- Matched signal:
+  - escaped-key malformed、root/schema array、非 object root 与严格 schema 类型全部 fail-closed
+  - provider、ToolSearch、skip、bound 的 copy/cause/call/reservation/scope/zero-dispatch identity 精确校验
+  - 347 个 request 的 input/cached/output/reasoning/total token 通过类型、算术和 run aggregate 对账
+  - 24 个 resolved manifest 逐项通过 sample/repeat/side/mode/policy/model/binary/provider/capability 校验；
+    每个 sample-repeat 恰有四臂，且 prompt/fixture/model/image/binary 相同
+  - 24/24 finalized、24/24 business success、artifact provenance=`valid`、findings=0
+  - 5 个状态拒绝请求、5 个 violation、2 个下一请求 `read_map` 由报告自动生成
+- Correlation keys:
+  - matrix run `20260730-101516-783`
+  - binary SHA-256 `cff8ad0235c41b778e3ba8638339567357d6b31923cc496be92509420cf46c55`
+  - Docker image `sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca`
+- Raw content:
+  ```text
+  cargo test -p codex-core --lib: 1933 passed, 0 failed, 3 ignored
+  PowerShell gates: 14/14 scripts passed
+  matrix: 24/24 finalized, provenance valid, findings=0
+  request tokens: input=7947276 cached=3519488 output=135380 reasoning=54288 total=8082656
+  ```
+- Interpretation: 修复只收紧 observer、artifact identity 和日志完整性，没有改动 Runtime 决策、Tool schema、
+  Agent prompt 或 projection；W0 仍需 Curie 之外的 fresh reviewer 关闭。
+- Time: 2026-07-30 10:28
