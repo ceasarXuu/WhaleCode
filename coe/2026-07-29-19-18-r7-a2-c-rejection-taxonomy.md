@@ -1139,3 +1139,48 @@ R7 five-layer evidence freshness self-test passed
 - Interpretation: exact-output 合同本身正确，不应放宽；缺口位于 observer 对生产 serialized structured
   output 的机械解码。修复只读取显式 bool `success`，不得从任意文本再解释成功语义
 - Time: 2026-07-30 13:02
+
+## Evidence E-026: Round 9 复算通过但四类事实入口仍可 fail-open
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: adversarial-review
+- Source:
+  - reviewer `Mencius`，session `019fb16d-c10a-7082-b81a-7c328f19e9da`
+  - candidate `ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22`
+  - matrix run `20260730-125939-756`
+- Prediction or plan link:
+  - GI-005/GI-007 Round 9 closure review
+- Matched signal:
+  - retained matrix 的 24 run、385 request、token 守恒和 192 raw seal 独立复算一致
+  - 缺失 state violations 的 typed failure 仍被标记 valid
+  - count 可接受 fraction/string 并在 `2^53` 以上丢失精度，缺失值在 report 默认成 0
+  - 唯一问题清单和 W0 结果仍引用上一份 `a677374` 矩阵
+  - affected call IDs 交换顺序后仍可通过 supplemental provenance
+- Correlation keys:
+  - reviewer session
+  - candidate commit
+  - matrix run
+- Interpretation: 单个 sealed 工件自洽不等于同类事实入口可靠。四项均接受为
+  C-01/C-03/C-09/C-12/C-13/C-14 blocker；根因仍位于事实构造与验证链，不应通过 Runtime 约束
+  Agent 修复
+- Time: 2026-07-30 13:35
+
+## Evidence E-027: Round 9 四项 blocker 的确定性反例已转为回归门
+- Related hypotheses:
+  - H-008
+- Direction: challenges
+- Type: fix-validation
+- Source:
+  - commit `ea6f27b1b807d12041a736d28ec1573db32d3ffe`
+  - `test-r7-state-failure-contract.ps1`
+  - `test-r7-supplemental-failure-evidence.ps1`
+  - `test-performance-observation.ps1`
+- Matched signal:
+  - state rejection 缺失 violations 或 candidate allowed states 时 evidence invalid
+  - supplemental affected call 顺序交换时 fail-closed
+  - string/fraction/负数/越界 count 被拒绝，缺失必需 count 不再默认零
+  - invalid count 产生 `performance_count_identity_invalid` 稳定事件
+- Interpretation: 修复只收紧机械事实结构、类型与顺序，没有增加 Runtime 对 Agent 语义或状态推进的干预；
+  仍需 current-commit 正式矩阵和 fresh replacement reviewer 才能关闭 H-008
+- Time: 2026-07-30 13:36

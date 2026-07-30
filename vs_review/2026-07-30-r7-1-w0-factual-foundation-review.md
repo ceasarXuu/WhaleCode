@@ -1023,10 +1023,39 @@ Reviewer 另建议所有 business-incomplete run 不得进入 finalized report�
 - Required output: summary、blocking findings、non-blocking risks、C-01 至 C-21 逐项结论、GI-005/GI-007
   关闭意见、对矩阵关键数字和 seal 的独立复算、每项 finding 的路径/行号与可复现证据。
 - Timeout policy: high-risk，初始等待 20 分钟，必要时只延长一次。
-- Status: launched
+- Status: blocked
+
+### Reviewer Output
+
+Reviewer 独立复算 retained matrix，确认 24/24 run、385 request、token 守恒、192 raw seal 与报告一致，
+且候选生产代码未漂移；同时复现四项 blocker：
+
+1. `TaskSpaceResponseCommitFailureV3` 和直接 `TaskSpaceControlResultV2` 可缺失 violations 或节点状态
+   机械事实，observer 仍标记 valid；
+2. 非 token 的 provider/action/failure count 仍使用 `double`，缺失时 report 默认成 0；
+3. W0 结果和唯一问题清单仍引用 `a677374` 的旧矩阵数字，与 retained `ebaedcf6c` 工件冲突；
+4. provider supplemental 在比较前排序 affected call IDs，交换实际调用顺序仍可通过。
+
+判定：C-01/C-03/C-09/C-12/C-13/C-14 FAIL，GI-005/GI-007 均不可关闭。
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`。它们均属于 producer→observer→report→seal 事实身份缺口，不需要扩大 Runtime
+  状态机职责，也不需要修改 Agent 行为。
+- detached/signed root、可复现构建和 live Blocked carrier：记录为非阻断证据增强，不纳入本轮产品语义。
+- 结论：Round 9 不通过；修复后必须使用 Mencius 之外的新空白 reviewer。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| state rejection 结构残缺 | 按 producer 合同校验 state violation；`node_state_invalid` 必须保留 node、canonical/candidate state、allowed states 与两侧前驱；直接 control failure 从 `error.actual.violations` 读取 | 新增 state failure contract 正反例 |
+| count 精度/缺失 | 普通计数只接受非负 Int64；observation 记录稳定 invalid event，report 对必需字段 fail-closed，聚合使用 BigInt 中间和 Int64 上界 | fractional/string/2^53/missing 反例 |
+| 权威文档冲突 | 唯一问题清单和 W0 结果先绑定 retained `ebaedcf6c` sealed matrix，并明确它是 Round 9 修复前证据；新矩阵后只切换一个当前引用 | 文档数值与 artifact 独立复算一致 |
+| affected call 顺序丢失 | request call IDs 与 supplemental affected IDs 逐位 ordinal 比较，不再排序成集合 | 交换两个 call 的负向 fixture |
 
 ## Current Conclusion
 
-W0 当前保持 `validating`。Round 8 接受的三个 blocker 和 production serialized carrier 差异已修复并通过
-current-commit 正式矩阵，但必须等待 Round 9 fresh replacement review；在该审查完成前不得关闭
-R71-GI-005/R71-GI-007，也不得进入 W1。
+W0 当前保持 `validating`。Round 9 四项 blocker 已在 `ea6f27b1b` 修复；必须完成 current-commit 正式
+矩阵，并由 Mencius 之外的 fresh replacement reviewer 复审。通过前不得关闭 R71-GI-005/R71-GI-007，
+也不得进入 W1。
