@@ -432,21 +432,24 @@ Assert-Rejected "failure_route_rollback_alias" {
 }
 
 $canonicalExit = "- 退出/分流：关闭结果使用机器合同；失败路由只使用第 3.1 节机器投影，不复用既有 Phase。"
-$additiveExitAlias = $current.Replace(
-    $canonicalExit,
-    "$canonicalExit`n- 退出/分流：失败时重新打开 nested dispatcher 硬边界实现。"
-)
-Assert-Rejected "failure_route_additive_exit_alias" {
-    Assert-R7ExecutionPlanFailureRoutes $additiveExitAlias $manifest
-}
-
 $canonicalRollback = "- 回退：本节不维护失败目标；只使用第 3.1 节机器投影。"
-$additiveRollbackAlias = $current.Replace(
-    $canonicalRollback,
-    "$canonicalRollback`n- 回退：重新打开 nested dispatcher 硬边界实现。"
+$routeDirectiveMutants = @(
+    @{ Name = "additive_exit_dash"; Anchor = $canonicalExit; Addition = "- 退出/分流：重新打开既有 Phase。" }
+    @{ Name = "additive_exit_star"; Anchor = $canonicalExit; Addition = "* 退出/分流：重新打开既有 Phase。" }
+    @{ Name = "additive_exit_indent"; Anchor = $canonicalExit; Addition = "  - 退出/分流：重新打开既有 Phase。" }
+    @{ Name = "additive_exit_bold"; Anchor = $canonicalExit; Addition = "- **退出/分流：**重新打开既有 Phase。" }
+    @{ Name = "duplicate_canonical_exit"; Anchor = $canonicalExit; Addition = $canonicalExit }
+    @{ Name = "additive_rollback_dash"; Anchor = $canonicalRollback; Addition = "- 回退：重新打开既有 Phase。" }
+    @{ Name = "additive_rollback_star"; Anchor = $canonicalRollback; Addition = "* 回退：重新打开既有 Phase。" }
+    @{ Name = "additive_rollback_indent"; Anchor = $canonicalRollback; Addition = "  - 回退：重新打开既有 Phase。" }
+    @{ Name = "additive_rollback_bold"; Anchor = $canonicalRollback; Addition = "- **回退：**重新打开既有 Phase。" }
+    @{ Name = "duplicate_canonical_rollback"; Anchor = $canonicalRollback; Addition = $canonicalRollback }
 )
-Assert-Rejected "failure_route_additive_rollback_alias" {
-    Assert-R7ExecutionPlanFailureRoutes $additiveRollbackAlias $manifest
+foreach ($mutant in $routeDirectiveMutants) {
+    $mutatedDocument = $current.Replace($mutant.Anchor, "$($mutant.Anchor)`n$($mutant.Addition)")
+    Assert-Rejected "failure_route_$($mutant.Name)" {
+        Assert-R7ExecutionPlanFailureRoutes $mutatedDocument $manifest
+    }
 }
 
 $duplicateJson = '{"plan_id":"R7.1","plan_id":"drift"}'

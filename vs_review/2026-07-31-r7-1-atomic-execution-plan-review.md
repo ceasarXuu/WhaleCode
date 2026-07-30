@@ -1,7 +1,7 @@
 # Subagent VS Review: R7.1 原子执行计划
 
 - Created: 2026-07-31T04:17:18+08:00
-- Updated: 2026-07-31T06:34:14+08:00
+- Updated: 2026-07-31T06:41:02+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 是否已拆成工程边界明确、可独立验证的小主题，避免 Phase 聚合造成工程混乱
 - Report path: `vs_review/2026-07-31-r7-1-atomic-execution-plan-review.md`
@@ -858,3 +858,110 @@ exact-count + exact-value，不再扩张合同。
 - `git diff --check`: PASS
 - changed code files: all below 500 lines
 - production Agent/Runtime behavior: unchanged, so no sample run
+
+## Round 5: Additive failure-route closure
+
+### Review Input
+
+#### Objective
+
+只验证提交 `11fb836c0` 是否关闭 Round 4 最后一个 blocker：保留 canonical exit/rollback 后追加第二条冲突
+directive；并判定 R3-B02 与 ARCH-NB01 能否最终关闭。
+
+#### Review Target
+
+- 每个 failure-route Phase 的 `退出/分流` 必须恰好一条且值为 canonical；
+- 每个 failure-route Phase 的 `回退` 必须恰好一条且值为 canonical；
+- additive alias、重复 canonical 和替换式 alias 必须拒绝；
+- 当前权威文档必须继续通过正向验证。
+
+#### Target Locations
+
+- `docs/v0.0.5/build-R7/47-r7.1-global-issue-register.md`
+- `scripts/taskspace-benchmark/lib/r7-execution-plan-projection.ps1`
+- `scripts/taskspace-benchmark/test-r7-unified-execution-plan.ps1`
+- 本报告 Round 4
+
+#### Scope Guard
+
+本轮不重新扩大到已关闭的 evidence、DAG、特殊末端链和任意插入议题，除非发现明确回归。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| focused | 20 minutes | one 10-minute extension when alive | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| architecture-adversary | Round 4 accepted blocker 的独立 closure review | additive directive、single source |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb52a-7005-7930-b549-29738ff5a394` | spawn result + completion notification | `fork_context=false` | Round 5 Review Input | main-agent history、reasoning、uncommitted drafts、Round 4 reviewer context | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| round5-architecture | architecture-adversary | 1 | `019fb52a-7005-7930-b549-29738ff5a394` | under 20 minutes | completed | reviewer returned before timeout | blocker accepted |
+
+### Reviewer Outputs
+
+#### round5-architecture
+
+##### Verdict
+
+**BLOCKED**
+
+##### Blocking Finding
+
+`R3-B02` 与 `ARCH-NB01` 仍为 `still_open`。实现只统计列首 `- ` 的 directive；在 canonical 行后追加
+Markdown 等价的 `* 退出/分流：...` 或 `* 回退：...`，完整统一合同仍 PASS。缩进列表和加粗字段名也可绕过。
+
+这仍是 Round 4 的原 blocker：机器投影禁止复用旧 Phase，但工程段可保留 canonical 后追加第二条冲突
+directive，形成平行语义源。
+
+##### Reproduction
+
+- 固定提交正向文档：PASS；
+- 列首 `- ` additive exit/rollback：rejected；
+- duplicate canonical exit/rollback：rejected；
+- replacement alias：rejected；
+- `*` additive exit/rollback：unexpected PASS；
+- 缩进和强调变体：未进入 exact-count；
+- 统一命令：`pwsh -NoLogo -NoProfile -File scripts/taskspace-benchmark/test-r7-unified-execution-plan.ps1`。
+
+##### Minimum Closure
+
+1. 唯一性检查与 Markdown marker、缩进和强调样式无关；
+2. 唯一标签必须属于 exact canonical 行；
+3. 持久化 `*`、缩进、强调和 duplicate canonical mutants；
+4. fresh Round 6 重放后才能关闭。
+
+reviewer 未扩大 evidence/DAG 范围，也未发现该范围回归。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| Markdown marker bypass | accept | `*` additive mutant 在固定提交的完整门禁中通过 | 改为段内语义标签唯一计数 + canonical 行精确存在，两项条件同时满足 | Round 6 fresh closure review |
+| Mutant coverage gap | accept | 原测试只覆盖列首 `- `，未持久化 duplicate canonical | 表驱动加入 dash、star、indent、bold、duplicate 的 exit/rollback 共 10 个 mutants | Round 6 fresh closure review |
+| R3-B02 / ARCH-NB01 | accept still open | Round 5 提供同 blocker 的可复现语法变体 | 修复完成但不自行关闭 | Round 6 fresh closure review |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, pending fresh verification
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Allowed to proceed: no
+
+## Round 5 Conclusion
+
+Round 4 修复只关闭了单一 Markdown 形态，没有关闭同一语义标签的等价表达。门禁已收敛为标签唯一性和
+canonical 行双重合同，必须由 fresh Round 6 再验证。
