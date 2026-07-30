@@ -1,14 +1,15 @@
 # Subagent VS Review: R7.1 原子执行计划
 
 - Created: 2026-07-31T04:17:18+08:00
-- Updated: 2026-07-31T07:00:03+08:00
+- Updated: 2026-07-31T07:06:17+08:00
 - Report schema: adversarial-v1
 - Task: 审查 R7.1 是否已拆成工程边界明确、可独立验证的小主题，避免 Phase 聚合造成工程混乱
 - Report path: `vs_review/2026-07-31-r7-1-atomic-execution-plan-review.md`
 - Review mode: fresh internal subagent
 - Source session policy: no inherited main-agent context
 - Review target commit: `cfffa1fe0c578aff28e83a5f4f94e30781fad2c1`
-- Status: open
+- Final closure commit: `88e84064467397ca53b99fa0512994fc8efa4d35`
+- Status: passed
 
 ## Round 1: 原子边界、依赖与机器门禁
 
@@ -1169,3 +1170,61 @@ PASS。根因是 populated 检查只比较原始长度，没有判断字段值�
 ## Round 8 Conclusion
 
 结构合同方向有效，剩余缺陷已收敛为字段空白判定。修复不改变合同边界，只补全 populated 的机械定义。
+
+## Round 9: Populated field closure
+
+### Review Input
+
+只验证提交 `88e840644` 是否最终关闭结构合同。除历次 mutants 外，重点重放 zero-char、space-only、
+tab-only 和 Unicode whitespace-only；不要求解释其他字段值的业务语义。
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| architecture-adversary | `multi_agent_v1.spawn_agent` (`gpt-5.6-sol/xhigh/priority`) | `019fb542-3013-7f63-8175-d93d8a0b4cfd` | spawn result + completion notification | `fork_context=false` | Round 9 Review Input | main-agent history、reasoning、uncommitted drafts、Round 8 reviewer context | yes |
+
+### Reviewer Outputs
+
+#### round9-architecture
+
+##### Verdict
+
+**PASS**
+
+- R3-B02：`closed`
+- ARCH-NB01：`closed`
+- 允许总审查关闭为 `passed`。
+
+##### Verification
+
+- 固定提交：`88e84064467397ca53b99fa0512994fc8efa4d35`；
+- unified：PASS；
+- five-layer `-Phase All`：PASS；
+- 5 个 failure-route Phase 均为 8 条字段、8 个已知字段各一次、exact exit/rollback 各一次；
+- 独立矩阵 57 个 mutants 全部拒绝，`unexpected_pass=0`；
+- 覆盖 format 13、link 2、HTML 1、duplicate 3、replacement 2、extra 1、unknown 2、missing 1；
+- 32 个 empty-value mutants 覆盖 8 字段的 zero/space/tab/Unicode whitespace，全部拒绝；
+- 未语义解析其他字段值，未扩大 evidence/DAG。
+
+### Main Agent Response
+
+| Finding | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|
+| R3-B02 | accept closed | 结构、规范值和 57 个独立 mutants 全部通过 | 保持 8 字段结构合同与 exact route 值 | none |
+| ARCH-NB01 | accept closed | 不再存在可追加的第二 route 字段或 Markdown 包装通道 | 删除自制 Markdown 语义解析方向 | none |
+| Overall review | pass | 所有 accepted blockers 均经过 fresh closure review | 将正式审查状态关闭为 `passed` | none |
+
+### Closure Status
+
+- Blocking findings found: no new blocker
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Allowed to proceed: yes
+
+## Final Conclusion
+
+R7.1 原子执行计划的 Phase/DAG、ready 状态、特殊角色、evidence、held-out、failure route、任意编号插入和
+结构化工程说明门禁均已通过独立对抗性复审。审查只证明计划合同和门禁已收敛；未修改生产 Agent/Runtime，
+因此不声明 sample 性能收益。
