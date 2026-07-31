@@ -23,7 +23,7 @@
 | ID | 严重度 | 问题 | 已确认表现 | 影响 | 状态 | 修复单元 |
 |---|---:|---|---|---|---|---|
 | CR-I01 | P0 | 发布门接受未做真实验证的 bootstrap 状态 | `--require-live-baseline` 同时接受 `structural_bootstrap` 和 `live_verified` | 没有 provider 证据也可能通过发布检查 | closed | CR-01 |
-| CR-I02 | P0 | index 检查读取了 worktree 合同 | 已复现：index 暂存空 `surface_rules`，worktree 保留旧合同，门禁返回 0 | 实际提交内容与被检查内容不同 | open | CR-02 |
+| CR-I02 | P0 | index 检查读取了 worktree 合同 | 已复现：index 暂存空 `surface_rules`，worktree 保留旧合同，门禁返回 0 | 实际提交内容与被检查内容不同 | closed | CR-02 |
 | CR-I03 | P0 | 晋升与控制面证据可自我授权 | 晋升只检查结果状态、hash 和 `actual_sample_runs <= 2`，没有重验 arm、阈值、证据摘要和 subject identity | 手工或错配结果可能被晋升为可信基线 | open | CR-03 至 CR-05 |
 | CR-I04 | P0 | 真实 DeepSeek wire、Tool serializer 和 usage decoder 未覆盖 | `codex-api` endpoint/SSE 与 `tools/src/tool_spec.rs` 位于当前 18 个 glob 外 | payload 或缓存指标解释改变时门禁可能静默通过 | open | CR-06、CR-09 至 CR-11 |
 | CR-I05 | P0 | 主要上下文和 Tool 选择入口未覆盖 | `session/mod.rs`、`session/turn.rs`、`tools/router.rs` 可改变消息顺序、可见 Tool 和 `tool_choice` | 最容易破坏稳定前缀的变更可能漏报 | open | CR-06、CR-12 至 CR-17 |
@@ -32,10 +32,13 @@
 | CR-I08 | P1 | 原始文件字节造成付费误报 | 当前 77 个匹配文件中至少 10 个是显式测试文件；注释和格式也进入 hash | 无缓存语义变化的提交会阻断并要求 API 预算 | open | CR-07、CR-08、CR-20 |
 | CR-I09 | P0 | 发布证据没有绑定唯一源码快照 | worktree 枚举忽略 untracked，release 记录 HEAD 却检查 dirty worktree | 报告的 commit 不一定是实际测试对象 | open | CR-05 |
 
-问题总数：**9**；Open：**8**；Closed：**1**。
+问题总数：**9**；Open：**7**；Closed：**2**。
 
 CR-I01 关闭证据：提交 `6a44bf0f1` 删除 bootstrap 的 release 放行语义；6 个 gate tests 通过，当前普通开发门
 保持通过，`--require-live-baseline` 对非 `live_verified` 基线返回退出码 20。未运行真实 Whale Agent。
+
+CR-I02 关闭证据：提交 `0a5866c05` 让 HEAD、index 和 worktree 从各自源码快照读取合同与受检内容，并明确拒绝
+合同部分暂存；8 个 gate tests、8 个分析测试和三 source 当前仓库检查通过。未运行真实 Whale Agent。
 
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
