@@ -24,7 +24,7 @@ use tracing::info;
 
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const DEFAULT_MODEL_CACHE_TTL: Duration = Duration::from_secs(300);
-const WHALE_DEFAULT_MODEL: &str = "deepseek-v4-pro";
+const WHALE_DEFAULT_MODEL: &str = "deepseek-v4-flash";
 
 /// Remote endpoint used by the OpenAI-compatible model manager.
 ///

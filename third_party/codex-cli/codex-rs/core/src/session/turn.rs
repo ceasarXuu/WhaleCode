@@ -928,7 +928,7 @@ async fn run_auto_compact(
             )
             .await?;
         }
-        CompactStrategy::DeepSeekPro | CompactStrategy::LocalFallback => {
+        CompactStrategy::DeepSeek | CompactStrategy::LocalFallback => {
             run_inline_auto_compact_task(
                 Arc::clone(sess),
                 Arc::clone(turn_context),

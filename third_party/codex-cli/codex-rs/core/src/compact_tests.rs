@@ -216,10 +216,10 @@ fn should_use_remote_compact_task_for_azure_provider() {
 }
 
 #[test]
-fn deepseek_provider_uses_deepseek_pro_compact_strategy() {
+fn deepseek_provider_uses_deepseek_compact_strategy() {
     let provider = ModelProviderInfo::create_deepseek_provider();
 
-    assert_eq!(compact_strategy(&provider), CompactStrategy::DeepSeekPro);
+    assert_eq!(compact_strategy(&provider), CompactStrategy::DeepSeek);
     assert!(!should_use_remote_compact_task(&provider));
 }
 
@@ -236,14 +236,14 @@ fn deepseek_compact_prompt_appends_whale_retention_notes() {
 fn deepseek_compact_strategy_uses_deepseek_analytics_dimensions() {
     assert_eq!(
         serde_json::to_value(compaction_implementation_for_strategy(
-            CompactStrategy::DeepSeekPro
+            CompactStrategy::DeepSeek
         ))
         .expect("serialize implementation"),
-        "deepseek_pro"
+        "deepseek"
     );
     assert_eq!(
         serde_json::to_value(compaction_analytics_strategy_for_strategy(
-            CompactStrategy::DeepSeekPro
+            CompactStrategy::DeepSeek
         ))
         .expect("serialize strategy"),
         "deepseek_compact"
@@ -251,22 +251,21 @@ fn deepseek_compact_strategy_uses_deepseek_analytics_dimensions() {
 }
 
 #[tokio::test]
-async fn deepseek_compact_sampling_context_uses_pro_model() {
+async fn deepseek_compact_sampling_context_uses_flash_model() {
     let (session, turn_context) = crate::session::tests::make_session_and_context().await;
-    let flash_turn_context = Arc::new(
+    let pro_turn_context = Arc::new(
         turn_context
             .with_model(
-                "deepseek-v4-flash".to_string(),
+                "deepseek-v4-pro".to_string(),
                 &session.services.models_manager,
             )
             .await,
     );
 
     let sampling_turn_context =
-        compact_sampling_turn_context(&session, &flash_turn_context, CompactStrategy::DeepSeekPro)
-            .await;
+        compact_sampling_turn_context(&session, &pro_turn_context, CompactStrategy::DeepSeek).await;
 
-    assert_eq!(flash_turn_context.model_info.slug, "deepseek-v4-flash");
+    assert_eq!(pro_turn_context.model_info.slug, "deepseek-v4-pro");
     assert_eq!(
         sampling_turn_context.model_info.slug,
         DEEPSEEK_COMPACT_MODEL

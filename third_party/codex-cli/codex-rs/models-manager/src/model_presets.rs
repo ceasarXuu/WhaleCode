@@ -1,6 +1,7 @@
 use codex_protocol::openai_models::ModelPreset;
 
 const WHALE_MODEL_PREFIX: &str = "deepseek-";
+const DEEPSEEK_PRO_MODEL: &str = "deepseek-v4-pro";
 
 /// Legacy notice keys kept for config compatibility with older migration prompts.
 ///
@@ -12,6 +13,13 @@ pub const HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG: &str =
 /// Keep Whale's public model listing focused on DeepSeek-backed choices.
 pub(crate) fn retain_whale_models_for_listing(presets: &mut Vec<ModelPreset>) {
     presets.retain(|preset| is_whale_model(&preset.model));
+    for preset in presets {
+        if preset.model == DEEPSEEK_PRO_MODEL {
+            preset.show_in_picker = false;
+            preset.supported_in_api = false;
+            preset.is_default = false;
+        }
+    }
 }
 
 pub(crate) fn is_whale_model(model: &str) -> bool {

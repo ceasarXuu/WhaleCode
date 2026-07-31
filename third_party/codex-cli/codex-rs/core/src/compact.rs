@@ -42,7 +42,7 @@ use codex_model_provider_info::ModelProviderInfo;
 
 pub const SUMMARIZATION_PROMPT: &str = include_str!("../templates/compact/prompt.md");
 pub const SUMMARY_PREFIX: &str = include_str!("../templates/compact/summary_prefix.md");
-pub(crate) const DEEPSEEK_COMPACT_MODEL: &str = "deepseek-v4-pro";
+pub(crate) const DEEPSEEK_COMPACT_MODEL: &str = "deepseek-v4-flash";
 const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
 const WHALE_COMPACT_PROMPT_APPENDIX: &str = r#"
 
@@ -72,7 +72,7 @@ pub(crate) enum InitialContextInjection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CompactStrategy {
     OpenAiRemote,
-    DeepSeekPro,
+    DeepSeek,
     LocalFallback,
 }
 
@@ -80,7 +80,7 @@ impl CompactStrategy {
     pub(crate) fn telemetry_type(self) -> &'static str {
         match self {
             Self::OpenAiRemote => "remote",
-            Self::DeepSeekPro => "deepseek",
+            Self::DeepSeek => "deepseek",
             Self::LocalFallback => "local",
         }
     }
@@ -90,7 +90,7 @@ pub(crate) fn compact_strategy(provider: &ModelProviderInfo) -> CompactStrategy 
     if provider.supports_remote_compaction() {
         CompactStrategy::OpenAiRemote
     } else if provider.is_deepseek() {
-        CompactStrategy::DeepSeekPro
+        CompactStrategy::DeepSeek
     } else {
         CompactStrategy::LocalFallback
     }
@@ -110,7 +110,7 @@ pub(crate) fn compact_prompt_for_provider(
 
 fn compact_prompt_for_strategy(base_prompt: &str, strategy: CompactStrategy) -> String {
     match strategy {
-        CompactStrategy::DeepSeekPro => format!("{base_prompt}{WHALE_COMPACT_PROMPT_APPENDIX}"),
+        CompactStrategy::DeepSeek => format!("{base_prompt}{WHALE_COMPACT_PROMPT_APPENDIX}"),
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => base_prompt.to_string(),
     }
 }
@@ -216,14 +216,14 @@ async fn run_compact_task_inner(
 
 fn compact_strategy_model_label(strategy: CompactStrategy, source_model: &str) -> &str {
     match strategy {
-        CompactStrategy::DeepSeekPro => DEEPSEEK_COMPACT_MODEL,
+        CompactStrategy::DeepSeek => DEEPSEEK_COMPACT_MODEL,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => source_model,
     }
 }
 
 fn compaction_implementation_for_strategy(strategy: CompactStrategy) -> CompactionImplementation {
     match strategy {
-        CompactStrategy::DeepSeekPro => CompactionImplementation::DeepseekPro,
+        CompactStrategy::DeepSeek => CompactionImplementation::Deepseek,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => {
             CompactionImplementation::Responses
         }
@@ -232,7 +232,7 @@ fn compaction_implementation_for_strategy(strategy: CompactStrategy) -> Compacti
 
 fn compaction_analytics_strategy_for_strategy(strategy: CompactStrategy) -> CompactionStrategy {
     match strategy {
-        CompactStrategy::DeepSeekPro => CompactionStrategy::DeepseekCompact,
+        CompactStrategy::DeepSeek => CompactionStrategy::DeepseekCompact,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => {
             CompactionStrategy::Memento
         }
@@ -244,7 +244,7 @@ async fn compact_sampling_turn_context(
     turn_context: &Arc<TurnContext>,
     strategy: CompactStrategy,
 ) -> Arc<TurnContext> {
-    if matches!(strategy, CompactStrategy::DeepSeekPro)
+    if matches!(strategy, CompactStrategy::DeepSeek)
         && turn_context.model_info.slug != DEEPSEEK_COMPACT_MODEL
     {
         Arc::new(
