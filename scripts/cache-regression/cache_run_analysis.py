@@ -62,6 +62,12 @@ def analyze_artifact_values(
     artifact_sha256: dict[str, str],
 ) -> dict[str, Any]:
     usage = validate_cache_artifacts(cache, request)
+    expected_logical_mode = "standard" if arm == "standard" else "taskspace"
+    if metrics.get("logical_mode") != expected_logical_mode:
+        raise ValueError(
+            f"cache artifact logical_mode does not match arm {arm}: "
+            f"expected {expected_logical_mode}"
+        )
     return {
         "arm": arm,
         "provider_usage_contract_version": PROVIDER_USAGE_CONTRACT_VERSION,

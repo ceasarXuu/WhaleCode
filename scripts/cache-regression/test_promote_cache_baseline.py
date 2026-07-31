@@ -270,6 +270,34 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         )
         return observation
 
+    def test_rejects_standard_artifacts_relabelled_as_taskspace(self) -> None:
+        forged = copy.deepcopy(self.result["observations"][0])
+        forged.update(
+            {
+                "arm": "map-request",
+                "run_id": self.result["observations"][1]["run_id"],
+            }
+        )
+        self.result["observations"][1] = forged
+        self.result["evidence_sha256"] = canonical_json_sha256(
+            [
+                {
+                    **scope,
+                    "artifact_sha256": observation["artifact_sha256"],
+                }
+                for scope, observation in zip(
+                    execution_matrix(self.proposal), self.result["observations"]
+                )
+            ]
+        )
+        write_json(self.result_path, self.result)
+        self.acceptance = self.make_acceptance()
+        write_json(self.acceptance_path, self.acceptance)
+        self.write_ledger()
+
+        with self.assertRaisesRegex(ValueError, "not durable|logical_mode"):
+            self.validate(result=self.result, acceptance=self.acceptance)
+
     def write_ledger(self) -> None:
         write_settled_ledger(
             self.repo,

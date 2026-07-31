@@ -104,7 +104,10 @@ def validate_observation(
     thresholds: dict[str, Any],
     source: str,
 ) -> list[str]:
-    prefix = f"benchmarks/cache-regression/evidence/{result['record_id']}/"
+    prefix = (
+        f"benchmarks/cache-regression/evidence/{result['record_id']}/"
+        f"{observation['run_id']}/"
+    )
     artifacts = {
         key: relative_path(repo, observation["artifacts"][key])
         for key in ("cache_summary", "request_summary", "metrics")
