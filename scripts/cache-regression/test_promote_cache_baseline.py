@@ -35,6 +35,12 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         run("git", "config", "user.name", "Test", cwd=self.repo)
         (self.repo / "prompt").mkdir()
         (self.repo / "prompt/base.md").write_text("changed product\n", encoding="utf-8")
+        runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
+        runner.parent.mkdir(parents=True)
+        runner.write_text("runner\n", encoding="utf-8")
+        scenario = self.repo / "benchmarks/taskspace/scenarios/simple"
+        scenario.mkdir(parents=True)
+        (scenario / "scenario.json").write_text("{}\n", encoding="utf-8")
         self.snapshot_path = self.repo / "snapshots/final_wire__changed.snap"
         self.snapshot_path.parent.mkdir()
         self.before_payload = {"request_1": {"input": ["before"]}}
@@ -218,8 +224,10 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         self.temp.cleanup()
 
     def make_observation(self, arm: str, side: str) -> dict:
+        del side
+        run_id = "CACHE-001" if arm == "standard" else "CACHE-002"
         artifacts = self.repo / (
-            f"benchmarks/cache-regression/evidence/WAR-FIXTURE/{side}/artifacts"
+            f"benchmarks/cache-regression/evidence/WAR-FIXTURE/{run_id}"
         )
         artifacts.mkdir(parents=True)
         cache = artifacts / "provider-cache-trace-summary.json"
@@ -265,7 +273,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                 "repeat": 1,
                 "elapsed_seconds": 1.0,
                 "budget_observation_exceeded": [],
-                "run_id": "CACHE-001" if arm == "standard" else "CACHE-002",
+                "run_id": run_id,
             }
         )
         return observation

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from cache_evidence import canonical_json_sha256, file_sha256
+from cache_execution_identity import build_execution_identity
 from cache_surface import surface_snapshot
 from cache_time import now_iso, parse_timestamp, require_not_future
 
@@ -184,6 +185,7 @@ def build_budget_proposal(
         "created_at": created_at or now_iso(),
         "subject_commit": subject_commit,
         "surface_sha256": surface_sha,
+        "execution_identity": build_execution_identity(repo, samples),
         "trigger": {
             "gate_report_path": relative_report,
             "gate_report_sha256": file_sha256(gate_report_path),

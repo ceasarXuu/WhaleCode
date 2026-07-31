@@ -39,6 +39,12 @@ class CacheRunContractTest(unittest.TestCase):
         run("git", "config", "user.name", "Test", cwd=self.repo)
         (self.repo / "prompt").mkdir()
         (self.repo / "prompt/base.md").write_text("stable\n", encoding="utf-8")
+        runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
+        runner.parent.mkdir(parents=True)
+        runner.write_text("runner\n", encoding="utf-8")
+        scenario = self.repo / "benchmarks/taskspace/scenarios/simple"
+        scenario.mkdir(parents=True)
+        (scenario / "scenario.json").write_text("{}\n", encoding="utf-8")
         contract_path = (
             self.repo / "benchmarks/cache-regression/cache-surface-contract.json"
         )
@@ -161,6 +167,28 @@ class CacheRunContractTest(unittest.TestCase):
         run("git", "add", ".", cwd=self.repo)
         run("git", "commit", "-qm", "advance", cwd=self.repo)
         with self.assertRaisesRegex(ValueError, "current HEAD"):
+            load_authorized_proposal(
+                self.repo,
+                self.contract,
+                self.proposal_path,
+                self.authorization_path,
+            )
+
+    def test_authorized_runner_or_scenario_cannot_drift(self) -> None:
+        runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
+        runner.write_text("changed runner\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "current evidence"):
+            load_authorized_proposal(
+                self.repo,
+                self.contract,
+                self.proposal_path,
+                self.authorization_path,
+            )
+
+        runner.write_text("runner\n", encoding="utf-8")
+        scenario = self.repo / "benchmarks/taskspace/scenarios/simple/scenario.json"
+        scenario.write_text('{"changed": true}\n', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "current evidence"):
             load_authorized_proposal(
                 self.repo,
                 self.contract,

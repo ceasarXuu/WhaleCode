@@ -31,6 +31,13 @@ class CacheBudgetProposalTest(unittest.TestCase):
         run("git", "config", "user.name", "Test", cwd=self.repo)
         (self.repo / "prompt").mkdir()
         (self.repo / "prompt/base.md").write_text("stable\n", encoding="utf-8")
+        runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
+        runner.parent.mkdir(parents=True)
+        runner.write_text("runner\n", encoding="utf-8")
+        for sample in ("simple", "complex"):
+            scenario = self.repo / "benchmarks/taskspace/scenarios" / sample
+            scenario.mkdir(parents=True)
+            (scenario / "scenario.json").write_text("{}\n", encoding="utf-8")
         contract_path = (
             self.repo / "benchmarks/cache-regression/cache-surface-contract.json"
         )
@@ -119,6 +126,7 @@ class CacheBudgetProposalTest(unittest.TestCase):
         self.assertEqual(
             proposal["observation_threshold_totals"]["estimated_cost"], 0.1386
         )
+        self.assertGreater(len(proposal["execution_identity"]["entries"]), 2)
 
     def test_rejects_unblocked_or_uncomparable_gate(self) -> None:
         report = json.loads(self.report_path.read_text(encoding="utf-8"))
