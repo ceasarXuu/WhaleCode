@@ -21,11 +21,39 @@ def run_git(repo: Path, *args: str, text: bool = False) -> bytes | str:
     return result.stdout
 
 
-def load_contract(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+def parse_contract(content: str) -> dict[str, Any]:
+    value = json.loads(content)
     if value.get("schema_version") != "whalecode-cache-surface-v1":
         raise ValueError("unsupported cache surface contract")
     return value
+
+
+def load_contract(path: Path) -> dict[str, Any]:
+    return parse_contract(path.read_text(encoding="utf-8"))
+
+
+def repository_relative_path(repo: Path, path: Path) -> str:
+    repo = repo.resolve()
+    absolute_path = path if path.is_absolute() else repo / path
+    try:
+        return absolute_path.resolve().relative_to(repo).as_posix()
+    except ValueError as error:
+        raise ValueError("cache surface contract must be inside the repository") from error
+
+
+def load_contract_from_source(
+    repo: Path, path: Path, source: str
+) -> dict[str, Any]:
+    relative_path = repository_relative_path(repo, path)
+    content = read_content(repo, relative_path, source)
+    return parse_contract(content.decode("utf-8"))
+
+
+def source_matches_worktree(repo: Path, path: Path, source: str) -> bool:
+    relative_path = repository_relative_path(repo, path)
+    return read_content(repo, relative_path, source) == read_content(
+        repo, relative_path, "worktree"
+    )
 
 
 def matching_rules(path: str, contract: dict[str, Any]) -> list[dict[str, Any]]:

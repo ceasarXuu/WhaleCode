@@ -8,7 +8,8 @@ import json
 from pathlib import Path
 
 from cache_surface import (
-    load_contract,
+    load_contract_from_source,
+    source_matches_worktree,
     staged_sensitive_changes,
     surface_snapshot,
     write_json,
@@ -32,14 +33,19 @@ def main() -> int:
     contract_path = args.contract
     if not contract_path.is_absolute():
         contract_path = repo / contract_path
-    contract = load_contract(contract_path)
+    contract = load_contract_from_source(repo, contract_path, args.source)
+    contract_matches_worktree = args.source != "index" or source_matches_worktree(
+        repo, contract_path, args.source
+    )
     actual_hash, entries = surface_snapshot(repo, contract, args.source)
     expected_hash = contract["baseline"]["surface_sha256"]
     changes = staged_sensitive_changes(repo, contract) if args.source == "index" else []
     baseline_status = contract["baseline"]["status"]
     live_status_accepted = baseline_status == "live_verified"
-    passed = actual_hash == expected_hash and (
-        live_status_accepted or not args.require_live_baseline
+    passed = (
+        contract_matches_worktree
+        and actual_hash == expected_hash
+        and (live_status_accepted or not args.require_live_baseline)
     )
     result = {
         "schema_version": "whalecode-cache-regression-gate-v1",
@@ -49,6 +55,7 @@ def main() -> int:
         "expected_surface_sha256": expected_hash,
         "baseline_status": baseline_status,
         "require_live_baseline": args.require_live_baseline,
+        "contract_matches_worktree": contract_matches_worktree,
         "surface_file_count": len(entries),
         "sensitive_changes": changes,
     }
@@ -71,6 +78,8 @@ def main() -> int:
     print("cache regression gate: BLOCKED")
     print(f"expected surface: {expected_hash}")
     print(f"actual surface:   {actual_hash}")
+    if not contract_matches_worktree:
+        print("- 暂存合同与工作区合同不一致；请完整暂存或还原合同后重试。")
     if not live_status_accepted:
         print(f"- 当前基线状态为 {baseline_status}，尚未达到 live_verified。")
     if changes:

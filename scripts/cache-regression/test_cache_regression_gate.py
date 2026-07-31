@@ -59,7 +59,9 @@ class CacheRegressionGateTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def gate(self, *extra: str) -> subprocess.CompletedProcess[str]:
+    def gate_from_source(
+        self, source: str, *extra: str
+    ) -> subprocess.CompletedProcess[str]:
         return run(
             "python3",
             str(GATE),
@@ -68,11 +70,14 @@ class CacheRegressionGateTest(unittest.TestCase):
             "--contract",
             str(self.contract_path),
             "--source",
-            "index",
+            source,
             *extra,
             cwd=self.repo,
             check=False,
         )
+
+    def gate(self, *extra: str) -> subprocess.CompletedProcess[str]:
+        return self.gate_from_source("index", *extra)
 
     def test_ordinary_change_passes(self) -> None:
         (self.repo / "ordinary.txt").write_text("changed\n", encoding="utf-8")
@@ -127,6 +132,29 @@ class CacheRegressionGateTest(unittest.TestCase):
         self.assertIn("structural_bootstrap", result.stdout)
         self.assertIn("尚未达到 live_verified", result.stdout)
         self.assertNotIn("敏感面与已验证基线不一致", result.stdout)
+
+    def test_index_source_reads_the_staged_contract(self) -> None:
+        worktree_contract = self.contract_path.read_text(encoding="utf-8")
+        staged_contract = load_contract(self.contract_path)
+        staged_contract["surface_rules"] = []
+        write_json(self.contract_path, staged_contract)
+        run("git", "add", "contract.json", cwd=self.repo)
+        self.contract_path.write_text(worktree_contract, encoding="utf-8")
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("暂存合同与工作区合同不一致", result.stdout)
+        self.assertIn("敏感面与已验证基线不一致", result.stdout)
+
+    def test_head_source_reads_the_committed_contract(self) -> None:
+        worktree_contract = load_contract(self.contract_path)
+        worktree_contract["surface_rules"] = []
+        write_json(self.contract_path, worktree_contract)
+
+        result = self.gate_from_source("head")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
