@@ -68,6 +68,7 @@ fn invalid_provider_request_hard_limit_fails_closed() {
     let limit = ProviderRequestHardLimit {
         limit: None,
         count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: None,
         configuration_error: Some(
             "WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer".to_string(),
         ),
@@ -101,6 +102,28 @@ fn enabled_provider_request_hard_limit_disables_hidden_transport_retries() {
     apply_provider_request_hard_limit_retry_policy(&mut provider, &limit);
     assert_eq!(provider.request_max_retries, Some(0));
     assert_eq!(provider.stream_max_retries, Some(0));
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_request_hard_limit_is_shared_across_process_state_instances() {
+    let directory = tempfile::tempdir().expect("temporary hard-limit state");
+    let state_path = directory.path().join("request-count");
+    let first = ProviderRequestHardLimit {
+        limit: Some(2),
+        count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: Some(state_path.clone()),
+        configuration_error: None,
+    };
+    let second = ProviderRequestHardLimit {
+        limit: Some(2),
+        count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: Some(state_path),
+        configuration_error: None,
+    };
+    assert!(first.claim("/responses").is_ok());
+    assert!(second.claim("/responses").is_ok());
+    assert!(first.claim("/responses").is_err());
 }
 
 fn test_model_info() -> ModelInfo {

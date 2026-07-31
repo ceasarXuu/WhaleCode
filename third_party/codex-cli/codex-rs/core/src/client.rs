@@ -25,6 +25,17 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+#[cfg(unix)]
+use std::fs::OpenOptions;
+#[cfg(unix)]
+use std::io::Read;
+#[cfg(unix)]
+use std::io::Seek;
+#[cfg(unix)]
+use std::io::SeekFrom;
+#[cfg(unix)]
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::MutexGuard as StdMutexGuard;
@@ -174,6 +185,8 @@ const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
 const COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER: u32 = 4;
 const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 const PROVIDER_REQUEST_HARD_LIMIT_ENV: &str = "WHALE_PROVIDER_REQUEST_HARD_LIMIT";
+const PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH_ENV: &str =
+    "WHALE_PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH";
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
@@ -1542,6 +1555,7 @@ fn provider_request_budget_now_ms() -> i64 {
 struct ProviderRequestHardLimit {
     limit: Option<usize>,
     count: AtomicUsize,
+    state_path: Option<PathBuf>,
     configuration_error: Option<String>,
 }
 
@@ -1552,10 +1566,16 @@ impl ProviderRequestHardLimit {
         };
         let value = raw.to_string_lossy();
         match value.parse::<usize>() {
-            Ok(limit) if limit > 0 => Self::with_limit(limit),
+            Ok(limit) if limit > 0 => {
+                let mut value = Self::with_limit(limit);
+                value.state_path =
+                    std::env::var_os(PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH_ENV).map(PathBuf::from);
+                value
+            }
             _ => Self {
                 limit: None,
                 count: AtomicUsize::new(0),
+                state_path: None,
                 configuration_error: Some(format!(
                     "{PROVIDER_REQUEST_HARD_LIMIT_ENV} must be a positive integer"
                 )),
@@ -1567,6 +1587,7 @@ impl ProviderRequestHardLimit {
         Self {
             limit: None,
             count: AtomicUsize::new(0),
+            state_path: None,
             configuration_error: None,
         }
     }
@@ -1575,6 +1596,7 @@ impl ProviderRequestHardLimit {
         Self {
             limit: Some(limit),
             count: AtomicUsize::new(0),
+            state_path: None,
             configuration_error: None,
         }
     }
@@ -1594,6 +1616,9 @@ impl ProviderRequestHardLimit {
         let Some(limit) = self.limit else {
             return Ok(());
         };
+        if let Some(path) = &self.state_path {
+            return self.claim_shared_file(path, limit, route);
+        }
         self.count
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
                 (count < limit).then_some(count + 1)
@@ -1606,6 +1631,72 @@ impl ProviderRequestHardLimit {
                 );
                 CodexErr::Fatal(format!("provider request hard limit reached (max {limit})"))
             })
+    }
+
+    #[cfg(unix)]
+    fn claim_shared_file(&self, path: &PathBuf, limit: usize, route: &str) -> Result<()> {
+        use std::os::fd::AsRawFd;
+
+        let operation = || -> std::io::Result<usize> {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(false)
+                .open(path)?;
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let result = (|| {
+                let mut raw = String::new();
+                file.read_to_string(&mut raw)?;
+                let count = if raw.trim().is_empty() {
+                    0
+                } else {
+                    raw.trim().parse::<usize>().map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "provider request counter is invalid",
+                        )
+                    })?
+                };
+                if count >= limit {
+                    return Ok(count);
+                }
+                file.seek(SeekFrom::Start(0))?;
+                file.set_len(0)?;
+                write!(file, "{}\n", count + 1)?;
+                file.sync_data()?;
+                Ok(count)
+            })();
+            let unlock = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            if unlock != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            result
+        };
+        match operation() {
+            Ok(count) if count < limit => Ok(()),
+            Ok(count) => {
+                warn!(
+                    route,
+                    limit, count, "provider request hard limit rejected dispatch"
+                );
+                Err(CodexErr::Fatal(format!(
+                    "provider request hard limit reached (max {limit})"
+                )))
+            }
+            Err(error) => Err(CodexErr::Fatal(format!(
+                "provider request hard limit state failed closed: {error}"
+            ))),
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn claim_shared_file(&self, _path: &PathBuf, _limit: usize, _route: &str) -> Result<()> {
+        Err(CodexErr::Fatal(
+            "shared provider request hard limit requires a Unix runtime".to_string(),
+        ))
     }
 }
 
