@@ -108,7 +108,9 @@ foreach ($spec in @($specs)) {
 $failed = @($gates.Values | Where-Object { [string]$_.status -ne "pass" })
 $artifact = [pscustomobject]@{
     schema_version = 1
-    status = if ($failed.Count -eq 0) { "pass" } else { "fail" }
+    status = if ($failed.Count -gt 0) { "fail" } elseif ($FixtureMode) { "fixture_pass" } else { "pass" }
+    mode = if ($FixtureMode) { "fixture" } else { "formal" }
+    release_eligible = (-not $FixtureMode -and $failed.Count -eq 0)
     producer = "build-v005-non-agent-gates.ps1"
     git_commit = $head
     profile_hash = $ProfileHash

@@ -23,7 +23,8 @@ $artifactPath = Join-Path $runDir "v005-non-agent-gates.json"
 Assert-True (Test-Path -LiteralPath $artifactPath) "builder did not write v005-non-agent-gates.json"
 $artifact = Get-Content -Raw -Encoding UTF8 -LiteralPath $artifactPath | ConvertFrom-Json
 $head = (& git -C $repoRoot rev-parse HEAD).Trim()
-Assert-True ([int]$artifact.schema_version -eq 1 -and [string]$artifact.status -eq "pass") "builder artifact did not pass schema/status"
+Assert-True ([int]$artifact.schema_version -eq 1 -and [string]$artifact.status -eq "fixture_pass") "builder fixture artifact did not expose fixture status"
+Assert-True ([string]$artifact.mode -eq "fixture" -and -not [bool]$artifact.release_eligible) "builder fixture artifact was release eligible"
 Assert-True ([string]$artifact.git_commit -eq $head -and [string]$artifact.task_list_hash -eq $taskListHash -and [string]$artifact.profile_hash -eq $profileHash -and [string]$artifact.source_version -eq $sourceVersion) "builder artifact identity did not bind to current inputs"
 
 $requiredGates = @(
@@ -54,6 +55,10 @@ foreach ($gateName in $requiredGates) {
         Assert-True ($sha -eq [string]$gate.evidence_sha256) "gate evidence sha mismatch: $gateName"
     }
 }
+
+. (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
+$formalCheck = Get-TaskspaceV005MarkerGate -Name "v005_non_agent_gates" -Path $artifactPath -ExpectedTaskListHash $taskListHash -ExpectedSourceVersion $sourceVersion -ExpectedProfileHash $profileHash
+Assert-True ([string]$formalCheck.status -eq "blocked") "formal consumer accepted fixture non-agent evidence"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

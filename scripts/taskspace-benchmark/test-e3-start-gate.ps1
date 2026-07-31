@@ -126,6 +126,8 @@ function New-V005MarkerFixtures {
     $identity = @{
         schema_version = 1
         status = "pass"
+        mode = "formal"
+        release_eligible = $true
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
         profile_hash = $ProfileHash
@@ -164,6 +166,7 @@ function New-V005MarkerFixtures {
                 start_gate_fixture = (& $gateObject "start_gate_fixture")
                 external_wrapper_fixture = (& $gateObject "external_wrapper_fixture")
                 marker_writer_fixture = (& $gateObject "marker_writer_fixture")
+                cache_regression_surface = (& $gateObject "cache_regression_surface")
             }
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $nonAgentPath -Encoding UTF8
     [pscustomobject]($identity + @{

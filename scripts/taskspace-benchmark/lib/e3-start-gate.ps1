@@ -192,6 +192,9 @@ function Get-TaskspaceV005MarkerGate {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name current HEAD unavailable" "$Name`_current_head_unavailable" "Cannot bind marker to current git HEAD: $Path"
     }
     if ([string]$Name -eq "v005_non_agent_gates") {
+        if ([string]$marker.mode -ne "formal" -or -not [bool]$marker.release_eligible) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name is not formal release evidence" "$Name`_mode_not_formal" "Non-agent marker must set mode=formal and release_eligible=true: $Path"
+        }
         $required = @(
             "provider_request_hook",
             "runtime_budget_response",
@@ -203,7 +206,8 @@ function Get-TaskspaceV005MarkerGate {
             "release_decision_fixture",
             "start_gate_fixture",
             "external_wrapper_fixture",
-            "marker_writer_fixture"
+            "marker_writer_fixture",
+            "cache_regression_surface"
         )
         foreach ($gateName in $required) {
             $gateValue = $null

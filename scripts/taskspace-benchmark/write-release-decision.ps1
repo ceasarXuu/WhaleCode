@@ -783,9 +783,14 @@ $requiredV005NonAgentGates = @(
     "release_decision_fixture",
     "start_gate_fixture",
     "external_wrapper_fixture",
-    "marker_writer_fixture"
+    "marker_writer_fixture",
+    "cache_regression_surface"
 )
-$v005NonAgentGatesPass = ($v005NonAgentGates -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass" -and (Get-ReleaseInt $v005NonAgentGates "schema_version" 0) -eq 1)
+$v005NonAgentGatesPass = ($v005NonAgentGates `
+    -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass" `
+    -and (Get-ReleaseString $v005NonAgentGates "mode") -eq "formal" `
+    -and (Get-ReleaseBool $v005NonAgentGates "release_eligible") `
+    -and (Get-ReleaseInt $v005NonAgentGates "schema_version" 0) -eq 1)
 if ($v005NonAgentGatesPass) {
     foreach ($gateName in $requiredV005NonAgentGates) {
         $gateValue = $null

@@ -217,9 +217,11 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             producer = "test-release-decision.ps1"
         }
     }
-    Write-Json ([pscustomobject]@{
+        Write-Json ([pscustomobject]@{
             status = "pass"
             schema_version = 1
+            mode = "formal"
+            release_eligible = $true
             gates = [pscustomobject]@{
                 provider_request_hook = (& $gateObject "provider_request_hook")
                 runtime_budget_response = (& $gateObject "runtime_budget_response")
@@ -232,6 +234,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
                 start_gate_fixture = (& $gateObject "start_gate_fixture")
                 external_wrapper_fixture = (& $gateObject "external_wrapper_fixture")
                 marker_writer_fixture = (& $gateObject "marker_writer_fixture")
+                cache_regression_surface = (& $gateObject "cache_regression_surface")
             }
         }) (Join-Path $dir "v005-non-agent-gates.json")
     $codeCompletePath = Join-Path $dir "v005-code-complete.json"
