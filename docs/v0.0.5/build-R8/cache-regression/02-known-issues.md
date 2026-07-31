@@ -1,7 +1,7 @@
 # 缓存命中回归门禁已知问题
 
 - Created: 2026-07-31
-- Updated: 2026-07-31
+- Updated: 2026-08-01
 - Authority: R8 缓存门禁工程问题的唯一清单
 - Source review: [`vs_review/2026-07-31-cache-regression-surface-review.md`](../../../../vs_review/2026-07-31-cache-regression-surface-review.md)
 
@@ -28,7 +28,7 @@
 | CR-I04 | P0 | 真实 DeepSeek wire、Tool serializer 和 usage decoder 未覆盖 | `codex-api` endpoint/SSE 与 `tools/src/tool_spec.rs` 位于当前 18 个 glob 外 | payload 或缓存指标解释改变时门禁可能静默通过 | closed | CR-06、CR-09 至 CR-11 |
 | CR-I05 | P0 | 主要上下文和 Tool 选择入口未覆盖 | `session/mod.rs`、`session/turn.rs`、`tools/router.rs` 可改变消息顺序、可见 Tool 和 `tool_choice` | 最容易破坏稳定前缀的变更可能漏报 | closed | CR-06、CR-12 至 CR-17 |
 | CR-I06 | P1 | model/provider 路由和请求元数据未覆盖 | provider config、模型默认值和 `models.json` 不在当前合同中 | 模型或 wire API 切换可能沿用无效基线 | closed | CR-18 |
-| CR-I07 | P0 | 一个固定付费 smoke 被赋予过宽证明范围 | runner 固定 Flash、`single-file-fast-fix`、Standard + map-request、repeat=1 | 一次代表性 smoke 可能被错误宣称为所有上下文路径都已验证 | open；release 已阻断 | CR-21、CR-22 |
+| CR-I07 | P0 | 一个固定付费 smoke 被赋予过宽证明范围 | 旧 runner 固定配置且结果缺少明确证据边界 | 一次代表性 smoke 可能被错误宣称为所有上下文路径都已验证 | implementation fixed；Round 2 blocking 已修复，待 fresh closure review | CR-21 至 CR-23 |
 | CR-I08 | P1 | 原始文件字节造成付费误报 | 当前 77 个匹配文件中至少 10 个是显式测试文件；注释和格式也进入 hash | 无缓存语义变化的提交会阻断并要求 API 预算 | closed | CR-07、CR-08、CR-20 |
 | CR-I09 | P0 | 发布证据没有绑定唯一源码快照 | worktree 枚举忽略 untracked，release 记录 HEAD 却检查 dirty worktree | 报告的 commit 不一定是实际测试对象 | closed | CR-05 |
 
@@ -123,6 +123,14 @@ fail closed。真实 index 等价注释探针通过，64 项离线控制面测�
 免费生产合同通过，未运行真实 Whale Agent。CR-I07 仍需 CR-21.2 至 CR-22 完成预算、授权、结果边界和基线晋升，
 因此保持 open。
 
+提交 `5173f8f89` 修复 Round 2 的正式证据、共享校验、控制面发现和账本崩溃原子性问题：正式 start/release
+拒绝文本冒充的 formal marker；执行、晋升和 release 复用完整证据校验；正式消费者及测试注册进入控制面；账本改为
+独立锁文件、临时文件、`fsync`、原子替换，并提供幂等恢复。提交 `7d233aaa6`、`e5d4c3afd`、`f8f1a2180` 在通用
+provider 出口建立进程共享的请求硬上限，覆盖 HTTP、WebSocket、压缩、memory 和 realtime 请求，不修改 TaskSpace
+语义。提交 `4e7c293ad` 将官方单请求上限、runner 超时、容器标签回收和部分费用语义接入授权预算链。最新 110 项
+Python 测试、7 组免费合同、3 项 provider hard-limit Rust 测试及 PowerShell start/release/builder 自测通过，未运行
+真实 Whale Agent。CR-I07 只等待新的空白 closure review，不等待或伪造真实 accepted 基线。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
@@ -158,7 +166,7 @@ CR-21 只让差异和实际 smoke 配置可见；CR-22 记录已接受 final-wir
 门禁问题只有在以下证据同时成立时才能关闭：
 
 1. `index`、`worktree`、`HEAD` 各自检查同一来源的合同和内容，不发生快照混用；
-2. release 只接受真实 `live_verified`，且证据绑定精确 commit、场景、模型和 arm；
+2. release 只接受可完整复算的 `accepted` 基线，且证据绑定精确 commit、场景、模型和 arm；
 3. 已知生产入口的变化会自动运行免费 final-payload 场景；
 4. 测试、注释和不改变 final payload 的重构不会要求付费运行；
 5. payload 变化会指出首个差异、受影响场景和最小建议预算；

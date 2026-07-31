@@ -1,7 +1,7 @@
 # R8 缓存命中回归门禁子主题
 
 - Created: 2026-07-31
-- Status: Active; v1 仅作诊断，不能作为发布可信门禁
+- Status: 离线工程完成；Round 2 blocking 已修复，fresh closure review 待完成；真实 accepted 基线待单独预算激活
 - Scope: DeepSeek 请求稳定前缀、缓存 usage 观测、变更门禁与付费复验
 - Related R8 issues: R8-I02、R8-I07、R8-I08
 
@@ -49,7 +49,10 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [09-usage-aggregation-contract.md](09-usage-aggregation-contract.md) | CR-11 Rust decoder 与 Python 聚合一致性合同 | verified |
 | [10-standard-request-pair.md](10-standard-request-pair.md) | CR-12 Standard 连续两请求 final-wire 基准 | verified |
 | [12-cr20-free-semantic-gate-result.md](12-cr20-free-semantic-gate-result.md) | CR-20 免费语义门禁实现与验收结果 | verified |
+| [14-cr21-2-cr23-closeout.md](14-cr21-2-cr23-closeout.md) | CR-21.2 至 CR-23 实现、验证和剩余外部状态 | implementation verified |
+| [15-authorized-run-budget-boundary.md](15-authorized-run-budget-boundary.md) | 真实回归的硬成本边界、观测阈值与超时回收 | implementation verified |
 | [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | reviewed，blocking |
+| [收尾对抗性审查](../../../../vs_review/2026-08-01-r8-cache-gate-closeout-review.md) | CR-21.2 至 CR-23 多轮独立闭环审查 | Round 2 fixed；fresh closure pending |
 
 `02-known-issues.md` 是缓存门禁工程缺陷的唯一清单。R8 产品问题状态仍以
 [`../01-r8-known-issues.md`](../01-r8-known-issues.md) 为唯一事实源，两者不得重复登记或相互关闭。
@@ -73,13 +76,12 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 ## 5. 执行约束
 
 - 修复按 [03-repair-plan.md](03-repair-plan.md) 的小单元顺序执行，每个单元单独验证和提交；
-- 在控制面可信性修复完成前，不晋升任何 `live_verified` 基线；
+- 只有完整 proposal、用户授权、执行证据、acceptance 和共享校验通过后才能晋升 `accepted` 基线；
 - 免费 deterministic fixture 不计入 Whale Agent 预算；任何真实 provider 请求仍需用户单独批准；
 - 一次真实回归只验证其实际覆盖的 commit、模型、arm 和场景，不得扩大解释范围；
 - 门禁自身不能宣称抵抗有仓库写权限的恶意维护者；目标是阻止意外绕过、证据错配和未经审查的自授权；
 - 修复完成后必须执行新的空白对抗性审查，blocking finding 未关闭前不得恢复发布权威性。
 
-当前执行位置：Phase A、Phase B、Phase C 与 Phase D 的 `CR-20`、`CR-21.1` 已完成；除 CR-I07 外其余已知门禁
-问题均已关闭。免费合同现可把 11 个受保护 final-wire 场景严格判为未变、已变或不可比较，并输出结构化变化事实。
-下一单元为 `CR-21.2`，只把人工明确选择的 smoke 配置换算为零副作用预算提案。CR-21 不把判别外扩到产品正确性
-或测试充分性，不修改通用 benchmark 的产品语义，也不在未获授权时运行真实 provider。
+当前 CR-21.2 至 CR-23 的离线实现已完成：免费合同可严格区分未变、已变和不可比较；预算提案无 API/账本副作用；
+授权一次性原子认领；失败或越预算结果不可晋升；pre-commit 允许明确可比较的候选产品提交，但 release 继续阻断，
+直到独立 accepted 基线提交形成。当前仓库仍是历史 `live_regression_failed`，本轮没有真实 provider 运行。
