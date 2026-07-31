@@ -2,7 +2,7 @@
 
 - Created: 2026-07-31
 - Plan mode: Authoring
-- Plan status: in progress（CR-01 至 CR-15 completed；Phase A、Phase B complete；Phase C 进行中）
+- Plan status: in progress（CR-01 至 CR-15 completed；DeepSeek 官方 Responses 迁移 CR-15A 进行中；Phase A、Phase B complete；Phase C 进行中）
 - Risk: High，涉及发布门、付费验证触发与证据可信性
 - Problem register: [02-known-issues.md](02-known-issues.md)
 
@@ -58,6 +58,9 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-13 | 覆盖三种 TaskSpace projection 策略 | scenario matrix | 同 CR-12 | map-always、map-append、map-request request 1/2 | 每种策略使用同一任务事实生成两请求 final-wire 快照 | 三种模式分别拥有实际请求合同 | 不再用 map-request 代表全部 TaskSpace | 每臂快照、前缀差异摘要和 Tool 集合断言 | 任一策略 fixture 不稳定时只暂停该策略接门 | completed（`2dd70fe75`） |
 | CR-14 | 覆盖权限上下文 | scenario matrix | `core/tests/suite/cache_payload_contract.rs`、permissions fixtures | permission developer message | 增加一次能触发真实权限消息构造的 request pair | 权限变化映射到独立 payload 场景 | 权限提示变化不会被默认样本漏掉 | 与 Standard 默认场景的差异只来自权限输入 | 场景可独立移除，不影响其他矩阵 | completed（`7da38b2ed`） |
 | CR-15 | 覆盖 Skill 上下文 | scenario matrix | `core/tests/suite/cache_payload_contract.rs`、skills fixtures | selected skill injection | 增加显式选择内置 Skill 的 request pair，并固定 Skill snapshot identity | Skill 内容和插入位置进入 payload 合同 | 内置 Skill 变化不再靠目录 glob 推测 | 无 Skill/有 Skill 对照与快照身份断言 | Skill fixture 不稳定时暂停该场景 | completed（`d43941d2f`） |
+| CR-15A | 使用 DeepSeek 官方 Codex 协议 | provider route | `model-provider-info/src/lib.rs` | `create_deepseek_provider()` | 将内置 DeepSeek provider 的 `wire_api` 从 Chat Completions 改为 Responses，不增加第二 provider 或 Chat namespace 兼容层 | WhaleCode 通过 DeepSeek 原生 Responses API 发送 Codex 请求 | 恢复 Codex 原生 Tool 表达，避免维护私有协议翻译分支 | provider 单测、Responses endpoint 本地 mock、Chat endpoint 不得收到请求 | 单独回退 provider 提交；CR-16/17 保持阻塞 | in-progress |
+| CR-15B | 只暴露当前官方支持的 Codex 模型 | model catalog | `models-manager/models.json`、`models-manager/src/manager.rs` | Flash/Pro preset 与默认模型 | 将默认模型改为 Flash，按官方 Codex 元数据更新 Flash；在 Pro 官方支持前从选择列表隐藏且不得作为默认压缩模型 | 新会话默认使用可工作的 Flash Responses；用户不会误选尚未支持 Codex 的 Pro | 产品能力声明与 provider 实际支持一致 | catalog/default/selection/compact model 单测；Pro 不出现在可选列表 | 若隐藏语义无法覆盖所有入口则暂停，不做静默 fallback | planned |
+| CR-15C | 重建 Responses final-wire 基线 | cache contract | `core/tests/suite/cache_final_wire.rs`、`cache_payload_*` 与 snapshots | CR-12 至 CR-15 request pairs | 将既有 DeepSeek Chat fixture 改为生产 Responses endpoint，保留相同场景事实并重新生成快照 | Standard、三种 TaskSpace、权限、Skill 的权威基线与当前生产协议一致 | 后续缓存门禁不再保护已经退出的旧协议载荷 | 每个场景重复两次稳定；断言只命中 `/v1/responses` | 任一场景不稳定时停在对应 fixture，不进入 CR-16 | planned |
 | CR-16 | 覆盖 Apps 与 Plugins 能力 | scenario matrix | `core/tests/suite/cache_payload_contract.rs`、现有 apps/plugins fixtures | app/plugin-provided context and tools | 各用一个最小 fixture 触发生产能力注入路径 | Apps/Plugins 造成的消息或 Tool 变化可定位 | 动态能力不再被固定 Tool 样本掩盖 | 默认、App、Plugin 三者差异来源断言 | 任一能力可单独暂停，不合并失败原因 | planned |
 | CR-17 | 覆盖 MCP Tool 集合 | scenario matrix | `core/tests/suite/cache_payload_contract.rs`、MCP test server | MCP provider-visible tools | 用本地 MCP fixture 增删一个 Tool 并捕获 final-wire | MCP Tool 集合与顺序进入合同 | 外部 Tool 变化不会静默破坏前缀 | MCP off/on request pair 与 Tool order mutation | 不连接真实 MCP 服务；失败时停在本地 fixture | planned |
 | CR-18 | 覆盖模型与 provider 路由 | scenario matrix | `model-provider-info`、`core/src/config/mod.rs`、`models-manager/models.json` | Flash/Pro identity 与 wire API | 建立路由元数据和最终请求身份快照；若两模型共享路径则以证据合并，不机械复制场景 | 路由变化能定位到模型/provider 身份 | 防止沿用不适用于当前模型或 wire API 的基线 | route matrix assertions 和错误模型反例 | 发现未知路由时标记 blocked-on-discovery | planned |
@@ -83,10 +86,10 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 - Phase-local evidence：本地 mock 捕获生产 body，重复执行稳定，受保护字段 mutation 全部被发现。
 - Next-phase condition：无需真实 API 即可判断最终请求或 usage 测量合同是否变化。
 
-### Phase C：逐类补齐免费场景
+### Phase C：迁移官方协议并逐类补齐免费场景
 
 - Entry condition：Phase B 已证明无第二 serializer。
-- Work units：CR-12 至 CR-19。
+- Work units：CR-12 至 CR-15、CR-15A 至 CR-15C、CR-16 至 CR-19。
 - Phase-local evidence：Standard、三种 TaskSpace 策略和条件入口均有独立、可复算的 request pair。
 - Next-phase condition：审查列出的 wire、context、Tool、routing、compaction 入口均映射到至少一个场景。
 
