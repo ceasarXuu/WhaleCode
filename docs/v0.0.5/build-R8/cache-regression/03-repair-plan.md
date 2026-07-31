@@ -29,7 +29,11 @@ HEAD / index / worktree 中出现风险面变化
   -> 对同一确定性场景生成 request 1 / request 2 final-wire 快照
   -> 比较消息角色、顺序、内容、Tool schema/order、tool_choice、model/provider identity
   -> 未变：免费通过
-  -> 已变：阻断，输出场景、首差异、旧/新摘要和建议的最小真实运行矩阵
+  -> 已变：阻断，输出结构化 impact manifest、首差异和旧/新摘要
+       -> 非预期变化：修复，不进入付费路径
+       -> 经人工确认的有意变化：进入真实证据覆盖判断
+            -> 现有 benchmark 可表达：生成 dry-run 预算提案
+            -> 现有 benchmark 不可表达：报告 coverage gap，不生成伪验证方案
   -> 用户批准预算后运行真实 provider
   -> 校验业务结果、request 2+ usage、证据摘要和源码身份
   -> 仅晋升本次实际覆盖的场景
@@ -66,9 +70,43 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-18 | 覆盖模型与 provider 路由 | scenario matrix | `model-provider-info`、`core/src/config/mod.rs`、`models-manager/models.json` | Flash/Pro identity 与 wire API | 建立路由元数据和最终请求身份快照；若两模型共享路径则以证据合并，不机械复制场景 | 路由变化能定位到模型/provider 身份 | 防止沿用不适用于当前模型或 wire API 的基线 | route matrix assertions 和错误模型反例 | 发现未知路由时标记 blocked-on-discovery | completed（`f4cc55d28`） |
 | CR-19 | 覆盖压缩后的请求结构 | scenario matrix | `core/tests/suite/compact*.rs`、cache payload fixtures | pre/post compaction request pair | 复用生产压缩路径生成压缩前后 final-wire 快照 | 长历史重写对稳定前缀的影响可见 | 日常长会话不会成为门禁盲区 | compact request pair、重复稳定性和首差异摘要 | 不设置真实超长 token；使用有代表性的确定性历史 | completed（`55900ac18`） |
 | CR-20 | 源码变化先触发免费语义测试 | gate orchestration | `cache_surface.py`、pre-commit、non-agent gate | source sentinel 和 payload runner | 将宽生产 crate、依赖配置和控制面列为免费测试触发面；只有 final-wire/measurement contract diff 才输出付费候选 | 注释、测试和等价重构可免费通过；真实 payload 变化阻断 | 同时减少漏报和不必要预算申请 | test/comment-only、生产字段变化、依赖变化、控制面变化 fixtures | 免费 runner 不稳定或过慢时保持 release 阻断，先优化 fixture | completed（`71c8f0cf0`、`3b7d7b4fa`） |
-| CR-21 | 真实运行按受影响场景申请 | paid validation | `run_cache_hit_regression.py/.ps1`、contract schema | scenario router 与 budget proposal | 把固定 sample 改为场景到最小 arm/model/sample 的显式映射，运行前打印数量、请求/token/费用上限和停止条件 | 真实运行只覆盖且只声明受影响范围 | 用最少 API 成本取得可解释证据 | dry-run 不发请求并生成预算单；矩阵计数与账本 planned 记录一致 | 未获批永不执行；未知场景不得 fallback 到默认样本 | planned |
+| CR-21 | 按受影响范围形成真实验证提案 | paid-validation control plane | `scripts/cache-regression/`、cache contract | impact manifest、scenario router、coverage report、budget proposal | 免费合同先输出结构化影响范围；只有经人工确认的有意语义变化才进入 coverage 路由，只对现有 benchmark 能准确表达的路径生成预算提案 | 普通失败停在免费诊断层，付费路径只接收明确、可追踪的验证目标 | 缩短可信反馈路径，避免固定样本过度证明、无证据付费和对通用 E2E harness 的侵入 | impact mutation 精确定位；dry-run 不发请求且不写 planned 账本；未覆盖场景 fail closed | 未获批永不执行；未知或未覆盖路径不得 fallback 到默认样本 | planned |
 | CR-22 | 基线只按实际覆盖范围晋升 | baseline model | cache contract 与 promotion script | scoped baseline records | 用 commit + scenario + arm + model + payload digest 作为基线身份，迁移后删除全局单 hash 权威语义 | 一次运行不能替未执行场景背书 | 防止 `live_verified` 过度证明 | 不同场景结果不能互相晋升；旧 v1 结果只保留历史证据 | 新模型未验证前继续 fail closed，不保留双权威路径 | planned |
 | CR-23 | 恢复门禁发布权威性 | release/review | pre-commit、non-agent gate、文档 | final gate integration | 跑全套免费测试并启动新的空白对抗性审查；只有 blocking 全关闭才替换 v1 | 发布门使用三段式证据链 | 团队可依赖门禁而不频繁误付费 | 单元/集成测试、门禁自测、fresh review；真实 run 另行申请预算 | 审查失败则保持 v1 诊断状态并回滚接线 | planned |
+
+### 3.1 CR-21 执行拆分与架构边界
+
+CR-21 不扩建 `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`，也不向通用 benchmark 注入缓存门禁、
+预算、晋升或场景判定逻辑。通用 benchmark 继续只负责按既有参数执行 sample/arm 并产出事实；缓存回归侧负责
+选择、授权和解释这些事实。新增真实场景属于独立测试能力建设，必须另行规划，不能隐藏在 CR-21 中。
+
+| 子单元 | Change Location | Concrete Action | Resulting Behavior | Benefit | Verification | Status |
+|---|---|---|---|---|---|---|
+| CR-21.1 | 免费 final-wire 合同与 runner | 为每个确定性场景输出版本化 impact ID、比较对象、首差异和 payload digest；禁止从非结构化日志猜测场景 | 免费失败能精确回答哪条 provider-visible 路径发生变化 | 后续选择范围有可信输入，失败也更容易定位 | 每类已知 mutation 命中唯一预期 impact；无变化输出空 manifest | planned；当前 Next Best Intervention |
+| CR-21.2 | cache contract、新预算提案模块 | 建立版本化 coverage catalog，并对已确认 impact 做纯计算：可表达路径生成模型、sample、arm、repeat、请求/token/费用/耗时上限和停止条件；其他路径输出 coverage gap | `--dry-run` 不读取 API Key、不启动 Whale、不修改全局运行账本 | 用户能在发生费用前审阅证明范围；无关失败不进入付费路径 | supported、unsupported、unknown 表驱动测试；无 Key 和无文件副作用断言 | planned |
+| CR-21.3 | `run_cache_hit_regression.py/.ps1` | 让执行入口只接受已保存提案和与其完全匹配的用户授权；启动前才创建 `planned` 账本记录；拒绝扩大矩阵、自动重试和 coverage gap | 获批内容、实际命令和账本计划使用同一不可变计划 | 防止 dry-run 变相运行、授权与执行错配或包装脚本扩大成本 | mock subprocess、授权错配、计划篡改、账本一致性测试；不调用 provider | planned |
+| CR-21.4 | gate 输出与离线测试 | 免费失败只输出诊断和 impact manifest；显式确认有意变化后才允许独立 proposal 命令消费该 manifest；coverage gap 不建议默认 sample | 修复决策与预算决策不会混在同一个阻断结果中 | 每个阻断步骤提供独立证据，减少无效等待和误授权 | unintended、accepted-supported、accepted-unsupported、unknown 四类 fixture | planned |
+
+### 3.2 Dev Loop 约束
+
+- **决策边界**：从缓存相关改动完成，到开发者获得“免费通过、应修复，或需要申请哪一份预算”之一的可信结论；
+  不把后续真实运行耗时混入普通 edit-to-feedback 指标。
+- **已有基线**：CR-20 免费矩阵热状态约 `4.5s`、发生增量重编译时约 `29.4s`；真实 provider 路径成本高且需要
+  用户授权，不能作为普通提交的默认反馈步骤。
+- **P0 finding**：固定 sample 可能为未执行路径背书，属于验证结果不可信；release 当前保持阻断，因此问题已被
+  containment，但在 CR-21/CR-22 完成前不能恢复发布权威性。
+- **当前唯一 Next Best Intervention**：只实施 CR-21.1。它是 CR-21.2 精确选路的直接前置条件，也能立刻改善
+  免费失败的定位质量；在其验收前不并行修改执行器、账本或 baseline 模型。
+- **证据分层**：final-wire contract 负责“请求语义变没变”；真实 benchmark 负责“真实 provider 缓存和业务结果”；
+  两层不得重复同一证明，也不得互相替代。
+- **验证升级**：CR-21.1 先运行目标 mutation 与 runner 单测；因为它修改测试选择/门禁证据结构，稳定后再运行
+  全部免费缓存控制面测试。复用现有 Cargo 增量状态，不清缓存、不重建 Docker、不运行 Whale Agent。
+- **反馈门禁**：CR-21.1 只有在 affected mutation 被发现、unaffected case 保持空 manifest、失败位置可操作且热态
+  耗时没有实质扩大时才保留；否则回退该单元并重新诊断。
+- **停止条件**：当免费失败能精确定位 impact 且 CR-21.2 可只做表驱动映射时进入下一单元；若精确定位必须侵入
+  通用 benchmark 或依赖真实 API，则暂停 CR-21，不能扩大架构。
+- **长期 guardrail**：任何新增阻断检查必须声明触发面、独立证据、预期热/冷耗时、失败升级路径和移除条件；
+  不允许用“更全面”作为无条件扩大 E2E 矩阵的理由。
 
 ## 4. Phase 顺序
 
@@ -97,7 +135,8 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 
 - Entry condition：Phase C 场景稳定，免费运行成本可接受。
 - Work units：CR-20、CR-21、CR-22。
-- Phase-local evidence：语义不变的源码改动不申请预算；payload 变化准确输出受影响场景和 dry-run 预算单。
+- Phase-local evidence：语义不变的源码改动不申请预算；payload 变化先输出结构化 impact，只有确认后的可覆盖路径
+  才生成 dry-run 预算单，coverage gap 保持阻断。
 - Next-phase condition：新 scoped baseline 模型可以完全替代 v1 全局 hash，不保留两个权威来源。
 
 ### Phase E：接线与对抗性验收
