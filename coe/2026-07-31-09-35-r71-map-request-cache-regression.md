@@ -1,7 +1,7 @@
 # Problem P-001: R7.1 map-request 缓存命中率回归
 - Status: open
 - Created: 2026-07-31 09:35
-- Updated: 2026-07-31 09:35
+- Updated: 2026-07-31 10:08
 - Objective: 用最多三次用户授权的 Whale Agent sample，证明 map-request request 2+ 缓存命中率从约 92% 降至约 41% 的根因。
 - Symptoms:
   - 当前 `subscription-billing-repair` map-request 单次运行共 18 个 provider request，request 2+ 缓存命中率仅 41.00%。
@@ -23,24 +23,27 @@
   - request-tail Map Handle 由 `9a0c37cd8f` 引入，但 2026-07-29 `abe2b872b` 的同形态 map-request 复杂样本仍有 91.9% 至 92.5% request 2+ 命中率。
   - 缓存回归首次在现存证据中出现在 `445499582` 后；该提交新增 `TaskSpaceResponseFinalReceiptV1` model-visible developer receipt。
   - DeepSeek 官方缓存为 best-effort；命中依赖已落盘的完整缓存前缀单元，落盘点包括请求边界、公共前缀检测和固定 token 间隔。
+  - 同一 provider 时间窗口内，pre-receipt、post-receipt、current 三臂均业务验证通过，request 2+ 命中率依次为 86.51%、57.62%、33.61%。
+  - post-receipt 臂每次新增 developer Final Receipt 后，下一请求命中率均落在 16.4% 至 34.6%；未新增 receipt 的稳定段恢复到 67.6% 至 94.9%。
+  - current 臂几乎每轮新增 Final Receipt；DeepSeek wire 将对话中段的 developer receipt 表达为 system message，后续请求持续只命中约 6K token。
 - Ruled out:
   - “request-tail Map Handle 单独导致 7 月 29 日缓存回归”已被历史高命中证据否定。
   - 当前单次运行内 Tool schema 切换或 `tool_choice` 切换不是原因。
 - Fix criteria:
   - 至少一个根因假设通过相同 provider 条件下的历史边界对照和逐请求 wire/cache 信号证实。
   - 修复前必须能解释回归前高命中、回归后间歇性低命中，以及 map-append 严格前缀下也曾出现间歇失效。
-- Current conclusion: 回归窗口已收敛到 `abe2b872b..445499582` 与同期 provider 缓存行为；尚不能区分 Final Receipt 上下文载体、供应商缓存时序或二者交互。
+- Current conclusion: 根因已确认。`445499582` 将 response-final canonical receipt 作为独立 developer 消息追加到自然历史；在 DeepSeek wire 中它成为对话中段的 system message。该动态 system carrier 与每轮替换的 map-request tail Handle 共同破坏可持续复用的完整缓存前缀单元。provider best-effort 落盘只解释残余波动，不解释提交边界和逐 receipt 的确定性下降。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - H-001 通过同一时间窗口三臂对照和 post 臂内部逐 receipt 相关性满足诊断证据门。
 - Close reason:
   - not closed
 
 ## Hypothesis H-001: Final Receipt 上下文载体触发缓存回归
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
 - Claim: `445499582` 新增的 model-visible developer Final Receipt 改变 provider 输入和缓存单元边界，是 map-request 缓存回归的必要原因。
 - Layer: root-cause
@@ -72,18 +75,22 @@
   - Instrumentation status: permanent-observability-candidate
   - Instrumentation lifecycle:
     - 复用现有 provider wire、cache 和 section trace。
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
   - E-002
-- Conclusion: unverified
-- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: 构建并运行 pre/post 历史边界对照。
+  - E-005
+  - E-006
+  - E-007
+  - E-008
+- Conclusion: confirmed。pre-receipt 在当前 provider 下恢复高命中；post 臂新增 receipt 的每个后继请求均发生缓存塌缩；current 每轮 receipt 使塌缩持续存在。
+- Repair design readiness: ready for user confirmation
+- Next step: 以 R71-10 的唯一 final revision 为前置，把机械事实合并回原生 control result，移除独立 developer/system receipt；不得删除事实或新增平行 carrier。
 - Blocker:
   - none
 
 ## Hypothesis H-002: DeepSeek 缓存落盘行为变化是主要原因
-- Status: unverified
+- Status: refuted
 - Parent: P-001
 - Claim: 仓内 wire 风险长期存在，但 DeepSeek 当前缓存单元落盘或 best-effort 命中行为变化，使此前可高命中的公共前缀现在只能间歇命中。
 - Layer: environment
@@ -113,18 +120,20 @@
   - Instrumentation status: permanent-observability-candidate
   - Instrumentation lifecycle:
     - 保留 provider 返回的原始 cache usage 与 wire identity。
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
   - E-003
-- Conclusion: unverified
-- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: 运行历史 pre-receipt 对照。
+  - E-005
+  - E-006
+- Conclusion: refuted as primary cause。pre-receipt fresh run 达到 86.51%，明显恢复且接近历史 91.9% 至 92.5%；provider best-effort 行为只构成剩余方差。
+- Repair design readiness: not applicable
+- Next step: 保留 provider cache usage 观测，不以供应商波动替代仓内 carrier 修复。
 - Blocker:
   - none
 
 ## Hypothesis H-003: 当前额外反馈与拒绝请求只放大而不触发回归
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
 - Claim: 当前更大的 control feedback、协议拒绝和状态拒绝增加未缓存 token 与请求数，但不是缓存率从约 92% 降至约 41% 的首要触发因素。
 - Layer: interaction
@@ -157,12 +166,14 @@
   - Instrumentation status: permanent-observability-candidate
   - Instrumentation lifecycle:
     - 复用现有 request reason、phase、receipt 与 cache trace。
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-004
-- Conclusion: unverified
-- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: 在三次运行完成后离线关联请求级证据。
+  - E-006
+  - E-007
+- Conclusion: confirmed。post 臂无新增 receipt 的稳定段即使历史中已有失败反馈也可恢复高命中；current 在唯一 state rejection 之前已经连续低命中。拒绝会增加请求和 token，但不是缓存回归触发器。
+- Repair design readiness: not applicable
+- Next step: 反馈与拒绝成本继续由各自 Phase 处理，不并入 R71-11 carrier 修复。
 - Blocker:
   - none
 
@@ -253,3 +264,124 @@
   ```
 - Interpretation: 已证明存在成本放大器，尚未证明它决定缓存率。
 - Time: 2026-07-31 09:35
+
+## Evidence E-005: pre-receipt fresh run 在当前 provider 下恢复高命中
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports H-001; refutes H-002
+- Type: controlled-experiment
+- Source: `target/r71-cache-root-cause/runs/pre/subscription-billing-repair/20260731-094545-239`
+- Prediction or plan link:
+  - H-001/H-002 的当前 provider 历史边界对照。
+- Matched signal:
+  - commit `abe2b872b`；11 requests；request 2+ cached 157,440、uncached 24,542、hit 86.5141%；业务与隐藏 oracle 通过。
+- Correlation keys:
+  - binary SHA-256 `7cdee712b5e163eb7078b132b427436e65bf5a5982eee8d18f0d52faef28db16`
+  - run `20260731-094545-239`
+- Raw content:
+  ```text
+  req2+ hit: 0.865141
+  request count: 11
+  prefix_preserved_rate: 0
+  business_success: true
+  ```
+- Interpretation: request-tail Handle 和严格消息前缀破坏长期存在，但不足以造成当前持续低命中；provider 行为变化不是主要回归原因。
+- Time: 2026-07-31 09:46
+
+## Evidence E-006: post-receipt 新增 system carrier 与缓存塌缩逐次对应
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports H-001 and H-003; refutes H-002
+- Type: controlled-experiment
+- Source: `target/r71-cache-root-cause/runs/post/subscription-billing-repair/20260731-094655-203`
+- Prediction or plan link:
+  - H-001 的“下降开始于 receipt 进入下一请求”条款。
+- Matched signal:
+  - commit `445499582`；15 requests；request 2+ hit 57.6226%。
+  - system message 数新增的请求为 4、5、6、8、14、15，对应 hit 25.3%、34.6%、33.4%、26.6%、16.4%、16.5%。
+  - system message 数不变的稳定段请求 7、9、10、11、12、13，对应 hit 84.0%、67.6%、81.4%、94.9%、88.8%、91.6%。
+  - rollout 中确认 6 条原始 role=`developer` 的 `TaskSpaceResponseFinalReceiptV1`。
+- Correlation keys:
+  - binary SHA-256 `e6035994ced408cb3110baf66512e569abdc12121fb30842bb22460bfcc3b812`
+  - run `20260731-094655-203`
+- Raw content:
+  ```text
+  receipt-added successor hit range: 16.4%..34.6% (6/6)
+  no-new-receipt stable hit range: 67.6%..94.9% (6/6)
+  ```
+- Interpretation: 同一运行内的逐事件对应排除了模型任务难度、provider 时间窗口和静态 Tool schema；动态 Final Receipt carrier 是缓存塌缩触发器。
+- Time: 2026-07-31 09:49
+
+## Evidence E-007: current 每轮 receipt 使低命中成为持续状态
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: controlled-experiment
+- Source: `target/r71-cache-root-cause/runs/current/subscription-billing-repair/20260731-094928-336`
+- Prediction or plan link:
+  - H-001 的 current 持续低命中预测。
+- Matched signal:
+  - 9 requests；request 2+ cached 50,304、uncached 99,379、hit 33.6070%；业务与隐藏 oracle 通过。
+  - 请求 2 至 9 每轮只命中 6,016 至 6,784 token；Final Receipt 从 1 条增长到 6 条，wire system message 从 3 条增长到 10 条。
+  - 唯一 state rejection 出现在低命中已持续之后，不能解释此前下降。
+- Correlation keys:
+  - binary SHA-256 `734915a520afd5b597ee18962bb151e38504189d958ed104a99f12a56b31110a`
+  - run `20260731-094928-336`
+- Raw content:
+  ```text
+  req2..9 cached: 6016, 6016, 6016, 6272, 6272, 6400, 6528, 6784
+  req2+ hit: 0.336070
+  ```
+- Interpretation: 后续 R7.1 请求合并减少了 request 数，但未修复 carrier 造成的每请求缓存损失。
+- Time: 2026-07-31 09:50
+
+## Evidence E-008: 代码路径将机械 receipt 写成对话中段 developer/system 消息
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/tools/sequence.rs`、DeepSeek Context Caching 官方文档
+- Prediction or plan link:
+  - H-001 的载体机制。
+- Matched signal:
+  - `execute_prepared_taskspace_siblings` 在普通 Tool outputs 后额外 push `ResponseInputItem::Message { role: "developer" }`。
+  - provider wire 将这些消息表达为 system role；内容含每轮变化的 call id、revision 和计数。
+  - DeepSeek 只命中从第 0 token 开始完整匹配且已落盘的缓存前缀单元；缓存为 best-effort。
+- Correlation keys:
+  - commit `445499582`
+  - schema `TaskSpaceResponseFinalReceiptV1`
+- Raw content:
+  ```text
+  outputs.push(ResponseInputItem::Message {
+      role: "developer".to_string(),
+      content: receipt.model_visible_result(),
+  });
+  ```
+- Interpretation: receipt 是必要机械事实，却被放进了错误的自然历史角色和独立 carrier；这既违反反馈层“原生 Tool 结果忠实透传”的边界，也使 map-request 的动态尾部前持续出现新 system 边界。
+- Time: 2026-07-31 10:08
+
+## Evidence E-009: 共享 Cargo target 可污染历史臂构建指纹
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: neutral
+- Type: environment-observation
+- Source: 三臂构建预检
+- Prediction or plan link:
+  - 确保历史边界二进制身份可信。
+- Matched signal:
+  - 多 worktree 共用 target 后，current 首次构建错误复用了历史 `codex-protocol` 产物；强制 protocol 重新指纹化后当前 HEAD 构建通过。
+  - 三臂运行前均以各自源码 commit、binary SHA-256 和 build attestation 通过健康检查。
+- Correlation keys:
+  - `whale_binary_attestation`
+- Raw content:
+  ```text
+  initial: TokenCountEvent has no field provider_request_id
+  after protocol rebuild: Finished dev profile
+  ```
+- Interpretation: 这是 benchmark 构建隔离缺口，不影响三次已证明二进制的 API 结果；后续历史对照不得无证明共用 Cargo 产物。
+- Time: 2026-07-31 09:45
