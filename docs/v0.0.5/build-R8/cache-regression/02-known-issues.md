@@ -29,10 +29,10 @@
 | CR-I05 | P0 | 主要上下文和 Tool 选择入口未覆盖 | `session/mod.rs`、`session/turn.rs`、`tools/router.rs` 可改变消息顺序、可见 Tool 和 `tool_choice` | 最容易破坏稳定前缀的变更可能漏报 | closed | CR-06、CR-12 至 CR-17 |
 | CR-I06 | P1 | model/provider 路由和请求元数据未覆盖 | provider config、模型默认值和 `models.json` 不在当前合同中 | 模型或 wire API 切换可能沿用无效基线 | closed | CR-18 |
 | CR-I07 | P1 | 一个固定付费样本被赋予过宽证明范围 | runner 固定 Flash、`single-file-fast-fix`、Standard + map-request、repeat=1 | Pro、三种 projection、MCP、Skills、权限、压缩等未执行路径无法被证明 | open | CR-21、CR-22 |
-| CR-I08 | P1 | 原始文件字节造成付费误报 | 当前 77 个匹配文件中至少 10 个是显式测试文件；注释和格式也进入 hash | 无缓存语义变化的提交会阻断并要求 API 预算 | open | CR-07、CR-08、CR-20 |
+| CR-I08 | P1 | 原始文件字节造成付费误报 | 当前 77 个匹配文件中至少 10 个是显式测试文件；注释和格式也进入 hash | 无缓存语义变化的提交会阻断并要求 API 预算 | closed | CR-07、CR-08、CR-20 |
 | CR-I09 | P0 | 发布证据没有绑定唯一源码快照 | worktree 枚举忽略 untracked，release 记录 HEAD 却检查 dirty worktree | 报告的 commit 不一定是实际测试对象 | closed | CR-05 |
 
-问题总数：**9**；Open：**2**；Closed：**7**。
+问题总数：**9**；Open：**1**；Closed：**8**。
 
 CR-I01 关闭证据：提交 `6a44bf0f1` 删除 bootstrap 的 release 放行语义；6 个 gate tests 通过，当前普通开发门
 保持通过，`--require-live-baseline` 对非 `live_verified` 基线返回退出码 20。未运行真实 Whale Agent。
@@ -113,6 +113,10 @@ provider 路由、Flash 可见性及 Pro 无法被远端目录重新启用的定
 提交 `55900ac18` 完成 CR-19：生产本地压缩链路的压缩前、摘要请求和压缩后请求进入完整 final-wire 合同。摘要
 回合不暴露执行工具；后续正常请求恢复原工具与控制字段，并以带标准前缀的摘要替换旧 assistant 原文，同时保留
 原用户事实和新输入。连续两轮定向测试及 9 项缓存场景回归通过，未运行真实 Whale Agent。
+
+提交 `71c8f0cf0`、`3b7d7b4fa` 完成 CR-20：风险源码变化改为触发 6 组免费 Responses final-wire、路由、模型与
+usage 合同；旧源码 hash 降为诊断信息。staged/worktree 错配、runner 失败、产品与快照同提交及快照单独更新均
+fail closed。真实 index 等价注释探针通过，64 项离线控制面测试通过。CR-I08 现关闭。
 
 ## 3. 已验证但不属于门禁缺陷的产品现象
 

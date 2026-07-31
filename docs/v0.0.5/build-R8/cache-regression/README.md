@@ -48,6 +48,7 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [08-provider-usage-decoder.md](08-provider-usage-decoder.md) | CR-10 两种 wire API 的 usage 解码合同 | verified |
 | [09-usage-aggregation-contract.md](09-usage-aggregation-contract.md) | CR-11 Rust decoder 与 Python 聚合一致性合同 | verified |
 | [10-standard-request-pair.md](10-standard-request-pair.md) | CR-12 Standard 连续两请求 final-wire 基准 | verified |
+| [12-cr20-free-semantic-gate-result.md](12-cr20-free-semantic-gate-result.md) | CR-20 免费语义门禁实现与验收结果 | verified |
 | [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | reviewed，blocking |
 
 `02-known-issues.md` 是缓存门禁工程缺陷的唯一清单。R8 产品问题状态仍以
@@ -79,5 +80,5 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 - 修复完成后必须执行新的空白对抗性审查，blocking finding 未关闭前不得恢复发布权威性。
 
 当前执行位置：Phase A、Phase B 及 Phase C 的 `CR-12` 至 `CR-16` 已验证，DeepSeek 主路径已迁移到官方
-Responses 协议；CR-I01、CR-I02、CR-I03、CR-I04、CR-I05、CR-I06、CR-I09 已关闭，Phase C 场景矩阵完成。
-下一单元为 Phase D 的 `CR-20`，用于让源码风险哨兵触发免费 final-wire 语义测试。
+Responses 协议；除 CR-I07 外其余已知门禁问题均已关闭。Phase C 场景矩阵与 Phase D 的 `CR-20` 免费语义门禁
+已完成；下一单元为 `CR-21`，用于根据受影响场景生成最小付费验证预算单。
