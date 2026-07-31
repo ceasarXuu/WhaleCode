@@ -15,6 +15,7 @@ from cache_run_analysis import analyze_artifacts
 from cache_surface import write_json
 from run_cache_hit_regression import (
     cleanup_labeled_containers,
+    cleanup_verified,
     main,
     persist_observation_artifacts,
 )
@@ -172,6 +173,14 @@ class CacheRunExecutionTest(unittest.TestCase):
             ),
             patch("run_cache_hit_regression.subprocess.run", side_effect=fake_run),
             patch(
+                "run_cache_hit_regression.cleanup_labeled_containers",
+                return_value={
+                    "status": "verified_absent",
+                    "container_ids": [],
+                    "error": "",
+                },
+            ),
+            patch(
                 "run_cache_hit_regression.find_run_dir_by_id",
                 return_value=self.repo,
             ),
@@ -222,12 +231,13 @@ class CacheRunExecutionTest(unittest.TestCase):
             type(
                 "Completed", (), {"returncode": 0, "stdout": "one\ntwo\n", "stderr": ""}
             )(),
+            type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
         ]
         with patch(
             "run_cache_hit_regression.subprocess.run", side_effect=completed
         ) as run:
-            result = cleanup_labeled_containers("CACHE-001")
-        self.assertEqual(result["status"], "removed")
+            result = cleanup_labeled_containers("CACHE-001", 10)
+        self.assertEqual(result["status"], "removed_verified")
         self.assertEqual(result["container_ids"], ["one", "two"])
         self.assertEqual(
             run.call_args_list[0].args[0][-1],
@@ -236,6 +246,12 @@ class CacheRunExecutionTest(unittest.TestCase):
         self.assertEqual(
             run.call_args_list[1].args[0], ["docker", "rm", "--force", "one", "two"]
         )
+
+    def test_only_verified_cleanup_statuses_allow_completion(self) -> None:
+        self.assertTrue(cleanup_verified({"status": "verified_absent"}))
+        self.assertTrue(cleanup_verified({"status": "removed_verified"}))
+        self.assertFalse(cleanup_verified({"status": "failed"}))
+        self.assertFalse(cleanup_verified({"status": "removed"}))
 
     def test_keyboard_interrupt_cleans_run_containers_and_settles_cancelled(
         self,
@@ -249,7 +265,11 @@ class CacheRunExecutionTest(unittest.TestCase):
             "--authorization",
             str(self.authorization_path),
         ]
-        cleanup = {"status": "removed", "container_ids": ["agent"]}
+        cleanup = {
+            "status": "removed_verified",
+            "container_ids": ["agent"],
+            "error": "",
+        }
         with (
             patch("sys.argv", argv),
             patch(
@@ -281,6 +301,7 @@ class CacheRunExecutionTest(unittest.TestCase):
         cleanup_run_id = cleanup_call.call_args.args[0]
         self.assertTrue(cleanup_run_id.startswith("WAR-"))
         self.assertTrue(cleanup_run_id.endswith("-CACHE-001"))
+        self.assertEqual(cleanup_call.call_args.args[1], 120)
         result = json.loads(
             next(
                 (self.repo / "benchmarks/cache-regression/results").glob("*.json")
