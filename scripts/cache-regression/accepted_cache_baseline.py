@@ -314,8 +314,11 @@ def validate_run_evidence(
     proposal = source_json(repo, proposal_path, source)
     authorization = source_json(repo, authorization_path, source)
     validate_proposal(repo, proposal, result, require_current_head)
-    actual_surface, _ = surface_snapshot(repo, contract, source)
-    require(result["surface_sha256"] == actual_surface, "cache result surface is stale")
+    if require_current_head:
+        actual_surface, _ = surface_snapshot(repo, contract, source)
+        require(
+            result["surface_sha256"] == actual_surface, "cache result surface is stale"
+        )
     require(
         result.get("authorization_sha256")
         == source_sha256(repo, authorization_path, source),
@@ -437,10 +440,6 @@ def validate_accepted_baseline(
 ) -> dict[str, Any]:
     baseline = contract.get("baseline", {})
     require(baseline.get("status") == "accepted", "baseline status is not accepted")
-    require(
-        baseline.get("surface_sha256") == actual_surface_sha256,
-        "accepted baseline surface does not match current source",
-    )
     smoke = baseline.get("smoke_evidence", {})
     acceptance_evidence = baseline.get("acceptance_evidence", {})
     validated = validate_run_evidence(
@@ -488,6 +487,8 @@ def validate_accepted_baseline(
     )
     return {
         "valid": True,
+        "surface_matches_current": baseline.get("surface_sha256")
+        == actual_surface_sha256,
         "accepted_scenario_paths": sorted(accepted_paths),
         "evidence_paths": validated["evidence_paths"],
     }

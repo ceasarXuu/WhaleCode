@@ -295,6 +295,18 @@ raise SystemExit(7 if value == 'fail' else 0)
         result = self.gate_from_source("head", "--require-live-baseline")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_accepted_baseline_survives_semantically_unchanged_surface_commit(
+        self,
+    ) -> None:
+        stage_accepted_promotion(self.repo, self.contract_path)
+        run("git", "commit", "-qm", "promote", cwd=self.repo)
+        prompt = self.repo / "prompt/base.md"
+        prompt.write_text(prompt.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+        run("git", "commit", "-qm", "format-only", cwd=self.repo)
+        result = self.gate_from_source("head", "--require-live-baseline")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_release_rejects_dirty_accepted_evidence(self) -> None:
         stage_accepted_promotion(self.repo, self.contract_path)
         run("git", "commit", "-qm", "promote", cwd=self.repo)

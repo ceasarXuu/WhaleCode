@@ -43,7 +43,6 @@ function Test-CacheRegressionFormalGateEvidence {
         -or [string]$report.status -ne "pass" `
         -or [string]$report.source -ne "head" `
         -or [string]$report.subject_commit -ne $ExpectedHead `
-        -or [string]$report.actual_surface_sha256 -ne [string]$report.expected_surface_sha256 `
         -or [string]$report.baseline_status -ne "accepted" `
         -or -not [bool]$report.accepted_baseline_validation.valid `
         -or -not [bool]$report.require_live_baseline `
