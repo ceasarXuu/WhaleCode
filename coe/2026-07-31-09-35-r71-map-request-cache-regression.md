@@ -1,7 +1,7 @@
 # Problem P-001: R7.1 map-request 缓存命中率回归
 - Status: open
 - Created: 2026-07-31 09:35
-- Updated: 2026-07-31 10:08
+- Updated: 2026-07-31 10:22
 - Objective: 用最多三次用户授权的 Whale Agent sample，证明 map-request request 2+ 缓存命中率从约 92% 降至约 41% 的根因。
 - Symptoms:
   - 当前 `subscription-billing-repair` map-request 单次运行共 18 个 provider request，request 2+ 缓存命中率仅 41.00%。
@@ -32,20 +32,20 @@
 - Fix criteria:
   - 至少一个根因假设通过相同 provider 条件下的历史边界对照和逐请求 wire/cache 信号证实。
   - 修复前必须能解释回归前高命中、回归后间歇性低命中，以及 map-append 严格前缀下也曾出现间歇失效。
-- Current conclusion: 高置信候选已收敛到独立 developer/system Final Receipt carrier，但尚未完成单变量消融，不能宣称根因已确认。`445499582` 同时包含 receipt、sequence、provider/dispatch identity 和协议文本等多项改动；三臂提交边界与 post 臂内部逐 receipt 相关性强力支持 carrier 假设，却仍需在其余代码完全相同的前提下，仅移除独立 receipt carrier 并复验缓存，才能通过最终因果证据门。
+- Current conclusion: 同版本单变量消融确认独立 developer/system Final Receipt carrier 是缓存回归的因果因素，但不是全部低命中的唯一因素。仅停止该 carrier 后，request 2+ cache 从 33.60% 升至 60.52%，uncached input 下降 23.52%，且业务与隐藏 oracle 保持通过；消融臂仍存在的 4 条 system message 已逐条归因到 1 次 sequence preflight failure 和 3 次 state rejection 的额外 developer 副本，属于既有 R71-01/R71-09 反馈 carrier 问题。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - 尚未满足；缺少只改变 Final Receipt carrier 的同版本 A/B 消融证据。
+  - 根因证据门已满足；生产修复和修复后复验尚未执行，因此 P-001 保持 open。
 - Close reason:
   - not closed
 
 ## Hypothesis H-001: Final Receipt 上下文载体触发缓存回归
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
-- Claim: `445499582` 新增的 model-visible developer Final Receipt 改变 provider 输入和缓存单元边界，是 map-request 缓存回归的必要原因。
+- Claim: `445499582` 新增的 model-visible developer Final Receipt 改变 provider 输入和缓存单元边界，是 map-request 缓存回归的独立因果因素。
 - Layer: root-cause
 - Factor relation: unknown
 - Depends on:
@@ -75,7 +75,7 @@
   - Instrumentation status: permanent-observability-candidate
   - Instrumentation lifecycle:
     - 复用现有 provider wire、cache 和 section trace。
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
   - E-002
@@ -83,9 +83,11 @@
   - E-006
   - E-007
   - E-008
-- Conclusion: strongly supported but not confirmed。pre-receipt 在当前 provider 下恢复高命中；post 臂新增 receipt 的每个后继请求均发生缓存塌缩；current 每轮 receipt 使塌缩持续存在。但提交边界不是单变量实验。
-- Repair design readiness: blocked until same-version carrier ablation satisfies the evidence gate
-- Next step: 构建同一当前源码的 control 与 carrier-ablation 两个二进制，只改变独立 developer/system receipt emission；在同一 provider 时间窗口运行相同 sample，并核对 wire、revision 事实、业务结果和 request 2+ cache。
+  - E-010
+  - E-011
+- Conclusion: confirmed as a causal factor, not as the sole cause。同版本、同二进制 A/B 中，仅停止独立 receipt carrier 后，wire receipt count 从最终累计 6 降为 0，request 2+ cache 提升 26.91 个百分点；剩余低点由 failure developer/system carrier 解释。
+- Repair design readiness: ready after R71-10 establishes the unique native control-result revision carrier
+- Next step: 先完成 R71-10，再由 R71-11 删除独立 receipt；并通过 R71-01/R71-09 去除失败结果的额外 developer/system 副本。
 - Blocker:
   - none
 
@@ -385,3 +387,59 @@
   ```
 - Interpretation: 这是 benchmark 构建隔离缺口，不影响三次已证明二进制的 API 结果；后续历史对照不得无证明共用 Cargo 产物。
 - Time: 2026-07-31 09:45
+
+## Evidence E-010: 同版本 carrier A/B 确认因果贡献
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: controlled-experiment
+- Source: `target/r71-receipt-ablation`
+- Prediction or plan link:
+  - H-001 的同版本单变量消融证据门。
+- Matched signal:
+  - 两臂使用同一 binary SHA-256、模型、样本、projection policy 和 runner 参数。
+  - control：9 requests；request 2+ hit 33.6031%；cached 63,872；uncached 100,575；最终累计 6 条 receipt。
+  - ablation：10 requests；request 2+ hit 60.5156%；cached 130,688；uncached 76,915；receipt count 0。
+  - 两臂 public validation 与 hidden oracle 均通过。
+- Correlation keys:
+  - binary SHA-256 `1e485f3c2a7abb776bae830d157985f79306a6ffa28d223694776012ca2d0383`
+  - control run `20260731-101503-705`
+  - ablation run `20260731-101630-243`
+- Raw content:
+  ```text
+  request 2+ cache: 33.6031% -> 60.5156% (+26.9125 pp)
+  uncached input: 100575 -> 76915 (-23.52%)
+  final receipt count: 6 -> 0
+  business_success: true / true
+  ```
+- Interpretation: 独立 Final Receipt carrier 对缓存下降具有因果贡献；结果不支持把全部剩余低命中只归因于该 carrier。
+- Time: 2026-07-31 10:18
+
+## Evidence E-011: 消融后的剩余 system carrier 来自失败结果副本
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: qualifies H-001; supports H-003
+- Type: diagnostic-log
+- Source: ablation rollout 与 provider wire trace
+- Prediction or plan link:
+  - 解释为何 receipt count 为 0 后仍未恢复 pre-receipt 86.51%。
+- Matched signal:
+  - 消融臂 system message 从基础 2 条增加到 6 条。
+  - 4 条新增 developer/system message 分别复制 1 个 `ToolSequencePreflightResultV3` 和 3 个
+    `TaskSpaceResponseCommitFailureV3`。
+  - 新增 failure carrier 后的请求命中率为 38.76%、35.65%、28.91%、23.50%；无新增 carrier 的后段
+    请求恢复到 95.32% 和 92.63%。
+- Correlation keys:
+  - rollout task event 16、25、42、57
+  - provider request index 3、4、6、8
+- Raw content:
+  ```text
+  response_final_receipt_count: 0
+  sequence_preflight_rejected_call_count: 2
+  control_failure_count: 3
+  final system message count: 6
+  ```
+- Interpretation: 失败结果已作为原生 Tool output 出现，又被复制成独立 developer/system message；这是
+  R71-01/R71-09 已登记问题的缓存成本，不应通过 projection 或 provider 波动解释。
+- Time: 2026-07-31 10:22

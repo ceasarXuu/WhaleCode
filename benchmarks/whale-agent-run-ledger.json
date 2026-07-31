@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-07-31T10:13:55+08:00",
+  "updated_at": "2026-07-31T10:17:48+08:00",
   "entries": [
     {
       "record_id": "WAR-20260731-R71-RECEIPT-ABLATION-001",
       "record_type": "run_batch",
-      "status": "running",
+      "status": "settled",
       "started_at": "2026-07-31T10:13:55+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-07-31T10:17:48+08:00",
+      "elapsed_calendar_seconds": 233,
+      "aggregate_agent_wall_time_ms": 118143,
       "reason": "对 R7.1 Final Receipt carrier 高置信根因执行同源码、同二进制、同样本的 control/ablation 单变量实验。",
       "authorization": {
         "required": true,
@@ -38,21 +38,25 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 2,
-        "actual_sample_runs": 0,
-        "api_requests": 0
+        "actual_sample_runs": 2,
+        "api_requests": 19
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 372050,
+        "cached_input": 194560,
+        "uncached_input": 177490,
+        "output": 13680
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
+        "amount": 0.2087412,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0038912,
+          "uncached_input": 0.17749,
+          "output": 0.02736
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-07-31T10:07:53+08:00",
@@ -61,16 +65,20 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": "cached_input/1e6*0.02 + uncached_input/1e6*1.0 + output/1e6*2.0",
+        "formula": "194560/1e6*0.02 + 177490/1e6*1.0 + 13680/1e6*2.0 = 0.2087412 CNY",
         "note": "运行完成后按 provider token 遥测结算。"
       },
       "evidence": {
         "planned_run_root": "target/r71-receipt-ablation",
-        "actual_run_root": null,
-        "metrics_path": null,
-        "request_summary_path": null,
-        "rollout_path": null,
-        "run_status_path": null,
+        "actual_run_root": "target/r71-receipt-ablation",
+        "metrics_path": "target/r71-receipt-ablation/control-valid/subscription-billing-repair/20260731-101503-705/pair-001/right/artifacts/metrics.json",
+        "request_summary_path": "target/r71-receipt-ablation/control-valid/subscription-billing-repair/20260731-101503-705/pair-001/right/artifacts/request-summary.json",
+        "rollout_path": "target/r71-receipt-ablation/control-valid/subscription-billing-repair/20260731-101503-705/pair-001/right/artifacts/rollout.jsonl",
+        "run_status_path": "target/r71-receipt-ablation/control-valid/subscription-billing-repair/20260731-101503-705/run-status.json",
+        "arm_artifacts": {
+          "control": "target/r71-receipt-ablation/control-valid/subscription-billing-repair/20260731-101503-705/pair-001/right/artifacts",
+          "ablation": "target/r71-receipt-ablation/ablation/subscription-billing-repair/20260731-101630-243/pair-001/right/artifacts"
+        },
         "scenario": "subscription-billing-repair",
         "projection_policy": "map-request",
         "run_side": "right",
@@ -79,7 +87,7 @@
         "whale_binary_sha256": "1e485f3c2a7abb776bae830d157985f79306a6ffa28d223694776012ca2d0383",
         "diagnostic_variable": "WHALE_DIAGNOSTIC_SUPPRESS_TASKSPACE_FINAL_RECEIPT_CARRIER",
         "stop_conditions": "每臂首次运行成功、失败、超时或取消后即消耗该 sample 配额并停止；总计达到 2 次后停止；不得自动重试。",
-        "outcome": "pending"
+        "outcome": "2/2 valid runs，均通过公开验证和隐藏 oracle，未重试。control 9 requests、request 2+ cache 33.60%；仅抑制独立 Final Receipt carrier 后为 10 requests、60.52%，提升 26.91 个百分点，uncached input 降低 23.52%。消融臂 receipt count 为 0，但 1 次 sequence preflight failure 和 3 次 state rejection 仍各产生独立 developer/system failure carrier，因此尚未恢复 pre-receipt 的 86.51%。启动前另有一次零 provider 请求的 invalid_harness 预检，未计入 sample。"
       }
     },
     {
