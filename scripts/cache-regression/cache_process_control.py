@@ -26,6 +26,8 @@ def cleanup_verified(result: dict[str, Any]) -> bool:
     return (
         result.get("status") in CLEANUP_SUCCESS_STATUSES
         and result.get("stable_empty_polls", 0) >= CLEANUP_STABLE_EMPTY_POLLS
+        and result.get("network_cleanup_status")
+        in {"verified_absent", "removed_verified"}
     )
 
 
@@ -120,12 +122,24 @@ def cleanup_labeled_containers(run_id: str, grace_seconds: int) -> dict[str, Any
             elif not container_ids:
                 stable_empty_polls += 1
                 if stable_empty_polls >= CLEANUP_STABLE_EMPTY_POLLS:
+                    network_cleanup = _cleanup_labeled_networks(run_id, remaining)
+                    if network_cleanup["status"] == "failed":
+                        return {
+                            "status": "failed",
+                            "container_ids": sorted(removed_ids),
+                            "stable_empty_polls": stable_empty_polls,
+                            "network_cleanup_status": "failed",
+                            "network_ids": network_cleanup["network_ids"],
+                            "error": network_cleanup["error"],
+                        }
                     return {
                         "status": (
                             "removed_verified" if removed_ids else "verified_absent"
                         ),
                         "container_ids": sorted(removed_ids),
                         "stable_empty_polls": stable_empty_polls,
+                        "network_cleanup_status": network_cleanup["status"],
+                        "network_ids": network_cleanup["network_ids"],
                         "error": "",
                     }
             else:
@@ -147,5 +161,52 @@ def cleanup_labeled_containers(run_id: str, grace_seconds: int) -> dict[str, Any
         "status": "failed",
         "container_ids": sorted(removed_ids),
         "stable_empty_polls": stable_empty_polls,
+        "network_cleanup_status": "not_attempted",
+        "network_ids": [],
         "error": last_error or "container cleanup grace expired",
     }
+
+
+def _cleanup_labeled_networks(run_id: str, timeout_seconds: int) -> dict[str, Any]:
+    try:
+        listed = subprocess.run(
+            [
+                "docker",
+                "network",
+                "ls",
+                "-q",
+                "--filter",
+                f"label=whalecode.run_id={run_id}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=min(10, timeout_seconds),
+        )
+        network_ids = [item for item in listed.stdout.splitlines() if item.strip()]
+        if listed.returncode != 0:
+            return {
+                "status": "failed",
+                "network_ids": network_ids,
+                "error": listed.stderr.strip() or "docker network ls failed",
+            }
+        if not network_ids:
+            return {"status": "verified_absent", "network_ids": [], "error": ""}
+        removed = subprocess.run(
+            ["docker", "network", "rm", *network_ids],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=min(30, timeout_seconds),
+        )
+        return {
+            "status": "removed_verified" if removed.returncode == 0 else "failed",
+            "network_ids": network_ids,
+            "error": removed.stderr.strip() if removed.returncode != 0 else "",
+        }
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {
+            "status": "failed",
+            "network_ids": [],
+            "error": f"{type(error).__name__}: {error}",
+        }

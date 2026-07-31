@@ -180,6 +180,8 @@ class CacheRunExecutionTest(unittest.TestCase):
                     "status": "verified_absent",
                     "container_ids": [],
                     "stable_empty_polls": 3,
+                    "network_cleanup_status": "verified_absent",
+                    "network_ids": [],
                     "error": "",
                 },
             ),
@@ -234,6 +236,7 @@ class CacheRunExecutionTest(unittest.TestCase):
             type(
                 "Completed", (), {"returncode": 0, "stdout": "one\ntwo\n", "stderr": ""}
             )(),
+            type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
             type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
             type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
             type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
@@ -316,7 +319,7 @@ class CacheRunExecutionTest(unittest.TestCase):
             type("Completed", (), {"returncode": 0, "stdout": "late\n", "stderr": ""})(),
             *[
                 type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-                for _ in range(3)
+                for _ in range(4)
             ],
         ]
         with (
@@ -328,9 +331,46 @@ class CacheRunExecutionTest(unittest.TestCase):
         self.assertEqual(result["container_ids"], ["late"])
         self.assertEqual(run.call_args_list[2].args[0], ["docker", "rm", "--force", "late"])
 
+    def test_cleanup_removes_provider_boundary_networks(self) -> None:
+        completed = [
+            *[
+                type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+                for _ in range(3)
+            ],
+            type("Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""})(),
+            type("Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""})(),
+        ]
+        with (
+            patch("cache_process_control.subprocess.run", side_effect=completed) as run,
+            patch("cache_process_control.time.sleep"),
+        ):
+            result = cleanup_labeled_containers("CACHE-NETWORK", 10)
+        self.assertEqual(result["network_cleanup_status"], "removed_verified")
+        self.assertEqual(result["network_ids"], ["net-one"])
+        self.assertEqual(
+            run.call_args_list[4].args[0],
+            ["docker", "network", "rm", "net-one"],
+        )
+
     def test_only_verified_cleanup_statuses_allow_completion(self) -> None:
-        self.assertTrue(cleanup_verified({"status": "verified_absent", "stable_empty_polls": 3}))
-        self.assertTrue(cleanup_verified({"status": "removed_verified", "stable_empty_polls": 3}))
+        self.assertTrue(
+            cleanup_verified(
+                {
+                    "status": "verified_absent",
+                    "stable_empty_polls": 3,
+                    "network_cleanup_status": "verified_absent",
+                }
+            )
+        )
+        self.assertTrue(
+            cleanup_verified(
+                {
+                    "status": "removed_verified",
+                    "stable_empty_polls": 3,
+                    "network_cleanup_status": "removed_verified",
+                }
+            )
+        )
         self.assertFalse(cleanup_verified({"status": "verified_absent", "stable_empty_polls": 1}))
         self.assertFalse(cleanup_verified({"status": "failed"}))
         self.assertFalse(cleanup_verified({"status": "removed"}))
@@ -351,6 +391,8 @@ class CacheRunExecutionTest(unittest.TestCase):
             "status": "removed_verified",
             "container_ids": ["agent"],
             "stable_empty_polls": 3,
+            "network_cleanup_status": "removed_verified",
+            "network_ids": ["provider-boundary"],
             "error": "",
         }
         with (
