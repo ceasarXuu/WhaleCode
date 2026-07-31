@@ -1739,11 +1739,10 @@ fn ensure_realtime_session_is_metered(
         RealtimeEventParser::V1 => RealtimeSessionMode::Conversational,
         RealtimeEventParser::RealtimeV2 => session_mode,
     };
-    if hard_limit.limit.is_some() && normalized_mode == RealtimeSessionMode::Conversational {
-        return Err(CodexErr::Fatal(
-            "provider request hard limit rejects conversational Realtime because server-triggered responses cannot be counted before inference"
-                .to_string(),
-        ));
+    if hard_limit.limit.is_some() {
+        return Err(CodexErr::Fatal(format!(
+            "provider request hard limit rejects {normalized_mode:?} Realtime because server-triggered inference cannot be counted before dispatch"
+        )));
     }
     Ok(())
 }

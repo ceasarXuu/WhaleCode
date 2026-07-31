@@ -132,7 +132,7 @@ fn provider_request_hard_limit_rejects_unmetered_realtime_generation() {
             RealtimeEventParser::RealtimeV2,
             RealtimeSessionMode::Transcription
         )
-        .is_ok()
+        .is_err()
     );
     assert!(
         ensure_realtime_session_is_metered(
