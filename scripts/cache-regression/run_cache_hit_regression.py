@@ -299,6 +299,8 @@ def main() -> int:
             attempt["timed_out"] = False
             attempt["status"] = "cancelled"
             attempt["execution_error"] = "KeyboardInterrupt: run cancelled"
+            attempt["interrupt_cleanup"] = cleanup_labeled_containers(run_id)
+            attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
             cancelled = True
             stop_at = "cancelled"
             break

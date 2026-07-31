@@ -228,6 +228,63 @@ class CacheRunExecutionTest(unittest.TestCase):
             run.call_args_list[1].args[0], ["docker", "rm", "--force", "one", "two"]
         )
 
+    def test_keyboard_interrupt_cleans_run_containers_and_settles_cancelled(
+        self,
+    ) -> None:
+        argv = [
+            "run_cache_hit_regression.py",
+            "--repo-root",
+            str(self.repo),
+            "--proposal",
+            str(self.proposal_path),
+            "--authorization",
+            str(self.authorization_path),
+        ]
+        cleanup = {"status": "removed", "container_ids": ["agent"]}
+        with (
+            patch("sys.argv", argv),
+            patch(
+                "run_cache_hit_regression.load_authorized_proposal",
+                return_value=(
+                    self.proposal,
+                    self.authorization,
+                    self.proposal_path,
+                    self.authorization_path,
+                ),
+            ),
+            patch(
+                "run_cache_hit_regression.ensure_deepseek_api_key",
+                return_value="fixture",
+            ),
+            patch(
+                "run_cache_hit_regression.subprocess.run",
+                side_effect=KeyboardInterrupt,
+            ),
+            patch(
+                "run_cache_hit_regression.cleanup_labeled_containers",
+                return_value=cleanup,
+            ) as cleanup_call,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 130)
+        cleanup_call.assert_called_once_with("CACHE-001")
+        result = json.loads(
+            next(
+                (self.repo / "benchmarks/cache-regression/results").glob("*.json")
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(result["attempts"][0]["interrupt_cleanup"], cleanup)
+        ledger = json.loads(
+            (self.repo / "benchmarks/whale-agent-run-ledger.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(ledger["entries"][0]["status"], "cancelled")
+        self.assertEqual(ledger["entries"][0]["monetary_cost"]["status"], "unavailable")
+
     def test_persists_recomputable_artifacts_outside_target(self) -> None:
         source = self.repo / "target/source"
         source.mkdir(parents=True)
