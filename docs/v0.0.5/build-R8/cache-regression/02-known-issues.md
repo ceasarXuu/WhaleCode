@@ -25,14 +25,14 @@
 | CR-I01 | P0 | 发布门接受未做真实验证的 bootstrap 状态 | `--require-live-baseline` 同时接受 `structural_bootstrap` 和 `live_verified` | 没有 provider 证据也可能通过发布检查 | closed | CR-01 |
 | CR-I02 | P0 | index 检查读取了 worktree 合同 | 已复现：index 暂存空 `surface_rules`，worktree 保留旧合同，门禁返回 0 | 实际提交内容与被检查内容不同 | closed | CR-02 |
 | CR-I03 | P0 | 晋升与控制面证据可自我授权 | 晋升只检查结果状态、hash 和 `actual_sample_runs <= 2`，没有重验 arm、阈值、证据摘要和 subject identity | 手工或错配结果可能被晋升为可信基线 | closed | CR-03 至 CR-05 |
-| CR-I04 | P0 | 真实 DeepSeek wire、Tool serializer 和 usage decoder 未覆盖 | `codex-api` endpoint/SSE 与 `tools/src/tool_spec.rs` 位于当前 18 个 glob 外 | payload 或缓存指标解释改变时门禁可能静默通过 | open | CR-06、CR-09 至 CR-11 |
+| CR-I04 | P0 | 真实 DeepSeek wire、Tool serializer 和 usage decoder 未覆盖 | `codex-api` endpoint/SSE 与 `tools/src/tool_spec.rs` 位于当前 18 个 glob 外 | payload 或缓存指标解释改变时门禁可能静默通过 | closed | CR-06、CR-09 至 CR-11 |
 | CR-I05 | P0 | 主要上下文和 Tool 选择入口未覆盖 | `session/mod.rs`、`session/turn.rs`、`tools/router.rs` 可改变消息顺序、可见 Tool 和 `tool_choice` | 最容易破坏稳定前缀的变更可能漏报 | open | CR-06、CR-12 至 CR-17 |
 | CR-I06 | P1 | model/provider 路由和请求元数据未覆盖 | provider config、模型默认值和 `models.json` 不在当前合同中 | 模型或 wire API 切换可能沿用无效基线 | open | CR-18 |
 | CR-I07 | P1 | 一个固定付费样本被赋予过宽证明范围 | runner 固定 Flash、`single-file-fast-fix`、Standard + map-request、repeat=1 | Pro、三种 projection、MCP、Skills、权限、压缩等未执行路径无法被证明 | open | CR-21、CR-22 |
 | CR-I08 | P1 | 原始文件字节造成付费误报 | 当前 77 个匹配文件中至少 10 个是显式测试文件；注释和格式也进入 hash | 无缓存语义变化的提交会阻断并要求 API 预算 | open | CR-07、CR-08、CR-20 |
 | CR-I09 | P0 | 发布证据没有绑定唯一源码快照 | worktree 枚举忽略 untracked，release 记录 HEAD 却检查 dirty worktree | 报告的 commit 不一定是实际测试对象 | closed | CR-05 |
 
-问题总数：**9**；Open：**5**；Closed：**4**。
+问题总数：**9**；Open：**4**；Closed：**5**。
 
 CR-I01 关闭证据：提交 `6a44bf0f1` 删除 bootstrap 的 release 放行语义；6 个 gate tests 通过，当前普通开发门
 保持通过，`--require-live-baseline` 对非 `live_verified` 基线返回退出码 20。未运行真实 Whale Agent。
@@ -70,6 +70,10 @@ mutation tests 与全部 45 个缓存门禁离线测试通过，未运行真实 
 提交 `01e4cc915` 完成 CR-10：同一版本化 fixture 冻结 Chat Completions 和 Responses API 的 cache hit、miss、
 details 缺失及类型错误解码行为。完整 `codex-api` 共 134 个测试通过，未运行真实 Whale Agent。两种 wire 的错误
 表现不同，CR-11 必须统一按不可比较处理；CR-I04 暂不关闭。
+
+提交 `c008cab58` 完成 CR-11：Python 直接复用 CR-10 fixture，校验全程与 request 2+ token 恒等式，缺失、错误或
+矛盾证据 fail closed；合同版本和 request 2+ token 明细进入 arm 并由晋升器重算。全部 50 个缓存门禁离线测试
+通过，未运行真实 Whale Agent。CR-I04 的既定修复单元全部完成，现关闭。
 
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
