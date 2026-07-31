@@ -28,7 +28,7 @@
 | CR-I04 | P0 | 真实 DeepSeek wire、Tool serializer 和 usage decoder 未覆盖 | `codex-api` endpoint/SSE 与 `tools/src/tool_spec.rs` 位于当前 18 个 glob 外 | payload 或缓存指标解释改变时门禁可能静默通过 | closed | CR-06、CR-09 至 CR-11 |
 | CR-I05 | P0 | 主要上下文和 Tool 选择入口未覆盖 | `session/mod.rs`、`session/turn.rs`、`tools/router.rs` 可改变消息顺序、可见 Tool 和 `tool_choice` | 最容易破坏稳定前缀的变更可能漏报 | closed | CR-06、CR-12 至 CR-17 |
 | CR-I06 | P1 | model/provider 路由和请求元数据未覆盖 | provider config、模型默认值和 `models.json` 不在当前合同中 | 模型或 wire API 切换可能沿用无效基线 | closed | CR-18 |
-| CR-I07 | P0 | 一个固定付费样本被赋予过宽证明范围 | runner 固定 Flash、`single-file-fast-fix`、Standard + map-request、repeat=1 | 未执行路径可能被错误宣称已验证；缺少现成 benchmark 表达能力的路径也没有被明确报告 | open；release 已阻断 | CR-21、CR-22 |
+| CR-I07 | P0 | 一个固定付费 smoke 被赋予过宽证明范围 | runner 固定 Flash、`single-file-fast-fix`、Standard + map-request、repeat=1 | 一次代表性 smoke 可能被错误宣称为所有上下文路径都已验证 | open；release 已阻断 | CR-21、CR-22 |
 | CR-I08 | P1 | 原始文件字节造成付费误报 | 当前 77 个匹配文件中至少 10 个是显式测试文件；注释和格式也进入 hash | 无缓存语义变化的提交会阻断并要求 API 预算 | closed | CR-07、CR-08、CR-20 |
 | CR-I09 | P0 | 发布证据没有绑定唯一源码快照 | worktree 枚举忽略 untracked，release 记录 HEAD 却检查 dirty worktree | 报告的 commit 不一定是实际测试对象 | closed | CR-05 |
 
@@ -125,9 +125,9 @@ fail closed。真实 index 等价注释探针通过，64 项离线控制面测�
 
 门禁修复不得顺带修改 map-request 上下文产品行为。它只应保证后续相关修改能够被可靠、低误报地发现和验证。
 
-CR-I07 的关闭不要求把权限、Skill、Apps/Plugins、MCP、压缩逻辑塞进通用 benchmark。CR-21 负责区分现有
-benchmark 可准确表达的验证路径与 coverage gap；CR-22 只允许实际执行且证据范围匹配的路径晋升。coverage gap
-保持阻断，新增通用 benchmark 场景必须作为独立测试能力建设另行规划。
+CR-I07 的关闭不要求把权限、Skill、Apps/Plugins、MCP、压缩逻辑塞进通用 benchmark，也不建立 coverage catalog。
+CR-21 只让差异和实际 smoke 配置可见；CR-22 记录已接受 final-wire 基线及该 smoke 的准确边界，禁止生成未执行
+路径的验证结论。新增通用 benchmark 场景属于独立测试能力建设，不属于缓存门禁。
 
 按 `dev-loop` 优先级，CR-I07 属于 P0：它影响的是验证结果是否可信。当前 release 已因
 `live_regression_failed` 保持阻断，因此 P0 已被 containment；在 CR-21、CR-22 完成前不得降低阻断等级，也不得

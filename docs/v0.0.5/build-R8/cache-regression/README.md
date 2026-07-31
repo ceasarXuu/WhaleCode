@@ -81,6 +81,6 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 
 当前执行位置：Phase A、Phase B 及 Phase C 的 `CR-12` 至 `CR-16` 已验证，DeepSeek 主路径已迁移到官方
 Responses 协议；除 CR-I07 外其余已知门禁问题均已关闭。Phase C 场景矩阵与 Phase D 的 `CR-20` 免费语义门禁
-已完成；下一单元为 `CR-21.1`，先让免费合同输出可操作的结构化 impact。只有经人工确认的有意变化才进入
-coverage 判断，并仅为现有 benchmark 能准确表达的路径生成最小付费预算单。CR-21 不修改通用 benchmark 的
-产品语义，也不在未获授权时运行真实 provider。
+已完成；下一单元为 `CR-21.1`，先让免费合同忠实输出结构化 change report。只有经人工确认的有意变化和人工
+明确选择的 smoke 配置才进入预算计算。CR-21 不判断测试充分性、不修改通用 benchmark 的产品语义，也不在
+未获授权时运行真实 provider。
