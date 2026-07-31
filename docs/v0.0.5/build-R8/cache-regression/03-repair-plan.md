@@ -2,7 +2,7 @@
 
 - Created: 2026-07-31
 - Plan mode: Authoring
-- Plan status: in progress（CR-01 至 CR-07 completed）
+- Plan status: in progress（CR-01 至 CR-08 completed）
 - Risk: High，涉及发布门、付费验证触发与证据可信性
 - Problem register: [02-known-issues.md](02-known-issues.md)
 
@@ -50,7 +50,7 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-05 | 发布证据绑定精确 commit | release identity | `build-v005-non-agent-gates.ps1`、gate result schema | release source selector | release 只检查显式 commit tree；相关 dirty/untracked 文件直接拒绝，结果记录同一 SHA | 检查对象、构建对象和证据对象一致 | 任何缓存结论都可复算到唯一源码 | exact-commit、dirty relevant、untracked relevant fixtures | 无法确定身份时 fail closed，不运行 API | planned |
 | CR-06 | 找到生产 final-wire 捕获边界 | discovery | `core/src/session/turn.rs`、`core/src/client.rs`、`codex-api/src/endpoint/*.rs` | `Prompt` 到 HTTP body 的调用链 | 绘制并用测试证明 DeepSeek 请求从上下文、Tool 选择到 serializer 的唯一生产路径 | 后续 fixture 有明确权威入口 | 避免另建与生产漂移的测试 serializer | 调用链文档、函数引用和一个本地 mock 捕获 spike | 只提交调查与测试 spike；未证明前不进入 CR-07 | completed（`d04aab5fb`） |
 | CR-07 | 保存可复算的 final-wire 证据 | cache contract | `core/tests/common/responses.rs`、新 `core/tests/common/cache_payload.rs` | mock request capture | 同时输出原始 body SHA 和结构化快照；只固定 fixture 输入，不宽泛重写输出 | 字节变化与可读语义差异均可定位 | 缓存变化不再靠源码路径猜测 | 相同输入重复执行摘要一致；字段/数组顺序突变可被 fixture 捕获 | 保留现有 v1 gate，新增能力未接门禁 | completed（`11d5b2bdd`） |
-| CR-08 | 明确哪些差异需要付费验证 | comparison policy | `benchmarks/cache-regression/` 新 payload contract | cache-relevant fields | 固化消息角色/顺序/内容、Tool schema/order、`tool_choice`、model/provider identity 的比较规则；每个允许忽略字段逐项说明 | 门禁区分真实请求变化与确定性噪声 | 降低误报且不牺牲语义保真 | mutation tests 对每个受保护字段均报警；忽略字段反例测试 | 默认不忽略未知字段，规则不明时保守阻断 | planned |
+| CR-08 | 明确哪些差异需要付费验证 | comparison policy | `benchmarks/cache-regression/` 新 payload contract | cache-relevant fields | 固化消息角色/顺序/内容、Tool schema/order、`tool_choice`、model/provider identity 的比较规则；每个允许忽略字段逐项说明 | 门禁区分真实请求变化与确定性噪声 | 降低误报且不牺牲语义保真 | mutation tests 对每个受保护字段均报警；忽略字段反例测试 | 默认不忽略未知字段，规则不明时保守阻断 | completed（`2dc401d50`） |
 | CR-09 | Tool schema 使用生产 serializer | tool wire | `tools/src/tool_spec.rs`、`core/tests/suite/cache_payload_contract.rs` | provider-visible tools array | 从实际 Session 请求捕获普通 Tool 和 `taskspace_control` 的名称、顺序、描述和参数 schema | Tool 变化进入 final payload 合同 | TaskSpace 改动不会再漏掉普通 Tool 的缓存影响 | 修改 fixture Tool 字段时对应场景快照失败 | 失败时只阻断相关变更，不改 Tool 产品逻辑 | planned |
 | CR-10 | 冻结 provider usage 解码合同 | observability | `codex-api/src/sse/chat_completions.rs`、`sse/responses.rs` | cached token decoder | 用冻结 provider SSE/JSON fixture 覆盖 hit、miss、缺字段和错误类型，并给测量合同独立版本 | decoder 变化由离线 Rust 测试判断 | 防止 provider 字段解释变化被误判成缓存性能变化 | 两种 wire API 的 decoder fixtures | decoder 未通过时结果标记不可比较，不晋升 | planned |
 | CR-11 | 验证分析器与 decoder 口径一致 | observability | `run_cache_hit_regression.py`、trace analyzer tests | Python usage aggregation | 让 Python 读取 CR-10 的统一归一化 fixture，断言 request 2+ 与总量计算一致 | Rust 解码和报告聚合不再形成两个口径 | 性能报告可以从原始证据复算，不需要 API 自证 | cross-language golden fixture 和缺证据失败测试 | 不一致时只阻断报告，不触发付费运行 | planned |

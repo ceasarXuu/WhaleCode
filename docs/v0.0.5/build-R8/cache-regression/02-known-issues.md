@@ -59,6 +59,10 @@ serializer。定向测试 `1 passed; 0 failed`，未运行真实 Whale Agent。C
 相同输入、格式变化、字段变化、数组顺序变化及非法 JSON 均有离线测试。公共辅助测试 `3 passed; 0 failed`，生产
 捕获测试 `1 passed; 0 failed`，未运行真实 Whale Agent。CR-I08 仍需 CR-08、CR-20 才能关闭。
 
+提交 `2dc401d50` 完成 CR-08：final-wire 比较合同精确保护消息、Tool、`tool_choice`、模型、provider 路由和
+未知字段，当前不允许忽略字段；原始 SHA 单独作为完整性证据，避免 JSON 格式变化误报为语义变化。10 个合同
+mutation tests 与全部 45 个缓存门禁离线测试通过，未运行真实 Whale Agent。CR-I08 仍需 CR-20 接线后关闭。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
