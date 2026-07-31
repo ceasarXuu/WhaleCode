@@ -1,7 +1,7 @@
 # DeepSeek Responses 迁移决策
 
 - Created: 2026-07-31
-- Status: CR-15A 至 CR-16 completed；CR-17 next
+- Status: completed（CR-15A 至 CR-17）
 - Scope: R8 缓存门禁 Phase C、WhaleCode 内置 DeepSeek provider 与模型目录
 
 ## 1. 触发事实
@@ -48,6 +48,7 @@ DeepSeek 于 2026-07-31 发布 V4-Flash 正式更新，官方同时声明：
 - `128b47d88`：Standard、三种 TaskSpace、权限和 Skill 的最终线基线迁移到 Responses；
 - `d229ac0aa`：缓存契约使用真实 DeepSeek provider 身份，不再只修改 OpenAI 测试 provider 的 wire 字段；
 - `60c8744ef`：Apps namespace 与 Plugin 上下文进入独立最终线合同。
+- `e8a810a0d`：普通 MCP 资源工具和业务 namespace 进入独立最终线合同。
 
 ## 4. 验收
 
