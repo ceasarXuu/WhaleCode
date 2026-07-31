@@ -32,18 +32,18 @@
 - Fix criteria:
   - 至少一个根因假设通过相同 provider 条件下的历史边界对照和逐请求 wire/cache 信号证实。
   - 修复前必须能解释回归前高命中、回归后间歇性低命中，以及 map-append 严格前缀下也曾出现间歇失效。
-- Current conclusion: 根因已确认。`445499582` 将 response-final canonical receipt 作为独立 developer 消息追加到自然历史；在 DeepSeek wire 中它成为对话中段的 system message。该动态 system carrier 与每轮替换的 map-request tail Handle 共同破坏可持续复用的完整缓存前缀单元。provider best-effort 落盘只解释残余波动，不解释提交边界和逐 receipt 的确定性下降。
+- Current conclusion: 高置信候选已收敛到独立 developer/system Final Receipt carrier，但尚未完成单变量消融，不能宣称根因已确认。`445499582` 同时包含 receipt、sequence、provider/dispatch identity 和协议文本等多项改动；三臂提交边界与 post 臂内部逐 receipt 相关性强力支持 carrier 假设，却仍需在其余代码完全相同的前提下，仅移除独立 receipt carrier 并复验缓存，才能通过最终因果证据门。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - H-001 通过同一时间窗口三臂对照和 post 臂内部逐 receipt 相关性满足诊断证据门。
+  - 尚未满足；缺少只改变 Final Receipt carrier 的同版本 A/B 消融证据。
 - Close reason:
   - not closed
 
 ## Hypothesis H-001: Final Receipt 上下文载体触发缓存回归
-- Status: confirmed
+- Status: unverified
 - Parent: P-001
 - Claim: `445499582` 新增的 model-visible developer Final Receipt 改变 provider 输入和缓存单元边界，是 map-request 缓存回归的必要原因。
 - Layer: root-cause
@@ -75,7 +75,7 @@
   - Instrumentation status: permanent-observability-candidate
   - Instrumentation lifecycle:
     - 复用现有 provider wire、cache 和 section trace。
-- Evidence gate: satisfied
+- Evidence gate: pending
 - Related evidence:
   - E-001
   - E-002
@@ -83,9 +83,9 @@
   - E-006
   - E-007
   - E-008
-- Conclusion: confirmed。pre-receipt 在当前 provider 下恢复高命中；post 臂新增 receipt 的每个后继请求均发生缓存塌缩；current 每轮 receipt 使塌缩持续存在。
-- Repair design readiness: ready for user confirmation
-- Next step: 以 R71-10 的唯一 final revision 为前置，把机械事实合并回原生 control result，移除独立 developer/system receipt；不得删除事实或新增平行 carrier。
+- Conclusion: strongly supported but not confirmed。pre-receipt 在当前 provider 下恢复高命中；post 臂新增 receipt 的每个后继请求均发生缓存塌缩；current 每轮 receipt 使塌缩持续存在。但提交边界不是单变量实验。
+- Repair design readiness: blocked until same-version carrier ablation satisfies the evidence gate
+- Next step: 构建同一当前源码的 control 与 carrier-ablation 两个二进制，只改变独立 developer/system receipt emission；在同一 provider 时间窗口运行相同 sample，并核对 wire、revision 事实、业务结果和 request 2+ cache。
 - Blocker:
   - none
 
