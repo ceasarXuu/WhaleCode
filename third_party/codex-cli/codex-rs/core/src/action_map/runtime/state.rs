@@ -8,6 +8,7 @@ use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 
 use crate::action_map::map::ActionMapId;
 use crate::action_map::map::ActionMapInstance;
+use crate::action_map::rooted_dag;
 
 use super::types::ActionMapControlState;
 use super::types::SetTaskSpaceModeOutcome;
@@ -25,19 +26,20 @@ mod tests {
     use codex_protocol::ThreadId;
     use codex_protocol::protocol::MapRuntimeMode;
 
+    use crate::action_map::rooted_dag::BlockRecord;
+    use crate::action_map::rooted_dag::CompletionRecord;
     use crate::action_map::rooted_dag::MapEdge;
+    use crate::action_map::rooted_dag::TaskSpaceMap;
     use crate::action_map::rooted_dag::map_node;
     use crate::action_map::rooted_dag::new_map;
     use crate::action_map::runtime::ActionMapRuntimeState;
 
-    #[test]
-    fn restore_store_map_accepts_canonical_map_without_snapshot() {
-        let owner = ThreadId::new();
-        let map = new_map(
-            "map-1".into(),
+    fn valid_map(map_id: &str) -> TaskSpaceMap {
+        new_map(
+            map_id.into(),
             map_node("root", "solve", vec![]),
             vec![map_node("work", "work", vec![])],
-            map_node("finish", "", vec![]),
+            map_node("finish", "finish", vec![]),
             vec![
                 MapEdge {
                     from: "root".into(),
@@ -48,7 +50,13 @@ mod tests {
                     to: "finish".into(),
                 },
             ],
-        );
+        )
+    }
+
+    #[test]
+    fn restore_store_map_accepts_canonical_map_without_snapshot() {
+        let owner = ThreadId::new();
+        let map = valid_map("map-1");
         let mut runtime = ActionMapRuntimeState::default();
 
         runtime
@@ -86,6 +94,69 @@ mod tests {
 
         assert_eq!(runtime.mode(), MapRuntimeMode::Experiment);
         assert_eq!(runtime.active_map_id(), Some("store-map-7"));
+        assert_eq!(runtime.canonical_map_for_store(), None);
+    }
+
+    #[test]
+    fn restore_store_map_rejects_invalid_canonical_maps_without_mutation() {
+        let owner = ThreadId::new();
+        let existing = valid_map("existing-map");
+        let mut runtime = ActionMapRuntimeState::default();
+        runtime
+            .restore_store_map("existing-map", owner, Some(existing.clone()))
+            .expect("seed existing canonical Map");
+
+        let mut cycle = valid_map("cycle-map");
+        cycle.edges.push(MapEdge {
+            from: "finish".into(),
+            to: "root".into(),
+        });
+        let mut unreachable = valid_map("unreachable-map");
+        unreachable.edges.remove(0);
+        let mut fact_conflict = valid_map("fact-conflict-map");
+        fact_conflict.completion_records.insert(
+            "work".into(),
+            CompletionRecord {
+                action_id: "complete-work".into(),
+                result_ref_ids: vec![],
+                evidence_ref_ids: vec![],
+            },
+        );
+        fact_conflict.block_records.insert(
+            "work".into(),
+            BlockRecord {
+                action_id: "block-work".into(),
+                reason_ref: "reason-1".into(),
+            },
+        );
+
+        for invalid in [cycle, unreachable, fact_conflict] {
+            let invalid_id = invalid.map_id.clone();
+            let error = runtime
+                .restore_store_map(&invalid_id, owner, Some(invalid))
+                .expect_err("invalid canonical Map must be rejected");
+            assert!(
+                error.contains("invalid"),
+                "restore error must identify invalid canonical Map: {error}"
+            );
+            assert_eq!(runtime.mode(), MapRuntimeMode::Experiment);
+            assert_eq!(runtime.active_map_id(), Some("existing-map"));
+            assert_eq!(runtime.canonical_map_for_store(), Some(existing.clone()));
+        }
+    }
+
+    #[test]
+    fn restore_store_map_id_mismatch_does_not_change_runtime() {
+        let owner = ThreadId::new();
+        let mut runtime = ActionMapRuntimeState::default();
+
+        let error = runtime
+            .restore_store_map("expected-map", owner, Some(valid_map("other-map")))
+            .expect_err("Map identity mismatch");
+
+        assert!(error.contains("does not match"));
+        assert_eq!(runtime.mode(), MapRuntimeMode::Standard);
+        assert_eq!(runtime.active_map_id(), None);
         assert_eq!(runtime.canonical_map_for_store(), None);
     }
 }
@@ -177,7 +248,7 @@ impl ActionMapRuntimeState {
         self.export_canonical_map()
     }
 
-    pub(crate) fn restore_canonical_map(
+    fn restore_canonical_map(
         &mut self,
         map: TaskSpaceCanonicalMap,
         owner_session_id: Option<ThreadId>,
@@ -196,7 +267,6 @@ impl ActionMapRuntimeState {
         owner_session_id: ThreadId,
         canonical_map: Option<TaskSpaceCanonicalMap>,
     ) -> Result<(), String> {
-        self.mode = MapRuntimeMode::Experiment;
         match canonical_map {
             Some(map) => {
                 if map.map_id != map_id {
@@ -205,9 +275,32 @@ impl ActionMapRuntimeState {
                         map.map_id
                     ));
                 }
+                let violations = rooted_dag::validate(&map);
+                if !violations.is_empty() {
+                    let details = violations
+                        .iter()
+                        .map(|violation| {
+                            if violation.subjects.is_empty() {
+                                violation.code.as_str().to_string()
+                            } else {
+                                format!(
+                                    "{}({})",
+                                    violation.code.as_str(),
+                                    violation.subjects.join(",")
+                                )
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(";");
+                    return Err(format!(
+                        "TaskSpace Store map `{map_id}` canonical Map is invalid: {details}"
+                    ));
+                }
+                self.mode = MapRuntimeMode::Experiment;
                 self.restore_canonical_map(map, Some(owner_session_id));
             }
             None => {
+                self.mode = MapRuntimeMode::Experiment;
                 self.maps.remove(map_id);
                 self.active_map_id = Some(map_id.to_string());
             }

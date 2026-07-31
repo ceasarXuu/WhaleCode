@@ -16,7 +16,6 @@ pub(crate) use events::replay_batches;
 #[cfg(test)]
 pub(crate) use invariants::Violation;
 pub(crate) use invariants::ViolationCode;
-#[cfg(test)]
 pub(crate) use invariants::validate;
 pub(crate) use model::ActionReservation;
 pub(crate) use model::BlockRecord;

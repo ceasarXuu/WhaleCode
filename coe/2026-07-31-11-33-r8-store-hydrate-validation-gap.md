@@ -1,7 +1,7 @@
 # Problem P-001: Store hydrate 未执行 canonical Map 完整校验
 - Status: open
 - Created: 2026-07-31 11:33
-- Updated: 2026-07-31 11:33
+- Updated: 2026-07-31 11:43
 - Objective: 确保任何持久化 canonical Map 在进入 Runtime 或建立 child/fork binding 前通过现有 rooted-DAG validator，失败时不产生状态副作用。
 - Symptoms:
   - `restore_store_map()` 只比较 Store Map ID 与 canonical Map ID，随后直接安装 Map。
@@ -38,7 +38,7 @@
   - 非法父 Map 不新增 child/fork binding。
   - Store 缺失或非法时不从 rollout 或 Session snapshot 重建。
   - 失败日志包含稳定事件、Map/revision 身份和原始错误，不包含用户业务内容。
-- Current conclusion: 源码路径支持“现有 validator 漏接入 restore 边界”的根因候选；等待 W1/W5 失败测试满足诊断证据门。
+- Current conclusion: W1 在当前代码上确定性证明非法 canonical Map 被接受并安装，Map ID mismatch 失败也会先修改 Runtime mode；H-001 根因成立，允许实施 W2/W3。H-002 仍等待 Store 集成测试。
 - Related hypotheses:
   - H-001
   - H-002
@@ -48,7 +48,7 @@
   - not closed
 
 ## Hypothesis H-001: restore_store_map 漏调用现有 rooted-DAG validator
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
 - Claim: 存储一致但图语义非法的 canonical Map 会被 `restore_store_map()` 接受并安装，因为该路径只比较 Map ID。
 - Layer: root-cause
@@ -77,13 +77,15 @@
   - Instrumentation status: diagnostic-only
   - Instrumentation lifecycle:
     - 测试转为永久回归
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
   - E-002
-- Conclusion: unverified
-- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: 执行 W1 failing fixture。
+  - E-004
+  - E-005
+- Conclusion: confirmed；完整 validator 漏接入，且失败前修改 mode 破坏零状态变化。
+- Repair design readiness: ready
+- Next step: 接入现有 validator，并将所有状态修改移到校验成功之后。
 - Blocker:
   - none
 - Close reason:
@@ -193,3 +195,51 @@
   ```
 - Interpretation: 两步不在同一事务；仍需集成测试证明 restore 失败时 binding 确实保留。
 - Time: 2026-07-31 11:33
+
+## Evidence E-004: W1 失败测试复现非法安装和失败状态污染
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: test
+- Source: `cargo test -p codex-core restore_store_map_ -- --nocapture`
+- Prediction or plan link:
+  - H-001 关于非法 Map 会被接受，以及 Map ID mismatch 失败前会修改 Runtime 的预测。
+- Matched signal:
+  - 非法 cycle Map 的 `expect_err` 收到 `Ok(())`。
+  - Map ID mismatch 后 `runtime.mode()` 实际为 `Experiment`，期望为 `Standard`。
+- Correlation keys:
+  - cycle-map
+  - expected-map
+- Raw content:
+  ```text
+  invalid canonical Map must be rejected: ()
+  assertion failed: left Experiment, right Standard
+  test result: FAILED. 2 passed; 2 failed
+  ```
+- Interpretation: `ActionMapInstance::from_graph` 没有隐藏校验；源码缺口已经转化为确定性行为证据，根因与失败原子性子问题同时成立。
+- Time: 2026-07-31 11:38
+
+## Evidence E-005: W2/W3 接入唯一 validator 后定向回归通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `cargo test -p codex-core restore_store_map_ -- --nocapture`
+- Prediction or plan link:
+  - P-001 关于非法 Map 安装前拒绝和失败零 Runtime 状态变化的修复标准。
+- Matched signal:
+  - cycle、不可达节点和 fact conflict 均返回错误并保留原 active Map。
+  - Map ID mismatch 后 mode 保持 Standard。
+  - 合法 Map 和显式 empty identity 恢复保持通过。
+- Correlation keys:
+  - cycle-map
+  - unreachable-map
+  - fact-conflict-map
+  - expected-map
+- Raw content:
+  ```text
+  running 4 tests
+  test result: ok. 4 passed; 0 failed
+  ```
+- Interpretation: Runtime restore 边界已复用唯一 `rooted_dag::validate()`，且校验发生在 mode/cache/active map 修改前；H-001 修复已通过局部验证，P-001 仍等待 H-002 与 Store 集成闭环。
+- Time: 2026-07-31 11:43
