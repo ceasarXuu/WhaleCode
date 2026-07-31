@@ -115,6 +115,29 @@ def control_plane_change_summary(
     }
 
 
+def release_relevant_changes(
+    repo: Path, contract_path: Path, contract: dict[str, Any]
+) -> list[dict[str, str]]:
+    contract_relative_path = repository_relative_path(repo, contract_path)
+    untracked_raw = run_git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    candidates = [
+        (path, "tracked") for path in changed_paths(repo, "worktree")
+    ] + [
+        (item.decode(), "untracked")
+        for item in untracked_raw.split(b"\0")
+        if item
+    ]
+    relevant = []
+    for path, state in candidates:
+        if (
+            path == contract_relative_path
+            or is_cache_control_plane_path(path)
+            or matching_rules(path, contract)
+        ):
+            relevant.append({"path": path, "state": state})
+    return sorted(relevant, key=lambda item: (item["path"], item["state"]))
+
+
 def matching_rules(path: str, contract: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         rule

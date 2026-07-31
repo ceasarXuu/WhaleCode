@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 from cache_surface import (
     control_plane_change_summary,
     load_contract_from_source,
+    release_relevant_changes,
     source_matches_worktree,
     staged_sensitive_changes,
     surface_snapshot,
@@ -27,10 +29,13 @@ def main() -> int:
     )
     parser.add_argument("--source", choices=["index", "head", "worktree"], default="index")
     parser.add_argument("--require-live-baseline", action="store_true")
+    parser.add_argument("--require-clean-subject", action="store_true")
     parser.add_argument("--json-output", type=Path)
     args = parser.parse_args()
 
     repo = args.repo_root.resolve()
+    if args.require_clean_subject and args.source != "head":
+        parser.error("--require-clean-subject requires --source head")
     contract_path = args.contract
     if not contract_path.is_absolute():
         contract_path = repo / contract_path
@@ -54,10 +59,19 @@ def main() -> int:
         and not changes
         and not args.require_live_baseline
     )
+    release_changes = (
+        release_relevant_changes(repo, contract_path, contract)
+        if args.require_clean_subject
+        else []
+    )
+    subject_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
     baseline_status = contract["baseline"]["status"]
     live_status_accepted = baseline_status == "live_verified"
     passed = (
         contract_matches_worktree
+        and not release_changes
         and not policy_baseline_conflict
         and not policy_product_conflict
         and (actual_hash == expected_hash or policy_only_surface_transition)
@@ -67,6 +81,7 @@ def main() -> int:
         "schema_version": "whalecode-cache-regression-gate-v1",
         "status": "pass" if passed else "blocked",
         "source": args.source,
+        "subject_commit": subject_commit,
         "actual_surface_sha256": actual_hash,
         "expected_surface_sha256": expected_hash,
         "baseline_status": baseline_status,
@@ -76,6 +91,8 @@ def main() -> int:
         "baseline_changed": baseline_changed,
         "policy_baseline_conflict": policy_baseline_conflict,
         "policy_product_conflict": policy_product_conflict,
+        "require_clean_subject": args.require_clean_subject,
+        "release_relevant_changes": release_changes,
         "surface_file_count": len(entries),
         "sensitive_changes": changes,
     }
@@ -110,6 +127,10 @@ def main() -> int:
         print("门禁政策变更：")
         for path in policy_changes:
             print(f"- {path}")
+    if release_changes:
+        print("- release 受检 HEAD 与当前相关工作区不一致：")
+        for change in release_changes:
+            print(f"  - {change['path']} ({change['state']})")
     if not live_status_accepted:
         print(f"- 当前基线状态为 {baseline_status}，尚未达到 live_verified。")
     if changes:

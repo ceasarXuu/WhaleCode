@@ -161,6 +161,53 @@ class CacheRegressionGateTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_release_head_rejects_dirty_sensitive_file(self) -> None:
+        (self.repo / "prompt/base.md").write_text("dirty\n", encoding="utf-8")
+
+        result = self.gate_from_source("head", "--require-clean-subject")
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("prompt/base.md (tracked)", result.stdout)
+
+    def test_release_head_rejects_untracked_sensitive_file(self) -> None:
+        (self.repo / "prompt/new.md").write_text("untracked\n", encoding="utf-8")
+
+        result = self.gate_from_source("head", "--require-clean-subject")
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("prompt/new.md (untracked)", result.stdout)
+
+    def test_release_head_allows_unrelated_dirty_file(self) -> None:
+        (self.repo / "ordinary.txt").write_text("dirty\n", encoding="utf-8")
+
+        result = self.gate_from_source("head", "--require-clean-subject")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_release_head_rejects_dirty_control_plane(self) -> None:
+        policy_path = self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        policy_path.write_text("# dirty policy\n", encoding="utf-8")
+
+        result = self.gate_from_source("head", "--require-clean-subject")
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("check_cache_regression_gate.py (tracked)", result.stdout)
+
+    def test_release_result_records_the_checked_head(self) -> None:
+        output = self.repo / "gate-result.json"
+
+        result = self.gate_from_source(
+            "head", "--require-clean-subject", "--json-output", str(output)
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(payload["source"], "head")
+        self.assertEqual(
+            payload["subject_commit"], run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+        )
+        self.assertEqual(payload["release_relevant_changes"], [])
+
     def test_policy_and_baseline_change_cannot_self_authorize(self) -> None:
         policy_path = self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
         policy_path.write_text("# changed policy\n", encoding="utf-8")
