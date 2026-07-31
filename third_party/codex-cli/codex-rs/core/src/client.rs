@@ -1878,10 +1878,10 @@ impl ModelClient {
         );
     }
 
-    pub(crate) fn claim_realtime_websocket_dispatch(&self) -> Result<()> {
+    pub(crate) fn claim_realtime_response_create(&self) -> Result<()> {
         self.state
             .provider_request_hard_limit
-            .claim("/realtime/websocket")
+            .claim("/realtime/response.create")
     }
 
     #[allow(clippy::too_many_arguments)]

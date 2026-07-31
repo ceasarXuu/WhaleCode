@@ -122,13 +122,21 @@ struct OutputAudioState {
     audio_end_ms: u32,
 }
 
-#[derive(Default)]
 struct RealtimeResponseCreateQueue {
     active_default_response: bool,
     pending_create: bool,
+    model_client: ModelClient,
 }
 
 impl RealtimeResponseCreateQueue {
+    fn new(model_client: ModelClient) -> Self {
+        Self {
+            active_default_response: false,
+            pending_create: false,
+            model_client,
+        }
+    }
+
     async fn request_create(
         &mut self,
         writer: &RealtimeWebsocketWriter,
@@ -166,6 +174,7 @@ impl RealtimeResponseCreateQueue {
         events_tx: &Sender<RealtimeEvent>,
         reason: &str,
     ) -> anyhow::Result<()> {
+        self.model_client.claim_realtime_response_create()?;
         if let Err(err) = writer.send_response_create().await {
             let mapped_error = map_api_error(err);
             let error_message = mapped_error.to_string();
@@ -194,6 +203,7 @@ struct RealtimeInputTask {
     handoff_state: RealtimeHandoffState,
     session_kind: RealtimeSessionKind,
     event_parser: RealtimeEventParser,
+    model_client: ModelClient,
 }
 
 impl RealtimeHandoffState {
@@ -293,7 +303,6 @@ impl RealtimeConversationManager {
                     extra_headers.unwrap_or_default(),
                 )
                 .await?;
-            model_client.claim_realtime_websocket_dispatch()?;
             let connection = client
                 .connect_webrtc_sideband(
                     session_config,
@@ -305,7 +314,6 @@ impl RealtimeConversationManager {
                 .map_err(map_api_error)?;
             (connection, Some(call.sdp))
         } else {
-            model_client.claim_realtime_websocket_dispatch()?;
             let connection = client
                 .connect(
                     session_config,
@@ -340,6 +348,7 @@ impl RealtimeConversationManager {
             handoff_state: handoff.clone(),
             session_kind,
             event_parser,
+            model_client,
         });
 
         let mut guard = self.state.lock().await;
@@ -1016,11 +1025,12 @@ fn spawn_realtime_input_task(input: RealtimeInputTask) -> JoinHandle<()> {
         handoff_state,
         session_kind,
         event_parser,
+        model_client,
     } = input;
 
     tokio::spawn(async move {
         let mut output_audio_state: Option<OutputAudioState> = None;
-        let mut response_create_queue = RealtimeResponseCreateQueue::default();
+        let mut response_create_queue = RealtimeResponseCreateQueue::new(model_client);
 
         loop {
             let result = tokio::select! {
