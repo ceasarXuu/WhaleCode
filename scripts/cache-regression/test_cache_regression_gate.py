@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import json
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from cache_surface import load_contract, surface_snapshot, write_json
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+GATE = SCRIPT_DIR / "check_cache_regression_gate.py"
+
+
+def run(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, cwd=cwd, check=check, text=True, capture_output=True)
+
+
+class CacheRegressionGateTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.temp.name)
+        run("git", "init", "-q", cwd=self.repo)
+        run("git", "config", "user.email", "test@example.com", cwd=self.repo)
+        run("git", "config", "user.name", "Test", cwd=self.repo)
+        (self.repo / "prompt").mkdir()
+        (self.repo / "prompt/base.md").write_text("stable\n", encoding="utf-8")
+        (self.repo / "ordinary.txt").write_text("ordinary\n", encoding="utf-8")
+        self.contract_path = self.repo / "contract.json"
+        contract = {
+            "schema_version": "whalecode-cache-surface-v1",
+            "baseline": {
+                "surface_sha256": "",
+                "status": "structural_bootstrap",
+                "source_commit": "fixture",
+                "live_result_path": None,
+            },
+            "surface_rules": [
+                {
+                    "id": "prompt",
+                    "globs": ["prompt/**"],
+                    "reason": "改变固定提示词前缀",
+                }
+            ],
+            "live_regression": {},
+        }
+        write_json(self.contract_path, contract)
+        run("git", "add", ".", cwd=self.repo)
+        contract = load_contract(self.contract_path)
+        baseline, _ = surface_snapshot(self.repo, contract, "index")
+        contract["baseline"]["surface_sha256"] = baseline
+        write_json(self.contract_path, contract)
+        run("git", "add", ".", cwd=self.repo)
+        run("git", "commit", "-qm", "baseline", cwd=self.repo)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def gate(self) -> subprocess.CompletedProcess[str]:
+        return run(
+            "python3",
+            str(GATE),
+            "--repo-root",
+            str(self.repo),
+            "--contract",
+            str(self.contract_path),
+            "--source",
+            "index",
+            cwd=self.repo,
+            check=False,
+        )
+
+    def test_ordinary_change_passes(self) -> None:
+        (self.repo / "ordinary.txt").write_text("changed\n", encoding="utf-8")
+        run("git", "add", "ordinary.txt", cwd=self.repo)
+        result = self.gate()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_sensitive_change_blocks_with_reason(self) -> None:
+        (self.repo / "prompt/base.md").write_text("changed\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+        result = self.gate()
+        self.assertEqual(result.returncode, 20)
+        self.assertIn("prompt/base.md", result.stdout)
+        self.assertIn("改变固定提示词前缀", result.stdout)
+        self.assertIn("2 个 sample run", result.stdout)
+
+    def test_matching_promoted_hash_unblocks(self) -> None:
+        (self.repo / "prompt/base.md").write_text("verified\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+        contract = load_contract(self.contract_path)
+        promoted, _ = surface_snapshot(self.repo, contract, "index")
+        contract["baseline"]["surface_sha256"] = promoted
+        contract["baseline"]["status"] = "live_verified"
+        write_json(self.contract_path, contract)
+        run("git", "add", "contract.json", cwd=self.repo)
+        result = self.gate()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("尚待首次", result.stdout)
+
+    def test_failed_live_baseline_blocks_even_when_hash_matches(self) -> None:
+        contract = load_contract(self.contract_path)
+        contract["baseline"]["status"] = "live_regression_failed"
+        write_json(self.contract_path, contract)
+        run("git", "add", "contract.json", cwd=self.repo)
+        result = self.gate()
+        self.assertEqual(result.returncode, 20)
+        self.assertIn("live_regression_failed", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

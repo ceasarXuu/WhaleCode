@@ -16,3 +16,5 @@ docs/testing/v0.0.4/testing/
 .env
 .env.*
 !.env.example
+__pycache__/
+*.py[cod]

@@ -54,6 +54,8 @@
 7. 每次真实运行必须写入 `benchmarks/whale-agent-run-ledger.json`，失败和重试也不得覆盖历史。
 8. 成本报告至少包含 request、input、cached/uncached input、output、wall time 和费用。
 9. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
+10. Prompt、context、projection、provider payload 或 Tool declaration 的缓存敏感变更必须先被免费指纹门禁阻断；
+    Agent 说明变更原因并获得专项预算后，才能运行真实缓存回归。失败结果不得晋升或绕过。
 
 ## 6. R8 不预设的设计
 

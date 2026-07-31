@@ -43,6 +43,7 @@ if ($FixtureMode) {
         New-V005GateSpec "r4_tool_path_coverage" $pass 30
         New-V005GateSpec "r4_sample_ledger" $pass 30
         New-V005GateSpec "r4_public_10_tool_stress_plan" $pass 30
+        New-V005GateSpec "cache_regression_surface" $pass 30
     )
 } else {
     $rustWorkspace = "Set-Location third_party\codex-cli\codex-rs;"
@@ -61,6 +62,7 @@ if ($FixtureMode) {
         New-V005GateSpec "r4_tool_path_coverage" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-tool-path-coverage.ps1" 120
         New-V005GateSpec "r4_sample_ledger" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-sample-ledger.ps1" 120
         New-V005GateSpec "r4_public_10_tool_stress_plan" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-public-10-tool-stress-plan.ps1" 120
+        New-V005GateSpec "cache_regression_surface" "python3 scripts\cache-regression\check_cache_regression_gate.py --source worktree" 30
     )
 }
 
