@@ -53,6 +53,13 @@
 [`I09/00-i09-store-hydrate-repair-plan.md`](I09/00-i09-store-hydrate-repair-plan.md)。
 [`I09/01-i09-store-hydrate-repair-result.md`](I09/01-i09-store-hydrate-repair-result.md)。
 
+I09 提交索引：
+
+- 核心修复：`e92241ed6`、`6a31eeb96`
+- 生命周期回归：`c7ec19d0b`
+- 拒绝日志：`923e8c945`
+- 问题关闭与结果归档：`6cd61face`
+
 ## 4. 依赖与重评关系
 
 | 上游问题 | 关闭后必须重评 | 原因 |
