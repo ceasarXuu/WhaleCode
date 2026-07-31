@@ -194,6 +194,11 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                     "exit_code": 0,
                     "timed_out": False,
                     "elapsed_seconds": 1.0,
+                    "post_run_cleanup": {
+                        "status": "verified_absent",
+                        "container_ids": [],
+                        "error": "",
+                    },
                 }
                 for index, scope in enumerate(execution_matrix(self.proposal), start=1)
             ],
@@ -436,6 +441,13 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         result = copy.deepcopy(self.result)
         result["authorization_sha256"] = file_sha256(self.authorization_path)
         with self.assertRaisesRegex(ValueError, "timestamp"):
+            self.validate(result=result)
+
+        self.write_ledger()
+        write_json(self.authorization_path, self.authorization)
+        result = copy.deepcopy(self.result)
+        result["attempts"][0].pop("post_run_cleanup")
+        with self.assertRaisesRegex(ValueError, "failed attempt"):
             self.validate(result=result)
 
     def test_rejects_reversed_evidence_timeline(self) -> None:

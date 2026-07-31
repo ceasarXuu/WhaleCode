@@ -164,6 +164,8 @@ def validate_attempts(
             and item["run_id"].strip()
             and isinstance(item.get("elapsed_seconds"), (int, float))
             and item["elapsed_seconds"] >= 0
+            and item.get("post_run_cleanup", {}).get("status")
+            in {"verified_absent", "removed_verified"}
             and "execution_error" not in item
             and "evidence_error" not in item
             for item in attempts

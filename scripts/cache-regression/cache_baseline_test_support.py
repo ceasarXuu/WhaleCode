@@ -311,6 +311,11 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                 "exit_code": 0,
                 "timed_out": False,
                 "elapsed_seconds": 1.0,
+                "post_run_cleanup": {
+                    "status": "verified_absent",
+                    "container_ids": [],
+                    "error": "",
+                },
             }
         ],
         "evidence_sha256": canonical_json_sha256(
