@@ -84,6 +84,11 @@ Tool 集合与 `tool_choice` 有直接断言，已知消息插入可被发现。
 projection，map-append 的第二次请求保留两版 projection，map-request 默认不注入 projection。三臂快照连续复跑
 稳定，定向测试 `4 passed; 0 failed`，未运行真实 Whale Agent。CR-I05 仍需 CR-14 至 CR-17 的条件入口场景。
 
+提交 `7da38b2ed` 完成 CR-14：同一 Standard 两请求任务分别使用默认权限和只读/按需批准权限，完整生产
+final-wire 进入独立快照。两组请求各仅包含一个权限区块；精确替换该区块后，两组 wire 逐值完全一致，证明普通
+Tool schema 等其他上下文没有被权限 fixture 意外改变。连续两轮稳定复跑及全部 5 个缓存合同测试通过，未运行
+真实 Whale Agent。CR-I05 仍需 CR-15 至 CR-17 的 Skill、Apps/Plugins 与 MCP 条件入口场景。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
