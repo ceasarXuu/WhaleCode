@@ -2,7 +2,7 @@
 
 - Created: 2026-07-31
 - Plan mode: Authoring
-- Plan status: in progress（CR-01 至 CR-17 completed；Phase A、Phase B complete；Phase C 进行中，下一单元 CR-18）
+- Plan status: in progress（CR-01 至 CR-18 completed；Phase A、Phase B complete；Phase C 进行中，下一单元 CR-19）
 - Risk: High，涉及发布门、付费验证触发与证据可信性
 - Problem register: [02-known-issues.md](02-known-issues.md)
 
@@ -63,7 +63,7 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-15C | 重建 Responses final-wire 基线 | cache contract | `core/tests/suite/cache_final_wire.rs`、`cache_payload_*` 与 snapshots | CR-12 至 CR-15 request pairs | 将既有 DeepSeek Chat fixture 改为生产 Responses endpoint，保留相同场景事实并重新生成快照 | Standard、三种 TaskSpace、权限、Skill 的权威基线与当前生产协议一致 | 后续缓存门禁不再保护已经退出的旧协议载荷 | 每个场景重复两次稳定；断言只命中 `/v1/responses` | 任一场景不稳定时停在对应 fixture，不进入 CR-16 | completed（`128b47d88`、`d229ac0aa`） |
 | CR-16 | 覆盖 Apps 与 Plugins 能力 | scenario matrix | `core/tests/suite/cache_payload_capabilities_contract.rs`、现有 apps/plugins fixtures | app/plugin-provided context and tools | 各用一个最小 fixture 触发生产能力注入路径 | Apps/Plugins 造成的消息或 Tool 变化可定位 | 动态能力不再被固定 Tool 样本掩盖 | 默认、App、Plugin 三者差异来源断言 | 任一能力可单独暂停，不合并失败原因 | completed（`60c8744ef`） |
 | CR-17 | 覆盖 MCP Tool 集合 | scenario matrix | `core/tests/suite/cache_payload_mcp_contract.rs`、MCP test server | MCP provider-visible tools | 用本地 MCP fixture 增删一个 Tool 并捕获 final-wire | MCP Tool 集合与顺序进入合同 | 外部 Tool 变化不会静默破坏前缀 | MCP off/on request pair 与 Tool order mutation | 不连接真实 MCP 服务；失败时停在本地 fixture | completed（`e8a810a0d`） |
-| CR-18 | 覆盖模型与 provider 路由 | scenario matrix | `model-provider-info`、`core/src/config/mod.rs`、`models-manager/models.json` | Flash/Pro identity 与 wire API | 建立路由元数据和最终请求身份快照；若两模型共享路径则以证据合并，不机械复制场景 | 路由变化能定位到模型/provider 身份 | 防止沿用不适用于当前模型或 wire API 的基线 | route matrix assertions 和错误模型反例 | 发现未知路由时标记 blocked-on-discovery | planned |
+| CR-18 | 覆盖模型与 provider 路由 | scenario matrix | `model-provider-info`、`core/src/config/mod.rs`、`models-manager/models.json` | Flash/Pro identity 与 wire API | 建立路由元数据和最终请求身份快照；若两模型共享路径则以证据合并，不机械复制场景 | 路由变化能定位到模型/provider 身份 | 防止沿用不适用于当前模型或 wire API 的基线 | route matrix assertions 和错误模型反例 | 发现未知路由时标记 blocked-on-discovery | completed（`f4cc55d28`） |
 | CR-19 | 覆盖压缩后的请求结构 | scenario matrix | `core/tests/suite/compact*.rs`、cache payload fixtures | pre/post compaction request pair | 复用生产压缩路径生成压缩前后 final-wire 快照 | 长历史重写对稳定前缀的影响可见 | 日常长会话不会成为门禁盲区 | compact request pair、重复稳定性和首差异摘要 | 不设置真实超长 token；使用有代表性的确定性历史 | planned |
 | CR-20 | 源码变化先触发免费语义测试 | gate orchestration | `cache_surface.py`、pre-commit、non-agent gate | source sentinel 和 payload runner | 将宽生产 crate、依赖配置和控制面列为免费测试触发面；只有 final-wire/measurement contract diff 才输出付费候选 | 注释、测试和等价重构可免费通过；真实 payload 变化阻断 | 同时减少漏报和不必要预算申请 | test/comment-only、生产字段变化、依赖变化、控制面变化 fixtures | 免费 runner 不稳定或过慢时保持 release 阻断，先优化 fixture | planned |
 | CR-21 | 真实运行按受影响场景申请 | paid validation | `run_cache_hit_regression.py/.ps1`、contract schema | scenario router 与 budget proposal | 把固定 sample 改为场景到最小 arm/model/sample 的显式映射，运行前打印数量、请求/token/费用上限和停止条件 | 真实运行只覆盖且只声明受影响范围 | 用最少 API 成本取得可解释证据 | dry-run 不发请求并生成预算单；矩阵计数与账本 planned 记录一致 | 未获批永不执行；未知场景不得 fallback 到默认样本 | planned |
