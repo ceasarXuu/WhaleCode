@@ -4052,6 +4052,7 @@ dependencies = [
  "regex-lite",
  "reqwest",
  "serde_json",
+ "sha2",
  "shlex",
  "tempfile",
  "tokio",

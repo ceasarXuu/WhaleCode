@@ -2,6 +2,7 @@ use codex_model_provider_info::WireApi;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
 use codex_protocol::user_input::UserInput;
+use core_test_support::cache_payload::FinalWireEvidence;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
@@ -63,7 +64,13 @@ async fn standard_session_reaches_chat_completions_final_wire() -> anyhow::Resul
         .received_requests()
         .await
         .expect("wiremock request capture");
-    let body: Value = serde_json::from_slice(&requests[0].body)?;
+    let evidence = FinalWireEvidence::from_raw_body(&requests[0].body)?;
+    assert_eq!(
+        evidence,
+        FinalWireEvidence::from_raw_body(&requests[0].body)?
+    );
+    assert!(evidence.render()?.contains(&evidence.raw_body_sha256));
+    let body: Value = evidence.structured_body;
     let messages = body["messages"].as_array().expect("messages array");
     assert_eq!(messages[0]["role"], "system");
     assert!(messages.iter().any(|message| {
