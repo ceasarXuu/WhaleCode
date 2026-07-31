@@ -36,6 +36,27 @@ def parse_contract(content: str) -> dict[str, Any]:
     return value
 
 
+def semantic_baseline_changes(
+    repo: Path, contract: dict[str, Any], source: str
+) -> list[str]:
+    free_validation = contract.get("free_validation")
+    if not isinstance(free_validation, dict):
+        return []
+    patterns = free_validation.get("semantic_baseline_globs", [])
+    return sorted(
+        path
+        for path in changed_paths(repo, source)
+        if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+    )
+
+
+def changed_paths_match_worktree(repo: Path, paths: list[str], source: str) -> bool:
+    if source != "index" or not paths:
+        return True
+    raw = run_git(repo, "diff", "--name-only", "-z", "--", *paths)
+    return not any(raw.split(b"\0"))
+
+
 def load_contract(path: Path) -> dict[str, Any]:
     return parse_contract(path.read_text(encoding="utf-8"))
 
@@ -119,6 +140,9 @@ def release_relevant_changes(
     repo: Path, contract_path: Path, contract: dict[str, Any]
 ) -> list[dict[str, str]]:
     contract_relative_path = repository_relative_path(repo, contract_path)
+    baseline_patterns = contract.get("free_validation", {}).get(
+        "semantic_baseline_globs", []
+    )
     untracked_raw = run_git(repo, "ls-files", "--others", "--exclude-standard", "-z")
     candidates = [
         (path, "tracked") for path in changed_paths(repo, "worktree")
@@ -133,6 +157,7 @@ def release_relevant_changes(
             path == contract_relative_path
             or is_cache_control_plane_path(path)
             or matching_rules(path, contract)
+            or any(fnmatch.fnmatchcase(path, pattern) for pattern in baseline_patterns)
         ):
             relevant.append({"path": path, "state": state})
     return sorted(relevant, key=lambda item: (item["path"], item["state"]))
@@ -209,6 +234,25 @@ def staged_sensitive_changes(
                     "path": path,
                     "rules": [
                         {"id": rule["id"], "reason": rule["reason"]} for rule in rules
+                    ],
+                }
+            )
+    return changes
+
+
+def sensitive_changes(
+    repo: Path, contract: dict[str, Any], source: str
+) -> list[dict[str, Any]]:
+    changes = []
+    for path in changed_paths(repo, source):
+        rules = matching_rules(path, contract)
+        if rules:
+            changes.append(
+                {
+                    "path": path,
+                    "rules": [
+                        {"id": rule["id"], "reason": rule["reason"]}
+                        for rule in rules
                     ],
                 }
             )

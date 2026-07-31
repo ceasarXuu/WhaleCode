@@ -29,6 +29,19 @@ class CacheRegressionGateTest(unittest.TestCase):
         (self.repo / "prompt").mkdir()
         (self.repo / "prompt/base.md").write_text("stable\n", encoding="utf-8")
         (self.repo / "ordinary.txt").write_text("ordinary\n", encoding="utf-8")
+        (self.repo / "snapshots").mkdir()
+        (self.repo / "snapshots/baseline.snap").write_text(
+            "stable snapshot\n", encoding="utf-8"
+        )
+        (self.repo / "free-validator.py").write_text(
+            """from pathlib import Path
+status = Path('free-validation-status.txt')
+value = status.read_text(encoding='utf-8').strip() if status.exists() else 'pass'
+print(f'fixture free validation: {value}')
+raise SystemExit(0 if value == 'pass' else 7)
+""",
+            encoding="utf-8",
+        )
         policy_path = self.repo / "scripts/cache-regression"
         policy_path.mkdir(parents=True)
         (policy_path / "check_cache_regression_gate.py").write_text(
@@ -50,6 +63,18 @@ class CacheRegressionGateTest(unittest.TestCase):
                     "reason": "改变固定提示词前缀",
                 }
             ],
+            "free_validation": {
+                "run_on_release": True,
+                "semantic_baseline_globs": ["snapshots/*.snap"],
+                "commands": [
+                    {
+                        "id": "fixture_final_wire",
+                        "cwd": ".",
+                        "argv": ["python3", "free-validator.py"],
+                        "timeout_seconds": 10,
+                    }
+                ],
+            },
             "live_regression": {},
         }
         write_json(self.contract_path, contract)
@@ -91,13 +116,60 @@ class CacheRegressionGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_sensitive_change_blocks_with_reason(self) -> None:
+        (self.repo / "free-validation-status.txt").write_text(
+            "fail\n", encoding="utf-8"
+        )
         (self.repo / "prompt/base.md").write_text("changed\n", encoding="utf-8")
         run("git", "add", "prompt/base.md", cwd=self.repo)
         result = self.gate()
         self.assertEqual(result.returncode, 20)
         self.assertIn("prompt/base.md", result.stdout)
         self.assertIn("改变固定提示词前缀", result.stdout)
-        self.assertIn("2 个 sample run", result.stdout)
+        self.assertIn("免费 final-wire 验证失败", result.stdout)
+        self.assertIn("fixture_final_wire: fail", result.stdout)
+
+    def test_sensitive_semantic_equivalent_change_passes_free_validation(self) -> None:
+        (self.repo / "prompt/base.md").write_text("comment-only\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("免费 final-wire 验证通过", result.stdout)
+
+    def test_sensitive_staged_source_must_match_worktree(self) -> None:
+        (self.repo / "prompt/base.md").write_text("staged\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+        (self.repo / "prompt/base.md").write_text("different worktree\n", encoding="utf-8")
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("暂存源码与工作区不一致", result.stdout)
+
+    def test_product_and_semantic_baseline_cannot_change_together(self) -> None:
+        (self.repo / "prompt/base.md").write_text("changed\n", encoding="utf-8")
+        (self.repo / "snapshots/baseline.snap").write_text(
+            "changed snapshot\n", encoding="utf-8"
+        )
+        run("git", "add", "prompt/base.md", "snapshots/baseline.snap", cwd=self.repo)
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("基准与缓存敏感产品代码不能在同一提交", result.stdout)
+        self.assertIn("snapshots/baseline.snap", result.stdout)
+
+    def test_semantic_baseline_requires_independent_promotion(self) -> None:
+        (self.repo / "snapshots/baseline.snap").write_text(
+            "changed snapshot\n", encoding="utf-8"
+        )
+        run("git", "add", "snapshots/baseline.snap", cwd=self.repo)
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("独立的证据晋升流程", result.stdout)
 
     def test_matching_promoted_hash_unblocks(self) -> None:
         (self.repo / "prompt/base.md").write_text("verified\n", encoding="utf-8")
@@ -150,7 +222,6 @@ class CacheRegressionGateTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
         self.assertIn("暂存合同与工作区合同不一致", result.stdout)
-        self.assertIn("敏感面与已验证基线不一致", result.stdout)
 
     def test_head_source_reads_the_committed_contract(self) -> None:
         worktree_contract = load_contract(self.contract_path)

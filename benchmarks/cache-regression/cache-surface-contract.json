@@ -21,6 +21,10 @@
       "globs": [
         "third_party/codex-cli/codex-rs/core/src/context/**",
         "third_party/codex-cli/codex-rs/core/src/context_manager/**",
+        "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/session.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/handlers.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
         "third_party/codex-cli/codex-rs/core/src/session/turn_context.rs"
       ],
       "reason": "改变消息角色、顺序、替换或追加结构"
@@ -41,22 +45,93 @@
       "globs": [
         "third_party/codex-cli/codex-rs/core/src/client.rs",
         "third_party/codex-cli/codex-rs/core/src/client_common*.rs",
-        "third_party/codex-cli/codex-rs/core/src/provider_wire*.rs"
+        "third_party/codex-cli/codex-rs/core/src/provider_wire*.rs",
+        "third_party/codex-cli/codex-rs/codex-api/src/common.rs",
+        "third_party/codex-cli/codex-rs/codex-api/src/provider.rs",
+        "third_party/codex-cli/codex-rs/codex-api/src/endpoint/**",
+        "third_party/codex-cli/codex-rs/codex-api/src/sse/**"
       ],
       "reason": "改变最终 provider payload、消息顺序或缓存观测"
     },
     {
       "id": "tool_declarations",
       "globs": [
-        "third_party/codex-cli/codex-rs/core/src/tools/spec.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/registry.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/provider_tool_declaration.rs",
-        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control*.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/**",
+        "third_party/codex-cli/codex-rs/tools/src/**",
         "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_*"
       ],
       "reason": "改变每次请求携带的 Tool schema 或 TaskSpace 固定合同"
+    },
+    {
+      "id": "capability_context",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/mcp*.rs",
+        "third_party/codex-cli/codex-rs/core/src/connectors.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/mcp.rs",
+        "third_party/codex-cli/codex-rs/core/src/plugins/**",
+        "third_party/codex-cli/codex-rs/core/src/skills*.rs",
+        "third_party/codex-cli/codex-rs/core-plugins/src/**",
+        "third_party/codex-cli/codex-rs/skills/src/**"
+      ],
+      "reason": "改变 MCP、Apps、Plugins 或 Skills 的上下文与 Tool 暴露"
+    },
+    {
+      "id": "model_provider_routing",
+      "globs": [
+        "third_party/codex-cli/codex-rs/model-provider-info/src/**",
+        "third_party/codex-cli/codex-rs/models-manager/models.json",
+        "third_party/codex-cli/codex-rs/models-manager/src/**",
+        "third_party/codex-cli/codex-rs/core/src/config/**"
+      ],
+      "reason": "改变模型、provider、wire API 或默认路由身份"
+    },
+    {
+      "id": "compaction",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/compact*.rs",
+        "third_party/codex-cli/codex-rs/core/src/compact/**"
+      ],
+      "reason": "改变压缩请求或压缩后历史替换结构"
     }
   ],
+  "free_validation": {
+    "run_on_release": true,
+    "semantic_baseline_globs": [
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_*.snap"
+    ],
+    "commands": [
+      {
+        "id": "final_wire_matrix",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "cache_payload_"],
+        "timeout_seconds": 600
+      },
+      {
+        "id": "provider_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-model-provider-info", "deepseek"],
+        "timeout_seconds": 120
+      },
+      {
+        "id": "model_catalog_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-models-manager", "deepseek"],
+        "timeout_seconds": 120
+      },
+      {
+        "id": "default_route_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--lib", "defaults_to_deepseek_flash_responses_provider"],
+        "timeout_seconds": 600
+      },
+      {
+        "id": "usage_decoder_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-api"],
+        "timeout_seconds": 300
+      }
+    ]
+  },
   "live_regression": {
     "model": "deepseek-v4-flash",
     "sample": "single-file-fast-fix",
