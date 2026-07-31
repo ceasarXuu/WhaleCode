@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from cache_surface import load_contract, matching_rules
+from cache_surface import is_cache_control_plane_path, load_contract, matching_rules
 from free_cache_contracts import validate_free_validation
 
 
@@ -38,7 +38,9 @@ class CacheSurfaceContractTest(unittest.TestCase):
 
     def test_known_production_entries_are_risk_classified(self) -> None:
         missing = [
-            path for path in KNOWN_PRODUCTION_ENTRIES if not matching_rules(path, self.contract)
+            path
+            for path in KNOWN_PRODUCTION_ENTRIES
+            if not matching_rules(path, self.contract)
         ]
         self.assertEqual(missing, [])
 
@@ -54,6 +56,40 @@ class CacheSurfaceContractTest(unittest.TestCase):
 
     def test_free_validation_contract_is_well_formed(self) -> None:
         validate_free_validation(self.contract["free_validation"])
+
+    def test_final_wire_fixtures_are_control_plane_not_product_inputs(self) -> None:
+        paths = [
+            "third_party/codex-cli/codex-rs/core/tests/common/cache_payload.rs",
+            "third_party/codex-cli/codex-rs/core/tests/suite/cache_final_wire.rs",
+            "third_party/codex-cli/codex-rs/core/tests/suite/cache_payload_mcp_contract.rs",
+        ]
+        self.assertTrue(all(is_cache_control_plane_path(path) for path in paths))
+        self.assertTrue(all(not matching_rules(path, self.contract) for path in paths))
+
+    def test_final_wire_matrix_emits_change_report_and_includes_tool_wire(self) -> None:
+        commands = {
+            command["id"]: command
+            for command in self.contract["free_validation"]["commands"]
+        }
+        matrix = commands["final_wire_matrix"]
+
+        self.assertEqual(matrix["argv"][-1], "cache_payload_")
+        self.assertEqual(matrix["change_report"]["type"], "final_wire_snapshot_set")
+        tool_wire = commands["tool_wire_contract"]
+        self.assertEqual(
+            tool_wire["argv"][-1], "taskspace_tools_use_production_wire_schema"
+        )
+        baseline_patterns = self.contract["free_validation"]["semantic_baseline_globs"]
+        protected = {
+            path for pattern in baseline_patterns for path in REPO.glob(pattern)
+        }
+        reported = {
+            path
+            for command in commands.values()
+            for pattern in command.get("change_report", {}).get("baseline_globs", [])
+            for path in REPO.glob(pattern)
+        }
+        self.assertEqual(reported, protected)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,11 @@ CACHE_CONTROL_PLANE_EXACT_PATHS = frozenset(
         "scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1",
     }
 )
+CACHE_CONTROL_PLANE_GLOBS = (
+    "third_party/codex-cli/codex-rs/core/tests/common/cache_payload.rs",
+    "third_party/codex-cli/codex-rs/core/tests/suite/cache_final_wire.rs",
+    "third_party/codex-cli/codex-rs/core/tests/suite/cache_payload*_contract.rs",
+)
 
 
 def run_git(repo: Path, *args: str, text: bool = False) -> bytes | str:
@@ -68,12 +73,12 @@ def repository_relative_path(repo: Path, path: Path) -> str:
     try:
         return absolute_path.resolve().relative_to(repo).as_posix()
     except ValueError as error:
-        raise ValueError("cache surface contract must be inside the repository") from error
+        raise ValueError(
+            "cache surface contract must be inside the repository"
+        ) from error
 
 
-def load_contract_from_source(
-    repo: Path, path: Path, source: str
-) -> dict[str, Any]:
+def load_contract_from_source(repo: Path, path: Path, source: str) -> dict[str, Any]:
     relative_path = repository_relative_path(repo, path)
     content = read_content(repo, relative_path, source)
     return parse_contract(content.decode("utf-8"))
@@ -102,6 +107,8 @@ def changed_paths(repo: Path, source: str) -> list[str]:
 
 def is_cache_control_plane_path(path: str) -> bool:
     if path in CACHE_CONTROL_PLANE_EXACT_PATHS:
+        return True
+    if any(fnmatch.fnmatchcase(path, pattern) for pattern in CACHE_CONTROL_PLANE_GLOBS):
         return True
     candidate = Path(path)
     return (
@@ -145,12 +152,8 @@ def release_relevant_changes(
         "semantic_baseline_globs", []
     )
     untracked_raw = run_git(repo, "ls-files", "--others", "--exclude-standard", "-z")
-    candidates = [
-        (path, "tracked") for path in changed_paths(repo, "worktree")
-    ] + [
-        (item.decode(), "untracked")
-        for item in untracked_raw.split(b"\0")
-        if item
+    candidates = [(path, "tracked") for path in changed_paths(repo, "worktree")] + [
+        (item.decode(), "untracked") for item in untracked_raw.split(b"\0") if item
     ]
     relevant = []
     for path, state in candidates:
@@ -220,9 +223,7 @@ def surface_snapshot(
 def staged_sensitive_changes(
     repo: Path, contract: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    raw = run_git(
-        repo, "diff", "--cached", "--name-only", "--diff-filter=ACMRD", "-z"
-    )
+    raw = run_git(repo, "diff", "--cached", "--name-only", "--diff-filter=ACMRD", "-z")
     changes = []
     for item in raw.split(b"\0"):
         if not item:
@@ -252,8 +253,7 @@ def sensitive_changes(
                 {
                     "path": path,
                     "rules": [
-                        {"id": rule["id"], "reason": rule["reason"]}
-                        for rule in rules
+                        {"id": rule["id"], "reason": rule["reason"]} for rule in rules
                     ],
                 }
             )

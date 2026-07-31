@@ -104,7 +104,25 @@
         "id": "final_wire_matrix",
         "cwd": "third_party/codex-cli/codex-rs",
         "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "cache_payload_"],
-        "timeout_seconds": 600
+        "timeout_seconds": 600,
+        "change_report": {
+          "type": "final_wire_snapshot_set",
+          "baseline_globs": [
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload*.snap"
+          ]
+        }
+      },
+      {
+        "id": "tool_wire_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "taskspace_tools_use_production_wire_schema"],
+        "timeout_seconds": 600,
+        "change_report": {
+          "type": "final_wire_snapshot_set",
+          "baseline_globs": [
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
+          ]
+        }
       },
       {
         "id": "provider_contract",

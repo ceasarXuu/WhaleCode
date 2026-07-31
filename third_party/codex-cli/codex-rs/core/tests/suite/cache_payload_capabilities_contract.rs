@@ -14,6 +14,7 @@ use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::apps_test_server::AppsTestServer;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::cache_payload::render_cache_snapshot;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
@@ -225,13 +226,9 @@ async fn apps_and_plugins_have_independent_final_wire_contracts() -> anyhow::Res
         "Skills from this plugin"
     ));
 
-    insta::assert_snapshot!(
-        "app_two_request_final_wire",
-        serde_json::to_string_pretty(&app)?
-    );
-    insta::assert_snapshot!(
-        "plugin_two_request_final_wire",
-        serde_json::to_string_pretty(&plugin)?
-    );
+    let app_rendered = render_cache_snapshot("app_two_request_final_wire", &app)?;
+    let plugin_rendered = render_cache_snapshot("plugin_two_request_final_wire", &plugin)?;
+    insta::assert_snapshot!("app_two_request_final_wire", app_rendered);
+    insta::assert_snapshot!("plugin_two_request_final_wire", plugin_rendered);
     Ok(())
 }

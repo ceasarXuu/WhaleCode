@@ -9,6 +9,7 @@ use codex_config::types::McpServerConfig;
 use codex_config::types::McpServerTransportConfig;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::cache_payload::render_cache_snapshot;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::stdio_server_bin;
@@ -223,7 +224,7 @@ async fn mcp_tools_have_an_independent_final_wire_contract() -> anyhow::Result<(
 
     insta::assert_snapshot!(
         "mcp_two_request_final_wire",
-        serde_json::to_string_pretty(&mcp)?
+        render_cache_snapshot("mcp_two_request_final_wire", &mcp)?
     );
     Ok(())
 }

@@ -11,6 +11,7 @@ use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::cache_payload::render_cache_snapshot;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
@@ -165,7 +166,7 @@ async fn selected_bundled_skill_is_the_only_wire_difference() -> anyhow::Result<
 
     insta::assert_snapshot!(
         "selected_bundled_skill_two_request_final_wire",
-        serde_json::to_string_pretty(&selected)?
+        render_cache_snapshot("selected_bundled_skill_two_request_final_wire", &selected)?
     );
     Ok(())
 }

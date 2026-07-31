@@ -10,6 +10,7 @@ use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::cache_payload::render_cache_snapshot;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_function_call;
 use core_test_support::responses::ev_response_created;
@@ -337,7 +338,7 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
     );
     insta::assert_snapshot!(
         "standard_two_request_final_wire",
-        serde_json::to_string_pretty(&snapshot)?
+        render_cache_snapshot("standard_two_request_final_wire", &snapshot)?
     );
     Ok(())
 }
@@ -476,17 +477,23 @@ async fn taskspace_projection_policies_have_independent_request_pairs() -> anyho
     assert_eq!(projection_count(&request["request_1"]), 0);
     assert_eq!(projection_count(&request["request_2"]), 0);
 
+    let always_rendered =
+        render_cache_snapshot("taskspace_map_always_two_request_final_wire", &always)?;
+    let append_rendered =
+        render_cache_snapshot("taskspace_map_append_two_request_final_wire", &append)?;
+    let request_rendered =
+        render_cache_snapshot("taskspace_map_request_two_request_final_wire", &request)?;
     insta::assert_snapshot!(
         "taskspace_map_always_two_request_final_wire",
-        serde_json::to_string_pretty(&always)?
+        always_rendered
     );
     insta::assert_snapshot!(
         "taskspace_map_append_two_request_final_wire",
-        serde_json::to_string_pretty(&append)?
+        append_rendered
     );
     insta::assert_snapshot!(
         "taskspace_map_request_two_request_final_wire",
-        serde_json::to_string_pretty(&request)?
+        request_rendered
     );
     Ok(())
 }

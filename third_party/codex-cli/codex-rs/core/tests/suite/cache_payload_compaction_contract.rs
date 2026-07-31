@@ -9,6 +9,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::cache_payload::render_cache_snapshot;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::mount_sse_sequence;
@@ -130,7 +131,7 @@ async fn local_compaction_has_an_independent_final_wire_contract() -> anyhow::Re
     });
     insta::assert_snapshot!(
         "local_compaction_three_request_final_wire",
-        serde_json::to_string_pretty(&snapshot)?
+        render_cache_snapshot("local_compaction_three_request_final_wire", &snapshot)?
     );
     Ok(())
 }

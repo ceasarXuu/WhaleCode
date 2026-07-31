@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import copy
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
-from cache_payload_contract import compare_evidence, load_policy, validate_policy
+from cache_payload_contract import (
+    compare_evidence,
+    compare_snapshot_set,
+    load_policy,
+    validate_policy,
+)
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -135,8 +142,109 @@ class CachePayloadContractTest(unittest.TestCase):
     def test_policy_cannot_silently_add_ignored_fields(self) -> None:
         policy = copy.deepcopy(self.policy)
         policy["ignored_body_pointers"] = ["/input/0/content"]
-        with self.assertRaisesRegex(ValueError, "require a new reviewed policy version"):
+        with self.assertRaisesRegex(
+            ValueError, "require a new reviewed policy version"
+        ):
             validate_policy(policy)
+
+
+class SnapshotChangeReportTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.temp.name)
+        self.snapshots = self.repo / "snapshots"
+        self.candidates = self.repo / "candidates"
+        self.snapshots.mkdir()
+        self.candidates.mkdir()
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def write_baseline(self, scenario_id: str, value: dict) -> None:
+        (self.snapshots / f"all__suite__fixture__{scenario_id}.snap").write_text(
+            "---\nsource: fixture.rs\n---\n"
+            + json.dumps(value, ensure_ascii=False, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def write_candidate(
+        self, scenario_id: str, value: dict, *, indent: int = 2
+    ) -> None:
+        (self.candidates / f"{scenario_id}.json").write_text(
+            json.dumps(value, ensure_ascii=False, indent=indent) + "\n",
+            encoding="utf-8",
+        )
+
+    def report(self) -> dict:
+        return compare_snapshot_set(
+            self.repo,
+            ["snapshots/all__suite__cache_*.snap", "snapshots/*.snap"],
+            self.candidates,
+        )
+
+    def test_identical_semantics_ignore_json_formatting(self) -> None:
+        value = {"request_1": {"input": ["stable"]}}
+        self.write_baseline("stable", value)
+        self.write_candidate("stable", value, indent=None)
+
+        report = self.report()
+
+        self.assertEqual(report["status"], "unchanged")
+        self.assertEqual(report["scenario_count"], 1)
+        scenario = report["scenarios"][0]
+        self.assertEqual(scenario["status"], "unchanged")
+        self.assertEqual(
+            scenario["before_payload_sha256"], scenario["after_payload_sha256"]
+        )
+
+    def test_protected_value_change_reports_first_json_pointer(self) -> None:
+        self.write_baseline("changed", {"request_1": {"tools": [{"name": "exec"}]}})
+        self.write_candidate("changed", {"request_1": {"tools": [{"name": "read"}]}})
+
+        report = self.report()
+
+        self.assertEqual(report["status"], "changed")
+        self.assertEqual(report["changed_scenario_count"], 1)
+        self.assertEqual(
+            report["scenarios"][0]["first_difference"],
+            "/request_1/tools/0/name",
+        )
+        self.assertNotEqual(
+            report["scenarios"][0]["before_payload_sha256"],
+            report["scenarios"][0]["after_payload_sha256"],
+        )
+
+    def test_unknown_field_is_a_semantic_change(self) -> None:
+        self.write_baseline("unknown", {"request_1": {"model": "flash"}})
+        self.write_candidate(
+            "unknown", {"request_1": {"model": "flash", "new_field": True}}
+        )
+
+        report = self.report()
+
+        self.assertEqual(report["status"], "changed")
+        self.assertEqual(
+            report["scenarios"][0]["first_difference"],
+            "/request_1/new_field",
+        )
+
+    def test_missing_candidate_is_uncomparable(self) -> None:
+        self.write_baseline("missing", {"request_1": {"input": []}})
+
+        report = self.report()
+
+        self.assertEqual(report["status"], "uncomparable")
+        self.assertEqual(report["uncomparable_scenario_count"], 1)
+        self.assertIn("produced no candidate", report["scenarios"][0]["error"])
+
+    def test_unprotected_candidate_is_uncomparable(self) -> None:
+        self.write_candidate("unexpected", {"request_1": {"input": []}})
+
+        report = self.report()
+
+        self.assertEqual(report["status"], "uncomparable")
+        self.assertIn("no protected baseline", report["scenarios"][0]["error"])
 
 
 if __name__ == "__main__":

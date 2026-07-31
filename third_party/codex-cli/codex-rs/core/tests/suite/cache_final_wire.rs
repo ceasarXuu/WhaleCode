@@ -6,6 +6,7 @@ use codex_protocol::protocol::Op;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::cache_payload::render_cache_snapshot;
 use core_test_support::responses::sse_completed;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
@@ -154,13 +155,14 @@ async fn taskspace_tools_use_production_wire_schema() -> anyhow::Result<()> {
     );
     assert!(taskspace_control["parameters"].is_object());
 
+    let snapshot = serde_json::json!({
+        "tool_names": taskspace_tool_names,
+        "taskspace_control": taskspace_control,
+        "ordinary_exec_command": taskspace_exec,
+    });
     insta::assert_snapshot!(
         "taskspace_production_tool_wire",
-        serde_json::to_string_pretty(&serde_json::json!({
-            "tool_names": taskspace_tool_names,
-            "taskspace_control": taskspace_control,
-            "ordinary_exec_command": taskspace_exec,
-        }))?
+        render_cache_snapshot("taskspace_production_tool_wire", &snapshot)?
     );
     Ok(())
 }

@@ -2,6 +2,7 @@ use anyhow::Context;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FinalWireEvidence {
@@ -28,9 +29,32 @@ impl FinalWireEvidence {
     }
 }
 
+pub fn render_cache_snapshot(scenario_id: &str, value: &Value) -> anyhow::Result<String> {
+    if scenario_id.is_empty()
+        || !scenario_id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        anyhow::bail!(
+            "cache snapshot scenario id must use lowercase ASCII, digits, or underscores"
+        );
+    }
+    let rendered = serde_json::to_string_pretty(value)
+        .context("cache snapshot evidence must be serializable")?;
+    if let Some(report_dir) = std::env::var_os("WHALE_CACHE_CHANGE_REPORT_DIR") {
+        let report_dir = Path::new(&report_dir);
+        std::fs::create_dir_all(report_dir).context("create cache change report directory")?;
+        std::fs::write(report_dir.join(format!("{scenario_id}.json")), &rendered)
+            .context("write cache change report candidate")?;
+    }
+    Ok(rendered)
+}
+
 #[cfg(test)]
 mod tests {
     use super::FinalWireEvidence;
+    use super::render_cache_snapshot;
+    use serde_json::json;
 
     #[test]
     fn identical_raw_bodies_produce_identical_evidence() -> anyhow::Result<()> {
@@ -69,5 +93,13 @@ mod tests {
             .expect_err("invalid final-wire JSON must fail");
 
         assert!(error.to_string().contains("must be valid JSON"));
+    }
+
+    #[test]
+    fn cache_snapshot_scenario_id_rejects_path_syntax() {
+        let error = render_cache_snapshot("../invalid", &json!({"stable": true}))
+            .expect_err("path syntax must be rejected");
+
+        assert!(error.to_string().contains("lowercase ASCII"));
     }
 }
