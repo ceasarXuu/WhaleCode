@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import subprocess
@@ -50,6 +51,12 @@ class CacheBudgetProposalTest(unittest.TestCase):
                     "uncached_input_per_million": 0.14,
                     "output_per_million": 0.28,
                 },
+                "provider_hard_limits": {
+                    "deepseek-v4-flash": {
+                        "max_input_tokens_per_request": 1_000_000,
+                        "max_output_tokens_per_request": 384_000,
+                    }
+                },
             },
         )
         self.report_path = self.repo / "benchmarks/cache-regression/change-report.json"
@@ -92,8 +99,8 @@ class CacheBudgetProposalTest(unittest.TestCase):
             repeat=2,
             retry_sample_run_limit=1,
             max_provider_requests_per_run=10,
-            max_input_tokens_per_run=100_000,
-            max_output_tokens_per_run=5_000,
+            observed_input_tokens_per_run=100_000,
+            observed_output_tokens_per_run=5_000,
             max_seconds_per_run=120,
             stop_conditions=["after_any_business_failure"],
             selection_reason="human selected representative paths",
@@ -105,10 +112,13 @@ class CacheBudgetProposalTest(unittest.TestCase):
         self.assertEqual(proposal["selection"]["planned_sample_runs"], 8)
         self.assertEqual(proposal["selection"]["maximum_sample_runs"], 9)
         self.assertEqual(proposal["maximums"]["provider_requests"], 90)
-        self.assertEqual(proposal["maximums"]["input_tokens"], 900_000)
-        self.assertEqual(proposal["maximums"]["output_tokens"], 45_000)
-        self.assertEqual(proposal["maximums"]["elapsed_seconds"], 1080)
-        self.assertEqual(proposal["maximums"]["estimated_cost"], 0.1386)
+        self.assertEqual(proposal["maximums"]["input_tokens"], 90_000_000)
+        self.assertEqual(proposal["maximums"]["output_tokens"], 34_560_000)
+        self.assertEqual(proposal["maximums"]["elapsed_seconds"], 2160)
+        self.assertEqual(proposal["maximums"]["estimated_cost"], 22.2768)
+        self.assertEqual(
+            proposal["observation_threshold_totals"]["estimated_cost"], 0.1386
+        )
 
     def test_rejects_unblocked_or_uncomparable_gate(self) -> None:
         report = json.loads(self.report_path.read_text(encoding="utf-8"))
@@ -155,6 +165,14 @@ class CacheBudgetProposalTest(unittest.TestCase):
                 **{**self._kwargs(), "stop_conditions": ["interpret this prose"]}
             )
 
+    def test_rejects_incomplete_provider_hard_limits(self) -> None:
+        contract = copy.deepcopy(self.contract)
+        del contract["provider_hard_limits"]["deepseek-v4-flash"][
+            "max_output_tokens_per_request"
+        ]
+        with self.assertRaisesRegex(ValueError, "hard limits are incomplete"):
+            build_budget_proposal(**{**self._kwargs(), "contract": contract})
+
     def test_digest_detects_plan_tampering(self) -> None:
         proposal = self.proposal()
         proposal["selection"]["repeat"] = 99
@@ -183,9 +201,9 @@ class CacheBudgetProposalTest(unittest.TestCase):
                     "1",
                     "--max-provider-requests-per-run",
                     "10",
-                    "--max-input-tokens-per-run",
+                    "--observed-input-tokens-per-run",
                     "100000",
-                    "--max-output-tokens-per-run",
+                    "--observed-output-tokens-per-run",
                     "5000",
                     "--max-seconds-per-run",
                     "120",
@@ -219,8 +237,8 @@ class CacheBudgetProposalTest(unittest.TestCase):
             "repeat": 1,
             "retry_sample_run_limit": 0,
             "max_provider_requests_per_run": 10,
-            "max_input_tokens_per_run": 100_000,
-            "max_output_tokens_per_run": 5_000,
+            "observed_input_tokens_per_run": 100_000,
+            "observed_output_tokens_per_run": 5_000,
             "max_seconds_per_run": 120,
             "stop_conditions": ["after_any_run_failure"],
             "selection_reason": "human choice",

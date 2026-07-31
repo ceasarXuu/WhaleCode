@@ -68,6 +68,12 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                 ],
                 "free_validation": {"semantic_baseline_globs": ["snapshots/*.snap"]},
                 "pricing_snapshot": self.pricing,
+                "provider_hard_limits": {
+                    "deepseek-v4-flash": {
+                        "max_input_tokens_per_request": 1_000_000,
+                        "max_output_tokens_per_request": 384_000,
+                    }
+                },
             },
         )
         self.gate_path = self.repo / "benchmarks/cache-regression/gate.json"
@@ -124,8 +130,8 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             repeat=1,
             retry_sample_run_limit=0,
             max_provider_requests_per_run=10,
-            max_input_tokens_per_run=100_000,
-            max_output_tokens_per_run=5_000,
+            observed_input_tokens_per_run=100_000,
+            observed_output_tokens_per_run=5_000,
             max_seconds_per_run=120,
             stop_conditions=["after_any_run_failure"],
             selection_reason="human selected smoke",

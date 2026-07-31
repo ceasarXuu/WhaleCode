@@ -20,6 +20,12 @@ from cache_run_contract import (
 from cache_surface import load_contract, surface_snapshot, write_json
 
 
+BENCHMARK_RUNNER = (
+    Path(__file__).resolve().parents[1]
+    / "taskspace-benchmark/run-taskspace-benchmark.ps1"
+)
+
+
 def run(*args: str, cwd: Path) -> str:
     return subprocess.check_output(args, cwd=cwd, text=True).strip()
 
@@ -52,6 +58,12 @@ class CacheRunContractTest(unittest.TestCase):
                     "currency": "USD",
                     "uncached_input_per_million": 0.14,
                     "output_per_million": 0.28,
+                },
+                "provider_hard_limits": {
+                    "deepseek-v4-flash": {
+                        "max_input_tokens_per_request": 1_000_000,
+                        "max_output_tokens_per_request": 384_000,
+                    }
                 },
             },
         )
@@ -90,8 +102,8 @@ class CacheRunContractTest(unittest.TestCase):
             repeat=2,
             retry_sample_run_limit=0,
             max_provider_requests_per_run=10,
-            max_input_tokens_per_run=100_000,
-            max_output_tokens_per_run=5_000,
+            observed_input_tokens_per_run=100_000,
+            observed_output_tokens_per_run=5_000,
             max_seconds_per_run=120,
             stop_conditions=["after_any_run_failure"],
             selection_reason="human selected this smoke",
@@ -177,6 +189,16 @@ class CacheRunContractTest(unittest.TestCase):
         )
         self.assertEqual(command[command.index("-Repeats") + 1], "1")
         self.assertEqual(command[command.index("-RunId") + 1], "CACHE-001")
+        self.assertEqual(command[command.index("-ProviderRequestHardLimit") + 1], "10")
+
+    def test_benchmark_runner_exports_provider_hard_limit_to_child(self) -> None:
+        source = BENCHMARK_RUNNER.read_text(encoding="utf-8")
+        self.assertIn("[int]$ProviderRequestHardLimit = 0", source)
+        self.assertIn(
+            '$childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT"] = '
+            "[string]$ProviderRequestHardLimit",
+            source,
+        )
 
 
 if __name__ == "__main__":

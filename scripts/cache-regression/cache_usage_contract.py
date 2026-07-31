@@ -75,9 +75,7 @@ def aggregate_usage_records(records: list[dict[str, int] | None]) -> dict[str, A
     return {
         "provider_request_count": len(checked),
         "input_tokens": sum(record["input_tokens"] for record in checked),
-        "cached_input_tokens": sum(
-            record["cached_input_tokens"] for record in checked
-        ),
+        "cached_input_tokens": sum(record["cached_input_tokens"] for record in checked),
         "output_tokens": sum(record["output_tokens"] for record in checked),
         "request_2_plus_count": len(request_2_plus),
         "request_2_plus_cached_input_tokens": request_2_cached,
@@ -105,9 +103,7 @@ def validate_cache_artifacts(
     cached_tokens = _nonnegative_integer(
         request.get("cached_input_tokens"), "cached_input_tokens"
     )
-    output_tokens = _nonnegative_integer(
-        request.get("output_tokens"), "output_tokens"
-    )
+    output_tokens = _nonnegative_integer(request.get("output_tokens"), "output_tokens")
     if cached_tokens > input_tokens:
         raise ValueError("cached input tokens exceed input tokens")
     if fields["request_2_plus_count"] > fields["provider_request_count"]:

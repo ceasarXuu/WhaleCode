@@ -166,5 +166,13 @@
     "cached_input_per_million": 0.0028,
     "uncached_input_per_million": 0.14,
     "output_per_million": 0.28
+  },
+  "provider_hard_limits": {
+    "deepseek-v4-flash": {
+      "max_input_tokens_per_request": 1000000,
+      "max_output_tokens_per_request": 384000,
+      "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "captured_at": "2026-08-01"
+    }
   }
 }

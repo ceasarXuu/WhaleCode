@@ -145,6 +145,10 @@ def planned_entry(
 
 def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     observations = result.get("observations", [])
+    usage_complete = bool(observations) and (
+        result.get("status") == "completed"
+        and len(observations) == result.get("actual_sample_runs")
+    )
     totals = {
         key: sum(int(observation[key]) for observation in observations)
         for key in (
@@ -177,6 +181,9 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     entry["elapsed_calendar_seconds"] = result["elapsed_seconds"]
     entry["execution"]["actual_sample_runs"] = result["actual_sample_runs"]
     entry["execution"]["api_requests"] = totals["provider_requests"]
+    entry["execution"]["api_requests_evidence_status"] = (
+        "complete" if usage_complete else "partial" if observations else "unavailable"
+    )
     entry["tokens"] = {
         "input": totals["input_tokens"],
         "cached_input": totals["cached_input_tokens"],
@@ -185,7 +192,13 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     }
     entry["monetary_cost"].update(
         {
-            "status": "estimated" if observations else "unavailable",
+            "status": (
+                "estimated"
+                if usage_complete
+                else "estimated_partial"
+                if observations
+                else "unavailable"
+            ),
             "amount": round(sum(components.values()), 10) if observations else None,
             "components": components if observations else None,
             "formula": (
@@ -195,7 +208,9 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
                 else None
             ),
             "note": (
-                "按已成功解析的 provider token 遥测和冻结价格估算。"
+                "按完整 provider token 遥测和冻结价格估算。"
+                if usage_complete
+                else "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
                 if observations
                 else "无完整 token 证据。"
             ),
@@ -207,10 +222,10 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
             "result_path": result.get("result_path"),
             "runner_exit_code": result.get("runner_exit_code"),
             "outcome": result.get("status", "failed"),
-            "usage_evidence_status": (
-                "complete"
-                if len(observations) == result["actual_sample_runs"]
-                else "partial"
-            ),
+            "usage_evidence_status": "complete"
+            if usage_complete
+            else "partial"
+            if observations
+            else "unavailable",
         }
     )

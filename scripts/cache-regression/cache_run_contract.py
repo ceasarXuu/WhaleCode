@@ -65,8 +65,12 @@ def validate_proposal_context(
         repeat=selection["repeat"],
         retry_sample_run_limit=selection["retry_sample_run_limit"],
         max_provider_requests_per_run=limits["provider_requests"],
-        max_input_tokens_per_run=limits["input_tokens"],
-        max_output_tokens_per_run=limits["output_tokens"],
+        observed_input_tokens_per_run=proposal["per_sample_run_observation_thresholds"][
+            "input_tokens"
+        ],
+        observed_output_tokens_per_run=proposal[
+            "per_sample_run_observation_thresholds"
+        ]["output_tokens"],
         max_seconds_per_run=limits["elapsed_seconds"],
         stop_conditions=selection["stop_conditions"],
         selection_reason=selection["selection_reason"],
@@ -184,5 +188,7 @@ def benchmark_command(
         side,
         "-TimeoutSeconds",
         str(proposal["per_sample_run_limits"]["elapsed_seconds"]),
+        "-ProviderRequestHardLimit",
+        str(proposal["per_sample_run_limits"]["provider_requests"]),
         "-EnableDockerImageCache",
     ]

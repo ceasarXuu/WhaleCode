@@ -187,10 +187,9 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             observation,
             {
                 "provider_requests": 10,
-                "input_tokens": 100,
-                "output_tokens": 20,
                 "elapsed_seconds": 10,
             },
+            {"input_tokens": 100, "output_tokens": 20},
         )
         self.assertEqual(exceeded, ["provider_requests"])
         observation["budget_observation_exceeded"] = exceeded

@@ -194,12 +194,16 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "stop_conditions": ["after_any_run_failure"],
         "selection_reason": "production-shaped fixture",
     }
+    provider_hard_limits = {
+        "max_input_tokens_per_request": 1_000_000,
+        "max_output_tokens_per_request": 384_000,
+    }
     maximums = {
         "provider_requests": 10,
-        "input_tokens": 100_000,
-        "output_tokens": 5_000,
-        "elapsed_seconds": 120,
-        "estimated_cost": 1.0,
+        "input_tokens": 10_000_000,
+        "output_tokens": 3_840_000,
+        "elapsed_seconds": 240,
+        "estimated_cost": 2.4752,
         "currency": "USD",
     }
     proposal = {
@@ -214,11 +218,49 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "selection": selection,
         "per_sample_run_limits": {
             "provider_requests": 10,
+            "elapsed_seconds": 120,
+            "cleanup_grace_seconds": 120,
+        },
+        "per_sample_run_observation_thresholds": {
             "input_tokens": 100_000,
             "output_tokens": 5_000,
-            "elapsed_seconds": 120,
+        },
+        "observation_threshold_totals": {
+            "input_tokens": 100_000,
+            "output_tokens": 5_000,
+            "estimated_cost": 0.0154,
+            "currency": "USD",
         },
         "maximums": maximums,
+        "pricing_snapshot": {
+            "currency": "USD",
+            "cached_input_per_million": 0.0028,
+            "uncached_input_per_million": 0.14,
+            "output_per_million": 0.28,
+        },
+        "provider_hard_limits": provider_hard_limits,
+        "cost_assumption": (
+            "hard request count multiplied by provider maximum input/output tokens; "
+            "all input priced as cache miss"
+        ),
+        "enforcement_boundary": {
+            "hard_before_start": [
+                "subject_commit",
+                "surface_sha256",
+                "proposal_and_authorization_identity",
+                "sample_arm_repeat_matrix",
+                "no_automatic_retries",
+            ],
+            "hard_during_run": ["provider_requests", "elapsed_seconds"],
+            "bounded_cleanup_after_run": ["cleanup_grace_seconds"],
+            "hard_by_provider_per_request": ["input_tokens", "output_tokens"],
+            "observed_after_each_run": [
+                "input_tokens",
+                "output_tokens",
+                "estimated_cost",
+            ],
+        },
+        "evidence_boundary": "fixture scope only",
     }
     proposal["proposal_id"] = proposal_id(proposal)
     proposal["proposal_sha256"] = canonical_json_sha256(proposal)

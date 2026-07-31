@@ -66,6 +66,50 @@ def find_run_dir_by_id(run_root: Path, run_id: str) -> Path:
     return candidates[0]
 
 
+def cleanup_labeled_containers(run_id: str) -> dict[str, Any]:
+    try:
+        listed = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-aq",
+                "--filter",
+                f"label=whalecode.run_id={run_id}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        container_ids = [item for item in listed.stdout.splitlines() if item.strip()]
+        if listed.returncode != 0:
+            return {
+                "status": "failed",
+                "container_ids": container_ids,
+                "error": listed.stderr.strip() or "docker ps failed",
+            }
+        if not container_ids:
+            return {"status": "no_containers", "container_ids": []}
+        removed = subprocess.run(
+            ["docker", "rm", "--force", *container_ids],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        return {
+            "status": "removed" if removed.returncode == 0 else "failed",
+            "container_ids": container_ids,
+            "error": removed.stderr.strip() if removed.returncode != 0 else "",
+        }
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {
+            "status": "failed",
+            "container_ids": [],
+            "error": f"{type(error).__name__}: {error}",
+        }
+
+
 def persist_observation_artifacts(
     repo: Path,
     record_id: str,
@@ -192,6 +236,7 @@ def main() -> int:
     started = time.time()
     selection = proposal["selection"]
     limits = proposal["per_sample_run_limits"]
+    thresholds = proposal["per_sample_run_observation_thresholds"]
     result = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "record_id": record_id,
@@ -242,6 +287,7 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             attempt["exit_code"] = None
             attempt["timed_out"] = True
+            attempt["timeout_cleanup"] = cleanup_labeled_containers(run_id)
             run_failed = True
         except OSError as error:
             attempt["exit_code"] = None
@@ -272,7 +318,7 @@ def main() -> int:
             observation["run_id"] = run_id
             observation["elapsed_seconds"] = attempt["elapsed_seconds"]
             observation["budget_observation_exceeded"] = budget_observation_exceeded(
-                observation, limits
+                observation, limits, thresholds
             )
             result["observations"].append(observation)
             attempt["run_dir"] = str(run_dir.relative_to(repo))

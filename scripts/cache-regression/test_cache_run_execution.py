@@ -13,7 +13,11 @@ from unittest.mock import patch
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
 from cache_run_analysis import analyze_artifacts
 from cache_surface import write_json
-from run_cache_hit_regression import main, persist_observation_artifacts
+from run_cache_hit_regression import (
+    cleanup_labeled_containers,
+    main,
+    persist_observation_artifacts,
+)
 
 
 class CacheRunExecutionTest(unittest.TestCase):
@@ -72,17 +76,24 @@ class CacheRunExecutionTest(unittest.TestCase):
             },
             "per_sample_run_limits": {
                 "provider_requests": 10,
+                "elapsed_seconds": 60,
+                "cleanup_grace_seconds": 120,
+            },
+            "per_sample_run_observation_thresholds": {
                 "input_tokens": 1000,
                 "output_tokens": 100,
-                "elapsed_seconds": 60,
             },
             "maximums": {
                 "provider_requests": 20,
-                "input_tokens": 2000,
-                "output_tokens": 200,
-                "elapsed_seconds": 120,
-                "estimated_cost": 1.0,
+                "input_tokens": 20_000_000,
+                "output_tokens": 7_680_000,
+                "elapsed_seconds": 360,
+                "estimated_cost": 4.9504,
                 "currency": "USD",
+            },
+            "provider_hard_limits": {
+                "max_input_tokens_per_request": 1_000_000,
+                "max_output_tokens_per_request": 384_000,
             },
             "pricing_snapshot": self.pricing,
             "evidence_boundary": "fixture scope only",
@@ -193,6 +204,29 @@ class CacheRunExecutionTest(unittest.TestCase):
         self.assertEqual(result["schema_version"], RESULT_SCHEMA_VERSION)
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["unverified_scope"], [])
+
+    def test_timeout_cleanup_removes_all_run_labeled_containers(self) -> None:
+        completed = [
+            type(
+                "Completed", (), {"returncode": 0, "stdout": "one\ntwo\n", "stderr": ""}
+            )(),
+            type(
+                "Completed", (), {"returncode": 0, "stdout": "one\ntwo\n", "stderr": ""}
+            )(),
+        ]
+        with patch(
+            "run_cache_hit_regression.subprocess.run", side_effect=completed
+        ) as run:
+            result = cleanup_labeled_containers("CACHE-001")
+        self.assertEqual(result["status"], "removed")
+        self.assertEqual(result["container_ids"], ["one", "two"])
+        self.assertEqual(
+            run.call_args_list[0].args[0][-1],
+            "label=whalecode.run_id=CACHE-001",
+        )
+        self.assertEqual(
+            run.call_args_list[1].args[0], ["docker", "rm", "--force", "one", "two"]
+        )
 
     def test_persists_recomputable_artifacts_outside_target(self) -> None:
         source = self.repo / "target/source"

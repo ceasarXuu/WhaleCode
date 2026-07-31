@@ -26,8 +26,8 @@ def main() -> int:
     parser.add_argument("--repeat", type=int, required=True)
     parser.add_argument("--retry-sample-run-limit", type=int, default=0)
     parser.add_argument("--max-provider-requests-per-run", type=int, required=True)
-    parser.add_argument("--max-input-tokens-per-run", type=int, required=True)
-    parser.add_argument("--max-output-tokens-per-run", type=int, required=True)
+    parser.add_argument("--observed-input-tokens-per-run", type=int, required=True)
+    parser.add_argument("--observed-output-tokens-per-run", type=int, required=True)
     parser.add_argument("--max-seconds-per-run", type=int, required=True)
     parser.add_argument(
         "--stop-condition",
@@ -60,8 +60,8 @@ def main() -> int:
             repeat=args.repeat,
             retry_sample_run_limit=args.retry_sample_run_limit,
             max_provider_requests_per_run=args.max_provider_requests_per_run,
-            max_input_tokens_per_run=args.max_input_tokens_per_run,
-            max_output_tokens_per_run=args.max_output_tokens_per_run,
+            observed_input_tokens_per_run=args.observed_input_tokens_per_run,
+            observed_output_tokens_per_run=args.observed_output_tokens_per_run,
             max_seconds_per_run=args.max_seconds_per_run,
             stop_conditions=args.stop_condition,
             selection_reason=args.selection_reason,

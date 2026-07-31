@@ -100,6 +100,7 @@ def validate_observation(
     result: dict[str, Any],
     observation: dict[str, Any],
     limits: dict[str, Any],
+    thresholds: dict[str, Any],
     source: str,
 ) -> list[str]:
     prefix = f"benchmarks/cache-regression/evidence/{result['record_id']}/"
@@ -136,7 +137,7 @@ def validate_observation(
         and observation["request_2_plus_count"] >= 1,
         "cache observation is not promotable",
     )
-    exceeded = budget_observation_exceeded(observation, limits)
+    exceeded = budget_observation_exceeded(observation, limits, thresholds)
     require(
         observation.get("budget_observation_exceeded") == exceeded == [],
         "cache observation exceeded its approved budget",
@@ -343,6 +344,7 @@ def validate_run_evidence(
                 result,
                 observation,
                 proposal["per_sample_run_limits"],
+                proposal["per_sample_run_observation_thresholds"],
                 source,
             )
         )

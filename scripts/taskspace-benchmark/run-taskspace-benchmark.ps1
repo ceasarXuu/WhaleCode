@@ -6,6 +6,7 @@ param(
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120, [int]$ValidationTestTimeoutSeconds = 420,
+    [int]$ProviderRequestHardLimit = 0,
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AdditionalConfigOverride = "",
     [ValidateSet("map-always", "map-append", "map-request")]
@@ -51,6 +52,7 @@ function ConvertTo-TaskspaceSampleNameList {
 }
 
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
+if ($ProviderRequestHardLimit -lt 0) { throw "ProviderRequestHardLimit must be >= 0" }
 $SampleNames = @(ConvertTo-TaskspaceSampleNameList $SampleNames)
 if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario $ScenarioPath
@@ -474,6 +476,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         container_base_image = [string]$containerImage.base_image
         container_resource_contract = $containerContract.resources
         provider_param_status = $providerParamStatus
+        provider_request_hard_limit = $ProviderRequestHardLimit
         config_overrides = @($effectiveConfigOverrides)
         taskspace_projection_policy = $TaskSpaceProjectionPolicy
         sandbox_mode = "docker_hard_boundary"
@@ -507,6 +510,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $commonArgs = Get-TaskspaceCommonArgvWithoutTreatment $args
             $childEnvironment = @{
                 WHALE_PROVIDER_WIRE_TRACE_PATH = "/artifacts/provider-wire-trace.jsonl"
+            }
+            if ($ProviderRequestHardLimit -gt 0) {
+                $childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT"] = [string]$ProviderRequestHardLimit
             }
             if ($side.LogicalMode -eq "taskspace") {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode

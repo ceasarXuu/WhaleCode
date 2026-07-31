@@ -17,17 +17,15 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def budget_observation_exceeded(
-    observation: dict[str, Any], limits: dict[str, Any]
+    observation: dict[str, Any], limits: dict[str, Any], thresholds: dict[str, Any]
 ) -> list[str]:
     exceeded = []
-    for observed_key, limit_key in (
-        ("provider_requests", "provider_requests"),
-        ("input_tokens", "input_tokens"),
-        ("output_tokens", "output_tokens"),
-        ("elapsed_seconds", "elapsed_seconds"),
-    ):
+    for observed_key, limit_key in (("provider_requests", "provider_requests"),):
         if observation[observed_key] > limits[limit_key]:
             exceeded.append(observed_key)
+    for key in ("input_tokens", "output_tokens"):
+        if observation[key] > thresholds[key]:
+            exceeded.append(key)
     return exceeded
 
 
