@@ -117,6 +117,34 @@ $revisionMismatch.error.actual | Add-Member `
 Assert-True (
     -not (Get-R7StructuredFailureOutcome $revisionMismatch).evidence_valid
 ) "control failure accepted conflicting canonical revisions"
+$stringActualRevision = New-ControlFailure
+$stringActualRevision.error.actual | Add-Member `
+    -NotePropertyName canonical_revision `
+    -NotePropertyValue "4"
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $stringActualRevision).evidence_valid
+) "control failure coerced a string actual revision"
+$booleanActualRevision = New-ControlFailure
+$booleanActualRevision.error.actual | Add-Member `
+    -NotePropertyName canonical_revision `
+    -NotePropertyValue $true
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $booleanActualRevision).evidence_valid
+) "control failure coerced a boolean actual revision"
+$stringExpectedRevision = New-ControlFailure
+$stringExpectedRevision.error.expected | Add-Member `
+    -NotePropertyName submitted_expected_revision `
+    -NotePropertyValue "4"
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $stringExpectedRevision).evidence_valid
+) "control failure coerced a string expected revision"
+$booleanExpectedRevision = New-ControlFailure
+$booleanExpectedRevision.error.expected | Add-Member `
+    -NotePropertyName submitted_expected_revision `
+    -NotePropertyValue $true
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $booleanExpectedRevision).evidence_valid
+) "control failure coerced a boolean expected revision"
 
 $absentNodeState = New-ControlFailure
 $absentNodeState.error.actual.violations[0].

@@ -17,6 +17,7 @@ if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction Silently
 . (Join-Path $PSScriptRoot "r7-state-failure-contract.ps1")
 . (Join-Path $PSScriptRoot "r7-call-evidence.ps1")
 . (Join-Path $PSScriptRoot "r7-direct-failure-carrier.ps1")
+. (Join-Path $PSScriptRoot "r7-response-commit-binding.ps1")
 . (Join-Path $PSScriptRoot "r7-supplemental-failure.ps1")
 
 function New-R7RequestRows {
@@ -164,48 +165,6 @@ function Add-R7ObservedCall {
     $CallsById[$Call.call_id] = $Call
 }
 
-function Set-R7ExpectedReservations {
-    param([hashtable]$CallsById, $ControlCall, $Payload)
-    $assignments = [Collections.Generic.List[object]]::new()
-    $reservations = @(Get-R7JsonProperty $Payload "reserved_actions" @())
-    $declaredActions = @($ControlCall.declared_actions)
-    if ($reservations.Count -ne $declaredActions.Count) {
-        return "reservation count does not match the control manifest"
-    }
-    for ($index = 0; $index -lt $reservations.Count; $index++) {
-        $reservation = $reservations[$index]
-        $callId = [string](Get-R7JsonProperty $reservation "call_id" "")
-        $reservationId = [string](Get-R7JsonProperty $reservation "reservation_id" "")
-        if ([string]::IsNullOrWhiteSpace($callId) -or
-            [string]::IsNullOrWhiteSpace($reservationId) -or
-            -not $CallsById.ContainsKey($callId)) {
-            return "reservation identity has no observed sibling Tool call"
-        }
-        $targetCall = $CallsById[$callId]
-        if ([int]$ControlCall.request_index -lt 1 -or
-            [int]$targetCall.request_index -ne [int]$ControlCall.request_index) {
-            return "reservation crosses the provider request identity"
-        }
-        $declared = $declaredActions[$index]
-        if ([string](Get-R7JsonProperty $reservation "tool" "") -ne
-                [string]$targetCall.tool -or
-            [string](Get-R7JsonProperty $reservation "tool" "") -ne
-                [string]$declared.tool -or
-            [string](Get-R7JsonProperty $reservation "node_id" "") -ne
-                [string]$declared.node_id) {
-            return "reservation facts do not match the control manifest"
-        }
-        $assignments.Add([pscustomobject]@{
-                call = $targetCall
-                reservation_id = $reservationId
-            })
-    }
-    foreach ($assignment in $assignments) {
-        $assignment.call.expected_reservation_id = $assignment.reservation_id
-    }
-    ""
-}
-
 function Apply-R7ObservedOutcome {
     param([hashtable]$CallsById, $Observed)
     if (-not $CallsById.ContainsKey([string]$Observed.call_id)) {
@@ -234,21 +193,30 @@ function Apply-R7ObservedOutcome {
         -ToolSuccess $Observed.tool_success `
         -Output ([string]$Observed.output_text) `
         -ToolName ([string]$call.tool)
-    if ([string]$call.tool -eq "taskspace_control" -and
+    if ([string]$call.tool -ceq "taskspace_control" -and
         $outcome.success -eq $true -and
-        [string]$outcome.carrier_schema -eq "TaskSpaceResponseCommitV1") {
-        $bindingError = Set-R7ExpectedReservations `
-            $CallsById `
+        [string]$outcome.carrier_schema -ceq "TaskSpaceResponseCommitV1") {
+        $bindingError = Get-R7ResponseCommitRequestBindingError `
             $call `
             $outcome.parsed_payload
+        $bindingReason = "response_commit_request_mismatch"
+        if ([string]::IsNullOrWhiteSpace([string]$bindingError)) {
+            $bindingError = Set-R7ExpectedReservations `
+                $CallsById `
+                $call `
+                $outcome.parsed_payload
+            $bindingReason = "response_commit_reservation_mismatch"
+        }
         if (-not [string]::IsNullOrWhiteSpace([string]$bindingError)) {
             $outcome = Complete-R7CallOutcomeFacts (
                 New-R7InvalidCallOutcome `
-                    "response_commit_reservation_mismatch" `
-                    "response_commit_reservation_mismatch" `
+                    $bindingReason `
+                    $bindingReason `
                     "TaskSpaceResponseCommitV1" `
                     $true
             ) $outcome.parsed_payload
+        } else {
+            $call.reservation_mutated = $true
         }
     }
     Set-R7CallOutcome $call $outcome

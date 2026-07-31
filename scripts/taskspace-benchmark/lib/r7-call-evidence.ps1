@@ -9,17 +9,26 @@ function ConvertTo-R7CallDescriptor {
     $argumentParseStatus = "not_applicable"
     if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
         try {
-            $parsed = $Arguments | ConvertFrom-Json -Depth 100
+            $parsed = ConvertFrom-R7StrictJsonObject $Arguments
             $argumentParseStatus = "valid_json"
         } catch {
             $argumentParseStatus = "invalid_json"
         }
     }
-    $controlAction = if ($ToolName -eq "taskspace_control") {
+    $controlAction = if ($ToolName -ceq "taskspace_control") {
         [string](Get-R7JsonProperty $parsed "action" "")
     } else {
         ""
     }
+    $submittedExpectedRevision = if ($ToolName -ceq "taskspace_control") {
+        Get-R7JsonProperty $parsed "expected_revision"
+    } else {
+        $null
+    }
+    $submittedExpectedRevisionPresent =
+        $ToolName -ceq "taskspace_control" -and
+        $null -ne $parsed -and
+        $parsed.PSObject.Properties.Name -contains "expected_revision"
     $declaredActions = @(
         Get-R7JsonProperty $parsed "actions" @() |
             ForEach-Object {
@@ -35,14 +44,14 @@ function ConvertTo-R7CallDescriptor {
         @($declaredActions | ForEach-Object node_id) -join ","
     }
     $detail = ""
-    if ($ToolName -in @("exec_command", "shell_command", "local_shell")) {
+    if ($ToolName -cin @("exec_command", "shell_command", "local_shell")) {
         $detail = [string](Get-R7JsonProperty $parsed "cmd" "")
         if ([string]::IsNullOrWhiteSpace($detail)) {
             $detail = [string](Get-R7JsonProperty $parsed "action" "")
         }
         $detail = ($detail -replace '[\r\n]+', ' ').Trim()
         if ($detail.Length -gt 120) { $detail = $detail.Substring(0, 120) }
-    } elseif ($ToolName -eq "apply_patch") {
+    } elseif ($ToolName -ceq "apply_patch") {
         $patchText = [string](Get-R7JsonProperty $parsed "input" "")
         $fileCount = @([regex]::Matches($patchText, '(?m)^\*\*\* (?:Add|Update|Delete) File:')).Count
         $detail = "patch_files=$fileCount"
@@ -53,6 +62,11 @@ function ConvertTo-R7CallDescriptor {
         call_type = $CallType
         request_index = 0
         control_action = $controlAction
+        submitted_expected_revision = $submittedExpectedRevision
+        submitted_expected_revision_present = $submittedExpectedRevisionPresent
+        carrier_action = ""
+        carrier_revision_before = $null
+        reservation_mutated = $false
         declared_node_id = ""
         declared_actions = $declaredActions
         expected_reservation_id = ""
@@ -402,7 +416,8 @@ function Set-R7CallOutcome {
     param($Call, $Outcome)
     foreach ($name in @(
             "success", "failure_class", "failure_code", "failure_schema_version",
-            "carrier_schema", "reason_code",
+            "carrier_schema", "reason_code", "carrier_action",
+            "carrier_revision_before",
             "failure_provenance_scope", "failure_copy_group_id",
             "failure_affected_call_ids", "zero_dispatch", "parse_status", "evidence_valid",
             "violation_codes", "violation_contexts", "state_commit"

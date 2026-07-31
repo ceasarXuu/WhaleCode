@@ -147,7 +147,7 @@ function Get-R7ControlFailureEnvelopeShapeError {
     $acceptedActions = @(Get-R7ControlActionNames)
     $action = Get-R7JsonProperty $Payload "action"
     if ($null -ne $action -and
-        ($action -isnot [string] -or [string]$action -notin $acceptedActions)) {
+        ($action -isnot [string] -or [string]$action -cnotin $acceptedActions)) {
         return "TaskSpaceControlResultV2 action is unsupported"
     }
     $error = Get-R7JsonProperty $Payload "error"
@@ -191,32 +191,53 @@ function Get-R7ControlFailureEnvelopeShapeError {
     $expected = Get-R7JsonProperty $error "expected"
     if ($actual -is [pscustomobject] -and
         (Test-R7FailureHasProperty $actual "canonical_revision")) {
-        $actualRevision = Get-R7JsonProperty $actual "canonical_revision"
-        $canonicalRevision = Get-R7JsonProperty $Payload "canonical_revision"
-        if ($actualRevision -ne $canonicalRevision) {
+        $actualRevisionRaw = Get-R7JsonProperty $actual "canonical_revision"
+        $canonicalRevisionRaw =
+            Get-R7JsonProperty $Payload "canonical_revision"
+        $actualRevision = ConvertTo-R7NonnegativeInt64Fact $actualRevisionRaw
+        $canonicalRevision =
+            ConvertTo-R7NonnegativeInt64Fact $canonicalRevisionRaw
+        if (($null -eq $actualRevisionRaw) -ne
+                ($null -eq $canonicalRevisionRaw) -or
+            ($null -ne $actualRevisionRaw -and
+                ($null -eq $actualRevision -or
+                    $null -eq $canonicalRevision -or
+                    $actualRevision -cne $canonicalRevision))) {
             return "TaskSpaceControlResultV2 actual revision does not match envelope"
         }
     }
     if ($null -ne $action) {
         $actualAction = Get-R7JsonProperty $actual "action"
-        if ($null -ne $actualAction -and [string]$actualAction -ne [string]$action) {
+        if ($null -ne $actualAction -and
+            [string]$actualAction -cne [string]$action) {
             return "TaskSpaceControlResultV2 actual.action does not match action"
         }
         $expectedAction = Get-R7JsonProperty $expected "action"
         $expectedContract = [string](Get-R7JsonProperty $expected "contract" "")
         if ($null -ne $expectedAction) {
-            if ([string]$expectedAction -ne [string]$action) {
+            if ([string]$expectedAction -cne [string]$action) {
                 return "TaskSpaceControlResultV2 expected.action does not match action"
             }
-        } elseif ($expectedContract -ne "selected action schema") {
+        } elseif ($expectedContract -cne "selected action schema") {
             return "TaskSpaceControlResultV2 expected does not identify the action contract"
         }
     }
     if ($null -ne $expected -and
         (Test-R7FailureHasProperty $expected "submitted_expected_revision")) {
-        $expectedRevision = Get-R7JsonProperty $expected "submitted_expected_revision"
-        $submittedRevision = Get-R7JsonProperty $Payload "submitted_expected_revision"
-        if ($expectedRevision -ne $submittedRevision) {
+        $expectedRevisionRaw =
+            Get-R7JsonProperty $expected "submitted_expected_revision"
+        $submittedRevisionRaw =
+            Get-R7JsonProperty $Payload "submitted_expected_revision"
+        $expectedRevision =
+            ConvertTo-R7NonnegativeInt64Fact $expectedRevisionRaw
+        $submittedRevision =
+            ConvertTo-R7NonnegativeInt64Fact $submittedRevisionRaw
+        if (($null -eq $expectedRevisionRaw) -ne
+                ($null -eq $submittedRevisionRaw) -or
+            ($null -ne $expectedRevisionRaw -and
+                ($null -eq $expectedRevision -or
+                    $null -eq $submittedRevision -or
+                    $expectedRevision -cne $submittedRevision))) {
             return "TaskSpaceControlResultV2 expected revision does not match envelope"
         }
     }

@@ -1,7 +1,7 @@
 # Subagent VS Review: R71-01 direct failure carrier
 
 - Created: 2026-07-31T07:51:28+08:00
-- Updated: 2026-07-31T08:12:35+08:00
+- Updated: 2026-07-31T08:52:22+08:00
 - Report schema: adversarial-v1
 - Task: 执行 R7.1 原子 Phase R71-01，并对 strict direct failure carrier 实施对抗性审查
 - Report path: `vs_review/2026-07-31-r71-01-direct-failure-carrier-review.md`
@@ -252,6 +252,139 @@ TaskSpace schema 时进入 untrusted 分支；当前 response-prepare 成功载�
 - Blocked reason: accepted blocking fixes require a fresh closure review
 - Allowed to proceed: no
 
+## Round 2: accepted blocker closure review
+
+### Review Input
+
+#### Objective
+
+只读复审 commit `4ad980f1efc58155ea54f3e5599cad44d23bea1b` 是否关闭 Round 1 的 B1～B4，
+并尝试发现修复引入的新 correctness 或 boundary 回归。
+
+#### Review Target
+
+- Round 1 report、findings 和 Main Agent response。
+- `52d69df8f` 的 accepted blocker 修复。
+- `4ad980f1e` 的 report-level strict fixture 修正。
+
+#### Target Locations
+
+- Round 1 列出的全部实现、测试和 evidence 文件。
+- `scripts/taskspace-benchmark/test-r7-request-observability-report.ps1`
+- 当前 `git diff 2a0530a6c..4ad980f1e`
+
+#### Risk Focus
+
+- B1：status/class、revision、node presence/state 是否真正 fail closed，合法生产正例是否保留。
+- B2：strict parse 是否确实先于任何 reservation mutation，失败是否保持稳定 reason。
+- B3：ordinary Tool 是否完全独立于 domain `success` 与 malformed JSON。
+- B4：call row/evidence/schema 是否形成可追溯闭环，而非换一种 test literal。
+- 新风险：unknown transport status、partial reservation、supplemental carrier、report taxonomy。
+
+#### Implementation Completeness Focus
+
+- 必须沿 `Get-R7ResponseItemOutcome -> Apply-R7ObservedOutcome -> Get-R7CallOutcome` 真实入口核对。
+- 验证 artifact 每个 record 可追溯到 Apply 后 call row 与 source hash。
+- 核对 request observability report 的合法 control fixture，不接受放宽 parser。
+
+#### Verification Status
+
+- Round 1 B1～B4 定向反例：PASS。
+- trace/state/supplemental/exact-count/provider-token/state-summary/performance/cost/contracts：PASS。
+- clean-worktree request observability report：PASS。
+- Phase register 尚未关闭，等待本轮 blocker closure review。
+
+#### Reviewer Instructions
+
+- 全新内部 subagent，`fork_context=false`，只读。
+- 不接受主 Agent 的修复结论，直接重放或构造反例。
+- 逐项给出 B1～B4：closed / still open / regressed，并引用路径与行号。
+- 新 blocking finding 必须包含 trigger、impact、proof needed。
+- 不修改文件。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| high-risk | 20 分钟 | 最多延长 10 分钟一次 | 2 | 未完成不得通过 |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| implementation-adversary | accepted blocking closure 必须由新的实现审查者逐项证伪 | correctness、failure boundaries、evidence integrity |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| implementation-adversary | `multi_agent_v1.spawn_agent`, `gpt-5.6-sol/xhigh` | `019fb587-b86a-77b1-b250-b8203607272b` | spawn tool response，nickname=`Lagrange` | `fork_context=false` | Round 2 Review Input | 主 Agent 与 Round 1 reviewer 上下文、推理和结论 | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| R2-Lagrange | implementation-adversary | 1 | `019fb587-b86a-77b1-b250-b8203607272b` | 小于 20 分钟上限 | completed | 正常返回 | completed |
+
+### Reviewer Outputs
+
+#### R2-Lagrange
+
+##### Summary
+
+结论为 `BLOCKED`。Round 1 的 ordinary Tool 隔离和 artifact 追溯已关闭；revision
+精确类型、response-prepare 与原始 control request 的身份绑定、以及 transport status
+缺失时的 fail-closed 仍有缺口。
+
+##### Round 1 Closure
+
+| Round 1 Finding | Result | Evidence |
+|---|---|---|
+| B1 跨字段矛盾 | still open | PowerShell 宽松比较仍接受字符串或布尔 revision |
+| B2 strict parse 与 reservation 副作用 | still open | response commit 未与原请求 action/expected_revision 对账 |
+| B3 ordinary Tool 隔离 | closed | ordinary 输出不再读取业务 `success` 语义 |
+| B4 evidence 追溯 | closed | call row 一等字段、source hash 和专用 schema 已接通 |
+
+##### New Blocking Finding
+
+- **N1：TaskSpace transport status 缺失时 fail open。**
+  - Trigger：TaskSpace direct/trusted carrier 没有布尔 `toolSuccess`，或携带字符串 `"true"`。
+  - Impact：observer 可能把 transport 事实缺失的载体认作有效成功/失败证据。
+  - Proof needed：缺失和非布尔 transport status 均产生稳定 invalid outcome，且不写入
+    sibling reservation。
+
+##### Non-blocking Risks
+
+- evidence schema 不能对任意 taxonomy/hash 做密码学绑定；当前 source hash 已满足本 Phase
+  的可追溯范围。
+- supplemental `originalRole` 尚未与 raw role 交叉验证，属于后续 carrier provenance 范围。
+- 其他 protocol 字段仍有默认大小写比较；本轮只要求身份、action 和 revision 精确。
+- successful `TaskSpaceControlResultV2` 完整 validator 仍在 R71-01 范围外。
+
+##### Required Fixes
+
+- revision 对账只接受 exact nonnegative Int64，不接受字符串、布尔或隐式强转。
+- `TaskSpaceResponseCommitV1` 必须绑定原始 control action 与 expected_revision。
+- transport status 必须存在且为布尔值。
+- 绑定失败不得产生部分 sibling reservation，且应暴露稳定诊断字段。
+
+### Main Agent Response
+
+| Finding | Decision | Action Taken | Deterministic Evidence |
+|---|---|---|---|
+| B1 exact revision | accept | envelope/actual/expected revision 统一走 exact nonnegative Int64 | string/bool actual 与 expected revision 反例 |
+| B2 request binding | accept | 新增独立 response-commit binding 模块，逐项核对 action、revision 与 request identity | action/revision/missing revision/case drift 反例 |
+| B2 atomic reservation | accept | 先验证全部 reservation，再一次性写入；成功后记录 `reservation_mutated=true` | 双 sibling 后段 mismatch 零写入反例 |
+| N1 transport status | accept | TaskSpace direct/trusted carrier 要求布尔 `toolSuccess`，否则 fail closed | missing/string transport 反例 |
+| non-blocking risks | defer | 不扩张 R71-01 的 direct failure adapter 边界 | 交由对应后续 Phase 或未来 issue |
+
+### Closure Status
+
+- Round 1 blocker closure: implementation complete, fresh review pending
+- New blocking findings: implementation complete, fresh review pending
+- Allowed to close R71-01: no
+
 ## Final Conclusion
 
-审查进行中。
+Round 2 接受项已全部实现并通过本地确定性测试。按项目审查门禁，代码变更后的 fresh
+closure review 需要用户再次授权；在此之前 R71-01 保持 `repair`，不伪造关闭结论。

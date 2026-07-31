@@ -98,7 +98,7 @@ function Get-R7ResponseCommitShapeError {
             return "TaskSpaceResponseCommitV1 is missing $field"
         }
     }
-    if ([string]$Payload.status -ne "accepted" -or
+    if ([string]$Payload.status -cne "accepted" -or
         $Payload.success -isnot [bool] -or -not [bool]$Payload.success -or
         $Payload.state_commit -isnot [bool] -or -not [bool]$Payload.state_commit) {
         return "TaskSpaceResponseCommitV1 has invalid success semantics"
@@ -107,7 +107,7 @@ function Get-R7ResponseCommitShapeError {
         [string]::IsNullOrWhiteSpace([string]$Payload.map_id)) {
         return "TaskSpaceResponseCommitV1 map_id must be a non-empty string"
     }
-    if ([string]$Payload.action -notin @(
+    if ([string]$Payload.action -cnotin @(
             "initialize_and_execute", "execute", "reopen_map"
         )) {
         return "TaskSpaceResponseCommitV1 action is unsupported"
@@ -209,6 +209,16 @@ function Complete-R7CallOutcomeFacts {
     $Outcome | Add-Member -Force `
         -NotePropertyName parsed_payload `
         -NotePropertyValue $Payload
+    $Outcome | Add-Member -Force `
+        -NotePropertyName carrier_action `
+        -NotePropertyValue ([string](
+            Get-R7JsonProperty $Payload "action" ""
+        ))
+    $Outcome | Add-Member -Force `
+        -NotePropertyName carrier_revision_before `
+        -NotePropertyValue (
+            Get-R7JsonProperty $Payload "revision_before"
+        )
     $Outcome
 }
 
@@ -231,16 +241,24 @@ function Get-R7CallOutcome {
     }
     $schemaVersion = [string](Get-R7JsonProperty $payload "schema_version" "")
     $reservedSchemas = @(Get-R7ReservedTaskspaceCarrierSchemas)
-    $isControlTool = $ToolName -eq "taskspace_control"
-    $isControlSchema = $schemaVersion -eq "TaskSpaceControlResultV2"
-    $isResponseCommitSchema = $schemaVersion -eq "TaskSpaceResponseCommitV1"
-    $isReservedTaskspaceSchema = $schemaVersion -in $reservedSchemas
+    $isControlTool = $ToolName -ceq "taskspace_control"
+    $isControlSchema = $schemaVersion -ceq "TaskSpaceControlResultV2"
+    $isResponseCommitSchema = $schemaVersion -ceq "TaskSpaceResponseCommitV1"
+    $isReservedTaskspaceSchema = $schemaVersion -cin $reservedSchemas
 
     if ($isControlTool) {
         if ($null -ne $parseError -or $null -eq $payload) {
             $reason = Get-R7StrictJsonFailureReason $parseError
             $outcome = New-R7InvalidCallOutcome $reason.code $reason.status
             return Complete-R7CallOutcomeFacts $outcome $null "unparsed"
+        }
+        if ($ToolSuccess -isnot [bool]) {
+            $outcome = New-R7InvalidCallOutcome `
+                "tool_transport_status_missing" `
+                "missing_tool_transport_status" `
+                $schemaVersion `
+                (Get-R7JsonProperty $payload "state_commit")
+            return Complete-R7CallOutcomeFacts $outcome $payload
         }
         if ($isResponseCommitSchema) {
             $outcome = Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
@@ -266,6 +284,14 @@ function Get-R7CallOutcome {
                 (Get-R7JsonProperty $payload "state_commit")
             return Complete-R7CallOutcomeFacts $outcome $payload
         }
+        if ($ToolSuccess -isnot [bool]) {
+            $outcome = New-R7InvalidCallOutcome `
+                "tool_transport_status_missing" `
+                "missing_tool_transport_status" `
+                $schemaVersion `
+                (Get-R7JsonProperty $payload "state_commit")
+            return Complete-R7CallOutcomeFacts $outcome $payload
+        }
         if ($isResponseCommitSchema) {
             $outcome = Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
             return Complete-R7CallOutcomeFacts $outcome $payload
@@ -279,6 +305,14 @@ function Get-R7CallOutcome {
             $reason = Get-R7StrictJsonFailureReason $parseError
             $outcome = New-R7InvalidCallOutcome $reason.code $reason.status
             return Complete-R7CallOutcomeFacts $outcome $null "unparsed"
+        }
+        if ($ToolSuccess -isnot [bool]) {
+            $outcome = New-R7InvalidCallOutcome `
+                "tool_transport_status_missing" `
+                "missing_tool_transport_status" `
+                $schemaVersion `
+                (Get-R7JsonProperty $payload "state_commit")
+            return Complete-R7CallOutcomeFacts $outcome $payload
         }
         $outcome = New-R7InvalidCallOutcome `
             "failure_schema_unknown" `
