@@ -37,7 +37,6 @@ param(
     [string]$V005UserApprovalMarkerPath = "",
     [ValidateSet("both", "left", "right")]
     [string]$RunSide = "both",
-    [switch]$SuppressTaskspaceDynamicFactualCarriers,
     [switch]$ForceRerun,
     [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
@@ -155,7 +154,6 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
     run_side = $RunSide
     taskspace_projection_policy = $TaskSpaceProjectionPolicy
-    suppress_taskspace_dynamic_factual_carriers = [bool]$SuppressTaskspaceDynamicFactualCarriers
 } | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
@@ -390,7 +388,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     Write-TaskspaceRunEvent $runDir "pair_side_selection_completed" @{
         repeat = $repeat
         run_side = $RunSide
-        suppress_taskspace_dynamic_factual_carriers = [bool]$SuppressTaskspaceDynamicFactualCarriers
         selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
         skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
     }
@@ -514,9 +511,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             if ($side.LogicalMode -eq "taskspace") {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
                 $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
-                if ($SuppressTaskspaceDynamicFactualCarriers) {
-                    $childEnvironment["WHALE_DIAGNOSTIC_SUPPRESS_TASKSPACE_DYNAMIC_FACTUAL_CARRIERS"] = "1"
-                }
             }
             $treatmentDelta = if ($side.LogicalMode -eq "taskspace") {
                 @("--taskspace", "-c taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`"")
