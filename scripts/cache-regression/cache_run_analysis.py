@@ -16,12 +16,53 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def budget_observation_exceeded(
+    observation: dict[str, Any], limits: dict[str, Any]
+) -> list[str]:
+    exceeded = []
+    for observed_key, limit_key in (
+        ("provider_requests", "provider_requests"),
+        ("input_tokens", "input_tokens"),
+        ("output_tokens", "output_tokens"),
+        ("elapsed_seconds", "elapsed_seconds"),
+    ):
+        if observation[observed_key] > limits[limit_key]:
+            exceeded.append(observed_key)
+    return exceeded
+
+
 def analyze_artifacts(
     cache_path: Path, request_path: Path, metrics_path: Path, arm: str
 ) -> dict[str, Any]:
     cache = read_json(cache_path)
     request = read_json(request_path)["rollout_trace"]
     metrics = read_json(metrics_path)
+    return analyze_artifact_values(
+        cache,
+        request,
+        metrics,
+        arm,
+        {
+            "cache_summary": str(cache_path),
+            "request_summary": str(request_path),
+            "metrics": str(metrics_path),
+        },
+        {
+            "cache_summary": file_sha256(cache_path),
+            "request_summary": file_sha256(request_path),
+            "metrics": file_sha256(metrics_path),
+        },
+    )
+
+
+def analyze_artifact_values(
+    cache: dict[str, Any],
+    request: dict[str, Any],
+    metrics: dict[str, Any],
+    arm: str,
+    artifacts: dict[str, str],
+    artifact_sha256: dict[str, str],
+) -> dict[str, Any]:
     usage = validate_cache_artifacts(cache, request)
     return {
         "arm": arm,
@@ -43,16 +84,8 @@ def analyze_artifacts(
         "uncached_input_tokens": usage["uncached_input_tokens"],
         "output_tokens": usage["output_tokens"],
         "business_success": bool(metrics["business_success"]),
-        "artifacts": {
-            "cache_summary": str(cache_path),
-            "request_summary": str(request_path),
-            "metrics": str(metrics_path),
-        },
-        "artifact_sha256": {
-            "cache_summary": file_sha256(cache_path),
-            "request_summary": file_sha256(request_path),
-            "metrics": file_sha256(metrics_path),
-        },
+        "artifacts": artifacts,
+        "artifact_sha256": artifact_sha256,
     }
 
 

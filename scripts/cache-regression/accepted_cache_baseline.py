@@ -1,20 +1,45 @@
 #!/usr/bin/env python3
-"""Validate one durable, user-accepted cache baseline without interpretation."""
+"""Source-aware validation for cache smoke evidence and accepted baselines."""
 
 from __future__ import annotations
 
-import fnmatch
-import hashlib
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from cache_budget import BUDGET_PROPOSAL_SCHEMA_VERSION
+from cache_budget import validate_budget_proposal, validate_gate_trigger
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
-from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION
-from cache_surface import read_content, tracked_paths
-from promote_cache_baseline import ACCEPTANCE_SCHEMA_VERSION
+from cache_run_analysis import analyze_artifact_values, budget_observation_exceeded
+from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
+from cache_source_evidence import (
+    protected_manifest,
+    relative_path,
+    source_json,
+    source_sha256,
+)
+from cache_surface import surface_snapshot
+
+
+ACCEPTANCE_SCHEMA_VERSION = "whalecode-cache-baseline-acceptance-v1"
+OBSERVATION_KEYS = (
+    "arm",
+    "provider_usage_contract_version",
+    "logical_mode",
+    "provider_requests",
+    "request_2_plus_count",
+    "request_2_plus_hit_rate",
+    "request_2_plus_cached_input_tokens",
+    "request_2_plus_uncached_input_tokens",
+    "trace_coverage",
+    "cache_usage_missing_count",
+    "input_tokens",
+    "cached_input_tokens",
+    "uncached_input_tokens",
+    "output_tokens",
+    "business_success",
+    "artifacts",
+    "artifact_sha256",
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -22,104 +47,148 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def relative_path(repo: Path, raw_path: str) -> str:
-    require(isinstance(raw_path, str) and raw_path, "evidence path is missing")
-    path = Path(raw_path)
-    require(not path.is_absolute(), "evidence path must be repository-relative")
-    try:
-        return (repo / path).resolve().relative_to(repo.resolve()).as_posix()
-    except ValueError as error:
-        raise ValueError("evidence path escapes repository") from error
-
-
-def source_bytes(repo: Path, raw_path: str, source: str) -> bytes:
-    path = relative_path(repo, raw_path)
-    try:
-        return read_content(repo, path, source)
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise ValueError(f"accepted baseline evidence is missing: {path}") from error
-
-
-def source_json(repo: Path, raw_path: str, source: str) -> dict[str, Any]:
-    try:
-        value = json.loads(source_bytes(repo, raw_path, source).decode("utf-8-sig"))
-    except (UnicodeError, json.JSONDecodeError) as error:
-        raise ValueError(f"accepted baseline evidence is invalid: {raw_path}") from error
-    require(isinstance(value, dict), "accepted baseline evidence must be an object")
-    return value
-
-
-def source_sha256(repo: Path, raw_path: str, source: str) -> str:
-    return hashlib.sha256(source_bytes(repo, raw_path, source)).hexdigest()
-
-
-def snapshot_payload(content: bytes) -> dict[str, Any]:
-    text = content.decode("utf-8")
-    separator = "\n---\n"
-    require(
-        text.startswith("---\n") and separator in text,
-        "invalid accepted final-wire snapshot",
-    )
-    payload = json.loads(text.split(separator, 1)[1])
-    require(isinstance(payload, dict), "final-wire snapshot must contain an object")
-    return payload
-
-
-def scenario_id(path: str) -> str:
-    return Path(path).name.removesuffix(".snap").rsplit("__", 1)[-1]
-
-
-def protected_manifest(
-    repo: Path, contract: dict[str, Any], source: str
-) -> list[dict[str, str]]:
-    patterns = contract.get("free_validation", {}).get(
-        "semantic_baseline_globs", []
-    )
-    paths = sorted(
-        path
-        for path in tracked_paths(repo, source)
-        if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
-    )
-    manifest = [
-        {
-            "scenario_id": scenario_id(path),
-            "baseline_path": path,
-            "payload_sha256": canonical_json_sha256(
-                snapshot_payload(source_bytes(repo, path, source))
-            ),
-        }
-        for path in paths
-    ]
-    ids = [item["scenario_id"] for item in manifest]
-    require(manifest and len(ids) == len(set(ids)), "protected scenarios are invalid")
-    return manifest
-
-
-def validate_observation_files(
-    repo: Path, result: dict[str, Any], source: str
-) -> list[str]:
-    evidence_paths = []
-    prefix = f"benchmarks/cache-regression/evidence/{result['record_id']}/"
-    observations = result.get("observations")
-    require(isinstance(observations, list) and observations, "observations are missing")
-    for observation in observations:
-        artifacts = observation.get("artifacts", {})
-        hashes = observation.get("artifact_sha256", {})
-        for key in ("cache_summary", "request_summary", "metrics"):
-            path = relative_path(repo, artifacts.get(key))
-            require(path.startswith(prefix), "observation evidence is not durable")
-            require(
-                source_sha256(repo, path, source) == hashes.get(key),
-                "observation evidence digest mismatch",
+def changed_scenarios(report: dict[str, Any]) -> list[dict[str, Any]]:
+    scenarios = []
+    for command in report["free_validation"]["commands"]:
+        change_report = command.get("change_report")
+        if change_report:
+            scenarios.extend(
+                item
+                for item in change_report["scenarios"]
+                if item["status"] == "changed"
             )
-            evidence_paths.append(path)
-    return evidence_paths
+    scenarios.sort(key=lambda item: item["scenario_id"])
+    ids = [item["scenario_id"] for item in scenarios]
+    require(scenarios and len(ids) == len(set(ids)), "changed scenarios are invalid")
+    return scenarios
+
+
+def validate_proposal(
+    repo: Path,
+    proposal: dict[str, Any],
+    result: dict[str, Any],
+    require_current_head: bool,
+) -> None:
+    validate_budget_proposal(proposal)
+    require(
+        proposal.get("proposal_id") == result.get("proposal_id")
+        and proposal.get("proposal_sha256") == result.get("proposal_sha256"),
+        "cache proposal identity mismatch",
+    )
+    require(
+        proposal.get("subject_commit") == result.get("subject_commit")
+        and proposal.get("surface_sha256") == result.get("surface_sha256")
+        and proposal.get("selection") == result.get("observed_scope"),
+        "cache proposal source or scope mismatch",
+    )
+    if require_current_head:
+        head = subprocess.check_output(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+        ).strip()
+        require(
+            proposal["subject_commit"] == head, "cache proposal is not current HEAD"
+        )
+
+
+def validate_authorization(
+    proposal: dict[str, Any], authorization: dict[str, Any], result: dict[str, Any]
+) -> None:
+    require(
+        authorization.get("schema_version") == AUTHORIZATION_SCHEMA_VERSION
+        and authorization.get("status") == "granted"
+        and authorization.get("approved_by") == "user"
+        and isinstance(authorization.get("authorization_id"), str)
+        and authorization["authorization_id"].startswith("CBA-"),
+        "cache authorization identity is invalid",
+    )
+    require(
+        authorization.get("proposal_id") == proposal.get("proposal_id")
+        and authorization.get("proposal_sha256") == proposal.get("proposal_sha256")
+        and authorization.get("approved_selection") == proposal.get("selection")
+        and authorization.get("approved_maximums") == proposal.get("maximums")
+        and authorization.get("approval_reference")
+        == result.get("authorization_reference"),
+        "cache authorization scope mismatch",
+    )
+
+
+def validate_observation(
+    repo: Path,
+    result: dict[str, Any],
+    observation: dict[str, Any],
+    limits: dict[str, Any],
+    source: str,
+) -> list[str]:
+    prefix = f"benchmarks/cache-regression/evidence/{result['record_id']}/"
+    artifacts = {
+        key: relative_path(repo, observation["artifacts"][key])
+        for key in ("cache_summary", "request_summary", "metrics")
+    }
+    require(
+        all(path.startswith(prefix) for path in artifacts.values()),
+        "cache observation evidence is not durable",
+    )
+    hashes = observation["artifact_sha256"]
+    require(
+        all(
+            source_sha256(repo, path, source) == hashes[key]
+            for key, path in artifacts.items()
+        ),
+        "cache observation evidence digest mismatch",
+    )
+    cache = source_json(repo, artifacts["cache_summary"], source)
+    request = source_json(repo, artifacts["request_summary"], source)["rollout_trace"]
+    metrics = source_json(repo, artifacts["metrics"], source)
+    recomputed = analyze_artifact_values(
+        cache, request, metrics, observation["arm"], artifacts, hashes
+    )
+    require(
+        all(observation.get(key) == recomputed[key] for key in OBSERVATION_KEYS),
+        "cache observation metrics mismatch",
+    )
+    require(
+        observation["business_success"]
+        and observation["cache_usage_missing_count"] == 0
+        and observation["provider_requests"] >= 2
+        and observation["request_2_plus_count"] >= 1,
+        "cache observation is not promotable",
+    )
+    exceeded = budget_observation_exceeded(observation, limits)
+    require(
+        observation.get("budget_observation_exceeded") == exceeded == [],
+        "cache observation exceeded its approved budget",
+    )
+    return list(artifacts.values())
+
+
+def validate_attempts(
+    result: dict[str, Any], expected_matrix: list[dict[str, Any]]
+) -> None:
+    attempts = result.get("attempts")
+    require(isinstance(attempts, list), "cache result attempts are missing")
+    actual = [
+        {key: item[key] for key in ("sample", "arm", "repeat")} for item in attempts
+    ]
+    require(actual == expected_matrix, "cache result attempt matrix mismatch")
+    require(
+        all(
+            item.get("status") == "completed"
+            and item.get("exit_code") == 0
+            and item.get("timed_out") is False
+            and "execution_error" not in item
+            and "evidence_error" not in item
+            for item in attempts
+        ),
+        "cache result contains a failed attempt",
+    )
 
 
 def validate_ledger(
     repo: Path,
     result: dict[str, Any],
     acceptance: dict[str, Any],
+    proposal: dict[str, Any],
+    authorization: dict[str, Any],
     proposal_path: str,
     authorization_path: str,
     source: str,
@@ -127,33 +196,197 @@ def validate_ledger(
     path = "benchmarks/whale-agent-run-ledger.json"
     ledger = source_json(repo, path, source)
     matches = [
-        entry
-        for entry in ledger.get("entries", [])
-        if entry.get("record_id") == result["record_id"]
+        item
+        for item in ledger.get("entries", [])
+        if item.get("record_id") == result["record_id"]
     ]
-    require(len(matches) == 1, "accepted result has no unique ledger entry")
+    require(len(matches) == 1, "cache result has no unique ledger entry")
     entry = matches[0]
-    require(entry.get("status") == "settled", "accepted ledger entry is not settled")
+    selection = proposal["selection"]
+    observations = result["observations"]
+    totals = {
+        key: sum(int(item[key]) for item in observations)
+        for key in (
+            "provider_requests",
+            "input_tokens",
+            "cached_input_tokens",
+            "uncached_input_tokens",
+            "output_tokens",
+        )
+    }
+    execution = entry.get("execution", {})
     require(
-        entry.get("authorization", {}).get("reference")
-        == result["authorization_reference"],
-        "accepted ledger authorization mismatch",
+        entry.get("status") == "settled"
+        and entry.get("authorization", {}).get("id")
+        == authorization["authorization_id"]
+        and entry.get("authorization", {}).get("reference")
+        == authorization["approval_reference"],
+        "cache ledger status or authorization mismatch",
     )
     require(
-        entry.get("evidence", {}).get("result_path") == acceptance["result_path"],
-        "accepted ledger result path mismatch",
+        execution.get("model") == selection["model"]
+        and execution.get("sample_ids") == selection["samples"]
+        and execution.get("arm_ids") == selection["arms"]
+        and execution.get("repeats_per_arm_per_sample") == selection["repeat"]
+        and execution.get("planned_sample_runs") == selection["planned_sample_runs"]
+        and execution.get("actual_sample_runs") == result["actual_sample_runs"]
+        and execution.get("api_requests") == totals["provider_requests"],
+        "cache ledger execution mismatch",
+    )
+    tokens = entry.get("tokens", {})
+    require(
+        tokens.get("input") == totals["input_tokens"]
+        and tokens.get("cached_input") == totals["cached_input_tokens"]
+        and tokens.get("uncached_input") == totals["uncached_input_tokens"]
+        and tokens.get("output") == totals["output_tokens"],
+        "cache ledger token totals mismatch",
     )
     evidence = entry.get("evidence", {})
     require(
-        evidence.get("proposal_path") == proposal_path
+        evidence.get("result_path") == acceptance["result_path"]
+        and evidence.get("proposal_path") == proposal_path
         and evidence.get("proposal_sha256")
         == source_sha256(repo, proposal_path, source)
         and evidence.get("authorization_path") == authorization_path
         and evidence.get("authorization_sha256")
         == source_sha256(repo, authorization_path, source),
-        "accepted ledger contract evidence mismatch",
+        "cache ledger evidence mismatch",
     )
     return path
+
+
+def validate_run_evidence(
+    repo: Path,
+    contract: dict[str, Any],
+    source: str,
+    result_path: str,
+    acceptance_path: str,
+    *,
+    require_current_head: bool,
+) -> dict[str, Any]:
+    result_path = relative_path(repo, result_path)
+    acceptance_path = relative_path(repo, acceptance_path)
+    result = source_json(repo, result_path, source)
+    acceptance = source_json(repo, acceptance_path, source)
+    require(
+        result.get("schema_version") == RESULT_SCHEMA_VERSION
+        and result.get("status") == "completed"
+        and result.get("unverified_scope") == [],
+        "cache result is incomplete or has unverified scope",
+    )
+    require(
+        acceptance.get("schema_version") == ACCEPTANCE_SCHEMA_VERSION
+        and acceptance.get("status") == "accepted"
+        and acceptance.get("accepted_by") == "user"
+        and isinstance(acceptance.get("accepted_at"), str)
+        and acceptance["accepted_at"].strip()
+        and isinstance(acceptance.get("acceptance_reference"), str)
+        and acceptance["acceptance_reference"].strip()
+        and acceptance.get("result_path") == result_path
+        and acceptance.get("result_sha256") == source_sha256(repo, result_path, source),
+        "cache acceptance does not match result",
+    )
+    proposal_path = relative_path(repo, acceptance.get("proposal_path"))
+    authorization_path = relative_path(repo, acceptance.get("authorization_path"))
+    proposal = source_json(repo, proposal_path, source)
+    authorization = source_json(repo, authorization_path, source)
+    validate_proposal(repo, proposal, result, require_current_head)
+    actual_surface, _ = surface_snapshot(repo, contract, source)
+    require(result["surface_sha256"] == actual_surface, "cache result surface is stale")
+    require(
+        result.get("authorization_sha256")
+        == source_sha256(repo, authorization_path, source),
+        "cache result authorization digest mismatch",
+    )
+    validate_authorization(proposal, authorization, result)
+    matrix = execution_matrix(proposal)
+    observations = result.get("observations")
+    require(isinstance(observations, list), "cache observations are missing")
+    observed_matrix = [
+        {key: item[key] for key in ("sample", "arm", "repeat")} for item in observations
+    ]
+    require(
+        observed_matrix == matrix and result.get("actual_sample_runs") == len(matrix),
+        "cache observation matrix mismatch",
+    )
+    validate_attempts(result, matrix)
+    evidence_paths = []
+    for observation in observations:
+        evidence_paths.extend(
+            validate_observation(
+                repo,
+                result,
+                observation,
+                proposal["per_sample_run_limits"],
+                source,
+            )
+        )
+    digest_rows = [
+        {**scope, "artifact_sha256": observation["artifact_sha256"]}
+        for scope, observation in zip(matrix, observations)
+    ]
+    require(
+        result.get("evidence_sha256") == canonical_json_sha256(digest_rows),
+        "cache result evidence digest mismatch",
+    )
+    gate_path = relative_path(repo, proposal["trigger"]["gate_report_path"])
+    require(
+        source_sha256(repo, gate_path, source)
+        == proposal["trigger"]["gate_report_sha256"],
+        "cache gate report digest mismatch",
+    )
+    gate_report = source_json(repo, gate_path, source)
+    failed_commands = validate_gate_trigger(gate_report)
+    require(
+        gate_report.get("subject_commit") == proposal["subject_commit"]
+        and gate_report.get("actual_surface_sha256") == proposal["surface_sha256"]
+        and proposal["trigger"].get("failed_free_commands") == failed_commands,
+        "cache gate report source or failure set mismatch",
+    )
+    scenarios = changed_scenarios(gate_report)
+    expected_scenarios = [
+        {
+            "scenario_id": item["scenario_id"],
+            "after_payload_sha256": item["after_payload_sha256"],
+        }
+        for item in scenarios
+    ]
+    require(
+        acceptance.get("accepted_scope") == result["observed_scope"]
+        and acceptance.get("acknowledged_unverified_scope") == []
+        and acceptance.get("accepted_scenarios") == expected_scenarios,
+        "cache acceptance scope or scenarios mismatch",
+    )
+    ledger_path = validate_ledger(
+        repo,
+        result,
+        acceptance,
+        proposal,
+        authorization,
+        proposal_path,
+        authorization_path,
+        source,
+    )
+    return {
+        "result": result,
+        "acceptance": acceptance,
+        "proposal": proposal,
+        "authorization": authorization,
+        "scenarios": scenarios,
+        "evidence_paths": sorted(
+            set(
+                [
+                    result_path,
+                    acceptance_path,
+                    proposal_path,
+                    authorization_path,
+                    gate_path,
+                    ledger_path,
+                    *evidence_paths,
+                ]
+            )
+        ),
+    }
 
 
 def validate_accepted_baseline(
@@ -168,127 +401,44 @@ def validate_accepted_baseline(
         baseline.get("surface_sha256") == actual_surface_sha256,
         "accepted baseline surface does not match current source",
     )
-    manifest = protected_manifest(repo, contract, source)
-    require(
-        baseline.get("final_wire_manifest") == manifest,
-        "accepted final-wire manifest does not match current snapshots",
-    )
-    require(
-        baseline.get("final_wire_manifest_sha256")
-        == canonical_json_sha256(manifest),
-        "accepted final-wire manifest digest mismatch",
-    )
-
     smoke = baseline.get("smoke_evidence", {})
     acceptance_evidence = baseline.get("acceptance_evidence", {})
-    result_path = relative_path(repo, smoke.get("result_path"))
-    acceptance_path = relative_path(repo, acceptance_evidence.get("path"))
-    require(
-        source_sha256(repo, result_path, source) == smoke.get("result_sha256"),
-        "accepted result digest mismatch",
+    validated = validate_run_evidence(
+        repo,
+        contract,
+        source,
+        smoke.get("result_path"),
+        acceptance_evidence.get("path"),
+        require_current_head=False,
     )
     require(
-        source_sha256(repo, acceptance_path, source)
+        source_sha256(repo, smoke["result_path"], source) == smoke.get("result_sha256")
+        and source_sha256(repo, acceptance_evidence["path"], source)
         == acceptance_evidence.get("sha256"),
-        "accepted decision digest mismatch",
+        "accepted baseline evidence digest mismatch",
     )
-    result = source_json(repo, result_path, source)
-    acceptance = source_json(repo, acceptance_path, source)
+    result = validated["result"]
+    acceptance = validated["acceptance"]
     require(
-        result.get("schema_version") == RESULT_SCHEMA_VERSION
-        and result.get("status") == "completed",
-        "accepted result is not complete v3 evidence",
-    )
-    require(
-        result.get("subject_commit") == baseline.get("source_commit")
-        and result.get("surface_sha256") == baseline.get("surface_sha256"),
-        "accepted result source identity mismatch",
-    )
-    require(result.get("unverified_scope") == [], "accepted result has unverified scope")
-    observed_scope = result.get("observed_scope", {})
-    require(
-        result.get("actual_sample_runs") == observed_scope.get("planned_sample_runs")
-        == len(result.get("observations", [])),
-        "accepted result sample count mismatch",
-    )
-    expected_smoke = {
-        key: observed_scope[key] for key in ("model", "samples", "arms", "repeat")
-    }
-    expected_smoke.update(
-        {
-            "actual_sample_runs": result.get("actual_sample_runs"),
-            "unverified_scope": result.get("unverified_scope"),
-        }
-    )
-    require(
-        all(smoke.get(key) == value for key, value in expected_smoke.items()),
-        "accepted smoke boundary does not match result",
-    )
-    require(
-        acceptance.get("schema_version") == ACCEPTANCE_SCHEMA_VERSION
-        and acceptance.get("status") == "accepted"
-        and acceptance.get("accepted_by") == "user",
-        "accepted decision is invalid",
-    )
-    require(
-        acceptance.get("result_path") == result_path
-        and acceptance.get("result_sha256") == smoke.get("result_sha256")
-        and acceptance.get("accepted_scope") == observed_scope
-        and acceptance.get("acknowledged_unverified_scope") == [],
-        "accepted decision does not match result",
-    )
-    require(
-        acceptance.get("acceptance_reference")
+        result["subject_commit"] == baseline.get("source_commit")
+        and result["surface_sha256"] == baseline.get("surface_sha256")
+        and acceptance.get("acceptance_reference")
         == baseline.get("acceptance_reference"),
-        "accepted decision reference mismatch",
+        "accepted baseline identity mismatch",
     )
-
-    proposal_path = relative_path(repo, acceptance.get("proposal_path"))
-    authorization_path = relative_path(repo, acceptance.get("authorization_path"))
-    proposal = source_json(repo, proposal_path, source)
-    authorization = source_json(repo, authorization_path, source)
-    proposal_without_digest = dict(proposal)
-    proposal_without_digest.pop("proposal_sha256", None)
+    manifest = protected_manifest(repo, contract, source)
     require(
-        proposal.get("schema_version") == BUDGET_PROPOSAL_SCHEMA_VERSION
-        and proposal.get("proposal_id") == result.get("proposal_id")
-        and proposal.get("proposal_sha256") == result.get("proposal_sha256")
-        and proposal.get("proposal_sha256")
-        == canonical_json_sha256(proposal_without_digest)
-        and proposal.get("subject_commit") == result.get("subject_commit")
-        and proposal.get("surface_sha256") == result.get("surface_sha256")
-        and proposal.get("selection") == observed_scope,
-        "accepted proposal identity mismatch",
-    )
-    require(
-        authorization.get("schema_version") == AUTHORIZATION_SCHEMA_VERSION
-        and authorization.get("status") == "granted"
-        and authorization.get("approved_by") == "user"
-        and source_sha256(repo, authorization_path, source)
-        == result.get("authorization_sha256")
-        and authorization.get("approval_reference")
-        == result.get("authorization_reference"),
-        "accepted authorization identity mismatch",
-    )
-    require(
-        authorization.get("proposal_id") == proposal.get("proposal_id")
-        and authorization.get("proposal_sha256") == proposal.get("proposal_sha256")
-        and authorization.get("approved_selection") == proposal.get("selection")
-        and authorization.get("approved_maximums") == proposal.get("maximums"),
-        "accepted authorization scope mismatch",
-    )
-    accepted_scenarios = acceptance.get("accepted_scenarios")
-    require(
-        isinstance(accepted_scenarios, list) and accepted_scenarios,
-        "accepted scenario set is empty",
+        baseline.get("final_wire_manifest") == manifest
+        and baseline.get("final_wire_manifest_sha256")
+        == canonical_json_sha256(manifest),
+        "accepted final-wire manifest mismatch",
     )
     manifest_by_id = {item["scenario_id"]: item for item in manifest}
     accepted_paths = []
-    for item in accepted_scenarios:
-        scenario = manifest_by_id.get(item.get("scenario_id"))
+    for item in acceptance["accepted_scenarios"]:
+        scenario = manifest_by_id.get(item["scenario_id"])
         require(
-            scenario is not None
-            and scenario["payload_sha256"] == item.get("after_payload_sha256"),
+            scenario and scenario["payload_sha256"] == item["after_payload_sha256"],
             "accepted scenario does not match final-wire manifest",
         )
         accepted_paths.append(scenario["baseline_path"])
@@ -296,23 +446,8 @@ def validate_accepted_baseline(
         len(accepted_paths) == len(set(accepted_paths)),
         "accepted scenario set contains duplicates",
     )
-    evidence_paths = [
-        result_path,
-        acceptance_path,
-        proposal_path,
-        authorization_path,
-        validate_ledger(
-            repo,
-            result,
-            acceptance,
-            proposal_path,
-            authorization_path,
-            source,
-        ),
-        *validate_observation_files(repo, result, source),
-    ]
     return {
         "valid": True,
         "accepted_scenario_paths": sorted(accepted_paths),
-        "evidence_paths": sorted(set(evidence_paths)),
+        "evidence_paths": validated["evidence_paths"],
     }

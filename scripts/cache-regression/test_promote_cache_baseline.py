@@ -12,11 +12,10 @@ from pathlib import Path
 from cache_budget import build_budget_proposal
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
 from cache_run_analysis import analyze_artifacts
-from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION
-from cache_surface import load_contract, write_json
+from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
+from cache_surface import load_contract, surface_snapshot, write_json
+from accepted_cache_baseline import ACCEPTANCE_SCHEMA_VERSION, changed_scenarios
 from promote_cache_baseline import (
-    ACCEPTANCE_SCHEMA_VERSION,
-    changed_scenarios,
     promote,
     validate_promotion,
 )
@@ -106,6 +105,12 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         run("git", "commit", "-qm", "subject", cwd=self.repo)
         self.head = run("git", "rev-parse", "HEAD", cwd=self.repo)
         self.contract = load_contract(self.contract_path)
+        gate = json.loads(self.gate_path.read_text(encoding="utf-8"))
+        gate["subject_commit"] = self.head
+        gate["actual_surface_sha256"] = surface_snapshot(
+            self.repo, self.contract, "worktree"
+        )[0]
+        write_json(self.gate_path, gate)
         self.proposal = build_budget_proposal(
             repo=self.repo,
             contract=self.contract,
@@ -169,6 +174,16 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "unverified_scope": [],
             "actual_sample_runs": 2,
             "observations": observations,
+            "attempts": [
+                {
+                    **scope,
+                    "status": "completed",
+                    "exit_code": 0,
+                    "timed_out": False,
+                    "elapsed_seconds": 1.0,
+                }
+                for scope in execution_matrix(self.proposal)
+            ],
             "evidence_sha256": canonical_json_sha256(evidence),
         }
         self.result_path = self.repo / "benchmarks/cache-regression/results/result.json"
@@ -176,16 +191,16 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         write_json(self.result_path, self.result)
         self.write_ledger()
         self.acceptance = self.make_acceptance()
-        self.acceptance_path = (
-            self.repo / "benchmarks/cache-regression/acceptance.json"
-        )
+        self.acceptance_path = self.repo / "benchmarks/cache-regression/acceptance.json"
         write_json(self.acceptance_path, self.acceptance)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
 
     def make_observation(self, arm: str, side: str) -> dict:
-        artifacts = self.repo / f"target/{side}/artifacts"
+        artifacts = self.repo / (
+            f"benchmarks/cache-regression/evidence/WAR-FIXTURE/{side}/artifacts"
+        )
         artifacts.mkdir(parents=True)
         cache = artifacts / "provider-cache-trace-summary.json"
         request = artifacts / "request-summary.json"
@@ -220,7 +235,18 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             },
         )
         observation = analyze_artifacts(cache, request, metrics, arm)
-        observation.update({"sample": "simple", "repeat": 1})
+        observation["artifacts"] = {
+            key: Path(path).relative_to(self.repo).as_posix()
+            for key, path in observation["artifacts"].items()
+        }
+        observation.update(
+            {
+                "sample": "simple",
+                "repeat": 1,
+                "elapsed_seconds": 1.0,
+                "budget_observation_exceeded": [],
+            }
+        )
         return observation
 
     def write_ledger(self) -> None:
@@ -244,6 +270,13 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                             "repeats_per_arm_per_sample": selection["repeat"],
                             "planned_sample_runs": selection["planned_sample_runs"],
                             "actual_sample_runs": self.result["actual_sample_runs"],
+                            "api_requests": 6,
+                        },
+                        "tokens": {
+                            "input": 200,
+                            "cached_input": 180,
+                            "uncached_input": 20,
+                            "output": 20,
                         },
                         "evidence": {
                             "result_path": self.result_path.relative_to(
@@ -289,18 +322,24 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         }
 
     def validate(self, result=None, acceptance=None):
+        result = copy.deepcopy(result or self.result)
+        write_json(self.result_path, result)
+        acceptance = copy.deepcopy(acceptance or self.acceptance)
+        acceptance["result_sha256"] = file_sha256(self.result_path)
+        write_json(self.acceptance_path, acceptance)
         return validate_promotion(
             self.repo,
             self.contract,
             self.result_path,
-            result or self.result,
-            acceptance or self.acceptance,
+            self.acceptance_path,
         )
 
     def test_accepts_complete_exact_evidence(self) -> None:
-        scenarios, proposal = self.validate()
-        self.assertEqual([item["scenario_id"] for item in scenarios], ["changed"])
-        self.assertEqual(proposal, self.proposal)
+        validated = self.validate()
+        self.assertEqual(
+            [item["scenario_id"] for item in validated["scenarios"]], ["changed"]
+        )
+        self.assertEqual(validated["proposal"], self.proposal)
 
     def test_promotes_snapshot_and_precise_smoke_boundary(self) -> None:
         promote(
@@ -308,9 +347,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             self.contract_path,
             self.contract,
             self.result_path,
-            self.result,
             self.acceptance_path,
-            self.acceptance,
         )
         promoted = load_contract(self.contract_path)
         self.assertEqual(promoted["baseline"]["status"], "accepted")
@@ -330,7 +367,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         gate["free_validation"]["commands"].append(
             copy.deepcopy(gate["free_validation"]["commands"][0])
         )
-        with self.assertRaisesRegex(ValueError, "duplicate changed scenario"):
+        with self.assertRaisesRegex(ValueError, "changed scenarios are invalid"):
             changed_scenarios(gate)
 
     def test_rejects_incomplete_or_tampered_result(self) -> None:
@@ -338,10 +375,10 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         result["status"] = "partial"
         with self.assertRaisesRegex(ValueError, "incomplete"):
             self.validate(result=result)
-        Path(self.result["observations"][0]["artifacts"]["metrics"]).write_text(
+        (self.repo / self.result["observations"][0]["artifacts"]["metrics"]).write_text(
             "{}\n", encoding="utf-8"
         )
-        with self.assertRaisesRegex(ValueError, "artifact digest"):
+        with self.assertRaisesRegex(ValueError, "evidence digest"):
             self.validate()
 
     def test_rejects_scope_or_scenario_expansion(self) -> None:
@@ -363,25 +400,60 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
         ledger["entries"][0]["execution"]["actual_sample_runs"] = 1
         write_json(ledger_path, ledger)
-        with self.assertRaisesRegex(ValueError, "actual count"):
+        with self.assertRaisesRegex(ValueError, "ledger execution"):
+            self.validate()
+
+    def test_rejects_failed_attempt_or_over_budget_observation(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["attempts"][0]["status"] = "failed"
+        with self.assertRaisesRegex(ValueError, "failed attempt"):
+            self.validate(result=result)
+
+        result = copy.deepcopy(self.result)
+        result["observations"][0]["elapsed_seconds"] = 121.0
+        result["observations"][0]["budget_observation_exceeded"] = ["elapsed_seconds"]
+        with self.assertRaisesRegex(ValueError, "exceeded"):
+            self.validate(result=result)
+
+    def test_rejects_ledger_token_or_gate_source_mismatch(self) -> None:
+        ledger_path = self.repo / "benchmarks/whale-agent-run-ledger.json"
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        ledger["entries"][0]["tokens"]["input"] = 199
+        write_json(ledger_path, ledger)
+        with self.assertRaisesRegex(ValueError, "token totals"):
+            self.validate()
+
+        self.write_ledger()
+        gate = json.loads(self.gate_path.read_text(encoding="utf-8"))
+        gate["subject_commit"] = "0" * 40
+        write_json(self.gate_path, gate)
+        with self.assertRaisesRegex(ValueError, "gate report digest"):
             self.validate()
 
     def test_rejects_business_failure_even_with_consistent_artifacts(self) -> None:
         result = copy.deepcopy(self.result)
         observation = result["observations"][0]
-        metrics_path = Path(observation["artifacts"]["metrics"])
+        metrics_path = self.repo / observation["artifacts"]["metrics"]
         write_json(
             metrics_path, {"logical_mode": "standard", "business_success": False}
         )
         recomputed = analyze_artifacts(
-            Path(observation["artifacts"]["cache_summary"]),
-            Path(observation["artifacts"]["request_summary"]),
+            self.repo / observation["artifacts"]["cache_summary"],
+            self.repo / observation["artifacts"]["request_summary"],
             metrics_path,
             observation["arm"],
         )
-        recomputed.update({"sample": "simple", "repeat": 1})
+        recomputed["artifacts"] = observation["artifacts"]
+        recomputed.update(
+            {
+                "sample": "simple",
+                "repeat": 1,
+                "elapsed_seconds": 1.0,
+                "budget_observation_exceeded": [],
+            }
+        )
         result["observations"][0] = recomputed
-        with self.assertRaisesRegex(ValueError, "business failure"):
+        with self.assertRaisesRegex(ValueError, "not promotable"):
             self.validate(result=result)
 
     def test_promotion_rejects_snapshot_changed_after_discovery(self) -> None:
@@ -395,9 +467,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                 self.contract_path,
                 self.contract,
                 self.result_path,
-                self.result,
                 self.acceptance_path,
-                self.acceptance,
             )
 
 

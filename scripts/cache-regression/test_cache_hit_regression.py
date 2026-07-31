@@ -15,9 +15,12 @@ from cache_usage_contract import (
     normalized_fixture_cases,
     validate_cache_artifacts,
 )
-from cache_run_analysis import analyze_arm, analyze_artifacts
-from run_cache_hit_regression import (
+from cache_run_analysis import (
+    analyze_arm,
+    analyze_artifacts,
     budget_observation_exceeded,
+)
+from run_cache_hit_regression import (
     ensure_deepseek_api_key,
     execution_completed,
     stop_reason,

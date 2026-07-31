@@ -19,7 +19,11 @@ from cache_evidence import (
     canonical_json_sha256,
     file_sha256,
 )
-from cache_run_analysis import analyze_arm, analyze_artifacts
+from cache_run_analysis import (
+    analyze_arm,
+    analyze_artifacts,
+    budget_observation_exceeded,
+)
 from cache_run_contract import (
     benchmark_command,
     execution_matrix,
@@ -109,21 +113,6 @@ def persist_observation_artifacts(
         key: path.relative_to(repo).as_posix() for key, path in persisted.items()
     }
     return durable
-
-
-def budget_observation_exceeded(
-    observation: dict[str, Any], limits: dict[str, Any]
-) -> list[str]:
-    exceeded = []
-    for observed_key, limit_key in (
-        ("provider_requests", "provider_requests"),
-        ("input_tokens", "input_tokens"),
-        ("output_tokens", "output_tokens"),
-        ("elapsed_seconds", "elapsed_seconds"),
-    ):
-        if observation[observed_key] > limits[limit_key]:
-            exceeded.append(observed_key)
-    return exceeded
 
 
 def stop_reason(

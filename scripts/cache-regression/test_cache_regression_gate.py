@@ -233,12 +233,15 @@ raise SystemExit(0 if value == 'pass' else 7)
 
     def test_accepted_promotion_rejects_tampered_decision(self) -> None:
         stage_accepted_promotion(self.repo, self.contract_path)
-        acceptance = self.repo / "benchmarks/cache-regression/acceptance.json"
+        acceptance = (
+            self.repo
+            / "benchmarks/cache-regression/evidence/WAR-ACCEPTED/acceptance.json"
+        )
         acceptance.write_text("{}\n", encoding="utf-8")
         run("git", "add", str(acceptance.relative_to(self.repo)), cwd=self.repo)
         result = self.gate()
         self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
-        self.assertIn("accepted decision digest mismatch", result.stdout)
+        self.assertIn("cache acceptance does not match result", result.stdout)
 
     def test_committed_accepted_baseline_passes_release_gate(self) -> None:
         stage_accepted_promotion(self.repo, self.contract_path)
@@ -249,7 +252,10 @@ raise SystemExit(0 if value == 'pass' else 7)
     def test_release_rejects_dirty_accepted_evidence(self) -> None:
         stage_accepted_promotion(self.repo, self.contract_path)
         run("git", "commit", "-qm", "promote", cwd=self.repo)
-        acceptance = self.repo / "benchmarks/cache-regression/acceptance.json"
+        acceptance = (
+            self.repo
+            / "benchmarks/cache-regression/evidence/WAR-ACCEPTED/acceptance.json"
+        )
         acceptance.write_text("{}\n", encoding="utf-8")
         result = self.gate_from_source(
             "head", "--require-live-baseline", "--require-clean-subject"
