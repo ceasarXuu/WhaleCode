@@ -1,5 +1,7 @@
 use codex_core::config::Config;
+use codex_model_provider_info::DEEPSEEK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::WireApi;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
@@ -208,8 +210,22 @@ pub(super) fn configure_deepseek_responses(config: &mut Config) {
     provider.env_key = None;
     provider.env_key_instructions = None;
     provider.experimental_bearer_token = Some("test-deepseek-key".to_string());
+    config.model_provider_id = DEEPSEEK_PROVIDER_ID.to_string();
     config.model_provider = provider;
     config.model = Some("deepseek-v4-flash".to_string());
+}
+
+pub(super) fn provider_identity(config: &Config) -> Value {
+    assert!(config.model_provider.is_deepseek());
+    let endpoint_path = match config.model_provider.wire_api {
+        WireApi::Responses => "/v1/responses",
+        WireApi::ChatCompletions => "/v1/chat/completions",
+    };
+    serde_json::json!({
+        "provider_id": config.model_provider_id,
+        "wire_api": config.model_provider.wire_api.to_string(),
+        "endpoint_path": endpoint_path
+    })
 }
 
 #[test]
@@ -301,11 +317,7 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
     assert_ne!(inserted_message, first);
 
     let mut snapshot = serde_json::json!({
-        "provider_identity": {
-            "provider_id": "deepseek",
-            "wire_api": "responses",
-            "endpoint_path": "/v1/responses"
-        },
+        "provider_identity": provider_identity(&test.config),
         "request_1": first.structured_body,
         "request_2": second.structured_body,
     });
@@ -405,11 +417,7 @@ async fn capture_taskspace_request_pair(
         .unwrap_or_default();
 
     let mut snapshot = serde_json::json!({
-        "provider_identity": {
-            "provider_id": "deepseek",
-            "wire_api": "responses",
-            "endpoint_path": "/v1/responses"
-        },
+        "provider_identity": provider_identity(&test.config),
         "request_1": first.structured_body,
         "request_2": second.structured_body,
     });

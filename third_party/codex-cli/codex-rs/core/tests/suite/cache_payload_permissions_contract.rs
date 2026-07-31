@@ -1,5 +1,6 @@
 use super::cache_payload_contract::completed_response_stream;
 use super::cache_payload_contract::configure_deepseek_responses;
+use super::cache_payload_contract::provider_identity;
 use super::cache_payload_contract::stabilize_fixture_inputs;
 use super::cache_payload_contract::submit_turn;
 use super::cache_payload_contract::value_contains_text;
@@ -59,11 +60,7 @@ async fn capture_permission_request_pair(restricted: bool) -> anyhow::Result<Val
     let first = FinalWireEvidence::from_raw_body(&requests[0].body)?;
     let second = FinalWireEvidence::from_raw_body(&requests[1].body)?;
     let mut snapshot = serde_json::json!({
-        "provider_identity": {
-            "provider_id": "deepseek",
-            "wire_api": "responses",
-            "endpoint_path": "/v1/responses"
-        },
+        "provider_identity": provider_identity(&test.config),
         "request_1": first.structured_body,
         "request_2": second.structured_body,
     });
