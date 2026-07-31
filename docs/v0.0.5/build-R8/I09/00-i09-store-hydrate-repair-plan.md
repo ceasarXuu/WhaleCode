@@ -3,7 +3,7 @@
 - Created: 2026-07-31
 - Issue: R8-I09
 - Plan mode: Plan Authoring
-- Plan status: planned
+- Plan status: completed
 - Scope: canonical Map 从 Store 进入 Core Runtime 的恢复边界
 - Non-goal: 不修改 Map 产品模型、状态机规则、Tool schema、projection 或 Standard
 
@@ -81,14 +81,14 @@ State DB 负责“读到的字节与存储列一致”；Core 负责“这份 Ta
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|
-| I09-W1 | 固化非法恢复反例 | test | `core/src/action_map/runtime/state.rs` | `restore_store_map` tests | 增加 cycle、不可达节点、fact conflict 和 Map ID mismatch fixture，并断言失败前后 Runtime 完全相等 | 当前缺口先以失败测试复现 | 防止实现只覆盖一个图错误或掩盖原子性问题 | 定向运行 runtime state tests；修复前预期失败、修复后全部通过 | 只增加测试，可单独回退 | planned |
-| I09-W2 | 接入唯一 Map validator | runtime | `core/src/action_map/runtime/state.rs` | `restore_store_map()` | 对 `Some(map)` 先校验 expected Map ID，再调用现有 `rooted_dag::validate()`；只有零 violation 后才修改 mode 和安装 Map | 非法 canonical Map 无法进入 Runtime | 保证所有上层 revision、节点状态和反馈建立在合法 Map 上 | W1 全部通过；合法 Map 测试保持通过 | 整体回退该函数改动，不保留开关或双路径 | planned |
-| I09-W3 | 封闭未校验安装入口 | internal API | `core/src/action_map/runtime/state.rs` | `restore_canonical_map()` | 将其可见性收窄为仅 `restore_store_map()` 内部可调用，或内联安装逻辑 | 未来调用者不能绕过 restore 校验 | 降低同类缺口再次出现的维护风险 | `rg` 证明无外部调用；core 编译和测试通过 | 若编译揭示合法调用者，暂停并重新盘点，不增加旁路 | planned |
-| I09-W4 | 防止非法父 Map 留下绑定 | Store integration | `core/src/session/taskspace_store.rs` | `hydrate_action_map_store()` parent binding branch | 在 `bind_thread_to_taskspace_map()` 前验证父 record 可恢复；验证失败直接返回，不写 child/fork binding | 非法父 Map hydrate 失败时 Store 绑定保持不变 | 避免一次失败污染后续 child/fork 恢复关系 | 新增非法父 Map + child/fork 测试，失败后查询 binding 必须为空 | 单独回退分支顺序；不得通过失败后补删实现 | planned |
-| I09-W5 | 验证真实 Store 恢复边界 | integration test | `core/src/session/taskspace_store_tests.rs` | hydrate resume/fork/child cases | 通过 State DB 写入存储一致但图不合法的 canonical JSON，断言 resume/fork/child 全部拒绝；补合法多父、closed/reopen 正向 fixture | Store codec 可通过但产品 Map 非法的真实场景被 Core 拦截 | 证明修复覆盖生产 hydrate，而不只是直接函数测试 | 定向运行 session TaskSpace Store tests；合法和非法矩阵全部通过 | 测试数据仅临时 SQLite 目录，失败不修改生产数据 | planned |
-| I09-W6 | 建设失败日志 | observability | `core/src/session/taskspace_store.rs` | hydrate rejection log | 在 hydrate 拒绝处记录固定 event、reason code、map/store revision、relation 和原始 error，不记录业务正文，也不新增错误分类体系 | 非法恢复可从日志定位到 Map 和现有 violation code | 后续诊断无需重放用户会话或猜测 Map 损坏原因 | tracing capture test 断言事件与字段；确定性 error 断言包含现有 violation code；日志不含 goal/result 内容 | 若现有 tracing harness 不支持字段断言，保留确定性 error 断言并暂停日志测试扩展 | planned |
-| I09-W7 | 排除第二恢复权威 | cleanup audit | `core/src/session`、`core/src/action_map` | rollout/session restore call sites | 搜索并核对所有 canonical Map 构造与恢复入口；发现 rollout fallback 则作为独立删除提交，不做兼容 | Store 缺失或非法时不会从聊天历史重建 Map | 保持 Map Store 唯一事实源，避免修复被旁路抵消 | `rg` 清单、resume/fork/child tests、Store-missing tests | 若发现独立产品入口，停止并向用户报告影响后再改 | planned |
-| I09-W8 | 整体回归与结果记录 | verification/docs | core/state test targets、`build-R8/I09` | I09 acceptance | 运行定向测试、相关 core/state 回归、格式和 lint；记录变更、日志和约束检查 | I09 有可复算关闭证据 | 后续 I01 revision 调查可以信任 hydrate 后的 canonical Map | 所有验收项通过，Standard path 无 diff，不运行 Whale Agent | 任一底层约束回归则整体回退 I09 行为提交 | planned |
+| I09-W1 | 固化非法恢复反例 | test | `core/src/action_map/runtime/state.rs` | `restore_store_map` tests | 增加 cycle、不可达节点、fact conflict 和 Map ID mismatch fixture，并断言失败前后 Runtime 完全相等 | 当前缺口先以失败测试复现 | 防止实现只覆盖一个图错误或掩盖原子性问题 | 定向运行 runtime state tests；修复前预期失败、修复后全部通过 | 只增加测试，可单独回退 | completed |
+| I09-W2 | 接入唯一 Map validator | runtime | `core/src/action_map/runtime/state.rs` | `restore_store_map()` | 对 `Some(map)` 先校验 expected Map ID，再调用现有 `rooted_dag::validate()`；只有零 violation 后才修改 mode 和安装 Map | 非法 canonical Map 无法进入 Runtime | 保证所有上层 revision、节点状态和反馈建立在合法 Map 上 | W1 全部通过；合法 Map 测试保持通过 | 整体回退该函数改动，不保留开关或双路径 | completed |
+| I09-W3 | 封闭未校验安装入口 | internal API | `core/src/action_map/runtime/state.rs` | `restore_canonical_map()` | 将其可见性收窄为仅 `restore_store_map()` 内部可调用，或内联安装逻辑 | 未来调用者不能绕过 restore 校验 | 降低同类缺口再次出现的维护风险 | `rg` 证明无外部调用；core 编译和测试通过 | 若编译揭示合法调用者，暂停并重新盘点，不增加旁路 | completed |
+| I09-W4 | 防止非法父 Map 留下绑定 | Store integration | `core/src/session/taskspace_store.rs` | `hydrate_action_map_store()` parent binding branch | 在 `bind_thread_to_taskspace_map()` 前验证父 record 可恢复；验证失败直接返回，不写 child/fork binding | 非法父 Map hydrate 失败时 Store 绑定保持不变 | 避免一次失败污染后续 child/fork 恢复关系 | 新增非法父 Map + child/fork 测试，失败后查询 binding 必须为空 | 单独回退分支顺序；不得通过失败后补删实现 | completed |
+| I09-W5 | 验证真实 Store 恢复边界 | integration test | `core/src/session/taskspace_store_tests.rs` | hydrate resume/fork/child cases | 通过 State DB 写入存储一致但图不合法的 canonical JSON，断言 resume/fork/child 全部拒绝；补合法多父、closed/reopen 正向 fixture | Store codec 可通过但产品 Map 非法的真实场景被 Core 拦截 | 证明修复覆盖生产 hydrate，而不只是直接函数测试 | 定向运行 session TaskSpace Store tests；合法和非法矩阵全部通过 | 测试数据仅临时 SQLite 目录，失败不修改生产数据 | completed |
+| I09-W6 | 建设失败日志 | observability | `core/src/session/taskspace_store.rs` | hydrate rejection log | 在 hydrate 拒绝处记录固定 event、reason code、map/store revision 和 relation；详细 violation 仅保留在返回错误中，不写入日志 | 非法恢复可由机械身份和稳定原因码定位 | 后续诊断无需重放用户会话，且不泄露 Map 业务内容 | tracing capture test 断言事件与字段、日志不含 goal | 删除新增日志不影响拒绝行为 | completed |
+| I09-W7 | 排除第二恢复权威 | cleanup audit | `core/src/session`、`core/src/action_map` | rollout/session restore call sites | 搜索并核对所有 canonical Map 构造与恢复入口；发现 rollout fallback 则作为独立删除提交，不做兼容 | Store 缺失或非法时不会从聊天历史重建 Map | 保持 Map Store 唯一事实源，避免修复被旁路抵消 | `rg` 清单、resume/fork/child tests、Store-missing tests | 若发现独立产品入口，停止并向用户报告影响后再改 | completed |
+| I09-W8 | 整体回归与结果记录 | verification/docs | core/state test targets、`build-R8/I09` | I09 acceptance | 运行定向测试、相关 core/state 回归、格式和编译检查；记录变更、日志和约束检查 | I09 有可复算关闭证据 | 后续 I01 revision 调查可以信任 hydrate 后的 canonical Map | 所有验收项通过，Standard path 无 diff，不运行 Whale Agent | 任一底层约束回归则整体回退 I09 行为提交 | completed |
 
 ## 5. 验收矩阵
 

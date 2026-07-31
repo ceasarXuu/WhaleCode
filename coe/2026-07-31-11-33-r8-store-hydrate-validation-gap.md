@@ -1,7 +1,7 @@
 # Problem P-001: Store hydrate 未执行 canonical Map 完整校验
-- Status: open
+- Status: fixed
 - Created: 2026-07-31 11:33
-- Updated: 2026-07-31 12:01
+- Updated: 2026-07-31 12:20
 - Objective: 确保任何持久化 canonical Map 在进入 Runtime 或建立 child/fork binding 前通过现有 rooted-DAG validator，失败时不产生状态副作用。
 - Symptoms:
   - `restore_store_map()` 只比较 Store Map ID 与 canonical Map ID，随后直接安装 Map。
@@ -37,18 +37,22 @@
   - 失败不修改 Runtime mode/cache/active map。
   - 非法父 Map 不新增 child/fork binding。
   - Store 缺失或非法时不从 rollout 或 Session snapshot 重建。
-  - 失败日志包含稳定事件、Map/revision 身份和原始错误，不包含用户业务内容。
-- Current conclusion: H-001、H-002 均已由失败测试确认并完成定向修复。Core restore 复用唯一 validator；child/fork 在写 binding 前验证父 Map，失败不再留下 Store 副作用。仍待 closed/reopened 矩阵、日志和第二恢复权威审计后关闭。
+  - 失败日志包含稳定事件、原因码和 Map/revision 身份，不包含用户业务内容。
+- Current conclusion: H-001、H-002 均已由失败测试确认并修复。Core restore 复用唯一 validator；child/fork 在写 binding 前验证父 Map；合法生命周期矩阵、拒绝日志、第二恢复权威审计和整体回归均通过。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - not satisfied
+  - E-005
+  - E-007
+  - E-008
+  - E-009
+  - E-010
 - Close reason:
-  - not closed
+  - root cause fixed and deterministic acceptance matrix passed
 
 ## Hypothesis H-001: restore_store_map 漏调用现有 rooted-DAG validator
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: 存储一致但图语义非法的 canonical Map 会被 `restore_store_map()` 接受并安装，因为该路径只比较 Map ID。
 - Layer: root-cause
@@ -84,16 +88,16 @@
   - E-004
   - E-005
   - E-008
-- Conclusion: confirmed；完整 validator 漏接入，且失败前修改 mode 破坏零状态变化。
-- Repair design readiness: ready
-- Next step: 接入现有 validator，并将所有状态修改移到校验成功之后。
+- Close reason:
+  - unique validator is enforced before state mutation
+- Conclusion: fixed；完整 validator 已接入，所有 Runtime 状态修改均发生在校验成功之后。
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none
-- Close reason:
-  - not closed
 
 ## Hypothesis H-002: child/fork hydrate 失败会留下提前写入的 binding
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: 当 child/fork 没有现有 binding 时，父 Map 会先绑定到新线程，之后的 Runtime hydrate 失败不会回滚该 binding。
 - Layer: sub-cause
@@ -130,13 +134,13 @@
   - E-006
   - E-007
   - E-009
-- Conclusion: confirmed；旧路径在恢复校验前提交 child/fork binding，失败后 binding 确实保留。
-- Repair design readiness: ready
-- Next step: 保留失败原子性回归，并完成合法生命周期矩阵。
+- Conclusion: fixed；父 record 现在先通过恢复校验，再提交 child/fork binding。
+- Repair design readiness: implemented
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - parent record is validated before child/fork binding
 
 ## Evidence E-001: 完整 Map validator 已存在并覆盖恢复所需不变量
 - Related hypotheses:
@@ -342,3 +346,28 @@
   ```
 - Interpretation: 非法恢复现在具备可检索、可关联日志，同时没有把节点目标、validator subject 或用户内容写入日志。
 - Time: 2026-07-31 12:11
+
+## Evidence E-010: I09 整体回归与恢复权威审计通过
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: acceptance
+- Source: R8-I09 W7/W8
+- Prediction or plan link:
+  - P-001 全部修复标准。
+- Matched signal:
+  - Core restore 4/4、Session Store 8/8、State Store 7/7 通过。
+  - `cargo check -p codex-core` 与 `git diff --check` 通过。
+  - 生产恢复只有 SQLite record 经 `runtime_from_record -> restore_store_map`；`replay_batches` 仅在 rooted-DAG 测试使用。
+- Correlation keys:
+  - R8-I09
+- Raw content:
+  ```text
+  restore_store_map_: 4 passed
+  session::taskspace_store_tests: 8 passed
+  codex-state taskspace_map: 7 passed
+  cargo check -p codex-core: passed
+  ```
+- Interpretation: I09 的非法拒绝、失败原子性、合法状态保护、日志和单一事实源要求均已满足，可以关闭。
+- Time: 2026-07-31 12:20

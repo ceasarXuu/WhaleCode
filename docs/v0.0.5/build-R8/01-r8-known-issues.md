@@ -36,7 +36,7 @@
 
 | 执行序 | ID | 层级 | 严重度 | 问题现象 | 直接影响面 | 主要下游影响 | 状态 | Source |
 |---:|---|---:|---:|---|---|---|---|---|
-| 1 | R8-I09 | F0 | P0 | Store hydrate 可能绕过 canonical schema 与 rooted-DAG 校验 | 所有 TaskSpace policy 的 resume、fork、child、进程重启 | 非法 Map 会污染 revision、状态机、反馈和行为分析 | investigating | GI-009 |
+| 1 | R8-I09 | F0 | P0 | Store hydrate 可能绕过 canonical schema 与 rooted-DAG 校验 | 所有 TaskSpace policy 的 resume、fork、child、进程重启 | 非法 Map 会污染 revision、状态机、反馈和行为分析 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
 | 2 | R8-I01 | F1 | P0 | prepare revision 与最终 canonical revision 同时成为成功事实 | 所有包含 ordinary sibling actions 的 TaskSpace response | stale、额外恢复请求、Final Receipt 和缓存问题 | queued | GI-001 |
 | 3 | R8-I06 | F2 | P0 | nested dispatcher 可能绕过 response preflight 和单 Patch 边界 | 顶层/nested dispatch、Patch、Standard 能力隔离 | 未绑定动作或多个 Patch 可能真实执行 | queued | GI-006 |
 | 4 | R8-I05 | F3 | P1 | 状态拒绝反馈存在重复、嵌套及 canonical/candidate 歧义 | 所有 TaskSpace 状态拒绝路径及 ToolSearch sibling | 同形重试、额外 read_map、错误状态理解 | queued | GI-005 |
@@ -47,10 +47,11 @@
 | 9 | R8-I04 | F5 | P2 | Agent 向 Waiting/Completed 等不合法节点声明动作 | 有依赖关系的节点执行与 lifecycle mutation | 状态机拒绝和额外恢复；可能是反馈问题派生 | queued | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 固定与动态上下文成本高于 Standard | 请求、token、缓存、耗时和商业可行性 | 决定最终模式价值，但不能先于正确性收敛 | queued | GI-008 |
 
-当前问题数：**10**。当前问题：**R8-I09**。
+问题总数：**10**；Open：**9**；Closed：**1**。下一问题：**R8-I01**。
 
-当前问题计划：
+已关闭问题：
 [`I09/00-i09-store-hydrate-repair-plan.md`](I09/00-i09-store-hydrate-repair-plan.md)。
+[`I09/01-i09-store-hydrate-repair-result.md`](I09/01-i09-store-hydrate-repair-result.md)。
 
 ## 4. 依赖与重评关系
 
