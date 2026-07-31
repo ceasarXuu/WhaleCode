@@ -1,9 +1,13 @@
 # 缓存命中回归门禁
 
 - Created: 2026-07-31
-- Status: Operational; current live baseline blocked
+- Status: v1 implementation record; diagnostic only; current live baseline blocked
 - Scope: Prompt、上下文构造、TaskSpace projection、provider payload、Tool declaration
 - Adversarial review: [`vs_review/2026-07-31-cache-regression-surface-review.md`](../../../../vs_review/2026-07-31-cache-regression-surface-review.md)
+
+> 本文记录已经实现的 v1 行为，不再作为目标设计。对抗性审查确认其存在控制面、覆盖漏报和付费误报问题。
+> 子主题入口、唯一问题清单和修复计划见 [README.md](README.md)、[02-known-issues.md](02-known-issues.md) 与
+> [03-repair-plan.md](03-repair-plan.md)。
 
 ## 1. 要解决的问题
 

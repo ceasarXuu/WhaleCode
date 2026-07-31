@@ -66,6 +66,8 @@ I02 当前缓存证据：
 
 - [缓存回归门禁首次验证](cache-regression/01-first-validation-result.md)：同一最简样本中 Standard request 2+
   命中率为 96.62%，map-request 为 35.79%；两臂业务均通过，provider usage 覆盖率均为 100%。
+- [缓存命中回归门禁子主题](cache-regression/README.md)：门禁自身的覆盖、误报、证据身份和修复计划独立维护，
+  不重复增加 R8 产品问题编号。
 
 ## 4. 依赖与重评关系
 
