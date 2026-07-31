@@ -57,6 +57,7 @@ use codex_api::MemorySummarizeOutput as ApiMemorySummarizeOutput;
 use codex_api::Provider as ApiProvider;
 use codex_api::RawMemory as ApiRawMemory;
 use codex_api::RealtimeCallClient as ApiRealtimeCallClient;
+use codex_api::RealtimeEventParser;
 use codex_api::RealtimeSessionConfig as ApiRealtimeSessionConfig;
 use codex_api::RealtimeSessionMode;
 use codex_api::Reasoning;
@@ -1728,9 +1729,17 @@ fn apply_api_provider_request_hard_limit_retry_policy(
 
 fn ensure_realtime_session_is_metered(
     hard_limit: &ProviderRequestHardLimit,
+    event_parser: RealtimeEventParser,
     session_mode: RealtimeSessionMode,
 ) -> Result<()> {
-    if hard_limit.is_enabled() && session_mode == RealtimeSessionMode::Conversational {
+    if let Some(error) = &hard_limit.configuration_error {
+        return Err(CodexErr::Fatal(error.clone()));
+    }
+    let normalized_mode = match event_parser {
+        RealtimeEventParser::V1 => RealtimeSessionMode::Conversational,
+        RealtimeEventParser::RealtimeV2 => session_mode,
+    };
+    if hard_limit.limit.is_some() && normalized_mode == RealtimeSessionMode::Conversational {
         return Err(CodexErr::Fatal(
             "provider request hard limit rejects conversational Realtime because server-triggered responses cannot be counted before inference"
                 .to_string(),
@@ -1900,10 +1909,12 @@ impl ModelClient {
 
     pub(crate) fn ensure_realtime_session_is_metered(
         &self,
+        event_parser: RealtimeEventParser,
         session_mode: RealtimeSessionMode,
     ) -> Result<()> {
         ensure_realtime_session_is_metered(
             self.state.provider_request_hard_limit.as_ref(),
+            event_parser,
             session_mode,
         )
     }

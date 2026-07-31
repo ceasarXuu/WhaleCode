@@ -18,6 +18,7 @@ use super::apply_projection_identity_expectation;
 use super::apply_provider_request_hard_limit_retry_policy;
 use super::ensure_realtime_session_is_metered;
 use super::provider_payload_digest;
+use codex_api::RealtimeEventParser;
 use codex_api::RealtimeSessionMode;
 use codex_api::ToolChoice;
 use codex_app_server_protocol::AuthMode;
@@ -118,14 +119,59 @@ fn provider_request_hard_limit_rejects_unmetered_realtime_generation() {
     let enabled = ProviderRequestHardLimit::with_limit(2);
     let disabled = ProviderRequestHardLimit::disabled();
     assert!(
-        ensure_realtime_session_is_metered(&enabled, RealtimeSessionMode::Conversational).is_err()
+        ensure_realtime_session_is_metered(
+            &enabled,
+            RealtimeEventParser::RealtimeV2,
+            RealtimeSessionMode::Conversational
+        )
+        .is_err()
     );
     assert!(
-        ensure_realtime_session_is_metered(&enabled, RealtimeSessionMode::Transcription).is_ok()
+        ensure_realtime_session_is_metered(
+            &enabled,
+            RealtimeEventParser::RealtimeV2,
+            RealtimeSessionMode::Transcription
+        )
+        .is_ok()
     );
     assert!(
-        ensure_realtime_session_is_metered(&disabled, RealtimeSessionMode::Conversational).is_ok()
+        ensure_realtime_session_is_metered(
+            &disabled,
+            RealtimeEventParser::V1,
+            RealtimeSessionMode::Conversational
+        )
+        .is_ok()
     );
+}
+
+#[test]
+fn provider_request_hard_limit_uses_normalized_realtime_mode() {
+    let enabled = ProviderRequestHardLimit::with_limit(2);
+    assert!(
+        ensure_realtime_session_is_metered(
+            &enabled,
+            RealtimeEventParser::V1,
+            RealtimeSessionMode::Transcription
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn invalid_provider_request_hard_limit_rejects_realtime_before_connect() {
+    let invalid = ProviderRequestHardLimit {
+        limit: None,
+        count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: None,
+        configuration_error: Some("invalid hard limit".to_string()),
+    };
+    let error = ensure_realtime_session_is_metered(
+        &invalid,
+        RealtimeEventParser::RealtimeV2,
+        RealtimeSessionMode::Transcription,
+    )
+    .expect_err("invalid hard limit must reject every Realtime session");
+    assert_eq!(error.to_string(), "Fatal error: invalid hard limit");
 }
 
 #[cfg(unix)]
