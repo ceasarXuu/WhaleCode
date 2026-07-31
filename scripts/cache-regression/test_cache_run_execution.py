@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from run_cache_hit_regression import (
     main,
     persist_observation_artifacts,
 )
+from cache_process_control import BenchmarkTimeoutError, run_benchmark_command
 
 
 class CacheRunExecutionTest(unittest.TestCase):
@@ -112,7 +114,7 @@ class CacheRunExecutionTest(unittest.TestCase):
     def test_runner_executes_exact_matrix_and_records_started_attempts(self) -> None:
         calls = []
 
-        def fake_run(command, **kwargs):
+        def fake_run(command, *_args, **kwargs):
             ledger = json.loads(
                 (self.repo / "benchmarks/whale-agent-run-ledger.json").read_text(
                     encoding="utf-8"
@@ -171,12 +173,13 @@ class CacheRunExecutionTest(unittest.TestCase):
                 "run_cache_hit_regression.ensure_deepseek_api_key",
                 return_value="fixture",
             ),
-            patch("run_cache_hit_regression.subprocess.run", side_effect=fake_run),
+            patch("run_cache_hit_regression.run_benchmark_command", side_effect=fake_run),
             patch(
                 "run_cache_hit_regression.cleanup_labeled_containers",
                 return_value={
                     "status": "verified_absent",
                     "container_ids": [],
+                    "stable_empty_polls": 3,
                     "error": "",
                 },
             ),
@@ -232,10 +235,13 @@ class CacheRunExecutionTest(unittest.TestCase):
                 "Completed", (), {"returncode": 0, "stdout": "one\ntwo\n", "stderr": ""}
             )(),
             type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
+            type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
+            type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
         ]
-        with patch(
-            "run_cache_hit_regression.subprocess.run", side_effect=completed
-        ) as run:
+        with (
+            patch("cache_process_control.subprocess.run", side_effect=completed) as run,
+            patch("cache_process_control.time.sleep"),
+        ):
             result = cleanup_labeled_containers("CACHE-001", 10)
         self.assertEqual(result["status"], "removed_verified")
         self.assertEqual(result["container_ids"], ["one", "two"])
@@ -246,10 +252,53 @@ class CacheRunExecutionTest(unittest.TestCase):
         self.assertEqual(
             run.call_args_list[1].args[0], ["docker", "rm", "--force", "one", "two"]
         )
+        self.assertEqual(result["stable_empty_polls"], 3)
+
+    def test_timeout_terminates_the_benchmark_process_group(self) -> None:
+        process = unittest.mock.Mock()
+        process.pid = 123
+        process.poll.return_value = None
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired(["pwsh"], 10),
+            143,
+        ]
+        process.returncode = 143
+        with (
+            patch("cache_process_control.subprocess.Popen", return_value=process) as popen,
+            patch("cache_process_control.os.getpgid", return_value=123),
+            patch("cache_process_control.os.killpg") as killpg,
+        ):
+            with self.assertRaises(BenchmarkTimeoutError) as raised:
+                run_benchmark_command(["pwsh", "runner.ps1"], self.repo, 10)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        killpg.assert_called_once_with(123, unittest.mock.ANY)
+        self.assertEqual(
+            raised.exception.process_tree_termination["status"], "terminated"
+        )
+
+    def test_cleanup_catches_container_that_appears_after_first_empty_poll(self) -> None:
+        completed = [
+            type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
+            type("Completed", (), {"returncode": 0, "stdout": "late\n", "stderr": ""})(),
+            type("Completed", (), {"returncode": 0, "stdout": "late\n", "stderr": ""})(),
+            *[
+                type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+                for _ in range(3)
+            ],
+        ]
+        with (
+            patch("cache_process_control.subprocess.run", side_effect=completed) as run,
+            patch("cache_process_control.time.sleep"),
+        ):
+            result = cleanup_labeled_containers("CACHE-LATE", 10)
+        self.assertEqual(result["status"], "removed_verified")
+        self.assertEqual(result["container_ids"], ["late"])
+        self.assertEqual(run.call_args_list[2].args[0], ["docker", "rm", "--force", "late"])
 
     def test_only_verified_cleanup_statuses_allow_completion(self) -> None:
-        self.assertTrue(cleanup_verified({"status": "verified_absent"}))
-        self.assertTrue(cleanup_verified({"status": "removed_verified"}))
+        self.assertTrue(cleanup_verified({"status": "verified_absent", "stable_empty_polls": 3}))
+        self.assertTrue(cleanup_verified({"status": "removed_verified", "stable_empty_polls": 3}))
+        self.assertFalse(cleanup_verified({"status": "verified_absent", "stable_empty_polls": 1}))
         self.assertFalse(cleanup_verified({"status": "failed"}))
         self.assertFalse(cleanup_verified({"status": "removed"}))
 
@@ -268,6 +317,7 @@ class CacheRunExecutionTest(unittest.TestCase):
         cleanup = {
             "status": "removed_verified",
             "container_ids": ["agent"],
+            "stable_empty_polls": 3,
             "error": "",
         }
         with (
@@ -285,10 +335,7 @@ class CacheRunExecutionTest(unittest.TestCase):
                 "run_cache_hit_regression.ensure_deepseek_api_key",
                 return_value="fixture",
             ),
-            patch(
-                "run_cache_hit_regression.subprocess.run",
-                side_effect=KeyboardInterrupt,
-            ),
+            patch("run_cache_hit_regression.run_benchmark_command", side_effect=KeyboardInterrupt),
             patch(
                 "run_cache_hit_regression.cleanup_labeled_containers",
                 return_value=cleanup,

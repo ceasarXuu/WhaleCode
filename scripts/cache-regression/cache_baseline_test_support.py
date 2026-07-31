@@ -314,6 +314,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                 "post_run_cleanup": {
                     "status": "verified_absent",
                     "container_ids": [],
+                    "stable_empty_polls": 3,
                     "error": "",
                 },
             }

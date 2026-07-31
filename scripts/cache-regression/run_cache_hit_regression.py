@@ -7,7 +7,6 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import time
 import uuid
 from datetime import datetime
@@ -18,6 +17,11 @@ from cache_evidence import (
     RESULT_SCHEMA_VERSION,
     canonical_json_sha256,
     file_sha256,
+)
+from cache_process_control import (
+    cleanup_labeled_containers,
+    cleanup_verified,
+    run_benchmark_command,
 )
 from cache_run_analysis import (
     analyze_arm,
@@ -38,13 +42,6 @@ from cache_run_ledger import (
     store_entry,
 )
 from cache_surface import load_contract
-
-
-CLEANUP_SUCCESS_STATUSES = frozenset({"verified_absent", "removed_verified"})
-
-
-def cleanup_verified(result: dict[str, Any]) -> bool:
-    return result.get("status") in CLEANUP_SUCCESS_STATUSES
 
 
 def ensure_deepseek_api_key(repo: Path) -> str:
@@ -78,57 +75,6 @@ def find_run_dir_by_id(run_root: Path, run_id: str) -> Path:
             f"benchmark run id {run_id} resolved to {len(candidates)} directories"
         )
     return candidates[0]
-
-
-def cleanup_labeled_containers(run_id: str, grace_seconds: int) -> dict[str, Any]:
-    deadline = time.monotonic() + grace_seconds
-    removed_ids: set[str] = set()
-    last_error = ""
-    while time.monotonic() < deadline:
-        remaining = max(1, int(deadline - time.monotonic()))
-        try:
-            listed = subprocess.run(
-                [
-                    "docker",
-                    "ps",
-                    "-aq",
-                    "--filter",
-                    f"label=whalecode.run_id={run_id}",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=min(10, remaining),
-            )
-            container_ids = [
-                item for item in listed.stdout.splitlines() if item.strip()
-            ]
-            if listed.returncode != 0:
-                last_error = listed.stderr.strip() or "docker ps failed"
-            elif not container_ids:
-                return {
-                    "status": "removed_verified" if removed_ids else "verified_absent",
-                    "container_ids": sorted(removed_ids),
-                    "error": "",
-                }
-            else:
-                removed = subprocess.run(
-                    ["docker", "rm", "--force", *container_ids],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=min(30, remaining),
-                )
-                removed_ids.update(container_ids)
-                last_error = removed.stderr.strip() if removed.returncode != 0 else ""
-        except (OSError, subprocess.TimeoutExpired) as error:
-            last_error = f"{type(error).__name__}: {error}"
-        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
-    return {
-        "status": "failed",
-        "container_ids": sorted(removed_ids),
-        "error": last_error or "container cleanup grace expired",
-    }
 
 
 def persist_observation_artifacts(
@@ -297,18 +243,18 @@ def main() -> int:
         observation = None
         cleanup = None
         try:
-            completed = subprocess.run(
-                command,
-                cwd=repo,
-                check=False,
-                timeout=limits["elapsed_seconds"],
+            completed = run_benchmark_command(
+                command, repo, limits["elapsed_seconds"]
             )
             attempt["exit_code"] = completed.returncode
             attempt["timed_out"] = False
             run_failed = completed.returncode != 0
-        except subprocess.TimeoutExpired:
+        except TimeoutError as error:
             attempt["exit_code"] = None
             attempt["timed_out"] = True
+            attempt["process_tree_termination"] = getattr(
+                error, "process_tree_termination", {"status": "unknown"}
+            )
             cleanup = cleanup_labeled_containers(
                 run_id, limits["cleanup_grace_seconds"]
             )
@@ -319,11 +265,14 @@ def main() -> int:
             attempt["timed_out"] = False
             attempt["execution_error"] = f"{type(error).__name__}: {error}"
             run_failed = True
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as error:
             attempt["exit_code"] = None
             attempt["timed_out"] = False
             attempt["status"] = "cancelled"
             attempt["execution_error"] = "KeyboardInterrupt: run cancelled"
+            attempt["process_tree_termination"] = getattr(
+                error, "process_tree_termination", {"status": "unknown"}
+            )
             attempt["interrupt_cleanup"] = cleanup_labeled_containers(
                 run_id, limits["cleanup_grace_seconds"]
             )

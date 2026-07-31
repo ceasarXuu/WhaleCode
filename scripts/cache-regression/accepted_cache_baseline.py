@@ -169,6 +169,7 @@ def validate_attempts(
             and item["elapsed_seconds"] >= 0
             and item.get("post_run_cleanup", {}).get("status")
             in {"verified_absent", "removed_verified"}
+            and item.get("post_run_cleanup", {}).get("stable_empty_polls", 0) >= 3
             and "execution_error" not in item
             and "evidence_error" not in item
             for item in attempts

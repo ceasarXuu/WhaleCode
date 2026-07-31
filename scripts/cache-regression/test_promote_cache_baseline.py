@@ -203,6 +203,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                     "post_run_cleanup": {
                         "status": "verified_absent",
                         "container_ids": [],
+                        "stable_empty_polls": 3,
                         "error": "",
                     },
                 }
