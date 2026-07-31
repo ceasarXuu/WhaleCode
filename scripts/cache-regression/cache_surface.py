@@ -11,14 +11,9 @@ from pathlib import Path
 from typing import Any
 
 
-CACHE_CONTROL_PLANE_PATHS = frozenset(
+CACHE_CONTROL_PLANE_EXACT_PATHS = frozenset(
     {
         ".githooks/pre-commit",
-        "scripts/cache-regression/cache_surface.py",
-        "scripts/cache-regression/check_cache_regression_gate.py",
-        "scripts/cache-regression/promote_cache_baseline.py",
-        "scripts/cache-regression/run_cache_hit_regression.py",
-        "scripts/cache-regression/run_cache_hit_regression.ps1",
         "scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1",
     }
 )
@@ -83,6 +78,17 @@ def changed_paths(repo: Path, source: str) -> list[str]:
     return sorted(item.decode() for item in raw.split(b"\0") if item)
 
 
+def is_cache_control_plane_path(path: str) -> bool:
+    if path in CACHE_CONTROL_PLANE_EXACT_PATHS:
+        return True
+    candidate = Path(path)
+    return (
+        candidate.parent.as_posix() == "scripts/cache-regression"
+        and candidate.suffix in {".py", ".ps1"}
+        and not candidate.name.startswith("test_")
+    )
+
+
 def control_plane_change_summary(
     repo: Path,
     contract_path: Path,
@@ -90,7 +96,7 @@ def control_plane_change_summary(
     contract: dict[str, Any],
 ) -> dict[str, Any]:
     paths = changed_paths(repo, source)
-    policy_changes = sorted(path for path in paths if path in CACHE_CONTROL_PLANE_PATHS)
+    policy_changes = sorted(path for path in paths if is_cache_control_plane_path(path))
     contract_relative_path = repository_relative_path(repo, contract_path)
     contract_policy_changed = False
     baseline_changed = False

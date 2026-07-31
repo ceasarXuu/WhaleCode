@@ -174,6 +174,20 @@ class CacheRegressionGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
         self.assertIn("门禁政策与基线不能在同一提交中变更", result.stdout)
 
+    def test_new_control_plane_helper_is_classified_as_policy(self) -> None:
+        helper = self.repo / "scripts/cache-regression/new_helper.py"
+        helper.write_text("# new policy helper\n", encoding="utf-8")
+        contract = load_contract(self.contract_path)
+        contract["baseline"]["status"] = "live_verified"
+        write_json(self.contract_path, contract)
+        run("git", "add", "scripts", "contract.json", cwd=self.repo)
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("new_helper.py", result.stdout)
+        self.assertIn("门禁政策与基线不能在同一提交中变更", result.stdout)
+
     def test_contract_policy_change_can_land_without_promotion(self) -> None:
         contract = load_contract(self.contract_path)
         contract["surface_rules"] = []
