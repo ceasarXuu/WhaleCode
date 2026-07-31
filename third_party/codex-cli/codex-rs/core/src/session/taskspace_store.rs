@@ -56,6 +56,7 @@ pub(super) async fn hydrate_action_map_store(
             .load_taskspace_map_for_thread(parent_thread_id)
             .await?
     {
+        runtime_from_record(&parent_map)?;
         state_db
             .bind_thread_to_taskspace_map(BindTaskSpaceMapRequest {
                 thread_id,

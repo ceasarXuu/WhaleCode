@@ -1,7 +1,7 @@
 # Problem P-001: Store hydrate 未执行 canonical Map 完整校验
 - Status: open
 - Created: 2026-07-31 11:33
-- Updated: 2026-07-31 11:43
+- Updated: 2026-07-31 12:01
 - Objective: 确保任何持久化 canonical Map 在进入 Runtime 或建立 child/fork binding 前通过现有 rooted-DAG validator，失败时不产生状态副作用。
 - Symptoms:
   - `restore_store_map()` 只比较 Store Map ID 与 canonical Map ID，随后直接安装 Map。
@@ -38,7 +38,7 @@
   - 非法父 Map 不新增 child/fork binding。
   - Store 缺失或非法时不从 rollout 或 Session snapshot 重建。
   - 失败日志包含稳定事件、Map/revision 身份和原始错误，不包含用户业务内容。
-- Current conclusion: W1 在当前代码上确定性证明非法 canonical Map 被接受并安装，Map ID mismatch 失败也会先修改 Runtime mode；H-001 根因成立，允许实施 W2/W3。H-002 仍等待 Store 集成测试。
+- Current conclusion: H-001、H-002 均已由失败测试确认并完成定向修复。Core restore 复用唯一 validator；child/fork 在写 binding 前验证父 Map，失败不再留下 Store 副作用。仍待 closed/reopened 矩阵、日志和第二恢复权威审计后关闭。
 - Related hypotheses:
   - H-001
   - H-002
@@ -92,7 +92,7 @@
   - not closed
 
 ## Hypothesis H-002: child/fork hydrate 失败会留下提前写入的 binding
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
 - Claim: 当 child/fork 没有现有 binding 时，父 Map 会先绑定到新线程，之后的 Runtime hydrate 失败不会回滚该 binding。
 - Layer: sub-cause
@@ -123,12 +123,14 @@
   - Instrumentation status: diagnostic-only
   - Instrumentation lifecycle:
     - 测试转为永久回归
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-003
-- Conclusion: unverified
-- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: W5 在 W1 后执行。
+  - E-006
+  - E-007
+- Conclusion: confirmed；旧路径在恢复校验前提交 child/fork binding，失败后 binding 确实保留。
+- Repair design readiness: ready
+- Next step: 保留失败原子性回归，并完成合法生命周期矩阵。
 - Blocker:
   - none
 - Close reason:
@@ -243,3 +245,49 @@
   ```
 - Interpretation: Runtime restore 边界已复用唯一 `rooted_dag::validate()`，且校验发生在 mode/cache/active map 修改前；H-001 修复已通过局部验证，P-001 仍等待 H-002 与 Store 集成闭环。
 - Time: 2026-07-31 11:43
+
+## Evidence E-006: Store 集成红灯证明 child/fork 失败绑定副作用
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `cargo test -p codex-core invalid_parent_map_is_rejected_before_child_and_fork_binding -- --nocapture`
+- Prediction or plan link:
+  - H-002 关于非法父 Map 恢复失败后 binding 仍然存在的预测。
+- Matched signal:
+  - resume 正确返回 `cycle_detected`。
+  - child 首次 hydrate 返回同一错误，但 `load_taskspace_map_for_thread(actor)` 仍返回 binding。
+- Correlation keys:
+  - parent thread id
+  - actor thread id
+  - map id
+- Raw content:
+  ```text
+  failed hydrate must not leave a child/fork binding
+  test result: FAILED. 0 passed; 1 failed
+  ```
+- Interpretation: binding 与 Runtime restore 不在同一原子边界；源码顺序已经产生可观察的持久化副作用。
+- Time: 2026-07-31 11:57
+
+## Evidence E-007: 父 Map 预校验修复失败原子性且保留多父图
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: `cargo test -p codex-core invalid_parent_map_is_rejected_before_child_and_fork_binding -- --nocapture`; `cargo test -p codex-core persisted_multi_parent_map_hydrates_without_graph_rewrite -- --nocapture`
+- Prediction or plan link:
+  - P-001 关于非法 parent 不绑定及合法多父图不被重写的修复标准。
+- Matched signal:
+  - 非法 parent 的 resume、child、fork 均拒绝，child/fork binding 查询为空。
+  - 合法多父依赖图持久化、恢复并按 canonical value 精确相等。
+- Correlation keys:
+  - parent thread id
+  - actor thread id
+  - map id
+- Raw content:
+  ```text
+  invalid_parent_map_is_rejected_before_child_and_fork_binding ... ok
+  persisted_multi_parent_map_hydrates_without_graph_rewrite ... ok
+  ```
+- Interpretation: 写 binding 前复用恢复校验即可消除副作用，不需要 Store 事务补偿，也没有把 DAG 降格成树或线性链。
+- Time: 2026-07-31 12:01

@@ -1,6 +1,7 @@
 use super::taskspace_store::canonical_map_for_store;
 use super::taskspace_store::hydrate_action_map_store;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::MapEdge;
 use crate::action_map::ProjectionEnvelope;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
@@ -12,6 +13,9 @@ use codex_protocol::protocol::SessionMeta;
 use codex_protocol::protocol::SessionMetaLine;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
+use codex_protocol::taskspace::TaskSpaceCanonicalMap;
+use codex_protocol::taskspace::TaskSpaceMapNode;
 use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::TaskSpaceMapRelation;
 use codex_state::TaskSpaceMapWriteOutcome;
@@ -25,6 +29,68 @@ fn child_source(parent_thread_id: ThreadId) -> SessionSource {
         agent_nickname: None,
         agent_role: None,
     })
+}
+
+fn map_node(node_id: &str, goal: &str) -> TaskSpaceMapNode {
+    TaskSpaceMapNode {
+        node_id: node_id.into(),
+        goal: goal.into(),
+        source_refs: Vec::new(),
+    }
+}
+
+fn multi_parent_map(map_id: &str) -> TaskSpaceCanonicalMap {
+    TaskSpaceCanonicalMap {
+        schema_version: TASKSPACE_CANONICAL_SCHEMA_VERSION.into(),
+        map_id: map_id.into(),
+        root: map_node("root", "deliver"),
+        work_nodes: vec![
+            map_node("inspect", "inspect"),
+            map_node("research", "research"),
+            map_node("implement", "implement"),
+        ],
+        finish: map_node("finish", "finish"),
+        edges: vec![
+            MapEdge {
+                from: "root".into(),
+                to: "inspect".into(),
+            },
+            MapEdge {
+                from: "root".into(),
+                to: "research".into(),
+            },
+            MapEdge {
+                from: "inspect".into(),
+                to: "implement".into(),
+            },
+            MapEdge {
+                from: "research".into(),
+                to: "implement".into(),
+            },
+            MapEdge {
+                from: "implement".into(),
+                to: "finish".into(),
+            },
+        ],
+        completion_records: Default::default(),
+        block_records: Default::default(),
+        action_reservations: Default::default(),
+        result_refs: Default::default(),
+        evidence_refs: Default::default(),
+        terminal_record: None,
+        terminal_history: Vec::new(),
+        revision: 1,
+    }
+}
+
+fn forked_history(parent_thread_id: ThreadId) -> InitialHistory {
+    InitialHistory::Forked(vec![RolloutItem::SessionMeta(SessionMetaLine {
+        meta: SessionMeta {
+            id: parent_thread_id,
+            ..Default::default()
+        },
+        git: None,
+    })])
 }
 
 #[tokio::test]
@@ -96,13 +162,7 @@ async fn resume_fork_and_child_hydrate_the_same_canonical_map() {
     let fork_hydrated = hydrate_action_map_store(
         Some(&state_db),
         fork,
-        &InitialHistory::Forked(vec![RolloutItem::SessionMeta(SessionMetaLine {
-            meta: SessionMeta {
-                id: owner,
-                ..Default::default()
-            },
-            git: None,
-        })]),
+        &forked_history(owner),
         &SessionSource::Exec,
         true,
     )
@@ -135,6 +195,118 @@ async fn resume_fork_and_child_hydrate_the_same_canonical_map() {
     assert_eq!(resumed_projection, owner_projection);
     assert_eq!(child_projection, owner_projection);
     assert_eq!(fork_projection, owner_projection);
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn invalid_parent_map_is_rejected_before_child_and_fork_binding() {
+    let home = std::env::temp_dir().join(format!(
+        "codex-taskspace-invalid-parent-test-{}",
+        Uuid::new_v4()
+    ));
+    let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".to_string())
+        .await
+        .expect("initialize state runtime");
+    let owner = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    let mut invalid = multi_parent_map(&map_id);
+    invalid.edges.push(MapEdge {
+        from: "finish".into(),
+        to: "root".into(),
+    });
+    state_db
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id,
+            owner_thread_id: owner,
+            canonical_map: Some(invalid),
+            commit_id: "create-invalid-parent-map".to_string(),
+            operation: "test_invalid_parent".to_string(),
+        })
+        .await
+        .expect("persist storage-consistent invalid Map");
+
+    let resume_result = hydrate_action_map_store(
+        Some(&state_db),
+        owner,
+        &InitialHistory::Resumed(ResumedHistory {
+            conversation_id: owner,
+            history: Vec::new(),
+            rollout_path: None,
+        }),
+        &SessionSource::Exec,
+        true,
+    )
+    .await;
+    let resume_error = resume_result
+        .err()
+        .expect("resume must reject invalid canonical Map");
+    assert!(resume_error.to_string().contains("cycle_detected"));
+
+    for (actor, history, source) in [
+        (ThreadId::new(), InitialHistory::New, child_source(owner)),
+        (ThreadId::new(), forked_history(owner), SessionSource::Exec),
+    ] {
+        let result =
+            hydrate_action_map_store(Some(&state_db), actor, &history, &source, true).await;
+        let error = result
+            .err()
+            .expect("child/fork must reject invalid parent Map");
+        assert!(error.to_string().contains("cycle_detected"));
+        assert!(
+            state_db
+                .load_taskspace_map_for_thread(actor)
+                .await
+                .expect("query rejected binding")
+                .is_none(),
+            "failed hydrate must not leave a child/fork binding"
+        );
+    }
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn persisted_multi_parent_map_hydrates_without_graph_rewrite() {
+    let home = std::env::temp_dir().join(format!(
+        "codex-taskspace-multi-parent-test-{}",
+        Uuid::new_v4()
+    ));
+    let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".to_string())
+        .await
+        .expect("initialize state runtime");
+    let owner = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    let canonical_map = multi_parent_map(&map_id);
+    state_db
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            owner_thread_id: owner,
+            canonical_map: Some(canonical_map.clone()),
+            commit_id: "create-multi-parent-map".to_string(),
+            operation: "test_multi_parent".to_string(),
+        })
+        .await
+        .expect("persist multi-parent Map");
+
+    let hydrated = hydrate_action_map_store(
+        Some(&state_db),
+        owner,
+        &InitialHistory::Resumed(ResumedHistory {
+            conversation_id: owner,
+            history: Vec::new(),
+            rollout_path: None,
+        }),
+        &SessionSource::Exec,
+        true,
+    )
+    .await
+    .expect("hydrate multi-parent Map")
+    .expect("hydrated Map handle");
+
+    assert_eq!(hydrated.handle.map_id, map_id);
+    assert_eq!(
+        canonical_map_for_store(&hydrated.runtime),
+        Some(canonical_map)
+    );
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
