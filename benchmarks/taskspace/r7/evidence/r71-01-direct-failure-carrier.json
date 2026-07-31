@@ -37,6 +37,24 @@
       "reason_code": "shell_exit_1",
       "source_kind": "production_call_row",
       "source_sha256": "33c3456c8da1753fd0c99086d10f20e4bc6fb0e98c71ae280391be4119f5945b"
+    },
+    {
+      "request_id": "r71-01-fixture",
+      "call_id": "response-request-mismatch",
+      "carrier_schema": "TaskSpaceResponseCommitV1",
+      "parse_status": "response_commit_request_mismatch",
+      "reason_code": "response_commit_request_mismatch",
+      "source_kind": "production_call_row",
+      "source_sha256": "d99931ab58436b67af6d3f2358c3554ed43df4d6fb2ca756f2fce7e56ec4e26d"
+    },
+    {
+      "request_id": "r71-01-fixture",
+      "call_id": "missing-transport-status",
+      "carrier_schema": "TaskSpaceControlResultV2",
+      "parse_status": "missing_tool_transport_status",
+      "reason_code": "tool_transport_status_missing",
+      "source_kind": "production_call_row",
+      "source_sha256": "a63a7fd236c411a806a9fe355c6398c803b1d8bab276238911d7a7d327dc5080"
     }
   ]
 }
