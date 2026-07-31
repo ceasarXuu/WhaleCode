@@ -10,7 +10,10 @@ import unittest
 from pathlib import Path
 
 from cache_budget import build_budget_proposal
-from cache_baseline_test_support import write_settled_ledger
+from cache_baseline_test_support import (
+    write_provider_boundary_evidence,
+    write_settled_ledger,
+)
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
@@ -234,6 +237,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         cache = artifacts / "provider-cache-trace-summary.json"
         request = artifacts / "request-summary.json"
         metrics = artifacts / "metrics.json"
+        boundary = artifacts / "provider-boundary-evidence.json"
         write_json(
             cache,
             {
@@ -263,7 +267,10 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                 "business_success": True,
             },
         )
-        observation = analyze_artifacts(cache, request, metrics, arm)
+        write_provider_boundary_evidence(boundary, 3)
+        observation = analyze_artifacts(
+            cache, request, metrics, boundary, arm, "deepseek-v4-flash"
+        )
         observation["artifacts"] = {
             key: Path(path).relative_to(self.repo).as_posix()
             for key, path in observation["artifacts"].items()
@@ -514,7 +521,9 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             self.repo / observation["artifacts"]["cache_summary"],
             self.repo / observation["artifacts"]["request_summary"],
             metrics_path,
+            self.repo / observation["artifacts"]["provider_boundary"],
             observation["arm"],
+            "deepseek-v4-flash",
         )
         recomputed["artifacts"] = observation["artifacts"]
         recomputed.update(

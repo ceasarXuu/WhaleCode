@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from cache_baseline_test_support import write_provider_boundary_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
 from cache_run_analysis import analyze_artifacts
 from cache_surface import write_json
@@ -128,11 +129,12 @@ class CacheRunExecutionTest(unittest.TestCase):
             calls.append(command)
             return type("Completed", (), {"returncode": 0})()
 
-        def fake_analyze(_run_dir, _side, arm):
+        def fake_analyze(_run_dir, _side, arm, _model):
             return {
                 "arm": arm,
                 "provider_usage_contract_version": "fixture",
                 "logical_mode": "standard" if arm == "standard" else "taskspace",
+                "provider_model": "deepseek-v4-flash",
                 "provider_requests": 3,
                 "request_2_plus_count": 2,
                 "request_2_plus_hit_rate": 0.9,
@@ -192,7 +194,7 @@ class CacheRunExecutionTest(unittest.TestCase):
             patch("run_cache_hit_regression.analyze_arm", side_effect=fake_analyze),
             patch(
                 "run_cache_hit_regression.persist_observation_artifacts",
-                side_effect=lambda _repo, _record, _run, _arm, value: value,
+                side_effect=lambda _repo, _record, _run, _arm, _model, value: value,
             ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
@@ -445,6 +447,7 @@ class CacheRunExecutionTest(unittest.TestCase):
         cache = source / "provider-cache-trace-summary.json"
         request = source / "request-summary.json"
         metrics = source / "metrics.json"
+        boundary = source / "provider-boundary-evidence.json"
         write_json(
             cache,
             {
@@ -471,10 +474,23 @@ class CacheRunExecutionTest(unittest.TestCase):
             metrics,
             {"logical_mode": "standard", "business_success": True},
         )
-        observation = analyze_artifacts(cache, request, metrics, "standard")
+        write_provider_boundary_evidence(boundary, 2)
+        observation = analyze_artifacts(
+            cache,
+            request,
+            metrics,
+            boundary,
+            "standard",
+            "deepseek-v4-flash",
+        )
 
         durable = persist_observation_artifacts(
-            self.repo, "WAR-FIXTURE", "CACHE-001", "standard", observation
+            self.repo,
+            "WAR-FIXTURE",
+            "CACHE-001",
+            "standard",
+            "deepseek-v4-flash",
+            observation,
         )
 
         for key, path in durable["artifacts"].items():

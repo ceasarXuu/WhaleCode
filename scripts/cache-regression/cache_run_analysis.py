@@ -11,6 +11,8 @@ from cache_evidence import file_sha256
 from cache_usage_contract import SCHEMA_VERSION as PROVIDER_USAGE_CONTRACT_VERSION
 from cache_usage_contract import validate_cache_artifacts
 
+PROVIDER_BOUNDARY_SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v1"
+
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -30,25 +32,35 @@ def budget_observation_exceeded(
 
 
 def analyze_artifacts(
-    cache_path: Path, request_path: Path, metrics_path: Path, arm: str
+    cache_path: Path,
+    request_path: Path,
+    metrics_path: Path,
+    boundary_path: Path,
+    arm: str,
+    expected_model: str,
 ) -> dict[str, Any]:
     cache = read_json(cache_path)
     request = read_json(request_path)["rollout_trace"]
     metrics = read_json(metrics_path)
+    boundary = read_json(boundary_path)
     return analyze_artifact_values(
         cache,
         request,
         metrics,
+        boundary,
         arm,
+        expected_model,
         {
             "cache_summary": str(cache_path),
             "request_summary": str(request_path),
             "metrics": str(metrics_path),
+            "provider_boundary": str(boundary_path),
         },
         {
             "cache_summary": file_sha256(cache_path),
             "request_summary": file_sha256(request_path),
             "metrics": file_sha256(metrics_path),
+            "provider_boundary": file_sha256(boundary_path),
         },
     )
 
@@ -57,11 +69,16 @@ def analyze_artifact_values(
     cache: dict[str, Any],
     request: dict[str, Any],
     metrics: dict[str, Any],
+    boundary: dict[str, Any],
     arm: str,
+    expected_model: str,
     artifacts: dict[str, str],
     artifact_sha256: dict[str, str],
 ) -> dict[str, Any]:
     usage = validate_cache_artifacts(cache, request)
+    validate_provider_boundary_evidence(
+        boundary, usage["provider_request_count"], expected_model
+    )
     expected_logical_mode = "standard" if arm == "standard" else "taskspace"
     if metrics.get("logical_mode") != expected_logical_mode:
         raise ValueError(
@@ -72,7 +89,8 @@ def analyze_artifact_values(
         "arm": arm,
         "provider_usage_contract_version": PROVIDER_USAGE_CONTRACT_VERSION,
         "logical_mode": metrics["logical_mode"],
-        "provider_requests": usage["provider_request_count"],
+        "provider_model": expected_model,
+        "provider_requests": boundary["boundary_request_count"],
         "request_2_plus_count": usage["request_2_plus_count"],
         "request_2_plus_hit_rate": usage["request_2_plus_hit_rate"],
         "request_2_plus_cached_input_tokens": usage[
@@ -93,11 +111,54 @@ def analyze_artifact_values(
     }
 
 
-def analyze_arm(run_dir: Path, side: str, arm: str) -> dict[str, Any]:
+def validate_provider_boundary_evidence(
+    boundary: dict[str, Any], expected_count: int, expected_model: str
+) -> None:
+    if boundary.get("schema_version") != PROVIDER_BOUNDARY_SCHEMA_VERSION:
+        raise ValueError("provider boundary evidence schema is invalid")
+    if boundary.get("status") != "reconciled" or boundary.get("errors") != []:
+        raise ValueError("provider boundary evidence is not reconciled")
+    if (
+        boundary.get("expected_model") != expected_model
+        or boundary.get("allowed_method") != "POST"
+        or boundary.get("allowed_path") != "/responses"
+    ):
+        raise ValueError("provider boundary authorization does not match proposal")
+    boundary_requests = boundary.get("boundary_requests")
+    wire_requests = boundary.get("wire_requests")
+    if not isinstance(boundary_requests, list) or not isinstance(wire_requests, list):
+        raise ValueError("provider boundary request evidence is invalid")
+    if (
+        boundary.get("boundary_request_count") != len(boundary_requests)
+        or boundary.get("wire_request_count") != len(wire_requests)
+        or len(boundary_requests) != expected_count
+    ):
+        raise ValueError("provider boundary request count does not match usage evidence")
+    for index, request in enumerate(boundary_requests, 1):
+        if (
+            request.get("count") != index
+            or request.get("method") != "POST"
+            or request.get("path") != "/responses"
+            or request.get("model") != expected_model
+        ):
+            raise ValueError("provider boundary request contract is invalid")
+    boundary_hashes = [request.get("body_sha256") for request in boundary_requests]
+    wire_hashes = [request.get("provider_payload_sha256") for request in wire_requests]
+    if boundary_hashes != wire_hashes or any(
+        not isinstance(value, str) or len(value) != 64 for value in boundary_hashes
+    ):
+        raise ValueError("provider boundary request trace does not match Whale wire trace")
+
+
+def analyze_arm(
+    run_dir: Path, side: str, arm: str, expected_model: str
+) -> dict[str, Any]:
     artifacts = run_dir / "pair-001" / side / "artifacts"
     return analyze_artifacts(
         artifacts / "provider-cache-trace-summary.json",
         artifacts / "request-summary.json",
         artifacts / "metrics.json",
+        artifacts / "provider-boundary-evidence.json",
         arm,
+        expected_model,
     )

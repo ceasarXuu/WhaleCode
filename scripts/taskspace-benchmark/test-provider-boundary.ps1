@@ -18,7 +18,7 @@ $side = [pscustomobject]@{
 $boundary = $null
 $mockId = ''
 try {
-    $boundary = Start-TaskspaceProviderBoundary 'provider-boundary-selftest' 'offline' 'pair-001' $side $image 'boundary-secret' 1 'http://mock-provider:8090'
+    $boundary = Start-TaskspaceProviderBoundary 'provider-boundary-selftest' 'offline' 'pair-001' $side $image 'boundary-secret' 1 'deepseek-v4-flash' 'http://mock-provider:8090'
     $mockScript = @'
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -47,7 +47,7 @@ ThreadingHTTPServer(("0.0.0.0", 8090), Handler).serve_forever()
 
     $probeScript = @'
 import json, urllib.error, urllib.request
-request = urllib.request.Request("http://provider-proxy:8080/responses", data=b"{}", method="POST")
+request = urllib.request.Request("http://provider-proxy:8080/responses", data=b'{"model":"deepseek-v4-flash"}', method="POST")
 first = json.loads(urllib.request.urlopen(request, timeout=3).read())
 assert first["authorization"] == "Bearer boundary-secret", first
 try:
@@ -84,7 +84,7 @@ if (-not $IsWindows) { & chmod 755 $fakeWhale }
 Write-Text (Join-Path $side.ArtifactDir 'user-prompt.txt') "offline`n"
 $agentResult = Invoke-TaskspaceDockerAgent `
     'provider-boundary-agent-selftest' 'offline' 'pair-001' $side $image $contract $fakeWhale `
-    @('--dangerously-bypass-approvals-and-sandbox') @{} 'agent-hidden-secret' 1 20
+    @('--dangerously-bypass-approvals-and-sandbox') @{} 'agent-hidden-secret' 1 'deepseek-v4-flash' 20
 if ($agentResult.exit_code -ne 0) { throw 'Boundary-managed agent fixture failed' }
 $agentInspect = @(Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $side.ArtifactDir 'container-inspect-agent.json') | ConvertFrom-Json)[0]
 $secretMounts = @($agentInspect.Mounts | Where-Object { [string]$_.Destination -eq '/run/secrets/deepseek_api_key' })

@@ -1,4 +1,5 @@
 $script:TaskspaceProviderProxyScript = (Resolve-Path (Join-Path $PSScriptRoot '../docker/provider_boundary_proxy.py')).Path
+$script:TaskspaceProviderVerifierScript = (Resolve-Path (Join-Path $PSScriptRoot '../docker/verify_provider_boundary.py')).Path
 
 function Start-TaskspaceProviderBoundary {
     param(
@@ -9,6 +10,7 @@ function Start-TaskspaceProviderBoundary {
         $Image,
         [string]$ProviderSecret,
         [int]$RequestHardLimit,
+        [string]$Model,
         [string]$ProviderBaseUrl = 'https://api.deepseek.com'
     )
     if ($RequestHardLimit -lt 1) { throw 'provider_boundary_limit_invalid: hard limit must be positive' }
@@ -41,6 +43,7 @@ function Start-TaskspaceProviderBoundary {
         $createArgs += @(Get-TaskspaceContainerMountArg $secretPath '/run/secrets/deepseek_api_key' -ReadOnly)
         $createArgs += @(
             '--env', "PROVIDER_REQUEST_HARD_LIMIT=$RequestHardLimit",
+            '--env', "PROVIDER_ALLOWED_MODEL=$Model",
             '--env', "PROVIDER_UPSTREAM_BASE_URL=$ProviderBaseUrl",
             '--env', 'PROVIDER_BOUNDARY_EVENTS_PATH=/supervisor/events.jsonl',
             [string]$Image.image_ref,
@@ -69,6 +72,7 @@ function Start-TaskspaceProviderBoundary {
             secret_path = $secretPath
             proxy_base_url = 'http://provider-proxy:8080'
             request_hard_limit = $RequestHardLimit
+            expected_model = $Model
         }
     } catch {
         if ($containerId) { [void](Invoke-TaskspaceDocker @('rm', '--force', $containerId)) }
@@ -90,12 +94,25 @@ function Stop-TaskspaceProviderBoundary {
         $networkResults += Invoke-TaskspaceDocker @('network', 'rm', $network)
     }
     Remove-TaskspaceContainerSecret $Boundary.secret_path
+    $eventsPath = Join-Path $ArtifactDir 'provider-boundary-events.jsonl'
+    $supervisorEventsPath = Join-Path $Boundary.supervisor_dir 'events.jsonl'
+    if (Test-Path -LiteralPath $supervisorEventsPath) {
+        Copy-Item -LiteralPath $supervisorEventsPath -Destination $eventsPath -Force
+    } else {
+        [System.IO.File]::WriteAllText($eventsPath, '', [System.Text.UTF8Encoding]::new($false))
+    }
+    $evidencePath = Join-Path $ArtifactDir 'provider-boundary-evidence.json'
+    $wirePath = Join-Path $ArtifactDir 'provider-wire-trace.jsonl'
+    & python $script:TaskspaceProviderVerifierScript --events $eventsPath --wire $wirePath --model ([string]$Boundary.expected_model) --output $evidencePath
+    $reconcileExit = $LASTEXITCODE
     $result = [pscustomobject]@{
         schema_version = 1
         status = if ($remove.exit_code -eq 0 -and @($networkResults | Where-Object { $_.exit_code -ne 0 }).Count -eq 0) { 'removed' } else { 'cleanup_failed' }
         container_id = [string]$Boundary.container_id
         request_hard_limit = [int]$Boundary.request_hard_limit
-        events_path = [string](Join-Path $Boundary.supervisor_dir 'events.jsonl')
+        events_path = [string]$eventsPath
+        evidence_path = [string]$evidencePath
+        evidence_status = if ($reconcileExit -eq 0) { 'reconciled' } else { 'mismatch' }
         stdout_path = [string]$stdoutPath
         stderr_path = [string]$stderrPath
     }

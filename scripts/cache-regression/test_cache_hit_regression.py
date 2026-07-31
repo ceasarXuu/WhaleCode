@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from cache_baseline_test_support import write_provider_boundary_evidence
 from cache_usage_contract import (
     aggregate_usage_records,
     load_provider_usage_fixture,
@@ -92,7 +93,12 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                 json.dumps({"logical_mode": "standard", "business_success": True}),
                 encoding="utf-8",
             )
-            arm = analyze_arm(run_dir, "left", "standard")
+            write_provider_boundary_evidence(
+                artifacts / "provider-boundary-evidence.json", 3
+            )
+            arm = analyze_arm(
+                run_dir, "left", "standard", "deepseek-v4-flash"
+            )
             self.assertEqual(arm["uncached_input_tokens"], 100)
             self.assertEqual(arm["request_2_plus_hit_rate"], 0.91)
 
@@ -141,6 +147,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             cache_path = artifacts / "cache.json"
             request_path = artifacts / "request.json"
             metrics_path = artifacts / "metrics.json"
+            boundary_path = artifacts / "provider-boundary-evidence.json"
             cache_path.write_text(
                 json.dumps(
                     {
@@ -171,8 +178,76 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                 json.dumps({"logical_mode": "standard", "business_success": True}),
                 encoding="utf-8",
             )
+            write_provider_boundary_evidence(boundary_path, 2)
             with self.assertRaisesRegex(ValueError, "does not match token evidence"):
-                analyze_artifacts(cache_path, request_path, metrics_path, "standard")
+                analyze_artifacts(
+                    cache_path,
+                    request_path,
+                    metrics_path,
+                    boundary_path,
+                    "standard",
+                    "deepseek-v4-flash",
+                )
+
+    def test_analyzer_rejects_unmatched_provider_boundary_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            artifacts = Path(root)
+            cache = artifacts / "cache.json"
+            request = artifacts / "request.json"
+            metrics = artifacts / "metrics.json"
+            boundary = artifacts / "provider-boundary-evidence.json"
+            cache.write_text(
+                json.dumps(
+                    {
+                        "provider_request_count": 2,
+                        "request_2_plus_count": 1,
+                        "request_2_plus_cached_input_tokens": 80,
+                        "request_2_plus_uncached_input_tokens": 20,
+                        "request_2_plus_hit_rate": 0.8,
+                        "trace_coverage": 1.0,
+                        "cache_usage_missing_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            request.write_text(
+                json.dumps(
+                    {
+                        "rollout_trace": {
+                            "input_tokens": 100,
+                            "cached_input_tokens": 80,
+                            "output_tokens": 10,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            metrics.write_text(
+                json.dumps({"logical_mode": "standard", "business_success": True}),
+                encoding="utf-8",
+            )
+            write_provider_boundary_evidence(boundary, 2)
+            evidence = json.loads(boundary.read_text(encoding="utf-8"))
+            evidence["boundary_requests"].append(
+                {
+                    "count": 3,
+                    "method": "POST",
+                    "path": "/responses",
+                    "model": "deepseek-v4-flash",
+                    "body_sha256": "f" * 64,
+                }
+            )
+            evidence["boundary_request_count"] = 3
+            boundary.write_text(json.dumps(evidence), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "request count"):
+                analyze_artifacts(
+                    cache,
+                    request,
+                    metrics,
+                    boundary,
+                    "standard",
+                    "deepseek-v4-flash",
+                )
 
     def test_budget_observation_is_explicit_and_always_stops(self) -> None:
         observation = {

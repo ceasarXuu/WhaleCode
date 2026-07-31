@@ -249,7 +249,7 @@ class CacheRunContractTest(unittest.TestCase):
             '"docker-isolated-proxy-v1"',
             source,
         )
-        self.assertIn("$ProviderRequestHardLimit $TimeoutSeconds", source)
+        self.assertIn("$ProviderRequestHardLimit $Model $TimeoutSeconds", source)
         self.assertNotIn("provider-request-hard-limit.count", source)
 
 

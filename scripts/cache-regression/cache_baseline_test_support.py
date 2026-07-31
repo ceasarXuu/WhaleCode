@@ -15,6 +15,43 @@ from cache_source_evidence import protected_manifest
 from cache_surface import load_contract, surface_snapshot, write_json
 
 
+def write_provider_boundary_evidence(
+    path: Path, request_count: int, model: str = "deepseek-v4-flash"
+) -> None:
+    hashes = [f"{index:064x}" for index in range(1, request_count + 1)]
+    write_json(
+        path,
+        {
+            "schema_version": "whalecode-provider-boundary-evidence-v1",
+            "status": "reconciled",
+            "expected_model": model,
+            "allowed_method": "POST",
+            "allowed_path": "/responses",
+            "boundary_request_count": request_count,
+            "wire_request_count": request_count,
+            "boundary_requests": [
+                {
+                    "count": index,
+                    "method": "POST",
+                    "path": "/responses",
+                    "model": model,
+                    "body_sha256": digest,
+                }
+                for index, digest in enumerate(hashes, 1)
+            ],
+            "wire_requests": [
+                {
+                    "request_id": f"request-{index}",
+                    "request_count_after": index,
+                    "provider_payload_sha256": digest,
+                }
+                for index, digest in enumerate(hashes, 1)
+            ],
+            "errors": [],
+        },
+    )
+
+
 def git(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
 
@@ -104,6 +141,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
     cache_path = artifacts_root / "provider-cache-trace-summary.json"
     request_path = artifacts_root / "request-summary.json"
     metrics_path = artifacts_root / "metrics.json"
+    boundary_path = artifacts_root / "provider-boundary-evidence.json"
     write_json(
         cache_path,
         {
@@ -130,7 +168,15 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         metrics_path,
         {"logical_mode": "standard", "business_success": True},
     )
-    observation = analyze_artifacts(cache_path, request_path, metrics_path, "standard")
+    write_provider_boundary_evidence(boundary_path, 3)
+    observation = analyze_artifacts(
+        cache_path,
+        request_path,
+        metrics_path,
+        boundary_path,
+        "standard",
+        "deepseek-v4-flash",
+    )
     observation["artifacts"] = {
         key: Path(path).relative_to(repo).as_posix()
         for key, path in observation["artifacts"].items()

@@ -32,6 +32,7 @@ function Invoke-TaskspaceDockerAgent {
         [hashtable]$Environment,
         [string]$ProviderSecret,
         [int]$ProviderRequestHardLimit,
+        [string]$Model,
         [int]$TimeoutSeconds
     )
     Assert-TaskspaceDockerWhaleArgv $WhaleArgv
@@ -56,7 +57,7 @@ exit "${code}"
         $roleEnvironment = @{} + $Environment
         $networkName = ''
         if ($ProviderRequestHardLimit -gt 0) {
-            $boundary = Start-TaskspaceProviderBoundary $RunId $SampleId $PairId $Side $Image $ProviderSecret $ProviderRequestHardLimit
+            $boundary = Start-TaskspaceProviderBoundary $RunId $SampleId $PairId $Side $Image $ProviderSecret $ProviderRequestHardLimit $Model
             $networkName = [string]$boundary.internal_network
             $roleEnvironment['DEEPSEEK_API_KEY'] = 'provider-boundary-managed'
         } else {

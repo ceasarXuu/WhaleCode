@@ -82,6 +82,7 @@ def persist_observation_artifacts(
     record_id: str,
     run_id: str,
     arm: str,
+    expected_model: str,
     observation: dict[str, Any],
 ) -> dict[str, Any]:
     destination = repo / "benchmarks/cache-regression/evidence" / record_id / run_id
@@ -90,6 +91,7 @@ def persist_observation_artifacts(
         "cache_summary": "provider-cache-trace-summary.json",
         "request_summary": "request-summary.json",
         "metrics": "metrics.json",
+        "provider_boundary": "provider-boundary-evidence.json",
     }
     persisted = {}
     for key, filename in artifact_names.items():
@@ -103,7 +105,9 @@ def persist_observation_artifacts(
         persisted["cache_summary"],
         persisted["request_summary"],
         persisted["metrics"],
+        persisted["provider_boundary"],
         arm,
+        expected_model,
     )
     observed_values = {
         key: value
@@ -290,12 +294,15 @@ def main() -> int:
         try:
             run_dir = find_run_dir_by_id(run_root, run_id)
             side = "left" if execution["arm"] == "standard" else "right"
-            observation = analyze_arm(run_dir, side, execution["arm"])
+            observation = analyze_arm(
+                run_dir, side, execution["arm"], selection["model"]
+            )
             observation = persist_observation_artifacts(
                 repo,
                 record_id,
                 run_id,
                 execution["arm"],
+                selection["model"],
                 observation,
             )
             observation.update(execution)

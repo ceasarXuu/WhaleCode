@@ -29,6 +29,7 @@ OBSERVATION_KEYS = (
     "arm",
     "provider_usage_contract_version",
     "logical_mode",
+    "provider_model",
     "provider_requests",
     "request_2_plus_count",
     "request_2_plus_hit_rate",
@@ -110,7 +111,12 @@ def validate_observation(
     )
     artifacts = {
         key: relative_path(repo, observation["artifacts"][key])
-        for key in ("cache_summary", "request_summary", "metrics")
+        for key in (
+            "cache_summary",
+            "request_summary",
+            "metrics",
+            "provider_boundary",
+        )
     }
     require(
         all(path.startswith(prefix) for path in artifacts.values()),
@@ -127,8 +133,16 @@ def validate_observation(
     cache = source_json(repo, artifacts["cache_summary"], source)
     request = source_json(repo, artifacts["request_summary"], source)["rollout_trace"]
     metrics = source_json(repo, artifacts["metrics"], source)
+    boundary = source_json(repo, artifacts["provider_boundary"], source)
     recomputed = analyze_artifact_values(
-        cache, request, metrics, observation["arm"], artifacts, hashes
+        cache,
+        request,
+        metrics,
+        boundary,
+        observation["arm"],
+        result["observed_scope"]["model"],
+        artifacts,
+        hashes,
     )
     require(
         all(observation.get(key) == recomputed[key] for key in OBSERVATION_KEYS),
