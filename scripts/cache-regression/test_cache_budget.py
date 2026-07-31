@@ -179,6 +179,12 @@ class CacheBudgetProposalTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "digest"):
             validate_budget_proposal(proposal)
 
+    def test_rejects_future_proposal_timestamp(self) -> None:
+        proposal = self.proposal()
+        proposal["created_at"] = "2999-01-01T00:00:00+00:00"
+        with self.assertRaisesRegex(ValueError, "future"):
+            validate_budget_proposal(proposal)
+
     def test_cli_has_no_key_or_ledger_side_effect(self) -> None:
         ledger = self.repo / "benchmarks/whale-agent-run-ledger.json"
         before = set(self.repo.rglob("*"))

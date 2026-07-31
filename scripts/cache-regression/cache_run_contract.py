@@ -14,6 +14,7 @@ from cache_budget import (
     validate_budget_proposal,
 )
 from cache_evidence import file_sha256
+from cache_time import parse_timestamp, require_not_future, require_ordered
 
 
 AUTHORIZATION_SCHEMA_VERSION = "whalecode-cache-budget-authorization-v1"
@@ -74,6 +75,7 @@ def validate_proposal_context(
         max_seconds_per_run=limits["elapsed_seconds"],
         stop_conditions=selection["stop_conditions"],
         selection_reason=selection["selection_reason"],
+        created_at=proposal["created_at"],
     )
     require(proposal == expected, "budget proposal does not match current evidence")
     require(proposal_path.is_file(), "budget proposal file does not exist")
@@ -96,11 +98,12 @@ def validate_authorization(
         and authorization["approval_reference"].strip() != "",
         "cache budget approval reference is missing",
     )
-    require(
-        isinstance(authorization.get("approved_at"), str)
-        and authorization["approved_at"].strip() != "",
-        "cache budget approval timestamp is missing",
+    created_at = parse_timestamp(proposal.get("created_at"), "proposal created_at")
+    approved_at = parse_timestamp(
+        authorization.get("approved_at"), "cache budget approval timestamp"
     )
+    require_ordered(created_at, approved_at, "proposal", "authorization")
+    require_not_future(approved_at, "cache budget approval timestamp")
     require(
         isinstance(authorization.get("authorization_id"), str)
         and authorization["authorization_id"].startswith("CBA-")

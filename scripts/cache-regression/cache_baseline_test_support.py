@@ -208,6 +208,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
     }
     proposal = {
         "schema_version": BUDGET_PROPOSAL_SCHEMA_VERSION,
+        "created_at": "2026-07-31T12:00:00+08:00",
         "subject_commit": git(repo, "rev-parse", "HEAD"),
         "surface_sha256": surface,
         "trigger": {
@@ -273,7 +274,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "approved_by": "user",
         "authorization_id": "CBA-FIXTURE-001",
         "approval_reference": "user approved fixture",
-        "approved_at": "2026-08-01T12:00:00+08:00",
+        "approved_at": "2026-07-31T12:00:00+08:00",
         "proposal_id": proposal["proposal_id"],
         "proposal_sha256": proposal["proposal_sha256"],
         "approved_selection": selection,
@@ -285,8 +286,8 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "schema_version": RESULT_SCHEMA_VERSION,
         "record_id": record_id,
         "status": "completed",
-        "started_at": "2026-08-01T12:00:00+08:00",
-        "ended_at": "2026-08-01T12:00:01+08:00",
+        "started_at": "2026-07-31T12:00:00+08:00",
+        "ended_at": "2026-07-31T12:00:01+08:00",
         "elapsed_seconds": 1.0,
         "subject_commit": proposal["subject_commit"],
         "surface_sha256": surface,
@@ -331,7 +332,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "schema_version": ACCEPTANCE_SCHEMA_VERSION,
         "status": "accepted",
         "accepted_by": "user",
-        "accepted_at": "2026-08-01T13:00:00+08:00",
+        "accepted_at": "2026-07-31T13:00:00+08:00",
         "acceptance_reference": "user accepted fixture",
         "result_path": result_path.relative_to(repo).as_posix(),
         "result_sha256": file_sha256(result_path),

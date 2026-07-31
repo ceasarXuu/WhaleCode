@@ -22,6 +22,7 @@ from cache_source_evidence import (
     source_sha256,
 )
 from cache_surface import surface_snapshot
+from cache_time import parse_timestamp, require_not_future, require_ordered
 
 ACCEPTANCE_SCHEMA_VERSION = "whalecode-cache-baseline-acceptance-v1"
 OBSERVATION_KEYS = (
@@ -300,6 +301,14 @@ def validate_run_evidence(
         and acceptance.get("result_sha256") == source_sha256(repo, result_path, source),
         "cache acceptance does not match result",
     )
+    started_at = parse_timestamp(result.get("started_at"), "cache result started_at")
+    ended_at = parse_timestamp(result.get("ended_at"), "cache result ended_at")
+    accepted_at = parse_timestamp(
+        acceptance.get("accepted_at"), "cache acceptance timestamp"
+    )
+    require_ordered(started_at, ended_at, "run start", "run end")
+    require_ordered(ended_at, accepted_at, "run end", "acceptance")
+    require_not_future(accepted_at, "cache acceptance timestamp")
     proposal_path = relative_path(repo, acceptance.get("proposal_path"))
     authorization_path = relative_path(repo, acceptance.get("authorization_path"))
     proposal = source_json(repo, proposal_path, source)
@@ -313,6 +322,10 @@ def validate_run_evidence(
         "cache result authorization digest mismatch",
     )
     validate_run_authorization(proposal, authorization)
+    approved_at = parse_timestamp(
+        authorization.get("approved_at"), "cache budget approval timestamp"
+    )
+    require_ordered(approved_at, started_at, "authorization", "run start")
     require(
         authorization["approval_reference"] == result.get("authorization_reference"),
         "cache authorization reference mismatch",

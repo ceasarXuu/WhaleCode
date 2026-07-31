@@ -116,7 +116,7 @@ class CacheRunContractTest(unittest.TestCase):
             "approved_by": "user",
             "authorization_id": "CBA-FIXTURE-001",
             "approval_reference": "user approved exact proposal in thread",
-            "approved_at": "2026-08-01T12:00:00+08:00",
+            "approved_at": self.proposal["created_at"],
             "proposal_id": self.proposal["proposal_id"],
             "proposal_sha256": self.proposal["proposal_sha256"],
             "approved_selection": self.proposal["selection"],
@@ -148,6 +148,12 @@ class CacheRunContractTest(unittest.TestCase):
         authorization = copy.deepcopy(self.authorization)
         authorization["approved_maximums"]["provider_requests"] += 1
         with self.assertRaisesRegex(ValueError, "maximums"):
+            validate_authorization(self.proposal, authorization)
+
+    def test_authorization_cannot_predate_proposal(self) -> None:
+        authorization = copy.deepcopy(self.authorization)
+        authorization["approved_at"] = "2020-01-01T00:00:00+00:00"
+        with self.assertRaisesRegex(ValueError, "authorization precedes proposal"):
             validate_authorization(self.proposal, authorization)
 
     def test_stale_subject_or_gate_report_is_rejected(self) -> None:

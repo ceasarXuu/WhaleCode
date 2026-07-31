@@ -8,6 +8,7 @@ from typing import Any
 
 from cache_evidence import canonical_json_sha256, file_sha256
 from cache_surface import surface_snapshot
+from cache_time import now_iso, parse_timestamp, require_not_future
 
 
 BUDGET_PROPOSAL_SCHEMA_VERSION = "whalecode-cache-budget-proposal-v2"
@@ -105,6 +106,7 @@ def build_budget_proposal(
     max_seconds_per_run: int,
     stop_conditions: list[str],
     selection_reason: str,
+    created_at: str | None = None,
 ) -> dict[str, Any]:
     failed_commands = validate_gate_trigger(gate_report)
     samples = _unique_nonempty(samples, "samples")
@@ -179,6 +181,7 @@ def build_budget_proposal(
     relative_report = gate_report_path.relative_to(repo).as_posix()
     proposal = {
         "schema_version": BUDGET_PROPOSAL_SCHEMA_VERSION,
+        "created_at": created_at or now_iso(),
         "subject_commit": subject_commit,
         "surface_sha256": surface_sha,
         "trigger": {
@@ -264,6 +267,8 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
         proposal.get("schema_version") == BUDGET_PROPOSAL_SCHEMA_VERSION,
         "invalid budget proposal schema",
     )
+    created_at = parse_timestamp(proposal.get("created_at"), "proposal created_at")
+    require_not_future(created_at, "proposal created_at")
     expected = dict(proposal)
     digest = expected.pop("proposal_sha256", None)
     require(

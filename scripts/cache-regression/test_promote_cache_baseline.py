@@ -144,7 +144,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "approved_by": "user",
             "authorization_id": "CBA-FIXTURE-001",
             "approval_reference": "fixture run approval",
-            "approved_at": "2026-08-01T12:00:00+08:00",
+            "approved_at": self.proposal["created_at"],
             "proposal_id": self.proposal["proposal_id"],
             "proposal_sha256": self.proposal["proposal_sha256"],
             "approved_selection": self.proposal["selection"],
@@ -171,8 +171,8 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "schema_version": RESULT_SCHEMA_VERSION,
             "record_id": "WAR-FIXTURE",
             "status": "completed",
-            "started_at": "2026-08-01T12:00:00+08:00",
-            "ended_at": "2026-08-01T12:00:02+08:00",
+            "started_at": self.proposal["created_at"],
+            "ended_at": self.proposal["created_at"],
             "elapsed_seconds": 2.0,
             "subject_commit": self.head,
             "surface_sha256": self.proposal["surface_sha256"],
@@ -285,7 +285,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "schema_version": ACCEPTANCE_SCHEMA_VERSION,
             "status": "accepted",
             "accepted_by": "user",
-            "accepted_at": "2026-08-01T13:00:00+08:00",
+            "accepted_at": self.proposal["created_at"],
             "acceptance_reference": "user accepted exact result in thread",
             "result_path": self.result_path.relative_to(self.repo).as_posix(),
             "result_sha256": file_sha256(self.result_path),
@@ -437,6 +437,12 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         result["authorization_sha256"] = file_sha256(self.authorization_path)
         with self.assertRaisesRegex(ValueError, "timestamp"):
             self.validate(result=result)
+
+    def test_rejects_reversed_evidence_timeline(self) -> None:
+        acceptance = copy.deepcopy(self.acceptance)
+        acceptance["accepted_at"] = "2020-01-01T00:00:00+00:00"
+        with self.assertRaisesRegex(ValueError, "acceptance precedes run end"):
+            self.validate(acceptance=acceptance)
 
     def test_rejects_duplicate_authorization_in_ledger(self) -> None:
         ledger_path = self.repo / "benchmarks/whale-agent-run-ledger.json"
