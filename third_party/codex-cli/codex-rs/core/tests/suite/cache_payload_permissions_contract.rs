@@ -1,5 +1,7 @@
+use super::cache_payload_contract::completed_response_stream;
 use super::cache_payload_contract::stabilize_fixture_inputs;
 use super::cache_payload_contract::submit_turn;
+use super::cache_payload_contract::value_contains_text;
 use codex_core::config::Constrained;
 use codex_model_provider_info::WireApi;
 use codex_protocol::protocol::AskForApproval;
@@ -16,22 +18,17 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-const CHAT_COMPLETION_STREAM: &str = concat!(
-    "data: {\"id\":\"chatcmpl-permissions-contract\",\"choices\":[{\"index\":0,",
-    "\"delta\":{\"content\":\"turn complete\"},\"finish_reason\":null}]}\n\n",
-    "data: {\"id\":\"chatcmpl-permissions-contract\",\"choices\":[{\"index\":0,",
-    "\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
-    "data: [DONE]\n\n"
-);
-
 async fn capture_permission_request_pair(restricted: bool) -> anyhow::Result<Value> {
     let server = start_mock_server().await;
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/event-stream")
-                .set_body_raw(CHAT_COMPLETION_STREAM, "text/event-stream"),
+                .set_body_raw(
+                    completed_response_stream("resp-permissions-contract"),
+                    "text/event-stream",
+                ),
         )
         .expect(2)
         .mount(&server)
@@ -39,7 +36,7 @@ async fn capture_permission_request_pair(restricted: bool) -> anyhow::Result<Val
 
     let test = test_codex()
         .with_config(move |config| {
-            config.model_provider.wire_api = WireApi::ChatCompletions;
+            config.model_provider.wire_api = WireApi::Responses;
             config.model = Some("deepseek-v4-flash".to_string());
             config.cwd = AbsolutePathBuf::try_from(PathBuf::from("/tmp"))
                 .expect("fixed permissions contract cwd");
@@ -65,8 +62,8 @@ async fn capture_permission_request_pair(restricted: bool) -> anyhow::Result<Val
     let mut snapshot = serde_json::json!({
         "provider_identity": {
             "provider_id": "deepseek",
-            "wire_api": "chat_completions",
-            "endpoint_path": "/v1/chat/completions"
+            "wire_api": "responses",
+            "endpoint_path": "/v1/responses"
         },
         "request_1": first.structured_body,
         "request_2": second.structured_body,
@@ -115,15 +112,11 @@ fn normalize_permissions(value: &mut Value) {
 }
 
 fn permissions_section_count(request: &Value) -> usize {
-    request["messages"]
+    request["input"]
         .as_array()
-        .expect("request messages")
+        .expect("request input")
         .iter()
-        .filter(|message| {
-            message["content"]
-                .as_str()
-                .is_some_and(|content| content.contains("<permissions instructions>"))
-        })
+        .filter(|item| value_contains_text(item, "<permissions instructions>"))
         .count()
 }
 

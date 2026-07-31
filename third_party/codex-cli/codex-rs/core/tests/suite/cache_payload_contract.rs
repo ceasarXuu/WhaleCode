@@ -7,6 +7,10 @@ use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::responses::ev_completed;
+use core_test_support::responses::ev_function_call;
+use core_test_support::responses::ev_response_created;
+use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
@@ -21,22 +25,12 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-const CHAT_COMPLETION_STREAM: &str = concat!(
-    "data: {\"id\":\"chatcmpl-cache-contract\",\"choices\":[{\"index\":0,",
-    "\"delta\":{\"content\":\"turn complete\"},\"finish_reason\":null}]}\n\n",
-    "data: {\"id\":\"chatcmpl-cache-contract\",\"choices\":[{\"index\":0,",
-    "\"delta\":{},\"finish_reason\":\"stop\"}],",
-    "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1,",
-    "\"total_tokens\":11,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n",
-    "data: [DONE]\n\n"
-);
-
-struct ChatSequenceResponder {
+struct ResponsesSequenceResponder {
     next: AtomicUsize,
     bodies: Vec<String>,
 }
 
-impl Respond for ChatSequenceResponder {
+impl Respond for ResponsesSequenceResponder {
     fn respond(&self, _: &wiremock::Request) -> ResponseTemplate {
         let index = self.next.fetch_add(1, Ordering::SeqCst);
         ResponseTemplate::new(200)
@@ -50,31 +44,22 @@ impl Respond for ChatSequenceResponder {
     }
 }
 
-fn chat_tool_stream(response_id: &str, calls: Vec<Value>) -> String {
-    let chunk = serde_json::json!({
-        "id": response_id,
-        "choices": [{
-            "index": 0,
-            "delta": {"tool_calls": calls},
-            "finish_reason": "tool_calls"
-        }],
-        "usage": {
-            "prompt_tokens": 10,
-            "completion_tokens": 1,
-            "total_tokens": 11,
-            "prompt_tokens_details": {"cached_tokens": 0}
-        }
-    });
-    format!("data: {chunk}\n\ndata: [DONE]\n\n")
+pub(super) fn completed_response_stream(response_id: &str) -> String {
+    sse(vec![
+        ev_response_created(response_id),
+        ev_completed(response_id),
+    ])
 }
 
-fn chat_tool_call(index: usize, call_id: &str, name: &str, arguments: Value) -> Value {
-    serde_json::json!({
-        "index": index,
-        "id": call_id,
-        "type": "function",
-        "function": {"name": name, "arguments": arguments.to_string()}
-    })
+fn responses_tool_stream(response_id: &str, calls: Vec<(&str, &str, Value)>) -> String {
+    let mut events = vec![ev_response_created(response_id)];
+    events.extend(
+        calls.into_iter().map(|(call_id, name, arguments)| {
+            ev_function_call(call_id, name, &arguments.to_string())
+        }),
+    );
+    events.push(ev_completed(response_id));
+    sse(events)
 }
 
 fn initialize_arguments() -> Value {
@@ -172,9 +157,19 @@ pub(super) fn stabilize_fixture_inputs(value: &mut Value, path_prefixes: &[(&str
         Value::Array(values) => values
             .iter_mut()
             .for_each(|value| stabilize_fixture_inputs(value, path_prefixes)),
-        Value::Object(values) => values
-            .values_mut()
-            .for_each(|value| stabilize_fixture_inputs(value, path_prefixes)),
+        Value::Object(values) => {
+            for (key, value) in values {
+                match key.as_str() {
+                    "prompt_cache_key" => {
+                        *value = Value::String("<PROMPT_CACHE_KEY>".to_string());
+                    }
+                    "x-codex-installation-id" => {
+                        *value = Value::String("<INSTALLATION_ID>".to_string());
+                    }
+                    _ => stabilize_fixture_inputs(value, path_prefixes),
+                }
+            }
+        }
         Value::String(text) => {
             if text.contains("<environment_context>") {
                 *text = replace_tag_value(text, "current_date", "FIXED_CURRENT_DATE");
@@ -189,6 +184,19 @@ pub(super) fn stabilize_fixture_inputs(value: &mut Value, path_prefixes: &[(&str
             }
         }
         _ => {}
+    }
+}
+
+pub(super) fn value_contains_text(value: &Value, marker: &str) -> bool {
+    match value {
+        Value::Array(values) => values
+            .iter()
+            .any(|value| value_contains_text(value, marker)),
+        Value::Object(values) => values
+            .values()
+            .any(|value| value_contains_text(value, marker)),
+        Value::String(text) => text.contains(marker),
+        _ => false,
     }
 }
 
@@ -220,11 +228,14 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/event-stream")
-                .set_body_raw(CHAT_COMPLETION_STREAM, "text/event-stream"),
+                .set_body_raw(
+                    completed_response_stream("resp-cache-contract"),
+                    "text/event-stream",
+                ),
         )
         .expect(2)
         .mount(&server)
@@ -232,7 +243,7 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
 
     let test = test_codex()
         .with_config(|config| {
-            config.model_provider.wire_api = WireApi::ChatCompletions;
+            config.model_provider.wire_api = WireApi::Responses;
             config.model = Some("deepseek-v4-flash".to_string());
             config.cwd =
                 AbsolutePathBuf::try_from(PathBuf::from("/tmp")).expect("fixed cache contract cwd");
@@ -249,13 +260,13 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
     assert_eq!(requests.len(), 2);
     let first = FinalWireEvidence::from_raw_body(&requests[0].body)?;
     let second = FinalWireEvidence::from_raw_body(&requests[1].body)?;
-    let first_messages = first.structured_body["messages"]
+    let first_input = first.structured_body["input"]
         .as_array()
-        .expect("first messages");
-    let second_messages = second.structured_body["messages"]
+        .expect("first input");
+    let second_input = second.structured_body["input"]
         .as_array()
-        .expect("second messages");
-    assert_eq!(&second_messages[..first_messages.len()], first_messages);
+        .expect("second input");
+    assert_eq!(&second_input[..first_input.len()], first_input);
     assert_eq!(
         first.structured_body["tools"],
         second.structured_body["tools"]
@@ -265,20 +276,24 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
         second.structured_body["tool_choice"]
     );
     let mut inserted_message = first.clone();
-    inserted_message.structured_body["messages"]
+    inserted_message.structured_body["input"]
         .as_array_mut()
-        .expect("mutable messages")
+        .expect("mutable input")
         .insert(
             1,
-            serde_json::json!({"role": "developer", "content": "inserted mutation"}),
+            serde_json::json!({
+                "type": "message",
+                "role": "developer",
+                "content": [{"type": "input_text", "text": "inserted mutation"}]
+            }),
         );
     assert_ne!(inserted_message, first);
 
     let mut snapshot = serde_json::json!({
         "provider_identity": {
             "provider_id": "deepseek",
-            "wire_api": "chat_completions",
-            "endpoint_path": "/v1/chat/completions"
+            "wire_api": "responses",
+            "endpoint_path": "/v1/responses"
         },
         "request_1": first.structured_body,
         "request_2": second.structured_body,
@@ -308,35 +323,28 @@ async fn capture_taskspace_request_pair(
     policy: TaskSpaceProjectionPolicy,
 ) -> anyhow::Result<Value> {
     let server = start_mock_server().await;
-    let first_response = chat_tool_stream(
-        "chatcmpl-taskspace-init",
+    let first_response = responses_tool_stream(
+        "resp-taskspace-init",
         vec![
-            chat_tool_call(
-                0,
+            (
                 "taskspace-init",
                 "taskspace_control",
                 initialize_arguments(),
             ),
-            chat_tool_call(
-                1,
+            (
                 "taskspace-exec",
                 "exec_command",
                 serde_json::json!({"cmd": "printf taskspace-contract", "workdir": "/tmp"}),
             ),
         ],
     );
-    let second_response = chat_tool_stream(
-        "chatcmpl-taskspace-finish",
-        vec![chat_tool_call(
-            0,
-            "taskspace-finish",
-            "taskspace_control",
-            finish_arguments(),
-        )],
+    let second_response = responses_tool_stream(
+        "resp-taskspace-finish",
+        vec![("taskspace-finish", "taskspace_control", finish_arguments())],
     );
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
-        .respond_with(ChatSequenceResponder {
+        .and(path("/v1/responses"))
+        .respond_with(ResponsesSequenceResponder {
             next: AtomicUsize::new(0),
             bodies: vec![first_response, second_response],
         })
@@ -346,7 +354,7 @@ async fn capture_taskspace_request_pair(
 
     let test = test_codex()
         .with_config(move |config| {
-            config.model_provider.wire_api = WireApi::ChatCompletions;
+            config.model_provider.wire_api = WireApi::Responses;
             config.model = Some("deepseek-v4-flash".to_string());
             config.taskspace_projection_policy = Some(policy);
             config.cwd = AbsolutePathBuf::try_from(PathBuf::from("/tmp"))
@@ -389,8 +397,8 @@ async fn capture_taskspace_request_pair(
     let mut snapshot = serde_json::json!({
         "provider_identity": {
             "provider_id": "deepseek",
-            "wire_api": "chat_completions",
-            "endpoint_path": "/v1/chat/completions"
+            "wire_api": "responses",
+            "endpoint_path": "/v1/responses"
         },
         "request_1": first.structured_body,
         "request_2": second.structured_body,
@@ -416,15 +424,11 @@ async fn capture_taskspace_request_pair(
 }
 
 fn projection_count(request: &Value) -> usize {
-    request["messages"]
+    request["input"]
         .as_array()
-        .expect("request messages")
+        .expect("request input")
         .iter()
-        .filter(|message| {
-            message["content"]
-                .as_str()
-                .is_some_and(|content| content.contains("TaskSpaceMapProjectionR7V1:"))
-        })
+        .filter(|item| value_contains_text(item, "TaskSpaceMapProjectionR7V1:"))
         .count()
 }
 

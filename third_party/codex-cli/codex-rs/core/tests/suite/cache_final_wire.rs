@@ -6,6 +6,7 @@ use codex_protocol::protocol::Op;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use core_test_support::cache_payload::FinalWireEvidence;
+use core_test_support::responses::sse_completed;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
@@ -16,24 +17,14 @@ use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
-const CHAT_COMPLETION_STREAM: &str = concat!(
-    "data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,",
-    "\"delta\":{\"content\":\"done\"},\"finish_reason\":null}]}\n\n",
-    "data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,",
-    "\"delta\":{},\"finish_reason\":\"stop\"}],",
-    "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1,",
-    "\"total_tokens\":11,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n",
-    "data: [DONE]\n\n"
-);
-
-async fn capture_chat_completions_body(taskspace: bool) -> anyhow::Result<Value> {
+async fn capture_responses_body(taskspace: bool) -> anyhow::Result<Value> {
     let server = start_mock_server().await;
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/event-stream")
-                .set_body_raw(CHAT_COMPLETION_STREAM, "text/event-stream"),
+                .set_body_raw(sse_completed("resp-final-wire"), "text/event-stream"),
         )
         .expect(1)
         .mount(&server)
@@ -41,7 +32,7 @@ async fn capture_chat_completions_body(taskspace: bool) -> anyhow::Result<Value>
 
     let test = test_codex()
         .with_config(move |config| {
-            config.model_provider.wire_api = WireApi::ChatCompletions;
+            config.model_provider.wire_api = WireApi::Responses;
             config.model = Some("deepseek-v4-flash".to_string());
             if taskspace {
                 config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
@@ -103,22 +94,25 @@ fn function_tool<'a>(body: &'a Value, name: &str) -> &'a Value {
         .as_array()
         .into_iter()
         .flatten()
-        .find(|tool| tool["function"]["name"] == name)
+        .find(|tool| tool["type"] == "function" && tool["name"] == name)
         .unwrap_or_else(|| panic!("missing production Tool: {name}"))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn standard_session_reaches_chat_completions_final_wire() -> anyhow::Result<()> {
+async fn standard_session_reaches_responses_final_wire() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let body = capture_chat_completions_body(false).await?;
-    let messages = body["messages"].as_array().expect("messages array");
-    assert_eq!(messages[0]["role"], "system");
-    assert!(messages.iter().any(|message| {
-        message["role"] == "user"
-            && message["content"]
-                .as_str()
-                .is_some_and(|content| content.contains("inspect final wire"))
-    }));
+    let body = capture_responses_body(false).await?;
+    assert!(
+        body["instructions"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty())
+    );
+    let input = body["input"].as_array().expect("input array");
+    assert!(
+        input.iter().any(|item| {
+            item["role"] == "user" && item.to_string().contains("inspect final wire")
+        })
+    );
     assert!(
         body["tools"]
             .as_array()
@@ -132,14 +126,15 @@ async fn standard_session_reaches_chat_completions_final_wire() -> anyhow::Resul
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn taskspace_tools_use_production_wire_schema() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
-    let standard = capture_chat_completions_body(false).await?;
-    let taskspace = capture_chat_completions_body(true).await?;
+    let standard = capture_responses_body(false).await?;
+    let taskspace = capture_responses_body(true).await?;
 
     let taskspace_tool_names = taskspace["tools"]
         .as_array()
         .expect("TaskSpace tools array")
         .iter()
-        .map(|tool| tool["function"]["name"].as_str().expect("Tool name"))
+        .filter(|tool| tool["type"] == "function")
+        .map(|tool| tool["name"].as_str().expect("Tool name"))
         .collect::<Vec<_>>();
     assert_eq!(
         taskspace_tool_names.first().copied(),
@@ -154,11 +149,11 @@ async fn taskspace_tools_use_production_wire_schema() -> anyhow::Result<()> {
     let taskspace_control = function_tool(&taskspace, "taskspace_control");
     assert_eq!(taskspace_control["type"], "function");
     assert!(
-        taskspace_control["function"]["description"]
+        taskspace_control["description"]
             .as_str()
             .is_some_and(|description| !description.is_empty())
     );
-    assert!(taskspace_control["function"]["parameters"].is_object());
+    assert!(taskspace_control["parameters"].is_object());
 
     insta::assert_snapshot!(
         "taskspace_production_tool_wire",
