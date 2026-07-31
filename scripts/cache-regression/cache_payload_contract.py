@@ -145,6 +145,7 @@ def compare_snapshot_set(
             "first_difference": None,
             "before_payload_sha256": None,
             "after_payload_sha256": None,
+            "candidate_payload": None,
         }
         if baseline_path is None:
             scenario["error"] = "candidate has no protected baseline"
@@ -163,6 +164,7 @@ def compare_snapshot_set(
                         "first_difference": difference,
                         "before_payload_sha256": _canonical_sha256(before),
                         "after_payload_sha256": _canonical_sha256(after),
+                        "candidate_payload": after if difference is not None else None,
                     }
                 )
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:

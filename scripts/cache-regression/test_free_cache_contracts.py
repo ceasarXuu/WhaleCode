@@ -42,13 +42,13 @@ class FreeCacheContractsTest(unittest.TestCase):
         self.assertEqual(result["commands"][0]["status"], "pass")
         self.assertEqual(result["commands"][0]["output_tail"], ["wire stable"])
 
-    def test_failure_stops_remaining_commands(self) -> None:
+    def test_failure_does_not_hide_later_independent_results(self) -> None:
         config = command_config(["python3", "-c", "raise SystemExit(9)"])
         config["commands"].append(
             {
-                "id": "must_not_run",
+                "id": "later",
                 "cwd": ".",
-                "argv": ["python3", "-c", "print('unexpected')"],
+                "argv": ["python3", "-c", "print('later evidence')"],
                 "timeout_seconds": 10,
             }
         )
@@ -56,8 +56,11 @@ class FreeCacheContractsTest(unittest.TestCase):
         result = run_free_validation(self.repo, config)
 
         self.assertFalse(result["passed"])
-        self.assertEqual(len(result["commands"]), 1)
+        self.assertEqual(
+            [item["id"] for item in result["commands"]], ["fixture", "later"]
+        )
         self.assertEqual(result["commands"][0]["exit_code"], 9)
+        self.assertEqual(result["commands"][1]["status"], "pass")
 
     def test_timeout_is_a_failure(self) -> None:
         result = run_free_validation(

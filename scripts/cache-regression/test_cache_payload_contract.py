@@ -214,6 +214,10 @@ class SnapshotChangeReportTest(unittest.TestCase):
             report["scenarios"][0]["before_payload_sha256"],
             report["scenarios"][0]["after_payload_sha256"],
         )
+        self.assertEqual(
+            report["scenarios"][0]["candidate_payload"],
+            {"request_1": {"tools": [{"name": "read"}]}},
+        )
 
     def test_unknown_field_is_a_semantic_change(self) -> None:
         self.write_baseline("unknown", {"request_1": {"model": "flash"}})

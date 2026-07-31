@@ -143,8 +143,6 @@ def run_free_validation(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
                 "change_report": change_report,
             }
         )
-        if not command_passed:
-            break
     return {
         "status": "pass" if passed else "fail",
         "passed": passed,
