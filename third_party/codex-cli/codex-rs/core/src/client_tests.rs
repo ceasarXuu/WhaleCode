@@ -16,7 +16,9 @@ use super::X_OPENAI_SUBAGENT_HEADER;
 use super::apply_api_provider_request_hard_limit_retry_policy;
 use super::apply_projection_identity_expectation;
 use super::apply_provider_request_hard_limit_retry_policy;
+use super::ensure_realtime_session_is_metered;
 use super::provider_payload_digest;
+use codex_api::RealtimeSessionMode;
 use codex_api::ToolChoice;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
@@ -109,6 +111,21 @@ fn enabled_provider_request_hard_limit_disables_hidden_transport_retries() {
         .expect("create realtime API provider");
     apply_api_provider_request_hard_limit_retry_policy(&mut api_provider, &limit);
     assert_eq!(api_provider.retry.max_attempts, 0);
+}
+
+#[test]
+fn provider_request_hard_limit_rejects_unmetered_realtime_generation() {
+    let enabled = ProviderRequestHardLimit::with_limit(2);
+    let disabled = ProviderRequestHardLimit::disabled();
+    assert!(
+        ensure_realtime_session_is_metered(&enabled, RealtimeSessionMode::Conversational).is_err()
+    );
+    assert!(
+        ensure_realtime_session_is_metered(&enabled, RealtimeSessionMode::Transcription).is_ok()
+    );
+    assert!(
+        ensure_realtime_session_is_metered(&disabled, RealtimeSessionMode::Conversational).is_ok()
+    );
 }
 
 #[cfg(unix)]

@@ -289,6 +289,7 @@ impl RealtimeConversationManager {
             sdp,
         } = start;
         let event_parser = session_config.event_parser;
+        model_client.ensure_realtime_session_is_metered(session_config.session_mode)?;
         let session_kind = match event_parser {
             RealtimeEventParser::V1 => RealtimeSessionKind::V1,
             RealtimeEventParser::RealtimeV2 => RealtimeSessionKind::V2,

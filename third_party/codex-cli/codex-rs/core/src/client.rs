@@ -58,6 +58,7 @@ use codex_api::Provider as ApiProvider;
 use codex_api::RawMemory as ApiRawMemory;
 use codex_api::RealtimeCallClient as ApiRealtimeCallClient;
 use codex_api::RealtimeSessionConfig as ApiRealtimeSessionConfig;
+use codex_api::RealtimeSessionMode;
 use codex_api::Reasoning;
 use codex_api::RequestTelemetry;
 use codex_api::ReqwestTransport;
@@ -1725,6 +1726,19 @@ fn apply_api_provider_request_hard_limit_retry_policy(
     }
 }
 
+fn ensure_realtime_session_is_metered(
+    hard_limit: &ProviderRequestHardLimit,
+    session_mode: RealtimeSessionMode,
+) -> Result<()> {
+    if hard_limit.is_enabled() && session_mode == RealtimeSessionMode::Conversational {
+        return Err(CodexErr::Fatal(
+            "provider request hard limit rejects conversational Realtime because server-triggered responses cannot be counted before inference"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
 /// This is intentionally kept minimal so `ModelClient` does not need to hold a full `Config`. Most
@@ -1882,6 +1896,16 @@ impl ModelClient {
         self.state
             .provider_request_hard_limit
             .claim("/realtime/response.create")
+    }
+
+    pub(crate) fn ensure_realtime_session_is_metered(
+        &self,
+        session_mode: RealtimeSessionMode,
+    ) -> Result<()> {
+        ensure_realtime_session_is_metered(
+            self.state.provider_request_hard_limit.as_ref(),
+            session_mode,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
