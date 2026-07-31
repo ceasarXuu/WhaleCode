@@ -18,6 +18,8 @@ use crate::tools::sequence_preflight::ToolSequencePlan;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 
 const PROVIDER_TOOL_DECLARATION_INVALID_CODE: &str = "provider_tool_declaration_invalid";
+const DIAGNOSTIC_SUPPRESS_DYNAMIC_FACTUAL_CARRIERS_ENV: &str =
+    "WHALE_DIAGNOSTIC_SUPPRESS_TASKSPACE_DYNAMIC_FACTUAL_CARRIERS";
 
 pub(crate) struct TaskSpaceTerminalCompletion {
     pub(crate) call_id: String,
@@ -27,6 +29,25 @@ pub(crate) struct TaskSpaceTerminalCompletion {
 pub(crate) struct ToolSequenceOutcome {
     pub(crate) outputs: Vec<ResponseInputItem>,
     pub(crate) terminal_completion: Option<TaskSpaceTerminalCompletion>,
+}
+
+fn diagnostic_dynamic_factual_carriers_suppressed() -> bool {
+    std::env::var(DIAGNOSTIC_SUPPRESS_DYNAMIC_FACTUAL_CARRIERS_ENV).as_deref() == Ok("1")
+}
+
+fn filter_dynamic_factual_carriers(
+    mut outcome: ToolSequenceOutcome,
+    suppress: bool,
+) -> (ToolSequenceOutcome, usize) {
+    if !suppress {
+        return (outcome, 0);
+    }
+    let before = outcome.outputs.len();
+    outcome
+        .outputs
+        .retain(|output| !matches!(output, ResponseInputItem::Message { .. }));
+    let removed = before.saturating_sub(outcome.outputs.len());
+    (outcome, removed)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -55,6 +76,8 @@ pub(crate) async fn execute_provider_response_tool_sequence(
     declarations: Vec<ProviderToolDeclaration>,
     cancellation_token: CancellationToken,
 ) -> Result<ToolSequenceOutcome> {
+    let suppress_dynamic_factual_carriers =
+        runtime.taskspace_active().await && diagnostic_dynamic_factual_carriers_suppressed();
     if declarations
         .iter()
         .all(|declaration| !declaration.is_invalid())
@@ -68,7 +91,17 @@ pub(crate) async fn execute_provider_response_tool_sequence(
                 | ProviderToolDeclaration::RejectedNative(_) => None,
             })
             .collect();
-        return execute_response_tool_sequence(runtime, calls, cancellation_token).await;
+        let outcome = execute_response_tool_sequence(runtime, calls, cancellation_token).await?;
+        let (outcome, removed_carrier_count) =
+            filter_dynamic_factual_carriers(outcome, suppress_dynamic_factual_carriers);
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace_dynamic_factual_carriers_filtered",
+            diagnostic_suppressed = suppress_dynamic_factual_carriers,
+            removed_carrier_count,
+            "filtered provider-response dynamic factual carriers"
+        );
+        return Ok(outcome);
     }
 
     let canonical_revision = runtime.taskspace_canonical_revision().await;
@@ -97,6 +130,15 @@ pub(crate) async fn execute_provider_response_tool_sequence(
         zero_dispatch = true,
         state_commit = false,
         "tool.response_provider_declaration_rejected"
+    );
+    let (outcome, removed_carrier_count) =
+        filter_dynamic_factual_carriers(outcome, suppress_dynamic_factual_carriers);
+    tracing::info!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace_dynamic_factual_carriers_filtered",
+        diagnostic_suppressed = suppress_dynamic_factual_carriers,
+        removed_carrier_count,
+        "filtered provider-response dynamic factual carriers"
     );
     Ok(outcome)
 }
@@ -804,6 +846,55 @@ fn response_input_succeeded(output: &ResponseInputItem) -> bool {
 #[cfg(test)]
 #[path = "sequence_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod dynamic_factual_carrier_diagnostic_tests {
+    use super::ToolSequenceOutcome;
+    use super::filter_dynamic_factual_carriers;
+    use codex_protocol::models::ContentItem;
+    use codex_protocol::models::FunctionCallOutputBody;
+    use codex_protocol::models::FunctionCallOutputPayload;
+    use codex_protocol::models::ResponseInputItem;
+
+    fn outcome() -> ToolSequenceOutcome {
+        ToolSequenceOutcome {
+            outputs: vec![
+                ResponseInputItem::FunctionCallOutput {
+                    call_id: "call-1".to_string(),
+                    output: FunctionCallOutputPayload {
+                        body: FunctionCallOutputBody::Text("native fact".to_string()),
+                        success: Some(false),
+                    },
+                },
+                ResponseInputItem::Message {
+                    role: "developer".to_string(),
+                    content: vec![ContentItem::InputText {
+                        text: "duplicate fact".to_string(),
+                    }],
+                },
+            ],
+            terminal_completion: None,
+        }
+    }
+
+    #[test]
+    fn diagnostic_filter_preserves_native_tool_results() {
+        let (filtered, removed) = filter_dynamic_factual_carriers(outcome(), true);
+        assert_eq!(removed, 1);
+        assert_eq!(filtered.outputs.len(), 1);
+        assert!(matches!(
+            filtered.outputs[0],
+            ResponseInputItem::FunctionCallOutput { .. }
+        ));
+    }
+
+    #[test]
+    fn default_path_preserves_all_outputs() {
+        let (unfiltered, removed) = filter_dynamic_factual_carriers(outcome(), false);
+        assert_eq!(removed, 0);
+        assert_eq!(unfiltered.outputs.len(), 2);
+    }
+}
 
 #[cfg(test)]
 #[path = "sequence_taskspace_tests.rs"]

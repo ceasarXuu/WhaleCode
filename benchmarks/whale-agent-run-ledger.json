@@ -1,7 +1,86 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-07-31T10:17:48+08:00",
+  "updated_at": "2026-07-31T10:34:56+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260731-R71-DYNAMIC-CARRIER-ABLATION-001",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 R7.1 完整缓存根因：在当前版本仅抑制 Tool sequence 产生的全部独立动态 factual developer carrier，保留原生 Tool result 和 Map 状态。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "reference": "用户于 2026-07-31 明确追加 1 个 sample 预算用于根因验证。",
+        "budget_summary": {
+          "sample_run_limit": 1,
+          "api_request_limit": 30,
+          "input_token_limit": 1500000,
+          "output_token_limit": 100000,
+          "estimated_cost_limit_cny": 1.7,
+          "elapsed_seconds_limit": 1800
+        },
+        "note": "仅限 subscription-billing-repair、map-request、TaskSpace-only、repeat=1；禁止自动重试、Standard、其他样本或其他 projection 臂。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "subscription-billing-repair"
+        ],
+        "arm_ids": [
+          "map-request-all-dynamic-factual-carriers-ablation"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 0,
+        "api_requests": 0
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-07-31T10:34:56+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*0.02 + uncached_input/1e6*1.0 + output/1e6*2.0",
+        "note": "运行完成后按 provider token 遥测结算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r71-dynamic-carrier-ablation",
+        "actual_run_root": null,
+        "metrics_path": null,
+        "request_summary_path": null,
+        "rollout_path": null,
+        "run_status_path": null,
+        "scenario": "subscription-billing-repair",
+        "projection_policy": "map-request",
+        "run_side": "right",
+        "repeat": 1,
+        "subject_commit": null,
+        "whale_binary_sha256": null,
+        "diagnostic_variable": "WHALE_DIAGNOSTIC_SUPPRESS_TASKSPACE_DYNAMIC_FACTUAL_CARRIERS",
+        "stop_conditions": "首次运行成功、失败、超时或取消后即消耗该 sample 配额并停止；不得自动重试。",
+        "outcome": "pending"
+      }
+    },
     {
       "record_id": "WAR-20260731-R71-RECEIPT-ABLATION-001",
       "record_type": "run_batch",
