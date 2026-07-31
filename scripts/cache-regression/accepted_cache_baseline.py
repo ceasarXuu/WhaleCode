@@ -10,6 +10,7 @@ from typing import Any
 from cache_budget import validate_budget_proposal, validate_gate_trigger
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_run_analysis import analyze_artifact_values, budget_observation_exceeded
+from cache_process_control import cleanup_verified
 from cache_run_contract import (
     execution_matrix,
     validate_authorization as validate_run_authorization,
@@ -181,9 +182,7 @@ def validate_attempts(
             and item["run_id"].strip()
             and isinstance(item.get("elapsed_seconds"), (int, float))
             and item["elapsed_seconds"] >= 0
-            and item.get("post_run_cleanup", {}).get("status")
-            in {"verified_absent", "removed_verified"}
-            and item.get("post_run_cleanup", {}).get("stable_empty_polls", 0) >= 3
+            and cleanup_verified(item.get("post_run_cleanup", {}))
             and "execution_error" not in item
             and "evidence_error" not in item
             for item in attempts

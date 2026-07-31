@@ -6,9 +6,16 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from cache_run_ledger import atomic_write_json, claim_entry, settle_entry, store_entry
+from cache_run_ledger import (
+    _lock_file,
+    _unlock_file,
+    atomic_write_json,
+    claim_entry,
+    settle_entry,
+    store_entry,
+)
 
 
 class CacheRunLedgerTest(unittest.TestCase):
@@ -103,6 +110,21 @@ class CacheRunLedgerTest(unittest.TestCase):
             {"status": "completed", "requests": 2},
         )
         self.assertEqual(list(result.parent.glob(f".{result.name}.*.tmp")), [])
+
+    def test_windows_lock_backend_locks_the_same_byte(self) -> None:
+        lock = Mock()
+        lock.tell.return_value = 0
+        lock.fileno.return_value = 42
+        backend = Mock(LK_LOCK=1, LK_UNLCK=2)
+        with (
+            patch("cache_run_ledger.fcntl", None),
+            patch("cache_run_ledger.msvcrt", backend),
+        ):
+            _lock_file(lock)
+            _unlock_file(lock)
+        lock.write.assert_called_once_with("\0")
+        backend.locking.assert_any_call(42, 1, 1)
+        backend.locking.assert_any_call(42, 2, 1)
 
 
 if __name__ == "__main__":

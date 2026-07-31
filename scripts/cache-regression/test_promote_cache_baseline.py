@@ -207,6 +207,10 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                         "status": "verified_absent",
                         "container_ids": [],
                         "stable_empty_polls": 3,
+                        "network_cleanup_status": "verified_absent",
+                        "network_ids": [],
+                        "secret_cleanup_status": "verified_absent",
+                        "secret_paths": [],
                         "error": "",
                     },
                 }
@@ -313,6 +317,19 @@ class PromoteCacheBaselineTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "not durable|logical_mode"):
             self.validate(result=self.result, acceptance=self.acceptance)
+
+    def test_rejects_incomplete_post_run_cleanup_proof(self) -> None:
+        for field in ("network_cleanup_status", "secret_cleanup_status"):
+            with self.subTest(field=field):
+                result = copy.deepcopy(self.result)
+                result["attempts"][0]["post_run_cleanup"].pop(field)
+                with self.assertRaisesRegex(ValueError, "failed attempt"):
+                    self.validate(result=result)
+
+        result = copy.deepcopy(self.result)
+        result["attempts"][0]["post_run_cleanup"]["secret_cleanup_status"] = "failed"
+        with self.assertRaisesRegex(ValueError, "failed attempt"):
+            self.validate(result=result)
 
     def write_ledger(self) -> None:
         write_settled_ledger(

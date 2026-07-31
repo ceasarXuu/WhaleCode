@@ -361,6 +361,10 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                     "status": "verified_absent",
                     "container_ids": [],
                     "stable_empty_polls": 3,
+                    "network_cleanup_status": "verified_absent",
+                    "network_ids": [],
+                    "secret_cleanup_status": "verified_absent",
+                    "secret_paths": [],
                     "error": "",
                 },
             }

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import tempfile
@@ -13,6 +12,16 @@ from typing import Any
 
 from cache_evidence import file_sha256
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - exercised on POSIX
+    msvcrt = None
+
 
 def now() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -21,11 +30,37 @@ def now() -> str:
 def _locked_ledger(path: Path, update) -> None:
     lock_path = path.with_suffix(path.suffix + ".lock")
     with lock_path.open("a+", encoding="utf-8") as lock:
+        _lock_file(lock)
+        try:
+            ledger = json.loads(path.read_text(encoding="utf-8"))
+            update(ledger)
+            ledger["updated_at"] = now()
+            atomic_write_json(path, ledger)
+        finally:
+            _unlock_file(lock)
+
+
+def _lock_file(lock) -> None:
+    if fcntl is not None:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        ledger = json.loads(path.read_text(encoding="utf-8"))
-        update(ledger)
-        ledger["updated_at"] = now()
-        atomic_write_json(path, ledger)
+        return
+    if msvcrt is None:
+        raise RuntimeError("no supported file-lock backend")
+    lock.seek(0, os.SEEK_END)
+    if lock.tell() == 0:
+        lock.write("\0")
+        lock.flush()
+    lock.seek(0)
+    msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_file(lock) -> None:
+    if fcntl is not None:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        return
+    if msvcrt is not None:
+        lock.seek(0)
+        msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
@@ -41,11 +76,12 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_path, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if os.name == "posix":
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
