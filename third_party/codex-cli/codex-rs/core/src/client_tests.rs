@@ -80,6 +80,16 @@ fn invalid_provider_request_hard_limit_fails_closed() {
     );
 }
 
+#[test]
+fn model_clients_share_one_process_provider_request_hard_limit() {
+    let first = test_model_client(SessionSource::Cli);
+    let second = test_model_client(SessionSource::Cli);
+    assert!(std::sync::Arc::ptr_eq(
+        &first.state.provider_request_hard_limit,
+        &second.state.provider_request_hard_limit,
+    ));
+}
+
 fn test_model_info() -> ModelInfo {
     serde_json::from_value(json!({
         "slug": "gpt-test",

@@ -1604,6 +1604,11 @@ impl ProviderRequestHardLimit {
     }
 }
 
+fn process_provider_request_hard_limit() -> Arc<ProviderRequestHardLimit> {
+    static LIMIT: OnceLock<Arc<ProviderRequestHardLimit>> = OnceLock::new();
+    Arc::clone(LIMIT.get_or_init(|| Arc::new(ProviderRequestHardLimit::from_env())))
+}
+
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
 /// This is intentionally kept minimal so `ModelClient` does not need to hold a full `Config`. Most
@@ -1623,7 +1628,7 @@ struct ModelClientState {
     disable_websockets: AtomicBool,
     cached_websocket_session: StdMutex<WebsocketSession>,
     provider_wire_trace: ProviderWireTrace,
-    provider_request_hard_limit: ProviderRequestHardLimit,
+    provider_request_hard_limit: Arc<ProviderRequestHardLimit>,
 }
 
 /// Resolved API client setup for a single request attempt.
@@ -1788,7 +1793,7 @@ impl ModelClient {
                 disable_websockets: AtomicBool::new(false),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
                 provider_wire_trace: ProviderWireTrace::from_env(),
-                provider_request_hard_limit: ProviderRequestHardLimit::from_env(),
+                provider_request_hard_limit: process_provider_request_hard_limit(),
             }),
         }
     }
