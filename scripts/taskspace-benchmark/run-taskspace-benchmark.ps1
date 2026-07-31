@@ -37,7 +37,6 @@ param(
     [string]$V005UserApprovalMarkerPath = "",
     [ValidateSet("both", "left", "right")]
     [string]$RunSide = "both",
-    [switch]$SuppressTaskspaceFinalReceiptCarrier,
     [switch]$ForceRerun,
     [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
@@ -155,7 +154,6 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
     run_side = $RunSide
     taskspace_projection_policy = $TaskSpaceProjectionPolicy
-    suppress_taskspace_final_receipt_carrier = [bool]$SuppressTaskspaceFinalReceiptCarrier
 } | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
@@ -482,7 +480,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
         run_side = $RunSide
-        suppress_taskspace_final_receipt_carrier = [bool]$SuppressTaskspaceFinalReceiptCarrier
         selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
         skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
         sample_origin = $manifest.SampleOrigin
@@ -514,9 +511,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             if ($side.LogicalMode -eq "taskspace") {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
                 $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
-                if ($SuppressTaskspaceFinalReceiptCarrier) {
-                    $childEnvironment["WHALE_DIAGNOSTIC_SUPPRESS_TASKSPACE_FINAL_RECEIPT_CARRIER"] = "1"
-                }
             }
             $treatmentDelta = if ($side.LogicalMode -eq "taskspace") {
                 @("--taskspace", "-c taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`"")
