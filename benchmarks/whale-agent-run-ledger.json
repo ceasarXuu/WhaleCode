@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-07-31T10:34:56+08:00",
+  "updated_at": "2026-07-31T10:40:41+08:00",
   "entries": [
     {
       "record_id": "WAR-20260731-R71-DYNAMIC-CARRIER-ABLATION-001",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-07-31T10:39:38+08:00",
+      "ended_at": "2026-07-31T10:40:41+08:00",
+      "elapsed_calendar_seconds": 63,
+      "aggregate_agent_wall_time_ms": 51879,
       "reason": "验证 R7.1 完整缓存根因：在当前版本仅抑制 Tool sequence 产生的全部独立动态 factual developer carrier，保留原生 Tool result 和 Map 状态。",
       "authorization": {
         "required": false,
@@ -37,21 +37,25 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
-        "actual_sample_runs": 0,
-        "api_requests": 0
+        "actual_sample_runs": 1,
+        "api_requests": 9
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 171613,
+        "cached_input": 147456,
+        "uncached_input": 24157,
+        "output": 5483
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
+        "amount": 0.03807212,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.00294912,
+          "uncached_input": 0.024157,
+          "output": 0.010966
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-07-31T10:34:56+08:00",
@@ -60,25 +64,25 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": "cached_input/1e6*0.02 + uncached_input/1e6*1.0 + output/1e6*2.0",
+        "formula": "147456/1e6*0.02 + 24157/1e6*1.0 + 5483/1e6*2.0 = 0.03807212 CNY",
         "note": "运行完成后按 provider token 遥测结算。"
       },
       "evidence": {
         "planned_run_root": "target/r71-dynamic-carrier-ablation",
-        "actual_run_root": null,
-        "metrics_path": null,
-        "request_summary_path": null,
-        "rollout_path": null,
-        "run_status_path": null,
+        "actual_run_root": "target/r71-dynamic-carrier-ablation/run",
+        "metrics_path": "target/r71-dynamic-carrier-ablation/run/subscription-billing-repair/20260731-103938-258/pair-001/right/artifacts/metrics.json",
+        "request_summary_path": "target/r71-dynamic-carrier-ablation/run/subscription-billing-repair/20260731-103938-258/pair-001/right/artifacts/request-summary.json",
+        "rollout_path": "target/r71-dynamic-carrier-ablation/run/subscription-billing-repair/20260731-103938-258/pair-001/right/artifacts/rollout.jsonl",
+        "run_status_path": "target/r71-dynamic-carrier-ablation/run/subscription-billing-repair/20260731-103938-258/run-status.json",
         "scenario": "subscription-billing-repair",
         "projection_policy": "map-request",
         "run_side": "right",
         "repeat": 1,
-        "subject_commit": null,
-        "whale_binary_sha256": null,
+        "subject_commit": "198c93c3b3a181f6046768c004cbd345b8ac7ea0",
+        "whale_binary_sha256": "9b9b63d78ea54bf8786478df98cc37b1dd968a4f6a221fc061e8c63b8e4f5ab1",
         "diagnostic_variable": "WHALE_DIAGNOSTIC_SUPPRESS_TASKSPACE_DYNAMIC_FACTUAL_CARRIERS",
         "stop_conditions": "首次运行成功、失败、超时或取消后即消耗该 sample 配额并停止；不得自动重试。",
-        "outcome": "pending"
+        "outcome": "1/1 valid run；业务验证与隐藏 oracle 均通过；未重试。9 requests，request 2+ cache 84.85%，与同日 pre-carrier fresh baseline 86.51% 相差 1.66 pp，较 current control 33.60% 提升 51.25 pp。9 次 provider request 均只有 2 条固定 system；即使出现 2 次 control failure，也没有动态 developer/system carrier。"
       }
     },
     {

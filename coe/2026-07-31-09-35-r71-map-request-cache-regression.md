@@ -1,7 +1,7 @@
 # Problem P-001: R7.1 map-request 缓存命中率回归
 - Status: open
 - Created: 2026-07-31 09:35
-- Updated: 2026-07-31 10:35
+- Updated: 2026-07-31 10:43
 - Objective: 用最多三次用户授权的 Whale Agent sample，证明 map-request request 2+ 缓存命中率从约 92% 降至约 41% 的根因。
 - Symptoms:
   - 当前 `subscription-billing-repair` map-request 单次运行共 18 个 provider request，request 2+ 缓存命中率仅 41.00%。
@@ -235,8 +235,11 @@
   - E-010
   - E-011
   - E-012
+  - E-013
 - Conclusion: confirmed。固定 prompt 增量不足 1.3%，无法解释缓存下降；动态 out-of-band carrier 的
-  插入与恢复逐请求一一对应，并且 failure system 内容 hash 与先前 Tool outputs 精确相同。
+  插入与恢复逐请求一一对应，并且 failure system 内容 hash 与先前 Tool outputs 精确相同。统一消融
+  全部动态 factual carrier 后，9 次请求始终只有 2 条 system，request 2+ cache 恢复至 84.85%，与同日
+  pre-carrier fresh baseline 86.51% 相差 1.66 pp。
 - Repair design readiness: ready for user-confirmed design
 - Next step: 设计统一 carrier 修复，确保事实只保留在原生 Tool result；R71-10 先保证 canonical final
   revision 不丢失，再按 R71-01/R71-09/R71-11 分块实施。
@@ -541,3 +544,34 @@
   carrier 引起；`787070d887` 将该模式扩展到 provider-response failure，`445499582` 将同一模式用于
   Final Receipt。
 - Time: 2026-07-31 10:35
+
+## Evidence E-013: 全动态 factual carrier 单样本消融恢复历史基线
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: controlled-experiment
+- Source: `target/r71-dynamic-carrier-ablation/run/subscription-billing-repair/20260731-103938-258`
+- Prediction or plan link:
+  - H-004 的“无动态 developer/system 时恢复历史缓存基线”预测。
+- Matched signal:
+  - 当前版本统一过滤 Tool sequence 输出中的独立 Message，保留全部原生 Tool result 和 Map 状态。
+  - 9 次 provider request 均只有 2 条固定 system；rollout 除初始协议外没有 developer message。
+  - 运行中发生 2 次 control failure，但没有生成动态 system。
+  - request 2+ cache 为 84.8512%，同日 pre-carrier fresh baseline 为 86.5141%，差 1.6629 pp。
+  - current control 为 33.6031%，因此恢复幅度为 51.2481 pp。
+  - public validation、hidden oracle 和业务结果均通过。
+- Correlation keys:
+  - run `20260731-103938-258`
+  - binary SHA-256 `9b9b63d78ea54bf8786478df98cc37b1dd968a4f6a221fc061e8c63b8e4f5ab1`
+  - diagnostic commit `198c93c3b`
+- Raw content:
+  ```text
+  request count: 9
+  request 2+ cache: 84.8512%
+  system messages per request: 2,2,2,2,2,2,2,2,2
+  control failure count: 2
+  business_success: true
+  ```
+- Interpretation: H-004 通过运行证据门。未精确达到 retained 91.9%～92.5% 属于 provider best-effort
+  与动作路径差异；它已恢复到同日 fresh pre-carrier 基线，且结构预测完全成立。
+- Time: 2026-07-31 10:43
