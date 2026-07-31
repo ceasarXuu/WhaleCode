@@ -218,4 +218,84 @@ Assert-R71Closure (
     -not $caseMismatch.control.evidence_valid
 ) "Case-drifted TaskSpace carrier identity was accepted"
 
+function Assert-R71DirectControlFailure {
+    param(
+        [string]$Output,
+        [string]$ExpectedClass,
+        [string]$ExpectedCode
+    )
+    $call = ConvertTo-R7CallDescriptor `
+        "direct-control" `
+        "taskspace_control" `
+        '{"action":"execute","expected_revision":1,"actions":[]}'
+    $call.request_index = 1
+    $calls = @{ "direct-control" = $call }
+    $observed = Get-R7ResponseItemOutcome `
+        ([pscustomobject]@{
+            type = "function_call_output"
+            call_id = "direct-control"
+            output = $Output
+        }) `
+        ([pscustomobject]@{ toolSuccess = $false })
+    Apply-R7ObservedOutcome $calls $observed
+    Assert-R71Closure (
+        $call.evidence_valid -and
+        $call.failure_class -ceq $ExpectedClass -and
+        $call.failure_code -ceq $ExpectedCode -and
+        $call.reason_code -ceq $ExpectedCode
+    ) "Direct taskspace_control failure carrier was misclassified"
+}
+
+$sequenceFailure = [ordered]@{
+    schema_version = "ToolSequencePreflightResultV3"
+    status = "protocol_failed"
+    success = $false
+    state_commit = $false
+    failure_provenance = [ordered]@{
+        scope = "provider_response"
+        copy_group_id = "provider_response:direct-control"
+        zero_dispatch = $true
+        affected_call_ids = @("direct-control")
+    }
+    error = [ordered]@{
+        class = "protocol"
+        code = "taskspace_action_count_mismatch"
+    }
+} | ConvertTo-Json -Compress -Depth 20
+Assert-R71DirectControlFailure `
+    $sequenceFailure `
+    "tool_sequence_protocol" `
+    "taskspace_action_count_mismatch"
+
+$responseStateFailure = [ordered]@{
+    schema_version = "TaskSpaceResponseCommitFailureV3"
+    status = "state_rejected"
+    success = $false
+    state_commit = $false
+    canonical_revision = 4
+    current_revision = 4
+    rejected_candidate_committed = $false
+    executed_tool_call_count = 0
+    failure_provenance = [ordered]@{
+        scope = "provider_response"
+        copy_group_id = "provider_response:direct-control"
+        zero_dispatch = $true
+        affected_call_ids = @("direct-control")
+    }
+    error = [ordered]@{
+        class = "state_machine"
+        code = "taskspace_response_state_commit_failed"
+        violations = @(
+            [ordered]@{
+                code = "stale_revision"
+                subjects = @("map")
+            }
+        )
+    }
+} | ConvertTo-Json -Compress -Depth 20
+Assert-R71DirectControlFailure `
+    $responseStateFailure `
+    "taskspace_state_machine" `
+    "taskspace_response_state_commit_failed"
+
 Write-Output "R71-01 closure counterexamples passed."

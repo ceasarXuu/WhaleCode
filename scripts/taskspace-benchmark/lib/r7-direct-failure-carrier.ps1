@@ -240,9 +240,11 @@ function Get-R7CallOutcome {
         }
     }
     $schemaVersion = [string](Get-R7JsonProperty $payload "schema_version" "")
+    $structuredFailureSchemas = @(Get-R7StructuredFailureSchemas)
     $reservedSchemas = @(Get-R7ReservedTaskspaceCarrierSchemas)
     $isControlTool = $ToolName -ceq "taskspace_control"
-    $isControlSchema = $schemaVersion -ceq "TaskSpaceControlResultV2"
+    $isStructuredFailureSchema =
+        $schemaVersion -cin $structuredFailureSchemas
     $isResponseCommitSchema = $schemaVersion -ceq "TaskSpaceResponseCommitV1"
     $isReservedTaskspaceSchema = $schemaVersion -cin $reservedSchemas
 
@@ -264,7 +266,7 @@ function Get-R7CallOutcome {
             $outcome = Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
             return Complete-R7CallOutcomeFacts $outcome $payload
         }
-        if (-not $isControlSchema) {
+        if (-not $isStructuredFailureSchema) {
             $outcome = New-R7InvalidCallOutcome `
                 "control_result_schema_mismatch" `
                 "control_result_schema_mismatch" `

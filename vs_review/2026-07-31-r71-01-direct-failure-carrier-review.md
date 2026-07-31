@@ -1,7 +1,7 @@
 # Subagent VS Review: R71-01 direct failure carrier
 
 - Created: 2026-07-31T07:51:28+08:00
-- Updated: 2026-07-31T08:52:22+08:00
+- Updated: 2026-07-31T09:05:00+08:00
 - Report schema: adversarial-v1
 - Task: 执行 R7.1 原子 Phase R71-01，并对 strict direct failure carrier 实施对抗性审查
 - Report path: `vs_review/2026-07-31-r71-01-direct-failure-carrier-review.md`
@@ -384,7 +384,40 @@ TaskSpace schema 时进入 untrusted 分支；当前 response-prepare 成功载�
 - New blocking findings: implementation complete, fresh review pending
 - Allowed to close R71-01: no
 
+## Authorized Live Probe
+
+### Run
+
+- Ledger：`WAR-20260731-R71-01-COMPLEX-001`
+- Sample：`subscription-billing-repair`
+- Arm：`map-request`，TaskSpace-only，repeat 1
+- Result：runner exit 0，业务验证和隐藏 oracle 均通过，没有重试
+- Cost：18 requests；489,490 input；208,128 cached；10,723 output；78.269s
+- Run root：
+  `target/r71-01-closure-live/subscription-billing-repair/20260731-090102-450`
+
+### New Finding B5
+
+合法 `ToolSequencePreflightResultV3` 和 `TaskSpaceResponseCommitFailureV3` 作为
+`taskspace_control` 的直接输出时，被 observer 错误分类为
+`control_result_schema_mismatch`；同一 provider-response failure 复制到 sibling call 时则能
+正确分类。问题只发生在离线 evidence adapter，Agent 收到的原始 JSON 反馈没有被改写。
+
+根因是 direct control 分支只允许 `TaskSpaceControlResultV2` 和
+`TaskSpaceResponseCommitV1`，没有复用已经登记的 structured failure schema allowlist。
+
+### B5 Repair
+
+- direct `taskspace_control` 现在接受全部已登记且通过严格 shape 验证的 TaskSpace failure
+  carrier；
+- 未知 schema 仍 fail closed 为 `control_result_schema_mismatch`；
+- `TaskSpaceResponseCommitV1` 仍走独立 request/revision/reservation 绑定；
+- 对授权 live rollout 离线重放后，三次 direct control failure 分别归为 1 次
+  `tool_sequence_protocol`、2 次 `taskspace_state_machine`，`evidence_unclassified=0`；
+- 新增 Apply 生产路径反例，并把两类 direct failure 纳入 Phase evidence 生成器。
+
 ## Final Conclusion
 
-Round 2 接受项已全部实现并通过本地确定性测试。按项目审查门禁，代码变更后的 fresh
-closure review 需要用户再次授权；在此之前 R71-01 保持 `repair`，不伪造关闭结论。
+Round 2 接受项和 live probe 新发现 B5 均已实现并通过本地确定性测试及 captured rollout
+重放。按项目审查门禁，代码变更后的 fresh closure review 需要用户再次授权；在此之前
+R71-01 保持 `repair`，不伪造关闭结论。

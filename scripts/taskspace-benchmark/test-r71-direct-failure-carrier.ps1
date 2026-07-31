@@ -392,6 +392,48 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
     $evidenceExecuteArgs =
         '{"action":"execute","expected_revision":1,' +
         '"actions":[{"node_id":"work","tool":"exec_command"}]}'
+    $directSequenceFailure = [ordered]@{
+        schema_version = "ToolSequencePreflightResultV3"
+        status = "protocol_failed"
+        success = $false
+        state_commit = $false
+        failure_provenance = [ordered]@{
+            scope = "provider_response"
+            copy_group_id = "provider_response:direct-sequence-failure"
+            zero_dispatch = $true
+            affected_call_ids = @("direct-sequence-failure")
+        }
+        error = [ordered]@{
+            class = "protocol"
+            code = "taskspace_action_count_mismatch"
+        }
+    } | ConvertTo-Json -Compress -Depth 20
+    $directResponseStateFailure = [ordered]@{
+        schema_version = "TaskSpaceResponseCommitFailureV3"
+        status = "state_rejected"
+        success = $false
+        state_commit = $false
+        canonical_revision = 4
+        current_revision = 4
+        rejected_candidate_committed = $false
+        executed_tool_call_count = 0
+        failure_provenance = [ordered]@{
+            scope = "provider_response"
+            copy_group_id = "provider_response:direct-response-state-failure"
+            zero_dispatch = $true
+            affected_call_ids = @("direct-response-state-failure")
+        }
+        error = [ordered]@{
+            class = "state_machine"
+            code = "taskspace_response_state_commit_failed"
+            violations = @(
+                [ordered]@{
+                    code = "stale_revision"
+                    subjects = @("map")
+                }
+            )
+        }
+    } | ConvertTo-Json -Compress -Depth 20
     $evidenceCalls = @(
         New-R71ProductionCallRow `
             "valid-direct-failure" "taskspace_control" $validJson $false
@@ -412,6 +454,16 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
             "taskspace_control" `
             $validJson `
             $null
+        New-R71ProductionCallRow `
+            "direct-sequence-failure" `
+            "taskspace_control" `
+            $directSequenceFailure `
+            $false
+        New-R71ProductionCallRow `
+            "direct-response-state-failure" `
+            "taskspace_control" `
+            $directResponseStateFailure `
+            $false
     )
     $records = @(
         $evidenceCalls | ForEach-Object {
