@@ -49,6 +49,9 @@
 
 当前问题数：**10**。当前问题：**R8-I09**。
 
+当前问题计划：
+[`I09/00-i09-store-hydrate-repair-plan.md`](I09/00-i09-store-hydrate-repair-plan.md)。
+
 ## 4. 依赖与重评关系
 
 | 上游问题 | 关闭后必须重评 | 原因 |
