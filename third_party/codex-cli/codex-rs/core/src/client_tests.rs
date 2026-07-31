@@ -6,6 +6,7 @@ use super::ProviderProjectionIdentityExpectation;
 use super::ProviderRequestAttribution;
 use super::ProviderRequestBudgetContext;
 use super::ProviderRequestBudgetLimits;
+use super::ProviderRequestHardLimit;
 use super::UnauthorizedRecoveryExecution;
 use super::X_CODEX_INSTALLATION_ID_HEADER;
 use super::X_CODEX_PARENT_THREAD_ID_HEADER;
@@ -44,6 +45,39 @@ fn test_model_client(session_source: SessionSource) -> ModelClient {
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
     )
+}
+
+#[test]
+fn provider_request_hard_limit_rejects_before_the_excess_dispatch() {
+    let limit = ProviderRequestHardLimit::with_limit(2);
+    assert!(limit.claim("/responses").is_ok());
+    assert!(limit.claim("/responses").is_ok());
+    let error = limit
+        .claim("/responses")
+        .expect_err("third dispatch must be rejected");
+    assert_eq!(
+        error.to_string(),
+        "Fatal error: provider request hard limit reached (max 2)"
+    );
+    assert_eq!(limit.count.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[test]
+fn invalid_provider_request_hard_limit_fails_closed() {
+    let limit = ProviderRequestHardLimit {
+        limit: None,
+        count: std::sync::atomic::AtomicUsize::new(0),
+        configuration_error: Some(
+            "WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer".to_string(),
+        ),
+    };
+    assert_eq!(
+        limit
+            .claim("/responses")
+            .expect_err("invalid limit must reject")
+            .to_string(),
+        "Fatal error: WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer"
+    );
 }
 
 fn test_model_info() -> ModelInfo {

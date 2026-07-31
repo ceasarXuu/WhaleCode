@@ -172,6 +172,7 @@ const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
 // period between stream events.
 const COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER: u32 = 4;
 const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
+const PROVIDER_REQUEST_HARD_LIMIT_ENV: &str = "WHALE_PROVIDER_REQUEST_HARD_LIMIT";
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
@@ -1536,6 +1537,73 @@ fn provider_request_budget_now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+#[derive(Debug)]
+struct ProviderRequestHardLimit {
+    limit: Option<usize>,
+    count: AtomicUsize,
+    configuration_error: Option<String>,
+}
+
+impl ProviderRequestHardLimit {
+    fn from_env() -> Self {
+        let Some(raw) = std::env::var_os(PROVIDER_REQUEST_HARD_LIMIT_ENV) else {
+            return Self::disabled();
+        };
+        let value = raw.to_string_lossy();
+        match value.parse::<usize>() {
+            Ok(limit) if limit > 0 => Self::with_limit(limit),
+            _ => Self {
+                limit: None,
+                count: AtomicUsize::new(0),
+                configuration_error: Some(format!(
+                    "{PROVIDER_REQUEST_HARD_LIMIT_ENV} must be a positive integer"
+                )),
+            },
+        }
+    }
+
+    fn disabled() -> Self {
+        Self {
+            limit: None,
+            count: AtomicUsize::new(0),
+            configuration_error: None,
+        }
+    }
+
+    fn with_limit(limit: usize) -> Self {
+        Self {
+            limit: Some(limit),
+            count: AtomicUsize::new(0),
+            configuration_error: None,
+        }
+    }
+
+    fn claim(&self, route: &str) -> Result<()> {
+        if let Some(error) = &self.configuration_error {
+            warn!(
+                route,
+                error, "provider request hard limit configuration rejected dispatch"
+            );
+            return Err(CodexErr::Fatal(error.clone()));
+        }
+        let Some(limit) = self.limit else {
+            return Ok(());
+        };
+        self.count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                (count < limit).then_some(count + 1)
+            })
+            .map(|_| ())
+            .map_err(|count| {
+                warn!(
+                    route,
+                    limit, count, "provider request hard limit rejected dispatch"
+                );
+                CodexErr::Fatal(format!("provider request hard limit reached (max {limit})"))
+            })
+    }
+}
+
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
 /// This is intentionally kept minimal so `ModelClient` does not need to hold a full `Config`. Most
@@ -1555,6 +1623,7 @@ struct ModelClientState {
     disable_websockets: AtomicBool,
     cached_websocket_session: StdMutex<WebsocketSession>,
     provider_wire_trace: ProviderWireTrace,
+    provider_request_hard_limit: ProviderRequestHardLimit,
 }
 
 /// Resolved API client setup for a single request attempt.
@@ -1719,6 +1788,7 @@ impl ModelClient {
                 disable_websockets: AtomicBool::new(false),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
                 provider_wire_trace: ProviderWireTrace::from_env(),
+                provider_request_hard_limit: ProviderRequestHardLimit::from_env(),
             }),
         }
     }
@@ -1873,6 +1943,9 @@ impl ModelClient {
             self.state.conversation_id.to_string(),
         )));
         let trace_attempt = compaction_trace.start_attempt(&payload);
+        self.state
+            .provider_request_hard_limit
+            .claim(RESPONSES_COMPACT_ENDPOINT)?;
         let result = client
             .compact_input(&payload, extra_headers, compact_request_timeout)
             .await
@@ -1949,6 +2022,9 @@ impl ModelClient {
             }),
         };
 
+        self.state
+            .provider_request_hard_limit
+            .claim(MEMORIES_SUMMARIZE_ENDPOINT)?;
         client
             .summarize_input(&payload, self.build_subagent_headers())
             .await
@@ -2644,6 +2720,10 @@ impl ModelClientSession {
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+            self.client
+                .state
+                .provider_request_hard_limit
+                .claim(RESPONSES_ENDPOINT)?;
             let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
             wire_attempt_seq += 1;
             let wire_value = self.client.state.provider_wire_trace.record_request(
@@ -2772,6 +2852,10 @@ impl ModelClientSession {
             let budget_dispatch = if warmup {
                 ProviderRequestBudgetDispatch::disabled()
             } else {
+                self.client
+                    .state
+                    .provider_request_hard_limit
+                    .claim(RESPONSES_ENDPOINT)?;
                 provider_request_budget.before_dispatch("responses_websocket")?
             };
             let provider_wire_api = client_setup.api_provider.wire_api;
