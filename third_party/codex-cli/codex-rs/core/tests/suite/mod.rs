@@ -33,6 +33,7 @@ mod apply_patch_cli;
 mod approvals;
 mod cache_final_wire;
 mod cache_payload_capabilities_contract;
+mod cache_payload_compaction_contract;
 mod cache_payload_contract;
 mod cache_payload_mcp_contract;
 mod cache_payload_permissions_contract;
