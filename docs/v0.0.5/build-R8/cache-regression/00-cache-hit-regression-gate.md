@@ -3,6 +3,7 @@
 - Created: 2026-07-31
 - Status: Operational; current live baseline blocked
 - Scope: Prompt、上下文构造、TaskSpace projection、provider payload、Tool declaration
+- Adversarial review: [`vs_review/2026-07-31-cache-regression-surface-review.md`](../../../../vs_review/2026-07-31-cache-regression-surface-review.md)
 
 ## 1. 要解决的问题
 
