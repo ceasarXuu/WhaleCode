@@ -32,6 +32,7 @@ mod apply_patch_cli;
 #[cfg(not(target_os = "windows"))]
 mod approvals;
 mod cache_final_wire;
+mod cache_payload_capabilities_contract;
 mod cache_payload_contract;
 mod cache_payload_permissions_contract;
 mod cache_payload_skill_contract;
