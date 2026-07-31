@@ -10,9 +10,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cache_evidence import RESULT_SCHEMA_VERSION
+from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
+from cache_run_analysis import analyze_artifacts
 from cache_surface import write_json
-from run_cache_hit_regression import main
+from run_cache_hit_regression import main, persist_observation_artifacts
 
 
 class CacheRunExecutionTest(unittest.TestCase):
@@ -163,6 +164,10 @@ class CacheRunExecutionTest(unittest.TestCase):
                 return_value=self.repo,
             ),
             patch("run_cache_hit_regression.analyze_arm", side_effect=fake_analyze),
+            patch(
+                "run_cache_hit_regression.persist_observation_artifacts",
+                side_effect=lambda _repo, _record, _run, _arm, value: value,
+            ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             exit_code = main()
@@ -187,6 +192,50 @@ class CacheRunExecutionTest(unittest.TestCase):
         self.assertEqual(result["schema_version"], RESULT_SCHEMA_VERSION)
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["unverified_scope"], [])
+
+    def test_persists_recomputable_artifacts_outside_target(self) -> None:
+        source = self.repo / "target/source"
+        source.mkdir(parents=True)
+        cache = source / "provider-cache-trace-summary.json"
+        request = source / "request-summary.json"
+        metrics = source / "metrics.json"
+        write_json(
+            cache,
+            {
+                "provider_request_count": 2,
+                "request_2_plus_count": 1,
+                "request_2_plus_cached_input_tokens": 80,
+                "request_2_plus_uncached_input_tokens": 20,
+                "request_2_plus_hit_rate": 0.8,
+                "trace_coverage": 1.0,
+                "cache_usage_missing_count": 0,
+            },
+        )
+        write_json(
+            request,
+            {
+                "rollout_trace": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 80,
+                    "output_tokens": 10,
+                }
+            },
+        )
+        write_json(
+            metrics,
+            {"logical_mode": "standard", "business_success": True},
+        )
+        observation = analyze_artifacts(cache, request, metrics, "standard")
+
+        durable = persist_observation_artifacts(
+            self.repo, "WAR-FIXTURE", "CACHE-001", "standard", observation
+        )
+
+        for key, path in durable["artifacts"].items():
+            artifact = Path(path)
+            self.assertTrue(artifact.is_file(), key)
+            self.assertIn("benchmarks/cache-regression/evidence", artifact.as_posix())
+            self.assertEqual(file_sha256(artifact), durable["artifact_sha256"][key])
 
 
 if __name__ == "__main__":

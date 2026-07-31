@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import time
 import uuid
@@ -18,7 +19,7 @@ from cache_evidence import (
     canonical_json_sha256,
     file_sha256,
 )
-from cache_run_analysis import analyze_arm
+from cache_run_analysis import analyze_arm, analyze_artifacts
 from cache_run_contract import (
     benchmark_command,
     execution_matrix,
@@ -66,6 +67,52 @@ def find_run_dir_by_id(run_root: Path, run_id: str) -> Path:
             f"benchmark run id {run_id} resolved to {len(candidates)} directories"
         )
     return candidates[0]
+
+
+def persist_observation_artifacts(
+    repo: Path,
+    record_id: str,
+    run_id: str,
+    arm: str,
+    observation: dict[str, Any],
+) -> dict[str, Any]:
+    destination = repo / "benchmarks/cache-regression/evidence" / record_id / run_id
+    destination.mkdir(parents=True, exist_ok=False)
+    artifact_names = {
+        "cache_summary": "provider-cache-trace-summary.json",
+        "request_summary": "request-summary.json",
+        "metrics": "metrics.json",
+    }
+    persisted = {}
+    for key, filename in artifact_names.items():
+        source = Path(observation["artifacts"][key])
+        if not source.is_file():
+            raise FileNotFoundError(f"cache observation artifact is missing: {key}")
+        target = destination / filename
+        shutil.copyfile(source, target)
+        persisted[key] = target
+    durable = analyze_artifacts(
+        persisted["cache_summary"],
+        persisted["request_summary"],
+        persisted["metrics"],
+        arm,
+    )
+    observed_values = {
+        key: value
+        for key, value in observation.items()
+        if key not in {"artifacts", "artifact_sha256"}
+    }
+    durable_values = {
+        key: value
+        for key, value in durable.items()
+        if key not in {"artifacts", "artifact_sha256"}
+    }
+    if (
+        durable_values != observed_values
+        or durable["artifact_sha256"] != observation["artifact_sha256"]
+    ):
+        raise ValueError("persisted cache observation does not match source artifacts")
+    return durable
 
 
 def planned_entry(
@@ -364,6 +411,13 @@ def main() -> int:
             run_dir = find_run_dir_by_id(run_root, run_id)
             side = "left" if execution["arm"] == "standard" else "right"
             observation = analyze_arm(run_dir, side, execution["arm"])
+            observation = persist_observation_artifacts(
+                repo,
+                record_id,
+                run_id,
+                execution["arm"],
+                observation,
+            )
             observation.update(execution)
             observation["run_id"] = run_id
             observation["elapsed_seconds"] = attempt["elapsed_seconds"]
