@@ -331,12 +331,14 @@ def main() -> int:
     result["runner_exit_code"] = (
         0 if result["status"] == "completed" else 130 if cancelled else 3
     )
+    result["ended_at"] = now()
+    result["elapsed_seconds"] = round(time.time() - started, 3)
 
     result_dir = repo / "benchmarks/cache-regression/results"
     result_path = result_dir / f"{record_id}.json"
     result["result_path"] = str(result_path.relative_to(repo))
     write_json(result_path, result)
-    settle_entry(entry, result, started)
+    settle_entry(entry, result)
     store_entry(ledger_path, entry)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result["runner_exit_code"]

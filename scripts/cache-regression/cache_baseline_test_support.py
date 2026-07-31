@@ -24,6 +24,72 @@ def proposal_id(proposal: dict) -> str:
     return f"CBP-{canonical_json_sha256(identity)[:16].upper()}"
 
 
+def write_settled_ledger(
+    repo: Path,
+    result: dict,
+    proposal: dict,
+    authorization: dict,
+    result_path: Path,
+    proposal_path: Path,
+    authorization_path: Path,
+    *,
+    api_requests: int,
+    input_tokens: int,
+    cached_input_tokens: int,
+    output_tokens: int,
+) -> None:
+    selection = proposal["selection"]
+    write_json(
+        repo / "benchmarks/whale-agent-run-ledger.json",
+        {
+            "entries": [
+                {
+                    "record_id": result["record_id"],
+                    "status": "settled",
+                    "started_at": result["started_at"],
+                    "ended_at": result["ended_at"],
+                    "elapsed_calendar_seconds": result["elapsed_seconds"],
+                    "authorization": {
+                        "status": "granted",
+                        "id": authorization["authorization_id"],
+                        "reference": authorization["approval_reference"],
+                        "budget_summary": proposal["maximums"],
+                    },
+                    "execution": {
+                        "model": selection["model"],
+                        "sample_ids": selection["samples"],
+                        "arm_ids": selection["arms"],
+                        "repeats_per_arm_per_sample": selection["repeat"],
+                        "planned_sample_runs": selection["planned_sample_runs"],
+                        "actual_sample_runs": result["actual_sample_runs"],
+                        "api_requests": api_requests,
+                    },
+                    "tokens": {
+                        "input": input_tokens,
+                        "cached_input": cached_input_tokens,
+                        "uncached_input": input_tokens - cached_input_tokens,
+                        "output": output_tokens,
+                    },
+                    "monetary_cost": {"status": "estimated"},
+                    "evidence": {
+                        "result_path": result_path.relative_to(repo).as_posix(),
+                        "actual_run_root": result["run_root"],
+                        "runner_exit_code": 0,
+                        "outcome": "completed",
+                        "usage_evidence_status": "complete",
+                        "proposal_path": proposal_path.relative_to(repo).as_posix(),
+                        "proposal_sha256": file_sha256(proposal_path),
+                        "authorization_path": authorization_path.relative_to(
+                            repo
+                        ).as_posix(),
+                        "authorization_sha256": file_sha256(authorization_path),
+                    },
+                }
+            ]
+        },
+    )
+
+
 def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
     snapshot = repo / "snapshots/baseline.snap"
     before = {"wire": "stable"}
@@ -75,6 +141,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
             "repeat": 1,
             "elapsed_seconds": 1.0,
             "budget_observation_exceeded": [],
+            "run_id": "CACHE-001",
         }
     )
 
@@ -164,6 +231,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "approved_by": "user",
         "authorization_id": "CBA-FIXTURE-001",
         "approval_reference": "user approved fixture",
+        "approved_at": "2026-08-01T12:00:00+08:00",
         "proposal_id": proposal["proposal_id"],
         "proposal_sha256": proposal["proposal_sha256"],
         "approved_selection": selection,
@@ -175,6 +243,9 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "schema_version": RESULT_SCHEMA_VERSION,
         "record_id": record_id,
         "status": "completed",
+        "started_at": "2026-08-01T12:00:00+08:00",
+        "ended_at": "2026-08-01T12:00:01+08:00",
+        "elapsed_seconds": 1.0,
         "subject_commit": proposal["subject_commit"],
         "surface_sha256": surface,
         "proposal_id": proposal["proposal_id"],
@@ -184,12 +255,15 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "observed_scope": selection,
         "unverified_scope": [],
         "actual_sample_runs": 1,
+        "credential_source": "fixture",
+        "run_root": "target/cache-fixture",
         "observations": [observation],
         "attempts": [
             {
                 "sample": "simple",
                 "arm": "standard",
                 "repeat": 1,
+                "run_id": "CACHE-001",
                 "status": "completed",
                 "exit_code": 0,
                 "timed_out": False,
@@ -208,6 +282,8 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         ),
     }
     result_path = evidence_root / "result.json"
+    result["result_path"] = result_path.relative_to(repo).as_posix()
+    result["runner_exit_code"] = 0
     write_json(result_path, result)
     acceptance = {
         "schema_version": ACCEPTANCE_SCHEMA_VERSION,
@@ -237,9 +313,14 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                 {
                     "record_id": record_id,
                     "status": "settled",
+                    "started_at": result["started_at"],
+                    "ended_at": result["ended_at"],
+                    "elapsed_calendar_seconds": result["elapsed_seconds"],
                     "authorization": {
+                        "status": "granted",
                         "id": authorization["authorization_id"],
                         "reference": authorization["approval_reference"],
+                        "budget_summary": maximums,
                     },
                     "execution": {
                         "model": selection["model"],
@@ -256,8 +337,13 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                         "uncached_input": 10,
                         "output": 10,
                     },
+                    "monetary_cost": {"status": "estimated"},
                     "evidence": {
                         "result_path": acceptance["result_path"],
+                        "actual_run_root": result["run_root"],
+                        "runner_exit_code": 0,
+                        "outcome": "completed",
+                        "usage_evidence_status": "complete",
                         "proposal_path": acceptance["proposal_path"],
                         "proposal_sha256": file_sha256(proposal_path),
                         "authorization_path": acceptance["authorization_path"],

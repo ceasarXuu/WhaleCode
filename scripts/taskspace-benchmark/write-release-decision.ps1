@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
+. (Join-Path $PSScriptRoot "..\cache-regression\verify-cache-regression-evidence.ps1")
 
 function Read-ReleaseJson {
     param([string]$Path)
@@ -815,6 +816,10 @@ if ($v005NonAgentGatesPass) {
         }
         $evidenceSha = Get-ReleaseFileSha256 ([string]$gateValue.evidence_path)
         if ($evidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant() -or [string]$gateValue.profile_hash -ne $runRunnerProfileHash -or [string]$gateValue.task_list_hash -ne $runTaskListHash -or [string]$gateValue.source_version -ne $runSourceVersion) {
+            $v005NonAgentGatesPass = $false
+            break
+        }
+        if ($gateName -eq "cache_regression_surface" -and -not (Test-CacheRegressionFormalGateEvidence $gateValue ([string]$currentHeadForRelease))) {
             $v005NonAgentGatesPass = $false
             break
         }

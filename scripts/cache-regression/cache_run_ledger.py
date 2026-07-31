@@ -6,7 +6,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import time
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,17 +19,36 @@ def now() -> str:
 
 
 def _locked_ledger(path: Path, update) -> None:
-    with path.open("r+", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        ledger = json.load(handle)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        ledger = json.loads(path.read_text(encoding="utf-8"))
         update(ledger)
         ledger["updated_at"] = now()
-        handle.seek(0)
-        json.dump(ledger, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-        handle.truncate()
-        handle.flush()
-        os.fsync(handle.fileno())
+        _atomic_write_json(path, ledger)
+
+
+def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
 
 
 def claim_entry(path: Path, entry: dict[str, Any]) -> None:
@@ -124,9 +143,7 @@ def planned_entry(
     }
 
 
-def settle_entry(
-    entry: dict[str, Any], result: dict[str, Any], started: float
-) -> None:
+def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     observations = result.get("observations", [])
     totals = {
         key: sum(int(observation[key]) for observation in observations)
@@ -156,8 +173,8 @@ def settle_entry(
         else "failed"
     )
     entry["started_at"] = result["started_at"]
-    entry["ended_at"] = now()
-    entry["elapsed_calendar_seconds"] = round(time.time() - started)
+    entry["ended_at"] = result["ended_at"]
+    entry["elapsed_calendar_seconds"] = result["elapsed_seconds"]
     entry["execution"]["actual_sample_runs"] = result["actual_sample_runs"]
     entry["execution"]["api_requests"] = totals["provider_requests"]
     entry["tokens"] = {

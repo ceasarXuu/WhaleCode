@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
+. (Join-Path $repoRoot "scripts\cache-regression\verify-cache-regression-evidence.ps1")
 
 $runRootFull = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Force -Path $runRootFull | Out-Null
@@ -47,6 +48,7 @@ if ($FixtureMode) {
     )
 } else {
     $rustWorkspace = "Set-Location third_party\codex-cli\codex-rs;"
+    $cacheStructuredEvidencePath = Join-Path $evidenceRoot "cache-regression-surface.json"
     $specs = @(
         New-V005GateSpec "provider_request_hook" "$rustWorkspace cargo test -p codex-core provider_request_budget --lib; exit `$LASTEXITCODE" 600
         New-V005GateSpec "runtime_budget_response" "$rustWorkspace cargo test -p codex-core provider_request_budget --lib; exit `$LASTEXITCODE" 600
@@ -62,7 +64,7 @@ if ($FixtureMode) {
         New-V005GateSpec "r4_tool_path_coverage" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-tool-path-coverage.ps1" 120
         New-V005GateSpec "r4_sample_ledger" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-sample-ledger.ps1" 120
         New-V005GateSpec "r4_public_10_tool_stress_plan" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-public-10-tool-stress-plan.ps1" 120
-        New-V005GateSpec "cache_regression_surface" "python3 scripts\cache-regression\check_cache_regression_gate.py --source head --require-live-baseline --require-clean-subject" 900
+        New-V005GateSpec "cache_regression_surface" (Get-CacheRegressionFormalGateCommand $cacheStructuredEvidencePath) 900
     )
 }
 
@@ -102,6 +104,11 @@ foreach ($spec in @($specs)) {
         source_version = $SourceVersion
         evidence_path = $evidencePath
         evidence_sha256 = $sha
+    }
+    if (-not $FixtureMode -and [string]$spec.name -eq "cache_regression_surface" -and (Test-Path -LiteralPath $cacheStructuredEvidencePath -PathType Leaf)) {
+        $gates[[string]$spec.name] | Add-Member -NotePropertyName evidence_kind -NotePropertyValue "cache_regression_gate_v1" -Force
+        $gates[[string]$spec.name] | Add-Member -NotePropertyName structured_evidence_path -NotePropertyValue $cacheStructuredEvidencePath -Force
+        $gates[[string]$spec.name] | Add-Member -NotePropertyName structured_evidence_sha256 -NotePropertyValue ((Get-FileHash -LiteralPath $cacheStructuredEvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()) -Force
     }
 }
 

@@ -10,7 +10,11 @@ from typing import Any
 from cache_budget import validate_budget_proposal, validate_gate_trigger
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_run_analysis import analyze_artifact_values, budget_observation_exceeded
-from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
+from cache_run_contract import (
+    execution_matrix,
+    validate_authorization as validate_run_authorization,
+)
+from cache_result_envelope import validate_result_envelope
 from cache_source_evidence import (
     protected_manifest,
     relative_path,
@@ -18,7 +22,6 @@ from cache_source_evidence import (
     source_sha256,
 )
 from cache_surface import surface_snapshot
-
 
 ACCEPTANCE_SCHEMA_VERSION = "whalecode-cache-baseline-acceptance-v1"
 OBSERVATION_KEYS = (
@@ -92,28 +95,6 @@ def validate_proposal(
         )
 
 
-def validate_authorization(
-    proposal: dict[str, Any], authorization: dict[str, Any], result: dict[str, Any]
-) -> None:
-    require(
-        authorization.get("schema_version") == AUTHORIZATION_SCHEMA_VERSION
-        and authorization.get("status") == "granted"
-        and authorization.get("approved_by") == "user"
-        and isinstance(authorization.get("authorization_id"), str)
-        and authorization["authorization_id"].startswith("CBA-"),
-        "cache authorization identity is invalid",
-    )
-    require(
-        authorization.get("proposal_id") == proposal.get("proposal_id")
-        and authorization.get("proposal_sha256") == proposal.get("proposal_sha256")
-        and authorization.get("approved_selection") == proposal.get("selection")
-        and authorization.get("approved_maximums") == proposal.get("maximums")
-        and authorization.get("approval_reference")
-        == result.get("authorization_reference"),
-        "cache authorization scope mismatch",
-    )
-
-
 def validate_observation(
     repo: Path,
     result: dict[str, Any],
@@ -177,6 +158,10 @@ def validate_attempts(
             item.get("status") == "completed"
             and item.get("exit_code") == 0
             and item.get("timed_out") is False
+            and isinstance(item.get("run_id"), str)
+            and item["run_id"].strip()
+            and isinstance(item.get("elapsed_seconds"), (int, float))
+            and item["elapsed_seconds"] >= 0
             and "execution_error" not in item
             and "evidence_error" not in item
             for item in attempts
@@ -203,6 +188,15 @@ def validate_ledger(
         if item.get("record_id") == result["record_id"]
     ]
     require(len(matches) == 1, "cache result has no unique ledger entry")
+    authorization_matches = [
+        item
+        for item in ledger.get("entries", [])
+        if item.get("authorization", {}).get("id") == authorization["authorization_id"]
+    ]
+    require(
+        len(authorization_matches) == 1,
+        "cache authorization is not unique in the ledger",
+    )
     entry = matches[0]
     selection = proposal["selection"]
     observations = result["observations"]
@@ -219,11 +213,19 @@ def validate_ledger(
     execution = entry.get("execution", {})
     require(
         entry.get("status") == "settled"
+        and entry.get("started_at") == result["started_at"]
+        and entry.get("ended_at") == result["ended_at"]
+        and entry.get("elapsed_calendar_seconds") == result["elapsed_seconds"]
+        and entry.get("authorization", {}).get("status") == "granted"
         and entry.get("authorization", {}).get("id")
         == authorization["authorization_id"]
         and entry.get("authorization", {}).get("reference")
         == authorization["approval_reference"],
         "cache ledger status or authorization mismatch",
+    )
+    require(
+        entry["authorization"].get("budget_summary") == proposal["maximums"],
+        "cache ledger budget summary mismatch",
     )
     require(
         execution.get("model") == selection["model"]
@@ -246,6 +248,10 @@ def validate_ledger(
     evidence = entry.get("evidence", {})
     require(
         evidence.get("result_path") == acceptance["result_path"]
+        and evidence.get("actual_run_root") == result["run_root"]
+        and evidence.get("runner_exit_code") == 0
+        and evidence.get("outcome") == "completed"
+        and evidence.get("usage_evidence_status") == "complete"
         and evidence.get("proposal_path") == proposal_path
         and evidence.get("proposal_sha256")
         == source_sha256(repo, proposal_path, source)
@@ -253,6 +259,10 @@ def validate_ledger(
         and evidence.get("authorization_sha256")
         == source_sha256(repo, authorization_path, source),
         "cache ledger evidence mismatch",
+    )
+    require(
+        entry.get("monetary_cost", {}).get("status") == "estimated",
+        "cache ledger cost settlement is incomplete",
     )
     return path
 
@@ -276,6 +286,7 @@ def validate_run_evidence(
         and result.get("unverified_scope") == [],
         "cache result is incomplete or has unverified scope",
     )
+    validate_result_envelope(result, result_path)
     require(
         acceptance.get("schema_version") == ACCEPTANCE_SCHEMA_VERSION
         and acceptance.get("status") == "accepted"
@@ -300,7 +311,11 @@ def validate_run_evidence(
         == source_sha256(repo, authorization_path, source),
         "cache result authorization digest mismatch",
     )
-    validate_authorization(proposal, authorization, result)
+    validate_run_authorization(proposal, authorization)
+    require(
+        authorization["approval_reference"] == result.get("authorization_reference"),
+        "cache authorization reference mismatch",
+    )
     matrix = execution_matrix(proposal)
     observations = result.get("observations")
     require(isinstance(observations, list), "cache observations are missing")
@@ -312,6 +327,14 @@ def validate_run_evidence(
         "cache observation matrix mismatch",
     )
     validate_attempts(result, matrix)
+    require(
+        all(
+            observation.get("run_id") == attempt.get("run_id")
+            and observation.get("elapsed_seconds") == attempt.get("elapsed_seconds")
+            for observation, attempt in zip(observations, result["attempts"])
+        ),
+        "cache observation does not match its attempt",
+    )
     evidence_paths = []
     for observation in observations:
         evidence_paths.extend(

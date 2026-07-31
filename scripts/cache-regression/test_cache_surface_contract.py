@@ -74,6 +74,18 @@ class CacheSurfaceContractTest(unittest.TestCase):
         self.assertTrue(all(is_cache_control_plane_path(path) for path in paths))
         self.assertTrue(all(not matching_rules(path, self.contract) for path in paths))
 
+    def test_formal_consumers_and_test_registries_are_control_plane(self) -> None:
+        paths = [
+            "scripts/taskspace-benchmark/lib/e3-start-gate.ps1",
+            "scripts/taskspace-benchmark/lib/cache-regression-fixture.ps1",
+            "scripts/taskspace-benchmark/write-release-decision.ps1",
+            "third_party/codex-cli/codex-rs/core/tests/all.rs",
+            "third_party/codex-cli/codex-rs/core/tests/common/lib.rs",
+            "third_party/codex-cli/codex-rs/core/tests/suite/mod.rs",
+        ]
+        self.assertTrue(all(is_cache_control_plane_path(path) for path in paths))
+        self.assertTrue(all(not matching_rules(path, self.contract) for path in paths))
+
     def test_cache_run_evidence_is_release_relevant_not_policy(self) -> None:
         path = "benchmarks/cache-regression/evidence/WAR-1/CACHE-001/metrics.json"
         self.assertTrue(is_cache_evidence_path(path))

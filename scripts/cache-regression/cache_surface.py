@@ -16,6 +16,12 @@ CACHE_CONTROL_PLANE_EXACT_PATHS = frozenset(
         ".githooks/pre-commit",
         "benchmarks/cache-regression/final-wire-comparison-policy.json",
         "scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1",
+        "scripts/taskspace-benchmark/lib/cache-regression-fixture.ps1",
+        "scripts/taskspace-benchmark/lib/e3-start-gate.ps1",
+        "scripts/taskspace-benchmark/write-release-decision.ps1",
+        "third_party/codex-cli/codex-rs/core/tests/all.rs",
+        "third_party/codex-cli/codex-rs/core/tests/common/lib.rs",
+        "third_party/codex-cli/codex-rs/core/tests/suite/mod.rs",
     }
 )
 CACHE_CONTROL_PLANE_GLOBS = (

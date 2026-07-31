@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from cache_budget import build_budget_proposal
+from cache_baseline_test_support import write_settled_ledger
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
@@ -164,6 +165,9 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "schema_version": RESULT_SCHEMA_VERSION,
             "record_id": "WAR-FIXTURE",
             "status": "completed",
+            "started_at": "2026-08-01T12:00:00+08:00",
+            "ended_at": "2026-08-01T12:00:02+08:00",
+            "elapsed_seconds": 2.0,
             "subject_commit": self.head,
             "surface_sha256": self.proposal["surface_sha256"],
             "proposal_id": self.proposal["proposal_id"],
@@ -173,21 +177,26 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "observed_scope": self.proposal["selection"],
             "unverified_scope": [],
             "actual_sample_runs": 2,
+            "credential_source": "fixture",
+            "run_root": "target/cache-fixture",
             "observations": observations,
             "attempts": [
                 {
                     **scope,
+                    "run_id": f"CACHE-{index:03d}",
                     "status": "completed",
                     "exit_code": 0,
                     "timed_out": False,
                     "elapsed_seconds": 1.0,
                 }
-                for scope in execution_matrix(self.proposal)
+                for index, scope in enumerate(execution_matrix(self.proposal), start=1)
             ],
             "evidence_sha256": canonical_json_sha256(evidence),
         }
         self.result_path = self.repo / "benchmarks/cache-regression/results/result.json"
         self.result_path.parent.mkdir()
+        self.result["result_path"] = self.result_path.relative_to(self.repo).as_posix()
+        self.result["runner_exit_code"] = 0
         write_json(self.result_path, self.result)
         self.write_ledger()
         self.acceptance = self.make_acceptance()
@@ -245,57 +254,24 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                 "repeat": 1,
                 "elapsed_seconds": 1.0,
                 "budget_observation_exceeded": [],
+                "run_id": "CACHE-001" if arm == "standard" else "CACHE-002",
             }
         )
         return observation
 
     def write_ledger(self) -> None:
-        selection = self.proposal["selection"]
-        write_json(
-            self.repo / "benchmarks/whale-agent-run-ledger.json",
-            {
-                "entries": [
-                    {
-                        "record_id": self.result["record_id"],
-                        "status": "settled",
-                        "authorization": {
-                            "status": "granted",
-                            "id": self.authorization["authorization_id"],
-                            "reference": self.authorization["approval_reference"],
-                        },
-                        "execution": {
-                            "model": selection["model"],
-                            "sample_ids": selection["samples"],
-                            "arm_ids": selection["arms"],
-                            "repeats_per_arm_per_sample": selection["repeat"],
-                            "planned_sample_runs": selection["planned_sample_runs"],
-                            "actual_sample_runs": self.result["actual_sample_runs"],
-                            "api_requests": 6,
-                        },
-                        "tokens": {
-                            "input": 200,
-                            "cached_input": 180,
-                            "uncached_input": 20,
-                            "output": 20,
-                        },
-                        "evidence": {
-                            "result_path": self.result_path.relative_to(
-                                self.repo
-                            ).as_posix(),
-                            "proposal_path": self.proposal_path.relative_to(
-                                self.repo
-                            ).as_posix(),
-                            "proposal_sha256": file_sha256(self.proposal_path),
-                            "authorization_path": self.authorization_path.relative_to(
-                                self.repo
-                            ).as_posix(),
-                            "authorization_sha256": file_sha256(
-                                self.authorization_path
-                            ),
-                        },
-                    }
-                ]
-            },
+        write_settled_ledger(
+            self.repo,
+            self.result,
+            self.proposal,
+            self.authorization,
+            self.result_path,
+            self.proposal_path,
+            self.authorization_path,
+            api_requests=6,
+            input_tokens=200,
+            cached_input_tokens=180,
+            output_tokens=20,
         )
 
     def make_acceptance(self) -> dict:
@@ -422,6 +398,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
 
         result = copy.deepcopy(self.result)
         result["observations"][0]["elapsed_seconds"] = 121.0
+        result["attempts"][0]["elapsed_seconds"] = 121.0
         result["observations"][0]["budget_observation_exceeded"] = ["elapsed_seconds"]
         with self.assertRaisesRegex(ValueError, "exceeded"):
             self.validate(result=result)
@@ -439,6 +416,30 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         gate["subject_commit"] = "0" * 40
         write_json(self.gate_path, gate)
         with self.assertRaisesRegex(ValueError, "gate report digest"):
+            self.validate()
+
+    def test_rejects_incomplete_runner_or_authorization_envelope(self) -> None:
+        result = copy.deepcopy(self.result)
+        result.pop("ended_at")
+        with self.assertRaisesRegex(ValueError, "ended_at"):
+            self.validate(result=result)
+
+        authorization = copy.deepcopy(self.authorization)
+        authorization.pop("approved_at")
+        write_json(self.authorization_path, authorization)
+        result = copy.deepcopy(self.result)
+        result["authorization_sha256"] = file_sha256(self.authorization_path)
+        with self.assertRaisesRegex(ValueError, "timestamp"):
+            self.validate(result=result)
+
+    def test_rejects_duplicate_authorization_in_ledger(self) -> None:
+        ledger_path = self.repo / "benchmarks/whale-agent-run-ledger.json"
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        duplicate = copy.deepcopy(ledger["entries"][0])
+        duplicate["record_id"] = "WAR-DUPLICATE"
+        ledger["entries"].append(duplicate)
+        write_json(ledger_path, ledger)
+        with self.assertRaisesRegex(ValueError, "not unique"):
             self.validate()
 
     def test_rejects_business_failure_even_with_consistent_artifacts(self) -> None:
@@ -461,6 +462,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                 "repeat": 1,
                 "elapsed_seconds": 1.0,
                 "budget_observation_exceeded": [],
+                "run_id": observation["run_id"],
             }
         )
         result["observations"][0] = recomputed

@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "calibration-gate.ps1")
 . (Join-Path $PSScriptRoot "e3-identity.ps1")
+. (Join-Path $PSScriptRoot "..\..\cache-regression\verify-cache-regression-evidence.ps1")
 
 function Invoke-TaskspaceGateCommand {
     param(
@@ -252,6 +253,9 @@ function Get-TaskspaceV005MarkerGate {
             $actualEvidenceSha = Get-TaskspaceStartGateFileSha256 ([string]$gateValue.evidence_path)
             if ($actualEvidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant()) {
                 return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName evidence_sha256 mismatch" "$Name`_$gateName`_evidence_sha256_mismatch" "Non-agent gate $gateName evidence_sha256 must match local file: $Path"
+            }
+            if ($gateName -eq "cache_regression_surface" -and -not (Test-CacheRegressionFormalGateEvidence $gateValue ([string]$currentHead))) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name cache evidence invalid" "$Name`_cache_regression_evidence_invalid" "Cache regression gate must include valid structured formal evidence: $Path"
             }
         }
     } elseif ([string]$Name -eq "v005_code_complete") {

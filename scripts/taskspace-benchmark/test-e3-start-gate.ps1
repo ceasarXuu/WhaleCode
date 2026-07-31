@@ -5,6 +5,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
+. (Join-Path $PSScriptRoot "lib\cache-regression-fixture.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-reconstruction.ps1")
 
@@ -138,6 +139,9 @@ function New-V005MarkerFixtures {
     New-Item -ItemType Directory -Force -Path $evidenceRoot | Out-Null
     $gateObject = {
         param([string]$Name)
+        if ($Name -eq "cache_regression_surface") {
+            return New-TaskspaceCacheRegressionFixtureGate $evidenceRoot ([string]$head) $TaskListHash $SourceVersion $ProfileHash $now
+        }
         $evidencePath = Join-Path $evidenceRoot "$Name.txt"
         "selftest evidence for $Name" | Set-Content -LiteralPath $evidencePath -Encoding UTF8
         [pscustomobject]@{
@@ -240,6 +244,13 @@ try {
     $spoofedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-spoofed-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $spoofedMarkerPath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -SelfTestCommands @()
     $spoofedDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $spoofedGate.gate_decision_path | ConvertFrom-Json
     Assert-True (-not [bool]$spoofedDecision.full_e3_allowed -and @($spoofedGate.gates | Where-Object { [string]$_.name -eq "v005_code_complete" -and [string]$_.stable_code -eq "v005_code_complete_malformed" }).Count -eq 1) "start gate accepted spoofed arbitrary marker text"
+    $textOnlyMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-text-only-cache-markers")
+    $textOnlyNonAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath $textOnlyMarkers.non_agent_path | ConvertFrom-Json
+    $textOnlyNonAgent.gates.cache_regression_surface.command = "selftest cache_regression_surface"
+    $textOnlyNonAgent.gates.cache_regression_surface.PSObject.Properties.Remove("structured_evidence_path")
+    $textOnlyNonAgent | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $textOnlyMarkers.non_agent_path -Encoding UTF8
+    $textOnlyGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-text-only-cache-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -V005NonAgentGatesPath $textOnlyMarkers.non_agent_path -V005CodeCompleteMarkerPath $textOnlyMarkers.code_complete_path -V005UserApprovalMarkerPath $textOnlyMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True (-not [bool]$textOnlyGate.gate_decision.full_e3_allowed -and @($textOnlyGate.gates | Where-Object { [string]$_.stable_code -eq "v005_non_agent_gates_cache_regression_evidence_invalid" }).Count -eq 1) "start gate accepted text-only cache regression evidence"
     $mismatchedMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-mismatched-markers") -TaskListHash "task-list-b"
     $mismatchedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-mismatched-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -V005NonAgentGatesPath $mismatchedMarkers.non_agent_path -V005CodeCompleteMarkerPath $mismatchedMarkers.code_complete_path -V005UserApprovalMarkerPath $mismatchedMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
     $mismatchedDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $mismatchedGate.gate_decision_path | ConvertFrom-Json

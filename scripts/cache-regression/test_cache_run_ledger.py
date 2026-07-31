@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from cache_run_ledger import claim_entry, store_entry
 
@@ -44,6 +45,16 @@ class CacheRunLedgerTest(unittest.TestCase):
         store_entry(self.path, updated)
         ledger = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(ledger["entries"][0]["status"], "running")
+
+    def test_interrupted_replace_preserves_valid_ledger(self) -> None:
+        before = self.path.read_text(encoding="utf-8")
+        with (
+            patch("cache_run_ledger.os.replace", side_effect=OSError("interrupted")),
+            self.assertRaisesRegex(OSError, "interrupted"),
+        ):
+            claim_entry(self.path, self.entry)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), before)
+        self.assertEqual(list(self.path.parent.glob(".*.tmp")), [])
 
 
 if __name__ == "__main__":

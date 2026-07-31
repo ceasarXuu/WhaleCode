@@ -2,6 +2,8 @@ param([string]$RunRoot = "")
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "..\cache-regression\verify-cache-regression-evidence.ps1")
+. (Join-Path $PSScriptRoot "lib\cache-regression-fixture.ps1")
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot ("target\release-decision-selftest\run-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff")) }
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 $failures = New-Object System.Collections.Generic.List[string]
@@ -201,6 +203,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
     New-Item -ItemType Directory -Path $gateEvidenceDir -Force | Out-Null
     $gateObject = {
         param([string]$Name)
+        if ($Name -eq "cache_regression_surface") {
+            return New-TaskspaceCacheRegressionFixtureGate $gateEvidenceDir ([string]$head) $taskListHash $sourceVersion $profileHash "2026-06-19T00:00:00.0000000Z"
+        }
         $evidencePath = Join-Path $gateEvidenceDir "$Name.txt"
         Set-Content -LiteralPath $evidencePath -Encoding UTF8 -Value "$Name pass"
         [pscustomobject]@{
@@ -878,6 +883,17 @@ Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path
 Assert-True ($LASTEXITCODE -eq 1) "weak non-agent gates fixture did not exit 1"
 $weakNonAgentDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakNonAgentDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($weakNonAgentDecision.blockers) -contains "v005_non_agent_gates_failed") "weak non-agent gates fixture did not report v005 gate blocker"
+
+$textOnlyCacheDir = New-FixtureRun "text-only-cache-gate" "PASS" $true 0
+$textOnlyCacheMarkerPath = Join-Path $textOnlyCacheDir "v005-non-agent-gates.json"
+$textOnlyCacheMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath $textOnlyCacheMarkerPath | ConvertFrom-Json
+$textOnlyCacheMarker.gates.cache_regression_surface.command = "selftest cache_regression_surface"
+$textOnlyCacheMarker.gates.cache_regression_surface.PSObject.Properties.Remove("structured_evidence_path")
+$textOnlyCacheMarker | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $textOnlyCacheMarkerPath -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $textOnlyCacheDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "text-only cache gate fixture did not exit 1"
+$textOnlyCacheDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $textOnlyCacheDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($textOnlyCacheDecision.blockers) -contains "v005_non_agent_gates_failed") "text-only cache gate fixture did not report v005 gate blocker"
 
 $mismatchedNonAgentIdentityDir = New-FixtureRun "mismatched-non-agent-identity" "PASS" $true 0
 $mismatchedNonAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedNonAgentIdentityDir "v005-non-agent-gates.json") | ConvertFrom-Json
