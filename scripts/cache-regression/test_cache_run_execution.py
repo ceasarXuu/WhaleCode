@@ -276,6 +276,39 @@ class CacheRunExecutionTest(unittest.TestCase):
             raised.exception.process_tree_termination["status"], "terminated"
         )
 
+    def test_windows_timeout_terminates_entire_process_tree(self) -> None:
+        process = unittest.mock.Mock()
+        process.pid = 456
+        process.poll.return_value = None
+        process.wait.side_effect = [
+            subprocess.TimeoutExpired(["pwsh"], 10),
+            1,
+        ]
+        process.returncode = 1
+        taskkill = subprocess.CompletedProcess(
+            ["taskkill", "/PID", "456", "/T", "/F"], 0, "", ""
+        )
+        with (
+            patch("cache_process_control.os.name", "nt"),
+            patch("cache_process_control.subprocess.Popen", return_value=process) as popen,
+            patch("cache_process_control.subprocess.run", return_value=taskkill) as run,
+        ):
+            with self.assertRaises(BenchmarkTimeoutError) as raised:
+                run_benchmark_command(["pwsh", "runner.ps1"], self.repo, 10)
+        self.assertEqual(
+            raised.exception.process_tree_termination["status"], "terminated"
+        )
+        run.assert_called_once_with(
+            ["taskkill", "/PID", "456", "/T", "/F"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        self.assertIn("creationflags", popen.call_args.kwargs)
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
     def test_cleanup_catches_container_that_appears_after_first_empty_poll(self) -> None:
         completed = [
             type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),

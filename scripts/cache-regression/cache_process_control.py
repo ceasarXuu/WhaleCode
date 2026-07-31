@@ -36,7 +36,18 @@ def _terminate_process_tree(process: subprocess.Popen[Any]) -> dict[str, Any]:
         if os.name == "posix":
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
         else:
-            process.terminate()
+            terminated = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=PROCESS_GROUP_TERMINATION_SECONDS,
+            )
+            if terminated.returncode != 0 and process.poll() is None:
+                return {
+                    "status": "failed",
+                    "error": terminated.stderr.strip() or "taskkill failed",
+                }
         try:
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
             return {"status": "terminated", "exit_code": process.returncode}
@@ -44,7 +55,10 @@ def _terminate_process_tree(process: subprocess.Popen[Any]) -> dict[str, Any]:
             if os.name == "posix":
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
             else:
-                process.kill()
+                return {
+                    "status": "failed",
+                    "error": "taskkill completed but the process tree remained alive",
+                }
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
             return {"status": "killed", "exit_code": process.returncode}
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -58,6 +72,11 @@ def run_benchmark_command(
         command,
         cwd=cwd,
         start_new_session=os.name == "posix",
+        creationflags=(
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            if os.name == "nt"
+            else 0
+        ),
     )
     try:
         return_code = process.wait(timeout=timeout_seconds)
