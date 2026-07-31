@@ -41,17 +41,29 @@ def validate_gate_trigger(report: dict[str, Any]) -> list[str]:
         "budget proposal requires a cache gate report",
     )
     require(report.get("status") == "blocked", "cache gate report is not blocked")
+    state = report.get("discovery_state")
     require(
-        report.get("discovery_state") in {"changed", "validation_failed"},
-        "cache gate report has no comparable accepted-change candidate",
+        state in {"changed", "revalidation_requested"},
+        "cache gate report has no comparable change or explicit revalidation",
     )
     validation = report.get("free_validation")
     require(isinstance(validation, dict), "cache gate report has no free validation")
+    commands = validation.get("commands")
+    require(isinstance(commands, list), "free validation commands are missing")
+    if state == "revalidation_requested":
+        require(
+            validation.get("passed") is True
+            and report.get("baseline_status") == "live_regression_failed"
+            and report.get("revalidation_requested") is True
+            and report.get("require_live_baseline") is True
+            and report.get("require_clean_subject") is True
+            and report.get("sensitive_changes") == [],
+            "cache revalidation request is not a clean failed-baseline transition",
+        )
+        return []
     require(
         validation.get("passed") is False, "free validation did not detect a change"
     )
-    commands = validation.get("commands")
-    require(isinstance(commands, list), "free validation commands are missing")
     failed = [
         command.get("id") for command in commands if command.get("status") == "fail"
     ]
@@ -130,6 +142,11 @@ def build_budget_proposal(
         + maximum_output_tokens / 1_000_000 * pricing["output_per_million"]
     )
     surface_sha, _ = surface_snapshot(repo, contract, "worktree")
+    require(
+        gate_report.get("subject_commit") == subject_commit
+        and gate_report.get("actual_surface_sha256") == surface_sha,
+        "cache gate report does not match the proposed HEAD and surface",
+    )
     relative_report = gate_report_path.relative_to(repo).as_posix()
     proposal = {
         "schema_version": BUDGET_PROPOSAL_SCHEMA_VERSION,

@@ -17,7 +17,7 @@ from cache_run_contract import (
     load_authorized_proposal,
     validate_authorization,
 )
-from cache_surface import load_contract, write_json
+from cache_surface import load_contract, surface_snapshot, write_json
 
 
 def run(*args: str, cwd: Path) -> str:
@@ -72,6 +72,12 @@ class CacheRunContractTest(unittest.TestCase):
         run("git", "commit", "-qm", "fixture", cwd=self.repo)
         self.contract = load_contract(contract_path)
         self.head = run("git", "rev-parse", "HEAD", cwd=self.repo)
+        gate = json.loads(self.gate_path.read_text(encoding="utf-8"))
+        gate["subject_commit"] = self.head
+        gate["actual_surface_sha256"] = surface_snapshot(
+            self.repo, self.contract, "worktree"
+        )[0]
+        write_json(self.gate_path, gate)
         self.proposal = build_budget_proposal(
             repo=self.repo,
             contract=self.contract,

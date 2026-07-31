@@ -72,6 +72,23 @@ def print_free_validation_failure(validation: dict) -> None:
             )
 
 
+def is_promotion_transition(
+    *,
+    baseline_changed: bool,
+    semantic_baselines: list[str],
+    accepted_validation: dict,
+    policy_changes: list[str],
+    sensitive_changes: list[dict],
+) -> bool:
+    return bool(
+        baseline_changed
+        and accepted_validation.get("valid")
+        and semantic_baselines == accepted_validation.get("accepted_scenario_paths", [])
+        and not policy_changes
+        and not sensitive_changes
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -85,12 +102,22 @@ def main() -> int:
     )
     parser.add_argument("--require-live-baseline", action="store_true")
     parser.add_argument("--require-clean-subject", action="store_true")
+    parser.add_argument("--request-revalidation", action="store_true")
     parser.add_argument("--json-output", type=Path)
     args = parser.parse_args()
 
     repo = args.repo_root.resolve()
     if args.require_clean_subject and args.source != "head":
         parser.error("--require-clean-subject requires --source head")
+    if args.request_revalidation and not (
+        args.source == "head"
+        and args.require_live_baseline
+        and args.require_clean_subject
+    ):
+        parser.error(
+            "--request-revalidation requires --source head, "
+            "--require-live-baseline, and --require-clean-subject"
+        )
     contract_path = args.contract
     if not contract_path.is_absolute():
         contract_path = repo / contract_path
@@ -139,19 +166,17 @@ def main() -> int:
         except (KeyError, OSError, TypeError, ValueError) as error:
             accepted_validation = {"valid": False, "reason": str(error)}
     accepted_baseline_valid = accepted_validation["valid"]
-    promotion_transition = bool(
-        baseline_changed
-        and semantic_baselines
-        and accepted_baseline_valid
-        and semantic_baselines
-        == accepted_validation.get("accepted_scenario_paths", [])
-        and not policy_changes
-        and not changes
+    promotion_transition = is_promotion_transition(
+        baseline_changed=baseline_changed,
+        semantic_baselines=semantic_baselines,
+        accepted_validation=accepted_validation,
+        policy_changes=policy_changes,
+        sensitive_changes=changes,
     )
     relevant_source_paths = sorted(
-        {change["path"] for change in changes}
-        .union(semantic_baselines)
-        .union(accepted_validation.get("evidence_paths", []))
+        {change["path"] for change in changes}.union(semantic_baselines).union(
+            accepted_validation.get("evidence_paths", [])
+        )
     )
     relevant_source_matches_worktree = changed_paths_match_worktree(
         repo, relevant_source_paths, args.source
@@ -159,6 +184,7 @@ def main() -> int:
     validation_mismatches = validation_input_mismatches(repo, contract, args.source)
     free_validation_required = bool(free_validation_config) and (
         bool(changes)
+        or args.request_revalidation
         or bool(
             args.require_live_baseline
             and free_validation_config.get("run_on_release", False)
@@ -180,8 +206,26 @@ def main() -> int:
     free_validation_passed = not free_validation_required or (
         free_validation is not None and free_validation["passed"]
     )
+    discovery_state = classify_free_validation(
+        free_validation, free_validation_required
+    )
+    candidate_transition = bool(
+        args.source == "index"
+        and not args.require_live_baseline
+        and changes
+        and discovery_state == "changed"
+        and not policy_changes
+        and not baseline_changed
+        and not semantic_baselines
+    )
+    revalidation_requested = bool(
+        args.request_revalidation
+        and baseline_status == "live_regression_failed"
+        and discovery_state == "unchanged"
+        and not release_changes
+    )
     semantic_gate_passed = (
-        free_validation_passed
+        free_validation_passed or candidate_transition
         if free_validation_config is not None
         else actual_hash == expected_hash or policy_only_surface_transition
     )
@@ -219,9 +263,11 @@ def main() -> int:
         "relevant_source_matches_worktree": relevant_source_matches_worktree,
         "validation_input_mismatches": validation_mismatches,
         "free_validation_required": free_validation_required,
-        "discovery_state": classify_free_validation(
-            free_validation, free_validation_required
+        "discovery_state": (
+            "revalidation_requested" if revalidation_requested else discovery_state
         ),
+        "candidate_transition": candidate_transition,
+        "revalidation_requested": revalidation_requested,
         "free_validation": free_validation,
         "require_clean_subject": args.require_clean_subject,
         "release_relevant_changes": release_changes,
@@ -235,7 +281,9 @@ def main() -> int:
         write_json(output, result)
 
     if passed:
-        if policy_changes:
+        if candidate_transition:
+            suffix = "（已发现可比较的候选变更；发布继续阻断）"
+        elif policy_changes:
             suffix = "（待验证政策变更；发布保持阻断）"
         elif baseline_status == "structural_bootstrap":
             suffix = "（尚待首次真实缓存基线）"
@@ -281,6 +329,10 @@ def main() -> int:
         print(
             f"- 当前基线状态为 {baseline_status}，尚未形成有效的 accepted 基线："
             f"{accepted_validation['reason']}"
+        )
+    if args.request_revalidation and not revalidation_requested:
+        print(
+            "- 当前状态不满足显式复验条件；必须是干净 HEAD 上的失败基线且免费合同无变化。"
         )
     if changes:
         print("可能影响缓存命中的变更：")

@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cache_budget import build_budget_proposal, validate_budget_proposal
-from cache_surface import load_contract, write_json
+from cache_surface import load_contract, surface_snapshot, write_json
 
 
 CLI = Path(__file__).resolve().parent / "propose_cache_regression_budget.py"
@@ -69,6 +69,12 @@ class CacheBudgetProposalTest(unittest.TestCase):
         run("git", "commit", "-qm", "fixture", cwd=self.repo)
         self.contract = load_contract(contract_path)
         self.head = run("git", "rev-parse", "HEAD", cwd=self.repo)
+        report = json.loads(self.report_path.read_text(encoding="utf-8"))
+        report["subject_commit"] = self.head
+        report["actual_surface_sha256"] = surface_snapshot(
+            self.repo, self.contract, "worktree"
+        )[0]
+        write_json(self.report_path, report)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -112,6 +118,31 @@ class CacheBudgetProposalTest(unittest.TestCase):
         report["free_validation"]["passed"] = False
         report["discovery_state"] = "uncomparable"
         with self.assertRaisesRegex(ValueError, "comparable"):
+            build_budget_proposal(**{**self._kwargs(), "gate_report": report})
+
+    def test_accepts_explicit_clean_revalidation_without_changed_scenarios(
+        self,
+    ) -> None:
+        report = json.loads(self.report_path.read_text(encoding="utf-8"))
+        report.update(
+            {
+                "discovery_state": "revalidation_requested",
+                "baseline_status": "live_regression_failed",
+                "revalidation_requested": True,
+                "require_live_baseline": True,
+                "require_clean_subject": True,
+                "sensitive_changes": [],
+            }
+        )
+        report["free_validation"]["passed"] = True
+        report["free_validation"]["commands"][0]["status"] = "pass"
+        proposal = build_budget_proposal(**{**self._kwargs(), "gate_report": report})
+        self.assertEqual(proposal["trigger"]["failed_free_commands"], [])
+
+    def test_rejects_gate_report_from_another_surface(self) -> None:
+        report = json.loads(self.report_path.read_text(encoding="utf-8"))
+        report["actual_surface_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "does not match"):
             build_budget_proposal(**{**self._kwargs(), "gate_report": report})
 
     def test_rejects_unknown_arm_and_duplicate_selection(self) -> None:

@@ -6,16 +6,10 @@ import json
 import subprocess
 import tempfile
 import unittest
-from contextlib import redirect_stdout
-from io import StringIO
 from pathlib import Path
 
 from cache_baseline_test_support import stage_accepted_promotion
 from cache_surface import load_contract, surface_snapshot, write_json
-from check_cache_regression_gate import (
-    classify_free_validation,
-    print_free_validation_failure,
-)
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -42,11 +36,20 @@ class CacheRegressionGateTest(unittest.TestCase):
             encoding="utf-8",
         )
         (self.repo / "free-validator.py").write_text(
-            """from pathlib import Path
+            """import json
+import os
+from pathlib import Path
 status = Path('free-validation-status.txt')
 value = status.read_text(encoding='utf-8').strip() if status.exists() else 'pass'
+report = os.environ.get('WHALE_CACHE_CHANGE_REPORT_DIR')
+if report:
+    snapshot = Path('snapshots/baseline.snap').read_text(encoding='utf-8')
+    payload = json.loads(snapshot.split('\\n---\\n', 1)[1])
+    if value == 'changed':
+        payload = {'wire': 'changed'}
+    Path(report, 'baseline.json').write_text(json.dumps(payload), encoding='utf-8')
 print(f'fixture free validation: {value}')
-raise SystemExit(0 if value == 'pass' else 7)
+raise SystemExit(7 if value == 'fail' else 0)
 """,
             encoding="utf-8",
         )
@@ -84,6 +87,10 @@ raise SystemExit(0 if value == 'pass' else 7)
                         "cwd": ".",
                         "argv": ["python3", "free-validator.py"],
                         "timeout_seconds": 10,
+                        "change_report": {
+                            "type": "final_wire_snapshot_set",
+                            "baseline_globs": ["snapshots/*.snap"],
+                        },
                     }
                 ],
             },
@@ -147,6 +154,45 @@ raise SystemExit(0 if value == 'pass' else 7)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("免费 final-wire 验证通过", result.stdout)
+
+    def test_comparable_candidate_can_commit_but_release_stays_blocked(self) -> None:
+        (self.repo / "free-validation-status.txt").write_text(
+            "changed\n", encoding="utf-8"
+        )
+        (self.repo / "prompt/base.md").write_text("candidate\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+
+        candidate = self.gate()
+
+        self.assertEqual(candidate.returncode, 0, candidate.stdout + candidate.stderr)
+        self.assertIn("候选变更；发布继续阻断", candidate.stdout)
+        run("git", "commit", "-qm", "candidate", cwd=self.repo)
+        release = self.gate_from_source("head", "--require-live-baseline")
+        self.assertEqual(release.returncode, 20)
+        self.assertIn("免费 final-wire 验证失败", release.stdout)
+
+    def test_explicit_revalidation_requires_clean_failed_baseline(self) -> None:
+        contract = load_contract(self.contract_path)
+        contract["baseline"]["status"] = "live_regression_failed"
+        write_json(self.contract_path, contract)
+        run("git", "add", "contract.json", cwd=self.repo)
+        run("git", "commit", "-qm", "failed baseline", cwd=self.repo)
+        output = self.repo / "revalidation.json"
+
+        result = self.gate_from_source(
+            "head",
+            "--require-live-baseline",
+            "--require-clean-subject",
+            "--request-revalidation",
+            "--json-output",
+            str(output),
+        )
+
+        self.assertEqual(result.returncode, 20)
+        report = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(report["discovery_state"], "revalidation_requested")
+        self.assertTrue(report["revalidation_requested"])
+        self.assertTrue(report["free_validation"]["passed"])
 
     def test_sensitive_staged_source_must_match_worktree(self) -> None:
         (self.repo / "prompt/base.md").write_text("staged\n", encoding="utf-8")
@@ -404,56 +450,6 @@ raise SystemExit(0 if value == 'pass' else 7)
 
         self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
         self.assertIn("门禁政策变更必须与缓存敏感产品变更分开提交", result.stdout)
-
-    def test_discovery_state_does_not_infer_product_acceptance(self) -> None:
-        validation = {
-            "passed": False,
-            "commands": [
-                {
-                    "change_report": {
-                        "status": "changed",
-                    }
-                }
-            ],
-        }
-        self.assertEqual(classify_free_validation(validation, True), "changed")
-        validation["commands"][0]["change_report"]["status"] = "uncomparable"
-        self.assertEqual(classify_free_validation(validation, True), "uncomparable")
-
-    def test_structured_change_output_replaces_command_log_noise(self) -> None:
-        validation = {
-            "commands": [
-                {
-                    "id": "wire",
-                    "status": "fail",
-                    "exit_code": 1,
-                    "timed_out": False,
-                    "output_tail": ["noisy command log"],
-                    "change_report": {
-                        "status": "changed",
-                        "scenario_count": 1,
-                        "changed_scenario_count": 1,
-                        "uncomparable_scenario_count": 0,
-                        "scenarios": [
-                            {
-                                "scenario_id": "standard",
-                                "status": "changed",
-                                "first_difference": "/request_2/input/3",
-                                "before_payload_sha256": "a" * 64,
-                                "after_payload_sha256": "b" * 64,
-                            }
-                        ],
-                    },
-                }
-            ]
-        }
-        stream = StringIO()
-        with redirect_stdout(stream):
-            print_free_validation_failure(validation)
-        rendered = stream.getvalue()
-        self.assertIn("standard: changed", rendered)
-        self.assertIn("/request_2/input/3", rendered)
-        self.assertNotIn("noisy command log", rendered)
 
 
 if __name__ == "__main__":

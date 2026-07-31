@@ -197,4 +197,3 @@ def settle_entry(
             ),
         }
     )
-

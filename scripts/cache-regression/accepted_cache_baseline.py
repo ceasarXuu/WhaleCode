@@ -59,7 +59,9 @@ def changed_scenarios(report: dict[str, Any]) -> list[dict[str, Any]]:
             )
     scenarios.sort(key=lambda item: item["scenario_id"])
     ids = [item["scenario_id"] for item in scenarios]
-    require(scenarios and len(ids) == len(set(ids)), "changed scenarios are invalid")
+    require(len(ids) == len(set(ids)), "changed scenarios are invalid")
+    if report.get("discovery_state") != "revalidation_requested":
+        require(scenarios, "changed scenarios are invalid")
     return scenarios
 
 

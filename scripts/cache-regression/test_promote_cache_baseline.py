@@ -370,6 +370,17 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed scenarios are invalid"):
             changed_scenarios(gate)
 
+    def test_revalidation_has_no_snapshot_scenarios(self) -> None:
+        self.assertEqual(
+            changed_scenarios(
+                {
+                    "discovery_state": "revalidation_requested",
+                    "free_validation": {"commands": []},
+                }
+            ),
+            [],
+        )
+
     def test_rejects_incomplete_or_tampered_result(self) -> None:
         result = copy.deepcopy(self.result)
         result["status"] = "partial"
