@@ -1,0 +1,19 @@
+{
+  "schema_version": "whalecode-cache-hit-regression-v1",
+  "status": "fail",
+  "started_at": "2026-07-31T12:09:38+08:00",
+  "subject_commit": "cee6d09a6ba473d5b3daed68e49f9c5579ee4ea1",
+  "surface_sha256": "9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc",
+  "authorization_reference": "用户于 2026-07-31 明确批准最多 2 个 sample 预算；此前预检失败实际 0 sample/0 request，本次执行 Standard 与 map-request 各 1 次。",
+  "planned_sample_runs": 2,
+  "actual_sample_runs": 0,
+  "sample": "single-file-fast-fix",
+  "projection_policy": "map-request",
+  "arms": [],
+  "run_dir": "target/cache-hit-regression/WAR-20260731-120938-CACHE-REGRESSION-450C3DC6/single-file-fast-fix/20260731-120939-083",
+  "arm_errors": {
+    "standard": "FileNotFoundError: [Errno 2] No such file or directory: '/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-120938-CACHE-REGRESSION-450C3DC6/single-file-fast-fix/20260731-120939-083/pair-001/left/artifacts/provider-cache-trace-summary.json'",
+    "map-request": "FileNotFoundError: [Errno 2] No such file or directory: '/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-120938-CACHE-REGRESSION-450C3DC6/single-file-fast-fix/20260731-120939-083/pair-001/right/artifacts/provider-cache-trace-summary.json'"
+  },
+  "result_path": "benchmarks/cache-regression/results/WAR-20260731-120938-CACHE-REGRESSION-450C3DC6.json"
+}

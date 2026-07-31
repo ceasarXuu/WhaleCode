@@ -71,6 +71,8 @@ pwsh scripts/cache-regression/run_cache_hit_regression.ps1 `
 
 runner 在启动前向 `benchmarks/whale-agent-run-ledger.json` 写入 `planned`，结束、失败或取消后结算请求数、
 input/cached/uncached/output token、估算费用、耗时和证据路径。两臂任一失败都不会自动重试。
+凭据优先继承进程环境；若缺失，只读取仓库 `.env.local` 中的 `DEEPSEEK_API_KEY`，不执行文件内容，也不把值写入
+日志或结果。
 
 ## 5. 判定与晋升
 

@@ -1,7 +1,81 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-07-31T12:07:27+08:00",
+  "updated_at": "2026-07-31T12:09:43+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260731-120938-CACHE-REGRESSION-450C3DC6",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-07-31T12:09:38+08:00",
+      "ended_at": "2026-07-31T12:09:43+08:00",
+      "elapsed_calendar_seconds": 4,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "缓存敏感面回归：验证 Standard 与 map-request 的 provider request-2+ 前缀缓存。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "reference": "用户于 2026-07-31 明确批准最多 2 个 sample 预算；此前预检失败实际 0 sample/0 request，本次执行 Standard 与 map-request 各 1 次。",
+        "budget_summary": {
+          "sample_run_limit": 2,
+          "automatic_retry_limit": 0,
+          "sample": "single-file-fast-fix",
+          "arms": [
+            "standard",
+            "map-request"
+          ]
+        },
+        "note": "仅允许 single-file-fast-fix 的 Standard 与 map-request 各一次。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 0,
+        "api_requests": 0
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "unavailable",
+        "currency": "USD",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": null,
+        "note": "无完整 token 证据。"
+      },
+      "evidence": {
+        "planned_run_root": "/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-120938-CACHE-REGRESSION-450C3DC6",
+        "subject_commit": "cee6d09a6ba473d5b3daed68e49f9c5579ee4ea1",
+        "surface_sha256": "9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc",
+        "stop_conditions": "两臂各首次完成、失败或超时后停止；禁止自动重试。",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260731-120938-CACHE-REGRESSION-450C3DC6/single-file-fast-fix/20260731-120939-083",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260731-120938-CACHE-REGRESSION-450C3DC6.json",
+        "runner_exit_code": 3,
+        "outcome": "fail"
+      }
+    },
     {
       "record_id": "WAR-20260731-120722-CACHE-REGRESSION-B08B29CB",
       "record_type": "run_batch",

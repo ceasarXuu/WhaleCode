@@ -3,19 +3,44 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from run_cache_hit_regression import (
     analyze_arm,
     arm_passes,
+    ensure_deepseek_api_key,
     record_failed_baseline,
     should_record_failed_baseline,
 )
 
 
 class CacheHitRegressionAnalysisTest(unittest.TestCase):
+    def test_loads_only_deepseek_key_from_env_local(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            repo = Path(root)
+            (repo / ".env.local").write_text(
+                "IGNORED=value\nexport DEEPSEEK_API_KEY='fixture-secret'\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                source = ensure_deepseek_api_key(repo)
+                self.assertEqual(source, ".env.local")
+                self.assertEqual(os.environ["DEEPSEEK_API_KEY"], "fixture-secret")
+                self.assertNotIn("IGNORED", os.environ)
+
+    def test_prefers_existing_environment_key(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            with patch.dict(
+                os.environ, {"DEEPSEEK_API_KEY": "existing-secret"}, clear=True
+            ):
+                source = ensure_deepseek_api_key(Path(root))
+                self.assertEqual(source, "process_environment")
+                self.assertEqual(os.environ["DEEPSEEK_API_KEY"], "existing-secret")
+
     def test_analyzes_provider_request_2_plus_cache(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             run_dir = Path(root)
