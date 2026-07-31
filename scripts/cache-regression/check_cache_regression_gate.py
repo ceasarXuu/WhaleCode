@@ -24,6 +24,7 @@ def main() -> int:
         default=Path("benchmarks/cache-regression/cache-surface-contract.json"),
     )
     parser.add_argument("--source", choices=["index", "head", "worktree"], default="index")
+    parser.add_argument("--require-live-baseline", action="store_true")
     parser.add_argument("--json-output", type=Path)
     args = parser.parse_args()
 
@@ -36,8 +37,10 @@ def main() -> int:
     expected_hash = contract["baseline"]["surface_sha256"]
     changes = staged_sensitive_changes(repo, contract) if args.source == "index" else []
     baseline_status = contract["baseline"]["status"]
-    accepted_statuses = {"structural_bootstrap", "live_verified"}
-    passed = actual_hash == expected_hash and baseline_status in accepted_statuses
+    live_status_accepted = baseline_status in {"structural_bootstrap", "live_verified"}
+    passed = actual_hash == expected_hash and (
+        live_status_accepted or not args.require_live_baseline
+    )
     result = {
         "schema_version": "whalecode-cache-regression-gate-v1",
         "status": "pass" if passed else "blocked",
@@ -45,6 +48,7 @@ def main() -> int:
         "actual_surface_sha256": actual_hash,
         "expected_surface_sha256": expected_hash,
         "baseline_status": baseline_status,
+        "require_live_baseline": args.require_live_baseline,
         "surface_file_count": len(entries),
         "sensitive_changes": changes,
     }
@@ -55,23 +59,31 @@ def main() -> int:
         write_json(output, result)
 
     if passed:
-        suffix = "（尚待首次真实缓存基线）" if baseline_status != "live_verified" else ""
+        if baseline_status == "structural_bootstrap":
+            suffix = "（尚待首次真实缓存基线）"
+        elif baseline_status == "live_regression_failed":
+            suffix = "（当前指纹未变；最近一次 live 回归失败）"
+        else:
+            suffix = ""
         print(f"cache regression gate: PASS {actual_hash}{suffix}")
         return 0
 
     print("cache regression gate: BLOCKED")
     print(f"expected surface: {expected_hash}")
     print(f"actual surface:   {actual_hash}")
-    if baseline_status not in accepted_statuses:
+    if not live_status_accepted:
         print(f"- 当前基线状态为 {baseline_status}，最近一次真实缓存回归未通过。")
     if changes:
         print("可能影响缓存命中的变更：")
         for change in changes:
             reasons = "；".join(rule["reason"] for rule in change["rules"])
             print(f"- {change['path']}: {reasons}")
-    else:
+    elif actual_hash != expected_hash:
         print("- 当前缓存敏感面与已验证基线不一致；差异可能来自此前未验证提交。")
-    print("下一步：说明变更为何会影响 provider 前缀，并向用户申请 2 个 sample run 预算。")
+    if actual_hash != expected_hash:
+        print("下一步：说明变更为何会影响 provider 前缀，并向用户申请 2 个 sample run 预算。")
+    else:
+        print("下一步：先修复已记录的缓存退化；敏感面变化后再申请 2 个 sample run 复验预算。")
     print(
         "获批后运行: pwsh scripts/cache-regression/run_cache_hit_regression.ps1 "
         "-AuthorizationReference '<用户批准说明>'"

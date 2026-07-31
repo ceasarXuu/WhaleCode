@@ -1,0 +1,57 @@
+{
+  "schema_version": "whalecode-cache-hit-regression-v1",
+  "status": "fail",
+  "started_at": "2026-07-31T12:11:02+08:00",
+  "subject_commit": "2185befc5864b6ea316e62ac4d074a726f1c48a7",
+  "surface_sha256": "9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc",
+  "authorization_reference": "用户于 2026-07-31 明确批准最多 2 个 sample；两次预检失败累计 0 sample/0 provider request，本次为唯一实际 Standard + map-request 各 1 次。",
+  "planned_sample_runs": 2,
+  "actual_sample_runs": 2,
+  "sample": "single-file-fast-fix",
+  "projection_policy": "map-request",
+  "credential_source": ".env.local",
+  "arms": [
+    {
+      "arm": "standard",
+      "logical_mode": "standard",
+      "provider_requests": 6,
+      "request_2_plus_count": 5,
+      "request_2_plus_hit_rate": 0.966213,
+      "trace_coverage": 1.0,
+      "cache_usage_missing_count": 0,
+      "input_tokens": 74308,
+      "cached_input_tokens": 61312,
+      "uncached_input_tokens": 12996,
+      "output_tokens": 1302,
+      "business_success": true,
+      "artifacts": {
+        "cache_summary": "/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-121102-CACHE-REGRESSION-03B04648/single-file-fast-fix/20260731-121102-884/pair-001/left/artifacts/provider-cache-trace-summary.json",
+        "request_summary": "/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-121102-CACHE-REGRESSION-03B04648/single-file-fast-fix/20260731-121102-884/pair-001/left/artifacts/request-summary.json",
+        "metrics": "/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-121102-CACHE-REGRESSION-03B04648/single-file-fast-fix/20260731-121102-884/pair-001/left/artifacts/metrics.json"
+      },
+      "passed": true
+    },
+    {
+      "arm": "map-request",
+      "logical_mode": "taskspace",
+      "provider_requests": 7,
+      "request_2_plus_count": 6,
+      "request_2_plus_hit_rate": 0.35785,
+      "trace_coverage": 1.0,
+      "cache_usage_missing_count": 0,
+      "input_tokens": 116522,
+      "cached_input_tokens": 44160,
+      "uncached_input_tokens": 72362,
+      "output_tokens": 2890,
+      "business_success": true,
+      "artifacts": {
+        "cache_summary": "/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-121102-CACHE-REGRESSION-03B04648/single-file-fast-fix/20260731-121102-884/pair-001/right/artifacts/provider-cache-trace-summary.json",
+        "request_summary": "/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-121102-CACHE-REGRESSION-03B04648/single-file-fast-fix/20260731-121102-884/pair-001/right/artifacts/request-summary.json",
+        "metrics": "/home/zhangxu/whalecode-alpha/target/cache-hit-regression/WAR-20260731-121102-CACHE-REGRESSION-03B04648/single-file-fast-fix/20260731-121102-884/pair-001/right/artifacts/metrics.json"
+      },
+      "passed": false
+    }
+  ],
+  "run_dir": "target/cache-hit-regression/WAR-20260731-121102-CACHE-REGRESSION-03B04648/single-file-fast-fix/20260731-121102-884",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260731-121102-CACHE-REGRESSION-03B04648.json"
+}

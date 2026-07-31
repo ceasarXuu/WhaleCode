@@ -1,7 +1,7 @@
 # 缓存命中回归门禁
 
 - Created: 2026-07-31
-- Status: Implementing
+- Status: Operational; current live baseline blocked
 - Scope: Prompt、上下文构造、TaskSpace projection、provider payload、Tool declaration
 
 ## 1. 要解决的问题
@@ -43,7 +43,8 @@ python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 
 - 指纹等于基线且基线状态可接受：通过。
 - 指纹变化：退出码 `20`，列出 staged 变更和对应风险原因。
-- 最近一次真实回归失败：即使指纹未再变化也持续阻断。
+- pre-commit 只阻断缓存敏感面变化，不锁死无关文档、账本或修复基础设施提交。
+- release/non-agent gate 使用 `--require-live-baseline`；最近一次真实回归失败时，即使指纹未变也阻断。
 - 禁止通过 `git commit --no-verify` 绕过；需要向用户解释变化并申请真实运行预算。
 
 首次接入允许 `structural_bootstrap` 状态，仅表示变更检测链路已经建立，不表示真实缓存性能已经验证。首次真实

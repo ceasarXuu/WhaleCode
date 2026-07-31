@@ -62,6 +62,11 @@ I09 提交索引：
 - 拒绝日志：`923e8c945`
 - 问题关闭与结果归档：`6cd61face`
 
+I02 当前缓存证据：
+
+- [缓存回归门禁首次验证](cache-regression/01-first-validation-result.md)：同一最简样本中 Standard request 2+
+  命中率为 96.62%，map-request 为 35.79%；两臂业务均通过，provider usage 覆盖率均为 100%。
+
 ## 4. 依赖与重评关系
 
 | 上游问题 | 关闭后必须重评 | 原因 |

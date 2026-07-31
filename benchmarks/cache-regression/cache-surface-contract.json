@@ -2,10 +2,10 @@
   "schema_version": "whalecode-cache-surface-v1",
   "baseline": {
     "surface_sha256": "9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc",
-    "status": "structural_bootstrap",
+    "status": "live_regression_failed",
     "source_commit": "6e492ea63",
-    "live_result_path": null,
-    "note": "当前值只建立变更检测基线；首次真实回归通过后升级为 live_verified。"
+    "live_result_path": "benchmarks/cache-regression/results/WAR-20260731-121102-CACHE-REGRESSION-03B04648.json",
+    "note": "最近一次已授权真实缓存回归未通过；修复并重新获批验证前保持阻断。"
   },
   "surface_rules": [
     {

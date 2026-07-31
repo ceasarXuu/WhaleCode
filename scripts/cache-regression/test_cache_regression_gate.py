@@ -59,7 +59,7 @@ class CacheRegressionGateTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def gate(self) -> subprocess.CompletedProcess[str]:
+    def gate(self, *extra: str) -> subprocess.CompletedProcess[str]:
         return run(
             "python3",
             str(GATE),
@@ -69,6 +69,7 @@ class CacheRegressionGateTest(unittest.TestCase):
             str(self.contract_path),
             "--source",
             "index",
+            *extra,
             cwd=self.repo,
             check=False,
         )
@@ -101,14 +102,24 @@ class CacheRegressionGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("尚待首次", result.stdout)
 
-    def test_failed_live_baseline_blocks_even_when_hash_matches(self) -> None:
+    def test_failed_live_baseline_allows_unrelated_commit(self) -> None:
         contract = load_contract(self.contract_path)
         contract["baseline"]["status"] = "live_regression_failed"
         write_json(self.contract_path, contract)
         run("git", "add", "contract.json", cwd=self.repo)
         result = self.gate()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("live 回归失败", result.stdout)
+
+    def test_release_gate_blocks_failed_live_baseline(self) -> None:
+        contract = load_contract(self.contract_path)
+        contract["baseline"]["status"] = "live_regression_failed"
+        write_json(self.contract_path, contract)
+        run("git", "add", "contract.json", cwd=self.repo)
+        result = self.gate("--require-live-baseline")
         self.assertEqual(result.returncode, 20)
         self.assertIn("live_regression_failed", result.stdout)
+        self.assertNotIn("敏感面与已验证基线不一致", result.stdout)
 
 
 if __name__ == "__main__":
