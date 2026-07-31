@@ -1579,6 +1579,10 @@ impl ProviderRequestHardLimit {
         }
     }
 
+    fn is_enabled(&self) -> bool {
+        self.limit.is_some() && self.configuration_error.is_none()
+    }
+
     fn claim(&self, route: &str) -> Result<()> {
         if let Some(error) = &self.configuration_error {
             warn!(
@@ -1608,6 +1612,17 @@ impl ProviderRequestHardLimit {
 fn process_provider_request_hard_limit() -> Arc<ProviderRequestHardLimit> {
     static LIMIT: OnceLock<Arc<ProviderRequestHardLimit>> = OnceLock::new();
     Arc::clone(LIMIT.get_or_init(|| Arc::new(ProviderRequestHardLimit::from_env())))
+}
+
+fn apply_provider_request_hard_limit_retry_policy(
+    provider_info: &mut ModelProviderInfo,
+    hard_limit: &ProviderRequestHardLimit,
+) {
+    if hard_limit.is_enabled() {
+        // A hard request budget must count real transports, not logical calls hiding retries.
+        provider_info.request_max_retries = Some(0);
+        provider_info.stream_max_retries = Some(0);
+    }
 }
 
 /// Session-scoped state shared by all [`ModelClient`] clones.
@@ -1765,13 +1780,18 @@ impl ModelClient {
         auth_manager: Option<Arc<AuthManager>>,
         conversation_id: ThreadId,
         installation_id: String,
-        provider_info: ModelProviderInfo,
+        mut provider_info: ModelProviderInfo,
         session_source: SessionSource,
         model_verbosity: Option<VerbosityConfig>,
         enable_request_compression: bool,
         include_timing_metrics: bool,
         beta_features_header: Option<String>,
     ) -> Self {
+        let provider_request_hard_limit = process_provider_request_hard_limit();
+        apply_provider_request_hard_limit_retry_policy(
+            &mut provider_info,
+            provider_request_hard_limit.as_ref(),
+        );
         let model_provider = create_model_provider(provider_info, auth_manager);
         let codex_api_key_env_enabled = model_provider
             .auth_manager()
@@ -1794,7 +1814,7 @@ impl ModelClient {
                 disable_websockets: AtomicBool::new(false),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
                 provider_wire_trace: ProviderWireTrace::from_env(),
-                provider_request_hard_limit: process_provider_request_hard_limit(),
+                provider_request_hard_limit,
             }),
         }
     }
@@ -2858,13 +2878,13 @@ impl ModelClientSession {
             if warmup {
                 ws_payload.generate = Some(false);
             }
+            self.client
+                .state
+                .provider_request_hard_limit
+                .claim(RESPONSES_ENDPOINT)?;
             let budget_dispatch = if warmup {
                 ProviderRequestBudgetDispatch::disabled()
             } else {
-                self.client
-                    .state
-                    .provider_request_hard_limit
-                    .claim(RESPONSES_ENDPOINT)?;
                 provider_request_budget.before_dispatch("responses_websocket")?
             };
             let provider_wire_api = client_setup.api_provider.wire_api;

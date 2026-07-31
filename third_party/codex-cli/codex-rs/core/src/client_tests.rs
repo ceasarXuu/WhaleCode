@@ -14,6 +14,7 @@ use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
 use super::apply_projection_identity_expectation;
+use super::apply_provider_request_hard_limit_retry_policy;
 use super::provider_payload_digest;
 use codex_api::ToolChoice;
 use codex_app_server_protocol::AuthMode;
@@ -88,6 +89,18 @@ fn model_clients_share_one_process_provider_request_hard_limit() {
         &first.state.provider_request_hard_limit,
         &second.state.provider_request_hard_limit,
     ));
+}
+
+#[test]
+fn enabled_provider_request_hard_limit_disables_hidden_transport_retries() {
+    let limit = ProviderRequestHardLimit::with_limit(2);
+    let mut provider =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+    provider.request_max_retries = Some(9);
+    provider.stream_max_retries = Some(7);
+    apply_provider_request_hard_limit_retry_policy(&mut provider, &limit);
+    assert_eq!(provider.request_max_retries, Some(0));
+    assert_eq!(provider.stream_max_retries, Some(0));
 }
 
 fn test_model_info() -> ModelInfo {
