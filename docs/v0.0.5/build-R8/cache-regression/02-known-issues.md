@@ -79,6 +79,11 @@ details 缺失及类型错误解码行为。完整 `codex-api` 共 134 个测试
 Tool 集合与 `tool_choice` 有直接断言，已知消息插入可被发现。定向测试通过，未运行真实 Whale Agent。CR-I05
 仍需 CR-13 至 CR-17 的 TaskSpace 与条件入口场景，因此保持 open。
 
+提交 `2dd70fe75` 完成 CR-13：同一确定性任务分别通过 map-always、map-append、map-request 的生产 Session 生成
+两次完整 final-wire 请求。对应请求的 Tool 集合和 `tool_choice` 必须逐值一致；map-always 每次只携带当前
+projection，map-append 的第二次请求保留两版 projection，map-request 默认不注入 projection。三臂快照连续复跑
+稳定，定向测试 `4 passed; 0 failed`，未运行真实 Whale Agent。CR-I05 仍需 CR-14 至 CR-17 的条件入口场景。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
