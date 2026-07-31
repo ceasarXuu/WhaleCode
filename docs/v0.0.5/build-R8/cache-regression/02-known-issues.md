@@ -89,6 +89,11 @@ final-wire 进入独立快照。两组请求各仅包含一个权限区块；精
 Tool schema 等其他上下文没有被权限 fixture 意外改变。连续两轮稳定复跑及全部 5 个缓存合同测试通过，未运行
 真实 Whale Agent。CR-I05 仍需 CR-15 至 CR-17 的 Skill、Apps/Plugins 与 MCP 条件入口场景。
 
+提交 `d43941d2f` 完成 CR-15：显式选择隔离测试 home 中安装的 bundled `skill-creator`，实际 `SKILL.md` 内容和
+归一化路径进入两次生产 final-wire 请求。选择 Skill 会新增一条独立 user message，并在后续请求中按自然历史
+保留；移除该明确消息后，有/无 Skill 两组 wire 完全一致。连续两轮稳定复跑及全部 6 个缓存合同测试通过，未运行
+真实 Whale Agent。CR-I05 仍需 CR-16、CR-17 的 Apps/Plugins 与 MCP 条件入口场景。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
