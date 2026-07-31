@@ -250,11 +250,30 @@ try {
             )
         } else {
             $controlArgs = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"task"},"work_nodes":[{"node_id":"work","goal":"work"}],"finish":{"node_id":"finish","goal":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"actions":[{"node_id":"work","tool":"exec_command"}]}'
+            $controlOutput = [ordered]@{
+                schema_version = "TaskSpaceResponseCommitV1"
+                status = "accepted"
+                success = $true
+                state_commit = $true
+                map_id = "map-$arm"
+                action = "initialize_and_execute"
+                revision_before = 0
+                revision_after = 1
+                reserved_actions = @(
+                    [ordered]@{
+                        call_index = 0
+                        call_id = "$arm-tool"
+                        node_id = "work"
+                        tool = "exec_command"
+                        reservation_id = "reservation:$arm-tool"
+                    }
+                )
+            } | ConvertTo-Json -Compress -Depth 10
             Write-JsonLines (Join-Path $artifactDir "rollout.jsonl") @(
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "$arm-control"; rawPayload = @{ name = "taskspace_control"; arguments = $controlArgs } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "$arm-tool"; rawPayload = @{ name = "exec_command"; arguments = '{"cmd":"true"}' } } },
                 (New-TokenBoundary "$sample-$repeat-$arm-1"),
-                @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-control"; toolSuccess = $true; rawPayload = @{ output = '{"success":true,"state_commit":true}' } } },
+                @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-control"; toolSuccess = $true; rawPayload = @{ output = $controlOutput } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-tool"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; originalRole = "developer"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = '{"schema_version":"TaskSpaceResponseFinalReceiptV1"}' }) } } },
                 (New-TokenBoundary "$sample-$repeat-$arm-2")
