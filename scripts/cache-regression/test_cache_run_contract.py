@@ -205,6 +205,11 @@ class CacheRunContractTest(unittest.TestCase):
             "[string]$ProviderRequestHardLimit",
             source,
         )
+        self.assertIn(
+            '$childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH"] = '
+            '"/artifacts/provider-request-hard-limit.count"',
+            source,
+        )
 
 
 if __name__ == "__main__":

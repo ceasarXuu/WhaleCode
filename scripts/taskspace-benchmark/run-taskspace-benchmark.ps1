@@ -513,6 +513,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             }
             if ($ProviderRequestHardLimit -gt 0) {
                 $childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT"] = [string]$ProviderRequestHardLimit
+                $childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH"] = "/artifacts/provider-request-hard-limit.count"
             }
             if ($side.LogicalMode -eq "taskspace") {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
