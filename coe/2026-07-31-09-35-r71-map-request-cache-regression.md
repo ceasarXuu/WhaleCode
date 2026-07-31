@@ -1,7 +1,7 @@
 # Problem P-001: R7.1 map-request 缓存命中率回归
 - Status: open
 - Created: 2026-07-31 09:35
-- Updated: 2026-07-31 10:22
+- Updated: 2026-07-31 10:35
 - Objective: 用最多三次用户授权的 Whale Agent sample，证明 map-request request 2+ 缓存命中率从约 92% 降至约 41% 的根因。
 - Symptoms:
   - 当前 `subscription-billing-repair` map-request 单次运行共 18 个 provider request，request 2+ 缓存命中率仅 41.00%。
@@ -32,11 +32,15 @@
 - Fix criteria:
   - 至少一个根因假设通过相同 provider 条件下的历史边界对照和逐请求 wire/cache 信号证实。
   - 修复前必须能解释回归前高命中、回归后间歇性低命中，以及 map-append 严格前缀下也曾出现间歇失效。
-- Current conclusion: 同版本单变量消融确认独立 developer/system Final Receipt carrier 是缓存回归的因果因素，但不是全部低命中的唯一因素。仅停止该 carrier 后，request 2+ cache 从 33.60% 升至 60.52%，uncached input 下降 23.52%，且业务与隐藏 oracle 保持通过；消融臂仍存在的 4 条 system message 已逐条归因到 1 次 sequence preflight failure 和 3 次 state rejection 的额外 developer 副本，属于既有 R71-01/R71-09 反馈 carrier 问题。
+- Current conclusion: 完整根因是反馈层的 out-of-band dynamic factual carrier。TaskSpace 已通过原生 Tool result
+  返回的动态事实，又被 `factual_message` 或独立 Final Receipt 复制成 developer 消息；DeepSeek wire
+  将它们表达为对话中段 system，从该边界开始只能命中较短缓存前缀。Final Receipt、sequence preflight
+  failure 和 state rejection 不是三个独立缓存根因，而是同一错误 carrier 抽象的三个实例。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
   - 根因证据门已满足；生产修复和修复后复验尚未执行，因此 P-001 保持 open。
 - Close reason:
@@ -135,7 +139,7 @@
   - none
 
 ## Hypothesis H-003: 当前额外反馈与拒绝请求只放大而不触发回归
-- Status: confirmed
+- Status: refuted
 - Parent: P-001
 - Claim: 当前更大的 control feedback、协议拒绝和状态拒绝增加未缓存 token 与请求数，但不是缓存率从约 92% 降至约 41% 的首要触发因素。
 - Layer: interaction
@@ -173,9 +177,69 @@
   - E-004
   - E-006
   - E-007
-- Conclusion: confirmed。post 臂无新增 receipt 的稳定段即使历史中已有失败反馈也可恢复高命中；current 在唯一 state rejection 之前已经连续低命中。拒绝会增加请求和 token，但不是缓存回归触发器。
-- Repair design readiness: not applicable
-- Next step: 反馈与拒绝成本继续由各自 Phase 处理，不并入 R71-11 carrier 修复。
+- Conclusion: refuted in its broad form。拒绝动作会放大请求数，但其结果被额外复制成 developer/system
+  carrier 时，也会直接触发缓存下降；原生 Tool result 本身不是该缓存触发器。
+- Repair design readiness: superseded by H-004
+- Next step: 将失败反馈与 Final Receipt 统一按 H-004 的 carrier 边界审视，但保留 R71-01、R71-09、
+  R71-11 的原子实施边界。
+- Blocker:
+  - none
+
+## Hypothesis H-004: out-of-band dynamic factual carrier 是完整缓存根因
+- Status: confirmed
+- Parent: P-001
+- Claim: 任何已经存在于原生 Tool result 的 TaskSpace 动态事实，只要再以独立 developer message
+  插入自然历史，就会在 DeepSeek wire 中形成中途 system 边界并破坏后续缓存；动态事实的具体 schema
+  不是决定因素。
+- Layer: root-cause
+- Factor relation: unifies
+- Depends on:
+  - H-001
+  - H-003
+- Rationale:
+  - pre-receipt 90%+ 版本与当前版本的固定 Base、Protocol 和 Tools 大小接近，结构性差异集中在动态
+    developer/system carrier。
+- Falsifiable predictions:
+  - If true: 没有动态 developer/system 插入的请求段应恢复 90%+；每次插入后下一请求应立即下降；
+    system 内容应与已存在的 Tool output 内容 hash 相同。
+  - If false: 固定 system/tool schema 差异足以解释下降，或没有新增 developer/system 的当前请求仍
+    持续低命中。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 比较 pre-receipt 90%+ 与当前 receipt-ablation 的逐请求 role
+    sequence、固定 section 大小、content hash 和 cache hit。
+  - Signal: system count、developer event、Tool/system content SHA-256、request 2+ hit。
+  - Capture method: 复用 retained provider wire 和 rollout，不新增 Agent run。
+  - Event name or marker:
+    - `TaskSpaceResponseFinalReceiptV1`
+    - `ToolSequencePreflightResultV3`
+    - `TaskSpaceResponseCommitFailureV3`
+  - Correlation keys:
+    - model request index
+    - message index
+    - content SHA-256
+  - Differentiates from:
+    - H-002
+    - 固定 L1/L2/Tool schema 成本
+  - Supports if:
+    - 历史臂 system 始终为 2；当前无新增 carrier 的请求恢复 90%+；新增 system 与 Tool output
+      content hash 精确相同。
+  - Refutes if:
+    - 当前无 carrier 请求仍低于历史臂，或新增 system 不是 Tool 事实副本。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - 永久保留 provider wire role、message hash 和 section trace。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+  - E-010
+  - E-011
+  - E-012
+- Conclusion: confirmed。固定 prompt 增量不足 1.3%，无法解释缓存下降；动态 out-of-band carrier 的
+  插入与恢复逐请求一一对应，并且 failure system 内容 hash 与先前 Tool outputs 精确相同。
+- Repair design readiness: ready for user-confirmed design
+- Next step: 设计统一 carrier 修复，确保事实只保留在原生 Tool result；R71-10 先保证 canonical final
+  revision 不丢失，再按 R71-01/R71-09/R71-11 分块实施。
 - Blocker:
   - none
 
@@ -443,3 +507,37 @@
 - Interpretation: 失败结果已作为原生 Tool output 出现，又被复制成独立 developer/system message；这是
   R71-01/R71-09 已登记问题的缓存成本，不应通过 projection 或 provider 波动解释。
 - Time: 2026-07-31 10:22
+
+## Evidence E-012: 90%+ 与当前 prompt 结构对比确认共同 carrier 根因
+- Related hypotheses:
+  - H-003
+  - H-004
+- Direction: refutes H-003; supports H-004
+- Type: retained-trace-comparison
+- Source: pre-receipt 与 current carrier-ablation provider wire/rollout
+- Prediction or plan link:
+  - H-004 的 role sequence、固定 section 和 content hash 预测。
+- Matched signal:
+  - 两臂 Base Instructions 完全相同：version `2.0.1`、4,792 estimated tokens、相同 SHA-256。
+  - Core Protocol 从 818 增到 904 estimated tokens，Tools 从 6,706 增到 6,792，增量均约 86
+    tokens，不足 1.3%。
+  - pre-receipt 的 11 次请求始终只有 2 条 system；request 3～11 命中率为 83.25%～95.14%。
+  - current ablation 在没有新增 system 的 request 2、9、10 分别命中 91.57%、95.32%、92.63%。
+  - current 的 request 3、4、6、8 分别新增第 1～4 条动态 system，命中率立即降到
+    38.76%、35.65%、28.91%、23.50%。
+  - 每条新增 system 的 content SHA-256 与同一事实此前所有受影响 Tool outputs 完全相同。
+- Correlation keys:
+  - pre run `20260731-094545-239`
+  - ablation run `20260731-101630-243`
+  - commit `787070d887`
+- Raw content:
+  ```text
+  pre roles: system,system,(user/assistant/tool natural append only)
+  current failure roles: ...,tool[,tool],system,user
+  current stable cache: req2 91.57%, req9 95.32%, req10 92.63%
+  current carrier cache: req3 38.76%, req4 35.65%, req6 28.91%, req8 23.50%
+  ```
+- Interpretation: prompt 的固定内容变化不是根因。回归由动态 Tool 事实被重复提升为 developer/system
+  carrier 引起；`787070d887` 将该模式扩展到 provider-response failure，`445499582` 将同一模式用于
+  Final Receipt。
+- Time: 2026-07-31 10:35
