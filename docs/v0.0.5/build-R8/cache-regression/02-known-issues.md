@@ -110,6 +110,10 @@ Responses 原生 namespace；Plugin 只增加对应 Skill/Plugin 上下文，普
 标签；fixture 明确绑定 `model_provider_id=deepseek`，最终 body 继续冻结 `deepseek-v4-flash`。默认配置、DeepSeek
 provider 路由、Flash 可见性及 Pro 无法被远端目录重新启用的定向测试全部通过。CR-I06 现关闭。
 
+提交 `55900ac18` 完成 CR-19：生产本地压缩链路的压缩前、摘要请求和压缩后请求进入完整 final-wire 合同。摘要
+回合不暴露执行工具；后续正常请求恢复原工具与控制字段，并以带标准前缀的摘要替换旧 assistant 原文，同时保留
+原用户事实和新输入。连续两轮定向测试及 9 项缓存场景回归通过，未运行真实 Whale Agent。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
