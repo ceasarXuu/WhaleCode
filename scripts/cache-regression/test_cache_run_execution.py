@@ -21,7 +21,11 @@ from run_cache_hit_regression import (
     main,
     persist_observation_artifacts,
 )
-from cache_process_control import BenchmarkTimeoutError, run_benchmark_command
+from cache_process_control import (
+    BenchmarkTimeoutError,
+    _terminate_process_tree,
+    run_benchmark_command,
+)
 
 
 class CacheRunExecutionTest(unittest.TestCase):
@@ -290,29 +294,46 @@ class CacheRunExecutionTest(unittest.TestCase):
             1,
         ]
         process.returncode = 1
-        taskkill = subprocess.CompletedProcess(
-            ["taskkill", "/PID", "456", "/T", "/F"], 0, "", ""
-        )
+        job = unittest.mock.Mock()
         with (
             patch("cache_process_control.os.name", "nt"),
             patch("cache_process_control.subprocess.Popen", return_value=process) as popen,
-            patch("cache_process_control.subprocess.run", return_value=taskkill) as run,
+            patch("cache_process_control._new_windows_job", return_value=job),
         ):
             with self.assertRaises(BenchmarkTimeoutError) as raised:
                 run_benchmark_command(["pwsh", "runner.ps1"], self.repo, 10)
         self.assertEqual(
             raised.exception.process_tree_termination["status"], "terminated"
         )
-        run.assert_called_once_with(
-            ["taskkill", "/PID", "456", "/T", "/F"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
+        self.assertEqual(
+            raised.exception.process_tree_termination["method"],
+            "windows_job_object",
         )
+        self.assertTrue(
+            raised.exception.process_tree_termination[
+                "descendants_guaranteed_terminated"
+            ]
+        )
+        job.assign.assert_called_once_with(process)
+        job.close.assert_called()
         self.assertIn("creationflags", popen.call_args.kwargs)
         process.terminate.assert_not_called()
         process.kill.assert_not_called()
+
+    def test_windows_taskkill_fallback_never_accepts_parent_exit_as_tree_proof(self) -> None:
+        process = unittest.mock.Mock()
+        process.pid = 789
+        process.poll.side_effect = [None, 1]
+        failed = subprocess.CompletedProcess(
+            ["taskkill", "/PID", "789", "/T", "/F"], 128, "", "not found"
+        )
+        with (
+            patch("cache_process_control.os.name", "nt"),
+            patch("cache_process_control.subprocess.run", return_value=failed),
+        ):
+            result = _terminate_process_tree(process)
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["descendants_guaranteed_terminated"])
 
     def test_cleanup_catches_container_that_appears_after_first_empty_poll(self) -> None:
         completed = [

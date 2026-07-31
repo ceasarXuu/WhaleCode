@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cache_windows_job import WindowsKillOnCloseJob
+
 
 CLEANUP_SUCCESS_STATUSES = frozenset({"verified_absent", "removed_verified"})
 CLEANUP_STABLE_EMPTY_POLLS = 3
@@ -31,7 +33,30 @@ def cleanup_verified(result: dict[str, Any]) -> bool:
     )
 
 
-def _terminate_process_tree(process: subprocess.Popen[Any]) -> dict[str, Any]:
+def _new_windows_job() -> WindowsKillOnCloseJob:
+    return WindowsKillOnCloseJob()
+
+
+def _terminate_process_tree(
+    process: subprocess.Popen[Any], windows_job: WindowsKillOnCloseJob | None = None
+) -> dict[str, Any]:
+    if windows_job is not None:
+        try:
+            windows_job.close()
+            process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
+            return {
+                "status": "terminated",
+                "exit_code": process.returncode,
+                "method": "windows_job_object",
+                "descendants_guaranteed_terminated": True,
+            }
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return {
+                "status": "failed",
+                "method": "windows_job_object",
+                "descendants_guaranteed_terminated": False,
+                "error": f"{type(error).__name__}: {error}",
+            }
     if process.poll() is not None:
         return {"status": "already_exited", "exit_code": process.returncode}
     try:
@@ -45,14 +70,21 @@ def _terminate_process_tree(process: subprocess.Popen[Any]) -> dict[str, Any]:
                 text=True,
                 timeout=PROCESS_GROUP_TERMINATION_SECONDS,
             )
-            if terminated.returncode != 0 and process.poll() is None:
+            if terminated.returncode != 0:
                 return {
                     "status": "failed",
+                    "method": "taskkill_fallback",
+                    "descendants_guaranteed_terminated": False,
                     "error": terminated.stderr.strip() or "taskkill failed",
                 }
         try:
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
-            return {"status": "terminated", "exit_code": process.returncode}
+            return {
+                "status": "terminated",
+                "exit_code": process.returncode,
+                "method": "posix_process_group" if os.name == "posix" else "taskkill_fallback",
+                "descendants_guaranteed_terminated": True,
+            }
         except subprocess.TimeoutExpired:
             if os.name == "posix":
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
@@ -80,15 +112,26 @@ def run_benchmark_command(
             else 0
         ),
     )
+    windows_job = None
+    if os.name == "nt":
+        try:
+            windows_job = _new_windows_job()
+            windows_job.assign(process)
+        except OSError:
+            _terminate_process_tree(process, windows_job)
+            raise
     try:
         return_code = process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as error:
         raise BenchmarkTimeoutError(
-            command, timeout_seconds, _terminate_process_tree(process)
+            command, timeout_seconds, _terminate_process_tree(process, windows_job)
         ) from error
     except KeyboardInterrupt as error:
-        error.process_tree_termination = _terminate_process_tree(process)
+        error.process_tree_termination = _terminate_process_tree(process, windows_job)
         raise
+    finally:
+        if windows_job is not None and process.poll() is not None:
+            windows_job.close()
     return subprocess.CompletedProcess(command, return_code)
 
 
