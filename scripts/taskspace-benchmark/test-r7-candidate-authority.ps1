@@ -92,9 +92,22 @@ try {
         -ExpectedBinarySha256 $binarySha `
         -ExpectedSourceCommit $commit `
         -RepoRoot $repoRoot
-    if ([string]$dirty.status -ne "invalid" -or
-        [string]$dirty.reason -notmatch "git_build_identity_mismatch") {
-        throw "Dirty current worktree reused a clean binary attestation"
+    if ([string]$dirty.status -ne "pass") {
+        throw "Unrelated worktree evidence invalidated Codex binary provenance"
+    }
+    [IO.File]::WriteAllText(
+        (Join-Path $repoRoot "third_party/codex-cli/source.txt"),
+        "dirty source`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    $codexDirty = Get-TaskspaceWhaleBinaryAttestation `
+        -WhaleBin $binaryPath `
+        -ExpectedBinarySha256 $binarySha `
+        -ExpectedSourceCommit $commit `
+        -RepoRoot $repoRoot
+    if ([string]$codexDirty.status -ne "invalid" -or
+        [string]$codexDirty.reason -notmatch "git_build_identity_mismatch") {
+        throw "Dirty Codex source reused a clean binary attestation"
     }
     Write-Output "R7 candidate authority passed."
 } finally {

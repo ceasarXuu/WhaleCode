@@ -7,7 +7,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from run_cache_hit_regression import analyze_arm, arm_passes, record_failed_baseline
+from run_cache_hit_regression import (
+    analyze_arm,
+    arm_passes,
+    record_failed_baseline,
+    should_record_failed_baseline,
+)
 
 
 class CacheHitRegressionAnalysisTest(unittest.TestCase):
@@ -136,6 +141,18 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             saved = json.loads(contract_path.read_text(encoding="utf-8"))
             self.assertEqual(saved["baseline"]["status"], "live_regression_failed")
             self.assertEqual(saved["baseline"]["surface_sha256"], "abc")
+
+    def test_preflight_failure_does_not_poison_live_baseline(self) -> None:
+        self.assertFalse(
+            should_record_failed_baseline(
+                {"status": "fail", "actual_sample_runs": 0}
+            )
+        )
+        self.assertTrue(
+            should_record_failed_baseline(
+                {"status": "fail", "actual_sample_runs": 1}
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -265,6 +265,9 @@ function Get-TaskspaceGitBuildIdentity {
     $headTree = ((& git -C $RepoRoot rev-parse "HEAD^{tree}" 2>$null) | Select-Object -First 1).Trim()
     $codexTree = ((& git -C $RepoRoot rev-parse "HEAD:third_party/codex-cli" 2>$null) | Select-Object -First 1).Trim()
     $dirty = @(& git -C $RepoRoot status --porcelain --untracked-files=all 2>$null)
+    $codexDirty = @(
+        & git -C $RepoRoot status --porcelain --untracked-files=all -- third_party/codex-cli 2>$null
+    )
     if ($LASTEXITCODE -ne 0 -or
         $head -notmatch '^[0-9a-f]{40,64}$' -or
         $headTree -notmatch '^[0-9a-f]{40,64}$' -or
@@ -276,7 +279,9 @@ function Get-TaskspaceGitBuildIdentity {
         head_tree_id = $headTree
         codex_tree_id = $codexTree
         worktree_clean = $dirty.Count -eq 0
+        codex_worktree_clean = $codexDirty.Count -eq 0
         dirty_paths = @($dirty)
+        codex_dirty_paths = @($codexDirty)
     }
 }
 
@@ -317,10 +322,8 @@ function Get-TaskspaceWhaleBinaryAttestation {
     $statusMatches = [string]$marker.status -eq "pass"
     $gitIdentity = try { Get-TaskspaceGitBuildIdentity $RepoRoot } catch { $null }
     $gitMatches = $null -ne $gitIdentity -and
-        [bool]$gitIdentity.worktree_clean -and
+        [bool]$gitIdentity.codex_worktree_clean -and
         [bool]$marker.worktree_clean -and
-        [string]$marker.current_git_head -eq [string]$gitIdentity.current_git_head -and
-        [string]$marker.head_tree_id -eq [string]$gitIdentity.head_tree_id -and
         [string]$marker.codex_tree_id -eq [string]$gitIdentity.codex_tree_id
     $buildCommandMatches = -not [string]::IsNullOrWhiteSpace([string]$marker.build_command)
     $probe = try { Get-TaskspaceWhaleVersionProbe $WhaleBin } catch { $null }

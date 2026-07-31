@@ -101,6 +101,10 @@ def record_failed_baseline(
     write_json(contract_path, contract)
 
 
+def should_record_failed_baseline(result: dict[str, Any]) -> bool:
+    return result["status"] != "pass" and result["actual_sample_runs"] > 0
+
+
 def planned_entry(
     record_id: str,
     contract: dict[str, Any],
@@ -317,7 +321,7 @@ def main() -> int:
     result_path = result_dir / f"{record_id}.json"
     result["result_path"] = str(result_path.relative_to(repo))
     write_json(result_path, result)
-    if result["status"] != "pass":
+    if should_record_failed_baseline(result):
         record_failed_baseline(contract_path, contract, result)
     settle_entry(entry, result, started, run_exit)
     ledger["updated_at"] = now()
