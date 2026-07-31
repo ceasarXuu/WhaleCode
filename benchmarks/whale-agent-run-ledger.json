@@ -1,0 +1,75 @@
+{
+  "schema_version": "whale-agent-run-ledger-v1",
+  "updated_at": "2026-07-31T08:44:49+08:00",
+  "entries": [
+    {
+      "record_id": "WAR-20260730-W0-RETRO-001",
+      "record_type": "historical_aggregate",
+      "status": "settled",
+      "started_at": "2026-07-30T04:50:33.2456092+08:00",
+      "ended_at": "2026-07-30T15:05:31.2377825+08:00",
+      "elapsed_calendar_seconds": 36898,
+      "aggregate_agent_wall_time_ms": 19002052,
+      "reason": "R7.1 W0 事实基础阶段在 benchmark、provenance 和观测修复后反复执行完整四臂矩阵。",
+      "authorization": {
+        "required": true,
+        "status": "not_obtained",
+        "reference": null,
+        "budget_summary": null,
+        "note": "历史回填。运行时未取得逐轮大规模付费运行授权，已作为流程事故确认。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 14,
+        "sample_ids": [
+          "single-file-fast-fix",
+          "subscription-billing-repair"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-always",
+          "map-append",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 3,
+        "planned_sample_runs": 336,
+        "actual_sample_runs": 336,
+        "api_requests": 4873
+      },
+      "tokens": {
+        "input": 112826378,
+        "cached_input": 52174592,
+        "uncached_input": 60651786,
+        "output": 1939461
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 65.5742,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 1.043492,
+          "uncached_input": 60.651786,
+          "output": 3.878922
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-07-31T08:44:49+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*0.02 + uncached_input/1e6*1.0 + output/1e6*2.0",
+        "note": "根据官方价格快照回溯估算，不等同于 DeepSeek 账户账单实扣金额。"
+      },
+      "evidence": {
+        "manifest_root": "target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1",
+        "execution_root": "target/r7-five-layer-eval-data",
+        "completed_matrix_count": 14,
+        "source": "本地 completed run-manifest.json 与每个实际执行侧 metrics.json 的聚合审计"
+      }
+    }
+  ]
+}
