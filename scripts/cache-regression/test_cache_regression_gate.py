@@ -29,6 +29,11 @@ class CacheRegressionGateTest(unittest.TestCase):
         (self.repo / "prompt").mkdir()
         (self.repo / "prompt/base.md").write_text("stable\n", encoding="utf-8")
         (self.repo / "ordinary.txt").write_text("ordinary\n", encoding="utf-8")
+        policy_path = self.repo / "scripts/cache-regression"
+        policy_path.mkdir(parents=True)
+        (policy_path / "check_cache_regression_gate.py").write_text(
+            "# fixture policy\n", encoding="utf-8"
+        )
         self.contract_path = self.repo / "contract.json"
         contract = {
             "schema_version": "whalecode-cache-surface-v1",
@@ -155,6 +160,41 @@ class CacheRegressionGateTest(unittest.TestCase):
         result = self.gate_from_source("head")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_policy_and_baseline_change_cannot_self_authorize(self) -> None:
+        policy_path = self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        policy_path.write_text("# changed policy\n", encoding="utf-8")
+        contract = load_contract(self.contract_path)
+        contract["baseline"]["status"] = "live_verified"
+        write_json(self.contract_path, contract)
+        run("git", "add", "scripts", "contract.json", cwd=self.repo)
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("门禁政策与基线不能在同一提交中变更", result.stdout)
+
+    def test_contract_policy_change_can_land_without_promotion(self) -> None:
+        contract = load_contract(self.contract_path)
+        contract["surface_rules"] = []
+        write_json(self.contract_path, contract)
+        run("git", "add", "contract.json", cwd=self.repo)
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("待验证政策变更", result.stdout)
+
+    def test_policy_change_cannot_include_sensitive_product_change(self) -> None:
+        policy_path = self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        policy_path.write_text("# changed policy\n", encoding="utf-8")
+        (self.repo / "prompt/base.md").write_text("changed\n", encoding="utf-8")
+        run("git", "add", "scripts", "prompt/base.md", cwd=self.repo)
+
+        result = self.gate()
+
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("门禁政策变更必须与缓存敏感产品变更分开提交", result.stdout)
 
 
 if __name__ == "__main__":

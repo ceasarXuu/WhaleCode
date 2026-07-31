@@ -11,6 +11,19 @@ from pathlib import Path
 from typing import Any
 
 
+CACHE_CONTROL_PLANE_PATHS = frozenset(
+    {
+        ".githooks/pre-commit",
+        "scripts/cache-regression/cache_surface.py",
+        "scripts/cache-regression/check_cache_regression_gate.py",
+        "scripts/cache-regression/promote_cache_baseline.py",
+        "scripts/cache-regression/run_cache_hit_regression.py",
+        "scripts/cache-regression/run_cache_hit_regression.ps1",
+        "scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1",
+    }
+)
+
+
 def run_git(repo: Path, *args: str, text: bool = False) -> bytes | str:
     result = subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -54,6 +67,46 @@ def source_matches_worktree(repo: Path, path: Path, source: str) -> bool:
     return read_content(repo, relative_path, source) == read_content(
         repo, relative_path, "worktree"
     )
+
+
+def changed_paths(repo: Path, source: str) -> list[str]:
+    if source == "index":
+        raw = run_git(
+            repo, "diff", "--cached", "--name-only", "--diff-filter=ACMRD", "-z", "HEAD"
+        )
+    elif source == "worktree":
+        raw = run_git(repo, "diff", "--name-only", "--diff-filter=ACMRD", "-z", "HEAD")
+    elif source == "head":
+        return []
+    else:
+        raise ValueError(f"unknown source: {source}")
+    return sorted(item.decode() for item in raw.split(b"\0") if item)
+
+
+def control_plane_change_summary(
+    repo: Path,
+    contract_path: Path,
+    source: str,
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    paths = changed_paths(repo, source)
+    policy_changes = sorted(path for path in paths if path in CACHE_CONTROL_PLANE_PATHS)
+    contract_relative_path = repository_relative_path(repo, contract_path)
+    contract_policy_changed = False
+    baseline_changed = False
+    if contract_relative_path in paths:
+        previous = load_contract_from_source(repo, contract_path, "head")
+        contract_policy_changed = {
+            key: value for key, value in contract.items() if key != "baseline"
+        } != {key: value for key, value in previous.items() if key != "baseline"}
+        baseline_changed = contract.get("baseline") != previous.get("baseline")
+        if contract_policy_changed:
+            policy_changes.append(f"{contract_relative_path}#policy")
+    return {
+        "policy_changes": policy_changes,
+        "contract_policy_changed": contract_policy_changed,
+        "baseline_changed": baseline_changed,
+    }
 
 
 def matching_rules(path: str, contract: dict[str, Any]) -> list[dict[str, Any]]:

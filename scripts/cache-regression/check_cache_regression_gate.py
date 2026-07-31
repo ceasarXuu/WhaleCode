@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from cache_surface import (
+    control_plane_change_summary,
     load_contract_from_source,
     source_matches_worktree,
     staged_sensitive_changes,
@@ -40,11 +41,26 @@ def main() -> int:
     actual_hash, entries = surface_snapshot(repo, contract, args.source)
     expected_hash = contract["baseline"]["surface_sha256"]
     changes = staged_sensitive_changes(repo, contract) if args.source == "index" else []
+    control_plane = control_plane_change_summary(
+        repo, contract_path, args.source, contract
+    )
+    policy_changes = control_plane["policy_changes"]
+    baseline_changed = control_plane["baseline_changed"]
+    policy_baseline_conflict = bool(policy_changes) and baseline_changed
+    policy_product_conflict = bool(policy_changes) and bool(changes)
+    policy_only_surface_transition = (
+        control_plane["contract_policy_changed"]
+        and not baseline_changed
+        and not changes
+        and not args.require_live_baseline
+    )
     baseline_status = contract["baseline"]["status"]
     live_status_accepted = baseline_status == "live_verified"
     passed = (
         contract_matches_worktree
-        and actual_hash == expected_hash
+        and not policy_baseline_conflict
+        and not policy_product_conflict
+        and (actual_hash == expected_hash or policy_only_surface_transition)
         and (live_status_accepted or not args.require_live_baseline)
     )
     result = {
@@ -56,6 +72,10 @@ def main() -> int:
         "baseline_status": baseline_status,
         "require_live_baseline": args.require_live_baseline,
         "contract_matches_worktree": contract_matches_worktree,
+        "policy_changes": policy_changes,
+        "baseline_changed": baseline_changed,
+        "policy_baseline_conflict": policy_baseline_conflict,
+        "policy_product_conflict": policy_product_conflict,
         "surface_file_count": len(entries),
         "sensitive_changes": changes,
     }
@@ -66,7 +86,9 @@ def main() -> int:
         write_json(output, result)
 
     if passed:
-        if baseline_status == "structural_bootstrap":
+        if policy_changes:
+            suffix = "（待验证政策变更；发布保持阻断）"
+        elif baseline_status == "structural_bootstrap":
             suffix = "（尚待首次真实缓存基线）"
         elif baseline_status == "live_regression_failed":
             suffix = "（当前指纹未变；最近一次 live 回归失败）"
@@ -80,6 +102,14 @@ def main() -> int:
     print(f"actual surface:   {actual_hash}")
     if not contract_matches_worktree:
         print("- 暂存合同与工作区合同不一致；请完整暂存或还原合同后重试。")
+    if policy_baseline_conflict:
+        print("- 门禁政策与基线不能在同一提交中变更。")
+    if policy_product_conflict:
+        print("- 门禁政策变更必须与缓存敏感产品变更分开提交。")
+    if policy_changes:
+        print("门禁政策变更：")
+        for path in policy_changes:
+            print(f"- {path}")
     if not live_status_accepted:
         print(f"- 当前基线状态为 {baseline_status}，尚未达到 live_verified。")
     if changes:
