@@ -1716,6 +1716,15 @@ fn apply_provider_request_hard_limit_retry_policy(
     }
 }
 
+fn apply_api_provider_request_hard_limit_retry_policy(
+    provider: &mut ApiProvider,
+    hard_limit: &ProviderRequestHardLimit,
+) {
+    if hard_limit.is_enabled() {
+        provider.retry.max_attempts = 0;
+    }
+}
+
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
 /// This is intentionally kept minimal so `ModelClient` does not need to hold a full `Config`. Most
@@ -1862,6 +1871,19 @@ fn sideband_websocket_auth_headers(api_auth: &dyn AuthProvider) -> ApiHeaderMap 
 }
 
 impl ModelClient {
+    pub(crate) fn prepare_realtime_api_provider(&self, provider: &mut ApiProvider) {
+        apply_api_provider_request_hard_limit_retry_policy(
+            provider,
+            self.state.provider_request_hard_limit.as_ref(),
+        );
+    }
+
+    pub(crate) fn claim_realtime_websocket_dispatch(&self) -> Result<()> {
+        self.state
+            .provider_request_hard_limit
+            .claim("/realtime/websocket")
+    }
+
     #[allow(clippy::too_many_arguments)]
     /// Creates a new session-scoped `ModelClient`.
     ///

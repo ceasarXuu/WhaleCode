@@ -293,6 +293,7 @@ impl RealtimeConversationManager {
                     extra_headers.unwrap_or_default(),
                 )
                 .await?;
+            model_client.claim_realtime_websocket_dispatch()?;
             let connection = client
                 .connect_webrtc_sideband(
                     session_config,
@@ -304,6 +305,7 @@ impl RealtimeConversationManager {
                 .map_err(map_api_error)?;
             (connection, Some(call.sdp))
         } else {
+            model_client.claim_realtime_websocket_dispatch()?;
             let connection = client
                 .connect(
                     session_config,
@@ -612,6 +614,9 @@ async fn prepare_realtime_start(
         .transport
         .unwrap_or(ConversationStartTransport::Websocket);
     let mut api_provider = provider.to_api_provider(Some(AuthMode::ApiKey))?;
+    sess.services
+        .model_client
+        .prepare_realtime_api_provider(&mut api_provider);
     if let Some(realtime_ws_base_url) = &config.experimental_realtime_ws_base_url {
         api_provider.base_url = realtime_ws_base_url.clone();
     }

@@ -13,6 +13,7 @@ use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
+use super::apply_api_provider_request_hard_limit_retry_policy;
 use super::apply_projection_identity_expectation;
 use super::apply_provider_request_hard_limit_retry_policy;
 use super::provider_payload_digest;
@@ -102,6 +103,12 @@ fn enabled_provider_request_hard_limit_disables_hidden_transport_retries() {
     apply_provider_request_hard_limit_retry_policy(&mut provider, &limit);
     assert_eq!(provider.request_max_retries, Some(0));
     assert_eq!(provider.stream_max_retries, Some(0));
+
+    let mut api_provider = provider
+        .to_api_provider(/*auth_mode*/ None)
+        .expect("create realtime API provider");
+    apply_api_provider_request_hard_limit_retry_policy(&mut api_provider, &limit);
+    assert_eq!(api_provider.retry.max_attempts, 0);
 }
 
 #[cfg(unix)]
