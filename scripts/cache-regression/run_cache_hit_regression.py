@@ -260,7 +260,7 @@ def main() -> int:
                 error, "process_tree_termination", {"status": "unknown"}
             )
             cleanup = cleanup_labeled_containers(
-                run_id, limits["cleanup_grace_seconds"]
+                run_id, limits["cleanup_grace_seconds"], run_root
             )
             attempt["timeout_cleanup"] = cleanup
             run_failed = True
@@ -278,7 +278,7 @@ def main() -> int:
                 error, "process_tree_termination", {"status": "unknown"}
             )
             attempt["interrupt_cleanup"] = cleanup_labeled_containers(
-                run_id, limits["cleanup_grace_seconds"]
+                run_id, limits["cleanup_grace_seconds"], run_root
             )
             attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
             cancelled = True
@@ -286,7 +286,7 @@ def main() -> int:
             break
         attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
         cleanup = cleanup or cleanup_labeled_containers(
-            run_id, limits["cleanup_grace_seconds"]
+            run_id, limits["cleanup_grace_seconds"], run_root
         )
         attempt["post_run_cleanup"] = cleanup
         if not cleanup_verified(cleanup):

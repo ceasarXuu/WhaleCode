@@ -188,6 +188,8 @@ class CacheRunExecutionTest(unittest.TestCase):
                     "stable_empty_polls": 3,
                     "network_cleanup_status": "verified_absent",
                     "network_ids": [],
+                    "secret_cleanup_status": "verified_absent",
+                    "secret_paths": [],
                     "error": "",
                 },
             ),
@@ -251,7 +253,7 @@ class CacheRunExecutionTest(unittest.TestCase):
             patch("cache_process_control.subprocess.run", side_effect=completed) as run,
             patch("cache_process_control.time.sleep"),
         ):
-            result = cleanup_labeled_containers("CACHE-001", 10)
+            result = cleanup_labeled_containers("CACHE-001", 10, self.repo)
         self.assertEqual(result["status"], "removed_verified")
         self.assertEqual(result["container_ids"], ["one", "two"])
         self.assertEqual(
@@ -349,7 +351,7 @@ class CacheRunExecutionTest(unittest.TestCase):
             patch("cache_process_control.subprocess.run", side_effect=completed) as run,
             patch("cache_process_control.time.sleep"),
         ):
-            result = cleanup_labeled_containers("CACHE-LATE", 10)
+            result = cleanup_labeled_containers("CACHE-LATE", 10, self.repo)
         self.assertEqual(result["status"], "removed_verified")
         self.assertEqual(result["container_ids"], ["late"])
         self.assertEqual(run.call_args_list[2].args[0], ["docker", "rm", "--force", "late"])
@@ -367,13 +369,37 @@ class CacheRunExecutionTest(unittest.TestCase):
             patch("cache_process_control.subprocess.run", side_effect=completed) as run,
             patch("cache_process_control.time.sleep"),
         ):
-            result = cleanup_labeled_containers("CACHE-NETWORK", 10)
+            result = cleanup_labeled_containers("CACHE-NETWORK", 10, self.repo)
         self.assertEqual(result["network_cleanup_status"], "removed_verified")
         self.assertEqual(result["network_ids"], ["net-one"])
         self.assertEqual(
             run.call_args_list[4].args[0],
             ["docker", "network", "rm", "net-one"],
         )
+
+    def test_cleanup_erases_host_provider_secret_before_verification(self) -> None:
+        secret_dir = (
+            self.repo
+            / "simple/CACHE-SECRET/pair-001/left/artifacts.provider-supervisor"
+            / ".container-secrets"
+        )
+        secret_dir.mkdir(parents=True)
+        secret = secret_dir / "deepseek-fixture.secret"
+        secret.write_text("paid-provider-secret", encoding="utf-8")
+        completed = [
+            *[
+                type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+                for _ in range(4)
+            ]
+        ]
+        with (
+            patch("cache_process_control.subprocess.run", side_effect=completed),
+            patch("cache_process_control.time.sleep"),
+        ):
+            result = cleanup_labeled_containers("CACHE-SECRET", 10, self.repo)
+        self.assertEqual(result["secret_cleanup_status"], "removed_verified")
+        self.assertFalse(secret.exists())
+        self.assertFalse(secret_dir.exists())
 
     def test_only_verified_cleanup_statuses_allow_completion(self) -> None:
         self.assertTrue(
@@ -382,6 +408,7 @@ class CacheRunExecutionTest(unittest.TestCase):
                     "status": "verified_absent",
                     "stable_empty_polls": 3,
                     "network_cleanup_status": "verified_absent",
+                    "secret_cleanup_status": "verified_absent",
                 }
             )
         )
@@ -391,12 +418,23 @@ class CacheRunExecutionTest(unittest.TestCase):
                     "status": "removed_verified",
                     "stable_empty_polls": 3,
                     "network_cleanup_status": "removed_verified",
+                    "secret_cleanup_status": "removed_verified",
                 }
             )
         )
         self.assertFalse(cleanup_verified({"status": "verified_absent", "stable_empty_polls": 1}))
         self.assertFalse(cleanup_verified({"status": "failed"}))
         self.assertFalse(cleanup_verified({"status": "removed"}))
+        self.assertFalse(
+            cleanup_verified(
+                {
+                    "status": "verified_absent",
+                    "stable_empty_polls": 3,
+                    "network_cleanup_status": "verified_absent",
+                    "secret_cleanup_status": "failed",
+                }
+            )
+        )
 
     def test_keyboard_interrupt_cleans_run_containers_and_settles_cancelled(
         self,
@@ -416,6 +454,8 @@ class CacheRunExecutionTest(unittest.TestCase):
             "stable_empty_polls": 3,
             "network_cleanup_status": "removed_verified",
             "network_ids": ["provider-boundary"],
+            "secret_cleanup_status": "removed_verified",
+            "secret_paths": ["deepseek-fixture.secret"],
             "error": "",
         }
         with (
@@ -447,6 +487,7 @@ class CacheRunExecutionTest(unittest.TestCase):
         self.assertTrue(cleanup_run_id.startswith("WAR-"))
         self.assertTrue(cleanup_run_id.endswith("-CACHE-001"))
         self.assertEqual(cleanup_call.call_args.args[1], 120)
+        self.assertEqual(cleanup_call.call_args.args[2], self.repo / "target/cache-hit-regression" / cleanup_run_id.rsplit("-CACHE-", 1)[0])
         result = json.loads(
             next(
                 (self.repo / "benchmarks/cache-regression/results").glob("*.json")

@@ -30,6 +30,8 @@ def cleanup_verified(result: dict[str, Any]) -> bool:
         and result.get("stable_empty_polls", 0) >= CLEANUP_STABLE_EMPTY_POLLS
         and result.get("network_cleanup_status")
         in {"verified_absent", "removed_verified"}
+        and result.get("secret_cleanup_status")
+        in {"verified_absent", "removed_verified"}
     )
 
 
@@ -135,7 +137,9 @@ def run_benchmark_command(
     return subprocess.CompletedProcess(command, return_code)
 
 
-def cleanup_labeled_containers(run_id: str, grace_seconds: int) -> dict[str, Any]:
+def cleanup_labeled_containers(
+    run_id: str, grace_seconds: int, run_root: Path
+) -> dict[str, Any]:
     deadline = time.monotonic() + grace_seconds
     removed_ids: set[str] = set()
     stable_empty_polls = 0
@@ -166,14 +170,20 @@ def cleanup_labeled_containers(run_id: str, grace_seconds: int) -> dict[str, Any
                 stable_empty_polls += 1
                 if stable_empty_polls >= CLEANUP_STABLE_EMPTY_POLLS:
                     network_cleanup = _cleanup_labeled_networks(run_id, remaining)
-                    if network_cleanup["status"] == "failed":
+                    secret_cleanup = _cleanup_run_secrets(run_root, run_id)
+                    if (
+                        network_cleanup["status"] == "failed"
+                        or secret_cleanup["status"] == "failed"
+                    ):
                         return {
                             "status": "failed",
                             "container_ids": sorted(removed_ids),
                             "stable_empty_polls": stable_empty_polls,
                             "network_cleanup_status": "failed",
                             "network_ids": network_cleanup["network_ids"],
-                            "error": network_cleanup["error"],
+                            "secret_cleanup_status": secret_cleanup["status"],
+                            "secret_paths": secret_cleanup["secret_paths"],
+                            "error": network_cleanup["error"] or secret_cleanup["error"],
                         }
                     return {
                         "status": (
@@ -183,6 +193,8 @@ def cleanup_labeled_containers(run_id: str, grace_seconds: int) -> dict[str, Any
                         "stable_empty_polls": stable_empty_polls,
                         "network_cleanup_status": network_cleanup["status"],
                         "network_ids": network_cleanup["network_ids"],
+                        "secret_cleanup_status": secret_cleanup["status"],
+                        "secret_paths": secret_cleanup["secret_paths"],
                         "error": "",
                     }
             else:
@@ -206,6 +218,8 @@ def cleanup_labeled_containers(run_id: str, grace_seconds: int) -> dict[str, Any
         "stable_empty_polls": stable_empty_polls,
         "network_cleanup_status": "not_attempted",
         "network_ids": [],
+        "secret_cleanup_status": "not_attempted",
+        "secret_paths": [],
         "error": last_error or "container cleanup grace expired",
     }
 
@@ -251,5 +265,46 @@ def _cleanup_labeled_networks(run_id: str, timeout_seconds: int) -> dict[str, An
         return {
             "status": "failed",
             "network_ids": [],
+            "error": f"{type(error).__name__}: {error}",
+        }
+
+
+def _cleanup_run_secrets(run_root: Path, run_id: str) -> dict[str, Any]:
+    root = run_root.resolve()
+    candidates = sorted(root.glob(f"*/{run_id}/**/.container-secrets"))
+    removed: list[str] = []
+    try:
+        for directory in candidates:
+            resolved = directory.resolve()
+            if directory.is_symlink() or not resolved.is_relative_to(root):
+                raise ValueError(f"secret directory escapes run root: {directory}")
+            for path in directory.iterdir():
+                if (
+                    path.is_symlink()
+                    or not path.is_file()
+                    or not path.name.startswith("deepseek-")
+                    or path.suffix != ".secret"
+                ):
+                    raise ValueError(f"unexpected secret path: {path}")
+                size = path.stat().st_size
+                with path.open("r+b", buffering=0) as stream:
+                    stream.write(b"\0" * size)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                path.unlink()
+                removed.append(str(path))
+            directory.rmdir()
+        remaining = list(root.glob(f"*/{run_id}/**/.container-secrets/*"))
+        if remaining:
+            raise ValueError("provider secret files remain after cleanup")
+        return {
+            "status": "removed_verified" if removed or candidates else "verified_absent",
+            "secret_paths": removed,
+            "error": "",
+        }
+    except (OSError, ValueError) as error:
+        return {
+            "status": "failed",
+            "secret_paths": removed,
             "error": f"{type(error).__name__}: {error}",
         }
