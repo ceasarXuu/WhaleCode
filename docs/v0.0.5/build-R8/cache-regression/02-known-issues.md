@@ -94,6 +94,14 @@ Tool schema 等其他上下文没有被权限 fixture 意外改变。连续两�
 保留；移除该明确消息后，有/无 Skill 两组 wire 完全一致。连续两轮稳定复跑及全部 6 个缓存合同测试通过，未运行
 真实 Whale Agent。CR-I05 仍需 CR-16、CR-17 的 Apps/Plugins 与 MCP 条件入口场景。
 
+提交 `1e5b5c0ba`、`3e0a36aba`、`128b47d88` 和 `d229ac0aa` 完成 CR-15A 至 CR-15C：DeepSeek 内置路径、默认
+模型及既有缓存场景已统一到真实 DeepSeek Flash Responses provider；所有请求只命中 `/v1/responses`，完整
+final-wire 快照连续两轮稳定。未运行真实 Whale Agent。
+
+提交 `60c8744ef` 完成 CR-16：Default、显式 App 与显式 Plugin 分别生成两次生产 Responses 请求。App 使用
+Responses 原生 namespace；Plugin 只增加对应 Skill/Plugin 上下文，普通 Tool 集合与 Default 完全一致。CR-I05
+只剩 CR-17 的普通 MCP 条件入口，因此继续保持 open。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
@@ -107,8 +115,8 @@ Tool schema 等其他上下文没有被权限 fixture 意外改变。连续两�
 
 | 影响面 | 已确认入口 | 可能改变的缓存事实 |
 |---|---|---|
-| 最终 Chat Completions body | `codex-api/src/endpoint/responses.rs::build_chat_completions_body` | body 字段、消息、Tool、`tool_choice` |
-| 角色转换 | `codex-api/src/endpoint/chat_completions.rs` | developer/system 角色和消息顺序 |
+| 最终 Responses body | `codex-api/src/endpoint/responses.rs` | body 字段、输入、Tool、`tool_choice` |
+| Responses 输入角色与顺序 | `codex-api/src/endpoint/responses.rs` | developer/user 输入和顺序 |
 | 缓存 usage 解码 | `codex-api/src/sse/chat_completions.rs`、`codex-api/src/sse/responses.rs` | cached token 观测口径 |
 | 上下文组装 | `core/src/session/mod.rs` | developer/user/projection 的位置和重复表达 |
 | 请求与 Tool 选择 | `core/src/session/turn.rs` | Prompt、可见 Tool、`tool_choice` |

@@ -78,5 +78,6 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 - 门禁自身不能宣称抵抗有仓库写权限的恶意维护者；目标是阻止意外绕过、证据错配和未经审查的自授权；
 - 修复完成后必须执行新的空白对抗性审查，blocking finding 未关闭前不得恢复发布权威性。
 
-当前执行位置：Phase A 的 `CR-01` 至 `CR-05`、Phase B 的 `CR-06` 至 `CR-11` 及 Phase C 的 `CR-12` 已验证，
-CR-I01、CR-I02、CR-I03、CR-I04、CR-I09 已关闭；下一单元为 Phase C 的 `CR-13`。
+当前执行位置：Phase A、Phase B 及 Phase C 的 `CR-12` 至 `CR-16` 已验证，DeepSeek 主路径已迁移到官方
+Responses 协议；CR-I01、CR-I02、CR-I03、CR-I04、CR-I09 已关闭。下一单元为 Phase C 的 `CR-17`，用于覆盖
+普通 MCP Tool 集合。
