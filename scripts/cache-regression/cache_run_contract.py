@@ -98,6 +98,12 @@ def validate_authorization(
         "cache budget approval timestamp is missing",
     )
     require(
+        isinstance(authorization.get("authorization_id"), str)
+        and authorization["authorization_id"].startswith("CBA-")
+        and len(authorization["authorization_id"]) >= 12,
+        "cache budget authorization id is invalid",
+    )
+    require(
         authorization.get("proposal_id") == proposal["proposal_id"],
         "authorization proposal id mismatch",
     )

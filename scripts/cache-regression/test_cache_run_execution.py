@@ -88,6 +88,7 @@ class CacheRunExecutionTest(unittest.TestCase):
             "evidence_boundary": "fixture scope only",
         }
         self.authorization = {
+            "authorization_id": "CBA-FIXTURE-001",
             "approval_reference": "fixture approval",
         }
         write_json(self.proposal_path, self.proposal)

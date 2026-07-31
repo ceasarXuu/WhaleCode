@@ -19,6 +19,7 @@ from cache_run_analysis import analyze_arm, analyze_artifacts
 from run_cache_hit_regression import (
     budget_observation_exceeded,
     ensure_deepseek_api_key,
+    execution_completed,
     stop_reason,
 )
 
@@ -170,7 +171,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not match token evidence"):
                 analyze_artifacts(cache_path, request_path, metrics_path, "standard")
 
-    def test_budget_observation_is_explicit_and_stops_only_when_selected(self) -> None:
+    def test_budget_observation_is_explicit_and_always_stops(self) -> None:
         observation = {
             "provider_requests": 11,
             "input_tokens": 90,
@@ -190,9 +191,8 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
         )
         self.assertEqual(exceeded, ["provider_requests"])
         observation["budget_observation_exceeded"] = exceeded
-        self.assertIsNone(stop_reason([], False, observation))
         self.assertEqual(
-            stop_reason(["after_any_budget_observation_exceeded"], False, observation),
+            stop_reason([], True, observation),
             "budget_observation_exceeded",
         )
 
@@ -200,7 +200,16 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
         self.assertEqual(
             stop_reason(["after_any_run_failure"], True, None), "run_failure"
         )
-        self.assertIsNone(stop_reason([], True, None))
+        self.assertEqual(stop_reason([], True, None), "run_failure")
+
+    def test_failed_or_over_budget_attempt_is_not_complete(self) -> None:
+        matrix = [{"sample": "simple", "arm": "standard", "repeat": 1}]
+        observation = {**matrix[0], "budget_observation_exceeded": []}
+        failed = [{**matrix[0], "status": "failed", "exit_code": 7}]
+        self.assertFalse(execution_completed(matrix, failed, [observation]))
+        completed = [{**matrix[0], "status": "completed", "exit_code": 0}]
+        observation["budget_observation_exceeded"] = ["input_tokens"]
+        self.assertFalse(execution_completed(matrix, completed, [observation]))
 
 
 if __name__ == "__main__":

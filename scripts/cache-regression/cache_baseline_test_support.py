@@ -59,6 +59,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "schema_version": AUTHORIZATION_SCHEMA_VERSION,
         "status": "granted",
         "approved_by": "user",
+        "authorization_id": "CBA-FIXTURE-001",
         "approval_reference": "user approved fixture",
         "proposal_id": proposal["proposal_id"],
     }
@@ -121,7 +122,10 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                 {
                     "record_id": record_id,
                     "status": "settled",
-                    "authorization": {"reference": authorization["approval_reference"]},
+                    "authorization": {
+                        "id": authorization["authorization_id"],
+                        "reference": authorization["approval_reference"],
+                    },
                     "evidence": {
                         "result_path": acceptance["result_path"],
                         "proposal_path": acceptance["proposal_path"],

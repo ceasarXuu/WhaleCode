@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,15 +25,8 @@ from cache_run_contract import (
     execution_matrix,
     load_authorized_proposal,
 )
+from cache_run_ledger import claim_entry, now, planned_entry, settle_entry, store_entry
 from cache_surface import load_contract, write_json
-
-
-def now() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-
-def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def ensure_deepseek_api_key(repo: Path) -> str:
@@ -118,148 +111,6 @@ def persist_observation_artifacts(
     return durable
 
 
-def planned_entry(
-    record_id: str,
-    proposal: dict[str, Any],
-    authorization: dict[str, Any],
-    proposal_path: Path,
-    authorization_path: Path,
-    repo: Path,
-    run_root: Path,
-) -> dict[str, Any]:
-    selection = proposal["selection"]
-    pricing = proposal["pricing_snapshot"]
-    return {
-        "record_id": record_id,
-        "record_type": "run_batch",
-        "status": "planned",
-        "started_at": None,
-        "ended_at": None,
-        "elapsed_calendar_seconds": None,
-        "aggregate_agent_wall_time_ms": None,
-        "reason": selection["selection_reason"],
-        "authorization": {
-            "required": True,
-            "status": "granted",
-            "reference": authorization["approval_reference"],
-            "budget_summary": proposal["maximums"],
-            "note": f"严格绑定预算提案 {proposal['proposal_id']}。",
-        },
-        "execution": {
-            "provider": "deepseek",
-            "model": selection["model"],
-            "batch_count": 1,
-            "sample_ids": selection["samples"],
-            "arm_ids": selection["arms"],
-            "repeats_per_arm_per_sample": selection["repeat"],
-            "planned_sample_runs": selection["planned_sample_runs"],
-            "actual_sample_runs": 0,
-            "api_requests": 0,
-        },
-        "tokens": {"input": 0, "cached_input": 0, "uncached_input": 0, "output": 0},
-        "monetary_cost": {
-            "status": "planned",
-            "currency": pricing["currency"],
-            "amount": None,
-            "actual_billed_amount": None,
-            "components": None,
-            "pricing_snapshot": pricing,
-            "formula": None,
-            "note": "运行后按 provider token 遥测估算。",
-        },
-        "evidence": {
-            "planned_run_root": str(run_root),
-            "subject_commit": proposal["subject_commit"],
-            "surface_sha256": proposal["surface_sha256"],
-            "proposal_path": proposal_path.relative_to(repo).as_posix(),
-            "proposal_sha256": file_sha256(proposal_path),
-            "authorization_path": authorization_path.relative_to(repo).as_posix(),
-            "authorization_sha256": file_sha256(authorization_path),
-            "stop_conditions": selection["stop_conditions"],
-            "usage_evidence_status": "pending",
-        },
-    }
-
-
-def settle_entry(
-    entry: dict[str, Any],
-    result: dict[str, Any],
-    started: float,
-) -> None:
-    observations = result.get("observations", [])
-    totals = {
-        key: sum(int(observation[key]) for observation in observations)
-        for key in (
-            "provider_requests",
-            "input_tokens",
-            "cached_input_tokens",
-            "uncached_input_tokens",
-            "output_tokens",
-        )
-    }
-    pricing = entry["monetary_cost"]["pricing_snapshot"]
-    components = {
-        "cached_input": totals["cached_input_tokens"]
-        / 1_000_000
-        * pricing["cached_input_per_million"],
-        "uncached_input": totals["uncached_input_tokens"]
-        / 1_000_000
-        * pricing["uncached_input_per_million"],
-        "output": totals["output_tokens"] / 1_000_000 * pricing["output_per_million"],
-    }
-    amount = sum(components.values())
-    entry["status"] = (
-        "cancelled"
-        if result["status"] == "cancelled"
-        else "settled"
-        if result["actual_sample_runs"]
-        else "failed"
-    )
-    entry["started_at"] = result["started_at"]
-    entry["ended_at"] = now()
-    entry["elapsed_calendar_seconds"] = round(time.time() - started)
-    entry["aggregate_agent_wall_time_ms"] = None
-    entry["execution"]["actual_sample_runs"] = result["actual_sample_runs"]
-    entry["execution"]["api_requests"] = totals["provider_requests"]
-    entry["tokens"] = {
-        "input": totals["input_tokens"],
-        "cached_input": totals["cached_input_tokens"],
-        "uncached_input": totals["uncached_input_tokens"],
-        "output": totals["output_tokens"],
-    }
-    entry["monetary_cost"].update(
-        {
-            "status": "estimated" if observations else "unavailable",
-            "amount": round(amount, 10) if observations else None,
-            "components": components if observations else None,
-            "formula": (
-                "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate "
-                "+ output/1e6*output_rate"
-                if observations
-                else None
-            ),
-            "note": (
-                "按已成功解析的 provider token 遥测和冻结价格估算。"
-                if observations
-                else "无完整 token 证据。"
-            ),
-        }
-    )
-    entry["evidence"].update(
-        {
-            "actual_run_root": result.get("run_root"),
-            "result_path": result.get("result_path"),
-            "runner_exit_code": result.get("runner_exit_code"),
-            "outcome": result.get("status", "failed"),
-            "usage_evidence_status": (
-                "complete"
-                if len(observations) == result["actual_sample_runs"]
-                else "partial"
-            ),
-        }
-    )
-
-
 def budget_observation_exceeded(
     observation: dict[str, Any], limits: dict[str, Any]
 ) -> list[str]:
@@ -280,26 +131,34 @@ def stop_reason(
     run_failed: bool,
     observation: dict[str, Any] | None,
 ) -> str | None:
-    if run_failed and "after_any_run_failure" in conditions:
+    del conditions
+    if run_failed:
+        if observation is None:
+            return "run_failure"
+        if not observation["business_success"]:
+            return "business_failure"
+        if observation["cache_usage_missing_count"] > 0:
+            return "usage_gap"
+        if observation["budget_observation_exceeded"]:
+            return "budget_observation_exceeded"
         return "run_failure"
-    if observation is None:
-        return None
-    if (
-        not observation["business_success"]
-        and "after_any_business_failure" in conditions
-    ):
-        return "business_failure"
-    if (
-        observation["cache_usage_missing_count"] > 0
-        and "after_any_usage_gap" in conditions
-    ):
-        return "usage_gap"
-    if (
-        observation["budget_observation_exceeded"]
-        and "after_any_budget_observation_exceeded" in conditions
-    ):
-        return "budget_observation_exceeded"
     return None
+
+
+def execution_completed(
+    matrix: list[dict[str, Any]],
+    attempts: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+) -> bool:
+    return (
+        len(attempts) == len(matrix)
+        and len(observations) == len(matrix)
+        and all(attempt["status"] == "completed" for attempt in attempts)
+        and all(
+            not observation["budget_observation_exceeded"]
+            for observation in observations
+        )
+    )
 
 
 def main() -> int:
@@ -327,7 +186,6 @@ def main() -> int:
     record_id = f"WAR-{stamp}-CACHE-REGRESSION-{uuid.uuid4().hex[:8].upper()}"
     run_root = args.run_root or repo / "target/cache-hit-regression" / record_id
     ledger_path = repo / "benchmarks/whale-agent-run-ledger.json"
-    ledger = read_json(ledger_path)
     entry = planned_entry(
         record_id,
         proposal,
@@ -337,9 +195,10 @@ def main() -> int:
         repo,
         run_root,
     )
-    ledger["entries"].insert(0, entry)
-    ledger["updated_at"] = now()
-    write_json(ledger_path, ledger)
+    try:
+        claim_entry(ledger_path, entry)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
     started = time.time()
     selection = proposal["selection"]
@@ -377,8 +236,7 @@ def main() -> int:
         entry["status"] = "running"
         entry["started_at"] = entry["started_at"] or now()
         entry["execution"]["actual_sample_runs"] = result["actual_sample_runs"]
-        ledger["updated_at"] = now()
-        write_json(ledger_path, ledger)
+        store_entry(ledger_path, entry)
         run_started = time.time()
         run_failed = False
         observation = None
@@ -438,6 +296,15 @@ def main() -> int:
         ) as error:
             attempt["evidence_error"] = f"{type(error).__name__}: {error}"
             run_failed = True
+        observation_failed = bool(
+            observation
+            and (
+                not observation["business_success"]
+                or observation["cache_usage_missing_count"] > 0
+                or observation["budget_observation_exceeded"]
+            )
+        )
+        run_failed = run_failed or observation_failed
         attempt["status"] = "failed" if run_failed else "completed"
         stop_at = stop_reason(selection["stop_conditions"], run_failed, observation)
         if stop_at is not None:
@@ -455,9 +322,7 @@ def main() -> int:
     result["stop_reason"] = stop_at
     if cancelled:
         result["status"] = "cancelled"
-    elif len(result["attempts"]) == len(matrix) and len(result["observations"]) == len(
-        matrix
-    ):
+    elif execution_completed(matrix, result["attempts"], result["observations"]):
         result["status"] = "completed"
     elif result["attempts"]:
         result["status"] = "partial"
@@ -483,8 +348,7 @@ def main() -> int:
     result["result_path"] = str(result_path.relative_to(repo))
     write_json(result_path, result)
     settle_entry(entry, result, started)
-    ledger["updated_at"] = now()
-    write_json(ledger_path, ledger)
+    store_entry(ledger_path, entry)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result["runner_exit_code"]
 

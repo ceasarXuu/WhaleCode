@@ -130,6 +130,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "schema_version": AUTHORIZATION_SCHEMA_VERSION,
             "status": "granted",
             "approved_by": "user",
+            "authorization_id": "CBA-FIXTURE-001",
             "approval_reference": "fixture run approval",
             "approved_at": "2026-08-01T12:00:00+08:00",
             "proposal_id": self.proposal["proposal_id"],
@@ -233,6 +234,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                         "status": "settled",
                         "authorization": {
                             "status": "granted",
+                            "id": self.authorization["authorization_id"],
                             "reference": self.authorization["approval_reference"],
                         },
                         "execution": {
