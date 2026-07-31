@@ -63,6 +63,7 @@ class CacheRunContractTest(unittest.TestCase):
             {
                 "schema_version": "whalecode-cache-regression-gate-v1",
                 "status": "blocked",
+                "discovery_state": "changed",
                 "free_validation": {
                     "passed": False,
                     "commands": [{"id": "final_wire_matrix", "status": "fail"}],

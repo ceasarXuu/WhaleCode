@@ -6,9 +6,15 @@ import json
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from cache_surface import load_contract, surface_snapshot, write_json
+from check_cache_regression_gate import (
+    classify_free_validation,
+    print_free_validation_failure,
+)
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -140,7 +146,9 @@ raise SystemExit(0 if value == 'pass' else 7)
     def test_sensitive_staged_source_must_match_worktree(self) -> None:
         (self.repo / "prompt/base.md").write_text("staged\n", encoding="utf-8")
         run("git", "add", "prompt/base.md", cwd=self.repo)
-        (self.repo / "prompt/base.md").write_text("different worktree\n", encoding="utf-8")
+        (self.repo / "prompt/base.md").write_text(
+            "different worktree\n", encoding="utf-8"
+        )
 
         result = self.gate()
 
@@ -256,7 +264,9 @@ raise SystemExit(0 if value == 'pass' else 7)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_release_head_rejects_dirty_control_plane(self) -> None:
-        policy_path = self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        policy_path = (
+            self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        )
         policy_path.write_text("# dirty policy\n", encoding="utf-8")
 
         result = self.gate_from_source("head", "--require-clean-subject")
@@ -275,12 +285,15 @@ raise SystemExit(0 if value == 'pass' else 7)
         payload = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(payload["source"], "head")
         self.assertEqual(
-            payload["subject_commit"], run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+            payload["subject_commit"],
+            run("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip(),
         )
         self.assertEqual(payload["release_relevant_changes"], [])
 
     def test_policy_and_baseline_change_cannot_self_authorize(self) -> None:
-        policy_path = self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        policy_path = (
+            self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        )
         policy_path.write_text("# changed policy\n", encoding="utf-8")
         contract = load_contract(self.contract_path)
         contract["baseline"]["status"] = "live_verified"
@@ -318,7 +331,9 @@ raise SystemExit(0 if value == 'pass' else 7)
         self.assertIn("待验证政策变更", result.stdout)
 
     def test_policy_change_cannot_include_sensitive_product_change(self) -> None:
-        policy_path = self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        policy_path = (
+            self.repo / "scripts/cache-regression/check_cache_regression_gate.py"
+        )
         policy_path.write_text("# changed policy\n", encoding="utf-8")
         (self.repo / "prompt/base.md").write_text("changed\n", encoding="utf-8")
         run("git", "add", "scripts", "prompt/base.md", cwd=self.repo)
@@ -327,6 +342,56 @@ raise SystemExit(0 if value == 'pass' else 7)
 
         self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
         self.assertIn("门禁政策变更必须与缓存敏感产品变更分开提交", result.stdout)
+
+    def test_discovery_state_does_not_infer_product_acceptance(self) -> None:
+        validation = {
+            "passed": False,
+            "commands": [
+                {
+                    "change_report": {
+                        "status": "changed",
+                    }
+                }
+            ],
+        }
+        self.assertEqual(classify_free_validation(validation, True), "changed")
+        validation["commands"][0]["change_report"]["status"] = "uncomparable"
+        self.assertEqual(classify_free_validation(validation, True), "uncomparable")
+
+    def test_structured_change_output_replaces_command_log_noise(self) -> None:
+        validation = {
+            "commands": [
+                {
+                    "id": "wire",
+                    "status": "fail",
+                    "exit_code": 1,
+                    "timed_out": False,
+                    "output_tail": ["noisy command log"],
+                    "change_report": {
+                        "status": "changed",
+                        "scenario_count": 1,
+                        "changed_scenario_count": 1,
+                        "uncomparable_scenario_count": 0,
+                        "scenarios": [
+                            {
+                                "scenario_id": "standard",
+                                "status": "changed",
+                                "first_difference": "/request_2/input/3",
+                                "before_payload_sha256": "a" * 64,
+                                "after_payload_sha256": "b" * 64,
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+        stream = StringIO()
+        with redirect_stdout(stream):
+            print_free_validation_failure(validation)
+        rendered = stream.getvalue()
+        self.assertIn("standard: changed", rendered)
+        self.assertIn("/request_2/input/3", rendered)
+        self.assertNotIn("noisy command log", rendered)
 
 
 if __name__ == "__main__":

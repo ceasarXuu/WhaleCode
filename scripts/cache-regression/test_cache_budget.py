@@ -60,6 +60,7 @@ class CacheBudgetProposalTest(unittest.TestCase):
             {
                 "schema_version": "whalecode-cache-regression-gate-v1",
                 "status": "blocked",
+                "discovery_state": "changed",
                 "free_validation": {
                     "passed": False,
                     "commands": [{"id": "final_wire_matrix", "status": "fail"}],
@@ -109,6 +110,10 @@ class CacheBudgetProposalTest(unittest.TestCase):
         report = json.loads(self.report_path.read_text(encoding="utf-8"))
         report["free_validation"]["passed"] = True
         with self.assertRaisesRegex(ValueError, "did not detect"):
+            build_budget_proposal(**{**self._kwargs(), "gate_report": report})
+        report["free_validation"]["passed"] = False
+        report["discovery_state"] = "uncomparable"
+        with self.assertRaisesRegex(ValueError, "comparable"):
             build_budget_proposal(**{**self._kwargs(), "gate_report": report})
 
     def test_rejects_unknown_arm_and_duplicate_selection(self) -> None:

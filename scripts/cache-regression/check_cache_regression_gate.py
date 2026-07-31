@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 from pathlib import Path
 
@@ -22,6 +21,55 @@ from cache_surface import (
 from free_cache_contracts import run_free_validation, validate_free_validation
 
 
+def classify_free_validation(validation: dict | None, required: bool) -> str:
+    if not required:
+        return "not_run"
+    if validation is None:
+        return "unavailable"
+    reports = [
+        command["change_report"]
+        for command in validation["commands"]
+        if command.get("change_report") is not None
+    ]
+    if any(report["status"] == "uncomparable" for report in reports):
+        return "uncomparable"
+    if any(report["status"] == "changed" for report in reports):
+        return "changed"
+    if not validation["passed"]:
+        return "validation_failed"
+    return "unchanged"
+
+
+def print_free_validation_failure(validation: dict) -> None:
+    for command in validation["commands"]:
+        if command["status"] == "pass":
+            continue
+        report = command.get("change_report")
+        print(
+            f"- {command['id']}: {command['status']} "
+            f"(exit={command['exit_code']}, timeout={command['timed_out']})"
+        )
+        if report is None:
+            for line in command["output_tail"]:
+                print(f"  {line}")
+            continue
+        print(
+            f"  change_report={report['status']} scenarios={report['scenario_count']} "
+            f"changed={report['changed_scenario_count']} "
+            f"uncomparable={report['uncomparable_scenario_count']}"
+        )
+        for scenario in report["scenarios"]:
+            if scenario["status"] == "unchanged":
+                continue
+            print(
+                "  - "
+                f"{scenario['scenario_id']}: {scenario['status']} "
+                f"path={scenario['first_difference']} "
+                f"before={scenario['before_payload_sha256']} "
+                f"after={scenario['after_payload_sha256']}"
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -30,7 +78,9 @@ def main() -> int:
         type=Path,
         default=Path("benchmarks/cache-regression/cache-surface-contract.json"),
     )
-    parser.add_argument("--source", choices=["index", "head", "worktree"], default="index")
+    parser.add_argument(
+        "--source", choices=["index", "head", "worktree"], default="index"
+    )
     parser.add_argument("--require-live-baseline", action="store_true")
     parser.add_argument("--require-clean-subject", action="store_true")
     parser.add_argument("--json-output", type=Path)
@@ -102,9 +152,8 @@ def main() -> int:
     )
     if can_run_free_validation:
         free_validation = run_free_validation(repo, free_validation_config)
-    free_validation_passed = (
-        not free_validation_required
-        or (free_validation is not None and free_validation["passed"])
+    free_validation_passed = not free_validation_required or (
+        free_validation is not None and free_validation["passed"]
     )
     semantic_gate_passed = (
         free_validation_passed
@@ -140,6 +189,9 @@ def main() -> int:
         "baseline_product_conflict": baseline_product_conflict,
         "relevant_source_matches_worktree": relevant_source_matches_worktree,
         "free_validation_required": free_validation_required,
+        "discovery_state": classify_free_validation(
+            free_validation, free_validation_required
+        ),
         "free_validation": free_validation,
         "require_clean_subject": args.require_clean_subject,
         "release_relevant_changes": release_changes,
@@ -200,20 +252,22 @@ def main() -> int:
             print(f"- {change['path']}: {reasons}")
     elif free_validation_config is None and actual_hash != expected_hash:
         print("- 当前缓存敏感面与已验证基线不一致；差异可能来自此前未验证提交。")
-    if free_validation_required and free_validation is not None and not free_validation["passed"]:
+    if (
+        free_validation_required
+        and free_validation is not None
+        and not free_validation["passed"]
+    ):
         print("免费 final-wire 验证失败：")
-        for command in free_validation["commands"]:
-            print(
-                f"- {command['id']}: {command['status']} "
-                f"(exit={command['exit_code']}, timeout={command['timed_out']})"
-            )
-            for line in command["output_tail"]:
-                print(f"  {line}")
-        print("下一步：定位首个 final-wire 差异；确认是有意变更后再申请最小真实回归预算。")
+        print_free_validation_failure(free_validation)
+        print(
+            "下一步：定位首个 final-wire 差异；确认是有意变更后再申请最小真实回归预算。"
+        )
     elif semantic_baselines or baseline_product_conflict:
         print("下一步：保留旧基准，先完成独立真实证据验证，再由晋升流程更新基准。")
     elif free_validation_config is None and actual_hash != expected_hash:
-        print("下一步：说明变更为何会影响 provider 前缀，并向用户申请 2 个 sample run 预算。")
+        print(
+            "下一步：说明变更为何会影响 provider 前缀，并向用户申请 2 个 sample run 预算。"
+        )
     else:
         print("下一步：修复上述门禁条件；不要通过修改基准掩盖失败。")
     return 20

@@ -41,6 +41,10 @@ def validate_gate_trigger(report: dict[str, Any]) -> list[str]:
         "budget proposal requires a cache gate report",
     )
     require(report.get("status") == "blocked", "cache gate report is not blocked")
+    require(
+        report.get("discovery_state") in {"changed", "validation_failed"},
+        "cache gate report has no comparable accepted-change candidate",
+    )
     validation = report.get("free_validation")
     require(isinstance(validation, dict), "cache gate report has no free validation")
     require(
