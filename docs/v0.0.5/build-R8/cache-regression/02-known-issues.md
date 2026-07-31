@@ -63,6 +63,10 @@ serializer。定向测试 `1 passed; 0 failed`，未运行真实 Whale Agent。C
 未知字段，当前不允许忽略字段；原始 SHA 单独作为完整性证据，避免 JSON 格式变化误报为语义变化。10 个合同
 mutation tests 与全部 45 个缓存门禁离线测试通过，未运行真实 Whale Agent。CR-I08 仍需 CR-20 接线后关闭。
 
+提交 `45284b5de` 完成 CR-09：从生产 Chat Completions body 冻结 TaskSpace Tool 顺序、`taskspace_control` 和
+普通 `exec_command` 的完整 wire 定义，并断言普通 Tool 在 Standard/TaskSpace 中逐值相同。定向测试
+`2 passed; 0 failed`，未运行真实 Whale Agent。CR-I04、CR-I05 仍需后续 decoder 与场景覆盖，因此保持 open。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
