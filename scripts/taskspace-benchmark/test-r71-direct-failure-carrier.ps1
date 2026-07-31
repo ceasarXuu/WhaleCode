@@ -364,12 +364,13 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
             [string]$CallId,
             [string]$ToolName,
             [string]$Output,
-            [bool]$ToolSuccess
+            $ToolSuccess,
+            [string]$ControlArguments = "{}"
         )
         $call = ConvertTo-R7CallDescriptor `
             -CallId $CallId `
             -ToolName $ToolName `
-            -Arguments "{}"
+            -Arguments $ControlArguments
         $calls = @{ $CallId = $call }
         $observed = Get-R7ResponseItemOutcome `
             ([pscustomobject]@{
@@ -384,6 +385,13 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
         )
         $call
     }
+    $mismatchedResponseCommitJson = $responseCommitJson.Replace(
+        '"action":"execute"',
+        '"action":"reopen_map"'
+    )
+    $evidenceExecuteArgs =
+        '{"action":"execute","expected_revision":1,' +
+        '"actions":[{"node_id":"work","tool":"exec_command"}]}'
     $evidenceCalls = @(
         New-R71ProductionCallRow `
             "valid-direct-failure" "taskspace_control" $validJson $false
@@ -393,6 +401,17 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
             "outer-inner-mismatch" "taskspace_control" $validJson $true
         New-R71ProductionCallRow `
             "ordinary-schema-isolation" "exec_command" $ordinaryJson $false
+        New-R71ProductionCallRow `
+            "response-request-mismatch" `
+            "taskspace_control" `
+            $mismatchedResponseCommitJson `
+            $true `
+            $evidenceExecuteArgs
+        New-R71ProductionCallRow `
+            "missing-transport-status" `
+            "taskspace_control" `
+            $validJson `
+            $null
     )
     $records = @(
         $evidenceCalls | ForEach-Object {
