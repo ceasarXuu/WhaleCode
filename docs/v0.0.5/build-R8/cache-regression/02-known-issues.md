@@ -118,6 +118,11 @@ provider 路由、Flash 可见性及 Pro 无法被远端目录重新启用的定
 usage 合同；旧源码 hash 降为诊断信息。staged/worktree 错配、runner 失败、产品与快照同提交及快照单独更新均
 fail closed。真实 index 等价注释探针通过，64 项离线控制面测试通过。CR-I08 现关闭。
 
+提交 `e35cf681b` 完成 CR-21.1：11 个受保护 final-wire 场景现在输出版本化结构报告，严格区分 `unchanged`、
+`changed` 和 `uncomparable`，变化报告包含场景、比较对象、首差异及新旧 digest。75 项离线控制面测试和 7 条
+免费生产合同通过，未运行真实 Whale Agent。CR-I07 仍需 CR-21.2 至 CR-22 完成预算、授权、结果边界和基线晋升，
+因此保持 open。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace

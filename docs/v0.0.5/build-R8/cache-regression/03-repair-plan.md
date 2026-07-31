@@ -2,7 +2,7 @@
 
 - Created: 2026-07-31
 - Plan mode: Authoring
-- Plan status: in progress（CR-01 至 CR-20 completed；Phase A、Phase B、Phase C complete；Phase D 进行中，下一单元 CR-21）
+- Plan status: in progress（CR-01 至 CR-20、CR-21.1 completed；Phase A、Phase B、Phase C complete；Phase D 进行中，下一单元 CR-21.2）
 - Risk: High，涉及发布门、付费验证触发与证据可信性
 - Problem register: [02-known-issues.md](02-known-issues.md)
 
@@ -74,7 +74,7 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-18 | 覆盖模型与 provider 路由 | scenario matrix | `model-provider-info`、`core/src/config/mod.rs`、`models-manager/models.json` | Flash/Pro identity 与 wire API | 建立路由元数据和最终请求身份快照；若两模型共享路径则以证据合并，不机械复制场景 | 路由变化能定位到模型/provider 身份 | 防止沿用不适用于当前模型或 wire API 的基线 | route matrix assertions 和错误模型反例 | 发现未知路由时标记 blocked-on-discovery | completed（`f4cc55d28`） |
 | CR-19 | 覆盖压缩后的请求结构 | scenario matrix | `core/tests/suite/compact*.rs`、cache payload fixtures | pre/post compaction request pair | 复用生产压缩路径生成压缩前后 final-wire 快照 | 长历史重写对稳定前缀的影响可见 | 日常长会话不会成为门禁盲区 | compact request pair、重复稳定性和首差异摘要 | 不设置真实超长 token；使用有代表性的确定性历史 | completed（`55900ac18`） |
 | CR-20 | 源码变化先触发免费语义测试 | gate orchestration | `cache_surface.py`、pre-commit、non-agent gate | source sentinel 和 payload runner | 将宽生产 crate、依赖配置和控制面列为免费测试触发面；只有 final-wire/measurement contract diff 才输出付费候选 | 注释、测试和等价重构可免费通过；真实 payload 变化阻断 | 同时减少漏报和不必要预算申请 | test/comment-only、生产字段变化、依赖变化、控制面变化 fixtures | 免费 runner 不稳定或过慢时保持 release 阻断，先优化 fixture | completed（`71c8f0cf0`、`3b7d7b4fa`） |
-| CR-21 | 输出判别结果并交接获批 smoke | validation handoff | `scripts/cache-regression/`、cache contract | change report、budget proposal、authorized run plan | 免费合同严格判别缓存相关语义是否变化并输出可复算差异；有意变化由人选择 smoke 配置，工具只计算预算并保证授权、命令和账本一致 | 门禁重发现、强判别、轻处置，不决定产品正确性或哪个 benchmark 足以证明变更 | 防止未知上下文变化静默进入，同时避免建设主观 coverage 推理系统 | protected-field mutation 精确报警，确定性噪声不报警；dry-run 零 API/零账本副作用 | 未获批永不执行；门禁不得自动选择或扩大 sample/arm | planned |
+| CR-21 | 输出判别结果并交接获批 smoke | validation handoff | `scripts/cache-regression/`、cache contract | change report、budget proposal、authorized run plan | 免费合同严格判别缓存相关语义是否变化并输出可复算差异；有意变化由人选择 smoke 配置，工具只计算预算并保证授权、命令和账本一致 | 门禁重发现、强判别、轻处置，不决定产品正确性或哪个 benchmark 足以证明变更 | 防止未知上下文变化静默进入，同时避免建设主观 coverage 推理系统 | protected-field mutation 精确报警，确定性噪声不报警；dry-run 零 API/零账本副作用 | 未获批永不执行；门禁不得自动选择或扩大 sample/arm | in progress（CR-21.1 completed） |
 | CR-22 | 忠实晋升已接受基线 | baseline identity | cache contract 与 promotion script | accepted final-wire baseline、smoke evidence reference | 记录精确 commit、已接受 payload digest、实际 model/sample/arm/repeat 和真实结果；明确 smoke 仅代表其运行配置，删除全局“所有路径已验证”语义 | release 能识别当前 final-wire 已经人工接受且有代表性真实 smoke，但不会把证据扩大到未执行路径 | 保留回归门禁价值，同时消除虚假覆盖声明和复杂逐路径基线 | 错 commit、错 digest、错授权或篡改结果拒绝；报告中必须保留证据边界 | 新模型未验证前继续 fail closed，不保留双权威路径 | planned |
 | CR-23 | 恢复门禁发布权威性 | release/review | pre-commit、non-agent gate、文档 | final gate integration | 跑全套免费测试并启动新的空白对抗性审查；只有 blocking 全关闭才替换 v1 | 发布门使用三段式证据链 | 团队可依赖门禁而不频繁误付费 | 单元/集成测试、门禁自测、fresh review；真实 run 另行申请预算 | 审查失败则保持 v1 诊断状态并回滚接线 | planned |
 
@@ -86,8 +86,8 @@ CR-21 不扩建 `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`，也�
 
 | 子单元 | Change Location | Concrete Action | Resulting Behavior | Benefit | Verification | Status |
 |---|---|---|---|---|---|---|
-| CR-21.1 | 免费 final-wire 合同与 runner | 对版本化保护字段执行严格语义比较，并为每个确定性 fixture 输出 scenario ID、比较对象、首差异和新旧 payload digest | 免费结果能可靠区分语义未变、语义变化和不可比较三种状态 | 强化未知变化发现与判别，同时把产品接受和测试选择留给人 | 每个受保护字段 mutation 命中对应 fixture/字段；允许的确定性噪声不报警；不可比较状态阻断 | planned；当前 Next Best Intervention |
-| CR-21.2 | 新 budget proposal CLI | 接受人工明确提供的 model/sample/arm/repeat 和停止条件，机械计算最大 sample run、预计请求、token、费用、耗时及重试上限 | `--dry-run` 不读取 API Key、不启动 Whale、不修改全局运行账本，也不推荐测试配置 | 用户能在发生费用前审阅完整预算，工具不替人决定测试充分性 | 无 Key 环境运行；零文件副作用；预算乘法和价格计算测试 | planned |
+| CR-21.1 | 免费 final-wire 合同与 runner | 对版本化保护字段执行严格语义比较，并为每个确定性 fixture 输出 scenario ID、比较对象、首差异和新旧 payload digest | 免费结果能可靠区分语义未变、语义变化和不可比较三种状态 | 强化未知变化发现与判别，同时把产品接受和测试选择留给人 | 每个受保护字段 mutation 命中对应 fixture/字段；允许的确定性噪声不报警；不可比较状态阻断 | completed（`e35cf681b`；[结果](13-cr21-1-change-report-result.md)） |
+| CR-21.2 | 新 budget proposal CLI | 接受人工明确提供的 model/sample/arm/repeat 和停止条件，机械计算最大 sample run、预计请求、token、费用、耗时及重试上限 | `--dry-run` 不读取 API Key、不启动 Whale、不修改全局运行账本，也不推荐测试配置 | 用户能在发生费用前审阅完整预算，工具不替人决定测试充分性 | 无 Key 环境运行；零文件副作用；预算乘法和价格计算测试 | planned；当前 Next Best Intervention |
 | CR-21.3 | `run_cache_hit_regression.py/.ps1` | 只接受已保存预算提案和完全匹配的用户授权；启动前才创建 `planned` 账本记录；拒绝扩大矩阵和自动重试 | 获批内容、实际命令和账本计划使用同一不可变计划 | 防止 dry-run 变相运行、授权与执行错配或包装脚本扩大成本 | mock subprocess、授权错配、计划篡改、账本一致性测试；不调用 provider | planned |
 | CR-21.4 | gate 输出与结果 schema | 免费失败只输出 change report 和下一步选项；真实结果只声明实际配置、指标和证据路径，禁止生成未执行路径的覆盖结论 | 发现、人工决策、预算和执行结果边界清晰 | 保持门禁简单可审计，避免结果被过度解释 | unintended、accepted、authorized、result-boundary 四类 fixture | planned |
 
@@ -99,14 +99,14 @@ CR-21 不扩建 `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`，也�
   用户授权，不能作为普通提交的默认反馈步骤。
 - **P0 finding**：固定 smoke 曾被解释为未执行路径的证明，属于验证结果不可信；release 当前保持阻断，因此问题已被
   containment，但在 CR-21/CR-22 完成前不能恢复发布权威性。
-- **当前唯一 Next Best Intervention**：只实施 CR-21.1。它为人工判断提供忠实事实，也能立刻改善
-  免费失败的定位质量；在其验收前不并行修改执行器、账本或 baseline 模型。
+- **当前唯一 Next Best Intervention**：只实施 CR-21.2。CR-21.1 已提供忠实的三态变化事实；下一步只把人明确
+  选择的 smoke 配置机械换算为预算提案，不并行修改执行器、账本或 baseline 模型。
 - **证据分层**：final-wire contract 负责严格判断“请求缓存语义是否变化或不可比较”；真实 benchmark 负责“真实
   provider 缓存和业务结果”；人工负责判断变化是否符合产品预期及选择代表性 smoke。三层不得互相替代。
-- **验证升级**：CR-21.1 先运行目标 mutation 与 runner 单测；因为它修改测试选择/门禁证据结构，稳定后再运行
-  全部免费缓存控制面测试。复用现有 Cargo 增量状态，不清缓存、不重建 Docker、不运行 Whale Agent。
-- **反馈门禁**：CR-21.1 只有在 affected mutation 被发现、unaffected case 保持空 report、失败位置可操作且热态
-  耗时没有实质扩大时才保留；否则回退该单元并重新诊断。
+- **验证升级**：CR-21.1 已先运行目标 mutation 与 runner 单测，再运行全部免费缓存控制面测试。验证复用了现有
+  Cargo 增量状态，没有清缓存、重建 Docker 或运行 Whale Agent。
+- **反馈门禁**：CR-21.1 只有在 affected mutation 被发现、unaffected case 明确报告 `unchanged` 且无差异、失败
+  位置可操作、热态耗时没有实质扩大时才保留；当前验收已满足。
 - **停止条件**：当免费失败能精确定位 fixture/字段且不添加语义分类时进入下一单元；若精确定位必须侵入
   通用 benchmark 或依赖真实 API，则暂停 CR-21，不能扩大架构。
 - **长期 guardrail**：任何新增阻断检查必须声明触发面、独立证据、预期热/冷耗时、失败升级路径和移除条件；
