@@ -95,11 +95,49 @@ class CacheRunLedgerTest(unittest.TestCase):
                     "output_tokens": 10,
                 }
             ],
+            "attempts": [
+                {"provider_boundary_request_count": 2},
+                {},
+            ],
         }
         settle_entry(entry, result)
         self.assertEqual(entry["monetary_cost"]["status"], "estimated_partial")
         self.assertEqual(entry["evidence"]["usage_evidence_status"], "partial")
         self.assertEqual(entry["execution"]["api_requests_evidence_status"], "partial")
+        self.assertIsNone(entry["execution"]["api_requests"])
+        self.assertEqual(entry["execution"]["api_requests_minimum"], 2)
+
+    def test_authoritative_request_count_survives_usage_failure(self) -> None:
+        entry = {
+            "status": "running",
+            "execution": {},
+            "tokens": {},
+            "monetary_cost": {
+                "pricing_snapshot": {
+                    "cached_input_per_million": 0.0028,
+                    "uncached_input_per_million": 0.14,
+                    "output_per_million": 0.28,
+                }
+            },
+            "evidence": {},
+        }
+        result = {
+            "status": "partial",
+            "started_at": "start",
+            "ended_at": "end",
+            "elapsed_seconds": 1.0,
+            "actual_sample_runs": 1,
+            "run_root": "target/run",
+            "result_path": "benchmarks/result.json",
+            "runner_exit_code": 3,
+            "observations": [],
+            "attempts": [{"provider_boundary_request_count": 3}],
+        }
+        settle_entry(entry, result)
+        self.assertEqual(entry["execution"]["api_requests"], 3)
+        self.assertEqual(entry["execution"]["api_requests_minimum"], 3)
+        self.assertEqual(entry["execution"]["api_requests_evidence_status"], "complete")
+        self.assertEqual(entry["monetary_cost"]["status"], "unavailable")
 
     def test_atomic_result_write_replaces_complete_json(self) -> None:
         result = self.path.parent / "result.json"

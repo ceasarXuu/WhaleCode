@@ -181,7 +181,19 @@ def planned_entry(
 
 def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     observations = result.get("observations", [])
-    usage_complete = bool(observations) and (
+    attempts = result.get("attempts", [])
+    accounted_requests = [
+        attempt["provider_boundary_request_count"]
+        for attempt in attempts
+        if isinstance(attempt.get("provider_boundary_request_count"), int)
+        and attempt["provider_boundary_request_count"] >= 0
+    ]
+    accounting_complete = (
+        len(attempts) == result.get("actual_sample_runs")
+        and len(accounted_requests) == len(attempts)
+    )
+    authoritative_request_total = sum(accounted_requests)
+    usage_complete = bool(observations) and accounting_complete and (
         result.get("status") == "completed"
         and len(observations) == result.get("actual_sample_runs")
     )
@@ -195,6 +207,9 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
             "output_tokens",
         )
     }
+    usage_complete = usage_complete and (
+        totals["provider_requests"] == authoritative_request_total
+    )
     pricing = entry["monetary_cost"]["pricing_snapshot"]
     components = {
         "cached_input": totals["cached_input_tokens"]
@@ -216,9 +231,16 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     entry["ended_at"] = result["ended_at"]
     entry["elapsed_calendar_seconds"] = result["elapsed_seconds"]
     entry["execution"]["actual_sample_runs"] = result["actual_sample_runs"]
-    entry["execution"]["api_requests"] = totals["provider_requests"]
+    entry["execution"]["api_requests"] = (
+        authoritative_request_total if accounting_complete else None
+    )
+    entry["execution"]["api_requests_minimum"] = authoritative_request_total
     entry["execution"]["api_requests_evidence_status"] = (
-        "complete" if usage_complete else "partial" if observations else "unavailable"
+        "complete"
+        if accounting_complete
+        else "partial"
+        if accounted_requests
+        else "unavailable"
     )
     entry["tokens"] = {
         "input": totals["input_tokens"],

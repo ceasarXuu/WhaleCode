@@ -100,6 +100,8 @@ def write_settled_ledger(
                         "planned_sample_runs": selection["planned_sample_runs"],
                         "actual_sample_runs": result["actual_sample_runs"],
                         "api_requests": api_requests,
+                        "api_requests_minimum": api_requests,
+                        "api_requests_evidence_status": "complete",
                     },
                     "tokens": {
                         "input": input_tokens,
@@ -367,6 +369,13 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                     "secret_paths": [],
                     "error": "",
                 },
+                "provider_boundary_request_count": observation["provider_requests"],
+                "provider_boundary_evidence_path": observation["artifacts"][
+                    "provider_boundary"
+                ],
+                "provider_boundary_evidence_sha256": observation["artifact_sha256"][
+                    "provider_boundary"
+                ],
             }
         ],
         "evidence_sha256": canonical_json_sha256(
@@ -429,6 +438,8 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                         "planned_sample_runs": 1,
                         "actual_sample_runs": 1,
                         "api_requests": 3,
+                        "api_requests_minimum": 3,
+                        "api_requests_evidence_status": "complete",
                     },
                     "tokens": {
                         "input": 100,

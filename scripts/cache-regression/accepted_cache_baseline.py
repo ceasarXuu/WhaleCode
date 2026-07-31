@@ -9,7 +9,12 @@ from typing import Any
 
 from cache_budget import validate_budget_proposal, validate_gate_trigger
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
-from cache_run_analysis import analyze_artifact_values, budget_observation_exceeded
+from cache_gate_evidence import changed_scenarios
+from cache_run_analysis import (
+    CACHE_OBSERVATION_KEYS,
+    analyze_artifact_values,
+    budget_observation_exceeded,
+)
 from cache_process_control import cleanup_verified
 from cache_run_contract import (
     execution_matrix,
@@ -26,49 +31,9 @@ from cache_surface import surface_snapshot
 from cache_time import parse_timestamp, require_not_future, require_ordered
 
 ACCEPTANCE_SCHEMA_VERSION = "whalecode-cache-baseline-acceptance-v1"
-OBSERVATION_KEYS = (
-    "arm",
-    "provider_usage_contract_version",
-    "logical_mode",
-    "provider_model",
-    "provider_requests",
-    "request_2_plus_count",
-    "request_2_plus_hit_rate",
-    "request_2_plus_cached_input_tokens",
-    "request_2_plus_uncached_input_tokens",
-    "trace_coverage",
-    "cache_usage_missing_count",
-    "input_tokens",
-    "cached_input_tokens",
-    "uncached_input_tokens",
-    "output_tokens",
-    "business_success",
-    "artifacts",
-    "artifact_sha256",
-)
-
-
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
-
-
-def changed_scenarios(report: dict[str, Any]) -> list[dict[str, Any]]:
-    scenarios = []
-    for command in report["free_validation"]["commands"]:
-        change_report = command.get("change_report")
-        if change_report:
-            scenarios.extend(
-                item
-                for item in change_report["scenarios"]
-                if item["status"] == "changed"
-            )
-    scenarios.sort(key=lambda item: item["scenario_id"])
-    ids = [item["scenario_id"] for item in scenarios]
-    require(len(ids) == len(set(ids)), "changed scenarios are invalid")
-    if report.get("discovery_state") != "revalidation_requested":
-        require(scenarios, "changed scenarios are invalid")
-    return scenarios
 
 
 def validate_proposal(
@@ -146,7 +111,10 @@ def validate_observation(
         hashes,
     )
     require(
-        all(observation.get(key) == recomputed[key] for key in OBSERVATION_KEYS),
+        all(
+            observation.get(key) == recomputed[key]
+            for key in CACHE_OBSERVATION_KEYS
+        ),
         "cache observation metrics mismatch",
     )
     require(
@@ -255,7 +223,9 @@ def validate_ledger(
         and execution.get("repeats_per_arm_per_sample") == selection["repeat"]
         and execution.get("planned_sample_runs") == selection["planned_sample_runs"]
         and execution.get("actual_sample_runs") == result["actual_sample_runs"]
-        and execution.get("api_requests") == totals["provider_requests"],
+        and execution.get("api_requests") == totals["provider_requests"]
+        and execution.get("api_requests_minimum") == totals["provider_requests"]
+        and execution.get("api_requests_evidence_status") == "complete",
         "cache ledger execution mismatch",
     )
     tokens = entry.get("tokens", {})
@@ -367,9 +337,15 @@ def validate_run_evidence(
         all(
             observation.get("run_id") == attempt.get("run_id")
             and observation.get("elapsed_seconds") == attempt.get("elapsed_seconds")
+            and attempt.get("provider_boundary_request_count")
+            == observation.get("provider_requests")
+            and attempt.get("provider_boundary_evidence_path")
+            == observation.get("artifacts", {}).get("provider_boundary")
+            and attempt.get("provider_boundary_evidence_sha256")
+            == observation.get("artifact_sha256", {}).get("provider_boundary")
             for observation, attempt in zip(observations, result["attempts"])
         ),
-        "cache observation does not match its attempt",
+        "cache observation or provider accounting does not match its attempt",
     )
     evidence_paths = []
     for observation in observations:

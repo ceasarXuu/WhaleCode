@@ -20,6 +20,7 @@ from cache_run_analysis import (
     analyze_arm,
     analyze_artifacts,
     budget_observation_exceeded,
+    validate_provider_boundary_accounting,
 )
 from run_cache_hit_regression import (
     ensure_deepseek_api_key,
@@ -239,6 +240,12 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             )
             evidence["boundary_request_count"] = 3
             boundary.write_text(json.dumps(evidence), encoding="utf-8")
+            self.assertEqual(
+                validate_provider_boundary_accounting(
+                    evidence, "deepseek-v4-flash"
+                ),
+                3,
+            )
             with self.assertRaisesRegex(ValueError, "request count"):
                 analyze_artifacts(
                     cache,

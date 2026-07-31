@@ -57,6 +57,7 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
                     "output_tokens": 10,
                 }
             ],
+            "attempts": [{"provider_boundary_request_count": 2}],
         }
         write_json(self.result, result)
 

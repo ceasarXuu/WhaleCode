@@ -12,6 +12,26 @@ from cache_usage_contract import SCHEMA_VERSION as PROVIDER_USAGE_CONTRACT_VERSI
 from cache_usage_contract import validate_cache_artifacts
 
 PROVIDER_BOUNDARY_SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v1"
+CACHE_OBSERVATION_KEYS = (
+    "arm",
+    "provider_usage_contract_version",
+    "logical_mode",
+    "provider_model",
+    "provider_requests",
+    "request_2_plus_count",
+    "request_2_plus_hit_rate",
+    "request_2_plus_cached_input_tokens",
+    "request_2_plus_uncached_input_tokens",
+    "trace_coverage",
+    "cache_usage_missing_count",
+    "input_tokens",
+    "cached_input_tokens",
+    "uncached_input_tokens",
+    "output_tokens",
+    "business_success",
+    "artifacts",
+    "artifact_sha256",
+)
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -114,10 +134,30 @@ def analyze_artifact_values(
 def validate_provider_boundary_evidence(
     boundary: dict[str, Any], expected_count: int, expected_model: str
 ) -> None:
-    if boundary.get("schema_version") != PROVIDER_BOUNDARY_SCHEMA_VERSION:
-        raise ValueError("provider boundary evidence schema is invalid")
+    boundary_count = validate_provider_boundary_accounting(boundary, expected_model)
+    if boundary_count != expected_count:
+        raise ValueError("provider boundary request count does not match usage evidence")
     if boundary.get("status") != "reconciled" or boundary.get("errors") != []:
         raise ValueError("provider boundary evidence is not reconciled")
+    wire_requests = boundary.get("wire_requests")
+    if not isinstance(wire_requests, list):
+        raise ValueError("provider boundary wire evidence is invalid")
+    if boundary.get("wire_request_count") != len(wire_requests):
+        raise ValueError("provider boundary wire request count is invalid")
+    boundary_requests = boundary["boundary_requests"]
+    boundary_hashes = [request.get("body_sha256") for request in boundary_requests]
+    wire_hashes = [request.get("provider_payload_sha256") for request in wire_requests]
+    if boundary_hashes != wire_hashes:
+        raise ValueError("provider boundary request trace does not match Whale wire trace")
+
+
+def validate_provider_boundary_accounting(
+    boundary: dict[str, Any], expected_model: str
+) -> int:
+    if not isinstance(boundary, dict):
+        raise ValueError("provider boundary evidence must be an object")
+    if boundary.get("schema_version") != PROVIDER_BOUNDARY_SCHEMA_VERSION:
+        raise ValueError("provider boundary evidence schema is invalid")
     if (
         boundary.get("expected_model") != expected_model
         or boundary.get("allowed_method") != "POST"
@@ -125,29 +165,21 @@ def validate_provider_boundary_evidence(
     ):
         raise ValueError("provider boundary authorization does not match proposal")
     boundary_requests = boundary.get("boundary_requests")
-    wire_requests = boundary.get("wire_requests")
-    if not isinstance(boundary_requests, list) or not isinstance(wire_requests, list):
+    if not isinstance(boundary_requests, list):
         raise ValueError("provider boundary request evidence is invalid")
-    if (
-        boundary.get("boundary_request_count") != len(boundary_requests)
-        or boundary.get("wire_request_count") != len(wire_requests)
-        or len(boundary_requests) != expected_count
-    ):
-        raise ValueError("provider boundary request count does not match usage evidence")
+    if boundary.get("boundary_request_count") != len(boundary_requests):
+        raise ValueError("provider boundary request count is invalid")
     for index, request in enumerate(boundary_requests, 1):
         if (
             request.get("count") != index
             or request.get("method") != "POST"
             or request.get("path") != "/responses"
             or request.get("model") != expected_model
+            or not isinstance(request.get("body_sha256"), str)
+            or len(request["body_sha256"]) != 64
         ):
             raise ValueError("provider boundary request contract is invalid")
-    boundary_hashes = [request.get("body_sha256") for request in boundary_requests]
-    wire_hashes = [request.get("provider_payload_sha256") for request in wire_requests]
-    if boundary_hashes != wire_hashes or any(
-        not isinstance(value, str) or len(value) != 64 for value in boundary_hashes
-    ):
-        raise ValueError("provider boundary request trace does not match Whale wire trace")
+    return len(boundary_requests)
 
 
 def analyze_arm(

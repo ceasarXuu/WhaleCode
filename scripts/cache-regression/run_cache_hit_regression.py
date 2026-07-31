@@ -27,6 +27,7 @@ from cache_run_analysis import (
     analyze_arm,
     analyze_artifacts,
     budget_observation_exceeded,
+    validate_provider_boundary_accounting,
 )
 from cache_run_contract import (
     benchmark_command,
@@ -86,7 +87,7 @@ def persist_observation_artifacts(
     observation: dict[str, Any],
 ) -> dict[str, Any]:
     destination = repo / "benchmarks/cache-regression/evidence" / record_id / run_id
-    destination.mkdir(parents=True, exist_ok=False)
+    destination.mkdir(parents=True, exist_ok=True)
     artifact_names = {
         "cache_summary": "provider-cache-trace-summary.json",
         "request_summary": "request-summary.json",
@@ -99,7 +100,11 @@ def persist_observation_artifacts(
         if not source.is_file():
             raise FileNotFoundError(f"cache observation artifact is missing: {key}")
         target = destination / filename
-        shutil.copyfile(source, target)
+        if target.is_file():
+            if file_sha256(target) != file_sha256(source):
+                raise ValueError(f"persisted cache artifact changed: {key}")
+        else:
+            shutil.copyfile(source, target)
         persisted[key] = target
     durable = analyze_artifacts(
         persisted["cache_summary"],
@@ -128,6 +133,36 @@ def persist_observation_artifacts(
         key: path.relative_to(repo).as_posix() for key, path in persisted.items()
     }
     return durable
+
+
+def persist_provider_boundary_accounting(
+    repo: Path,
+    record_id: str,
+    run_id: str,
+    run_dir: Path,
+    side: str,
+    expected_model: str,
+) -> dict[str, Any]:
+    source = (
+        run_dir
+        / "pair-001"
+        / side
+        / "artifacts"
+        / "provider-boundary-evidence.json"
+    )
+    if not source.is_file():
+        raise FileNotFoundError("provider boundary accounting evidence is missing")
+    boundary = json.loads(source.read_text(encoding="utf-8-sig"))
+    request_count = validate_provider_boundary_accounting(boundary, expected_model)
+    destination = repo / "benchmarks/cache-regression/evidence" / record_id / run_id
+    destination.mkdir(parents=True, exist_ok=False)
+    target = destination / "provider-boundary-evidence.json"
+    shutil.copyfile(source, target)
+    return {
+        "provider_boundary_request_count": request_count,
+        "provider_boundary_evidence_path": target.relative_to(repo).as_posix(),
+        "provider_boundary_evidence_sha256": file_sha256(target),
+    }
 
 
 def stop_reason(
@@ -230,6 +265,7 @@ def main() -> int:
     }
     stop_at = None
     cancelled = False
+    cleanup_failed = False
     for index, execution in enumerate(matrix, start=1):
         run_id = f"{record_id}-CACHE-{index:03d}"
         command = benchmark_command(
@@ -272,17 +308,27 @@ def main() -> int:
         except KeyboardInterrupt as error:
             attempt["exit_code"] = None
             attempt["timed_out"] = False
-            attempt["status"] = "cancelled"
             attempt["execution_error"] = "KeyboardInterrupt: run cancelled"
             attempt["process_tree_termination"] = getattr(
                 error, "process_tree_termination", {"status": "unknown"}
             )
-            attempt["interrupt_cleanup"] = cleanup_labeled_containers(
+            interrupt_cleanup = cleanup_labeled_containers(
                 run_id, limits["cleanup_grace_seconds"], run_root
             )
+            attempt["interrupt_cleanup"] = interrupt_cleanup
+            attempt["post_run_cleanup"] = interrupt_cleanup
             attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
-            cancelled = True
-            stop_at = "cancelled"
+            if cleanup_verified(interrupt_cleanup):
+                attempt["status"] = "cancelled"
+                cancelled = True
+                stop_at = "cancelled"
+            else:
+                attempt["status"] = "failed"
+                attempt["cleanup_error"] = interrupt_cleanup.get(
+                    "error", "cleanup could not be verified"
+                )
+                cleanup_failed = True
+                stop_at = "cancelled_cleanup_failed"
             break
         attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
         cleanup = cleanup or cleanup_labeled_containers(
@@ -294,6 +340,16 @@ def main() -> int:
         try:
             run_dir = find_run_dir_by_id(run_root, run_id)
             side = "left" if execution["arm"] == "standard" else "right"
+            attempt.update(
+                persist_provider_boundary_accounting(
+                    repo,
+                    record_id,
+                    run_id,
+                    run_dir,
+                    side,
+                    selection["model"],
+                )
+            )
             observation = analyze_arm(
                 run_dir, side, execution["arm"], selection["model"]
             )
@@ -346,7 +402,22 @@ def main() -> int:
         if (item["sample"], item["arm"], item["repeat"]) not in attempted_keys
     ]
     result["stop_reason"] = stop_at
-    if cancelled:
+    accounted_requests = [
+        item["provider_boundary_request_count"]
+        for item in result["attempts"]
+        if isinstance(item.get("provider_boundary_request_count"), int)
+    ]
+    result["provider_boundary_requests_minimum"] = sum(accounted_requests)
+    result["provider_boundary_accounting_status"] = (
+        "complete"
+        if len(accounted_requests) == result["actual_sample_runs"]
+        else "partial"
+        if accounted_requests
+        else "unavailable"
+    )
+    if cleanup_failed:
+        result["status"] = "failed"
+    elif cancelled:
         result["status"] = "cancelled"
     elif execution_completed(matrix, result["attempts"], result["observations"]):
         result["status"] = "completed"

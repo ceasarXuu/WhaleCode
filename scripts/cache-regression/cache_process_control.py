@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from cache_windows_job import WindowsKillOnCloseJob
+from cache_windows_job import WindowsKillOnCloseJob, start_windows_job_process
 
 
 CLEANUP_SUCCESS_STATUSES = frozenset({"verified_absent", "removed_verified"})
@@ -35,14 +35,17 @@ def cleanup_verified(result: dict[str, Any]) -> bool:
     )
 
 
-def _new_windows_job() -> WindowsKillOnCloseJob:
-    return WindowsKillOnCloseJob()
-
-
 def _terminate_process_tree(
-    process: subprocess.Popen[Any], windows_job: WindowsKillOnCloseJob | None = None
+    process: Any, windows_job: WindowsKillOnCloseJob | None = None
 ) -> dict[str, Any]:
     if windows_job is not None:
+        if not windows_job.owns_process_tree:
+            return {
+                "status": "failed",
+                "method": "windows_job_object",
+                "descendants_guaranteed_terminated": False,
+                "error": "job object does not own the benchmark process tree",
+            }
         try:
             windows_job.close()
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
@@ -104,24 +107,11 @@ def _terminate_process_tree(
 def run_benchmark_command(
     command: list[str], cwd: Path, timeout_seconds: int
 ) -> subprocess.CompletedProcess[Any]:
-    process = subprocess.Popen(
-        command,
-        cwd=cwd,
-        start_new_session=os.name == "posix",
-        creationflags=(
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            if os.name == "nt"
-            else 0
-        ),
-    )
     windows_job = None
     if os.name == "nt":
-        try:
-            windows_job = _new_windows_job()
-            windows_job.assign(process)
-        except OSError:
-            _terminate_process_tree(process, windows_job)
-            raise
+        process, windows_job = start_windows_job_process(command, cwd)
+    else:
+        process = subprocess.Popen(command, cwd=cwd, start_new_session=True)
     try:
         return_code = process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as error:
