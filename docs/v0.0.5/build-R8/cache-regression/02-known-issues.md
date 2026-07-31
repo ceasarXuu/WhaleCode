@@ -67,6 +67,10 @@ mutation tests 与全部 45 个缓存门禁离线测试通过，未运行真实 
 普通 `exec_command` 的完整 wire 定义，并断言普通 Tool 在 Standard/TaskSpace 中逐值相同。定向测试
 `2 passed; 0 failed`，未运行真实 Whale Agent。CR-I04、CR-I05 仍需后续 decoder 与场景覆盖，因此保持 open。
 
+提交 `01e4cc915` 完成 CR-10：同一版本化 fixture 冻结 Chat Completions 和 Responses API 的 cache hit、miss、
+details 缺失及类型错误解码行为。完整 `codex-api` 共 134 个测试通过，未运行真实 Whale Agent。两种 wire 的错误
+表现不同，CR-11 必须统一按不可比较处理；CR-I04 暂不关闭。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace

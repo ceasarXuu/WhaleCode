@@ -45,6 +45,7 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [05-final-wire-evidence.md](05-final-wire-evidence.md) | CR-07 原始 body SHA 与结构化证据合同 | verified |
 | [06-final-wire-comparison-policy.md](06-final-wire-comparison-policy.md) | CR-08 final-wire 保护面与差异分类合同 | verified |
 | [07-production-tool-wire.md](07-production-tool-wire.md) | CR-09 普通 Tool 与 TaskSpace Tool 的生产 wire 合同 | verified |
+| [08-provider-usage-decoder.md](08-provider-usage-decoder.md) | CR-10 两种 wire API 的 usage 解码合同 | verified |
 | [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | reviewed，blocking |
 
 `02-known-issues.md` 是缓存门禁工程缺陷的唯一清单。R8 产品问题状态仍以
@@ -75,5 +76,5 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 - 门禁自身不能宣称抵抗有仓库写权限的恶意维护者；目标是阻止意外绕过、证据错配和未经审查的自授权；
 - 修复完成后必须执行新的空白对抗性审查，blocking finding 未关闭前不得恢复发布权威性。
 
-当前执行位置：Phase A 的 `CR-01` 至 `CR-05` 与 Phase B 的 `CR-06` 至 `CR-09` 已验证，CR-I01、CR-I02、
-CR-I03、CR-I09 已关闭；下一单元为 Phase B 的 `CR-10`。
+当前执行位置：Phase A 的 `CR-01` 至 `CR-05` 与 Phase B 的 `CR-06` 至 `CR-10` 已验证，CR-I01、CR-I02、
+CR-I03、CR-I09 已关闭；下一单元为 Phase B 的 `CR-11`。
