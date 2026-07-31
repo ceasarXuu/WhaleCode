@@ -32,6 +32,7 @@ mod apply_patch_cli;
 #[cfg(not(target_os = "windows"))]
 mod approvals;
 mod cache_final_wire;
+mod cache_payload_contract;
 mod cli_stream;
 mod client;
 mod client_websockets;
