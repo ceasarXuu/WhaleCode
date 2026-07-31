@@ -13,6 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cache_evidence import (
+    RESULT_SCHEMA_VERSION,
+    canonical_json_sha256,
+    evidence_manifest,
+    expected_run_plan,
+    file_sha256,
+)
 from cache_surface import load_contract, surface_snapshot, write_json
 
 
@@ -55,11 +62,9 @@ def find_run_dir(run_root: Path, sample: str) -> Path:
     return max(candidates, key=lambda path: path.stat().st_mtime_ns)
 
 
-def analyze_arm(run_dir: Path, side: str, arm: str) -> dict[str, Any]:
-    artifacts = run_dir / "pair-001" / side / "artifacts"
-    cache_path = artifacts / "provider-cache-trace-summary.json"
-    request_path = artifacts / "request-summary.json"
-    metrics_path = artifacts / "metrics.json"
+def analyze_artifacts(
+    cache_path: Path, request_path: Path, metrics_path: Path, arm: str
+) -> dict[str, Any]:
     cache = read_json(cache_path)
     request = read_json(request_path)["rollout_trace"]
     metrics = read_json(metrics_path)
@@ -83,7 +88,22 @@ def analyze_arm(run_dir: Path, side: str, arm: str) -> dict[str, Any]:
             "request_summary": str(request_path),
             "metrics": str(metrics_path),
         },
+        "artifact_sha256": {
+            "cache_summary": file_sha256(cache_path),
+            "request_summary": file_sha256(request_path),
+            "metrics": file_sha256(metrics_path),
+        },
     }
+
+
+def analyze_arm(run_dir: Path, side: str, arm: str) -> dict[str, Any]:
+    artifacts = run_dir / "pair-001" / side / "artifacts"
+    return analyze_artifacts(
+        artifacts / "provider-cache-trace-summary.json",
+        artifacts / "request-summary.json",
+        artifacts / "metrics.json",
+        arm,
+    )
 
 
 def arm_passes(
@@ -138,6 +158,7 @@ def planned_entry(
     run_root: Path,
 ) -> dict[str, Any]:
     live = contract["live_regression"]
+    plan = expected_run_plan(contract)
     return {
         "record_id": record_id,
         "record_type": "run_batch",
@@ -152,21 +173,21 @@ def planned_entry(
             "status": "granted",
             "reference": authorization,
             "budget_summary": {
-                "sample_run_limit": 2,
-                "automatic_retry_limit": 0,
-                "sample": live["sample"],
-                "arms": live["arms"],
+                "sample_run_limit": plan["planned_sample_runs"],
+                "automatic_retry_limit": plan["automatic_retries"],
+                "sample": plan["sample"],
+                "arms": plan["arms"],
             },
             "note": "仅允许 single-file-fast-fix 的 Standard 与 map-request 各一次。",
         },
         "execution": {
             "provider": "deepseek",
-            "model": live["model"],
+            "model": plan["model"],
             "batch_count": 1,
-            "sample_ids": [live["sample"]],
-            "arm_ids": live["arms"],
-            "repeats_per_arm_per_sample": 1,
-            "planned_sample_runs": 2,
+            "sample_ids": [plan["sample"]],
+            "arm_ids": plan["arms"],
+            "repeats_per_arm_per_sample": plan["repeat"],
+            "planned_sample_runs": plan["planned_sample_runs"],
             "actual_sample_runs": 0,
             "api_requests": 0,
         },
@@ -262,7 +283,8 @@ def main() -> int:
     contract_path = repo / "benchmarks/cache-regression/cache-surface-contract.json"
     contract = load_contract(contract_path)
     live = contract["live_regression"]
-    if live["planned_sample_runs"] != 2 or live["automatic_retries"] != 0:
+    plan = expected_run_plan(contract)
+    if plan["planned_sample_runs"] != 2 or plan["automatic_retries"] != 0:
         raise SystemExit("cache regression contract exceeds the authorized run shape")
     credential_source = ensure_deepseek_api_key(repo)
     surface_sha, _ = surface_snapshot(repo, contract, "worktree")
@@ -283,16 +305,16 @@ def main() -> int:
 
     started = time.time()
     result = {
-        "schema_version": "whalecode-cache-hit-regression-v1",
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "record_id": record_id,
         "status": "failed",
         "started_at": now(),
         "subject_commit": head,
         "surface_sha256": surface_sha,
         "authorization_reference": args.authorization_reference,
-        "planned_sample_runs": 2,
+        "run_plan": plan,
+        "policy_sha256": canonical_json_sha256(live),
         "actual_sample_runs": 0,
-        "sample": live["sample"],
-        "projection_policy": "map-request",
         "credential_source": credential_source,
         "arms": [],
     }
@@ -302,15 +324,15 @@ def main() -> int:
         "-File",
         str(repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"),
         "-Scenario",
-        live["sample"],
+        plan["sample"],
         "-Repeats",
-        "1",
+        str(plan["repeat"]),
         "-RunRoot",
         str(run_root),
         "-WhaleBin",
         str(args.whale_bin),
         "-Model",
-        live["model"],
+        plan["model"],
         "-TaskSpaceProjectionPolicy",
         "map-request",
         "-RunSide",
@@ -339,6 +361,9 @@ def main() -> int:
             and len(result["arms"]) == 2
             and all(arm["passed"] for arm in result["arms"])
             else "fail"
+        )
+        result["evidence_sha256"] = canonical_json_sha256(
+            evidence_manifest(result["arms"])
         )
     except BaseException as error:
         result["error"] = f"{type(error).__name__}: {error}"
