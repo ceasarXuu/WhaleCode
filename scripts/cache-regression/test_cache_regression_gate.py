@@ -121,6 +121,13 @@ class CacheRegressionGateTest(unittest.TestCase):
         self.assertIn("live_regression_failed", result.stdout)
         self.assertNotIn("敏感面与已验证基线不一致", result.stdout)
 
+    def test_release_gate_blocks_structural_bootstrap(self) -> None:
+        result = self.gate("--require-live-baseline")
+        self.assertEqual(result.returncode, 20)
+        self.assertIn("structural_bootstrap", result.stdout)
+        self.assertIn("尚未达到 live_verified", result.stdout)
+        self.assertNotIn("敏感面与已验证基线不一致", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

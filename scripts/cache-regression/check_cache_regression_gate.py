@@ -37,7 +37,7 @@ def main() -> int:
     expected_hash = contract["baseline"]["surface_sha256"]
     changes = staged_sensitive_changes(repo, contract) if args.source == "index" else []
     baseline_status = contract["baseline"]["status"]
-    live_status_accepted = baseline_status in {"structural_bootstrap", "live_verified"}
+    live_status_accepted = baseline_status == "live_verified"
     passed = actual_hash == expected_hash and (
         live_status_accepted or not args.require_live_baseline
     )
@@ -72,7 +72,7 @@ def main() -> int:
     print(f"expected surface: {expected_hash}")
     print(f"actual surface:   {actual_hash}")
     if not live_status_accepted:
-        print(f"- 当前基线状态为 {baseline_status}，最近一次真实缓存回归未通过。")
+        print(f"- 当前基线状态为 {baseline_status}，尚未达到 live_verified。")
     if changes:
         print("可能影响缓存命中的变更：")
         for change in changes:
