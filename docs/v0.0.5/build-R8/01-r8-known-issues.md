@@ -17,24 +17,55 @@
 
 不得把一次失败中的多个日志表现重复登记为多个问题，也不得把计划、验收或发布步骤登记为产品问题。
 
-## 2. 当前全集
+## 2. 影响分层
 
-| 顺序 | ID | 问题现象 | 当前已知事实 | 仍需重新证明 | 状态 | Source |
-|---:|---|---|---|---|---|---|
-| 1 | R8-I01 | 同一 response 中存在 prepare revision 与最终 canonical revision 两种成功值 | ordinary result attribution 会再次推进 Map；历史 stale 与此相关 | 完整事务时序、唯一权威应在何时产生、如何满足 response 级约束 | investigating | GI-001 |
-| 2 | R8-I02 | 动态 Tool 事实被额外写成 developer/system message，破坏缓存前缀 | 全 carrier 消融使 request 2+ cache 从 33.60% 恢复至 84.85% | 哪些消息是纯重复，哪些承载唯一事实；生产删除边界 | queued | GI-002 |
-| 3 | R8-I03 | Agent 对 TaskSpace response 动作序列的遵循不稳定 | 出现 ordinary-only、solo init、数量或顺序不匹配 | 是反馈、Tool 合同、协议说明还是模型偶发问题 | queued | GI-003 |
-| 4 | R8-I04 | Agent 会向 Waiting/Completed 等不合法节点声明动作 | 状态机能拒绝，Agent 通常能在后续纠正 | Agent 调用前实际获得了哪些节点事实，是否存在传递问题 | queued | GI-004 |
-| 5 | R8-I05 | 状态拒绝反馈存在重复、嵌套和 canonical/candidate 状态歧义 | 多条 carrier 曾表达同一 violation | 当前所有输出路径是否仍重复或扭曲，去重后的完整事实集合 | queued | GI-005 |
-| 6 | R8-I06 | 单 response 单 Patch 规则可能被 nested dispatcher 绕过，Agent 也曾尝试多 Patch | 顶层 preflight 可零执行拒绝；nested inventory 仍需核对 | 能力入口全集、是否真实绕过、最简单统一边界 | queued | GI-006 |
-| 7 | R8-I07 | Observer 曾误分类、漏载体、错误对账或接受陈旧证据 | 多轮修复后仍发生过 fresh review blocker | 当前最小可信观测面；哪些通用 observer 机制应删除或保留 | queued | GI-007 |
-| 8 | R8-I08 | TaskSpace 固定与动态上下文成本仍高于 Standard | 唯一 control schema 有固定成本；动态 carrier 已确认破坏缓存 | 修复已知异常后的不可约成本和各 projection 的真实成本 | queued | GI-008 |
-| 9 | R8-I09 | Store hydrate 可能绕过 canonical schema 与 rooted-DAG 校验 | 写入路径有校验，历史读取路径存在直接安装风险 | 当前生产 hydrate 调用链、共享 validator 与原子失败行为 | queued | GI-009 |
-| 10 | R8-I10 | Tool discovery 缺少稳定 capability epoch | 可见 Tool 集可能按请求变化，旧 epoch 身份未覆盖该变化 | 是否影响正确性、缓存或仅影响观测；最小身份模型 | queued | GI-010 |
+| 层级 | 责任面 | 该层失败的影响 | 对应问题 |
+|---:|---|---|---|
+| F0 | canonical Map Store | Runtime 读取到非法或错误事实，所有上层判断失去基础 | I09 |
+| F1 | Runtime 事务与 revision | 同一动作出现竞争状态或提交身份，导致 stale、重复提交和错误恢复 | I01 |
+| F2 | Tool admission 与 dispatch | TaskSpace 硬约束可被入口绕过，出现未绑定或多 Patch 真实执行 | I06 |
+| F3 | Tool feedback 与 context | Agent 收到丢失、重复、歧义事实，缓存前缀也可能被破坏 | I05、I02 |
+| F4 | capability 与观测身份 | 可见能力和证据边界不稳定，行为与成本结论无法准确归因 | I10、I07 |
+| F5 | Agent 协议行为 | Agent 生成低效或非法动作，但底层仍应守住正确性 | I03、I04 |
+| F6 | 成本与晋升 | 衡量修复后的不可约产品成本，不能反向决定底层语义 | I08 |
 
-当前问题数：**10**。当前问题：**R8-I01**。
+## 3. 当前全集与优先级
 
-## 3. 已知但不作为独立问题迁移
+`P0` 表示 canonical 正确性或不可绕过边界；`P1` 表示语义、能力身份或证据可信性；`P2` 表示 Agent 行为；
+`P3` 表示修复后的成本和发布验收。执行序优先处理更底层责任面。
+
+| 执行序 | ID | 层级 | 严重度 | 问题现象 | 直接影响面 | 主要下游影响 | 状态 | Source |
+|---:|---|---:|---:|---|---|---|---|---|
+| 1 | R8-I09 | F0 | P0 | Store hydrate 可能绕过 canonical schema 与 rooted-DAG 校验 | 所有 TaskSpace policy 的 resume、fork、child、进程重启 | 非法 Map 会污染 revision、状态机、反馈和行为分析 | investigating | GI-009 |
+| 2 | R8-I01 | F1 | P0 | prepare revision 与最终 canonical revision 同时成为成功事实 | 所有包含 ordinary sibling actions 的 TaskSpace response | stale、额外恢复请求、Final Receipt 和缓存问题 | queued | GI-001 |
+| 3 | R8-I06 | F2 | P0 | nested dispatcher 可能绕过 response preflight 和单 Patch 边界 | 顶层/nested dispatch、Patch、Standard 能力隔离 | 未绑定动作或多个 Patch 可能真实执行 | queued | GI-006 |
+| 4 | R8-I05 | F3 | P1 | 状态拒绝反馈存在重复、嵌套及 canonical/candidate 歧义 | 所有 TaskSpace 状态拒绝路径及 ToolSearch sibling | 同形重试、额外 read_map、错误状态理解 | queued | GI-005 |
+| 5 | R8-I02 | F3 | P1 | 动态 Tool 事实被额外写成 developer/system message | 三种 projection、所有产生 receipt/failure carrier 的请求 | 缓存崩落；粗暴删除又可能丢唯一事实 | queued | GI-002 |
+| 6 | R8-I10 | F4 | P1 | Tool discovery 缺少稳定 capability epoch | Standard/TaskSpace 的可见 Tool 集、缓存和 provenance | Tool 变化无法与 Map/context 变化准确区分 | queued | GI-010 |
+| 7 | R8-I07 | F4 | P1 | Observer 曾误分类、漏载体、错误对账或接受陈旧证据 | benchmark、问题诊断、成本与晋升报告 | 错误根因、错误关闭和无效性能结论 | queued | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 对 response 动作序列的遵循不稳定 | TaskSpace 初始化、ordinary actions、连续动作 | 额外拒绝与请求；需在 F0～F4 修复后重评 | queued | GI-003 |
+| 9 | R8-I04 | F5 | P2 | Agent 向 Waiting/Completed 等不合法节点声明动作 | 有依赖关系的节点执行与 lifecycle mutation | 状态机拒绝和额外恢复；可能是反馈问题派生 | queued | GI-004 |
+| 10 | R8-I08 | F6 | P3 | TaskSpace 固定与动态上下文成本高于 Standard | 请求、token、缓存、耗时和商业可行性 | 决定最终模式价值，但不能先于正确性收敛 | queued | GI-008 |
+
+当前问题数：**10**。当前问题：**R8-I09**。
+
+## 4. 依赖与重评关系
+
+| 上游问题 | 关闭后必须重评 | 原因 |
+|---|---|---|
+| I09 Store hydrate | I01、I04 | 先确保进入 Runtime 的 Map 本身合法，才评价 revision 和节点行为 |
+| I01 revision | I02、I03、I08 | 唯一最终状态是删除 receipt、评价动作请求和成本的前提 |
+| I06 dispatch boundary | I03、I08 | 先保证所有入口共享硬门，行为和成本统计才完整 |
+| I05 rejection feedback | I02、I03、I04 | 先确定失败事实的唯一表达，再删除动态副本并评价 Agent 行为 |
+| I02 dynamic carrier | I03、I04、I08 | 先恢复自然上下文与缓存，再评价行为和不可约成本 |
+| I10 capability epoch | I07、I08 | Tool 集变化必须能被观测和成本报告区分 |
+| I03 response behavior | I04 | lifecycle 错误属于更具体的 response 行为，避免重复归因 |
+| I01～I07、I09～I10 | I08 | 成本是最终验收，不作为底层设计的先验优化目标 |
+
+I07 不作为所有问题的整体前置。每个底层问题先建设自身所需的最小、可重算证据；I07 随后只负责收敛跨问题
+共用的观测身份和报告口径，避免再次形成长期 Observer 专项。
+
+## 5. 已知但不作为独立问题迁移
 
 | 事项 | R8 处理方式 |
 |---|---|
@@ -45,7 +76,7 @@
 | 历史兼容与旧 Map 数据 | 无保留价值，不建立兼容工作 |
 | 未证明的“Agent 智能不足” | 不登记；优先检查上下文和 Tool 反馈 |
 
-## 4. 关闭要求
+## 6. 关闭要求
 
 每个问题关闭时必须在本表更新状态，并链接一份问题结果文档。结果文档必须包含：
 
