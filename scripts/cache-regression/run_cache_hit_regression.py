@@ -260,7 +260,7 @@ def main() -> int:
     stop_at = None
     cancelled = False
     for index, execution in enumerate(matrix, start=1):
-        run_id = f"CACHE-{index:03d}"
+        run_id = f"{record_id}-CACHE-{index:03d}"
         command = benchmark_command(
             repo, args.whale_bin, run_root, run_id, proposal, execution
         )

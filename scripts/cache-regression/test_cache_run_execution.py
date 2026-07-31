@@ -187,6 +187,15 @@ class CacheRunExecutionTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(call[call.index("-Repeats") + 1] == "1" for call in calls))
+        run_ids = [call[call.index("-RunId") + 1] for call in calls]
+        self.assertEqual(len(set(run_ids)), 2)
+        self.assertTrue(run_ids[0].startswith("WAR-"))
+        self.assertTrue(run_ids[0].endswith("-CACHE-001"))
+        self.assertTrue(run_ids[1].endswith("-CACHE-002"))
+        self.assertEqual(
+            run_ids[0].rsplit("-CACHE-", maxsplit=1)[0],
+            run_ids[1].rsplit("-CACHE-", maxsplit=1)[0],
+        )
         ledger = json.loads(
             (self.repo / "benchmarks/whale-agent-run-ledger.json").read_text(
                 encoding="utf-8"
@@ -269,7 +278,9 @@ class CacheRunExecutionTest(unittest.TestCase):
             exit_code = main()
 
         self.assertEqual(exit_code, 130)
-        cleanup_call.assert_called_once_with("CACHE-001")
+        cleanup_run_id = cleanup_call.call_args.args[0]
+        self.assertTrue(cleanup_run_id.startswith("WAR-"))
+        self.assertTrue(cleanup_run_id.endswith("-CACHE-001"))
         result = json.loads(
             next(
                 (self.repo / "benchmarks/cache-regression/results").glob("*.json")
