@@ -32,13 +32,23 @@ def _files(root: Path) -> list[Path]:
 def build_execution_identity(repo: Path, samples: list[str]) -> dict[str, Any]:
     repo = repo.resolve()
     roots = [repo / path for path in RUNNER_INPUTS]
+    control_scripts = repo / "scripts/cache-regression"
     for sample in samples:
         scenario = repo / "benchmarks/taskspace/scenarios" / sample
         if not scenario.is_dir():
             raise ValueError(f"cache benchmark scenario does not exist: {sample}")
         roots.append(scenario)
 
-    paths = sorted({path.resolve() for root in roots for path in _files(root)})
+    paths = {path.resolve() for root in roots for path in _files(root)}
+    if control_scripts.is_dir():
+        paths.update(
+            path.resolve()
+            for path in control_scripts.iterdir()
+            if path.is_file()
+            and path.suffix in {".py", ".ps1"}
+            and not path.name.startswith("test_")
+        )
+    paths = sorted(paths)
     if not paths:
         raise ValueError("cache execution identity contains no files")
     entries = []

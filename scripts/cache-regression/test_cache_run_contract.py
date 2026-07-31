@@ -186,6 +186,18 @@ class CacheRunContractTest(unittest.TestCase):
             )
 
         runner.write_text("runner\n", encoding="utf-8")
+        control = self.repo / "scripts/cache-regression/cache_run_contract.py"
+        control.parent.mkdir(parents=True, exist_ok=True)
+        control.write_text("new control code\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "current evidence"):
+            load_authorized_proposal(
+                self.repo,
+                self.contract,
+                self.proposal_path,
+                self.authorization_path,
+            )
+
+        control.unlink()
         scenario = self.repo / "benchmarks/taskspace/scenarios/simple/scenario.json"
         scenario.write_text('{"changed": true}\n', encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "current evidence"):
