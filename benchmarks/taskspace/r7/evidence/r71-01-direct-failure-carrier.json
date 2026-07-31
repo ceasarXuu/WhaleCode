@@ -7,28 +7,36 @@
       "call_id": "valid-direct-failure",
       "carrier_schema": "TaskSpaceControlResultV2",
       "parse_status": "structured_failure",
-      "reason_code": "TASKSPACE_INVALID_ARGUMENT"
+      "reason_code": "TASKSPACE_INVALID_ARGUMENT",
+      "source_kind": "production_call_row",
+      "source_sha256": "a63a7fd236c411a806a9fe355c6398c803b1d8bab276238911d7a7d327dc5080"
     },
     {
       "request_id": "r71-01-fixture",
       "call_id": "duplicate-json",
-      "carrier_schema": "untrusted_duplicate_json",
+      "carrier_schema": "unparsed",
       "parse_status": "duplicate_failure_json_property",
-      "reason_code": "failure_payload_duplicate_property"
+      "reason_code": "failure_payload_duplicate_property",
+      "source_kind": "production_call_row",
+      "source_sha256": "dad71587c1fb8f9903f8c9abea88c5cb40b3b3e6d80efa6f5537d5e2286c1c07"
     },
     {
       "request_id": "r71-01-fixture",
       "call_id": "outer-inner-mismatch",
       "carrier_schema": "TaskSpaceControlResultV2",
       "parse_status": "outer_inner_success_mismatch",
-      "reason_code": "outer_inner_success_mismatch"
+      "reason_code": "outer_inner_success_mismatch",
+      "source_kind": "production_call_row",
+      "source_sha256": "a63a7fd236c411a806a9fe355c6398c803b1d8bab276238911d7a7d327dc5080"
     },
     {
       "request_id": "r71-01-fixture",
       "call_id": "ordinary-schema-isolation",
       "carrier_schema": "OrdinaryExecResultV1",
       "parse_status": "ordinary_failure",
-      "reason_code": "shell_exit_1"
+      "reason_code": "shell_exit_1",
+      "source_kind": "production_call_row",
+      "source_sha256": "33c3456c8da1753fd0c99086d10f20e4bc6fb0e98c71ae280391be4119f5945b"
     }
   ]
 }

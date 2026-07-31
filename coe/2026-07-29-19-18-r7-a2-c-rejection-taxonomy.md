@@ -1464,4 +1464,66 @@ R7 five-layer evidence freshness self-test passed
   ```
 - Interpretation: 修复保持 observer 边界：只验证来源、JSON 和事实一致性，不改变 Runtime、Map、
   lifecycle、dispatch 或 Agent 决策。
-- Time: 2026-07-31 08:20
+- Time: 2026-07-31 07:48
+
+## Evidence E-036: fresh adversarial review 发现 strict adapter 仍有四个宽化入口
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: adversarial-counterexample
+- Source:
+  - `vs_review/2026-07-31-r71-01-direct-failure-carrier-review.md`
+  - reviewer session `019fb571-c2e3-7850-b2b4-d90a3296f913`
+- Prediction or plan link:
+  - R71-01 fresh Shard B 关闭门
+- Matched signal:
+  - supplemental status/class、actual/envelope revision 和 absent-node/state 可矛盾；
+  - response-prepare reservation 在 strict validation 前写入；
+  - ordinary malformed JSON 与 domain `success` 被 observer 重新解释；
+  - acceptance artifact 字段由 literal 构造，通用 schema 不拒绝缺字段 record。
+- Correlation keys:
+  - `B1`
+  - `B2`
+  - `B3`
+  - `B4`
+- Raw content:
+  ```text
+  Round 1 conclusion: BLOCKED
+  Blocking findings: 4
+  ```
+- Interpretation: E-035 只证明原始四 fixture 已反转，不能证明 adapter 的完整输入边界；四项均接受并修复。
+- Time: 2026-07-31 08:00
+
+## Evidence E-037: accepted blocker 修复通过扩展正反矩阵
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: repair-verification
+- Source:
+  - `scripts/taskspace-benchmark/test-r71-direct-failure-carrier.ps1`
+  - `scripts/taskspace-benchmark/test-r7-state-failure-contract.ps1`
+  - `scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1`
+  - `scripts/taskspace-benchmark/test-r7-supplemental-failure-evidence.ps1`
+  - `benchmarks/taskspace/r7/evidence/r71-01-direct-failure-carrier.json`
+- Prediction or plan link:
+  - Round 1 B1～B4 的 proof needed
+- Matched signal:
+  - strict parse 和 envelope validation 先于 reservation mutation；
+  - invalid/duplicate response-prepare 均不写 sibling reservation；
+  - ordinary malformed JSON 保持 shell exit 分类，domain `success` 不再成为 transport fact；
+  - status/class、revision、node presence/state 矛盾均 fail closed，合法 protocol/resource 正例保留；
+  - call row 直接携带 `carrier_schema/reason_code`，artifact 从 Apply 路径生成并记录 source SHA-256；
+  - strict failure artifact 缺字段 mutant 被 JSON Schema 拒绝。
+- Correlation keys:
+  - `response_commit_reservation_mismatch`
+  - `duplicate_failure_json_property`
+  - `production_call_row`
+- Raw content:
+  ```text
+  R71-01 direct failure carrier contract passed.
+  R7 state failure contract passed.
+  R7 five-layer trace analysis passed.
+  R7 supplemental failure evidence passed.
+  ```
+- Interpretation: accepted blockers 已有本地修复与回归证据；H-009 仍需 fresh closure reviewer 后才能关闭。
+- Time: 2026-07-31 08:12

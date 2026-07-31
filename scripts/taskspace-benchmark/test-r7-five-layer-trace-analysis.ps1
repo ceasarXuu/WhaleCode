@@ -280,7 +280,7 @@ try {
     if (-not $taskspace[1].receipt_before -or $taskspace[1].receipt_original_role -ne "developer") {
         throw "TaskSpace response-final receipt was not assigned to the following provider request"
     }
-    $stateFailureJson = '{"schema_version":"TaskSpaceResponseCommitFailureV3","status":"state_rejected","success":false,"state_commit":false,"rejected_candidate_committed":false,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:copy-control","zero_dispatch":true,"affected_call_ids":["copy-control","copy-sibling"]},"error":{"class":"state_machine","code":"taskspace_response_state_commit_failed","violations":[{"code":"node_state_invalid","subjects":["reservation-1"],"node_id":"join","canonical_before_transaction":{"node_present":true,"state":"waiting","unsatisfied_predecessor_ids":["left"]},"rejected_candidate_at_violation":{"committed":false,"state":"completed","allowed_states":["ready","in_flight"],"unsatisfied_predecessor_ids":[]}}]}}'
+    $stateFailureJson = '{"schema_version":"TaskSpaceResponseCommitFailureV3","status":"state_rejected","success":false,"state_commit":false,"canonical_revision":4,"current_revision":4,"rejected_candidate_committed":false,"executed_tool_call_count":0,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:copy-control","zero_dispatch":true,"affected_call_ids":["copy-control","copy-sibling"]},"error":{"class":"state_machine","code":"taskspace_response_state_commit_failed","violations":[{"code":"node_state_invalid","subjects":["reservation-1"],"node_id":"join","canonical_before_transaction":{"node_present":true,"state":"waiting","unsatisfied_predecessor_ids":["left"]},"rejected_candidate_at_violation":{"committed":false,"state":"completed","allowed_states":["ready","in_flight"],"unsatisfied_predecessor_ids":[]}}]}}'
     $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output $stateFailureJson -TrustedRuntimeCarrier
     if ($stateFailure.failure_class -ne "taskspace_state_machine" -or
         $stateFailure.failure_code -ne "taskspace_response_state_commit_failed") {
@@ -339,7 +339,10 @@ try {
         $initializationFailure.state_commit -ne $false) {
         throw "Initialization carrier failure was not classified"
     }
-    $malformedFailure = Get-R7CallOutcome -ToolSuccess $false -Output '{"schema_version":'
+    $malformedFailure = Get-R7CallOutcome `
+        -ToolSuccess $false `
+        -Output '{"schema_version":' `
+        -TrustedRuntimeCarrier
     if ($malformedFailure.evidence_valid -or
         $malformedFailure.failure_class -ne "evidence_unclassified" -or
         $malformedFailure.failure_code -ne "failure_payload_parse_failed") {

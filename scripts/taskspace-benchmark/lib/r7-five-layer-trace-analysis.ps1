@@ -120,43 +120,25 @@ function Get-R7ResponseItemOutcome {
             carrier_type = $type
             tool_success = $success
             output_text = "ToolSearch pairing status: $status"
-            outcome = Get-R7CallOutcome `
-                -ToolSuccess $success `
-                -Output "ToolSearch pairing status: $status" `
-                -ToolName "tool_search"
         }
     }
     $output = Get-R7JsonProperty $Item "output"
     $text = Get-R7OutputText $output
-    $successProperty = Get-R7JsonProperty $output "success"
-    if ($null -eq $successProperty -and $output -is [string] -and
-        $text.TrimStart().StartsWith("{")) {
-        try {
-            $structuredOutput = $text | ConvertFrom-Json -Depth 100 -NoEnumerate
-            if ($structuredOutput -is [pscustomobject]) {
-                $successProperty = Get-R7JsonProperty $structuredOutput "success"
-            }
-        } catch {
-            $successProperty = $null
-        }
-    }
     $toolSuccess = Get-R7JsonProperty $OuterPayload "toolSuccess"
     $success = if ($toolSuccess -is [bool]) {
         [bool]$toolSuccess
-    } elseif ($successProperty -is [bool]) {
-        [bool]$successProperty
+    } elseif ($output -is [pscustomobject] -and
+        (Get-R7JsonProperty $output "success") -is [bool] -and
+        $null -ne (Get-R7JsonProperty $output "content")) {
+        [bool](Get-R7JsonProperty $output "success")
     } else {
-        -not ($text -match 'Shell exit code: [1-9]' -or
-            $text -match 'apply_patch verification failed')
+        $null
     }
     [pscustomobject]@{
         call_id = $callId
         carrier_type = $type
         tool_success = $success
         output_text = $text
-        outcome = Get-R7CallOutcome `
-            -ToolSuccess $success `
-            -Output $text
     }
 }
 
@@ -183,31 +165,45 @@ function Add-R7ObservedCall {
 }
 
 function Set-R7ExpectedReservations {
-    param([hashtable]$CallsById, $ControlCall, [string]$Output)
-    $payload = try {
-        $Output | ConvertFrom-Json -Depth 100
-    } catch {
-        return
+    param([hashtable]$CallsById, $ControlCall, $Payload)
+    $assignments = [Collections.Generic.List[object]]::new()
+    $reservations = @(Get-R7JsonProperty $Payload "reserved_actions" @())
+    $declaredActions = @($ControlCall.declared_actions)
+    if ($reservations.Count -ne $declaredActions.Count) {
+        return "reservation count does not match the control manifest"
     }
-    if ([string](Get-R7JsonProperty $payload "schema_version" "") -ne
-        "TaskSpaceResponseCommitV1") {
-        return
-    }
-    foreach ($reservation in @(Get-R7JsonProperty $payload "reserved_actions" @())) {
+    for ($index = 0; $index -lt $reservations.Count; $index++) {
+        $reservation = $reservations[$index]
         $callId = [string](Get-R7JsonProperty $reservation "call_id" "")
         $reservationId = [string](Get-R7JsonProperty $reservation "reservation_id" "")
         if ([string]::IsNullOrWhiteSpace($callId) -or
             [string]::IsNullOrWhiteSpace($reservationId) -or
             -not $CallsById.ContainsKey($callId)) {
-            throw "TaskSpace control result has an unpaired reservation identity"
+            return "reservation identity has no observed sibling Tool call"
         }
         $targetCall = $CallsById[$callId]
         if ([int]$ControlCall.request_index -lt 1 -or
             [int]$targetCall.request_index -ne [int]$ControlCall.request_index) {
-            throw "TaskSpace control result reservation crosses request identity: $callId"
+            return "reservation crosses the provider request identity"
         }
-        $targetCall.expected_reservation_id = $reservationId
+        $declared = $declaredActions[$index]
+        if ([string](Get-R7JsonProperty $reservation "tool" "") -ne
+                [string]$targetCall.tool -or
+            [string](Get-R7JsonProperty $reservation "tool" "") -ne
+                [string]$declared.tool -or
+            [string](Get-R7JsonProperty $reservation "node_id" "") -ne
+                [string]$declared.node_id) {
+            return "reservation facts do not match the control manifest"
+        }
+        $assignments.Add([pscustomobject]@{
+                call = $targetCall
+                reservation_id = $reservationId
+            })
     }
+    foreach ($assignment in $assignments) {
+        $assignment.call.expected_reservation_id = $assignment.reservation_id
+    }
+    ""
 }
 
 function Apply-R7ObservedOutcome {
@@ -233,17 +229,27 @@ function Apply-R7ObservedOutcome {
     }
     $call.output_count = 1
     $call.observed_output_text = [string]$Observed.output_text
-    $call.observed_output_tool_success = [bool]$Observed.tool_success
-    $outcome = if ([string]$call.tool -eq "taskspace_control") {
-        if ([bool]$Observed.tool_success) {
-            Set-R7ExpectedReservations $CallsById $call ([string]$Observed.output_text)
+    $call.observed_output_tool_success = $Observed.tool_success
+    $outcome = Get-R7CallOutcome `
+        -ToolSuccess $Observed.tool_success `
+        -Output ([string]$Observed.output_text) `
+        -ToolName ([string]$call.tool)
+    if ([string]$call.tool -eq "taskspace_control" -and
+        $outcome.success -eq $true -and
+        [string]$outcome.carrier_schema -eq "TaskSpaceResponseCommitV1") {
+        $bindingError = Set-R7ExpectedReservations `
+            $CallsById `
+            $call `
+            $outcome.parsed_payload
+        if (-not [string]::IsNullOrWhiteSpace([string]$bindingError)) {
+            $outcome = Complete-R7CallOutcomeFacts (
+                New-R7InvalidCallOutcome `
+                    "response_commit_reservation_mismatch" `
+                    "response_commit_reservation_mismatch" `
+                    "TaskSpaceResponseCommitV1" `
+                    $true
+            ) $outcome.parsed_payload
         }
-        Get-R7CallOutcome `
-            -ToolSuccess ([bool]$Observed.tool_success) `
-            -Output ([string]$Observed.output_text) `
-            -ToolName ([string]$call.tool)
-    } else {
-        $Observed.outcome
     }
     Set-R7CallOutcome $call $outcome
 }

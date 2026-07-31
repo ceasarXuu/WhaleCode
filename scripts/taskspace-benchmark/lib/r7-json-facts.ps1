@@ -40,3 +40,10 @@ function ConvertFrom-R7StrictJsonObject {
     }
     $payload
 }
+
+function Get-R7Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Text)
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    $hash = [Security.Cryptography.SHA256]::HashData($bytes)
+    ([Convert]::ToHexString($hash)).ToLowerInvariant()
+}

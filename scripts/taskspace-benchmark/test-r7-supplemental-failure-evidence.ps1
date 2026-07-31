@@ -85,6 +85,10 @@ function New-ProvenanceFixture([string]$Kind) {
             status = "state_rejected"
             success = $false
             state_commit = $false
+            canonical_revision = 4
+            current_revision = 4
+            rejected_candidate_committed = $false
+            executed_tool_call_count = 0
             failure_provenance = [pscustomobject]@{
                 scope = "provider_response"
                 copy_group_id = "provider_response:provider-control"
@@ -220,16 +224,16 @@ try {
             call_id = "serialized"
             output = $valid
         })
-    if ($serializedOutcome.tool_success -ne $false -or
+    if ($null -ne $serializedOutcome.tool_success -or
         [string]$serializedOutcome.output_text -cne $valid) {
-        throw "Serialized structured Tool output lost its explicit success fact"
+        throw "Serialized domain success leaked into Tool transport status"
     }
     $nonBooleanOutcome = Get-R7ResponseItemOutcome ([pscustomobject]@{
             type = "function_call_output"
             call_id = "non-boolean"
             output = '{"success":"false"}'
         })
-    if ($nonBooleanOutcome.tool_success -ne $true) {
+    if ($null -ne $nonBooleanOutcome.tool_success) {
         throw "Non-boolean serialized success was coerced into a Tool fact"
     }
 
@@ -318,31 +322,33 @@ try {
     $reservationControl = ConvertTo-R7CallDescriptor `
         "reservation-control" `
         "taskspace_control" `
-        '{"action":"execute"}'
+        '{"action":"execute","actions":[{"node_id":"work","tool":"exec_command"}]}'
     $reservationControl.request_index = 1
     $reservationCalls = @{
         "reservation-control" = $reservationControl
         "reserved-call" = $reservedCall
     }
-    Set-R7ExpectedReservations `
+    $reservationPayload =
+        '{"schema_version":"TaskSpaceResponseCommitV1",' +
+        '"reserved_actions":[{"call_index":0,"call_id":"reserved-call",' +
+        '"node_id":"work","tool":"exec_command",' +
+        '"reservation_id":"reservation:reserved-call"}]}' |
+        ConvertFrom-Json -Depth 20
+    $reservationError = Set-R7ExpectedReservations `
         $reservationCalls `
         $reservationControl `
-        '{"schema_version":"TaskSpaceResponseCommitV1","reserved_actions":[{"call_id":"reserved-call","reservation_id":"reservation:reserved-call"}]}'
-    if ([string]$reservedCall.expected_reservation_id -ne "reservation:reserved-call") {
+        $reservationPayload
+    if (-not [string]::IsNullOrWhiteSpace([string]$reservationError) -or
+        [string]$reservedCall.expected_reservation_id -ne
+            "reservation:reserved-call") {
         throw "Control result reservation identity was not preserved"
     }
     $reservedCall.request_index = 2
-    $crossRequestRejected = $false
-    try {
-        Set-R7ExpectedReservations `
-            $reservationCalls `
-            $reservationControl `
-            '{"schema_version":"TaskSpaceResponseCommitV1","reserved_actions":[{"call_id":"reserved-call","reservation_id":"forged"}]}'
-    } catch {
-        $crossRequestRejected =
-            $_.Exception.Message -like "TaskSpace control result reservation crosses request identity:*"
-    }
-    if (-not $crossRequestRejected) {
+    $crossRequestError = Set-R7ExpectedReservations `
+        $reservationCalls `
+        $reservationControl `
+        $reservationPayload
+    if ([string]::IsNullOrWhiteSpace([string]$crossRequestError)) {
         throw "Control result reservation crossed request identity"
     }
     Assert-ProvenanceContract "provider-copy-group" "provider" {

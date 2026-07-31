@@ -63,6 +63,8 @@ function ConvertTo-R7CallDescriptor {
         failure_class = ""
         failure_code = ""
         failure_schema_version = ""
+        carrier_schema = ""
+        reason_code = ""
         failure_provenance_scope = ""
         failure_copy_group_id = ""
         failure_affected_call_ids = @()
@@ -190,6 +192,23 @@ function Get-R7SupplementalFailureShapeError {
     if ([string]$error.class -notin $allowedErrorClasses) {
         return "$schemaVersion has an invalid error.class"
     }
+    $requiredErrorClass = switch ($schemaVersion) {
+        "TaskSpaceResponseCommitFailureV3" {
+            switch ([string]$Payload.status) {
+                "state_rejected" { "state_machine" }
+                "protocol_rejected" { "protocol" }
+                "resource_failed" { "resource" }
+            }
+        }
+        "ToolSequencePreflightResultV3" { "protocol" }
+        "ProviderToolResponsePreflightV2" { "protocol" }
+        "ToolSearchFailureV3" { "tool" }
+        "TaskSpaceToolSkippedV2" { "tool" }
+        "TaskSpaceBoundResultCommitFailureV2" { "resource" }
+    }
+    if ([string]$error.class -ne $requiredErrorClass) {
+        return "$schemaVersion status does not match error.class"
+    }
     if ($schemaVersion -notin @(
             "ToolSearchFailureV3",
             "TaskSpaceToolSkippedV2"
@@ -257,6 +276,45 @@ function Get-R7SupplementalFailureShapeError {
         ($Payload.reservation_id -isnot [string] -or
             [string]::IsNullOrWhiteSpace([string]$Payload.reservation_id))) {
         return "$schemaVersion reservation_id must be a non-empty string"
+    }
+    if ($schemaVersion -eq "TaskSpaceResponseCommitFailureV3") {
+        foreach ($field in @(
+                "canonical_revision", "rejected_candidate_committed",
+                "executed_tool_call_count"
+            )) {
+            if (-not ($Payload.PSObject.Properties.Name -contains $field)) {
+                return "$schemaVersion is missing $field"
+            }
+        }
+        if ($null -ne $Payload.canonical_revision -and
+            $null -eq (
+                ConvertTo-R7NonnegativeInt64Fact $Payload.canonical_revision
+            )) {
+            return "$schemaVersion canonical_revision must be null or a nonnegative Int64"
+        }
+        if ($Payload.rejected_candidate_committed -isnot [bool] -or
+            [bool]$Payload.rejected_candidate_committed) {
+            return "$schemaVersion rejected_candidate_committed must be boolean false"
+        }
+        if ($null -eq (
+                ConvertTo-R7NonnegativeInt64Fact $Payload.executed_tool_call_count
+            ) -or [int64]$Payload.executed_tool_call_count -ne 0) {
+            return "$schemaVersion executed_tool_call_count must be zero"
+        }
+        if ([string]$Payload.status -eq "state_rejected") {
+            $currentRevision =
+                ConvertTo-R7NonnegativeInt64Fact $Payload.current_revision
+            if ($null -eq $currentRevision) {
+                return "$schemaVersion current_revision must be a nonnegative Int64"
+            }
+            if ($null -ne $Payload.canonical_revision -and
+                [int64]$Payload.canonical_revision -ne $currentRevision) {
+                return "$schemaVersion revisions do not match"
+            }
+        } elseif ($error.detail -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$error.detail)) {
+            return "$schemaVersion error.detail must be a non-empty string"
+        }
     }
     $stateShapeError = Get-R7StateFailureShapeError $Payload
     if (-not [string]::IsNullOrWhiteSpace($stateShapeError)) {
@@ -344,6 +402,7 @@ function Set-R7CallOutcome {
     param($Call, $Outcome)
     foreach ($name in @(
             "success", "failure_class", "failure_code", "failure_schema_version",
+            "carrier_schema", "reason_code",
             "failure_provenance_scope", "failure_copy_group_id",
             "failure_affected_call_ids", "zero_dispatch", "parse_status", "evidence_valid",
             "violation_codes", "violation_contexts", "state_commit"

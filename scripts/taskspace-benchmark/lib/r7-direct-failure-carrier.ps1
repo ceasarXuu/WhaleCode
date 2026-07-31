@@ -61,7 +61,7 @@ function New-R7SuccessfulCallOutcome {
 }
 
 function Resolve-R7StructuredCallOutcome {
-    param($Payload, [bool]$ToolSuccess)
+    param($Payload, $ToolSuccess = $null)
     $schemaVersion = [string](Get-R7JsonProperty $Payload "schema_version" "")
     $stateCommit = Get-R7JsonProperty $Payload "state_commit"
     $innerSuccess = Get-R7JsonProperty $Payload "success"
@@ -72,7 +72,8 @@ function Resolve-R7StructuredCallOutcome {
             $schemaVersion `
             $stateCommit
     }
-    if ([bool]$innerSuccess -ne $ToolSuccess) {
+    if ($ToolSuccess -is [bool] -and
+        [bool]$innerSuccess -ne [bool]$ToolSuccess) {
         return New-R7InvalidCallOutcome `
             "outer_inner_success_mismatch" `
             "outer_inner_success_mismatch" `
@@ -155,7 +156,7 @@ function Get-R7ResponseCommitShapeError {
 }
 
 function Resolve-R7ResponseCommitOutcome {
-    param($Payload, [bool]$ToolSuccess)
+    param($Payload, $ToolSuccess = $null)
     $shapeError = Get-R7ResponseCommitShapeError $Payload
     if (-not [string]::IsNullOrWhiteSpace($shapeError)) {
         return New-R7InvalidCallOutcome `
@@ -164,7 +165,7 @@ function Resolve-R7ResponseCommitOutcome {
             "TaskSpaceResponseCommitV1" `
             (Get-R7JsonProperty $Payload "state_commit")
     }
-    if (-not $ToolSuccess) {
+    if ($ToolSuccess -is [bool] -and -not [bool]$ToolSuccess) {
         return New-R7InvalidCallOutcome `
             "outer_inner_success_mismatch" `
             "outer_inner_success_mismatch" `
@@ -174,9 +175,46 @@ function Resolve-R7ResponseCommitOutcome {
     New-R7SuccessfulCallOutcome $true
 }
 
+function Complete-R7CallOutcomeFacts {
+    param(
+        $Outcome,
+        $Payload = $null,
+        [string]$CarrierSchema = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($CarrierSchema)) {
+        $CarrierSchema = [string](
+            Get-R7JsonProperty $Payload "schema_version" ""
+        )
+    }
+    if ([string]::IsNullOrWhiteSpace($CarrierSchema)) {
+        $CarrierSchema = if ([string]$Outcome.parse_status -in @(
+                "malformed_failure_json",
+                "duplicate_failure_json_property"
+            )) {
+            "unparsed"
+        } else {
+            "none"
+        }
+    }
+    $reasonCode = [string]$Outcome.failure_code
+    if ([string]::IsNullOrWhiteSpace($reasonCode)) {
+        $reasonCode = "none"
+    }
+    $Outcome | Add-Member -Force `
+        -NotePropertyName carrier_schema `
+        -NotePropertyValue $CarrierSchema
+    $Outcome | Add-Member -Force `
+        -NotePropertyName reason_code `
+        -NotePropertyValue $reasonCode
+    $Outcome | Add-Member -Force `
+        -NotePropertyName parsed_payload `
+        -NotePropertyValue $Payload
+    $Outcome
+}
+
 function Get-R7CallOutcome {
     param(
-        [bool]$ToolSuccess,
+        $ToolSuccess = $null,
         [string]$Output,
         [string]$ToolName = "",
         [switch]$TrustedRuntimeCarrier
@@ -201,58 +239,69 @@ function Get-R7CallOutcome {
     if ($isControlTool) {
         if ($null -ne $parseError -or $null -eq $payload) {
             $reason = Get-R7StrictJsonFailureReason $parseError
-            return New-R7InvalidCallOutcome $reason.code $reason.status
+            $outcome = New-R7InvalidCallOutcome $reason.code $reason.status
+            return Complete-R7CallOutcomeFacts $outcome $null "unparsed"
         }
         if ($isResponseCommitSchema) {
-            return Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
+            $outcome = Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
+            return Complete-R7CallOutcomeFacts $outcome $payload
         }
         if (-not $isControlSchema) {
-            return New-R7InvalidCallOutcome `
+            $outcome = New-R7InvalidCallOutcome `
                 "control_result_schema_mismatch" `
                 "control_result_schema_mismatch" `
                 $schemaVersion
+            return Complete-R7CallOutcomeFacts $outcome $payload
         }
-        return Resolve-R7StructuredCallOutcome $payload $ToolSuccess
+        $outcome = Resolve-R7StructuredCallOutcome $payload $ToolSuccess
+        return Complete-R7CallOutcomeFacts $outcome $payload
     }
 
     if ($isReservedTaskspaceSchema) {
         if (-not $TrustedRuntimeCarrier) {
-            return New-R7InvalidCallOutcome `
+            $outcome = New-R7InvalidCallOutcome `
                 "taskspace_failure_untrusted_carrier" `
                 "untrusted_structured_failure_carrier" `
                 $schemaVersion `
                 (Get-R7JsonProperty $payload "state_commit")
+            return Complete-R7CallOutcomeFacts $outcome $payload
         }
         if ($isResponseCommitSchema) {
-            return Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
+            $outcome = Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
+            return Complete-R7CallOutcomeFacts $outcome $payload
         }
-        return Resolve-R7StructuredCallOutcome $payload $ToolSuccess
+        $outcome = Resolve-R7StructuredCallOutcome $payload $ToolSuccess
+        return Complete-R7CallOutcomeFacts $outcome $payload
     }
 
     if ($TrustedRuntimeCarrier) {
         if ($null -ne $parseError -or $null -eq $payload) {
             $reason = Get-R7StrictJsonFailureReason $parseError
-            return New-R7InvalidCallOutcome $reason.code $reason.status
+            $outcome = New-R7InvalidCallOutcome $reason.code $reason.status
+            return Complete-R7CallOutcomeFacts $outcome $null "unparsed"
         }
-        return New-R7InvalidCallOutcome `
+        $outcome = New-R7InvalidCallOutcome `
             "failure_schema_unknown" `
             "unknown_failure_schema" `
             $schemaVersion `
             (Get-R7JsonProperty $payload "state_commit")
+        return Complete-R7CallOutcomeFacts $outcome $payload
     }
 
-    if ($null -ne $parseError -and -not $ToolSuccess) {
-        $reason = Get-R7StrictJsonFailureReason $parseError
-        return New-R7InvalidCallOutcome $reason.code $reason.status
-    }
-
-    if ($ToolSuccess) {
-        return New-R7SuccessfulCallOutcome
+    if ($ToolSuccess -is [bool] -and [bool]$ToolSuccess) {
+        return Complete-R7CallOutcomeFacts (
+            New-R7SuccessfulCallOutcome
+        ) $payload
     }
 
     $ordinaryCode = Get-TaskspaceOrdinaryToolFailureCode $Output
     $valid = -not [string]::IsNullOrWhiteSpace($ordinaryCode)
-    [pscustomobject]@{
+    if ($ToolSuccess -isnot [bool] -and -not $valid) {
+        return Complete-R7CallOutcomeFacts (
+            New-R7SuccessfulCallOutcome
+        ) $payload
+    }
+    $outcome = [pscustomobject]@{
         success = $false
         failure_class = if ($valid) { "ordinary_tool" } else { "evidence_unclassified" }
         failure_code = if ($valid) { $ordinaryCode } else { "tool_failed_unclassified" }
@@ -267,11 +316,13 @@ function Get-R7CallOutcome {
         violation_contexts = @()
         state_commit = $null
     }
+    Complete-R7CallOutcomeFacts $outcome $payload
 }
 
 function Get-R7StrictJsonFailureReason {
     param($ErrorRecord)
-    if ([string]$ErrorRecord.Exception.Message -like "Duplicate JSON property:*") {
+    if ($null -ne $ErrorRecord -and
+        [string]$ErrorRecord.Exception.Message -like "Duplicate JSON property:*") {
         return [pscustomobject]@{
             code = "failure_payload_duplicate_property"
             status = "duplicate_failure_json_property"

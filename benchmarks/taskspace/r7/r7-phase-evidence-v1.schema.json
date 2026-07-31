@@ -19,5 +19,46 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "artifact_type": {"const": "strict_failure_carrier"}
+        },
+        "required": ["artifact_type"]
+      },
+      "then": {
+        "properties": {
+          "records": {
+            "items": {
+              "type": "object",
+              "required": [
+                "request_id",
+                "call_id",
+                "carrier_schema",
+                "parse_status",
+                "reason_code",
+                "source_kind",
+                "source_sha256"
+              ],
+              "properties": {
+                "request_id": {"type": "string", "minLength": 1},
+                "call_id": {"type": "string", "minLength": 1},
+                "carrier_schema": {"type": "string", "minLength": 1},
+                "parse_status": {"type": "string", "minLength": 1},
+                "reason_code": {"type": "string", "minLength": 1},
+                "source_kind": {"const": "production_call_row"},
+                "source_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

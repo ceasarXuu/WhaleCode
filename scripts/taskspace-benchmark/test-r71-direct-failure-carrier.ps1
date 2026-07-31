@@ -67,6 +67,18 @@ Assert-R71DirectCarrier (
     (@($resultContract.accepted_actions) -join "`n") -eq
         (@(Get-R7ControlActionNames) -join "`n")
 ) "Direct failure action allowlist drifted from the result contract"
+$phaseEvidenceSchemaPath = Join-Path $repoRoot (
+    "benchmarks/taskspace/r7/r7-phase-evidence-v1.schema.json"
+)
+$phaseEvidenceSchema = Get-Content -Raw -Encoding UTF8 `
+    -LiteralPath $phaseEvidenceSchemaPath
+$weakEvidence =
+    '{"schema_version":"r71-phase-evidence-v1",' +
+    '"artifact_type":"strict_failure_carrier","records":[{"anything":1}]}'
+Assert-R71DirectCarrier (
+    -not ($weakEvidence |
+        Test-Json -Schema $phaseEvidenceSchema -ErrorAction SilentlyContinue)
+) "Strict failure evidence schema accepted a record without required facts"
 
 $validJson = Get-TestControlFailureJson
 $valid = Get-R7CallOutcome `
@@ -156,6 +168,54 @@ $stateMismatch = Assert-InvalidCarrier `
     "state error code mismatch" `
     ($stateMismatchObject | ConvertTo-Json -Compress -Depth 30)
 
+$revisionMismatchObject = $validJson | ConvertFrom-Json -Depth 20
+$revisionMismatchObject.canonical_revision = 3
+$revisionMismatchObject.error.actual | Add-Member `
+    -NotePropertyName canonical_revision `
+    -NotePropertyValue 99
+$revisionMismatch = Assert-InvalidCarrier `
+    "actual canonical revision mismatch" `
+    ($revisionMismatchObject | ConvertTo-Json -Compress -Depth 30)
+
+$absentNodeObject =
+    $stateMismatchObject | ConvertTo-Json -Depth 30 | ConvertFrom-Json -Depth 30
+$absentNodeObject.error.code = "node_state_invalid"
+$absentNodeObject.error.actual.violations[0].
+    canonical_before_transaction.node_present = $false
+$absentNodeObject.error.actual.violations[0].
+    canonical_before_transaction.state = "waiting"
+$absentNode = Assert-InvalidCarrier `
+    "absent canonical node with state" `
+    ($absentNodeObject | ConvertTo-Json -Compress -Depth 30)
+
+$supplementalMismatchObject = [ordered]@{
+    schema_version = "TaskSpaceResponseCommitFailureV3"
+    status = "state_rejected"
+    success = $false
+    state_commit = $false
+    canonical_revision = 4
+    rejected_candidate_committed = $false
+    executed_tool_call_count = 0
+    failure_provenance = [ordered]@{
+        scope = "provider_response"
+        copy_group_id = "provider_response:control"
+        zero_dispatch = $true
+        affected_call_ids = @("control")
+    }
+    error = [ordered]@{
+        class = "resource"
+        code = "taskspace_canonical_store_unavailable"
+        detail = "unavailable"
+    }
+}
+$supplementalMismatch = Get-R7CallOutcome `
+    -ToolSuccess $false `
+    -Output ($supplementalMismatchObject | ConvertTo-Json -Compress -Depth 20) `
+    -TrustedRuntimeCarrier
+Assert-R71DirectCarrier (
+    -not $supplementalMismatch.evidence_valid
+) "Supplemental status/class contradiction remained valid"
+
 $ordinaryJson =
     '{"schema_version":"OrdinaryExecResultV1","metadata":' +
     '{"execution_outcome":"exited","shell_exit_code":1}}'
@@ -177,6 +237,31 @@ $spoofedControl = Assert-InvalidCarrier `
 Assert-R71DirectCarrier (
     $spoofedControl.failure_code -eq "taskspace_failure_untrusted_carrier"
 ) "Reserved TaskSpace schema was accepted from an ordinary Tool"
+
+$ordinaryMalformed = Get-R7CallOutcome `
+    -ToolSuccess $false `
+    -Output "{`"domain`":`nShell exit code: 7" `
+    -ToolName "exec_command"
+Assert-R71DirectCarrier (
+    $ordinaryMalformed.evidence_valid -and
+    $ordinaryMalformed.failure_class -eq "ordinary_tool" -and
+    $ordinaryMalformed.failure_code -eq "shell_exit_7"
+) "Malformed ordinary JSON bypassed the ordinary Tool classifier"
+
+$domainCall = ConvertTo-R7CallDescriptor `
+    -CallId "domain-success" `
+    -ToolName "mcp__domain__lookup" `
+    -Arguments "{}"
+$domainObserved = Get-R7ResponseItemOutcome ([pscustomobject]@{
+        type = "function_call_output"
+        call_id = "domain-success"
+        output = '{"success":false,"business_status":"declined"}'
+    })
+$domainCalls = @{ "domain-success" = $domainCall }
+Apply-R7ObservedOutcome $domainCalls $domainObserved
+Assert-R71DirectCarrier (
+    $domainCall.success -and $domainCall.evidence_valid
+) "Ordinary domain success field was treated as Tool transport status"
 
 $responseCommitJson =
     '{"schema_version":"TaskSpaceResponseCommitV1","status":"accepted",' +
@@ -215,35 +300,111 @@ Assert-R71DirectCarrier (
         "taskspace_failure_untrusted_carrier"
 ) "Reserved response-prepare schema was accepted from an ordinary Tool"
 
+$invalidPrepareJson = $responseCommitJson.Replace(
+    '"action":"execute"',
+    '"action":"finish_map"'
+)
+$controlCall = ConvertTo-R7CallDescriptor `
+    -CallId "prepare-control" `
+    -ToolName "taskspace_control" `
+    -Arguments '{"action":"execute"}'
+$siblingCall = ConvertTo-R7CallDescriptor `
+    -CallId "tool-1" `
+    -ToolName "exec_command" `
+    -Arguments '{"cmd":"true"}'
+$prepareCalls = @{
+    "prepare-control" = $controlCall
+    "tool-1" = $siblingCall
+}
+$invalidPrepareObserved = Get-R7ResponseItemOutcome `
+    ([pscustomobject]@{
+        type = "function_call_output"
+        call_id = "prepare-control"
+        output = $invalidPrepareJson
+    }) `
+    ([pscustomobject]@{ toolSuccess = $true })
+Apply-R7ObservedOutcome $prepareCalls $invalidPrepareObserved
+Assert-R71DirectCarrier (
+    -not $controlCall.evidence_valid -and
+    [string]::IsNullOrWhiteSpace([string]$siblingCall.expected_reservation_id)
+) "Invalid response-prepare carrier mutated sibling attribution"
+
+$duplicatePrepareJson = $responseCommitJson.Replace(
+    '"status":"accepted"',
+    '"status":"accepted","Status":"accepted"'
+)
+$duplicateControl = ConvertTo-R7CallDescriptor `
+    -CallId "duplicate-control" `
+    -ToolName "taskspace_control" `
+    -Arguments '{"action":"execute"}'
+$duplicateSibling = ConvertTo-R7CallDescriptor `
+    -CallId "tool-1" `
+    -ToolName "exec_command" `
+    -Arguments '{"cmd":"true"}'
+$duplicateCalls = @{
+    "duplicate-control" = $duplicateControl
+    "tool-1" = $duplicateSibling
+}
+$duplicateObserved = Get-R7ResponseItemOutcome `
+    ([pscustomobject]@{
+        type = "function_call_output"
+        call_id = "duplicate-control"
+        output = $duplicatePrepareJson
+    }) `
+    ([pscustomobject]@{ toolSuccess = $true })
+Apply-R7ObservedOutcome $duplicateCalls $duplicateObserved
+Assert-R71DirectCarrier (
+    $duplicateControl.parse_status -eq "duplicate_failure_json_property" -and
+    [string]::IsNullOrWhiteSpace([string]$duplicateSibling.expected_reservation_id)
+) "Duplicate response-prepare carrier bypassed strict diagnostics"
+
 if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
+    function New-R71ProductionCallRow {
+        param(
+            [string]$CallId,
+            [string]$ToolName,
+            [string]$Output,
+            [bool]$ToolSuccess
+        )
+        $call = ConvertTo-R7CallDescriptor `
+            -CallId $CallId `
+            -ToolName $ToolName `
+            -Arguments "{}"
+        $calls = @{ $CallId = $call }
+        $observed = Get-R7ResponseItemOutcome `
+            ([pscustomobject]@{
+                type = "function_call_output"
+                call_id = $CallId
+                output = $Output
+            }) `
+            ([pscustomobject]@{ toolSuccess = $ToolSuccess })
+        Apply-R7ObservedOutcome $calls $observed
+        $call | Add-Member -NotePropertyName source_sha256 -NotePropertyValue (
+            Get-R7Sha256Hex $Output
+        )
+        $call
+    }
+    $evidenceCalls = @(
+        New-R71ProductionCallRow `
+            "valid-direct-failure" "taskspace_control" $validJson $false
+        New-R71ProductionCallRow `
+            "duplicate-json" "taskspace_control" $duplicateRoot $false
+        New-R71ProductionCallRow `
+            "outer-inner-mismatch" "taskspace_control" $validJson $true
+        New-R71ProductionCallRow `
+            "ordinary-schema-isolation" "exec_command" $ordinaryJson $false
+    )
     $records = @(
-        [ordered]@{
-            request_id = "r71-01-fixture"
-            call_id = "valid-direct-failure"
-            carrier_schema = "TaskSpaceControlResultV2"
-            parse_status = [string]$valid.parse_status
-            reason_code = [string]$valid.failure_code
-        }
-        [ordered]@{
-            request_id = "r71-01-fixture"
-            call_id = "duplicate-json"
-            carrier_schema = "untrusted_duplicate_json"
-            parse_status = [string]$duplicateResults[0].parse_status
-            reason_code = [string]$duplicateResults[0].failure_code
-        }
-        [ordered]@{
-            request_id = "r71-01-fixture"
-            call_id = "outer-inner-mismatch"
-            carrier_schema = "TaskSpaceControlResultV2"
-            parse_status = [string]$outerMismatch.parse_status
-            reason_code = [string]$outerMismatch.failure_code
-        }
-        [ordered]@{
-            request_id = "r71-01-fixture"
-            call_id = "ordinary-schema-isolation"
-            carrier_schema = "OrdinaryExecResultV1"
-            parse_status = [string]$ordinary.parse_status
-            reason_code = [string]$ordinary.failure_code
+        $evidenceCalls | ForEach-Object {
+            [ordered]@{
+                request_id = "r71-01-fixture"
+                call_id = [string]$_.call_id
+                carrier_schema = [string]$_.carrier_schema
+                parse_status = [string]$_.parse_status
+                reason_code = [string]$_.reason_code
+                source_kind = "production_call_row"
+                source_sha256 = [string]$_.source_sha256
+            }
         }
     )
     $parent = Split-Path -Parent $EvidencePath

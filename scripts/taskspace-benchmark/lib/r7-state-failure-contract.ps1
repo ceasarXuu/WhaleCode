@@ -64,6 +64,9 @@ function Get-R7StateViolationShapeError {
             [string]::IsNullOrWhiteSpace([string]$canonicalState))) {
         return "$prefix canonical state must identify the present node state"
     }
+    if (-not [bool]$canonical.node_present -and $null -ne $canonicalState) {
+        return "$prefix absent canonical node cannot have a state"
+    }
     if (-not (Test-R7FailureStringArray (
                 Get-R7FailureRawProperty $canonical "unsatisfied_predecessor_ids"
             ))) {
@@ -186,6 +189,14 @@ function Get-R7ControlFailureEnvelopeShapeError {
     }
     $actual = Get-R7JsonProperty $error "actual"
     $expected = Get-R7JsonProperty $error "expected"
+    if ($actual -is [pscustomobject] -and
+        (Test-R7FailureHasProperty $actual "canonical_revision")) {
+        $actualRevision = Get-R7JsonProperty $actual "canonical_revision"
+        $canonicalRevision = Get-R7JsonProperty $Payload "canonical_revision"
+        if ($actualRevision -ne $canonicalRevision) {
+            return "TaskSpaceControlResultV2 actual revision does not match envelope"
+        }
+    }
     if ($null -ne $action) {
         $actualAction = Get-R7JsonProperty $actual "action"
         if ($null -ne $actualAction -and [string]$actualAction -ne [string]$action) {

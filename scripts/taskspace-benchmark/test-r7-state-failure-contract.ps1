@@ -110,11 +110,30 @@ Assert-True (
     -not (Get-R7StructuredFailureOutcome $fractionalRevision).evidence_valid
 ) "control failure with a fractional revision remained valid"
 
+$revisionMismatch = New-ControlFailure
+$revisionMismatch.error.actual | Add-Member `
+    -NotePropertyName canonical_revision `
+    -NotePropertyValue 99
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $revisionMismatch).evidence_valid
+) "control failure accepted conflicting canonical revisions"
+
+$absentNodeState = New-ControlFailure
+$absentNodeState.error.actual.violations[0].
+    canonical_before_transaction.node_present = $false
+Assert-True (
+    -not (Get-R7StructuredFailureOutcome $absentNodeState).evidence_valid
+) "absent canonical node retained a concrete state"
+
 $supplemental = [pscustomobject]@{
     schema_version = "TaskSpaceResponseCommitFailureV3"
     status = "state_rejected"
     success = $false
     state_commit = $false
+    canonical_revision = 4
+    current_revision = 4
+    rejected_candidate_committed = $false
+    executed_tool_call_count = 0
     failure_provenance = [pscustomobject]@{
         scope = "provider_response"
         copy_group_id = "provider_response:control"
@@ -132,6 +151,40 @@ Assert-True (
         (Get-R7SupplementalFailureShapeError $supplemental)
     )
 ) "complete supplemental state failure was rejected"
+$supplementalClassMismatch =
+    $supplemental | ConvertTo-Json -Depth 30 | ConvertFrom-Json -Depth 30
+$supplementalClassMismatch.error.class = "resource"
+Assert-True (
+    -not [string]::IsNullOrWhiteSpace(
+        (Get-R7SupplementalFailureShapeError $supplementalClassMismatch)
+    )
+) "supplemental state status accepted resource error.class"
+$supplementalProtocol =
+    $supplemental | ConvertTo-Json -Depth 30 | ConvertFrom-Json -Depth 30
+$supplementalProtocol.status = "protocol_rejected"
+$supplementalProtocol.canonical_revision = $null
+$supplementalProtocol.PSObject.Properties.Remove("current_revision")
+$supplementalProtocol.error.class = "protocol"
+$supplementalProtocol.error.code = "taskspace_control_operation_invalid"
+$supplementalProtocol.error.PSObject.Properties.Remove("violations")
+$supplementalProtocol.error | Add-Member `
+    -NotePropertyName detail `
+    -NotePropertyValue "invalid operation"
+Assert-True (
+    [string]::IsNullOrWhiteSpace(
+        (Get-R7SupplementalFailureShapeError $supplementalProtocol)
+    )
+) "complete supplemental protocol failure was rejected"
+$supplementalResource =
+    $supplementalProtocol | ConvertTo-Json -Depth 30 | ConvertFrom-Json -Depth 30
+$supplementalResource.status = "resource_failed"
+$supplementalResource.error.class = "resource"
+$supplementalResource.error.code = "taskspace_canonical_store_unavailable"
+Assert-True (
+    [string]::IsNullOrWhiteSpace(
+        (Get-R7SupplementalFailureShapeError $supplementalResource)
+    )
+) "complete supplemental resource failure was rejected"
 $supplemental.error.PSObject.Properties.Remove("violations")
 Assert-True (
     (Get-R7SupplementalFailureShapeError $supplemental) -like
