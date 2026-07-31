@@ -56,7 +56,7 @@ pub(super) async fn hydrate_action_map_store(
             .load_taskspace_map_for_thread(parent_thread_id)
             .await?
     {
-        runtime_from_record(&parent_map)?;
+        runtime_from_record_for_hydrate(&parent_map, thread_id, relation)?;
         state_db
             .bind_thread_to_taskspace_map(BindTaskSpaceMapRequest {
                 thread_id,
@@ -96,7 +96,7 @@ pub(super) async fn hydrate_action_map_store(
         }
         return Ok(None);
     };
-    let runtime = runtime_from_record(&record)?;
+    let runtime = runtime_from_record_for_hydrate(&record, thread_id, binding.relation)?;
     tracing::info!(
         target: "codex_core::taskspace",
         event_name = "taskspace.map_store_loaded",
@@ -113,6 +113,35 @@ pub(super) async fn hydrate_action_map_store(
         runtime,
         handle: ActionMapStoreHandle::from(&record),
     }))
+}
+
+fn runtime_from_record_for_hydrate(
+    record: &TaskSpaceMapRecord,
+    actor_thread_id: ThreadId,
+    relation: TaskSpaceMapRelation,
+) -> anyhow::Result<ActionMapRuntimeState> {
+    runtime_from_record(record).inspect_err(|error| {
+        let reason_code = if error.to_string().contains("canonical Map is invalid") {
+            "canonical_map_invalid"
+        } else if error.to_string().contains("does not match canonical map") {
+            "canonical_map_identity_mismatch"
+        } else {
+            "canonical_map_restore_rejected"
+        };
+        tracing::error!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.map_store_hydrate_rejected",
+            reason_code,
+            map_id = record.map_id,
+            actor_thread_id = %actor_thread_id,
+            owner_thread_id = %record.owner_thread_id,
+            relation = relation.as_str(),
+            store_revision = record.store_revision,
+            map_revision = record.map_revision,
+            terminal = record.terminal,
+            "rejected canonical TaskSpace Map before Runtime installation"
+        );
+    })
 }
 
 fn parent_map_binding(

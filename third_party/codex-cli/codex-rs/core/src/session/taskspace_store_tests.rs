@@ -21,6 +21,7 @@ use codex_protocol::taskspace::TaskSpaceTerminalRecord;
 use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::TaskSpaceMapRelation;
 use codex_state::TaskSpaceMapWriteOutcome;
+use tracing_test::traced_test;
 use uuid::Uuid;
 
 fn child_source(parent_thread_id: ThreadId) -> SessionSource {
@@ -227,6 +228,7 @@ async fn resume_fork_and_child_hydrate_the_same_canonical_map() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn invalid_parent_map_is_rejected_before_child_and_fork_binding() {
     let home = std::env::temp_dir().join(format!(
         "codex-taskspace-invalid-parent-test-{}",
@@ -289,6 +291,21 @@ async fn invalid_parent_map_is_rejected_before_child_and_fork_binding() {
             "failed hydrate must not leave a child/fork binding"
         );
     }
+    logs_assert(|lines: &[&str]| {
+        lines
+            .iter()
+            .find(|line| {
+                line.contains("taskspace.map_store_hydrate_rejected")
+                    && line.contains("reason_code=\"canonical_map_invalid\"")
+                    && line.contains("store_revision=1")
+                    && line.contains("map_revision=1")
+                    && !line.contains("deliver")
+            })
+            .map(|_| Ok(()))
+            .unwrap_or_else(|| {
+                Err("expected content-free canonical Map hydrate rejection event".to_string())
+            })
+    });
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 

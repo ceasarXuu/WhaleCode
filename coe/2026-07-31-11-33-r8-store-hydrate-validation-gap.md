@@ -129,6 +129,7 @@
   - E-003
   - E-006
   - E-007
+  - E-009
 - Conclusion: confirmed；旧路径在恢复校验前提交 child/fork binding，失败后 binding 确实保留。
 - Repair design readiness: ready
 - Next step: 保留失败原子性回归，并完成合法生命周期矩阵。
@@ -314,3 +315,30 @@
   ```
 - Interpretation: 恢复校验识别完整 lifecycle 合法态，没有将 reopen 简化为新 Map，也没有重写终态历史。
 - Time: 2026-07-31 12:05
+
+## Evidence E-009: 恢复拒绝日志可关联且不包含 Map 业务语义
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: observability-validation
+- Source: `cargo test -p codex-core invalid_parent_map_is_rejected_before_child_and_fork_binding -- --nocapture`
+- Prediction or plan link:
+  - P-001 关于稳定拒绝事件、机械身份和无用户业务内容的日志标准。
+- Matched signal:
+  - owner、child、fork 均产生 `taskspace.map_store_hydrate_rejected`。
+  - 事件包含稳定 `canonical_map_invalid`、relation、store/map revision 和 terminal。
+  - 测试明确断言日志不包含 fixture 的 root goal `deliver`。
+- Correlation keys:
+  - map id
+  - actor/owner thread id
+  - relation
+  - store/map revision
+- Raw content:
+  ```text
+  event_name="taskspace.map_store_hydrate_rejected"
+  reason_code="canonical_map_invalid"
+  relation="owner|child|fork"
+  store_revision=1 map_revision=1 terminal=false
+  ```
+- Interpretation: 非法恢复现在具备可检索、可关联日志，同时没有把节点目标、validator subject 或用户内容写入日志。
+- Time: 2026-07-31 12:11
