@@ -40,6 +40,10 @@ CR-I01 关闭证据：提交 `6a44bf0f1` 删除 bootstrap 的 release 放行语�
 CR-I02 关闭证据：提交 `0a5866c05` 让 HEAD、index 和 worktree 从各自源码快照读取合同与受检内容，并明确拒绝
 合同部分暂存；8 个 gate tests、8 个分析测试和三 source 当前仓库检查通过。未运行真实 Whale Agent。
 
+CR-I03 当前进展：提交 `38fc62830` 完成 CR-03，将门禁政策改动与基线晋升、缓存敏感产品改动强制分开；11 个
+gate tests 和 8 个分析测试通过，release 继续阻断。CR-I03 仍保持 open，等待 CR-04 晋升证据校验和 CR-05
+精确发布身份完成。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
