@@ -15,7 +15,9 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
+use codex_protocol::taskspace::TaskSpaceCompletionRecord;
 use codex_protocol::taskspace::TaskSpaceMapNode;
+use codex_protocol::taskspace::TaskSpaceTerminalRecord;
 use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::TaskSpaceMapRelation;
 use codex_state::TaskSpaceMapWriteOutcome;
@@ -81,6 +83,32 @@ fn multi_parent_map(map_id: &str) -> TaskSpaceCanonicalMap {
         terminal_history: Vec::new(),
         revision: 1,
     }
+}
+
+fn completed_multi_parent_map(map_id: &str, reopened: bool) -> TaskSpaceCanonicalMap {
+    let mut map = multi_parent_map(map_id);
+    for node_id in ["inspect", "research", "implement"] {
+        map.completion_records.insert(
+            node_id.into(),
+            TaskSpaceCompletionRecord {
+                action_id: format!("complete-{node_id}"),
+                result_ref_ids: Vec::new(),
+                evidence_ref_ids: Vec::new(),
+            },
+        );
+    }
+    let terminal = TaskSpaceTerminalRecord {
+        action_id: "finish-map".into(),
+        summary_ref: "summary://final".into(),
+    };
+    if reopened {
+        map.terminal_history.push(terminal);
+        map.revision = 3;
+    } else {
+        map.terminal_record = Some(terminal);
+        map.revision = 2;
+    }
+    map
 }
 
 fn forked_history(parent_thread_id: ThreadId) -> InitialHistory {
@@ -307,6 +335,52 @@ async fn persisted_multi_parent_map_hydrates_without_graph_rewrite() {
         canonical_map_for_store(&hydrated.runtime),
         Some(canonical_map)
     );
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn persisted_closed_and_reopened_maps_hydrate_without_lifecycle_rewrite() {
+    let home =
+        std::env::temp_dir().join(format!("codex-taskspace-lifecycle-test-{}", Uuid::new_v4()));
+    let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".to_string())
+        .await
+        .expect("initialize state runtime");
+
+    for reopened in [false, true] {
+        let owner = ThreadId::new();
+        let map_id = format!("map-{owner}");
+        let canonical_map = completed_multi_parent_map(&map_id, reopened);
+        state_db
+            .create_taskspace_map(CreateTaskSpaceMapRequest {
+                map_id: map_id.clone(),
+                owner_thread_id: owner,
+                canonical_map: Some(canonical_map.clone()),
+                commit_id: format!("create-lifecycle-map-{reopened}"),
+                operation: "test_lifecycle_hydrate".to_string(),
+            })
+            .await
+            .expect("persist lifecycle Map");
+
+        let hydrated = hydrate_action_map_store(
+            Some(&state_db),
+            owner,
+            &InitialHistory::Resumed(ResumedHistory {
+                conversation_id: owner,
+                history: Vec::new(),
+                rollout_path: None,
+            }),
+            &SessionSource::Exec,
+            true,
+        )
+        .await
+        .expect("hydrate lifecycle Map")
+        .expect("hydrated Map handle");
+
+        assert_eq!(
+            canonical_map_for_store(&hydrated.runtime),
+            Some(canonical_map)
+        );
+    }
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 

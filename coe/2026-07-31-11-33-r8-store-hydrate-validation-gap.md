@@ -83,6 +83,7 @@
   - E-002
   - E-004
   - E-005
+  - E-008
 - Conclusion: confirmed；完整 validator 漏接入，且失败前修改 mode 破坏零状态变化。
 - Repair design readiness: ready
 - Next step: 接入现有 validator，并将所有状态修改移到校验成功之后。
@@ -291,3 +292,25 @@
   ```
 - Interpretation: 写 binding 前复用恢复校验即可消除副作用，不需要 Store 事务补偿，也没有把 DAG 降格成树或线性链。
 - Time: 2026-07-31 12:01
+
+## Evidence E-008: 合法关闭与重新打开状态通过持久化恢复矩阵
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: regression
+- Source: `cargo test -p codex-core persisted_closed_and_reopened_maps_hydrate_without_lifecycle_rewrite -- --nocapture`
+- Prediction or plan link:
+  - P-001 关于合法 active、closed、reopened Map 不得被新增 validator 误拒绝的标准。
+- Matched signal:
+  - 带 `terminal_record` 的 closed Map 恢复后 canonical value 不变。
+  - 终态移入 `terminal_history` 的 reopened Map 恢复后 canonical value 不变。
+- Correlation keys:
+  - map id
+  - map revision
+  - terminal state
+- Raw content:
+  ```text
+  persisted_closed_and_reopened_maps_hydrate_without_lifecycle_rewrite ... ok
+  ```
+- Interpretation: 恢复校验识别完整 lifecycle 合法态，没有将 reopen 简化为新 Map，也没有重写终态历史。
+- Time: 2026-07-31 12:05
