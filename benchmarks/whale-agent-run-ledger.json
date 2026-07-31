@@ -1,7 +1,95 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-07-31T09:02:51+08:00",
+  "updated_at": "2026-07-31T09:35:16+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260731-R71-CACHE-RCA-001",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "追踪 R7.1 map-request 缓存命中率从约 92% 回归到约 41% 的根因；在当前 DeepSeek 条件下对照 pre-receipt、首个 post-receipt 和 current 三个版本。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "reference": "用户于 2026-07-31 明确授权最多 3 个 sample 用于进一步追踪缓存低命中根因，预算不足时必须另行申请。",
+        "budget_summary": {
+          "sample_run_limit": 3,
+          "api_request_limit": 90,
+          "input_token_limit": 4500000,
+          "output_token_limit": 300000,
+          "estimated_cost_limit_cny": 5.1,
+          "elapsed_seconds_limit": 3600
+        },
+        "note": "仅限 subscription-billing-repair、map-request、TaskSpace-only；三个 subject 各 repeat=1；禁止自动重试、Standard 对照、其他样本或其他 projection 臂。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "subscription-billing-repair"
+        ],
+        "arm_ids": [
+          "map-request-pre-receipt-abe2b872b",
+          "map-request-post-receipt-445499582",
+          "map-request-current"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 3,
+        "actual_sample_runs": 0,
+        "api_requests": 0
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-07-31T08:59:29+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*0.02 + uncached_input/1e6*1.0 + output/1e6*2.0",
+        "note": "运行完成后按 provider token 遥测结算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r71-cache-root-cause/runs",
+        "actual_run_root": null,
+        "metrics_path": null,
+        "request_summary_path": null,
+        "rollout_path": null,
+        "run_status_path": null,
+        "scenario": "subscription-billing-repair",
+        "projection_policy": "map-request",
+        "run_side": "right",
+        "repeat": 1,
+        "subject_commits": [
+          "abe2b872b6708e666293d0018ecd3654bf5a65cc",
+          "445499582726614a610ca9e0c923b5e05da02700",
+          "415f3578493a1c436a09ce30553973afe64a2d75"
+        ],
+        "whale_binary_sha256": {
+          "pre_receipt": "7cdee712b5e163eb7078b132b427436e65bf5a5982eee8d18f0d52faef28db16",
+          "post_receipt": "e6035994ced408cb3110baf66512e569abdc12121fb30842bb22460bfcc3b812",
+          "current": "8ac3006d9cb2340b09e4d56685a5bbf4de343fa2ceb6b15c35e9a9a19879eacd"
+        },
+        "stop_conditions": "每个 subject 单次运行成功、失败、超时或取消后即消耗该 sample 配额并停止该臂；总计达到 3 次后停止；不得自动重试。",
+        "outcome": "pending"
+      }
+    },
     {
       "record_id": "WAR-20260731-R71-01-COMPLEX-001",
       "record_type": "run_batch",
