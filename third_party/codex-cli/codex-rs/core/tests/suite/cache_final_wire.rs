@@ -1,4 +1,4 @@
-use codex_model_provider_info::WireApi;
+use super::cache_payload_contract::configure_deepseek_responses;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
@@ -32,8 +32,7 @@ async fn capture_responses_body(taskspace: bool) -> anyhow::Result<Value> {
 
     let test = test_codex()
         .with_config(move |config| {
-            config.model_provider.wire_api = WireApi::Responses;
-            config.model = Some("deepseek-v4-flash".to_string());
+            configure_deepseek_responses(config);
             if taskspace {
                 config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
             }

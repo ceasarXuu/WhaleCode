@@ -1,9 +1,9 @@
 use super::cache_payload_contract::completed_response_stream;
+use super::cache_payload_contract::configure_deepseek_responses;
 use super::cache_payload_contract::stabilize_fixture_inputs;
 use super::cache_payload_contract::submit_turn;
 use super::cache_payload_contract::value_contains_text;
 use codex_core::config::Constrained;
-use codex_model_provider_info::WireApi;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -36,8 +36,7 @@ async fn capture_permission_request_pair(restricted: bool) -> anyhow::Result<Val
 
     let test = test_codex()
         .with_config(move |config| {
-            config.model_provider.wire_api = WireApi::Responses;
-            config.model = Some("deepseek-v4-flash".to_string());
+            configure_deepseek_responses(config);
             config.cwd = AbsolutePathBuf::try_from(PathBuf::from("/tmp"))
                 .expect("fixed permissions contract cwd");
             if restricted {

@@ -1,4 +1,5 @@
-use codex_model_provider_info::WireApi;
+use codex_core::config::Config;
+use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
@@ -200,6 +201,17 @@ pub(super) fn value_contains_text(value: &Value, marker: &str) -> bool {
     }
 }
 
+pub(super) fn configure_deepseek_responses(config: &mut Config) {
+    let base_url = config.model_provider.base_url.clone();
+    let mut provider = ModelProviderInfo::create_deepseek_provider();
+    provider.base_url = base_url;
+    provider.env_key = None;
+    provider.env_key_instructions = None;
+    provider.experimental_bearer_token = Some("test-deepseek-key".to_string());
+    config.model_provider = provider;
+    config.model = Some("deepseek-v4-flash".to_string());
+}
+
 #[test]
 fn fixture_stabilization_ignores_empty_prefixes() {
     let mut value = Value::String("unchanged".to_string());
@@ -243,8 +255,7 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
 
     let test = test_codex()
         .with_config(|config| {
-            config.model_provider.wire_api = WireApi::Responses;
-            config.model = Some("deepseek-v4-flash".to_string());
+            configure_deepseek_responses(config);
             config.cwd =
                 AbsolutePathBuf::try_from(PathBuf::from("/tmp")).expect("fixed cache contract cwd");
         })
@@ -354,8 +365,7 @@ async fn capture_taskspace_request_pair(
 
     let test = test_codex()
         .with_config(move |config| {
-            config.model_provider.wire_api = WireApi::Responses;
-            config.model = Some("deepseek-v4-flash".to_string());
+            configure_deepseek_responses(config);
             config.taskspace_projection_policy = Some(policy);
             config.cwd = AbsolutePathBuf::try_from(PathBuf::from("/tmp"))
                 .expect("fixed TaskSpace cache contract cwd");
