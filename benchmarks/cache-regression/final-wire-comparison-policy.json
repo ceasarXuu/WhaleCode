@@ -1,11 +1,12 @@
 {
-  "schema_version": "whalecode-final-wire-comparison-v1",
+  "schema_version": "whalecode-final-wire-comparison-v2",
   "body_comparison": "exact_json_value",
   "unknown_body_field_policy": "protected",
   "array_order_policy": "protected",
   "string_content_policy": "protected",
   "required_body_pointers": [
-    "/messages",
+    "/instructions",
+    "/input",
     "/tools",
     "/tool_choice",
     "/model"

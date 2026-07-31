@@ -14,6 +14,7 @@ from typing import Any
 CACHE_CONTROL_PLANE_EXACT_PATHS = frozenset(
     {
         ".githooks/pre-commit",
+        "benchmarks/cache-regression/final-wire-comparison-policy.json",
         "scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1",
     }
 )

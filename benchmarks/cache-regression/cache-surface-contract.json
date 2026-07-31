@@ -129,6 +129,12 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "argv": ["cargo", "test", "-q", "-p", "codex-api"],
         "timeout_seconds": 300
+      },
+      {
+        "id": "final_wire_comparison_contract",
+        "cwd": ".",
+        "argv": ["python3", "scripts/cache-regression/test_cache_payload_contract.py"],
+        "timeout_seconds": 60
       }
     ]
   },

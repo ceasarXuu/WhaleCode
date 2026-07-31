@@ -17,19 +17,20 @@ def evidence() -> dict:
     return {
         "provider_identity": {
             "provider_id": "deepseek",
-            "wire_api": "chat_completions",
-            "endpoint_path": "/v1/chat/completions",
+            "wire_api": "responses",
+            "endpoint_path": "/v1/responses",
         },
         "raw_body_sha256": "raw-a",
         "structured_body": {
             "model": "deepseek-v4-flash",
-            "messages": [
-                {"role": "system", "content": "base"},
-                {"role": "user", "content": "task"},
+            "instructions": "base",
+            "input": [
+                {"type": "message", "role": "developer", "content": "policy"},
+                {"type": "message", "role": "user", "content": "task"},
             ],
             "tools": [
-                {"type": "function", "function": {"name": "exec", "parameters": {}}},
-                {"type": "function", "function": {"name": "read", "parameters": {}}},
+                {"type": "function", "name": "exec", "parameters": {}},
+                {"type": "function", "name": "read", "parameters": {}},
             ],
             "tool_choice": "auto",
         },
@@ -60,31 +61,37 @@ class CachePayloadContractTest(unittest.TestCase):
         self.assertFalse(result["cache_relevant_changed"])
         self.assertTrue(result["raw_only_change"])
 
-    def test_message_role_order_and_content_are_protected(self) -> None:
+    def test_input_role_order_and_content_are_protected(self) -> None:
         role = self.assert_cache_change(
-            lambda value: value["structured_body"]["messages"][0].update(role="user")
+            lambda value: value["structured_body"]["input"][0].update(role="user")
         )
         order = self.assert_cache_change(
-            lambda value: value["structured_body"]["messages"].reverse()
+            lambda value: value["structured_body"]["input"].reverse()
         )
         content = self.assert_cache_change(
-            lambda value: value["structured_body"]["messages"][1].update(content="changed")
+            lambda value: value["structured_body"]["input"][1].update(content="changed")
         )
-        self.assertEqual(role["first_body_difference"], "/messages/0/role")
-        self.assertEqual(order["first_body_difference"], "/messages/0/content")
-        self.assertEqual(content["first_body_difference"], "/messages/1/content")
+        self.assertEqual(role["first_body_difference"], "/input/0/role")
+        self.assertEqual(order["first_body_difference"], "/input/0/content")
+        self.assertEqual(content["first_body_difference"], "/input/1/content")
+
+    def test_instructions_are_protected(self) -> None:
+        result = self.assert_cache_change(
+            lambda value: value["structured_body"].update(instructions="changed")
+        )
+        self.assertEqual(result["first_body_difference"], "/instructions")
 
     def test_tool_schema_and_order_are_protected(self) -> None:
         schema = self.assert_cache_change(
-            lambda value: value["structured_body"]["tools"][0]["function"].update(
+            lambda value: value["structured_body"]["tools"][0].update(
                 parameters={"type": "object"}
             )
         )
         order = self.assert_cache_change(
             lambda value: value["structured_body"]["tools"].reverse()
         )
-        self.assertIn("/tools/0/function/parameters", schema["first_body_difference"])
-        self.assertEqual(order["first_body_difference"], "/tools/0/function/name")
+        self.assertIn("/tools/0/parameters", schema["first_body_difference"])
+        self.assertEqual(order["first_body_difference"], "/tools/0/name")
 
     def test_tool_choice_model_and_unknown_fields_are_protected(self) -> None:
         self.assert_cache_change(
@@ -109,7 +116,7 @@ class CachePayloadContractTest(unittest.TestCase):
 
     def test_missing_required_field_is_rejected(self) -> None:
         after = copy.deepcopy(self.before)
-        del after["structured_body"]["messages"]
+        del after["structured_body"]["input"]
         with self.assertRaisesRegex(ValueError, "required final-wire field missing"):
             compare_evidence(self.before, after, self.policy)
 
@@ -127,7 +134,7 @@ class CachePayloadContractTest(unittest.TestCase):
 
     def test_policy_cannot_silently_add_ignored_fields(self) -> None:
         policy = copy.deepcopy(self.policy)
-        policy["ignored_body_pointers"] = ["/messages/0/content"]
+        policy["ignored_body_pointers"] = ["/input/0/content"]
         with self.assertRaisesRegex(ValueError, "require a new reviewed policy version"):
             validate_policy(policy)
 

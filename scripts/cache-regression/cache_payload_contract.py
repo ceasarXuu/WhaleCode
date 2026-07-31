@@ -8,8 +8,14 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "whalecode-final-wire-comparison-v1"
-REQUIRED_BODY_POINTERS = ("/messages", "/tools", "/tool_choice", "/model")
+SCHEMA_VERSION = "whalecode-final-wire-comparison-v2"
+REQUIRED_BODY_POINTERS = (
+    "/instructions",
+    "/input",
+    "/tools",
+    "/tool_choice",
+    "/model",
+)
 PROTECTED_PROVIDER_IDENTITY_FIELDS = (
     "provider_id",
     "wire_api",
