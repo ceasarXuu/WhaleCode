@@ -32,4 +32,5 @@ param(
 . (Join-Path $BenchmarkRoot "lib\map-management.ps1")
 . (Join-Path $BenchmarkRoot "lib\container-contract.ps1")
 . (Join-Path $BenchmarkRoot "lib\container-runtime.ps1")
+. (Join-Path $BenchmarkRoot "lib\provider-boundary.ps1")
 . (Join-Path $BenchmarkRoot "lib\container-benchmark-runner.ps1")

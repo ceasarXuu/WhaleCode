@@ -237,19 +237,20 @@ class CacheRunContractTest(unittest.TestCase):
         self.assertEqual(command[command.index("-RunId") + 1], "CACHE-001")
         self.assertEqual(command[command.index("-ProviderRequestHardLimit") + 1], "10")
 
-    def test_benchmark_runner_exports_provider_hard_limit_to_child(self) -> None:
+    def test_benchmark_runner_routes_hard_limit_through_isolated_boundary(self) -> None:
         source = BENCHMARK_RUNNER.read_text(encoding="utf-8")
         self.assertIn("[int]$ProviderRequestHardLimit = 0", source)
         self.assertIn(
-            '$childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT"] = '
-            "[string]$ProviderRequestHardLimit",
+            "model_providers.deepseek.base_url=",
             source,
         )
         self.assertIn(
-            '$childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH"] = '
-            '"/artifacts/provider-request-hard-limit.count"',
+            '$childEnvironment["WHALE_PROVIDER_BOUNDARY"] = '
+            '"docker-isolated-proxy-v1"',
             source,
         )
+        self.assertIn("$ProviderRequestHardLimit $TimeoutSeconds", source)
+        self.assertNotIn("provider-request-hard-limit.count", source)
 
 
 if __name__ == "__main__":

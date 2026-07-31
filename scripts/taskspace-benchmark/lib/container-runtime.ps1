@@ -152,6 +152,7 @@ function Invoke-TaskspaceContainerRole {
         [Parameter(Mandatory = $true)][hashtable]$Identity,
         [string]$WhaleBin = "",
         [string]$SecretPath = "",
+        [string]$NetworkName = "",
         [string]$OraclePath = "",
         [hashtable]$Environment = @{},
         [switch]$WorkspaceReadOnly
@@ -167,6 +168,7 @@ function Invoke-TaskspaceContainerRole {
     $cleanupAggregatePath = Join-Path $ArtifactDir 'container-cleanup-result.json'
     $name = "whale-r5-$($Identity.run_id)-$($Identity.pair_id)-$($Identity.side)-$Role-$([guid]::NewGuid().ToString('N').Substring(0,8))" -replace '[^a-zA-Z0-9_.-]', '-'
     $createArgs = @('create', '--name', $name)
+    if ($NetworkName) { $createArgs += @('--network', $NetworkName) }
     foreach ($key in @('run_id', 'sample_id', 'pair_id', 'side', 'logical_mode')) {
         $createArgs += @('--label', "whalecode.$key=$([string]$Identity[$key])")
     }

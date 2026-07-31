@@ -298,6 +298,9 @@ if (-not [string]::IsNullOrWhiteSpace($AdditionalConfigOverride)) {
     $effectiveConfigOverrides += $AdditionalConfigOverride
 }
 $effectiveConfigOverrides += @($containerContract.agent_config_overrides | ForEach-Object { [string]$_ })
+if ($ProviderRequestHardLimit -gt 0) {
+    $effectiveConfigOverrides += 'model_providers.deepseek.base_url="http://provider-proxy:8080"'
+}
 Write-TaskspaceRunEvent $runDir "container_image_ready" @{
     image_digest = [string]$containerImage.image_digest
     docker_server_version = [string]$containerImage.docker_server_version
@@ -512,8 +515,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 WHALE_PROVIDER_WIRE_TRACE_PATH = "/artifacts/provider-wire-trace.jsonl"
             }
             if ($ProviderRequestHardLimit -gt 0) {
-                $childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT"] = [string]$ProviderRequestHardLimit
-                $childEnvironment["WHALE_PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH"] = "/artifacts/provider-request-hard-limit.count"
+                $childEnvironment["WHALE_PROVIDER_BOUNDARY"] = "docker-isolated-proxy-v1"
             }
             if ($side.LogicalMode -eq "taskspace") {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
@@ -526,7 +528,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             }
             Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = $treatmentDelta; execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
             $started = Get-Date
-            $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $TimeoutSeconds
+            $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $ProviderRequestHardLimit $TimeoutSeconds
             $exitCode = [int]$containerExec.exit_code
             $timedOut = [bool]$containerExec.timed_out
             $finished = Get-Date

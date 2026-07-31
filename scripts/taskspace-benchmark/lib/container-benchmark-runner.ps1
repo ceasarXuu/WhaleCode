@@ -31,11 +31,13 @@ function Invoke-TaskspaceDockerAgent {
         [string[]]$WhaleArgv,
         [hashtable]$Environment,
         [string]$ProviderSecret,
+        [int]$ProviderRequestHardLimit,
         [int]$TimeoutSeconds
     )
     Assert-TaskspaceDockerWhaleArgv $WhaleArgv
     $identity = New-TaskspaceContainerIdentity $RunId $SampleId $PairId $Side
-    $secretPath = New-TaskspaceContainerSecret $Side.ArtifactDir $ProviderSecret
+    $secretPath = ''
+    $boundary = $null
     $script = @'
 set +e
 /opt/whale/whale "$@" < /artifacts/user-prompt.txt > /artifacts/whale-exec.jsonl 2> /artifacts/whale-exec.stderr.log
@@ -51,10 +53,19 @@ exit "${code}"
 '@
     $command = @('bash', '-lc', $script, 'taskspace-agent') + @($WhaleArgv)
     try {
+        $roleEnvironment = @{} + $Environment
+        $networkName = ''
+        if ($ProviderRequestHardLimit -gt 0) {
+            $boundary = Start-TaskspaceProviderBoundary $RunId $SampleId $PairId $Side $Image $ProviderSecret $ProviderRequestHardLimit
+            $networkName = [string]$boundary.internal_network
+            $roleEnvironment['DEEPSEEK_API_KEY'] = 'provider-boundary-managed'
+        } else {
+            $secretPath = New-TaskspaceContainerSecret $Side.ArtifactDir $ProviderSecret
+        }
         $result = Invoke-TaskspaceContainerRole -Role agent -Image $Image -Contract $Contract `
             -WorkspaceDir $Side.RepoDir -ArtifactDir $Side.ArtifactDir -Command $command `
             -TimeoutSeconds $TimeoutSeconds -Identity $identity -WhaleBin $WhaleBin `
-            -SecretPath $secretPath -Environment $Environment
+            -SecretPath $secretPath -NetworkName $networkName -Environment $roleEnvironment
         $timingPath = Join-Path $Side.ArtifactDir 'process-timing.json'
         Write-TaskspaceContainerJson ([pscustomobject]@{
                 schema_version = 1
@@ -80,6 +91,7 @@ exit "${code}"
         }
     } finally {
         Remove-TaskspaceContainerSecret $secretPath
+        [void](Stop-TaskspaceProviderBoundary $boundary $Side.ArtifactDir)
     }
 }
 
