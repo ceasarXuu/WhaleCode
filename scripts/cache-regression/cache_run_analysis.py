@@ -64,28 +64,3 @@ def analyze_arm(run_dir: Path, side: str, arm: str) -> dict[str, Any]:
         artifacts / "metrics.json",
         arm,
     )
-
-
-def observation_meets_policy(
-    observation: dict[str, Any],
-    policy: dict[str, Any],
-    baseline: dict[str, Any] | None = None,
-) -> bool:
-    floor = float(policy["absolute_floor"][observation["arm"]])
-    absolute_pass = (
-        observation["business_success"]
-        and observation["provider_requests"] >= 2
-        and observation["request_2_plus_count"]
-        >= int(policy["min_request_2_plus_count"])
-        and observation["trace_coverage"] >= float(policy["min_trace_coverage"])
-        and observation["cache_usage_missing_count"] == 0
-        and observation["request_2_plus_hit_rate"] >= floor
-    )
-    if not absolute_pass or not baseline or baseline.get("status") != "live_verified":
-        return absolute_pass
-    prior_rate = baseline.get("request_2_plus_hit_rate", {}).get(observation["arm"])
-    if prior_rate is None:
-        return absolute_pass
-    return observation["request_2_plus_hit_rate"] >= float(prior_rate) - float(
-        policy["max_drop_from_live_baseline"]
-    )

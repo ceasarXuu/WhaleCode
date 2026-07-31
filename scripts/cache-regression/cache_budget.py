@@ -124,7 +124,7 @@ def build_budget_proposal(
     maximum_sample_runs = planned_sample_runs + retry_sample_run_limit
     maximum_input_tokens = maximum_sample_runs * max_input_tokens_per_run
     maximum_output_tokens = maximum_sample_runs * max_output_tokens_per_run
-    pricing = contract["live_regression"]["pricing_snapshot"]
+    pricing = contract["pricing_snapshot"]
     maximum_cost = (
         maximum_input_tokens / 1_000_000 * pricing["uncached_input_per_million"]
         + maximum_output_tokens / 1_000_000 * pricing["output_per_million"]

@@ -81,7 +81,6 @@ raise SystemExit(0 if value == 'pass' else 7)
                     }
                 ],
             },
-            "live_regression": {},
         }
         write_json(self.contract_path, contract)
         run("git", "add", ".", cwd=self.repo)

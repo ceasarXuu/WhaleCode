@@ -15,7 +15,7 @@ from cache_usage_contract import (
     normalized_fixture_cases,
     validate_cache_artifacts,
 )
-from cache_run_analysis import analyze_arm, analyze_artifacts, observation_meets_policy
+from cache_run_analysis import analyze_arm, analyze_artifacts
 from run_cache_hit_regression import (
     budget_observation_exceeded,
     ensure_deepseek_api_key,
@@ -91,16 +91,6 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             arm = analyze_arm(run_dir, "left", "standard")
             self.assertEqual(arm["uncached_input_tokens"], 100)
             self.assertEqual(arm["request_2_plus_hit_rate"], 0.91)
-            self.assertTrue(
-                observation_meets_policy(
-                    arm,
-                    {
-                        "absolute_floor": {"standard": 0.85},
-                        "min_request_2_plus_count": 1,
-                        "min_trace_coverage": 1.0,
-                    },
-                )
-            )
 
     def test_rust_fixture_has_one_cross_language_usage_contract(self) -> None:
         fixture = load_provider_usage_fixture(PROVIDER_USAGE_FIXTURE)
@@ -179,66 +169,6 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "does not match token evidence"):
                 analyze_artifacts(cache_path, request_path, metrics_path, "standard")
-
-    def test_rejects_missing_cache_coverage(self) -> None:
-        arm = {
-            "arm": "map-request",
-            "business_success": True,
-            "provider_requests": 4,
-            "request_2_plus_count": 3,
-            "request_2_plus_hit_rate": 0.99,
-            "trace_coverage": 0.5,
-            "cache_usage_missing_count": 1,
-        }
-        self.assertFalse(
-            observation_meets_policy(
-                arm,
-                {
-                    "absolute_floor": {"map-request": 0.75},
-                    "min_request_2_plus_count": 1,
-                    "min_trace_coverage": 1.0,
-                },
-            )
-        )
-
-    def test_rejects_drop_from_live_baseline(self) -> None:
-        arm = {
-            "arm": "standard",
-            "business_success": True,
-            "provider_requests": 3,
-            "request_2_plus_count": 2,
-            "request_2_plus_hit_rate": 0.86,
-            "trace_coverage": 1.0,
-            "cache_usage_missing_count": 0,
-        }
-        policy = {
-            "absolute_floor": {"standard": 0.85},
-            "min_request_2_plus_count": 1,
-            "min_trace_coverage": 1.0,
-            "max_drop_from_live_baseline": 0.05,
-        }
-        baseline = {
-            "status": "live_verified",
-            "request_2_plus_hit_rate": {"standard": 0.93},
-        }
-        self.assertFalse(observation_meets_policy(arm, policy, baseline))
-
-    def test_rejects_business_failure(self) -> None:
-        arm = {
-            "arm": "standard",
-            "business_success": False,
-            "provider_requests": 3,
-            "request_2_plus_count": 2,
-            "request_2_plus_hit_rate": 0.95,
-            "trace_coverage": 1.0,
-            "cache_usage_missing_count": 0,
-        }
-        policy = {
-            "absolute_floor": {"standard": 0.85},
-            "min_request_2_plus_count": 1,
-            "min_trace_coverage": 1.0,
-        }
-        self.assertFalse(observation_meets_policy(arm, policy))
 
     def test_budget_observation_is_explicit_and_stops_only_when_selected(self) -> None:
         observation = {

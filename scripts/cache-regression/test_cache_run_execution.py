@@ -38,7 +38,7 @@ class CacheRunExecutionTest(unittest.TestCase):
                     "status": "live_regression_failed",
                 },
                 "surface_rules": [],
-                "live_regression": {"pricing_snapshot": self.pricing},
+                "pricing_snapshot": self.pricing,
             },
         )
         write_json(

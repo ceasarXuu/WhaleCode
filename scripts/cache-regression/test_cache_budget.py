@@ -45,12 +45,10 @@ class CacheBudgetProposalTest(unittest.TestCase):
                 "surface_rules": [
                     {"id": "prompt", "globs": ["prompt/**"], "reason": "prompt"}
                 ],
-                "live_regression": {
-                    "pricing_snapshot": {
-                        "currency": "USD",
-                        "uncached_input_per_million": 0.14,
-                        "output_per_million": 0.28,
-                    }
+                "pricing_snapshot": {
+                    "currency": "USD",
+                    "uncached_input_per_million": 0.14,
+                    "output_per_million": 0.28,
                 },
             },
         )
