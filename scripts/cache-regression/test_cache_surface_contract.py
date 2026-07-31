@@ -86,6 +86,18 @@ class CacheSurfaceContractTest(unittest.TestCase):
         self.assertTrue(all(is_cache_control_plane_path(path) for path in paths))
         self.assertTrue(all(not matching_rules(path, self.contract) for path in paths))
 
+    def test_paid_runner_and_container_boundary_are_control_plane(self) -> None:
+        paths = [
+            "benchmarks/taskspace/container-runtime-contract.json",
+            "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+            "scripts/taskspace-benchmark/lib/workspace.ps1",
+            "scripts/taskspace-benchmark/lib/container-runtime.ps1",
+            "scripts/taskspace-benchmark/lib/container-benchmark-runner.ps1",
+            "scripts/taskspace-benchmark/lib/container-contract.ps1",
+        ]
+        self.assertTrue(all(is_cache_control_plane_path(path) for path in paths))
+        self.assertTrue(all(not matching_rules(path, self.contract) for path in paths))
+
     def test_cache_run_evidence_is_release_relevant_not_policy(self) -> None:
         path = "benchmarks/cache-regression/evidence/WAR-1/CACHE-001/metrics.json"
         self.assertTrue(is_cache_evidence_path(path))
