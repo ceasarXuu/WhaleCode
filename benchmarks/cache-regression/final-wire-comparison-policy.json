@@ -1,0 +1,20 @@
+{
+  "schema_version": "whalecode-final-wire-comparison-v1",
+  "body_comparison": "exact_json_value",
+  "unknown_body_field_policy": "protected",
+  "array_order_policy": "protected",
+  "string_content_policy": "protected",
+  "required_body_pointers": [
+    "/messages",
+    "/tools",
+    "/tool_choice",
+    "/model"
+  ],
+  "protected_provider_identity_fields": [
+    "provider_id",
+    "wire_api",
+    "endpoint_path"
+  ],
+  "ignored_body_pointers": [],
+  "raw_body_sha_policy": "integrity_evidence"
+}
