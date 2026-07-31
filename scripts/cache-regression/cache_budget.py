@@ -12,6 +12,12 @@ from cache_surface import surface_snapshot
 
 BUDGET_PROPOSAL_SCHEMA_VERSION = "whalecode-cache-budget-proposal-v1"
 SUPPORTED_ARMS = ("standard", "map-always", "map-append", "map-request")
+SUPPORTED_STOP_CONDITIONS = (
+    "after_any_run_failure",
+    "after_any_business_failure",
+    "after_any_usage_gap",
+    "after_any_budget_observation_exceeded",
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -91,6 +97,10 @@ def build_budget_proposal(
         "budget proposal contains an unsupported arm",
     )
     stop_conditions = _unique_nonempty(stop_conditions, "stop conditions")
+    require(
+        all(condition in SUPPORTED_STOP_CONDITIONS for condition in stop_conditions),
+        "budget proposal contains an unsupported stop condition",
+    )
     require(model.strip() != "", "model must not be empty")
     require(selection_reason.strip() != "", "selection reason must not be empty")
     for value, label in (
@@ -153,6 +163,22 @@ def build_budget_proposal(
         },
         "pricing_snapshot": pricing,
         "cost_assumption": "all input tokens are charged at the uncached input rate",
+        "enforcement_boundary": {
+            "hard_before_start": [
+                "subject_commit",
+                "surface_sha256",
+                "proposal_and_authorization_identity",
+                "sample_arm_repeat_matrix",
+                "no_automatic_retries",
+            ],
+            "hard_during_run": ["elapsed_seconds"],
+            "observed_after_each_run": [
+                "provider_requests",
+                "input_tokens",
+                "output_tokens",
+                "estimated_cost",
+            ],
+        },
         "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
     }
     proposal["proposal_id"] = f"CBP-{canonical_json_sha256(proposal)[:16].upper()}"

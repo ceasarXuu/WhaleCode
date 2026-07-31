@@ -90,11 +90,11 @@ class CacheBudgetProposalTest(unittest.TestCase):
             max_input_tokens_per_run=100_000,
             max_output_tokens_per_run=5_000,
             max_seconds_per_run=120,
-            stop_conditions=["stop after any business failure"],
+            stop_conditions=["after_any_business_failure"],
             selection_reason="human selected representative paths",
         )
 
-    def test_computes_hard_maximums_without_cache_discount(self) -> None:
+    def test_computes_declared_maximums_without_cache_discount(self) -> None:
         proposal = self.proposal()
         validate_budget_proposal(proposal)
         self.assertEqual(proposal["selection"]["planned_sample_runs"], 8)
@@ -116,6 +116,10 @@ class CacheBudgetProposalTest(unittest.TestCase):
             build_budget_proposal(**{**self._kwargs(), "arms": ["unknown"]})
         with self.assertRaisesRegex(ValueError, "duplicates"):
             build_budget_proposal(**{**self._kwargs(), "samples": ["simple", "simple"]})
+        with self.assertRaisesRegex(ValueError, "unsupported stop condition"):
+            build_budget_proposal(
+                **{**self._kwargs(), "stop_conditions": ["interpret this prose"]}
+            )
 
     def test_digest_detects_plan_tampering(self) -> None:
         proposal = self.proposal()
@@ -152,7 +156,7 @@ class CacheBudgetProposalTest(unittest.TestCase):
                     "--max-seconds-per-run",
                     "120",
                     "--stop-condition",
-                    "stop after first failure",
+                    "after_any_run_failure",
                     "--selection-reason",
                     "human choice",
                 ],
@@ -184,7 +188,7 @@ class CacheBudgetProposalTest(unittest.TestCase):
             "max_input_tokens_per_run": 100_000,
             "max_output_tokens_per_run": 5_000,
             "max_seconds_per_run": 120,
-            "stop_conditions": ["stop after first failure"],
+            "stop_conditions": ["after_any_run_failure"],
             "selection_reason": "human choice",
         }
 

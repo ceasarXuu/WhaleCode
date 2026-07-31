@@ -15,13 +15,11 @@ from cache_usage_contract import (
     normalized_fixture_cases,
     validate_cache_artifacts,
 )
+from cache_run_analysis import analyze_arm, analyze_artifacts, observation_meets_policy
 from run_cache_hit_regression import (
-    analyze_artifacts,
-    analyze_arm,
-    arm_passes,
+    budget_observation_exceeded,
     ensure_deepseek_api_key,
-    record_failed_baseline,
-    should_record_failed_baseline,
+    stop_reason,
 )
 
 
@@ -94,7 +92,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             self.assertEqual(arm["uncached_input_tokens"], 100)
             self.assertEqual(arm["request_2_plus_hit_rate"], 0.91)
             self.assertTrue(
-                arm_passes(
+                observation_meets_policy(
                     arm,
                     {
                         "absolute_floor": {"standard": 0.85},
@@ -140,9 +138,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             "cached_input_tokens": 80,
             "output_tokens": 30,
         }
-        with self.assertRaisesRegex(
-            ValueError, "request_2_plus_cached_input_tokens"
-        ):
+        with self.assertRaisesRegex(ValueError, "request_2_plus_cached_input_tokens"):
             validate_cache_artifacts(cache, request)
 
     def test_analyzer_rejects_inconsistent_request_2_plus_rate(self) -> None:
@@ -195,7 +191,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             "cache_usage_missing_count": 1,
         }
         self.assertFalse(
-            arm_passes(
+            observation_meets_policy(
                 arm,
                 {
                     "absolute_floor": {"map-request": 0.75},
@@ -225,7 +221,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             "status": "live_verified",
             "request_2_plus_hit_rate": {"standard": 0.93},
         }
-        self.assertFalse(arm_passes(arm, policy, baseline))
+        self.assertFalse(observation_meets_policy(arm, policy, baseline))
 
     def test_rejects_business_failure(self) -> None:
         arm = {
@@ -242,38 +238,39 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             "min_request_2_plus_count": 1,
             "min_trace_coverage": 1.0,
         }
-        self.assertFalse(arm_passes(arm, policy))
+        self.assertFalse(observation_meets_policy(arm, policy))
 
-    def test_failed_result_marks_surface_blocked(self) -> None:
-        with tempfile.TemporaryDirectory() as root:
-            contract_path = Path(root) / "contract.json"
-            contract = {
-                "schema_version": "whalecode-cache-surface-v1",
-                "baseline": {
-                    "surface_sha256": "abc",
-                    "status": "structural_bootstrap",
-                    "live_result_path": None,
-                },
-                "surface_rules": [],
-                "live_regression": {},
-            }
-            result = {"result_path": "benchmarks/cache-regression/results/fail.json"}
-            record_failed_baseline(contract_path, contract, result)
-            saved = json.loads(contract_path.read_text(encoding="utf-8"))
-            self.assertEqual(saved["baseline"]["status"], "live_regression_failed")
-            self.assertEqual(saved["baseline"]["surface_sha256"], "abc")
+    def test_budget_observation_is_explicit_and_stops_only_when_selected(self) -> None:
+        observation = {
+            "provider_requests": 11,
+            "input_tokens": 90,
+            "output_tokens": 20,
+            "elapsed_seconds": 5,
+            "business_success": True,
+            "cache_usage_missing_count": 0,
+        }
+        exceeded = budget_observation_exceeded(
+            observation,
+            {
+                "provider_requests": 10,
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "elapsed_seconds": 10,
+            },
+        )
+        self.assertEqual(exceeded, ["provider_requests"])
+        observation["budget_observation_exceeded"] = exceeded
+        self.assertIsNone(stop_reason([], False, observation))
+        self.assertEqual(
+            stop_reason(["after_any_budget_observation_exceeded"], False, observation),
+            "budget_observation_exceeded",
+        )
 
-    def test_preflight_failure_does_not_poison_live_baseline(self) -> None:
-        self.assertFalse(
-            should_record_failed_baseline(
-                {"status": "fail", "actual_sample_runs": 0}
-            )
+    def test_run_failure_stop_is_mechanical(self) -> None:
+        self.assertEqual(
+            stop_reason(["after_any_run_failure"], True, None), "run_failure"
         )
-        self.assertTrue(
-            should_record_failed_baseline(
-                {"status": "fail", "actual_sample_runs": 1}
-            )
-        )
+        self.assertIsNone(stop_reason([], True, None))
 
 
 if __name__ == "__main__":

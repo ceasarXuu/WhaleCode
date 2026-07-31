@@ -8,7 +8,11 @@ import json
 import subprocess
 from pathlib import Path
 
-from cache_budget import build_budget_proposal, repository_evidence_path
+from cache_budget import (
+    SUPPORTED_STOP_CONDITIONS,
+    build_budget_proposal,
+    repository_evidence_path,
+)
 from cache_surface import load_contract
 
 
@@ -25,7 +29,12 @@ def main() -> int:
     parser.add_argument("--max-input-tokens-per-run", type=int, required=True)
     parser.add_argument("--max-output-tokens-per-run", type=int, required=True)
     parser.add_argument("--max-seconds-per-run", type=int, required=True)
-    parser.add_argument("--stop-condition", action="append", required=True)
+    parser.add_argument(
+        "--stop-condition",
+        action="append",
+        choices=SUPPORTED_STOP_CONDITIONS,
+        required=True,
+    )
     parser.add_argument("--selection-reason", required=True)
     args = parser.parse_args()
 

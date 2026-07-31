@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)][string]$AuthorizationReference,
+    [Parameter(Mandatory = $true)][string]$Proposal,
+    [Parameter(Mandatory = $true)][string]$Authorization,
     [string]$WhaleBin = "$HOME/.whale/bin/whale",
     [string]$RunRoot = ""
 )
@@ -9,7 +10,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $args = @(
     (Join-Path $PSScriptRoot "run_cache_hit_regression.py"),
     "--repo-root", $repoRoot,
-    "--authorization-reference", $AuthorizationReference,
+    "--proposal", $Proposal,
+    "--authorization", $Authorization,
     "--whale-bin", $WhaleBin
 )
 if (-not [string]::IsNullOrWhiteSpace($RunRoot)) {

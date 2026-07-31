@@ -15,8 +15,8 @@ from cache_evidence import (
     expected_run_plan,
 )
 from cache_surface import load_contract, surface_snapshot, write_json
+from cache_run_analysis import analyze_artifacts
 from promote_cache_baseline import validate_promotion_result
-from run_cache_hit_regression import analyze_artifacts
 
 
 PROMOTER = Path(__file__).resolve().parent / "promote_cache_baseline.py"
@@ -35,7 +35,9 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         run("git", "config", "user.name", "Test", cwd=self.repo)
         (self.repo / "prompt").mkdir()
         (self.repo / "prompt/base.md").write_text("stable\n", encoding="utf-8")
-        self.contract_path = self.repo / "benchmarks/cache-regression/cache-surface-contract.json"
+        self.contract_path = (
+            self.repo / "benchmarks/cache-regression/cache-surface-contract.json"
+        )
         self.contract_path.parent.mkdir(parents=True)
         contract = {
             "schema_version": "whalecode-cache-surface-v1",
@@ -94,8 +96,7 @@ class PromoteCacheBaselineTest(unittest.TestCase):
                 "provider_request_count": 3,
                 "request_2_plus_count": 2,
                 "request_2_plus_cached_input_tokens": request_2_plus_cached,
-                "request_2_plus_uncached_input_tokens": 100
-                - request_2_plus_cached,
+                "request_2_plus_uncached_input_tokens": 100 - request_2_plus_cached,
                 "request_2_plus_hit_rate": hit_rate,
                 "trace_coverage": 1.0,
                 "cache_usage_missing_count": 0,
@@ -143,7 +144,9 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             "result_path": str(self.result_path.relative_to(self.repo)),
         }
 
-    def write_ledger(self, result: dict, authorization: str = "fixture-approval") -> None:
+    def write_ledger(
+        self, result: dict, authorization: str = "fixture-approval"
+    ) -> None:
         plan = result["run_plan"]
         write_json(
             self.repo / "benchmarks/whale-agent-run-ledger.json",

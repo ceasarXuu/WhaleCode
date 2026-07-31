@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from cache_evidence import RESULT_SCHEMA_VERSION
+from cache_surface import write_json
+from run_cache_hit_regression import main
+
+
+class CacheRunExecutionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.temp.name)
+        contract_path = (
+            self.repo / "benchmarks/cache-regression/cache-surface-contract.json"
+        )
+        contract_path.parent.mkdir(parents=True)
+        self.pricing = {
+            "currency": "USD",
+            "cached_input_per_million": 0.0028,
+            "uncached_input_per_million": 0.14,
+            "output_per_million": 0.28,
+        }
+        write_json(
+            contract_path,
+            {
+                "schema_version": "whalecode-cache-surface-v1",
+                "baseline": {
+                    "surface_sha256": "fixture",
+                    "status": "live_regression_failed",
+                },
+                "surface_rules": [],
+                "live_regression": {"pricing_snapshot": self.pricing},
+            },
+        )
+        write_json(
+            self.repo / "benchmarks/whale-agent-run-ledger.json",
+            {
+                "schema_version": "whale-agent-run-ledger-v1",
+                "updated_at": "2026-08-01T00:00:00+08:00",
+                "entries": [],
+            },
+        )
+        self.proposal_path = self.repo / "benchmarks/cache-regression/proposal.json"
+        self.authorization_path = (
+            self.repo / "benchmarks/cache-regression/authorization.json"
+        )
+        self.proposal = {
+            "proposal_id": "CBP-FIXTURE",
+            "proposal_sha256": "a" * 64,
+            "subject_commit": "b" * 40,
+            "surface_sha256": "c" * 64,
+            "selection": {
+                "model": "deepseek-v4-flash",
+                "samples": ["simple"],
+                "arms": ["standard", "map-request"],
+                "repeat": 1,
+                "planned_sample_runs": 2,
+                "retry_sample_run_limit": 0,
+                "maximum_sample_runs": 2,
+                "stop_conditions": [],
+                "selection_reason": "approved fixture",
+            },
+            "per_sample_run_limits": {
+                "provider_requests": 10,
+                "input_tokens": 1000,
+                "output_tokens": 100,
+                "elapsed_seconds": 60,
+            },
+            "maximums": {
+                "provider_requests": 20,
+                "input_tokens": 2000,
+                "output_tokens": 200,
+                "elapsed_seconds": 120,
+                "estimated_cost": 1.0,
+                "currency": "USD",
+            },
+            "pricing_snapshot": self.pricing,
+            "evidence_boundary": "fixture scope only",
+        }
+        self.authorization = {
+            "approval_reference": "fixture approval",
+        }
+        write_json(self.proposal_path, self.proposal)
+        write_json(self.authorization_path, self.authorization)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_runner_executes_exact_matrix_and_records_started_attempts(self) -> None:
+        calls = []
+
+        def fake_run(command, **kwargs):
+            ledger = json.loads(
+                (self.repo / "benchmarks/whale-agent-run-ledger.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(ledger["entries"][0]["status"], "running")
+            self.assertEqual(
+                ledger["entries"][0]["execution"]["actual_sample_runs"],
+                len(calls) + 1,
+            )
+            calls.append(command)
+            return type("Completed", (), {"returncode": 0})()
+
+        def fake_analyze(_run_dir, _side, arm):
+            return {
+                "arm": arm,
+                "provider_usage_contract_version": "fixture",
+                "logical_mode": "standard" if arm == "standard" else "taskspace",
+                "provider_requests": 3,
+                "request_2_plus_count": 2,
+                "request_2_plus_hit_rate": 0.9,
+                "request_2_plus_cached_input_tokens": 90,
+                "request_2_plus_uncached_input_tokens": 10,
+                "trace_coverage": 1.0,
+                "cache_usage_missing_count": 0,
+                "input_tokens": 100,
+                "cached_input_tokens": 90,
+                "uncached_input_tokens": 10,
+                "output_tokens": 10,
+                "business_success": True,
+                "artifacts": {"metrics": "fixture"},
+                "artifact_sha256": {"metrics": "d" * 64},
+            }
+
+        argv = [
+            "run_cache_hit_regression.py",
+            "--repo-root",
+            str(self.repo),
+            "--proposal",
+            str(self.proposal_path),
+            "--authorization",
+            str(self.authorization_path),
+        ]
+        with (
+            patch("sys.argv", argv),
+            patch(
+                "run_cache_hit_regression.load_authorized_proposal",
+                return_value=(
+                    self.proposal,
+                    self.authorization,
+                    self.proposal_path,
+                    self.authorization_path,
+                ),
+            ),
+            patch(
+                "run_cache_hit_regression.ensure_deepseek_api_key",
+                return_value="fixture",
+            ),
+            patch("run_cache_hit_regression.subprocess.run", side_effect=fake_run),
+            patch(
+                "run_cache_hit_regression.find_run_dir_by_id",
+                return_value=self.repo,
+            ),
+            patch("run_cache_hit_regression.analyze_arm", side_effect=fake_analyze),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(call[call.index("-Repeats") + 1] == "1" for call in calls))
+        ledger = json.loads(
+            (self.repo / "benchmarks/whale-agent-run-ledger.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        entry = ledger["entries"][0]
+        self.assertEqual(entry["status"], "settled")
+        self.assertEqual(entry["execution"]["actual_sample_runs"], 2)
+        self.assertEqual(entry["execution"]["api_requests"], 6)
+        result = json.loads(
+            next(
+                (self.repo / "benchmarks/cache-regression/results").glob("*.json")
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(result["schema_version"], RESULT_SCHEMA_VERSION)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["unverified_scope"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -17,7 +17,7 @@ from cache_evidence import (
     file_sha256,
 )
 from cache_surface import load_contract, surface_snapshot, write_json
-from run_cache_hit_regression import analyze_artifacts, arm_passes
+from cache_run_analysis import analyze_artifacts, observation_meets_policy
 
 
 ARM_EVIDENCE_KEYS = (
@@ -68,13 +68,18 @@ def validate_ledger(
     execution = entry.get("execution", {})
     evidence = entry.get("evidence", {})
     require(entry.get("status") == "settled", "ledger entry is not settled")
-    require(authorization.get("status") == "granted", "ledger authorization is not granted")
+    require(
+        authorization.get("status") == "granted", "ledger authorization is not granted"
+    )
     require(
         authorization.get("reference") == result.get("authorization_reference"),
         "ledger authorization does not match result",
     )
     require(execution.get("model") == plan["model"], "ledger model does not match plan")
-    require(execution.get("sample_ids") == [plan["sample"]], "ledger sample does not match plan")
+    require(
+        execution.get("sample_ids") == [plan["sample"]],
+        "ledger sample does not match plan",
+    )
     require(execution.get("arm_ids") == plan["arms"], "ledger arms do not match plan")
     require(
         execution.get("repeats_per_arm_per_sample") == plan["repeat"],
@@ -86,9 +91,18 @@ def validate_ledger(
         "ledger sample count does not match plan",
     )
     expected_result_path = str(result_path.relative_to(repo))
-    require(evidence.get("result_path") == expected_result_path, "ledger result path mismatch")
-    require(evidence.get("subject_commit") == result["subject_commit"], "ledger subject mismatch")
-    require(evidence.get("surface_sha256") == result["surface_sha256"], "ledger surface mismatch")
+    require(
+        evidence.get("result_path") == expected_result_path,
+        "ledger result path mismatch",
+    )
+    require(
+        evidence.get("subject_commit") == result["subject_commit"],
+        "ledger subject mismatch",
+    )
+    require(
+        evidence.get("surface_sha256") == result["surface_sha256"],
+        "ledger surface mismatch",
+    )
 
 
 def load_contract_json(path: Path) -> dict[str, Any]:
@@ -101,12 +115,15 @@ def validate_promotion_result(
     result_path: Path,
     result: dict[str, Any],
 ) -> str:
-    require(result.get("schema_version") == RESULT_SCHEMA_VERSION, "invalid result schema")
+    require(
+        result.get("schema_version") == RESULT_SCHEMA_VERSION, "invalid result schema"
+    )
     require(result.get("status") == "pass", "cannot promote a non-passing result")
     plan = expected_run_plan(contract)
     require(result.get("run_plan") == plan, "result run plan does not match contract")
     require(
-        result.get("policy_sha256") == canonical_json_sha256(contract["live_regression"]),
+        result.get("policy_sha256")
+        == canonical_json_sha256(contract["live_regression"]),
         "result policy digest does not match contract",
     )
     head = subprocess.check_output(
@@ -114,24 +131,35 @@ def validate_promotion_result(
     ).strip()
     require(result.get("subject_commit") == head, "result subject is not current HEAD")
     current_hash, _ = surface_snapshot(repo, contract, "worktree")
-    require(result.get("surface_sha256") == current_hash, "result surface is not current")
+    require(
+        result.get("surface_sha256") == current_hash, "result surface is not current"
+    )
     arms = result.get("arms")
     require(isinstance(arms, list), "result arms are missing")
     require(
         result.get("actual_sample_runs") == plan["planned_sample_runs"] == len(arms),
         "actual sample count does not match approved plan",
     )
-    require([arm.get("arm") for arm in arms] == plan["arms"], "result arms do not match approved plan")
+    require(
+        [arm.get("arm") for arm in arms] == plan["arms"],
+        "result arms do not match approved plan",
+    )
     for arm in arms:
         artifacts = arm.get("artifacts", {})
         hashes = arm.get("artifact_sha256", {})
-        paths = {key: evidence_path(repo, artifacts[key]) for key in ("cache_summary", "request_summary", "metrics")}
+        paths = {
+            key: evidence_path(repo, artifacts[key])
+            for key in ("cache_summary", "request_summary", "metrics")
+        }
         require(
             all(file_sha256(path) == hashes.get(key) for key, path in paths.items()),
             f"artifact digest mismatch for {arm['arm']}",
         )
         recomputed = analyze_artifacts(
-            paths["cache_summary"], paths["request_summary"], paths["metrics"], arm["arm"]
+            paths["cache_summary"],
+            paths["request_summary"],
+            paths["metrics"],
+            arm["arm"],
         )
         require(
             all(arm.get(key) == recomputed[key] for key in ARM_EVIDENCE_KEYS),
@@ -139,7 +167,9 @@ def validate_promotion_result(
         )
         require(arm.get("passed") is True, f"arm {arm['arm']} is not marked passing")
         require(
-            arm_passes(recomputed, contract["live_regression"], contract.get("baseline")),
+            observation_meets_policy(
+                recomputed, contract["live_regression"], contract.get("baseline")
+            ),
             f"arm {arm['arm']} does not satisfy current thresholds",
         )
     require(
@@ -161,7 +191,9 @@ def main() -> int:
     )
     args = parser.parse_args()
     repo = args.repo_root.resolve()
-    contract_path = args.contract if args.contract.is_absolute() else repo / args.contract
+    contract_path = (
+        args.contract if args.contract.is_absolute() else repo / args.contract
+    )
     result_path = args.result if args.result.is_absolute() else repo / args.result
     contract = load_contract(contract_path)
     result = load_contract_json(result_path)
