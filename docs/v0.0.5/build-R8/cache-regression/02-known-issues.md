@@ -55,6 +55,10 @@ PowerShell builder self-test 通过。CR-I03、CR-I09 关闭；未运行真实 W
 serializer。定向测试 `1 passed; 0 failed`，未运行真实 Whale Agent。CR-I04、CR-I05 仍需 CR-07 至 CR-17 的
 证据覆盖，因此保持 open。
 
+提交 `11d5b2bdd` 完成 CR-07：生产 final-wire body 现在可同时生成原始字节 SHA-256 和完整结构化 JSON 证据；
+相同输入、格式变化、字段变化、数组顺序变化及非法 JSON 均有离线测试。公共辅助测试 `3 passed; 0 failed`，生产
+捕获测试 `1 passed; 0 failed`，未运行真实 Whale Agent。CR-I08 仍需 CR-08、CR-20 才能关闭。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
