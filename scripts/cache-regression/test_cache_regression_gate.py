@@ -160,6 +160,27 @@ raise SystemExit(0 if value == 'pass' else 7)
         self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
         self.assertIn("暂存源码与工作区不一致", result.stdout)
 
+    def test_unstaged_baseline_cannot_control_index_validation(self) -> None:
+        (self.repo / "prompt/base.md").write_text("staged\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+        (self.repo / "snapshots/baseline.snap").write_text(
+            '---\nsource: fixture.rs\n---\n{"wire": "unstaged"}\n',
+            encoding="utf-8",
+        )
+        result = self.gate()
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("不能代表 index", result.stdout)
+        self.assertIn("snapshots/baseline.snap", result.stdout)
+
+    def test_untracked_control_plane_input_blocks_index_validation(self) -> None:
+        (self.repo / "prompt/base.md").write_text("staged\n", encoding="utf-8")
+        run("git", "add", "prompt/base.md", cwd=self.repo)
+        helper = self.repo / "scripts/cache-regression/untracked_helper.py"
+        helper.write_text("# affects validation worktree\n", encoding="utf-8")
+        result = self.gate()
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("untracked_helper.py", result.stdout)
+
     def test_product_and_semantic_baseline_cannot_change_together(self) -> None:
         (self.repo / "prompt/base.md").write_text("changed\n", encoding="utf-8")
         (self.repo / "snapshots/baseline.snap").write_text(

@@ -46,12 +46,15 @@
         "third_party/codex-cli/codex-rs/core/src/client.rs",
         "third_party/codex-cli/codex-rs/core/src/client_common*.rs",
         "third_party/codex-cli/codex-rs/core/src/provider_wire*.rs",
-        "third_party/codex-cli/codex-rs/codex-api/src/common.rs",
-        "third_party/codex-cli/codex-rs/codex-api/src/provider.rs",
-        "third_party/codex-cli/codex-rs/codex-api/src/endpoint/**",
-        "third_party/codex-cli/codex-rs/codex-api/src/sse/**"
+        "third_party/codex-cli/codex-rs/codex-api/src/**",
+        "third_party/codex-cli/codex-rs/protocol/src/**",
+        "third_party/codex-cli/codex-rs/Cargo.toml",
+        "third_party/codex-cli/codex-rs/Cargo.lock",
+        "third_party/codex-cli/codex-rs/codex-api/Cargo.toml",
+        "third_party/codex-cli/codex-rs/core/Cargo.toml",
+        "third_party/codex-cli/codex-rs/protocol/Cargo.toml"
       ],
-      "reason": "改变最终 provider payload、消息顺序或缓存观测"
+      "reason": "改变最终 provider payload、协议序列化、消息顺序、依赖或缓存观测"
     },
     {
       "id": "tool_declarations",

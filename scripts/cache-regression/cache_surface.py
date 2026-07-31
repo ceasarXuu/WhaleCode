@@ -63,6 +63,33 @@ def changed_paths_match_worktree(repo: Path, paths: list[str], source: str) -> b
     return not any(raw.split(b"\0"))
 
 
+def validation_input_mismatches(
+    repo: Path, contract: dict[str, Any], source: str
+) -> list[str]:
+    if source != "index":
+        return []
+    baseline_patterns = contract.get("free_validation", {}).get(
+        "semantic_baseline_globs", []
+    )
+
+    def relevant(path: str) -> bool:
+        return bool(
+            matching_rules(path, contract)
+            or is_cache_control_plane_path(path)
+            or any(fnmatch.fnmatchcase(path, pattern) for pattern in baseline_patterns)
+        )
+
+    unstaged = run_git(repo, "diff", "--name-only", "--diff-filter=ACMRD", "-z")
+    untracked = run_git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    paths = {
+        item.decode()
+        for raw in (unstaged, untracked)
+        for item in raw.split(b"\0")
+        if item
+    }
+    return sorted(path for path in paths if relevant(path))
+
+
 def load_contract(path: Path) -> dict[str, Any]:
     return parse_contract(path.read_text(encoding="utf-8"))
 

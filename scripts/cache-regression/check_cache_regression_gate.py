@@ -17,6 +17,7 @@ from cache_surface import (
     semantic_baseline_changes,
     sensitive_changes,
     surface_snapshot,
+    validation_input_mismatches,
     write_json,
 )
 from free_cache_contracts import run_free_validation, validate_free_validation
@@ -155,6 +156,7 @@ def main() -> int:
     relevant_source_matches_worktree = changed_paths_match_worktree(
         repo, relevant_source_paths, args.source
     )
+    validation_mismatches = validation_input_mismatches(repo, contract, args.source)
     free_validation_required = bool(free_validation_config) and (
         bool(changes)
         or bool(
@@ -167,6 +169,7 @@ def main() -> int:
         free_validation_required
         and contract_matches_worktree
         and relevant_source_matches_worktree
+        and not validation_mismatches
         and not policy_baseline_conflict
         and not policy_product_conflict
         and not baseline_product_conflict
@@ -185,6 +188,7 @@ def main() -> int:
     passed = (
         contract_matches_worktree
         and relevant_source_matches_worktree
+        and not validation_mismatches
         and not release_changes
         and not policy_baseline_conflict
         and not policy_product_conflict
@@ -213,6 +217,7 @@ def main() -> int:
         "semantic_baseline_changes": semantic_baselines,
         "baseline_product_conflict": baseline_product_conflict,
         "relevant_source_matches_worktree": relevant_source_matches_worktree,
+        "validation_input_mismatches": validation_mismatches,
         "free_validation_required": free_validation_required,
         "discovery_state": classify_free_validation(
             free_validation, free_validation_required
@@ -250,6 +255,10 @@ def main() -> int:
         print("- 暂存合同与工作区合同不一致；请完整暂存或还原合同后重试。")
     if not relevant_source_matches_worktree:
         print("- 缓存相关暂存源码与工作区不一致；免费验证无法证明即将提交的内容。")
+    if validation_mismatches:
+        print("- 免费合同输入存在未暂存或未跟踪差异，不能代表 index：")
+        for path in validation_mismatches:
+            print(f"  - {path}")
     if policy_baseline_conflict:
         print("- 门禁政策与基线不能在同一提交中变更。")
     if policy_product_conflict:
