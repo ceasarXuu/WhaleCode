@@ -18,6 +18,8 @@ use crate::tools::sequence_preflight::ToolSequencePlan;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 
 const PROVIDER_TOOL_DECLARATION_INVALID_CODE: &str = "provider_tool_declaration_invalid";
+const DIAGNOSTIC_SUPPRESS_FINAL_RECEIPT_CARRIER_ENV: &str =
+    "WHALE_DIAGNOSTIC_SUPPRESS_TASKSPACE_FINAL_RECEIPT_CARRIER";
 
 pub(crate) struct TaskSpaceTerminalCompletion {
     pub(crate) call_id: String,
@@ -39,6 +41,15 @@ enum SequenceSegment {
 enum BarrierKind {
     TaskSpaceControl,
     ApplyPatch,
+}
+
+fn should_emit_final_receipt_carrier(diagnostic_value: Option<&str>) -> bool {
+    diagnostic_value != Some("1")
+}
+
+fn emit_final_receipt_carrier() -> bool {
+    let value = std::env::var(DIAGNOSTIC_SUPPRESS_FINAL_RECEIPT_CARRIER_ENV).ok();
+    should_emit_final_receipt_carrier(value.as_deref())
 }
 
 impl BarrierKind {
@@ -772,12 +783,24 @@ async fn execute_prepared_taskspace_siblings(
         receipt_complete = receipt.complete(),
         "emitted response-final canonical TaskSpace receipt"
     );
-    outputs.push(ResponseInputItem::Message {
-        role: "developer".to_string(),
-        content: vec![codex_protocol::models::ContentItem::InputText {
-            text: receipt.model_visible_result(),
-        }],
-    });
+    let carrier_emitted = emit_final_receipt_carrier();
+    tracing::info!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace_response_final_receipt_carrier_decided",
+        control_call_id,
+        map_id = prepared.map_id,
+        carrier_emitted,
+        diagnostic_suppressed = !carrier_emitted,
+        "decided whether to expose the response-final receipt carrier"
+    );
+    if carrier_emitted {
+        outputs.push(ResponseInputItem::Message {
+            role: "developer".to_string(),
+            content: vec![codex_protocol::models::ContentItem::InputText {
+                text: receipt.model_visible_result(),
+            }],
+        });
+    }
     Ok(ToolSequenceOutcome {
         outputs,
         terminal_completion,
@@ -798,6 +821,20 @@ fn response_input_succeeded(output: &ResponseInputItem) -> bool {
         ResponseInputItem::McpToolCallOutput { output, .. } => output.success(),
         ResponseInputItem::ToolSearchOutput { status, .. } => status == "completed",
         ResponseInputItem::Message { .. } => true,
+    }
+}
+
+#[cfg(test)]
+mod receipt_carrier_diagnostic_tests {
+    use super::should_emit_final_receipt_carrier;
+
+    #[test]
+    fn only_exact_diagnostic_opt_in_suppresses_the_carrier() {
+        assert!(should_emit_final_receipt_carrier(None));
+        assert!(should_emit_final_receipt_carrier(Some("")));
+        assert!(should_emit_final_receipt_carrier(Some("true")));
+        assert!(should_emit_final_receipt_carrier(Some("0")));
+        assert!(!should_emit_final_receipt_carrier(Some("1")));
     }
 }
 
