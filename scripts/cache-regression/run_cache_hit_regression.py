@@ -112,6 +112,9 @@ def persist_observation_artifacts(
         or durable["artifact_sha256"] != observation["artifact_sha256"]
     ):
         raise ValueError("persisted cache observation does not match source artifacts")
+    durable["artifacts"] = {
+        key: path.relative_to(repo).as_posix() for key, path in persisted.items()
+    }
     return durable
 
 

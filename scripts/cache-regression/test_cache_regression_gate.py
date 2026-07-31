@@ -10,6 +10,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from cache_baseline_test_support import stage_accepted_promotion
 from cache_surface import load_contract, surface_snapshot, write_json
 from check_cache_regression_gate import (
     classify_free_validation,
@@ -37,7 +38,8 @@ class CacheRegressionGateTest(unittest.TestCase):
         (self.repo / "ordinary.txt").write_text("ordinary\n", encoding="utf-8")
         (self.repo / "snapshots").mkdir()
         (self.repo / "snapshots/baseline.snap").write_text(
-            "stable snapshot\n", encoding="utf-8"
+            '---\nsource: fixture.rs\n---\n{"wire": "stable"}\n',
+            encoding="utf-8",
         )
         (self.repo / "free-validator.py").write_text(
             """from pathlib import Path
@@ -54,6 +56,10 @@ raise SystemExit(0 if value == 'pass' else 7)
             "# fixture policy\n", encoding="utf-8"
         )
         self.contract_path = self.repo / "contract.json"
+        write_json(
+            self.repo / "benchmarks/whale-agent-run-ledger.json",
+            {"entries": []},
+        )
         contract = {
             "schema_version": "whalecode-cache-surface-v1",
             "baseline": {
@@ -178,27 +184,57 @@ raise SystemExit(0 if value == 'pass' else 7)
         self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
         self.assertIn("独立的证据晋升流程", result.stdout)
 
-    def test_matching_promoted_hash_unblocks(self) -> None:
+    def test_product_change_cannot_self_authorize_with_baseline_hash(self) -> None:
         (self.repo / "prompt/base.md").write_text("verified\n", encoding="utf-8")
         run("git", "add", "prompt/base.md", cwd=self.repo)
         contract = load_contract(self.contract_path)
         promoted, _ = surface_snapshot(self.repo, contract, "index")
         contract["baseline"]["surface_sha256"] = promoted
-        contract["baseline"]["status"] = "live_verified"
+        contract["baseline"]["status"] = "accepted"
         write_json(self.contract_path, contract)
         run("git", "add", "contract.json", cwd=self.repo)
         result = self.gate()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("尚待首次", result.stdout)
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("基准与缓存敏感产品代码不能在同一提交", result.stdout)
 
-    def test_failed_live_baseline_allows_unrelated_commit(self) -> None:
+    def test_manual_failed_baseline_status_change_is_blocked(self) -> None:
         contract = load_contract(self.contract_path)
         contract["baseline"]["status"] = "live_regression_failed"
         write_json(self.contract_path, contract)
         run("git", "add", "contract.json", cwd=self.repo)
         result = self.gate()
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("live 回归失败", result.stdout)
+        self.assertEqual(result.returncode, 20)
+
+    def test_independent_accepted_promotion_passes(self) -> None:
+        stage_accepted_promotion(self.repo, self.contract_path)
+        result = self.gate()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_accepted_promotion_rejects_tampered_decision(self) -> None:
+        stage_accepted_promotion(self.repo, self.contract_path)
+        acceptance = self.repo / "benchmarks/cache-regression/acceptance.json"
+        acceptance.write_text("{}\n", encoding="utf-8")
+        run("git", "add", str(acceptance.relative_to(self.repo)), cwd=self.repo)
+        result = self.gate()
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("accepted decision digest mismatch", result.stdout)
+
+    def test_committed_accepted_baseline_passes_release_gate(self) -> None:
+        stage_accepted_promotion(self.repo, self.contract_path)
+        run("git", "commit", "-qm", "promote", cwd=self.repo)
+        result = self.gate_from_source("head", "--require-live-baseline")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_release_rejects_dirty_accepted_evidence(self) -> None:
+        stage_accepted_promotion(self.repo, self.contract_path)
+        run("git", "commit", "-qm", "promote", cwd=self.repo)
+        acceptance = self.repo / "benchmarks/cache-regression/acceptance.json"
+        acceptance.write_text("{}\n", encoding="utf-8")
+        result = self.gate_from_source(
+            "head", "--require-live-baseline", "--require-clean-subject"
+        )
+        self.assertEqual(result.returncode, 20, result.stdout + result.stderr)
+        self.assertIn("acceptance.json (tracked)", result.stdout)
 
     def test_release_gate_blocks_failed_live_baseline(self) -> None:
         contract = load_contract(self.contract_path)
@@ -214,7 +250,7 @@ raise SystemExit(0 if value == 'pass' else 7)
         result = self.gate("--require-live-baseline")
         self.assertEqual(result.returncode, 20)
         self.assertIn("structural_bootstrap", result.stdout)
-        self.assertIn("尚未达到 live_verified", result.stdout)
+        self.assertIn("尚未形成有效的 accepted 基线", result.stdout)
         self.assertNotIn("敏感面与已验证基线不一致", result.stdout)
 
     def test_index_source_reads_the_staged_contract(self) -> None:
@@ -295,7 +331,7 @@ raise SystemExit(0 if value == 'pass' else 7)
         )
         policy_path.write_text("# changed policy\n", encoding="utf-8")
         contract = load_contract(self.contract_path)
-        contract["baseline"]["status"] = "live_verified"
+        contract["baseline"]["status"] = "accepted"
         write_json(self.contract_path, contract)
         run("git", "add", "scripts", "contract.json", cwd=self.repo)
 
@@ -308,7 +344,7 @@ raise SystemExit(0 if value == 'pass' else 7)
         helper = self.repo / "scripts/cache-regression/new_helper.py"
         helper.write_text("# new policy helper\n", encoding="utf-8")
         contract = load_contract(self.contract_path)
-        contract["baseline"]["status"] = "live_verified"
+        contract["baseline"]["status"] = "accepted"
         write_json(self.contract_path, contract)
         run("git", "add", "scripts", "contract.json", cwd=self.repo)
 

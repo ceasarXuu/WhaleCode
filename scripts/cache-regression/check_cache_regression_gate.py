@@ -7,6 +7,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
+from accepted_cache_baseline import validate_accepted_baseline
 from cache_surface import (
     changed_paths_match_worktree,
     control_plane_change_summary,
@@ -103,12 +104,6 @@ def main() -> int:
     expected_hash = contract["baseline"]["surface_sha256"]
     changes = sensitive_changes(repo, contract, args.source)
     semantic_baselines = semantic_baseline_changes(repo, contract, args.source)
-    relevant_source_paths = sorted(
-        {change["path"] for change in changes}.union(semantic_baselines)
-    )
-    relevant_source_matches_worktree = changed_paths_match_worktree(
-        repo, relevant_source_paths, args.source
-    )
     control_plane = control_plane_change_summary(
         repo, contract_path, args.source, contract
     )
@@ -116,7 +111,9 @@ def main() -> int:
     baseline_changed = control_plane["baseline_changed"]
     policy_baseline_conflict = bool(policy_changes) and baseline_changed
     policy_product_conflict = bool(policy_changes) and bool(changes)
-    baseline_product_conflict = bool(semantic_baselines) and bool(changes)
+    baseline_product_conflict = bool(changes) and (
+        baseline_changed or bool(semantic_baselines)
+    )
     policy_only_surface_transition = (
         control_plane["contract_policy_changed"]
         and not baseline_changed
@@ -132,7 +129,32 @@ def main() -> int:
         ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
     ).strip()
     baseline_status = contract["baseline"]["status"]
-    live_status_accepted = baseline_status == "live_verified"
+    accepted_validation = {"valid": False, "reason": "baseline status is not accepted"}
+    if baseline_status == "accepted":
+        try:
+            accepted_validation = validate_accepted_baseline(
+                repo, contract, args.source, actual_hash
+            )
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            accepted_validation = {"valid": False, "reason": str(error)}
+    accepted_baseline_valid = accepted_validation["valid"]
+    promotion_transition = bool(
+        baseline_changed
+        and semantic_baselines
+        and accepted_baseline_valid
+        and semantic_baselines
+        == accepted_validation.get("accepted_scenario_paths", [])
+        and not policy_changes
+        and not changes
+    )
+    relevant_source_paths = sorted(
+        {change["path"] for change in changes}
+        .union(semantic_baselines)
+        .union(accepted_validation.get("evidence_paths", []))
+    )
+    relevant_source_matches_worktree = changed_paths_match_worktree(
+        repo, relevant_source_paths, args.source
+    )
     free_validation_required = bool(free_validation_config) and (
         bool(changes)
         or bool(
@@ -148,7 +170,7 @@ def main() -> int:
         and not policy_baseline_conflict
         and not policy_product_conflict
         and not baseline_product_conflict
-        and not semantic_baselines
+        and (not semantic_baselines or promotion_transition)
     )
     if can_run_free_validation:
         free_validation = run_free_validation(repo, free_validation_config)
@@ -167,9 +189,10 @@ def main() -> int:
         and not policy_baseline_conflict
         and not policy_product_conflict
         and not baseline_product_conflict
-        and not semantic_baselines
+        and (not baseline_changed or promotion_transition)
+        and (not semantic_baselines or promotion_transition)
         and semantic_gate_passed
-        and (live_status_accepted or not args.require_live_baseline)
+        and (accepted_baseline_valid or not args.require_live_baseline)
     )
     result = {
         "schema_version": "whalecode-cache-regression-gate-v1",
@@ -179,6 +202,8 @@ def main() -> int:
         "actual_surface_sha256": actual_hash,
         "expected_surface_sha256": expected_hash,
         "baseline_status": baseline_status,
+        "accepted_baseline_validation": accepted_validation,
+        "promotion_transition": promotion_transition,
         "require_live_baseline": args.require_live_baseline,
         "contract_matches_worktree": contract_matches_worktree,
         "policy_changes": policy_changes,
@@ -243,8 +268,11 @@ def main() -> int:
         print("- release 受检 HEAD 与当前相关工作区不一致：")
         for change in release_changes:
             print(f"  - {change['path']} ({change['state']})")
-    if not live_status_accepted:
-        print(f"- 当前基线状态为 {baseline_status}，尚未达到 live_verified。")
+    if not accepted_baseline_valid:
+        print(
+            f"- 当前基线状态为 {baseline_status}，尚未形成有效的 accepted 基线："
+            f"{accepted_validation['reason']}"
+        )
     if changes:
         print("可能影响缓存命中的变更：")
         for change in changes:

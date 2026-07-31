@@ -232,7 +232,7 @@ class CacheRunExecutionTest(unittest.TestCase):
         )
 
         for key, path in durable["artifacts"].items():
-            artifact = Path(path)
+            artifact = self.repo / path
             self.assertTrue(artifact.is_file(), key)
             self.assertIn("benchmarks/cache-regression/evidence", artifact.as_posix())
             self.assertEqual(file_sha256(artifact), durable["artifact_sha256"][key])

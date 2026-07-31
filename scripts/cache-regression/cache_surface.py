@@ -118,6 +118,12 @@ def is_cache_control_plane_path(path: str) -> bool:
     )
 
 
+def is_cache_evidence_path(path: str) -> bool:
+    return path == "benchmarks/whale-agent-run-ledger.json" or path.startswith(
+        "benchmarks/cache-regression/"
+    )
+
+
 def control_plane_change_summary(
     repo: Path,
     contract_path: Path,
@@ -160,6 +166,7 @@ def release_relevant_changes(
         if (
             path == contract_relative_path
             or is_cache_control_plane_path(path)
+            or is_cache_evidence_path(path)
             or matching_rules(path, contract)
             or any(fnmatch.fnmatchcase(path, pattern) for pattern in baseline_patterns)
         ):

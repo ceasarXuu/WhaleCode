@@ -5,7 +5,12 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from cache_surface import is_cache_control_plane_path, load_contract, matching_rules
+from cache_surface import (
+    is_cache_control_plane_path,
+    is_cache_evidence_path,
+    load_contract,
+    matching_rules,
+)
 from free_cache_contracts import validate_free_validation
 
 
@@ -65,6 +70,11 @@ class CacheSurfaceContractTest(unittest.TestCase):
         ]
         self.assertTrue(all(is_cache_control_plane_path(path) for path in paths))
         self.assertTrue(all(not matching_rules(path, self.contract) for path in paths))
+
+    def test_cache_run_evidence_is_release_relevant_not_policy(self) -> None:
+        path = "benchmarks/cache-regression/evidence/WAR-1/CACHE-001/metrics.json"
+        self.assertTrue(is_cache_evidence_path(path))
+        self.assertFalse(is_cache_control_plane_path(path))
 
     def test_final_wire_matrix_emits_change_report_and_includes_tool_wire(self) -> None:
         commands = {
