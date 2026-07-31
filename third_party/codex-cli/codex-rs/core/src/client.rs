@@ -149,6 +149,7 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
+const REALTIME_CALLS_ENDPOINT: &str = "/realtime/calls";
 const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR7V1:";
 const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR7V1 end.";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
@@ -1973,6 +1974,9 @@ impl ModelClient {
             client_setup.api_auth.as_ref(),
         ));
         let transport = ReqwestTransport::new(build_reqwest_client());
+        self.state
+            .provider_request_hard_limit
+            .claim(REALTIME_CALLS_ENDPOINT)?;
         let response =
             ApiRealtimeCallClient::new(transport, client_setup.api_provider, client_setup.api_auth)
                 .create_with_session_and_headers(sdp, session_config, extra_headers)
