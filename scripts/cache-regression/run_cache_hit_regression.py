@@ -21,6 +21,8 @@ from cache_evidence import (
     file_sha256,
 )
 from cache_surface import load_contract, surface_snapshot, write_json
+from cache_usage_contract import SCHEMA_VERSION as PROVIDER_USAGE_CONTRACT_VERSION
+from cache_usage_contract import validate_cache_artifacts
 
 
 def now() -> str:
@@ -68,20 +70,26 @@ def analyze_artifacts(
     cache = read_json(cache_path)
     request = read_json(request_path)["rollout_trace"]
     metrics = read_json(metrics_path)
-    input_tokens = int(request["input_tokens"])
-    cached_tokens = int(request["cached_input_tokens"])
+    usage = validate_cache_artifacts(cache, request)
     return {
         "arm": arm,
+        "provider_usage_contract_version": PROVIDER_USAGE_CONTRACT_VERSION,
         "logical_mode": metrics["logical_mode"],
-        "provider_requests": int(cache["provider_request_count"]),
-        "request_2_plus_count": int(cache["request_2_plus_count"]),
-        "request_2_plus_hit_rate": float(cache["request_2_plus_hit_rate"]),
+        "provider_requests": usage["provider_request_count"],
+        "request_2_plus_count": usage["request_2_plus_count"],
+        "request_2_plus_hit_rate": usage["request_2_plus_hit_rate"],
+        "request_2_plus_cached_input_tokens": usage[
+            "request_2_plus_cached_input_tokens"
+        ],
+        "request_2_plus_uncached_input_tokens": usage[
+            "request_2_plus_uncached_input_tokens"
+        ],
         "trace_coverage": float(cache["trace_coverage"]),
-        "cache_usage_missing_count": int(cache["cache_usage_missing_count"]),
-        "input_tokens": input_tokens,
-        "cached_input_tokens": cached_tokens,
-        "uncached_input_tokens": input_tokens - cached_tokens,
-        "output_tokens": int(request["output_tokens"]),
+        "cache_usage_missing_count": usage["cache_usage_missing_count"],
+        "input_tokens": usage["input_tokens"],
+        "cached_input_tokens": usage["cached_input_tokens"],
+        "uncached_input_tokens": usage["uncached_input_tokens"],
+        "output_tokens": usage["output_tokens"],
         "business_success": bool(metrics["business_success"]),
         "artifacts": {
             "cache_summary": str(cache_path),

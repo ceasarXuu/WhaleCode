@@ -21,10 +21,13 @@ from run_cache_hit_regression import analyze_artifacts, arm_passes
 
 
 ARM_EVIDENCE_KEYS = (
+    "provider_usage_contract_version",
     "logical_mode",
     "provider_requests",
     "request_2_plus_count",
     "request_2_plus_hit_rate",
+    "request_2_plus_cached_input_tokens",
+    "request_2_plus_uncached_input_tokens",
     "trace_coverage",
     "cache_usage_missing_count",
     "input_tokens",

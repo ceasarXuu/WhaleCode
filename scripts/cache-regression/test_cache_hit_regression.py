@@ -6,15 +6,29 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
+from cache_usage_contract import (
+    aggregate_usage_records,
+    load_provider_usage_fixture,
+    normalized_fixture_cases,
+    validate_cache_artifacts,
+)
 from run_cache_hit_regression import (
+    analyze_artifacts,
     analyze_arm,
     arm_passes,
     ensure_deepseek_api_key,
     record_failed_baseline,
     should_record_failed_baseline,
+)
+
+
+REPO = Path(__file__).resolve().parents[2]
+PROVIDER_USAGE_FIXTURE = (
+    REPO
+    / "third_party/codex-cli/codex-rs/codex-api/tests/fixtures/provider_usage_contract.json"
 )
 
 
@@ -51,6 +65,8 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                     {
                         "provider_request_count": 3,
                         "request_2_plus_count": 2,
+                        "request_2_plus_cached_input_tokens": 819,
+                        "request_2_plus_uncached_input_tokens": 81,
                         "request_2_plus_hit_rate": 0.91,
                         "trace_coverage": 1.0,
                         "cache_usage_missing_count": 0,
@@ -87,6 +103,86 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                     },
                 )
             )
+
+    def test_rust_fixture_has_one_cross_language_usage_contract(self) -> None:
+        fixture = load_provider_usage_fixture(PROVIDER_USAGE_FIXTURE)
+        chat = normalized_fixture_cases(fixture, "chat_completions")
+        responses = normalized_fixture_cases(fixture, "responses")
+        self.assertEqual(chat, responses)
+        self.assertIsNone(chat["invalid_cached_type"])
+
+        for cases in (chat, responses):
+            aggregate = aggregate_usage_records([cases["miss"], cases["hit"]])
+            self.assertEqual(aggregate["provider_request_count"], 2)
+            self.assertEqual(aggregate["input_tokens"], 190)
+            self.assertEqual(aggregate["cached_input_tokens"], 80)
+            self.assertEqual(aggregate["output_tokens"], 30)
+            self.assertEqual(aggregate["request_2_plus_count"], 1)
+            self.assertEqual(aggregate["request_2_plus_cached_input_tokens"], 80)
+            self.assertEqual(aggregate["request_2_plus_uncached_input_tokens"], 20)
+            self.assertEqual(aggregate["request_2_plus_hit_rate"], 0.8)
+
+    def test_missing_or_invalid_usage_is_not_comparable(self) -> None:
+        fixture = load_provider_usage_fixture(PROVIDER_USAGE_FIXTURE)
+        cases = normalized_fixture_cases(fixture, "chat_completions")
+        with self.assertRaisesRegex(ValueError, "missing or undecodable"):
+            aggregate_usage_records([cases["hit"], cases["invalid_cached_type"]])
+
+    def test_analyzer_rejects_missing_request_2_plus_token_evidence(self) -> None:
+        cache = {
+            "provider_request_count": 2,
+            "request_2_plus_count": 1,
+            "request_2_plus_hit_rate": 0.8,
+            "cache_usage_missing_count": 0,
+        }
+        request = {
+            "input_tokens": 190,
+            "cached_input_tokens": 80,
+            "output_tokens": 30,
+        }
+        with self.assertRaisesRegex(
+            ValueError, "request_2_plus_cached_input_tokens"
+        ):
+            validate_cache_artifacts(cache, request)
+
+    def test_analyzer_rejects_inconsistent_request_2_plus_rate(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            artifacts = Path(root)
+            cache_path = artifacts / "cache.json"
+            request_path = artifacts / "request.json"
+            metrics_path = artifacts / "metrics.json"
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "provider_request_count": 2,
+                        "request_2_plus_count": 1,
+                        "request_2_plus_cached_input_tokens": 80,
+                        "request_2_plus_uncached_input_tokens": 20,
+                        "request_2_plus_hit_rate": 0.5,
+                        "trace_coverage": 1.0,
+                        "cache_usage_missing_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            request_path.write_text(
+                json.dumps(
+                    {
+                        "rollout_trace": {
+                            "input_tokens": 190,
+                            "cached_input_tokens": 80,
+                            "output_tokens": 30,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            metrics_path.write_text(
+                json.dumps({"logical_mode": "standard", "business_success": True}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "does not match token evidence"):
+                analyze_artifacts(cache_path, request_path, metrics_path, "standard")
 
     def test_rejects_missing_cache_coverage(self) -> None:
         arm = {

@@ -87,11 +87,15 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         cache = artifacts / "provider-cache-trace-summary.json"
         request = artifacts / "request-summary.json"
         metrics = artifacts / "metrics.json"
+        request_2_plus_cached = round(hit_rate * 100)
         write_json(
             cache,
             {
                 "provider_request_count": 3,
                 "request_2_plus_count": 2,
+                "request_2_plus_cached_input_tokens": request_2_plus_cached,
+                "request_2_plus_uncached_input_tokens": 100
+                - request_2_plus_cached,
                 "request_2_plus_hit_rate": hit_rate,
                 "trace_coverage": 1.0,
                 "cache_usage_missing_count": 0,
@@ -223,6 +227,12 @@ class PromoteCacheBaselineTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "artifact metrics"):
             self.validate(result)
 
+    def test_rejects_fabricated_request_2_plus_tokens(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["arms"][0]["request_2_plus_cached_input_tokens"] += 1
+        with self.assertRaisesRegex(ValueError, "artifact metrics"):
+            self.validate(result)
+
     def test_rejects_self_consistent_evidence_below_threshold(self) -> None:
         result = copy.deepcopy(self.result)
         cache_path = Path(result["arms"][0]["artifacts"]["cache_summary"])
@@ -231,6 +241,8 @@ class PromoteCacheBaselineTest(unittest.TestCase):
             {
                 "provider_request_count": 3,
                 "request_2_plus_count": 2,
+                "request_2_plus_cached_input_tokens": 50,
+                "request_2_plus_uncached_input_tokens": 50,
                 "request_2_plus_hit_rate": 0.5,
                 "trace_coverage": 1.0,
                 "cache_usage_missing_count": 0,
