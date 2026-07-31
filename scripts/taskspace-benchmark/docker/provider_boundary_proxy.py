@@ -34,13 +34,6 @@ class RequestBudget:
         self.count = 0
         self.lock = threading.Lock()
 
-    def claim(self) -> tuple[bool, int]:
-        with self.lock:
-            if self.limit > 0 and self.count >= self.limit:
-                return False, self.count
-            self.count += 1
-            return True, self.count
-
 
 class BoundaryState:
     def __init__(self) -> None:
@@ -55,8 +48,12 @@ class BoundaryState:
         self.authorization = f"Bearer {api_key}"
         self.allowed_model = os.environ.get("PROVIDER_ALLOWED_MODEL", "").strip()
         if not self.allowed_model:
-            raise ValueError("PROVIDER_ALLOWED_MODEL is required by the provider boundary")
-        self.budget = RequestBudget(int(os.environ.get("PROVIDER_REQUEST_HARD_LIMIT", "0")))
+            raise ValueError(
+                "PROVIDER_ALLOWED_MODEL is required by the provider boundary"
+            )
+        self.budget = RequestBudget(
+            int(os.environ.get("PROVIDER_REQUEST_HARD_LIMIT", "0"))
+        )
         self.events_path = Path(
             os.environ.get("PROVIDER_BOUNDARY_EVENTS_PATH", "/supervisor/events.jsonl")
         )
@@ -71,7 +68,18 @@ class BoundaryState:
             **fields,
         }
         with self.events_lock, self.events_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+            stream.write(
+                json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+            )
+
+    def claim_request(self, **fields: object) -> tuple[bool, int]:
+        with self.budget.lock:
+            if self.budget.limit > 0 and self.budget.count >= self.budget.limit:
+                return False, self.budget.count
+            self.budget.count += 1
+            count = self.budget.count
+            self.record("provider_request_claimed", count=count, **fields)
+            return True, count
 
 
 class ProviderBoundaryHandler(BaseHTTPRequestHandler):
@@ -112,26 +120,21 @@ class ProviderBoundaryHandler(BaseHTTPRequestHandler):
         except ValueError as error:
             self._reject_contract(str(error), 400)
             return
-        allowed, count = self.state.budget.claim()
+        request_fields = {
+            "method": self.command,
+            "path": self.path,
+            "model": model,
+            "body_sha256": body_sha256,
+        }
+        allowed, count = self.state.claim_request(**request_fields)
         if not allowed:
             self.state.record(
                 "provider_request_rejected",
-                method=self.command,
-                path=self.path,
-                model=model,
-                body_sha256=body_sha256,
                 count=count,
+                **request_fields,
             )
             self._json_response(429, {"error": "provider request hard limit reached"})
             return
-        self.state.record(
-            "provider_request_claimed",
-            method=self.command,
-            path=self.path,
-            model=model,
-            body_sha256=body_sha256,
-            count=count,
-        )
         try:
             self._forward(body, count, model, body_sha256)
         except Exception as error:
@@ -168,7 +171,8 @@ class ProviderBoundaryHandler(BaseHTTPRequestHandler):
         headers = {
             name: value
             for name, value in self.headers.items()
-            if name.lower() not in HOP_BY_HOP | {"host", "authorization", "content-length"}
+            if name.lower()
+            not in HOP_BY_HOP | {"host", "authorization", "content-length"}
         }
         headers["Authorization"] = self.state.authorization
         headers["Content-Length"] = str(len(body))

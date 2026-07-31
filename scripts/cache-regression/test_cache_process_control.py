@@ -18,6 +18,7 @@ from cache_run_execution_test_support import CacheRunExecutionFixture
 from cache_windows_job import (
     JobObjectError,
     _ProcessInformation,
+    WindowsKillOnCloseJob,
     start_windows_job_process,
 )
 
@@ -62,7 +63,9 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         ]
         process.returncode = 143
         with (
-            patch("cache_process_control.subprocess.Popen", return_value=process) as popen,
+            patch(
+                "cache_process_control.subprocess.Popen", return_value=process
+            ) as popen,
             patch("cache_process_control.os.getpgid", return_value=123),
             patch("cache_process_control.os.killpg") as killpg,
         ):
@@ -172,7 +175,70 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         kernel32.TerminateProcess.assert_called_once_with(100, 1)
         job.close.assert_called_once()
 
-    def test_windows_taskkill_fallback_never_accepts_parent_exit_as_tree_proof(self) -> None:
+    def test_windows_assignment_failure_reports_unconfirmed_termination(self) -> None:
+        kernel32 = unittest.mock.Mock()
+
+        def create_process(*args):
+            process_info = ctypes.cast(
+                args[-1], ctypes.POINTER(_ProcessInformation)
+            ).contents
+            process_info.hProcess = 100
+            process_info.hThread = 101
+            process_info.dwProcessId = 456
+            return True
+
+        kernel32.CreateProcessW.side_effect = create_process
+        kernel32.TerminateProcess.return_value = False
+        kernel32.CloseHandle.return_value = True
+        job = unittest.mock.Mock()
+        job._kernel32 = kernel32
+        job.assign_handle.side_effect = JobObjectError("assignment failed")
+        with (
+            patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
+            patch("cache_windows_job._configure_process_signatures"),
+            self.assertRaisesRegex(JobObjectError, "TerminateProcess"),
+        ):
+            start_windows_job_process(["pwsh", "runner.ps1"], self.repo)
+        closed_handles = [call.args[0] for call in kernel32.CloseHandle.call_args_list]
+        self.assertIn(100, closed_handles)
+        self.assertIn(101, closed_handles)
+
+    def test_windows_job_close_retains_handle_when_close_fails(self) -> None:
+        kernel32 = unittest.mock.Mock()
+        kernel32.CloseHandle.return_value = False
+        job = WindowsKillOnCloseJob.__new__(WindowsKillOnCloseJob)
+        job._kernel32 = kernel32
+        job._handle = 77
+        job._assigned = True
+        with (
+            patch(
+                "cache_windows_job.ctypes.get_last_error", return_value=5, create=True
+            ),
+            self.assertRaisesRegex(JobObjectError, "CloseHandle"),
+        ):
+            job.close()
+        self.assertEqual(job._handle, 77)
+
+    def test_windows_wait_failure_still_closes_owned_job(self) -> None:
+        process = unittest.mock.Mock()
+        process.wait.side_effect = [OSError("wait failed"), 1]
+        process.returncode = 1
+        job = unittest.mock.Mock()
+        job.owns_process_tree = True
+        with (
+            patch("cache_process_control.os.name", "nt"),
+            patch(
+                "cache_process_control.start_windows_job_process",
+                return_value=(process, job),
+            ),
+            self.assertRaisesRegex(OSError, "wait failed"),
+        ):
+            run_benchmark_command(["pwsh", "runner.ps1"], self.repo, 10)
+        job.close.assert_called_once()
+
+    def test_windows_taskkill_fallback_never_accepts_parent_exit_as_tree_proof(
+        self,
+    ) -> None:
         process = unittest.mock.Mock()
         process.pid = 789
         process.poll.side_effect = [None, 1]
@@ -187,11 +253,17 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         self.assertEqual(result["status"], "failed")
         self.assertFalse(result["descendants_guaranteed_terminated"])
 
-    def test_cleanup_catches_container_that_appears_after_first_empty_poll(self) -> None:
+    def test_cleanup_catches_container_that_appears_after_first_empty_poll(
+        self,
+    ) -> None:
         completed = [
             type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
-            type("Completed", (), {"returncode": 0, "stdout": "late\n", "stderr": ""})(),
-            type("Completed", (), {"returncode": 0, "stdout": "late\n", "stderr": ""})(),
+            type(
+                "Completed", (), {"returncode": 0, "stdout": "late\n", "stderr": ""}
+            )(),
+            type(
+                "Completed", (), {"returncode": 0, "stdout": "late\n", "stderr": ""}
+            )(),
             *[
                 type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
                 for _ in range(4)
@@ -204,7 +276,9 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             result = cleanup_labeled_containers("CACHE-LATE", 10, self.repo)
         self.assertEqual(result["status"], "removed_verified")
         self.assertEqual(result["container_ids"], ["late"])
-        self.assertEqual(run.call_args_list[2].args[0], ["docker", "rm", "--force", "late"])
+        self.assertEqual(
+            run.call_args_list[2].args[0], ["docker", "rm", "--force", "late"]
+        )
 
     def test_cleanup_removes_provider_boundary_networks(self) -> None:
         completed = [
@@ -212,8 +286,12 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
                 type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
                 for _ in range(3)
             ],
-            type("Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""})(),
-            type("Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""})(),
+            type(
+                "Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""}
+            )(),
+            type(
+                "Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""}
+            )(),
         ]
         with (
             patch("cache_process_control.subprocess.run", side_effect=completed) as run,
@@ -256,9 +334,13 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             cleanup_verified(
                 {
                     "status": "verified_absent",
+                    "container_ids": [],
                     "stable_empty_polls": 3,
                     "network_cleanup_status": "verified_absent",
+                    "network_ids": [],
                     "secret_cleanup_status": "verified_absent",
+                    "secret_paths": [],
+                    "error": "",
                 }
             )
         )
@@ -266,9 +348,13 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             cleanup_verified(
                 {
                     "status": "removed_verified",
+                    "container_ids": ["removed-container"],
                     "stable_empty_polls": 3,
                     "network_cleanup_status": "removed_verified",
+                    "network_ids": ["removed-network"],
                     "secret_cleanup_status": "removed_verified",
+                    "secret_paths": ["removed-secret"],
+                    "error": "",
                 }
             )
         )
@@ -287,6 +373,25 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
                 }
             )
         )
+        for field, value in (
+            ("container_ids", ["remaining-container"]),
+            ("network_ids", ["remaining-network"]),
+            ("secret_paths", ["remaining-secret"]),
+            ("error", "cleanup reported an error"),
+        ):
+            with self.subTest(field=field):
+                proof = {
+                    "status": "verified_absent",
+                    "container_ids": [],
+                    "stable_empty_polls": 3,
+                    "network_cleanup_status": "verified_absent",
+                    "network_ids": [],
+                    "secret_cleanup_status": "verified_absent",
+                    "secret_paths": [],
+                    "error": "",
+                }
+                proof[field] = value
+                self.assertFalse(cleanup_verified(proof))
 
 
 if __name__ == "__main__":

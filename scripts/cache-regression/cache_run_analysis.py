@@ -48,6 +48,8 @@ def budget_observation_exceeded(
     for key in ("input_tokens", "output_tokens"):
         if observation[key] > thresholds[key]:
             exceeded.append(key)
+    if observation["elapsed_seconds"] > limits["elapsed_seconds"]:
+        exceeded.append("elapsed_seconds")
     return exceeded
 
 
@@ -136,7 +138,9 @@ def validate_provider_boundary_evidence(
 ) -> None:
     boundary_count = validate_provider_boundary_accounting(boundary, expected_model)
     if boundary_count != expected_count:
-        raise ValueError("provider boundary request count does not match usage evidence")
+        raise ValueError(
+            "provider boundary request count does not match usage evidence"
+        )
     if boundary.get("status") != "reconciled" or boundary.get("errors") != []:
         raise ValueError("provider boundary evidence is not reconciled")
     wire_requests = boundary.get("wire_requests")
@@ -148,7 +152,9 @@ def validate_provider_boundary_evidence(
     boundary_hashes = [request.get("body_sha256") for request in boundary_requests]
     wire_hashes = [request.get("provider_payload_sha256") for request in wire_requests]
     if boundary_hashes != wire_hashes:
-        raise ValueError("provider boundary request trace does not match Whale wire trace")
+        raise ValueError(
+            "provider boundary request trace does not match Whale wire trace"
+        )
 
 
 def validate_provider_boundary_accounting(

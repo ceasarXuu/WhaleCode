@@ -35,13 +35,12 @@ from cache_run_contract import (
     load_authorized_proposal,
 )
 from cache_run_ledger import (
-    atomic_write_json,
     claim_entry,
     now,
     planned_entry,
-    settle_entry,
     store_entry,
 )
+from cache_run_supervision import emergency_cleanup, persist_final_settlement
 from cache_surface import load_contract
 
 
@@ -144,11 +143,7 @@ def persist_provider_boundary_accounting(
     expected_model: str,
 ) -> dict[str, Any]:
     source = (
-        run_dir
-        / "pair-001"
-        / side
-        / "artifacts"
-        / "provider-boundary-evidence.json"
+        run_dir / "pair-001" / side / "artifacts" / "provider-boundary-evidence.json"
     )
     if not source.is_file():
         raise FileNotFoundError("provider boundary accounting evidence is missing")
@@ -266,6 +261,7 @@ def main() -> int:
     stop_at = None
     cancelled = False
     cleanup_failed = False
+    supervision_failed = False
     for index, execution in enumerate(matrix, start=1):
         run_id = f"{record_id}-CACHE-{index:03d}"
         command = benchmark_command(
@@ -283,9 +279,7 @@ def main() -> int:
         observation = None
         cleanup = None
         try:
-            completed = run_benchmark_command(
-                command, repo, limits["elapsed_seconds"]
-            )
+            completed = run_benchmark_command(command, repo, limits["elapsed_seconds"])
             attempt["exit_code"] = completed.returncode
             attempt["timed_out"] = False
             run_failed = completed.returncode != 0
@@ -330,66 +324,88 @@ def main() -> int:
                 cleanup_failed = True
                 stop_at = "cancelled_cleanup_failed"
             break
-        attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
-        cleanup = cleanup or cleanup_labeled_containers(
-            run_id, limits["cleanup_grace_seconds"], run_root
-        )
-        attempt["post_run_cleanup"] = cleanup
-        if not cleanup_verified(cleanup):
-            run_failed = True
         try:
-            run_dir = find_run_dir_by_id(run_root, run_id)
-            side = "left" if execution["arm"] == "standard" else "right"
-            attempt.update(
-                persist_provider_boundary_accounting(
+            attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
+            cleanup = cleanup or cleanup_labeled_containers(
+                run_id, limits["cleanup_grace_seconds"], run_root
+            )
+            attempt["post_run_cleanup"] = cleanup
+            if not cleanup_verified(cleanup):
+                run_failed = True
+            try:
+                run_dir = find_run_dir_by_id(run_root, run_id)
+                side = "left" if execution["arm"] == "standard" else "right"
+                attempt.update(
+                    persist_provider_boundary_accounting(
+                        repo,
+                        record_id,
+                        run_id,
+                        run_dir,
+                        side,
+                        selection["model"],
+                    )
+                )
+                observation = analyze_arm(
+                    run_dir, side, execution["arm"], selection["model"]
+                )
+                observation = persist_observation_artifacts(
                     repo,
                     record_id,
                     run_id,
-                    run_dir,
-                    side,
+                    execution["arm"],
                     selection["model"],
+                    observation,
+                )
+                observation.update(execution)
+                observation["run_id"] = run_id
+                observation["elapsed_seconds"] = attempt["elapsed_seconds"]
+                observation["budget_observation_exceeded"] = (
+                    budget_observation_exceeded(observation, limits, thresholds)
+                )
+                result["observations"].append(observation)
+                attempt["run_dir"] = str(run_dir.relative_to(repo))
+            except (
+                FileNotFoundError,
+                KeyError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ) as error:
+                attempt["evidence_error"] = f"{type(error).__name__}: {error}"
+                run_failed = True
+            observation_failed = bool(
+                observation
+                and (
+                    not observation["business_success"]
+                    or observation["cache_usage_missing_count"] > 0
+                    or observation["budget_observation_exceeded"]
                 )
             )
-            observation = analyze_arm(
-                run_dir, side, execution["arm"], selection["model"]
-            )
-            observation = persist_observation_artifacts(
-                repo,
-                record_id,
+            run_failed = run_failed or observation_failed
+            attempt["status"] = "failed" if run_failed else "completed"
+            stop_at = stop_reason(selection["stop_conditions"], run_failed, observation)
+            if stop_at is not None:
+                attempt["stop_reason"] = stop_at
+                break
+        except (KeyboardInterrupt, OSError) as error:
+            supervision_failed = True
+            attempt["elapsed_seconds"] = round(time.time() - run_started, 3)
+            attempt["execution_error"] = f"{type(error).__name__}: {error}"
+            recovery = emergency_cleanup(
+                cleanup_labeled_containers,
                 run_id,
-                execution["arm"],
-                selection["model"],
-                observation,
+                limits["cleanup_grace_seconds"],
+                run_root,
             )
-            observation.update(execution)
-            observation["run_id"] = run_id
-            observation["elapsed_seconds"] = attempt["elapsed_seconds"]
-            observation["budget_observation_exceeded"] = budget_observation_exceeded(
-                observation, limits, thresholds
+            attempt["supervisor_cleanup"] = recovery
+            attempt["post_run_cleanup"] = recovery
+            attempt["status"] = "failed"
+            cleanup_failed = cleanup_failed or not cleanup_verified(recovery)
+            stop_at = (
+                "supervisor_interrupted"
+                if isinstance(error, KeyboardInterrupt)
+                else "supervisor_failure"
             )
-            result["observations"].append(observation)
-            attempt["run_dir"] = str(run_dir.relative_to(repo))
-        except (
-            FileNotFoundError,
-            KeyError,
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ) as error:
-            attempt["evidence_error"] = f"{type(error).__name__}: {error}"
-            run_failed = True
-        observation_failed = bool(
-            observation
-            and (
-                not observation["business_success"]
-                or observation["cache_usage_missing_count"] > 0
-                or observation["budget_observation_exceeded"]
-            )
-        )
-        run_failed = run_failed or observation_failed
-        attempt["status"] = "failed" if run_failed else "completed"
-        stop_at = stop_reason(selection["stop_conditions"], run_failed, observation)
-        if stop_at is not None:
             attempt["stop_reason"] = stop_at
             break
 
@@ -415,7 +431,7 @@ def main() -> int:
         if accounted_requests
         else "unavailable"
     )
-    if cleanup_failed:
+    if cleanup_failed or supervision_failed:
         result["status"] = "failed"
     elif cancelled:
         result["status"] = "cancelled"
@@ -445,9 +461,7 @@ def main() -> int:
     result_dir = repo / "benchmarks/cache-regression/results"
     result_path = result_dir / f"{record_id}.json"
     result["result_path"] = str(result_path.relative_to(repo))
-    atomic_write_json(result_path, result)
-    settle_entry(entry, result)
-    store_entry(ledger_path, entry)
+    persist_final_settlement(entry, result, result_path, ledger_path)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result["runner_exit_code"]
 

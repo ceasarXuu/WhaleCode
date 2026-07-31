@@ -143,9 +143,9 @@ class WindowsKillOnCloseJob:
 
     def close(self) -> None:
         if self._handle:
-            handle, self._handle = self._handle, None
-            if not self._kernel32.CloseHandle(handle):
+            if not self._kernel32.CloseHandle(self._handle):
                 raise JobObjectError(ctypes.get_last_error(), "CloseHandle failed")
+            self._handle = None
 
 
 class WindowsJobProcess:
@@ -185,9 +185,7 @@ class WindowsJobProcess:
 
     def _read_returncode(self) -> int:
         exit_code = wintypes.DWORD()
-        if not self._kernel32.GetExitCodeProcess(
-            self._handle, ctypes.byref(exit_code)
-        ):
+        if not self._kernel32.GetExitCodeProcess(self._handle, ctypes.byref(exit_code)):
             raise JobObjectError(ctypes.get_last_error(), "GetExitCodeProcess failed")
         self.returncode = int(exit_code.value)
         self._close_handle()
@@ -195,9 +193,9 @@ class WindowsJobProcess:
 
     def _close_handle(self) -> None:
         if self._handle:
-            handle, self._handle = self._handle, None
-            if not self._kernel32.CloseHandle(handle):
+            if not self._kernel32.CloseHandle(self._handle):
                 raise JobObjectError(ctypes.get_last_error(), "CloseHandle failed")
+            self._handle = None
 
 
 def start_windows_job_process(
@@ -226,22 +224,29 @@ def start_windows_job_process(
         error = ctypes.get_last_error()
         job.close()
         raise JobObjectError(error, "CreateProcessW failed")
+    thread_handle = process_info.hThread
     try:
         job.assign_handle(process_info.hProcess)
-        if kernel32.ResumeThread(process_info.hThread) == RESUME_THREAD_FAILED:
+        if kernel32.ResumeThread(thread_handle) == RESUME_THREAD_FAILED:
             raise JobObjectError(ctypes.get_last_error(), "ResumeThread failed")
-        _close_handle(kernel32, process_info.hThread)
+        _close_handle(kernel32, thread_handle)
+        thread_handle = None
         process = WindowsJobProcess(
             command,
             int(process_info.dwProcessId),
             process_info.hProcess,
             kernel32,
         )
-    except BaseException:
-        kernel32.TerminateProcess(process_info.hProcess, 1)
-        kernel32.WaitForSingleObject(process_info.hProcess, 5000)
-        _close_handle(kernel32, process_info.hProcess)
-        job.close()
+    except BaseException as error:
+        cleanup_errors = _terminate_and_close_created_process(
+            kernel32, process_info.hProcess, thread_handle
+        )
+        try:
+            job.close()
+        except OSError as cleanup_error:
+            cleanup_errors.append(f"job close failed: {cleanup_error}")
+        if cleanup_errors:
+            raise JobObjectError("; ".join(cleanup_errors)) from error
         raise
     return process, job
 
@@ -276,3 +281,21 @@ def _configure_process_signatures(kernel32) -> None:
 def _close_handle(kernel32, handle: wintypes.HANDLE) -> None:
     if handle and not kernel32.CloseHandle(handle):
         raise JobObjectError(ctypes.get_last_error(), "CloseHandle failed")
+
+
+def _terminate_and_close_created_process(
+    kernel32, process_handle: wintypes.HANDLE, thread_handle: wintypes.HANDLE
+) -> list[str]:
+    errors = []
+    if not kernel32.TerminateProcess(process_handle, 1):
+        errors.append("TerminateProcess failed")
+    else:
+        wait_result = kernel32.WaitForSingleObject(process_handle, 5000)
+        if wait_result != WAIT_OBJECT_0:
+            errors.append(f"terminated process wait failed: {wait_result}")
+    for label, handle in (("thread", thread_handle), ("process", process_handle)):
+        try:
+            _close_handle(kernel32, handle)
+        except OSError as error:
+            errors.append(f"{label} handle close failed: {error}")
+    return errors

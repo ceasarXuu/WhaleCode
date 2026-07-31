@@ -70,6 +70,7 @@ class CacheRunLedgerTest(unittest.TestCase):
             "tokens": {},
             "monetary_cost": {
                 "pricing_snapshot": {
+                    "currency": "USD",
                     "cached_input_per_million": 0.0028,
                     "uncached_input_per_million": 0.14,
                     "output_per_million": 0.28,
@@ -114,6 +115,7 @@ class CacheRunLedgerTest(unittest.TestCase):
             "tokens": {},
             "monetary_cost": {
                 "pricing_snapshot": {
+                    "currency": "USD",
                     "cached_input_per_million": 0.0028,
                     "uncached_input_per_million": 0.14,
                     "output_per_million": 0.28,

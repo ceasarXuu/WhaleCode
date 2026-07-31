@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cache_cost import settled_monetary_cost
 from cache_evidence import file_sha256
 
 try:
@@ -188,14 +189,17 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
         if isinstance(attempt.get("provider_boundary_request_count"), int)
         and attempt["provider_boundary_request_count"] >= 0
     ]
-    accounting_complete = (
-        len(attempts) == result.get("actual_sample_runs")
-        and len(accounted_requests) == len(attempts)
-    )
+    accounting_complete = len(attempts) == result.get("actual_sample_runs") and len(
+        accounted_requests
+    ) == len(attempts)
     authoritative_request_total = sum(accounted_requests)
-    usage_complete = bool(observations) and accounting_complete and (
-        result.get("status") == "completed"
-        and len(observations) == result.get("actual_sample_runs")
+    usage_complete = (
+        bool(observations)
+        and accounting_complete
+        and (
+            result.get("status") == "completed"
+            and len(observations) == result.get("actual_sample_runs")
+        )
     )
     totals = {
         key: sum(int(observation[key]) for observation in observations)
@@ -211,15 +215,6 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
         totals["provider_requests"] == authoritative_request_total
     )
     pricing = entry["monetary_cost"]["pricing_snapshot"]
-    components = {
-        "cached_input": totals["cached_input_tokens"]
-        / 1_000_000
-        * pricing["cached_input_per_million"],
-        "uncached_input": totals["uncached_input_tokens"]
-        / 1_000_000
-        * pricing["uncached_input_per_million"],
-        "output": totals["output_tokens"] / 1_000_000 * pricing["output_per_million"],
-    }
     entry["status"] = (
         "cancelled"
         if result["status"] == "cancelled"
@@ -248,31 +243,16 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
         "uncached_input": totals["uncached_input_tokens"],
         "output": totals["output_tokens"],
     }
-    entry["monetary_cost"].update(
-        {
-            "status": (
-                "estimated"
-                if usage_complete
-                else "estimated_partial"
-                if observations
-                else "unavailable"
-            ),
-            "amount": round(sum(components.values()), 10) if observations else None,
-            "components": components if observations else None,
-            "formula": (
-                "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate "
-                "+ output/1e6*output_rate"
-                if observations
-                else None
-            ),
-            "note": (
-                "按完整 provider token 遥测和冻结价格估算。"
-                if usage_complete
-                else "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
-                if observations
-                else "无完整 token 证据。"
-            ),
-        }
+    entry["monetary_cost"] = settled_monetary_cost(
+        entry["tokens"],
+        pricing,
+        evidence_status=(
+            "complete"
+            if usage_complete
+            else "partial"
+            if observations
+            else "unavailable"
+        ),
     )
     entry["evidence"].update(
         {

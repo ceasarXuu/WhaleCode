@@ -8,6 +8,7 @@ from pathlib import Path
 
 from accepted_cache_baseline import ACCEPTANCE_SCHEMA_VERSION
 from cache_budget import BUDGET_PROPOSAL_SCHEMA_VERSION
+from cache_cost import complete_cost_from_counts
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION
@@ -109,7 +110,12 @@ def write_settled_ledger(
                         "uncached_input": input_tokens - cached_input_tokens,
                         "output": output_tokens,
                     },
-                    "monetary_cost": {"status": "estimated"},
+                    "monetary_cost": complete_cost_from_counts(
+                        input_tokens,
+                        cached_input_tokens,
+                        output_tokens,
+                        proposal["pricing_snapshot"],
+                    ),
                     "evidence": {
                         "result_path": result_path.relative_to(repo).as_posix(),
                         "actual_run_root": result["run_root"],
@@ -447,7 +453,9 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                         "uncached_input": 10,
                         "output": 10,
                     },
-                    "monetary_cost": {"status": "estimated"},
+                    "monetary_cost": complete_cost_from_counts(
+                        100, 90, 10, proposal["pricing_snapshot"]
+                    ),
                     "evidence": {
                         "result_path": acceptance["result_path"],
                         "actual_run_root": result["run_root"],

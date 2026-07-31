@@ -43,7 +43,11 @@ class UpstreamHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)
         response = json.dumps(
-            {"path": self.path, "authorization": type(self).authorization, "body": body.decode()}
+            {
+                "path": self.path,
+                "authorization": type(self).authorization,
+                "body": body.decode(),
+            }
         ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -68,9 +72,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
             ),
             "PROVIDER_REQUEST_HARD_LIMIT": "2",
             "PROVIDER_ALLOWED_MODEL": "deepseek-v4-flash",
-            "PROVIDER_BOUNDARY_EVENTS_PATH": str(
-                Path(self.temp.name) / "events.jsonl"
-            ),
+            "PROVIDER_BOUNDARY_EVENTS_PATH": str(Path(self.temp.name) / "events.jsonl"),
         }
         self.environment = patch.dict(os.environ, environment, clear=False)
         self.environment.start()
@@ -79,7 +81,9 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
             ("127.0.0.1", 0), PROXY.ProviderBoundaryHandler
         )
         self.proxy.boundary_state = state
-        self.proxy_thread = threading.Thread(target=self.proxy.serve_forever, daemon=True)
+        self.proxy_thread = threading.Thread(
+            target=self.proxy.serve_forever, daemon=True
+        )
         self.proxy_thread.start()
 
     def tearDown(self) -> None:
@@ -97,7 +101,9 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         method: str = "POST",
         model: str = "deepseek-v4-flash",
     ) -> tuple[int, dict[str, object]]:
-        body = json.dumps({"model": model, "input": "hello"}, separators=(",", ":")).encode()
+        body = json.dumps(
+            {"model": model, "input": "hello"}, separators=(",", ":")
+        ).encode()
         request = urllib.request.Request(
             f"http://127.0.0.1:{self.proxy.server_address[1]}{path}",
             data=body,
@@ -194,6 +200,48 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         mismatch = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")
         self.assertEqual(mismatch["status"], "mismatch")
         self.assertIn("provider_dispatch_trace_mismatch", mismatch["errors"])
+
+    def test_parallel_claim_events_remain_in_authoritative_count_order(self) -> None:
+        state = self.proxy.boundary_state
+        original_record = state.record
+        first_waiting = threading.Event()
+        release_first = threading.Event()
+
+        def delayed_record(event: str, **fields: object) -> None:
+            if event == "provider_request_claimed" and fields.get("count") == 1:
+                first_waiting.set()
+                self.assertTrue(release_first.wait(timeout=2))
+            original_record(event, **fields)
+
+        state.record = delayed_record
+        results = []
+        first = threading.Thread(
+            target=lambda: results.append(self.request("/responses")), daemon=True
+        )
+        second = threading.Thread(
+            target=lambda: results.append(self.request("/responses")), daemon=True
+        )
+        first.start()
+        self.assertTrue(first_waiting.wait(timeout=2))
+        second.start()
+        second.join(timeout=0.1)
+        self.assertTrue(second.is_alive())
+        release_first.set()
+        first.join(timeout=3)
+        second.join(timeout=3)
+        self.assertEqual(sorted(status for status, _ in results), [200, 200])
+        events = [
+            json.loads(line)
+            for line in Path(self.temp.name, "events.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        counts = [
+            event["count"]
+            for event in events
+            if event["event"] == "provider_request_claimed"
+        ]
+        self.assertEqual(counts, [1, 2])
 
 
 if __name__ == "__main__":

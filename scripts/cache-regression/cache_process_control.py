@@ -19,20 +19,36 @@ PROCESS_GROUP_TERMINATION_SECONDS = 5
 
 
 class BenchmarkTimeoutError(TimeoutError):
-    def __init__(self, command: list[str], timeout_seconds: int, termination: dict[str, Any]):
+    def __init__(
+        self, command: list[str], timeout_seconds: int, termination: dict[str, Any]
+    ):
         super().__init__(f"benchmark exceeded {timeout_seconds}s: {command[0]}")
         self.process_tree_termination = termination
 
 
 def cleanup_verified(result: dict[str, Any]) -> bool:
-    return (
-        result.get("status") in CLEANUP_SUCCESS_STATUSES
-        and result.get("stable_empty_polls", 0) >= CLEANUP_STABLE_EMPTY_POLLS
-        and result.get("network_cleanup_status")
-        in {"verified_absent", "removed_verified"}
-        and result.get("secret_cleanup_status")
-        in {"verified_absent", "removed_verified"}
+    dimensions = (
+        ("status", "container_ids"),
+        ("network_cleanup_status", "network_ids"),
+        ("secret_cleanup_status", "secret_paths"),
     )
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("stable_empty_polls"), int)
+        or result["stable_empty_polls"] < CLEANUP_STABLE_EMPTY_POLLS
+        or result.get("error") != ""
+    ):
+        return False
+    for status_key, residue_key in dimensions:
+        status = result.get(status_key)
+        residue = result.get(residue_key)
+        if status not in CLEANUP_SUCCESS_STATUSES or not isinstance(residue, list):
+            return False
+        if (status == "verified_absent" and residue) or (
+            status == "removed_verified" and not residue
+        ):
+            return False
+    return True
 
 
 def _terminate_process_tree(
@@ -87,7 +103,9 @@ def _terminate_process_tree(
             return {
                 "status": "terminated",
                 "exit_code": process.returncode,
-                "method": "posix_process_group" if os.name == "posix" else "taskkill_fallback",
+                "method": "posix_process_group"
+                if os.name == "posix"
+                else "taskkill_fallback",
                 "descendants_guaranteed_terminated": True,
             }
         except subprocess.TimeoutExpired:
@@ -118,12 +136,11 @@ def run_benchmark_command(
         raise BenchmarkTimeoutError(
             command, timeout_seconds, _terminate_process_tree(process, windows_job)
         ) from error
-    except KeyboardInterrupt as error:
+    except BaseException as error:
         error.process_tree_termination = _terminate_process_tree(process, windows_job)
         raise
-    finally:
-        if windows_job is not None and process.poll() is not None:
-            windows_job.close()
+    if windows_job is not None:
+        windows_job.close()
     return subprocess.CompletedProcess(command, return_code)
 
 
@@ -173,7 +190,8 @@ def cleanup_labeled_containers(
                             "network_ids": network_cleanup["network_ids"],
                             "secret_cleanup_status": secret_cleanup["status"],
                             "secret_paths": secret_cleanup["secret_paths"],
-                            "error": network_cleanup["error"] or secret_cleanup["error"],
+                            "error": network_cleanup["error"]
+                            or secret_cleanup["error"],
                         }
                     return {
                         "status": (
@@ -288,7 +306,9 @@ def _cleanup_run_secrets(run_root: Path, run_id: str) -> dict[str, Any]:
         if remaining:
             raise ValueError("provider secret files remain after cleanup")
         return {
-            "status": "removed_verified" if removed or candidates else "verified_absent",
+            "status": "removed_verified"
+            if removed or candidates
+            else "verified_absent",
             "secret_paths": removed,
             "error": "",
         }

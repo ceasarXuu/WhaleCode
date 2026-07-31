@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from cache_budget import validate_budget_proposal, validate_gate_trigger
+from cache_cost import settled_monetary_cost
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_gate_evidence import changed_scenarios
 from cache_run_analysis import (
@@ -31,6 +32,8 @@ from cache_surface import surface_snapshot
 from cache_time import parse_timestamp, require_not_future, require_ordered
 
 ACCEPTANCE_SCHEMA_VERSION = "whalecode-cache-baseline-acceptance-v1"
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
@@ -111,10 +114,7 @@ def validate_observation(
         hashes,
     )
     require(
-        all(
-            observation.get(key) == recomputed[key]
-            for key in CACHE_OBSERVATION_KEYS
-        ),
+        all(observation.get(key) == recomputed[key] for key in CACHE_OBSERVATION_KEYS),
         "cache observation metrics mismatch",
     )
     require(
@@ -133,7 +133,9 @@ def validate_observation(
 
 
 def validate_attempts(
-    result: dict[str, Any], expected_matrix: list[dict[str, Any]]
+    result: dict[str, Any],
+    expected_matrix: list[dict[str, Any]],
+    limits: dict[str, Any],
 ) -> None:
     attempts = result.get("attempts")
     require(isinstance(attempts, list), "cache result attempts are missing")
@@ -150,6 +152,7 @@ def validate_attempts(
             and item["run_id"].strip()
             and isinstance(item.get("elapsed_seconds"), (int, float))
             and item["elapsed_seconds"] >= 0
+            and item["elapsed_seconds"] <= limits["elapsed_seconds"]
             and cleanup_verified(item.get("post_run_cleanup", {}))
             and "execution_error" not in item
             and "evidence_error" not in item
@@ -251,9 +254,12 @@ def validate_ledger(
         == source_sha256(repo, authorization_path, source),
         "cache ledger evidence mismatch",
     )
+    expected_cost = settled_monetary_cost(
+        tokens, proposal["pricing_snapshot"], evidence_status="complete"
+    )
     require(
-        entry.get("monetary_cost", {}).get("status") == "estimated",
-        "cache ledger cost settlement is incomplete",
+        entry.get("monetary_cost") == expected_cost,
+        "cache ledger cost settlement mismatch",
     )
     return path
 
@@ -332,7 +338,7 @@ def validate_run_evidence(
         observed_matrix == matrix and result.get("actual_sample_runs") == len(matrix),
         "cache observation matrix mismatch",
     )
-    validate_attempts(result, matrix)
+    validate_attempts(result, matrix, proposal["per_sample_run_limits"])
     require(
         all(
             observation.get("run_id") == attempt.get("run_id")

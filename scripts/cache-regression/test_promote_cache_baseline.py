@@ -67,6 +67,19 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "failed attempt"):
             self.validate(result=result)
 
+    def test_rejects_cleanup_success_with_contradictory_residue(self) -> None:
+        for field, value in (
+            ("container_ids", ["remaining-container"]),
+            ("network_ids", ["remaining-network"]),
+            ("secret_paths", ["remaining-secret"]),
+            ("error", "cleanup reported an error"),
+        ):
+            with self.subTest(field=field):
+                result = copy.deepcopy(self.result)
+                result["attempts"][0]["post_run_cleanup"][field] = value
+                with self.assertRaisesRegex(ValueError, "failed attempt"):
+                    self.validate(result=result)
+
     def test_rejects_tampered_provider_accounting_on_attempt(self) -> None:
         result = copy.deepcopy(self.result)
         result["attempts"][0]["provider_boundary_request_count"] += 1
@@ -163,7 +176,13 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         result["observations"][0]["elapsed_seconds"] = 121.0
         result["attempts"][0]["elapsed_seconds"] = 121.0
         result["observations"][0]["budget_observation_exceeded"] = ["elapsed_seconds"]
-        with self.assertRaisesRegex(ValueError, "exceeded"):
+        with self.assertRaisesRegex(ValueError, "failed attempt|exceeded"):
+            self.validate(result=result)
+
+        result = copy.deepcopy(self.result)
+        result["observations"][0]["elapsed_seconds"] = 121.0
+        result["attempts"][0]["elapsed_seconds"] = 121.0
+        with self.assertRaisesRegex(ValueError, "failed attempt|elapsed|exceeded"):
             self.validate(result=result)
 
     def test_rejects_ledger_token_or_gate_source_mismatch(self) -> None:
@@ -179,6 +198,22 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         gate["subject_commit"] = "0" * 40
         write_json(self.gate_path, gate)
         with self.assertRaisesRegex(ValueError, "gate report digest"):
+            self.validate()
+
+    def test_rejects_ledger_monetary_cost_mismatch(self) -> None:
+        ledger_path = self.repo / "benchmarks/whale-agent-run-ledger.json"
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        ledger["entries"][0]["monetary_cost"].update(
+            {
+                "amount": 999.0,
+                "currency": "USD",
+                "components": {"cached_input": 999.0},
+                "pricing_snapshot": self.pricing,
+                "formula": "forged",
+            }
+        )
+        write_json(ledger_path, ledger)
+        with self.assertRaisesRegex(ValueError, "cost"):
             self.validate()
 
     def test_rejects_incomplete_runner_or_authorization_envelope(self) -> None:
