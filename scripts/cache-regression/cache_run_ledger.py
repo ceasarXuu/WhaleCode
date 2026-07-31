@@ -25,10 +25,10 @@ def _locked_ledger(path: Path, update) -> None:
         ledger = json.loads(path.read_text(encoding="utf-8"))
         update(ledger)
         ledger["updated_at"] = now()
-        _atomic_write_json(path, ledger)
+        atomic_write_json(path, ledger)
 
 
-def _atomic_write_json(path: Path, value: dict[str, Any]) -> None:
+def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent

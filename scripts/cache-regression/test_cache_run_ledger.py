@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cache_run_ledger import claim_entry, settle_entry, store_entry
+from cache_run_ledger import atomic_write_json, claim_entry, settle_entry, store_entry
 
 
 class CacheRunLedgerTest(unittest.TestCase):
@@ -93,6 +93,16 @@ class CacheRunLedgerTest(unittest.TestCase):
         self.assertEqual(entry["monetary_cost"]["status"], "estimated_partial")
         self.assertEqual(entry["evidence"]["usage_evidence_status"], "partial")
         self.assertEqual(entry["execution"]["api_requests_evidence_status"], "partial")
+
+    def test_atomic_result_write_replaces_complete_json(self) -> None:
+        result = self.path.parent / "result.json"
+        result.write_text('{"old": true}\n', encoding="utf-8")
+        atomic_write_json(result, {"status": "completed", "requests": 2})
+        self.assertEqual(
+            json.loads(result.read_text(encoding="utf-8")),
+            {"status": "completed", "requests": 2},
+        )
+        self.assertEqual(list(result.parent.glob(f".{result.name}.*.tmp")), [])
 
 
 if __name__ == "__main__":

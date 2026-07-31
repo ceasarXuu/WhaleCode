@@ -29,8 +29,15 @@ from cache_run_contract import (
     execution_matrix,
     load_authorized_proposal,
 )
-from cache_run_ledger import claim_entry, now, planned_entry, settle_entry, store_entry
-from cache_surface import load_contract, write_json
+from cache_run_ledger import (
+    atomic_write_json,
+    claim_entry,
+    now,
+    planned_entry,
+    settle_entry,
+    store_entry,
+)
+from cache_surface import load_contract
 
 
 CLEANUP_SUCCESS_STATUSES = frozenset({"verified_absent", "removed_verified"})
@@ -411,7 +418,7 @@ def main() -> int:
     result_dir = repo / "benchmarks/cache-regression/results"
     result_path = result_dir / f"{record_id}.json"
     result["result_path"] = str(result_path.relative_to(repo))
-    write_json(result_path, result)
+    atomic_write_json(result_path, result)
     settle_entry(entry, result)
     store_entry(ledger_path, entry)
     print(json.dumps(result, ensure_ascii=False, indent=2))

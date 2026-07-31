@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from cache_evidence import RESULT_SCHEMA_VERSION
-from cache_run_ledger import settle_entry, store_entry
+from cache_run_ledger import now, settle_entry, store_entry
 
 
 def read_json(path: Path) -> dict:
@@ -49,9 +49,48 @@ def recover(repo: Path, ledger_path: Path, result_path: Path) -> str:
     return "settled"
 
 
+def mark_unsettled(ledger_path: Path, record_id: str, reason: str) -> str:
+    if not reason.strip():
+        raise ValueError("unsettled recovery reason is required")
+    ledger = read_json(ledger_path)
+    matches = [
+        item for item in ledger.get("entries", []) if item.get("record_id") == record_id
+    ]
+    if len(matches) != 1:
+        raise ValueError("cache recovery requires one claimed ledger record")
+    entry = matches[0]
+    if entry.get("status") == "unsettled":
+        return "already_unsettled"
+    if entry.get("status") not in {"planned", "running"}:
+        raise ValueError("only an incomplete cache run can be marked unsettled")
+    entry["status"] = "unsettled"
+    entry["ended_at"] = now()
+    entry["execution"]["api_requests_evidence_status"] = "unavailable"
+    entry["monetary_cost"].update(
+        {
+            "status": "unavailable",
+            "amount": None,
+            "components": None,
+            "formula": None,
+            "note": "运行在完整 result 落盘前中断；实际费用未知，需人工核账。",
+        }
+    )
+    entry["evidence"].update(
+        {
+            "outcome": "unsettled",
+            "usage_evidence_status": "unavailable",
+            "recovery_reason": reason.strip(),
+        }
+    )
+    store_entry(ledger_path, entry)
+    return "unsettled"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("result", type=Path)
+    parser.add_argument("result", type=Path, nargs="?")
+    parser.add_argument("--record-id")
+    parser.add_argument("--reason")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument(
         "--ledger",
@@ -60,14 +99,21 @@ def main() -> int:
     )
     args = parser.parse_args()
     repo = args.repo_root.resolve()
-    result_path = (
-        args.result if args.result.is_absolute() else repo / args.result
-    ).resolve()
     ledger_path = (
         args.ledger if args.ledger.is_absolute() else repo / args.ledger
     ).resolve()
     try:
-        status = recover(repo, ledger_path, result_path)
+        if args.result is not None and args.record_id is None:
+            result_path = (
+                args.result if args.result.is_absolute() else repo / args.result
+            ).resolve()
+            status = recover(repo, ledger_path, result_path)
+        elif args.result is None and args.record_id and args.reason:
+            status = mark_unsettled(ledger_path, args.record_id, args.reason)
+        else:
+            raise ValueError(
+                "provide either a result path or --record-id with --reason"
+            )
     except (KeyError, OSError, TypeError, ValueError) as error:
         raise SystemExit(str(error)) from error
     print(f"cache ledger recovery: {status}")

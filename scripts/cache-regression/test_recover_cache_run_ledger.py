@@ -9,7 +9,7 @@ from pathlib import Path
 
 from cache_evidence import RESULT_SCHEMA_VERSION
 from cache_surface import write_json
-from recover_cache_run_ledger import recover
+from recover_cache_run_ledger import mark_unsettled, recover
 
 
 class RecoverCacheRunLedgerTest(unittest.TestCase):
@@ -72,6 +72,24 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         self.assertEqual(entry["status"], "settled")
         self.assertEqual(entry["execution"]["api_requests"], 2)
         self.assertEqual(entry["evidence"]["usage_evidence_status"], "complete")
+
+    def test_incomplete_run_can_be_explicitly_marked_unsettled(self) -> None:
+        self.result.unlink()
+        self.assertEqual(
+            mark_unsettled(self.ledger, "WAR-1", "runner crashed before result"),
+            "unsettled",
+        )
+        self.assertEqual(
+            mark_unsettled(self.ledger, "WAR-1", "same audit"),
+            "already_unsettled",
+        )
+        entry = json.loads(self.ledger.read_text(encoding="utf-8"))["entries"][0]
+        self.assertEqual(entry["status"], "unsettled")
+        self.assertEqual(entry["monetary_cost"]["status"], "unavailable")
+        self.assertEqual(entry["evidence"]["outcome"], "unsettled")
+        self.assertEqual(
+            entry["evidence"]["recovery_reason"], "runner crashed before result"
+        )
 
 
 if __name__ == "__main__":
