@@ -50,6 +50,11 @@ gate tests 和 8 个分析测试通过，release 继续阻断。
 拒绝相关 tracked/untracked 偏差并在结果中记录同一 SHA。17 个 gate tests、10 个晋升测试、8 个分析测试及
 PowerShell builder self-test 通过。CR-I03、CR-I09 关闭；未运行真实 Whale Agent。
 
+提交 `d04aab5fb` 完成 CR-06：本地 mock 测试从生产 Session 贯穿到最终 Chat Completions HTTP body，确认
+`codex-api/src/endpoint/responses.rs::build_chat_completions_body` 是 endpoint 与 provider wire trace 共用的生产
+serializer。定向测试 `1 passed; 0 failed`，未运行真实 Whale Agent。CR-I04、CR-I05 仍需 CR-07 至 CR-17 的
+证据覆盖，因此保持 open。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace

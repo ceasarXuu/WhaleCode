@@ -2,7 +2,7 @@
 
 - Created: 2026-07-31
 - Plan mode: Authoring
-- Plan status: planned
+- Plan status: in progress（CR-01 至 CR-06 completed）
 - Risk: High，涉及发布门、付费验证触发与证据可信性
 - Problem register: [02-known-issues.md](02-known-issues.md)
 
@@ -48,7 +48,7 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-03 | 控制面变更不能静默自授权 | control-plane policy | `.githooks/pre-commit`、`scripts/cache-regression/**`、non-agent gate、contract | policy-change classifier | 由变更前 subject 识别 hook、checker、contract、promoter 和结果 schema 变化，要求独立 policy-change 证据，禁止同一证据同时改验收规则并晋升基线 | 门禁自身变化被显式标记并与性能晋升分离 | 防止日常误操作让规则修改自行放行 | 对每类控制面文件做 staged mutation；同批 promotion 必须失败 | 远端 trusted-base 未确认前 release 保持 fail closed | planned |
 | CR-04 | 晋升结果不可缺字段或扩大范围 | evidence integrity | `promote_cache_baseline.py`、result JSON schema | promotion validator | 强制实际 arms、repeat、sample 数和阈值与获批运行计划完全一致，并校验 trace coverage、subject SHA、surface/payload digest 和证据摘要 | 手工残缺、超计划或错配结果不能晋升 | 避免错误证据被当成性能基线，同时不把当前 2-sample 规模固化成长期架构 | fabricated、缺 arm、实际规模偏离计划、摘要不符 fixture 均失败 | 晋升保持禁用，不影响免费诊断 | planned |
 | CR-05 | 发布证据绑定精确 commit | release identity | `build-v005-non-agent-gates.ps1`、gate result schema | release source selector | release 只检查显式 commit tree；相关 dirty/untracked 文件直接拒绝，结果记录同一 SHA | 检查对象、构建对象和证据对象一致 | 任何缓存结论都可复算到唯一源码 | exact-commit、dirty relevant、untracked relevant fixtures | 无法确定身份时 fail closed，不运行 API | planned |
-| CR-06 | 找到生产 final-wire 捕获边界 | discovery | `core/src/session/turn.rs`、`core/src/client.rs`、`codex-api/src/endpoint/*.rs` | `Prompt` 到 HTTP body 的调用链 | 绘制并用测试证明 DeepSeek 请求从上下文、Tool 选择到 serializer 的唯一生产路径 | 后续 fixture 有明确权威入口 | 避免另建与生产漂移的测试 serializer | 调用链文档、函数引用和一个本地 mock 捕获 spike | 只提交调查与测试 spike；未证明前不进入 CR-07 | planned |
+| CR-06 | 找到生产 final-wire 捕获边界 | discovery | `core/src/session/turn.rs`、`core/src/client.rs`、`codex-api/src/endpoint/*.rs` | `Prompt` 到 HTTP body 的调用链 | 绘制并用测试证明 DeepSeek 请求从上下文、Tool 选择到 serializer 的唯一生产路径 | 后续 fixture 有明确权威入口 | 避免另建与生产漂移的测试 serializer | 调用链文档、函数引用和一个本地 mock 捕获 spike | 只提交调查与测试 spike；未证明前不进入 CR-07 | completed（`d04aab5fb`） |
 | CR-07 | 保存可复算的 final-wire 证据 | cache contract | `core/tests/common/responses.rs`、新 `core/tests/common/cache_payload.rs` | mock request capture | 同时输出原始 body SHA 和结构化快照；只固定 fixture 输入，不宽泛重写输出 | 字节变化与可读语义差异均可定位 | 缓存变化不再靠源码路径猜测 | 相同输入重复执行摘要一致；字段/数组顺序突变可被 fixture 捕获 | 保留现有 v1 gate，新增能力未接门禁 | planned |
 | CR-08 | 明确哪些差异需要付费验证 | comparison policy | `benchmarks/cache-regression/` 新 payload contract | cache-relevant fields | 固化消息角色/顺序/内容、Tool schema/order、`tool_choice`、model/provider identity 的比较规则；每个允许忽略字段逐项说明 | 门禁区分真实请求变化与确定性噪声 | 降低误报且不牺牲语义保真 | mutation tests 对每个受保护字段均报警；忽略字段反例测试 | 默认不忽略未知字段，规则不明时保守阻断 | planned |
 | CR-09 | Tool schema 使用生产 serializer | tool wire | `tools/src/tool_spec.rs`、`core/tests/suite/cache_payload_contract.rs` | provider-visible tools array | 从实际 Session 请求捕获普通 Tool 和 `taskspace_control` 的名称、顺序、描述和参数 schema | Tool 变化进入 final payload 合同 | TaskSpace 改动不会再漏掉普通 Tool 的缓存影响 | 修改 fixture Tool 字段时对应场景快照失败 | 失败时只阻断相关变更，不改 Tool 产品逻辑 | planned |
