@@ -101,7 +101,7 @@ fn finish_arguments() -> Value {
     })
 }
 
-async fn submit_turn(
+pub(super) async fn submit_turn(
     test: &core_test_support::test_codex::TestCodex,
     text: &str,
 ) -> anyhow::Result<()> {
@@ -167,7 +167,7 @@ fn stabilize_projection_canonical_sha256(text: &str) -> String {
         .collect()
 }
 
-fn stabilize_fixture_inputs(value: &mut Value, path_prefixes: &[(&str, &str)]) {
+pub(super) fn stabilize_fixture_inputs(value: &mut Value, path_prefixes: &[(&str, &str)]) {
     match value {
         Value::Array(values) => values
             .iter_mut()
