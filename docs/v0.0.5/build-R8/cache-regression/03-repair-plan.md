@@ -2,7 +2,7 @@
 
 - Created: 2026-07-31
 - Plan mode: Authoring
-- Plan status: in progress（CR-01 至 CR-11 completed；Phase A、Phase B complete）
+- Plan status: in progress（CR-01 至 CR-12 completed；Phase A、Phase B complete）
 - Risk: High，涉及发布门、付费验证触发与证据可信性
 - Problem register: [02-known-issues.md](02-known-issues.md)
 
@@ -54,7 +54,7 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-09 | Tool schema 使用生产 serializer | tool wire | `tools/src/tool_spec.rs`、`core/tests/suite/cache_payload_contract.rs` | provider-visible tools array | 从实际 Session 请求捕获普通 Tool 和 `taskspace_control` 的名称、顺序、描述和参数 schema | Tool 变化进入 final payload 合同 | TaskSpace 改动不会再漏掉普通 Tool 的缓存影响 | 修改 fixture Tool 字段时对应场景快照失败 | 失败时只阻断相关变更，不改 Tool 产品逻辑 | completed（`45284b5de`） |
 | CR-10 | 冻结 provider usage 解码合同 | observability | `codex-api/src/sse/chat_completions.rs`、`sse/responses.rs` | cached token decoder | 用冻结 provider SSE/JSON fixture 覆盖 hit、miss、缺字段和错误类型，并给测量合同独立版本 | decoder 变化由离线 Rust 测试判断 | 防止 provider 字段解释变化被误判成缓存性能变化 | 两种 wire API 的 decoder fixtures | decoder 未通过时结果标记不可比较，不晋升 | completed（`01e4cc915`） |
 | CR-11 | 验证分析器与 decoder 口径一致 | observability | `run_cache_hit_regression.py`、trace analyzer tests | Python usage aggregation | 让 Python 读取 CR-10 的统一归一化 fixture，断言 request 2+ 与总量计算一致 | Rust 解码和报告聚合不再形成两个口径 | 性能报告可以从原始证据复算，不需要 API 自证 | cross-language golden fixture 和缺证据失败测试 | 不一致时只阻断报告，不触发付费运行 | completed（`c008cab58`） |
-| CR-12 | 建立 Standard 两请求基准场景 | scenario matrix | 新 `core/tests/suite/cache_payload_contract.rs` 及 snapshots | Standard request 1/2 fixture | 通过生产 Session 和 mock endpoint 生成连续两次请求，保留完整前缀结构 | Standard 追加路径有确定性基线 | 为 TaskSpace 差异提供可信对照 | snapshot repeat 稳定；已知消息插入 mutation 被发现 | 该场景可独立提交和回退 | planned |
+| CR-12 | 建立 Standard 两请求基准场景 | scenario matrix | 新 `core/tests/suite/cache_payload_contract.rs` 及 snapshots | Standard request 1/2 fixture | 通过生产 Session 和 mock endpoint 生成连续两次请求，保留完整前缀结构 | Standard 追加路径有确定性基线 | 为 TaskSpace 差异提供可信对照 | snapshot repeat 稳定；已知消息插入 mutation 被发现 | 该场景可独立提交和回退 | completed（`31f92729e`） |
 | CR-13 | 覆盖三种 TaskSpace projection 策略 | scenario matrix | 同 CR-12 | map-always、map-append、map-request request 1/2 | 每种策略使用同一任务事实生成两请求 final-wire 快照 | 三种模式分别拥有实际请求合同 | 不再用 map-request 代表全部 TaskSpace | 每臂快照、前缀差异摘要和 Tool 集合断言 | 任一策略 fixture 不稳定时只暂停该策略接门 | planned |
 | CR-14 | 覆盖权限上下文 | scenario matrix | `core/tests/suite/cache_payload_contract.rs`、permissions fixtures | permission developer message | 增加一次能触发真实权限消息构造的 request pair | 权限变化映射到独立 payload 场景 | 权限提示变化不会被默认样本漏掉 | 与 Standard 默认场景的差异只来自权限输入 | 场景可独立移除，不影响其他矩阵 | planned |
 | CR-15 | 覆盖 Skill 上下文 | scenario matrix | `core/tests/suite/cache_payload_contract.rs`、skills fixtures | selected skill injection | 增加显式选择内置 Skill 的 request pair，并固定 Skill snapshot identity | Skill 内容和插入位置进入 payload 合同 | 内置 Skill 变化不再靠目录 glob 推测 | 无 Skill/有 Skill 对照与快照身份断言 | Skill fixture 不稳定时暂停该场景 | planned |

@@ -75,6 +75,10 @@ details 缺失及类型错误解码行为。完整 `codex-api` 共 134 个测试
 矛盾证据 fail closed；合同版本和 request 2+ token 明细进入 arm 并由晋升器重算。全部 50 个缓存门禁离线测试
 通过，未运行真实 Whale Agent。CR-I04 的既定修复单元全部完成，现关闭。
 
+提交 `31f92729e` 完成 CR-12：生产 Standard Session 的连续 request 1/2 完整 final-wire 进入稳定快照，消息前缀、
+Tool 集合与 `tool_choice` 有直接断言，已知消息插入可被发现。定向测试通过，未运行真实 Whale Agent。CR-I05
+仍需 CR-13 至 CR-17 的 TaskSpace 与条件入口场景，因此保持 open。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace
