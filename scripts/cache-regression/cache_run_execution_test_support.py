@@ -6,7 +6,9 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from cache_provider_route_test_support import route_summary
 from cache_surface import write_json
 
 
@@ -94,6 +96,13 @@ class CacheRunExecutionFixture(unittest.TestCase):
         }
         write_json(self.proposal_path, self.proposal)
         write_json(self.authorization_path, self.authorization)
+        self.provider_route = route_summary()
+        self.route_preflight_patcher = patch(
+            "run_cache_hit_regression.run_provider_route_preflight",
+            return_value=self.provider_route,
+        )
+        self.route_preflight_mock = self.route_preflight_patcher.start()
+        self.addCleanup(self.route_preflight_patcher.stop)
 
     def tearDown(self) -> None:
         self.temp.cleanup()

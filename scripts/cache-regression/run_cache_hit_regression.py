@@ -24,6 +24,7 @@ from cache_provider_boundary_evidence import (
     persist_provider_boundary_accounting,
     read_provider_boundary_request_count,
 )
+from cache_provider_route import route_profile_binding, run_provider_route_preflight
 from cache_run_environment import ensure_deepseek_api_key, find_run_dir_by_id
 from cache_run_analysis import (
     analyze_arm,
@@ -110,13 +111,17 @@ def persist_observation_artifacts(
         or durable["artifact_sha256"] != observation["artifact_sha256"]
     ):
         raise ValueError("persisted cache observation does not match source artifacts")
+    argv_evidence = strict_json_loads(
+        persisted["execution_argv"].read_text(encoding="utf-8-sig")
+    )
     validate_arm_identity(
-        strict_json_loads(persisted["execution_argv"].read_text(encoding="utf-8-sig")),
+        argv_evidence,
         strict_json_loads(
             persisted["logical_mode_map"].read_text(encoding="utf-8-sig")
         ),
         arm,
     )
+    durable["provider_routing"] = argv_evidence["provider_routing"]
     durable["artifacts"] = {
         key: path.relative_to(repo).as_posix() for key, path in persisted.items()
     }
@@ -283,6 +288,9 @@ def execute_attempts(
                 observation.update(execution)
                 observation["run_id"] = run_id
                 observation["elapsed_seconds"] = attempt["elapsed_seconds"]
+                observation["provider_route_profile"] = route_profile_binding(
+                    result["provider_route_attestation"], execution["arm"]
+                )
                 observation["budget_observation_exceeded"] = (
                     budget_observation_exceeded(observation, limits, thresholds)
                 )
@@ -355,10 +363,25 @@ def main() -> int:
         matrix = execution_matrix(proposal)
     except (KeyError, TypeError, ValueError) as error:
         raise SystemExit(str(error)) from error
-    credential_source = ensure_deepseek_api_key(repo)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     record_id = f"WAR-{stamp}-CACHE-REGRESSION-{uuid.uuid4().hex[:8].upper()}"
     run_root = args.run_root or repo / "target/cache-hit-regression" / record_id
+    route_preflight_path = (
+        repo
+        / "benchmarks/cache-regression/evidence"
+        / record_id
+        / "provider-route-preflight/provider-route-preflight.json"
+    )
+    try:
+        provider_route = run_provider_route_preflight(
+            repo,
+            args.whale_bin,
+            route_preflight_path,
+            proposal["selection"]["model"],
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    credential_source = ensure_deepseek_api_key(repo)
     result_path = repo / "benchmarks/cache-regression/results" / f"{record_id}.json"
     ledger_path = repo / "benchmarks/whale-agent-run-ledger.json"
     entry = planned_entry(
@@ -369,6 +392,7 @@ def main() -> int:
         authorization_path,
         repo,
         run_root,
+        provider_route,
     )
     started = time.time()
     selection = proposal["selection"]
@@ -389,6 +413,7 @@ def main() -> int:
         "evidence_boundary": proposal["evidence_boundary"],
         "actual_sample_runs": 0,
         "credential_source": credential_source,
+        "provider_route_attestation": provider_route,
         "run_root": str(run_root.relative_to(repo)),
         "result_path": str(result_path.relative_to(repo)),
         "attempts": [],

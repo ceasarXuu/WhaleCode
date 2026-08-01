@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from cache_provider_route_test_support import bind_route
 from cache_run_ledger import (
     _lock_file,
     _unlock_file,
@@ -109,6 +110,7 @@ class CacheRunLedgerTest(unittest.TestCase):
             "runner_exit_code": 3,
             "observations": [
                 {
+                    "arm": "standard",
                     "provider_requests": 2,
                     "input_tokens": 100,
                     "cached_input_tokens": 80,
@@ -121,6 +123,7 @@ class CacheRunLedgerTest(unittest.TestCase):
                 {},
             ],
         }
+        bind_route(entry, result)
         settle_entry(entry, result)
         self.assertEqual(entry["monetary_cost"]["status"], "estimated_partial")
         self.assertEqual(entry["evidence"]["usage_evidence_status"], "partial")
@@ -182,6 +185,11 @@ class CacheRunLedgerTest(unittest.TestCase):
             )
         )
         execution = schema["$defs"]["execution"]
+        self.assertEqual(execution["properties"]["transport_provider"]["type"], "string")
+        self.assertEqual(
+            execution["properties"]["provider_descriptor_sha256"]["pattern"],
+            "^[0-9a-f]{64}$",
+        )
         self.assertIn("api_requests", execution["required"])
         self.assertIn("api_requests_evidence_status", execution["required"])
         self.assertNotIn("api_requests_minimum", execution["required"])
@@ -228,6 +236,7 @@ class CacheRunLedgerTest(unittest.TestCase):
             "observations": [],
             "attempts": [{"provider_boundary_request_count": 3}],
         }
+        bind_route(entry, result)
         settle_entry(entry, result)
         self.assertEqual(entry["execution"]["api_requests"], 3)
         self.assertNotIn("api_requests_minimum", entry["execution"])

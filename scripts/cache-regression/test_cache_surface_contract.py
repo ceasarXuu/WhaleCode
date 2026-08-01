@@ -90,6 +90,8 @@ class CacheSurfaceContractTest(unittest.TestCase):
         paths = [
             "benchmarks/taskspace/container-runtime-contract.json",
             "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+            "scripts/taskspace-benchmark/run-taskspace-benchmark-pairs.ps1",
+            "scripts/taskspace-benchmark/invoke-provider-route-preflight.ps1",
             "scripts/taskspace-benchmark/lib/workspace.ps1",
             "scripts/taskspace-benchmark/lib/container-runtime.ps1",
             "scripts/taskspace-benchmark/lib/container-benchmark-runner.ps1",

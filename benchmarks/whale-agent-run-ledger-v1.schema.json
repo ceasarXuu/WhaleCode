@@ -172,6 +172,14 @@
           "type": "string",
           "minLength": 1
         },
+        "transport_provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_descriptor_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "model": {
           "type": "string",
           "minLength": 1

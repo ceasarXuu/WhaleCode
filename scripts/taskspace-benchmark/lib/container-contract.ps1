@@ -120,6 +120,26 @@ function Get-TaskspaceProviderBoundaryConfigOverrides {
     )
 }
 
+function Get-TaskspaceProviderSecretMountEvidence {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Mounts,
+        [Parameter(Mandatory = $true)][string]$HostSource,
+        [Parameter(Mandatory = $true)][string]$ContainerDestination
+    )
+    $destinationMounts = @($Mounts | Where-Object { [string]$_.Destination -ceq $ContainerDestination })
+    $sourceMounts = @($Mounts | Where-Object { [string]$_.Source -ceq $HostSource })
+    $identityMounts = @($Mounts | Where-Object {
+            [string]$_.Source -ceq $HostSource -and
+            [string]$_.Destination -ceq $ContainerDestination
+        })
+    [pscustomobject]@{
+        destination_unique = $destinationMounts.Count -eq 1
+        source_unique = $sourceMounts.Count -eq 1
+        identity_confirmed = $identityMounts.Count -eq 1
+        read_only = $identityMounts.Count -eq 1 -and -not [bool]$identityMounts[0].RW
+    }
+}
+
 function Get-TaskspaceContainerResourceArgs {
     param([Parameter(Mandatory = $true)]$Contract)
     @(

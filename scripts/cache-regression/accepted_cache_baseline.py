@@ -14,6 +14,7 @@ from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_arm_identity import validate_arm_identity
 from cache_gate_evidence import changed_scenarios
 from cache_json import exact_json_equal
+from cache_provider_promotion import validate_provider_route_evidence
 from cache_run_analysis import (
     CACHE_OBSERVATION_KEYS,
     analyze_artifact_values,
@@ -181,6 +182,9 @@ def validate_run_evidence(
         "cache result is incomplete or has unverified scope",
     )
     validate_result_envelope(result, result_path)
+    route, route_path, route_evidence_paths = validate_provider_route_evidence(
+        repo, result, source
+    )
     require(
         acceptance.get("schema_version") == ACCEPTANCE_SCHEMA_VERSION
         and acceptance.get("status") == "accepted"
@@ -197,6 +201,15 @@ def validate_run_evidence(
     ended_at = parse_timestamp(result.get("ended_at"), "cache result ended_at")
     accepted_at = parse_timestamp(
         acceptance.get("accepted_at"), "cache acceptance timestamp"
+    )
+    preflight_completed_at = parse_timestamp(
+        route["preflight_completed_at"], "provider route preflight completion"
+    )
+    require_ordered(
+        preflight_completed_at,
+        started_at,
+        "provider route preflight completion",
+        "run start",
     )
     require_ordered(started_at, ended_at, "run start", "run end")
     require_ordered(ended_at, accepted_at, "run end", "acceptance")
@@ -333,6 +346,8 @@ def validate_run_evidence(
                     acceptance_path,
                     proposal_path,
                     authorization_path,
+                    route_path,
+                    *route_evidence_paths,
                     gate_path,
                     ledger_path,
                     *evidence_paths,

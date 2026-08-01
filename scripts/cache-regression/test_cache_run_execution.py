@@ -132,7 +132,10 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
             ),
             patch(
                 "run_cache_hit_regression.persist_observation_artifacts",
-                side_effect=lambda _repo, _record, _run, _arm, _model, value: value,
+                side_effect=lambda _repo, _record, _run, _arm, _model, value: {
+                    **value,
+                    "provider_routing": self.provider_route["provider_routing"],
+                },
             ),
             contextlib.redirect_stdout(io.StringIO()),
         ):

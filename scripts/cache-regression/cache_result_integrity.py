@@ -8,6 +8,10 @@ from typing import Any
 from cache_cleanup_contract import cleanup_verified
 from cache_elapsed import is_elapsed_number
 from cache_json import exact_json_equal
+from cache_provider_route import (
+    validate_route_profile_binding,
+    validate_route_summary,
+)
 
 
 def validate_completed_result_integrity(
@@ -18,6 +22,10 @@ def validate_completed_result_integrity(
     actual = result.get("actual_sample_runs")
     attempts = result.get("attempts")
     observations = result.get("observations")
+    route = validate_route_summary(
+        result.get("provider_route_attestation"),
+        result.get("observed_scope", {}).get("model"),
+    )
     if (
         type(actual) is not int
         or actual <= 0
@@ -84,3 +92,10 @@ def validate_completed_result_integrity(
         )
         if not valid:
             raise ValueError("completed cache result evidence is inconsistent")
+        if not exact_json_equal(
+            observation.get("provider_routing"), route["provider_routing"]
+        ):
+            raise ValueError("completed cache result provider route is inconsistent")
+        validate_route_profile_binding(
+            observation.get("provider_route_profile"), route, scope["arm"]
+        )

@@ -18,6 +18,7 @@ from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sh
 from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
+from cache_provider_route_test_support import bind_route, materialize_route_summary
 from cache_surface import load_contract, surface_snapshot, write_json
 from accepted_cache_baseline import ACCEPTANCE_SCHEMA_VERSION
 from promote_cache_baseline import (
@@ -41,6 +42,9 @@ class PromoteCacheBaselineFixture:
         runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
         runner.parent.mkdir(parents=True)
         runner.write_text("runner\n", encoding="utf-8")
+        runner.with_name("invoke-provider-route-preflight.ps1").write_text(
+            "preflight\n", encoding="utf-8"
+        )
         scenario = self.repo / "benchmarks/taskspace/scenarios/simple"
         scenario.mkdir(parents=True)
         (scenario / "scenario.json").write_text("{}\n", encoding="utf-8")
@@ -236,6 +240,16 @@ class PromoteCacheBaselineFixture:
         self.result_path.parent.mkdir()
         self.result["result_path"] = self.result_path.relative_to(self.repo).as_posix()
         self.result["runner_exit_code"] = 0
+        route = materialize_route_summary(
+            self.repo,
+            self.repo
+            / (
+                "benchmarks/cache-regression/evidence/WAR-FIXTURE/"
+                "provider-route-preflight/provider-route-preflight.json"
+            ),
+            self.proposal["selection"]["model"],
+        )
+        bind_route({}, self.result, route)
         write_json(self.result_path, self.result)
         self.write_ledger()
         self.acceptance = self.make_acceptance()

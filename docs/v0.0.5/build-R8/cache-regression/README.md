@@ -53,6 +53,7 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [15-authorized-run-budget-boundary.md](15-authorized-run-budget-boundary.md) | 真实回归的硬成本边界、观测阈值与超时回收 | implementation verified |
 | [16-first-authorized-revalidation-result.md](16-first-authorized-revalidation-result.md) | 首次获批 revalidation 的预检失败、成本边界与后续动作 | diagnosed |
 | [17-authorized-replacement-result.md](17-authorized-replacement-result.md) | 获批替代运行暴露的 provider 路由与 RunId 身份链阻塞 | diagnosed |
+| [18-provider-route-preflight-repair.md](18-provider-route-preflight-repair.md) | transport alias 启动前预检、final-wire 等价与证据身份闭环 | closure passed；真实复验待预算 |
 | [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | historical findings closed |
 | [收尾对抗性审查](../../../../vs_review/2026-08-01-r8-cache-gate-closeout-review.md) | CR-21.2 至 CR-23 多轮独立闭环审查 | closure passed；P0/P1=0 |
 

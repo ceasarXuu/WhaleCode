@@ -68,7 +68,8 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         self.write_ledger()
 
         with self.assertRaisesRegex(
-            ValueError, "provider accounting|not durable|logical_mode"
+            ValueError,
+            "provider accounting|not durable|logical_mode|resolved provider profile",
         ):
             self.validate(result=self.result, acceptance=self.acceptance)
 
@@ -454,6 +455,8 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
                 "elapsed_seconds": 1.0,
                 "budget_observation_exceeded": [],
                 "run_id": observation["run_id"],
+                "provider_routing": observation["provider_routing"],
+                "provider_route_profile": observation["provider_route_profile"],
             }
         )
         result["observations"][0] = recomputed

@@ -35,6 +35,9 @@ class CacheBudgetProposalTest(unittest.TestCase):
         runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
         runner.parent.mkdir(parents=True)
         runner.write_text("runner\n", encoding="utf-8")
+        runner.with_name("invoke-provider-route-preflight.ps1").write_text(
+            "preflight\n", encoding="utf-8"
+        )
         for sample in ("simple", "complex"):
             scenario = self.repo / "benchmarks/taskspace/scenarios" / sample
             scenario.mkdir(parents=True)

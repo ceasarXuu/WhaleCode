@@ -14,6 +14,7 @@ from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sh
 from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION
+from cache_provider_route_test_support import bind_route, materialize_route_summary
 from cache_source_evidence import protected_manifest
 from cache_surface import load_contract, surface_snapshot, write_json
 
@@ -42,6 +43,8 @@ def write_settled_ledger(
     output_tokens: int,
 ) -> None:
     selection = proposal["selection"]
+    route = result["provider_route_attestation"]
+    route_identity = route["provider_routing"]
     write_json(
         repo / "benchmarks/whale-agent-run-ledger.json",
         {
@@ -59,6 +62,11 @@ def write_settled_ledger(
                         "budget_summary": proposal["maximums"],
                     },
                     "execution": {
+                        "provider": route_identity["logical_provider_id"],
+                        "transport_provider": route_identity["transport_provider_id"],
+                        "provider_descriptor_sha256": route[
+                            "provider_descriptor_sha256"
+                        ],
                         "model": selection["model"],
                         "sample_ids": selection["samples"],
                         "arm_ids": selection["arms"],
@@ -92,6 +100,8 @@ def write_settled_ledger(
                             repo
                         ).as_posix(),
                         "authorization_sha256": file_sha256(authorization_path),
+                        "provider_route_attestation_path": route["artifact_path"],
+                        "provider_route_attestation_sha256": route["artifact_sha256"],
                     },
                 }
             ]
@@ -103,9 +113,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
     snapshot = repo / "snapshots/baseline.snap"
     before = {"wire": "stable"}
     after = {"wire": "accepted"}
-    snapshot.write_text(
-        '---\nsource: fixture.rs\n---\n{"wire": "accepted"}\n', encoding="utf-8"
-    )
+    snapshot.write_text('---\nsource: fixture.rs\n---\n{"wire": "accepted"}\n', encoding="utf-8")
     record_id = "WAR-ACCEPTED"
     evidence_root = repo / f"benchmarks/cache-regression/evidence/{record_id}"
     artifacts_root = evidence_root / "CACHE-001/artifacts"
@@ -381,6 +389,13 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
     result_path = evidence_root / "result.json"
     result["result_path"] = result_path.relative_to(repo).as_posix()
     result["runner_exit_code"] = 0
+    route = materialize_route_summary(
+        repo,
+        evidence_root / "provider-route-preflight/provider-route-preflight.json",
+        selection["model"],
+    )
+    bind_route({}, result, route)
+    route_identity = route["provider_routing"]
     write_json(result_path, result)
     acceptance = {
         "schema_version": ACCEPTANCE_SCHEMA_VERSION,
@@ -420,6 +435,9 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                         "budget_summary": maximums,
                     },
                     "execution": {
+                        "provider": route_identity["logical_provider_id"],
+                        "transport_provider": route_identity["transport_provider_id"],
+                        "provider_descriptor_sha256": route["provider_descriptor_sha256"],
                         "model": selection["model"],
                         "sample_ids": selection["samples"],
                         "arm_ids": selection["arms"],
@@ -448,6 +466,8 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
                         "proposal_sha256": file_sha256(proposal_path),
                         "authorization_path": acceptance["authorization_path"],
                         "authorization_sha256": file_sha256(authorization_path),
+                        "provider_route_attestation_path": route["artifact_path"],
+                        "provider_route_attestation_sha256": route["artifact_sha256"],
                     },
                 }
             ]

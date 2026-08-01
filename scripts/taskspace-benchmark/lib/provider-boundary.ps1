@@ -14,6 +14,9 @@ function Start-TaskspaceProviderBoundary {
         [string]$ProviderBaseUrl = 'https://api.deepseek.com'
     )
     if ($RequestHardLimit -lt 1) { throw 'provider_boundary_limit_invalid: hard limit must be positive' }
+    if ($Model -notmatch '^deepseek-') {
+        throw "provider_boundary_model_mismatch: provider boundary requires a DeepSeek model, got $Model"
+    }
     $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $prefix = "whale-provider-$RunId-$PairId-$($Side.Name)-$suffix" -replace '[^a-zA-Z0-9_.-]', '-'
     $internalNetwork = "$prefix-internal"

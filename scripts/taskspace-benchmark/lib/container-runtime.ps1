@@ -154,6 +154,7 @@ function Invoke-TaskspaceContainerRole {
         [string]$SecretPath = "",
         [string]$NetworkName = "",
         [string]$OraclePath = "",
+        [string]$InspectDirectory = "",
         [hashtable]$Environment = @{},
         [switch]$WorkspaceReadOnly
     )
@@ -163,7 +164,8 @@ function Invoke-TaskspaceContainerRole {
     $statsPath = Join-Path $ArtifactDir 'container-stats.jsonl'
     $stdoutPath = Join-Path $ArtifactDir "container-$Role.stdout.log"
     $stderrPath = Join-Path $ArtifactDir "container-$Role.stderr.log"
-    $inspectPath = Join-Path $ArtifactDir "container-inspect-$Role.json"
+    $inspectRoot = if ($InspectDirectory) { New-Dir $InspectDirectory } else { $ArtifactDir }
+    $inspectPath = Join-Path $inspectRoot "container-inspect-$Role.json"
     $cleanupPath = Join-Path $ArtifactDir "container-cleanup-$Role.json"
     $cleanupAggregatePath = Join-Path $ArtifactDir 'container-cleanup-result.json'
     $name = "whale-r5-$($Identity.run_id)-$($Identity.pair_id)-$($Identity.side)-$Role-$([guid]::NewGuid().ToString('N').Substring(0,8))" -replace '[^a-zA-Z0-9_.-]', '-'
@@ -256,7 +258,7 @@ function Invoke-TaskspaceContainerRole {
                 role = $Role
                 container_id = $containerId
                 reason_code = [string]$failureReason[0]
-                error = $message
+                failure_summary = 'container execution failed'
             })
         throw
     } finally {
@@ -264,7 +266,7 @@ function Invoke-TaskspaceContainerRole {
         if ($containerId) {
             $remove = Invoke-TaskspaceDocker @('rm', '--force', $containerId)
             $cleanup.removed = ($remove.exit_code -eq 0)
-            if ($remove.exit_code -ne 0) { $cleanup.reason_code = 'container_cleanup_failed'; $cleanup.error = $remove.stderr.Trim() }
+            if ($remove.exit_code -ne 0) { $cleanup.reason_code = 'container_cleanup_failed'; $cleanup.failure_summary = 'container cleanup failed' }
         } else { $cleanup.removed = $true }
         $cleanup.finished_at = (Get-Date).ToUniversalTime().ToString('o')
         Write-TaskspaceContainerJson ([pscustomobject]$cleanup) $cleanupPath

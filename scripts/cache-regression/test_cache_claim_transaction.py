@@ -14,6 +14,50 @@ from run_cache_hit_regression import main
 
 
 class CacheClaimTransactionTest(CacheRunExecutionFixture):
+    def test_route_preflight_failure_does_not_claim_authorization(self) -> None:
+        argv = [
+            "run_cache_hit_regression.py",
+            "--repo-root",
+            str(self.repo),
+            "--proposal",
+            str(self.proposal_path),
+            "--authorization",
+            str(self.authorization_path),
+        ]
+        self.route_preflight_mock.side_effect = ValueError("route preflight failed")
+        with (
+            patch("sys.argv", argv),
+            patch(
+                "run_cache_hit_regression.load_authorized_proposal",
+                return_value=(
+                    self.proposal,
+                    self.authorization,
+                    self.proposal_path,
+                    self.authorization_path,
+                ),
+            ),
+            patch("run_cache_hit_regression.ensure_deepseek_api_key") as credential,
+            self.assertRaisesRegex(SystemExit, "route preflight failed"),
+        ):
+            main()
+        credential.assert_not_called()
+        ledger = json.loads(
+            (self.repo / "benchmarks/whale-agent-run-ledger.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(ledger["entries"], [])
+        preflight_path = self.route_preflight_mock.call_args.args[2]
+        relative_preflight = preflight_path.relative_to(self.repo)
+        self.assertEqual(
+            relative_preflight.parts[:3],
+            ("benchmarks", "cache-regression", "evidence"),
+        )
+        self.assertEqual(
+            preflight_path.parts[-2:],
+            ("provider-route-preflight", "provider-route-preflight.json"),
+        )
+
     def test_interrupt_after_durable_claim_is_settled(self) -> None:
         argv = [
             "run_cache_hit_regression.py",

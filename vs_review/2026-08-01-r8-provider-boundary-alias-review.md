@@ -324,3 +324,191 @@ Verdict: **BLOCKED**. 提交很可能移除了具体的保留 ID 覆盖，但 re
 审查已完成但修复闭环未通过。`30d60a96f` 不应作为可执行真实缓存复验的最终状态；应先完成收敛后的 B1、B2、B3
 与 N2，并由新的 fresh reviewer 做 blocking closure review。不得把 reviewer 提出的逐请求 logical identity 注入、全角色
 alias 测试或 provider-keyed model cache 直接扩入本主题。
+
+## Round 2: Fresh Closure Review
+
+### Launch Record
+
+- Reviewer: `implementation-adversary-2`（Parfit）
+- Agent ID: `019fbc64-6c6f-71d2-9871-0abe2ba2bc23`
+- Context: `fork_context=false`，空白上下文，只提供中立审查包
+- Scope: B1/B2/B3/N2 的实现闭环、证据真实性和 runtime 边界
+- Permissions: 只读；禁止真实 Whale Agent 和 provider API
+
+### Findings And Triage
+
+| Finding | Severity | Decision | Evidence | Repair |
+|---|---|---|---|---|
+| descriptor 未覆盖 query/header/auth 等行为字段 | P1 | accept | 加入 `query_params.review_probe` 后旧 descriptor SHA 不变 | 完整安全 descriptor；alias 与内置 DeepSeek 逐字段等价，仅允许 ID/base URL 差异 |
+| promotion 未重读 resolved-provider 原件 | P1 | accept | 删除两份原件后旧 validator 仍接受摘要 | 四份 alias/built-in 原件固定命名；按 worktree/index/commit 重读、复算 SHA 与 descriptor |
+| 通用 hard-limit benchmark 可接受非 DeepSeek 模型 | P1 | accept | `gpt-5` 可解析到 `deepseek-boundary` | runner 最早参数门禁 + boundary 启动层双重拒绝 |
+| Python 回归为红且文档数字过期 | P1 | accept | 旧夹具路径少一层目录，`41 failures + 2 errors` | 夹具改为生产路径形状；全量恢复为 `207 passed` |
+| `provider_dispatch_count=0` 只是常量 | P2 | accept | 字段不是观测计数 | 删除该字段，改为可核验的 `operation=config_resolution_only` + `network_mode=none` |
+| TaskSpace 预检未复现隐式 `multi_agent_v2` feature | P2 | accept | `exec --taskspace` 会追加 feature，旧预检没有 | TaskSpace profile 明确加入同一 feature override 并在 artifact 中记录 |
+
+### Round 2 Status
+
+- P0: 0
+- P1: 4，均已修复并通过离线回归
+- P2: 2，均已修复并通过离线回归
+- Fresh closure re-review: pending Round 3
+- Real Whale Agent / provider API: 未执行
+
+## Round 3: Fresh Closure Review
+
+### Launch Record
+
+- Reviewer: `implementation-adversary-3`（Planck）
+- Agent ID: `019fbc83-e9b5-7331-9677-041bd264e0f8`
+- Context: `fork_context=false`，空白上下文，只提供中立审查包
+- Scope: Round 2 六项修复、敏感证据安全、Docker 网络证据和 runtime 边界
+- Permissions: 只读；禁止真实 Whale Agent 和 provider API
+
+### Findings And Triage
+
+| Finding | Severity | Decision | Evidence | Repair |
+|---|---|---|---|---|
+| bearer token 只记录 presence，不区分不同认证值 | P1 | accept | `alpha` 与 `beta` 得到相同 descriptor | 所有敏感行为值改用一次性共享 key 的 HMAC fingerprint |
+| query/header/auth/URL 使用无盐 SHA，可离线验证低熵猜测 | P1 | accept | `x-api-key=1234` 可从 artifact 摘要复算确认 | HMAC key 不落盘；同值换 key 后 fingerprint 必须变化 |
+| `network_mode=none` 未绑定 Docker inspect | P2 | accept | 当前实测正确，但旧 artifact 只是声明 | 从真实 inspect 生成 sanitized receipt；promotion 重读并复算 SHA/内容 |
+| COE 仍把旧 `dispatch=0` 常量列为信号 | P2 | accept | E-006 保留旧常量表述 | 明确撤销该信号，由 config-only 路径和 inspect receipt 取代 |
+| 两个 Python 测试文件达到 510 行 | P2 | accept | 超过项目 500 行约束 | route promotion 测试独立成文件；现为 499/482/40 行 |
+
+### Round 3 Status
+
+- P0: 0
+- P1: 2，已按共同根因修复
+- P2: 3，已修复
+- Runtime boundary: reviewer 未发现越界或过度设计
+- Fresh closure re-review: pending Round 4
+- Real Whale Agent / provider API: 未执行
+
+## Round 4: Fresh Closure Review
+
+### Launch Record
+
+- Reviewer: `implementation-adversary-4`（Newton）
+- Agent ID: `019fbc9a-7948-77b0-a48a-fce42babb80d`
+- Context: `fork_context=false`，空白上下文，只提供中立审查包
+- Scope: Round 3 敏感证据安全、Docker inspect、promotion 证据链和 runtime 边界
+- Permissions: 只读；禁止真实 Whale Agent 和 provider API
+
+### Findings And Triage
+
+| Finding | Severity | Decision | Evidence | Repair |
+|---|---|---|---|---|
+| HMAC key 与 raw inspect 清理不是 failure-atomic | P1 | accept | 外层 timeout 可遗留 key；CLI 非零可在 receipt 生成前遗留含宿主 secret 路径的 raw inspect | Python 父进程拥有临时目录/key；raw inspect 写入该目录；PowerShell 先生成 receipt、再检查退出码，并以 `finally` 清理 |
+| 通用 benchmark runner 为 846 行 | P2 | accept | Whale 自有文件超过 500 行约束 | 机械拆出同作用域 pair stage；入口 342 行、stage 499 行 |
+| COE/design 对失败路径和落地状态表述失真 | P2 | accept | 旧 close reason 与 E-006/E-008 冲突，成功路径结论被写成无条件结论 | 补记 Round 4 失败证据、资源所有权和故障注入结果 |
+
+### Round 4 Repair Evidence
+
+- Python timeout 与 CLI 非零故障注入：通过，调用返回后临时 key/目录均不存在。
+- 真实 Docker `/bin/false` 非零路径：`raw_inspect_count=0`、`secret_path_leak_count=0`。
+- PowerShell AST、benchmark `-PlanOnly`：通过。
+- Fresh closure re-review: pending Round 5
+- Real Whale Agent / provider API: 未执行
+
+## Round 5: Fresh Closure Review
+
+### Launch Record
+
+- Reviewer: `implementation-adversary-5`（Chandrasekhar）
+- Agent ID: `019fbcb0-f2fe-7ab2-a9eb-3313d6af0bd4`
+- Context: `fork_context=false`，空白上下文，只提供中立审查包
+- Scope: failure-atomic cleanup、route 证据身份、runner stage 拆分和 runtime 边界
+- Permissions: 只读；禁止真实 Whale Agent 和 provider API
+
+### Findings And Triage
+
+| Finding | Severity | Decision | Evidence | Repair |
+|---|---|---|---|---|
+| 父进程退出被错误当成整个 POSIX 进程组退出 | P1 | accept | 忽略 SIGTERM 的后代可继续通过 FD 读取 32 字节 key | 保存 PGID；SIGTERM 宽限后 SIGKILL；确认组消失后才声明后代已终止；preflight 拒绝未确认清理 |
+| preflight 执行脚本漏出授权 execution identity/control-plane | P1 | accept | 修改脚本后执行指纹不变且 control-plane=false | 同时加入 `RUNNER_INPUTS` 与 `CACHE_CONTROL_PLANE_EXACT_PATHS`，增加旧授权拒绝测试 |
+| 失败 attestation 保存原始宿主路径 | P2 | accept | Whale 缺失路径可进入持久化 `error` | artifact 只保留稳定 `failure_code` 和机械 `failure_summary`，原始异常仅进入临时 stderr |
+| receipt 未证明 HMAC key mount 只读 | P2 | accept | `RW=true` 仍可通过旧 receipt | 校验唯一 mount 的 `RW=false`，新增并强制 `descriptor_key_read_only=true` |
+
+### Round 5 Repair Evidence
+
+- 真实忽略 SIGTERM 的后代：进程组升级到 SIGKILL 并确认退出。
+- process control `20` tests、provider route `11` tests：通过。
+- 真实 Docker success/nonzero：分别保留 4/1 份 sanitized receipt，宿主路径泄漏均为 0。
+- Fresh closure re-review: pending Round 6
+- Real Whale Agent / provider API: 未执行
+
+## Round 6: Fresh Closure Review
+
+### Launch Record
+
+- Reviewer: `implementation-adversary-6`（Archimedes）
+- Agent ID: `019fbcc0-f00b-7b61-a647-f76140dd7653`
+- Context: `fork_context=false`，空白上下文，只提供中立审查包
+- Permissions: 只读；禁止真实 Whale Agent 和 provider API
+
+### Findings And Triage
+
+- P0: 0
+- P1: 0，closure blocking level PASS
+
+| Finding | Severity | Decision | Repair |
+|---|---|---|---|
+| container create 失败的 lifecycle event 仍保存原始宿主路径 | P2 | accept | 删除持久化 raw error；只保留 reason code 与机械 failure summary，cleanup artifact 同步处理 |
+| receipt 只证明目标挂载唯一，未证明同一 key source 没有第二次挂载 | P2 | accept | 按解析后的 DescriptorKeyPath 统计全部 source mount；新增并强制 `descriptor_key_source_mount_unique=true` |
+
+### Round 6 Repair Evidence
+
+- container runtime 宿主路径故障注入：通过。
+- provider receipt 的 source unique/read-only 负向校验：通过。
+- 真实 Docker config-only preflight：4 份 receipt 均通过，宿主路径命中 0。
+- Narrow fresh closure re-review: pending Round 7
+- Real Whale Agent / provider API: 未执行
+
+## Round 7: Narrow Closure Review
+
+### Launch Record
+
+- Reviewer: `implementation-adversary-7`（McClintock）
+- Agent ID: `019fbcca-3e89-74a0-a180-2457e1f12cdc`
+- Context: `fork_context=false`，空白上下文
+- Scope: lifecycle 脱敏与 secret mount source/destination/read-only 关联证明
+- Permissions: 只读；禁止真实 Whale Agent 和 provider API
+
+### Finding And Triage
+
+| Finding | Severity | Decision | Evidence | Repair |
+|---|---|---|---|---|
+| source、destination、read-only 三项可由两个不同 mount 分别满足 | P1 | accept | wrong-source 只读目标 mount + correct-source 错误目标 mount 可令旧三个布尔值均为 true | contract helper 对同一个 mount 同时匹配 Source/Destination，并在该 mount 上验证 RW=false；保留 source/destination 各自唯一性 |
+
+### Round 7 Repair Evidence
+
+- `test-provider-boundary.ps1` 增加 split-mount 恶意 fixture：拒绝。
+- Python receipt identity false 负向验证：拒绝。
+- 真实 Docker config-only preflight：4 份 receipt 均为 `descriptor_key_mount_identity_confirmed=true`。
+- Blocking finding accepted; mandatory fresh Round 8 pending.
+- Real Whale Agent / provider API: 未执行
+
+## Round 8: Mandatory Fresh Closure Review
+
+### Launch Record
+
+- Reviewer: `implementation-adversary-8`（Hooke）
+- Agent ID: `019fbccf-3bc2-75b0-8bae-aaf1414f2973`
+- Context: `fork_context=false`，空白上下文
+- Scope: split-mount 同一实体证明及 promotion 重读
+- Permissions: 只读；禁止真实 Whale Agent 和 provider API
+
+### Result
+
+- P0: 0
+- P1: 0
+- P2: 0
+- 63 种 mount 组合：false accept `0`
+- receipt identity 伪造并重算上层 SHA：promotion 仍拒绝
+- Closure: **PASS**
+- Real Whale Agent / provider API: 未执行
+
+## Final Closure
+
+provider route alias 的生产配置预检、normal final-wire 等价、授权身份、失败原子性、敏感证据、Docker 网络与
+mount 证明已完成八轮审查闭环。当前没有已知 P0/P1/P2 工程缺陷。真实 provider 可用性和缓存收益不由离线证据
+替代，继续受用户预算授权门禁约束。

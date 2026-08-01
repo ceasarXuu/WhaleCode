@@ -18,6 +18,8 @@ CACHE_CONTROL_PLANE_EXACT_PATHS = frozenset(
         "benchmarks/taskspace/container-runtime-contract.json",
         "scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1",
         "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+        "scripts/taskspace-benchmark/run-taskspace-benchmark-pairs.ps1",
+        "scripts/taskspace-benchmark/invoke-provider-route-preflight.ps1",
         "scripts/taskspace-benchmark/docker/Dockerfile",
         "scripts/taskspace-benchmark/docker/taskspace-container-entrypoint.sh",
         "scripts/taskspace-benchmark/lib/bootstrap.ps1",

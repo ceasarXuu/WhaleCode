@@ -104,6 +104,7 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             ) as popen,
             patch("cache_process_control.os.getpgid", return_value=123),
             patch("cache_process_control.os.killpg") as killpg,
+            patch("cache_process_control._wait_for_process_group_exit", return_value=True),
         ):
             with self.assertRaises(BenchmarkTimeoutError) as raised:
                 run_benchmark_command(["pwsh", "runner.ps1"], self.repo, 10)
