@@ -1,9 +1,9 @@
 # R8-I01 唯一最终 Revision 反馈修复计划
 
 - Created: 2026-08-01
-- Artifact status: drafted
-- Issue status: investigating
-- Plan mode: authoring
+- Artifact status: W0-W8 implemented and deterministically verified
+- Issue status: verifying; W9-W11 require separately authorized live evidence
+- Plan mode: execution
 - Scope: 三种 TaskSpace projection policy 共用的 response 事务与反馈链路
 - Standard impact: 只做隔离回归，不改变 Standard 行为
 - Real Whale Agent runs in planning: 0
@@ -158,15 +158,15 @@ prepare 已提交但最终归档或 Store 读取失败时，原 control result �
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|
-| I01-W0 | 在当前 HEAD 建立可复算复现 | test/evidence | `core/src/tools/sequence_taskspace_tests.rs` | response output characterization | 增加确定性 fixture，逐项解析 control FunctionCallOutput、ordinary outputs、developer receipt 和 Store revision，证明当前 Agent-visible continuation revision 数量为 2 | 不依赖历史 trace 即可复现双反馈结构 | 后续每次改动都能直接证明问题消失，而不是凭字段命名判断 | 测试在旧实现上确认两个权威项，并记录各自 `call_id`、role、revision | 只新增测试；证据与源码不符则停止设计并回到调查 | planned |
-| I01-W1 | 冻结唯一最终结果合同 | API/internal contract | `core/src/action_map/response.rs` | `ActionMapPreparedResponse`、`ActionMapResponseFinalReceipt` | 增加由 prepared facts 与最终 canonical settlement 共同生成 `TaskSpaceResponseResultV2` 的纯构造函数；成功结果只含 `canonical_revision` 这一 continuation revision | 同一结构完整表达动作接受、归档闭合和最终状态 | Agent 不再需要在两个成功事实中猜选 revision；测试可直接校验字段语义 | 纯单元测试覆盖 settled、ordinary failure 已归档、outstanding reservation、Store unavailable | 未接入生产前可单独回退构造函数与测试 | planned |
-| I01-W2 | 将最终结果绑定回原 control call | feedback/wiring | `core/src/tools/sequence.rs` | `execute_prepared_taskspace_siblings()` | 删除 sibling 执行前的模型可见 prepare payload；全部归档后构造一个 `FunctionCallOutput`，使用原 `control_call_id` 并放回原 control 对应顺序 | Provider 下一轮只看到一个配对的 control result 和未改写的 ordinary results | 消除 stale revision 的直接反馈来源，同时保持多 Tool 连续执行能力 | sequence 集成测试断言 control output 恰好 1 个、developer receipt 为 0、每个 provider call_id 恰好一个 output | 一个提交只接线此路径；失败时整体回退 W2，不保留双路径或开关 | planned |
-| I01-W3 | 保持执行失败与取消语义 | failure semantics | `core/src/tools/sequence.rs`、`core/src/tools/parallel.rs` | failed/skipped/cancelled sibling settlement | 让普通 Tool 失败、前序失败跳过、并行取消和 handler error 都先按现有路径释放 reservation，再生成最终 control result；不改 ordinary output body/success | control 结果只描述 Map 结算，ordinary result 继续描述工具成败 | 避免修复成功路径后在异常路径重新产生隐藏 revision 或悬挂 reservation | 定向测试覆盖 serial failure、skipped、parallel cancellation、timeout、result attribution failure；Map reservation 最终为 0 或明确 incomplete | 任一普通 Tool 输出字节变化或 reservation 静默遗留即停止，不进入 observer 迁移 | planned |
-| I01-W4 | 建立最终结算日志 | observability | `core/src/tools/sequence.rs`、`core/src/session/taskspace_response.rs` | response finalization tracing | 用 `taskspace_response_finalized` 记录 control call、Map、prepare revision、final canonical revision、prepared/attributed/outstanding count、status 和稳定 reason code；不记录目标、命令或 Tool 正文 | 成功与不完整结算可由机械身份重建 | 后续定位 stale 不需要重放用户语义，也能区分 prepare 和 final 时序 | tracing capture tests 校验字段、成功/失败事件和敏感正文缺失 | 日志测试不过则停止；日志变更可独立回退，不改变反馈合同 | planned |
-| I01-W5 | 迁移 receipt 专属观测 | observability | `core/src/provider_wire_trace.rs`、`core/src/provider_wire_sections.rs`、`scripts/taskspace-benchmark/lib/` | final receipt identity 与 request analyzer | 将 `TaskSpaceResponseFinalReceiptV1` developer-message 识别替换为按原 control `call_id` 识别 `TaskSpaceResponseResultV2` FunctionCallOutput；保持 request/attempt 身份与 section cost 分类 | 报告直接观察真实 control Tool result，不再要求不存在的独立 carrier | 避免代码修好后 benchmark 因旧 observer 产生假阻断或漏报 | Rust wire tests 与 PowerShell analyzer tests 同时覆盖唯一、缺失、重复、incomplete 和文本假阳性 | 先保持 release fail-closed；新 observer 未通过前不得删除旧测试证据 | planned |
-| I01-W6 | 删除旧模型可见 carrier | cleanup | `core/src/action_map/response.rs`、`core/src/tools/parallel.rs`、相关测试与当前 benchmark parser | `TaskSpaceResponseFinalReceiptV1` model-visible path | 删除独立 receipt 的 `model_visible_result()`、生产 schema marker、追加 developer message的入口及仅服务该入口的解析；保留必要的内部 settlement 数据但不再称为 Agent receipt | 生产上下文不再存在第二份 revision 权威 | 降低反馈重复、上下文污染和维护两套结果 schema 的成本 | `rg` 证明生产 Rust/当前脚本无旧 schema；历史 docs 可保留；全量相关测试通过 | 若仍有生产 consumer 依赖旧 schema，停止删除并先迁移该 consumer，不增加兼容分支 | planned |
-| I01-W7 | 验证三种 policy 共用一条反馈 | compatibility | `core/tests/suite/cache_payload_contract.rs`、final-wire snapshots | TaskSpace two-request fixtures | 对 `map-always`、`map-append`、`map-request` 分别运行同一两请求 fixture，断言 control result schema/call_id/revision 规则一致，差异只存在 projection；同时冻结 Standard 对照 | 三种产品模式不会形成反馈分叉，Standard 不受污染 | 降低后续模式间回归和重复修复成本 | 三 policy final-wire 测试通过；Standard snapshot 与普通 Tool schema/result 基线逐值相同 | 任一 policy 出现专属反馈分支或 Standard diff 即停止并回退 W2-W6 | planned |
-| I01-W8 | 通过免费缓存门禁确认影响面 | cache gate | `scripts/cache-regression/`、受影响 snapshots | free final-wire matrix | 运行 index/worktree/HEAD 免费门禁，确认变化只来自旧 developer receipt 消失和 control output 定稿；输出首差异与受影响场景，不手工修改 accepted baseline | 缓存敏感变更在付费前可解释、可复算 | 防止用 I01 修复再次制造未知上下文结构变化 | `python3 scripts/cache-regression/check_cache_regression_gate.py --source index` 给出可比较 changed report；全部离线测试通过 | 报告出现 Tool schema、Standard、prompt 或 projection 非预期变化时停止，不申请真实预算 | planned |
+| I01-W0 | 在当前 HEAD 建立可复算复现 | test/evidence | `core/src/tools/sequence_taskspace_tests.rs` | response output characterization | 增加确定性 fixture，逐项解析 control FunctionCallOutput、ordinary outputs、developer receipt 和 Store revision，证明当前 Agent-visible continuation revision 数量为 2 | 不依赖历史 trace 即可复现双反馈结构 | 后续每次改动都能直接证明问题消失，而不是凭字段命名判断 | 测试在旧实现上确认两个权威项，并记录各自 `call_id`、role、revision | 只新增测试；证据与源码不符则停止设计并回到调查 | completed (`3fbfbe6dc`) |
+| I01-W1 | 冻结唯一最终结果合同 | API/internal contract | `core/src/action_map/response.rs` | `ActionMapPreparedResponse`、`ActionMapResponseFinalReceipt` | 增加由 prepared facts 与最终 canonical settlement 共同生成 `TaskSpaceResponseResultV2` 的纯构造函数；成功结果只含 `canonical_revision` 这一 continuation revision | 同一结构完整表达动作接受、归档闭合和最终状态 | Agent 不再需要在两个成功事实中猜选 revision；测试可直接校验字段语义 | 纯单元测试覆盖 settled、ordinary failure 已归档、outstanding reservation、Store unavailable | 未接入生产前可单独回退构造函数与测试 | completed (`ae36f0cbe`) |
+| I01-W2 | 将最终结果绑定回原 control call | feedback/wiring | `core/src/tools/sequence.rs` | `execute_prepared_taskspace_siblings()` | 删除 sibling 执行前的模型可见 prepare payload；全部归档后构造一个 `FunctionCallOutput`，使用原 `control_call_id` 并放回原 control 对应顺序 | Provider 下一轮只看到一个配对的 control result 和未改写的 ordinary results | 消除 stale revision 的直接反馈来源，同时保持多 Tool 连续执行能力 | sequence 集成测试断言 control output 恰好 1 个、developer receipt 为 0、每个 provider call_id 恰好一个 output | 一个提交只接线此路径；失败时整体回退 W2，不保留双路径或开关 | completed (`dbce3402e`) |
+| I01-W3 | 保持执行失败与取消语义 | failure semantics | `core/src/tools/sequence.rs`、`core/src/tools/parallel.rs` | failed/skipped/cancelled sibling settlement | 让普通 Tool 失败、前序失败跳过、并行取消和 handler error 都先按现有路径释放 reservation，再生成最终 control result；不改 ordinary output body/success | control 结果只描述 Map 结算，ordinary result 继续描述工具成败 | 避免修复成功路径后在异常路径重新产生隐藏 revision 或悬挂 reservation | 定向测试覆盖 serial failure、skipped、parallel cancellation、timeout、result attribution failure；Map reservation 最终为 0 或明确 incomplete | 任一普通 Tool 输出字节变化或 reservation 静默遗留即停止，不进入 observer 迁移 | completed (`d46b19479`) |
+| I01-W4 | 建立最终结算日志 | observability | `core/src/tools/sequence.rs`、`core/src/session/taskspace_response.rs` | response finalization tracing | 用 `taskspace_response_finalized` 记录 control call、Map、prepare revision、final canonical revision、prepared/attributed/outstanding count、status 和稳定 reason code；不记录目标、命令或 Tool 正文 | 成功与不完整结算可由机械身份重建 | 后续定位 stale 不需要重放用户语义，也能区分 prepare 和 final 时序 | tracing capture tests 校验字段、成功/失败事件和敏感正文缺失 | 日志测试不过则停止；日志变更可独立回退，不改变反馈合同 | completed (`9e64a3ddc`) |
+| I01-W5 | 迁移 receipt 专属观测 | observability | `core/src/provider_wire_trace.rs`、`core/src/provider_wire_sections.rs`、`scripts/taskspace-benchmark/lib/` | final receipt identity 与 request analyzer | 将 `TaskSpaceResponseFinalReceiptV1` developer-message 识别替换为按原 control `call_id` 识别 `TaskSpaceResponseResultV2` FunctionCallOutput；保持 request/attempt 身份与 section cost 分类 | 报告直接观察真实 control Tool result，不再要求不存在的独立 carrier | 避免代码修好后 benchmark 因旧 observer 产生假阻断或漏报 | Rust wire tests 与 PowerShell analyzer tests 同时覆盖唯一、缺失、重复、incomplete 和文本假阳性 | 先保持 release fail-closed；新 observer 未通过前不得删除旧测试证据 | completed (`ad117ce24`, `cb91900c3`) |
+| I01-W6 | 删除旧模型可见 carrier | cleanup | `core/src/action_map/response.rs`、`core/src/tools/parallel.rs`、相关测试与当前 benchmark parser | `TaskSpaceResponseFinalReceiptV1` model-visible path | 删除独立 receipt 的 `model_visible_result()`、生产 schema marker、追加 developer message的入口及仅服务该入口的解析；保留必要的内部 settlement 数据但不再称为 Agent receipt | 生产上下文不再存在第二份 revision 权威 | 降低反馈重复、上下文污染和维护两套结果 schema 的成本 | `rg` 证明生产 Rust/当前脚本无旧 schema；历史 docs 可保留；全量相关测试通过 | 若仍有生产 consumer 依赖旧 schema，停止删除并先迁移该 consumer，不增加兼容分支 | completed (`d2be70030`, `cec426afd`) |
+| I01-W7 | 验证三种 policy 共用一条反馈 | compatibility | `core/tests/suite/cache_payload_contract.rs`、final-wire snapshots | TaskSpace two-request fixtures | 对 `map-always`、`map-append`、`map-request` 分别运行同一两请求 fixture，断言 control result schema/call_id/revision 规则一致，差异只存在 projection；同时冻结 Standard 对照 | 三种产品模式不会形成反馈分叉，Standard 不受污染 | 降低后续模式间回归和重复修复成本 | 三 policy final-wire 测试通过；Standard snapshot 与普通 Tool schema/result 基线逐值相同 | 任一 policy 出现专属反馈分支或 Standard diff 即停止并回退 W2-W6 | completed; candidate verified, baseline promotion pending W10 |
+| I01-W8 | 通过免费缓存门禁确认影响面 | cache gate | `scripts/cache-regression/`、受影响 snapshots | free final-wire matrix | 运行 index/worktree/HEAD 免费门禁，确认变化只来自旧 developer receipt 消失和 control output 定稿；输出首差异与受影响场景，不手工修改 accepted baseline | 缓存敏感变更在付费前可解释、可复算 | 防止用 I01 修复再次制造未知上下文结构变化 | `python3 scripts/cache-regression/check_cache_regression_gate.py --source index` 给出可比较 changed report；全部离线测试通过 | 报告出现 Tool schema、Standard、prompt 或 projection 非预期变化时停止，不申请真实预算 | completed; 3 intended TaskSpace changes, 0 unexpected |
 | I01-W9 | 验证真实 Agent 不再因隐藏归档提交 stale | E3/product verification | Docker benchmark、全局 run ledger | 同一客观 sample 的三 policy matrix | 在 W0-W8 通过后单独申请预算，按同 commit/模型/镜像对三种 policy 各 repeat 3；关联每次运行账本和原始 trace | 当前版本中由双 revision 引起的 stale 为 0，业务结果不退化 | 证明工程修复真正减少 Agent 无效纠错，而非只让单测换字段 | `sample × 3 arms × repeat 3 = 9`；`hidden_attribution_stale=0`，业务验证通过，普通 Tool 无异常包装 | 属于 >3 sample 专项预算；未获批准不得执行；任一模式复现则不关闭 I01 | planned |
 | I01-W10 | 结算缓存敏感发布证据 | release/cache verification | cache regression proposal、ledger、evidence | changed final-wire scenario set | 根据 W8 自动生成的实际变化范围另行申请最小真实缓存预算；执行后只按精确 commit、模型、arm 和场景晋升或拒绝 | 发布门能够区分 I01 正确性与缓存接受状态 | 不用未验证缓存收益换取语义修复，也不让历史 baseline 错配当前提交 | accepted 或 failed 结果均完整结算 token、费用、请求、耗时和证据路径；失败不得晋升 | 与 I01-W9 预算分开；provider 或证据异常立即停止且不自动重试 | planned |
 | I01-W11 | 关闭问题并触发下游重评 | docs/governance | `build-R8/I01/`、`01-r8-known-issues.md` | I01 result and issue state | 记录已证根因、被否定假设、提交、测试、E3、缓存边界和全局约束检查；仅在全部 I01 条件通过后标记 closed，并重新评估 I02/I03/I08 | R8 保持一个权威状态和可追溯关闭依据 | 后续问题不会重复猜测 revision 事实或误用 I01 证据关闭缓存问题 | 结果文档逐项引用 code/test/runtime/review 证据；唯一账本与 Git HEAD 一致 | 任一 closing evidence 缺失则保持 verifying，不使用“基本完成” | planned |
@@ -208,7 +208,52 @@ prepare 已提交但最终归档或 Store 读取失败时，原 control result �
 - Required evidence: 当前 HEAD 三 policy stale 归因结果、真实缓存结果、全局约束回归。
 - Close condition: I01 的唯一 final revision 成立；I02/I03/I08 只重评，不随带关闭。
 
-## 9. 验收矩阵
+## 9. W0-W8 执行结果
+
+### 9.1 实现提交
+
+| 范围 | 提交 |
+|---|---|
+| 当前版本复现与 V2 合同 | `3fbfbe6dc`、`ae36f0cbe` |
+| 唯一 control result、失败语义与结算日志 | `dbce3402e`、`d46b19479`、`9e64a3ddc` |
+| provider/benchmark observer 迁移 | `ad117ce24`、`cb91900c3` |
+| 旧模型可见 carrier 与旧 parser 删除 | `d2be70030`、`cec426afd` |
+
+生产路径现在只为原 control `call_id` 生成一个 `TaskSpaceResponseResultV2`。它在所有 sibling result attribution
+完成后构造，并放回 control 对应的 output 位置。成功结果只暴露 `canonical_revision`；普通 Tool result 的类型、
+`call_id` 和正文未被包装。独立 developer receipt 已从当前生产路径和当前 benchmark parser 删除。
+
+### 9.2 确定性验证
+
+- Rust response builder：5 个测试通过；覆盖 settled、incomplete 和 Store unavailable。
+- Rust sequence：8 个定向测试通过；覆盖唯一 control output、普通 Tool 失败、归档和日志字段。
+- Rust provider wire：identity 3 个、sections 12 个测试通过；文本伪阳性和重复结果保持 fail-closed。
+- Rust transaction：普通结果按声明节点归档测试通过。
+- 当前 PowerShell benchmark analyzer、failure carrier、observability、cost、provider identity 和 base instruction
+  合同全部通过。
+- 三种 TaskSpace policy 的两请求候选快照均只包含一个 V2 control result；Standard 候选与旧快照逐值相同。
+
+### 9.3 免费缓存门禁
+
+clean-HEAD final-wire 比较共检查 10 个场景，结果为 3 个 `changed`、7 个 `unchanged`、0 个
+`uncomparable`：
+
+| 场景 | 状态 | 首差异 | 已确认的变化 |
+|---|---|---|---|
+| `map-always` | changed | `/request_2/input/length` | 删除独立 developer receipt；原 control output 改为最终 V2 result |
+| `map-append` | changed | `/request_2/input/length` | 同上；projection 内容和位置未变 |
+| `map-request` | changed | `/request_2/input/length` | 同上；按需 Map 内容和位置未变 |
+| Standard、权限、Skills、Apps、Plugin、MCP、压缩 | unchanged | 无 | final wire 逐值相同 |
+
+三种 changed 场景的 `instructions`、`tools` 和 `tool_choice` 均逐值相同。旧请求含 9/10/9 个 input item，
+新请求含 8/9/8 个；变化是移除一个独立 developer receipt，并将原 control output 从 370 字符的中间结果替换为
+456 字符的最终结果。候选补丁与 JSON 报告暂存于 `/tmp/whalecode-i01-w7/`，正式 `.snap` 未修改，因为当前
+`live_regression_failed` 基线只能在 W10 通过独立真实证据晋升。
+
+W8 的 `index` 和 `worktree` 门禁在无新增变更时通过；clean-HEAD revalidation 按设计以 `changed` 阻断。该阻断
+表示“有意的 final-wire 变化尚未获得真实 accepted 证据”，不是离线测试失败，也不能被本计划自行豁免。
+
+## 10. 验收矩阵
 
 | 验收面 | Passing standard |
 |---|---|
@@ -222,7 +267,7 @@ prepare 已提交但最终归档或 Store 读取失败时，原 control result �
 | 行为收益 | 获批 repeat-3 中由隐藏 attribution 引起的 `stale_revision` 为 0，业务验证全部通过 |
 | 成本纪律 | 所有真实 run 预登记、结算且不超预算；缓存结果只解释实际覆盖场景 |
 
-## 10. 风险
+## 11. 风险
 
 | Risk | Trigger signal | Mitigation | Safe stop |
 |---|---|---|---|
@@ -233,7 +278,7 @@ prepare 已提交但最终归档或 Store 读取失败时，原 control result �
 | I01 顺带被当作 I02 已关闭 | 独立 receipt 消失后直接宣称缓存恢复 | I02 保持 queued；真实缓存证据按独立预算和场景验收 | 只更新 I01 状态，不修改 I02 状态 |
 | Runtime 责任扩大 | 修复中出现自动 revision 替换、动作选择或重试 | 只更改事实输出时机和 carrier；硬状态机不变 | 发现语义决策立即停止实现 |
 
-## 11. 外部依据
+## 12. 外部依据
 
 1. [OpenAI Function calling](https://developers.openai.com/api/docs/guides/function-calling)：一个 response 可以包含
    多个 function call，每个 `function_call_output` 通过原 `call_id` 与调用对应。由此支持把最终 TaskSpace 事实

@@ -39,7 +39,7 @@
 | 执行序 | ID | 层级 | 严重度 | 产品问题 | 用户或 Agent 的实际影响 | 产品应有表现 | 状态 | Source |
 |---:|---|---:|---:|---|---|---|---|---|
 | 1 | R8-I09 | F0 | P0 | 恢复旧任务时，产品可能接受一份内部关系已经损坏的任务地图 | Agent 看到的任务、依赖和完成状态不再可信，后续所有推进都可能建立在错误事实之上 | 只恢复结构完整的任务地图；损坏时明确停止，且不改变当前任务或子 Agent 关系 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
-| 2 | R8-I01 | F1 | P0 | 一轮工作完成后，Agent 可能同时收到新旧两个任务进度版本 | Agent 容易拿旧版本继续提交，明明刚完成的工作却被判定为过期，引发额外读取和重试 | 每轮推进结束只给 Agent 一个可继续使用的最新任务版本；中间版本不能与最终版本竞争 | [investigating](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
+| 2 | R8-I01 | F1 | P0 | 一轮工作完成后，Agent 可能同时收到新旧两个任务进度版本 | Agent 容易拿旧版本继续提交，明明刚完成的工作却被判定为过期，引发额外读取和重试 | 每轮推进结束只给 Agent 一个可继续使用的最新任务版本；中间版本不能与最终版本竞争 | [verifying](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
 | 3 | R8-I06 | F2 | P0 | 通过组合工具间接发起的动作，可能绕过 TaskSpace 对动作归属和修改次数的统一检查 | 某些真实操作可能没有归属任务节点，或在同一轮执行多个代码补丁，破坏可追踪性和原子边界 | 无论动作从哪一层工具发起，都经过同一套请求级硬检查；普通工具本身保持原生 | queued | GI-006 |
 | 4 | R8-I05 | F3 | P1 | 动作被拒绝时，Agent 收到的原因可能重复、被包在字符串里，或混淆“尝试中的状态”和“真正保存的状态” | Agent 无法确认哪份状态已经生效，容易重复同一错误或额外读取任务地图自证 | 一次、结构化、忠实地返回拒绝原因，并明确区分已保存状态与失败尝试中的临时状态 | queued | GI-005 |
 | 5 | R8-I02 | F3 | P1 | TaskSpace 的工具结果会被再次包装成高优先级上下文消息 | 同一事实重复占用上下文、破坏缓存，还可能让包装内容与原始工具结果产生竞争 | 工具事实通过原工具反馈完整传递一次；不得为了强调而另造 system/developer 消息副本 | queued | GI-002 |
@@ -53,6 +53,13 @@
 
 I01 当前计划：
 [`I01/00-i01-response-final-revision-repair-plan.md`](I01/00-i01-response-final-revision-repair-plan.md)。
+
+I01 当前进展：
+
+- W0-W8 工程实现和离线验证完成：`3fbfbe6dc`、`ae36f0cbe`、`dbce3402e`、`d46b19479`、
+  `9e64a3ddc`、`ad117ce24`、`cb91900c3`、`d2be70030`、`cec426afd`；
+- 三种 TaskSpace policy 只保留原 control call 的唯一最终结果，Standard 和普通 Tool final wire 未变；
+- 正式缓存快照未自行晋升；W9 真实行为验证和 W10 真实缓存证据仍需分别获得用户预算授权，因此 I01 保持 open。
 
 已关闭问题：
 [`I09/00-i09-store-hydrate-repair-plan.md`](I09/00-i09-store-hydrate-repair-plan.md)。

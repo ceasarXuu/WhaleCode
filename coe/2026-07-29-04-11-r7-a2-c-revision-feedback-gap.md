@@ -1,7 +1,7 @@
 # Problem P-001: 普通 Tool 结果提交后的 canonical revision 未进入 Agent 反馈
 - Status: open
 - Created: 2026-07-29 04:11
-- Updated: 2026-07-29 19:18
+- Updated: 2026-08-01
 - Objective: 让一次合法 TaskSpace response 完成后，Agent 忠实获得下一次控制操作所需的最终 canonical revision
 - Symptoms:
   - `taskspace_control` 成功返回 `revision_after=N`
@@ -40,10 +40,11 @@
   - response 完成后 Agent 可直接获得最终 canonical revision，无需先触发 stale reject
   - 三种 projection policy 共用同一反馈实现
   - A2-C repeat-3 中由隐藏 result attribution 引起的 stale retry 为零
-- Current conclusion: 原始缺失已被补值，但产品语义仍未修复。prepare `revision_after` 与 final
-  `canonical_revision` 同时进入历史，17 次 stale 全部继续选择前者；独立 developer/system receipt 还会确定性
-  破坏 DeepSeek 缓存。最终事实必须收敛到同一 `taskspace_control` 调用的唯一下一 revision，不应让 Runtime 替
-  Agent 选择动作，也不应新增中途 system 消息
+- Current conclusion: 根因修复已进入当前生产路径。prepare revision 只保留为内部结算事实；原
+  `taskspace_control` call 在 sibling attribution 全部结束后只返回一个 `TaskSpaceResponseResultV2`，其中
+  `canonical_revision` 是唯一 continuation revision。独立 developer/system receipt 已删除，普通 Tool result
+  保持原生。确定性测试和免费 final-wire 检查已通过预期影响面验证；真实 Agent stale 消失与真实缓存接受仍待
+  分别授权，因此问题保持 open/verifying
 - Related hypotheses:
   - H-001
 - Resolution basis:
@@ -51,6 +52,8 @@
   - prepare revision、普通 Tool 输出和 response-final revision 保持三个独立事实
   - 定向事务与 sequence 回归通过
   - A2-C live rerun 证明独立 developer/system receipt carrier 确定性破坏缓存，产品修复失败
+  - R8 I01 W0-W8 将最终事实收敛回原 control Tool result，并完成三 policy、Standard、普通 Tool 和 observer 的
+    离线验证；见 E-008
 - Close reason:
   - not closed
 
@@ -373,4 +376,45 @@ request 6 after new receipt: cached=5888
   ```
 - Interpretation: 当前 HEAD 仍在一次 response 中暴露两个可竞争的成功 revision；问题不是仅存在于 R7.1
   历史 trace，也不是 projection policy 自身产生。
+- Time: 2026-08-01
+
+## Evidence E-008: R8 I01 W0-W8 收敛为原 control call 的唯一最终结果
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports
+- Type: repair-verification
+- Source:
+  - commits `3fbfbe6dc`、`ae36f0cbe`、`dbce3402e`、`d46b19479`、`9e64a3ddc`
+  - commits `ad117ce24`、`cb91900c3`、`d2be70030`、`cec426afd`
+  - `docs/v0.0.5/build-R8/I01/00-i01-response-final-revision-repair-plan.md`
+- Prediction or plan link:
+  - R8 I01-W1 至 I01-W8
+  - H-003 的“同一 control call 唯一最终 revision”修复预测
+- Matched signal:
+  - sequence 只生成一个与原 control `call_id` 配对的 `TaskSpaceResponseResultV2`
+  - 成功结果只暴露 `canonical_revision`，不暴露 `revision_after`
+  - 独立 `TaskSpaceResponseFinalReceiptV1` developer message 从当前生产路径删除
+  - 三种 projection policy 使用同一 feedback 路径
+  - Standard、普通 Tool schema/result、instructions、tools 和 tool_choice 未发生变化
+  - 免费 final-wire matrix 只有三个 TaskSpace 场景 changed；其余 7 个场景 unchanged，0 个 uncomparable
+- Capture method:
+  - Rust response、sequence、transaction 和 provider-wire 定向测试
+  - PowerShell 当前 benchmark analyzer 合同
+  - clean-HEAD 免费 final-wire 比较
+- Correlation keys:
+  - original control call ID
+  - map ID
+  - final canonical revision
+- Raw content:
+  ```text
+  TaskSpace policies changed: 3/3
+  Standard and other protected scenarios unchanged: 7/7
+  first difference: /request_2/input/length
+  old: prepare control output + developer final receipt
+  new: one finalized control output
+  ```
+- Interpretation: 当前实现已消除已确认的双 revision 和独立 receipt carrier。该证据是确定性的工程验证，不能替代
+  W9 的真实 Agent stale 复验，也不能自行晋升 W10 的真实缓存 accepted baseline。
 - Time: 2026-08-01
