@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 
 from cache_evidence import RESULT_SCHEMA_VERSION
-from cache_json import strict_json_loads
+from cache_json import exact_json_equal, strict_json_loads
 from cache_result_envelope import validate_result_envelope
 from cache_run_ledger import mutate_entry, now, settle_entry
 
@@ -96,14 +96,17 @@ def _validate_claim_identity(entry: dict, result: dict) -> None:
         "planned_sample_runs": scope.get("planned_sample_runs"),
     }
     if (
-        any(execution.get(key) != value for key, value in expected_execution.items())
+        any(
+            not exact_json_equal(execution.get(key), value)
+            for key, value in expected_execution.items()
+        )
         or result.get("subject_commit") != evidence.get("subject_commit")
         or result.get("surface_sha256") != evidence.get("surface_sha256")
         or result.get("proposal_id") != evidence.get("proposal_id")
         or result.get("proposal_sha256") != evidence.get("proposal_contract_sha256")
         or result.get("authorization_reference") != authorization.get("reference")
         or result.get("authorization_sha256") != evidence.get("authorization_sha256")
-        or result.get("observed_scope") != scope
+        or not exact_json_equal(result.get("observed_scope"), scope)
         or result.get("evidence_boundary") != evidence.get("evidence_boundary")
         or result.get("run_root") != evidence.get("planned_run_root")
     ):
@@ -137,7 +140,7 @@ def _validate_claimed_matrix(execution: dict, result: dict) -> None:
     ]
     if (
         actual > execution.get("planned_sample_runs", -1)
-        or attempt_scopes != matrix[:actual]
+        or not exact_json_equal(attempt_scopes, matrix[:actual])
         or len({attempt.get("run_id") for attempt in attempts}) != actual
         or any(
             not isinstance(attempt.get("run_id"), str) or not attempt["run_id"].strip()
@@ -145,13 +148,19 @@ def _validate_claimed_matrix(execution: dict, result: dict) -> None:
         )
     ):
         raise ValueError("cache recovery result exceeds its approved matrix")
-    positions = {
-        tuple(scope.values()): index for index, scope in enumerate(attempt_scopes)
-    }
     prior = -1
     for observation in result["observations"]:
-        key = tuple(observation.get(field) for field in ("sample", "arm", "repeat"))
-        position = positions.get(key, -1)
+        observation_scope = {
+            field: observation.get(field) for field in ("sample", "arm", "repeat")
+        }
+        position = next(
+            (
+                index
+                for index, attempt_scope in enumerate(attempt_scopes)
+                if exact_json_equal(observation_scope, attempt_scope)
+            ),
+            -1,
+        )
         if position <= prior or observation.get("run_id") != attempts[position].get(
             "run_id"
         ):

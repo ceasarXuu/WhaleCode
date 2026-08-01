@@ -201,6 +201,16 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "approved matrix"):
             recover(self.repo, self.ledger, self.result)
 
+    def test_recovery_rejects_boolean_as_integer_scope_evidence(self) -> None:
+        value = json.loads(self.result.read_text(encoding="utf-8"))
+        value["observed_scope"]["repeat"] = True
+        value["attempts"][0]["repeat"] = True
+        value["observations"][0]["repeat"] = True
+        write_json(self.result, value)
+
+        with self.assertRaisesRegex(ValueError, "durable claim"):
+            recover(self.repo, self.ledger, self.result)
+
     def test_partial_result_recovers_with_truthful_request_minimum(self) -> None:
         value = json.loads(self.result.read_text(encoding="utf-8"))
         value["status"] = "partial"
