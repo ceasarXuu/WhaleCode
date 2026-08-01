@@ -311,6 +311,12 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "execution identity|taskspace"):
             self.validate(result=result)
 
+    def test_rejects_float_request_count_in_observation(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["observations"][0]["provider_requests"] = 3.0
+        with self.assertRaisesRegex(ValueError, "observation metrics mismatch"):
+            self.validate(result=result)
+
     def test_rejects_incomplete_runner_or_authorization_envelope(self) -> None:
         result = copy.deepcopy(self.result)
         result.pop("ended_at")

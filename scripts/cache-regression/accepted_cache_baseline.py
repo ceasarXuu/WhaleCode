@@ -92,7 +92,11 @@ def validate_observation(
         hashes,
     )
     require(
-        all(observation.get(key) == recomputed[key] for key in CACHE_OBSERVATION_KEYS),
+        all(
+            type(observation.get(key)) is type(recomputed[key])
+            and observation.get(key) == recomputed[key]
+            for key in CACHE_OBSERVATION_KEYS
+        ),
         "cache observation metrics mismatch",
     )
     require(

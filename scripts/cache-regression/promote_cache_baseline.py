@@ -10,6 +10,7 @@ from typing import Any
 
 from accepted_cache_baseline import validate_run_evidence
 from cache_evidence import canonical_json_sha256, file_sha256
+from cache_json import strict_json_loads
 from cache_source_evidence import protected_manifest
 from cache_surface import load_contract, surface_snapshot, write_json
 
@@ -39,7 +40,10 @@ def render_insta_snapshot(path: Path, candidate: dict[str, Any]) -> str:
     )
     header = content.split(separator, 1)[0]
     return (
-        header + separator + json.dumps(candidate, ensure_ascii=False, indent=2) + "\n"
+        header
+        + separator
+        + json.dumps(candidate, ensure_ascii=False, indent=2, allow_nan=False)
+        + "\n"
     )
 
 
@@ -50,7 +54,7 @@ def insta_snapshot_payload(path: Path) -> dict[str, Any]:
         content.startswith("---\n") and separator in content,
         "invalid insta snapshot envelope",
     )
-    payload = json.loads(content.split(separator, 1)[1])
+    payload = strict_json_loads(content.split(separator, 1)[1])
     require(isinstance(payload, dict), "insta snapshot payload must be an object")
     return payload
 
