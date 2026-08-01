@@ -7,7 +7,7 @@ expression: sanitized
 ╭────────────────────────────────────────────────────────╮
 │  >_ Whale (v0.1.0 build 18)                            │
 │                                                        │
-│  Model:            gpt-5.1-codex                       │
+│  Model:            gpt-5.1-codex (reasoning none)      │
 │  Model provider:   DeepSeek - https://api.deepseek.com │
 │  Directory: [[workspace]]                              │
 │  Permissions:      Custom (read-only, on-request)      │

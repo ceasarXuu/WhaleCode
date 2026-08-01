@@ -4,15 +4,15 @@ expression: sanitized
 ---
 /status
 
-╭────────────────────────────────────────────────────────╮
-│  >_ Whale (v0.1.0 build 18)                            │
-│                                                        │
-│  Model:            gpt-5.1-codex-max                   │
-│  Model provider:   DeepSeek - https://api.deepseek.com │
-│  Directory: [[workspace]]                              │
-│  Permissions:      Custom (read-only, on-request)      │
-│  Agents.md:        <none>                              │
-│                                                        │
-│  Token usage:      750 total  (500 input + 250 output) │
-│  Context window:   100% left (750 used / 272K)         │
-╰────────────────────────────────────────────────────────╯
+╭─────────────────────────────────────────────────────────╮
+│  >_ Whale (v0.1.0 build 18)                             │
+│                                                         │
+│  Model:            gpt-5.1-codex-max (reasoning medium) │
+│  Model provider:   DeepSeek - https://api.deepseek.com  │
+│  Directory: [[workspace]]                               │
+│  Permissions:      Custom (read-only, on-request)       │
+│  Agents.md:        <none>                               │
+│                                                         │
+│  Token usage:      750 total  (500 input + 250 output)  │
+│  Context window:   100% left (750 used / 272K)          │
+╰─────────────────────────────────────────────────────────╯

@@ -8412,6 +8412,11 @@
     },
     {
       "classification": null,
+      "name": "codex-tui::status::tests::flash_status_omits_unsupported_reasoning_summary",
+      "result": "passed"
+    },
+    {
+      "classification": null,
       "name": "codex-tui::status::tests::status_card_token_usage_excludes_cached_tokens",
       "result": "passed"
     },
@@ -8426,9 +8431,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_cached_limits_hide_credits_without_flag",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -8441,29 +8446,29 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_includes_credits_and_limits",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_includes_forked_from",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_includes_monthly_limit",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_includes_reasoning_details",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_shows_missing_limits_message",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -8471,19 +8476,19 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_shows_refreshing_limits_notice",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_shows_stale_limits_message",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_shows_unavailable_limits_message",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -8491,19 +8496,19 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_treats_refreshing_empty_limits_as_unavailable",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_truncates_in_narrow_terminal",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::status::tests::status_snapshot_uses_default_reasoning_when_config_empty",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -9471,14 +9476,13 @@
   "schema_version": 1,
   "summary": {
     "by_classification": {
-      "functional_assertion": 1,
-      "snapshot_review": 12
+      "functional_assertion": 1
     },
     "by_result": {
-      "failed": 13,
+      "failed": 1,
       "ignored": 5,
-      "passed": 1874
+      "passed": 1887
     },
-    "test_count": 1892
+    "test_count": 1893
   }
 }
