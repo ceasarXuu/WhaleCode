@@ -11,6 +11,7 @@ use codex_models_manager::bundled_models_response;
 use codex_models_manager::manager::construct_model_info_from_candidates;
 use codex_protocol::ThreadId;
 use codex_protocol::account::PlanType;
+use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::NetworkAccess;
@@ -218,6 +219,7 @@ impl StatusHistoryCell {
         agents_summary: String,
         _refreshing_rate_limits: bool,
     ) -> (Self, StatusHistoryHandle) {
+        let model_info = resolved_model_info(config, model_name);
         let mut config_entries = vec![
             ("workdir", config.cwd.display().to_string()),
             ("model", model_name.to_string()),
@@ -237,13 +239,12 @@ impl StatusHistoryCell {
                 .map(|effort| effort.to_string())
                 .unwrap_or_else(|| "none".to_string());
             config_entries.push(("reasoning effort", effort_value));
-            config_entries.push((
-                "reasoning summaries",
-                config
+            if model_info.supports_reasoning_summaries {
+                let summary = config
                     .model_reasoning_summary
-                    .map(|summary| summary.to_string())
-                    .unwrap_or_else(|| "auto".to_string()),
-            ));
+                    .unwrap_or(model_info.default_reasoning_summary);
+                config_entries.push(("reasoning summaries", summary.to_string()));
+            }
         }
         let (model_name, model_details) = compose_model_display(model_name, &config_entries);
         let approval = config_entries
@@ -301,7 +302,7 @@ impl StatusHistoryCell {
             context_window,
         };
         let agents_summary = Arc::new(RwLock::new(agents_summary));
-        let auto_compact_token_limit = effective_auto_compact_token_limit(config, &model_name);
+        let auto_compact_token_limit = effective_auto_compact_token_limit(config, &model_info);
 
         (
             Self {
@@ -493,7 +494,7 @@ impl HistoryCell for StatusHistoryCell {
     }
 }
 
-fn effective_auto_compact_token_limit(config: &Config, model_name: &str) -> Option<i64> {
+fn resolved_model_info(config: &Config, model_name: &str) -> ModelInfo {
     let bundled_catalog = config
         .model_catalog
         .is_none()
@@ -507,11 +508,10 @@ fn effective_auto_compact_token_limit(config: &Config, model_name: &str) -> Opti
         .or(bundled_catalog.as_ref())
         .map(|catalog| catalog.models.as_slice())
         .unwrap_or_default();
-    let model_info = construct_model_info_from_candidates(
-        model_name,
-        candidates,
-        &config.to_models_manager_config(),
-    );
+    construct_model_info_from_candidates(model_name, candidates, &config.to_models_manager_config())
+}
+
+fn effective_auto_compact_token_limit(config: &Config, model_info: &ModelInfo) -> Option<i64> {
     if config.model_auto_compact_token_limit.is_some()
         || model_info.auto_compact_token_limit.is_some()
     {

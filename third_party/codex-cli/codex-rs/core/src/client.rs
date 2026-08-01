@@ -121,6 +121,7 @@ use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
 use tokio_tungstenite::tungstenite::Error;
 use tokio_tungstenite::tungstenite::Message;
+use tracing::debug;
 use tracing::instrument;
 use tracing::trace;
 use tracing::warn;
@@ -2259,14 +2260,21 @@ impl ModelClient {
         effort: Option<ReasoningEffortConfig>,
         summary: ReasoningSummaryConfig,
     ) -> Option<Reasoning> {
-        if model_info.supports_reasoning_summaries {
+        let effort = effort.or(model_info.default_reasoning_level);
+        if !model_info.supports_reasoning_summaries && summary != ReasoningSummaryConfig::None {
+            debug!(
+                model = %model_info.slug,
+                requested_summary = %summary,
+                "omitting unsupported reasoning summary from provider request"
+            );
+        }
+        if model_info.supports_reasoning_summaries || effort.is_some() {
             Some(Reasoning {
-                effort: effort.or(model_info.default_reasoning_level),
-                summary: if summary == ReasoningSummaryConfig::None {
-                    None
-                } else {
-                    Some(summary)
-                },
+                effort,
+                summary: model_info
+                    .supports_reasoning_summaries
+                    .then_some(summary)
+                    .filter(|summary| *summary != ReasoningSummaryConfig::None),
             })
         } else {
             None
@@ -2465,26 +2473,7 @@ impl ModelClientSession {
         let instructions = &prompt.base_instructions.text;
         let input = prompt.get_formatted_input();
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
-        let default_reasoning_effort = model_info.default_reasoning_level;
-        let reasoning = if model_info.supports_reasoning_summaries {
-            Some(Reasoning {
-                effort: effort.or(default_reasoning_effort),
-                summary: if summary == ReasoningSummaryConfig::None {
-                    None
-                } else {
-                    Some(summary)
-                },
-            })
-        } else if provider.wire_api == codex_api::WireApi::ChatCompletions
-            && (effort.is_some() || default_reasoning_effort.is_some())
-        {
-            Some(Reasoning {
-                effort: effort.or(default_reasoning_effort),
-                summary: None,
-            })
-        } else {
-            None
-        };
+        let reasoning = ModelClient::build_reasoning(model_info, effort, summary);
         let include = if model_info.supports_reasoning_summaries && reasoning.is_some() {
             vec!["reasoning.encrypted_content".to_string()]
         } else {

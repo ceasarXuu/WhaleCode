@@ -12,6 +12,7 @@ use codex_login::TokenData;
 use codex_login::auth::AgentIdentityAuth;
 use codex_login::auth::AgentIdentityAuthRecord;
 use codex_protocol::account::PlanType;
+use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -889,12 +890,19 @@ async fn bundled_deepseek_models_use_official_reasoning_efforts() {
             ReasoningEffort::Max
         ]
     );
+    let catalog = manager.raw_model_catalog(RefreshStrategy::Offline).await;
+    let flash_info = catalog
+        .models
+        .iter()
+        .find(|model| model.slug == "deepseek-v4-flash")
+        .expect("bundled Flash metadata should remain available internally");
+    assert!(!flash_info.supports_reasoning_summaries);
+    assert_eq!(flash_info.default_reasoning_summary, ReasoningSummary::None);
     assert!(
         models
             .iter()
             .all(|preset| preset.model != "deepseek-v4-pro")
     );
-    let catalog = manager.raw_model_catalog(RefreshStrategy::Offline).await;
     let pro = catalog
         .models
         .iter()

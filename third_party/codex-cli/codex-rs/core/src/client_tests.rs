@@ -299,6 +299,45 @@ fn named_tool_choice_preserves_requested_chat_reasoning() {
 }
 
 #[test]
+fn responses_request_preserves_effort_without_summary_support() {
+    let provider_info =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+    let api_provider = provider_info
+        .to_api_provider(/*auth_mode*/ None)
+        .expect("create responses provider");
+    let client = ModelClient::new(
+        /*auth_manager*/ None,
+        ThreadId::new(),
+        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
+        provider_info,
+        SessionSource::Cli,
+        /*model_verbosity*/ None,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+    );
+    let session = client.new_session();
+
+    let request = session
+        .build_responses_request(
+            &api_provider,
+            &Prompt::default(),
+            &test_model_info(),
+            Some(ReasoningEffort::Max),
+            ReasoningSummary::Detailed,
+            /*service_tier*/ None,
+        )
+        .expect("build responses request");
+    let reasoning = request
+        .reasoning
+        .expect("effort should keep reasoning present");
+
+    assert_eq!(reasoning.effort, Some(ReasoningEffort::Max));
+    assert_eq!(reasoning.summary, None);
+    assert!(request.include.is_empty());
+}
+
+#[test]
 fn provider_request_budget_observes_profile_hint_overrun_before_dispatch() {
     let budget = ProviderRequestBudgetContext::enabled(1, 1);
 

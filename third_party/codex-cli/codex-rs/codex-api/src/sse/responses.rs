@@ -699,6 +699,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn parses_raw_reasoning_text_delta_without_summary_events() {
+        let event: ResponsesStreamEvent = serde_json::from_value(json!({
+            "type": "response.reasoning_text.delta",
+            "delta": "raw thought",
+            "content_index": 0
+        }))
+        .expect("raw reasoning event should deserialize");
+
+        assert_matches!(
+            process_responses_event(event),
+            Ok(Some(ResponseEvent::ReasoningContentDelta {
+                delta,
+                content_index: 0
+            })) if delta == "raw thought"
+        );
+    }
+
     #[tokio::test]
     async fn parses_items_and_completed() {
         let item1 = json!({

@@ -111,6 +111,7 @@ async fn status_snapshot_includes_reasoning_details() {
     config.model = Some("gpt-5.1-codex-max".to_string());
     config.model_provider_id = "openai".to_string();
     config.model_reasoning_summary = Some(ReasoningSummary::Detailed);
+    config.model_supports_reasoning_summaries = Some(true);
     config
         .permissions
         .sandbox_policy
@@ -605,6 +606,7 @@ async fn status_snapshot_truncates_in_narrow_terminal() {
     config.model = Some("gpt-5.1-codex-max".to_string());
     config.model_provider_id = "openai".to_string();
     config.model_reasoning_summary = Some(ReasoningSummary::Detailed);
+    config.model_supports_reasoning_summaries = Some(true);
     config.cwd = test_path_buf("/workspace/tests").abs();
 
     let account_display = test_status_account_display();
@@ -760,6 +762,37 @@ async fn status_snapshot_uses_default_reasoning_when_config_empty() {
     }
     let sanitized = sanitize_directory(rendered_lines).join("\n");
     assert_snapshot!(sanitized);
+}
+
+#[tokio::test]
+async fn flash_status_omits_unsupported_reasoning_summary() {
+    let temp_home = TempDir::new().expect("temp home");
+    let mut config = test_config(&temp_home).await;
+    config.model = Some("deepseek-v4-flash".to_string());
+    config.cwd = test_path_buf("/workspace/tests").abs();
+
+    let usage = TokenUsage::default();
+    let model_slug = crate::legacy_core::test_support::get_model_offline(config.model.as_deref());
+    let token_info = token_info_for(&model_slug, &config, &usage);
+    let composite = new_status_output(
+        &config,
+        None,
+        Some(&token_info),
+        &usage,
+        &None,
+        /*thread_name*/ None,
+        /*forked_from*/ None,
+        None,
+        None,
+        chrono::Local::now(),
+        &model_slug,
+        /*collaboration_mode*/ None,
+        Some(Some(ReasoningEffort::High)),
+    );
+    let rendered = render_lines(&composite.display_lines(/*width*/ 100)).join("\n");
+
+    assert!(rendered.contains("deepseek-v4-flash (reasoning high)"));
+    assert!(!rendered.contains("summaries"));
 }
 
 #[tokio::test]
