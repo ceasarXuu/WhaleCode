@@ -1,7 +1,7 @@
 # 第二批：上游基线、overlay 账本与测试门禁工程计划
 
-- 文档状态：计划已编写，尚未实施
-- 计划模式：Plan Authoring
+- 文档状态：实施中；Phase 1 已验证，Phase 2/3 待执行
+- 计划模式：Execution Tracking
 - 创建日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - 计划基线：`fb31acff6362a67904d70fe6e7b9fc2f0c661135`
@@ -65,7 +65,7 @@
 ```text
 固定上游基线 Git tree ─┐
                         ├─ overlay generator ─ overlay-inventory.json
-当前 vendor filesystem ─┘                         │
+当前 vendor Git index ──┘                         │
                                                   ├─ sync metadata validator
 提交历史 + migration logs ─ backport-ledger.json ┘
 
@@ -77,12 +77,14 @@ Windows tests/smoke ─ evidence record ─────────────�
 
 | 工件 | 位置 | 权威内容 | 状态 |
 | --- | --- | --- | --- |
-| 上游说明 | `third_party/codex-cli/UPSTREAM.md` | 导入来源、固定基线、当前目标、账本链接 | planned |
-| overlay 清单 | `docs/v0.0.5/codex-upstream-sync/overlay-inventory.json` | vendor 相对固定基线的确定性路径差异 | planned |
-| backport 账本 | `docs/v0.0.5/codex-upstream-sync/backport-ledger.json` | 已回移 upstream/local 提交映射 | planned |
+| 上游说明 | `third_party/codex-cli/UPSTREAM.md` | 导入来源、固定基线、当前目标、账本链接 | verified |
+| overlay 清单 | `docs/v0.0.5/codex-upstream-sync/overlay-inventory.json` | vendor 相对固定基线的确定性路径差异 | verified |
+| backport 账本 | `docs/v0.0.5/codex-upstream-sync/backport-ledger.json` | 已回移 upstream/local 提交映射 | verified |
+| provenance backlog | `docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json` | 有候选来源但缺少权威证据的本地回移 | verified |
 | TUI 基线 | `docs/v0.0.5/codex-upstream-sync/tui-baseline.json` | 规范化测试集合与失败分类 | planned |
-| 同步工具 | `scripts/codex-upstream/` | 生成、验证、TUI runner、Windows runner | planned |
-| 执行记录 | `docs/migration/codex-sync/2026-08-01-upstream-baseline-and-test-gates.md` | 命令、结果、例外、证据路径 | planned |
+| metadata 同步工具 | `scripts/codex-upstream/` | inventory 生成、合同和统一校验 | verified |
+| TUI/Windows runner | `scripts/codex-upstream/` | TUI baseline 和 Windows 自动验证 | planned |
+| 执行记录 | `docs/migration/codex-sync/2026-08-01-upstream-baseline-and-test-gates.md` | 命令、结果、例外、证据路径 | partial |
 
 JSON 工件记录 schema version，但不写生成时间、绝对路径、测试耗时、随机 run id 等易变字段。所有数组按稳定键排序；同一代码状态重复生成必须逐字节一致。
 
@@ -108,7 +110,7 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 - 一个或多个分类；
 - 可追溯的本地 evidence commit 列表。
 
-初始分类词表固定为：
+实施中根据 731 条真实路径审计扩充了分类词表。高风险产品边界为：
 
 - `brand_home`
 - `provider_model`
@@ -116,11 +118,15 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 - `cache_observability`
 - `taskspace_domain`
 - `taskspace_host_hooks`
+- `multi_agent`
+- `web_tools`
 - `upstream_backport`
 - `build_release`
 - `unclassified`
 
-分类允许多标签。`unclassified` 是显式债务，并阻断 vendor refresh；工具不得通过默认归类隐藏未知路径。生成器通过 Git tree 与当前 filesystem 比较，使用 NUL 分隔的机器格式处理特殊文件名。若本地缺少固定基线对象，工具应失败并打印精确 fetch 指令，不自动添加 remote 或扩大获取范围。
+此外使用 `app_server_protocol`、`apply_patch`、`cli_surface`、`cloud_remote`、`configuration`、`instructions_skills`、`mcp`、`permission_safety`、`protocol_contract`、`provider_transport`、`sandbox_exec`、`session_context`、`tool_runtime`、`tui_experience`、`runtime_utilities`、`generated_artifact`、`developer_tooling`、`test_fixture`、`documentation` 等明确子系统标签，避免用 `build_release` 吞掉未知路径。权威枚举以 `scripts/codex-upstream/classification.py` 为准。
+
+分类允许多标签，每条记录同时输出 `matched_rule_ids`。`unclassified` 是显式债务，并阻断 vendor refresh；工具不得通过默认归类隐藏未知路径。生成器比较固定基线 tree 与当前 Git index 中的 vendor subtree，固定 `--no-renames` 并使用 NUL 分隔的机器格式处理特殊文件名。控制元数据 `UPSTREAM.md` 明确列入 `excluded_control_paths`，避免 inventory 与包含自身未知提交 SHA 的 evidence 形成递归；未来 vendor 代码变更先独立提交，再在后续元数据提交生成 inventory。evidence commit 默认保留最近 20 条并记录完整数量及截断标志，避免公共文件产生无界工件。若本地缺少固定基线对象，工具应失败并打印精确 fetch 指令，不自动添加 remote 或扩大获取范围。
 
 ### 5.2 Backport ledger
 
@@ -160,15 +166,15 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 
 ## 6. 工作单元
 
-状态仅使用 `planned`、`blocked-on-discovery`、`deferred`；实施前不得标记完成。
+计划编写阶段使用 `planned`、`blocked-on-discovery`、`deferred`；实施后只有满足验收信号的工作单元才标记 `verified`。
 
 | ID | 状态 | 工作与主要文件 | 验证与完成信号 | 依赖 |
 | --- | --- | --- | --- | --- |
-| W0 | planned | 冻结工具版本、基线/目标 SHA、当前失败列表；写执行记录表头 | Git 对象、Nextest/Insta 版本和初始命令可复现 | 无 |
-| W1 | planned | 定义 inventory/ledger/baseline JSON schema 和分类规则 | schema fixture 的正反例单测通过 | W0 |
-| W2 | planned | 实现 `generate_overlay_inventory.py`，生成首份 inventory | 连续生成逐字节相同；特殊路径 fixture 通过 | W1 |
-| W3 | planned | 从历史文档与 trailers 整理 backport ledger | 每个 upstream/local SHA、digest、路径均校验通过 | W1 |
-| W4 | planned | 实现 `validate_sync_metadata.py`，修正 `UPSTREAM.md` | 一条命令校验三份元数据且无 `unclassified` | W2、W3 |
+| W0 | verified | 冻结工具版本、基线/目标 SHA、当前失败列表；写执行记录表头 | Git 对象、Nextest/Insta 版本和初始命令可复现 | 无 |
+| W1 | verified | 定义 inventory/ledger/baseline JSON schema 和分类规则 | schema fixture 的正反例单测通过 | W0 |
+| W2 | verified | 实现 `generate_overlay_inventory.py`，生成首份 inventory | 连续生成逐字节相同；特殊路径 fixture 通过 | W1 |
+| W3 | verified | 从历史文档与 trailers 整理 backport ledger | 每个 upstream/local SHA、digest、路径均校验通过 | W1 |
+| W4 | verified | 实现 `validate_sync_metadata.py`，修正 `UPSTREAM.md` | 一条命令校验三份元数据且无 `unclassified` | W2、W3 |
 | W5 | planned | 实现 Nextest/JUnit runner 与规范化 parser | 定向栈敏感用例在 8 MiB 下稳定通过；runner 不生成 `.snap.new` | W0、W1 |
 | W6 | planned | 连续 3 次捕获当前 TUI 全量失败集合并分类 | 三次测试名集合一致；差异被标记为 flaky candidate | W5 |
 | W7 | planned | 审阅并处理 status/model/detail 类快照 | 每份 diff 有产品判断；该组定向测试归零 | W6 |

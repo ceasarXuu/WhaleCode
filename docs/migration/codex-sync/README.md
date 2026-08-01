@@ -14,3 +14,6 @@ Required fields:
 - tests run;
 - residual risks.
 
+## 执行记录
+
+- [2026-08-01：第二批上游基线与测试门禁](2026-08-01-upstream-baseline-and-test-gates.md)
