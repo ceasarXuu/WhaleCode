@@ -5,6 +5,10 @@
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
+> **推进暂停（2026-08-01）**：当前发现的问题共同依赖更底层的 TaskSpace 顶层动作承载方式。原执行序暂停，
+> 先完成 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md) 基建专题。专题实施并验证后重新盘点本表；
+> 现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
+
 ## 1. 使用规则
 
 本账本迁移 R7.1 已观测到的问题，不迁移旧根因和旧修复方案。`Source` 只用于追溯历史证据。
@@ -49,12 +53,12 @@
 | 9 | R8-I04 | F5 | P2 | Agent 有时会提前执行依赖尚未满足的任务，或继续操作已经完成的节点 | 状态机只能拒绝这些动作，造成无效请求；严重时 Agent 会误判当前可做的工作 | Agent 能准确识别当前可执行节点，并稳定完成“结束前一步后继续下一步”的合法连续动作 | queued | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 完成同类任务所需的请求、输入、时间和未缓存成本仍明显高于 Standard | 即使任务质量有收益，也可能因成本过高而缺乏商业可用性 | 在不删减语义和硬约束的前提下，把额外成本收敛到可解释、稳定且与产品收益匹配的范围 | queued | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前问题：**R8-I01**。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Tool 序列协议**；原问题队列暂停。
 
-I01 当前计划：
+I01 暂停前计划：
 [`I01/00-i01-response-final-revision-repair-plan.md`](I01/00-i01-response-final-revision-repair-plan.md)。
 
-I01 当前进展：
+I01 暂停前进展：
 
 - W0-W8 工程实现和离线验证完成：`3fbfbe6dc`、`ae36f0cbe`、`dbce3402e`、`d46b19479`、
   `9e64a3ddc`、`ad117ce24`、`cb91900c3`、`d2be70030`、`cec426afd`；

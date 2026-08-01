@@ -19,14 +19,17 @@
 1. Agent 负责目标、拆解、依赖、节点选择、动作归属、完成判断、重规划和总结。
 2. Runtime 只验证图结构、revision、节点可执行状态、Agent 声明的动作对应、原子性和底线安全规则。
 3. Runtime 不自动初始化、不代选节点、不补动作、不修改参数、不解释任务语义，也不因 Agent 可能犯错增加语义约束。
-4. Agent 为每个普通 Tool call 显式声明 `node_id`；Runtime 只在调用外层解析和绑定。
-5. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感。
+4. TaskSpace 下 Agent 只通过顶层 Tool 序列提交动作；所有原生 Tool，包括 `taskspace_control`，都位于序列内部。
+5. Agent 在序列动作外层为每个普通 Tool call 显式声明 `node_id`；Runtime 只解析，不推断或选择归属。
+6. 序列是顺序和归属的唯一表达；`taskspace_control` 不再维护 sibling Tool 的重复 action manifest。
+7. `taskspace_control` 只提供 Map 操作和读取能力，在序列与执行路径中的地位不高于普通 Tool。
+8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感。
 
 ## 3. 动作与状态硬约束
 
 1. 初始化、reopen 和非终态节点完成必须与至少一个真实后续动作位于同一 Agent response。
 2. 一个 response 可以包含多个无结果依赖的普通工具动作，并可推进多个节点。
-3. `taskspace_control` 声明的动作数量、名称、顺序和 `node_id` 必须与 sibling ordinary calls 一一对应。
+3. Runtime 在真实动作开始前一次性验证整个 Tool 序列的成员、顺序、节点归属和 Map 操作是否合法。
 4. preflight 失败时整批普通工具零执行、Map 零提交。
 5. 普通 Tool 失败保持普通 Tool 失败；Map 拒绝保持 Map 拒绝，二者不得互相伪装。
 6. `apply_patch` 保持原生顶层文本输入；一个 response 最多实际执行一个 Patch。
@@ -45,7 +48,8 @@
 
 ## 5. 工程与评测
 
-1. Standard 与 TaskSpace 的 shared ordinary Tools 必须保持一致；TaskSpace 逻辑不得污染 Standard。
+1. Standard 与 TaskSpace 共用唯一原生 Tool 定义和执行能力；Standard 保持原生顶层多 Tool 调用，TaskSpace 的
+   序列入口不得污染 Standard，也不得修改序列内部 Tool 的原生业务合同。
 2. 不保留旧 wire、旧 parser、旧状态或旧 Map 数据兼容；错误抽象直接删除。
 3. 每次只改变一个主要策略，简单和复杂样本都要检查，不能用聚合均值掩盖异常 run。
 4. 统一使用 Docker benchmark，Standard 与 TaskSpace 使用相同模型、Skills、二进制、环境和验证器。
