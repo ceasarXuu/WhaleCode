@@ -18,7 +18,9 @@ WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
 RESUME_THREAD_FAILED = 0xFFFFFFFF
 TERMINATE_PROCESS_ATTEMPTS = 3
-_RETAINED_PROCESS_HANDLES: dict[int, tuple[object, wintypes.HANDLE]] = {}
+_RETAINED_PROCESS_HANDLES: dict[
+    int, tuple[object, wintypes.HANDLE | None, wintypes.HANDLE | None]
+] = {}
 
 
 class JobObjectError(OSError):
@@ -319,21 +321,24 @@ def _terminate_and_close_created_process(
     process_id: int,
 ) -> list[str]:
     errors = []
-    terminated = False
-    for _ in range(TERMINATE_PROCESS_ATTEMPTS):
-        try:
-            terminate_requested = kernel32.TerminateProcess(process_handle, 1)
-            wait_ms = 5000 if terminate_requested else 0
-            terminated = (
-                kernel32.WaitForSingleObject(process_handle, wait_ms) == WAIT_OBJECT_0
-            )
-        except BaseException as error:
-            errors.append(
-                f"TerminateProcess attempt interrupted: {type(error).__name__}: {error}"
-            )
-        if terminated:
-            break
-    if not terminated:
+    terminated = not process_handle
+    if process_handle:
+        for _ in range(TERMINATE_PROCESS_ATTEMPTS):
+            try:
+                terminate_requested = kernel32.TerminateProcess(process_handle, 1)
+                wait_ms = 5000 if terminate_requested else 0
+                terminated = (
+                    kernel32.WaitForSingleObject(process_handle, wait_ms)
+                    == WAIT_OBJECT_0
+                )
+            except BaseException as error:
+                errors.append(
+                    "TerminateProcess attempt interrupted: "
+                    f"{type(error).__name__}: {error}"
+                )
+            if terminated:
+                break
+    if process_handle and not terminated:
         try:
             fallback = subprocess.run(
                 ["taskkill", "/PID", str(process_id), "/T", "/F"],
@@ -349,30 +354,42 @@ def _terminate_and_close_created_process(
         except BaseException as error:
             fallback_error = f"{type(error).__name__}: {error}"
         if not terminated:
-            _RETAINED_PROCESS_HANDLES[process_id] = (kernel32, process_handle)
             errors.append(
                 "TerminateProcess failed; "
                 + (fallback_error or "taskkill failed")
                 + f"; PID {process_id} handle retained"
             )
+    retained_process = process_handle if process_handle and not terminated else None
+    retained_thread = None
     handles = [("thread", thread_handle)]
-    if terminated:
-        _RETAINED_PROCESS_HANDLES.pop(process_id, None)
+    if process_handle and terminated:
         handles.append(("process", process_handle))
     for label, handle in handles:
         try:
             _close_handle(kernel32, handle)
         except BaseException as error:
             errors.append(f"{label} handle close failed: {error}")
+            if label == "process":
+                retained_process = handle
+            else:
+                retained_thread = handle
+    if retained_process or retained_thread:
+        _RETAINED_PROCESS_HANDLES[process_id] = (
+            kernel32,
+            retained_process,
+            retained_thread,
+        )
+    else:
+        _RETAINED_PROCESS_HANDLES.pop(process_id, None)
     return errors
 
 
 def retry_retained_process_cleanup() -> bool:
     """Retry and retain ownership of any suspended process left by setup failure."""
-    for process_id, (kernel32, process_handle) in list(
+    for process_id, (kernel32, process_handle, thread_handle) in list(
         _RETAINED_PROCESS_HANDLES.items()
     ):
         _terminate_and_close_created_process(
-            kernel32, process_handle, wintypes.HANDLE(), process_id
+            kernel32, process_handle, thread_handle, process_id
         )
     return not _RETAINED_PROCESS_HANDLES

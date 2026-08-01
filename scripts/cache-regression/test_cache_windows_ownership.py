@@ -93,7 +93,7 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
         kernel32.TerminateProcess.return_value = False
         kernel32.WaitForSingleObject.return_value = 0x00000102
         kernel32.CloseHandle.return_value = True
-        _RETAINED_PROCESS_HANDLES[456] = (kernel32, 100)
+        _RETAINED_PROCESS_HANDLES[456] = (kernel32, 100, None)
 
         with patch(
             "cache_windows_job.subprocess.run",
@@ -108,6 +108,22 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
         self.assertTrue(retry_retained_process_cleanup())
         self.assertNotIn(456, _RETAINED_PROCESS_HANDLES)
         kernel32.CloseHandle.assert_called_once_with(100)
+
+    def test_handle_close_failure_remains_owned_for_retry(self) -> None:
+        kernel32 = unittest.mock.Mock()
+        kernel32.TerminateProcess.return_value = True
+        kernel32.WaitForSingleObject.return_value = 0
+        kernel32.CloseHandle.side_effect = [False, False, True, True]
+        _RETAINED_PROCESS_HANDLES[456] = (kernel32, 100, 101)
+
+        with patch(
+            "cache_windows_job.ctypes.get_last_error", return_value=5, create=True
+        ):
+            self.assertFalse(retry_retained_process_cleanup())
+            self.assertEqual(_RETAINED_PROCESS_HANDLES[456], (kernel32, 100, 101))
+            self.assertTrue(retry_retained_process_cleanup())
+
+        self.assertNotIn(456, _RETAINED_PROCESS_HANDLES)
 
 
 if __name__ == "__main__":
