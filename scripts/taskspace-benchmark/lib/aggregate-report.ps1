@@ -161,6 +161,7 @@ function Write-TaskspaceAggregateReport {
                 engineering_unclean_reasons = @(Get-TaskspaceRowEngineeringUncleanReasons $row)
                 outcome_standard = if ($row.evidence.PSObject.Properties.Name -contains "outcome_standard") { [string]$row.evidence.outcome_standard } else { "" }
                 outcome_taskspace = if ($row.evidence.PSObject.Properties.Name -contains "outcome_taskspace") { [string]$row.evidence.outcome_taskspace } else { "" }
+                agent_lifecycle_eligible = if ($row.evidence.PSObject.Properties.Name -contains "agent_lifecycle_eligible") { [bool]$row.evidence.agent_lifecycle_eligible } else { $false }
                 evidence_gate_failures = @($row.evidence.evidence_gate_failures)
                 e3_gate_failures = @($row.evidence.e3_gate_failures)
             })
@@ -189,6 +190,12 @@ function Write-TaskspaceAggregateReport {
     $agentExecTimeoutCount = @($all | Where-Object {
             (@($_.evidence.outcome_standard, $_.evidence.outcome_taskspace) -contains "agent_exec_timeout") -and
             -not ($_.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$_.evidence.engineering_unclean)
+        }).Count
+    $runtimeInterruptedCount = @($all | Where-Object {
+            @($_.evidence.outcome_standard, $_.evidence.outcome_taskspace) -contains "runtime_interrupted"
+        }).Count
+    $agentLifecycleIneligibleCount = @($all | Where-Object {
+            $_.evidence.PSObject.Properties.Name -contains "agent_lifecycle_eligible" -and -not [bool]$_.evidence.agent_lifecycle_eligible
         }).Count
     $cleanComparablePairCount = @($all | Where-Object { @(Get-TaskspaceRowEngineeringUncleanReasons $_).Count -eq 0 -and -not ($_.evidence.PSObject.Properties.Name -contains "audit_required" -and [bool]$_.evidence.audit_required) }).Count
     $timingArtifact = Get-TaskspaceAggregateTimingArtifact $Path
@@ -220,6 +227,8 @@ function Write-TaskspaceAggregateReport {
         engineering_unclean_reasons = Convert-TaskspaceHashtableToObject $engineeringUncleanCounts
         audit_required_count = $auditRequiredRows.Count
         agent_exec_timeout_count = $agentExecTimeoutCount
+        runtime_interrupted_count = $runtimeInterruptedCount
+        agent_lifecycle_ineligible_count = $agentLifecycleIneligibleCount
         clean_comparable_pair_count = $cleanComparablePairCount
         score_bearing_outcomes = @("solved", "wrong", "agent_exec_timeout")
         diagnostic_comparison_enabled = $diagnosticComparisonEnabled

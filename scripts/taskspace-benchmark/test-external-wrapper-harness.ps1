@@ -7,6 +7,23 @@ $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 $failures = New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { $script:failures.Add($Message) } }
+function Write-FixtureWhale([string]$Path, [string]$Version) {
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        [IO.File]::WriteAllText(
+            $Path,
+            "@echo off`r`nif `"%1`"==`"--version`" (`r`n  echo $Version`r`n  exit /b 0`r`n)`r`nexit /b 1`r`n",
+            [Text.ASCIIEncoding]::new()
+        )
+    } else {
+        [IO.File]::WriteAllText(
+            $Path,
+            "#!/usr/bin/env sh`nif [ `"`$1`" = `"--version`" ]; then`n  echo `"$Version`"`n  exit 0`nfi`nexit 1`n",
+            [Text.UTF8Encoding]::new($false)
+        )
+        & chmod +x $Path
+        if ($LASTEXITCODE -ne 0) { throw "Cannot make fixture whale executable: $Path" }
+    }
+}
 
 $taskDir = Join-Path $runDir "terminal-bench-no-env"
 New-Item -ItemType Directory -Path $taskDir | Out-Null
@@ -17,6 +34,11 @@ category: file-operations
 '@ | Set-Content -LiteralPath (Join-Path $taskDir "task.yaml") -Encoding UTF8
 "FROM scratch" | Set-Content -LiteralPath (Join-Path $taskDir "Dockerfile") -Encoding UTF8
 "echo ok" | Set-Content -LiteralPath (Join-Path $taskDir "run-tests.sh") -Encoding UTF8
+$uvSeed = Join-Path $runDir "uv-cache-seed"
+New-Item -ItemType Directory -Path $uvSeed -Force | Out-Null
+"offline installer seed" | Set-Content -LiteralPath (Join-Path $uvSeed "install.sh") -Encoding ASCII
+"offline archive seed" | Set-Content -LiteralPath (Join-Path $uvSeed "uv-x86_64-unknown-linux-gnu.tar.gz") -Encoding ASCII
+$env:TASKSPACE_TBENCH_UV_CACHE_SOURCE = $uvSeed
 
 $runnerStub = Join-Path $runDir "external-wrapper-stub.ps1"
 @'
@@ -29,7 +51,6 @@ param(
     [int]$TimeoutSeconds,
     [int]$ValidationTimeoutSeconds,
     [string]$SourceVersion,
-    [string]$SandboxMode,
     [string[]]$ConfigOverride,
     [string]$AuditReviewRoot,
     [switch]$EnableAggregate,
@@ -43,9 +64,41 @@ if ($AllowNonE2Result) { Write-Host "stub diagnostic allowed"; exit 0 }
 Write-Host "stub target unsatisfied"
 exit 1
 '@ | Set-Content -LiteralPath $runnerStub -Encoding UTF8
-$freshWhaleBin = Join-Path $runDir "fresh-whale.exe"
-"fake fresh whale" | Set-Content -LiteralPath $freshWhaleBin -Encoding UTF8
+$fixtureSuffix = if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) { ".cmd" } else { "" }
+$freshWhaleBin = Join-Path $runDir "fresh-whale$fixtureSuffix"
+Write-FixtureWhale $freshWhaleBin "whale fixture fresh"
 (Get-Item -LiteralPath $freshWhaleBin).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(1)
+. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+$freshUnattestedHealth = New-TaskspaceWhaleBinaryHealth $freshWhaleBin $repoRoot
+Assert-True ([string]$freshUnattestedHealth.status -eq "fail") "fresh-mtime binary without attestation was accepted"
+Assert-True ([string]@($freshUnattestedHealth.findings)[0].stable_code -eq "whale_binary_attestation_invalid") "fresh-mtime binary provenance failure did not use the stable attestation code"
+Write-TaskspaceWhaleBinaryAttestation $freshWhaleBin $repoRoot "fixture build" | Out-Null
+$freshAttestedHealth = New-TaskspaceWhaleBinaryHealth $freshWhaleBin $repoRoot
+Assert-True ([string]$freshAttestedHealth.status -eq "pass") "fresh-mtime binary with matching attestation was rejected"
+
+. (Join-Path $PSScriptRoot "lib\source-guard.ps1")
+$sensitiveSource = Join-Path $runDir "sensitive-validator.txt"
+"hidden validator" | Set-Content -LiteralPath $sensitiveSource -Encoding UTF8
+$sourceGuardPairDir = Join-Path $runDir "source-guard-pair"
+New-Item -ItemType Directory -Path $sourceGuardPairDir -Force | Out-Null
+$sourceGuard = Protect-TaskspaceExternalSensitiveSource ([pscustomobject]@{
+        ScenarioRoot = $runDir
+        ExternalBenchmark = [pscustomobject]@{
+            adapter_metadata = [pscustomobject]@{
+                sensitive_source_files = @($sensitiveSource)
+            }
+        }
+    }) $sourceGuardPairDir
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+    Assert-True ([bool]$sourceGuard.active) "source guard should use POSIX chmod on non-Windows hosts"
+    Assert-True ([string]$sourceGuard.guard_method -eq "posix_chmod_no_permissions") "source guard did not record POSIX chmod method"
+    Assert-True ([bool]$sourceGuard.all_reads_denied_after_protect) "POSIX source guard did not deny reads"
+} else {
+    Assert-True ([bool]$sourceGuard.active) "source guard should stay active on Windows hosts"
+    Assert-True ([string]$sourceGuard.guard_method -eq "windows_icacls_deny_read") "source guard did not record Windows ACL method"
+}
+$sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
+Assert-True ([bool]$sourceGuard.all_denies_removed_after_release -and [bool]$sourceGuard.all_reads_restored_after_release) "source guard did not restore protected source reads"
 
 $wrapperRunRoot = Join-Path $runDir "wrapper-runs"
 $defaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $taskDir -SourceVersion "pinned" -RunRoot $wrapperRunRoot -RunnerPath $runnerStub -WhaleBin $freshWhaleBin 2>&1
@@ -56,8 +109,8 @@ Assert-True (($diagnosticOutput -join "`n") -match "DiagnosticNonTargetResultAll
 Assert-True (($diagnosticOutput -join "`n") -match "validation_timeout=77") "external benchmark wrapper did not pass validation timeout separately"
 Assert-True (($diagnosticOutput -join "`n") -match "source_version=pinned") "external benchmark wrapper did not pass source version to runner"
 
-$staleWhaleBin = Join-Path $runDir "stale-whale.exe"
-"fake stale whale" | Set-Content -LiteralPath $staleWhaleBin -Encoding UTF8
+$staleWhaleBin = Join-Path $runDir "stale-whale$fixtureSuffix"
+Write-FixtureWhale $staleWhaleBin "whale fixture stale"
 (Get-Item -LiteralPath $staleWhaleBin).LastWriteTimeUtc = ([DateTimeOffset]::FromUnixTimeSeconds(0)).UtcDateTime
 $staleRunRoot = Join-Path $runDir "stale-wrapper-run"
 $staleOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $taskDir -SourceVersion "pinned" -RunRoot $staleRunRoot -RunnerPath $runnerStub -WhaleBin $staleWhaleBin 2>&1
@@ -65,19 +118,69 @@ Assert-True ($LASTEXITCODE -eq 3) "external benchmark wrapper did not reject sta
 Assert-True (($staleOutput -join "`n") -match "WhaleBinaryHealth:") "external benchmark wrapper did not print stale binary health path"
 $staleSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $staleRunRoot "sample-status.json") | ConvertFrom-Json
 Assert-True ([string]$staleSampleStatus.run_validity -eq "invalid_harness") "stale whale binary was not classified as invalid_harness"
-Assert-True ([string]$staleSampleStatus.abort_reason -eq "whale_binary_stale_for_codex_source") "stale whale binary abort reason was not stable"
+Assert-True ([string]$staleSampleStatus.abort_reason -eq "whale_binary_attestation_invalid") "stale whale binary abort reason was not stable"
 
-$directRunRoot = Join-Path $runDir "direct-stale-run"
-$directOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-benchmark.ps1") -Scenario single-file-fast-fix -RunRoot $directRunRoot -WhaleBin $staleWhaleBin 2>&1
-Assert-True ($LASTEXITCODE -eq 3) "direct benchmark runner did not reject stale whale binary"
-Assert-True (($directOutput -join "`n") -match "WhaleBinaryHealth:") "direct benchmark runner did not print stale binary health path"
-$directStatusPath = Get-ChildItem -LiteralPath $directRunRoot -Filter "sample-status.json" -Recurse | Select-Object -First 1
-Assert-True ($null -ne $directStatusPath) "direct benchmark runner did not write sample-status for stale whale binary"
-if ($directStatusPath) {
-    $directSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $directStatusPath.FullName | ConvertFrom-Json
-    Assert-True ([string]$directSampleStatus.abort_phase -eq "whale_binary_preflight") "direct stale whale binary abort phase was not stable"
-    Assert-True ([string]$directSampleStatus.abort_reason -eq "whale_binary_stale_for_codex_source") "direct stale whale binary abort reason was not stable"
+$directStaleWhaleBin = Join-Path $runDir "direct-stale-whale$fixtureSuffix"
+Write-FixtureWhale $directStaleWhaleBin "whale fixture direct stale"
+(Get-Item -LiteralPath $directStaleWhaleBin).LastWriteTimeUtc = ([DateTimeOffset]::FromUnixTimeSeconds(0)).UtcDateTime
+$directStaleRunRoot = Join-Path $runDir "direct-unattested-stale-run"
+$directStaleOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-benchmark.ps1") -Scenario single-file-fast-fix -RunRoot $directStaleRunRoot -WhaleBin $directStaleWhaleBin 2>&1
+Assert-True ($LASTEXITCODE -eq 3) "direct benchmark runner did not reject unattested stale whale binary"
+Assert-True (($directStaleOutput -join "`n") -match "WhaleBinaryHealth:") "direct benchmark runner did not print stale binary health path"
+$directStaleStatusPath = Get-ChildItem -LiteralPath $directStaleRunRoot -Filter "sample-status.json" -Recurse | Select-Object -First 1
+Assert-True ($null -ne $directStaleStatusPath) "direct benchmark runner did not write sample-status for stale whale binary"
+if ($directStaleStatusPath) {
+    $directStaleSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $directStaleStatusPath.FullName | ConvertFrom-Json
+    Assert-True ([string]$directStaleSampleStatus.abort_phase -eq "whale_binary_preflight") "direct stale whale binary abort phase was not stable"
+    Assert-True ([string]$directStaleSampleStatus.abort_reason -eq "whale_binary_attestation_invalid") "direct stale whale binary abort reason was not stable"
 }
+
+$providerRunRoot = Join-Path $runDir "provider-credential-run"
+$savedDeepSeekApiKey = $env:DEEPSEEK_API_KEY
+Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
+try {
+    $providerOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-benchmark.ps1") -Scenario single-file-fast-fix -RunRoot $providerRunRoot -WhaleBin $freshWhaleBin -Model deepseek-v4-flash 2>&1
+    $providerExitCode = $LASTEXITCODE
+} finally {
+    if ($null -ne $savedDeepSeekApiKey) {
+        $env:DEEPSEEK_API_KEY = $savedDeepSeekApiKey
+    } else {
+        Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
+    }
+}
+Assert-True ($providerExitCode -eq 3) "direct benchmark runner did not fail fast when DEEPSEEK_API_KEY was missing"
+Assert-True (($providerOutput -join "`n") -match "ProviderCredentialHealth:") "direct benchmark runner did not print provider credential health path"
+$providerStatusPath = Get-ChildItem -LiteralPath $providerRunRoot -Filter "sample-status.json" -Recurse | Select-Object -First 1
+Assert-True ($null -ne $providerStatusPath) "direct benchmark runner did not write sample-status for missing provider credential"
+if ($providerStatusPath) {
+    $providerSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $providerStatusPath.FullName | ConvertFrom-Json
+    Assert-True ([string]$providerSampleStatus.abort_phase -eq "provider_credential_preflight") "missing provider credential abort phase was not stable"
+    Assert-True ([string]$providerSampleStatus.abort_reason -eq "provider_credential_missing") "missing provider credential abort reason was not stable"
+}
+$providerHealthPath = Get-ChildItem -LiteralPath $providerRunRoot -Filter "provider-credential-preflight-health.json" -Recurse | Select-Object -First 1
+Assert-True ($null -ne $providerHealthPath) "direct benchmark runner did not write provider credential health artifact"
+if ($providerHealthPath) {
+    $providerHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath $providerHealthPath.FullName | ConvertFrom-Json
+    Assert-True ([string]$providerHealth.status -eq "fail") "provider credential health did not fail"
+    Assert-True ([string]$providerHealth.run_validity -eq "invalid_harness") "provider credential health did not mark invalid_harness"
+    Assert-True ([string]@($providerHealth.findings)[0].stable_code -eq "provider_credential_missing") "provider credential health did not record stable missing-key code"
+}
+
+$attestationOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-whale-binary-attestation.ps1") -WhaleBin $staleWhaleBin -BuildCommand "fixture build" 2>&1
+Assert-True ($LASTEXITCODE -eq 0) "whale binary attestation writer failed: $($attestationOutput -join ' | ')"
+$attestedRunRoot = Join-Path $runDir "attested-stale-wrapper-run"
+$attestedOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $taskDir -SourceVersion "pinned" -RunRoot $attestedRunRoot -RunnerPath $runnerStub -WhaleBin $staleWhaleBin 2>&1
+Assert-True ($LASTEXITCODE -eq 1) "attested stale-mtime whale binary should pass preflight and expose the stub target failure"
+Assert-True (($attestedOutput -join "`n") -notmatch "WhaleBinaryHealth:") "attested stale-mtime whale binary was still rejected by preflight"
+$attestedHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $attestedRunRoot "whale-binary-preflight-health.json") | ConvertFrom-Json
+Assert-True ([string]$attestedHealth.status -eq "pass") "attested stale-mtime whale binary health did not pass"
+Assert-True ([string]$attestedHealth.build_attestation_status -eq "pass") "attested stale-mtime whale binary did not record passing attestation"
+Assert-True (-not [bool]$attestedHealth.stale_for_codex_source) "attested stale-mtime whale binary remained stale_for_codex_source"
+
+$directAttestedHealth = New-TaskspaceWhaleBinaryHealth $staleWhaleBin $repoRoot
+Assert-True ([string]$directAttestedHealth.status -eq "pass") "direct binary health rejected attested stale-mtime whale binary"
+Assert-True ([string]$directAttestedHealth.build_attestation_status -eq "pass") "direct binary health did not consume attestation"
+Assert-True (-not [bool]$directAttestedHealth.stale_for_codex_source) "direct binary health still marked attested binary stale"
 
 if ($failures.Count -gt 0) {
     Write-Host "TaskSpace external wrapper self-test: FAIL"

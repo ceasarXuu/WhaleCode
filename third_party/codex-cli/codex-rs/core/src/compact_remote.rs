@@ -169,7 +169,7 @@ async fn run_remote_compact_task_inner_impl(
         input: prompt_input,
         tools: tool_router.model_visible_specs(),
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
-        tool_choice: "auto".to_string(),
+        tool_choice: "auto".into(),
         base_instructions,
         personality: turn_context.personality,
         output_schema: None,
@@ -225,8 +225,13 @@ async fn run_remote_compact_task_inner_impl(
         input_history: &trace_input_history,
         replacement_history: &new_history,
     });
-    sess.replace_compacted_history(new_history, reference_context_item, compacted_item)
-        .await;
+    sess.replace_compacted_history(
+        turn_context,
+        new_history,
+        reference_context_item,
+        compacted_item,
+    )
+    .await;
     sess.recompute_token_usage(turn_context).await;
 
     sess.emit_turn_item_completed(turn_context, compaction_item)

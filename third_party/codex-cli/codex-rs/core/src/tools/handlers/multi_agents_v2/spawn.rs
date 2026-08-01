@@ -5,15 +5,10 @@ use crate::agent::control::render_input_preview;
 use crate::agent::next_thread_spawn_depth;
 use crate::agent::role::DEFAULT_ROLE_NAME;
 use crate::agent::role::apply_role_to_config;
-use crate::session::session::Session;
 use crate::session::turn_context::TurnEnvironment;
 use codex_protocol::AgentPath;
-use codex_protocol::ThreadId;
 use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::protocol::Op;
-use codex_protocol::protocol::SessionSource;
-use codex_protocol::protocol::SubAgentSource;
-use std::sync::Arc;
 
 pub(crate) struct Handler;
 
@@ -53,9 +48,10 @@ impl ToolHandler for Handler {
                 "Agent depth limit reached. Solve the task yourself.".to_string(),
             ));
         }
-        prepare_taskspace_nested_spawn(&session, session.conversation_id, &session_source).await?;
-        let mut config =
-            build_agent_spawn_config(&session.get_base_instructions().await, turn.as_ref())?;
+        let mut config = build_agent_spawn_config(
+            &session.get_standard_base_instructions().await,
+            turn.as_ref(),
+        )?;
         if matches!(fork_mode, Some(SpawnAgentForkMode::FullHistory)) {
             reject_full_fork_spawn_overrides(
                 role_name,
@@ -78,29 +74,11 @@ impl ToolHandler for Handler {
         apply_spawn_agent_runtime_overrides(&mut config, turn.as_ref())?;
         apply_spawn_agent_overrides(&mut config, child_depth);
 
-        let action_map_assignment = session
-            .prepare_action_map_spawn_assignment(&turn, &args.task_name, args.node_id.as_deref())
-            .await
-            .map_err(FunctionCallError::RespondToModel)?;
-        let message = match action_map_assignment.as_ref() {
-            Some(assignment) => format!("{}{}", assignment.message_prefix, args.message),
-            None => args.message,
-        };
+        let message = args.message;
         let effective_task_name = args.task_name.clone();
         let initial_operation = match parse_collab_input(Some(message), /*items*/ None) {
             Ok(initial_operation) => initial_operation,
-            Err(err) => {
-                if let Some(assignment) = action_map_assignment.as_ref() {
-                    session
-                        .release_action_map_assignment(
-                            &turn,
-                            &assignment.lease_id,
-                            "invalid_spawn_input",
-                        )
-                        .await;
-                }
-                return Err(err);
-            }
+            Err(err) => return Err(err),
         };
         let prompt = render_input_preview(&initial_operation);
         session
@@ -125,18 +103,7 @@ impl ToolHandler for Handler {
             Some(effective_task_name),
         ) {
             Ok(spawn_source) => spawn_source,
-            Err(err) => {
-                if let Some(assignment) = action_map_assignment.as_ref() {
-                    session
-                        .release_action_map_assignment(
-                            &turn,
-                            &assignment.lease_id,
-                            "invalid_spawn_source",
-                        )
-                        .await;
-                }
-                return Err(err);
-            }
+            Err(err) => return Err(err),
         };
         let result = session
             .services
@@ -209,25 +176,6 @@ impl ToolHandler for Handler {
                 ),
                 (None, None) => (None, None, None),
             };
-        if let Some(assignment) = action_map_assignment.as_ref() {
-            if let Some(thread_id) = new_thread_id {
-                session
-                    .attach_action_map_assignment(
-                        &turn,
-                        &assignment.lease_id,
-                        thread_id,
-                        new_agent_path.clone(),
-                    )
-                    .await;
-                session
-                    .record_final_action_map_child_result_if_needed(thread_id)
-                    .await;
-            } else {
-                session
-                    .release_action_map_assignment(&turn, &assignment.lease_id, "spawn_failed")
-                    .await;
-            }
-        }
         let effective_model = agent_snapshot
             .as_ref()
             .map(|snapshot| snapshot.model.clone())
@@ -284,51 +232,11 @@ impl ToolHandler for Handler {
 struct SpawnAgentArgs {
     message: String,
     task_name: String,
-    node_id: Option<String>,
     agent_type: Option<String>,
     model: Option<String>,
     reasoning_effort: Option<ReasoningEffort>,
     fork_turns: Option<String>,
     fork_context: Option<bool>,
-}
-
-#[cfg(test)]
-fn safe_agent_task_name(node_id: &str) -> String {
-    let task_name = node_id
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    if task_name.is_empty() {
-        "node".to_string()
-    } else {
-        task_name
-    }
-}
-
-async fn prepare_taskspace_nested_spawn(
-    session: &Arc<Session>,
-    child_thread_id: ThreadId,
-    session_source: &SessionSource,
-) -> Result<(), FunctionCallError> {
-    let SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
-        parent_thread_id, ..
-    }) = session_source
-    else {
-        return Ok(());
-    };
-    session
-        .services
-        .agent_control
-        .prepare_action_map_child_spawn(*parent_thread_id, child_thread_id)
-        .await
-        .map_err(FunctionCallError::RespondToModel)?;
-    Ok(())
 }
 
 impl SpawnAgentArgs {
@@ -410,19 +318,5 @@ impl ToolOutput for SpawnAgentResult {
 
     fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
         tool_output_code_mode_result(self, "spawn_agent")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::safe_agent_task_name;
-
-    #[test]
-    fn safe_agent_task_name_normalizes_node_ids_for_agent_paths() {
-        assert_eq!(safe_agent_task_name("node-1"), "node_1");
-        assert_eq!(safe_agent_task_name("define_scope"), "define_scope");
-        assert_eq!(safe_agent_task_name("Node-1.External"), "_ode_1__xternal");
-        assert_eq!(safe_agent_task_name("----"), "____");
-        assert_eq!(safe_agent_task_name(""), "node");
     }
 }

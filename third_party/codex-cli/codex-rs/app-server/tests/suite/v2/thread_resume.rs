@@ -1036,6 +1036,9 @@ async fn thread_resume_token_usage_replay_can_belong_to_interrupted_turn() -> Re
                     model_context_window: Some(200_000),
                 }),
                 rate_limits: None,
+                provider_request_id: None,
+                provider_logical_request_id: None,
+                provider_attempt_seq: None,
             }))?,
         })
         .to_string(),
@@ -1201,6 +1204,8 @@ stream_max_retries = 0
         base_instructions: None,
         dynamic_tools: None,
         memory_mode: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
     };
     std::fs::write(
         &rollout_path,

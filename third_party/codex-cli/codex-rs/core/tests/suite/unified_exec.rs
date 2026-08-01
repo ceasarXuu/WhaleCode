@@ -615,7 +615,7 @@ async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
     })
     .await;
 
-    assert_eq!(end_event.exit_code, 0);
+    assert_eq!(end_event.shell_exit_code, Some(0));
     assert!(
         end_event.aggregated_output.contains("END-EVENT"),
         "expected aggregated output to contain marker"
@@ -768,7 +768,7 @@ async fn unified_exec_full_lifecycle_with_background_end_event() -> Result<()> {
 
     let end_event = end_event.expect("expected ExecCommandEnd event");
     assert_eq!(end_event.call_id, call_id);
-    assert_eq!(end_event.exit_code, 0);
+    assert_eq!(end_event.shell_exit_code, Some(0));
     assert!(
         end_event.process_id.is_some(),
         "end event should include process_id emitted by background watcher"
@@ -1028,7 +1028,7 @@ async fn unified_exec_terminal_interaction_captures_delayed_output() -> Result<(
 
     let end_event = end_event.expect("expected ExecCommandEnd event");
     assert_eq!(end_event.call_id, open_call_id);
-    assert_eq!(end_event.exit_code, 0);
+    assert_eq!(end_event.shell_exit_code, Some(0));
     assert!(
         end_event.process_id.is_some(),
         "end event should include the process_id"
@@ -1856,7 +1856,7 @@ async fn unified_exec_emits_end_event_when_session_dies_via_stdin() -> Result<()
     })
     .await;
 
-    assert_eq!(end_event.exit_code, 0);
+    assert_eq!(end_event.shell_exit_code, Some(0));
 
     wait_for_event(&test.codex, |event| {
         matches!(event, EventMsg::TurnComplete(_))

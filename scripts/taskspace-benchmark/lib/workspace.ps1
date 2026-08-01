@@ -1,10 +1,22 @@
 function New-TaskspaceBenchmarkRun {
     param(
         [Parameter(Mandatory = $true)][string]$RunRoot,
-        [Parameter(Mandatory = $true)][string]$ScenarioId
+        [Parameter(Mandatory = $true)][string]$ScenarioId,
+        [string]$RunId = ""
     )
-    $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
-    New-Dir (Join-Path $RunRoot "$ScenarioId\$stamp")
+    $leaf = if ([string]::IsNullOrWhiteSpace($RunId)) {
+        Get-Date -Format "yyyyMMdd-HHmmss-fff"
+    } else {
+        if ($RunId -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$') {
+            throw "benchmark_run_id_invalid: RunId must be a single safe path segment"
+        }
+        $RunId
+    }
+    $path = Join-Path $RunRoot "$ScenarioId\$leaf"
+    if (Test-Path -LiteralPath $path) {
+        throw "benchmark_run_id_already_exists: $path"
+    }
+    New-Dir $path
 }
 
 function Get-NeutralTaskspaceBenchmarkRunRoot {
@@ -29,6 +41,7 @@ function Initialize-TaskspaceRepoBaseline {
         Invoke-TaskspaceWorkspaceGit @("config", "user.name", "TaskSpace Benchmark")
         Invoke-TaskspaceWorkspaceGit @("add", ".")
         Invoke-TaskspaceWorkspaceGit @("commit", "-m", "baseline fixture")
+        Invoke-TaskspaceWorkspaceGit @("update-ref", "refs/taskspace-benchmark/baseline", "HEAD")
         Invoke-TaskspaceWorkspaceGit @("fsck", "--no-progress")
         $status = Invoke-TaskspaceWorkspaceGit @("status", "--porcelain") -PassThru
         if ($status) { throw "workspace_baseline_dirty: $status" }
@@ -83,6 +96,7 @@ function New-TaskspacePairWorkspace {
     $sides = @{}
     foreach ($side in @("left", "right")) {
         $sideRoot = New-Dir (Join-Path $repeatDir $side)
+        $runnerPrivateDir = New-Dir (Join-Path $repeatDir "_runner-private\$side")
         $aliasRoot = ""
         $repoDir = if ($needsTerminalBenchAppAlias) {
             $aliasRoot = $sideRoot
@@ -99,6 +113,7 @@ function New-TaskspacePairWorkspace {
             RepoDir = $repoDir
             ExecutionAliasRoot = $aliasRoot
             ArtifactDir = $artifactDir
+            RunnerPrivateDir = $runnerPrivateDir
         }
     }
     $mapPath = Join-Path $repeatDir "logical-mode-map.json"
@@ -130,7 +145,18 @@ function Mount-TaskspaceExecutionAlias {
     param([Parameter(Mandatory = $true)]$Side)
     $aliasRoot = if ($Side.PSObject.Properties.Name -contains "ExecutionAliasRoot") { [string]$Side.ExecutionAliasRoot } else { "" }
     if ([string]::IsNullOrWhiteSpace($aliasRoot)) {
-        return [pscustomobject]@{ mounted = $false; drive = ""; execution_repo_dir = $Side.RepoDir }
+        return [pscustomobject]@{ mounted = $false; drive = ""; execution_repo_dir = $Side.RepoDir; app_root_alias = ""; app_root_alias_env = "" }
+    }
+    if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+        return [pscustomobject]@{
+            mounted = $false
+            drive = ""
+            alias_root = $aliasRoot
+            execution_repo_dir = $Side.RepoDir
+            mount_strategy = "direct_repo_dir_non_windows"
+            app_root_alias = "/app"
+            app_root_alias_env = ""
+        }
     }
     $drive = Get-TaskspaceFreeSubstDrive
     & subst $drive $aliasRoot
@@ -140,6 +166,8 @@ function Mount-TaskspaceExecutionAlias {
         drive = $drive
         alias_root = $aliasRoot
         execution_repo_dir = (Join-Path "$drive\" "app")
+        app_root_alias = "/app"
+        app_root_alias_env = ""
     }
 }
 
@@ -363,24 +391,43 @@ function New-TaskspaceWhaleArgv {
         [Parameter(Mandatory = $true)][string]$Model,
         [Parameter(Mandatory = $true)][string]$RepoDir,
         [Parameter(Mandatory = $true)][string]$LastMessagePath,
-        [string]$SandboxMode = "bypass",
-        [string[]]$ConfigOverrides = @()
+        [string[]]$ConfigOverrides = @(),
+        [ValidateSet("map-always", "map-append", "map-request")]
+        [string]$TaskSpaceProjectionPolicy = "map-request"
     )
+    $projectionOverrides = @($ConfigOverrides | Where-Object { ([string]$_).Trim() -match '^taskspace_projection_policy\s*=' })
+    if ($projectionOverrides.Count -gt 0) {
+        throw "Use -TaskSpaceProjectionPolicy instead of a generic taskspace_projection_policy config override."
+    }
+    $effectiveConfigOverrides = @($ConfigOverrides)
+    if ($LogicalMode -eq "taskspace") {
+        $effectiveConfigOverrides += "taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`""
+    }
     $args = @("exec", "--json")
     if ($LogicalMode -eq "taskspace") { $args += "--taskspace" }
-    foreach ($override in @($ConfigOverrides)) { $args += @("-c", $override) }
+    foreach ($override in $effectiveConfigOverrides) { $args += @("-c", $override) }
     $args += @("-m", $Model, "-C", $RepoDir)
-    if ($SandboxMode -eq "full-auto") {
-        $args += "--full-auto"
-    } elseif ($SandboxMode -eq "workspace-write") {
-        $args += @("--sandbox", "workspace-write")
-    } elseif ($SandboxMode -eq "bypass") {
-        $args += "--dangerously-bypass-approvals-and-sandbox"
-    } else {
-        throw "Unsupported sandbox mode: $SandboxMode"
-    }
+    $args += "--dangerously-bypass-approvals-and-sandbox"
     $args += @("--output-last-message", $LastMessagePath, "-")
     @($args)
+}
+
+function Get-TaskspaceCommonArgvWithoutTreatment {
+    param([Parameter(Mandatory = $true)][string[]]$Argv)
+    $common = @()
+    for ($index = 0; $index -lt $Argv.Count; $index++) {
+        if ($Argv[$index] -eq "--taskspace") {
+            continue
+        }
+        if ($Argv[$index] -eq "-c" -and
+            $index + 1 -lt $Argv.Count -and
+            $Argv[$index + 1] -match '^taskspace_projection_policy\s*=') {
+            $index++
+            continue
+        }
+        $common += $Argv[$index]
+    }
+    @($common)
 }
 
 function Get-NormalizedTaskspaceWhaleArgv {

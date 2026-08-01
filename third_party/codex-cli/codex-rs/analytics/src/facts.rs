@@ -219,7 +219,7 @@ pub enum CompactionReason {
 pub enum CompactionImplementation {
     Responses,
     ResponsesCompact,
-    DeepseekPro,
+    Deepseek,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]

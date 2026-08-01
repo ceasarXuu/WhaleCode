@@ -435,7 +435,7 @@ async fn shell_escalated_permissions_rejected_then_ok() -> Result<()> {
         .expect("success output string");
     let output_json: Value = serde_json::from_str(&success_output)?;
     assert_eq!(
-        output_json["metadata"]["exit_code"].as_i64(),
+        output_json["metadata"]["shell_exit_code"].as_i64(),
         Some(0),
         "expected exit code 0 after rerunning without escalation",
     );
@@ -495,13 +495,10 @@ async fn sandbox_denied_shell_returns_original_output() -> Result<()> {
     let output_text = mock
         .function_call_output_text(call_id)
         .context("shell output present")?;
-    let exit_code_line = output_text
+    let exit_code = output_text
         .lines()
-        .next()
-        .context("exit code line present")?;
-    let exit_code = exit_code_line
-        .strip_prefix("Exit code: ")
-        .context("exit code prefix present")?
+        .find_map(|line| line.strip_prefix("Shell exit code: "))
+        .context("shell exit code present")?
         .trim()
         .parse::<i32>()
         .context("exit code is integer")?;
@@ -607,13 +604,10 @@ async fn shell_enforces_glob_deny_read_policy() -> Result<()> {
     let output_text = mock
         .function_call_output_text(call_id)
         .context("shell output present")?;
-    let exit_code_line = output_text
+    let exit_code = output_text
         .lines()
-        .next()
-        .context("exit code line present")?;
-    let exit_code = exit_code_line
-        .strip_prefix("Exit code: ")
-        .context("exit code prefix present")?
+        .find_map(|line| line.strip_prefix("Shell exit code: "))
+        .context("shell exit code present")?
         .trim()
         .parse::<i32>()
         .context("exit code is integer")?;
@@ -752,26 +746,18 @@ async fn shell_timeout_includes_timeout_prefix_and_metadata() -> Result<()> {
         .and_then(Value::as_str)
         .expect("timeout output string");
 
-    // The exec path can report a timeout in two ways depending on timing:
-    // 1) Structured JSON with exit_code 124 and a timeout prefix (preferred), or
-    // 2) A plain error string if the child is observed as killed by a signal first.
-    if let Ok(output_json) = serde_json::from_str::<Value>(output_str) {
-        assert_eq!(
-            output_json["metadata"]["exit_code"].as_i64(),
-            Some(124),
-            "expected timeout exit code 124",
-        );
+    let output_json: Value = serde_json::from_str(output_str)?;
+    assert_eq!(
+        output_json["metadata"]["execution_outcome"].as_str(),
+        Some("timed_out"),
+    );
+    assert!(output_json["metadata"]["shell_exit_code"].is_null());
 
-        let stdout = output_json["output"].as_str().unwrap_or_default();
-        assert!(
-            stdout.contains("command timed out"),
-            "timeout output missing `command timed out`: {stdout}"
-        );
-    } else {
-        // Fallback: accept the signal classification path to deflake the test.
-        let signal_pattern = r"(?is)^execution error:.*signal.*$";
-        assert_regex_match(signal_pattern, output_str);
-    }
+    let stdout = output_json["output"].as_str().unwrap_or_default();
+    assert!(
+        stdout.contains("command timed out"),
+        "timeout output missing `command timed out`: {stdout}"
+    );
 
     Ok(())
 }
@@ -848,16 +834,10 @@ time.sleep(60)
     .context("exec call should not hang waiting for grandchild pipes to close")??;
     let elapsed = start.elapsed();
 
-    if let Ok(output_json) = serde_json::from_str::<Value>(&output_str) {
-        assert_eq!(
-            output_json["metadata"]["exit_code"].as_i64(),
-            Some(124),
-            "expected timeout exit code 124",
-        );
-    } else {
-        let timeout_pattern = r"(?is)command timed out|timeout";
-        assert_regex_match(timeout_pattern, &output_str);
-    }
+    assert!(output_str.contains("Execution outcome: timed_out"));
+    assert!(output_str.contains("Shell exit code: unavailable"));
+    assert!(output_str.contains("Pipeline stage exit codes: unavailable"));
+    assert!(output_str.contains("command timed out"));
 
     assert!(
         elapsed < Duration::from_secs(9),
@@ -932,11 +912,17 @@ async fn shell_spawn_failure_truncates_exec_error() -> Result<()> {
         .and_then(Value::as_str)
         .expect("spawn failure output string");
 
-    let spawn_error_pattern = r#"(?s)^Exit code: -?\d+
+    let spawn_error_pattern = r#"(?s)^Execution outcome: spawn_failed
+Shell exit code: unavailable
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 execution error: .*$"#;
-    let spawn_truncated_pattern = r#"(?s)^Exit code: -?\d+
+    let spawn_truncated_pattern = r#"(?s)^Execution outcome: spawn_failed
+Shell exit code: unavailable
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Total output lines: \d+
 Output:

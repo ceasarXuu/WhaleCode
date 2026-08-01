@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\run-state.ps1")
+. (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
@@ -35,7 +36,8 @@ function New-Metrics {
         [bool]$PublicValidationSkipped = $false,
         [string]$PublicValidationSkipReason = "",
         [string]$PreAgentProbeStatus = "",
-        [string]$PreAgentProbeHash = ""
+        [string]$PreAgentProbeHash = "",
+        [string[]]$ActiveSentinelWarningTypes = @()
     )
     [pscustomobject]@{
         mode = $Mode
@@ -43,6 +45,9 @@ function New-Metrics {
         business_success = $Success
         exec_exit_code = 0
         exec_timed_out = $ExecTimedOut
+        agent_final_observed = $true
+        agent_completion_source = "fixture_agent_final"
+        last_agent_message_source = "agent_message"
         public_validation_exit_code = $PublicExit
         hidden_oracle_exit_code = 0
         wall_time_ms = 1000
@@ -52,6 +57,8 @@ function New-Metrics {
         public_validation_skip_reason = $PublicValidationSkipReason
         pre_agent_validator_probe_status = $PreAgentProbeStatus
         pre_agent_validator_probe_hash = $PreAgentProbeHash
+        active_sentinel_warning_count = @($ActiveSentinelWarningTypes).Count
+        active_sentinel_warning_types = @($ActiveSentinelWarningTypes)
         metrics_taints = @()
         pretest_failure = $PretestFailure
         tests_started_seen = (-not $PretestFailure)
@@ -77,10 +84,47 @@ Assert-Outcome "clean solved" (New-Metrics "left" "standard" -Success $true -Pub
 Assert-Outcome "clean wrong" (New-Metrics "left" "standard" -Success $false -PublicExit 2) "wrong" $true
 Assert-Outcome "clean agent timeout" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 1) "agent_exec_timeout" $true
 Assert-Outcome "clean agent timeout with validation skip" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "passed" -PreAgentProbeHash ("a" * 64)) "agent_exec_timeout" $true
+Assert-Outcome "clean agent timeout suppresses stale validator sentinel" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "passed" -PreAgentProbeHash ("a" * 64) -ActiveSentinelWarningTypes @("validator_failure")) "agent_exec_timeout" $true
+Assert-Outcome "completed validation suppresses internal validator sentinel" (New-Metrics "left" "taskspace" -PublicExit 1 -ActiveSentinelWarningTypes @("validator_failure")) "wrong" $true
+Assert-Outcome "no-tests validator sentinel stays unclean" (New-Metrics "left" "taskspace" -PublicExit 1 -PretestFailure $true -ActiveSentinelWarningTypes @("validator_failure")) "engineering_unclean" $false
 Assert-Outcome "agent timeout skip missing probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout") "engineering_unclean" $false
 Assert-Outcome "agent timeout skip failed probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "failed" -PreAgentProbeHash ("a" * 64)) "engineering_unclean" $false
 Assert-Outcome "validator timeout" (New-Metrics "left" "standard" -PublicExit 124 -Failures @("public_validation_timeout")) "engineering_unclean" $false
 Assert-Outcome "docker failure before tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure") -PretestFailure $true) "engineering_unclean" $false
+
+$profileHardStopMetrics = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+$profileHardStopMetrics | Add-Member -NotePropertyName taskspace_profile_hard_stop_seen -NotePropertyValue $true -Force
+Set-TaskspaceLifecycleClassification $profileHardStopMetrics | Out-Null
+Assert-True ([string]$profileHardStopMetrics.agent_completion_status -eq "interrupted") "profile hard stop was not classified as interrupted"
+Assert-True ([bool]$profileHardStopMetrics.sampling_interrupted) "profile hard stop did not set sampling_interrupted"
+Assert-True ([string]$profileHardStopMetrics.interruption_source -eq "taskspace_profile_hard_stop") "profile hard stop interruption source was lost"
+Assert-True ([string]$profileHardStopMetrics.external_validation_status -eq "passed") "external validation status was not kept independent"
+Assert-True (-not [bool]$profileHardStopMetrics.utility_eligible) "profile hard stop entered utility despite interrupted Agent lifecycle"
+Assert-Outcome "profile hard stop with passing validation" $profileHardStopMetrics "engineering_unclean" $false
+
+$noFinalMetrics = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+$noFinalMetrics.agent_final_observed = $false
+$noFinalMetrics.agent_completion_source = "none"
+$noFinalMetrics.last_agent_message_source = "none"
+Set-TaskspaceLifecycleClassification $noFinalMetrics | Out-Null
+Assert-True ([string]$noFinalMetrics.agent_completion_status -eq "incomplete") "exec zero without Agent final was classified complete"
+Assert-True (-not [bool]$noFinalMetrics.sampling_interrupted) "missing Agent final was incorrectly classified as an interruption"
+Assert-True (-not [bool]$noFinalMetrics.utility_eligible) "external validation success overrode missing Agent completion"
+
+$completedMetrics = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+Set-TaskspaceLifecycleClassification $completedMetrics | Out-Null
+Assert-True ([string]$completedMetrics.agent_completion_status -eq "complete") "observed Agent final was not classified complete"
+Assert-True ([bool]$completedMetrics.utility_eligible) "completed Agent with passing validation was excluded from utility"
+
+$failedValidationMetrics = New-Metrics "right" "taskspace" -Success $false -PublicExit 1
+Set-TaskspaceLifecycleClassification $failedValidationMetrics | Out-Null
+Assert-True ([string]$failedValidationMetrics.agent_completion_status -eq "complete") "validation failure overwrote Agent completion"
+Assert-True ([string]$failedValidationMetrics.external_validation_status -eq "failed") "failed validation lifecycle was not preserved"
+Assert-True (-not [bool]$failedValidationMetrics.utility_eligible) "failed validation entered utility"
+
+$lifecycleGate = Get-TaskspaceEvidenceGate 3 ([pscustomobject]@{ invalid_prompt = $false; manual_review_required = $false }) "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E2" $null $null $null $false $false 5 "" $false $null $null @() @() $false
+Assert-True (@($lifecycleGate.evidence_gate_failures) -contains "agent_lifecycle_ineligible") "interrupted lifecycle was not excluded from utility evidence"
+Assert-True (-not [bool]$lifecycleGate.included_in_utility_aggregate) "interrupted lifecycle remained utility eligible"
 
 $abortRun = Join-Path $RunRoot ("score-validity-abort-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
 $abortPair = Join-Path $abortRun "pair-001"
@@ -250,8 +294,8 @@ $timingPath = Write-TaskspacePairTiming $timingPairDir 1 $now $now.AddSeconds(5)
 $timing = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingPath | ConvertFrom-Json
 Assert-True ([int64]$timing.total_duration_ms -gt 0) "timing artifact did not record total duration"
 Assert-True (@($timing.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 2) "timing artifact did not record both validation spans"
-Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "unavailable_wait_attribution:model_queue_wait_ms" }).Count -eq 1) "pair timing did not block speed claims when model queue attribution is unavailable"
-Assert-True ([string]$timing.wait_attribution_unavailable_fields.model_queue_wait_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "pair timing did not record unavailable model queue attribution reason"
+Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_queue_wait_ms" }).Count -eq 1) "pair timing did not block speed claims when model queue attribution is missing"
+Assert-True (@($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_retry_backoff_ms" }).Count -eq 1) "pair timing did not block speed claims when model retry attribution is missing"
 Assert-True (@($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 1) "pair timing did not report missing process launch wait when no process timing was observed"
 $metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
 Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
@@ -263,6 +307,30 @@ $modelTimingJsonl = Join-Path $RunRoot ("model-timing-" + (Get-Date -Format "yyy
 $modelTiming = Get-TaskspaceModelTimingAttribution $modelTimingJsonl
 Assert-True ([int64]$modelTiming.model_request_duration_ms -eq 570) "model timing parser did not aggregate websocket timing metrics"
 Assert-True ([string]$modelTiming.model_timing_source_status -eq "responsesapi_websocket_timing") "model timing parser did not record timing source status"
+$providerTimingJsonl = Join-Path $RunRoot ("provider-timing-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".jsonl")
+@(
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","createdAtMs":1000,"tags":["producer:provider_lifecycle","status:started","started_at_ms:1000","logical_request_id:provider-request-fixture:logical-1","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","createdAtMs":1100,"tags":["producer:provider_lifecycle","status:stream_opened","started_at_ms:1000","logical_request_id:provider-request-fixture:logical-1","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","createdAtMs":1615,"tags":["producer:provider_lifecycle","status:response_completed","started_at_ms:1000","completed_at_ms:1615","model_request_duration_ms:615","latency_ms:615","logical_request_id:provider-request-fixture:logical-1","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","createdAtMs":2000,"tags":["producer:provider_lifecycle","status:started","started_at_ms:2000","logical_request_id:provider-request-fixture:logical-2","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","createdAtMs":2020,"tags":["producer:provider_lifecycle","status:stream_opened","started_at_ms:2000","logical_request_id:provider-request-fixture:logical-2","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","createdAtMs":2045,"tags":["producer:provider_lifecycle","status:response_failed","started_at_ms:2000","completed_at_ms:2045","latency_ms:45","logical_request_id:provider-request-fixture:logical-2","attempt_seq:1"]}}',
+    '{"type":"responsesapi.websocket_timing","timing_metrics":{"responses_duration_excl_engine_and_client_tool_time_ms":1,"engine_service_total_ms":2}}'
+) | Set-Content -LiteralPath $providerTimingJsonl -Encoding UTF8
+$providerTiming = Get-TaskspaceModelTimingAttribution $providerTimingJsonl
+Assert-True ([int64]$providerTiming.model_request_duration_ms -eq 660) "model timing parser did not aggregate provider lifecycle terminal durations"
+Assert-True ([int64]$providerTiming.model_queue_wait_ms -eq 120) "model timing parser did not aggregate provider lifecycle queue wait"
+Assert-True ([int64]$providerTiming.model_retry_backoff_ms -eq 0) "model timing parser did not record zero retry backoff when no retry attempts occurred"
+Assert-True ([string]$providerTiming.model_timing_source_status -eq "provider_lifecycle_timing") "model timing parser did not prefer provider lifecycle timing"
+Assert-True ([int64]$providerTiming.model_timing_event_count -eq 2) "model timing parser counted non-terminal provider events"
+$timingSourceDir = Join-Path $RunRoot ("timing-source-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
+New-Item -ItemType Directory -Force -Path $timingSourceDir | Out-Null
+$timingSourceRollout = Join-Path $timingSourceDir "rollout.jsonl"
+"{}" | Set-Content -LiteralPath $timingSourceRollout -Encoding UTF8
+$timingSourceFallback = Join-Path $RunRoot ("timing-source-fallback-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".jsonl")
+"{}" | Set-Content -LiteralPath $timingSourceFallback -Encoding UTF8
+Assert-True ([string](Get-TaskspaceModelTimingSourcePath $timingSourceDir $timingSourceFallback) -eq [string]$timingSourceRollout) "model timing source did not prefer artifact rollout jsonl"
+Assert-True ([string](Get-TaskspaceModelTimingSourcePath (Join-Path $RunRoot "missing-artifacts") $timingSourceFallback) -eq [string]$timingSourceFallback) "model timing source did not fall back to exec jsonl"
 $decisionCases = @(
     [pscustomobject]@{ name = "missing timing"; timing = $null; score_valid = $true; expected = "speedup_blocked_instrumentation"; evidence_valid = $false },
     [pscustomobject]@{ name = "invalid score"; timing = [pscustomobject]@{ timing_quality = "complete"; bottleneck_classification = "validator_bound" }; score_valid = $false; expected = "speedup_blocked_invalid_run"; evidence_valid = $false },
@@ -294,6 +362,10 @@ $processMetrics.left | Add-Member -NotePropertyName process_launch_wait_ms -Note
 $processMetrics.right | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue 13 -Force
 $processMetrics.left | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue 570 -Force
 $processMetrics.right | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue 430 -Force
+$processMetrics.left | Add-Member -NotePropertyName model_queue_wait_ms -NotePropertyValue 10 -Force
+$processMetrics.right | Add-Member -NotePropertyName model_queue_wait_ms -NotePropertyValue 20 -Force
+$processMetrics.left | Add-Member -NotePropertyName model_retry_backoff_ms -NotePropertyValue 0 -Force
+$processMetrics.right | Add-Member -NotePropertyName model_retry_backoff_ms -NotePropertyValue 0 -Force
 $processValidationTiming = @{
     left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 17; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
     right = [pscustomobject]@{ logical_mode = "taskspace"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 19; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
@@ -302,6 +374,8 @@ $processTimingPath = Write-TaskspacePairTiming $processTimingPairDir 1 $now $now
 $processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
 Assert-True ([int64]$processTiming.process_launch_wait_ms -eq 60) "pair timing did not aggregate agent and validation process launch wait"
 Assert-True ([int64]$processTiming.model_request_duration_ms -eq 1000) "pair timing did not aggregate model request duration"
+Assert-True ([int64]$processTiming.model_queue_wait_ms -eq 30) "pair timing did not aggregate model queue wait"
+Assert-True ([int64]$processTiming.model_retry_backoff_ms -eq 0) "pair timing did not aggregate model retry backoff"
 Assert-True ([int64]$processTiming.resource_wait_ms_total -eq 0 -and [string]$processTiming.resource_wait_attribution_mode -eq "serial_no_resource_governor") "pair timing did not record serial resource wait attribution"
 Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 0) "pair timing still reported process launch wait missing after observing process timing"
 Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_request_duration_ms" }).Count -eq 0) "pair timing still reported model request duration missing after observing timing"
@@ -363,7 +437,7 @@ $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | C
 Assert-True ([int]$suiteTiming.timing_sample_count -eq 1) "suite timing did not aggregate sample timing"
 Assert-True ([int64]$suiteTiming.total_pair_duration_ms -gt 0) "suite timing did not record total pair duration"
 Assert-True ([string]$suiteTiming.runtime_optimization_status -eq "blocked" -and [string]$suiteTiming.timing_quality -eq "incomplete") "suite timing did not block when wait attribution was missing"
-Assert-True (@($suiteTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "unavailable_wait_attribution:model_queue_wait_ms" }).Count -gt 0) "suite timing did not expose unavailable model queue attribution blocker"
+Assert-True (@($suiteTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_queue_wait_ms" }).Count -gt 0) "suite timing did not expose missing model queue attribution blocker"
 $suiteRoot = Join-Path $runDir "suite-fixture"
 $suiteSamples = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Force -Path (Join-Path $suiteSamples "sample-a") | Out-Null
@@ -404,6 +478,10 @@ Assert-True ([int]$suiteScoreSummary.completed_child_processes -eq 1) "suite sco
 Assert-True ([int]$suiteScoreSummary.score_valid_child_runs -eq 1) "suite score summary did not count valid child"
 Assert-True ([int]$suiteScoreSummary.score_invalid_child_runs -eq 1) "suite score summary did not count invalid child"
 Assert-True (-not [bool]$suiteScoreSummary.suite_score_valid -and [string]$suiteScoreSummary.first_score_invalid_run -eq "sample-helper-missing") "suite score summary did not identify first invalid sample"
+$pendingAuditSuiteStatus = [pscustomobject]@{ sample_id = "sample-pending"; run_validity = "valid"; phase = "audit_required"; attempted_pairs = 5; completed_pairs = 5; score_block_reason = "audit_required" }
+$pendingAuditSuiteScoreSummary = Get-TaskspaceSuiteScoreValiditySummary @($pendingAuditSuiteStatus) 5
+Assert-True ([int]$pendingAuditSuiteScoreSummary.completed_child_processes -eq 1 -and [int]$pendingAuditSuiteScoreSummary.score_pending_audit_child_runs -eq 1) "suite score summary did not count pending-audit child"
+Assert-True (-not [bool]$pendingAuditSuiteScoreSummary.suite_score_ready -and -not [bool]$pendingAuditSuiteScoreSummary.suite_score_valid -and [int]$pendingAuditSuiteScoreSummary.score_invalid_child_runs -eq 0) "suite score summary treated pending audit as invalid or score-ready"
 $suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRootFromStatus @($helperStatus)
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
 Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not use helper-generated status to record missing timing"

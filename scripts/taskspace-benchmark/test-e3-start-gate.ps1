@@ -5,6 +5,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
+. (Join-Path $PSScriptRoot "lib\cache-regression-fixture.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-reconstruction.ps1")
 
@@ -126,6 +127,8 @@ function New-V005MarkerFixtures {
     $identity = @{
         schema_version = 1
         status = "pass"
+        mode = "formal"
+        release_eligible = $true
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
         profile_hash = $ProfileHash
@@ -136,6 +139,9 @@ function New-V005MarkerFixtures {
     New-Item -ItemType Directory -Force -Path $evidenceRoot | Out-Null
     $gateObject = {
         param([string]$Name)
+        if ($Name -eq "cache_regression_surface") {
+            return New-TaskspaceCacheRegressionFixtureGate $evidenceRoot ([string]$head) $TaskListHash $SourceVersion $ProfileHash $now
+        }
         $evidencePath = Join-Path $evidenceRoot "$Name.txt"
         "selftest evidence for $Name" | Set-Content -LiteralPath $evidencePath -Encoding UTF8
         [pscustomobject]@{
@@ -162,6 +168,9 @@ function New-V005MarkerFixtures {
                 request_phase_attribution = (& $gateObject "request_phase_attribution")
                 release_decision_fixture = (& $gateObject "release_decision_fixture")
                 start_gate_fixture = (& $gateObject "start_gate_fixture")
+                external_wrapper_fixture = (& $gateObject "external_wrapper_fixture")
+                marker_writer_fixture = (& $gateObject "marker_writer_fixture")
+                cache_regression_surface = (& $gateObject "cache_regression_surface")
             }
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $nonAgentPath -Encoding UTF8
     [pscustomobject]($identity + @{
@@ -235,6 +244,13 @@ try {
     $spoofedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-spoofed-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $spoofedMarkerPath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -SelfTestCommands @()
     $spoofedDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $spoofedGate.gate_decision_path | ConvertFrom-Json
     Assert-True (-not [bool]$spoofedDecision.full_e3_allowed -and @($spoofedGate.gates | Where-Object { [string]$_.name -eq "v005_code_complete" -and [string]$_.stable_code -eq "v005_code_complete_malformed" }).Count -eq 1) "start gate accepted spoofed arbitrary marker text"
+    $textOnlyMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-text-only-cache-markers")
+    $textOnlyNonAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath $textOnlyMarkers.non_agent_path | ConvertFrom-Json
+    $textOnlyNonAgent.gates.cache_regression_surface.command = "selftest cache_regression_surface"
+    $textOnlyNonAgent.gates.cache_regression_surface.PSObject.Properties.Remove("structured_evidence_path")
+    $textOnlyNonAgent | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $textOnlyMarkers.non_agent_path -Encoding UTF8
+    $textOnlyGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-text-only-cache-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -V005NonAgentGatesPath $textOnlyMarkers.non_agent_path -V005CodeCompleteMarkerPath $textOnlyMarkers.code_complete_path -V005UserApprovalMarkerPath $textOnlyMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True (-not [bool]$textOnlyGate.gate_decision.full_e3_allowed -and @($textOnlyGate.gates | Where-Object { [string]$_.stable_code -eq "v005_non_agent_gates_cache_regression_evidence_invalid" }).Count -eq 1) "start gate accepted text-only cache regression evidence"
     $mismatchedMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-mismatched-markers") -TaskListHash "task-list-b"
     $mismatchedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-mismatched-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -V005NonAgentGatesPath $mismatchedMarkers.non_agent_path -V005CodeCompleteMarkerPath $mismatchedMarkers.code_complete_path -V005UserApprovalMarkerPath $mismatchedMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
     $mismatchedDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $mismatchedGate.gate_decision_path | ConvertFrom-Json
@@ -290,6 +306,9 @@ try {
     Assert-True (-not [bool]$sampleSetMismatchGate.gate_decision.full_e3_allowed -and @($sampleSetMismatchGate.gates | Where-Object { [string]$_.stable_code -eq "v005_user_approval_sample_set_mismatch" }).Count -eq 1) "start gate accepted user approval for a different sample set"
     $skippedCalibrationDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $smokeGate.gate_decision_path | ConvertFrom-Json
     Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "fixture_tests" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed -and -not [bool]$skippedCalibrationDecision.v005_markers_passed) "gate-decision authorized full E3 when calibration or v0.0.5 markers were skipped"
+    $skippedCalibrationWithMarkersGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-skipped-calibration-with-markers") -ScenarioPath $scenarioDir -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $v005CodeCompletePath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate -SelfTestCommands @()
+    $skippedCalibrationWithMarkersDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $skippedCalibrationWithMarkersGate.gate_decision_path | ConvertFrom-Json
+    Assert-True ([string]$skippedCalibrationWithMarkersDecision.next_allowed_command_category -eq "full_e3" -and [bool]$skippedCalibrationWithMarkersDecision.full_e3_allowed -and -not [bool]$skippedCalibrationWithMarkersDecision.speed_claim_allowed -and [bool]$skippedCalibrationWithMarkersDecision.calibration_gate_skipped_allowed -and [bool]$skippedCalibrationWithMarkersDecision.v005_markers_passed) "skipped calibration with v0.0.5 markers should allow full E3 but not speed claims"
     $blockedCalibration = New-CalibrationFixtures (Join-Path $runDir "calibration-speedup-evidence-fail")
     $blockedCalibrationReport = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $blockedCalibration.serial_root "runtime-calibration-report.json") | ConvertFrom-Json
     $blockedCalibrationReport.speedup_evidence_valid = $false
@@ -433,7 +452,6 @@ try {
         -ValidationTimeoutSeconds 420 `
         -ValidationPretestTimeoutSeconds 120 `
         -ValidationTestTimeoutSeconds 420 `
-        -SandboxMode "full-auto" `
         -ConfigOverride @('model_reasoning_effort="max"') `
         -EnableDockerImageCache $false `
         -MaxParallelSamples 1 `

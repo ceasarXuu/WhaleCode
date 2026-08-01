@@ -11,6 +11,29 @@ function Test-TerminalBenchValidatorRuntimePath {
     $path -eq "run-tests.sh" -or $path -eq "verify.sh" -or $path -eq "test.sh" -or $path.StartsWith("tests/")
 }
 
+function Test-TerminalBenchRemoteAssetScanPath {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+    $path = $RelativePath.Replace("\", "/")
+    if ($path -eq "solution.sh" -or $path -eq "solution.yaml") { return $false }
+    $true
+}
+
+function Normalize-TerminalBenchRemoteAssetUrl {
+    param([Parameter(Mandatory = $true)][string]$Url)
+    $Url.TrimEnd(")", "]", "}", ".", ",", ";", ":")
+}
+
+function Test-TerminalBenchLocalServiceUrl {
+    param([Parameter(Mandatory = $true)][string]$Url)
+    try {
+        $uri = [uri]$Url
+    } catch {
+        return $false
+    }
+    $uriHost = $uri.Host.ToLowerInvariant()
+    $uriHost -eq "localhost" -or $uriHost -eq "127.0.0.1" -or $uriHost -eq "::1"
+}
+
 function Get-TerminalBenchRemoteAssetKind {
     param(
         [Parameter(Mandatory = $true)][string]$Line,
@@ -19,6 +42,7 @@ function Get-TerminalBenchRemoteAssetKind {
     )
     $trimmed = $Line.Trim()
     if ($trimmed.StartsWith("#")) { return "metadata_comment" }
+    if (Test-TerminalBenchLocalServiceUrl $Url) { return "local_service_endpoint" }
     $uri = [uri]$Url
     $leaf = Split-Path -Leaf $uri.AbsolutePath
     $fileLikeLeaf = $leaf -match '(?i)\.(zip|tar|tgz|gz|xz|bz2|sqlite|db|csv|json|jsonl|parquet|whl|sh|py|bin|txt)$'
@@ -47,6 +71,7 @@ function Get-TerminalBenchRemoteAssets {
     if ($null -ne $UvCache) {
         foreach ($pair in @(
                 @([string]$UvCache.installer_url, [string]$UvCache.installer_path, [string]$UvCache.installer_sha256, [int64]$UvCache.installer_size_bytes),
+                @([string]$UvCache.installer_alias_url, [string]$UvCache.installer_path, [string]$UvCache.installer_sha256, [int64]$UvCache.installer_size_bytes),
                 @([string]$UvCache.archive_url, [string]$UvCache.archive_path, [string]$UvCache.archive_sha256, [int64]$UvCache.archive_size_bytes)
             )) {
             if (-not [string]::IsNullOrWhiteSpace($pair[0])) {
@@ -56,13 +81,31 @@ function Get-TerminalBenchRemoteAssets {
     }
     foreach ($file in @(Get-ChildItem -LiteralPath $TaskRoot -Recurse -File -Force -ErrorAction SilentlyContinue)) {
         $relative = $file.FullName.Substring($TaskRoot.Length).TrimStart("\", "/").Replace("\", "/")
+        if (-not (Test-TerminalBenchRemoteAssetScanPath $relative)) { continue }
         $lines = @(Get-Content -Encoding UTF8 -LiteralPath $file.FullName -ErrorAction SilentlyContinue)
+        $hereDocTerminator = ""
         for ($index = 0; $index -lt @($lines).Count; $index++) {
             $line = [string]$lines[$index]
+            $lineIsFixtureLiteral = $false
+            if (-not [string]::IsNullOrWhiteSpace($hereDocTerminator)) {
+                if ($line.Trim() -eq $hereDocTerminator) {
+                    $hereDocTerminator = ""
+                    continue
+                }
+                $lineIsFixtureLiteral = $true
+            } else {
+                $hereDocMatch = [regex]::Match($line, "<<\s*['`"]?([A-Za-z_][A-Za-z0-9_]*)['`"]?")
+                if ($hereDocMatch.Success) {
+                    $hereDocTerminator = $hereDocMatch.Groups[1].Value
+                }
+            }
             if ($line.TrimStart().StartsWith("#")) { continue }
             foreach ($match in [regex]::Matches($line, $urlPattern)) {
-                $url = [string]$match.Value
+                $url = Normalize-TerminalBenchRemoteAssetUrl ([string]$match.Value)
                 $assetKind = Get-TerminalBenchRemoteAssetKind $line $url $relative
+                if ($lineIsFixtureLiteral -and $assetKind -eq "unknown_runtime_network_dependency") {
+                    $assetKind = "fixture_literal_endpoint"
+                }
                 if ($assetKind -eq "metadata_comment") { continue }
                 $key = Get-TerminalBenchStringSha256 $url
                 $leaf = Split-Path -Leaf ([uri]$url).AbsolutePath

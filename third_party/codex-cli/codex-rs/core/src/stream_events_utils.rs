@@ -1,4 +1,3 @@
-use std::pin::Pin;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -6,7 +5,6 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::items::TurnItem;
 use codex_utils_stream_parser::strip_citations;
-use tokio_util::sync::CancellationToken;
 
 use crate::context::ContextualUserFragment;
 use crate::context::ImageGenerationInstructions;
@@ -16,19 +14,15 @@ use crate::memories::citations::thread_ids_from_memory_citation;
 use crate::parse_turn_item;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
-use crate::tools::parallel::ToolCallRuntime;
+use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::router::ToolRouter;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
-use codex_protocol::models::FunctionCallOutputBody;
-use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::MessagePhase;
-use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_rollout::state_db;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_stream_parser::strip_proposed_plan_blocks;
-use futures::Future;
 use tracing::debug;
 use tracing::instrument;
 
@@ -197,23 +191,18 @@ async fn record_stage1_output_usage_and_detect_memory_citation(
 }
 
 /// Handle a completed output item from the model stream, recording it and
-/// queuing any tool execution futures. This records items immediately so
+/// queuing any tool calls. This records items immediately so
 /// history and rollout stay in sync even if the turn is later cancelled.
-pub(crate) type InFlightFuture<'f> =
-    Pin<Box<dyn Future<Output = Result<ResponseInputItem>> + Send + 'f>>;
-
 #[derive(Default)]
 pub(crate) struct OutputItemResult {
     pub last_agent_message: Option<String>,
     pub needs_follow_up: bool,
-    pub tool_future: Option<InFlightFuture<'static>>,
+    pub tool_declaration: Option<ProviderToolDeclaration>,
 }
 
 pub(crate) struct HandleOutputCtx {
     pub sess: Arc<Session>,
     pub turn_context: Arc<TurnContext>,
-    pub tool_runtime: ToolCallRuntime,
-    pub cancellation_token: CancellationToken,
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -224,6 +213,21 @@ pub(crate) async fn handle_output_item_done(
 ) -> Result<OutputItemResult> {
     let mut output = OutputItemResult::default();
     let plan_mode = ctx.turn_context.collaboration_mode.mode == ModeKind::Plan;
+    if ctx.sess.taskspace_active().await
+        && let Some(declaration) = ProviderToolDeclaration::rejected_taskspace_native(&item)
+    {
+        record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item).await;
+        tracing::warn!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.provider_native_tool_rejected",
+            zero_dispatch = true,
+            state_commit = false,
+            "TaskSpace rejected a provider-native tool that was not exposed"
+        );
+        output.needs_follow_up = true;
+        output.tool_declaration = Some(declaration);
+        return Ok(output);
+    }
 
     match ToolRouter::build_tool_call(ctx.sess.as_ref(), item.clone()).await {
         // The model emitted a tool call; log it, persist the item immediately, and queue the tool execution.
@@ -232,26 +236,24 @@ pub(crate) async fn handle_output_item_done(
                 .accept_mailbox_delivery_for_current_turn(&ctx.turn_context.sub_id)
                 .await;
 
-            let payload_preview = call.payload.log_payload().into_owned();
+            let payload_preview = call
+                .payload
+                .log_payload_for_tool(&call.provider_tool_name)
+                .into_owned();
             tracing::info!(
                 thread_id = %ctx.sess.conversation_id,
+                provider_tool_name = %call.provider_tool_name.display(),
+                dispatch_tool_name = %call.dispatch_tool_name.display(),
                 "ToolCall: {} {}",
-                call.tool_name.display(),
+                call.provider_tool_name.display(),
                 payload_preview
             );
 
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
 
-            let cancellation_token = ctx.cancellation_token.child_token();
-            let tool_future: InFlightFuture<'static> = Box::pin(
-                ctx.tool_runtime
-                    .clone()
-                    .handle_tool_call(call, cancellation_token),
-            );
-
             output.needs_follow_up = true;
-            output.tool_future = Some(tool_future);
+            output.tool_declaration = Some(ProviderToolDeclaration::ready(call));
         }
         // No tool call: convert messages/reasoning into turn items and mark them as complete.
         Ok(None) => {
@@ -286,55 +288,54 @@ pub(crate) async fn handle_output_item_done(
 
             output.last_agent_message = last_agent_message;
         }
-        // Guardrail: the model issued a LocalShellCall without an id; surface the error back into history.
+        // Preserve an unidentifiable native call as a response-level failure so
+        // earlier declarations in the same provider response cannot execute.
         Err(FunctionCallError::MissingLocalShellCallId) => {
             let msg = "LocalShellCall without call_id or id";
             ctx.turn_context
                 .session_telemetry
                 .log_tool_failed("local_shell", msg);
-            tracing::error!(msg);
-
-            let response = ResponseInputItem::FunctionCallOutput {
-                call_id: String::new(),
-                output: FunctionCallOutputPayload {
-                    body: FunctionCallOutputBody::Text(msg.to_string()),
-                    ..Default::default()
-                },
-            };
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
-            if let Some(response_item) = response_input_to_response_item(&response) {
-                ctx.sess
-                    .record_conversation_items(
-                        &ctx.turn_context,
-                        std::slice::from_ref(&response_item),
-                    )
-                    .await;
-            }
-
             output.needs_follow_up = true;
+            output.tool_declaration = Some(ProviderToolDeclaration::build_failed(
+                &item,
+                msg.to_string(),
+            ));
         }
-        // The tool request should be answered directly (or was denied); push that response into the transcript.
+        // Queue build failures with the complete provider response. Preflight
+        // then rejects the whole declaration sequence before any dispatch.
         Err(FunctionCallError::RespondToModel(message)) => {
-            let response = ResponseInputItem::FunctionCallOutput {
-                call_id: String::new(),
-                output: FunctionCallOutputPayload {
-                    body: FunctionCallOutputBody::Text(message),
-                    ..Default::default()
-                },
-            };
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
-            if let Some(response_item) = response_input_to_response_item(&response) {
-                ctx.sess
-                    .record_conversation_items(
-                        &ctx.turn_context,
-                        std::slice::from_ref(&response_item),
-                    )
-                    .await;
-            }
+            let declaration = ProviderToolDeclaration::build_failed(&item, message.clone());
+            let descriptor = declaration.descriptor();
+            let provider_item_id = descriptor
+                .get("call_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<missing>");
+            let tool_name = descriptor
+                .get("tool")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unknown>");
+            let payload_kind = descriptor
+                .get("payload_kind")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unknown>");
+            tracing::warn!(
+                target: "codex_core::tools",
+                event_name = "tool.call_build_failed_queued",
+                error = message,
+                provider_item_id,
+                tool_name,
+                payload_kind,
+                zero_dispatch = true,
+                state_commit = false,
+                "queued identity-preserving tool build failure for response preflight"
+            );
 
             output.needs_follow_up = true;
+            output.tool_declaration = Some(declaration);
         }
         // A fatal error occurred; surface it back into history.
         Err(FunctionCallError::Fatal(message)) => {
@@ -462,45 +463,6 @@ fn completed_item_defers_mailbox_delivery_to_next_turn(
         }
         ResponseItem::ImageGenerationCall { .. } => true,
         _ => false,
-    }
-}
-
-pub(crate) fn response_input_to_response_item(input: &ResponseInputItem) -> Option<ResponseItem> {
-    match input {
-        ResponseInputItem::FunctionCallOutput { call_id, output } => {
-            Some(ResponseItem::FunctionCallOutput {
-                call_id: call_id.clone(),
-                output: output.clone(),
-            })
-        }
-        ResponseInputItem::CustomToolCallOutput {
-            call_id,
-            name,
-            output,
-        } => Some(ResponseItem::CustomToolCallOutput {
-            call_id: call_id.clone(),
-            name: name.clone(),
-            output: output.clone(),
-        }),
-        ResponseInputItem::McpToolCallOutput { call_id, output } => {
-            let output = output.as_function_call_output_payload();
-            Some(ResponseItem::FunctionCallOutput {
-                call_id: call_id.clone(),
-                output,
-            })
-        }
-        ResponseInputItem::ToolSearchOutput {
-            call_id,
-            status,
-            execution,
-            tools,
-        } => Some(ResponseItem::ToolSearchOutput {
-            call_id: Some(call_id.clone()),
-            status: status.clone(),
-            execution: execution.clone(),
-            tools: tools.clone(),
-        }),
-        _ => None,
     }
 }
 

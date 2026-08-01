@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-role-separated-initialization-repeat3",
+  "status": "not_promoted_role_regression_closed_continuous_action_open",
+  "subject_commit": "3e827065c912d9c332a9e52a796ccd7c2207106c",
+  "baseline_commit": "b6bf532bf8b6d92d076b30d842e54c4f565fcfee",
+  "model": "deepseek-v4-flash",
+  "execution": "docker",
+  "samples": [
+    "single-file-fast-fix",
+    "subscription-billing-repair"
+  ],
+  "repeats_per_arm_per_sample": 3,
+  "run_count": 24,
+  "matrix_run": "target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/3e827065c912d9c332a9e52a796ccd7c2207106c/20260724-085351-391",
+  "raw_evidence": {
+    "snapshot_root": "benchmarks/taskspace/r7/evidence/fla9-repeat3-3e827065",
+    "sanitization": "absolute_repo_prefix_replaced_with_$REPO_ROOT",
+    "run_manifest_sha256": "d5b07581e786d9975dcf1d8e86a4d7042df333f3939a995558191d6b0221dacf",
+    "observation_set_sha256": "96f0d4f6acada227addb764200f18e799d338eeaefb5c2e026c33bc0aef092b0",
+    "formal_report_status": "unavailable_due_to_incomplete_observation"
+  },
+  "tool_schema": {
+    "standard_bytes_per_request": 21669,
+    "taskspace_baseline_bytes_per_request": 55578,
+    "taskspace_candidate_bytes_per_request": 46926,
+    "candidate_reduction": 0.155673,
+    "taskspace_candidate_estimated_tokens_per_request": 11732,
+    "taskspace_candidate_hash": "fc5b6e87fea963156a28f9abc6b9cf9f030eea892d7e9c7bbc0bf4863e16f0cc",
+    "immutable_across_requests": true
+  },
+  "initialization": {
+    "taskspace_runs": 18,
+    "attempts": 19,
+    "commits": 18,
+    "failures": 1,
+    "role_erasure_failures": 0,
+    "baseline_attempts": 20,
+    "baseline_failures": 2,
+    "r20_closed": true
+  },
+  "arms": {
+    "standard": {
+      "successes": 6,
+      "runs": 6,
+      "requests": 59,
+      "input_tokens": 906157,
+      "request_2_plus_cache_hit_rate": 0.968066,
+      "wall_time_ms": 184130
+    },
+    "map-always": {
+      "successes": 6,
+      "runs": 6,
+      "requests": 67,
+      "input_tokens": 1641182,
+      "request_2_plus_cache_hit_rate": 0.440482,
+      "wall_time_ms": 265627,
+      "protocol_failures": 6,
+      "state_failures": 5
+    },
+    "map-append": {
+      "successes": 5,
+      "runs": 6,
+      "requests": 77,
+      "input_tokens_reconstructed": 2355341,
+      "request_2_plus_cache_hit_rate_reconstructed": 0.957767,
+      "wall_time_ms": 295626,
+      "protocol_failures": 12,
+      "state_failures": 9,
+      "incomplete_runs": 1
+    },
+    "map-request": {
+      "successes": 6,
+      "runs": 6,
+      "requests": 87,
+      "input_tokens": 2049363,
+      "request_2_plus_cache_hit_rate": 0.941887,
+      "wall_time_ms": 293956,
+      "protocol_failures": 10,
+      "state_failures": 5
+    }
+  },
+  "taskspace_aggregate": {
+    "baseline_requests": 260,
+    "candidate_requests": 231,
+    "request_change": -0.111538,
+    "baseline_input_tokens": 7402939,
+    "candidate_input_tokens_reconstructed": 6045886,
+    "input_change": -0.183313,
+    "baseline_successes": 18,
+    "candidate_successes": 17,
+    "baseline_protocol_failures": 25,
+    "candidate_protocol_failures": 28,
+    "baseline_state_failures": 16,
+    "candidate_state_failures": 19
+  },
+  "blocking_result": {
+    "regression": "R-10",
+    "run": "subscription-billing-repair repeat 3 map-append",
+    "business_validation": "passed",
+    "agent_completion": "interrupted",
+    "map_nodes": 8,
+    "map_edges": 9,
+    "protocol_failures": 3,
+    "state_failures": 3,
+    "reason": "The Agent generated standalone complete_then_continue calls, selected a not-ready successor, later failed finish_map, and ended with the Map still open."
+  },
+  "current_promotion_blockers": [
+    "R-10",
+    "R-19",
+    "R-22",
+    "R-24",
+    "R-25"
+  ],
+  "decision": "Keep the role-separated fixed initialization wire as the R-20 historical repair baseline. Do not promote it while R-10, R-19, R-22, R-24, or R-25 remains open. R7.1-A2 v3.0 supersedes the per-Tool carrier and singleton-current direction with an Agent-authored per-action manifest, native sibling Tool calls, and fact-derived lifecycle state; R-21 and R-23 remain closed by the persistent Map Store and shared child attachment path."
+}

@@ -1,4 +1,5 @@
 use codex_utils_string::take_bytes_at_char_boundary;
+use serde_json::Value as JsonValue;
 use sha2::Digest;
 use sha2::Sha256;
 use std::path::Path;
@@ -39,6 +40,15 @@ pub(crate) enum OutputSliceMode {
 pub(crate) struct OutputSliceRequest {
     pub(crate) mode: OutputSliceMode,
     pub(crate) max_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OutputSliceResult {
+    pub(crate) mode: &'static str,
+    pub(crate) range: JsonValue,
+    pub(crate) truncated: bool,
+    pub(crate) continuation: Option<JsonValue>,
+    pub(crate) content: String,
 }
 
 impl OutputReferenceV1 {
@@ -143,15 +153,26 @@ pub(crate) async fn write_output_artifact_for_rollout(
 }
 
 fn output_artifact_dir(rollout_path: &Path) -> PathBuf {
-    let stem = rollout_path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("thread");
-    let parent = rollout_path.parent().unwrap_or_else(|| Path::new("."));
-    parent.join(format!("{stem}-artifacts")).join("output-refs")
+    session_store_root(rollout_path)
+        .join("session-store")
+        .join("output-refs")
+        .join("sha256")
 }
 
+fn session_store_root(rollout_path: &Path) -> &Path {
+    rollout_path
+        .ancestors()
+        .find_map(
+            |ancestor| match ancestor.file_name().and_then(|name| name.to_str()) {
+                Some("sessions" | "archived_sessions") => ancestor.parent(),
+                _ => None,
+            },
+        )
+        .or_else(|| rollout_path.parent())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+#[cfg(test)]
 pub(crate) async fn read_output_artifact_slice(
     rollout_path: Option<&Path>,
     output_ref: &str,
@@ -166,7 +187,43 @@ pub(crate) async fn read_output_artifact_slice(
     let sha = parse_output_ref_sha(output_ref)?;
     let artifact_path = output_artifact_dir(rollout_path).join(format!("{sha}.stdout"));
     let raw_output = tokio::fs::read(&artifact_path).await?;
-    let text = String::from_utf8_lossy(&raw_output);
+    read_output_bytes_slice(output_ref, &raw_output, request)
+}
+
+pub(crate) async fn read_output_artifact_slice_result(
+    rollout_path: Option<&Path>,
+    output_ref: &str,
+    request: OutputSliceRequest,
+) -> std::io::Result<OutputSliceResult> {
+    let Some(rollout_path) = rollout_path else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "output artifact rollout path is unavailable",
+        ));
+    };
+    let sha = parse_output_ref_sha(output_ref)?;
+    let artifact_path = output_artifact_dir(rollout_path).join(format!("{sha}.stdout"));
+    let raw_output = tokio::fs::read(&artifact_path).await?;
+    read_output_bytes_slice_result(output_ref, &raw_output, request)
+}
+
+#[cfg(test)]
+pub(crate) fn read_output_bytes_slice(
+    output_ref: &str,
+    raw_output: &[u8],
+    request: OutputSliceRequest,
+) -> std::io::Result<String> {
+    let sha = parse_output_ref_sha(output_ref)?;
+    let actual_sha = format!("{:x}", Sha256::digest(raw_output));
+    if actual_sha != sha {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "output artifact sha256 mismatch for {output_ref}: expected {sha}, got {actual_sha}"
+            ),
+        ));
+    }
+    let text = String::from_utf8_lossy(raw_output);
     let max_bytes = request.max_bytes.clamp(1, OUTPUT_SLICE_MAX_BYTES);
     let slice = match request.mode {
         OutputSliceMode::Head => take_bytes_at_char_boundary(&text, max_bytes).to_string(),
@@ -185,6 +242,134 @@ pub(crate) async fn read_output_artifact_slice(
     ))
 }
 
+pub(crate) fn read_output_bytes_slice_result(
+    output_ref: &str,
+    raw_output: &[u8],
+    request: OutputSliceRequest,
+) -> std::io::Result<OutputSliceResult> {
+    let sha = parse_output_ref_sha(output_ref)?;
+    let actual_sha = format!("{:x}", Sha256::digest(raw_output));
+    if actual_sha != sha {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "output artifact sha256 mismatch for {output_ref}: expected {sha}, got {actual_sha}"
+            ),
+        ));
+    }
+    let text = String::from_utf8_lossy(raw_output);
+    let max_bytes = request.max_bytes.clamp(1, OUTPUT_SLICE_MAX_BYTES);
+    let total_lines = text.lines().count();
+    let (mode, content, range, truncated, continuation) = match request.mode {
+        OutputSliceMode::Head => {
+            let content = take_bytes_at_char_boundary(&text, max_bytes).to_string();
+            let returned_bytes = content.len();
+            (
+                "head",
+                content,
+                serde_json::json!({
+                    "start_byte": 0,
+                    "returned_bytes": returned_bytes,
+                    "total_bytes": raw_output.len(),
+                }),
+                returned_bytes < text.len(),
+                None,
+            )
+        }
+        OutputSliceMode::Tail => {
+            let content = take_tail_bytes_at_char_boundary(&text, max_bytes);
+            let returned_bytes = content.len();
+            (
+                "tail",
+                content,
+                serde_json::json!({
+                    "start_byte": text.len().saturating_sub(returned_bytes),
+                    "returned_bytes": returned_bytes,
+                    "total_bytes": raw_output.len(),
+                }),
+                returned_bytes < text.len(),
+                None,
+            )
+        }
+        OutputSliceMode::LineRange {
+            start_line,
+            end_line,
+        } => {
+            if start_line == 0 || end_line < start_line {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "line_range requires 1 <= start_line <= end_line",
+                ));
+            }
+            let selected = text
+                .lines()
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    let line_no = index + 1;
+                    (line_no >= start_line && line_no <= end_line).then_some(line)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let content = take_bytes_at_char_boundary(&selected, max_bytes).to_string();
+            let truncated = content.len() < selected.len();
+            let returned_lines = content.lines().count();
+            let continuation = truncated.then(|| {
+                serde_json::json!({
+                    "action": "read_output_ref",
+                    "output_ref": output_ref,
+                    "mode": "line_range",
+                    "start_line": start_line.saturating_add(returned_lines.max(1)),
+                    "end_line": end_line,
+                    "max_bytes": max_bytes,
+                })
+            });
+            (
+                "line_range",
+                content,
+                serde_json::json!({
+                    "requested_start_line": start_line,
+                    "requested_end_line": end_line,
+                    "returned_line_count": returned_lines,
+                    "total_lines": total_lines,
+                }),
+                truncated,
+                continuation,
+            )
+        }
+        OutputSliceMode::Grep { pattern } => {
+            let matching = text
+                .lines()
+                .enumerate()
+                .filter_map(|(index, line)| {
+                    line.contains(&pattern)
+                        .then(|| format!("{}:{line}\n", index + 1))
+                })
+                .collect::<String>();
+            let content = take_bytes_at_char_boundary(&matching, max_bytes).to_string();
+            let truncated = content.len() < matching.len();
+            let returned_bytes = content.len();
+            (
+                "grep",
+                content,
+                serde_json::json!({
+                    "pattern": pattern,
+                    "returned_bytes": returned_bytes,
+                    "total_matching_bytes": matching.len(),
+                }),
+                truncated,
+                None,
+            )
+        }
+    };
+    Ok(OutputSliceResult {
+        mode,
+        range,
+        truncated,
+        continuation,
+        content: redact_sensitive_text(&content),
+    })
+}
+
 fn parse_output_ref_sha(output_ref: &str) -> std::io::Result<&str> {
     let Some(sha) = output_ref.strip_prefix("output-ref://sha256/") else {
         return Err(std::io::Error::new(
@@ -201,6 +386,7 @@ fn parse_output_ref_sha(output_ref: &str) -> std::io::Result<&str> {
     Ok(sha)
 }
 
+#[cfg(test)]
 fn bounded_line_range(text: &str, start_line: usize, end_line: usize, max_bytes: usize) -> String {
     if start_line == 0 || end_line < start_line {
         return String::new();
@@ -217,6 +403,7 @@ fn bounded_line_range(text: &str, start_line: usize, end_line: usize, max_bytes:
     take_bytes_at_char_boundary(&selected, max_bytes).to_string()
 }
 
+#[cfg(test)]
 fn bounded_grep(text: &str, pattern: &str, max_bytes: usize) -> String {
     let mut output = String::new();
     for (idx, line) in text.lines().enumerate() {
@@ -292,146 +479,5 @@ fn redact_assignment_value(line: &str, key: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn policy_uses_inline_summarized_and_referenced_thresholds() {
-        assert_eq!(
-            policy_for_raw_output(&vec![b'a'; OUTPUT_INLINE_THRESHOLD_BYTES]),
-            OutputReferencePolicy::Inline
-        );
-        assert_eq!(
-            policy_for_raw_output(&vec![b'a'; OUTPUT_INLINE_THRESHOLD_BYTES + 1]),
-            OutputReferencePolicy::Summarized
-        );
-        assert_eq!(
-            policy_for_raw_output(&vec![b'a'; OUTPUT_REFERENCE_THRESHOLD_BYTES + 1]),
-            OutputReferencePolicy::Referenced
-        );
-    }
-
-    #[test]
-    fn reference_text_preserves_hash_and_bounded_edges() {
-        let mut raw_output = Vec::new();
-        raw_output.extend_from_slice(b"head-visible\n");
-        raw_output.extend_from_slice("middle-secret-marker\n".repeat(4_000).as_bytes());
-        raw_output.extend_from_slice(b"tail-visible\n");
-
-        let text = reference_text_for_raw_output(&raw_output, Some("output-ref://sha256/test"))
-            .expect("large output should be referenceized");
-
-        assert!(text.contains("OutputReferenceV1:"));
-        assert!(text.contains("output_ref: output-ref://sha256/test"));
-        assert!(text.contains("policy: referenced_large_output"));
-        assert!(text.contains("artifact_ref: output-ref://sha256/test"));
-        assert!(text.contains("raw_output_elided: true"));
-        assert!(text.contains("suggested_slices:"));
-        assert!(text.contains("sha256:"));
-        assert!(text.contains("head-visible"));
-        assert!(text.contains("tail-visible"));
-        assert!(text.matches("middle-secret-marker").count() < 300);
-    }
-
-    #[test]
-    fn reference_text_redacts_sensitive_head_and_tail_values() {
-        let mut raw_output = Vec::new();
-        raw_output.extend_from_slice(b"api_key = sk-live-secret\n");
-        raw_output.extend_from_slice("middle\n".repeat(20_000).as_bytes());
-        raw_output.extend_from_slice(b"Authorization: Bearer tail-secret-token\n");
-
-        let text = reference_text_for_raw_output(&raw_output, Some("output-ref://sha256/test"))
-            .expect("large output should be referenceized");
-
-        assert!(text.contains("api_key = [REDACTED]"));
-        assert!(text.contains("Authorization: Bearer [REDACTED]"));
-        assert!(!text.contains("sk-live-secret"));
-        assert!(!text.contains("tail-secret-token"));
-        assert!(text.contains("sensitive_data_scan: redacted_model_visible"));
-    }
-
-    #[tokio::test]
-    async fn write_output_artifact_uses_rollout_sibling_directory() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let rollout_path = temp.path().join("rollout-test.jsonl");
-        let raw_output = "artifact-line\n".repeat(9000).into_bytes();
-
-        let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
-            .await
-            .expect("write artifact")
-            .expect("large output should produce artifact ref");
-        let sha = artifact_ref
-            .strip_prefix("output-ref://sha256/")
-            .expect("artifact ref prefix");
-        let artifact_path = temp
-            .path()
-            .join("rollout-test-artifacts")
-            .join("output-refs")
-            .join(format!("{sha}.stdout"));
-
-        assert_eq!(
-            tokio::fs::read(&artifact_path)
-                .await
-                .expect("read artifact"),
-            raw_output
-        );
-    }
-
-    #[tokio::test]
-    async fn read_output_artifact_slice_returns_bounded_grep() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let rollout_path = temp.path().join("rollout-test.jsonl");
-        let raw_output = "alpha\nneedle one\nbeta\nneedle two\n"
-            .repeat(1000)
-            .into_bytes();
-        let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
-            .await
-            .expect("write artifact")
-            .expect("artifact ref");
-
-        let slice = read_output_artifact_slice(
-            Some(&rollout_path),
-            &artifact_ref,
-            OutputSliceRequest {
-                mode: OutputSliceMode::Grep {
-                    pattern: "needle".to_string(),
-                },
-                max_bytes: 128,
-            },
-        )
-        .await
-        .expect("read slice");
-
-        assert!(slice.contains("OutputSliceV1:"));
-        assert!(slice.contains("needle one"));
-        assert!(slice.contains("sensitive_data_scan: redacted_model_visible"));
-        assert!(slice.len() < 512);
-    }
-
-    #[tokio::test]
-    async fn read_output_artifact_slice_redacts_sensitive_values() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let rollout_path = temp.path().join("rollout-test.jsonl");
-        let raw_output = "alpha\npassword: hunter2\nbeta\n".repeat(3000).into_bytes();
-        let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
-            .await
-            .expect("write artifact")
-            .expect("artifact ref");
-
-        let slice = read_output_artifact_slice(
-            Some(&rollout_path),
-            &artifact_ref,
-            OutputSliceRequest {
-                mode: OutputSliceMode::Grep {
-                    pattern: "password".to_string(),
-                },
-                max_bytes: 256,
-            },
-        )
-        .await
-        .expect("read slice");
-
-        assert!(slice.contains("password: [REDACTED]"));
-        assert!(!slice.contains("hunter2"));
-    }
-}
+#[path = "output_reference_tests.rs"]
+mod tests;

@@ -74,6 +74,21 @@ function Test-TaskspaceRunLockStale {
     ((Get-Date) - $heartbeat).TotalSeconds -gt $staleAfter
 }
 
+function Get-TaskspaceRunProcessOwner {
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        try { return [System.Security.Principal.WindowsIdentity]::GetCurrent().Name } catch {}
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:USER)) { return $env:USER }
+    if (-not [string]::IsNullOrWhiteSpace($env:USERNAME)) { return $env:USERNAME }
+    try {
+        $whoami = (& whoami 2>$null)
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$whoami)) {
+            return ([string]$whoami).Trim()
+        }
+    } catch {}
+    "unknown"
+}
+
 function Initialize-TaskspaceBenchmarkRunState {
     param(
         [Parameter(Mandatory = $true)][string]$RunDir,
@@ -91,7 +106,7 @@ function Initialize-TaskspaceBenchmarkRunState {
         created_at = (Get-Date).ToString("o")
         updated_at = (Get-Date).ToString("o")
         host = $env:COMPUTERNAME
-        process_owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        process_owner = Get-TaskspaceRunProcessOwner
         process_id = $PID
         command_line = $CommandLine
         argv = $CommandLine

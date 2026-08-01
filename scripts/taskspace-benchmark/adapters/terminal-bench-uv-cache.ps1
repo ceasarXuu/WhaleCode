@@ -16,12 +16,20 @@ function New-TerminalBenchUvCache {
             }
         }
     }
+    $curlCommand = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $curlCommand) {
+        $curlCommand = Get-Command curl -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
     $enabled = $true
     foreach ($item in @(@($installerUrl, $installer, 60), @($archiveUrl, $archive, 180))) {
         $downloadOk = $true
         if (-not (Test-Path -LiteralPath $item[1])) {
-            & curl.exe -sS -L --max-time $item[2] -o $item[1] $item[0] 2>$null | Out-Null
-            $downloadOk = ($LASTEXITCODE -eq 0)
+            if ($null -eq $curlCommand) {
+                $downloadOk = $false
+            } else {
+                & $curlCommand.Source -sS -L --max-time $item[2] -o $item[1] $item[0] 2>$null | Out-Null
+                $downloadOk = ($LASTEXITCODE -eq 0)
+            }
         }
         if (-not $downloadOk -or -not (Test-Path -LiteralPath $item[1])) { $enabled = $false }
     }
@@ -42,6 +50,7 @@ for arg in "$@"; do
   prev="$arg"
 done
 case "$url" in
+  *astral.sh/uv/install.sh*) src=/tbench-uv-cache/install.sh ;;
   *astral.sh/uv/0.7.13/install.sh*) src=/tbench-uv-cache/install.sh ;;
   *github.com/astral-sh/uv/releases/download/0.7.13/*x86_64-unknown-linux-gnu*) src=/tbench-uv-cache/uv-x86_64-unknown-linux-gnu.tar.gz ;;
   *) exec /usr/bin/curl "$@" ;;
@@ -76,6 +85,7 @@ exec /usr/bin/apt-get "$@"
         enabled = $enabled
         root = $cache
         installer_url = $installerUrl
+        installer_alias_url = "https://astral.sh/uv/install.sh"
         archive_url = $archiveUrl
         installer_path = $installer
         archive_path = $archive

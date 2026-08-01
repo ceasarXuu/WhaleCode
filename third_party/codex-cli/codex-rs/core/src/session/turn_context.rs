@@ -428,7 +428,7 @@ impl Session {
         let provider_for_context = create_model_provider(provider, auth_manager);
         let session_telemetry_for_context = session_telemetry;
         let web_search_tool_manifest = resolve_web_search_tool_manifest_for_turn(
-            &provider_for_context.info().wire_api,
+            provider_for_context.info().wire_api,
             per_turn_config.web_search_mode.value(),
             per_turn_config.web_search_config.as_ref(),
             &per_turn_config.codex_home,
@@ -662,12 +662,26 @@ impl Session {
         let fs = environment
             .as_ref()
             .map(|environment| environment.get_filesystem());
-        let skills_outcome = Arc::new(
-            self.services
-                .skills_manager
-                .skills_for_config(&skills_input, fs)
-                .await,
-        );
+        let mut skills_outcome = self
+            .services
+            .skills_manager
+            .skills_for_config(&skills_input, fs)
+            .await;
+        let taskspace_active = self.state.lock().await.action_map_runtime.mode()
+            == codex_protocol::protocol::MapRuntimeMode::Experiment;
+        if let Err(error) = crate::taskspace_skill::bind_catalog_snapshot(
+            &mut skills_outcome,
+            taskspace_active,
+            session_configuration.taskspace_skill_snapshot.as_ref(),
+        ) {
+            tracing::error!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.skill_catalog_bind_failed",
+                error = %error,
+                "failed to bind TaskSpace advanced skill catalog snapshot"
+            );
+        }
+        let skills_outcome = Arc::new(skills_outcome);
         let goal_tools_supported = !per_turn_config.ephemeral && self.state_db().is_some();
         let mut turn_context: TurnContext = Self::make_turn_context(
             self.conversation_id,
@@ -752,7 +766,7 @@ impl Session {
 }
 
 fn resolve_web_search_tool_manifest_for_turn(
-    wire_api: &WireApi,
+    wire_api: WireApi,
     web_search_mode: WebSearchMode,
     web_search_config: Option<&WebSearchConfig>,
     codex_home: &Path,
@@ -787,7 +801,7 @@ fn resolve_web_search_tool_manifest_for_turn(
 }
 
 fn uses_provider_specific_web_search_manifest(
-    wire_api: &WireApi,
+    wire_api: WireApi,
     web_search_mode: WebSearchMode,
 ) -> bool {
     matches!(
@@ -804,15 +818,15 @@ mod tests {
     #[test]
     fn provider_specific_manifest_is_only_for_live_chat_completions() {
         assert!(uses_provider_specific_web_search_manifest(
-            &WireApi::ChatCompletions,
+            WireApi::ChatCompletions,
             WebSearchMode::Live
         ));
         assert!(!uses_provider_specific_web_search_manifest(
-            &WireApi::ChatCompletions,
+            WireApi::ChatCompletions,
             WebSearchMode::Cached
         ));
         assert!(!uses_provider_specific_web_search_manifest(
-            &WireApi::Responses,
+            WireApi::Responses,
             WebSearchMode::Live
         ));
     }
@@ -823,7 +837,7 @@ mod tests {
 
         assert_eq!(
             resolve_web_search_tool_manifest_for_turn(
-                &WireApi::ChatCompletions,
+                WireApi::ChatCompletions,
                 WebSearchMode::Live,
                 None,
                 temp_home.path()

@@ -30,6 +30,8 @@ function Invoke-RealProcess {
         [hashtable]$Environment = @{}
     )
     $encoding = [System.Text.UTF8Encoding]::new($false)
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $StdoutPath) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $StderrPath) | Out-Null
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
     $startInfo.WorkingDirectory = $WorkingDirectory
@@ -49,34 +51,74 @@ function Invoke-RealProcess {
     }) -join " ")
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
+    $stdoutStream = [System.IO.FileStream]::new($StdoutPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+    $stderrStream = [System.IO.FileStream]::new($StderrPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
     $launchStartedAt = Get-Date
-    [void]$process.Start()
-    $processStartedAt = Get-Date
-    if (-not [string]::IsNullOrWhiteSpace($TimingPath)) {
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TimingPath) | Out-Null
-        [pscustomobject]@{
-            schema_version = 1
-            process_launch_started_at = $launchStartedAt.ToString("o")
-            process_started_at = $processStartedAt.ToString("o")
-            process_launch_wait_ms = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
-        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $TimingPath -Encoding UTF8
+    $processStartedAt = $null
+    $timedOut = $false
+    $exitCode = $null
+    try {
+        [void]$process.Start()
+        $processStartedAt = Get-Date
+        $stdoutCopyTask = $process.StandardOutput.BaseStream.CopyToAsync($stdoutStream)
+        $stderrCopyTask = $process.StandardError.BaseStream.CopyToAsync($stderrStream)
+        if (-not [string]::IsNullOrWhiteSpace($TimingPath)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TimingPath) | Out-Null
+            [pscustomobject]@{
+                schema_version = 1
+                process_launch_started_at = $launchStartedAt.ToString("o")
+                process_started_at = $processStartedAt.ToString("o")
+                process_launch_wait_ms = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
+                timed_out = $false
+                completed = $false
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $TimingPath -Encoding UTF8
+        }
+        if ($StdinPath) {
+            $stdinBytes = [System.IO.File]::ReadAllBytes($StdinPath)
+            $process.StandardInput.BaseStream.Write($stdinBytes, 0, $stdinBytes.Length)
+            $process.StandardInput.Close()
+        }
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $timedOut = $true
+            try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+            try { $process.WaitForExit(5000) | Out-Null } catch {}
+        } else {
+            $process.WaitForExit()
+            $exitCode = $process.ExitCode
+        }
+    } finally {
+        try {
+            if ($null -ne $stdoutCopyTask) { $stdoutCopyTask.Wait(5000) | Out-Null }
+        } catch {}
+        try {
+            if ($null -ne $stderrCopyTask) { $stderrCopyTask.Wait(5000) | Out-Null }
+        } catch {}
+        if ($timedOut) {
+            $timeoutBytes = $encoding.GetBytes("Process timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')`n")
+            try { $stderrStream.Write($timeoutBytes, 0, $timeoutBytes.Length) } catch {}
+        }
+        $completedAt = Get-Date
+        if (-not [string]::IsNullOrWhiteSpace($TimingPath) -and $null -ne $processStartedAt) {
+            [pscustomobject]@{
+                schema_version = 1
+                process_launch_started_at = $launchStartedAt.ToString("o")
+                process_started_at = $processStartedAt.ToString("o")
+                process_completed_at = $completedAt.ToString("o")
+                process_launch_wait_ms = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
+                wall_time_ms = [int64](($completedAt - $processStartedAt).TotalMilliseconds)
+                timed_out = $timedOut
+                completed = (-not $timedOut)
+                exit_code = $exitCode
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $TimingPath -Encoding UTF8
+        }
+        try { $stdoutStream.Dispose() } catch {}
+        try { $stderrStream.Dispose() } catch {}
+        try { $process.Dispose() } catch {}
     }
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if ($StdinPath) {
-        $stdinBytes = [System.IO.File]::ReadAllBytes($StdinPath)
-        $process.StandardInput.BaseStream.Write($stdinBytes, 0, $stdinBytes.Length)
-        $process.StandardInput.Close()
-    }
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $process.Kill($true) } catch { $process.Kill() }
+    if ($timedOut) {
         throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')"
     }
-    $stdoutTask.Wait()
-    $stderrTask.Wait()
-    $stdoutTask.Result | Set-Content -Encoding UTF8 $StdoutPath
-    $stderrTask.Result | Set-Content -Encoding UTF8 $StderrPath
-    $process.ExitCode
+    $exitCode
 }
 
 function Get-ThreadId([string]$JsonlText) {
@@ -92,8 +134,9 @@ function Get-ThreadId([string]$JsonlText) {
 
 function Find-LatestRollout([datetime]$StartedAt, [string]$ThreadId) {
     $homes = @()
-    if ($env:WHALE_HOME) { $homes += $env:WHALE_HOME }
-    $homes += (Join-Path $env:USERPROFILE ".whale")
+    if (-not [string]::IsNullOrWhiteSpace($env:WHALE_HOME)) { $homes += $env:WHALE_HOME }
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) { $homes += (Join-Path $env:USERPROFILE ".whale") }
+    if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { $homes += (Join-Path $env:HOME ".whale") }
     foreach ($candidateHome in $homes | Select-Object -Unique) {
         if (-not (Test-Path $candidateHome)) { continue }
         $recent = Get-ChildItem -Path $candidateHome -Recurse -Filter "rollout-*.jsonl" -ErrorAction SilentlyContinue |
@@ -139,23 +182,26 @@ function Get-CommandStats([string]$JsonlText) {
 }
 
 function Get-SuccessfulTaskspaceOrdering([string]$RolloutText) {
-    $firstBinding = $null
+    $firstReservation = $null
     $firstOrdinary = $null
     $pendingOrdinary = @{}
     foreach ($line in ($RolloutText -split "`r?`n")) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $evt = $line | ConvertFrom-Json } catch { continue }
-        if (-not $firstBinding -and $evt.type -eq "event_msg") {
-            $eventKind = [string]$evt.payload.type
-            if ($eventKind -eq "lease_created") {
-                $firstBinding = [pscustomobject]@{ Timestamp = [string]$evt.timestamp; Evidence = "lease_created" }
+        if (-not $firstReservation -and $evt.type -eq "event_msg") {
+            $eventKind = if ([string]$evt.payload.type -eq "map_runtime") {
+                [string]$evt.payload.map_event_type
+            } else {
+                [string]$evt.payload.type
+            }
+            if ($eventKind -eq "store_committed" -and [string]$evt.payload.operation -eq "prepare_response") {
+                $firstReservation = [pscustomobject]@{ Timestamp = [string]$evt.timestamp; Evidence = "store_committed:prepare_response" }
             }
         }
         if ($evt.type -eq "response_item" -and $evt.payload.type -eq "function_call") {
             $name = [string]$evt.payload.name
             if ($name -match "^(shell_command|apply_patch|spawn_agent)$" -and $evt.payload.call_id) {
                 $pendingOrdinary[[string]$evt.payload.call_id] = [pscustomobject]@{
-                    Timestamp = [string]$evt.timestamp
                     Tool = $name
                 }
             }
@@ -166,22 +212,25 @@ function Get-SuccessfulTaskspaceOrdering([string]$RolloutText) {
                 $output = [string]$evt.payload.output
                 $blockedByTaskspace = $output -match "TaskSpace (mode is active|blocked this tool call)|Call taskspace_control"
                 if (-not $blockedByTaskspace) {
-                    $firstOrdinary = $pendingOrdinary[$callId]
+                    $firstOrdinary = [pscustomobject]@{
+                        Timestamp = [string]$evt.timestamp
+                        Tool = $pendingOrdinary[$callId].Tool
+                    }
                 }
             }
         }
     }
-    $ordinaryBeforeBinding = $false
-    if ($firstOrdinary -and -not $firstBinding) { $ordinaryBeforeBinding = $true }
-    elseif ($firstOrdinary -and $firstBinding) {
-        $ordinaryBeforeBinding = ([datetime]$firstOrdinary.Timestamp) -lt ([datetime]$firstBinding.Timestamp)
+    $ordinaryBeforeReservation = $false
+    if ($firstOrdinary -and -not $firstReservation) { $ordinaryBeforeReservation = $true }
+    elseif ($firstOrdinary -and $firstReservation) {
+        $ordinaryBeforeReservation = ([datetime]$firstOrdinary.Timestamp) -lt ([datetime]$firstReservation.Timestamp)
     }
     [pscustomobject]@{
-        FirstBindingTimestamp = if ($firstBinding) { $firstBinding.Timestamp } else { "" }
-        FirstBindingEvidence = if ($firstBinding) { $firstBinding.Evidence } else { "" }
+        FirstReservationTimestamp = if ($firstReservation) { $firstReservation.Timestamp } else { "" }
+        FirstReservationEvidence = if ($firstReservation) { $firstReservation.Evidence } else { "" }
         FirstOrdinaryToolTimestamp = if ($firstOrdinary) { $firstOrdinary.Timestamp } else { "" }
         FirstOrdinaryTool = if ($firstOrdinary) { $firstOrdinary.Tool } else { "" }
-        OrdinaryToolBeforeBinding = $ordinaryBeforeBinding
+        OrdinaryToolBeforeReservation = $ordinaryBeforeReservation
     }
 }
 
@@ -194,17 +243,12 @@ function Get-PytestOwnership($Obs, $ToolCallArgs) {
             if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) {
                 continue
             }
-            $body = [string]$result.body
-            $callId = ""
-            if ($body -match 'call_id:\s*(call_[A-Za-z0-9_]+)') {
-                $callId = $Matches[1]
-            }
+            $callId = Get-ToolResultCallId $result
             $command = ""
             if ($callId -and $ToolCallArgs.ContainsKey($callId)) {
                 $command = [string]$ToolCallArgs[$callId]
             }
-            $combined = "$body`n$command`n$([string]$result.preview)"
-            if ($combined -match "pytest" -and $combined -match "Exit code:\s*0" -and $combined -match "(?i)\bpassed\b") {
+            if ($result.success -eq $true) {
                 return [pscustomobject]@{
                     Owned = $true
                     NodeId = [string]$node.id
@@ -231,26 +275,9 @@ function Get-ChangedPathsFromDiff([string]$DiffText) {
 }
 
 function Get-ToolResultCallId($Result) {
-    if ((Get-ObjectPropertyNames $Result) -contains "callId" -and -not [string]::IsNullOrWhiteSpace([string]$Result.callId)) {
-        return [string]$Result.callId
-    }
-    $body = [string]$Result.body
-    if ($body -match 'call_id:\s*(call_[A-Za-z0-9_]+)') { return $Matches[1] }
+    $sourceRef = [string]$Result.sourceEventRef
+    if ($sourceRef -match '/call:([^/]+)$') { return $Matches[1] }
     ""
-}
-
-function Test-TextMentionsChangedPath([string]$Text, [string]$Path) {
-    $windowsPath = $Path.Replace("/", "\")
-    $escapedWindowsPath = $windowsPath.Replace("\", "\\")
-    $forwardPath = $Path.Replace("\", "/")
-    $escapedForwardPath = $forwardPath.Replace("/", "\/")
-    return (
-        $Text.Contains($Path) -or
-        $Text.Contains($windowsPath) -or
-        $Text.Contains($escapedWindowsPath) -or
-        $Text.Contains($forwardPath) -or
-        $Text.Contains($escapedForwardPath)
-    )
 }
 
 function Get-ImplementationOwnershipGap($Obs, [string]$DiffText, $ToolCallArgs = $null) {
@@ -269,12 +296,7 @@ function Get-ImplementationOwnershipGap($Obs, [string]$DiffText, $ToolCallArgs =
         foreach ($node in @($Obs.nodes | Where-Object { $_.kind -eq "implement_solution" })) {
             foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "edit" })) {
                 if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) { continue }
-                $text = "$([string]$result.body)`n$([string]$result.preview)"
-                $callId = Get-ToolResultCallId $result
-                if ($ToolCallArgs -and $callId -and $ToolCallArgs.ContainsKey($callId)) {
-                    $text = "$text`n$([string]$ToolCallArgs[$callId])"
-                }
-                if (Test-TextMentionsChangedPath $text $path) {
+                if (@($result.artifactRefs) -contains $path) {
                     $owned = $true
                     break
                 }
@@ -420,4 +442,3 @@ function Count-EditResultsAfter([object[]]$Nodes, [string]$Timestamp) {
                 })
         }).Count
 }
-

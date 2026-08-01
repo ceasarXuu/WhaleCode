@@ -74,6 +74,7 @@ pub mod personality_migration;
 pub mod plugins;
 #[doc(hidden)]
 pub(crate) mod prompt_debug;
+mod provider_wire_trace;
 #[doc(hidden)]
 pub use prompt_debug::build_prompt_input;
 pub(crate) mod mentions {
@@ -108,6 +109,7 @@ pub(crate) use skills::resolve_skill_dependencies_for_turn;
 pub(crate) use skills::skills_load_input_from_config;
 mod skills_watcher;
 mod stream_events_utils;
+mod taskspace_skill;
 pub mod test_support;
 mod unified_exec;
 pub mod windows_sandbox;

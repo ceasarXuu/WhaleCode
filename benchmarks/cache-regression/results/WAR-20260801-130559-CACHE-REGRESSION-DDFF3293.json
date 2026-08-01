@@ -1,0 +1,77 @@
+{
+  "schema_version": "whalecode-cache-hit-regression-v6",
+  "record_id": "WAR-20260801-130559-CACHE-REGRESSION-DDFF3293",
+  "status": "partial",
+  "started_at": "2026-08-01T13:05:59+08:00",
+  "subject_commit": "0490facf13bbef0cc3f75909bccdc9f8271b63be",
+  "surface_sha256": "d3484073e6702d853c9e9ddd86c6a5f7499fdcb4a6590fe30133ff1303bdff2e",
+  "proposal_id": "CBP-30AA55032E53B239",
+  "proposal_sha256": "b8f366fb9618ad4a5ced2d90abd89b394f6f62177dcc1fba0fc790cf3997969e",
+  "authorization_reference": "用户在当前会话再次明确回复“批准”，批准修复本机 binary attestation 后的同等替代批次。",
+  "authorization_sha256": "7072d44b684637568da0f15bb503655b412ad1a4987dd2c5ab39be8d5638cdd9",
+  "observed_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户批准替代 R8 accepted baseline 最小 smoke：single-file-fast-fix 的 Standard 与 map-request 各一次，禁止自动重试。"
+  },
+  "unverified_scope": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "map-request",
+      "repeat": 1
+    }
+  ],
+  "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+  "actual_sample_runs": 1,
+  "credential_source": ".env.local",
+  "run_root": "target/cache-hit-regression/WAR-20260801-130559-CACHE-REGRESSION-DDFF3293",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260801-130559-CACHE-REGRESSION-DDFF3293.json",
+  "attempts": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "standard",
+      "repeat": 1,
+      "run_id": "WAR-20260801-130559-CACHE-REGRESSION-DDFF3293-CACHE-001",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "elapsed_seconds": 18.997,
+      "post_run_cleanup": {
+        "status": "verified_absent",
+        "container_ids": [],
+        "stable_empty_polls": 3,
+        "network_cleanup_status": "verified_absent",
+        "network_ids": [],
+        "secret_cleanup_status": "verified_absent",
+        "secret_paths": [],
+        "error": ""
+      },
+      "evidence_error": "RuntimeError: benchmark run id WAR-20260801-130559-CACHE-REGRESSION-DDFF3293-CACHE-001 resolved to 0 directories",
+      "stop_reason": "run_failure"
+    }
+  ],
+  "observations": [],
+  "stop_reason": "run_failure",
+  "provider_boundary_requests_minimum": 0,
+  "provider_boundary_accounting_status": "unavailable",
+  "evidence_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "runner_exit_code": 3,
+  "ended_at": "2026-08-01T13:06:22+08:00",
+  "elapsed_seconds": 23.146
+}

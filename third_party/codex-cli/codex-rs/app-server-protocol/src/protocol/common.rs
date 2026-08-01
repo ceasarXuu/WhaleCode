@@ -314,11 +314,6 @@ client_request_definitions! {
         params: v2::ThreadMapRuntimeModeSetParams,
         response: v2::ThreadMapRuntimeModeSetResponse,
     },
-    #[experimental("thread/actionMap/restart")]
-    ThreadActionMapRestart => "thread/actionMap/restart" {
-        params: v2::ThreadActionMapRestartParams,
-        response: v2::ThreadActionMapRestartResponse,
-    },
     #[experimental("thread/actionMap/read")]
     ThreadActionMapRead => "thread/actionMap/read" {
         params: v2::ThreadActionMapReadParams,

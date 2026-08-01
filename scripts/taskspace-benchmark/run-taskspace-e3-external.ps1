@@ -10,8 +10,6 @@ param(
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900,
-    [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
     [switch]$AllowStaleWhaleBin,
@@ -34,7 +32,6 @@ $args = @(
     "-WhaleBin", $WhaleBin,
     "-Model", $Model,
     "-TimeoutSeconds", $TimeoutSeconds,
-    "-SandboxMode", $SandboxMode,
     "-EnableAggregate"
 )
 if (-not [string]::IsNullOrWhiteSpace($SampleId)) { $args += @("-SampleId", $SampleId) }

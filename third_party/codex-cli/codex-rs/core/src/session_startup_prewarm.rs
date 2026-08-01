@@ -11,13 +11,13 @@ use tracing::warn;
 use crate::client::ModelClientSession;
 use crate::session::INITIAL_SUBMIT_ID;
 use crate::session::session::Session;
-use crate::session::turn::build_prompt;
+use crate::session::turn::TaskspaceProviderToolVisibility;
+use crate::session::turn::build_prompt_with_tool_visibility;
 use crate::session::turn::built_tools;
 use codex_otel::STARTUP_PREWARM_AGE_AT_FIRST_TURN_METRIC;
 use codex_otel::STARTUP_PREWARM_DURATION_METRIC;
 use codex_otel::SessionTelemetry;
 use codex_protocol::error::Result as CodexResult;
-use codex_protocol::models::BaseInstructions;
 
 pub(crate) struct SessionStartupPrewarmHandle {
     task: JoinHandle<CodexResult<ModelClientSession>>,
@@ -45,6 +45,10 @@ impl SessionStartupPrewarmHandle {
             started_at,
             timeout,
         }
+    }
+
+    pub(crate) fn abort(self) {
+        self.task.abort();
     }
 
     async fn resolve(
@@ -156,14 +160,13 @@ impl SessionStartupPrewarmHandle {
 }
 
 impl Session {
-    pub(crate) async fn schedule_startup_prewarm(self: &Arc<Self>, base_instructions: String) {
+    pub(crate) async fn schedule_startup_prewarm(self: &Arc<Self>) {
         let session_telemetry = self.services.session_telemetry.clone();
         let websocket_connect_timeout = self.provider().await.websocket_connect_timeout();
         let started_at = Instant::now();
         let startup_prewarm_session = Arc::clone(self);
         let startup_prewarm = tokio::spawn(async move {
-            let result =
-                schedule_startup_prewarm_inner(startup_prewarm_session, base_instructions).await;
+            let result = schedule_startup_prewarm_inner(startup_prewarm_session).await;
             let status = if result.is_ok() { "ready" } else { "failed" };
             session_telemetry.record_duration(
                 STARTUP_PREWARM_DURATION_METRIC,
@@ -196,10 +199,19 @@ impl Session {
     }
 }
 
-async fn schedule_startup_prewarm_inner(
-    session: Arc<Session>,
-    base_instructions: String,
-) -> CodexResult<ModelClientSession> {
+async fn schedule_startup_prewarm_inner(session: Arc<Session>) -> CodexResult<ModelClientSession> {
+    let resolved_base_instructions = session.get_resolved_base_instructions().await;
+    let taskspace_active = resolved_base_instructions.profile.is_taskspace();
+    info!(
+        target = "codex_core::taskspace",
+        event_name = "base_instructions.prewarm_profile_selected",
+        profile = resolved_base_instructions.profile.as_str(),
+        version = resolved_base_instructions.version,
+        sha256 = %resolved_base_instructions.sha256,
+        bytes = resolved_base_instructions.bytes,
+        matches_current_contract = resolved_base_instructions.matches_current_contract,
+        "selected startup prewarm base instructions profile"
+    );
     let startup_turn_context = session
         .new_default_turn_with_sub_id(INITIAL_SUBMIT_ID.to_owned())
         .await;
@@ -213,12 +225,15 @@ async fn schedule_startup_prewarm_inner(
         &startup_cancellation_token,
     )
     .await?;
-    let startup_prompt = build_prompt(
+    let startup_prompt = build_prompt_with_tool_visibility(
         Vec::new(),
         startup_router.as_ref(),
         startup_turn_context.as_ref(),
-        BaseInstructions {
-            text: base_instructions,
+        resolved_base_instructions.instructions,
+        if taskspace_active {
+            TaskspaceProviderToolVisibility::TaskspaceNative
+        } else {
+            TaskspaceProviderToolVisibility::Standard
         },
     );
     let startup_turn_metadata_header = startup_turn_context

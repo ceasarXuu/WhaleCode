@@ -21,19 +21,33 @@ use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
 use codex_tools::ToolsConfig;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
+const NATIVE_READ_FILE_MAX_LINES: usize = 240;
+
 pub use crate::tools::context::ToolCallSource;
 
 #[derive(Clone, Debug)]
 pub struct ToolCall {
-    pub tool_name: ToolName,
+    /// Exact identity emitted by the provider and visible in the Tool schema.
+    ///
+    /// This remains distinct from `dispatch_tool_name`, which may be normalized
+    /// to an internal handler identity before dispatch.
+    pub provider_tool_name: ToolName,
+    pub dispatch_tool_name: ToolName,
     pub call_id: String,
     pub payload: ToolPayload,
+}
+
+impl ToolCall {
+    pub(crate) fn provider_tool_name_display(&self) -> String {
+        self.provider_tool_name.display()
+    }
 }
 
 pub struct ToolRouter {
@@ -165,7 +179,7 @@ impl ToolRouter {
             // tools that may not have a matching spec entry. Use the parsed payload
             // server so similarly named servers/tools cannot collide.
             ToolPayload::Mcp { server, .. } => self.parallel_mcp_server_names.contains(server),
-            _ => self.configured_tool_supports_parallel(&call.tool_name),
+            _ => self.configured_tool_supports_parallel(&call.dispatch_tool_name),
         }
     }
 
@@ -185,7 +199,8 @@ impl ToolRouter {
                 let tool_name = ToolName::new(namespace, name);
                 if let Some(tool_info) = session.resolve_mcp_tool_info(&tool_name).await {
                     Ok(Some(ToolCall {
-                        tool_name: tool_info.canonical_tool_name(),
+                        provider_tool_name: tool_name,
+                        dispatch_tool_name: tool_info.canonical_tool_name(),
                         call_id,
                         payload: ToolPayload::Mcp {
                             server: tool_info.server_name,
@@ -194,8 +209,12 @@ impl ToolRouter {
                         },
                     }))
                 } else {
+                    let provider_tool_name = tool_name.clone();
+                    let (tool_name, arguments) =
+                        normalize_native_function_alias(tool_name, arguments)?;
                     Ok(Some(ToolCall {
-                        tool_name,
+                        provider_tool_name,
+                        dispatch_tool_name: tool_name,
                         call_id,
                         payload: ToolPayload::Function { arguments },
                     }))
@@ -214,11 +233,19 @@ impl ToolRouter {
                         ))
                     })?;
                 Ok(Some(ToolCall {
-                    tool_name: ToolName::plain("tool_search"),
+                    provider_tool_name: ToolName::plain("tool_search"),
+                    dispatch_tool_name: ToolName::plain("tool_search"),
                     call_id,
                     payload: ToolPayload::ToolSearch { arguments },
                 }))
             }
+            ResponseItem::ToolSearchCall {
+                call_id: None,
+                execution,
+                ..
+            } if execution == "client" => Err(FunctionCallError::RespondToModel(
+                "client tool_search call is missing call_id".to_string(),
+            )),
             ResponseItem::ToolSearchCall { .. } => Ok(None),
             ResponseItem::CustomToolCall {
                 name,
@@ -226,7 +253,8 @@ impl ToolRouter {
                 call_id,
                 ..
             } => Ok(Some(ToolCall {
-                tool_name: ToolName::plain(name),
+                provider_tool_name: ToolName::plain(name.clone()),
+                dispatch_tool_name: ToolName::plain(name),
                 call_id,
                 payload: ToolPayload::Custom { input },
             })),
@@ -252,7 +280,8 @@ impl ToolRouter {
                             justification: None,
                         };
                         Ok(Some(ToolCall {
-                            tool_name: ToolName::plain("local_shell"),
+                            provider_tool_name: ToolName::plain("local_shell"),
+                            dispatch_tool_name: ToolName::plain("local_shell"),
                             call_id,
                             payload: ToolPayload::LocalShell { params },
                         }))
@@ -274,7 +303,8 @@ impl ToolRouter {
         source: ToolCallSource,
     ) -> Result<AnyToolResult, FunctionCallError> {
         let ToolCall {
-            tool_name,
+            provider_tool_name: _,
+            dispatch_tool_name: tool_name,
             call_id,
             payload,
         } = call;
@@ -293,6 +323,149 @@ impl ToolRouter {
         self.registry.dispatch_any(invocation).await
     }
 }
+
+fn normalize_native_function_alias(
+    tool_name: ToolName,
+    arguments: String,
+) -> Result<(ToolName, String), FunctionCallError> {
+    if tool_name.namespace.is_some() {
+        return Ok((tool_name, arguments));
+    }
+
+    match tool_name.name.as_str() {
+        "exec_command" => Ok((
+            ToolName::plain("shell_command"),
+            normalize_exec_command_arguments(arguments)?,
+        )),
+        "read_file" => Ok((
+            ToolName::plain("shell_command"),
+            normalize_read_file_arguments(arguments)?,
+        )),
+        _ => Ok((tool_name, arguments)),
+    }
+}
+
+fn normalize_exec_command_arguments(arguments: String) -> Result<String, FunctionCallError> {
+    let mut value = parse_alias_arguments("exec_command", &arguments)?;
+    let Some(object) = value.as_object_mut() else {
+        return Err(FunctionCallError::RespondToModel(
+            "failed to parse exec_command arguments: expected object".to_string(),
+        ));
+    };
+
+    if let Some(command) = shell_command_text_from_alias_object(object) {
+        object.insert("command".to_string(), JsonValue::String(command));
+        Ok(value.to_string())
+    } else {
+        Err(FunctionCallError::RespondToModel(
+            "failed to parse exec_command arguments: missing `cmd` or `command`".to_string(),
+        ))
+    }
+}
+
+fn normalize_read_file_arguments(arguments: String) -> Result<String, FunctionCallError> {
+    let value = parse_alias_arguments("read_file", &arguments)?;
+    let Some(object) = value.as_object() else {
+        return Err(FunctionCallError::RespondToModel(
+            "failed to parse read_file arguments: expected object".to_string(),
+        ));
+    };
+    let path = ["path", "file_path", "filename"]
+        .iter()
+        .find_map(|key| object.get(*key).and_then(JsonValue::as_str))
+        .ok_or_else(|| {
+            FunctionCallError::RespondToModel(
+                "failed to parse read_file arguments: missing `path` or `file_path`".to_string(),
+            )
+        })?;
+
+    let mut normalized = serde_json::Map::new();
+    normalized.insert(
+        "command".to_string(),
+        JsonValue::String(native_read_file_shell_command(path)),
+    );
+    if let Some(workdir) = object
+        .get("workdir")
+        .or_else(|| object.get("cwd"))
+        .or_else(|| object.get("working_directory"))
+        .and_then(JsonValue::as_str)
+    {
+        normalized.insert(
+            "workdir".to_string(),
+            JsonValue::String(workdir.to_string()),
+        );
+    }
+    if let Some(timeout) = object.get("timeout_ms").or_else(|| object.get("timeout")) {
+        normalized.insert("timeout_ms".to_string(), timeout.clone());
+    }
+
+    Ok(JsonValue::Object(normalized).to_string())
+}
+
+fn parse_alias_arguments(tool_name: &str, arguments: &str) -> Result<JsonValue, FunctionCallError> {
+    serde_json::from_str(arguments).map_err(|err| {
+        FunctionCallError::RespondToModel(format!("failed to parse {tool_name} arguments: {err}"))
+    })
+}
+
+fn shell_command_text_from_alias_object(
+    object: &serde_json::Map<String, JsonValue>,
+) -> Option<String> {
+    object
+        .get("command")
+        .and_then(command_value_to_shell_text)
+        .or_else(|| {
+            object
+                .get("cmd")
+                .and_then(JsonValue::as_str)
+                .map(str::to_string)
+        })
+}
+
+fn command_value_to_shell_text(value: &JsonValue) -> Option<String> {
+    if let Some(command) = value.as_str() {
+        return Some(command.to_string());
+    }
+    let command = value.as_array()?;
+    let parts = command
+        .iter()
+        .map(|value| value.as_str().map(str::to_string))
+        .collect::<Option<Vec<_>>>()?;
+    Some(codex_shell_command::parse_command::shlex_join(&parts))
+}
+
+fn native_read_file_shell_command(path: &str) -> String {
+    if cfg!(windows) {
+        let summary_path = path.replace('"', "`\"");
+        format!(
+            "Get-Content -LiteralPath {path:?} -TotalCount {NATIVE_READ_FILE_MAX_LINES}; \
+$ReadFileCount = @(Get-Content -LiteralPath {path:?} -TotalCount {}).Count; \
+$ReadFileLines = [Math]::Min($ReadFileCount, {NATIVE_READ_FILE_MAX_LINES}); \
+$ReadFileEof = if ($ReadFileCount -le {NATIVE_READ_FILE_MAX_LINES}) {{ 'true' }} else {{ 'false' }}; \
+Write-Output \"ReadFileSummaryV1: path={summary_path} lines_read=$ReadFileLines eof_reached=$ReadFileEof max_lines={NATIVE_READ_FILE_MAX_LINES}\"",
+            NATIVE_READ_FILE_MAX_LINES + 1,
+        )
+    } else {
+        let sed_args = vec![
+            "sed".to_string(),
+            "-n".to_string(),
+            format!("1,{NATIVE_READ_FILE_MAX_LINES}p"),
+            "--".to_string(),
+            path.to_string(),
+        ];
+        let summary_script = format!(
+            "NR == {} {{ truncated = 1; exit }} {{ lines = NR }} END {{ eof = truncated ? \"false\" : \"true\"; if ({NATIVE_READ_FILE_MAX_LINES} < lines) lines = {NATIVE_READ_FILE_MAX_LINES}; printf \"\\nReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines={NATIVE_READ_FILE_MAX_LINES}\\n\", FILENAME, lines + 0, eof }}",
+            NATIVE_READ_FILE_MAX_LINES + 1,
+        );
+        let awk_args = vec!["awk".to_string(), summary_script, path.to_string()];
+        format!(
+            "{} && {}",
+            codex_shell_command::parse_command::shlex_join(&sed_args),
+            codex_shell_command::parse_command::shlex_join(&awk_args)
+        )
+    }
+}
+
 #[cfg(test)]
 #[path = "router_tests.rs"]
 mod tests;

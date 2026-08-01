@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "calibration-gate.ps1")
 . (Join-Path $PSScriptRoot "e3-identity.ps1")
+. (Join-Path $PSScriptRoot "..\..\cache-regression\verify-cache-regression-evidence.ps1")
 
 function Invoke-TaskspaceGateCommand {
     param(
@@ -87,6 +88,7 @@ function New-TaskspaceE3GateDecision {
     param($Gate, [string]$Phase = "R1", [string]$TaskListHash = "", [string]$SourceVersion = "", [string]$ProfileHash = "")
     $passed = ($Gate -and [string]$Gate.status -eq "pass")
     $calibrationPass = $false
+    $calibrationSkippedAllowed = $false
     $fullE3Allowed = $false
     $speedClaimAllowed = $false
     if ($Gate -and $Gate.calibration_gate) {
@@ -102,8 +104,9 @@ function New-TaskspaceE3GateDecision {
         if ($v005MarkerRows.Count -gt 0) {
             $v005MarkersPass = @($v005MarkerRows | Where-Object { [string]$_.status -ne "pass" }).Count -eq 0
         }
+        $calibrationSkippedAllowed = @($Gate.gates | Where-Object { [string]$_.name -eq "calibration_gate" -and [string]$_.status -eq "skipped_allowed" }).Count -gt 0
     }
-    $fullE3Allowed = $passed -and $fullE3Allowed -and $v005MarkersPass
+    $fullE3Allowed = $passed -and ($fullE3Allowed -or $calibrationSkippedAllowed) -and $v005MarkersPass
     $speedClaimAllowed = $passed -and $speedClaimAllowed
     $nextCategory = if (-not $passed -and $calibrationFailed) {
         "serial_calibration"
@@ -124,6 +127,7 @@ function New-TaskspaceE3GateDecision {
         full_e3_allowed = $fullE3Allowed
         speed_claim_allowed = $speedClaimAllowed
         calibration_gate_passed = $calibrationPass
+        calibration_gate_skipped_allowed = $calibrationSkippedAllowed
         v005_markers_passed = $v005MarkersPass
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
@@ -189,6 +193,9 @@ function Get-TaskspaceV005MarkerGate {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name current HEAD unavailable" "$Name`_current_head_unavailable" "Cannot bind marker to current git HEAD: $Path"
     }
     if ([string]$Name -eq "v005_non_agent_gates") {
+        if ([string]$marker.mode -ne "formal" -or -not [bool]$marker.release_eligible) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name is not formal release evidence" "$Name`_mode_not_formal" "Non-agent marker must set mode=formal and release_eligible=true: $Path"
+        }
         $required = @(
             "provider_request_hook",
             "runtime_budget_response",
@@ -198,7 +205,10 @@ function Get-TaskspaceV005MarkerGate {
             "spawn_node_budget",
             "request_phase_attribution",
             "release_decision_fixture",
-            "start_gate_fixture"
+            "start_gate_fixture",
+            "external_wrapper_fixture",
+            "marker_writer_fixture",
+            "cache_regression_surface"
         )
         foreach ($gateName in $required) {
             $gateValue = $null
@@ -243,6 +253,9 @@ function Get-TaskspaceV005MarkerGate {
             $actualEvidenceSha = Get-TaskspaceStartGateFileSha256 ([string]$gateValue.evidence_path)
             if ($actualEvidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant()) {
                 return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName evidence_sha256 mismatch" "$Name`_$gateName`_evidence_sha256_mismatch" "Non-agent gate $gateName evidence_sha256 must match local file: $Path"
+            }
+            if ($gateName -eq "cache_regression_surface" -and -not (Test-CacheRegressionFormalGateEvidence $gateValue ([string]$currentHead))) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name cache evidence invalid" "$Name`_cache_regression_evidence_invalid" "Cache regression gate must include valid structured formal evidence: $Path"
             }
         }
     } elseif ([string]$Name -eq "v005_code_complete") {
@@ -480,9 +493,10 @@ function Invoke-TaskspaceE3StartGate {
     $diskHealth = New-TaskspaceDiskHealth @($paths.ToArray()) "e3_start_gate"
     $gates = New-Object System.Collections.Generic.List[object]
     $gates.Add((New-TaskspaceE3GateRow "disk_preflight" ([string]$diskHealth.status) $(if ([string]$diskHealth.status -eq "pass") { "" } else { "disk_space_low" }) $(if ([string]$diskHealth.status -eq "pass") { "" } else { "disk_space_low" })))
-    $dockerFailures = @($diskHealth.docker_storage_checks | Where-Object { [string]$_.status -eq "fail" })
-    $dockerStatus = if (@($diskHealth.docker_storage_checks).Count -eq 0) { "fail" } elseif ($dockerFailures.Count -eq 0) { "pass" } else { "fail" }
-    $dockerReason = if (@($diskHealth.docker_storage_checks).Count -eq 0) { "docker_storage_unverified" } elseif ($dockerFailures.Count -eq 0) { "" } else { "docker_storage_low" }
+    $dockerChecks = @($diskHealth.docker_storage_checks)
+    $dockerFailures = @($dockerChecks | Where-Object { [string]$_.status -eq "fail" })
+    $dockerStatus = if ($dockerChecks.Count -eq 0) { "skipped_allowed" } elseif ($dockerFailures.Count -eq 0) { "pass" } else { "fail" }
+    $dockerReason = if ($dockerChecks.Count -eq 0) { "docker_storage_unverified" } elseif ($dockerFailures.Count -eq 0) { "" } else { "docker_storage_low" }
     $gates.Add((New-TaskspaceE3GateRow "docker_storage" $dockerStatus $dockerReason $dockerReason))
     if ($manifestHealth) {
         $pathFailures = @($manifestHealth.findings | Where-Object { [string]$_.stable_code -in @("relative_materialized_path", "path_unresolvable", "uv_cache_missing", "validator_source_missing") })

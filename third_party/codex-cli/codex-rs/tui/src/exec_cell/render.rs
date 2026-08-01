@@ -13,6 +13,8 @@ use crate::wrapping::RtOptions;
 use crate::wrapping::adaptive_wrap_line;
 use crate::wrapping::adaptive_wrap_lines;
 use codex_ansi_escape::ansi_escape_line;
+#[cfg(test)]
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::protocol::ExecCommandSource;
 use codex_shell_command::bash::extract_bash_command;
@@ -110,7 +112,7 @@ pub(crate) fn output_lines(
     let CommandOutput {
         aggregated_output, ..
     } = match output {
-        Some(output) if only_err && output.exit_code == 0 => {
+        Some(output) if only_err && output.is_success() => {
             return OutputLines {
                 lines: Vec::new(),
                 omitted: None,
@@ -234,13 +236,14 @@ impl HistoryCell for ExecCell {
                     .duration
                     .map(format_duration)
                     .unwrap_or_else(|| "unknown".to_string());
-                let mut result: Line = if output.exit_code == 0 {
+                let mut result: Line = if output.is_success() {
                     Line::from("✓".green().bold())
                 } else {
-                    Line::from(vec![
-                        "✗".red().bold(),
-                        format!(" ({})", output.exit_code).into(),
-                    ])
+                    let failure = output
+                        .shell_exit_code
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| output.outcome.as_str().to_string());
+                    Line::from(vec!["✗".red().bold(), format!(" ({failure})").into()])
                 };
                 result.push_span(format!(" • {duration}").dim());
                 lines.push(result);
@@ -367,7 +370,7 @@ impl ExecCell {
             panic!("Expected exactly one call in a command display cell");
         };
         let layout = EXEC_DISPLAY_LAYOUT;
-        let success = call.output.as_ref().map(|o| o.exit_code == 0);
+        let success = call.output.as_ref().map(CommandOutput::is_success);
         let bullet = match success {
             Some(true) => "•".green().bold(),
             Some(false) => "•".red().bold(),
@@ -734,7 +737,8 @@ mod tests {
         // Baseline: how many screen lines would we get if we simply wrapped
         // all logical lines without any truncation?
         let output = CommandOutput {
-            exit_code: 0,
+            shell_exit_code: Some(0),
+            outcome: ExecOutcome::Exited,
             aggregated_output,
             formatted_output: String::new(),
         };
@@ -860,7 +864,8 @@ mod tests {
     #[test]
     fn output_lines_ellipsis_includes_transcript_hint() {
         let output = CommandOutput {
-            exit_code: 0,
+            shell_exit_code: Some(0),
+            outcome: ExecOutcome::Exited,
             aggregated_output: (1..=7).map(|n| n.to_string()).join("\n"),
             formatted_output: String::new(),
         };
@@ -1006,7 +1011,8 @@ mod tests {
             command: vec!["bash".into(), "-lc".into(), "echo done".into()],
             parsed: Vec::new(),
             output: Some(CommandOutput {
-                exit_code: 0,
+                shell_exit_code: Some(0),
+                outcome: ExecOutcome::Exited,
                 formatted_output: String::new(),
                 aggregated_output: url.to_string(),
             }),
@@ -1043,7 +1049,8 @@ mod tests {
             command: vec!["bash".into(), "-lc".into(), "echo done".into()],
             parsed: Vec::new(),
             output: Some(CommandOutput {
-                exit_code: 0,
+                shell_exit_code: Some(0),
+                outcome: ExecOutcome::Exited,
                 formatted_output: url.to_string(),
                 aggregated_output: url.to_string(),
             }),

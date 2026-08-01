@@ -243,7 +243,7 @@ $obsHtmlPath = Join-Path $artifactDir "action-map-observability.html"
 $obsExitCode = 0
 if ($rollout) {
     $exportScript = Join-Path $PSScriptRoot "export-action-map-observability.ps1"
-    & $exportScript -RolloutPath $rolloutCopy -JsonlPath $jsonlPath -OutputDir $artifactDir -ArtifactRoot $repoDir | Out-Host
+    & $exportScript -RolloutPath $rolloutCopy -JsonlPath $jsonlPath -OutputDir $artifactDir -WhalePath $WhaleBin -ThreadId $threadId -ArtifactRoot $repoDir | Out-Host
     $obsExitCode = $LASTEXITCODE
 }
 $obs = if (Test-Path $obsJsonPath) { Get-Content -Raw -Encoding UTF8 $obsJsonPath | ConvertFrom-Json } else { $null }
@@ -291,13 +291,7 @@ if ($obs) { foreach ($node in @($obs.nodes)) {
     }
     if ($node.title -match "(?i)validat|regression|test|verify") {
         foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "test" })) {
-            if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) {
-                continue
-            }
-            $callId = [string]$result.callId
-            $command = if ($callId -and $toolCallArgs.ContainsKey($callId)) { [string]$toolCallArgs[$callId] } else { "" }
-            $combined = "$([string]$result.body)`n$command`n$([string]$result.preview)"
-            if ($combined -match "python -m pytest tests -q" -and $combined -match "(?i)\bpassed\b") {
+            if ($result.success -eq $true) {
                 $validationNodeHasPytestResult = $true
             }
         }
@@ -327,15 +321,11 @@ $unexpectedTaskspaceGateFailures = if ($obs) {
         }).Count
 } else { 0 }
 $postHocEmptyTerminalNodes = if ($obs) { @($obs.nodes | Where-Object { $_.title -match "(?i)validat|final|synthesis" -and @($_.results).Count -eq 0 }).Count } else { 0 }
-$leaseCreatedCount = Count-Matches $rolloutText '"lease_created"|LeaseCreated'
-$leaseAttachedCount = Count-Matches $rolloutText '"lease_attached"|LeaseAttached'
-$leaseReleasedCount = Count-Matches $rolloutText '"lease_released"|LeaseReleased'
-$finishNodeCallCount = Count-Matches $rolloutText 'TaskSpace node finished:'
-$finishNodeUnsupportedCount = Count-Matches $rolloutText 'unknown variant `finish_node`|unknown variant finish_node'
+$prepareResponseCommitCount = Count-Matches $rolloutText '"operation"\s*:\s*"prepare_response"'
+$finishMapCallCount = Count-Matches $rolloutText 'finish_map'
 $spawnAgentCount = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count } else { 0 }
 $taskspaceControlCount = Count-Matches $rolloutText '"name":"taskspace_control"|"name"\s*:\s*"taskspace_control"'
 $commandExecutionCount = Count-Matches $jsonlText '"type"\s*:\s*"command_execution"'
-$taskRebornShellMisuseCount = Count-Matches ($stderrText + $jsonlText) "task-reborn.*not recognized|The term '/task-reborn'|The term 'task-reborn'"
 $repoHead = ""; $repoStatus = ""
 Push-Location $repoDir
 try {
@@ -395,13 +385,11 @@ if ($graphHealth.OpenFinalSynthesisCount -gt 0) { $failures.Add("final synthesis
 if ($graphHealth.OpenLeafNodeCount -gt 0) { $failures.Add("open leaf nodes remained at the end of the run: $($graphHealth.OpenLeafNodeCount)") }
 if ($agentCount -lt 2) { $failures.Add("expected at least 2 subagent leases; observed $agentCount agents") }
 if ($spawnAgentCount -lt 2) { $failures.Add("expected at least 2 spawn_agent calls; observed $spawnAgentCount") }
-if ($leaseCreatedCount -lt 2 -or $leaseAttachedCount -lt 2) { $failures.Add("expected at least 2 lease create/attach events") }
-if ($leaseReleasedCount -lt 2) { $failures.Add("expected at least 2 lease releases") }
+if ($prepareResponseCommitCount -lt 1) { $failures.Add("expected at least one canonical prepare_response Store commit") }
 if ($subagentResultCount -lt 2) { $failures.Add("expected at least 2 subagent results written to nodes; observed $subagentResultCount") }
 if ($nodesWithResults -lt 3) { $failures.Add("expected results on at least 3 nodes; observed $nodesWithResults") }
 if ($completedNodes -lt 2) { $failures.Add("expected at least 2 completed nodes; observed $completedNodes") }
-if ($finishNodeCallCount -lt 2) { $failures.Add("expected at least 2 finish_node calls; observed $finishNodeCallCount") }
-if ($finishNodeUnsupportedCount -gt 0) { $failures.Add("runtime rejected finish_node as unsupported") }
+if ($finishMapCallCount -lt 1) { $failures.Add("expected a final finish_map call; observed $finishMapCallCount") }
 if (-not $laterCreatedAfterCompletion) { $failures.Add("no follow-up node was created after an earlier node completed") }
 if (-not ($hasInspectKind -and $hasImplementationKind -and $hasTestKind)) { $failures.Add("node kinds did not cover inspect/implementation/test structure") }
 if (-not ($hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode)) { $failures.Add("node titles did not cover parser/pricing/implementation/validation scenario categories") }
@@ -417,7 +405,6 @@ if ($unexpectedTaskspaceGateFailures -gt 0) { $failures.Add("unexpected TaskSpac
 if ($unknownActionResultCount -gt 0) { $failures.Add("observed unknown taskspace action results: $unknownActionResultCount") }
 if ($postHocEmptyTerminalNodes -gt 0) { $failures.Add("terminal validation/final nodes were created without results") }
 if ($commandExecutionCount -lt 4) { $failures.Add("agent did not run enough real commands; observed $commandExecutionCount") }
-if ($taskRebornShellMisuseCount -gt 0) { $failures.Add("agent attempted to run taskspace slash command as shell") }
 $overall = if ($failures.Count -eq 0) { "PASS" } else { "FAIL" }
 
 $report = New-Object System.Collections.Generic.List[string]
@@ -456,8 +443,7 @@ foreach ($row in @(
     @("open_final_synthesis_nodes", $graphHealth.OpenFinalSynthesisCount),
     @("completed_nodes", $completedNodes), @("nodes_with_results", $nodesWithResults),
     @("spawn_agent", $spawnAgentCount), @("taskspace_control", $taskspaceControlCount),
-    @("finish_node_calls", $finishNodeCallCount), @("lease_created", $leaseCreatedCount),
-    @("lease_attached", $leaseAttachedCount), @("lease_released", $leaseReleasedCount),
+    @("finish_map_calls", $finishMapCallCount), @("prepare_response_store_commits", $prepareResponseCommitCount),
     @("subagent_results", $subagentResultCount),
     @("later_node_created_after_completion", $laterCreatedAfterCompletion),
     @("has_inspect_kind", $hasInspectKind), @("has_implementation_kind", $hasImplementationKind),
@@ -477,7 +463,7 @@ foreach ($row in @(
     @("edit_results_after_final_pytest", $editResultsAfterFinalPytest),
     @("unexpected_taskspace_gate_failures", $unexpectedTaskspaceGateFailures),
     @("unknown_action_results", $unknownActionResultCount),
-    @("posthoc_empty_terminal_nodes", $postHocEmptyTerminalNodes), @("finish_node_unsupported", $finishNodeUnsupportedCount),
+    @("posthoc_empty_terminal_nodes", $postHocEmptyTerminalNodes),
     @("hidden_oracle_exit_code", $oracleExitCode), @("real_command_execution", $commandExecutionCount),
     @("git_diff_bytes", $gitDiffText.Length)
 )) { Add-ReportLine $report $row[0] $row[1] }

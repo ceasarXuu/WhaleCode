@@ -258,6 +258,18 @@ $isolatedProof = New-TaskspaceExternalEvidenceProof $pair $manifestIsolated $met
 Assert-True ($isolatedProof.validator_fidelity.official_runner_or_equivalent) "official equivalent proof did not accept source-hashed /tests protocol"
 Assert-True ($isolatedProof.validator_fidelity.agent_cannot_read_validator_source) "source guard proof did not prove validator source isolation"
 
+$runtimeVenvLeak = Join-Path $pair.left.RepoDir ".tbench-testing\lib\python3.11\site-packages\external-validator-source\probe.txt"
+New-TestFile $runtimeVenvLeak "validator-looking dependency artifact"
+$runtimeVenvProof = New-TaskspaceExternalEvidenceProof $pair $manifestIsolated $metricsBySide $sourceGuard
+Assert-True ($runtimeVenvProof.validator_fidelity.agent_cannot_read_validator_source) "runtime .tbench-testing dependency tree was scanned as validator source leak"
+
+$realRepoLeak = Join-Path $pair.right.RepoDir "external-validator-source\probe.txt"
+New-TestFile $realRepoLeak "real validator leak"
+$realLeakProof = New-TaskspaceExternalEvidenceProof $pair $manifestIsolated $metricsBySide $sourceGuard
+Assert-True (-not $realLeakProof.validator_fidelity.agent_cannot_read_validator_source) "real repo validator source leak was hidden by bounded scan"
+Remove-Item -LiteralPath $realRepoLeak -Force
+Remove-Item -LiteralPath (Split-Path -Parent $realRepoLeak) -Force
+
 $missingOfficialSourceManifest = $manifestIsolated.PSObject.Copy()
 $missingOfficialSourceManifest.ExternalBenchmark = $manifestIsolated.ExternalBenchmark.PSObject.Copy()
 $missingOfficialSourceManifest.ExternalBenchmark.adapter_metadata = $manifestIsolated.ExternalBenchmark.adapter_metadata.PSObject.Copy()

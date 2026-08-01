@@ -27,8 +27,8 @@ function Get-TerminalBenchOfficialEquivalence {
     )
     $gitRoot = ""
     if (Get-Command git -ErrorAction SilentlyContinue) {
-        $root = & git -C $TaskRoot rev-parse --show-toplevel 2>$null
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($root)) { $gitRoot = $root.Trim() }
+        $root = Invoke-TerminalBenchGitQuiet $TaskRoot @("rev-parse", "--show-toplevel")
+        if (-not [string]::IsNullOrWhiteSpace($root)) { $gitRoot = $root.Trim() }
     }
     $sourceFiles = New-Object System.Collections.Generic.List[object]
     $allPresent = -not [string]::IsNullOrWhiteSpace($gitRoot)
@@ -63,7 +63,8 @@ function Get-TerminalBenchOfficialEquivalence {
     $taskDirty = $true
     if ($allPresent) {
         $taskRelative = (Resolve-Path -LiteralPath $TaskRoot).Path.Substring((Resolve-Path -LiteralPath $gitRoot).Path.Length).TrimStart("\", "/").Replace("\", "/")
-        $status = & git -C $gitRoot status --porcelain -- $taskRelative 2>$null
+        $statusText = Invoke-TerminalBenchGitQuiet $gitRoot @("status", "--porcelain", "--", $taskRelative)
+        $status = if ([string]::IsNullOrWhiteSpace($statusText)) { @() } else { @($statusText -split "`r?`n") }
         $taskDirty = @($status | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0
     }
     [ordered]@{

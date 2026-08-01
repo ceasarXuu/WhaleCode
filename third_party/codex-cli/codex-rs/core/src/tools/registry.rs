@@ -112,6 +112,12 @@ pub(crate) struct AnyToolResult {
 }
 
 impl AnyToolResult {
+    pub(crate) fn taskspace_terminal_carrier(
+        &self,
+    ) -> Option<&crate::tools::context::TaskSpaceTerminalCarrier> {
+        self.result.taskspace_terminal_carrier()
+    }
+
     pub(crate) fn into_response(self) -> ResponseInputItem {
         let Self {
             call_id,
@@ -271,7 +277,7 @@ impl ToolRegistry {
         let call_id_owned = invocation.call_id.clone();
         let otel = invocation.turn.session_telemetry.clone();
         let payload_for_response = invocation.payload.clone();
-        let log_payload = payload_for_response.log_payload();
+        let log_payload = payload_for_response.log_payload_for_tool(&tool_name);
         let metric_tags = [
             (
                 "sandbox",

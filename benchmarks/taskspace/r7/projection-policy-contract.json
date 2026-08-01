@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-projection-policy-contract",
+  "status": "phase_a_frozen",
+  "source_docs": [
+    "docs/v0.0.5/build-R7/00-r7-three-projection-policy-charter.md",
+    "docs/v0.0.5/build-R7/01-r7-phased-implementation-plan.md"
+  ],
+  "r6_frozen_baseline": "e29810158",
+  "compatibility_policy": "none",
+  "default_policy": null,
+  "policy_field": "taskspace_projection_policy",
+  "policy_values": [
+    "map-always",
+    "map-append",
+    "map-request"
+  ],
+  "not_policy_values": [
+    "standard",
+    "r6-epoch-baseline",
+    "epoch-baseline",
+    "delta-journal"
+  ],
+  "shared_architecture": {
+    "canonical_map": "single_shared_rooted_dag",
+    "renderer": "single_shared_projection_renderer",
+    "composer": "single_shared_provider_context_composer",
+    "tool_contract": "single_shared_taskspace_control_schema",
+    "event_store": "single_shared_event_store",
+    "ordinary_tool_router": "single_shared_router_permissions_sandbox_hooks_feedback",
+    "compaction": "single_shared_pipeline",
+    "observer": "single_shared_policy_aware_observer",
+    "system_prompt": "single_shared_taskspace_hard_constraints",
+    "read_map_action": {
+      "tool": "taskspace_control",
+      "name": "read_map",
+      "shared": true,
+      "visible_to_policies": [
+        "map-always",
+        "map-append",
+        "map-request"
+      ],
+      "exclusive_to_map_request": false,
+      "returns": "RenderedProjection as exact tool result"
+    }
+  },
+  "forbidden_architecture": [
+    "AlwaysRuntime",
+    "AppendRuntime",
+    "RequestRuntime",
+    "policy_specific_renderer",
+    "policy_specific_map_state",
+    "policy_specific_event_type",
+    "policy_specific_tool_schema",
+    "r6_migration",
+    "r6_adapter",
+    "dual_reader",
+    "silent_fallback"
+  ],
+  "rendered_projection_contract": {
+    "deterministic": true,
+    "pure_from_canonical_map": true,
+    "byte_identical_for_same_revision_renderer_and_budget": true,
+    "required_fields": [
+      "schema_version",
+      "projection_kind",
+      "map_id",
+      "revision",
+      "canonical_sha256",
+      "root_node_id",
+      "finish_node_id",
+      "complete",
+      "current_terminal",
+      "terminal_history",
+      "root_source_event_ids",
+      "active_frontier",
+      "map_nodes",
+      "map_edges",
+      "node_details"
+    ],
+    "policy_dependent_content_allowed": false,
+    "next_action_suggestions_allowed": false
+  },
+  "triggers": [
+    "provider_request",
+    "explicit_read"
+  ],
+  "policies": {
+    "map-always": {
+      "emission": "replace_latest",
+      "persistence": "ephemeral_current_projection",
+      "freshness": "emitted_revision_equals_canonical_revision",
+      "context_position": "dynamic_region_after_stable_natural_history",
+      "trigger_matrix": {
+        "provider_request": "replace_latest",
+        "explicit_read": "return_as_shared_tool_result"
+      },
+      "invariants": [
+        "active_map_provider_request_has_exactly_one_current_projection",
+        "payload_has_no_old_revision_projection",
+        "retry_resume_compaction_read_latest_canonical_map",
+        "map_id_revision_hash_match_canonical_map"
+      ],
+      "known_characteristics": [
+        "dynamic_projection_changes_can_reduce_deepseek_prefix_cache_hits",
+        "uncached_input_cost_can_increase"
+      ],
+      "bugs": [
+        "missing_projection",
+        "duplicate_current_projection",
+        "stale_revision",
+        "hash_mismatch",
+        "old_revision_projection_retained"
+      ]
+    },
+    "map-append": {
+      "emission": "append_request_snapshot",
+      "persistence": "immutable_context_history_item_per_provider_request",
+      "freshness": "last_projection_is_current_and_matches_canonical_state_at_request_time",
+      "context_position": "provider_request_tail_after_natural_history",
+      "trigger_matrix": {
+        "provider_request": "append_latest_if_not_current_tail",
+        "explicit_read": "return_as_shared_tool_result"
+      },
+      "envelope": {
+        "projection_kind": "request_snapshot",
+        "supersedes_all_prior_projections": true,
+        "current_state_rule": "last_projection_only"
+      },
+      "invariants": [
+        "provider_request_ends_with_latest_projection",
+        "same_revision_may_repeat_when_map_is_unchanged_between_requests",
+        "projection_revision_never_decreases_within_a_map",
+        "last_projection_is_the_only_current_authority",
+        "exact_retry_does_not_duplicate_an_identical_current_tail",
+        "stale_revision_tool_call_returns_mechanical_stale_revision"
+      ],
+      "known_characteristics": [
+        "old_projection_history_accumulates",
+        "input_cost_can_grow",
+        "stale_history_can_distract_agent"
+      ],
+      "bugs": [
+        "missing_request_tail_projection",
+        "projection_not_at_message_tail",
+        "revision_order_violation",
+        "latest_projection_map_mismatch",
+        "old_projection_used_as_current"
+      ]
+    },
+    "map-request": {
+      "emission": "explicit_read_tool_result",
+      "persistence": "non_persistent_current_handle_plus_agent_selected_sparse_tool_result_history",
+      "freshness": "read_map_result_revision_equals_canonical_revision_at_read_time",
+      "context_position": "current_user_tail_handle_then_ordinary_tool_result_history",
+      "trigger_matrix": {
+        "provider_request": "current_non_persistent_map_handle_only",
+        "explicit_read": "return_as_shared_tool_result"
+      },
+      "map_handle_fields": [
+        "map_id",
+        "revision",
+        "taskspace_active",
+        "bootstrap_required",
+        "complete",
+        "available_read_action",
+        "required_initialization_action_when_blank",
+        "available_reopen_action_when_closed"
+      ],
+      "map_handle_must_not_include": [
+        "nodes",
+        "edges",
+        "frontier",
+        "next_action",
+        "semantic_summary"
+      ],
+      "hard_gates": [
+        "agent_must_initialize_legal_map_with_ordinary_sibling_actions",
+        "ordinary_tool_must_have_agent_declared_node_ownership_in_outer_manifest",
+        "call_and_result_must_be_mechanically_attributed_to_reserved_node",
+        "map_mutation_finish_and_reopen_only_via_taskspace_control",
+        "update_plan_hidden_in_taskspace",
+        "root_and_finish_close_only_through_explicit_current_terminal",
+        "cannot_end_taskspace_before_legal_map_termination",
+        "subagent_store_map_identity_constraints_unchanged"
+      ],
+      "runtime_must_not": [
+        "auto_call_read_map",
+        "require_read_frequency",
+        "append_per_turn_read_reminder",
+        "auto_select_create_connect_or_complete_nodes",
+        "infer_forgotten_map_from_natural_language",
+        "repair_stale_revision",
+        "repair_wrong_node_id",
+        "repair_wrong_tool_params",
+        "reject_otherwise_valid_ordinary_action_because_agent_did_not_read_latest_map"
+      ],
+      "known_characteristics": [
+        "map_salience_can_drop_when_agent_rarely_reads_map"
+      ],
+      "bugs": [
+        "map_initialization_bypass",
+        "action_manifest_bypass",
+        "explicit_termination_bypass",
+        "automatic_projection_injection",
+        "map_handle_contains_projection_content_or_next_action",
+        "map_handle_persisted_in_canonical_history",
+        "map_handle_revision_stale_at_provider_request",
+        "map_handle_emitted_as_additional_system_message"
+      ]
+    }
+  },
+  "session_lifecycle": {
+    "policy_selected_at_session_creation": true,
+    "agent_can_switch_policy": false,
+    "ordinary_input_can_switch_policy": false,
+    "tool_call_can_switch_policy": false,
+    "map_state_change_can_switch_policy": false,
+    "resume_restores_original_policy": true,
+    "fork_restores_original_policy": true,
+    "mid_session_migration_allowed": false
+  },
+  "phase_g": {
+    "default_policy_until_phase_g": null,
+    "default_decision_source": "standard_plus_three_r7_policy_formal_matrix",
+    "arms": [
+      "Standard",
+      "R7 map-always",
+      "R7 map-append",
+      "R7 map-request"
+    ],
+    "standard_is_policy": false,
+    "r6_epoch_baseline_is_policy": false
+  }
+}

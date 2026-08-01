@@ -540,4 +540,4 @@ mod detect_shell_type_tests {
 #[cfg(test)]
 #[cfg(unix)]
 #[path = "shell_tests.rs"]
-mod tests;
+mod unix_tests;

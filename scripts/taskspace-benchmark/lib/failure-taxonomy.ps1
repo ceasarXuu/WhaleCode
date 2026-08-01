@@ -24,6 +24,26 @@ function Get-TaskspaceMetricBool {
     ($Metrics -and $Metrics.PSObject.Properties.Name -contains $Name -and [bool]$Metrics.$Name)
 }
 
+function Test-TaskspaceCleanAgentTimeoutValidationSkip {
+    param($Metrics)
+    if (-not $Metrics) { return $false }
+    if (-not (Get-TaskspaceMetricBool $Metrics "exec_timed_out")) { return $false }
+    if (-not (Get-TaskspaceMetricBool $Metrics "public_validation_skipped")) { return $false }
+    $skipReason = if ($Metrics.PSObject.Properties.Name -contains "public_validation_skip_reason") { [string]$Metrics.public_validation_skip_reason } else { "" }
+    $probeStatus = if ($Metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_status") { [string]$Metrics.pre_agent_validator_probe_status } else { "" }
+    $probeHash = if ($Metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_hash") { [string]$Metrics.pre_agent_validator_probe_hash } else { "" }
+    ($skipReason -eq "agent_exec_timeout" -and $probeStatus -eq "passed" -and $probeHash -match '^[0-9a-f]{64}$')
+}
+
+function Test-TaskspaceExternalValidationCompleted {
+    param($Metrics)
+    if (-not $Metrics) { return $false }
+    if (-not (Get-TaskspaceMetricBool $Metrics "tests_started_seen")) { return $false }
+    if (-not (Get-TaskspaceMetricBool $Metrics "tests_completed_seen")) { return $false }
+    if ($Metrics.PSObject.Properties.Name -contains "validation_lifecycle_stage" -and [string]$Metrics.validation_lifecycle_stage -ne "tests_completed") { return $false }
+    $true
+}
+
 function Test-TaskspaceAuditPending {
     param(
         $Evidence = $null,
@@ -62,6 +82,9 @@ function Get-TaskspaceEngineeringUncleanReasons {
     )
     $reasons = New-Object System.Collections.Generic.List[string]
     if ($Metrics) {
+        if (Get-TaskspaceMetricBool $Metrics "taskspace_profile_hard_stop_seen") {
+            Add-TaskspaceFailureClass $reasons "taskspace_profile_hard_stop"
+        }
         if (Get-TaskspaceMetricBool $Metrics "public_validation_skipped") {
             $skipReason = if ($Metrics.PSObject.Properties.Name -contains "public_validation_skip_reason") { [string]$Metrics.public_validation_skip_reason } else { "" }
             $probeStatus = if ($Metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_status") { [string]$Metrics.pre_agent_validator_probe_status } else { "" }
@@ -85,12 +108,15 @@ function Get-TaskspaceEngineeringUncleanReasons {
             Add-TaskspaceFailureClass $reasons $text
         }
         if ($Metrics.PSObject.Properties.Name -contains "active_sentinel_warning_count" -and [int]$Metrics.active_sentinel_warning_count -gt 0) {
+            $cleanAgentTimeoutSkip = Test-TaskspaceCleanAgentTimeoutValidationSkip $Metrics
+            $externalValidationCompleted = Test-TaskspaceExternalValidationCompleted $Metrics
             foreach ($sentinelType in @(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types")) {
                 $text = [string]$sentinelType
                 if ([string]::IsNullOrWhiteSpace($text)) { $text = "unknown" }
+                if (($cleanAgentTimeoutSkip -or $externalValidationCompleted) -and $text -eq "validator_failure") { continue }
                 Add-TaskspaceFailureClass $reasons "active_sentinel_warning:$text"
             }
-            if (@(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types").Count -eq 0) {
+            if (-not $cleanAgentTimeoutSkip -and -not $externalValidationCompleted -and @(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types").Count -eq 0) {
                 Add-TaskspaceFailureClass $reasons "active_sentinel_warning"
             }
         }
@@ -127,6 +153,8 @@ function Get-TaskspaceAgentOutcome {
     )
     if (@($EngineeringUncleanReasons).Count -gt 0) { return "engineering_unclean" }
     if (Get-TaskspaceMetricBool $Metrics "exec_timed_out") { return "agent_exec_timeout" }
+    if (Get-TaskspaceMetricBool $Metrics "sampling_interrupted") { return "runtime_interrupted" }
+    if ($Metrics -and $Metrics.PSObject.Properties.Name -contains "agent_completion_status" -and [string]$Metrics.agent_completion_status -ne "complete") { return "agent_incomplete" }
     if (Test-TaskspaceMetricSuccess $Metrics) { return "solved" }
     "wrong"
 }

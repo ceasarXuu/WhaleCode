@@ -18,7 +18,6 @@ use crate::ToolRegistryPlanDeferredTool;
 use crate::ToolRegistryPlanMcpTool;
 use crate::ToolsConfigParams;
 use crate::WaitAgentTimeoutOptions;
-use crate::create_taskspace_control_tool;
 use crate::mcp_call_tool_result_output_schema;
 use codex_app_server_protocol::AppInfo;
 use codex_features::Feature;
@@ -135,10 +134,6 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
     for spec in collab_specs {
         expected.insert(spec.name().to_string(), spec);
     }
-    if config.collab_tools {
-        let spec = create_taskspace_control_tool();
-        expected.insert(spec.name().to_string(), spec);
-    }
     if !config.multi_agent_v2 {
         let spec = create_resume_agent_tool();
         expected.insert(spec.name().to_string(), spec);
@@ -146,6 +141,10 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
 
     if config.exec_permission_approvals_enabled {
         let spec = create_request_permissions_tool(request_permissions_tool_description());
+        expected.insert(spec.name().to_string(), spec);
+    }
+    if config.collab_tools {
+        let spec = create_taskspace_control_tool();
         expected.insert(spec.name().to_string(), spec);
     }
 
@@ -204,11 +203,10 @@ fn test_build_specs_collab_tools_enabled() {
 }
 
 #[test]
-fn taskspace_compact_tool_schema_feature_narrows_taskspace_control_schema() {
+fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     let model_info = model_info();
     let mut features = Features::with_defaults();
     features.enable(Feature::Collab);
-    features.enable(Feature::TaskSpaceCompactToolSchema);
     let available_models = Vec::new();
     let tools_config = ToolsConfig::new(&ToolsConfigParams {
         model_info: &model_info,
@@ -227,33 +225,58 @@ fn taskspace_compact_tool_schema_feature_narrows_taskspace_control_schema() {
         &[],
     );
 
+    assert_eq!(
+        tools.first().map(ConfiguredToolSpec::name),
+        Some("taskspace_control"),
+        "the mandatory TaskSpace lifecycle tool must keep the first stable tool position"
+    );
     let taskspace = find_tool(&tools, "taskspace_control");
     let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = &taskspace.spec else {
         panic!("taskspace_control should be a function tool");
     };
-    let (properties, _) = expect_object_schema(parameters);
-    let actions = properties["action"]
-        .enum_values
+    let actions = parameters
+        .any_of
         .as_ref()
-        .expect("action enum")
+        .expect("action variants")
         .iter()
-        .map(|value| value.as_str().expect("action string"))
+        .map(|variant| {
+            let (properties, _) = expect_object_schema(variant);
+            properties["action"]
+                .enum_values
+                .as_ref()
+                .expect("action enum")[0]
+                .as_str()
+                .expect("action string")
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         actions,
         vec![
-            "start_task",
-            "route_task",
-            "create_node",
-            "bind_node",
-            "finish_node",
-            "block_node",
+            "initialize_and_execute",
+            "execute",
+            "reopen_map",
+            "read_map",
             "read_output_ref",
-            "state_commit",
+            "read_output_ref",
+            "read_output_ref",
+            "read_output_ref",
+            "finish_map"
         ]
     );
-    assert!(properties.contains_key("output_contracts"));
-    assert!(!properties.contains_key("output_contract_id"));
+    let serialized = serde_json::to_string(parameters).expect("serialize parameters");
+    assert!(serialized.contains("finish_map"));
+    assert!(!serialized.contains("initialize_map"));
+    assert!(serialized.contains("initialize_and_execute"));
+    assert!(serialized.contains("\"work_nodes\""));
+    assert!(serialized.contains("\"actions\""));
+    assert!(!serialized.contains("complete_then_continue"));
+    assert!(!serialized.contains("bind_node"));
+    assert!(!serialized.contains("current_node"));
+    assert!(!serialized.contains("\"current_work_node\""));
+    assert!(serialized.contains("edges"));
+    assert!(!serialized.contains("initialize_then_actions"));
+    assert!(!serialized.contains("output_contracts"));
+    assert!(!serialized.contains("output_contract_id"));
 }
 
 #[test]
@@ -349,7 +372,7 @@ fn test_build_specs_multi_agent_v2_uses_task_names_and_hides_resume() {
     let (properties, required) = expect_object_schema(parameters);
     assert!(properties.contains_key("task_name"));
     assert!(properties.contains_key("message"));
-    assert!(properties.contains_key("node_id"));
+    assert!(!properties.contains_key("node_id"));
     assert!(properties.contains_key("fork_turns"));
     assert!(!properties.contains_key("items"));
     assert!(!properties.contains_key("fork_context"));
@@ -443,6 +466,46 @@ fn test_build_specs_multi_agent_v2_uses_task_names_and_hides_resume() {
     );
     assert_lacks_tool_name(&tools, "send_input");
     assert_lacks_tool_name(&tools, "resume_agent");
+}
+
+#[test]
+fn ordinary_tool_specs_do_not_expose_taskspace_control_contracts() {
+    let model_info = model_info();
+    let mut features = Features::with_defaults();
+    features.enable(Feature::Collab);
+    features.enable(Feature::MultiAgentV2);
+    let available_models = Vec::new();
+    let config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: false,
+        web_search_mode: None,
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    let (tools, _) = build_specs(&config, None, None, &[]);
+    let forbidden_markers = [
+        "taskspace_binding",
+        "current main-held node",
+        "TaskSpace node id",
+        "bind the new agent to the intended node",
+    ];
+
+    for tool in tools
+        .iter()
+        .filter(|tool| tool.name() != "taskspace_control")
+    {
+        let encoded = serde_json::to_string(&tool.spec).expect("serialize tool spec");
+        for marker in forbidden_markers {
+            assert!(
+                !encoded.contains(marker),
+                "ordinary tool `{}` exposes TaskSpace control marker `{marker}`",
+                tool.name()
+            );
+        }
+    }
 }
 
 #[test]

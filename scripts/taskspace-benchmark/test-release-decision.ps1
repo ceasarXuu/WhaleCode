@@ -2,6 +2,8 @@ param([string]$RunRoot = "")
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "..\cache-regression\verify-cache-regression-evidence.ps1")
+. (Join-Path $PSScriptRoot "lib\cache-regression-fixture.ps1")
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot ("target\release-decision-selftest\run-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff")) }
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 $failures = New-Object System.Collections.Generic.List[string]
@@ -130,9 +132,17 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) (Join-Path $dir "provider-cache-trace-summary.json")
     ([pscustomobject]@{
         schema_version = "taskspace-exact-payload-scan-event-v1"
+        producer = "provider_payload_scanner"
         scan_event_id = "scan-1"
         request_id = "provider-request-1"
         provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        scanner_version = "v005-exact-scan-5"
+        matcher_version = "v005-canonical-projection-checks-5"
+        active_projection_present = $true
+        large_raw_output_tokens = 0
+        runtime_boundary_forbidden_markers = "none"
+        protected_items_present = $true
+        replacement_confirmed = $true
         passed = $true
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "exact-payload-scan-events.jsonl") -Encoding UTF8
     Write-Json ([pscustomobject]@{
@@ -142,9 +152,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             exact_payload_scan_passed = $true
             exact_payload_scan_event_id = "scan-1"
             replacement_confirmed = $true
-            legacy_taskspace_history_present = $false
             large_raw_output_tokens = 0
-            protected_items_present = $false
+            runtime_boundary_forbidden_markers = "none"
+            protected_items_present = $true
         }) (Join-Path $dir "active-context-replacement-report.json")
     Write-Json ([pscustomobject]@{
             status = "pass"
@@ -155,7 +165,20 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             legacy_state_action_budget = 0
             state_commit_count = 1
         }) (Join-Path $dir "state-commit-displacement.json")
-    Write-Json ([pscustomobject]@{ status = "pass"; within_budget_status = "pass"; over_budget_enforcement_status = "not_observed"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0 }) (Join-Path $dir "spawn-node-budget-summary.json")
+    Write-Json ([pscustomobject]@{
+            status = "pass"
+            within_budget_status = "within_profile_hint"
+            over_budget_enforcement_status = "advisory_only"
+            spawn_agent_call_count = 0
+            max_spawn_agent_calls = 0
+            over_profile_hint = $false
+            blocked_budget_event_count = 0
+            invalid_blocked_budget_event_count = 0
+            subagent_review_debt_status = "no_unreviewed_subagent_results"
+            subagent_result_count = 0
+            reviewed_subagent_result_count = 0
+            unreviewed_subagent_result_count = 0
+        }) (Join-Path $dir "spawn-node-budget-summary.json")
     $profileHash = "profile-fixture-hash"
     $sourceVersion = "terminal-bench@fixture"
     $taskListHash = "task-list-fixture-hash"
@@ -180,6 +203,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
     New-Item -ItemType Directory -Path $gateEvidenceDir -Force | Out-Null
     $gateObject = {
         param([string]$Name)
+        if ($Name -eq "cache_regression_surface") {
+            return New-TaskspaceCacheRegressionFixtureGate $gateEvidenceDir ([string]$head) $taskListHash $sourceVersion $profileHash "2026-06-19T00:00:00.0000000Z"
+        }
         $evidencePath = Join-Path $gateEvidenceDir "$Name.txt"
         Set-Content -LiteralPath $evidencePath -Encoding UTF8 -Value "$Name pass"
         [pscustomobject]@{
@@ -196,9 +222,11 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             producer = "test-release-decision.ps1"
         }
     }
-    Write-Json ([pscustomobject]@{
+        Write-Json ([pscustomobject]@{
             status = "pass"
             schema_version = 1
+            mode = "formal"
+            release_eligible = $true
             gates = [pscustomobject]@{
                 provider_request_hook = (& $gateObject "provider_request_hook")
                 runtime_budget_response = (& $gateObject "runtime_budget_response")
@@ -209,6 +237,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
                 request_phase_attribution = (& $gateObject "request_phase_attribution")
                 release_decision_fixture = (& $gateObject "release_decision_fixture")
                 start_gate_fixture = (& $gateObject "start_gate_fixture")
+                external_wrapper_fixture = (& $gateObject "external_wrapper_fixture")
+                marker_writer_fixture = (& $gateObject "marker_writer_fixture")
+                cache_regression_surface = (& $gateObject "cache_regression_surface")
             }
         }) (Join-Path $dir "v005-non-agent-gates.json")
     $codeCompletePath = Join-Path $dir "v005-code-complete.json"
@@ -675,6 +706,54 @@ Assert-True ($LASTEXITCODE -eq 1) "provider request coverage gap fixture did not
 $requestCoverageDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $requestCoverageDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($requestCoverageDecision.blockers) -contains "request_phase_attribution_missing") "provider request coverage gap fixture did not report request phase blocker"
 
+$stateCommitNoAttemptDir = New-FixtureRun "state-commit-displacement-no-legacy-attempt" "PASS" $true 0
+Write-Json ([pscustomobject]@{
+        status = "fail"
+        has_displacement_denominator = $false
+        legacy_state_action_attempt_count = 0
+        legacy_state_action_displaced_count = 0
+        legacy_state_action_count = 0
+        legacy_state_action_budget = 0
+        state_commit_count = 1
+        state_commit_section_count = 2
+    }) (Join-Path $stateCommitNoAttemptDir "state-commit-displacement.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $stateCommitNoAttemptDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "state commit displacement without legacy attempts fixture did not exit 1"
+$stateCommitNoAttemptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $stateCommitNoAttemptDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($stateCommitNoAttemptDecision.blockers) -contains "state_commit_displacement_gate_failed") "state commit displacement without legacy attempts did not report blocker"
+Assert-True (-not [bool]$stateCommitNoAttemptDecision.state_commit_displacement_gate_pass) "state commit displacement without legacy attempts incorrectly passed"
+
+$unreviewedSubagentDir = New-FixtureRun "unreviewed-subagent-result" "PASS" $true 0
+Write-Json ([pscustomobject]@{
+        status = "fail"
+        within_budget_status = "over_profile_hint"
+        over_budget_enforcement_status = "advisory_only"
+        spawn_agent_call_count = 2
+        max_spawn_agent_calls = 0
+        over_profile_hint = $true
+        blocked_budget_event_count = 0
+        invalid_blocked_budget_event_count = 0
+        subagent_review_debt_status = "unreviewed_subagent_results"
+        subagent_result_count = 1
+        reviewed_subagent_result_count = 0
+        unreviewed_subagent_result_count = 1
+        unreviewed_subagent_results = @(
+            [pscustomobject]@{
+                map_id = "map-1"
+                node_id = "node-subagent-1"
+                result_id = "result-subagent-1"
+                subagent_plan_id = "subagent-plan-1"
+                validity = "unreviewed"
+            }
+        )
+    }) (Join-Path $unreviewedSubagentDir "spawn-node-budget-summary.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $unreviewedSubagentDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "unreviewed subagent result fixture did not exit 1"
+$unreviewedSubagentDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $unreviewedSubagentDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($unreviewedSubagentDecision.blockers) -contains "spawn_budget_gate_failed") "unreviewed subagent result fixture did not report spawn budget blocker"
+Assert-True (-not [bool]$unreviewedSubagentDecision.spawn_node_budget_gate_pass) "unreviewed subagent result fixture incorrectly passed"
+Assert-True ([int]$unreviewedSubagentDecision.unreviewed_subagent_result_count -eq 1) "unreviewed subagent result fixture did not expose review debt count"
+
 $qualityImpactSkipDir = New-FixtureRun "budget-quality-validation-skip" "PASS" $true 0
 Write-Json ([pscustomobject]@{
         budget_quality_impact_logged_for_every_budget_action = $true
@@ -693,12 +772,12 @@ $qualityImpactMismatchDir = New-FixtureRun "budget-quality-summary-mismatch" "PA
 ([pscustomobject]@{
         schema_version = "taskspace-budget-quality-impact-v1"
         sample_id = "processing-pipeline"
-        budget_action = "hard_stop"
-        final_classification = "blocked_by_budget"
+        budget_action = "legacy_profile_hint_blocked_input"
+        final_classification = "legacy_blocked_input_observed"
         score_eligible = $false
         missing_evidence_count = 1
         protected_item_miss_count = 0
-        manual_override_used = $false
+        manual_override_used = $true
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $qualityImpactMismatchDir "budget-quality-impact-events.jsonl") -Encoding UTF8
 Write-Json ([pscustomobject]@{
         budget_quality_impact_logged_for_every_budget_action = $true
@@ -713,7 +792,22 @@ Assert-True ($LASTEXITCODE -eq 1) "budget quality summary mismatch fixture did n
 $qualityImpactMismatchDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactMismatchDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($qualityImpactMismatchDecision.blockers) -contains "budget_quality_impact_gate_failed") "summary mismatch fixture did not report budget quality blocker"
 Assert-True (-not [bool]$qualityImpactMismatchDecision.budget_quality_impact_summary_matches_events) "summary mismatch fixture incorrectly matched derived event counts"
-Assert-True ([int]$qualityImpactMismatchDecision.derived_blocked_by_budget_count -eq 1) "summary mismatch fixture did not derive blocked_by_budget from events"
+Assert-True ([int]$qualityImpactMismatchDecision.derived_manual_override_count -eq 1) "summary mismatch fixture did not derive manual override from events"
+
+$qualityImpactForbiddenActionDir = New-FixtureRun "budget-quality-forbidden-action" "PASS" $true 0
+([pscustomobject]@{
+        schema_version = "taskspace-budget-quality-impact-v1"
+        sample_id = "processing-pipeline"
+        budget_action = "hard_stop"
+        final_classification = "score_eligible"
+        score_eligible = $true
+        manual_override_used = $false
+    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $qualityImpactForbiddenActionDir "budget-quality-impact-events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $qualityImpactForbiddenActionDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "budget quality forbidden action fixture did not exit 1"
+$qualityImpactForbiddenActionDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactForbiddenActionDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($qualityImpactForbiddenActionDecision.blockers) -contains "budget_quality_impact_gate_failed") "forbidden action fixture did not report budget quality blocker"
+Assert-True ([int]$qualityImpactForbiddenActionDecision.derived_forbidden_budget_action_count -eq 1) "forbidden action fixture did not derive forbidden budget action count"
 
 $qualityImpactMissingDir = New-FixtureRun "missing-budget-quality-impact" "PASS" $true 0
 Move-Item -LiteralPath (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl") -Destination (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl.bak") -Force
@@ -742,6 +836,27 @@ Assert-True ($LASTEXITCODE -eq 1) "mismatched exact scan fixture did not exit 1"
 $mismatchedScanDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedScanDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($mismatchedScanDecision.blockers) -contains "active_context_replacement_gate_failed") "mismatched scan fixture did not report active replacement blocker"
 
+$syntheticScanDir = New-FixtureRun "synthetic-exact-scan" "PASS" $true 0
+$scanRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $syntheticScanDir "exact-payload-scan-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+$scanRows[0].producer = "cost_instrumentation_synthesized"
+($scanRows[0] | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $syntheticScanDir "exact-payload-scan-events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $syntheticScanDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "synthetic exact scan fixture did not exit 1"
+$syntheticScanDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $syntheticScanDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($syntheticScanDecision.blockers) -contains "active_context_replacement_gate_failed") "synthetic scan fixture did not report active replacement blocker"
+
+$missingProtectedItemsDir = New-FixtureRun "missing-protected-items" "PASS" $true 0
+$scanRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $missingProtectedItemsDir "exact-payload-scan-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+$scanRows[0].protected_items_present = $false
+($scanRows[0] | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $missingProtectedItemsDir "exact-payload-scan-events.jsonl") -Encoding UTF8
+$activeReplacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProtectedItemsDir "active-context-replacement-report.json") | ConvertFrom-Json
+$activeReplacement.protected_items_present = $false
+$activeReplacement | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $missingProtectedItemsDir "active-context-replacement-report.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingProtectedItemsDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing protected items fixture did not exit 1"
+$missingProtectedItemsDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProtectedItemsDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingProtectedItemsDecision.blockers) -contains "active_context_replacement_gate_failed") "missing protected items fixture did not report active replacement blocker"
+
 $missingProviderPayloadJoinDir = New-FixtureRun "missing-provider-payload-join" "PASS" $true 0
 $providerRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $missingProviderPayloadJoinDir "provider-request-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
 $providerRows[0].provider_payload_sha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
@@ -768,6 +883,17 @@ Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path
 Assert-True ($LASTEXITCODE -eq 1) "weak non-agent gates fixture did not exit 1"
 $weakNonAgentDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakNonAgentDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($weakNonAgentDecision.blockers) -contains "v005_non_agent_gates_failed") "weak non-agent gates fixture did not report v005 gate blocker"
+
+$textOnlyCacheDir = New-FixtureRun "text-only-cache-gate" "PASS" $true 0
+$textOnlyCacheMarkerPath = Join-Path $textOnlyCacheDir "v005-non-agent-gates.json"
+$textOnlyCacheMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath $textOnlyCacheMarkerPath | ConvertFrom-Json
+$textOnlyCacheMarker.gates.cache_regression_surface.command = "selftest cache_regression_surface"
+$textOnlyCacheMarker.gates.cache_regression_surface.PSObject.Properties.Remove("structured_evidence_path")
+$textOnlyCacheMarker | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $textOnlyCacheMarkerPath -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $textOnlyCacheDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "text-only cache gate fixture did not exit 1"
+$textOnlyCacheDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $textOnlyCacheDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($textOnlyCacheDecision.blockers) -contains "v005_non_agent_gates_failed") "text-only cache gate fixture did not report v005 gate blocker"
 
 $mismatchedNonAgentIdentityDir = New-FixtureRun "mismatched-non-agent-identity" "PASS" $true 0
 $mismatchedNonAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedNonAgentIdentityDir "v005-non-agent-gates.json") | ConvertFrom-Json

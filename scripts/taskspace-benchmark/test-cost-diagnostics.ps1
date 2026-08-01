@@ -1,4 +1,4 @@
-param([string]$RunRoot = "target\cost-diagnostics-selftest")
+param([string]$RunRoot = "")
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -8,9 +8,11 @@ function Assert-True {
     if (-not $Condition) { throw $Message }
 }
 
-if (Test-Path -LiteralPath $RunRoot) {
-    $backup = "$RunRoot.bak-$(Get-Date -Format yyyyMMddHHmmss)"
-    Move-Item -LiteralPath $RunRoot -Destination $backup
+$autoRunRoot = [string]::IsNullOrWhiteSpace($RunRoot)
+if ($autoRunRoot) {
+    $RunRoot = Join-Path ([IO.Path]::GetTempPath()) "taskspace-cost-diagnostics-$([guid]::NewGuid().ToString('N'))"
+} elseif (Test-Path -LiteralPath $RunRoot) {
+    throw "Explicit RunRoot already exists: $RunRoot"
 }
 
 $left = Join-Path $RunRoot "pair-001\left\artifacts"
@@ -111,3 +113,6 @@ Assert-True ([double]$aggregateDiag.standard.input_tokens -eq 200000) "aggregate
 Assert-True ([double]$aggregateDiag.taskspace.rollout_trace_model_request_count -eq 36) "aggregate rollout trace requests were not summed"
 
 Write-Host "TaskSpace cost diagnostics self-test: PASS"
+if ($autoRunRoot -and (Test-Path -LiteralPath $RunRoot)) {
+    Remove-Item -Force -Recurse -LiteralPath $RunRoot
+}

@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "artifact": "r4-public-10-tool-stress-plan",
+  "phase": "R4-G",
+  "updated": "2026-07-02",
+  "status": "running",
+  "public_source": {
+    "benchmark": "terminal-bench-core",
+    "version": "0.1.1",
+    "registry_url": "https://raw.githubusercontent.com/laude-institute/terminal-bench/main/registry.json",
+    "source_url": "https://github.com/laude-institute/terminal-bench",
+    "branch": "dataset/terminal-bench-core/v0.1.x",
+    "commit": "91e10457b5410f16c44364da1a34cb6de8c488a5",
+    "dataset_path": "./tasks",
+    "registry_subset_count": 80,
+    "registry_task_id_subset_sha256": "c3a4e299ff002f3c2201de9dfdf0a7ed64a41cd1ea4253480d99502e086ce190",
+    "verification_note": "Task ids are selected from terminal-bench-core 0.1.1 registry task_id_subset; no local invented tasks are allowed."
+  },
+  "benefit_gate": {
+    "claimed_engineering_benefit": "R4 final acceptance stresses real public tool-use tasks and reports per-sample standard vs TaskSpace correctness, latency, token, cache, projection, and tool-feedback behavior.",
+    "baseline": "R4 known-bad samples alone cannot prove broad tool-chain quality; public-sample selection and report fields were previously Markdown-only.",
+    "pass_threshold": "exactly 10 public samples; every sample has source metadata and tool-stress rationale; final report has one row per sample with all required tool/cost/performance fields."
+  },
+  "samples": [
+    {
+      "task_id": "vim-terminal-task",
+      "tool_stress_focus": "script creation, text processing, command output validation",
+      "why_selected": "Exercises file creation, command execution, stdout comparison, and validator feedback without heavyweight toolchain, locked permission fixtures, or unpinned remote runtime assets."
+    },
+    {
+      "task_id": "heterogeneous-dates",
+      "tool_stress_focus": "CSV inspection, numeric calculation, single-file answer artifact",
+      "why_selected": "Exercises file reads, data parsing, deterministic calculation, answer-file creation, and validation feedback without unpinned remote runtime assets."
+    },
+    {
+      "task_id": "sqlite-db-truncate",
+      "tool_stress_focus": "SQLite recovery, binary/data inspection, JSON artifact validation",
+      "why_selected": "Exercises database/file tooling, structured output generation, command feedback, and validator comparison without unpinned remote runtime assets."
+    },
+    {
+      "task_id": "git-multibranch",
+      "tool_stress_focus": "git state inspection, branch and file operations",
+      "why_selected": "Exercises state semantics and path attribution in tool results."
+    },
+    {
+      "task_id": "git-workflow-hack",
+      "tool_stress_focus": "git history and workflow repair",
+      "why_selected": "Exercises stdout/stderr influence on later decisions."
+    },
+    {
+      "task_id": "organization-json-generator",
+      "tool_stress_focus": "CSV inspection, schema reasoning, JSON generation and validation",
+      "why_selected": "Exercises multi-file reads, structured transformation, schema-constrained output, and validator feedback without unpinned runtime remote assets; replaces sanitize-git-repo because that task depends on an unpinned external git clone."
+    },
+    {
+      "task_id": "sqlite-with-gcov",
+      "tool_stress_focus": "database commands, compile and coverage output",
+      "why_selected": "Exercises structured failure parsing and validator feedback."
+    },
+    {
+      "task_id": "processing-pipeline",
+      "tool_stress_focus": "multi-step data and file pipeline",
+      "why_selected": "Exercises intermediate artifacts, changed paths, and test feedback."
+    },
+    {
+      "task_id": "csv-to-parquet",
+      "tool_stress_focus": "data conversion and file validation",
+      "why_selected": "Exercises file checks, command output, and artifact validation."
+    },
+    {
+      "task_id": "tmux-advanced-workflow",
+      "tool_stress_focus": "terminal/session workflow",
+      "why_selected": "Exercises non-trivial terminal interaction and tool-call ordering."
+    }
+  ],
+  "required_report_fields": [
+    "public_benchmark",
+    "benchmark_version",
+    "source_commit",
+    "task_id",
+    "task_id_registry_verified",
+    "standard_outcome",
+    "taskspace_outcome",
+    "standard_wall_time_ms",
+    "taskspace_wall_time_ms",
+    "taskspace_wall_time_ratio",
+    "standard_tool_calls",
+    "taskspace_tool_calls",
+    "taskspace_tool_call_ratio",
+    "standard_input_tokens",
+    "standard_output_tokens",
+    "taskspace_input_tokens",
+    "taskspace_output_tokens",
+    "taskspace_token_ratio",
+    "standard_model_request_count",
+    "taskspace_model_request_count",
+    "taskspace_model_request_ratio",
+    "standard_model_request_count_source",
+    "taskspace_model_request_count_source",
+    "model_request_count_availability",
+    "standard_token_summary_availability",
+    "taskspace_token_summary_availability",
+    "standard_usage_accounting_status",
+    "taskspace_usage_accounting_status",
+    "token_ratio_availability",
+    "request_2_plus_cache_hit_rate",
+    "request_2_plus_cache_hit_rate_availability",
+    "request_reason_coverage_status",
+    "request_reason_event_count",
+    "request_reason_unknown_count",
+    "request_reason_attribution_coverage",
+    "repeated_same_reason_no_delta_count",
+    "request_reason_trigger_kind_counts",
+    "request_reason_delta_counts",
+    "tool_feedback_loss_count",
+    "tool_feedback_semantic_loss_count",
+    "tool_result_projection_count_by_reason",
+    "taskspace_map_attribution_missing_count",
+    "large_output_ref_count",
+    "rollout_size_bytes",
+    "changed_paths_standard",
+    "changed_paths_taskspace",
+    "validation_result",
+    "failure_taxonomy",
+    "tool_call_analysis_summary",
+    "evidence_paths"
+  ],
+  "tool_analysis_questions": [
+    "Was the tool-call intent executed or rejected correctly?",
+    "Did the tool result enter the next provider payload with standard-equivalent semantics?",
+    "Were stderr, stdout, path, and exit code retained, summarized, ref-backed, or lost?",
+    "Did the TaskSpace map record the same semantics and attribution?",
+    "Was projection pair-safe and reasoned?",
+    "Did repeated failures produce semantic progress or a loop?",
+    "What were TaskSpace wall, token, and tool-call multipliers versus standard?"
+  ]
+}

@@ -16,6 +16,11 @@ function Get-TaskspaceSideAuditRecord {
         success = [bool]$Metrics.business_success
         exec_exit_code = [int]$Metrics.exec_exit_code
         exec_timed_out = [bool]$Metrics.exec_timed_out
+        agent_completion_status = if ($Metrics.PSObject.Properties.Name -contains "agent_completion_status") { [string]$Metrics.agent_completion_status } else { "unknown" }
+        sampling_interrupted = ($Metrics.PSObject.Properties.Name -contains "sampling_interrupted" -and [bool]$Metrics.sampling_interrupted)
+        interruption_source = if ($Metrics.PSObject.Properties.Name -contains "interruption_source") { [string]$Metrics.interruption_source } else { "unknown" }
+        external_validation_status = if ($Metrics.PSObject.Properties.Name -contains "external_validation_status") { [string]$Metrics.external_validation_status } else { "unknown" }
+        utility_eligible = ($Metrics.PSObject.Properties.Name -contains "utility_eligible" -and [bool]$Metrics.utility_eligible)
         public_validation_exit_code = [int]$Metrics.public_validation_exit_code
         hidden_oracle_exit_code = [int]$Metrics.hidden_oracle_exit_code
         wall_time_ms = [int64]$Metrics.wall_time_ms
@@ -88,6 +93,10 @@ function Write-TaskspaceAuditManifest {
     $pairUncleanReasons = @(@($standardUncleanReasons) + @($taskspaceUncleanReasons) + @($pairLevelUncleanReasons)) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique
     $standardOutcome = Get-TaskspaceAgentOutcome $standardMetrics $standardUncleanReasons
     $taskspaceOutcome = Get-TaskspaceAgentOutcome $taskspaceMetrics $taskspaceUncleanReasons
+    $agentLifecycleEligible = @(@($standardMetrics, $taskspaceMetrics) | Where-Object {
+            $_ -and $_.PSObject.Properties.Name -contains "agent_completion_status" -and [string]$_.agent_completion_status -eq "complete" -and
+            $_.PSObject.Properties.Name -contains "sampling_interrupted" -and -not [bool]$_.sampling_interrupted
+        }).Count -eq 2
     $engineeringUnclean = Test-TaskspaceEngineeringUnclean $pairUncleanReasons
     $failureClasses = @(Get-TaskspaceFailureTaxonomy $standardMetrics $taskspaceMetrics $Evidence $AuditReview $VariableControl)
     $direction = Get-TaskspaceUtilityDirection $standardMetrics $taskspaceMetrics $failureClasses
@@ -123,6 +132,7 @@ function Write-TaskspaceAuditManifest {
         engineering_unclean_reasons = @($pairUncleanReasons)
         outcome_standard = $standardOutcome
         outcome_taskspace = $taskspaceOutcome
+        agent_lifecycle_eligible = $agentLifecycleEligible
         agent_exec_timeout_clean = (($standardOutcome -eq "agent_exec_timeout" -or $taskspaceOutcome -eq "agent_exec_timeout") -and -not $engineeringUnclean)
         score_exclusion_reason = if ($engineeringUnclean) { "engineering_unclean" } elseif ($auditRequired) { "audit_required" } else { "" }
         standard = Get-TaskspaceSideAuditRecord $standardMetrics $PairDir $standardUncleanReasons $standardOutcome

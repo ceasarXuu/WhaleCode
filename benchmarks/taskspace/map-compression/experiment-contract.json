@@ -1,0 +1,82 @@
+{
+  "schema_version": "taskspace-map-compression-experiment-v1",
+  "baseline_id": "R5-K-B0",
+  "baseline_source_commit": "37bddb2bad9f8f92d52b082eb55c0c1a4171654a",
+  "baseline_codex_source_commit": "c774467436460cfab371e9eae5df4d80a662a02f",
+  "baseline_binary": {
+    "repo_relative_path": "target/r5-k1-baseline/R5-K-B0/whale",
+    "sha256": "90dd355bf118edf8ee72590fac29aa38f1feee681984c2509f5f267d27dcb2c5",
+    "attestation_repo_relative_path": "target/r5-k1-baseline/R5-K-B0/whale.build-attestation.json",
+    "attestation_sha256": "c005342337db1f5e3f865a6dad386b1c0975fc0ee6e6dbdc61b8da14b7513e4e"
+  },
+  "container": {
+    "contract_repo_relative_path": "benchmarks/taskspace/container-runtime-contract.json",
+    "contract_sha256": "b60986644a9d56df5ba14fa65e3864f4e79c63b0e2a71c9b40290a4959163d76",
+    "image_tag": "whalecode/taskspace-benchmark:r5",
+    "local_image_id": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
+    "base_image": "ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90"
+  },
+  "runner": {
+    "entrypoint": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+    "entrypoint_sha256": "652bb148dd839aac6f76d4021a2e4367629816d25bf4f89f3e2a2e7d36bc82bd",
+    "observer": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
+    "observer_sha256": "5f658f77687b7f0af0d53a5aa3ced39c036a1632937d5b2c778ea7e2b9f5ed21"
+  },
+  "provider": {
+    "model": "deepseek-v4-flash",
+    "config_overrides": [
+      "model_reasoning_effort=\"max\""
+    ],
+    "credential_env_names": [
+      "DEEPSEEK_API_KEY"
+    ]
+  },
+  "arms": [
+    {
+      "id": "STD1",
+      "mode": "standard",
+      "binary_role": "candidate"
+    },
+    {
+      "id": "B0",
+      "mode": "taskspace",
+      "binary_role": "immutable_baseline"
+    },
+    {
+      "id": "P0",
+      "mode": "taskspace",
+      "binary_role": "immutable_baseline",
+      "alias_of": "B0"
+    },
+    {
+      "id": "C1",
+      "mode": "taskspace",
+      "binary_role": "candidate"
+    }
+  ],
+  "samples": {
+    "simple": {
+      "scenario": "single-file-fast-fix",
+      "prompt_sha256": "f5c612bf91e5c91669d2ddbd18dadbacded607911a20ed022546fbcfc6d7e6de",
+      "fixture_sha256": "afd898b158b323f58b2540a0abb7d18b85cfb37530361182b2f15dc032588121",
+      "repeats": 3,
+      "expected_strategy_activation": 0
+    },
+    "complex": {
+      "scenario": "subscription-billing-repair",
+      "prompt_sha256": "7878c010e29d081e3e58b6f766a3bb2c1e5457513694d634e22515893689e0fd",
+      "fixture_sha256": "6befe34b1fbdface4ac989f8b43fad36f497dcc0ba414493f163b4222a10c19c",
+      "repeats": 3,
+      "expected_strategy_activation": 1
+    }
+  },
+  "gates": {
+    "correctness_required": true,
+    "simple_candidate_previous_median_max_ratio": 1.1,
+    "simple_req2_plus_cache_drop_max_percentage_points": 2.0,
+    "complex_primary_metric": "activated_projection_bytes",
+    "complex_primary_metric_candidate_previous_max_ratio": 0.9,
+    "expand_replay_hash_match_required": true,
+    "canonical_topology_change_allowed": false
+  }
+}

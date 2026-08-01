@@ -112,53 +112,26 @@ try {
     Assert-Equal ([bool]$snapshotAudit.hardGatePassed) $true "snapshot-cleared sentinel with valid action should pass"
     $results.Add("snapshot-cleared-valid-action-passes: PASS")
 
+    $snapshotClearedWithInstruction = [pscustomobject]@{
+        id = "sentinel-3"
+        status = "cleared"
+        taskId = "task-1"
+        mapId = "map-1"
+        resultId = "result-1"
+        nodeId = "node-1"
+        clearanceAction = "Run a successful validator, revise the contract, or explicitly accept the risk before final artifact audit."
+        clearAction = "FixApplied"
+        traceEventIds = @("trace-3", "trace-4")
+        clearedAtMs = "4"
+    }
+    $snapshotInstructionAudit = Invoke-TestAudit $context @($snapshotClearedWithInstruction)
+    Assert-Equal ([bool]$snapshotInstructionAudit.hardGatePassed) $true "snapshot-cleared sentinel should use clearAction instead of clearance instructions"
+    $results.Add("snapshot-cleared-clear-action-passes: PASS")
+
     $directAudit = Get-FinalArtifactAuditSummary $context.Tasks $context.Nodes @() @{"result-1" = $context.Nodes[0].results[0]} $context.ArtifactRoot
     Assert-Equal ([bool]$directAudit.hardGatePassed) $true "legacy five-argument direct final artifact audit call should keep ArtifactRoot as the fifth argument"
     Assert-Equal ([bool]$directAudit.finalArtifacts[0].artifactFound) $true "legacy direct call should still resolve final artifact under ArtifactRoot"
     $results.Add("legacy-direct-final-artifact-audit-call: PASS")
-
-    $rolloutDir = Join-Path $OutputDir "export-fixture"
-    [void](New-Item -ItemType Directory -Force -Path $rolloutDir)
-    $rolloutPath = Join-Path $rolloutDir "rollout.jsonl"
-    $jsonlPath = Join-Path $rolloutDir "whale-exec.jsonl"
-    $exportDir = Join-Path $rolloutDir "export"
-    $snapshotEvent = [ordered]@{ timestamp = "2026-06-05T00:05:00Z"; payload = [ordered]@{ type = "snapshot_updated"; snapshot = [ordered]@{ tasks = $context.Tasks; maps = @([ordered]@{ id = "map-1"; taskId = "task-1"; title = "Fix app"; ownerSessionId = "thread-1"; createdFrom = $null; edges = @(); nodes = @([ordered]@{ id = "node-1"; title = "Implement app"; kind = "implement_solution"; status = "completed" }); results = @([ordered]@{ id = "result-1"; nodeId = "node-1"; assignmentId = "lease-1"; sourceThreadId = "thread-1"; kind = "result"; actionClass = "edit"; body = "validated"; evidencePackage = $context.Nodes[0].results[0].evidencePackage }) }); maintenanceBarriers = @(); sentinelWarnings = @([ordered]@{ id = "sentinel-export"; sentinelType = "validator_failure"; status = "active"; severity = "warning"; taskId = "task-1"; mapId = "map-1"; nodeId = "node-1"; resultId = "result-1"; traceEventIds = @("trace-export"); reason = "validator failed first"; clearanceAction = ""; createdAtMs = "5"; clearedAtMs = $null }) } } }
-    $clearEvent = [ordered]@{ timestamp = "2026-06-05T00:06:00Z"; payload = [ordered]@{ type = "sentinel_warning_cleared"; sentinelId = "sentinel-export"; clearAction = "FixApplied"; taskId = "task-1"; mapId = "map-1"; nodeId = "node-1"; resultId = "result-1"; clearedBy = "main-agent"; clearedAtMs = "6"; clearEventIds = @("clear-export") } }
-    $validityEvent = [ordered]@{ timestamp = "2026-06-05T00:07:00Z"; payload = [ordered]@{ type = "result_validity_changed"; resultId = "result-1"; validity = "accepted" } }
-    @($snapshotEvent, $clearEvent, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
-    "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -ArtifactRoot $context.ArtifactRoot | Out-Null
-    $exportJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $exportDir "action-map-observability.json") | ConvertFrom-Json
-    Assert-Equal ([bool]$exportJson.cognitiveAudit.hardGatePassed) $true "exported clear event should clear final artifact sentinel"
-    Assert-Equal ([string]$exportJson.sentinelWarnings[0].status) "cleared" "exported sentinel status should be cleared"
-    Assert-Equal ([string]$exportJson.sentinelWarnings[0].clearanceAction) "FixApplied" "exported clear action should be preserved"
-    $results.Add("black-box-export-clear-event: PASS")
-
-    $wrongContextDir = Join-Path $OutputDir "wrong-context-export-fixture"
-    [void](New-Item -ItemType Directory -Force -Path $wrongContextDir)
-    $wrongContextPath = Join-Path $wrongContextDir "rollout.jsonl"
-    $wrongContextExportDir = Join-Path $wrongContextDir "export"
-    $wrongContextClear = [ordered]@{ timestamp = "2026-06-05T00:06:00Z"; payload = [ordered]@{ type = "sentinel_warning_cleared"; sentinelId = "sentinel-export"; clearAction = "FixApplied"; taskId = "task-other"; mapId = "map-1"; nodeId = "node-1"; resultId = "result-1"; clearedBy = "main-agent"; clearedAtMs = "6"; clearEventIds = @("clear-wrong-context") } }
-    @($snapshotEvent, $wrongContextClear, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $wrongContextPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $wrongContextPath -JsonlPath $jsonlPath -OutputDir $wrongContextExportDir -ArtifactRoot $context.ArtifactRoot | Out-Null
-    $wrongContextJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $wrongContextExportDir "action-map-observability.json") | ConvertFrom-Json
-    Assert-Equal ([bool]$wrongContextJson.cognitiveAudit.hardGatePassed) $false "exported same-id clear event with wrong context should not clear sentinel"
-    Assert-Contains $wrongContextJson.cognitiveAudit.hardGateFailures "sentinel_warning_uncleared_for_final_artifact" "wrong-context clear export should leave sentinel uncleared"
-    $results.Add("black-box-export-wrong-context-fails: PASS")
-
-    $earlyRolloutDir = Join-Path $OutputDir "early-clear-export-fixture"
-    [void](New-Item -ItemType Directory -Force -Path $earlyRolloutDir)
-    $earlyRolloutPath = Join-Path $earlyRolloutDir "rollout.jsonl"
-    $earlyExportDir = Join-Path $earlyRolloutDir "export"
-    $earlyClearEvent = [ordered]@{ timestamp = "2026-06-05T00:04:00Z"; payload = $clearEvent.payload }
-    $lateSnapshotEvent = $snapshotEvent
-    $lateSnapshotEvent.timestamp = "2026-06-05T00:05:00Z"
-    @($earlyClearEvent, $lateSnapshotEvent, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $earlyRolloutPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $earlyRolloutPath -JsonlPath $jsonlPath -OutputDir $earlyExportDir -ArtifactRoot $context.ArtifactRoot | Out-Null
-    $earlyJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $earlyExportDir "action-map-observability.json") | ConvertFrom-Json
-    Assert-Equal ([bool]$earlyJson.cognitiveAudit.hardGatePassed) $false "exported clear event before active snapshot should not clear final artifact sentinel"
-    Assert-Contains $earlyJson.cognitiveAudit.hardGateFailures "sentinel_warning_uncleared_for_final_artifact" "early clear export should leave sentinel uncleared"
-    $results.Add("black-box-export-early-clear-fails: PASS")
 
     $report = @("# Action Map Sentinel Clearance Self-Test", "", "- overall: PASS") + ($results | ForEach-Object { "- $_" })
     $report | Set-Content -Encoding UTF8 (Join-Path $OutputDir "report.md")

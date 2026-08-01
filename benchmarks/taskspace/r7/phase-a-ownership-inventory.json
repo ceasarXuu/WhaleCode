@@ -1,0 +1,413 @@
+{
+  "schema_version": 1,
+  "inventory_id": "r7-phase-a-projection-policy-ownership",
+  "status": "complete",
+  "source_docs": [
+    "docs/v0.0.5/build-R7/00-r7-three-projection-policy-charter.md",
+    "docs/v0.0.5/build-R7/01-r7-phased-implementation-plan.md"
+  ],
+  "allowed_classifications": [
+    "retain_shared",
+    "replace_b",
+    "delete_b",
+    "adapt_b",
+    "adapt_c",
+    "adapt_d",
+    "adapt_f"
+  ],
+  "coverage_domains": [
+    "renderer",
+    "runtime",
+    "session",
+    "state",
+    "protocol",
+    "tools",
+    "observer",
+    "benchmark",
+    "compaction",
+    "resume_replay",
+    "viewer",
+    "tests"
+  ],
+  "items": [
+    {
+      "id": "renderer_projection_schema_and_rendering",
+      "domain": "renderer",
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/projection.rs",
+      "classification": "adapt_b",
+      "target_phase": "B",
+      "r7_owner": "single_shared_projection_renderer",
+      "reason": "keep one deterministic renderer and remove epoch-baseline product semantics",
+      "covered_paths": []
+    },
+    {
+      "id": "runtime_canonical_map_snapshot_source",
+      "domain": "runtime",
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+      "classification": "adapt_b",
+      "target_phase": "B",
+      "r7_owner": "shared_runtime_canonical_snapshot_provider",
+      "reason": "runtime keeps hard invariants and supplies renderer input but stops deciding context injection",
+      "covered_paths": []
+    },
+    {
+      "id": "event_store_canonical_replay",
+      "domain": "runtime",
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/event_store.rs",
+      "classification": "retain_shared",
+      "target_phase": "B-F",
+      "r7_owner": "single_shared_event_store",
+      "reason": "canonical event storage and replay are shared by all policies",
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/action_map/event_store_tests.rs"
+      ]
+    },
+    {
+      "id": "session_projection_policy_and_cursor",
+      "domain": "state",
+      "path": "third_party/codex-cli/codex-rs/core/src/state/session.rs",
+      "classification": "adapt_b",
+      "target_phase": "B",
+      "r7_owner": "session_metadata_policy_and_cursor",
+      "reason": "save immutable TaskSpaceProjectionPolicy and mechanical cursor instead of R6 epoch state",
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/state/session_tests.rs"
+      ]
+    },
+    {
+      "id": "state_module_epoch_export",
+      "domain": "state",
+      "path": "third_party/codex-cli/codex-rs/core/src/state/mod.rs",
+      "classification": "adapt_b",
+      "target_phase": "B",
+      "r7_owner": "state_module_policy_export",
+      "reason": "remove taskspace_projection_epoch module export and expose policy state when implemented",
+      "covered_paths": []
+    },
+    {
+      "id": "r6_projection_epoch_state",
+      "domain": "state",
+      "path": "third_party/codex-cli/codex-rs/core/src/state/taskspace_projection_epoch.rs",
+      "classification": "delete_b",
+      "target_phase": "B",
+      "r7_owner": "projection_policy_cursor",
+      "reason": "R6 epoch baseline must not survive as fourth policy, migration, or fallback",
+      "covered_paths": []
+    },
+    {
+      "id": "session_provider_context_composer",
+      "domain": "session",
+      "path": "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+      "classification": "adapt_b",
+      "target_phase": "B",
+      "r7_owner": "single_shared_provider_context_composer",
+      "reason": "centralize policy emission application and remove embedded epoch filtering decisions",
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/session/tests.rs"
+      ]
+    },
+    {
+      "id": "provider_wire_section_observer",
+      "domain": "protocol",
+      "path": "third_party/codex-cli/codex-rs/core/src/provider_wire_sections.rs",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_aware_wire_section_observer",
+      "reason": "Phase B must observe map-always marker and freshness; Phase F extends the same observer to append and request",
+      "covered_paths": []
+    },
+    {
+      "id": "client_projection_freshness_scan",
+      "domain": "protocol",
+      "path": "third_party/codex-cli/codex-rs/core/src/client.rs",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_aware_freshness_validator",
+      "reason": "Phase B replaces R6 epoch identity with map-always freshness; Phase F adds the remaining policy verdicts",
+      "covered_paths": []
+    },
+    {
+      "id": "taskspace_control_arguments",
+      "domain": "tools",
+      "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
+      "classification": "adapt_d",
+      "target_phase": "D",
+      "r7_owner": "shared_taskspace_control_schema_with_read_map",
+      "reason": "add shared read_map action without policy-specific tool schema",
+      "covered_paths": []
+    },
+    {
+      "id": "taskspace_tool_description",
+      "domain": "tools",
+      "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+      "classification": "adapt_d",
+      "target_phase": "D",
+      "r7_owner": "shared_taskspace_control_description",
+      "reason": "read_map must be visible to every projection policy and not request-only",
+      "covered_paths": []
+    },
+    {
+      "id": "ordered_tool_sequence_router",
+      "domain": "tools",
+      "path": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
+      "classification": "retain_shared",
+      "target_phase": "B-F",
+      "r7_owner": "single_shared_sequence_executor",
+      "reason": "tool ordering and stop-after-failure remain policy independent",
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_tests.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_taskspace_tests.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_taskspace_rejection_tests.rs"
+      ]
+    },
+    {
+      "id": "compaction_epoch_policy_emission",
+      "domain": "compaction",
+      "path": "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+      "classification": "adapt_b",
+      "target_phase": "B",
+      "r7_owner": "shared_compaction_pipeline_policy_trigger",
+      "reason": "canonical Map survives compaction; only new epoch emission differs by policy",
+      "covered_paths": []
+    },
+    {
+      "id": "resume_and_fork_policy_restore",
+      "domain": "resume_replay",
+      "path": "third_party/codex-cli/codex-rs/core/src/state/session.rs",
+      "classification": "adapt_b",
+      "target_phase": "B",
+      "r7_owner": "immutable_session_policy_restore",
+      "reason": "resume and fork must restore original policy and cursor with no R6 migration",
+      "covered_paths": []
+    },
+    {
+      "id": "rollout_reconstruction_resume_tests",
+      "domain": "resume_replay",
+      "path": "third_party/codex-cli/codex-rs/core/src/session/rollout_reconstruction_tests.rs",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_restore_replay_tests",
+      "reason": "replay assertions must cover immutable policy and absence of R6 compatibility",
+      "covered_paths": []
+    },
+    {
+      "id": "app_server_taskspace_messages",
+      "domain": "viewer",
+      "path": "third_party/codex-cli/codex-rs/app-server/src/codex_message_processor.rs",
+      "classification": "adapt_f",
+      "target_phase": "F",
+      "r7_owner": "viewer_policy_aware_projection_events",
+      "reason": "viewer should observe policy and projection events while sharing canonical map state",
+      "covered_paths": []
+    },
+    {
+      "id": "tui_taskspace_viewer_e2e",
+      "domain": "viewer",
+      "path": "scripts/run-tui-taskspace-viewer-e2e.ps1",
+      "classification": "adapt_f",
+      "target_phase": "F",
+      "r7_owner": "viewer_e2e_policy_coverage",
+      "reason": "viewer smoke should remain policy aware without creating a separate runtime",
+      "covered_paths": []
+    },
+    {
+      "id": "benchmark_cost_instrumentation_projection_scan",
+      "domain": "observer",
+      "path": "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_aware_projection_observer",
+      "reason": "map-always must be observable in Phase B and the same metrics extend to all policies in Phase F",
+      "covered_paths": [
+        "scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1",
+        "scripts/taskspace-benchmark/lib/r7-supplemental-failure.ps1",
+        "scripts/taskspace-benchmark/lib/r7-state-rejection-summary.ps1",
+        "scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1",
+        "scripts/taskspace-benchmark/test-r7-supplemental-failure-evidence.ps1",
+        "scripts/taskspace-benchmark/test-r7-request-observability-report.ps1",
+        "third_party/codex-cli/codex-rs/core/src/action_map/runtime/telemetry.rs"
+      ]
+    },
+    {
+      "id": "provider_projection_identity_summary",
+      "domain": "observer",
+      "path": "scripts/taskspace-benchmark/lib/provider-projection-identity.ps1",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_aware_projection_identity_summary",
+      "reason": "replace identity is required in Phase B; append and request extend the same aggregation through Phase F",
+      "covered_paths": []
+    },
+    {
+      "id": "provider_section_cost_summary",
+      "domain": "observer",
+      "path": "scripts/taskspace-benchmark/lib/provider-section-cost.ps1",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "shared_policy_section_cost_summary",
+      "reason": "section cost must accept the R7 map-always identity in Phase B and later stop assuming universal presence",
+      "covered_paths": [
+        "scripts/taskspace-benchmark/lib/performance-section-cost.ps1"
+      ]
+    },
+    {
+      "id": "performance_observation_report",
+      "domain": "benchmark",
+      "path": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_metrics_report",
+      "reason": "Phase B reports map-always policy and identity; later phases add revision sequence, supersession, and read_map metrics",
+      "covered_paths": [
+        "scripts/taskspace-benchmark/lib/map-management.ps1",
+        "scripts/taskspace-benchmark/lib/metrics-extractor.ps1",
+        "scripts/taskspace-benchmark/lib/pair-report.ps1"
+      ]
+    },
+    {
+      "id": "benchmark_runner_policy_field",
+      "domain": "benchmark",
+      "path": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+      "classification": "adapt_f",
+      "target_phase": "F",
+      "r7_owner": "standard_plus_three_policy_matrix_runner",
+      "reason": "Phase G compares Standard with exactly three R7 policies",
+      "covered_paths": []
+    },
+    {
+      "id": "release_decision_projection_gate",
+      "domain": "benchmark",
+      "path": "scripts/taskspace-benchmark/write-release-decision.ps1",
+      "classification": "adapt_f",
+      "target_phase": "F",
+      "r7_owner": "policy_aware_release_projection_gate",
+      "reason": "release gate must classify known characteristics versus bugs per policy",
+      "covered_paths": [
+        "scripts/taskspace-benchmark/test-release-decision.ps1"
+      ]
+    },
+    {
+      "id": "core_runtime_projection_tests",
+      "domain": "tests",
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime_tests.rs",
+      "classification": "delete_b",
+      "target_phase": "A2-B3",
+      "r7_owner": "canonical_runtime_module_tests",
+      "reason": "monolithic legacy runtime tests were replaced by tests colocated with the canonical runtime modules",
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/action_map/projection.rs",
+        "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs"
+      ]
+    },
+    {
+      "id": "state_epoch_tests",
+      "domain": "tests",
+      "path": "third_party/codex-cli/codex-rs/core/src/state/taskspace_projection_epoch_tests.rs",
+      "classification": "delete_b",
+      "target_phase": "B",
+      "r7_owner": "projection_policy_cursor_tests",
+      "reason": "R6 epoch baseline tests must be removed or replaced with policy cursor tests",
+      "covered_paths": []
+    },
+    {
+      "id": "provider_wire_section_tests",
+      "domain": "tests",
+      "path": "third_party/codex-cli/codex-rs/core/src/provider_wire_sections_tests.rs",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_aware_provider_wire_tests",
+      "reason": "wire tests should validate all policy identity/freshness shapes",
+      "covered_paths": []
+    },
+    {
+      "id": "client_projection_scan_tests",
+      "domain": "tests",
+      "path": "third_party/codex-cli/codex-rs/core/src/client_tests.rs",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_aware_client_scan_tests",
+      "reason": "client tests need policy-specific bug versus characteristic verdicts",
+      "covered_paths": []
+    },
+    {
+      "id": "benchmark_cost_instrumentation_tests",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/test-cost-instrumentation.ps1",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_observer_tests",
+      "reason": "current tests contain R6 epoch identity markers and must become policy-aware",
+      "covered_paths": [
+        "scripts/taskspace-benchmark/test-harness.ps1"
+      ]
+    },
+    {
+      "id": "benchmark_performance_observation_tests",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/test-performance-observation.ps1",
+      "classification": "adapt_b",
+      "target_phase": "B-F",
+      "r7_owner": "policy_performance_report_tests",
+      "reason": "performance tests must report policy-specific projection count and revision metrics",
+      "covered_paths": []
+    },
+    {
+      "id": "r6_rooted_dag_contract_tests",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/test-r6-rooted-dag-contract.ps1",
+      "classification": "retain_shared",
+      "target_phase": "B-F",
+      "r7_owner": "shared_rooted_dag_regression_contract",
+      "reason": "Rooted DAG invariants remain shared and are not a projection policy",
+      "covered_paths": []
+    },
+    {
+      "id": "r6_projection_observability_smoke",
+      "domain": "tests",
+      "path": "scripts/test-r6-action-map-observability.ps1",
+      "classification": "delete_b",
+      "target_phase": "A2-B3",
+      "r7_owner": "canonical_map_store_observability_tests",
+      "reason": "R6 snapshot smoke was replaced by real canonical Map Store CLI and PowerShell integration tests",
+      "covered_paths": []
+    },
+    {
+      "id": "r7_phase_a_contract_test",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/test-r7-projection-policy-contract.ps1",
+      "classification": "retain_shared",
+      "target_phase": "A",
+      "r7_owner": "phase_a_machine_contract_gate",
+      "reason": "this deterministic validator freezes Phase A before production code changes",
+      "covered_paths": [
+        "benchmarks/taskspace/r7/projection-policy-contract.json",
+        "benchmarks/taskspace/r7/phase-a-ownership-inventory.json",
+        "benchmarks/taskspace/r7/phase-a-baseline-contract.json",
+        "benchmarks/taskspace/r7/phase-a-baseline-result.json",
+        "scripts/taskspace-benchmark/verify-r7-phase-a-baseline.ps1"
+      ]
+    },
+    {
+      "id": "five_layer_production_manifest_generator",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/sync-r7-five-layer-contract-manifest.ps1",
+      "classification": "retain_shared",
+      "target_phase": "FLA-1+",
+      "r7_owner": "five_layer_manifest_generation_gate",
+      "reason": "generate the shared five-layer production identity; projection marker strings are contract enum values, not a separate projection runtime",
+      "covered_paths": [
+        "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"
+      ]
+    },
+    {
+      "id": "five_layer_machine_contract_gate",
+      "domain": "tests",
+      "path": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
+      "classification": "retain_shared",
+      "target_phase": "FLA-0+",
+      "r7_owner": "five_layer_phase_gate",
+      "reason": "validate selected layer identities and statuses; projection marker strings are assertions over the shared contract, not policy implementation",
+      "covered_paths": []
+    }
+  ]
+}

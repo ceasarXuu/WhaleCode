@@ -32,6 +32,18 @@ use tokio_util::sync::CancellationToken;
 
 pub type SharedTurnDiffTracker = Arc<Mutex<TurnDiffTracker>>;
 
+#[cfg(test)]
+const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES: usize = 64 * 1024;
+#[cfg(test)]
+const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES: usize = 320;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TaskSpaceTerminalCarrier {
+    pub(crate) map_id: String,
+    pub(crate) revision: u64,
+    pub(crate) summary: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
@@ -88,6 +100,24 @@ impl ToolPayload {
             ToolPayload::Mcp { raw_arguments, .. } => Cow::Borrowed(raw_arguments),
         }
     }
+
+    pub fn log_payload_for_tool(&self, tool_name: &ToolName) -> Cow<'_, str> {
+        if tool_name.namespace.is_none()
+            && tool_name.name == "taskspace_control"
+            && let Self::Function { arguments } = self
+            && let Ok(mut value) = serde_json::from_str::<JsonValue>(arguments)
+            && let Some(object) = value.as_object_mut()
+            && let Some(candidate) = object.get_mut("exact_summary")
+            && let Some(text) = candidate.as_str()
+        {
+            *candidate = serde_json::json!({
+                "redacted": true,
+                "bytes": text.len(),
+            });
+            return Cow::Owned(value.to_string());
+        }
+        self.log_payload()
+    }
 }
 
 pub trait ToolOutput: Send {
@@ -96,6 +126,10 @@ pub trait ToolOutput: Send {
     fn success_for_logging(&self) -> bool;
 
     fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem;
+
+    fn taskspace_terminal_carrier(&self) -> Option<&TaskSpaceTerminalCarrier> {
+        None
+    }
 
     /// Returns the stable value exposed to `PostToolUse` hooks for this tool output.
     ///
@@ -110,6 +144,79 @@ pub trait ToolOutput: Send {
 
     fn code_mode_result(&self, payload: &ToolPayload) -> JsonValue {
         response_input_to_code_mode_result(self.to_response_item("", payload))
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn tool_output_model_visible_preview(
+    output: &dyn ToolOutput,
+    call_id: &str,
+    payload: &ToolPayload,
+) -> String {
+    let response = output.to_response_item(call_id, payload);
+    let model_visible_text = response_input_item_model_visible_text(&response);
+    let preview = bounded_model_visible_text_preview(&model_visible_text);
+    super::append_taskspace_tool_tail_sentinels(preview, &model_visible_text)
+}
+
+#[cfg(test)]
+pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {
+    let model_visible_text = response_input_item_model_visible_text(response);
+    let preview = bounded_model_visible_text_preview(&model_visible_text);
+    super::append_taskspace_tool_tail_sentinels(preview, &model_visible_text)
+}
+
+#[cfg(test)]
+pub(crate) fn bounded_model_visible_text_preview(content: &str) -> String {
+    if taskspace_should_preserve_complete_read_preview(content) {
+        return content.to_string();
+    }
+    telemetry_preview(content)
+}
+
+#[cfg(test)]
+fn taskspace_should_preserve_complete_read_preview(content: &str) -> bool {
+    if content.len() > TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES {
+        return false;
+    }
+    if content.lines().count() > TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES {
+        return false;
+    }
+    super::taskspace_read_file_summary_from_text(content)
+        .is_some_and(|summary| summary.contains("eof_reached=true"))
+}
+
+#[cfg(test)]
+fn response_input_item_model_visible_text(response: &ResponseInputItem) -> String {
+    match response {
+        ResponseInputItem::Message { content, .. } => content
+            .iter()
+            .filter_map(|item| match item {
+                codex_protocol::models::ContentItem::InputText { text }
+                | codex_protocol::models::ContentItem::OutputText { text } => {
+                    (!text.trim().is_empty()).then_some(text.clone())
+                }
+                codex_protocol::models::ContentItem::InputImage { image_url, .. } => {
+                    (!image_url.trim().is_empty()).then_some(image_url.clone())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ResponseInputItem::FunctionCallOutput { output, .. }
+        | ResponseInputItem::CustomToolCallOutput { output, .. } => {
+            output.body.to_text().unwrap_or_else(|| output.to_string())
+        }
+        ResponseInputItem::ToolSearchOutput { tools, .. } => serde_json::to_string(&tools)
+            .unwrap_or_else(|err| {
+                format!("failed to serialize tool_search model-visible output: {err}")
+            }),
+        ResponseInputItem::McpToolCallOutput { output, .. } => {
+            let payload = output.as_function_call_output_payload();
+            payload
+                .body
+                .to_text()
+                .unwrap_or_else(|| payload.to_string())
+        }
     }
 }
 

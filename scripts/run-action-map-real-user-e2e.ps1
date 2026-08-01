@@ -217,7 +217,7 @@ $obsHtmlPath = Join-Path $artifactDir "action-map-observability.html"
 $obsExitCode = 0
 if ($rollout) {
     $exportScript = Join-Path $PSScriptRoot "export-action-map-observability.ps1"
-    & $exportScript -RolloutPath $rolloutCopy -JsonlPath $jsonlPath -OutputDir $artifactDir -ArtifactRoot $repoDir | Out-Host
+    & $exportScript -RolloutPath $rolloutCopy -JsonlPath $jsonlPath -OutputDir $artifactDir -WhalePath $WhaleBin -ThreadId $threadId -ArtifactRoot $repoDir | Out-Host
     $obsExitCode = $LASTEXITCODE
 }
 $obs = if (Test-Path $obsJsonPath) { Get-Content -Raw -Encoding UTF8 $obsJsonPath | ConvertFrom-Json } else { $null }
@@ -286,9 +286,8 @@ foreach ($node in $nodeMetrics) {
 $pytestOwnership = Get-PytestOwnership $obs $toolCallArgs
 $validationNodeHasPytestResult = $pytestOwnership.Owned
 $editResultsAfterFinalPytest = Count-EditResultsAfter $nodeMetrics $pytestOwnership.At
-$finishNodeCallCount = Count-Matches $rolloutText 'TaskSpace node finished:'
+$finishMapCallCount = Count-Matches $rolloutText 'finish_map'
 $spawnAgentCount = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count } else { 0 }
-$expectedFinishNodeCalls = [Math]::Max(1, $completedNodes - $spawnAgentCount - 1)
 $commandStats = Get-CommandStats $jsonlText
 $taskspaceOrdering = Get-SuccessfulTaskspaceOrdering $rolloutText
 $postHocEmptyTerminalNodes = if ($obs) { @($obs.nodes | Where-Object { $_.title -match "(?i)validat|final|synthesis" -and @($_.results).Count -eq 0 }).Count } else { 0 }
@@ -311,12 +310,12 @@ if ([string]::IsNullOrWhiteSpace($gitDiffText)) { $failures.Add("repository diff
 if (-not $rollout) { $failures.Add("could not find rollout for this thread") }
 if ($rollout -and $obsExitCode -ne 0) { $failures.Add("observability export failed with exit code $obsExitCode") }
 if ($rollout -and $obsExitCode -eq 0 -and -not $cognitiveHardGatePassed) { $failures.Add("cognitive hard gate failed: $($cognitiveHardGateFailures -join ', ')") }
-if ($taskspaceOrdering.OrdinaryToolBeforeBinding) { $failures.Add("ordinary tool was called before taskspace task/node binding") }
+if ($taskspaceOrdering.OrdinaryToolBeforeReservation) { $failures.Add("ordinary tool completed before its TaskSpace reservation commit") }
 if ($mapCount -lt 1) { $failures.Add("no task map was observed") }
 if ($nodeCount -lt 4) { $failures.Add("natural task did not grow to at least 4 nodes; observed $nodeCount") }
 if ($nodesWithResults -lt 3) { $failures.Add("expected results on at least 3 nodes; observed $nodesWithResults") }
 if ($completedNodes -lt 2) { $failures.Add("expected at least 2 completed nodes; observed $completedNodes") }
-if ($finishNodeCallCount -lt $expectedFinishNodeCalls) { $failures.Add("expected at least $expectedFinishNodeCalls direct finish_node calls after subagent/final auto-completions; observed $finishNodeCallCount") }
+if ($finishMapCallCount -lt 1) { $failures.Add("expected one final finish_map call; observed $finishMapCallCount") }
 if (-not ($hasInspectKind -and $hasImplementationKind -and $hasTestKind)) { $failures.Add("node kinds did not cover inspect/implementation/test phases") }
 if (-not $implementationKindHasEdit) { $failures.Add("implement_solution node did not own an edit action result") }
 if (-not $testKindHasTest) { $failures.Add("smoke_test/regression_test node did not own a test action result") }
@@ -363,8 +362,7 @@ foreach ($row in @(
     @("cognitive_hard_gate_failures", $($cognitiveHardGateFailures -join ", ")),
     @("final_artifacts", $finalArtifactCount),
     @("completed_nodes", $completedNodes), @("nodes_with_results", $nodesWithResults),
-    @("taskspace_control", $taskspaceControlCount), @("finish_node_calls", $finishNodeCallCount),
-    @("expected_finish_node_calls", $expectedFinishNodeCalls),
+    @("taskspace_control", $taskspaceControlCount), @("finish_map_calls", $finishMapCallCount),
     @("has_boundary_node", $hasBoundaryNode), @("has_parser_node", $hasParserNode), @("has_pricing_node", $hasPricingNode),
     @("has_implementation_node", $hasImplementationNode), @("has_validation_node", $hasValidationNode),
     @("title_coverage_complete", $titleCoverageComplete), @("has_inspect_kind", $hasInspectKind),
@@ -388,11 +386,11 @@ foreach ($row in @(
     @("unique_completed_command_executions", $commandStats.Completed), @("failed_command_executions", $commandStats.Failed),
     @("successful_real_shell_or_patch_work_items", $realWorkItemCount),
     @("agent_pytest_command_count", $commandStats.PytestCount), @("git_diff_bytes", $gitDiffText.Length),
-    @("first_taskspace_binding_timestamp", $taskspaceOrdering.FirstBindingTimestamp),
-    @("first_taskspace_binding_evidence", $taskspaceOrdering.FirstBindingEvidence),
+    @("first_taskspace_reservation_timestamp", $taskspaceOrdering.FirstReservationTimestamp),
+    @("first_taskspace_reservation_evidence", $taskspaceOrdering.FirstReservationEvidence),
     @("first_ordinary_tool_timestamp", $taskspaceOrdering.FirstOrdinaryToolTimestamp),
     @("first_ordinary_tool", $taskspaceOrdering.FirstOrdinaryTool),
-    @("ordinary_tool_before_taskspace_binding", $taskspaceOrdering.OrdinaryToolBeforeBinding),
+    @("ordinary_tool_before_taskspace_reservation", $taskspaceOrdering.OrdinaryToolBeforeReservation),
     @("pytest_owner_node_id", $pytestOwnership.NodeId), @("pytest_owner_node_kind", $pytestOwnership.NodeKind),
     @("pytest_owner_node_title", $pytestOwnership.NodeTitle),
     @("pytest_owner_result_id", $pytestOwnership.ResultId), @("pytest_owner_call_id", $pytestOwnership.CallId),

@@ -94,6 +94,9 @@ pub fn create_fake_rollout_with_token_usage(
             model_context_window: Some(200_000),
         }),
         rate_limits: None,
+        provider_request_id: None,
+        provider_logical_request_id: None,
+        provider_attempt_seq: None,
     }))?;
     let file_path = rollout_path(codex_home, filename_ts, &thread_id);
     let line = json!({
@@ -145,6 +148,8 @@ pub fn create_fake_rollout_with_source(
         base_instructions: None,
         dynamic_tools: None,
         memory_mode: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
     };
     let payload = serde_json::to_value(SessionMetaLine {
         meta,
@@ -228,6 +233,8 @@ pub fn create_fake_rollout_with_text_elements(
         base_instructions: None,
         dynamic_tools: None,
         memory_mode: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
     };
     let payload = serde_json::to_value(SessionMetaLine {
         meta,

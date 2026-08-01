@@ -1061,7 +1061,8 @@ mod tests {
         exec_cell.complete_call(
             "exec-1",
             CommandOutput {
-                exit_code: 0,
+                shell_exit_code: Some(0),
+                outcome: codex_protocol::exec_output::ExecOutcome::Exited,
                 aggregated_output: "src\nREADME.md\n".into(),
                 formatted_output: "src\nREADME.md\n".into(),
             },

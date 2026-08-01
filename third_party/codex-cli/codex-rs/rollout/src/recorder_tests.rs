@@ -8,6 +8,7 @@ use codex_protocol::protocol::AgentMessageEvent;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TurnContextItem;
 use codex_protocol::protocol::UserMessageEvent;
 use pretty_assertions::assert_eq;
@@ -63,6 +64,21 @@ fn write_session_file(root: &Path, ts: &str, uuid: Uuid) -> std::io::Result<Path
 }
 
 #[tokio::test]
+async fn get_rollout_history_rejects_tail_parse_errors() -> std::io::Result<()> {
+    let home = TempDir::new().expect("temp dir");
+    let path = write_session_file(home.path(), "2025-01-03T12:00:00Z", Uuid::new_v4())?;
+    let mut file = fs::OpenOptions::new().append(true).open(&path)?;
+    writeln!(file, "{{broken")?;
+
+    let error = RolloutRecorder::get_rollout_history(&path)
+        .await
+        .expect_err("parse errors must be fatal for resume");
+
+    assert!(error.to_string().contains("parse errors"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn recorder_materializes_on_flush_with_pending_items() -> std::io::Result<()> {
     let home = TempDir::new().expect("temp dir");
     let config = test_config(home.path());
@@ -75,6 +91,8 @@ async fn recorder_materializes_on_flush_with_pending_items() -> std::io::Result<
             SessionSource::Exec,
             BaseInstructions::default(),
             Vec::new(),
+            Some(TaskSpaceProjectionPolicy::MapAlways),
+            None,
             EventPersistenceMode::Limited,
         ),
         /*state_db_ctx*/ None,
@@ -125,6 +143,10 @@ async fn recorder_materializes_on_flush_with_pending_items() -> std::io::Result<
         text.contains("\"type\":\"session_meta\""),
         "expected session metadata in rollout"
     );
+    assert!(
+        text.contains("\"taskspace_projection_policy\":\"map-always\""),
+        "expected immutable TaskSpace projection policy in session metadata"
+    );
     let buffered_idx = text
         .find("buffered-event")
         .expect("buffered event in rollout");
@@ -155,6 +177,8 @@ async fn persist_reports_filesystem_error_and_retries_buffered_items() -> std::i
             SessionSource::Exec,
             BaseInstructions::default(),
             Vec::new(),
+            None,
+            None,
             EventPersistenceMode::Limited,
         ),
         /*state_db_ctx*/ None,
@@ -254,6 +278,8 @@ async fn metadata_irrelevant_events_touch_state_db_updated_at() -> std::io::Resu
             SessionSource::Cli,
             BaseInstructions::default(),
             Vec::new(),
+            None,
+            None,
             EventPersistenceMode::Limited,
         ),
         Some(state_db.clone()),

@@ -1,0 +1,178 @@
+{
+  "schema_version": "whalecode-cache-surface-v1",
+  "baseline": {
+    "surface_sha256": "9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc",
+    "status": "live_regression_failed",
+    "source_commit": "6e492ea63",
+    "live_result_path": "benchmarks/cache-regression/results/WAR-20260731-121102-CACHE-REGRESSION-03B04648.json",
+    "note": "最近一次已授权真实缓存回归未通过；修复并重新获批验证前保持阻断。"
+  },
+  "surface_rules": [
+    {
+      "id": "base_instructions",
+      "globs": [
+        "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/**",
+        "third_party/codex-cli/codex-rs/core/src/context/base_instructions_profile.rs"
+      ],
+      "reason": "改变固定系统前缀或 Standard/TaskSpace base instructions 选择"
+    },
+    {
+      "id": "context_construction",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/context/**",
+        "third_party/codex-cli/codex-rs/core/src/context_manager/**",
+        "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/session.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/handlers.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/turn_context.rs"
+      ],
+      "reason": "改变消息角色、顺序、替换或追加结构"
+    },
+    {
+      "id": "taskspace_projection_feedback",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/action_map/projection*.rs",
+        "third_party/codex-cli/codex-rs/core/src/action_map/runtime/projection.rs",
+        "third_party/codex-cli/codex-rs/core/src/action_map/response.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/taskspace_response.rs",
+        "third_party/codex-cli/codex-rs/core/src/taskspace_skill*.rs"
+      ],
+      "reason": "改变 TaskSpace 动态内容的位置、载体或重复表达"
+    },
+    {
+      "id": "provider_payload",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/client.rs",
+        "third_party/codex-cli/codex-rs/core/src/client_common*.rs",
+        "third_party/codex-cli/codex-rs/core/src/provider_wire*.rs",
+        "third_party/codex-cli/codex-rs/codex-api/src/**",
+        "third_party/codex-cli/codex-rs/protocol/src/**",
+        "third_party/codex-cli/codex-rs/Cargo.toml",
+        "third_party/codex-cli/codex-rs/Cargo.lock",
+        "third_party/codex-cli/codex-rs/codex-api/Cargo.toml",
+        "third_party/codex-cli/codex-rs/core/Cargo.toml",
+        "third_party/codex-cli/codex-rs/protocol/Cargo.toml"
+      ],
+      "reason": "改变最终 provider payload、协议序列化、消息顺序、依赖或缓存观测"
+    },
+    {
+      "id": "tool_declarations",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/tools/**",
+        "third_party/codex-cli/codex-rs/tools/src/**",
+        "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_*"
+      ],
+      "reason": "改变每次请求携带的 Tool schema 或 TaskSpace 固定合同"
+    },
+    {
+      "id": "capability_context",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/mcp*.rs",
+        "third_party/codex-cli/codex-rs/core/src/connectors.rs",
+        "third_party/codex-cli/codex-rs/core/src/session/mcp.rs",
+        "third_party/codex-cli/codex-rs/core/src/plugins/**",
+        "third_party/codex-cli/codex-rs/core/src/skills*.rs",
+        "third_party/codex-cli/codex-rs/core-plugins/src/**",
+        "third_party/codex-cli/codex-rs/skills/src/**"
+      ],
+      "reason": "改变 MCP、Apps、Plugins 或 Skills 的上下文与 Tool 暴露"
+    },
+    {
+      "id": "model_provider_routing",
+      "globs": [
+        "third_party/codex-cli/codex-rs/model-provider-info/src/**",
+        "third_party/codex-cli/codex-rs/models-manager/models.json",
+        "third_party/codex-cli/codex-rs/models-manager/src/**",
+        "third_party/codex-cli/codex-rs/core/src/config/**"
+      ],
+      "reason": "改变模型、provider、wire API 或默认路由身份"
+    },
+    {
+      "id": "compaction",
+      "globs": [
+        "third_party/codex-cli/codex-rs/core/src/compact*.rs",
+        "third_party/codex-cli/codex-rs/core/src/compact/**"
+      ],
+      "reason": "改变压缩请求或压缩后历史替换结构"
+    }
+  ],
+  "free_validation": {
+    "run_on_release": true,
+    "semantic_baseline_globs": [
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_*.snap"
+    ],
+    "commands": [
+      {
+        "id": "final_wire_matrix",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "cache_payload_"],
+        "timeout_seconds": 600,
+        "change_report": {
+          "type": "final_wire_snapshot_set",
+          "baseline_globs": [
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload*.snap"
+          ]
+        }
+      },
+      {
+        "id": "tool_wire_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "taskspace_tools_use_production_wire_schema"],
+        "timeout_seconds": 600,
+        "change_report": {
+          "type": "final_wire_snapshot_set",
+          "baseline_globs": [
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
+          ]
+        }
+      },
+      {
+        "id": "provider_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-model-provider-info", "deepseek"],
+        "timeout_seconds": 120
+      },
+      {
+        "id": "model_catalog_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-models-manager", "deepseek"],
+        "timeout_seconds": 120
+      },
+      {
+        "id": "default_route_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--lib", "defaults_to_deepseek_flash_responses_provider"],
+        "timeout_seconds": 600
+      },
+      {
+        "id": "usage_decoder_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": ["cargo", "test", "-q", "-p", "codex-api"],
+        "timeout_seconds": 300
+      },
+      {
+        "id": "final_wire_comparison_contract",
+        "cwd": ".",
+        "argv": ["python3", "scripts/cache-regression/test_cache_payload_contract.py"],
+        "timeout_seconds": 60
+      }
+    ]
+  },
+  "pricing_snapshot": {
+    "currency": "USD",
+    "captured_at": "2026-07-31",
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "cached_input_per_million": 0.0028,
+    "uncached_input_per_million": 0.14,
+    "output_per_million": 0.28
+  },
+  "provider_hard_limits": {
+    "deepseek-v4-flash": {
+      "max_input_tokens_per_request": 1000000,
+      "max_output_tokens_per_request": 384000,
+      "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "captured_at": "2026-08-01"
+    }
+  }
+}

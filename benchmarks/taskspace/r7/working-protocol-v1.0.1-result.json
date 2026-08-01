@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-working-protocol-v1.0.1",
+  "status": "evaluated_active_candidate",
+  "protocol_identity": {
+    "schema_version": "taskspace-core-working-protocol-v1",
+    "protocol_version": "1.0.1",
+    "rules_sha256": "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db",
+    "git_commit": "deacc3405"
+  },
+  "execution": {
+    "model": "deepseek-v4-flash",
+    "reasoning_effort": "max",
+    "execution_substrate": "docker_hard_boundary",
+    "projection_policy": "map-request",
+    "repeats_per_sample": 1,
+    "contemporaneous_standard": true
+  },
+  "samples": [
+    {
+      "scenario_id": "single-file-fast-fix",
+      "run_root": "target/r7-phase-d1-working-protocol-v101/simple/single-file-fast-fix/20260719-083458-536",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 7,
+        "ordinary_tools": 9,
+        "wall_time_ms": 18332,
+        "input_tokens": 50420,
+        "cached_input_tokens": 48384,
+        "uncached_input_tokens": 2036,
+        "output_tokens": 1839,
+        "request_2_plus_cache_hit_rate": 0.956882
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 9,
+        "ordinary_tools": 9,
+        "control_tools": 7,
+        "control_failures": 0,
+        "wall_time_ms": 25462,
+        "input_tokens": 97684,
+        "cached_input_tokens": 86784,
+        "uncached_input_tokens": 10900,
+        "output_tokens": 2909,
+        "request_2_plus_cache_hit_rate": 0.964728,
+        "message_prefix_preserved_rate": 1.0,
+        "protocol_present_count": 9,
+        "protocol_contract_match_rate": 1.0,
+        "protocol_estimated_tokens_per_request": 431,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0,
+        "state_only_controls": 4,
+        "nonterminal_transitions_without_follow_up": 3,
+        "multiple_control_carrier_responses": 0,
+        "bootstrap_first_tool": true
+      }
+    },
+    {
+      "scenario_id": "subscription-billing-repair",
+      "run_root": "target/r7-phase-d1-working-protocol-v101/complex/subscription-billing-repair/20260719-083458-546",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 12,
+        "ordinary_tools": 20,
+        "wall_time_ms": 46469,
+        "input_tokens": 120164,
+        "cached_input_tokens": 113792,
+        "uncached_input_tokens": 6372,
+        "output_tokens": 5412,
+        "request_2_plus_cache_hit_rate": 0.944748
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 13,
+        "ordinary_tools": 20,
+        "control_tools": 7,
+        "control_failures": 1,
+        "wall_time_ms": 55863,
+        "input_tokens": 189049,
+        "cached_input_tokens": 179968,
+        "uncached_input_tokens": 9081,
+        "output_tokens": 6391,
+        "request_2_plus_cache_hit_rate": 0.950539,
+        "message_prefix_preserved_rate": 1.0,
+        "protocol_present_count": 13,
+        "protocol_contract_match_rate": 1.0,
+        "protocol_estimated_tokens_per_request": 431,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0,
+        "state_only_controls": 4,
+        "nonterminal_transitions_without_follow_up": 3,
+        "multiple_control_carrier_responses": 0,
+        "bootstrap_first_tool": true
+      }
+    }
+  ],
+  "decision": {
+    "core_protocol_active": true,
+    "frozen_as_final": false,
+    "lifecycle_signal": "both map-request runs initialized first, closed every Work node, and committed finish_end",
+    "batching_hypothesis": "not_supported",
+    "batching_evidence": "zero multiple-control responses and three standalone nonterminal transitions in both samples",
+    "next_boundary": "do not add more prompt pressure; evaluate a shared tool-schema carrier for agent-declared complete plus next bind or finish",
+    "protocol_cost_followup": "reduce static wording only as an isolated later version"
+  }
+}

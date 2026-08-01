@@ -10,7 +10,7 @@ fn create_apply_patch_freeform_tool_matches_expected_spec() {
         ToolSpec::Freeform(FreeformTool {
             name: "apply_patch".to_string(),
             description:
-                "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON."
+                "Use the `apply_patch` tool to edit files. A single apply_patch call can update multiple files. A provider response may contain at most one apply_patch call; include all related file operations in that one patch. This is a FREEFORM tool, so do not wrap the patch in JSON."
                     .to_string(),
             format: FreeformToolFormat {
                 r#type: "grammar".to_string(),
@@ -27,7 +27,9 @@ fn create_apply_patch_json_tool_matches_expected_spec() {
         create_apply_patch_json_tool(),
         ToolSpec::Function(ResponsesApiTool {
             name: "apply_patch".to_string(),
-            description: APPLY_PATCH_JSON_TOOL_DESCRIPTION.to_string(),
+            description: format!(
+                "Use the `apply_patch` tool to edit files. {APPLY_PATCH_REQUEST_CONTRACT}\n{APPLY_PATCH_JSON_FORMAT_DESCRIPTION}"
+            ),
             strict: false,
             defer_loading: None,
             parameters: JsonSchema::object(

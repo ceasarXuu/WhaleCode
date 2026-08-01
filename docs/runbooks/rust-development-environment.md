@@ -71,8 +71,60 @@ After Codex import, verify the active Codex-derived workspace directly:
 ```bash
 cd third_party/codex-cli/codex-rs
 cargo check -p codex-cli --locked
+cargo test -p codex-linux-sandbox --lib --locked
+cargo build -p codex-cli --bin whale --locked
 cargo run --quiet -p codex-cli --bin whale -- --version
 ```
+
+## Linux Vendored Bubblewrap Dependency
+
+健康的 Linux 开发构建默认不设置 `CODEX_SKIP_VENDORED_BWRAP`。这样
+`codex-linux-sandbox` 会编译 vendored bubblewrap，并覆盖完整 sandbox
+构建链路。该路径需要 `pkg-config` 能找到 `libcap.pc`。
+
+先检查依赖：
+
+```text
+pkg-config --libs --cflags libcap
+```
+
+Ubuntu/Debian 系统级安装：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y pkg-config libcap-dev
+```
+
+无 sudo 但已有 Linuxbrew 时，可以走用户级依赖：
+
+```bash
+brew install libcap
+pkg-config --libs --cflags libcap
+```
+
+2026-07-08 本机 Ubuntu 24.04 使用 Linuxbrew 修复了该依赖：
+`brew install libcap` 后 `pkg-config` 输出
+`-I/home/zhangxu/.linuxbrew/Cellar/libcap/2.78/include ... -lcap`，默认
+`cargo build -p codex-cli --bin whale --locked` 和
+`cargo test -p codex-linux-sandbox --lib --locked` 均通过。
+
+如果缺少 `libcap.pc`，默认构建会在 vendored bubblewrap 阶段失败：
+
+```text
+The system library `libcap` required by crate `codex-linux-sandbox` was not found.
+```
+
+只有在 focused `codex-core` 单测确认不覆盖 Linux sandbox/bubblewrap 时，才跳过
+vendored bubblewrap：
+
+```bash
+cd third_party/codex-cli/codex-rs
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core <test_name> --lib
+```
+
+这只适用于 TaskSpace normalizer、ActionMap summary 等非 sandbox 单元覆盖。
+release/full gate、CLI attestation、sandbox 相关变更和健康开发环境检查必须使用
+不带 `CODEX_SKIP_VENDORED_BWRAP` 的默认构建。
 
 For low-disk machines, follow `docs/runbooks/cross-system-restore.md` and set
 `CARGO_TARGET_DIR` outside the repo before building.
@@ -87,6 +139,8 @@ stable-aarch64-apple-darwin (overridden by '<repo>/rust-toolchain.toml')
 
 - The archived demo keeps its `Cargo.lock` because it contained a CLI binary.
 - `target/` is ignored and should not be committed.
+- Benchmark 产物与 Cargo 缓存必须分开治理；容量门禁、清理命令和构建缓存边界见
+  [项目存储管理](project-storage-management.md)。
 - If a future shell cannot find `cargo`, first check whether `/opt/homebrew/opt/rustup/bin` is on `PATH`.
 - If `~/.rustup/settings.toml` already exists, the rustup installer may restore
   the previously configured default toolchain even when the current shell cannot

@@ -41,7 +41,11 @@ function Test-TaskspacePathUnderRoot {
     $resolvedPath = (Resolve-Path -LiteralPath $Path).Path.TrimEnd("\", "/")
     $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path.TrimEnd("\", "/")
     $comparison = [System.StringComparison]::OrdinalIgnoreCase
-    $resolvedPath.Equals($resolvedRoot, $comparison) -or $resolvedPath.StartsWith("$resolvedRoot\", $comparison)
+    if ($resolvedPath.Equals($resolvedRoot, $comparison)) { return $true }
+    foreach ($separator in @([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar, "\", "/") | Select-Object -Unique) {
+        if ($resolvedPath.StartsWith("$resolvedRoot$separator", $comparison)) { return $true }
+    }
+    $false
 }
 
 function Get-TaskspaceBoolField {
@@ -60,6 +64,39 @@ function Get-TaskspaceProofMarkerValue {
     $match = [regex]::Match($Text, "(?m)^$([regex]::Escape($Name))=(.+)$")
     if ($match.Success) { return $match.Groups[1].Value.Trim() }
     ""
+}
+
+function Find-TaskspaceValidatorSourceHitsInRepo {
+    param([Parameter(Mandatory = $true)][string]$RepoDir)
+    if ([string]::IsNullOrWhiteSpace($RepoDir) -or -not (Test-Path -LiteralPath $RepoDir)) { return @() }
+    $skipDirs = @(".git", ".tbench-testing", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")
+    $hits = New-Object System.Collections.Generic.List[string]
+    $stack = New-Object System.Collections.Generic.Stack[System.IO.DirectoryInfo]
+    $stack.Push([System.IO.DirectoryInfo]::new((Resolve-Path -LiteralPath $RepoDir).Path))
+    $visited = 0
+    $maxEntries = 50000
+    while ($stack.Count -gt 0) {
+        $dir = $stack.Pop()
+        if ($skipDirs -contains $dir.Name) { continue }
+        $visited++
+        if ($visited -gt $maxEntries) {
+            $hits.Add("__scan_truncated_after_$maxEntries`:$($dir.FullName)")
+            break
+        }
+        try {
+            foreach ($entry in $dir.EnumerateFileSystemInfos()) {
+                if ($entry.Name -match "external-validator-source|tbench-validator") {
+                    $hits.Add($entry.FullName)
+                }
+                if ($entry -is [System.IO.DirectoryInfo]) {
+                    if ($skipDirs -notcontains $entry.Name) { $stack.Push($entry) }
+                }
+            }
+        } catch {
+            $hits.Add("__scan_error:$($dir.FullName):$($_.Exception.GetType().Name)")
+        }
+    }
+    @($hits.ToArray())
 }
 
 function Get-TaskspaceExpectedWrapperSha {
@@ -342,8 +379,7 @@ function New-TaskspaceExternalEvidenceProof {
             (Get-TaskspaceFileTextIfPresent $metrics.stderr_path) + "`n" +
             (Get-TaskspaceFileTextIfPresent $metrics.last_message_path)
         $sourceUnderRepo = if ($validatorSourcePath) { Test-TaskspacePathUnderRoot $validatorSourcePath $side.RepoDir } else { $true }
-        $repoHits = @(Get-ChildItem -LiteralPath $side.RepoDir -Recurse -Force -ErrorAction SilentlyContinue |
-            Where-Object { [string]$_.FullName -match "external-validator-source|tbench-validator" })
+        $repoHits = @(Find-TaskspaceValidatorSourceHitsInRepo $side.RepoDir)
         $artifactHits = New-Object System.Collections.Generic.List[string]
         foreach ($token in @($validatorSourcePath, "external-validator-source", "/tbench-validator", "\tbench-validator")) {
             if (-not [string]::IsNullOrWhiteSpace($token) -and $agentText.Contains($token)) { $artifactHits.Add($token) }
@@ -352,7 +388,7 @@ function New-TaskspaceExternalEvidenceProof {
             side = $sideName
             logical_mode = [string]$metrics.logical_mode
             validator_source_under_agent_repo = $sourceUnderRepo
-            repo_validator_hits = @($repoHits | ForEach-Object { $_.FullName })
+            repo_validator_hits = @($repoHits)
             agent_artifact_validator_tokens = @($artifactHits.ToArray())
             proven = ($validatorSourceExists -and $validatorSourceHashMatches -and -not $sourceUnderRepo -and $repoHits.Count -eq 0 -and $artifactHits.Count -eq 0)
         })

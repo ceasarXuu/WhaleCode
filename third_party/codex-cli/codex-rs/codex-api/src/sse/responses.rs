@@ -592,6 +592,20 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio_test::io::Builder as IoBuilder;
 
+    const PROVIDER_USAGE_CONTRACT: &str =
+        include_str!("../../tests/fixtures/provider_usage_contract.json");
+
+    fn assert_usage(usage: &TokenUsage, expected: &Value) {
+        assert_eq!(usage.input_tokens, expected["input_tokens"]);
+        assert_eq!(usage.cached_input_tokens, expected["cached_input_tokens"]);
+        assert_eq!(usage.output_tokens, expected["output_tokens"]);
+        assert_eq!(
+            usage.reasoning_output_tokens,
+            expected["reasoning_output_tokens"]
+        );
+        assert_eq!(usage.total_tokens, expected["total_tokens"]);
+    }
+
     async fn collect_events(chunks: &[&[u8]]) -> Vec<Result<ResponseEvent, ApiError>> {
         let mut builder = IoBuilder::new();
         for chunk in chunks {
@@ -649,6 +663,36 @@ mod tests {
 
     fn idle_timeout() -> Duration {
         Duration::from_millis(1000)
+    }
+
+    #[test]
+    fn frozen_responses_usage_contract_covers_hit_miss_missing_and_invalid() {
+        let fixture: Value = serde_json::from_str(PROVIDER_USAGE_CONTRACT).expect("fixture JSON");
+        assert_eq!(fixture["schema_version"], "whalecode-provider-usage-v1");
+        for case in fixture["responses"]
+            .as_array()
+            .expect("responses fixture cases")
+        {
+            let event = serde_json::from_value::<ResponsesStreamEvent>(case["payload"].clone())
+                .expect("outer Responses event fixture");
+            let parsed = process_responses_event(event);
+            if case["expected_error"] == true {
+                assert!(
+                    matches!(parsed, Err(ResponsesEventError::Api(ApiError::Stream(_)))),
+                    "case {} must fail",
+                    case["id"]
+                );
+                continue;
+            }
+            let Some(ResponseEvent::Completed {
+                token_usage: Some(usage),
+                ..
+            }) = parsed.expect("valid Responses usage fixture")
+            else {
+                panic!("case {} must produce token usage", case["id"]);
+            };
+            assert_usage(&usage, &case["expected"]);
+        }
     }
 
     #[tokio::test]

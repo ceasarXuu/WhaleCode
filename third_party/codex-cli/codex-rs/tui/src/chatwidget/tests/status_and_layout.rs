@@ -15,6 +15,9 @@ async fn token_count_none_resets_context_indicator() {
         msg: EventMsg::TokenCount(TokenCountEvent {
             info: Some(make_token_info(pre_compact_tokens, context_window)),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         }),
     });
     assert_eq!(chat.bottom_pane.context_window_percent(), Some(30));
@@ -24,6 +27,9 @@ async fn token_count_none_resets_context_indicator() {
         msg: EventMsg::TokenCount(TokenCountEvent {
             info: None,
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         }),
     });
     assert_eq!(chat.bottom_pane.context_window_percent(), None);
@@ -94,6 +100,9 @@ async fn context_indicator_shows_used_tokens_when_window_unknown() {
         msg: EventMsg::TokenCount(TokenCountEvent {
             info: Some(token_info),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         }),
     });
 
@@ -163,6 +172,9 @@ async fn status_output_shows_auto_compact_threshold_under_context_window() {
         msg: EventMsg::TokenCount(TokenCountEvent {
             info: Some(make_token_info(87_000, 1_000_000)),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         }),
     });
 
@@ -1351,6 +1363,9 @@ async fn status_line_model_with_reasoning_and_context_renders_used_over_window()
         msg: EventMsg::TokenCount(TokenCountEvent {
             info: Some(make_token_info(87_000, 1_000_000)),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         }),
     });
 
@@ -2836,7 +2851,10 @@ async fn chatwidget_exec_and_status_layout_vt100_snapshot() {
             stdout: String::new(),
             stderr: String::new(),
             aggregated_output: String::new(),
-            exit_code: 0,
+            shell_exit_code: Some(0),
+            outcome: codex_protocol::exec_output::ExecOutcome::Exited,
+            termination_signal: None,
+            pipeline_stage_exit_codes: None,
             duration: std::time::Duration::from_millis(16000),
             formatted_output: String::new(),
             status: CoreExecCommandStatus::Completed,

@@ -1,0 +1,427 @@
+function ConvertTo-R7CallDescriptor {
+    param(
+        [Parameter(Mandatory = $true)][string]$CallId,
+        [Parameter(Mandatory = $true)][string]$ToolName,
+        [Parameter(Mandatory = $true)][string]$Arguments,
+        [string]$CallType = "function_call"
+    )
+    $parsed = $null
+    $argumentParseStatus = "not_applicable"
+    if (-not [string]::IsNullOrWhiteSpace($Arguments)) {
+        try {
+            $parsed = ConvertFrom-R7StrictJsonObject $Arguments
+            $argumentParseStatus = "valid_json"
+        } catch {
+            $argumentParseStatus = "invalid_json"
+        }
+    }
+    $controlAction = if ($ToolName -ceq "taskspace_control") {
+        [string](Get-R7JsonProperty $parsed "action" "")
+    } else {
+        ""
+    }
+    $submittedExpectedRevision = if ($ToolName -ceq "taskspace_control") {
+        Get-R7JsonProperty $parsed "expected_revision"
+    } else {
+        $null
+    }
+    $submittedExpectedRevisionPresent =
+        $ToolName -ceq "taskspace_control" -and
+        $null -ne $parsed -and
+        $parsed.PSObject.Properties.Name -contains "expected_revision"
+    $declaredActions = @(
+        Get-R7JsonProperty $parsed "actions" @() |
+            ForEach-Object {
+                [pscustomobject]@{
+                    node_id = [string](Get-R7JsonProperty $_ "node_id" "")
+                    tool = [string](Get-R7JsonProperty $_ "tool" "")
+                }
+            }
+    )
+    $node = if ($controlAction -eq "finish_map") {
+        [string](Get-R7JsonProperty $parsed "finish_node_id" "")
+    } else {
+        @($declaredActions | ForEach-Object node_id) -join ","
+    }
+    $detail = ""
+    if ($ToolName -cin @("exec_command", "shell_command", "local_shell")) {
+        $detail = [string](Get-R7JsonProperty $parsed "cmd" "")
+        if ([string]::IsNullOrWhiteSpace($detail)) {
+            $detail = [string](Get-R7JsonProperty $parsed "action" "")
+        }
+        $detail = ($detail -replace '[\r\n]+', ' ').Trim()
+        if ($detail.Length -gt 120) { $detail = $detail.Substring(0, 120) }
+    } elseif ($ToolName -ceq "apply_patch") {
+        $patchText = [string](Get-R7JsonProperty $parsed "input" "")
+        $fileCount = @([regex]::Matches($patchText, '(?m)^\*\*\* (?:Add|Update|Delete) File:')).Count
+        $detail = "patch_files=$fileCount"
+    }
+    [pscustomobject]@{
+        call_id = $CallId
+        tool = $ToolName
+        call_type = $CallType
+        request_index = 0
+        control_action = $controlAction
+        submitted_expected_revision = $submittedExpectedRevision
+        submitted_expected_revision_present = $submittedExpectedRevisionPresent
+        carrier_action = ""
+        carrier_revision_before = $null
+        reservation_mutated = $false
+        declared_node_id = ""
+        declared_actions = $declaredActions
+        expected_reservation_id = ""
+        node = $node
+        detail = $detail
+        argument_parse_status = $argumentParseStatus
+        success = $null
+        failure_class = ""
+        failure_code = ""
+        failure_schema_version = ""
+        carrier_schema = ""
+        reason_code = ""
+        failure_provenance_scope = ""
+        failure_copy_group_id = ""
+        failure_affected_call_ids = @()
+        zero_dispatch = $false
+        parse_status = "output_pending"
+        evidence_valid = $true
+        output_count = 0
+        observed_output_text = ""
+        observed_output_tool_success = $null
+        supplemental_count = 0
+        violation_codes = @()
+        violation_contexts = @()
+        state_commit = $null
+    }
+}
+
+function Get-R7FailureClass {
+    param([string]$ErrorClass)
+    switch ($ErrorClass) {
+        "state_machine" { "taskspace_state_machine" }
+        "protocol" { "taskspace_protocol" }
+        "argument" { "taskspace_protocol" }
+        "resource" { "taskspace_resource" }
+        "tool" { "ordinary_tool" }
+        default { "taskspace" }
+    }
+}
+
+function Get-R7SupplementalFailureShapeError {
+    param($Payload)
+    if ($Payload -is [System.Array] -or $Payload -isnot [pscustomobject]) {
+        return "structured failure root must be an object"
+    }
+    if (-not ($Payload.PSObject.Properties.Name -contains "schema_version") -or
+        $Payload.schema_version -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$Payload.schema_version)) {
+        return "schema_version must be a non-empty string"
+    }
+    $schemaVersion = [string]$Payload.schema_version
+    $required = @("status", "success", "failure_provenance", "error")
+    foreach ($field in $required) {
+        if ($null -eq $Payload -or
+            -not ($Payload.PSObject.Properties.Name -contains $field)) {
+            return "$schemaVersion is missing $field"
+        }
+    }
+    if ($Payload.status -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$Payload.status)) {
+        return "$schemaVersion status must be a non-empty string"
+    }
+    if ($Payload.success -isnot [bool] -or [bool]$Payload.success) {
+        return "$schemaVersion success must be boolean false"
+    }
+    $provenance = Get-R7JsonProperty $Payload "failure_provenance"
+    if ($provenance -isnot [pscustomobject]) {
+        return "$schemaVersion failure_provenance must be an object"
+    }
+    foreach ($field in @("scope", "copy_group_id")) {
+        if ($provenance.$field -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$provenance.$field)) {
+            return "$schemaVersion failure_provenance.$field must be a non-empty string"
+        }
+    }
+    if ($provenance.zero_dispatch -isnot [bool]) {
+        return "$schemaVersion failure_provenance.zero_dispatch must be boolean"
+    }
+    if (-not ($provenance.PSObject.Properties.Name -contains "affected_call_ids")) {
+        return "$schemaVersion failure_provenance.affected_call_ids is missing"
+    }
+    $affectedCallIds = $provenance.affected_call_ids
+    if ($affectedCallIds -isnot [System.Array] -or $affectedCallIds.Count -eq 0) {
+        return "$schemaVersion failure_provenance.affected_call_ids must be a non-empty array"
+    }
+    foreach ($callId in $affectedCallIds) {
+        if ($callId -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$callId)) {
+            return "$schemaVersion affected_call_ids entries must be non-empty strings"
+        }
+    }
+    $error = Get-R7JsonProperty $Payload "error"
+    if ($error -isnot [pscustomobject]) {
+        return "$schemaVersion error must be an object"
+    }
+    foreach ($field in @("class", "code")) {
+        if (-not ($error.PSObject.Properties.Name -contains $field) -or
+            $error.$field -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$error.$field)) {
+            return "$schemaVersion error.$field must be a non-empty string"
+        }
+    }
+    $allowedStatuses = @(
+        switch ($schemaVersion) {
+            "TaskSpaceResponseCommitFailureV3" {
+                "state_rejected"
+                "protocol_rejected"
+                "resource_failed"
+            }
+            "ToolSequencePreflightResultV3" { "protocol_failed" }
+            "ProviderToolResponsePreflightV2" { "protocol_failed" }
+            "ToolSearchFailureV3" { "failed" }
+            "TaskSpaceToolSkippedV2" {
+                "skipped_due_to_prior_failure"
+                "skipped_due_to_terminal_completion"
+            }
+            "TaskSpaceBoundResultCommitFailureV2" { "failed" }
+        }
+    )
+    if ([string]$Payload.status -notin $allowedStatuses) {
+        return "$schemaVersion has an invalid status"
+    }
+    $allowedErrorClasses = @(
+        switch ($schemaVersion) {
+            "TaskSpaceResponseCommitFailureV3" {
+                "state_machine"
+                "protocol"
+                "resource"
+            }
+            "ToolSequencePreflightResultV3" { "protocol" }
+            "ProviderToolResponsePreflightV2" { "protocol" }
+            "ToolSearchFailureV3" { "tool" }
+            "TaskSpaceToolSkippedV2" { "tool" }
+            "TaskSpaceBoundResultCommitFailureV2" { "resource" }
+        }
+    )
+    if ([string]$error.class -notin $allowedErrorClasses) {
+        return "$schemaVersion has an invalid error.class"
+    }
+    $requiredErrorClass = switch ($schemaVersion) {
+        "TaskSpaceResponseCommitFailureV3" {
+            switch ([string]$Payload.status) {
+                "state_rejected" { "state_machine" }
+                "protocol_rejected" { "protocol" }
+                "resource_failed" { "resource" }
+            }
+        }
+        "ToolSequencePreflightResultV3" { "protocol" }
+        "ProviderToolResponsePreflightV2" { "protocol" }
+        "ToolSearchFailureV3" { "tool" }
+        "TaskSpaceToolSkippedV2" { "tool" }
+        "TaskSpaceBoundResultCommitFailureV2" { "resource" }
+    }
+    if ([string]$error.class -ne $requiredErrorClass) {
+        return "$schemaVersion status does not match error.class"
+    }
+    if ($schemaVersion -notin @(
+            "ToolSearchFailureV3",
+            "TaskSpaceToolSkippedV2"
+        )) {
+        if (-not ($Payload.PSObject.Properties.Name -contains "state_commit") -or
+            $Payload.state_commit -isnot [bool] -or
+            [bool]$Payload.state_commit) {
+            return "$schemaVersion state_commit must be boolean false"
+        }
+    }
+    if ($schemaVersion -eq "ToolSearchFailureV3") {
+        foreach ($field in @("call_id", "pairing_status", "execution_status")) {
+            if (-not ($Payload.PSObject.Properties.Name -contains $field) -or
+                $Payload.$field -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$Payload.$field)) {
+                return "$schemaVersion is missing $field"
+            }
+        }
+        if ([string]$Payload.pairing_status -ne "completed" -or
+            [string]$Payload.execution_status -ne "failed") {
+            return "$schemaVersion has invalid pairing or execution status"
+        }
+        if (-not ($error.PSObject.Properties.Name -contains "cause") -or
+            $error.cause -isnot [pscustomobject]) {
+            return "$schemaVersion error.cause must be an object"
+        }
+        if ($Payload.tool -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.tool)) {
+            return "$schemaVersion tool must be a non-empty string"
+        }
+    }
+    if ($schemaVersion -in @(
+            "ToolSearchFailureV3",
+            "TaskSpaceToolSkippedV2",
+            "TaskSpaceBoundResultCommitFailureV2"
+        )) {
+        if ($Payload.call_id -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.call_id)) {
+            return "$schemaVersion call_id must be a non-empty string"
+        }
+    }
+    if ($schemaVersion -in @(
+            "ToolSearchFailureV3",
+            "TaskSpaceToolSkippedV2"
+        )) {
+        if ($provenance.cause_call_id -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$provenance.cause_call_id)) {
+            return "$schemaVersion failure_provenance.cause_call_id must be a non-empty string"
+        }
+    }
+    if ($schemaVersion -eq "TaskSpaceToolSkippedV2") {
+        if ($Payload.tool -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.tool) -or
+            $Payload.cause -isnot [pscustomobject]) {
+            return "$schemaVersion has an invalid tool or cause"
+        }
+        foreach ($field in @("field", "call_id")) {
+            if ($Payload.cause.$field -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$Payload.cause.$field)) {
+                return "$schemaVersion cause.$field must be a non-empty string"
+            }
+        }
+    }
+    if ($schemaVersion -eq "TaskSpaceBoundResultCommitFailureV2" -and
+        ($Payload.reservation_id -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$Payload.reservation_id))) {
+        return "$schemaVersion reservation_id must be a non-empty string"
+    }
+    if ($schemaVersion -eq "TaskSpaceResponseCommitFailureV3") {
+        foreach ($field in @(
+                "canonical_revision", "rejected_candidate_committed",
+                "executed_tool_call_count"
+            )) {
+            if (-not ($Payload.PSObject.Properties.Name -contains $field)) {
+                return "$schemaVersion is missing $field"
+            }
+        }
+        if ($null -ne $Payload.canonical_revision -and
+            $null -eq (
+                ConvertTo-R7NonnegativeInt64Fact $Payload.canonical_revision
+            )) {
+            return "$schemaVersion canonical_revision must be null or a nonnegative Int64"
+        }
+        if ($Payload.rejected_candidate_committed -isnot [bool] -or
+            [bool]$Payload.rejected_candidate_committed) {
+            return "$schemaVersion rejected_candidate_committed must be boolean false"
+        }
+        if ($null -eq (
+                ConvertTo-R7NonnegativeInt64Fact $Payload.executed_tool_call_count
+            ) -or [int64]$Payload.executed_tool_call_count -ne 0) {
+            return "$schemaVersion executed_tool_call_count must be zero"
+        }
+        if ([string]$Payload.status -eq "state_rejected") {
+            $currentRevision =
+                ConvertTo-R7NonnegativeInt64Fact $Payload.current_revision
+            if ($null -eq $currentRevision) {
+                return "$schemaVersion current_revision must be a nonnegative Int64"
+            }
+            if ($null -ne $Payload.canonical_revision -and
+                [int64]$Payload.canonical_revision -ne $currentRevision) {
+                return "$schemaVersion revisions do not match"
+            }
+        } elseif ($error.detail -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$error.detail)) {
+            return "$schemaVersion error.detail must be a non-empty string"
+        }
+    }
+    $stateShapeError = Get-R7StateFailureShapeError $Payload
+    if (-not [string]::IsNullOrWhiteSpace($stateShapeError)) {
+        return $stateShapeError
+    }
+    ""
+}
+
+function Get-R7StructuredFailureOutcome {
+    param($Payload)
+    $schemaVersion = [string](Get-R7JsonProperty $Payload "schema_version" "")
+    $knownSchemas = @(
+        "TaskSpaceControlResultV2",
+        "TaskSpaceResponseCommitFailureV3",
+        "ToolSequencePreflightResultV3",
+        "ProviderToolResponsePreflightV2",
+        "ToolSearchFailureV3",
+        "TaskSpaceToolSkippedV2",
+        "TaskSpaceBoundResultCommitFailureV2"
+    )
+    if ($schemaVersion -notin $knownSchemas) {
+        return [pscustomobject]@{
+            failure_class = "evidence_unclassified"
+            failure_code = "failure_schema_unknown"
+            failure_schema_version = $schemaVersion
+            failure_provenance_scope = ""
+            failure_copy_group_id = ""
+            failure_affected_call_ids = @()
+            zero_dispatch = $false
+            parse_status = "unknown_failure_schema"
+            evidence_valid = $false
+            violation_codes = @()
+            violation_contexts = @()
+            state_commit = Get-R7JsonProperty $Payload "state_commit"
+        }
+    }
+
+    $shapeError = if ($schemaVersion -eq "TaskSpaceControlResultV2") {
+        Get-R7ControlFailureEnvelopeShapeError $Payload
+    } else {
+        Get-R7SupplementalFailureShapeError $Payload
+    }
+    $error = Get-R7JsonProperty $Payload "error"
+    $errorClass = [string](Get-R7JsonProperty $error "class" "")
+    $errorCode = [string](Get-R7JsonProperty $error "code" "")
+    $actual = Get-R7JsonProperty $error "actual"
+    $violations = @(Get-R7JsonProperty $error "violations" @())
+    if (-not $violations.Count -and $actual -is [pscustomobject]) {
+        $violations = @(Get-R7JsonProperty $actual "violations" @())
+    }
+    $provenance = Get-R7JsonProperty $Payload "failure_provenance"
+    $valid = [string]::IsNullOrWhiteSpace($shapeError) -and
+        -not [string]::IsNullOrWhiteSpace($errorCode)
+    [pscustomobject]@{
+        failure_class = if (-not $valid) {
+            "evidence_unclassified"
+        } elseif ($schemaVersion -eq "ToolSequencePreflightResultV3") {
+            "tool_sequence_protocol"
+        } else {
+            Get-R7FailureClass $errorClass
+        }
+        failure_code = if ($valid) { $errorCode } else { "failure_payload_incomplete" }
+        failure_schema_version = $schemaVersion
+        failure_provenance_scope = [string](Get-R7JsonProperty $provenance "scope" "")
+        failure_copy_group_id = [string](Get-R7JsonProperty $provenance "copy_group_id" "")
+        failure_affected_call_ids = @(
+            Get-R7JsonProperty $provenance "affected_call_ids" @() |
+                ForEach-Object { [string]$_ }
+        )
+        zero_dispatch = [bool](Get-R7JsonProperty $provenance "zero_dispatch" $false)
+        parse_status = if ($valid) { "structured_failure" } else { "incomplete_failure_payload" }
+        evidence_valid = $valid
+        violation_codes = @(
+            $violations |
+                ForEach-Object { [string](Get-R7JsonProperty $_ "code" "") } |
+                Where-Object { $_ } |
+                Sort-Object -Unique
+        )
+        violation_contexts = $violations
+        state_commit = Get-R7JsonProperty $Payload "state_commit"
+    }
+}
+
+function Set-R7CallOutcome {
+    param($Call, $Outcome)
+    foreach ($name in @(
+            "success", "failure_class", "failure_code", "failure_schema_version",
+            "carrier_schema", "reason_code", "carrier_action",
+            "carrier_revision_before",
+            "failure_provenance_scope", "failure_copy_group_id",
+            "failure_affected_call_ids", "zero_dispatch", "parse_status", "evidence_valid",
+            "violation_codes", "violation_contexts", "state_commit"
+        )) {
+        $Call.$name = $Outcome.$name
+    }
+}

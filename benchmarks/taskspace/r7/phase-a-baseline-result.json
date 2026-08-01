@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-phase-a-r6-frozen-result",
+  "status": "phase_a_complete",
+  "generated_at": "2026-07-18T01:20:00+08:00",
+  "production_behavior_changed": false,
+  "phase_b_ready": true,
+  "baseline_contract": {
+    "path": "benchmarks/taskspace/r7/phase-a-baseline-contract.json",
+    "sha256": "49769821effe69db4788f80b00eb4d3b0b030b9c951a71796251a71af34f0655"
+  },
+  "frozen_runtime": {
+    "r6_freeze_commit": "e2981015872d53464060ba88e1dac4483ea81a9b",
+    "runtime_commit": "2117de6ecac76640d89e7d1b4f9a626fbd6ad25b",
+    "binary_path": "third_party/codex-cli/codex-rs/target/debug/whale",
+    "binary_sha256": "07043e7d79823b1f04a5d8d36f6d67b5f9c75d576a4e448d53abc738af6563c1",
+    "attestation_path": "third_party/codex-cli/codex-rs/target/debug/whale.build-attestation.json",
+    "attestation_sha256": "ef4a67aeaab539acbd49824839cef0766537d186911bb390372f1c87d2f16c44"
+  },
+  "execution": {
+    "model": "deepseek-v4-flash",
+    "reasoning_effort": "max",
+    "execution_substrate": "docker_hard_boundary",
+    "repeats_per_arm": 1,
+    "aggregate_utility_allowed": false
+  },
+  "offline_recompute_contract": {
+    "source": "provider-wire-trace.jsonl",
+    "implementation": "New-TaskspaceProviderCacheTraceArtifacts",
+    "compared_artifact": "provider-cache-trace-summary.json",
+    "required_dimensions": [
+      "cache",
+      "section_cost",
+      "active_projection_identity"
+    ],
+    "result": "passed_all_four_arms"
+  },
+  "scenarios": [
+    {
+      "slot": "simple",
+      "scenario_id": "single-file-fast-fix",
+      "run_root": "target/r7-phase-a-baseline/single-file-fast-fix/20260718-005025-958",
+      "pair_id": "pair-001",
+      "audit": {
+        "run_score_valid": true,
+        "engineering_unclean": false,
+        "standard_outcome": "solved",
+        "r6_outcome": "solved",
+        "public_and_hidden_validation_passed": true,
+        "diagnostic_only_reason": "repeats_lt_3,aggregate_not_enabled"
+      },
+      "arms": {
+        "standard": {
+          "side": "left",
+          "logical_mode": "standard",
+          "provider_requests": 7,
+          "total_tool_calls": 10,
+          "ordinary_tool_calls": 10,
+          "control_calls": 0,
+          "failed_tool_calls": 1,
+          "input_tokens": 49493,
+          "cached_input_tokens": 47104,
+          "uncached_input_tokens": 2389,
+          "output_tokens": 1444,
+          "wall_time_ms": 16759,
+          "request_2_plus_cache_hit_rate": 0.947954,
+          "message_prefix_preserved_rate": 1.0,
+          "projection_count": 0,
+          "projection_tokens": 0,
+          "map_nodes": 0,
+          "map_edges": 0,
+          "open_leaf_nodes": 0,
+          "wire_trace_sha256": "257e4cda977de3cf507b6a27b677705cb488f60b707a87717ff05bcece7b35e6",
+          "active_projection_identity": {
+            "bootstrap_count": 0,
+            "active_count": 0,
+            "unavailable_count": 7,
+            "unique_revision_count": 0
+          }
+        },
+        "r6": {
+          "side": "right",
+          "logical_mode": "taskspace",
+          "provider_requests": 19,
+          "total_tool_calls": 18,
+          "ordinary_tool_calls": 9,
+          "control_calls": 9,
+          "failed_tool_calls": 1,
+          "input_tokens": 231221,
+          "cached_input_tokens": 207744,
+          "uncached_input_tokens": 23477,
+          "output_tokens": 4499,
+          "wall_time_ms": 46554,
+          "request_2_plus_cache_hit_rate": 0.89735,
+          "message_prefix_preserved_rate": 0.888889,
+          "projection_count": 1,
+          "projection_tokens": 356,
+          "provider_wire_projection_tokens": 6429,
+          "map_nodes": 5,
+          "map_edges": 4,
+          "open_leaf_nodes": 0,
+          "wire_trace_sha256": "0db1bf873b64a19c1375a6a00548139e10bf4042bf8adc622a33b63c53814fa6",
+          "active_projection_identity": {
+            "bootstrap_count": 2,
+            "active_count": 17,
+            "unavailable_count": 0,
+            "unique_revision_count": 1
+          }
+        }
+      },
+      "r6_over_standard": {
+        "provider_requests": 2.714286,
+        "wall_time_ms": 2.777851,
+        "input_tokens": 4.671792,
+        "cached_input_tokens": 4.410326,
+        "uncached_input_tokens": 9.827124,
+        "output_tokens": 3.115651
+      },
+      "offline_recompute": {
+        "status": "passed",
+        "standard_summary_exact_match": true,
+        "r6_summary_exact_match": true
+      }
+    },
+    {
+      "slot": "complex",
+      "scenario_id": "subscription-billing-repair",
+      "run_root": "target/r7-phase-a-baseline/subscription-billing-repair/20260718-010323-546",
+      "pair_id": "pair-001",
+      "audit": {
+        "run_score_valid": true,
+        "engineering_unclean": false,
+        "standard_outcome": "solved",
+        "r6_outcome": "solved",
+        "public_and_hidden_validation_passed": true,
+        "diagnostic_only_reason": "repeats_lt_3,aggregate_not_enabled"
+      },
+      "arms": {
+        "standard": {
+          "side": "left",
+          "logical_mode": "standard",
+          "provider_requests": 10,
+          "total_tool_calls": 17,
+          "ordinary_tool_calls": 17,
+          "control_calls": 0,
+          "failed_tool_calls": 1,
+          "input_tokens": 107089,
+          "cached_input_tokens": 102144,
+          "uncached_input_tokens": 4945,
+          "output_tokens": 6753,
+          "wall_time_ms": 61680,
+          "request_2_plus_cache_hit_rate": 0.952947,
+          "message_prefix_preserved_rate": 1.0,
+          "projection_count": 0,
+          "projection_tokens": 0,
+          "map_nodes": 0,
+          "map_edges": 0,
+          "open_leaf_nodes": 0,
+          "wire_trace_sha256": "391b8431b49667ab6130c82ddb80adc644d6ac00d3f0134654209c6ef0bfa93d",
+          "active_projection_identity": {
+            "bootstrap_count": 0,
+            "active_count": 0,
+            "unavailable_count": 10,
+            "unique_revision_count": 0
+          }
+        },
+        "r6": {
+          "side": "right",
+          "logical_mode": "taskspace",
+          "provider_requests": 16,
+          "total_tool_calls": 22,
+          "ordinary_tool_calls": 15,
+          "control_calls": 7,
+          "failed_tool_calls": 1,
+          "input_tokens": 209772,
+          "cached_input_tokens": 184704,
+          "uncached_input_tokens": 25068,
+          "output_tokens": 5767,
+          "wall_time_ms": 58927,
+          "request_2_plus_cache_hit_rate": 0.878669,
+          "message_prefix_preserved_rate": 0.866667,
+          "projection_count": 1,
+          "projection_tokens": 279,
+          "provider_wire_projection_tokens": 4469,
+          "map_nodes": 4,
+          "map_edges": 3,
+          "open_leaf_nodes": 0,
+          "wire_trace_sha256": "e6715e8c8f60e2c5175601e866e28baa6f2a1da5483234f0aab4ae8246c39bf0",
+          "active_projection_identity": {
+            "bootstrap_count": 1,
+            "active_count": 15,
+            "unavailable_count": 0,
+            "unique_revision_count": 1
+          }
+        }
+      },
+      "r6_over_standard": {
+        "provider_requests": 1.6,
+        "wall_time_ms": 0.955366,
+        "input_tokens": 1.958857,
+        "cached_input_tokens": 1.808271,
+        "uncached_input_tokens": 5.069363,
+        "output_tokens": 0.853991
+      },
+      "offline_recompute": {
+        "status": "passed",
+        "standard_summary_exact_match": true,
+        "r6_summary_exact_match": true
+      }
+    }
+  ],
+  "phase_a_gates": {
+    "ownership_inventory_complete": true,
+    "unknown_ownership_count": 0,
+    "three_policy_contract_frozen": true,
+    "shared_architecture_frozen": true,
+    "session_lifecycle_frozen": true,
+    "simple_standard_r6_baseline_valid": true,
+    "complex_standard_r6_baseline_valid": true,
+    "wire_offline_recompute_passed": true,
+    "production_behavior_unchanged": true
+  },
+  "interpretation": [
+    "Both diagnostic samples solved in Standard and frozen R6.",
+    "The simple run is an R6 request and cost outlier; the complex run has lower R6 wall time despite more requests.",
+    "One repeat per arm is insufficient for utility or default-policy conclusions.",
+    "The frozen traces are reusable for policy-aware observer development because cache, section cost, and projection identity recompute exactly."
+  ]
+}

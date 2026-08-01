@@ -63,12 +63,14 @@ async fn user_shell_cmd_ls_and_cat_in_temp_dir() {
         .unwrap();
     let msg = wait_for_event(&codex, |ev| matches!(ev, EventMsg::ExecCommandEnd(_))).await;
     let EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-        stdout, exit_code, ..
+        stdout,
+        shell_exit_code,
+        ..
     }) = msg
     else {
         unreachable!()
     };
-    assert_eq!(exit_code, 0);
+    assert_eq!(shell_exit_code, Some(0));
     assert!(
         stdout.contains(file_name),
         "ls output should include {file_name}, got: {stdout:?}"
@@ -83,13 +85,13 @@ async fn user_shell_cmd_ls_and_cat_in_temp_dir() {
     let msg = wait_for_event(&codex, |ev| matches!(ev, EventMsg::ExecCommandEnd(_))).await;
     let EventMsg::ExecCommandEnd(ExecCommandEndEvent {
         mut stdout,
-        exit_code,
+        shell_exit_code,
         ..
     }) = msg
     else {
         unreachable!()
     };
-    assert_eq!(exit_code, 0);
+    assert_eq!(shell_exit_code, Some(0));
     if cfg!(windows) {
         // Windows shells emit CRLF line endings; normalize so the assertion remains portable.
         stdout = stdout.replace("\r\n", "\n");
@@ -303,7 +305,7 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
         _ => None,
     })
     .await;
-    assert_eq!(end_event.exit_code, 0);
+    assert_eq!(end_event.shell_exit_code, Some(0));
     assert_eq!(end_event.stdout.trim(), "not-set");
 
     let _ = wait_for_event(&test.codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
@@ -327,7 +329,7 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
     let command_message = command_message.replace("\r\n", "\n");
     let escaped_command = escape(&command);
     let expected_pattern = format!(
-        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExit code: 0\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\nnot-set\n</result>\n</user_shell_command>\z"
+        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExecution outcome: exited\nShell exit code: 0\nPipeline stage exit codes: unavailable\nTermination signal: unavailable\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\nnot-set\n</result>\n</user_shell_command>\z"
     );
     assert_regex_match(&expected_pattern, &command_message);
 
@@ -353,7 +355,7 @@ async fn user_shell_command_does_not_set_network_sandbox_env_var() -> anyhow::Re
         .await?;
 
     let ExecCommandEndEvent {
-        exit_code,
+        shell_exit_code,
         stdout,
         stderr,
         ..
@@ -364,7 +366,8 @@ async fn user_shell_command_does_not_set_network_sandbox_env_var() -> anyhow::Re
     .await;
 
     assert_eq!(
-        exit_code, 0,
+        shell_exit_code,
+        Some(0),
         "shell command should execute successfully. stdout=`{stdout}`, stderr=`{stderr}`",
     );
     assert_eq!(stdout.trim(), "not-set");
@@ -400,7 +403,7 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
         _ => None,
     })
     .await;
-    assert_eq!(end_event.exit_code, 0);
+    assert_eq!(end_event.shell_exit_code, Some(0));
 
     let _ = wait_for_event(&test.codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
@@ -428,7 +431,7 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
     let escaped_command = escape(&command);
     let escaped_truncated_body = escape(&truncated_body);
     let expected_pattern = format!(
-        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExit code: 0\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\n{escaped_truncated_body}\n</result>\n</user_shell_command>\z"
+        r"(?m)\A<user_shell_command>\n<command>\n{escaped_command}\n</command>\n<result>\nExecution outcome: exited\nShell exit code: 0\nPipeline stage exit codes: unavailable\nTermination signal: unavailable\nDuration: [0-9]+(?:\.[0-9]+)? seconds\nOutput:\n{escaped_truncated_body}\n</result>\n</user_shell_command>\z"
     );
     assert_regex_match(&expected_pattern, &command_message);
 

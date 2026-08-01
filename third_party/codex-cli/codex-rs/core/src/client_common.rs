@@ -1,6 +1,8 @@
 pub use codex_api::ResponseEvent;
+use codex_api::ToolChoice;
 use codex_config::types::Personality;
 use codex_protocol::error::Result;
+use codex_protocol::exec_output::ExecOutputMetadata;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::ResponseItem;
@@ -36,7 +38,7 @@ pub struct Prompt {
     pub(crate) parallel_tool_calls: bool,
 
     /// Tool choice policy for transports that support model-side tool forcing.
-    pub(crate) tool_choice: String,
+    pub(crate) tool_choice: ToolChoice,
 
     pub base_instructions: BaseInstructions,
 
@@ -56,7 +58,7 @@ impl Default for Prompt {
             input: Vec::new(),
             tools: Vec::new(),
             parallel_tool_calls: false,
-            tool_choice: "auto".to_string(),
+            tool_choice: ToolChoice::Auto,
             base_instructions: BaseInstructions::default(),
             personality: None,
             output_schema: None,
@@ -135,13 +137,7 @@ fn is_shell_tool_name(name: &str) -> bool {
 #[derive(Deserialize)]
 struct ExecOutputJson {
     output: String,
-    metadata: ExecOutputMetadataJson,
-}
-
-#[derive(Deserialize)]
-struct ExecOutputMetadataJson {
-    exit_code: i32,
-    duration_seconds: f32,
+    metadata: ExecOutputMetadata,
 }
 
 fn parse_structured_shell_output(raw: &str) -> Option<String> {
@@ -151,7 +147,35 @@ fn parse_structured_shell_output(raw: &str) -> Option<String> {
 
 fn build_structured_output(parsed: &ExecOutputJson) -> String {
     let mut sections = Vec::new();
-    sections.push(format!("Exit code: {}", parsed.metadata.exit_code));
+    sections.push(format!(
+        "Execution outcome: {}",
+        parsed.metadata.execution_outcome.as_str()
+    ));
+    sections.push(parsed.metadata.shell_exit_code.map_or_else(
+        || "Shell exit code: unavailable".to_string(),
+        |exit_code| format!("Shell exit code: {exit_code}"),
+    ));
+    sections.push(
+        parsed
+            .metadata
+            .pipeline_stage_exit_codes
+            .as_ref()
+            .map_or_else(
+                || "Pipeline stage exit codes: unavailable".to_string(),
+                |exit_codes| {
+                    let exit_codes = exit_codes
+                        .iter()
+                        .map(i32::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    format!("Pipeline stage exit codes: {exit_codes}")
+                },
+            ),
+    );
+    sections.push(parsed.metadata.termination_signal.map_or_else(
+        || "Termination signal: unavailable".to_string(),
+        |signal| format!("Termination signal: {signal}"),
+    ));
     sections.push(format!(
         "Wall time: {} seconds",
         parsed.metadata.duration_seconds

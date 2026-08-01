@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "baseline_id": "r7-phase-a-r6-frozen",
+  "status": "frozen",
+  "model": "deepseek-v4-flash",
+  "reasoning_effort": "max",
+  "execution_substrate": "docker_hard_boundary",
+  "repeats_per_arm": 1,
+  "aggregate_utility_allowed": false,
+  "r6": {
+    "freeze_commit": "e2981015872d53464060ba88e1dac4483ea81a9b",
+    "runtime_commit": "2117de6ecac76640d89e7d1b4f9a626fbd6ad25b",
+    "binary_path": "third_party/codex-cli/codex-rs/target/debug/whale",
+    "binary_sha256": "07043e7d79823b1f04a5d8d36f6d67b5f9c75d576a4e448d53abc738af6563c1",
+    "attestation_path": "third_party/codex-cli/codex-rs/target/debug/whale.build-attestation.json",
+    "freeze_explanation": "The frozen R6 commit adds the final R6 result document; runtime_commit is the latest commit that changes third_party/codex-cli."
+  },
+  "arms": [
+    {
+      "id": "standard",
+      "logical_mode": "standard",
+      "provider_execution": true
+    },
+    {
+      "id": "r6",
+      "logical_mode": "taskspace",
+      "provider_execution": true
+    }
+  ],
+  "scenarios": [
+    {
+      "slot": "simple",
+      "scenario_id": "single-file-fast-fix",
+      "scenario_path": "benchmarks/taskspace/scenarios/single-file-fast-fix/scenario.json",
+      "run_root": "target/r7-phase-a-baseline/single-file-fast-fix"
+    },
+    {
+      "slot": "complex",
+      "scenario_id": "subscription-billing-repair",
+      "scenario_path": "benchmarks/taskspace/scenarios/subscription-billing-repair/scenario.json",
+      "run_root": "target/r7-phase-a-baseline/subscription-billing-repair"
+    }
+  ],
+  "runtime": {
+    "container_contract": "benchmarks/taskspace/container-runtime-contract.json",
+    "docker_image_cache": true,
+    "timeout_seconds": 900,
+    "validation_timeout_seconds": 420,
+    "secret_source": ".env.local",
+    "secret_artifact_policy": "temporary_read_only_mount_only"
+  },
+  "required_evidence": [
+    "logical_mode_map",
+    "binary_attestation",
+    "container_runtime_manifest",
+    "rollout",
+    "provider_wire_trace",
+    "provider_cache_trace",
+    "provider_section_cost",
+    "metrics",
+    "public_validation",
+    "hidden_oracle",
+    "map_health"
+  ],
+  "report_metrics": [
+    "result",
+    "provider_requests",
+    "ordinary_tools",
+    "control_calls",
+    "failed_tools",
+    "input_tokens",
+    "cached_input_tokens",
+    "uncached_input_tokens",
+    "output_tokens",
+    "wall_time_ms",
+    "request_2_plus_cache_hit_rate",
+    "message_prefix_preserved_rate",
+    "projection_count",
+    "projection_tokens",
+    "map_nodes",
+    "map_edges",
+    "open_leaf_nodes"
+  ],
+  "interpretation_limits": [
+    "single_run_is_diagnostic_not_utility_aggregate",
+    "r6_epoch_baseline_is_historical_not_an_r7_policy",
+    "no_r7_policy_performance_claim",
+    "no_default_policy_decision_before_phase_g",
+    "agent_path_outliers_are_reported_not_silently_removed"
+  ]
+}

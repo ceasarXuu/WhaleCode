@@ -35,9 +35,14 @@ function Ensure-Node {
         $Nodes[$NodeId] = [ordered]@{
             id = $NodeId
             title = $Title
+            goal = $Title
             kind = if ($Kind) { $Kind } else { "unknown" }
+            role = if ($Kind) { $Kind } else { "unknown" }
             status = "unknown"
+            mapId = ""
+            taskId = ""
             leases = New-Object System.Collections.Generic.List[object]
+            reservations = New-Object System.Collections.Generic.List[object]
             results = New-Object System.Collections.Generic.List[object]
             blockedActions = New-Object System.Collections.Generic.List[object]
             maintenanceBarriers = New-Object System.Collections.Generic.List[object]
@@ -50,6 +55,7 @@ function Ensure-Node {
     }
     if ($Kind -and $Kind -ne "unknown") {
         $Nodes[$NodeId].kind = $Kind
+        $Nodes[$NodeId].role = $Kind
     }
     return $Nodes[$NodeId]
 }
@@ -75,6 +81,12 @@ function Ensure-Map {
             title = $Title
             ownerSessionId = $OwnerSessionId
             createdFrom = $CreatedFrom
+            rootNodeId = ""
+            finishNodeId = ""
+            revision = 0
+            complete = $false
+            terminalSummaryRef = ""
+            terminalHistorySummaryRefs = @()
             subagentPlans = New-Object System.Collections.Generic.List[object]
         }
         $MapById[$MapId] = $map
@@ -184,44 +196,6 @@ function Ensure-Task {
     return $task
 }
 
-function Parse-ResultBody([string]$Body) {
-    $parsed = [ordered]@{
-        toolName = ""
-        callId = ""
-        success = $null
-        preview = ""
-    }
-    if ([string]::IsNullOrWhiteSpace($Body)) {
-        return $parsed
-    }
-    if ($Body -match "(?m)^tool:\s*(.+)$") {
-        $parsed.toolName = $Matches[1].Trim()
-    }
-    if ($Body -match "(?m)^call_id:\s*(.+)$") {
-        $parsed.callId = $Matches[1].Trim()
-    }
-    if ($Body -match "(?m)^success:\s*(true|false)\s*$") {
-        $parsed.success = [bool]::Parse($Matches[1])
-    }
-    if ($Body -match "(?ms)^preview:\s*(.*)$") {
-        $parsed.preview = $Matches[1].Trim()
-    }
-    return $parsed
-}
-
-function Update-ResultDerivedFields {
-    param(
-        [object]$Result,
-        [string]$Body
-    )
-
-    $parsed = Parse-ResultBody $Body
-    $Result.toolName = [string]$parsed.toolName
-    $Result.callId = [string]$parsed.callId
-    $Result.success = $parsed.success
-    $Result.preview = [string]$parsed.preview
-}
-
 function Add-Or-Update-NodeResult {
     param(
         [object]$Node,
@@ -231,11 +205,13 @@ function Add-Or-Update-NodeResult {
         [string]$SourceThreadId,
         [string]$Kind,
         [string]$ActionClass = "",
-        [string]$Body = "",
+        [string]$SourceEventRef = "",
         [object]$EvidencePackage = $null,
         [string]$MapId = "",
         [string]$TaskId = "",
-        [string]$SubagentPlanId = ""
+        [string]$SubagentPlanId = "",
+        [object]$ArtifactRefs = @(),
+        [object]$ToolSuccess = $null
     )
 
     if (-not $Node -or [string]::IsNullOrWhiteSpace($ResultId)) {
@@ -264,14 +240,17 @@ function Add-Or-Update-NodeResult {
         if ($MapId) { $result.mapId = $MapId }
         if ($TaskId) { $result.taskId = $TaskId }
         if ($SubagentPlanId) { $result.subagentPlanId = $SubagentPlanId }
-        if ($Body) {
-            $result.body = $Body
-            Update-ResultDerivedFields $result $Body
-        }
+        if ($SourceEventRef) { $result.sourceEventRef = $SourceEventRef }
+        if ($null -ne $ArtifactRefs) { $result.artifactRefs = @(Get-ObjectArray $ArtifactRefs) }
+        if ($null -ne $ToolSuccess) { $result.success = [bool]$ToolSuccess }
         if ($null -ne $EvidencePackage) {
-            $result.evidencePackage = Convert-EvidencePackage $EvidencePackage
+            $result["evidencePackage"] = Convert-EvidencePackage $EvidencePackage
+            $result["validity"] = "unreviewed"
+            $result["claimCount"] = 0
+            $result["evidenceRefCount"] = 0
+            $result["validatorRefCount"] = 0
+            Update-ResultEvidenceDerivedFields $result
         }
-        Update-ResultEvidenceDerivedFields $result
         return
     }
 
@@ -284,20 +263,20 @@ function Add-Or-Update-NodeResult {
         sourceThreadId = $SourceThreadId
         kind = $Kind
         actionClass = $ActionClass
-        body = $Body
-        toolName = ""
-        callId = ""
+        sourceEventRef = $SourceEventRef
+        artifactRefs = @(Get-ObjectArray $ArtifactRefs)
         success = $null
-        preview = ""
-        evidencePackage = Convert-EvidencePackage $EvidencePackage
         subagentPlanId = $SubagentPlanId
-        validity = "unreviewed"
-        claimCount = 0
-        evidenceRefCount = 0
-        validatorRefCount = 0
     }
-    Update-ResultDerivedFields $result $Body
-    Update-ResultEvidenceDerivedFields $result
+    if ($null -ne $ToolSuccess) { $result.success = [bool]$ToolSuccess }
+    if ($null -ne $EvidencePackage) {
+        $result["evidencePackage"] = Convert-EvidencePackage $EvidencePackage
+        $result["validity"] = "unreviewed"
+        $result["claimCount"] = 0
+        $result["evidenceRefCount"] = 0
+        $result["validatorRefCount"] = 0
+        Update-ResultEvidenceDerivedFields $result
+    }
     $Node.results.Add($result)
 }
 

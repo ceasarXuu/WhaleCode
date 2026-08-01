@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "artifact": "r4-sample-evidence-ledger",
+  "phase": "R4-B",
+  "updated": "2026-07-03",
+  "status": "active_baseline",
+  "benefit_gate": {
+    "claimed_engineering_benefit": "Known TaskSpace tool-chain field failures are tracked as machine-readable evidence rows with owner phases instead of scattered target/CoE references.",
+    "baseline": "R3/R4 known-bad and positive-control samples were only described in Markdown and previous conversation notes.",
+    "pass_threshold": "sample_count >= 6; missing_primary_evidence_count = 0; samples_without_owner_phase = 0; required_failure_classes_covered = solved_positive_control, tool_feedback_loss, action_contract_loop, log_bloat_timeout, no_patch_after_known_fix, protocol_pairing_break"
+  },
+  "required_failure_classes": [
+    "solved_positive_control",
+    "tool_feedback_loss",
+    "action_contract_loop",
+    "log_bloat_timeout",
+    "no_patch_after_known_fix",
+    "protocol_pairing_break"
+  ],
+  "samples": [
+    {
+      "id": "r3-rerun-single-file-fast-fix-positive-control",
+      "sample": "single-file-fast-fix",
+      "failure_class": "solved_positive_control",
+      "owner_phase": "R4-G",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "solved",
+      "taskspace_wall_time_ratio": 2.7,
+      "taskspace_tool_call_ratio": 0.71,
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
+      "archived_run_path": "target/r3-tool-feedback-rerun-single-file-20260630-0343/single-file-fast-fix/20260630-034332-008/pair-001/pair-report.md",
+      "required_followup": "Keep as positive control while measuring residual TaskSpace performance overhead."
+    },
+    {
+      "id": "r3-sweep-count-call-stack-feedback-loss",
+      "sample": "count-call-stack",
+      "failure_class": "tool_feedback_loss",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 5.69,
+      "taskspace_tool_call_ratio": 0.73,
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
+      "archived_run_path": "target/r3-tools-result-sweep-20260630-3samples/count-call-stack/20260630-035312-839/pair-001/pair-report.md",
+      "required_followup": "Prove action-contract internal apply_patch failure feedback is visible in the next provider payload."
+    },
+    {
+      "id": "r4-d-count-call-stack-feedback-loss-repaired",
+      "sample": "count-call-stack",
+      "failure_class": "tool_feedback_loss_repaired",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "solved",
+      "taskspace_wall_time_ratio": 1.12,
+      "taskspace_tool_call_ratio": 0.55,
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_path": "target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md",
+      "required_followup": "Keep as R4-D before/after proof that internal tool feedback, validation feedback, unreviewed result feedback, and dependency read evidence no longer make this public sample wrong/no-patch."
+    },
+    {
+      "id": "r3-sweep-multi-file-order-pipeline-loop",
+      "sample": "multi-file-order-pipeline",
+      "failure_class": "action_contract_loop",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 2.2,
+      "taskspace_tool_call_ratio": 0.77,
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
+      "archived_run_path": "target/r3-tools-result-sweep-20260630-3samples/multi-file-order-pipeline/20260630-041950-584/pair-001/pair-report.md",
+      "required_followup": "Make parse and node-policy rejections structured enough to drive a valid next action."
+    },
+    {
+      "id": "r3-sweep-large-output-ref-smoke-timeout",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "log_bloat_timeout",
+      "owner_phase": "R4-E",
+      "standard_outcome": "timeout_or_incomplete",
+      "taskspace_outcome": "timeout",
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
+      "secondary_evidence": [
+        "coe/2026-06-27-00-48-r3-btier-regressions.md"
+      ],
+      "archived_run_paths": [
+        "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/rollout.jsonl",
+        "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/validation.stdout.log",
+        "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/whale-exec.stderr.log"
+      ],
+      "required_followup": "Bound rollout/log growth while preserving retrievable failure feedback."
+    },
+    {
+      "id": "r4-e-large-output-ref-log-bloat-repaired",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "log_bloat_timeout_repaired",
+      "owner_phase": "R4-E",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 1.8,
+      "taskspace_tool_call_ratio": 0.12,
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_paths": [
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/output-ref-events.jsonl",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/rollout.jsonl"
+      ],
+      "required_followup": "Treat as R4-E benefit proof only: rollout dropped from 490,846,386 bytes to 360,600 bytes and no 900s timeout occurred, but correctness remains blocked by validation closeout semantics."
+    },
+    {
+      "id": "r4-e-large-output-ref-forced-validation-closeout",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "validation_false_closeout",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 1.8,
+      "taskspace_tool_call_ratio": 0.12,
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_paths": [
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/rollout.jsonl",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/validation.stdout.log"
+      ],
+      "required_followup": "Fix forced validation closeout so tool success cannot be reported as validation success when public_validation_exit_code=1 and changed_paths lacks the target source file."
+    },
+    {
+      "id": "r4-d-large-output-ref-smoke-solved-after-missing-source-blocker",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "resolved_action_contract_feedback_loop",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "solved",
+      "taskspace_wall_time_ratio": 6.45,
+      "taskspace_tool_call_ratio": 0.57,
+      "primary_evidence": "coe/2026-07-01-04-05-r4-repeated-blocked-action.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_paths": [
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-report.md",
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/right/artifacts/rollout.jsonl",
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/right/artifacts/exact-payload-scan-events.jsonl",
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-timing.json"
+      ],
+      "required_followup": "Correctness blocker is resolved for this sample: TaskSpace now patches src/large_output_demo.py and passes public/hidden validation. Keep R4-G open because wall time remains 6.45x and evidence is still single-repeat E2-candidate."
+    },
+    {
+      "id": "r4-g-terminal-bench-processing-pipeline-validation-coverage-loop",
+      "sample": "terminal-bench/processing-pipeline",
+      "failure_class": "validation_coverage_block_loop",
+      "owner_phase": "R4-G",
+      "standard_outcome": "wrong",
+      "taskspace_outcome": "agent_exec_timeout",
+      "taskspace_wall_time_ratio": 3.55,
+      "taskspace_tool_call_ratio": 0,
+      "primary_evidence": "coe/2026-07-01-04-05-r4-repeated-blocked-action.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "required_followup": "Resolved by successful implement edit artifact backfill: validation_test_missing_changed_artifact_coverage repeated 94 times before the fix."
+    },
+    {
+      "id": "r4-g-terminal-bench-processing-pipeline-artifact-backfill-benefit",
+      "sample": "terminal-bench/processing-pipeline",
+      "failure_class": "validation_coverage_block_loop_repaired",
+      "owner_phase": "R4-G",
+      "standard_outcome": "wrong",
+      "taskspace_outcome": "agent_exec_timeout",
+      "taskspace_wall_time_ratio": 2.95,
+      "taskspace_tool_call_ratio": 0,
+      "primary_evidence": "coe/2026-07-01-04-05-r4-repeated-blocked-action.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "required_followup": "Concrete benefit: validation_test_missing_changed_artifact_coverage dropped from 94 to 0. R4-G remains open because the same run exposed read-only inspect no-progress timeout and action-contract tool metrics undercount."
+    },
+    {
+      "id": "r3-light-single-file-fast-fix-no-patch",
+      "sample": "single-file-fast-fix",
+      "failure_class": "no_patch_after_known_fix",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 1.63,
+      "taskspace_tool_call_ratio": 0.71,
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md"
+      ],
+      "archived_run_path": "target/r3-light-effect-single-file-20260630-024154/single-file-fast-fix/20260630-024155-720/pair-001/pair-report.md",
+      "required_followup": "Ensure known correct edits are converted into successful file changes or clear model-visible failure feedback."
+    },
+    {
+      "id": "historical-invalid-tool-call-history",
+      "sample": "historical-invalid-tool-call-history",
+      "failure_class": "protocol_pairing_break",
+      "owner_phase": "R4-E",
+      "standard_outcome": "not_applicable",
+      "taskspace_outcome": "provider_protocol_failure",
+      "primary_evidence": "coe/2026-06-20-02-00-taskspace-tool-call-history.md",
+      "required_followup": "Keep tool call/result projection pair-safe under active context replacement."
+    }
+  ]
+}

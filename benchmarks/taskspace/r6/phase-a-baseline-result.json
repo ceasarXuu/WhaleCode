@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "result_id": "r6-phase-a",
+  "status": "complete",
+  "completed_at": "2026-07-15T04:58:34+08:00",
+  "baseline_contract": {
+    "path": "benchmarks/taskspace/r6/phase-a-baseline-contract.json",
+    "sha256": "7161f8fff41e355c81ca9fef1d3cb169f8d6b7f76149c6215366aeace8a53df1"
+  },
+  "execution": {
+    "model": "deepseek-v4-flash",
+    "substrate": "docker_hard_boundary",
+    "repeats_per_arm": 1,
+    "interpretation": "diagnostic_only",
+    "aggregate_utility_allowed": false,
+    "harness_taints": []
+  },
+  "r6_a0_identity": {
+    "base_commit": "d12818f055494e510c6bd1d34f5b7b5154536471",
+    "production_diff_count": 0,
+    "provider_run_reused_from": "r5",
+    "first_independent_r6_live_arm": "phase_c",
+    "passed": true
+  },
+  "scenarios": [
+    {
+      "slot": "simple",
+      "scenario_id": "single-file-fast-fix",
+      "run_root": "target/r6-phase-a-baseline/simple/single-file-fast-fix/20260715-045642-750",
+      "evidence": {
+        "performance_observation_sha256": "9e7d1ea14c9b9f5cd7c245da5eadfd323f80cd12a0efc7f1efe5b02074fe311f",
+        "pair_report_sha256": "05f80bffc1101ff76ddc697f12529dce0bfa845d31f215b871a0097e90da4f4b",
+        "resolved_manifest_sha256": "a569b4ec7da7f900815559bb1f42e22276e73f8c727d80069bc3a74b9759f2d3"
+      },
+      "standard": {
+        "business_success": true,
+        "agent_completion_status": "complete",
+        "external_validation_status": "passed",
+        "provider_requests": 5,
+        "ordinary_tools": 7,
+        "control_calls": 0,
+        "failed_tools": 0,
+        "wall_time_ms": 18883,
+        "input_tokens": 34731,
+        "cached_input_tokens": 33152,
+        "uncached_input_tokens": 1579,
+        "output_tokens": 1955,
+        "total_tokens": 36686,
+        "request_2_plus_cache_hit_rate": 0.94938,
+        "prefix_preserved_rate": 1.0
+      },
+      "r5": {
+        "business_success": true,
+        "agent_completion_status": "complete",
+        "external_validation_status": "passed",
+        "provider_requests": 7,
+        "ordinary_tools": 7,
+        "control_calls": 4,
+        "failed_tools": 0,
+        "control_state_failures": 0,
+        "wall_time_ms": 20464,
+        "model_request_duration_ms": 19310,
+        "input_tokens": 50746,
+        "cached_input_tokens": 48256,
+        "uncached_input_tokens": 2490,
+        "output_tokens": 1746,
+        "total_tokens": 52492,
+        "request_2_plus_cache_hit_rate": 0.946664,
+        "prefix_preserved_rate": 0.833333,
+        "map_count": 1,
+        "node_count": 3,
+        "edge_count": 0,
+        "result_count": 3,
+        "open_leaf_nodes": 0,
+        "control_protocol_failures": 0,
+        "nested_action_failures": 0,
+        "semantic_replacement_rate": 0.0
+      },
+      "r5_over_standard": {
+        "provider_requests": 1.4,
+        "ordinary_tools": 1.0,
+        "wall_time": 1.0837,
+        "input_tokens": 1.4614,
+        "uncached_input_tokens": 1.5769,
+        "output_tokens": 0.8931,
+        "total_tokens": 1.4309,
+        "request_2_plus_cache_hit_delta_pp": -0.2716
+      },
+      "observer_warnings": [
+        "multi_node_map_without_edges"
+      ]
+    },
+    {
+      "slot": "branch_join_observation",
+      "scenario_id": "multi-file-order-pipeline",
+      "run_root": "target/r6-phase-a-baseline/branch-join/multi-file-order-pipeline/20260715-045642-756",
+      "evidence": {
+        "performance_observation_sha256": "049066e062c4aaeb0933aecdf85b15449fe60ebcd718b188036c14fa6c810881",
+        "pair_report_sha256": "af53c0bc94b8977c7928715b12ac79447cfeacde3cedbd538730973b41318832",
+        "resolved_manifest_sha256": "803d4a8ad6a58ac15aacbf91ecfa2cd61ccdf131fd46d8c46d76913104c2ee4a"
+      },
+      "standard": {
+        "business_success": true,
+        "agent_completion_status": "complete",
+        "external_validation_status": "passed",
+        "provider_requests": 9,
+        "ordinary_tools": 16,
+        "control_calls": 0,
+        "failed_tools": 1,
+        "wall_time_ms": 44443,
+        "input_tokens": 92952,
+        "cached_input_tokens": 86144,
+        "uncached_input_tokens": 6808,
+        "output_tokens": 4844,
+        "total_tokens": 97796,
+        "request_2_plus_cache_hit_rate": 0.923791,
+        "prefix_preserved_rate": 1.0
+      },
+      "r5": {
+        "business_success": true,
+        "agent_completion_status": "complete",
+        "external_validation_status": "passed",
+        "provider_requests": 9,
+        "ordinary_tools": 12,
+        "control_calls": 5,
+        "failed_tools": 1,
+        "control_state_failures": 0,
+        "wall_time_ms": 50140,
+        "model_request_duration_ms": 48677,
+        "input_tokens": 100110,
+        "cached_input_tokens": 93440,
+        "uncached_input_tokens": 6670,
+        "output_tokens": 6028,
+        "total_tokens": 106138,
+        "request_2_plus_cache_hit_rate": 0.93234,
+        "prefix_preserved_rate": 0.875,
+        "map_count": 1,
+        "node_count": 4,
+        "edge_count": 0,
+        "result_count": 4,
+        "open_leaf_nodes": 0,
+        "control_protocol_failures": 0,
+        "nested_action_failures": 0,
+        "semantic_replacement_rate": 0.0
+      },
+      "r5_over_standard": {
+        "provider_requests": 1.0,
+        "ordinary_tools": 0.75,
+        "wall_time": 1.1282,
+        "input_tokens": 1.0770,
+        "uncached_input_tokens": 0.9797,
+        "output_tokens": 1.2444,
+        "total_tokens": 1.0853,
+        "request_2_plus_cache_hit_delta_pp": 0.8549
+      },
+      "observer_warnings": [
+        "multi_node_map_without_edges"
+      ]
+    }
+  ],
+  "phase_a_gates": {
+    "machine_contract_frozen": true,
+    "contract_fixture_count": 14,
+    "ownership_item_count": 31,
+    "ownership_domain_count": 8,
+    "unknown_ownership_count": 0,
+    "docker_baseline_complete": true,
+    "r6_a0_code_identity_passed": true,
+    "production_behavior_changed": false,
+    "phase_b_ready": true
+  },
+  "interpretation_limits": [
+    "single_run_is_diagnostic_not_utility_aggregate",
+    "branch_join_is_observed_not_prompted",
+    "zero_edges_is_structural_evidence_not_agent_quality_judgment",
+    "r6_a0_is_code_identity_not_an_independent_random_run",
+    "no_performance_or_compression_benefit_claim"
+  ]
+}

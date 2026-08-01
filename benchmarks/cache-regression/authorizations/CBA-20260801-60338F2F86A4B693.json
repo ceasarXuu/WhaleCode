@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260801-60338F2F86A4B693",
+  "approval_reference": "用户在当前会话明确回复“批准”，批准此前列明的 R8 最小真实 smoke 预算。",
+  "approved_at": "2026-08-01T12:51:54+08:00",
+  "proposal_id": "CBP-60338F2F86A4B693",
+  "proposal_sha256": "974a04f963f1ea3ab8a6fc5a4d50b02ab3a378e7d3db93da5d4fa9bb8f008813",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户批准 R8 accepted baseline 最小 smoke：single-file-fast-fix 的 Standard 与 map-request 各一次，禁止自动重试。"
+  },
+  "approved_maximums": {
+    "provider_requests": 20,
+    "input_tokens": 20000000,
+    "output_tokens": 7680000,
+    "elapsed_seconds": 1440,
+    "estimated_cost": 4.9504,
+    "currency": "USD"
+  }
+}

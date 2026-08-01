@@ -430,12 +430,12 @@ impl ToolOrchestrator {
     ) -> Result<(), ToolError> {
         match decision {
             ReviewDecision::Denied | ReviewDecision::Abort => {
-                let reason = if let Some(review_id) = guardian_review_id {
-                    guardian_rejection_message(tool_ctx.session.as_ref(), review_id).await
-                } else {
-                    "rejected by user".to_string()
-                };
-                Err(ToolError::Rejected(reason))
+                if let Some(review_id) = guardian_review_id {
+                    return Err(ToolError::Rejected(
+                        guardian_rejection_message(tool_ctx.session.as_ref(), review_id).await,
+                    ));
+                }
+                Err(ToolError::UserDeclined)
             }
             ReviewDecision::TimedOut => Err(ToolError::Rejected(guardian_timeout_message())),
             ReviewDecision::Approved
@@ -445,9 +445,7 @@ impl ToolOrchestrator {
                 network_policy_amendment,
             } => match network_policy_amendment.action {
                 NetworkPolicyRuleAction::Allow => Ok(()),
-                NetworkPolicyRuleAction::Deny => {
-                    Err(ToolError::Rejected("rejected by user".to_string()))
-                }
+                NetworkPolicyRuleAction::Deny => Err(ToolError::UserDeclined),
             },
         }
     }

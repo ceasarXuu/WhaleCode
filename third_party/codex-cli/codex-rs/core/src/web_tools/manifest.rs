@@ -20,10 +20,9 @@ pub(crate) fn resolve_web_tool_manifest_availability(
     config: &WebSearchConfig,
     _codex_home: &Path,
 ) -> WebToolManifestAvailability {
-    let availability = WebToolManifestAvailability {
+    WebToolManifestAvailability {
         search_providers: resolve_search_providers_for_manifest(config, env_secret_present),
-    };
-    availability
+    }
 }
 
 fn resolve_search_providers_for_manifest(

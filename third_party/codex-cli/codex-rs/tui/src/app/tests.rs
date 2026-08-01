@@ -4954,7 +4954,7 @@ async fn action_map_commands_are_routed_through_app_server_in_tui_impl() {
         .expect("map runtime mode submission should not fail");
     assert_eq!(handled, true);
     let mut observed_mode = MapRuntimeMode::Standard;
-    let mut observed_map_count = 0usize;
+    let mut observed_map_present = false;
     for _ in 0..20 {
         let snapshot = app_server
             .thread_taskspace_read(thread_id)
@@ -4962,25 +4962,24 @@ async fn action_map_commands_are_routed_through_app_server_in_tui_impl() {
             .expect("thread/taskspace/read should succeed")
             .snapshot;
         observed_mode = snapshot.mode;
-        observed_map_count = snapshot.maps.len();
+        observed_map_present = snapshot.map.is_some();
         if observed_mode == MapRuntimeMode::Experiment {
             break;
         }
         time::sleep(std::time::Duration::from_millis(25)).await;
     }
     assert_eq!(observed_mode, MapRuntimeMode::Experiment);
-    assert_eq!(observed_map_count, 0);
+    assert_eq!(observed_map_present, false);
 
-    for op in [
-        AppCommand::restart_action_map(),
-        AppCommand::show_action_map(),
-    ] {
-        let handled = app
-            .try_submit_active_thread_op_via_app_server(&mut app_server, thread_id, &op)
-            .await
-            .expect("action-map command submission should not fail");
-        assert_eq!(handled, true);
-    }
+    let handled = app
+        .try_submit_active_thread_op_via_app_server(
+            &mut app_server,
+            thread_id,
+            &AppCommand::show_action_map(),
+        )
+        .await
+        .expect("action-map command submission should not fail");
+    assert_eq!(handled, true);
 
     let viewer_url = app
         .action_map_viewer

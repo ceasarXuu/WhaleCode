@@ -25,6 +25,8 @@ function Get-TaskspacePairEvidenceFromArtifacts {
     $manifestResolved = Read-TaskspaceBenchmarkJsonFile (Join-Path $PairDir "manifest.resolved.json")
     $leftMetrics = Read-TaskspaceBenchmarkJsonFile (Join-Path $PairDir "left\artifacts\metrics.json")
     $rightMetrics = Read-TaskspaceBenchmarkJsonFile (Join-Path $PairDir "right\artifacts\metrics.json")
+    Set-TaskspaceLifecycleClassification $leftMetrics | Out-Null
+    Set-TaskspaceLifecycleClassification $rightMetrics | Out-Null
     $externalProofPath = Join-Path $PairDir "external-e3-proof.json"
     $externalProof = if (Test-Path -LiteralPath $externalProofPath) { Read-TaskspaceBenchmarkJsonFile $externalProofPath } else { $null }
     $variableControl = Compare-TaskspacePairVariables $manifestResolved $leftMetrics $rightMetrics
@@ -73,7 +75,11 @@ function Get-TaskspacePairEvidenceFromArtifacts {
     $metricsTaints = @(@($leftMetrics, $rightMetrics) | ForEach-Object { @($_.metrics_taints) } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique)
     $environmentFailures = @(@($leftMetrics, $rightMetrics) | ForEach-Object { @($_.validator_environment_failures) } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique)
     $businessSuccess = [bool]($leftMetrics.business_success -or $rightMetrics.business_success)
-    $evidence = Get-TaskspaceEvidenceGate $Repeats $PromptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $AggregateEligible ([string]$manifestResolved.oracle_isolation_policy) $EvidenceTarget $manifestResolved.sample_origin $manifestResolved.external_benchmark $manifestResolved.e3 ([bool]$manifestResolved.human_review_required) $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes $metricsTaints $environmentFailures
+    $agentLifecycleEligible = @(@($leftMetrics, $rightMetrics) | Where-Object {
+            $_.PSObject.Properties.Name -contains "agent_completion_status" -and [string]$_.agent_completion_status -eq "complete" -and
+            $_.PSObject.Properties.Name -contains "sampling_interrupted" -and -not [bool]$_.sampling_interrupted
+        }).Count -eq 2
+    $evidence = Get-TaskspaceEvidenceGate $Repeats $PromptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $AggregateEligible ([string]$manifestResolved.oracle_isolation_policy) $EvidenceTarget $manifestResolved.sample_origin $manifestResolved.external_benchmark $manifestResolved.e3 ([bool]$manifestResolved.human_review_required) $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes $metricsTaints $environmentFailures $agentLifecycleEligible
     $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $auditReview.source_path -Force
     $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
     if ($externalProof) {

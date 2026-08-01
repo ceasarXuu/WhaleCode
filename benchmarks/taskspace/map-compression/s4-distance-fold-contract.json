@@ -1,0 +1,147 @@
+{
+  "schema_version": "taskspace-map-distance-fold-contract-v3",
+  "strategy_id": "S4",
+  "name": "distance_based_node_detail_fold_with_agent_expand",
+  "status": "s4_2_implementation_complete_live_benefit_unverified",
+  "implementation_state": "S4.2_implemented_on_B0_visible_selection",
+  "design_document": "docs/v0.0.5/build-R5/51-r5-k3-s4-2-recoverable-tier-fold-design.md",
+  "result_document": "docs/v0.0.5/build-R5/52-r5-k3-s4-2-result.md",
+  "historical_s4_1_decision": {
+    "candidate_commit": "afcae13",
+    "fallback_commit": "64f54b4",
+    "accepted": false,
+    "reason_codes": [
+      "overlaps_existing_D3_detail_tiering",
+      "negative_net_projection_bytes_vs_S4.0",
+      "complex_live_activation_missing",
+      "simple_wall_gate_failed"
+    ]
+  },
+  "revision": {
+    "candidate": "S4.2",
+    "reason": "Complete the existing B0 D3 selection with an explicit recoverable fold instead of deleting the already selected D3 detail.",
+    "baseline_visible": "unchanged_B0_D3_selection",
+    "hidden_payload": "all_canonical_node_details_minus_B0_visible_details",
+    "fold_only_when": "fold_marker_bytes_less_than_hidden_detail_bytes",
+    "zero_hidden_behavior": "byte_identical_to_S4.0",
+    "expanded_behavior": "return_hidden_event_refs_immediately_and_project_all_node_details_forever"
+  },
+  "previous": "R5-K-B0",
+  "single_behavior_delta": "Keep B0-visible details unchanged, explicitly reference only the canonical details that B0 omits for eligible distance>=3 nodes, and let an Agent expansion event restore all node details permanently.",
+  "scope_limit": {
+    "optimization_target": "node_local_detail_projection_bytes",
+    "map_skeleton_bytes_reduced": false,
+    "ultimate_context_overflow_solved": false,
+    "skeleton_over_budget_behavior": "explicit_map_skeleton_over_budget_error",
+    "future_skeleton_strategy": "required_but_out_of_scope"
+  },
+  "topology_contract": {
+    "all_canonical_nodes_visible": true,
+    "all_canonical_edges_visible": true,
+    "macro_or_archive_node_allowed": false,
+    "node_pagination_allowed": false,
+    "runtime_summary_allowed": false
+  },
+  "frontier_contract": {
+    "statuses": [
+      "pending",
+      "ready",
+      "running",
+      "blocked"
+    ],
+    "include_current_node": true
+  },
+  "root_contract": {
+    "task_root_always_full": true,
+    "graph_root_definition": "node_with_zero_in_degree",
+    "graph_root_fold_allowed": false
+  },
+  "distance_contract": {
+    "metric": "minimum_undirected_edge_distance_to_any_active_frontier_node",
+    "fold_threshold_inclusive": 3,
+    "unknown_or_unreachable_distance": "ineligible"
+  },
+  "eligibility_contract": {
+    "required_status": "completed",
+    "root_allowed": false,
+    "current_or_frontier_allowed": false,
+    "active_lease_allowed": false,
+    "previously_expanded_allowed": false,
+    "minimum_frontier_distance": 3
+  },
+  "canonical_expansion_record": {
+    "event": "NodeDetailExpanded",
+    "owner": "agent_via_taskspace_control_expand_nodes",
+    "node_attribute_added": false,
+    "creation_or_initialization_allowed": false,
+    "runtime_inference_allowed": false,
+    "reverse_or_delete_allowed": false,
+    "replay_required": true
+  },
+  "projection_state": {
+    "field": "detail_state",
+    "values": [
+      "folded",
+      "expanded"
+    ],
+    "absent_meaning": "no_fold_state_and_no_fixed_marker_cost",
+    "expanded_source": "canonical_NodeDetailExpanded_event",
+    "canonical_workflow_status_unchanged": true,
+    "detail_state_is_derived_not_a_node_status": true
+  },
+  "folded_projection_contract": {
+    "retain_fields": [
+      "node_id",
+      "kind",
+      "goal",
+      "status",
+      "detail_state",
+      "dependency_edges",
+      "result_ids",
+      "event_count",
+      "detail_ref",
+      "hidden_event_count"
+    ],
+    "visible_payload": "unchanged_B0_detail_selection",
+    "hidden_payload": "all_canonical_node_details_minus_B0_visible_details",
+    "fold_profitability_gate": "fold_marker_bytes_less_than_hidden_detail_bytes",
+    "semantic_rewrite_allowed": false
+  },
+  "acceptance_metrics": {
+    "zero_hidden_projection_vs_S4_0": "byte_identical",
+    "B0_visible_event_id_retention": 1.0,
+    "hidden_event_id_recoverability": 1.0,
+    "fold_profitability": "fold_marker_bytes_less_than_hidden_detail_bytes",
+    "expanded_projection": "all_canonical_node_detail_refs"
+  },
+  "agent_action_contract": {
+    "tool": "taskspace_control",
+    "action": "expand_nodes",
+    "input": "node_ids_non_empty_unique_array",
+    "atomic_batch": true,
+    "precondition": "every_target_is_currently_folded",
+    "commit_effect": "append_canonical_NodeDetailExpanded_event_for_each_target",
+    "automatic_refold_after_commit": false,
+    "other_fold_or_expansion_reset_actions_exposed": false
+  },
+  "failure_contract": {
+    "invalid_expand": "structured_protocol_error_with_zero_state_commit",
+    "expanded_details_over_budget": "map_projection_over_budget",
+    "silent_refold_of_previously_expanded_node": false,
+    "partial_batch_commit": false
+  },
+  "forbidden_co_changes": [
+    "node_importance_attribute",
+    "runtime_semantic_relevance_ranking",
+    "runtime_generated_summary",
+    "node_or_edge_removal_from_projection",
+    "archive_or_macro_replacement",
+    "global_skeleton_pagination",
+    "expanded_state_at_node_creation",
+    "agent_or_runtime_refold_action",
+    "expansion_event_deletion_or_reset",
+    "skeleton_overflow_strategy",
+    "compatibility_adapter",
+    "long_lived_feature_flag"
+  ]
+}

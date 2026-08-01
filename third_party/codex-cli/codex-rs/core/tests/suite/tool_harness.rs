@@ -103,7 +103,8 @@ async fn shell_tool_executes_command_and_streams_output() -> anyhow::Result<()> 
     let req = second_mock.single_request();
     let (output_text, _) = call_output(&req, call_id);
     let exec_output: Value = serde_json::from_str(&output_text)?;
-    assert_eq!(exec_output["metadata"]["exit_code"], 0);
+    assert_eq!(exec_output["metadata"]["execution_outcome"], "exited");
+    assert_eq!(exec_output["metadata"]["shell_exit_code"], 0);
     let stdout = exec_output["output"].as_str().expect("stdout field");
     assert_regex_match(r"(?s)^tool harness\n?$", stdout);
 
@@ -379,7 +380,10 @@ async fn apply_patch_tool_executes_and_emits_patch_events() -> anyhow::Result<()
     let (output_text, _success_flag) = call_output(&req, call_id);
 
     let expected_pattern = format!(
-        r"(?s)^Exit code: 0
+        r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 Success. Updated the following files:

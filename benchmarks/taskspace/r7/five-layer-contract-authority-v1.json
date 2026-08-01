@@ -1,0 +1,264 @@
+{
+  "schema_version": 1,
+  "schema_path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.schema.json",
+  "contract_id": "r7-five-layer-contract-authority-v1",
+  "contract_status": "r7_1_a2_c_repair_active_with_three_open_product_regressions",
+  "current_milestone": {
+    "id": "R7.1",
+    "document": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+    "purpose": "R7.1 的单一人工续接入口；机器准入以本文件和 integrated gate 为准",
+    "open_regressions": [
+      "R-10",
+      "R-19",
+      "R-22"
+    ]
+  },
+  "compatibility_policy": "none",
+  "implementation_status_enum": [
+    "selected_baseline",
+    "selected_not_implemented",
+    "active_verified",
+    "active_repair_verified",
+    "experimental_disabled"
+  ],
+  "candidate_status_enum": [
+    "evaluation_candidate",
+    "promotion_pending",
+    "rejected",
+    "promoted",
+    "reverted"
+  ],
+  "candidate_status_transitions": {
+    "evaluation_candidate": [
+      "promotion_pending",
+      "rejected"
+    ],
+    "promotion_pending": [
+      "promoted",
+      "rejected"
+    ],
+    "rejected": [],
+    "promoted": [
+      "reverted"
+    ],
+    "reverted": []
+  },
+  "candidate_registry": {
+    "root": "benchmarks/taskspace/r7/candidates",
+    "manifest_schema": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
+    "artifact_schema": "benchmarks/taskspace/r7/candidate-artifact-content-v1.schema.json",
+    "artifact_schema_status": "plan_scaffold_not_candidate_evidence",
+    "linter": "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
+    "active_authority_policy": "候选脚手架不构成生产证据；生产激活只由本 authority、production manifest 和整组门记录"
+  },
+  "authority_order": [
+    "this_manifest",
+    "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+    "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+    "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+    "selected machine-readable artifacts listed here"
+  ],
+  "conflict_policy": "任一字节、状态或 hash 冲突都阻断相应阶段；不得在本地选择一方或保留兼容分支。",
+  "governing_documents": [
+    {
+      "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+      "sha256": "bcf80059540957975e9c79a4b3b583dd8e122229a5c136b222e89daa8d67ff51",
+      "role": "最高优先级架构约束、历史回归和整组准入门"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+      "sha256": "ed6f4acc1d1cba531d01b48bed725afb5cb4555ad1111d36f172ada88d80ecba",
+      "role": "R7.1 状态、约束、阻塞项和续接入口"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+      "sha256": "99878d34e3adae7a88717a9eb31087db893b92266334e9d83c959e010bd85c34",
+      "role": "A2 response-level Tool 序列、动作归属、终态和 reopen 设计"
+    }
+  ],
+  "baseline": {
+    "role": "rollback_baseline",
+    "commit": "cab37129c"
+  },
+  "selected_targets": [
+    {
+      "layer": "provider-wire-validation",
+      "implementation_status": "active_verified",
+      "activation_phase": "R7.1-A2-B0",
+      "artifact": "benchmarks/taskspace/r7/a2-b0-provider-wire-result.json",
+      "sha256": "0e3b6f9aaa8cfb130eaf58619289fb3b1affb2fca4066fca6fdb39c9fb0d0cd9",
+      "production_behavior_changed": false,
+      "decision": "provider wire capability verified"
+    },
+    {
+      "layer": "change-governance",
+      "implementation_status": "active_verified",
+      "activation_phase": "R7.1-A2-C repair",
+      "artifact": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.json",
+      "sha256": "c634a151d69533547f16aafd13782e2892a16688866c6a3596b0231631e8a9b5",
+      "open_regressions": [
+        "R-10",
+        "R-19",
+        "R-22"
+      ],
+      "closed_regression_count": 24
+    },
+    {
+      "layer": "L1",
+      "implementation_status": "active_verified",
+      "activation_phase": "FLA-2",
+      "artifact": "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md",
+      "sha256": "0f92283e162a2c4cc2021ac8a89be458a37616b3ff82b3876807918a02cb89fd"
+    },
+    {
+      "layer": "L2",
+      "implementation_status": "active_repair_verified",
+      "activation_phase": "R7.1-A2-C repair",
+      "artifact": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v3.md",
+      "sha256": "45a013c2ce2b68d78b8dc8b01c7fd84b0965342c9b1fd61336854ece23672a14"
+    },
+    {
+      "layer": "L3",
+      "implementation_status": "active_verified",
+      "activation_phase": "FLA-3",
+      "artifact": "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md",
+      "sha256": "a6f93fce96f7763ab3c36cb192091a908d744c1ad44ed26f6b4f5adf3422d5b1"
+    },
+    {
+      "layer": "L4",
+      "implementation_status": "active_repair_verified",
+      "activation_phase": "R7.1-A2-C repair",
+      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v4.contract.json",
+      "sha256": "fd68a2b2f0eec8be906415facad9fe9c852ee01fe0d0f1727b6d4669055cd97f",
+      "tool_count": 1,
+      "top_level_actions": [
+        "initialize_and_execute",
+        "execute",
+        "reopen_map",
+        "read_map",
+        "read_output_ref",
+        "finish_map"
+      ],
+      "ordinary_tool_arguments": "native_unchanged",
+      "ownership": "agent_declared_in_outer_actions_manifest"
+    },
+    {
+      "layer": "L5-result",
+      "implementation_status": "active_repair_verified",
+      "activation_phase": "R7.1-A2-C repair",
+      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v3.contract.json",
+      "sha256": "ce4d045253a4593adce831e2b2432d2d791ea24caf9c1819242dd3e5bb1c0890",
+      "schema_version": "TaskSpaceControlResultV2",
+      "response_final_receipt_schema_version": "TaskSpaceResponseFinalReceiptV1",
+      "partial_commit": false
+    },
+    {
+      "layer": "L5-projection",
+      "implementation_status": "active_verified",
+      "activation_phase": "R7.1-A2-B2.5",
+      "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
+      "sha256": "440c4089c669d64004268aab3886f52f4cd16a79ff68cb1a972ca898db023cc3"
+    },
+    {
+      "layer": "L5-lifecycle",
+      "implementation_status": "active_verified",
+      "activation_phase": "R7.1-A2-B2.5",
+      "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json",
+      "sha256": "1370322dac73bab51ed1d2b78738bed28af1e37140a968a58ddd0964f5a13847",
+      "canonical_schema": "taskspace-canonical-map-v2",
+      "store_ownership": "persistent_single_source_of_truth"
+    },
+    {
+      "layer": "evaluation",
+      "implementation_status": "active_repair_verified",
+      "activation_phase": "R7.1-C",
+      "artifact": "benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json",
+      "sha256": "0c9e7a96e116500486fd0d2151285cb3da80a3dd36b95c3eaf816054db98bf5c",
+      "next_gate": "four-arm repeat-3 for R-10/R-19/R-22"
+    }
+  ],
+  "experiments": [
+    {
+      "id": "FLA-6-E1-read-write-tool-split",
+      "implementation_status": "experimental_disabled",
+      "baseline": "single taskspace_control tool",
+      "acceptance": "independent A/B only; no merge unless correctness, requests, selection errors, cache, and schema cost pass"
+    },
+    {
+      "id": "FLA-6-E2-mcp-output-schema",
+      "implementation_status": "experimental_disabled",
+      "baseline": "local result schema plus model-visible JSON",
+      "acceptance": "MCP outputSchema and structuredContent must conform to the same selected L5 schema"
+    },
+    {
+      "id": "FLA-6-E3-deepseek-strict",
+      "implementation_status": "experimental_disabled",
+      "baseline": "strict false",
+      "acceptance": "adapter forwarding and all-visible-tool provider probe must pass before behavior A/B"
+    }
+  ],
+  "blocking_repairs": [
+    {
+      "id": "A2-response-level-action-ownership",
+      "implementation_status": "active_verified",
+      "issue": "R-24/R-25/H-003/H-007",
+      "plan": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+      "blocks": [],
+      "selected_direction": "Agent 在 taskspace_control actions manifest 声明 node_id 与 Tool 名；Runtime 只做完整响应预检、机械 reservation 与忠实结果归属"
+    },
+    {
+      "id": "A2-finite-terminal-and-reopen",
+      "implementation_status": "active_verified",
+      "issue": "R-26/R-27",
+      "plan": "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+      "blocks": [],
+      "selected_direction": "finish_map 原子完成 Agent 声明的最后 Work 并关闭 Map；用户反馈通过 reopen_map 在同一 Map 新增 Work"
+    },
+    {
+      "id": "FLA-9-fixed-schema-cost-repair",
+      "implementation_status": "active_repair_verified",
+      "issue": "R-19/R-20",
+      "plan": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+      "blocks": [
+        "R7.1 product promotion"
+      ],
+      "selected_direction": "普通 Tool schema 与 Standard 字节一致；全部 TaskSpace 合同只存在于中央 taskspace_control"
+    },
+    {
+      "id": "R7.1-persistent-map-ownership",
+      "implementation_status": "active_verified",
+      "issue": "R-21/R-23",
+      "plan": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+      "blocks": [],
+      "selected_direction": "独立持久化 Map Store 是唯一事实源；Session 和 rollout 不重建 canonical Map"
+    },
+    {
+      "id": "R7.1-map-request-operation-drift",
+      "implementation_status": "active_repair_verified",
+      "issue": "R-22",
+      "plan": "docs/v0.0.5/build-R7/40-r7.1-milestone-baseline.md",
+      "blocks": [
+        "R7.1 product promotion"
+      ],
+      "selected_direction": "L2/L4 已公开单 Patch 和节点归属机械合同；同口径 A2-C live rerun 后再判断 projection visibility 是否仍需单变量实验"
+    }
+  ],
+  "obsolete_after_activation": [
+    {
+      "item": "ordinary Tool taskspace_binding、bind_node、complete_then_continue、current binding 和 singleton main lease",
+      "obsolete_after": "R7.1-A2-B1X",
+      "replacement": "中央 actions manifest、原生 sibling Tool 和 per-action reservation"
+    },
+    {
+      "item": "persisted NodeStatus::Open 和 current-node projection",
+      "obsolete_after": "R7.1-A2-B1X",
+      "replacement": "由依赖、completion、block、reservation 和 result 事实派生状态"
+    },
+    {
+      "item": "five-layer-taskspace-control-v3、result-v2 和 lifecycle-oracles-v1",
+      "obsolete_after": "R7.1-A2-B2.5",
+      "replacement": "control-v4、result-v3 和 lifecycle-oracles-v2；旧文件仅为 obsolete_non_promotable 历史证据"
+    }
+  ],
+  "phase_gate": "任何阶段启动前，所选 artifact hash 必须完全匹配，所有更早目标必须在生产路径激活；历史和实验 artifact 不得满足当前准入门。"
+}

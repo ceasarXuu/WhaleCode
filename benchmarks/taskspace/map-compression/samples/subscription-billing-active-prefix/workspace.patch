@@ -1,0 +1,68 @@
+diff --git a/src/billing_service/plans.py b/src/billing_service/plans.py
+index d5291c9..0b3135a 100644
+--- a/src/billing_service/plans.py
++++ b/src/billing_service/plans.py
+@@ -1,14 +1,14 @@
+ PRICES = {
+     "basic": 10,
+-    "pro": 30,
++    "pro": 29,
+     "enterprise": 99,
+ }
+ 
+ 
+ def plan_subtotal(plan, seats, billing_period):
+     monthly = PRICES[plan] * seats
+     if billing_period == "annual":
+-        return monthly * 12
++        return monthly * 10
+     if billing_period == "monthly":
+         return monthly
+     raise ValueError(f"unsupported billing period: {billing_period}")
+diff --git a/src/billing_service/tax.py b/src/billing_service/tax.py
+index c743b51..795c504 100644
+--- a/src/billing_service/tax.py
++++ b/src/billing_service/tax.py
+@@ -1,6 +1,6 @@
+ RATES = {
+     "US": 0.07,
+-    "EU": 0.19,
++    "EU": 0.20,
+ }
+ 
+ 
+diff --git a/src/billing_service/usage.py b/src/billing_service/usage.py
+index 3bd228a..9ec80b4 100644
+--- a/src/billing_service/usage.py
++++ b/src/billing_service/usage.py
+@@ -1,8 +1,14 @@
+ def parse_usage_row(row):
+     account, plan, seats, billing_period = row.split(",")
++    account = account.strip()
++    plan = plan.strip().lower()
++    billing_period = billing_period.strip().lower()
++    seat_count = int(seats)
++    if seat_count <= 0:
++        raise ValueError(f"seats must be a positive integer, got {seat_count}")
+     return {
+         "account": account,
+         "plan": plan,
+-        "seats": int(seats),
++        "seats": seat_count,
+         "billing_period": billing_period,
+     }
+diff --git a/tests/test_plans.py b/tests/test_plans.py
+index 4877dc1..8f7969b 100644
+--- a/tests/test_plans.py
++++ b/tests/test_plans.py
+@@ -8,8 +8,8 @@ def test_plan_subtotal_uses_readme_prices():
+     assert plan_subtotal("pro", 3, "annual") == 870
+ 
+ 
+-def test_enterprise_annual_uses_twelve_months():
+-    assert plan_subtotal("enterprise", 1, "annual") == 1188
++def test_enterprise_annual_uses_ten_month_discount():
++    assert plan_subtotal("enterprise", 1, "annual") == 990
+ 
+ 
+ def test_unknown_plan_is_rejected():

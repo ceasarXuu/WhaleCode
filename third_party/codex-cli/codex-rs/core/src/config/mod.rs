@@ -88,6 +88,7 @@ use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::AbsolutePathBufGuard;
 use serde::Deserialize;
@@ -258,6 +259,9 @@ pub struct Config {
 
     /// Optional override of model selection.
     pub model: Option<String>,
+
+    /// Immutable projection delivery policy selected for new TaskSpace sessions.
+    pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
 
     /// Effective service tier preference for new turns (`fast` or `flex`).
     pub service_tier: Option<ServiceTier>,
@@ -1023,7 +1027,7 @@ pub fn validate_feature_requirements_for_config_toml(
 
 fn default_model_for_provider(model_provider_id: &str) -> Option<String> {
     match model_provider_id {
-        DEEPSEEK_PROVIDER_ID => Some("deepseek-v4-pro".to_string()),
+        DEEPSEEK_PROVIDER_ID => Some("deepseek-v4-flash".to_string()),
         _ => None,
     }
 }
@@ -1759,6 +1763,9 @@ impl Config {
                 .clone(),
             None => ConfigProfile::default(),
         };
+        let taskspace_projection_policy = config_profile
+            .taskspace_projection_policy
+            .or(cfg.taskspace_projection_policy);
         let tool_suggest = resolve_tool_suggest_config(&cfg);
         let feature_overrides = FeatureOverrides {
             include_apply_patch_tool: include_apply_patch_tool_override,
@@ -2419,6 +2426,7 @@ impl Config {
             model_auto_compact_token_limit: cfg.model_auto_compact_token_limit,
             model_provider_id,
             model_provider,
+            taskspace_projection_policy,
             cwd: resolved_cwd,
             startup_warnings,
             permissions: Permissions {

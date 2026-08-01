@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "schema_path": "benchmarks/taskspace/r7/five-layer-integrated-change-constraints-v1.schema.json",
+  "contract_id": "r7-five-layer-integrated-change-constraints-v1",
+  "status": "active_change_gate",
+  "governing_document": {
+    "path": "docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md",
+    "sha256": "bcf80059540957975e9c79a4b3b583dd8e122229a5c136b222e89daa8d67ff51"
+  },
+  "architectural_constraints": [
+    {
+      "id": "C-01",
+      "owner": "all product artifacts",
+      "requirement": "Each product rule has one authoritative layer and other layers only reference its identity.",
+      "prohibited": "Parallel paraphrased ownership or semantic conflict resolution in the provider composer."
+    },
+    {
+      "id": "C-02",
+      "owner": "Agent and L5",
+      "requirement": "The Agent owns task semantics while Runtime enforces only mechanical state and graph invariants.",
+      "prohibited": "Runtime-selected goals, nodes, plans, initialization semantics, or next actions."
+    },
+    {
+      "id": "C-03",
+      "owner": "L5 feedback and projection",
+      "requirement": "Tool results, failures, commit facts, and projections are transmitted faithfully.",
+      "prohibited": "Loss, distortion, duplicate wrapping, hidden failure, or next-step advice."
+    },
+    {
+      "id": "C-04",
+      "owner": "L1 through L5",
+      "requirement": "Content is assigned by stability and universal necessity.",
+      "prohibited": "Tool wire in Base, advanced playbooks in fixed context, or dynamic facts in stable instructions."
+    },
+    {
+      "id": "C-05",
+      "owner": "L4",
+      "requirement": "Ordinary Tools describe only their native capability, success, inputs, outputs, and side effects while taskspace_control exclusively describes Map actions.",
+      "prohibited": "TaskSpace binding or response-sequencing fields on ordinary Tools, planning instruction, or semantic inference."
+    },
+    {
+      "id": "C-06",
+      "owner": "L1, L2, L4, provider adapter",
+      "requirement": "Base, protocol, and Tool schema bytes stay fixed inside one immutable capability epoch.",
+      "prohibited": "Schema changes triggered by Map revision, empty state, or lifecycle state."
+    },
+    {
+      "id": "C-07",
+      "owner": "projection policy",
+      "requirement": "The three projection policies share L1 through L4, Map, Runtime, feedback, and state machine.",
+      "prohibited": "Policy-specific architecture or behavior branches outside L5 emission."
+    },
+    {
+      "id": "C-08",
+      "owner": "canonical Map and L5 validator",
+      "requirement": "One Agent-authored rooted DAG has one Root, one explicit Finish, full reachability, and Agent-authored terminal closure.",
+      "prohibited": "Orphan nodes, Runtime-authored task topology, automatic Finish, or a second canonical state."
+    },
+    {
+      "id": "C-09",
+      "owner": "L4 and L5 sequence preflight",
+      "requirement": "Initialization and every nonterminal Map mutation carry one or more Agent-declared node actions and matching native sibling Tool calls in the same complete response.",
+      "prohibited": "Standalone nonterminal Map mutation, action-manifest mismatch, or ordinary Tool content inspection to infer sequence validity."
+    },
+    {
+      "id": "C-10",
+      "owner": "Patch Tool and sequence preflight",
+      "requirement": "Patch input remains native top-level text and at most one Patch executes per response.",
+      "prohibited": "Nested Patch transport, multi-Patch partial writes, or blocking a valid control plus Patch pair."
+    },
+    {
+      "id": "C-11",
+      "owner": "provider Tool visibility and sequence runtime",
+      "requirement": "Shared ordinary Tool schema, arguments, and native execution remain identical in Standard and TaskSpace while bundled Skills remain shared.",
+      "prohibited": "Ordinary Tool decoration, wrapping, Standard Tool mutation, or benchmark-only Skill disabling."
+    },
+    {
+      "id": "C-12",
+      "owner": "L5 preflight, execution, and result",
+      "requirement": "Preflight failure is zero-dispatch and zero-commit and each failure has one factual result.",
+      "prohibited": "Argument repair, semantic retry, duplicate failure envelopes, or failure hiding."
+    },
+    {
+      "id": "C-13",
+      "owner": "provider wire observability",
+      "requirement": "Per-request and aggregate Tool bytes, tokens, cache, requests, and time are measured.",
+      "prohibited": "Correctness-only promotion or unmeasured permanent schema amplification."
+    },
+    {
+      "id": "C-14",
+      "owner": "benchmark harness",
+      "requirement": "One strategy changes per experiment under identical artifacts and simple plus complex samples.",
+      "prohibited": "Confounded arms, excluded Agent errors, or infrastructure failures counted as behavior."
+    },
+    {
+      "id": "C-15",
+      "owner": "wire migrations",
+      "requirement": "Schema, parser, tests, logs, and docs migrate atomically without legacy data compatibility.",
+      "prohibited": "Old wire fallback, dual parser, silent compatibility branch, or undocumented drift."
+    },
+    {
+      "id": "C-16",
+      "owner": "L4",
+      "requirement": "Root, work_nodes, and Finish roles that drive parsing or hard validation are represented by distinct Tool fields or schema branches, with multiple initial work nodes allowed.",
+      "prohibited": "Erasing roles into a generic collection, relying on cross-field prose, or restoring a singular initial/current work cursor."
+    },
+    {
+      "id": "C-17",
+      "owner": "persistent Map Store and L5 Runtime",
+      "requirement": "One independently persisted Map Store is the canonical owner; sessions and Runtime use identity handles or disposable revision-checked caches.",
+      "prohibited": "Session-local authoritative Map copies, rollout checkpoint or delta recovery authority, silent Map reconstruction, or dual sources of truth."
+    },
+    {
+      "id": "C-18",
+      "owner": "Agent action manifest and L5 dispatcher",
+      "requirement": "The Agent explicitly declares node_id for every ordinary Tool call in the same response manifest and one response may advance multiple nodes.",
+      "prohibited": "Runtime-inferred, defaulted, repaired, or selected action ownership, or node metadata exposed to native ordinary Tool handlers."
+    },
+    {
+      "id": "C-19",
+      "owner": "canonical Map domain and Store",
+      "requirement": "The Store persists nonredundant dependency, completion, block, action-reservation, result, and revision facts from which lifecycle views are derived.",
+      "prohibited": "Persisted Open, canonical current_node/current_binding/next_node, singleton main lease, or any second lifecycle fact source."
+    },
+    {
+      "id": "C-20",
+      "owner": "Agent lifecycle contract and L5 validator",
+      "requirement": "Map lifecycle has exactly initialize-to-active, Agent finish-to-closed, and user-feedback continuation through reopen-to-active; finish atomically includes the Agent-declared final Work completions.",
+      "prohibited": "An unreachable final Work boundary, standalone reopen, Runtime-inferred completion, or automatic reopen from user-message semantics."
+    },
+    {
+      "id": "C-21",
+      "owner": "canonical Map domain and Store",
+      "requirement": "Reopen preserves prior terminal, Work completion, result, and evidence facts while the Agent adds new Work for additional requirements.",
+      "prohibited": "rework_node, deleted or reversed Work completion, overwritten terminal history, or duplicated Root and Finish lifecycle facts."
+    }
+  ],
+  "regression_invariants": [
+    {
+      "id": "R-01",
+      "status": "closed",
+      "problem": "The Whale minimal Base discarded the mature Codex engineering framework.",
+      "required_behavior": "Standard and TaskSpace each select one complete Codex-derived Base.",
+      "evidence": ["docs/v0.0.5/build-R7/20-r7-dual-base-instructions-design.md"]
+    },
+    {
+      "id": "R-02",
+      "status": "closed",
+      "problem": "TaskSpace appeared only as scattered low-salience developer text.",
+      "required_behavior": "L1 owns the macro model and L2 owns the normal working protocol without duplication.",
+      "evidence": ["docs/v0.0.5/build-R7/28-r7-five-layer-fla2-result.md"]
+    },
+    {
+      "id": "R-03",
+      "status": "closed",
+      "problem": "Docker benchmarks disabled bundled Skills and changed the product capability set.",
+      "required_behavior": "Standard and TaskSpace use the same bundled Skills infrastructure.",
+      "evidence": ["docs/v0.0.5/build-R7/31-r7-five-layer-fla3-result.md"]
+    },
+    {
+      "id": "R-04",
+      "status": "closed",
+      "problem": "L2 recovery depended on Tool result fields that were not visible to the Agent.",
+      "required_behavior": "All control entry paths return factual TaskSpaceControlResultV2 fields.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-05",
+      "status": "closed",
+      "problem": "The observer underreported preflight rejects, handler attempts, gates, and commits.",
+      "required_behavior": "Preflight, handler, gate, and commit telemetry are independently countable.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-06",
+      "status": "closed",
+      "problem": "A nested transition discriminator caused lifecycle action and parser drift.",
+      "required_behavior": "Lifecycle operations use direct top-level action variants.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-07",
+      "status": "closed",
+      "problem": "Initialization success omitted action-attribution facts.",
+      "required_behavior": "Initialization result reports Agent-declared action attribution, reservation, and commit facts explicitly.",
+      "evidence": ["docs/v0.0.5/build-R7/30-r7-fla2-blocker-repair-result.md"]
+    },
+    {
+      "id": "R-08",
+      "status": "closed",
+      "problem": "A single control schema cannot require a top-level real Tool sibling.",
+      "required_behavior": "A complete response passes Tool type, order, and count preflight before any client Tool executes.",
+      "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
+    },
+    {
+      "id": "R-09",
+      "status": "closed",
+      "problem": "Missing ordinary Tool attribution silently drifted to the wrong node.",
+      "required_behavior": "Missing, extra, or mismatched action attribution fails zero-dispatch preflight and is never inferred, defaulted, repaired, or silently drifted.",
+      "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
+    },
+    {
+      "id": "R-10",
+      "status": "open",
+      "problem": "Nonterminal continuous actions produced stable rejection and recovery; A2-C found that provider-visible Tool identity was replaced by internal dispatch identity and response-final revision was absent from Agent feedback. The engineering repair is active and awaits same-matrix live verification.",
+      "required_behavior": "A nonterminal boundary and its real successor occur in one response, the manifest uses provider-visible Tool identity, the response-final canonical revision is faithfully visible, and natural runs do not stably amplify requests through recovery.",
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "docs/v0.0.5/build-R7/46-r7.1-a2-c-repeat3-result.md"
+      ]
+    },
+    {
+      "id": "R-11",
+      "status": "closed",
+      "problem": "Early or ambiguous terminal actions selected the wrong Finish path.",
+      "required_behavior": "One finish_map action accepts the Agent terminal choice and validates the canonical frontier.",
+      "evidence": ["docs/v0.0.5/build-R7/33-r7-continuous-action-regression-repair-plan.md"]
+    },
+    {
+      "id": "R-12",
+      "status": "closed",
+      "problem": "Nested Patch JSON was malformed or multiple Patches partially wrote a response.",
+      "required_behavior": "Patch remains native top-level text and one response executes at most one Patch.",
+      "evidence": ["coe/2026-07-19-19-30-r7-nested-patch-control-arguments.md"]
+    },
+    {
+      "id": "R-13",
+      "status": "closed",
+      "problem": "TaskSpace decoration modified ordinary Tools in Standard.",
+      "required_behavior": "Shared ordinary Tools keep byte-identical native schema and execution paths in Standard and TaskSpace.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-14",
+      "status": "closed",
+      "problem": "Preflight and router wrapped the same undispatched failure twice.",
+      "required_behavior": "An undispatched Tool call produces one factual failure result.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-15",
+      "status": "closed",
+      "problem": "Uncarriable provider-native Tools or incomplete Tool responses could enter execution.",
+      "required_behavior": "Incomplete responses neither execute nor persist, and capabilities that cannot enter a complete client manifest are explicitly classified before a product visibility decision.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-16",
+      "status": "closed",
+      "problem": "A full lifecycle union was copied onto every ordinary Tool.",
+      "required_behavior": "Response grammar is not copied onto ordinary Tools and the central control exclusively owns Map actions.",
+      "evidence": ["coe/2026-07-23-18-24-r7-fla-tool-schema-amplification.md"]
+    },
+    {
+      "id": "R-17",
+      "status": "closed",
+      "problem": "Map initialization consumed a standalone provider request before real work.",
+      "required_behavior": "initialize_map and at least one native ordinary Tool occur in the same response and execute in barrier order.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-18",
+      "status": "closed",
+      "problem": "A mixed scalar-or-object binding union biased generation toward the wrong short branch.",
+      "required_behavior": "Ordinary Tool binding is removed and the central control uses direct action variants.",
+      "evidence": ["docs/v0.0.5/build-R7/37-r7-lightweight-tool-binding-repair-plan.md"]
+    },
+    {
+      "id": "R-19",
+      "status": "open",
+      "problem": "Initialization graph and binding schema were copied onto ordinary Tools and the prior Tool section was 46926 bytes per request; A2-C measured the candidate at 26822 bytes but held-out validation remains pending.",
+      "required_behavior": "Shared ordinary Tool bytes equal Standard and TaskSpace fixed overhead comes only from the single central control and explicit capability-set differences.",
+      "evidence": [
+        "coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md",
+        "docs/v0.0.5/build-R7/46-r7.1-a2-c-repeat3-result.md"
+      ]
+    },
+    {
+      "id": "R-20",
+      "status": "closed",
+      "problem": "A compact nodes plus role-id initialization wire erased Root, Work, and Finish role structure and caused repeated invalid initialization.",
+      "required_behavior": "Keep Root, work_nodes, and Finish structurally distinct while allowing multiple initial work nodes in one fixed Agent-authored initialization contract.",
+      "evidence": ["coe/2026-07-24-07-51-r7-cross-constraint-repair-regression.md"]
+    },
+    {
+      "id": "R-21",
+      "status": "closed",
+      "problem": "A node-bound TaskSpace subagent spawn restores an inconsistent assignment from the parent rollout and fails before the child session starts.",
+      "required_behavior": "A subagent accesses the same persisted canonical Map by identity and distinguishes child attachment from TaskSpace session resume without reconstructing the Map from rollout.",
+      "evidence": ["coe/2026-07-18-03-15-r7-subagent-map-restore.md"]
+    },
+    {
+      "id": "R-22",
+      "status": "open",
+      "problem": "Complex runs generated multiple sibling Patch calls; A2-C observed two rejected responses across 18 TaskSpace runs. L2/L4 now expose the existing hard contract and await same-matrix live verification.",
+      "required_behavior": "Promotion evidence shows no repeated multi-Patch protocol rejection or post-hoc Map closure pattern, L2/L4 state the one-Patch-per-response contract, and Runtime preserves atomic safety without taking over Agent lifecycle choices.",
+      "evidence": [
+        "coe/2026-07-23-18-24-r7-fla-map-request-operation-drift.md",
+        "docs/v0.0.5/build-R7/46-r7.1-a2-c-repeat3-result.md"
+      ]
+    },
+    {
+      "id": "R-23",
+      "status": "closed",
+      "problem": "The canonical Map is owned by Session-local Runtime state and recovered by replaying rollout checkpoints and deltas.",
+      "required_behavior": "One independently persisted Map Store remains the canonical data owner; Runtime, sessions, resumes, forks, and child agents access it by identity while rollout remains audit and context history only.",
+      "evidence": ["coe/2026-07-24-21-21-r7-canonical-map-persistence-ownership.md"]
+    },
+    {
+      "id": "R-24",
+      "status": "closed",
+      "problem": "A singleton current_node/current_binding/main lease reduces the multi-active-node DAG to a Runtime-driven linear cursor.",
+      "required_behavior": "The Agent declares node_id per ordinary action, Runtime keeps no current or next node, and one response can advance multiple declared nodes.",
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json"
+      ]
+    },
+    {
+      "id": "R-25",
+      "status": "closed",
+      "problem": "Persisted Open duplicates dependency, block, in-flight, and completion facts and creates a second lifecycle source.",
+      "required_behavior": "The Store persists only nonredundant facts and deterministically derives Waiting, Ready, InFlight, Blocked, Completed, and open-node metrics.",
+      "evidence": ["docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md"]
+    },
+    {
+      "id": "R-26",
+      "status": "closed",
+      "problem": "The final Work has no finite legal closure because execute completion requires a next action while finish_map requires all Work to be completed beforehand.",
+      "required_behavior": "finish_map accepts Agent-declared final Work node ids and atomically completes those Work nodes before validating and closing the unique Finish and Root.",
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json"
+      ]
+    },
+    {
+      "id": "R-27",
+      "status": "closed",
+      "problem": "A closed Task Map cannot continue after user feedback, or continuation reverses historical completion through rework_node.",
+      "required_behavior": "reopen_map continues the same map with new Work, edges, actions, and native sibling Tools while moving the prior terminal into history and preserving all prior Work facts.",
+      "evidence": [
+        "docs/v0.0.5/build-R7/42-r7.1-a2-nonterminal-action-ownership-design.md",
+        "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json"
+      ]
+    }
+  ],
+  "candidate_gates": [
+    {"id": "G-01", "requirement": "Agent retains all graph and task semantic choices.", "evidence_required": "Source boundary review and initialization wire fixture."},
+    {"id": "G-02", "requirement": "Tool schema is byte-identical across Map states in one capability epoch.", "evidence_required": "Empty and initialized state schema hash test."},
+    {"id": "G-03", "requirement": "Initialization and every nonterminal Map mutation stay in one response with one or more real actions.", "evidence_required": "Response grammar matrix and provider trace."},
+    {"id": "G-04", "requirement": "Shared ordinary Tools contain no TaskSpace fields and are byte-identical across Standard and TaskSpace.", "evidence_required": "JSON schema golden, wire hash, and source residue scan."},
+    {"id": "G-05", "requirement": "Feedback preserves initialization, business, reservation prepare, ordinary result attribution, and response-final canonical revision as separate mechanical facts.", "evidence_required": "Result snapshots, response-final revision traces, native ordinary-output fidelity, and failure tests."},
+    {"id": "G-06", "requirement": "Native top-level single Patch behavior is unchanged.", "evidence_required": "Patch fidelity, multi-Patch reject, and control-plus-Patch tests."},
+    {"id": "G-07", "requirement": "Standard Tool bytes and execution path are unchanged.", "evidence_required": "Standard schema snapshot and paired smoke."},
+    {"id": "G-08", "requirement": "All three projection policies share L1 through L4 behavior.", "evidence_required": "Four-arm contract hashes and traces."},
+    {"id": "G-09", "requirement": "TaskSpace Tool section is below the current 46926 bytes per request and shared ordinary Tool overhead is zero.", "evidence_required": "Provider wire trace with per-Tool bytes and estimated tokens."},
+    {"id": "G-10", "requirement": "Simple and complex behavior does not add known regressions.", "evidence_required": "Docker repeat runs with request-level trace audit."},
+    {"id": "G-11", "requirement": "Schema, response manifest, preflight, barrier, dispatch, and commit remain observable.", "evidence_required": "Telemetry contract tests and observer reconciliation."},
+    {"id": "G-12", "requirement": "No taskspace_binding, initialization carrier, legacy parser, or fallback remains.", "evidence_required": "Source scan and negative old-wire test."},
+    {"id": "G-13", "requirement": "Root, work_nodes, and Finish initialization roles remain structurally distinct and multiple initial work nodes are valid.", "evidence_required": "Schema inspection, one-pass multi-work fixture, role-collision negatives, and Docker initialization traces."},
+    {"id": "G-14", "requirement": "TaskSpace subagent handoff and replay do not persist or restore an inconsistent assignment intermediate state.", "evidence_required": "Focused failing spawn regression, parent-child handoff fixture, resume/fork regression, and typed boundary telemetry."},
+    {"id": "G-15", "requirement": "Natural complex runs do not repeatedly reach response-wide multi-Patch rejection or defer Map lifecycle bookkeeping until after business work.", "evidence_required": "Per-policy multi-Patch attempt, zero-dispatch reject, lifecycle cadence, request path, and final Map closure evidence."},
+    {"id": "G-16", "requirement": "The canonical Map survives process restart, resume, fork, child attachment, and rollout truncation through one independently persisted identity.", "evidence_required": "Map Store integration tests, failure injection, same-map revision traces, rollout truncation negatives, and source scan proving no rollout recovery fallback."},
+    {"id": "G-17", "requirement": "Every native ordinary Tool call matches one Agent-declared node_id plus Tool name in response order.", "evidence_required": "Multi-node action-manifest fixtures, count/name/order negatives, raw Tool-result attribution, and zero-dispatch mismatch tests."},
+    {"id": "G-18", "requirement": "Production model, Runtime, projection, event, subagent, and Tool contract contain no canonical current, next, bind, handoff, or singleton main-lease semantics.", "evidence_required": "Repository residue scan, multi-Ready and multi-InFlight property tests, and same-response multi-node execution trace."},
+    {"id": "G-19", "requirement": "Open is not persisted and all lifecycle views are derived deterministically from one set of Store facts.", "evidence_required": "Store schema inspection, property/replay equivalence tests, restart round-trip, and open-state residue scan."},
+    {"id": "G-20", "requirement": "Single-Work, parallel-final-Work, and multi-parent Maps reach terminal closure through one Agent-declared finish_map without a standalone nonterminal completion request.", "evidence_required": "Domain, schema, preflight, integration, restart, and replay tests for final Work completion and terminal rejection paths."},
+    {"id": "G-21", "requirement": "A closed Map continues only through reopen_map with new Work, edges, actions, and matching native sibling Tools while preserving prior terminal and Work facts.", "evidence_required": "Repeated close/reopen Store history, invalid reopen, same-map identity, projection, and source residue tests."}
+  ],
+  "rejected_directions": [
+    {"id": "D-01", "direction": "Change ordinary Tool schema when the Map becomes initialized.", "violates": ["C-06"]},
+    {"id": "D-02", "direction": "Let Runtime create task nodes, goals, edges, or choose the next node.", "violates": ["C-02", "C-08"]},
+    {"id": "D-03", "direction": "Allow central initialize_map to succeed without a following ordinary Tool in the same response.", "violates": ["C-09", "R-17"]},
+    {"id": "D-04", "direction": "Add any TaskSpace binding or lifecycle union to ordinary Tools.", "violates": ["C-05", "C-11", "C-13", "R-16"]},
+    {"id": "D-05", "direction": "Wrap native Tools in a generic nested dispatcher.", "violates": ["C-10", "R-12"]},
+    {"id": "D-06", "direction": "Infer or synthesize action ownership from ordinary Tool arguments, a Store current pointer, Tool content, or heuristic defaults.", "violates": ["C-05", "C-11", "C-18", "R-09"]},
+    {"id": "D-07", "direction": "Use prompt text without response-level preflight as the only initialization or continuity contract.", "violates": ["C-05", "R-08", "R-10"]},
+    {"id": "D-08", "direction": "Relax graph, revision, action-attribution, reservation, or terminal invariants for pass rate.", "violates": ["C-02", "C-08", "C-12"]},
+    {"id": "D-09", "direction": "Inject corrective next-action advice into failure feedback.", "violates": ["C-03", "C-12"]},
+    {"id": "D-10", "direction": "Flatten Root, Work, and Finish into a generic nodes collection plus role-id references to save bytes.", "violates": ["C-05", "C-16", "R-20"]},
+    {"id": "D-11", "direction": "Reconstruct the canonical Map from session rollout checkpoints or deltas, or retain a Session-local authoritative Map copy.", "violates": ["C-01", "C-08", "C-17", "R-23"]},
+    {"id": "D-12", "direction": "Maintain a singleton current binding, next node, or main lease and attribute ordinary actions through that Runtime-owned cursor.", "violates": ["C-02", "C-18", "C-19", "R-24"]},
+    {"id": "D-13", "direction": "Persist Open or any lifecycle state that can be deterministically derived from the same canonical facts.", "violates": ["C-01", "C-19", "R-25"]},
+    {"id": "D-14", "direction": "Delete or reverse a completed Work fact through rework_node after user feedback.", "violates": ["C-21", "R-27"]},
+    {"id": "D-15", "direction": "Require the final Work to complete through a standalone nonterminal request before finish_map.", "violates": ["C-09", "C-20", "R-10", "R-26"]}
+  ]
+}

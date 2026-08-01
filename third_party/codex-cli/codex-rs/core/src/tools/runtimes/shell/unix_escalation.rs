@@ -30,6 +30,7 @@ use codex_hooks::PermissionRequestDecision;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::SandboxErr;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::models::AdditionalPermissionProfile;
@@ -818,7 +819,7 @@ impl ShellCommandExecutor for CoreShellCommandExecutor {
             stderr: result.stderr.text,
             output: result.aggregated_output.text,
             duration: result.duration,
-            timed_out: result.timed_out,
+            timed_out: result.outcome == ExecOutcome::TimedOut,
         })
     }
 
@@ -998,11 +999,17 @@ fn map_exec_result(
 ) -> Result<ExecToolCallOutput, ToolError> {
     let output = ExecToolCallOutput {
         exit_code: result.exit_code,
+        outcome: if result.timed_out {
+            ExecOutcome::TimedOut
+        } else {
+            ExecOutcome::Exited
+        },
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         stdout: StreamOutput::new(result.stdout.clone()),
         stderr: StreamOutput::new(result.stderr.clone()),
         aggregated_output: StreamOutput::new(result.output.clone()),
         duration: result.duration,
-        timed_out: result.timed_out,
     };
 
     if result.timed_out {

@@ -127,7 +127,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
             insert_header(&mut headers, "x-openai-subagent", &subagent);
         }
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
         let stream_response = self
             .session
             .stream_with(
@@ -205,9 +205,9 @@ impl<T: HttpTransport> ResponsesClient<T> {
     }
 }
 
-fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
+pub fn build_chat_completions_body(request: &ResponsesApiRequest) -> Value {
     let mut body = serde_json::Map::new();
-    body.insert("model".to_string(), Value::String(request.model));
+    body.insert("model".to_string(), Value::String(request.model.clone()));
     body.insert("stream".to_string(), Value::Bool(true));
     body.insert(
         "stream_options".to_string(),
@@ -218,23 +218,28 @@ fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
     if !request.instructions.trim().is_empty() {
         messages.push(serde_json::json!({
             "role": "system",
-            "content": request.instructions,
+            "content": request.instructions.clone(),
         }));
     }
-    messages.extend(chat_messages_from_response_items(&request.input));
+    messages.extend(chat_messages_from_response_items(&request.input, true));
     body.insert("messages".to_string(), Value::Array(messages));
 
     let tools = chat_tools_from_responses_tools(&request.tools);
     if !tools.is_empty() {
         body.insert("tools".to_string(), Value::Array(tools));
-        if matches!(request.tool_choice.as_str(), "none" | "auto" | "required") {
+        if let Some(mode) = request.tool_choice.mode() {
+            body.insert("tool_choice".to_string(), Value::String(mode.to_string()));
+        } else if let Some(name) = request.tool_choice.function_name() {
             body.insert(
                 "tool_choice".to_string(),
-                Value::String(request.tool_choice),
+                serde_json::json!({
+                    "type": "function",
+                    "function": { "name": name },
+                }),
             );
         }
     }
-    if let Some(reasoning) = request.reasoning {
+    if let Some(reasoning) = &request.reasoning {
         match reasoning.effort {
             Some(ReasoningEffortConfig::None) => {
                 body.insert(
@@ -407,6 +412,7 @@ fn chat_web_search_function_tool() -> Value {
 mod tests {
     use super::*;
     use crate::common::Reasoning;
+    use codex_protocol::models::ResponseItem;
     use serde_json::json;
 
     fn chat_request(reasoning: Option<Reasoning>) -> ResponsesApiRequest {
@@ -415,7 +421,7 @@ mod tests {
             instructions: String::new(),
             input: Vec::new(),
             tools: Vec::new(),
-            tool_choice: "auto".to_string(),
+            tool_choice: crate::common::ToolChoice::Auto,
             parallel_tool_calls: true,
             reasoning,
             store: false,
@@ -430,7 +436,7 @@ mod tests {
 
     #[test]
     fn chat_completions_body_preserves_official_deepseek_reasoning_effort() {
-        let body = build_chat_completions_body(chat_request(Some(Reasoning {
+        let body = build_chat_completions_body(&chat_request(Some(Reasoning {
             effort: Some(ReasoningEffortConfig::Max),
             summary: None,
         })));
@@ -441,7 +447,7 @@ mod tests {
 
     #[test]
     fn chat_completions_body_can_disable_deepseek_thinking() {
-        let body = build_chat_completions_body(chat_request(Some(Reasoning {
+        let body = build_chat_completions_body(&chat_request(Some(Reasoning {
             effort: Some(ReasoningEffortConfig::None),
             summary: None,
         })));
@@ -455,7 +461,7 @@ mod tests {
         let mut request = chat_request(None);
         request.tools = vec![json!({ "type": "web_search", "external_web_access": true })];
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
 
         assert_eq!(body["tools"][0]["type"], json!("function"));
         assert_eq!(body["tools"][0]["function"]["name"], json!("web_search"));
@@ -479,7 +485,7 @@ mod tests {
             }
         })];
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
 
         assert_eq!(body["tools"][0]["type"], json!("function"));
         assert_eq!(body["tools"][0]["function"]["name"], json!("apply_patch"));
@@ -492,7 +498,7 @@ mod tests {
     #[test]
     fn chat_completions_body_preserves_required_tool_choice() {
         let mut request = chat_request(None);
-        request.tool_choice = "required".to_string();
+        request.tool_choice = crate::common::ToolChoice::Required;
         request.tools = vec![json!({
             "type": "function",
             "name": "shell_command",
@@ -506,8 +512,63 @@ mod tests {
             }
         })];
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
 
         assert_eq!(body["tool_choice"], json!("required"));
+    }
+
+    #[test]
+    fn chat_completions_body_preserves_named_tool_choice() {
+        let mut request = chat_request(None);
+        request.tool_choice = crate::common::ToolChoice::function("taskspace_control");
+        request.tools = vec![json!({
+            "type": "function",
+            "name": "taskspace_control",
+            "description": "Control state",
+            "parameters": { "type": "object", "properties": {} }
+        })];
+
+        let body = build_chat_completions_body(&request);
+
+        assert_eq!(
+            body["tool_choice"],
+            json!({
+                "type": "function",
+                "function": { "name": "taskspace_control" }
+            })
+        );
+    }
+
+    #[test]
+    fn chat_completions_body_keeps_tool_history_shape_stable_across_thinking_modes() {
+        let mut request = chat_request(Some(Reasoning {
+            effort: Some(ReasoningEffortConfig::None),
+            summary: None,
+        }));
+        request.input = vec![
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "taskspace_control".to_string(),
+                namespace: None,
+                arguments: r#"{"action":"initialize_map"}"#.to_string(),
+                call_id: "call_init".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call_init".to_string(),
+                output: codex_protocol::models::FunctionCallOutputPayload::from_text(
+                    "ok".to_string(),
+                ),
+            },
+        ];
+
+        let disabled_body = build_chat_completions_body(&request);
+        request.reasoning = Some(Reasoning {
+            effort: Some(ReasoningEffortConfig::Max),
+            summary: None,
+        });
+        let enabled_body = build_chat_completions_body(&request);
+
+        assert_eq!(disabled_body["messages"], enabled_body["messages"]);
+        assert_eq!(disabled_body["messages"][0]["reasoning_content"], json!(""));
     }
 }

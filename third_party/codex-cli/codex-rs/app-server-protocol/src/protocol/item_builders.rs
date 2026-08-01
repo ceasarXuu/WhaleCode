@@ -82,6 +82,9 @@ pub fn build_command_execution_approval_request_item(
             .collect(),
         aggregated_output: None,
         exit_code: None,
+        outcome: None,
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         duration_ms: None,
     }
 }
@@ -102,6 +105,9 @@ pub fn build_command_execution_begin_item(payload: &ExecCommandBeginEvent) -> Th
             .collect(),
         aggregated_output: None,
         exit_code: None,
+        outcome: None,
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         duration_ms: None,
     }
 }
@@ -128,7 +134,10 @@ pub fn build_command_execution_end_item(payload: &ExecCommandEndEvent) -> Thread
             .map(|parsed| CommandAction::from_core_with_cwd(parsed, &payload.cwd))
             .collect(),
         aggregated_output,
-        exit_code: Some(payload.exit_code),
+        exit_code: payload.shell_exit_code,
+        outcome: Some(payload.outcome),
+        termination_signal: payload.termination_signal,
+        pipeline_stage_exit_codes: payload.pipeline_stage_exit_codes.clone(),
         duration_ms: Some(duration_ms),
     }
 }
@@ -158,6 +167,9 @@ pub fn build_item_from_guardian_event(
                 command_actions,
                 aggregated_output: None,
                 exit_code: None,
+                outcome: None,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: None,
             })
         }
@@ -194,6 +206,9 @@ pub fn build_item_from_guardian_event(
                 command_actions,
                 aggregated_output: None,
                 exit_code: None,
+                outcome: None,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: None,
             })
         }

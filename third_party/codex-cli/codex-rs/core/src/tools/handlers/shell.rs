@@ -90,6 +90,7 @@ struct RunExecLikeArgs {
     call_id: String,
     freeform: bool,
     shell_runtime_backend: ShellRuntimeBackend,
+    implicit_skill: Option<crate::skills::SkillMetadata>,
 }
 
 impl ShellHandler {
@@ -262,6 +263,7 @@ impl ToolHandler for ShellHandler {
                     call_id,
                     freeform: false,
                     shell_runtime_backend: ShellRuntimeBackend::Generic,
+                    implicit_skill: None,
                 })
                 .await
             }
@@ -281,6 +283,7 @@ impl ToolHandler for ShellHandler {
                     call_id,
                     freeform: false,
                     shell_runtime_backend: ShellRuntimeBackend::Generic,
+                    implicit_skill: None,
                 })
                 .await
             }
@@ -368,7 +371,7 @@ impl ToolHandler for ShellCommandHandler {
         let cwd = resolve_workdir_base_path(&arguments, &turn.cwd)?;
         let params: ShellCommandToolCallParams = parse_arguments_with_base_path(&arguments, &cwd)?;
         let workdir = turn.resolve_path(params.workdir.clone());
-        maybe_emit_implicit_skill_invocation(
+        let implicit_skill = maybe_emit_implicit_skill_invocation(
             session.as_ref(),
             turn.as_ref(),
             &params.command,
@@ -397,6 +400,7 @@ impl ToolHandler for ShellCommandHandler {
             call_id,
             freeform: true,
             shell_runtime_backend: self.shell_runtime_backend(),
+            implicit_skill,
         })
         .await
     }
@@ -417,6 +421,7 @@ impl ShellHandler {
             call_id,
             freeform,
             shell_runtime_backend,
+            implicit_skill,
         } = args;
 
         let mut exec_params = exec_params;
@@ -581,6 +586,17 @@ impl ShellHandler {
             )
             .await
             .map(|result| result.output);
+        if let Some(skill) = implicit_skill.as_ref() {
+            let (success, response_bytes) = out.as_ref().map_or((false, 0), |output| {
+                (output.exit_code == 0, output.aggregated_output.text.len())
+            });
+            crate::taskspace_skill::log_agent_file_read(
+                &turn.turn_skills.outcome,
+                skill,
+                success,
+                response_bytes,
+            );
+        }
         let event_ctx = ToolEventCtx::new(
             session.as_ref(),
             turn.as_ref(),
@@ -588,9 +604,7 @@ impl ShellHandler {
             /*turn_diff_tracker*/ None,
         );
         let artifact_ref = match out.as_ref() {
-            Ok(output) => {
-                write_shell_output_artifact_and_trace(&session, &turn, &call_id, output).await
-            }
+            Ok(output) => write_shell_output_artifact(&session, output).await,
             Err(_) => None,
         };
         let post_tool_use_response = out
@@ -617,10 +631,8 @@ impl ShellHandler {
     }
 }
 
-async fn write_shell_output_artifact_and_trace(
+async fn write_shell_output_artifact(
     session: &Arc<crate::session::session::Session>,
-    turn: &Arc<TurnContext>,
-    call_id: &str,
     output: &codex_protocol::exec_output::ExecToolCallOutput,
 ) -> Option<String> {
     let raw_output = output.aggregated_output.text.as_bytes();
@@ -639,22 +651,6 @@ async fn write_shell_output_artifact_and_trace(
                 return None;
             }
         };
-    if let Some(ref artifact_ref) = artifact_ref {
-        session
-            .record_action_map_output_ref_trace_event(
-                turn.as_ref(),
-                "output_ref.created",
-                Some(call_id.to_string()),
-                artifact_ref.clone(),
-                vec![
-                    "output_ref".to_string(),
-                    "created".to_string(),
-                    "shell_command".to_string(),
-                    format!("bytes:{}", raw_output.len()),
-                ],
-            )
-            .await;
-    }
     artifact_ref
 }
 

@@ -21,6 +21,7 @@ use codex_apply_patch::ApplyPatchAction;
 use codex_exec_server::FileSystemSandboxContext;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::SandboxErr;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::models::AdditionalPermissionProfile;
@@ -249,11 +250,13 @@ impl ToolRuntime<ApplyPatchRequest, ExecToolCallOutput> for ApplyPatchRuntime {
         let exit_code = if result.is_ok() { 0 } else { 1 };
         let output = ExecToolCallOutput {
             exit_code,
+            outcome: ExecOutcome::Exited,
+            termination_signal: None,
+            pipeline_stage_exit_codes: None,
             stdout: StreamOutput::new(stdout.clone()),
             stderr: StreamOutput::new(stderr.clone()),
             aggregated_output: StreamOutput::new(format!("{stdout}{stderr}")),
             duration: started_at.elapsed(),
-            timed_out: false,
         };
         if result.is_err() && is_likely_sandbox_denied(attempt.sandbox, &output) {
             return Err(ToolError::Codex(CodexErr::Sandbox(SandboxErr::Denied {

@@ -144,8 +144,6 @@ pub enum Feature {
     Collab,
     /// Enable task-path-based multi-agent routing.
     MultiAgentV2,
-    /// Expose the compact TaskSpace control schema for active-profile benchmarking.
-    TaskSpaceCompactToolSchema,
     /// Enable CSV-backed agent job tools.
     SpawnCsv,
     /// Enable apps.
@@ -829,12 +827,6 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::MultiAgentV2,
         key: "multi_agent_v2",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::TaskSpaceCompactToolSchema,
-        key: "taskspace_compact_tool_schema",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },

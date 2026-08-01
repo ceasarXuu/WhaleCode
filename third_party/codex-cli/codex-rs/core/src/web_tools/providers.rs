@@ -672,10 +672,10 @@ fn missing_search_secret(
     }
 }
 
-fn required_search_secret<'a>(
+fn required_search_secret(
     provider: WebSearchProvider,
-    request: &'a SearchRequest,
-) -> Option<(&'static str, &'a str)> {
+    request: &SearchRequest,
+) -> Option<(&'static str, &str)> {
     match provider {
         WebSearchProvider::Brave => Some(("brave", request.brave_api_key_env.as_str())),
         WebSearchProvider::Exa => Some(("exa", request.exa_api_key_env.as_str())),

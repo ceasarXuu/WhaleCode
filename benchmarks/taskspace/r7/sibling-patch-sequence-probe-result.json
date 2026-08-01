@@ -1,0 +1,59 @@
+{
+  "schema_version": "r7-sibling-patch-sequence-diagnosis-v1",
+  "status": "repair_candidate_supported_runtime_validation_pending",
+  "model": "deepseek-v4-flash",
+  "transport": "non_streaming_chat_completions",
+  "repeat_per_arm": 6,
+  "arms": [
+    {
+      "arm": "direct_only",
+      "expected_call_names_match": 6,
+      "patch_json_valid": 6,
+      "patch_exact": 6,
+      "artifact": "target/r7-sibling-patch-sequence-probe/20260719-124749-000/provider-capability.json"
+    },
+    {
+      "arm": "direct_with_control_visible",
+      "expected_call_names_match": 6,
+      "patch_json_valid": 6,
+      "patch_exact": 5,
+      "artifact": "target/r7-sibling-patch-sequence-probe/20260719-124704-802/provider-capability.json"
+    },
+    {
+      "arm": "sibling_control_first",
+      "expected_call_names_match": 5,
+      "patch_json_valid": 5,
+      "patch_exact": 2,
+      "artifact": "target/r7-sibling-patch-sequence-probe/20260719-124344-636/provider-capability.json"
+    },
+    {
+      "arm": "sibling_patch_first",
+      "expected_call_names_match": 6,
+      "patch_json_valid": 6,
+      "patch_exact": 0,
+      "artifact": "target/r7-sibling-patch-sequence-probe/20260719-124804-632/provider-capability.json"
+    },
+    {
+      "arm": "sibling_minimal_control",
+      "expected_call_names_match": 6,
+      "patch_json_valid": 6,
+      "patch_exact": 6,
+      "artifact": "target/r7-sibling-patch-sequence-probe/20260719-124758-444/provider-capability.json"
+    },
+    {
+      "arm": "sibling_lean_control",
+      "expected_call_names_match": 5,
+      "patch_json_valid": 5,
+      "patch_exact": 5,
+      "artifact": "target/r7-sibling-patch-sequence-probe/20260719-125013-608/provider-capability.json"
+    }
+  ],
+  "verdicts": {
+    "multiple_calls_alone_cause_patch_corruption": false,
+    "full_taskspace_control_schema_reduces_patch_fidelity": true,
+    "minimal_control_preserves_same_request_and_patch_fidelity": true,
+    "lean_production_shaped_control_preserves_emitted_patch_fidelity": true,
+    "lean_control_always_emits_declared_sibling_patch": false,
+    "runtime_preflight_required_before_any_execution": true
+  }
+}

@@ -5169,13 +5169,15 @@ impl ChatWidget {
         // instead render the interaction-specific content elsewhere in the UI.
         let output = if is_unified_exec_interaction {
             CommandOutput {
-                exit_code: ev.exit_code,
+                shell_exit_code: ev.shell_exit_code,
+                outcome: ev.outcome,
                 formatted_output: String::new(),
                 aggregated_output: String::new(),
             }
         } else {
             CommandOutput {
-                exit_code: ev.exit_code,
+                shell_exit_code: ev.shell_exit_code,
+                outcome: ev.outcome,
                 formatted_output: ev.formatted_output.clone(),
                 aggregated_output: ev.aggregated_output.clone(),
             }
@@ -6721,6 +6723,9 @@ impl ChatWidget {
                 command_actions,
                 aggregated_output,
                 exit_code,
+                outcome,
+                termination_signal,
+                pipeline_stage_exit_codes,
                 duration_ms,
             } => {
                 if matches!(
@@ -6742,6 +6747,13 @@ impl ChatWidget {
                     });
                 } else {
                     let aggregated_output = aggregated_output.unwrap_or_default();
+                    let Some(outcome) = outcome else {
+                        warn!(
+                            call_id = id,
+                            "completed command execution item is missing its mechanical outcome"
+                        );
+                        return;
+                    };
                     self.on_exec_command_end(ExecCommandEndEvent {
                         call_id: id,
                         process_id,
@@ -6757,7 +6769,10 @@ impl ChatWidget {
                         stdout: String::new(),
                         stderr: String::new(),
                         aggregated_output: aggregated_output.clone(),
-                        exit_code: exit_code.unwrap_or_default(),
+                        shell_exit_code: exit_code,
+                        outcome,
+                        termination_signal,
+                        pipeline_stage_exit_codes,
                         duration: Duration::from_millis(
                             duration_ms.unwrap_or_default().max(0) as u64
                         ),

@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "baseline_id": "r6-phase-a",
+  "status": "frozen_pre_run",
+  "model": "deepseek-v4-flash",
+  "execution_substrate": "docker_hard_boundary",
+  "repeats_per_arm": 1,
+  "aggregate_utility_allowed": false,
+  "r5": {
+    "freeze_commit": "d12818f055494e510c6bd1d34f5b7b5154536471",
+    "runtime_commit": "080ed60804d9e73e70cf5f7e1f16a494aec8bda3",
+    "binary_path": "target/r5-map-compression/s4.2/bin/whale",
+    "binary_sha256": "c91b4a2a5d3b8e51bd6b66fcd2749e0e702bd00bc0f0818cf4226fe62b329b7a",
+    "attestation_path": "target/r5-map-compression/s4.2/bin/whale.build-attestation.json"
+  },
+  "arms": [
+    {
+      "id": "standard",
+      "logical_mode": "standard",
+      "source": "r5_fixed_binary",
+      "provider_execution": true
+    },
+    {
+      "id": "r5",
+      "logical_mode": "taskspace",
+      "source": "r5_fixed_binary",
+      "provider_execution": true
+    },
+    {
+      "id": "r6_a0",
+      "logical_mode": "taskspace",
+      "source": "r5_code_identity",
+      "provider_execution": false,
+      "reason": "phase_a_has_no_production_behavior_change"
+    }
+  ],
+  "r6_a0_identity": {
+    "base_commit": "d12818f055494e510c6bd1d34f5b7b5154536471",
+    "policy": "no_duplicate_provider_run_for_code_identical_arm",
+    "production_paths": [
+      "third_party/codex-cli/codex-rs/core",
+      "third_party/codex-cli/codex-rs/protocol",
+      "third_party/codex-cli/codex-rs/tools",
+      "third_party/codex-cli/codex-rs/app-server",
+      "third_party/codex-cli/codex-rs/tui"
+    ],
+    "required_diff_count": 0,
+    "first_independent_live_arm": "phase_c"
+  },
+  "scenarios": [
+    {
+      "slot": "simple",
+      "scenario_id": "single-file-fast-fix",
+      "scenario_path": "benchmarks/taskspace/scenarios/single-file-fast-fix/scenario.json",
+      "run_root": "target/r6-phase-a-baseline/simple"
+    },
+    {
+      "slot": "branch_join_observation",
+      "scenario_id": "multi-file-order-pipeline",
+      "scenario_path": "benchmarks/taskspace/scenarios/multi-file-order-pipeline/scenario.json",
+      "run_root": "target/r6-phase-a-baseline/branch-join"
+    }
+  ],
+  "runtime": {
+    "container_contract": "benchmarks/taskspace/container-runtime-contract.json",
+    "docker_image_cache": true,
+    "timeout_seconds": 900,
+    "validation_timeout_seconds": 420,
+    "reasoning_effort": "max",
+    "secret_source": ".env.local",
+    "secret_artifact_policy": "temporary_read_only_mount_only"
+  },
+  "required_evidence": [
+    "logical_mode_map",
+    "binary_attestation",
+    "container_runtime_manifest",
+    "rollout",
+    "provider_wire_trace",
+    "metrics",
+    "public_validation",
+    "hidden_oracle",
+    "performance_observation",
+    "map_health"
+  ],
+  "report_metrics": [
+    "result",
+    "provider_requests",
+    "runtime_tools",
+    "control_calls",
+    "failed_tools",
+    "input_tokens",
+    "cached_input_tokens",
+    "uncached_input_tokens",
+    "output_tokens",
+    "wall_time_ms",
+    "request_2_plus_cache_hit_rate",
+    "map_nodes",
+    "map_edges",
+    "open_leaf_nodes"
+  ],
+  "interpretation_limits": [
+    "single_run_is_diagnostic_not_utility_aggregate",
+    "branch_join_is_observed_not_prompted",
+    "zero_edges_is_not_a_phase_a_runtime_failure",
+    "r6_a0_reuses_r5_only_when_production_diff_is_zero",
+    "no_compression_benefit_claim"
+  ]
+}

@@ -1,15 +1,43 @@
+// This module reconstructs provider history and TaskSpace context events only.
+// The canonical Map aggregate is loaded from Map Store before this code runs and
+// must never be restored, replaced, or derived from rollout items here.
+
 use super::*;
+use crate::action_map::TaskSpaceEventStore;
 use crate::context_manager::is_user_turn_boundary;
+use std::fmt;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RolloutReconstructionError {
+    pub(super) phase: &'static str,
+    pub(super) message: String,
+}
+
+impl RolloutReconstructionError {
+    fn new(phase: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            phase,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for RolloutReconstructionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}: {}", self.phase, self.message)
+    }
+}
+
+impl std::error::Error for RolloutReconstructionError {}
 
 // Return value of `Session::reconstruct_history_from_rollout`, bundling the rebuilt history with
 // the resume/fork hydration metadata derived from the same replay.
 #[derive(Debug)]
 pub(super) struct RolloutReconstruction {
     pub(super) history: Vec<ResponseItem>,
+    pub(super) taskspace_events: Vec<TaskSpaceEvent>,
     pub(super) previous_turn_settings: Option<PreviousTurnSettings>,
     pub(super) reference_context_item: Option<TurnContextItem>,
-    pub(super) map_runtime_mode: MapRuntimeMode,
-    pub(super) map_runtime_snapshot: Option<ActionMapSnapshot>,
 }
 
 #[derive(Debug, Default)]
@@ -35,6 +63,7 @@ struct ActiveReplaySegment<'a> {
     previous_turn_settings: Option<PreviousTurnSettings>,
     reference_context_item: TurnReferenceContextItem,
     base_replacement_history: Option<&'a [ResponseItem]>,
+    replacement_history_suffix_start: Option<usize>,
 }
 
 fn turn_ids_are_compatible(active_turn_id: Option<&str>, item_turn_id: Option<&str>) -> bool {
@@ -45,6 +74,7 @@ fn turn_ids_are_compatible(active_turn_id: Option<&str>, item_turn_id: Option<&s
 fn finalize_active_segment<'a>(
     active_segment: ActiveReplaySegment<'a>,
     base_replacement_history: &mut Option<&'a [ResponseItem]>,
+    rollout_suffix_start: &mut usize,
     previous_turn_settings: &mut Option<PreviousTurnSettings>,
     reference_context_item: &mut TurnReferenceContextItem,
     pending_rollback_turns: &mut usize,
@@ -65,6 +95,10 @@ fn finalize_active_segment<'a>(
         && let Some(segment_base_replacement_history) = active_segment.base_replacement_history
     {
         *base_replacement_history = Some(segment_base_replacement_history);
+        *rollout_suffix_start = match active_segment.replacement_history_suffix_start {
+            Some(suffix_start) => suffix_start,
+            None => panic!("replacement history checkpoint is missing its rollout suffix"),
+        };
     }
 
     // `previous_turn_settings` come from the newest surviving user turn that established them.
@@ -86,11 +120,22 @@ fn finalize_active_segment<'a>(
 }
 
 impl Session {
+    #[cfg(test)]
     pub(super) async fn reconstruct_history_from_rollout(
         &self,
         turn_context: &TurnContext,
         rollout_items: &[RolloutItem],
     ) -> RolloutReconstruction {
+        self.try_reconstruct_history_from_rollout(turn_context, rollout_items)
+            .await
+            .expect("test rollout must be valid")
+    }
+
+    pub(super) async fn try_reconstruct_history_from_rollout(
+        &self,
+        turn_context: &TurnContext,
+        rollout_items: &[RolloutItem],
+    ) -> Result<RolloutReconstruction, RolloutReconstructionError> {
         // Replay metadata should already match the shape of the future lazy reverse loader, even
         // while history materialization still uses an eager bridge. Scan newest-to-oldest,
         // stopping once a surviving replacement-history checkpoint and the required resume metadata
@@ -102,25 +147,9 @@ impl Session {
         // Rollback is "drop the newest N user turns". While scanning in reverse, that becomes
         // "skip the next N user-turn segments we finalize".
         let mut pending_rollback_turns = 0usize;
-        let map_runtime_mode = rollout_items
-            .iter()
-            .rev()
-            .find_map(|item| match item {
-                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(
-                    event,
-                ))) => Some(event.current_mode),
-                _ => None,
-            })
-            .unwrap_or_default();
-        let map_runtime_snapshot = rollout_items.iter().rev().find_map(|item| match item {
-            RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-                event,
-            ))) => Some(event.snapshot.clone()),
-            _ => None,
-        });
         // Borrowed suffix of rollout items newer than the newest surviving replacement-history
         // checkpoint. If no such checkpoint exists, this remains the full rollout.
-        let mut rollout_suffix = rollout_items;
+        let mut rollout_suffix_start = 0usize;
         // Reverse replay accumulates rollout items into the newest in-progress turn segment until
         // we hit its matching `TurnStarted`, at which point the segment can be finalized.
         let mut active_segment: Option<ActiveReplaySegment<'_>> = None;
@@ -142,12 +171,24 @@ impl Session {
                         && let Some(replacement_history) = &compacted.replacement_history
                     {
                         active_segment.base_replacement_history = Some(replacement_history);
-                        rollout_suffix = &rollout_items[index + 1..];
+                        active_segment.replacement_history_suffix_start = Some(index + 1);
                     }
                 }
                 RolloutItem::EventMsg(EventMsg::ThreadRolledBack(rollback)) => {
                     pending_rollback_turns = pending_rollback_turns
                         .saturating_add(usize::try_from(rollback.num_turns).unwrap_or(usize::MAX));
+                }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextEventRecorded(event),
+                )) if event.event_type == "compaction" => {
+                    let active_segment =
+                        active_segment.get_or_insert_with(ActiveReplaySegment::default);
+                    if matches!(
+                        active_segment.reference_context_item,
+                        TurnReferenceContextItem::NeverSet
+                    ) {
+                        active_segment.reference_context_item = TurnReferenceContextItem::Cleared;
+                    }
                 }
                 RolloutItem::EventMsg(EventMsg::TurnComplete(event)) => {
                     let active_segment =
@@ -214,6 +255,7 @@ impl Session {
                         finalize_active_segment(
                             active_segment,
                             &mut base_replacement_history,
+                            &mut rollout_suffix_start,
                             &mut previous_turn_settings,
                             &mut reference_context_item,
                             &mut pending_rollback_turns,
@@ -227,22 +269,13 @@ impl Session {
                 }
                 RolloutItem::EventMsg(_) | RolloutItem::SessionMeta(_) => {}
             }
-
-            if base_replacement_history.is_some()
-                && previous_turn_settings.is_some()
-                && !matches!(reference_context_item, TurnReferenceContextItem::NeverSet)
-            {
-                // At this point we have both eager resume metadata values and the replacement-
-                // history base for the surviving tail, so older rollout items cannot affect this
-                // result.
-                break;
-            }
         }
 
         if let Some(active_segment) = active_segment.take() {
             finalize_active_segment(
                 active_segment,
                 &mut base_replacement_history,
+                &mut rollout_suffix_start,
                 &mut previous_turn_settings,
                 &mut reference_context_item,
                 &mut pending_rollback_turns,
@@ -250,6 +283,8 @@ impl Session {
         }
 
         let mut history = ContextManager::new();
+        let mut taskspace_events = Vec::new();
+        let mut taskspace_context_active = false;
         let mut saw_legacy_compaction_without_replacement_history = false;
         if let Some(base_replacement_history) = base_replacement_history {
             history.replace(base_replacement_history.to_vec());
@@ -257,15 +292,20 @@ impl Session {
         // Materialize exact history semantics from the replay-derived suffix. The eventual lazy
         // design should keep this same replay shape, but drive it from a resumable reverse source
         // instead of an eagerly loaded `&[RolloutItem]`.
-        for item in rollout_suffix {
+        for item in &rollout_items[rollout_suffix_start..] {
             match item {
                 RolloutItem::ResponseItem(response_item) => {
-                    history.record_items(
-                        std::iter::once(response_item),
-                        turn_context.truncation_policy,
-                    );
+                    if !taskspace_context_active {
+                        history.record_items(
+                            std::iter::once(response_item),
+                            turn_context.truncation_policy,
+                        );
+                    }
                 }
                 RolloutItem::Compacted(compacted) => {
+                    if taskspace_context_active {
+                        continue;
+                    }
                     if let Some(replacement_history) = &compacted.replacement_history {
                         // This should actually never happen, because the reverse loop above (to build rollout_suffix)
                         // should stop before any compaction that has Some replacement_history
@@ -290,7 +330,76 @@ impl Session {
                     }
                 }
                 RolloutItem::EventMsg(EventMsg::ThreadRolledBack(rollback)) => {
-                    history.drop_last_n_user_turns(rollback.num_turns);
+                    if taskspace_context_active {
+                        let mut store =
+                            TaskSpaceEventStore::restore(taskspace_events).map_err(|error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_rollback_restore",
+                                    error.to_string(),
+                                )
+                            })?;
+                        store.drop_last_n_user_turns(rollback.num_turns);
+                        taskspace_events = store.events().to_vec();
+                    } else {
+                        history.drop_last_n_user_turns(rollback.num_turns);
+                    }
+                }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextOwnershipChanged(event),
+                )) => {
+                    if event.active {
+                        taskspace_events = event
+                            .events
+                            .iter()
+                            .cloned()
+                            .map(TaskSpaceEvent::from_protocol)
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(|error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_ownership_checkpoint",
+                                    error.to_string(),
+                                )
+                            })?;
+                        TaskSpaceEventStore::restore(taskspace_events.clone()).map_err(
+                            |error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_ownership_checkpoint",
+                                    error.to_string(),
+                                )
+                            },
+                        )?;
+                        history.replace(Vec::new());
+                        taskspace_context_active = true;
+                    } else {
+                        let mut store =
+                            TaskSpaceEventStore::restore(taskspace_events).map_err(|error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_ownership_checkpoint",
+                                    error.to_string(),
+                                )
+                            })?;
+                        history.replace(store.take_linearized());
+                        taskspace_events = Vec::new();
+                        taskspace_context_active = false;
+                    }
+                }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextEventRecorded(event),
+                )) if taskspace_context_active => {
+                    taskspace_events.push(TaskSpaceEvent::from_protocol(event.clone()).map_err(
+                        |error| {
+                            RolloutReconstructionError::new(
+                                "taskspace_event_sequence",
+                                error.to_string(),
+                            )
+                        },
+                    )?);
+                    TaskSpaceEventStore::restore(taskspace_events.clone()).map_err(|error| {
+                        RolloutReconstructionError::new(
+                            "taskspace_event_sequence",
+                            error.to_string(),
+                        )
+                    })?;
                 }
                 RolloutItem::EventMsg(_)
                 | RolloutItem::TurnContext(_)
@@ -310,12 +419,11 @@ impl Session {
             reference_context_item
         };
 
-        RolloutReconstruction {
+        Ok(RolloutReconstruction {
             history: history.raw_items().to_vec(),
+            taskspace_events,
             previous_turn_settings,
             reference_context_item,
-            map_runtime_mode,
-            map_runtime_snapshot,
-        }
+        })
     }
 }

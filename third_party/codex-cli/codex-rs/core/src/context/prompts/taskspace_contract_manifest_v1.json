@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "schema_path": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json",
+  "contract_id": "r7-taskspace-five-layer-production-v1",
+  "manifest_version": "1.0.48",
+  "contract_status": "production_active",
+  "runtime_status_enum": [
+    "selected_not_active",
+    "active",
+    "repair_active",
+    "result_repair_active_projection_baseline",
+    "carrier_active_projection_baseline",
+    "carrier_repair_active",
+    "carrier_result_repair_active_projection_baseline"
+  ],
+  "activation_through": "W0 evidence authority repair",
+  "source_authority": {
+    "contract_id": "r7-five-layer-contract-authority-v1",
+    "path": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json",
+    "sha256": "53153e992a7074dd942374e4649d2ce571190ba862f6b1be08daea8fe9b35c28"
+  },
+  "compatibility_policy": "none",
+  "wire_order": {
+    "deepseek_chat": [
+      "L1",
+      "L2",
+      "other_developer_sections_and_L3_catalog",
+      "natural_history_and_loaded_L3",
+      "L4",
+      "L5"
+    ]
+  },
+  "layers": [
+    {
+      "id": "L1",
+      "owner": "base_instructions_profile",
+      "carrier": "first_system_message",
+      "runtime_status": "active",
+      "selected_targets": [
+        {
+          "artifact": "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md",
+          "sha256": "0f92283e162a2c4cc2021ac8a89be458a37616b3ff82b3876807918a02cb89fd",
+          "activation_phase": "FLA-2"
+        }
+      ]
+    },
+    {
+      "id": "L2",
+      "owner": "taskspace_contract",
+      "carrier": "stable_developer_bundle_first_section",
+      "runtime_status": "active",
+      "selected_targets": [
+        {
+          "artifact": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v3.md",
+          "sha256": "45a013c2ce2b68d78b8dc8b01c7fd84b0965342c9b1fd61336854ece23672a14",
+          "activation_phase": "A2-C Agent-visible execution contract repair"
+        }
+      ]
+    },
+    {
+      "id": "L3",
+      "owner": "bundled_skill_registry",
+      "carrier": "skill_catalog_and_explicit_load",
+      "runtime_status": "active",
+      "selected_targets": [
+        {
+          "artifact": "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md",
+          "sha256": "a6f93fce96f7763ab3c36cb192091a908d744c1ad44ed26f6b4f5adf3422d5b1",
+          "activation_phase": "FLA-3"
+        }
+      ]
+    },
+    {
+      "id": "L4",
+      "owner": "taskspace_tool",
+      "carrier": "provider_tools",
+      "runtime_status": "active",
+      "selected_targets": [
+        {
+          "artifact": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+          "sha256": "657105bf9fba6d25e2e8fdbeb4284935150ce6626317ca04350df6023e0d4851",
+          "activation_phase": "A2-C optional mutations, provider identity, ownership, and single-Patch contract",
+          "sequence_preflight": "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs"
+        }
+      ]
+    },
+    {
+      "id": "L5",
+      "owner": "taskspace_runtime",
+      "carrier": "tool_result_and_projection",
+      "runtime_status": "active",
+      "selected_targets": [
+        {
+          "artifact": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
+          "sha256": "b126aad1c514823aa57b77d36a635e04b7768e11381e327b4e658d416ef24437",
+          "activation_phase": "W0 trusted provider-response failure carrier"
+        },
+        {
+          "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
+          "sha256": "440c4089c669d64004268aab3886f52f4cd16a79ff68cb1a972ca898db023cc3",
+          "activation_phase": "A2-B2.5 current terminal and terminal history projection"
+        },
+        {
+          "artifact": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "sha256": "11e4378aa87ab7cc7e79e2c59ccb7e6c7c70232577c1fb17c01dc4cfa5669aa2",
+          "activation_phase": "W0 exact failure provenance and trusted supplemental carrier"
+        },
+        {
+          "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v3.contract.json",
+          "sha256": "ce4d045253a4593adce831e2b2432d2d791ea24caf9c1819242dd3e5bb1c0890",
+          "activation_phase": "A2-C prepare and response-final factual result contract"
+        },
+        {
+          "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json",
+          "sha256": "1370322dac73bab51ed1d2b78738bed28af1e37140a968a58ddd0964f5a13847",
+          "activation_phase": "A2-B2.5 close, reopen, terminal history, restart, and replay"
+        }
+      ]
+    }
+  ]
+}

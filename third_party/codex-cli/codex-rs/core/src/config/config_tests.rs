@@ -65,6 +65,7 @@ use codex_protocol::permissions::FileSystemSpecialPath;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::RealtimeVoice;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use serde::Deserialize;
 use tempfile::tempdir;
 
@@ -2392,14 +2393,14 @@ async fn responses_websocket_features_do_not_change_wire_api() -> std::io::Resul
         )
         .await?;
 
-        assert_eq!(config.model_provider.wire_api, WireApi::ChatCompletions);
+        assert_eq!(config.model_provider.wire_api, WireApi::Responses);
     }
 
     Ok(())
 }
 
 #[tokio::test]
-async fn defaults_to_deepseek_pro_provider() -> std::io::Result<()> {
+async fn defaults_to_deepseek_flash_responses_provider() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let config = Config::load_from_base_config_with_overrides(
         ConfigToml::default(),
@@ -2409,8 +2410,8 @@ async fn defaults_to_deepseek_pro_provider() -> std::io::Result<()> {
     .await?;
 
     assert_eq!(config.model_provider_id, "deepseek");
-    assert_eq!(config.model.as_deref(), Some("deepseek-v4-pro"));
-    assert_eq!(config.model_provider.wire_api, WireApi::ChatCompletions);
+    assert_eq!(config.model.as_deref(), Some("deepseek-v4-flash"));
+    assert_eq!(config.model_provider.wire_api, WireApi::Responses);
 
     Ok(())
 }
@@ -5361,6 +5362,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
     assert_eq!(
         Config {
             model: Some("o3".to_string()),
+            taskspace_projection_policy: None,
             review_model: None,
             model_context_window: None,
             model_auto_compact_token_limit: None,
@@ -5387,10 +5389,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             cwd: fixture.cwd(),
             cli_auth_credentials_store_mode: Default::default(),
             mcp_servers: Constrained::allow_any(HashMap::new()),
-            mcp_oauth_credentials_store_mode: resolve_mcp_oauth_credentials_store_mode(
-                Default::default(),
-                LOCAL_DEV_BUILD_VERSION,
-            ),
+            mcp_oauth_credentials_store_mode: OAuthCredentialsStoreMode::Auto,
             mcp_oauth_callback_port: None,
             mcp_oauth_callback_url: None,
             model_providers: fixture.model_provider_map.clone(),
@@ -5558,6 +5557,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
     .await?;
     let expected_gpt3_profile_config = Config {
         model: Some("gpt-3.5-turbo".to_string()),
+        taskspace_projection_policy: None,
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
@@ -5584,10 +5584,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         cwd: fixture.cwd(),
         cli_auth_credentials_store_mode: Default::default(),
         mcp_servers: Constrained::allow_any(HashMap::new()),
-        mcp_oauth_credentials_store_mode: resolve_mcp_oauth_credentials_store_mode(
-            Default::default(),
-            LOCAL_DEV_BUILD_VERSION,
-        ),
+        mcp_oauth_credentials_store_mode: OAuthCredentialsStoreMode::Auto,
         mcp_oauth_callback_port: None,
         mcp_oauth_callback_url: None,
         model_providers: fixture.model_provider_map.clone(),
@@ -5709,6 +5706,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
     .await?;
     let expected_zdr_profile_config = Config {
         model: Some("o3".to_string()),
+        taskspace_projection_policy: None,
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
@@ -5735,10 +5733,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         cwd: fixture.cwd(),
         cli_auth_credentials_store_mode: Default::default(),
         mcp_servers: Constrained::allow_any(HashMap::new()),
-        mcp_oauth_credentials_store_mode: resolve_mcp_oauth_credentials_store_mode(
-            Default::default(),
-            LOCAL_DEV_BUILD_VERSION,
-        ),
+        mcp_oauth_credentials_store_mode: OAuthCredentialsStoreMode::Auto,
         mcp_oauth_callback_port: None,
         mcp_oauth_callback_url: None,
         model_providers: fixture.model_provider_map.clone(),
@@ -5845,6 +5840,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
     .await?;
     let expected_gpt5_profile_config = Config {
         model: Some("gpt-5.4".to_string()),
+        taskspace_projection_policy: None,
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
@@ -5871,10 +5867,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         cwd: fixture.cwd(),
         cli_auth_credentials_store_mode: Default::default(),
         mcp_servers: Constrained::allow_any(HashMap::new()),
-        mcp_oauth_credentials_store_mode: resolve_mcp_oauth_credentials_store_mode(
-            Default::default(),
-            LOCAL_DEV_BUILD_VERSION,
-        ),
+        mcp_oauth_credentials_store_mode: OAuthCredentialsStoreMode::Auto,
         mcp_oauth_callback_port: None,
         mcp_oauth_callback_url: None,
         model_providers: fixture.model_provider_map.clone(),
@@ -7840,4 +7833,30 @@ fn test_tui_notification_condition_rejects_unknown_value() {
             && err.contains("always"),
         "unexpected error: {err}"
     );
+}
+
+#[tokio::test]
+async fn phase_d_accepts_all_projection_policies() -> std::io::Result<()> {
+    for policy in [
+        TaskSpaceProjectionPolicy::MapAlways,
+        TaskSpaceProjectionPolicy::MapAppend,
+        TaskSpaceProjectionPolicy::MapRequest,
+    ] {
+        let fixture = create_test_fixture()?;
+        let mut cfg = fixture.cfg.clone();
+        cfg.taskspace_projection_policy = Some(policy);
+
+        let loaded = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(fixture.cwd_path()),
+                ..Default::default()
+            },
+            fixture.codex_home(),
+        )
+        .await?;
+
+        assert_eq!(loaded.taskspace_projection_policy, Some(policy));
+    }
+    Ok(())
 }

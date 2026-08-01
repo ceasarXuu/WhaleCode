@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
+. (Join-Path $PSScriptRoot "..\cache-regression\verify-cache-regression-evidence.ps1")
 
 function Read-ReleaseJson {
     param([string]$Path)
@@ -678,6 +679,16 @@ $derivedBlockedByBudgetCount = @($validBudgetQualityImpactEvents | Where-Object 
 $derivedManualOverrideCount = @($validBudgetQualityImpactEvents | Where-Object {
         Get-ReleaseBool $_ "manual_override_used"
     }).Count
+$forbiddenBudgetActions = @(
+    "hard_stop",
+    "node_budget_block",
+    "spawn_budget_block",
+    "provider_request_budget_exhausted",
+    "blocked_by_budget"
+)
+$derivedForbiddenBudgetActionCount = @($validBudgetQualityImpactEvents | Where-Object {
+        $forbiddenBudgetActions -contains [string]$_.budget_action
+    }).Count
 $budgetQualityImpactSummaryMatchesEvents = ($budgetQualityImpactSummary `
     -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_validation_skip_count" 0) -eq $derivedBudgetValidationSkipCount `
     -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_score_ineligible_solved_count" 0) -eq $derivedBudgetScoreIneligibleSolvedCount `
@@ -695,7 +706,8 @@ $budgetQualityImpactPass = ($budgetQualityImpactSummary `
     -and $derivedBudgetValidationSkipCount -eq 0 `
     -and $derivedBudgetScoreIneligibleSolvedCount -eq 0 `
     -and $derivedBlockedByBudgetCount -eq 0 `
-    -and $derivedManualOverrideCount -eq 0)
+    -and $derivedManualOverrideCount -eq 0 `
+    -and $derivedForbiddenBudgetActionCount -eq 0)
 $requestPhasePass = ($requestPhaseSummary `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_hook_coverage" 0) -ge 99 `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_terminal_coverage" 0) -ge 99 `
@@ -718,7 +730,14 @@ $activeReplacementRequestId = Get-ReleaseString $activeReplacement "request_id"
 $activeReplacementPayloadHash = Get-ReleaseString $activeReplacement "provider_payload_sha256"
 $matchingExactScanEvents = @($exactPayloadScanEvents | Where-Object {
         [string]$_.schema_version -eq "taskspace-exact-payload-scan-event-v1" -and
+        ([string]$_.producer -eq "provider_payload_scanner" -or [string]$_.producer -eq "provider_lifecycle") -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.scanner_version) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.matcher_version) -and
         [bool]$_.passed -and
+        [bool]$_.active_projection_present -and
+        [int]$_.large_raw_output_tokens -eq 0 -and
+        ([string]$_.runtime_boundary_forbidden_markers -in @("", "none")) -and
+        [bool]$_.protected_items_present -and
         [string]$_.scan_event_id -eq $activeReplacementScanId -and
         [string]$_.provider_payload_sha256 -eq $activeReplacementPayloadHash -and
         (-not [string]::IsNullOrWhiteSpace($activeReplacementRequestId) -and [string]$_.request_id -eq $activeReplacementRequestId)
@@ -737,8 +756,9 @@ $activeReplacementPass = ($activeReplacement `
     -and (Get-ReleaseBool $activeReplacement "exact_payload_scan_passed") `
     -and -not [string]::IsNullOrWhiteSpace($activeReplacementScanId) `
     -and (Get-ReleaseBool $activeReplacement "replacement_confirmed") `
-    -and -not (Get-ReleaseBool $activeReplacement "legacy_taskspace_history_present" $true) `
     -and (Get-ReleaseInt $activeReplacement "large_raw_output_tokens" 1) -eq 0 `
+    -and (Get-ReleaseString $activeReplacement "runtime_boundary_forbidden_markers") -in @("", "none") `
+    -and (Get-ReleaseBool $activeReplacement "protected_items_present") `
     -and $exactScanPass)
 $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseString $stateCommitDisplacement "status") -eq "pass" `
@@ -746,7 +766,13 @@ $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) -gt 0 `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_displaced_count" 0) -ge (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_count" 999999) -le (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_budget" 0))
-$spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass" -and (Get-ReleaseString $spawnNodeBudget "within_budget_status") -eq "pass")
+$spawnNodeBudgetPass = ($spawnNodeBudget `
+    -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass" `
+    -and (Get-ReleaseString $spawnNodeBudget "over_budget_enforcement_status") -eq "advisory_only" `
+    -and (Get-ReleaseInt $spawnNodeBudget "blocked_budget_event_count" 1) -eq 0 `
+    -and (Get-ReleaseInt $spawnNodeBudget "invalid_blocked_budget_event_count" 1) -eq 0 `
+    -and (Get-ReleaseString $spawnNodeBudget "subagent_review_debt_status") -eq "no_unreviewed_subagent_results" `
+    -and (Get-ReleaseInt $spawnNodeBudget "unreviewed_subagent_result_count" 1) -eq 0)
 $requiredV005NonAgentGates = @(
     "provider_request_hook",
     "runtime_budget_response",
@@ -756,9 +782,16 @@ $requiredV005NonAgentGates = @(
     "spawn_node_budget",
     "request_phase_attribution",
     "release_decision_fixture",
-    "start_gate_fixture"
+    "start_gate_fixture",
+    "external_wrapper_fixture",
+    "marker_writer_fixture",
+    "cache_regression_surface"
 )
-$v005NonAgentGatesPass = ($v005NonAgentGates -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass" -and (Get-ReleaseInt $v005NonAgentGates "schema_version" 0) -eq 1)
+$v005NonAgentGatesPass = ($v005NonAgentGates `
+    -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass" `
+    -and (Get-ReleaseString $v005NonAgentGates "mode") -eq "formal" `
+    -and (Get-ReleaseBool $v005NonAgentGates "release_eligible") `
+    -and (Get-ReleaseInt $v005NonAgentGates "schema_version" 0) -eq 1)
 if ($v005NonAgentGatesPass) {
     foreach ($gateName in $requiredV005NonAgentGates) {
         $gateValue = $null
@@ -783,6 +816,10 @@ if ($v005NonAgentGatesPass) {
         }
         $evidenceSha = Get-ReleaseFileSha256 ([string]$gateValue.evidence_path)
         if ($evidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant() -or [string]$gateValue.profile_hash -ne $runRunnerProfileHash -or [string]$gateValue.task_list_hash -ne $runTaskListHash -or [string]$gateValue.source_version -ne $runSourceVersion) {
+            $v005NonAgentGatesPass = $false
+            break
+        }
+        if ($gateName -eq "cache_regression_surface" -and -not (Test-CacheRegressionFormalGateEvidence $gateValue ([string]$currentHeadForRelease))) {
             $v005NonAgentGatesPass = $false
             break
         }
@@ -903,6 +940,7 @@ $summary = [pscustomobject]@{
     derived_budget_induced_score_ineligible_solved_count = [int]$derivedBudgetScoreIneligibleSolvedCount
     derived_blocked_by_budget_count = [int]$derivedBlockedByBudgetCount
     derived_manual_override_count = [int]$derivedManualOverrideCount
+    derived_forbidden_budget_action_count = [int]$derivedForbiddenBudgetActionCount
     request_phase_gate_pass = [bool]$requestPhasePass
     provider_cache_trace_gate_pass = [bool]$providerCacheTracePass
     provider_cache_trace_coverage = Get-ReleaseDouble $providerCacheTraceSummary "trace_coverage" 0.0
@@ -916,6 +954,13 @@ $summary = [pscustomobject]@{
     exact_payload_scan_matching_provider_event_count = [int]$matchingProviderPayloadEvents.Count
     state_commit_displacement_gate_pass = [bool]$stateCommitDisplacementPass
     spawn_node_budget_gate_pass = [bool]$spawnNodeBudgetPass
+    spawn_node_over_budget_enforcement_status = Get-ReleaseString $spawnNodeBudget "over_budget_enforcement_status" ""
+    spawn_node_blocked_budget_event_count = Get-ReleaseInt $spawnNodeBudget "blocked_budget_event_count" 0
+    spawn_node_invalid_blocked_budget_event_count = Get-ReleaseInt $spawnNodeBudget "invalid_blocked_budget_event_count" 0
+    subagent_review_debt_status = Get-ReleaseString $spawnNodeBudget "subagent_review_debt_status" ""
+    subagent_result_count = Get-ReleaseInt $spawnNodeBudget "subagent_result_count" 0
+    reviewed_subagent_result_count = Get-ReleaseInt $spawnNodeBudget "reviewed_subagent_result_count" 0
+    unreviewed_subagent_result_count = Get-ReleaseInt $spawnNodeBudget "unreviewed_subagent_result_count" 0
     v005_non_agent_gates_pass = [bool]$v005NonAgentGatesPass
     max_large_output_replay_count = [int]$maxLargeReplay
     runtime_output_ref_created_count = [int]$runtimeOutputRefs

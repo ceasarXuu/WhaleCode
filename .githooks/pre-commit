@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+repo_root="$(git rev-parse --show-toplevel)"
+exec python3 "$repo_root/scripts/cache-regression/check_cache_regression_gate.py" \
+  --repo-root "$repo_root" \
+  --source index

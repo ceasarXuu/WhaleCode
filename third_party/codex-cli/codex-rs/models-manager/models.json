@@ -7,6 +7,10 @@
       "default_reasoning_level": "high",
       "supported_reasoning_levels": [
         {
+          "effort": "low",
+          "description": "Fast responses with lighter reasoning"
+        },
+        {
           "effort": "high",
           "description": "DeepSeek official high thinking effort"
         },
@@ -22,13 +26,13 @@
       "additional_speed_tiers": [],
       "availability_nux": null,
       "upgrade": null,
-      "base_instructions": "You are Whale, a terminal coding agent optimized for DeepSeek. You and the user share one workspace. Inspect the real repository, make concrete code changes when requested, and verify them with focused tests. Keep internal reasoning private, but stream useful progress and final answers clearly.",
+      "base_instructions": "",
       "model_messages": null,
-      "supports_reasoning_summaries": false,
+      "supports_reasoning_summaries": true,
       "default_reasoning_summary": "none",
-      "support_verbosity": false,
-      "default_verbosity": null,
-      "apply_patch_tool_type": "function",
+      "support_verbosity": true,
+      "default_verbosity": "low",
+      "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text",
       "truncation_policy": {
         "mode": "tokens",
@@ -44,7 +48,7 @@
       "input_modalities": [
         "text"
       ],
-      "supports_search_tool": false
+      "supports_search_tool": true
     },
     {
       "slug": "deepseek-v4-pro",
@@ -62,13 +66,13 @@
         }
       ],
       "shell_type": "shell_command",
-      "visibility": "list",
-      "supported_in_api": true,
+      "visibility": "hide",
+      "supported_in_api": false,
       "priority": -100,
       "additional_speed_tiers": [],
       "availability_nux": null,
       "upgrade": null,
-      "base_instructions": "You are Whale, a terminal coding agent optimized for DeepSeek. You and the user share one workspace. Inspect the real repository, make concrete code changes when requested, and verify them with focused tests. Keep internal reasoning private, but stream useful progress and final answers clearly.",
+      "base_instructions": "",
       "model_messages": null,
       "supports_reasoning_summaries": false,
       "default_reasoning_summary": "none",

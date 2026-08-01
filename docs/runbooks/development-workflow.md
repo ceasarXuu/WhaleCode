@@ -100,6 +100,124 @@ current process before running tests:
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 ```
 
+## Terminal-Bench Linux 复验前置
+
+R4 接手时在 Linux 主机复验 `organization-json-generator` 暴露了几类前置问题。后续复用同类流程时先检查这些项，避免把 harness 或环境问题误记为 TaskSpace utility 失败：
+
+```bash
+git clone --filter=blob:none --sparse --branch dataset/terminal-bench-core/v0.1.x \
+  https://github.com/laude-institute/terminal-bench \
+  target/external-sources/terminal-bench-core-0.1.1
+git -C target/external-sources/terminal-bench-core-0.1.1 sparse-checkout set tasks/organization-json-generator
+git -C target/external-sources/terminal-bench-core-0.1.1 rev-parse HEAD
+```
+
+期望 commit：
+
+```text
+91e10457b5410f16c44364da1a34cb6de8c488a5
+```
+
+先跑 plan-only，确认 adapter 和 prompt guard 可用：
+
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass \
+  -File scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1 \
+  -Benchmark terminal-bench \
+  -TaskDir target/external-sources/terminal-bench-core-0.1.1/tasks/organization-json-generator \
+  -SampleId organization-json-generator \
+  -SourceVersion 91e10457b5410f16c44364da1a34cb6de8c488a5 \
+  -RunRoot target/r4-org-json-plan-YYYYMMDD \
+  -WhaleBin /home/zhangxu/.local/bin/whale \
+  -Model deepseek-v4-flash \
+  -SandboxMode workspace-write \
+  -PlanOnly
+```
+
+真实运行前必须确认：
+
+- `DEEPSEEK_API_KEY` 已设置；缺失时 benchmark 会在 `provider_credential_preflight` 阶段以 `provider_credential_missing` fail-fast。
+- 凭证 preflight 回归由 `scripts/taskspace-benchmark/test-external-wrapper-harness.ps1` 覆盖；该 harness 会临时清空 `DEEPSEEK_API_KEY` 并验证缺 key 时不会进入 paired execution。
+- 若刚提交过 Rust/source 变更，先重建 whale 并刷新二进制 attestation；否则 preflight 会以 `whale_binary_stale_for_codex_source` 或 attestation mismatch fail-fast，不能把它误记为 TaskSpace utility 失败：
+
+```bash
+cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+powershell -NoProfile -ExecutionPolicy Bypass \
+  -File scripts/taskspace-benchmark/write-whale-binary-attestation.ps1 \
+  -WhaleBin third_party/codex-cli/codex-rs/target/debug/whale \
+  -BuildCommand "cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked"
+```
+
+- 默认健康构建不设置 `CODEX_SKIP_VENDORED_BWRAP`，这样能覆盖 vendored bubblewrap / `codex-linux-sandbox` 编译链路；如果缺 `libcap.pc`，先按 `docs/runbooks/rust-development-environment.md` 补齐 `libcap` 开发依赖。
+- 如果 shell 当前目录已经是 `third_party/codex-cli/codex-rs`，可以省略 `--manifest-path`；从 repo 根目录执行时必须带上。
+- attestation 刷新后再启动真实 run；如果 preflight 已经报 stale，不要复用该 run root 作为 utility 证据，换新的 run root 重跑。
+- Docker build 能访问 Python package 源；`organization-json-generator` 的 validator image 会执行 `pip install jsonschema`。
+- Linux native Docker 如果使用宿主 loopback proxy，例如 `127.0.0.1:7890`，generated validator 必须对 build/run 使用 `--network host`，不能只把 proxy 改成 `host.docker.internal`。
+- Linux runner 不应依赖 Windows-only primitives：`WindowsIdentity`、`icacls`、`curl.exe`、`cmd.exe`、`subst`、`USERPROFILE` 都必须有跨平台分支或 no-op 记录。
+- 从 Bash 用 `pwsh -Command` 批量重算报告时，不要同时依赖 Bash `$name` 与 PowerShell `$args` 的
+  隐式转义。把路径放入临时环境变量，再在 PowerShell 中通过 `$env:NAME` 读取，可避免 Bash 提前
+  展开 PowerShell 变量。派生报告重算只覆盖 observation/report，不改原始 rollout、wire trace 或
+  模型运行证据。
+- Skill 的 `quick_validate.py` 依赖 `PyYAML`。系统 Python 缺依赖时不要污染全局环境，使用已有
+  `uv` 缓存执行：
+
+```bash
+uv run --with pyyaml python \
+  /home/zhangxu/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
+  .agents/skills/observe-taskspace-performance
+```
+
+## R4 Tools Feedback 调试内循环（历史）
+
+本节只适用于 R4 历史复盘，不得用于 R7.1 TaskSpace 实现或验收。R7.1 Map Store、终态和 reopen 的现行操作见
+[`r7-taskspace-map-store.md`](r7-taskspace-map-store.md)。
+
+R4 tools 链路问题优先按 feedback semantics 分类，不要直接归因为模型策略。常见判断：
+
+- raw tool output 完整但下一轮继续错误动作：优先检查 `failure_kind`、`next_valid_actions`、recent tool feedback 和 active projection。
+- action-contract gate 正确拒绝但模型继续同类动作：检查 gate recovery 是否带 repeat state，是否缺少 exact required command。
+- inspect 过早进入 implement：检查是否有声明 `fact_sources` artifact 未被 successful read/search 覆盖。
+- validation 失败后进入 implement rework：先区分 validation command error、validator infra error、业务断言失败和实现代码失败。
+- schema validation 命令若因 `ModuleNotFoundError: No module named 'jsonschema'` 失败，先按 validator dependency recovery 处理，不要直接路由到 implementation rework；在本机 Linux 复验中 `python3` 可能无 `jsonschema`，但默认 `python -m jsonschema -i organization.json schema.json` 可用。
+- rework 中同一个 `read_file` 反复成功但 duplicate gate 不触发时，检查 rollout 的 `main_tool_result.artifactRefs`。Linux action-contract `read_file` 会表现为 `sed -n '1,240p' -- path`；该结果必须带 target artifact ref，否则 runtime 无法把“已读 target”传给 `validation_rework_duplicate_artifact_read`。
+
+本地 Rust focused tests 默认使用系统或当前构建的 sandbox 行为。只有确认用例不覆盖 Linux sandbox/bubblewrap 时，才显式跳过 vendored bwrap：
+
+```bash
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt --lib
+```
+
+Linux sandbox 变更后至少做两个 smoke：
+
+```bash
+cargo test -j1 -p codex-linux-sandbox --lib --locked
+cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+```
+
+如果变更涉及 restricted network fallback，还要人工确认：
+
+- fallback 后普通文件写入能完成，例如写入 `target/linux-sandbox-netns-fallback-smoke.txt`。
+- restricted network 仍被 seccomp 拦住，socket probe 应返回 `PermissionError: [Errno 1] Operation not permitted` 或等价 EPERM。
+
+长跑 real benchmark 不要只等到 900s timeout。出现以下组合时应先中断并转入 CoE/focused test：
+
+- `TaskSpaceProviderRequestBudgetEventV1` 的 `request_count` 已显著超过 `max_requests`。
+- `TaskSpaceNoActionRecoveryV1` 的 recovery attempt 多次增长但 current node / result count 没有实质变化。
+- trace 中反复出现同一个 gate reason 或同一个 tool command。
+
+定位 trace 时使用有界读取，避免把巨大 rollout 打进终端：
+
+```bash
+rg -n "TaskSpaceForcedInspectTransitionV1|TaskSpaceNoActionRecoveryV1|failure_kind|bwrap:" target/<run-root> -g '*.jsonl' | tail -n 80
+```
+
+记录结论时同步更新：
+
+- `/coe/<active-r4-case>.md` 的 Hypothesis/Evidence。
+- `docs/v0.0.5/build-R4/01-static-tool-chain-map.md` 的问题类型。
+- `docs/v0.0.5/build-R4/05-phase-benefit-evidence.md` 的 focused evidence。
+- `docs/v0.0.5/build-R4/09-r4-takeover-progress-audit-20260703.md` 的当前 open items。
+
 ## Why Full Builds Are Slow
 
 The first measured Windows bottleneck was not a single slow command. It was
@@ -418,6 +536,30 @@ about:
 Runtime feature changes should also add structured logs or session events where
 they help future diagnosis. Documentation is not a substitute for runtime
 observability.
+
+## App Server Schema 与跨平台回归
+
+修改 `codex-protocol` 中会暴露给 App Server 的类型后，必须在 Codex vendor 根目录刷新生成物，再运行
+fixture 测试：
+
+```bash
+cd third_party/codex-cli
+just write-app-server-schema
+cd codex-rs
+cargo test -p codex-app-server-protocol --test schema_fixtures --locked
+```
+
+不能只刷新 JSON/TypeScript 文件；`schema_fixtures.rs` 中的结构断言也必须同步到现行合同。旧字段断言通过失败
+来提示 wire 残留，不应增加兼容字段让测试通过。
+
+默认 Action Map 回归在 Linux/Docker 中运行：
+
+```bash
+pwsh scripts/run-action-map-regression.ps1
+```
+
+Windows Application Event Log 只在 Windows 且 `Get-WinEvent` 可用时采集；Linux/Docker 返回空 crash-event
+集合。每个 Cargo filter 必须至少命中一个测试，零命中不能算通过。
 
 ## Official Codex Isolation
 

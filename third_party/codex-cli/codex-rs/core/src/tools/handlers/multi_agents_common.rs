@@ -378,3 +378,57 @@ fn validate_spawn_agent_reasoning_effort(
         "Reasoning effort `{requested_reasoning_effort}` is not supported for model `{model}`. Supported reasoning efforts: {supported}"
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codex_protocol::models::ResponseInputItem;
+
+    #[derive(Serialize)]
+    struct TestAgentOutput<'a> {
+        agent_id: &'a str,
+        status: &'a str,
+        message: &'a str,
+    }
+
+    #[test]
+    fn multi_agent_tool_output_response_item_preserves_json_and_success() {
+        let payload = ToolPayload::Function {
+            arguments: "{}".to_string(),
+        };
+        let value = TestAgentOutput {
+            agent_id: "agent-1",
+            status: "failed",
+            message: "child agent reported tool error",
+        };
+
+        let item =
+            tool_output_response_item("call-1", &payload, &value, Some(false), "wait_agents");
+
+        let ResponseInputItem::FunctionCallOutput { call_id, output } = item else {
+            panic!("multi-agent tools must return standard function-call output");
+        };
+        assert_eq!(call_id, "call-1");
+        assert_eq!(output.success, Some(false));
+        let body = output.text_content().expect("body should be JSON text");
+        let parsed: JsonValue = serde_json::from_str(body).expect("body should parse as JSON");
+        assert_eq!(parsed["agent_id"], "agent-1");
+        assert_eq!(parsed["status"], "failed");
+        assert_eq!(parsed["message"], "child agent reported tool error");
+    }
+
+    #[test]
+    fn multi_agent_tool_output_code_mode_result_preserves_structured_fields() {
+        let value = TestAgentOutput {
+            agent_id: "agent-2",
+            status: "completed",
+            message: "child agent returned evidence",
+        };
+
+        let result = tool_output_code_mode_result(&value, "wait_agents");
+
+        assert_eq!(result["agent_id"], "agent-2");
+        assert_eq!(result["status"], "completed");
+        assert_eq!(result["message"], "child agent returned evidence");
+    }
+}

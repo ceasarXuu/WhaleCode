@@ -138,8 +138,6 @@ use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadActionMapReadParams;
 use codex_app_server_protocol::ThreadActionMapReadResponse;
-use codex_app_server_protocol::ThreadActionMapRestartParams;
-use codex_app_server_protocol::ThreadActionMapRestartResponse;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionResponse;
 use codex_app_server_protocol::ThreadArchiveParams;
@@ -999,10 +997,6 @@ impl CodexMessageProcessor {
             }
             ClientRequest::ThreadMapRuntimeModeSet { request_id, params } => {
                 self.thread_map_runtime_mode_set(to_connection_request_id(request_id), params)
-                    .await;
-            }
-            ClientRequest::ThreadActionMapRestart { request_id, params } => {
-                self.thread_action_map_restart(to_connection_request_id(request_id), params)
                     .await;
             }
             ClientRequest::ThreadActionMapRead { request_id, params } => {
@@ -3412,34 +3406,6 @@ impl CodexMessageProcessor {
             .await;
     }
 
-    async fn thread_action_map_restart(
-        &self,
-        request_id: ConnectionRequestId,
-        params: ThreadActionMapRestartParams,
-    ) {
-        let ThreadActionMapRestartParams { thread_id } = params;
-        let (_thread_uuid, thread) = match self.load_thread(&thread_id).await {
-            Ok(v) => v,
-            Err(error) => {
-                self.outgoing.send_error(request_id, error).await;
-                return;
-            }
-        };
-
-        if let Err(err) = self
-            .submit_core_op(&request_id, thread.as_ref(), Op::RestartActionMap)
-            .await
-        {
-            self.send_internal_error(request_id, format!("failed to restart action map: {err}"))
-                .await;
-            return;
-        }
-
-        self.outgoing
-            .send_response(request_id, ThreadActionMapRestartResponse {})
-            .await;
-    }
-
     async fn thread_action_map_read(
         &self,
         request_id: ConnectionRequestId,
@@ -3454,7 +3420,17 @@ impl CodexMessageProcessor {
             }
         };
 
-        let snapshot = thread.action_map_snapshot().await;
+        let snapshot = match thread.action_map_snapshot().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.send_internal_error(
+                    request_id,
+                    format!("failed to read canonical action map: {error}"),
+                )
+                .await;
+                return;
+            }
+        };
         self.outgoing
             .send_response(request_id, ThreadActionMapReadResponse { snapshot })
             .await;
@@ -3474,7 +3450,17 @@ impl CodexMessageProcessor {
             }
         };
 
-        let snapshot = thread.action_map_snapshot().await;
+        let snapshot = match thread.action_map_snapshot().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.send_internal_error(
+                    request_id,
+                    format!("failed to read canonical TaskSpace map: {error}"),
+                )
+                .await;
+                return;
+            }
+        };
         self.outgoing
             .send_response(request_id, ThreadTaskSpaceReadResponse { snapshot })
             .await;

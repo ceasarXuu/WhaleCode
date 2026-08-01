@@ -25,13 +25,20 @@ pub static CODEX_ALIASES_TEMP_DIR: Option<TestBinaryDispatchGuard> = {
 
 #[cfg(not(target_os = "windows"))]
 mod abort_tasks;
-mod action_map_scenario_evaluation;
 mod agent_jobs;
 mod agent_websocket;
 mod agents_md;
 mod apply_patch_cli;
 #[cfg(not(target_os = "windows"))]
 mod approvals;
+mod cache_final_wire;
+mod cache_payload_capabilities_contract;
+mod cache_payload_compaction_contract;
+mod cache_payload_contract;
+mod cache_payload_mcp_contract;
+mod cache_payload_permissions_contract;
+mod cache_payload_skill_contract;
+mod cache_provider_boundary_route;
 mod cli_stream;
 mod client;
 mod client_websockets;
@@ -98,6 +105,7 @@ mod sqlite_state;
 mod stream_error_allows_next_turn;
 mod stream_no_completed;
 mod subagent_notifications;
+mod taskspace_terminal_contract;
 mod tool_harness;
 mod tool_parallelism;
 mod tool_suggest;

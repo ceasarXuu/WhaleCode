@@ -1,0 +1,5104 @@
+# R4 接手进度盘点
+
+报告日期：2026-07-03  
+接手范围：`v0.0.5 build-R4` tools chain 专项、R4 文档、机器可读门禁、public-10 证据、当前 `whalecode-alpha` HEAD  
+接手基线 HEAD：`7ecbeb5 R4 restore durable evidence gates`
+
+## 1. 总体判断
+
+| 维度 | 当前状态 | 完成度 | 判断依据 |
+|---|---:|---:|---|
+| R4 phase 流程 | 已推进到 R4-H，并进入 post-closeout 修复 | 8/8 phase 已走完 | `06-r4-engineering-closeout.md` 已记录 closeout 和 E3 no-go |
+| 工具链工程治理 | 可继续作为 R4 已交付资产 | 约 90% | tool path coverage、sample ledger、public-10 plan、usage accounting gate 当前均可在 fresh checkout 通过 |
+| TaskSpace utility parity | 未完成 | public-10 closeout 为 3/10 solved；post-closeout 已修复 `heterogeneous-dates` 执行层问题，但未覆盖全部 public-10 失败项 |
+| E3 readiness | 阻塞 | 0% | key 已解锁真实复验，但 `organization-json-generator` 仍只能产出 E1 诊断证据；负收益和 timeout/wrong 样本仍未收敛 |
+
+## 2. Phase 状态
+
+| Phase | 主题 | 当前状态 | 证据 |
+|---|---|---|---|
+| R4-A | Tool path inventory | 已关闭 | `r4-tool-path-coverage.json` 10 paths 全 canonical；`test-r4-tool-path-coverage.ps1` pass |
+| R4-B | Field evidence ledger | 已恢复 fresh-checkout 可验证 | `r4-sample-evidence-ledger.json` 12 samples；必需 evidence 改为仓库内 durable docs/CoE，原 run path 保留为 archived path |
+| R4-C | Direct tool feedback contract | 已关闭 | direct success/error preview parity 已纳入 coverage manifest 和 focused tests |
+| R4-D | Action-contract internal tool parity | 已关闭工程门禁，仍有 utility 后续 | `count-call-stack`、`large-output-ref-smoke` 等样本显示反馈链路修复有效；后续 public 样本仍暴露 long-flow 问题 |
+| R4-E | Projection/output-ref safeguards | 已关闭工程门禁 | large output rollout 从约 491MB 降到 360KB 的证据已记录；pair-safe projection 有 focused coverage |
+| R4-F | Non-direct tool coverage | 已关闭 | CodeMode/MCP/multi-agent paths 均 canonical |
+| R4-G | Public-10 benchmark/report gate | 工程验收机制完成；utility 负收益 | public-10 计划和 snapshot 当前可验证；closeout 记录 TaskSpace 3/10 solved 和请求放大 |
+| R4-H | Closeout | 已完成但需维护 evidence durability | closeout 存在；本次修复补齐 fresh-checkout gate reproducibility |
+
+## 3. 本次接手修复
+
+### 3.1 发现的问题
+
+当前 checkout 上 R4 证据门禁一开始不能完整复现：
+
+1. `test-r4-sample-ledger.ps1` 失败，因为 ledger 的必需 evidence 指向未提交的 `target/...` 历史运行产物。
+2. `test-r4-public-10-usage-accounting-gate.ps1` 失败，因为它默认从 `C:\WhaleRunCache` 生成 good report；Linux fresh checkout 没有这些外部 run roots，报告为 `0/10 found`。
+
+CoE：`coe/2026-07-03-05-03-r4-durable-evidence-gates.md`
+
+### 3.2 修复内容
+
+| 文件 | 变更 |
+|---|---|
+| `docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json` | 必需 `primary_evidence` / `secondary_evidence` 改为仓库内 durable docs/CoE；原始 `target/...` 路径保留在 `archived_run_path(s)` |
+| `docs/v0.0.5/build-R4/r4-public-10-tool-stress-report.snapshot.json` | 新增 public-10 durable snapshot，用于 fresh checkout 验证 report shape、accounting availability 和 request amplification 字段 |
+| `scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1` | 默认读取 durable snapshot 作为 good report，再执行原有正向/负向 mutation gate |
+| `coe/2026-07-03-05-03-r4-durable-evidence-gates.md` | 记录问题、假设、诊断证据和 fix-validation |
+
+### 3.3 sqlite/organization 后续假设复核
+
+接手继续检查 `coe/2026-07-01-04-05-r4-repeated-blocked-action.md` 时发现：
+
+| 假设 | 当前复核结论 | 验证 |
+|---|---|---|
+| H-035 mixed native/unified apply_patch headers | 当前代码已修复并有聚焦测试覆盖 | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_apply_patch_strips_unified_file_headers_inside_native_update --lib` PASS |
+| H-036 validation rework summaries lose high-signal output | 当前代码已修复并有聚焦测试覆盖 | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_failure_summary_preserves_error_after_warning_noise --lib` PASS |
+
+这两项已在 CoE 中从 active 更新为 `repaired-and-validated-by-focused-test`，并新增 E-016/E-017。它们说明 `organization-json-generator` 后续问题不应继续归因到这两个已验证的工具链缺陷；下一步应回到真实 public sample 重新跑证据，确认剩余失败是否来自 request/timeout envelope、patch recovery convergence 或模型解题策略。
+
+### 3.4 organization-json-generator Linux 复验入口
+
+接手继续执行 `organization-json-generator` 时，先修复了 Linux harness 前置问题，而不是直接声称 utility 进展：
+
+| 层 | 结论 |
+|---|---|
+| pinned source | 已稀疏 checkout `terminal-bench` `91e10457b5410f16c44364da1a34cb6de8c488a5`，任务目录为 `tasks/organization-json-generator` |
+| plan-only | 已通过：`PromptInvalid=False`、`PromptManualReview=False` |
+| Linux harness | 已修 Windows-only primitive：`WindowsIdentity`、`curl.exe`、`cmd.exe` validator launcher、`subst`、null `USERPROFILE` rollout lookup |
+| provider preflight | 已新增 `provider-credential-preflight-health.json`；当前主机缺 `DEEPSEEK_API_KEY` 时以 `provider_credential_missing` fail-fast；该行为已纳入 external wrapper focused harness |
+| validator env | 已修复 native Docker loopback proxy build：`pip install jsonschema` 可通过；直接 validator run 会进入预期业务断言失败 |
+
+CoE：`coe/2026-07-01-04-05-r4-repeated-blocked-action.md` H-037/H-038/H-039。
+
+### 3.5 keyed organization-json-generator 复验结论
+
+用户将 `DEEPSEEK_API_KEY` 放入 `.env.local` 后，R4 readiness gate 已可通过 provider credential 检查；key 不写入仓库、不写入文档。随后执行 `organization-json-generator` 真实 keyed rerun，得到两个结论：
+
+| 事项 | 结论 |
+|---|---|
+| provider credential | `provider_credential_preflight_completed status=pass`，说明 `.env.local` 配置已经被 harness 子进程继承 |
+| metrics extractor durability | 首次 keyed run 暴露 `.python-version` 消失导致的 metrics post-processing crash；已修复为 `hash_status=missing` 并由 focused harness 与第二次真实 run 验证 |
+| real pair report | 第二次 keyed run 成功写出 `run-summary.md`、`pair-report.md`、左右 metrics |
+| evidence level | `reported_evidence_level=E1`，`included_in_utility_aggregate=False`，不能作为 R4 验收通过证据 |
+| standard path | `exec_exit_code=0`，但 `public_validation_exit_code=1`，业务结果 wrong |
+| TaskSpace path | `exec_exit_code=124`、`exec_timed_out=True`、`wall_time_ms=900088`、`tool_call_count=92`，业务结果 `agent_exec_timeout` |
+| convergence signal | TaskSpace request budget 进入 `request_count=89->90 max=20 state=over_profile_hint`，`TaskSpaceNoActionRecoveryV1` 到 recovery attempt 32；同时出现 `bwrap: loopback: Failed RTM_NEWADDR` |
+
+Run root：
+
+```text
+target/r4-org-json-real-keyed-20260703b/runs/terminal_bench__organization-json-generator/20260703-155610-406
+```
+
+当前判断：R4 的 provider 前置阻塞已经解除；新的 P0 阻塞是 TaskSpace 在沙箱/工具失败条件下不能快速收敛到 bounded blocked-with-evidence，导致 900s timeout 和请求预算放大。该问题应作为 R4 utility-convergence 继续处理，不能把 R4 标记为完成。
+
+### 3.6 bwrap/tool-runtime bootstrap failure 收录与修复
+
+本轮将 keyed `organization-json-generator` 中的 `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`
+正式收录为 R4-D P0 path：`tool-runtime-bootstrap-failure`。
+
+结论：
+
+| 层 | 结论 |
+|---|---|
+| 能力层 | `exec.rs` 明确识别 bwrap loopback/RTM_NEWADDR bootstrap signature，且 `SandboxType::None` 不误判 |
+| 反馈层 | `ActionMapRuntime` 对普通工具节点记录 `tool_runtime_bootstrap_failure`、`failure_kind=sandbox_bootstrap_failed`、task-level blocker，并释放 current node |
+| 验证节点 | 同类失败仍归入 local validator infra invalidation，但不会生成可重试 rework node |
+| 下一轮 contract | 无 active node 且存在该 blocker 时，只允许 `final_answer` 或 `blocked`；runtime rewrite 会拦截继续 `create_node`、read/search/test/edit 等普通工具动作 |
+| R4 manifest | `r4-tool-path-coverage.json` 增加第 11 条 canonical path，并绑定 focused Rust coverage tests |
+
+当前状态：该 feedback-layer case 已完成 focused 修复和轻量门禁验证；还不能替代真实 utility 复验。下一步仍需要重跑 `organization-json-generator`，验证 900s timeout 是否消失，以及是否进入可聚合的 E3 utility evidence。
+
+### 3.7 tools feedback 子类型继续收敛
+
+继续接手 R4 后，`organization-json-generator` 又暴露出一组同源 tools 链路问题。它们不是“工具没返回任何错误”，而是
+raw signal 存在但语义没有正确进入下一轮 tool contract：
+
+| Case | 结论 | 状态 |
+|---|---|---|
+| `tool-platform-command-mismatch` | recovery payload 现在按 host platform 生成 Unix `sed` 或 Windows `Get-Content` | focused fixed |
+| `duplicate-successful-evidence-loop` | inspect 重复 read/search 现在会被 named gate 拦截并携带 previous result / repeat state | focused fixed |
+| `inspect-data-artifact-evidence-gap` | `.json` / `.csv` 这类 input data artifacts 已计入 inspect working evidence | focused fixed |
+| `validation-changed-artifact-coverage-feedback` | 不覆盖 changed artifact 的 validation gate 现在回传 required command / next action | focused fixed |
+| `validation-command-missing-script-feedback` | 不存在的 validation script 留在 validation node，不再误转 implement rework | focused fixed |
+| `duplicate-inspect-premature-fact-source-convergence` | 本次新增收录 case；缺少 `employees.csv` / `projects.csv` 这类声明 fact sources 时，duplicate gate 不再给 `finish_node`，manual/forced finish 都会被 coverage guard 拦截 | focused fixed |
+| `provider-budget-advisory-runaway` | keyed rerun `20260703d` 证实 `request_count` 达到 `max_requests` 后仍继续 provider sampling；已升级为 pre-dispatch hard gate，插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn，保留一次明确 budget recovery grace | focused fixed / real rerun pending |
+| `provider-node-budget-premature-inspect-stop` | keyed rerun `20260704-000713-854` 证实 hard stop 消除 timeout 后，固定 per-node limit 又在 fact-source evidence floor 前终止 inspect；已改为按声明 fact-source artifacts 扩展 inspect effective node limit，并在边界 recovery 时标记 `budget_recovery` | focused fixed / real rerun pending |
+| `implementation-rework-feedback-evidence-join` | keyed rerun `20260704-001749-411` 证实 inspect 已读全 fact sources 后，implement rework 仍逐行修 `IndentationError` 并凭空使用不存在的 `salary` 字段；已改为合并 validation failure 与上游 inspect CSV/schema evidence，并强化 recovery next-action contract | focused fixed / real rerun pending |
+| `inspect-projection-finish-before-fact-source-coverage` | keyed rerun `20260704-003459-046` 证实底层 fact-source guard 已知道缺 `projects.csv`，但 projection `next_valid_actions` 仍广告 `finish_node -> implement_solution`；已改为 projection 复用 TaskState fact-source coverage guard，缺 artifact 时只提示读取缺失事实源 | focused fixed / real rerun pending |
+| `implementation-editable-validation-failure-misblocked` | keyed rerun `20260704-004643-993` 证实 projection guard 后 TaskSpace 已读全 fact sources 并进入 implement/validation，但 `IndentationError` rework 可被 `block_node` 误关成 infra/closed validation；已改为拒绝 editable validation failure blocker，并输出 structured recovery | focused fixed / real rerun pending |
+| `validation-closeout-output-contract-coverage-gap` | generator-only validation 被 forced closeout 当成 schema/output contract success；已要求同一次 validation 覆盖 output/schema contract，并重开引用 generator-only result 的 success criteria | focused fixed / real rerun pending |
+| `validation-output-contract-schema-fact-source-gap` | `schema.json` 只作为 fact source 时，弱 `json.load` validation 被误接受；已把 fact sources 中的 schema/validator artifacts 纳入 output-contract coverage | focused fixed / real rerun pending |
+| `validation-recovery-next-action-projection-dilution` | gate recovery 已给出 exact `jsonschema` 命令，但 projection 又退化成泛化 test action；已让 validation projection 保留最新 exact recovery next actions | focused fixed / real rerun pending |
+| `validation-rework-target-artifact-read-gap` | schema failure 无 traceback 时 rework 不能读取变更代码 artifact；已从 blocked validation dependency changed artifacts 推导命名 rework target | focused fixed / real rerun pending |
+| `validation-jsonschema-module-missing-rework-misroute` | host 缺 `jsonschema` module 被误当成 implementation failure；已留在 validation node 并投影 CLI `python -m jsonschema -i ...` recovery | focused fixed / real rerun pending |
+| `implementation-rework-repeat-read-budget-drain` | Unix `sed` 读文件结果缺 artifact ref，duplicate rework gate 失明；已给 `sed -n ... -- path` read 记录 artifact ref，并拦截重复 target read | focused fixed / real rerun pending |
+| `validation-blocker-manual-rework-origin-loss` | validation recovery 中手动 create rework node 丢失 blocked validation origin，patch 被 unreviewed-result gate 拦截；已记录 origin 并在 origin blocked 后刷新对应 rework node | focused fixed / real rerun pending |
+| `validation-stale-failure-block-without-current-test` | 新 validation node 未运行当前 test/build 就复用旧失败 blocker 关闭 graph；已要求声称 validation/test failure 前必须有同节点验证 tool result，infra blocker 例外 | focused fixed / real rerun pending |
+| `validation-rework-duplicate-read-projection-loop` | rework target 已读且 duplicate gate 已生效，但 projection 仍广告 read/search、未展示 target read result，模型重复读到 node hard stop；已把 target read result 作为 critical evidence 并将 next action 收窄到 apply_patch | focused fixed / real rerun pending |
+| `validation-pytest-runner-dependency-misroute` | `python -m pytest` 本身缺 `pytest` module 时，raw failure 存在但被 runtime 误译成 implementation failure，创建 implement rework 并触发 needs-edit loop；已归入 local validator infra，并路由到 platform-compatible validation rerun | focused fixed / real rerun pending |
+| `validation-pytest-command-normalization-and-runner-misroute` | keyed rerun `20260704-113802-241` 证实 action-contract 把 `python -m pytest test_organization.py -v` 归一化成裸 `pytest tests/test_organization.py -v`，随后 shell `pytest: command not found` 未按 local validator infra 处理，而是进入 implementation rework/needs-edit hard-stop；已保留 pytest runner 前缀并把裸 pytest command-not-found 归入 local validator infra validation rerun | focused+regression fixed / real rerun pending |
+| `fact-source-path-artifact-ref-loss` | `initial_fact_sources[].path` 被 taskspace_control 解析层丢弃，TaskState 只保留泛化 id/description 和 `artifactRef=user-request`，导致 adaptive inspect budget 看不到声明 fact-source artifacts 并仍按 5 次硬停；已把 `path`/`artifact_ref`/`artifact_path`/`source_path` 及数组 alias 归一化进 `evidence_refs[].artifact_ref` | focused fixed / real rerun pending |
+| `validation-rework-target-read-preview-truncation` | validation rework 已读目标文件后，duplicate-read recovery 声称可用 `result-*` 现有内容 patch，但 recovery 只带单行 compact preview，patch-relevant 下半段被 `...` 截断；已把 rework target read 加入 `current_main_working_evidence_summary()` 的 bounded multiline evidence | focused+regression fixed / real rerun pending |
+| `inspect-duplicate-read-recovery-nonforcing-budget-drain` | inspect duplicate-read recovery 已正确列出 missing fact sources，但同一 blocked read/search 可继续消耗 provider/node budget，直到 hard stop；已在 repeated blocked read/search 且 runtime 能命名缺失声明 fact-source 时，自动执行 bounded fact-source bootstrap 并记录为 read evidence | focused+regression fixed / real rerun pending |
+| `implementation-rework-finish-without-edit-budget-drain` | validation rework 中 schema failure、目标 artifact、required keys 和 `apply_patch` next action 已正确传递，但模型反复声称 patch 成功并调用 `finish_node`；已对同一 implementation node 的第三次 plain needs-edit recovery 插入 terminal hard-stop，避免继续烧 provider/node budget | focused+regression fixed / real rerun pending |
+| `implementation-rework-stale-edit-success-feedback` | hard-stop live 复验中，`node-4` 没有 successful edit，但 provider-visible recent outputs 仍泄漏 `node-2` 的 apply_patch success，并生成错误的 `A file edit already succeeded` progress hint；已将 recent tool outputs 聚合边界收窄到 latest active TaskSpace context 之后 | focused+regression fixed / real rerun pending |
+| `validation-rework-target-read-output-context-loss` | latest active context scoping 修复了跨节点 stale edit success，但也误丢当前 rework target 的完整 read output，只剩 projection compact excerpt，模型又重复读 `generate_org.py`；已对 latest projection 明确引用的 `validation_rework_target_read artifact=*` 回补对应 read output，同时继续排除旧 apply_patch success | focused+regression fixed / real rerun pending |
+| `inspect-duplicate-list-files-data-bootstrap-gap` | keyed rerun `20260704-115228-006` 证实第一次 `list_files` 已列出 `schema.json` 和 CSV fact sources，但模型重复 `list_files` 后只收到 duplicate recovery，没有触发 bounded data artifact bootstrap，最终烧到 `TaskSpaceProviderBudgetHardStopV1`；已让 repeated duplicate read/search 在 force-finish 不安全时触发 bounded source/test/data artifact bootstrap | focused+regression fixed / real rerun pending |
+| `validation-rework-patch-only-after-target-read-feedback` | keyed rerun `20260704-120401-124` 证实 schema repair contract、`validation_rework_target_read` 和禁止 schema inspection 的 patch-only 契约都已出现在 provider prompt，但下一次 `read_file schema.json` 仍被包装成泛化 `implementation_needs_edit` hard-stop；已新增 post-target-read patch-only 专用 recovery/hard-stop 语义 | focused+regression fixed / real rerun pending |
+| `validation-rework-complete-read-duplicate-read-nonforcing` | keyed rerun `20260704-130600-674` 证实 `read_context: complete_read`、`eof_reached=true` 和 `no additional file lines are hidden` 已正确传给模型，但模型仍声称 projected excerpt 不足并重复 `read_file process.py`；已把 complete-read duplicate rework read 从 advisory recovery 升级为 immediate hard-stop，并强化 patch-only recovery 文案 | focused+regression fixed / real rerun pending |
+| `complete-read-content-preview-truncation` | keyed rerun `20260704-132354-931` 证实 H-060 已 live-cleared：complete-read duplicate read 直接 `attempt_count: 1` hard-stop；但 ActionMap `result-10.body` 仍在 `eof_reached=true` 的完整读取中只持久化 2KiB telemetry head + summary tail，provider-visible source 在 patch-relevant 下半段前被截断；已对 bounded complete read_file preview 保留完整 model-visible text | focused+regression fixed / real rerun pending |
+| `optional-fact-source-required-loop` | keyed rerun `20260704-133520-535` 证实 `package.json or any config files (if present)` 被 runtime 抽取成硬性 `package.json` fact-source gate；即使 `rg --files` 证明文件不存在且 schema/CSV 已读完，projection 仍要求 `read_file package.json` 并烧到 provider node hard-stop；已让条件性/可选 fact-source 描述不生成硬 inspect/validation gate | focused+regression fixed / real rerun pending |
+| `missing-fact-source-bootstrap-read-classification` | 同一 trace 中自动 missing-source bootstrap 生成 `printf ...; sed -n ... && awk ...` 读命令，但 preflight/gate 可将该非 action-contract shell 命令误入非 read 路径；已把 bounded `sed -n` read 形态纳入 shell action classifier，覆盖 bootstrap header 组合，同时保留 `sed -i`/重定向等 edit 判定 | focused+regression fixed / real rerun pending |
+| `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop` | keyed rerun `20260704-135944-845` 证实 optional fact-source loop 已清除，但 validation rework 中 `apply_patch` expected-lines mismatch 被已有 target-read 证据误路由到 patch-only hard-stop，导致具体失败反馈没有传给模型；已让 failed edit recovery 优先于 post-target-read patch-only recovery | focused+regression fixed / real rerun pending |
+| `validation-local-infra-retry-command-generic` | keyed rerun `20260704-141543-156` 证实 H-064 path 未复现，但裸 `pytest -v` command-not-found 被正确路由到 local-infra validation retry 后，retry context 明知 changed artifact 是 `process.py`，却仍给泛化 `python recover.py` 示例；已从 changed script artifact 生成 exact platform-compatible command hint，如 `python process.py` | focused+regression fixed / real rerun pending |
+| `validation-schema-repair-rename-hint-gap` | keyed rerun `20260704-143221-395` 证实 local-infra command genericity 已清除，并进入真实 schema validation；validator output 已显示 `member_ids` vs `members`、`total_employees` vs `totalEmployees` 等 rename 线索，但 repair contract 只列 missing required names，模型继续读 schema 到 patch-only hard-stop；已从 validator offending object keys 生成 `schema_property_rename_hints` | focused+regression fixed / real rerun pending |
+| `generic-fact-source-success-criteria-artifact-gap` | keyed rerun `20260704-144300-806` 证实 schema validation path 可达，但 start_task 的 fact source 只有泛化“repository root containing schema.json and CSV files”，而 success criteria 已点名 `departments.csv/employees.csv/projects.csv`；runtime 未从 success criteria 提取这些输入工件，导致只读 schema 就实现并猜错 CSV 字段；已把 success criteria 中的 concrete input artifacts 纳入 inspect fact-source gate，并排除 generated output `organization.json` | focused fixed / real rerun pending |
+| `validation-rework-complete-read-duplicate-hardstop-too-early` | keyed rerun `20260704-145742-157` 证实 H-067 已 live-cleared，模型实现前读取了 schema 和三个 CSV；validation rework 也完整读取了 `generate_organization.py`，但第一次 duplicate-read feedback 刚产生完整读取/无隐藏行语义时就被 hard-stop，模型没有机会响应该强反馈；已把 complete-read duplicate read 改为先给一次 recoverable feedback，第二次重复或 repeated-blocked-action 才 hard-stop | focused fixed / real rerun pending |
+| `validation-rework-block-rejection-wording-drift` | keyed rerun `20260704-150817-545` 证实 complete-read hard-stop timing 已 live-cleared；runtime 正确拒绝了 validation rework 中“还要读 schema/test expectations”的 blocker，但 session 只识别旧 missing-source rejection wording，未把新 wording 结构化为 `missing_source_visibility_blocker_rejected`，随后进入 patch-only hard-stop；已把 old/new missing-source block rejection wording 合并识别 | focused fixed / real rerun pending |
+| `validation-rework-patch-directive-buried-after-evidence` | keyed rerun `20260704-151923-804` 未复现 H-069 block path，但进入完整 schema validation rework；repair contract、complete target read、schema/CSV evidence 均已可见，provider 仍连续重复读 `process.py`；root cause 是 patch-only/duplicate-read recovery 把 `Current required behavior` 放在长 evidence 后；已把动作指令前置 | focused fixed / real rerun pending |
+| `validation-rework-closed-action-space-noncompliance` | keyed rerun `20260704-153051-437` 证实 patch directive 已前置、complete-read 语义已显式保留、projection 已将 next_valid_actions 收窄到 `apply_patch generate_organization.py`，current node contract 也只允许 edit/control；provider 仍输出非法 `read_file generate_organization.py` 并触发 duplicate-read hard-stop；已在 action-contract schema 转换前拒绝 closed target re-read | focused fixed / real rerun pending |
+| `validation-rework-closed-action-rejection-noaction-downgrade` | keyed rerun `20260704-154904-391` 证实 schema/control 层已把非法 `read_file generate_organization.py` 拒绝为 `validation_rework_closed_action_space_read_disallowed:read_file`，但 session recovery 将其降级为泛化 `TaskSpaceNoActionRecoveryV1`，provider 因而继续重复同一非法 read 直到 provider-node hard stop；已把该 marker 归入 implementation-needs-edit / patch-only recovery，并保留一次 recoverable patch-only turn、第二次 hard-stop | focused fixed / real rerun pending |
+| `validation-rework-post-patch-only-noncompliance` | keyed rerun `20260704-160458-158` 证实 NoAction downgrade 已 live-cleared：closed-action rejection 正确进入 patch-only recovery，第二次同类 rejection bounded hard-stop；但 provider 在 complete target read、schema repair contract、patch-only recovery 均可见后仍重复 `read_file process_csv.py`，未生成 patch；已给 patch-only recovery 增加通用 repair-synthesis scaffold，将 schema rename hints、missing required properties、traceback/test signals 转成 patch construction steps | focused fixed / real rerun pending |
+| `start-task-output-contract-downgrade` | keyed rerun `20260704-161809-385` 未命中 patch-only scaffold，而是暴露更早的 contract bootstrap gap：顶层 rationale 说明要产出 `organization.json` 并符合 `schema.json`，但 `start_task` args 把 output contract 写窄成 inspect summary；runtime 随后接受 `python process.py` generator-only 成功并 forced validation closeout；已将 rationale 合并进 objective，并从 objective/success criteria/evidence refs 推导 generated output 与 schema validation contract | focused fixed / real rerun pending |
+| `validation-rework-static-read-exception-conflicts-with-patch-only` | attested keyed rerun `20260704-163615-799` 证实 output/schema contract enforcement 已 live 生效，且 H-073 patch scaffold 已 provider-visible；但静态 action contract 仍允许 named validation rework artifact `read_file`，与 complete-read 后 patch-only closure 冲突，provider 继续重复 `read_file generate_org.py` 到 hard-stop；已把静态 read exception 限定为 target 尚未完整读取前有效，并新增 patch-only override | focused fixed / real rerun pending |
+
+新增关键判断：
+
+- R4 tools feedback 问题要拆成三类：一类是语义缺失，原始失败/证据信号进入 trace 或 tool output，但缺少 failure kind、required command、missing artifact 或 phase completion guard；第二类是语义扭曲，AX2 已证明旧节点 edit success 会污染新节点 recent feedback；第三类是语义降级，底层 rejection 已正确产生，但进入 session recovery 时被降成错误通道，例如 closed-action rejection 被路由到 `TaskSpaceNoActionRecoveryV1`。
+- `start-task-output-contract-downgrade` 需要单独归为 capability/contract bootstrap 问题：不是工具失败语义没传递，而是过窄的起始 contract 让后续工具成功被解释成错误的任务成功。
+- `validation-rework-static-read-exception-conflicts-with-patch-only` 说明还存在第四类：静态能力契约与动态状态契约冲突。此时两边语义都存在，但组合后给模型留下了互相矛盾的合法动作集合。
+- `taskspace runtime` 可以负责工具反馈分类和 phase gate，但不能超越状态机底线把“重复证据”解释成“inspect 已完成”。
+- R4 当前实际进行位置：phase 流程已到 R4-H/post-closeout；工程上继续在 R4-D feedback layer 和 R4-G utility-convergence 做回补，不应重新标记 R4 已验收。
+
+### 3.8 provider budget hard stop
+
+在 `organization-json-generator` keyed rerun `target/r4-org-json-real-keyed-20260703d/.../whale-exec.jsonl` 中，前置 feedback fixes 已经让 inspect 读到
+`schema.json`、`departments.csv`、`employees.csv`，没有再触发 duplicate-read premature implement；但 `projects.csv` 未读时，
+provider request budget 从 `19->20 max=20` 后继续到 `26->27`，全部处于 `over_profile_hint`。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| action map | `gate_provider_request_pre_dispatch` 对 rollout/node budget 超限返回 `allowed=false`，reason 分别为 `provider_request_hard_limit_exceeded` / `provider_node_request_hard_limit_exceeded` |
+| session | `Session::action_map_gate_provider_request_pre_dispatch` 暴露 hard gate 给采样路径 |
+| turn loop | `try_run_sampling_request` 在 `stream_with_provider_request_budget` 前阻断；外层 loop 记录 hard-stop item 后直接结束当前 turn |
+| feedback | 新增 `TaskSpaceProviderBudgetHardStopV1`，携带 request/node/grace 计数、blocking items 和 next valid actions |
+| grace | 只允许 `request_phase=budget_recovery` 且 grace 未消耗时继续一次恢复请求 |
+
+第一次新二进制真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703e-hardgate/runs/terminal_bench__organization-json-generator/20260704-000713-854
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 5
+TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=5/20 node_request_count=5/5
+```
+
+结论：provider budget runaway / 900s timeout 已被 hard stop 截断；但固定 per-node limit 过早终止 inspect，仍未读
+`employees.csv` / `projects.csv`。因此本轮继续修复 `provider-node-budget-premature-inspect-stop`：inspect effective
+`max_model_requests_per_node` 根据声明 fact-source artifacts 扩展，且 recovery item 到达预算边界时下一次 provider request 标记为
+`budget_recovery`。
+
+当前状态：focused 修复已完成；仍需用新二进制重跑 `organization-json-generator` 验证真实 wrong 是否继续推进到 solved 或新的 failure class。
+
+### 3.9 implementation rework feedback evidence join
+
+adaptive budget 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703f-adaptive-budget/runs/terminal_bench__organization-json-generator/20260704-001749-411
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+```
+
+进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| inspect | 已读取 `employees.csv`、`departments.csv`、`projects.csv` 和 schema，说明 adaptive fact-source budget 越过了上一层 blocker |
+| validation rework | 失败信息进入 trace，但 recovery 没有把失败和上游 CSV/schema evidence 合并为同一 action contract |
+| failure shape | 先是整文件顶层缩进导致 line 1 / line 2 `IndentationError` 被逐行修，后续 replacement 又引用不存在的 `salary` 字段并触发 `KeyError: 'salary'` |
+| budget | provider hard stop 正常阻断在 `request_count=20/20`，但预算被低质量 rework 消耗完 |
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| action map | `current_main_working_evidence_summary()` 使用当前节点的有界依赖闭包，并把 `validation_rework` summary 与上游 inspect working evidence 合并 |
+| session recovery | `TaskSpaceImplementNeedsEditRecoveryV1` 明确 validation failure 是 primary target；Python 顶层 `IndentationError` 需要按整文件/整块修；`KeyError` 只能使用已观察到的 schema/CSV/JSON 字段 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+```
+
+当前状态：focused 修复已完成；仍需重跑 `organization-json-generator` 验证是否越过 implement rework，或者按新 trace 收录下一层 R4-D/R4-G blocker。
+
+### 3.10 inspect projection fact-source guard
+
+rework evidence join 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703g-rework-evidence/runs/terminal_bench__organization-json-generator/20260704-003459-046
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| timeout / hard stop | 900s timeout 没有复发，provider node budget hard stop 在 `request_count=11/20`、`node_request_count=11/10` 截断 |
+| inspect evidence | TaskSpace 已读 `schema.json`、`departments.csv`、`employees.csv`，但仍缺 `projects.csv` |
+| feedback visibility | final projection 的 `verified_input_evidence` 明确只列前三个输入，说明缺失事实源可从 runtime 状态推导 |
+| projection bug | 同一 projection 的 `next_valid_actions` 仍包含 `finish_node -> implement_solution`，没有复用底层 fact-source coverage guard |
+
+根因判断：
+
+这个 case 是反馈层“语义缺失”而不是“语义扭曲”。底层 duplicate/manual/forced finish guard 没有错，缺失的是
+provider-visible `projection_next_valid_actions` 这一路没有拿到 `TaskState`，因此无法调用声明 fact-source coverage 判断。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| context projection | `append_context_projection_with_header` 调用 `projection_next_valid_actions(map, current_node_id, Some(task))` |
+| next action policy | inspect 节点缺声明 fact-source artifacts 时，projection 只输出 `read_file declared fact-source artifact ... next` 和 `do not finish inspect_code_context...` |
+| regression | 保留原先“已有证据且无缺失 fact source 时可进入 implement”的 projection 行为 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_prioritizes_inspect_to_implement_after_evidence --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
+```
+
+当前状态：focused 修复已完成；仍需重跑 `organization-json-generator` 验证 projection 不再误导模型提前 finish，
+并观察 TaskSpace 是否能读取 `projects.csv` 后进入 implement。
+
+### 3.11 implementation editable validation failure misblock
+
+projection guard 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703h-projection-factsource/runs/terminal_bench__organization-json-generator/20260704-004643-993
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| inspect | 已读 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv`，说明 projection fact-source guard 的真实效果成立 |
+| implement | 创建了 `generate_organization.py`，但 Add File patch 每行带一个额外前导空格 |
+| validation | `python generate_organization.py` 先报 line 2 `IndentationError`，一行 patch 后又报 line 3 `IndentationError` |
+| rework closeout | 新 rework node 接受 `block_node`，最后 blocked reason 称 closed validation prevents further editing，并将缩进错误归为 `infra-evidence-unresolved-indentation` |
+| output contract | public validation 失败：`/app/organization.json` 不存在 |
+
+根因判断：
+
+这是 control/feedback 语义扭曲：validation failure 是可编辑实现错误，应该继续 patch 失败 artifact；runtime 不应接受
+rework node 把它 block 成 infra/closed validation。现有守卫覆盖了 missing source、validator procedure、internal policy，
+但没有覆盖“editable validation failure as blocker”。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| action map | `block_main_node` 在 implement rework 无 successful edit、依赖 validation evidence 明确是 `IndentationError` / `SyntaxError` / `KeyError` 等可编辑失败时拒绝 `block_node` |
+| feedback | action-contract recent output 新增 `failure_kind: editable_validation_failure_blocker_rejected` |
+| next action | recovery 明确要求 patch failed validation artifact；Python 顶层缩进/语法错误要按 whole file / block 修，不能 block for inspection |
+| regression | 已保持 validator-procedure blocker、missing-source blocker 和 implement recovery 行为通过 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_editable_validation_failure_blocker_rejection --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_validator_procedure_blocker_before_edit --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_validator_procedure_blocker_rejection --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_missing_source_blocker_rejection --lib
+```
+
+当前状态：focused 修复已完成；仍需重跑 `organization-json-generator` 验证 TaskSpace 是否继续 patch 缩进问题、生成
+`organization.json`，并通过 public validation。
+
+第二次复验：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703i-editable-blocker/runs/terminal_bench__organization-json-generator/20260704-005922-113
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+```
+
+进展：TaskSpace 仍无 900s timeout，并且已读全 fact sources、创建 `processor.py`、进入 validation。
+未通过原因仍属于同一 `implementation-editable-validation-failure-misblocked` 类型，但 provider wording 变成：
+
+```text
+Test failed with IndentationError; cannot read files to diagnose because read actions are not allowed in current narrowed state
+```
+
+该 wording 最初没有命中 `blocker_claims_editable_validation_failure_as_blocker`，因此 runtime 接受了 `block_node`。
+已把 `cannot read`、`read actions are not allowed`、`read restriction`、`insufficient information` 和
+`current narrowed state` 纳入同一 detector，并用该真实文案更新 focused test。
+
+### 3.12 validation closeout output contract coverage gap
+
+editable blocker wording 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703j-editable-wording/runs/terminal_bench__organization-json-generator/20260704-010752-603
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 8
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| implement | TaskSpace 创建 `generate_json.py`，并成功生成 `organization.json` |
+| validation | 只运行 `python generate_json.py`；该命令 exit 0 只证明 generator 执行成功 |
+| closeout | runtime 触发 `TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain`，把 generator success 当成 validation success |
+| final answer | 声称 `organization.json` follows `schema.json` |
+| public validator | 失败于 `KeyError: 'members'` 和 `KeyError: 'averageDepartmentBudget'`；输出使用 `member_ids` 和 snake_case statistics |
+
+根因判断：
+
+这是 validation/feedback 语义缺失，不是工具执行失败。raw tool success 正确传递了 `exit_code=0`，但 runtime 把“脚本运行成功”
+提升成“输出契约验证成功”。R4 tools 链路必须区分 execution success、generator success、output/schema contract success。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| validation gate | 对声明 output contract artifacts 的 validation command 增加覆盖检查；generator-only command 输出 `validation_test_missing_output_contract_coverage` |
+| next action | recovery 保留 combined command，例如 `python generate_json.py && python -m jsonschema -i organization.json schema.json` |
+| forced closeout | 若 generator-only successful result 已记录，closeout 前会重开引用该 result 的 satisfied success criteria，并将 result 标记 invalid |
+| regression | 直接输出 artifact 的数值验证、local validator、changed-artifact coverage、validation infra/rework 路径保持通过 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_output_contract_coverage_recovery_preserves_next_action --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否不再 generator-only closeout，并实际修正
+`organization.json` 的 schema/public-test contract。
+
+### 3.13 schema fact-source weak validation gap
+
+output-contract coverage 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703k-output-contract/runs/terminal_bench__organization-json-generator/20260704-013819-201
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 9
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| validation gate | `python process.py` 被 `validation_test_missing_output_contract_coverage` 拒绝；H-014 guard 已在真实 run 中生效 |
+| feedback | session 插入 `TaskSpaceValidationNeedsTestRecoveryV1`；模型收到失败语义并改变下一步 |
+| weak validation | 模型改跑 `python process.py && python -c 'import json; data=json.load(open("organization.json")); print("Valid")'` |
+| semantic gap | runtime 接受了 JSON parse，final answer 声称 schema validation 成功 |
+| public validator | 仍失败于 `KeyError: 'members'` 和 `KeyError: 'averageDepartmentBudget'` |
+
+根因判断：
+
+H-014 修掉了“generator-only execution success 被 closeout 当成 validation success”。本轮不是同一个旧问题复发；
+反馈传递是有效的，模型也响应了反馈。新的缺口是 coverage 语义仍然过宽：`schema.json` 在该任务中作为
+`initial_fact_sources` / success criterion 出现，而不是 output contract 本身。runtime 只从 output contracts 抽
+schema target，导致 `json.load` 这种弱检查被误判为 output contract validation。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| requirement extraction | 从 output contracts、success criteria、fact sources 一并提取 schema/validator artifacts |
+| command semantics | 有 schema/validator target 时，命令必须包含 `jsonschema`、`validate`、`pytest`、`run-tests` 等真实 validator 语义；普通 `json.load` / `python -c` 不再足够 |
+| next action | schema fact source 场景也会保留 `python process.py && python -m jsonschema -i organization.json schema.json` |
+| regression | 直接输出 artifact 仍可用具体 `assert` 检查 JSON 结构；local validator、changed-artifact coverage、forced closeout 路径保持通过 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+cargo fmt --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否实际运行 schema/public-equivalent validation，
+并修正 `organization.json` 的字段 contract。
+
+### 3.14 validation recovery next-action projection dilution
+
+schema fact-source guard 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703l-schema-factsource/runs/terminal_bench__organization-json-generator/20260704-014928-473
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_open_leaf_nodes: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| validation gate | 多次弱 validation 被 `validation_test_missing_output_contract_coverage` 拒绝；schema fact-source guard 已生效 |
+| gate recovery | `TaskSpaceGateRecoveryV1.next_valid_actions` 给出 `python process.py && python -m jsonschema -i organization.json schema.json` |
+| recovery feedback | `TaskSpaceValidationNeedsTestRecoveryV1` 要求 obey `next_valid_actions`、use the named command exactly |
+| active projection | 紧随其后的 `ContextProjectionV1 active replacement` 只展示 `run validator/test command` |
+| budget | smoke node 在重复弱尝试后触发 `provider_node_request_hard_limit_exceeded request_count=14/20 node_request_count=6/5` |
+| public validator | 仍失败于 `/app/organization.json does not exist`，说明未执行 schema-validating command |
+
+根因判断：
+
+这次不是 raw tool failure，也不是 gate recovery 缺失。精确失败语义在 `TaskSpaceGateRecoveryV1` 和
+`TaskSpaceValidationNeedsTestRecoveryV1` 中已经存在；语义丢失发生在 provider-visible projection 层。active projection
+重新根据 validation node kind 生成了泛化 `run validator/test command`，覆盖了前一条精确 recovery 的行动约束。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| runtime state | 记录 latest gate recovery `next_valid_actions`，keyed by map/node |
+| projection | smoke/regression node projection 若存在 latest gate recovery，优先原样输出 exact recovery commands |
+| feedback constraint | projection 追加 `do not substitute weaker validation; use the exact recovered command unless it cannot run` |
+| cleanup | 当前节点记录新 main tool result、清理 blocked repeats 时同步清掉对应 recovery 状态，避免污染后续节点 |
+| regression | schema fact-source 测试现在同时断言 active projection 包含 exact `jsonschema` 命令且不再含泛化 `run validator/test command` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否按 projection 中的 exact command 执行
+`python process.py && python -m jsonschema -i organization.json schema.json`。
+
+### 3.15 validation rework target artifact read gap
+
+recovery projection 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703m-recovery-projection/runs/terminal_bench__organization-json-generator/20260704-020629-368
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| exact validation | TaskSpace 执行了 `python generate_org.py && python -m jsonschema -i organization.json schema.json` |
+| schema feedback | jsonschema 返回真实业务错误：project 缺 `members`，statistics 缺 `averageDepartmentBudget`、`totalEmployees`、`skillDistribution` 等 required keys |
+| rework routing | runtime 插入 `TaskSpaceImplementNeedsEditRecoveryV1`，说明 validation failure 正确进入 implement rework |
+| action contract | `implementation_needs_edit` 下 `read_file schema.json` 被拒绝为 `node_policy_violation`，泛读拦截仍正确 |
+| target visibility | 模型随后 block：无法读取 `generate_org.py` 就不能做正确 patch |
+
+根因判断：
+
+这次不是 validation feedback 丢失，也不是 projection dilution。exact schema command 已经执行，schema failure 也正确进入 rework。
+缺口在 rework 目标工件投影和 session action contract 之间：schema failure 没有 traceback path，旧逻辑只从 failure text
+找目标文件，没有把 blocked validation dependency 的 changed artifact `generate_org.py` 作为可读取 rework target 暴露给
+`implementation_needs_edit`。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| runtime dependency projection | `implement_node_dependency_validation_rework_artifact_refs` 合并 blocked validation dependency 的 changed artifacts |
+| provider snapshot | 新增 `current_node_validation_rework_artifacts`，供 action contract state 和 projection 使用 |
+| projection | implement rework 未编辑前，`next_valid_actions` 明确列出命名 target artifact read 和 patch |
+| session action contract | `implementation_needs_edit` 下只允许读取命名 validation rework target artifact；`schema.json` 等泛读仍被拒绝 |
+| regression | 新增 runtime 和 session focused tests 覆盖 schema failure 无 traceback、命名读取放行、泛读拒绝 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_allows_named_validation_rework_artifact_read --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否读取或直接 patch `generate_org.py`，
+并把 `organization.json` 修到 schema/public validator 通过。
+
+### 3.16 validation jsonschema module missing rework misroute
+
+target artifact read 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703n-rework-target-read/runs/terminal_bench__organization-json-generator/20260704-022632-418
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 9
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| previous fixes | TaskSpace 读齐 schema/CSV，创建 `organization.json`，并执行 schema validation 语义命令 |
+| validation command | 使用 `python3 -c "import json, jsonschema; ... jsonschema.validate(...)"` |
+| failure semantic | 失败是 `ModuleNotFoundError: No module named 'jsonschema'`，schema validation 未真正执行 |
+| target read | rework 中成功读取 `organization.json`，证明 3.15 修复有效 |
+| control loop | runtime 将该失败路由到 implement rework 后，模型反复 `finish_node`，最终 `provider_node_request_hard_limit_exceeded request_count=15/20 node_request_count=6/5` |
+
+根因判断：
+
+`jsonschema` module missing 不是 output schema mismatch，也不是可由 implementation patch 直接修复的 evidence。旧分类只把
+E_ACCESSDENIED、bwrap、uv cache 等少数 case 视为 local infra，并把 `ModuleNotFoundError` 纳入 failed validation
+noninfra path，导致 validation node 被 block 并创建 rework。正确边界是：这种失败应留在 validation node，并给出同一 schema
+contract 的可执行替代命令，例如默认 Python 环境下的 `python -m jsonschema -i organization.json schema.json`。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| validation classification | 新增 `validation_failure_is_missing_jsonschema_dependency`，从 noninfra implementation rework 分类中排除 |
+| projection recovery | validation node 看到该失败后，基于 output contract/schema requirements 输出 `python -m jsonschema -i organization.json schema.json` |
+| local infra guard | E_ACCESSDENIED、uv cache、bwrap 等既有 local infra tests 保持通过 |
+| regression | 新增 focused test 覆盖 missing jsonschema 不进入 rework、current node 保持 validation、projection 给 CLI recovery |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core local_infra --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否改用 `python -m jsonschema`，
+并在真实 schema mismatch 后继续修正 `organization.json`。
+
+### 3.17 implementation rework repeat-read budget drain
+
+jsonschema module missing 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703o-jsonschema-recovery/runs/terminal_bench__organization-json-generator/20260704-024204-931
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| validation command | TaskSpace 使用 `python csv_processor.py && python -m jsonschema -i organization.json schema.json`，说明 H-018 recovery 已推动到可执行 schema validation |
+| failure semantic | schema 输出缺 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution` 等真实 implementation defects |
+| recovery direction | runtime 插入 `TaskSpaceImplementNeedsEditRecoveryV1`，要求使用已有证据 patch target artifact，不要 rediscover |
+| attribution gap | `read_file csv_processor.py` 在 Linux action-contract 下执行为 `sed -n '1,240p' -- csv_processor.py`，但 rollout trace 的 read `main_tool_result` 记录 `artifactRefs=[]` |
+| control loop | 已存在的 `validation_rework_duplicate_artifact_read` gate 因 artifact ref 缺失未触发，模型重复读同一文件直到 `provider_node_request_hard_limit_exceeded` |
+
+根因判断：
+
+这不是新的 schema classification 问题，也不是 target-read permission 问题。`read_command_artifact_ref` 支持
+PowerShell `Get-Content`、`cat` 和 `type`，但漏掉了 TaskSpace Unix `read_file` 的稳定命令形态
+`sed -n '1,240p' -- path`。结果是工具反馈丢失 artifact identity，runtime 不能把“已经读过 target artifact”传递给 duplicate
+rework gate。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| artifact attribution | `read_command_artifact_ref` 识别 `sed -n ... -- path` 并把 path 写入 successful read result evidence |
+| duplicate rework gate | 第一次命名 validation rework target read 仍允许；第二次同 target read 在无 successful edit 前触发 `validation_rework_duplicate_artifact_read` |
+| convergence feedback | recovery 明确要求 `apply_patch` 或返回 blocked，避免把节点请求预算耗尽在重复读取上 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否在首次读取 `csv_processor.py` 后进入 `apply_patch`，
+并继续修正 schema/public validator 失败。
+
+### 3.18 validation blocker manual rework origin loss
+
+sed read attribution 修复后的 post-commit keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703q-postcommit-attestation/runs/terminal_bench__organization-json-generator/20260704-030017-880
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| sed attribution | 第一次 `read_file process.py` 已记录 `artifactRef: process.py`，证明 3.17 修复有效 |
+| duplicate gate | 后续两次 `read_file process.py` 被 `validation_rework_duplicate_artifact_read` 拦截 |
+| manual rework path | 模型在 validation recovery 中先 `create_node(implement_solution)`，再把 validation node block 掉 |
+| origin gap | action map 最终边为 `node-4 -> node-6`，而不是 `node-5 -> node-6`；`node-6` 没有 `origin_node_id=node-5` |
+| lifecycle gate | `node-6` 绑定后发出的 `apply_patch` 被 `result-14 still unreviewed` 拦截，要求先 `state_commit` |
+| control loop | provider 最终 `request_count=20/20` hard stop；这属于状态归因问题被转化成继续采样预算消耗 |
+
+根因判断：
+
+自动 validation rework 路径已经会设置 `origin_node_id`，但手动 `create_node` 路径没有。`create_node` 默认依赖选择只看
+completed leaf nodes，因此在 validation node 仍 running 时创建的 detached rework node 会挂回最近 completed implementation。
+随后 validation blocker 虽然语义存在，lifecycle gate 也正确要求 unreviewed result 不能被普通工作依赖，但因为 rework node
+origin 丢失，runtime 无法识别这是 active validation rework input。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| create_node origin | detached `implement_solution` 若从 active `smoke_test` / `regression_test` 创建，会记录该 validation node 为 `origin_node_id` |
+| DAG dependency | 同时加入 validation -> rework 依赖边；validation running 时 rework 保持 Pending |
+| blocked refresh | validation node 变成 Blocked 后，只刷新匹配 origin 的 pending rework node 为 Ready，不放宽普通 blocked node 的下游解锁语义 |
+| lifecycle gate | 绑定该 rework node 后，`apply_patch` 可使用 unreviewed blocker 作为 active rework input，不需要额外 state_commit 自救 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core manual_validation_rework_created_before_block_keeps_origin --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否能完整 patch `process.py`/生成 `organization.json`，
+并继续通过 schema/public validator 或暴露下一层 R4 tools 问题。
+
+### 3.19 validation stale failure block without current test
+
+manual validation rework origin 修复后，最新 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703r-manual-rework-origin/runs/terminal_bench__organization-json-generator/20260704-032001-321
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_open_leaf_nodes: 0
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| sed attribution | `sed -n '1,240p' -- generate_org.py` read 已记录 target artifact |
+| duplicate gate | 第二次 `read_file generate_org.py` 被 `validation_rework_duplicate_artifact_read` 拦截 |
+| implementation quality | 模型只移除了 line 1 的前导空格，line 2 起仍保留顶层缩进 |
+| validation evidence | 新 smoke node 没有当前 `Build`/`Test` result，却用上一轮 `IndentationError` 文案执行 `block_node` |
+| graph state | `open_leaf_nodes=0`，但 public validator exit 1，说明 graph closed 不等于 validation 真实完成 |
+
+根因判断：
+
+这是反馈层“语义缺失 + 跨节点复用”问题。旧 `IndentationError` 语义存在，并没有完全丢失；缺的是当前 validation node
+必须先产生自己的 test/build evidence，才能把失败声明为该 node 的 validation result。没有这个底线，runtime 会允许模型把
+上一轮可编辑失败复用成新 validation node 的 terminal blocker。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| validation block guard | smoke/regression node 若要用 failed validation/test blocker，必须已有同节点 `Build`/`Test` tool result |
+| infra exception | `Local validator infrastructure failed`、`Cannot execute test commands` 等本地验证基础设施 blocker 不被当成 stale failure reuse |
+| feedback | 拒绝 stale validation block 时，明确要求先在当前 node 运行 required validation command |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node_rejects_stale_failure_without_current_test --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 在 rework patch 后会重新运行 schema/public validation，
+并继续 patch 未修完的顶层缩进，而不是复用上一轮失败关闭新的 validation node。
+
+### 3.20 validation rework duplicate-read projection loop
+
+stale validation block guard 修复后，最新 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703s-stale-validation-guard/runs/terminal_bench__organization-json-generator/20260704-033716-688
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| validation | 已执行 `python process.py && python -m jsonschema -i organization.json schema.json`，到达真实 schema failure |
+| failure semantic | schema 明确指出 `member_ids` 应为 `members`，statistics 需要 camelCase 字段 |
+| target read | `node-4` 成功读取 `process.py`，`result-11` 带 artifact ref |
+| duplicate gate | 后续 5 次 `read_file process.py` 全部被 `validation_rework_duplicate_artifact_read` 拦截 |
+| projection gap | projection 仍广告 `read_file validation rework target artifact process.py only if current contents are not visible`，`critical_artifact_evidence` 为 none |
+| budget | `provider_node_request_hard_limit_exceeded node_request_count=6/5`，rework node 保持 open |
+
+根因判断：
+
+这不是 sed attribution 失败，也不是 duplicate gate 未触发。问题在 provider-visible projection：target read result 已存在，
+但 projection 没把它作为当前 critical evidence 展示，同时继续显示 read/search 可用。模型看到“内容可能不可见”的 read action，
+反复请求同一 read；底层 gate 每次都正确拒绝，但拒绝反馈被下一轮 projection 冲淡。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| critical evidence | validation rework target read result 进入 `critical_artifact_evidence`，标记 `signal=validation_rework_target_read` 并附带 bounded excerpt |
+| next action | target 已读且无 edit 时，不再广告该 target 的 read_file；改为 `use existing validation rework target read result` + `apply_patch` |
+| current contract | target 已读后 allowed action 文案收窄到 edit/control，并明确 read/search visible rework target 会被 blocked |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+git diff --check
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否在第一次读取 `process.py` 后直接 patch
+`members` 和 statistics camelCase 字段，再重跑 schema/public validation。
+
+### 3.21 validation pytest runner dependency misroute
+
+read summary portability 修复后的最新 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703as-read-summary-portable/runs/terminal_bench__organization-json-generator/20260704-094153-058
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| read_file summary | `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` 均输出 `TaskSpaceReadFileSummaryV1` 且 exit 0，`awk --` 问题已越过 |
+| validation routing | 模型已有 `process.py` edit，并尝试运行会生成 `organization.json` 的命令；runtime 后续执行了 `python -m pytest` |
+| failure raw signal | `result-9` 保留 `/home/zhangxu/miniconda3/bin/python: No module named pytest` |
+| semantic distortion | runtime 将 runner 缺依赖译成普通 validation failure，自动创建 `implement_solution` rework node，文案要求 `Fix the implementation artifact(s)` |
+| loop shape | `node-4` 没有新 edit，模型多次 `finish_node`，runtime 反复注入 `TaskSpaceImplementNeedsEditRecoveryV1`，最后 provider node budget hard stop |
+
+根因判断：
+
+这是反馈层语义扭曲，不是语义缺失。`No module named pytest` 已进入 tool output 和 trace；缺陷在 runtime 分类：
+pytest runner 依赖缺失应属于 local validator infrastructure，不能被解释成业务实现错误。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| classifier | `text_mentions_local_validator_infra_failure` 识别 `command: python -m pytest` / `pytest` runner 下的 `No module named pytest` |
+| rerun policy | 该类 infra failure 可创建 platform-compatible validation rerun，而不是 implement rework |
+| state machine | 原 validation node 被 blocked，失败 result 标 invalid；新 current node 是 `smoke_test`，不触发 `implementation_needs_edit` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra_tool_result_auto_blocks_validation_node --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core state_commit_accepts_failed_validation_result_after_runtime_rework_transition --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery --lib
+```
+
+当前状态：focused 修复、R4-adjacent regression/build、commit/push 和 attestation 已完成。后续 keyed rerun 没有到达
+pytest runner dependency case，而是在更早的 inspect budget/fact-source path 层暴露新问题，见 3.22。
+
+### 3.22 fact source path artifact ref loss
+
+pytest runner dependency 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703at-pytest-infra/runs/terminal_bench__organization-json-generator/20260704-095934-702
+preflight_git_head: 878248bb9d7fd4232189788dc7ad3fe8e345820f
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_tool_call_count: 6
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| start_task | 模型明确声明 `initial_fact_sources` 四个 path：`schema.json`、`departments.csv`、`employees.csv`、`projects.csv` |
+| runtime state | observability 中 fact sources 只剩 `fact-source-1..4`、自然语言 description 和 `artifactRef=user-request`，没有四个 path |
+| budget symptom | 只读了 `schema.json` 和 `departments.csv`；三次重复读 `schema.json` 被 duplicate gate 拦截后，inspect 节点在 `node_request_count=6/5` 被 `TaskSpaceProviderBudgetHardStopV1` 终止 |
+| semantic loss | `path` 语义在 taskspace_control normalization / serde parse 入口被丢弃，`task_required_fact_source_artifact_refs()` 提取不到 required artifacts，既无法扩容 inspect node limit，也无法投影缺失 `employees.csv` / `projects.csv` |
+
+根因判断：
+
+这是能力层到状态层的语义缺失。模型已经给出工具链需要的 path，但 `TaskSpaceFactSourceArgs` 没有承载该字段，
+`normalize_fact_source_array()` 也没有把 inline path 折叠到 `evidence_refs[].artifact_ref`，serde 默认忽略 unknown `path`。
+因此 runtime 后续预算和 fact-source guard 都只看到泛化 user request，而看不到真实文件。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| parser | `record_fact_source`、`state_commit.fact_sources`、`start_task.initial_fact_sources` 都支持 inline `path` / `artifact_ref` / `artifact_path` / `source_path` |
+| alias arrays | 同时支持 `paths` / `artifact_refs` / `artifact_paths` / `source_paths` 数组 |
+| state contract | inline path 会进入 `evidence_refs[].artifact_ref`，让 `task_required_fact_source_artifact_refs()`、inspect coverage guard 和 adaptive node budget 使用同一份 artifact 语义 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core fact_source_path_normalizes_to_artifact_ref --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget_expands_inspect_node_limit_for_fact_sources --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_control --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_request_budget --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+```
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；后续证据门是 attestation 和下一次 keyed rerun，
+验证 live path 是否真正越过 adaptive inspect budget，并继续打到后续 validation/utility 层。
+
+### 3.23 validation rework target read preview truncation
+
+fact-source path 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703au-fact-source-path/runs/terminal_bench__organization-json-generator/20260704-101310-657
+preflight current_git_head: c9e49ec0df3f00acc37d64fb5ebace0834ae6e4d
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| inspect budget | provider trace 显示 `node-1 max_model_requests_per_node:10`，不再是旧的 5 |
+| fact-source coverage | `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` 均成功读取并输出 `TaskSpaceReadFileSummaryV1` |
+| inspect transition | 四个事实源读完后，重复 `schema.json` 触发 `TaskSpaceForcedInspectTransitionV1` 进入 implementation，没有重现 `node_request_count=6/5` hard stop |
+| validation | schema validation 进入真实业务失败：projects 缺 `members`，statistics 缺 camelCase required fields |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| rework target read | validation rework 正确允许一次 `process.py` read，得到 `result-12` |
+| feedback gap | duplicate-read recovery 说“use existing file contents from result-12”，但 `Already inspected evidence` 中 `result-12 artifacts=process.py` 是单行 compact preview，关键下半段被 `...` 截断 |
+| loop shape | 模型继续重复 `read_file process.py`，先触发 `TaskSpaceValidationReworkDuplicateReadRecoveryV1`，再触发 `TaskSpaceValidationReworkDuplicateReadHardStopV1` |
+
+根因判断：
+
+这是反馈层语义不自足：runtime 正确知道“目标已读，下一步必须 patch”，但传给模型的 rework target context
+不是可直接应用 `apply_patch` 的多行文件片段，只是 result id + 单行 preview。对 patch 类动作而言，`already visible`
+必须意味着 recovery/projection 中有可用的 bounded multiline target excerpt。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| evidence summary | `current_main_working_evidence_summary()` 在 validation rework 节点上优先加入 `validation_rework_target_read` |
+| target excerpt | rework target read 使用 bounded multiline excerpt，默认上限 6000 chars，避免旧 1200-char single-line preview 截掉 patch 位置 |
+| projection consistency | 保留 existing critical artifact projection，同时让 no-action / duplicate-read recovery 共享同一份目标文件证据 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_duplicate --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+```
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun
+验证 rework 节点是否从重复读推进到 patch。
+
+### 3.24 inspect duplicate-read recovery non-forcing budget drain
+
+rework target evidence 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703av-rework-target-evidence/runs/terminal_bench__organization-json-generator/20260704-102918-033
+preflight current_git_head: a6251227d5a6c5204bcc8609fa499b1ba1a4c734
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_open_leaf_nodes: 1
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| binary preflight | attestation pass，二进制对应 `a625122` |
+| fact-source declaration | `start_task.initial_fact_sources` 正确包含 `departments.csv`、`employees.csv`、`projects.csv`、`schema.json` |
+| projection | 读完 `schema.json` 后，projection 明确要求 next 读取 `departments.csv` / `employees.csv` / `projects.csv` |
+| duplicate recovery | `TaskSpaceDuplicateReadSearchInspectRecoveryV1` 正确说明重复 `schema.json` 不是新证据，并列出 missing fact-source artifacts |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| loop shape | 模型连续重复 `read_file schema.json`，底层 gate 每次都正确拒绝 |
+| control hardness | recovery 是 advisory，未把缺失 fact-source read 转成强制执行或自动 bounded evidence |
+| budget | 第 11 次 node request 才读到 `departments.csv`，随后 `node_request_count=11/10` hard stop |
+| coverage gap | `employees.csv` 和 `projects.csv` 仍未读，未进入 implementation/rework 阶段 |
+
+根因判断：
+
+这不是 fact-source path 语义丢失，也不是 projection/recovery 缺少 next action；语义已经正确传达给模型。
+问题在反馈层缺少执行硬度：重复 blocked read/search 不应继续无限消耗 provider/node budget。runtime 已经知道
+哪些 declared fact sources 未读，且这些动作是只读、bounded、由状态机约束要求的事实源覆盖，因此可以在 repeated blocked
+之后自动执行缺失 fact-source bootstrap。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| runtime query | 新增 `current_main_inspect_missing_required_fact_source_artifacts()`，让 turn loop 从 runtime 结构化获取缺失 fact sources |
+| bootstrap | repeated duplicate inspect read/search 且存在缺失声明 fact-source 时，自动执行 bounded read，最多读取 4 个缺失 artifacts |
+| evidence recording | bootstrap 输出每个文件前带 `===== path`，并显式记录为 `ActionClass::Read` main tool result，使 coverage guard 能识别 |
+| boundary | 只在 repeated blocked read/search 后触发；只读声明 fact-source；不创建实现、不修改文件、不绕过 validation |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_shrink_after_bootstrap_read_sections --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+```
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun
+验证 live sample 是否越过 inspect duplicate-read budget drain，再继续打到 implementation / validation rework 阶段。
+
+### 3.25 implementation rework finish-without-edit budget drain
+
+fact-source bootstrap 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703aw-missing-fact-bootstrap/runs/terminal_bench__organization-json-generator/20260704-104628-266
+preflight current_git_head: cd00f0c2a87ef93f9536ce35d843b7be31cd90cf
+build_attestation_status: pass
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 7
+right_open_leaf_nodes: 1
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| inspect | 四个声明 fact-source artifacts 已读完：`schema.json`、`departments.csv`、`employees.csv`、`projects.csv` |
+| validation | 正确执行 `python generate_organization.py && python -m jsonschema -i organization.json schema.json` |
+| schema failure | `statistics` 仍使用 snake_case keys，缺少 schema required 的 `averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` |
+| rework projection | `node-4` 投影明确给出 `validation_schema_repair_contract`、目标 `generate_organization.py`，并写明 successful edit 前不要 `finish_node` |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| loop shape | 模型连续发 `taskspace_control finish_node`，rationale 声称 patch 已成功 |
+| tool reality | validation failure 之后没有新的 `apply_patch` action；最终 `generate_organization.py` 仍是未修正 snake_case 版本 |
+| feedback | runtime 反复插入 `TaskSpaceImplementNeedsEditRecoveryV1`，但仍是 advisory |
+| budget | 最终由 `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5` 兜底，说明控制硬度仍不足 |
+
+根因判断：
+
+这不是工具失败语义缺失。schema failure、目标 artifact、required keys、`apply_patch` next action 都已经传递给模型。
+问题是 feedback/control 的终止语义缺失：当模型把自己的自然语言声明“patch applied successfully”当成事实并反复
+`finish_node` 时，runtime 没有把同一 implementation node 的重复 needs-edit recovery 升级成 terminal recovery。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| session recovery | 新增 `TaskSpaceImplementationNeedsEditHardStopV1` |
+| count scope | plain implementation needs-edit recovery 按 current node id 分桶计数，避免 node-2 初始合法 recovery 污染 node-4 rework |
+| terminal policy | 同一 implementation node 第三次 plain needs-edit recovery 时停止本轮 provider sampling，记录 bounded hard-stop evidence |
+| boundary | 不改变 ActionMap 的 edit-before-finish gate；不影响 failed edit / patch grammar / validation duplicate-read recovery 的既有路径 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit_hard_stop_triggers_on_third_plain_recovery --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`validation_rework` 18/18、`provider_budget` 23/23、`taskspace_active_budget` 11/11、`validation_`
+96/96、`apply_patch_` 35/35、`taskspace_control` 35/35、`local_infra` 11/11 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` 警告。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证
+live sample 是否越过 implementation finish-without-edit budget drain，并继续推进到真正 patch schema mismatch 或暴露下一层 blocker。
+
+### 3.26 implementation rework stale edit-success feedback
+
+implementation needs-edit hard-stop 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ax2-implement-needs-edit-hard-stop/runs/terminal_bench__organization-json-generator/20260704-110832-426
+preflight current_git_head: 212a1c27e64e737a35f8afd845209b0c49e3024b
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| inspect/bootstrap | 已越过声明 fact-source 读取和 duplicate read budget drain |
+| validation | 已执行 schema-level validation，失败定位到 `members` 和 statistics required keys |
+| recovery | `TaskSpaceImplementationNeedsEditHardStopV1` live 命中，避免再次烧到 provider/node budget hard-stop |
+| utility | TaskSpace 仍未完成 schema repair，最终 `organization.json` 未通过 public validation |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| active node | 当前 rework node 是 `node-4`，且 `node-4` 没有 recorded successful edit |
+| stale feedback | 模型 reasoning 引用 `Success. Updated the following files: A generate_org_json.py`，这是早前 implementation node 的 apply_patch success |
+| progress hint | provider-visible recent-output 生成 `A file edit already succeeded. Do not repeat apply_patch... Next action must be finish_node` |
+| gate reality | ActionMap finish gate 正确拒绝 `node-4` finish：没有 recorded successful edit |
+
+根因判断：
+
+这是 feedback-layer 语义扭曲，不是语义完全缺失。runtime 的硬 gate 知道当前节点没有 edit；错误发生在
+cache-optimized action-contract 的 provider-visible recent tool outputs 聚合层：它按 latest user input 过滤历史工具输出，
+但一个 TaskSpace turn 可能跨多个节点，导致旧节点 successful edit 泄漏到新节点的 next-action hint。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| prompt composition | `TaskSpaceActionContractRecentToolOutputsV1` 改为按 `max(latest_user_index, latest_active_context_index)` 之后的工具输出聚合 |
+| invariant | 当前节点的 recent-output progress hint 不得引用旧 active projection 前的工具结果 |
+| regression | 构造 `node-2 apply_patch success -> node-4 active projection`，断言 prepared prompt 不再包含旧 success，也不再生成 `A file edit already succeeded` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_recent_outputs_are_scoped_after_latest_active_context --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt_includes_recent_post_user_tool_output_summaries --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`action_contract_prompt` 28/28、`implementation_needs_edit` 3/3、`validation_rework` 18/18、
+`provider_budget` 23/23、`taskspace_active_budget` 11/11、`validation_` 96/96、`apply_patch_` 35/35、
+`duplicate_read_search` 2/2、`inspect_missing_fact_sources` 2/2、`taskspace_control` 35/35、`local_infra`
+11/11 均通过。`cargo fmt --check` 仍只输出项目既有 stable rustfmt `imports_granularity` 警告。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证
+live sample 是否不再把旧节点 edit success 投影到 `node-4`，并继续推进到真正 patch schema mismatch 或暴露下一层 blocker。
+
+### 3.27 validation rework target read output context loss
+
+recent-output active-context scoping 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ay-stale-recent-output-scope/runs/terminal_bench__organization-json-generator/20260704-112438-158
+preflight current_git_head: 25e3fcb8fca885146a939ca8a0868c2ea1877609
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| stale edit success | `whale-exec.jsonl` 不再出现 `A file edit already succeeded` |
+| hard stop | 不再触发 `TaskSpaceImplementationNeedsEditHardStopV1` |
+| validation | 仍能执行 schema validation 并进入 `node-4` rework |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| target read | `node-4` 成功读取 `generate_org.py`，read output 含完整 84 行和 `TaskSpaceReadFileSummaryV1` |
+| prompt composition | latest active context 在 read 之后记录，旧修复按 latest active context 之后过滤 recent outputs，导致完整 read output 不再进入 recent-output summary |
+| projection evidence | active projection 只保留 `validation_rework_target_read result=result-11 artifact=generate_org.py` 的 compact excerpt |
+| model behavior | 模型认为 result-11 只有 summary，不足以 patch，于是重复 `read_file generate_org.py` |
+| runtime gate | duplicate read gate 正确阻断，最终 `TaskSpaceValidationReworkDuplicateReadHardStopV1` 兜底 |
+
+根因判断：
+
+这是对前一修复的边界补充：latest active context 不能作为所有 recent outputs 的硬截断点。对当前 active context
+明确引用的 `validation_rework_target_read artifact=*`，完整 read output 是 patch 所需反馈，应该保留；旧节点
+apply_patch success 仍必须排除，不能重新污染 progress hint。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| tool output collection | prompt composer 先收集所有 tool outputs，再在最终阶段分类过滤 |
+| normal recent outputs | 仍要求通过既有 action-contract candidate 过滤，并位于 latest active context 之后 |
+| rework target exception | latest active context 明确包含 `validation_rework_target_read ... artifact=<path>` 时，回补对应 `TaskSpaceReadFileSummaryV1: path=<path>` 的 read output |
+| stale success guard | 旧 active context 前的 apply_patch success 仍不会进入 recent-output summary，也不会生成 `A file edit already succeeded` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_keeps_current_rework_target_read_across_latest_context --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_recent_outputs_are_scoped_after_latest_active_context --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`action_contract_prompt` 28/28、`validation_rework` 18/18、`implementation_needs_edit` 3/3、
+`provider_budget` 23/23、`validation_` 96/96、`taskspace_active_budget` 11/11、`apply_patch_` 35/35、
+`taskspace_control` 35/35、`local_infra` 11/11 均通过。`cargo fmt --check` 仍只输出项目既有 stable rustfmt
+`imports_granularity` 警告。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证
+live sample 是否从 duplicate target read 推进到 apply_patch schema repair。
+
+### 3.28 validation pytest command normalization and runner misroute
+
+rework target read output retention 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704az-rework-target-read-retained/runs/terminal_bench__organization-json-generator/20260704-113802-241
+preflight current_git_head: 9d0be484b6638d9dd66b07f2435b63d8d4170aa4
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| duplicate target read | 不再触发 `TaskSpaceValidationReworkDuplicateReadHardStopV1`，说明 3.27 修复的 full read output retention 已在 live trace 生效 |
+| validation | flow 继续推进到后续 validation node，标准侧已 solved，TaskSpace 侧仍 engineering_unclean |
+| timeout | 仍未回到 900s timeout，provider/node budget hard-stop 系列修复保持有效 |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| command ability | assistant 请求 `run_test` command=`python -m pytest test_organization.py -v` |
+| command normalization | action-contract 实际执行 `/bin/bash -lc 'pytest tests/test_organization.py -v'`，丢失 `python -m` runner 前缀 |
+| runner feedback | shell 返回 `/bin/bash: line 1: pytest: command not found` |
+| semantic route | runtime 未把裸 `pytest` runner 缺失识别成 local validator infra，而是插入 `TaskSpaceImplementNeedsEditRecoveryV1`，引导实现返工 |
+| terminal symptom | 后续 rework 读取 `generate_organization.py`，又读不存在的 `tests/test_organization.py`，最终进入 `TaskSpaceImplementationNeedsEditHardStopV1` |
+
+根因判断：
+
+这是 tools 链路的能力层和反馈层组合问题，不是模型单纯解题错误。能力层上，`run_test` 命令归一化可以补路径，
+但不能把用户/模型选择的 runner 从 `python -m pytest` 降级为裸 `pytest`。反馈层上，裸 `pytest: command not found`
+与 `python -m pytest` 的 `No module named pytest` 属于同一类本地 validator runner 依赖缺失，应该留在 validation
+恢复路径，而不是转换成 implementation needs-edit。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| command normalization | `normalize_taskspace_action_contract_test_command()` 继续补 `tests/<file>` 路径，但使用匹配到的 pytest runner prefix 重建命令；`python -m pytest test_tax_calc.py -v` 归一化为 `python -m pytest tests/test_tax_calc.py -v` |
+| bare pytest behavior | 原有裸 `pytest test_tax_calc.py -v` 仍归一化为 `pytest tests/test_tax_calc.py -v` |
+| runner infra feedback | `text_mentions_missing_pytest_runner_dependency()` 增加 `pytest: command not found`、`pytest: not found`、`command not found: pytest`、Windows `pytest is not recognized` 变体 |
+| route invariant | 命令本身必须含 pytest runner 才会触发该分类；命中后 result 标记 invalid/local validator infra，并从 failed validation node 创建 smoke_test rerun，不创建 implementation rework |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_action_contract_run_test_preserves_python_m_pytest_prefix --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core bare_pytest_command_not_found_routes_to_validation_rerun_not_implementation --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_action_contract_run_test --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core pytest_runner_dependency --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`taskspace_action_contract_run_test` 5/5、`local_infra` 11/11、`action_contract_prompt` 28/28、
+`validation_rework` 18/18、`validation_` 97/97、`provider_budget` 23/23、`taskspace_active_budget` 11/11、
+`implementation_needs_edit` 3/3、`apply_patch_` 35/35、`duplicate_read_search` 2/2、`missing_fact_source_bootstrap`
+1/1、`inspect_missing_fact_sources` 2/2、`taskspace_control` 35/35 均通过。`cargo fmt --check` 仍只输出项目既有
+stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需下一次 keyed rerun 验证 live sample 是否越过 pytest
+runner infra 层并继续推进到 schema/public-test 正确的 `organization.json`。
+
+### 3.29 inspect duplicate list_files data bootstrap gap
+
+pytest command normalization 修复并提交 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ba-pytest-runner-feedback/runs/terminal_bench__organization-json-generator/20260704-115228-006
+preflight current_git_head: 9f086386e3a8baeba5f1387bb179b4f1306e1895
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 6
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_maps: 1
+right_nodes: 1
+right_open_leaf_nodes: 1
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| pytest case | 本轮没有到达 pytest runner 阶段，因此不能作为 3.28 live pass；但 attestation/head 已证明新二进制被使用 |
+| timeout | 未回到 900s timeout，失败在更早的 inspect duplicate-list_files 层 |
+| standard side | standard solved，说明样本本身和 validator 仍可用 |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| first evidence | `list_files "."` 执行为 `rg --files .`，成功输出 `employees.csv`、`departments.csv`、`projects.csv`、`schema.json`、`task.yaml` 等 |
+| duplicate behavior | 模型连续 5 次重复 `list_files "."`，runtime 正确以 `inspect_duplicate_successful_read_or_search` 阻断 |
+| recovery gap | recovery 只说不要重复、可读不同 artifact 或 finish；没有把 file-list 中的 data artifacts 转成 forced bounded reads，也没有触发 existing fact-source bootstrap |
+| budget symptom | `node_request_count=6/5` 后触发 `TaskSpaceProviderBudgetHardStopV1`，graph 只剩一个 open inspect node |
+
+根因判断：
+
+这是 feedback/control 层缺口。`force_finish_inspect_for_provider_budget()` 拒绝仅凭 `rg --files` 列表进入 implement 是正确的；
+但 session fallback 对 repeated duplicate read/search 的 false 分支没有执行 bootstrap。现有 repeated blocked inspect bootstrap 只读
+`*.py/*.md/*.txt`，也没有在 duplicate read/search 分支触发，所以数据处理任务中的 `schema.json` / `*.csv` 无法自动进入 inspect evidence。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| bootstrap coverage | `TaskSpaceRepeatedBlockedInspectBootstrapV1` 的 bounded artifact glob 从 `*.py/*.md/*.txt` 扩展到 `*.py/*.md/*.txt/*.json/*.csv/*.yaml/*.yml` |
+| bootstrap bound | Unix 使用 `head -n 12` + `sed -n '1,120p'`，Windows 使用 `Select-Object -First 12` + `Get-Content -TotalCount 120` |
+| trigger | repeated `inspect_duplicate_successful_read_or_search` 且 `force_finish_action_map_inspect_for_provider_budget()` 返回 false 时，session 直接执行 bounded source/test/data artifact bootstrap，而不是继续插入 advisory recovery |
+| invariant | 仍不允许仅凭 file-list evidence force-finish inspect；先补 bounded artifact evidence，再由后续 state/projection 判断能否进入 implement |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core repeated_duplicate_read_search_triggers_inspect_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core repeated_blocked --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`duplicate_read_search` 3/3、`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources`
+2/2、`taskspace_control` 35/35、`provider_budget` 23/23、`taskspace_active_budget` 11/11、
+`action_contract_prompt` 28/28、`validation_rework` 18/18、`validation_` 97/97、`local_infra` 11/11、
+`apply_patch_` 35/35、`implementation_needs_edit` 3/3 均通过。`cargo fmt --check` 仍只输出项目既有
+stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证 live sample
+是否越过 repeated duplicate `list_files` budget drain。
+
+### 3.30 validation rework patch-only after target read feedback
+
+duplicate list_files bootstrap 修复并提交 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bb-data-bootstrap/runs/terminal_bench__organization-json-generator/20260704-120401-124
+preflight current_git_head: 807a3cf5802e59688bb911fe69216e314f4e33ff
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_maps: 1
+right_nodes: 4
+right_open_leaf_nodes: 1
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| inspect | BA 的重复 `list_files` drain 未复现；模型本轮声明并读取了 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` |
+| validation | 执行了 `python generate_org.py && python -m jsonschema -i organization.json schema.json`，到达真实 schema mismatch |
+| schema failure | project 输出 `member_ids` 而不是 required `members`；statistics 缺 `averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` |
+| rework target read | `generate_org.py` 读取成功，`TaskSpaceReadFileSummaryV1` 显示 `lines_read=89 eof_reached=true max_lines=240` |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| prompt evidence | `rollout.jsonl` line 432 已包含 `validation_schema_repair_contract`、`validation_rework_target_read result=result-12 artifact=generate_org.py`、schema/CSV evidence、`TaskSpaceGateRecoveryV1 reason=validation_rework_duplicate_artifact_read` |
+| patch-only contract | `rollout.jsonl` line 457 已把当前 node contract 收窄到 `edit, control(block_node only...)`，并说明 read/search of visible target 会被 blocked |
+| bad action | 模型仍请求 `read_file schema.json` |
+| semantic distortion | action-contract/session 把它包装成泛化 `node_policy_violation:implement_solution:read_file:implementation_needs_edit` 和 `TaskSpaceImplementationNeedsEditHardStopV1 reason=repeated_finish_without_successful_edit`，没有保留“target read 后只允许 patch/block”的专用语义 |
+
+根因判断：
+
+这不是 schema 修复语义缺失。修复字段、目标文件、已读目标内容、禁止 schema inspection 的恢复契约都进入了 provider prompt。
+缺口是 feedback layer 的语义专用化不足：validation rework 从“允许首次读取命名 target artifact”进入“target 已可见，patch-only”
+后，session 对后续非编辑动作仍复用普通 `implementation_needs_edit`，导致日志和 hard-stop 语义无法表达真实状态边界。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| recovery selector | `build_taskspace_implementation_recovery_item()` 在 evidence summary 包含 `validation_rework_target_read` 时，优先生成 `TaskSpaceValidationReworkPatchOnlyRecoveryV1` |
+| failure kind | 新增 `failure_kind: validation_rework_patch_only_after_target_read`，明确这是 target read 后的非编辑动作，不是缺少 schema 或普通 implementation 证据不足 |
+| recovery behavior | 第一次 post-target-read 非编辑动作给一次专用 patch-only recovery，要求立即 `apply_patch` 或 `block_node`，禁止 `schema.json` / fact-source 迁移读取 |
+| hard stop | 第二次同类 patch-only 违规触发 `TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read`，避免再退化成泛化 needs-edit 或 provider budget drain |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only_hard_stops_after_one_recovery --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_does_not_enter_patch_only_before_target_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`implementation_recovery` 5/5、`implementation_needs_edit` 3/3、`validation_rework_duplicate_read`
+6/6、`validation_rework` 19/19、`action_contract_prompt` 28/28、`validation_` 98/98、`provider_budget`
+23/23、`taskspace_active_budget` 11/11、`duplicate_read_search` 3/3、`missing_fact_source_bootstrap`
+1/1、`inspect_missing_fact_sources` 2/2、`local_infra` 11/11、`apply_patch_` 35/35、`taskspace_control`
+35/35 均通过。`cargo fmt --check` 仍只输出项目既有 stable rustfmt `imports_granularity` 警告；
+`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证 live sample
+是否在新 patch-only recovery 后直接 patch schema mismatch，或者暴露下一层 tools-chain blocker。
+
+### 3.31 validation rework visible evidence blocker accepted
+
+patch-only feedback 修复提交并 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bc-patch-only-feedback/runs/terminal_bench__organization-json-generator/20260704-122254-562
+preflight current_git_head: f5ba9ede38e1f74c1f90d0d553848b862ad50c6e
+build_attestation_status: pass
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 6
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| patch-only recovery | `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 已在 live trace 中出现，H-056 的专用反馈语义生效 |
+| target read | `process.py` 读取完整，`TaskSpaceReadFileSummaryV1` 显示 `lines_read=83 eof_reached=true max_lines=240` |
+| visible evidence | provider prompt 同时包含 `validation_rework_target_read result=result-7 artifact=process.py`、`schema.json` 证据和 `apply_patch process.py` next-valid-action |
+| bad action | 模型改为调用 `taskspace_control block_node`，理由是 `Need to view full current process.py content and schema.json...` |
+| runtime gap | `block_main_node()` 接受了这个 blocker，导致 `current_main_node_missing`，最后退化为 `blocked_by_taskspace_action_contract` |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| type | `validation-rework-visible-evidence-blocker-accepted` |
+| layer | feedback layer / control guard |
+| trigger | validation rework 已有完整 target read 和 schema repair context，但模型用“需要查看完整当前文件 / remaining code / read access”阻断 |
+| expected | runtime 应拒绝该 blocker，反馈 `missing source visibility`，要求继续 `apply_patch`；只有真实外部 blocker 或 failed edit 后同 target refresh 才允许离开 patch-only 路径 |
+| actual | `blocker_claims_missing_inspected_source_evidence()` 没识别 `need to view full current...` 等等价缺证据语义 |
+
+根因判断：
+
+这仍然不是修复信息缺失。BC trace 中目标文件、schema 证据、validation failure 和 patch-only contract 都已经在上下文内。
+缺口是 blocker 分类器的语义覆盖不足：R4 feedback layer 对 `need to read/inspect` 有 guard，但没有把 `need to view full current...`
+归入相同的 missing-visibility blocker，因此错误接受了一个与可见证据矛盾的 `block_node`。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| classifier | 扩展 `blocker_claims_missing_inspected_source_evidence()`，覆盖 `need to view`、`view full`、`full current`、`without seeing`、`remaining code`、`request read access` |
+| runtime guard | 复用既有 `block_main_node()` guard：当 dependency evidence 已识别 implementation artifact / validation rework target 且尚未成功 edit 时，拒绝 missing source visibility blocker |
+| regression | 在 post-target-read validation rework 测试中加入 live blocker reason，断言返回 `missing source visibility` 和 `apply_patch` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`validation_rework` 19/19、`taskspace_control` 35/35、`implementation_needs_edit` 3/3、
+`action_contract_prompt` 28/28、`validation_` 98/98、`provider_budget` 23/23、`taskspace_active_budget`
+11/11、`apply_patch_` 35/35、`local_infra` 11/11、`duplicate_read_search` 3/3、
+`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需提交推送、attestation 和下一次 keyed rerun 验证
+live sample 是否在新 blocker guard 后进入 `apply_patch`，或者暴露下一层 tools-chain blocker。
+
+### 3.32 read summary command template shadowing
+
+visible evidence blocker guard 修复、提交、推送并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bd-visible-evidence-blocker/runs/terminal_bench__organization-json-generator/20260704-123716-651
+preflight current_git_head: 7bf148589386ff15b1bc61f9f1f79b7aab5e35bc
+build_attestation_status: pass
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| H-057 live gate | `Need to view full current ...` blocker 未复现，说明 visible-evidence blocker guard 已越过 |
+| inspect | 本轮读取了 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv`，且均有 `eof_reached=true` |
+| initial patch | 生成了 `generate_org.py` 和 `organization.json`，进入真实 schema mismatch，而不是早期工具链失败 |
+| rework target read | `generate_org.py` 读取完整，真实 raw output 末尾为 `TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=108 eof_reached=true max_lines=240` |
+| bad feedback | provider prompt 中的 `read_context` 却显示 `read_summary; TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s...` |
+| bad action | 模型据此判断 “read summary is truncated / need full file”，重复 `read_file generate_org.py`，最终触发 `TaskSpaceValidationReworkDuplicateReadHardStopV1` |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| type | `read-summary-command-template-shadowing` |
+| layer | feedback layer / evidence summarization |
+| trigger | action-contract read_file shell command 的 awk `printf` 模板含 `TaskSpaceReadFileSummaryV1: path=%s...`，出现在 tool body 真实 raw output summary 之前 |
+| expected | read summary parser 应选择 raw output 末尾的真实 summary，并向 projection/recovery 输出 `complete_read` / `eof_reached=true` |
+| actual | `read_file_summary_line()` 从前向后扫描，先命中 command 模板，导致 `complete_read` 语义被扭曲成 `read_summary/path=%s` |
+
+根因判断：
+
+这不是模型缺少目标文件，也不是 duplicate-read guard 失效。完整文件内容和 `eof_reached=true` 已经在同一个 tool result 内。
+缺口是 evidence summarization 解析顺序错误：命令模板里的 marker 抢在 raw output summary 前被解析，导致反馈层把完整读错误表达为
+不完整/不确定读。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| parser | `read_file_summary_line()` 改为从后向前查找 marker，让 raw output 末尾追加的真实 summary 优先 |
+| regression | 新增 `read_file_summary_prefers_actual_output_over_command_template`，包含 `path=%s/%d/%s` 模板和真实 `path=generate_org.py ... eof_reached=true` |
+| expected projection | `validation_rework_read_context_status()` 应恢复 `complete_read; TaskSpaceReadFileSummaryV1: path=generate_org.py ... eof_reached=true`，不再泄漏 `path=%s` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_prefers_actual_output_over_command_template --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`validation_rework` 19/19、`taskspace_control` 35/35、`implementation_needs_edit` 3/3、
+`action_contract_prompt` 28/28、`validation_` 98/98、`provider_budget` 23/23、`taskspace_active_budget`
+11/11、`apply_patch_` 35/35、`local_infra` 11/11、`duplicate_read_search` 3/3、
+`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需提交推送、attestation 和下一次 keyed rerun 验证
+live prompt 不再出现 `read_context: read_summary; ... path=%s`，并观察是否进入 schema repair patch。
+
+### 3.33 read summary preview tail loss
+
+`read-summary-command-template-shadowing` 修复、提交、推送并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704be-read-summary-template/runs/terminal_bench__organization-json-generator/20260704-124752-951
+preflight current_git_head: fd5c705b1eead3de69c7d06f5ebd85bb3fb9ab50
+build_attestation_status: pass
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| H-058 focused gate | parser 已能在完整 body 内选择 raw output 末尾真实 summary |
+| live prompt | `read_context` 仍显示 `read_summary; TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s...` |
+| raw trace | `whale-exec.jsonl` 中真实工具输出包含 `TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=92 eof_reached=true max_lines=240` |
+| ActionMap result body | `result-10` 的 `preview:` 只有工具输出头部和 `[... telemetry preview truncated ...]`，真实尾部 summary 在进入 ActionMap 前已被裁掉 |
+| bad action | 模型再次请求 `read_file process_csv.py`，触发 duplicate-read recovery，最终进入 `TaskSpaceValidationReworkDuplicateReadHardStopV1` |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| type | `read-summary-preview-tail-loss` |
+| layer | feedback layer / tool preview persistence |
+| trigger | `tool_output_model_visible_preview()` 对模型可见工具输出做 telemetry head truncation；`TaskSpaceToolInvocationV1` 再把 shell command 放在 `raw_output` 前 |
+| expected | 结构化 `TaskSpaceReadFileSummaryV1` 作为读文件完成度哨兵，应在 preview 截断后仍进入 ActionMap result 和 recent feedback |
+| actual | 真实 `eof_reached=true` 在 preview 层丢失，ActionMap 只能看到 command 字段中的 awk `path=%s/%d/%s` 模板 |
+
+根因判断：
+
+H-058 的解析顺序修复是必要但不充分。live 失败不是 parser 仍选错，而是 parser 能看到的
+`result.body` 已经缺失真实 summary。也就是说，这次不是语义扭曲，而是反馈层关键语义字段在入库前缺失；
+缺失后才退化为命令模板 shadowing。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| preview | 新增 `append_taskspace_tool_tail_sentinels()`，从完整输出中提取最后一个带 `eof_reached=true/false` 的真实 `TaskSpaceReadFileSummaryV1`，在 preview 截断后追加 |
+| ActionMap input | `tool_output_model_visible_preview()` 和 `response_input_model_visible_preview()` 均追加 tail sentinel，确保 ActionMap 入库前不丢读文件完成度 |
+| recent feedback | `taskspace_action_contract_recent_tool_outputs_item()` 在 2400 字符截断后复用同一 helper，避免下一轮 prompt 的 recent output 再次丢 summary |
+| parser hardening | `read_file_summary_line()` 改为优先选择可解析 `eof_reached=true/false` 的 summary；即使未来真实 summary 在 command 模板前，也不再被 `%s/%d/%s` 覆盖 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`taskspace_preview_` 3/3、`read_file_summary_` 3/3、`validation_rework` 19/19、`taskspace_control`
+35/35、`implementation_needs_edit` 3/3、`action_contract_prompt` 28/28、`validation_` 98/98、
+`provider_budget` 23/23、`taskspace_active_budget` 11/11、`apply_patch_` 35/35、`local_infra` 11/11、
+`duplicate_read_search` 3/3、`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。
+新增覆盖证明 telemetry preview 截断后仍追加 `TaskSpaceToolTailSentinelV1` 和真实 `TaskSpaceReadFileSummaryV1`；
+recent feedback 截断后也保留同一哨兵；runtime parser 不再把后置命令模板优先于真实可解析 summary。
+`cargo fmt --check` 仍只输出项目既有 stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+### 3.34 complete-read duplicate read recovery non-forcing
+
+read-summary tail sentinel 修复提交并 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bf-preview-tail-sentinel/runs/terminal_bench__organization-json-generator/20260704-130600-674
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E2-candidate
+included_in_utility_aggregate: False
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+这次 H-059 已 live-cleared：
+
+| evidence | 观察 |
+|---|---|
+| target read | provider-visible context 出现 `validation_rework_target_read result=result-11 artifact=process.py` |
+| read completeness | 同一 context 出现 `read_context: complete_read; TaskSpaceReadFileSummaryV1: path=process.py lines_read=97 eof_reached=true max_lines=240` |
+| truncation sentinel | schema/read result 在 telemetry preview truncation 后保留 `TaskSpaceToolTailSentinelV1` 和真实 summary |
+
+新的问题不是语义缺失，也不是语义扭曲。runtime 已经把完整读取语义正确传给 provider：
+
+```text
+Result result-11 is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden).
+```
+
+但模型仍重复：
+
+```json
+{"action":"read_file","node_id":"node-4","args":{"path":"process.py"},"rationale":"Need full content of process.py to construct an accurate patch for adding missing schema properties; the projected excerpt is insufficient."}
+```
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-rework-complete-read-duplicate-read-nonforcing` |
+| layer | feedback layer / control forcing |
+| trigger | validation rework 已有 target artifact 完整读取，且无 successful edit |
+| expected | `complete_read/eof_reached=true` 后，同一 artifact 的 duplicate read 不再进入另一轮 advisory；当前 turn 应立即停止或只接受 apply_patch/block_node |
+| actual | patch-only recovery 后，第一次 duplicate read 仍得到 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` advisory；模型又重复同一 `read_file` 才 hard-stop |
+| classification | 语义正确传递但控制级别不足 |
+| fix | `taskspace_validation_rework_duplicate_read_should_hard_stop()` 识别 complete-read duplicate recovery，previous count 为 0 时也 hard-stop；patch-only recovery 明确 `complete_read/eof_reached=true` 表示无隐藏行 |
+
+本地 focused 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read_complete_context_hard_stops_immediately --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+```
+
+结果：通过。新增覆盖证明 complete-read duplicate recovery 会 immediate hard-stop；不带 complete-read 证据的旧 duplicate-read 仍保持一次 advisory 后 hard-stop；failed-edit 后允许目标 artifact refresh read 的 runtime 测试保持通过。
+
+R4-adjacent 回归和构建验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`validation_rework_duplicate_read` 7/7、`validation_rework` 20/20、`taskspace_control` 35/35、
+`implementation_needs_edit` 3/3、`action_contract_prompt` 28/28、`validation_` 99/99、`provider_budget` 23/23、
+`taskspace_active_budget` 11/11、`apply_patch_` 35/35、`local_infra` 11/11、`duplicate_read_search` 3/3、
+`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。第一次收尾停在
+`cargo fmt --check` 要求 rustfmt reflow；执行 `cargo fmt` 后 focused test、`cargo fmt --check`、`git diff --check`
+和 `whale` build 通过。fmt 仍只输出项目既有 stable rustfmt `imports_granularity` warning。
+
+### 3.35 complete-read content preview truncation
+
+complete-read hard-stop 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bg-complete-read-hardstop/runs/terminal_bench__organization-json-generator/20260704-132354-931
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E2-candidate
+included_in_utility_aggregate: False
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+H-060 已 live-cleared：
+
+| evidence | 观察 |
+|---|---|
+| hard-stop | `TaskSpaceValidationReworkDuplicateReadHardStopV1 attempt_count: 1` |
+| target | `target_artifact: generate_organization.py`，`previous_read_result: result-10` |
+| prompt wording | patch-only recovery 已包含 `complete_read/eof_reached=true` 表示无隐藏行 |
+
+但同一个 trace 暴露 H-061：
+
+```text
+read_context: complete_read; TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240
+...
+total_departments = len(departments_csv)
+[... telemetry preview truncated ...]
+TaskSpaceToolTailSentinelV1:
+TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240
+```
+
+这说明 summary 语义已经正确，但完整内容没有进入 ActionMap/recent feedback。模型看到的是“complete_read + 可见 excerpt 已截断”，因此继续要求 full content 的根因不是工具执行失败，而是 provider-visible feedback 的内容持久化不完整。
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `complete-read-content-preview-truncation` |
+| layer | feedback layer / tool preview persistence |
+| trigger | action-contract `read_file` 输出超过 2KiB telemetry preview，但 `TaskSpaceReadFileSummaryV1 eof_reached=true` 证明文件完整读取且行数在 240 内 |
+| expected | bounded complete read_file 应保留完整 model-visible text，使 `complete_read/no hidden lines` 在 provider-visible 层也为真 |
+| actual | ActionMap result body 只保留 telemetry head 和 summary tail，patch-relevant lower file content 丢失 |
+| classification | 语义正确但证据内容缺失，导致完整性语义对模型可见上下文过度承诺 |
+| fix | `bounded_model_visible_text_preview()` 对 `eof_reached=true`、<=64KiB、<=320 行的 complete read_file 结果绕过 2KiB telemetry preview；incomplete/oversized read 仍截断并保留 summary sentinel |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`taskspace_preview_` 4/4、`read_file_summary_` 3/3、`validation_rework` 20/20、
+`action_contract_prompt` 28/28、`validation_` 99/99、`taskspace_control` 35/35、`provider_budget` 23/23、
+`taskspace_active_budget` 11/11、`apply_patch_` 35/35、`local_infra` 11/11 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` warning；`git diff --check` 和 `whale` build 通过。
+
+### 3.36 optional fact-source required loop
+
+complete-read preview 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bh-complete-read-preview/runs/terminal_bench__organization-json-generator/20260704-133520-535
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 18
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+H-061 的 live 验证被更早的 inspect 层问题挡住。新的 trace 显示：
+
+| evidence | 观察 |
+|---|---|
+| start_task | `initial_fact_sources` 包含 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv`、`package.json or any config files (if present)` |
+| absence evidence | `rg --files` 列出 schema/CSV/task/docker/Dockerfile，但没有 `package.json` |
+| required coverage | `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` 均已有 successful read evidence |
+| wrong next action | projection 仍输出 `read_file declared fact-source artifact package.json next`，并禁止 `finish_node` |
+| failure loop | 两次 `read_file package.json` 都返回 `sed: can't read package.json: No such file or directory`；重复 `rg --files` 后 recovery 继续给 `missing_fact_source_artifact:package.json` |
+| hard stop | 最终进入 `TaskSpaceProviderBudgetHardStopV1 node_request_count: 13/12` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `optional-fact-source-required-loop` |
+| layer | feedback layer / fact-source coverage semantics |
+| trigger | fact-source 描述包含 artifact-like token，同时带 `if present` / optional 条件语义 |
+| expected | 条件性 fact-source 可被 inspect/read 作为有用上下文，但不能在 absence evidence 下成为硬性 completion gate |
+| actual | `task_required_fact_source_artifact_refs()` 从 description 中抽取 `package.json`，丢失 `if present` 语义，并让 projection/recovery 强制读取不存在的文件 |
+| classification | 语义扭曲：用户/模型声明的是可选上下文，runtime 强化为必读事实源 |
+| fix | 对 fact-source id/description 增加 optional marker 检测；可选 source 不再生成 inspect required artifacts，也不再生成 fact-source-derived schema/validator validation hard gate |
+
+同一 trace 还暴露一个能力层相邻问题：
+
+| field | value |
+|---|---|
+| case | `missing-fact-source-bootstrap-read-classification` |
+| layer | capability layer / shell action classification |
+| trigger | session 自动生成 `printf ...; sed -n ... && awk ...` missing-source bootstrap；该 call id 不是 `taskspace-action-contract-*`，无法走 action-contract read override |
+| expected | bounded `sed -n` read bootstrap 在 preflight/gate 前分类为 `ActionClass::Read` |
+| actual | classifier 不识别 `sed -n` read 形态，live raw output 中出现 `TaskSpace blocked this edit` |
+| classification | 能力层分类缺口：命令只读，但工具权限分类可能进入非 read 路径 |
+| fix | shell action classifier 增加 bounded `sed -n` read 检测；edit 判定仍优先，`sed -i`、重定向和 mutating formatter 不受影响 |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_optional_fact_source_absence_does_not_block_finish --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core shell_action_classifier_identifies_core_taskspace_classes --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core output_contract --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。focused H-062/H-063 测试通过；`inspect_missing_fact_sources` 2/2、`missing_fact_source_bootstrap` 1/1、
+`duplicate_read_search` 3/3、`output_contract` 8/8、`taskspace_control` 35/35、`action_contract_prompt` 28/28、
+`validation_` 99/99、`provider_budget` 23/23、`taskspace_active_budget` 11/11、`apply_patch_` 35/35、
+`local_infra` 11/11、`taskspace_preview_` 4/4、`read_file_summary_` 3/3 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` warning；`git diff --check` 和 `whale` build 通过。
+
+### 3.37 validation rework failed edit recovery priority inversion
+
+optional fact-source 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bi-optional-fact-source/runs/terminal_bench__organization-json-generator/20260704-135944-845
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: a09a966cf74729d4625b556b044f9327c8e57e21
+```
+
+H-062/H-063 的 live 信号已经清除：TaskSpace start 中只保留 `schema.json`、`departments.csv`、`employees.csv`
+和 `projects.csv` 作为 required fact sources，没有再进入 `package.json` missing fact-source loop；运行在约 283s
+结束，不再是 900s timeout。新的 blocker 出现在 validation rework 反馈层：
+
+| evidence | 观察 |
+|---|---|
+| validation failure | `result-9` 报告 `missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService` |
+| target visibility | rework node `node-4` 已通过 `result-11` 完整读取 `process.py`，`TaskSpaceReadFileSummaryV1` 显示 `eof_reached=true` |
+| failed edit | 模型随后发出 `apply_patch`，但工具返回 `apply_patch verification failed: Failed to find expected lines ... process.py` |
+| wrong recovery | runtime 没有输出 `TaskSpaceEditFailureRecoveryV1` / `apply_patch_expected_lines_mismatch`，而是在 whale-exec line 76 插入 `TaskSpaceValidationReworkPatchOnlyHardStopV1` 并结束 turn |
+| graph state | `node-4` 留作 open leaf，TaskSpace 结果为 `engineering_unclean` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop` |
+| layer | feedback layer / recovery priority semantics |
+| trigger | validation rework node 已有 target-read evidence，随后同节点发生具体 `apply_patch` failure |
+| expected | 已经发生的 failed edit 应优先得到 failed-edit recovery，携带 expected-lines mismatch、不要重复同一 hunk、必要时只做同目标窄读 |
+| actual | recovery selector 先匹配 target-read patch-only contract，再处理 failed edit；既有 patch-only recovery 计数让本次变成 hard-stop，遮蔽了具体失败语义 |
+| classification | 语义缺失后的遮蔽：raw apply_patch failure 存在，但被更泛化的 patch-only 状态语义覆盖，模型看不到下一步可恢复动作 |
+| fix | `build_taskspace_implementation_recovery_item()` 保留 duplicate-read 优先级，但将 `failed_edit_summary.is_some()` 提前到 target-read patch-only recovery 之前 |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only_hard_stops_after_one_recovery --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：已通过。focused H-064 测试确认 failed edit recovery 会优先输出 `TaskSpaceEditFailureRecoveryV1`，
+且仍保留 `Failed to find expected lines`、`do not repeat the same hunk` 和同目标窄读恢复指令；原有
+post-target-read patch-only recovery/hard-stop 测试继续通过，说明只有真实 failed edit 会抢占优先级。
+`git diff --check` 和 `whale` build 通过；`cargo fmt --check` 仍只输出既有 stable rustfmt
+`imports_granularity` warning。
+
+### 3.38 validation local-infra retry command specificity
+
+failed-edit recovery 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bj-failed-edit-recovery/runs/terminal_bench__organization-json-generator/20260704-141543-156
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E1
+outcome_standard: engineering_unclean
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: c3ccd498b56eff26f8dd77161b24b01d3ca8a609
+```
+
+这次 trace 没有出现 `apply_patch verification failed`，也没有 `TaskSpaceValidationReworkPatchOnlyHardStopV1`，
+因此不构成 H-064 反例。它暴露了下一层 local-infra retry command specificity 问题：
+
+| evidence | 观察 |
+|---|---|
+| implementation | TaskSpace 创建 `process.py`，进入 smoke-test validation |
+| wrong validation command | 模型运行裸 `pytest -v`，shell 返回 `/bin/bash: line 1: pytest: command not found` |
+| correct coarse routing | runtime 将该结果归入 local validator infrastructure，block `node-3`，并创建 `node-4` smoke-test retry，而不是误转 implementation rework |
+| lost specificity | `node-4` context 已列出 `Changed artifacts still need platform-compatible execution: process.py`，但下一句仍是泛化示例 `python recover.py` |
+| run health | provider 在 validation recovery 后续连续 5 次 stream disconnect，最终 `TaskSpaceProviderBudgetHardStopV1`；pair 同时因 Docker backend unavailable 被标 `engineering_unclean` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-local-infra-retry-command-generic` |
+| layer | feedback layer / validation retry next-action specificity |
+| trigger | validation node 的 local-infra failure 发生在 changed artifact 被真实验证前 |
+| expected | retry node 应把 changed artifact 转成 exact platform-compatible command，例如 `process.py` -> `python process.py` |
+| actual | retry node 虽然知道 `process.py`，但用固定示例 `python recover.py`，导致下一步语义弱化 |
+| classification | 语义缺失：artifact target 已存在，但没有进入下一轮可执行 command contract |
+| fix | `validation_node_local_infra_*_unvalidated_artifact_result()` 生成 changed script artifact command hint；retry node 文案引用 named command(s)，不再硬编码 `python recover.py` |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：已通过。focused 测试覆盖 failed-result 和 manual-blocker 两条 local-infra retry 路径：`merge_users.py`
+会生成 `python merge_users.py` 且不再包含泛化 `python recover.py`；`recover.py` 路径仍生成 `python recover.py`。
+`local_infra` 11/11、`validation_rework` 20/20、`action_contract_prompt` 28/28、`provider_budget` 23/23 通过。
+`cargo fmt --check`、`git diff --check` 和 `whale` build 通过；fmt 仍只输出既有 stable rustfmt
+`imports_granularity` warning。
+
+### 3.39 validation schema repair rename hint gap
+
+local-infra retry command 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bk-local-infra-command-hint/runs/terminal_bench__organization-json-generator/20260704-143221-395
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 4fcf4ab21dd8070f6d2faf4f6c5b99acd6e6416d
+```
+
+这次 trace 证明 H-065 live-cleared：Docker validator 正常启动，TaskSpace 没再进入 `python recover.py`
+泛化 local-infra retry，而是执行到真实 output/schema contract validation：
+`python csv_to_json.py && python -m jsonschema -i organization.json schema.json`。
+
+新的 blocker 是 schema repair contract 的 rename hint 缺口：
+
+| evidence | 观察 |
+|---|---|
+| validation output | schema validator 报 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` 缺失 |
+| offending objects | project object 有 `member_ids`，schema 要 `members`；statistics object 有 `total_employees` / `average_department_budget`，schema 要 camelCase |
+| existing contract | runtime 已输出 `missing_required_properties` 和 `schema_required_groups` |
+| missing semantic | repair contract 没有把 offending object key 与 required key 关联成 rename hint |
+| result | 模型继续读 `schema.json`；target `csv_to_json.py` 已完整读完后再次读 schema，触发 `TaskSpaceValidationReworkPatchOnlyHardStopV1` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-schema-repair-rename-hint-gap` |
+| layer | feedback layer / schema repair contract |
+| trigger | jsonschema validator 输出 `'<required>' is a required property` 且 offending object 中存在近似 key |
+| expected | repair contract 应包含 `schema_property_rename_hints`，例如 `member_ids->members`、`total_employees->totalEmployees` |
+| actual | contract 只列 missing required names 和 schema groups，模型仍倾向读取 schema 而不是 patch |
+| classification | 语义缺失：validator raw output 里已有 source/target rename evidence，但没有结构化进入下一轮 tool contract |
+| fix | 从 validation failure line 的 quoted object keys 提取候选 key，按规范化 key / singular containment 匹配 missing required property，加入 `schema_property_rename_hints` |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core output_contract --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：已通过。focused 测试确认 schema repair contract 包含 `member_ids->members` 和
+`total_employees->totalEmployees`；`validation_rework` 20/20、`output_contract` 8/8、
+`action_contract_prompt` 28/28、`provider_budget` 23/23 通过。`cargo fmt --check`、`git diff --check`
+和 `whale` build 通过；fmt 仍只输出既有 stable rustfmt `imports_granularity` warning。
+
+## 4. 本次验证
+
+| 验证项 | 命令 | 结果 |
+|---|---|---|
+| JSON 结构 | `jq empty docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json docs/v0.0.5/build-R4/r4-public-10-tool-stress-report.snapshot.json` | PASS |
+| Tool path coverage | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1` | PASS：11 paths |
+| Sample ledger | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-sample-ledger.ps1` | PASS：12 samples |
+| Public-10 plan + snapshot | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath docs/v0.0.5/build-R4/r4-public-10-tool-stress-report.snapshot.json` | PASS：10 planned samples |
+| Usage accounting | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1` | PASS：rejects ambiguous token usage；synthetic timeout row 可从 rollout token_count 恢复 partial usage |
+| R4 acceptance readiness | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1` | EXPECTED BLOCKED：engineering gates pass；`provider_credential_missing` 阻断真实 utility 复验 |
+| R4 acceptance readiness with `.env.local` key | `set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1` | PASS：engineering gates pass；provider credential present；可进入真实 utility rerun |
+| H-035 focused Rust unit | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_apply_patch_strips_unified_file_headers_inside_native_update --lib` | PASS：1 passed |
+| H-036 focused Rust unit | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_failure_summary_preserves_error_after_warning_noise --lib` | PASS：1 passed |
+| External wrapper harness | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1` | PASS |
+| Provider credential focused harness | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1` | PASS：临时清空 `DEEPSEEK_API_KEY` 后稳定退出 `provider_credential_preflight` |
+| Terminal-Bench uv cache | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-terminal-bench-uv-cache-harness.ps1` | PASS |
+| Oracle runner | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-oracle-runner-harness.ps1` | PASS |
+| Terminal-Bench adapter | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-terminal-bench-adapter-harness.ps1` | PASS |
+| Metrics extractor | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-metrics-extractor-harness.ps1` | PASS |
+| Benchmark harness | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1` | PASS |
+| organization-json-generator plan-only | `run-taskspace-external-benchmark.ps1 ... -PlanOnly` | PASS：prompt guard clean |
+| organization-json-generator provider preflight | `run-taskspace-external-benchmark.ps1 ... deepseek-v4-flash` without `DEEPSEEK_API_KEY` | PASS：invalid_harness `provider_credential_missing` |
+| organization-json-generator keyed rerun #1 | `run-taskspace-external-benchmark.ps1 ... deepseek-v4-flash` with `.env.local` key | FAIL：真实模型执行后在 metrics extractor post-processing crash；根因是 changed file 消失竞态 |
+| Metrics extractor disappeared-file race | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-metrics-extractor-harness.ps1` | PASS：vanished changed path 被记录为 `hash_status=missing` |
+| organization-json-generator keyed rerun #2 | `run-taskspace-external-benchmark.ps1 ... deepseek-v4-flash` with `.env.local` key | DIAGNOSTIC FAIL：pair report/metrics 正常写出；standard wrong，TaskSpace 900s timeout；仅 E1，不进入 utility aggregate |
+| bwrap bootstrap focused Rust suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core bootstrap_failure --lib` | PASS：4 tests |
+| local infra regression Rust suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib` | PASS：11 tests |
+| duplicate fact-source coverage gate | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib` | PASS：缺 `employees.csv` / `projects.csv` 时 duplicate feedback 不给 `finish_node` |
+| inspect finish fact-source guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib` | PASS：manual/forced inspect finish 都等到声明 fact sources 覆盖后才允许进入 implement |
+| duplicate read/search regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_node_blocks_repeated_successful_read_command --lib` | PASS |
+| duplicate read/search forced transition regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core forced_inspect_transition_accepts_duplicate_read_search_gate_recovery --lib` | PASS |
+| data artifact inspect evidence | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_data_artifact_read_counts_as_working_evidence --lib` | PASS |
+| session duplicate recovery | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search_recovery_pushes_inspect_transition --lib` | PASS |
+| inspect convergence regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready --lib` | PASS |
+| provider budget focused suite after fact-source adaptive limit | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib` | PASS：22 tests |
+| active budget hard gate suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib` | PASS：11 tests |
+| Whale build after hard gate | `CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked` | PASS |
+| organization-json-generator hard-stop rerun | `run-taskspace-external-benchmark.ps1 ... -RunRoot target/r4-org-json-real-keyed-20260703e-hardgate` | DIAGNOSTIC: standard solved；TaskSpace wrong；timeout eliminated；new premature inspect hard stop exposed |
+| organization-json-generator adaptive-budget rerun | `run-taskspace-external-benchmark.ps1 ... -RunRoot target/r4-org-json-real-keyed-20260703f-adaptive-budget` | DIAGNOSTIC: inspect 已读全 fact sources；TaskSpace 进入 implement rework，暴露 `IndentationError` 逐行修复和 `KeyError: 'salary'` |
+| implementation rework evidence join | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib` | PASS：rework summary 同时包含 validation failure 和上游 CSV 字段证据 |
+| implementation recovery action contract | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib` | PASS：recovery 明确 failure 优先、整文件缩进修复、字段不得发明 |
+| inspect projection fact-source guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib` | PASS：缺 `projects.csv` 时 projection 不再提示 `finish_node` / implement transition |
+| inspect projection normal transition regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_prioritizes_inspect_to_implement_after_evidence --lib` | PASS：无缺失声明 fact source 的正常 inspect evidence 仍可提示进入 implement |
+| editable validation failure blocker guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib` | PASS：rework node 不能把 `IndentationError` 这类可编辑 validation failure block 成 infra/closed validation |
+| editable validation failure feedback | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_editable_validation_failure_blocker_rejection --lib` | PASS：recent feedback 输出 `editable_validation_failure_blocker_rejected`，并要求 whole-file/block patch |
+| editable validation failure real wording regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib` | PASS：使用真实 rerun 中的 `cannot read files ... read actions are not allowed ... current narrowed state` blocker 文案 |
+| output contract validation gate | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract --locked` | PASS：`python generate_json.py` generator-only validation 被拒绝，要求 schema/output contract check |
+| output contract forced closeout guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked` | PASS：generator-only successful result 被标记 invalid，引用它的 success criterion 被重开 |
+| output contract feedback | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked` | PASS：recent feedback 输出 `validation_test_missing_output_contract_coverage` 和 combined next command |
+| schema fact-source output contract guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked` | PASS：`schema.json` 只作为 fact source 时，弱 `json.load` validation 被拒绝并要求 `jsonschema` |
+| validation recovery projection preservation | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked` | PASS：gate recovery 后 active projection 保留 exact `python process.py && python -m jsonschema -i organization.json schema.json`，并不再泛化为 `run validator/test command` |
+| validation rework target artifact runtime | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked` | PASS：schema failure 无 traceback 时从 blocked validation dependency changed artifacts 推导 `generate_org.py`，并在 projection/recovery 中暴露命名 target |
+| validation rework target artifact action contract | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_allows_named_validation_rework_artifact_read --locked` | PASS：`implementation_needs_edit` 下允许读取 `generate_org.py`，仍拒绝 `schema.json` 泛读 |
+| validation rework regression suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked` | PASS：12 tests |
+| implementation needs edit regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_needs_edit --locked` | PASS |
+| validation jsonschema dependency recovery | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery --locked` | PASS：missing `jsonschema` 不进入 rework；projection 输出 CLI schema validator |
+| validation rework sed read attribution | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked` | PASS：Unix `sed` read 记录 artifact ref；第二次同 target read 被 duplicate rework gate 拒绝 |
+| validation blocker manual rework origin | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core manual_validation_rework_created_before_block_keeps_origin --locked` | PASS：manual rework 继承 active validation origin，origin blocked 后 Ready，patch 不再被 unreviewed blocker gate 拦截 |
+| validation stale failure block guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node_rejects_stale_failure_without_current_test --locked` | PASS：fresh validation node 无当前 test/build result 时不能用旧 `IndentationError` blocker 关闭 |
+| validation block guard regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node --locked` | PASS：3 tests；有同节点 failed validator result 的 block 仍允许 |
+| validation rework target-read projection | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked` | PASS：target 读完后 projection 使用已有 result、展示 critical evidence，并要求 apply_patch 而非继续 read |
+| pytest runner dependency misroute | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation --lib` | PASS：缺 pytest runner dependency 标 invalid/local infra，并路由到 smoke_test rerun，不再生成 implement rework |
+| pytest runner adjacent regressions | `local_infra_tool_result_auto_blocks_validation_node`; `state_commit_accepts_failed_validation_result_after_runtime_rework_transition`; `validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery` | PASS：相邻 local-infra、failed-validation rework、jsonschema dependency recovery 未回退 |
+| pytest runner full R4-adjacent regression | `local_infra`; `validation_`; `validation_rework`; `apply_patch_`; `provider_budget`; `taskspace_active_budget`; fmt check；`git diff --check`; `whale` build | PASS：`local_infra` 11/11；`validation_` 96/96；`validation_rework` 18/18；`apply_patch_` 35/35；`provider_budget` 23/23；`taskspace_active_budget` 11/11；build pass |
+| validation node output-contract regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked` | PASS |
+| forced validation closeout regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked` | PASS |
+| local infra regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core local_infra --locked` | PASS：11 tests |
+| validation aggregate regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked` | PASS：96 tests |
+| latest R4-D fix build | `cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check`; `CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked`; `git diff --check` | PASS：format/build/whitespace 通过；仅有已知 stable rustfmt config warning |
+| pytest command normalization focused regression | `taskspace_action_contract_run_test_preserves_python_m_pytest_prefix`; `bare_pytest_command_not_found_routes_to_validation_rerun_not_implementation`; `taskspace_action_contract_run_test`; `pytest_runner_dependency` | PASS：保留 `python -m pytest` runner；裸 pytest command-not-found 路由到 validation rerun；run_test 小套件 5/5 |
+| pytest command normalization R4-adjacent regression | `local_infra`; `action_contract_prompt`; `validation_rework`; `validation_`; `provider_budget`; `taskspace_active_budget`; `implementation_needs_edit`; `apply_patch_`; `duplicate_read_search`; `missing_fact_source_bootstrap`; `inspect_missing_fact_sources`; `taskspace_control`; fmt check；`git diff --check`; `whale` build | PASS：`validation_` 97/97；其余套件通过；仅有已知 stable rustfmt config warning |
+| organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
+| Whitespace | `git diff --check` | PASS |
+
+## 5. 当前未完成项
+
+| 优先级 | 未完成项 | 当前证据 | 下一步 |
+|---:|---|---|---|
+| P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection、editable blocker、generator-only closeout、schema fact-source weak validation、recovery projection dilution、validation rework target artifact read gap、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability、fact-source inspect budget、inspect duplicate-read bootstrap；pytest runner dependency misroute、fact-source path artifact-ref loss、rework target read preview truncation、implementation finish-without-edit hard-stop、stale edit-success feedback scoping、rework target read output retention、pytest command normalization/bare runner feedback、duplicate list_files data bootstrap 均已 focused fixed | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
+| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；最新 rerun 在更早 inspect duplicate list_files 层触发 `TaskSpaceProviderBudgetHardStopV1`，证明 hard stop 仍生效但 recovery/bootstrap 还不够 action-forcing | 下一次 keyed rerun 同时验证 provider hard stop、fact-source path retention、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification、rework target multiline evidence、implementation needs-edit hard-stop、recent-output active-context scoping、rework target read output retention、pytest command normalization、duplicate list_files data bootstrap 是否共同推进 utility |
+| P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
+| P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
+| P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
+
+## 6. 下一步接手顺序
+
+1. 先运行 `scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1`，用 JSON 判断当前是 `blocked`、`fail`，还是 `ready_for_real_utility_rerun`。
+2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
+3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
+4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
+5. 重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、fact-source path retention、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification、rework target multiline evidence、implementation needs-edit hard-stop、recent-output active-context scoping、rework target read output retention、pytest command normalization 和 duplicate list_files data bootstrap 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
+6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。
+
+## 7. 2026-07-04 generic fact-source success-criteria artifact gap
+
+`d11321c` 的 keyed rerun 继续把 `organization-json-generator` 推进到真实 schema validation，但失败根因前移到 inspect
+coverage：TaskSpace 没有在实现前读取三个 CSV 输入文件。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bl-schema-rename-hints/runs/terminal_bench__organization-json-generator/20260704-144300-806
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: d11321c9dcb66441b4611b0a931051c94df87de5
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `initial_success_criteria` 明确包含 `Process departments.csv, employees.csv, projects.csv` | 用户/任务语义里已经有具体输入工件 |
+| `initial_fact_sources` 只有 `repository root containing schema.json and CSV files` | fact-source record 太泛化，无法驱动 concrete read gate |
+| inspect 阶段只读取 `schema.json`，没有读取三个 CSV | 现有 gate 只从 fact sources 提取 concrete artifacts，不从 success criteria 补齐 |
+| 初始 `process.py` 猜测 `email/role/salary` 等不存在字段 | implementation 在缺输入证据时发明字段，后续 validation repair 成本显著增加 |
+| validation 后再读 `departments.csv` 被 runtime 拒绝 | 状态机底线是对的：成功 edit 后不能回到同一 implementation node 做输入 inspect |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `generic-fact-source-success-criteria-artifact-gap` |
+| 层级 | inspect fact-source coverage / feedback layer |
+| 本质 | 语义缺失：具体输入工件存在于 success criteria，但没有进入 required fact-source artifact set |
+| 非根因 | 不是 validation repair contract 缺 rename hint；也不是 runtime 应允许 implementation 后补读 CSV |
+| 修复 | `task_required_fact_source_artifact_refs()` 扫描 success criteria / cognitive success criteria 中的 artifact-like refs，排除 output contract targets 和 generated JSON output，保留 schema/CSV/source artifacts |
+| focused evidence | `inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_ -- --nocapture
+  PASS：62 tests
+```
+
+状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 commit/push、attestation，并再次 keyed rerun
+`organization-json-generator`，确认模型在实现前读取 `departments.csv/employees.csv/projects.csv`，或者继续暴露下一层
+tools/control case。
+
+## 8. 2026-07-04 complete-read duplicate hard-stop too early
+
+`77e8e46` 的 keyed rerun 证明 success-criteria fact-source 修复进入 live path：TaskSpace 在实现前读取了 `schema.json`、
+`departments.csv`、`employees.csv`、`projects.csv`。新的 blocker 出现在 validation rework 的重复读控制上。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bm-criteria-fact-sources/runs/terminal_bench__organization-json-generator/20260704-145742-157
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 77e8e46a3a1435ddef0c8b1a8c674488e308d62a
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| inspect projection 要求 `/app/schema.json`、`/app/departments.csv`、`/app/employees.csv`、`/app/projects.csv` | H-067 fact-source gate 已进入 provider-visible path |
+| 模型最终读取相对路径 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` | 实现前输入证据覆盖完成 |
+| validation repair contract 包含 missing required properties 和 `schema_property_rename_hints=member_ids->members` | H-066 repair contract 未丢失 |
+| `result-14` 完整读取 `generate_organization.py`，`eof_reached=true` | target artifact 已可 patch |
+| 第一次 duplicate-read recovery 立即升级为 hard-stop | 强反馈刚生成即终止，模型没有机会响应“完整读取/无隐藏行/必须 apply_patch” |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-complete-read-duplicate-hardstop-too-early` |
+| 层级 | validation rework duplicate-read feedback / control loop |
+| 本质 | 控制过早终止：第一次 duplicate-read rejection 才携带最强完整性语义，不能同轮直接 hard-stop |
+| 非根因 | 不是 fact-source coverage；不是 rename hint 缺失；不是状态机允许重复读 |
+| 修复 | complete-read duplicate-read recovery 先给一次 provider recovery；第二次重复或 gate 已有 repeated-blocked-action 时 hard-stop |
+| focused evidence | `validation_rework_duplicate_read_complete_context_gets_one_recovery_before_hard_stop`; `validation_rework_duplicate_read` 7/7; `validation_rework` 20/20 |
+
+状态：focused 修复完成；仍需 fmt/build、commit/push、attestation，并再次 keyed rerun 验证模型是否在收到 complete-read duplicate feedback 后转向 `apply_patch`。
+
+## 9. 2026-07-04 validation rework block rejection wording drift
+
+`9f370dd` 的 keyed rerun 证明 complete-read duplicate hard-stop timing 已进入 live path，但仍未完成 TaskSpace 侧 public validation。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bn-complete-read-recovery/runs/terminal_bench__organization-json-generator/20260704-150817-545
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| run 未出现 `TaskSpaceValidationReworkDuplicateReadHardStopV1` | H-068 live-cleared |
+| validation rework 完整读取 `process.py`，`eof_reached=true` | target artifact 已可 patch |
+| 模型随后输出 `blocked`：需要读 `schema.json` / test expectations 才能修 `process.py` | 模型仍试图从 patch-only 转回 inspect |
+| `whale-exec.stderr.log` 记录 runtime 正确拒绝：`cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target` | runtime gate 正确 |
+| session 未把该新 wording 结构化为 `missing_source_visibility_blocker_rejected`，而是退回 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | feedback classification 漂移 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-block-rejection-wording-drift` |
+| 层级 | action-contract feedback classification / validation rework recovery |
+| 本质 | 正确 runtime rejection 的新 wording 没进入结构化 feedback，因此语义在 feedback 层丢失 |
+| 非根因 | 不是 runtime 未拒绝 blocker；不是 complete-read hard-stop timing；不是 fact-source coverage |
+| 修复 | old/new missing-source block rejection wording 共用 recognizer，并用于 actionable output、recent-output progress hint、tool-output summary |
+| focused evidence | `action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection` |
+
+状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
+
+## 59. 2026-07-05 validation rework patch feedback budget cliff
+
+`933085f` 后的 keyed rerun 说明 R4 已推进到更深的 feedback-delivery 边界：validation command 现在能真实运行，
+失败也能生成 rework node，但 runtime 自己插入的 patch-only feedback 没有获得一次可消费的 provider request。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ay-start-task-alias-gate/runs/terminal_bench__organization-json-generator/20260705-061558-109
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 21
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 8
+right_edges: 7
+right_open_leaf_nodes: 1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-patch-feedback-budget-cliff` |
+| 层级 | provider budget gate / validation rework feedback delivery |
+| 本质 | `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 在普通 budget grace 已被 rework target read 消耗后才插入，下一轮直接 hard-stop，反馈无法送达模型 |
+| 非根因 | 不是 validation command 缺失；不是 start_task contracts/fact sources 丢失；不是 patch-only recovery 文案缺失；不是简单预算不足 |
+| 修复 | provider pre-dispatch gate 增加窄条件 `provider_validation_rework_patch_feedback_grace`，只给 validation rework implement 节点一次反馈送达机会 |
+| focused evidence | CoE H-131/E-265/E-266；`taskspace_active_budget_allows_validation_rework_patch_feedback_grace`；`provider_budget` 23/23；`validation_rework` 32/32；fmt/check/build/diff |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、install/attest、keyed rerun，
+验证 patch-only feedback 是否能被模型消费并进入实际修复闭环。
+
+## 60. 2026-07-05 apply_patch placeholder ellipsis hunk leakage
+
+`6a4ec2e` 后的 keyed rerun 说明 H-131 的预算 hard-stop 症状没有复发，validation rework feedback 已进入后续
+模型轮次。新的失败点在 apply_patch grammar gate：runtime 未在工具前识别 `@@ ... @@` 占位 hunk。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705az-patch-feedback-budget-gate/runs/terminal_bench__organization-json-generator/20260705-063230-012
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 4
+right_edges: 3
+right_open_leaf_nodes: 1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-placeholder-ellipsis-hunk-leakage` |
+| 层级 | action-contract apply_patch grammar gate / validation rework feedback |
+| 本质 | `@@ ... @@` 是占位 hunk，不可机械应用；旧检测只覆盖 `@@ -... +... @@`，导致无效 patch 进入 edit tool |
+| 非根因 | 不是 schema repair contract 缺失；不是 patch-only feedback 未送达；不是 provider budget hard-stop；不是单纯模型不愿编辑 |
+| 修复 | placeholder hunk detector 纳入 `@@ ... @@` / `@@...@@`；validation rework target 上返回 `apply_patch_replacement_required:<target>` |
+| focused evidence | CoE H-132/E-267/E-268；`taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk`；`action_contract_prompt` 29/29；`validation_rework` 32/32；`taskspace_apply_patch` 18/18；fmt/check/build/diff |
+
+状态：已 live-cleared。`a97db68` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ba-placeholder-hunk-gate/runs/terminal_bench__organization-json-generator/20260705-064634-577
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: solved
+right_business_success: True
+right_public_validation_exit_code: 0
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+剩余不是本 case 的工具链失败，而是 E3 证据 gate：当前 harness 尚未满足 Terminal-Bench official runner 等价、
+validator source isolation 和人工审查要求。
+
+## 56. 2026-07-05 validation node provider-budget bootstrap
+
+`d37a7f1` 后 keyed rerun 证明 H-127 replacement-required recovery loop 已 live-clear。新的 blocker 是 validation 节点
+刚创建就遇到 provider request `20/20`：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705av-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-053314-639
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 20
+right_failed_tool_call_count: 2
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=smoke_test
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-node-provider-budget-bootstrap-gap` |
+| 层级 | session provider-budget control / validation feedback bootstrap / action-map evidence |
+| 本质 | runtime 已能确定 coverage-correct validation command，但 fresh validation node 在 hard-stop 前没有 test/build 证据 |
+| 非根因 | 不是单纯 provider budget 太低；不是模型缺失 schema validation 语义；不是 replacement-required recovery 复发 |
+| 修复 | runtime 暴露 fresh validation bootstrap command；session pre-dispatch hard-stop 前执行本地 validation bootstrap；成功 forced closeout，失败记录 Test 证据 |
+| focused evidence | CoE H-128/E-259/E-260；`validation_node_blocks_generator_only_command_for_schema_output_contract`；`validation_required_command_bridge`；`validation_rework` 31/31；`action_contract_prompt` 29/29；`provider_budget` 23/23；`validation_closeout` 3/3 |
+
+状态：focused 修复已编码并通过相关单测；仍需 check/build/diff、commit/push、install/attest 和真实 keyed rerun。
+
+## 57. 2026-07-05 validation missing-command blocker false positive
+
+`5ee9b5c` 后 keyed rerun 未能 live-clear H-128，因为该轮没有触发 provider request hard-stop；新的 blocker
+更早发生在 validation blocker gate：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aw-validation-budget-bootstrap-gate/runs/terminal_bench__organization-json-generator/20260705-055257-224
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_tool_call_count: 7
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: blocked_by_taskspace_action_contract
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-missing-command-visibility-blocker-false-positive` |
+| 层级 | validation blocker gate / feedback actionability / action-map evidence |
+| 本质 | fresh validation node 无 test/build result，runtime 已能推导验证命令，但接受了“缺少 validator/test command 可见性”的 blocker |
+| 非根因 | 不是 shell 工具不可用；不是 provider budget hard-stop；不是真实外部 sandbox/access-denied blocker |
+| 修复 | `block_main_node` 查询 deterministic validation bootstrap command；命中时拒绝 missing-command visibility blocker，并返回 exact `run_test` command |
+| focused evidence | CoE H-129/E-261/E-262；`validation_node_blocks_generator_only_command_for_schema_output_contract`；`block_validation_node` 3/3 |
+
+状态：focused 修复已编码并通过目标测试；仍需 fmt/check/build/diff、commit/push、install/attest 和真实 keyed rerun。
+
+## 58. 2026-07-05 start_task natural alias semantic loss
+
+`f0d6c47` 后 keyed rerun live-clear 了 H-129：missing-command blocker 没有复发，runtime recovery 执行了
+validation bootstrap。新的 blocker 是 start_task 入口字段语义被工具层吞掉：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ax-validation-command-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-060117-936
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_tool_call_count: 8
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `start-task-natural-alias-semantic-loss` |
+| 层级 | taskspace_control capability layer / action-contract normalization / validation feedback precondition |
+| 本质 | provider 发出 `task_description`、`initial_criteria`、`initial_contracts`、`first_node_kind` 等自然字段；工具接受 action 但未 canonicalize，导致 objective/output contract 退化为泛化默认值 |
+| 非根因 | 不是 validation command visibility blocker 复发；不是外部 validator 缺失；不是单纯模型业务代码写错 |
+| 修复 | native handler 与 session action-contract 层共同规范化 start_task 自然别名；initial sections 支持 string/array/single-object，避免 parse failure 和静默语义丢失 |
+| focused evidence | CoE H-130/E-263/E-264；`start_task_accepts_natural_task_payload_aliases`；`start_task_wraps_single_initial_section_objects`；`taskspace_action_contract_canonicalizes_natural_start_task_aliases`；`taskspace_control` 37/37；`action_contract_prompt` 29/29；`validation_rework` 31/31；`provider_budget` 23/23；`validation_closeout` 3/3 |
+
+状态：focused 修复已编码并通过 fmt/check/build/diff；仍需 commit/push、install/attest 和真实 keyed rerun。
+
+## 53. 2026-07-05 validation blocker supersession final-gate gap
+
+`e0a17fc` 安装后的 keyed rerun 已越过 H-124 inspect hard-stop，进入 implementation、validation recovery
+和 forced validation closeout。但 closeout 后 final gate 仍反复拒绝 final answer，理由是第一次 failed validation
+生成的 `result-10` blocker 仍 `unreviewed`。这使模型在没有 active node 的状态下重开 inspect，最终耗尽 provider budget。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-blocker-supersession-final-gate-gap` |
+| 层级 | validation recovery lifecycle / final readiness feedback |
+| 本质 | 旧 validation blocker 在 active rework 期间可作为输入证据，但 downstream validation 成功 closeout 后应转为 superseded/invalid；否则 final gate 把已解决失败当成仍未 review 的活跃阻塞 |
+| 非根因 | 不是 H-124 inspect transition 复发；不是简单提高 provider budget；不是放宽所有 unreviewed result 的 final gate |
+| 修复 | forced validation closeout 沿 dependency/origin rework chain 收集被覆盖的 blocked validation blocker，并标记为 `invalid`，证据指向 accepted validation result |
+| evidence | CoE H-125/E-253/E-254；keyed rerun `20260705-044510-605`; focused tests `validation_closeout_invalidates_superseded_rework_blocker_for_final_answer`, `validation_closeout`, `validation_rework`, `forced_validation_closeout`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 54. 2026-07-05 schema rediscovery patch-only hard-stop timing gap
+
+`75de79f` 安装后的 keyed rerun 未再命中 H-125 final-gate supersession blocker，流程进入 validation rework。
+runtime 已提供完整 schema repair synthesis 和 target source，但模型仍读 `schema.json`。该读被正确拒绝后，
+patch-only hard-stop 立即触发，没有留出一轮让模型消费“schema 已摘要、只能 patch”的反馈。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-schema-rediscovery-patch-only-grace-gap` |
+| 层级 | validation rework feedback timing / patch-only hard-stop accounting |
+| 本质 | schema repair 语义已经具备，但 rediscovery rejection 被算作普通重复 non-edit，导致反馈层在最有行动价值的一轮前终止 |
+| 非根因 | 不是 schema repair contract 缺失；不是 target 未读；不是 H-125 final gate 复发；不是要允许 rework 继续 discovery |
+| 修复 | schema repair synthesis 存在时添加 `schema_repair_rediscovery_grace=true`，允许一次额外 recovery；同时明确 `schema.json` 已摘要、下一步只能 patch/block |
+| evidence | CoE H-126/E-255/E-256；keyed rerun `20260705-050333-167`; focused tests `validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop`, `validation_rework_patch_only_without_schema_repair_still_hard_stops_after_one_recovery`, `validation_rework`, `action_contract_prompt`, `implementation_recovery_synthesizes`; fmt/check/build |
+
+状态：focused fixed，待 `git diff --check`、commit/push、install/attest 和真实 keyed rerun。
+
+## 55. 2026-07-05 replacement-required recovery budget loop
+
+`efb0faf` 安装后的 keyed rerun 已越过 H-126 schema rediscovery hard-stop，进入 apply_patch 修复。
+新的 blocker 是 replacement-required recovery：target 已 full-visible，但模型重复发 `*** Update File` /
+`*** Context Lines` 风格 patch；action contract 正确拒绝为 `apply_patch_replacement_required:csv_to_json.py`，
+但 recovery 仍重复 advisory，最终被全局 provider budget hard-stop 覆盖。
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-recovery-budget-loop` |
+| 层级 | apply_patch feedback / replacement-only enforcement / provider budget interaction |
+| 本质 | replacement-only 已进入 action-contract 强制层，但 feedback 没把 full-visible target 变成具体 replacement scaffold，也没有对重复不遵守做专门 hard-stop |
+| 非根因 | 不是 H-126 schema rediscovery 复发；不是 target 未读；不是 validator 未执行；不是要允许 `Update File` |
+| 修复 | replacement-required recovery 读取 working evidence，full-visible target 时输出具体 Delete/Add scaffold；同节点第二次 replacement-required rejection 触发 apply-patch recovery hard-stop |
+| evidence | CoE H-127/E-257/E-258；keyed rerun `20260705-051421-876`; focused tests `replacement_required`, `apply_patch_recovery`, `validation_rework`, `action_contract_prompt`; fmt/check/build |
+
+状态：focused fixed，待 `git diff --check`、commit/push、install/attest 和真实 keyed rerun。
+
+## 50. 2026-07-05 generic CSV duplicate basename overcoverage
+
+`6b7debf` 安装后 keyed rerun 证明 H-121 的 bootstrap root-path 修复生效，但 inspect 仍未进入 implementation。
+原因是 generic CSV discovery 在 `list_files` 同时看到 root CSV 和 `data/` 下同 basename CSV 副本时，把两组都升级成
+required fact-source。bounded bootstrap 已读 canonical root CSV 后，duplicate `data/*.csv` 仍残留为 missing，最终
+inspect node budget hard-stop。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-generic-csv-duplicate-basename-overcoverage` |
+| 层级 | inspect fact-source expansion / feedback coverage / phase gate |
+| 本质 | 泛化 `CSV files` 需求扩展成 discovered inputs 时，同 basename 副本被重复纳入 required coverage，导致已读 root CSV 后仍无法 forced transition |
+| 非根因 | 不是 H-121 path normalization 回退；不是 validator 失败；不是 H-120 final closeout 问题；不是显式 `data/*.csv` fact source 被忽略 |
+| 修复 | discovery-derived generic input refs 按 basename canonicalize，优先 shallower/root-level path；显式 concrete fact-source refs 不去重 |
+| evidence | CoE H-122/E-247/E-248；keyed rerun `20260705-042157-236`; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 52. 2026-07-05 inspect hard-stop transition attempt guard gap
+
+`601bc74` 安装后 keyed rerun 证明 H-123 live-clear，但 inspect 仍在 `node_request_count=5/5` hard-stop。
+这轮没有 failed tool call，且已成功读取 `departments.csv`、`schema.json`、`employees.csv`、`projects.csv`。
+问题是 session hard-stop 分支在调用 runtime forced transition 前额外检查 progress-threshold readiness；该 predicate
+未覆盖“required fact-source coverage 已完整”的场景。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-hard-stop-transition-attempt-guard-gap` |
+| 层级 | session provider-budget control / phase transition bridge |
+| 本质 | hard-stop 前的 session guard 过窄，runtime 已具备的 complete fact-source convergence 没机会执行 |
+| 非根因 | 不是 H-123 path telemetry 复发；不是 CSV/schema 未读；不是工具失败；不是 provider budget 太低本身 |
+| 修复 | inspect node pre-dispatch hard-stop 先尝试 runtime `inspect_hard_stop_progress_convergence`；runtime 仍负责证据不足时返回 false |
+| evidence | CoE H-124/E-251/E-252；keyed rerun `20260705-043735-552`; focused tests `inspect_hard_stop_progress_convergence_forces_transition_after_coverage`, `provider_budget`, `forced_inspect_transition`, `inspect_missing_fact_source`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 51. 2026-07-05 read-summary path telemetry artifact pollution
+
+`a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已不再阻塞，但 inspect 仍卡住。
+第一次 missing fact-source bootstrap 成功读取了 root CSV；随后 coverage gate 从 `TaskSpaceReadFileSummaryV1: path=...`
+中抽出了 `path=departments.csv` 这类 synthetic artifact，后续 bootstrap 读取 literal `path=*.csv` 失败并耗尽
+inspect node budget。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-read-summary-path-telemetry-artifact-pollution` |
+| 层级 | tool semantic summary / artifact extraction / feedback coverage |
+| 本质 | read summary 的 `path=` 键值 telemetry 被当成真实文件路径，导致 missing fact-source 集合从 `departments.csv` 漂移成 `path=departments.csv` |
+| 非根因 | 不是 H-122 duplicate basename 复发；不是 CSV 未读；不是 validator 失败；不是 H-120 final closeout |
+| 修复 | `normalize_artifact_ref()` 剥离 leading `path=`；generic CSV bootstrap regression 覆盖 `TaskSpaceReadFileSummaryV1: path=file.csv` |
+| evidence | CoE H-123/E-249/E-250；keyed rerun `20260705-043055-329`; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 40. 2026-07-05 replacement-required recovery marker distortion
+
+`b3d31ec` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ae-sticky-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-005608-072
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-110 live-clear：replacement-required sticky 分类生效，后续四次 `Update File generate_organization.py`
+均拒绝为 `apply_patch_replacement_required:generate_organization.py`。新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-recovery-marker-distortion` |
+| 层级 | feedback recovery marker / observability / hard-stop audit |
+| 本质 | action classifier 语义正确，但 recovery marker、warning、hard-stop excerpt 把 replacement-required 改名成 `TaskSpaceApplyPatchNativeHunkRecoveryV1` |
+| 非根因 | 不是 H-110 sticky 失败；不是 H-109 false terminal blocker；不是 `apply_patch` 工具静默成功或失败丢失 |
+| 修复 | 新增 `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`；replacement-required recovery 不再 alias native-hunk；warning、recovery accounting、duplicate-read preserve、hard-stop excerpt 全链路保留该 marker |
+| evidence | CoE H-111/E-227/E-228；keyed rerun `20260705-005608-072`；focused tests `replacement_required`, `native_hunk_recovery`, `unanchored_update`, `action_contract_prompt`, `validation_rework`, `taskspace_apply_patch`；fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 live recovery 不再把 replacement-required 标成 native-hunk。
+
+## 41. 2026-07-05 replacement-required overblocks actionable update
+
+`23a25bd` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705af-replacement-marker-gate/runs/terminal_bench__organization-json-generator/20260705-011054-226
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-111 live-clear：`TaskSpaceApplyPatchReplacementRequiredRecoveryV1` 已进入 live trace，NativeHunk marker distortion 未复现。
+新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-overblocks-actionable-update` |
+| 层级 | apply_patch action-contract / capability normalization / feedback boundary |
+| 本质 | replacement-required gate 无条件拒绝 active rework target 的 `Update File`，但 item_58 归一化后可 apply 且 schema validator 通过 |
+| 非根因 | 不是 H-111 marker distortion；不是 schema validator 不可用；不是 raw patch 直接合法，raw patch 仍需 normalizer |
+| 修复 | active rework target 先尝试 normalize；归一化后无 malformed/mixed/unanchored 问题则 dispatch apply_patch；不可执行 update 继续 replacement-required |
+| evidence | CoE H-112/E-229/E-230；keyed rerun `20260705-011054-226`；diagnostic `target/r4-h112-patch-diagnostic/item_58`; focused tests `rework_target`, `replacement_required`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch`, `action_contract_prompt`; fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 验证 live task 是否越过 replacement-required hard-stop。
+
+## 27. 2026-07-04 validation rework schema feedback chain
+
+本轮把 `organization-json-generator` 的 schema validation rework 继续拆成连续 tools 链路问题类型。它们都属于
+R4-D feedback/capability 回补，不代表 R4-G utility 已通过；最新真实 run 仍未达到 public validation success。
+
+| Case | 现场 | 根因类型 | 修复/证据 | 当前状态 |
+|---|---|---|---|---|
+| `validation-schema-repair-rename-hint-gap` | `20260704-201836-345` | 语义缺失：validator raw output 中已有 `member_ids`/`total_employees`/`average_years_of_service`，但 rework feedback 只传 missing required properties | `a93391e`; `schema_property_rename_hints=member_ids->members, total_employees->totalEmployees, average_years_of_service->averageYearsOfService` | live-cleared for hint visibility |
+| `validation-rework-target-read-evidence-order` | `20260704-201836-345` | 反馈排序问题：complete target read 存在，但排在长 validation failure 后，下一步 full-target repair 不够显眼 | `697ec6c`; target-read evidence front-loaded | focused fixed |
+| `validation-rework-complete-target-replacement-scaffold` | `20260704-204016-800` | patch-only recovery 动作合同不足：完整 target 已读但 recovery 没直接给 full replacement scaffold，模型继续读/search | `7c7c892`; complete target read 后给 `Delete File + Add File` scaffold | `20260704-205001-147` live-cleared repeat-read-to-no-edit |
+| `validation-rework-complete-read-content-visibility` | `20260704-205001-147` | 语义不自足：runtime 有 `complete_read/eof_reached=true`，但 provider-visible recovery 只有 compact excerpt，模型说 full content 不可见并非幻觉 | `44938a3`; target-read evidence 标记 `content_visibility=full_content_visible` / `summary_excerpt_only` | `20260704-210512-809` 越过 target-read/patch-only recovery |
+| `validation-rework-full-visible-patch-mismatch-recovery` | `20260704-210512-809` | failed-edit recovery 不够闭合：full-visible target 的 expected-lines/context mismatch 后仍允许 read refresh 和 fragile `Update File` hunks | `dde7173`; full-visible mismatch 后 replacement-only：禁止 read/search/validation/`Update File`/placeholder hunk | focused fixed；real keyed rerun pending |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case family | `validation-rework-schema-feedback-chain` |
+| 层级 | validation feedback / target-read evidence projection / apply_patch recovery capability |
+| 本质 | 不是一个单点“模型不听话”问题，而是 schema validator 语义、目标文件可见性、patch-only next action 和 failed-edit recovery 在不同环节逐步丢硬度 |
+| 非根因 | 不是状态机允许任意读写；不是 runtime 应越权替模型改代码；不是 DeepSeek API key 或 provider 调用失败 |
+| runtime 边界 | 状态机仍控制合法 action；runtime/session 的职责是把已存在的 tool/result/validation/edit failure 语义转换成 provider-visible、可审计、闭合的下一步合同 |
+| 最新未闭环 | `dde7173` 后还缺 attestation + keyed rerun；若仍失败，应收录下一层 patch synthesis 或 validation coverage 问题 |
+
+状态：R4 实际位置仍是 R4-H/post-closeout 回补；R4-D tools feedback 继续收敛，R4-G utility parity 仍未通过。
+
+### 27.1 2026-07-04 H-095 rerun and final gate feedback loss
+
+`dde7173` 后的 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cp-visible-mismatch-replacement/runs/terminal_bench__organization-json-generator/20260704-212411-195
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 20
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+结论：
+
+| 项 | 判断 |
+|---|---|
+| H-095 | 已越过旧 `TaskSpaceApplyPatchRecoveryHardStopV1`，并进入本地 schema validation success；但 live trace 仍出现 fragile `Update File`、`app/process.py` path pollution 和 placeholder hunk，因此不能声称 replacement-only live-cleared |
+| public validator | 失败在 `test_relationships_integrity`：`project.members` 输出 employee names，public tests 期望 employee ids；这是 schema 未覆盖的业务关系 oracle，不是本地 jsonschema 工具失败 |
+| final gate | 本地 `python process.py && python -m jsonschema -i organization.json schema.json` exit 0 后，模型 final answer 仍声称 validator unavailable；final readiness gate 拒绝后，session follow-up 丢失具体 rejection reason，下一轮退化成错误 blocked |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `final-answer-gate-rejection-reason-loss` |
+| 层级 | session feedback / final readiness gate recovery |
+| 本质 | runtime 已有具体 final gate rejection reason，但 `turn.rs` 用 `.is_err()` 把它压成 boolean，provider-visible follow-up 只剩泛化提示 |
+| 非根因 | 不是 validator 不可用；不是 graph open leaf；不是 API key / provider 失败 |
+| 修复 | `taskspace-action-v1 final_answer` 和普通 assistant final-response 两个入口都保留 `Err(error)`，follow-up 文案包含 `Rejection reason: ...` |
+| focused evidence | CoE H-096/E-198；`final_answer_gate_rejection_followup_preserves_specific_reason`; `action_contract_prompt` 29/29; `final_readiness`; fmt/check/build |
+
+剩余未闭环：
+
+1. 需要重跑 keyed sample 验证 final gate rejection reason 是否让模型改正 final answer，而不是再声称 local infra blocker。
+2. H-095 的 replacement-only 行为仍需继续收敛：真实 trace 还出现 `Update File` 和 placeholder hunk。
+3. utility 层还有 public relationship oracle 差距：schema validation pass 不等于 Terminal-Bench public tests pass。
+
+### 27.2 2026-07-04 duplicate Update File wrapper normalization
+
+`b5f2ee2` 后 rerun 没有命中 H-096 final gate，因为更早在 validation rework patch grammar 层 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cq-final-gate-reason/runs/terminal_bench__organization-json-generator/20260704-213755-290
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_public_validation_exit_code: 1
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-duplicate-empty-update-wrapper-normalization-gap` |
+| 层级 | apply_patch capability normalization / action-contract grammar |
+| 本质 | provider 输出缺 `Begin Patch`、重复同一 `Update File` 且第一个 section 为空；后一个 section 才包含真实 hunk |
+| 非根因 | 不是 final gate 修复失效；本轮没有到 final_answer；不是 validator unavailable |
+| 修复 | 仅删除“空的重复 same-target `Update File` wrapper”，随后仍走已有 unified/native hunk normalization 与拒绝检查 |
+| focused evidence | CoE H-097/E-199/E-200；`duplicate_unwrapped_update_wrapper`; `apply_patch_` 36/36; `action_contract_prompt` 29/29; fmt/check/build |
+
+状态：focused 修复完成；仍需 commit/push、attestation、keyed rerun。
+
+## 15. 2026-07-04 validation rework patch-only schema synthesis too weak
+
+`0b8e5a1` 的 keyed rerun 证明 H-078 的 repeated malformed patch / expected-lines hard-stop 已清除，但新问题推进到
+patch-only recovery 的字段级修复合成。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704by-full-rewrite-after-patch-mismatch/runs/terminal_bench__organization-json-generator/20260704-173608-346
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 0b8e5a1802f6aa59018715fe3ddf3219b042b289
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| 未再出现 `Failed to find expected lines` 循环、mixed native/unified patch rejection 或 provider-node budget hard-stop | H-078 live-cleared |
+| validator summary 明确列出 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` | failure semantic 已足够用于 patch |
+| `generate_organization.py` 完整读取，`lines_read=87 eof_reached=true` | target source 不需要再次读取 |
+| `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 已触发，后续 closed read 被 `validation_rework_closed_action_space_read_disallowed:read_file` 拒绝 | routing/control 层正确 |
+| provider 仍两次声称需要 full content 并重复 read，最后 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | patch-only feedback 的 repair synthesis 仍不够可执行 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-patch-only-schema-synthesis-too-weak` |
+| 层级 | validation rework feedback / repair synthesis |
+| 本质 | 完整 target read 和 validation repair contract 已齐全，但 recovery 没把字段级 schema 失败前置成直接 patch 计划，模型继续 discovery |
+| 非根因 | 不是 permission 层放行；不是 closed-action rejection routing 降级；不是 patch grammar normalization；不是 CSV/schema 真的缺失 |
+| 修复 | patch-only recovery 增加 `Schema repair synthesis from current validation failure`，列出 exact missing properties、exact rename hints、exact schema spelling，并明确这是 patch-construction requirement，不是再次读取理由 |
+| focused evidence | CoE H-079/E-168/E-169；`implementation_recovery_selects_patch_only_after_target_read_evidence`; `implementation_recovery_selects_patch_only_after_closed_action_space_read_reject` |
+
+状态：focused 修复已编码；targeted tests、`validation_rework` 25/25、`action_contract_prompt` 29/29、fmt/check/build 均通过。
+仍需 commit/push、attestation、keyed rerun。
+
+## 16. 2026-07-04 missing fact-source bootstrap completion should force inspect transition
+
+`6ef01cc` 的 keyed rerun 没有命中 H-079 validation rework path，而是在 inspect 阶段提前失败。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bz-schema-repair-synthesis/runs/terminal_bench__organization-json-generator/20260704-174618-510
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 7
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 6ef01cc
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| repeated `list_files` 后出现 `TaskSpaceMissingFactSourceBootstrapV1 read bounded declared fact-source artifact(s): schema.json` | missing fact-source bootstrap capability 触发 |
+| 随后出现 `TaskSpaceRepeatedBlockedInspectBootstrapV1`，bounded 读取 json/csv/yaml 内容 | runtime 继续补证据，而不是直接过渡 |
+| 没有 `TaskSpaceForcedInspectTransitionV1` | bootstrap completion 后 phase bridge 缺失 |
+| 最终 `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=5/5` | inspect node budget 被 discovery loop 耗尽 |
+| public validator 4/4 失败，`organization.json` 不存在 | 根本未进入 implementation |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-missing-fact-source-bootstrap-no-transition` |
+| 层级 | inspect bootstrap / phase-control bridge |
+| 本质 | bootstrap 已补齐 required fact-source coverage，但 session/runtime 未立即 forced transition，导致 stuck inspect model 继续消耗 node budget |
+| 非根因 | 不是 H-079 schema synthesis；不是 missing fact-source guard 放宽；不是 validator/source 失败 |
+| 修复 | `run_taskspace_missing_fact_source_bootstrap()` 后重新检查 missing fact-source；若为空，调用 `force_finish_action_map_inspect_for_provider_budget(..., "inspect_missing_fact_source_bootstrap_complete")`；runtime allowlist 接受该 trigger |
+| focused evidence | CoE H-080/E-170/E-171；`inspect_missing_fact_source_bootstrap_complete_forces_transition_after_coverage`; `inspect_missing_fact_sources`; `forced_inspect_transition_accepts_duplicate_read_search_gate_recovery` |
+
+状态：focused 修复已编码；`forced_inspect_transition` 5/5、`inspect_bootstrap` 3/3、`validation_rework` 25/25、
+`action_contract_prompt` 29/29、fmt/check/build 均通过。仍需 commit/push、attestation、keyed rerun。
+
+## 12. 2026-07-04 validation rework failed-edit refresh reopens complete read
+
+`c8a2d16` 的 attested keyed rerun 证明 H-075 静态 contract 修复已经把 live path 推进到 `apply_patch`。新的失败点不是
+read 语义未传递，而是 patch hunk 失败后的 refresh 例外重新打开了已经完整关闭的 read。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bv-static-read-override/runs/terminal_bench__organization-json-generator/20260704-164819-131
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: c8a2d1681e44dd1e19edf303bd6e180bffd5630d
+whale_binary_sha256: 136008edf014e6ab1bfc86ae6c0188623723b5089de322a65bfe6348f9dd2eef
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| provider 在完整 target read 和 patch-only recovery 后发出 `apply_patch` | H-075 已 live 推进到 patch 分支 |
+| `apply_patch verification failed: Failed to find expected lines` | 新问题进入 failed-edit recovery |
+| `process.py` 已完整读取，`TaskSpaceReadFileSummaryV1 ... eof_reached=true` | 不存在“再读能看到更多行”的事实基础 |
+| projection 写出 `only same validation rework target refresh reads are allowed after a failed edit` | refresh 例外没有继承 complete-read closure |
+| 后续 `read_file process.py` 被 `validation_rework_closed_action_space_read_disallowed` 拒绝，最终 provider budget hard-stop | projection 与实际 gate 语义不一致，引导了无效 retry |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-failed-edit-refresh-reopens-complete-read` |
+| 层级 | validation rework failed-edit recovery / projection-gate consistency |
+| 本质 | failed-edit refresh 例外没有区分 truncated read 与 complete read；完整 read 后仍被提示可 refresh |
+| 非根因 | 不是工具失败语义缺失；不是 closed read rejection routing；不是 static action contract 冲突 |
+| 修复 | `validation_rework_target_read_can_refresh_after_failed_edit` 只允许 failed edit 后刷新非 complete target read；complete read 后 duplicate read 仍拒绝并要求修正 `apply_patch` |
+| focused evidence | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework` 24/24; `action_contract_prompt` 29/29; fmt/check/build |
+
+状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
+
+## 14. 2026-07-04 validation rework repeated malformed patch hunks
+
+`42feaee` 的 keyed rerun 证明 H-077 已 live-cleared：partial-excerpt blocker 没有被接受，当前 node 没有退化到
+`provider-context-missing`。新的失败点是 patch recovery 本身。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bx-partial-excerpt-blocker-reject/runs/terminal_bench__organization-json-generator/20260704-171735-273
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 42feaeea93f88d717ca4f48d838af2152ee6fe94
+whale_binary_sha256: 5a699fafb8d844b47c579e895a4cec71bd020bd4c94dbf9d98d134fa4ac7b88f
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| current node 保持 `node-4` implement_solution，open_leaf_nodes=1 | H-077 没再错误关闭 node |
+| 多次 `apply_patch verification failed: Failed to find expected lines` | 普通 hunk context strategy 不稳定 |
+| 最后 action 被 `apply_patch_mixed_native_unified:process.py` 拒绝 | grammar recovery 没收敛 |
+| live patch 出现 `*** Update File` 在 `*** Begin Patch` 前 | normalizer 缺少 wrapper 变体 |
+| `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded` | request budget 被 patch grammar/context retry 耗尽 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-repeated-malformed-patch-hunks-after-complete-read` |
+| 层级 | apply_patch capability normalization / edit-failure recovery actionability |
+| 本质 | complete target read 后 repeated hunk mismatch 仍走 fragile Update File；live malformed wrapper 未覆盖；最终预算耗尽 |
+| 非根因 | 不是 partial-excerpt blocker；不是 closed read loop；不是 output/schema contract |
+| 修复 | complete-read + expected-lines/context mismatch 时强制 full rewrite recovery；normalizer 跳过 misplaced `*** Begin Patch`，支持 `Update File` 在 wrapper 前的 mixed patch |
+| focused evidence | `complete_validation_rework_expected_lines_failure_forces_full_rewrite`; `taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch`; `apply_patch --lib` 47/47; `action_contract_prompt --lib` 29/29; `validation_rework --lib` 25/25; fmt/check/build |
+
+状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
+
+## 13. 2026-07-04 validation rework partial-excerpt blocker wording drift
+
+`dc2a986` 的 keyed rerun 证明 H-076 已把 failed-edit refresh loop 清掉，但新的 live blocker 出现在 patch grammar recovery 之后。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bw-complete-read-failed-edit-closed/runs/terminal_bench__organization-json-generator/20260704-170158-193
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: dc2a98680400249e896b36f06c91378fc046bd17
+whale_binary_sha256: d3c3611d0bc27779110238090be6c87c8b6b6e12f616085b896eae91722238bf
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| closed read rejection 后 provider 进入 `apply_patch` | H-076/H-075 路径继续推进 |
+| 第一次 repair patch hunk verification failed，第二次被 `apply_patch_mixed_native_unified:process.py` 拒绝 | patch grammar recovery 生效 |
+| provider 随后 block：`Insufficient file content visibility... only partial excerpt... full content is needed... ability to read the full file` | missing-source blocker wording 漂移 |
+| blocker 被接受后，后续请求 `provider_context_missing:current_main_node_missing` | 当前 validation rework node 被错误关闭 |
+| final candidate 声称 CSV/schema missing，但这些文件已成功读取 | feedback 链路退化成错误终止语义 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-partial-excerpt-blocker-wording-drift` |
+| 层级 | runtime blocker classification / validation rework feedback continuity |
+| 本质 | provider 用 partial-excerpt/full-content wording 表达 missing-source blocker，runtime recognizer 未覆盖，导致 repairable node 被关闭 |
+| 非根因 | 不是输入文件真的缺失；不是 H-076 failed-edit refresh；不是 static action contract 冲突 |
+| 修复 | missing-source recognizer 覆盖 `only partial excerpt`、`full content is needed`、`insufficient file content visibility`、`ability to read the full file`；complete-read blocker rejection 明确只 retry `apply_patch`，不 refresh read |
+| focused evidence | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework` 24/24; `action_contract_prompt` 29/29; fmt/check/build |
+
+状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
+
+## 11. 2026-07-04 validation rework closed action-space noncompliance
+
+`41b1cf6` 的 keyed rerun 证明 H-070 的 recovery ordering 已进入 live path，但仍未让 TaskSpace 完成 public validation。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bp-frontloaded-rework-guidance/runs/terminal_bench__organization-json-generator/20260704-153051-437
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 17
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 41b1cf63f051f3d0e674c4fb712735000ffa576c
+whale_binary_sha256: d2c17206bbc8f6958603c7ba20d040d9192ca2a38a8880fc309c5eb69b9ef561
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceValidationReworkDuplicateReadHardStopV1` excerpt 中 `Current required behavior` 出现在 long evidence 前 | H-070 live-applied |
+| hard-stop 显式保留 `read_context: complete_read`、`complete read_file context already visible`、`no additional file lines are hidden` | 完整读取语义没有缺失 |
+| active projection 的 `next_valid_actions` 是使用现有 `result-13`、不要 read/search、对 `generate_organization.py` 执行 `apply_patch` | 合法下一步已明确 |
+| current node contract 写明 allowed action classes 为 `edit, control(block_node only; finish_node blocked until successful edit; read/search ... will be blocked)` | 动作空间已经闭合 |
+| provider 仍输出 `read_file generate_organization.py`，被拒绝后再次重复，最终 duplicate-read hard-stop | 剩余问题不再是 feedback wording，而是闭合动作空间下的 action compliance/control 问题 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-closed-action-space-noncompliance` |
+| 层级 | capability/control layer beyond advisory feedback |
+| 本质 | 语义已正确传递后，模型仍选择非法 read action；runtime 可以 reject/hard-stop，但不能强制产出 patch |
+| 非根因 | 不是语义缺失；不是语义扭曲；不是 complete-read context 丢失；不是 patch directive 排序问题 |
+| 修复 | action schema narrowing：runtime 暴露当前 validation rework target read 是否已可见；session 在 taskspace-action-v1 转工具前拒绝 closed target `read_file`，reason 为 `validation_rework_closed_action_space_read_disallowed:read_file`；随后按 patch-only recovery 继续 |
+| focused evidence | CoE H-071/E-152/E-153；keyed rerun `20260704-153051-437`；`validation_rework` / `validation_rework_duplicate_read` / `action_contract_prompt` |
+
+状态：focused 修复已完成。下一步需要重新 build attestation 并 keyed rerun `organization-json-generator`，验证 provider 是否进入
+`apply_patch`，或继续暴露 patch synthesis / repair quality 的下一层问题。
+
+## 17. 2026-07-04 bootstrap read classification and hard-stop convergence bridge
+
+`5b9bdc4` 的 keyed rerun 证明 H-080 没有 live-clear。runtime 的 missing fact-source bootstrap 被触发，但内部 read command
+被能力层误判为 edit；后续模型手动完成 fact-source 读取后，pre-dispatch hard-stop 仍没有把完整 inspect coverage 转成 forced
+transition。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ca-bootstrap-transition/runs/terminal_bench__organization-json-generator/20260704-175447-182
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 5b9bdc4
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceMissingFactSourceBootstrapV1` 生成 bounded CSV read command | runtime 已尝试自动补齐 fact-source |
+| bootstrap tool output 是 `TaskSpace blocked this edit... inspect_code_context is read-only` | command 被 action classifier 误判为 edit |
+| 误判来自 awk summary 中的 `if (lines > 240)` | `>` 被文件重定向 heuristic 当作 edit risk |
+| final active projection 中 verified input evidence 覆盖 `schema.json`、`departments.csv`、`projects.csv`、`employees.csv` | inspect coverage 后续已完整 |
+| projection 给出 `finish_node -> implement_solution`，但下一步仍 hard-stop | runtime 没在 hard-stop 前把完整证据转为 phase transition |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-bootstrap-read-classification-and-hard-stop-transition-gap` |
+| 层级 | capability action classification / inspect feedback-control bridge |
+| 本质 | 内部 bootstrap read 被误分类为 edit；完整 inspect evidence 已存在时，hard-stop 前仍把控制权交给 stuck model |
+| 非根因 | 不是 H-080 trigger allowlist 本身；不是 missing fact-source guard 过严；不是 schema/data 文件缺失 |
+| 修复 | Unix bounded read summary 改用 `if (240 < lines)` 避免 `>`；真实 bootstrap command 由 classifier 测试锁为 read；pre-dispatch hard-stop 前若 inspect progress ready，触发 `inspect_hard_stop_progress_convergence` forced transition |
+| focused evidence | CoE H-081/E-172/E-173；`missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts`; `shell_action_classifier_identifies_core_taskspace_classes`; `inspect_hard_stop_progress_convergence_forces_transition_after_coverage` |
+
+状态：focused 修复已编码；`inspect_missing_fact_sources` 2/2、`forced_inspect_transition` 5/5、`inspect_bootstrap` 3/3、
+`action_contract_prompt` 29/29、`validation_rework` 25/25、fmt/check/build 均通过。后续 gate 是 attestation 和 keyed rerun。
+
+## 18. 2026-07-04 validation required-command advisory loop
+
+`51edaaf` 的 keyed rerun 证明 H-081 已经 live-clear：runtime 成功跨过 inspect、进入 implementation、生成输出并进入
+validation。当前 R4 主线已经从 inspect feedback/control bridge 推进到 validation feedback bridge。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cb-hardstop-bridge/runs/terminal_bench__organization-json-generator/20260704-180719-471
+reported_evidence_level: E2-candidate
+valid_pair: True
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 17
+right_public_validation_exit_code: 1
+final_hard_stop: provider_request_hard_limit_exceeded request_count=20/20 node_kind=smoke_test
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| trace 出现 `TaskSpaceForcedInspectTransitionV1 trigger=inspect_no_action_with_evidence` | inspect 阶段已能自动转入 implementation |
+| validation gate 给出 exact combined command：`python generate_organization.py && python -m jsonschema -i organization.json schema.json` | output-contract 失败语义没有丢 |
+| `TaskSpaceValidationNeedsTestRecoveryV1` 保留 exact next action，但 provider 继续尝试不可用 pytest/generator-only | 问题是 advisory 没进入 runtime control |
+| 最终 hard-stop 发生在 smoke_test/provider request budget | 需要 runtime 执行确定合法 validation command，避免再靠模型重试 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-output-contract-next-action-advisory-loop` |
+| 层级 | validation feedback / session runtime bridge |
+| 本质 | feedback 语义正确但控制语义缺失：exact next action 已知，却仍交给 stuck provider 执行 |
+| 非根因 | 不是 output contract gate 错误；不是 schema 文件缺失；不是 pytest 不可用本身 |
+| 修复 | 对 changed-artifact/output-contract coverage gate 的 exact `run_test with command ...`，由 session 同轮执行并以 `ActionClass::Test` 写回 ActionMap；trace 记录 `TaskSpaceValidationRequiredCommandBootstrapV1` |
+| focused evidence | CoE H-082/E-174/E-175；`validation_required_command_bridge`; `validation_needs_test`; `validation_output_contract`; `action_contract_prompt`; `validation_rework` |
+
+状态：focused 修复已编码并通过测试、fmt/check/build。后续 gate 是重新写入 whale binary attestation，并用真实 key 再跑
+`organization-json-generator`，确认 live trace 是否出现 `TaskSpaceValidationRequiredCommandBootstrapV1` 且不再在 smoke_test
+因 ignored recovery guidance 耗尽预算。
+
+## 19. 2026-07-04 validation bridge one-hop chained gate gap
+
+`37ebc22` keyed rerun 证明 validation bridge 已触发，但还只处理了一跳。它执行了 changed-artifact gate 给出的
+`python transform.py`，随后 output-contract gate 给出更严格的 combined command。旧 bridge 没继续追第二跳，直接把第一跳
+gate rejection 记录为 failed Test。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cc-validation-bridge/runs/terminal_bench__organization-json-generator/20260704-182700-317
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+final_hard_stop: provider_node_request_hard_limit_exceeded request_count=14/20 node_kind=implement_solution node_request_count=6/5
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-required-command-bridge-one-hop-only` |
+| 层级 | validation runtime bridge / gate-to-gate command chain |
+| 本质 | runtime bridge 只执行 first-hop exact command，未追 nested output-contract gate 的 stricter command |
+| 非根因 | 不是 bridge 没触发；不是 output-contract gate 错；不是真实 validator 已失败 |
+| 修复 | bridge 在 3-hop 上限内追 changed-artifact/output-contract gate 链；中间 gate output 留在 transcript，但只把最终命令结果写成 `ActionClass::Test` |
+| focused evidence | CoE H-083/E-176/E-177；`validation_required_command_bridge` 3/3；`validation_needs_test`; `action_contract_prompt`; `validation_rework`; fmt/check/build |
+
+状态：focused 修复已编码。下一步需要 attestation + keyed rerun，验证 trace 是否出现
+`TaskSpaceValidationRequiredCommandBootstrapChainedV1`，并确认 rework 不再从 first-hop gate rejection 开始。
+
+## 20. 2026-07-04 patch-only recovery tail truncation drift
+
+`2ab7a05` keyed rerun 已验证 H-083 live-clear：runtime 追到了 nested output-contract command。新的 blocker 是
+validation rework patch-only recovery 的尾部证据漂移：`process.py` 已 `eof_reached=true`，但 provider 仍以
+`current projection truncated` 为理由重读 target。
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-patch-only-tail-truncation-drift` |
+| 层级 | validation rework recovery payload layout |
+| 本质 | 顶部动作语义正确，长 evidence 尾部的压缩预览削弱了 complete-read 语义 |
+| 修复 | patch-only recovery 在 evidence 后追加 `Final action lock`，明确 projection truncation 不是重读理由，下一步只能 apply_patch 或 block_node |
+| focused evidence | CoE H-084/E-178/E-179；focused test；`validation_rework` 25/25；`action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码。下一步是 attestation + keyed rerun，验证 provider 是否进入 apply_patch 而不是再次 read_file。
+
+## 21. 2026-07-04 failed-edit fragile patch fallback
+
+`538c116` keyed rerun 进入 apply_patch，说明 H-084 有效，但 patch 失败后 provider 仍回到 read refresh/fragile hunk。
+已收录 `validation-rework-failed-edit-fragile-patch-fallback`：complete target read + failed expected-lines/context/mixed-hunk patch
+后，tail lock 要求 whole-file native replacement，继续禁止 read/search。
+
+状态：focused 修复已编码；focused test 与 `validation_rework` 25/25 通过。下一步是完整 check/build、提交、attestation、keyed rerun。
+
+## 22. 2026-07-04 schema-context blocker wording drift
+
+`e0f8d3d` keyed rerun 进入 H-085 之后的真实 rework tail：nested validation bridge 执行 combined command，得到
+`KeyError: 'id'`，随后 `generate.py` 完整读取并触发 patch-only recovery。新问题是 provider block：
+`Need full content of schema.json to validate required output structure; current projection excerpt of generate.py is insufficient to determine correct edit.`。
+runtime 旧 recognizer 没覆盖该 schema-context/full-content/projection-excerpt wording，错误接受 blocker 并关闭 node，
+下一轮退化为 `provider_context_missing`，最终把真实代码错误扭曲成 local infrastructure unavailable。
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-schema-context-blocker-after-patch-only` |
+| 层级 | validation rework blocker classification / feedback continuity |
+| 本质 | 语义缺失导致后续扭曲：可恢复的缺源同义 blocker 没被识别，节点被关闭后才产生错误 infra 叙述 |
+| 非根因 | 不是 schema 未读取；不是 jsonschema/Python 基础设施不可用；不是 validation bridge 未执行 |
+| 修复 | missing-source blocker recognizer 覆盖 schema/output-structure/full-content/projection-excerpt-insufficient wording；complete target read 时拒绝 blocker 并保持 `apply_patch` 反馈 |
+| focused evidence | CoE H-086/E-182/E-183；`validation_rework_rejects_missing_current_artifact_visibility_blocker`; `validation_rework`; `action_contract_prompt`; fmt/check/build |
+
+状态：focused 修复已编码并通过聚焦/回归测试、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
+
+## 23. 2026-07-04 repeated duplicate list_files inspect bootstrap gap
+
+`1fde25d` keyed rerun 没有进入 H-086 validation rework；它卡在 inspect node。首个 `list_files` 成功返回
+`schema.json`、`departments.csv`、`employees.csv`、`projects.csv`，但 provider 后续连续重复相同 `list_files`。
+runtime 拒绝 duplicate search，却只给 developer recovery，未执行 bounded bootstrap，最终
+`TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context node_request_count=6/5`。
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-duplicate-list-files-no-bootstrap-transition` |
+| 层级 | inspect duplicate read/search feedback-control bridge |
+| 本质 | 反馈正确但控制缺失：duplicate list/search gate 已明确，runtime 没把重复失败升级为 bounded content bootstrap |
+| 非根因 | 不是 list_files gate 错；不是 fact-source guard 要放宽；不是 validation/rework 层问题 |
+| 修复 | repeated duplicate read/search 触发 generic inspect bootstrap 并写入 ActionMap `Read`；sectioned schema/csv 输出计入 working evidence；随后以 `inspect_duplicate_read_search_bootstrap_complete` forced transition |
+| focused evidence | CoE H-087/E-184/E-185；`inspect_duplicate_list_files_bootstrap_forces_transition_after_data_reads`; `inspect_bootstrap`; `forced_inspect_transition`; `inspect_missing_fact_sources`; `action_contract_prompt`; `validation_rework`; fmt/check/build |
+
+状态：focused 修复已编码并通过 inspect/R4 相关回归、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
+
+## 24. 2026-07-04 validation rework recovery counter cross-node leak
+
+`f934ceb` keyed rerun 证明 H-087 已 live 推进：`organization-json-generator` 不再卡在 inspect duplicate `list_files`，
+而是进入 implementation、validation bridge 和 validation rework。新的 blocker 出现在 validation rework feedback/control
+计数生命周期：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ch-duplicate-list-bootstrap/runs/terminal_bench__organization-json-generator/20260704-192256-883
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_hard_stop: TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceValidationRequiredCommandBootstrapV1` 执行 `python processor.py && python -m jsonschema -i organization.json schema.json` | validation bridge 正确运行 |
+| validation failure 明确缺 root `metadata`、`organization` | 这是可修代码失败，不是 infra failure |
+| `node-6` 第一次 read `processor.py`，`eof_reached=true` | 新 validation rework node 获得完整 target evidence |
+| 紧接着 hard-stop `attempt_count=3` | node-4 的 patch-only recovery 次数泄漏到 node-6 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-recovery-counter-cross-node-leak` |
+| 层级 | validation rework recovery escalation / feedback-control lifecycle |
+| 本质 | 反馈语义没有丢，也没有扭曲；错误在 escalation counter 的作用域，turn-global 计数污染了新的 rework node |
+| 非根因 | 不是 patch-only hard-stop 规则本身错误；不是 target read gate 错；不是 validation bridge 或 schema repair contract 缺失 |
+| 修复 | duplicate-read 与 patch-only recovery counter 都按当前 provider snapshot `node_id` 重置；hard-stop 判断发生在 reset 之后 |
+| focused evidence | CoE H-088/E-186/E-187；`validation_rework_recovery_count_resets_when_rework_node_changes`; `validation_rework_patch_only_hard_stops_after_one_recovery`; `validation_rework` 26/26; `action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过聚焦/相关回归测试、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
+
+## 25. 2026-07-04 apply_patch recovery budget drain after H-088
+
+`851bf3c` keyed rerun 使用 attested binary：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ci-counter-scope/runs/terminal_bench__organization-json-generator/20260704-193906-178
+current_git_head: 851bf3cb0677834a9432a3dcad8659d9d6266ac6
+whale_binary_sha256: c25b2f3621474fc6066eac04b0cb93080468019a05a7d3c31e0faa2c3005b1be
+build_attestation_status: pass
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=implement_solution node_request_count=6/5
+```
+
+H-088 live 结论：已越过。trace 没有再在新 rework node 首次 target read 后触发
+`TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3`，而是进入 patch-only recovery 和 apply_patch attempts。
+
+新的 blocker：
+
+| Signal | 结论 |
+|---|---|
+| first rework patch 进入 edit tool，但 `apply_patch verification failed` | patch 质量/上下文失败已被工具语义捕获 |
+| 后续 `read_file generate_organization.py` 被拒绝为 `validation_rework_closed_action_space_read_disallowed:read_file` | closed action-space gate 正确 |
+| 后续多次 `TaskSpaceEditFailureRecoveryV1`，最后 `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1` | recovery 语义存在，但没有升级 |
+| final `TaskSpaceProviderBudgetHardStopV1` | repeated patch/edit recovery 被 generic provider budget 截断 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-recovery-budget-drain-after-validation-rework` |
+| 层级 | apply_patch/edit failure recovery escalation / feedback-control lifecycle |
+| 本质 | 反馈语义存在但缺少专用 hard-stop；同一 node 多次 malformed/stale-context patch recovery 后仍继续采样 |
+| 非根因 | 不是 H-088 counter leak；不是 validation bridge 失败；不是 closed read gate 放宽问题 |
+| 修复 | 新增 node-scoped apply_patch recovery counter；第 4 次 repeated `TaskSpaceEditFailureRecoveryV1` / patch grammar recovery 触发 `TaskSpaceApplyPatchRecoveryHardStopV1` |
+| focused evidence | CoE H-089/E-188/E-189；`apply_patch_recovery_hard_stops_after_repeated_same_node_failures`; `apply_patch_` 36/36; `validation_rework` 26/26; `action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/build。下一步是 commit/push、attestation、keyed rerun。
+
+## 26. 2026-07-04 whole Python Update File replacement normalization
+
+`eebd0e1` keyed rerun 使用 attested binary 并 live-clear H-089：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cj-patch-recovery-hardstop/runs/terminal_bench__organization-json-generator/20260704-195220-438
+current_git_head: eebd0e1d53e171e322edd975717a8a921ca173e2
+whale_binary_sha256: 61cb4f0c819bd0d9a14947dadc4ab9d79cee41bd36622e662c84d5b47175ad3e
+build_attestation_status: pass
+final_hard_stop: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-089 live 结论：已越过 generic provider budget hard-stop。新的 blocker 是 capability layer 的 patch normalization：
+
+| Signal | 结论 |
+|---|---|
+| provider 多次输出 `*** Update File: generate_org_json.py` 后跟完整 Python source | 这是整文件替换意图，不是局部 hunk |
+| runtime 拒绝为 `apply_patch_unanchored_update` | 语义正确，但缺少整文件替换 normalizer |
+| `python3 -c` 这类 non-diff command payload 仍需拒绝 | 不能把任意命令文本转成文件替换 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-whole-python-update-replacement-normalization-gap` |
+| 层级 | apply_patch capability normalization / action-contract grammar |
+| 本质 | 明确的 Python whole-file replacement intent 被当作 malformed Update File 拒绝，导致只能 hard-stop |
+| 非根因 | 不是 H-089 hard-stop 未生效；不是 unanchored update gate 错；不是 command payload 应该被接受 |
+| 修复 | 单一 `.py/.pyw` `Update File` section、无 diff markers、内容像 Python source 时 normalize 为 `Delete File + Add File`；命令 payload 继续拒绝 |
+| focused evidence | CoE H-090/E-190/E-191；`taskspace_action_contract_normalizes_whole_python_update_replacement`; `taskspace_action_contract_rejects_non_diff_update_payload`; `apply_patch_` 36/36; `validation_rework` 26/26; `action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/build。下一步是 commit/push、attestation、keyed rerun。
+
+## 27. 2026-07-04 no-action recovery hard-stop semantics
+
+`af95784` 后的 keyed rerun 没有复现 duplicate empty `Update File` wrapper，而是在更早的 feedback-control path 停住：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cr-duplicate-wrapper-normalized/runs/terminal_bench__organization-json-generator/20260704-214746-740
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context node_request_count=6/5
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `no-action-recovery-budget-drain` |
+| 层级 | no-action recovery escalation / feedback-control lifecycle |
+| 本质 | failure semantics 已识别为 no-action recovery，但超过 advisory threshold 后仍继续采样，最终被 generic provider budget hard-stop 覆盖 |
+| 非根因 | 不是 duplicate wrapper normalizer 未生效；不是 apply_patch capability failure；不是 tool 权限放宽问题 |
+| 修复 | 新增 node-scoped no-action recovery counter；超过 node-kind cap 后写入 `TaskSpaceNoActionRecoveryHardStopV1` 并停止本 turn |
+| focused evidence | CoE H-098/E-201/E-202；`no_action_recovery` 4/4；`action_contract_prompt` 29/29；`apply_patch_` 36/36；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun。
+
+## 29. 2026-07-04 targetless unified apply_patch fake target attribution
+
+`b330f33` 后的 keyed rerun 已越过 H-099：inspect 读完 schema、departments、employees、projects，并强制 transition 到
+implementation。新的 blocker 出现在 validation rework 的 apply_patch grammar 反馈层：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ct-slash-fact-source/runs/terminal_bench__organization-json-generator/20260704-220721-916
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-targetless-unified-header-fake-target` |
+| 层级 | apply_patch action-contract normalization / feedback attribution |
+| 本质 | provider 输出无目标 `---` / `+++` unified-like patch；runtime 将 separator-only `---` 当 bare file path，并 fallback 为伪目标 `src/---` |
+| 非根因 | 不是真实文件 `src/---` 缺失；不是 apply_patch 工具执行时才失败；不是 H-099 fact-source coverage 未修复 |
+| 修复 | `---` / `+++` 不能作为 bare-file path；targetless unified headers 在 dispatch 前拒绝为 `apply_patch_mixed_native_unified:(missing patch target)` |
+| focused evidence | CoE H-100/E-205/E-206；`targetless_unified_headers`；`bare_file_patch_normalizer_does_not_treat_unified_separator_as_path`；`apply_patch_` 36/36；`action_contract_prompt` 29/29；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun，验证该伪目标反馈不再出现并继续暴露下一个 R4 tools 链路 blocker。
+
+## 30. 2026-07-04 separator update section apply_patch normalization
+
+`60d5257` 后的 keyed rerun 已 live-clear H-100：trace 不再出现 `src/---`，并推进到更深的 validation rework。
+新的 blocker 是 provider 输出了可机械理解但非 native apply_patch grammar 的 separator old/new section：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cu-targetless-header/runs/terminal_bench__organization-json-generator/20260704-222503-663
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-separator-update-section-normalization-gap` |
+| 层级 | apply_patch capability normalization / action-contract parsing |
+| 本质 | provider 用 `<old block>` / `---` / `<new block>` 表达替换，并在完整 apply_patch JSON 后追加一个多余 `"`；runtime 只给 strict JSON / edit-failure recovery，未吸收可确定编辑意图 |
+| 非根因 | 不是 H-100 伪目标；不是 target read 没传到模型；不是 provider 未收到 full replacement 指令 |
+| 修复 | 仅对 apply_patch action 容忍单个尾随 `"`；Update File section 内无已有 hunk/diff marker 且恰有一个 separator-only `---` 时，转换为 native `@@`、`-old`、`+new` hunk |
+| focused evidence | CoE H-101/E-207/E-208；`separator_update_sections`；`trailing_quote`；`apply_patch_` 37/37；`action_contract_prompt` 29/29；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun，验证 separator patch 是否能真正应用，或继续暴露下一层 validation rework blocker。
+
+## 31. 2026-07-04 required schema validator feedback distortion
+
+`439b4e1` 后的 keyed rerun 已 live-clear H-101：strict JSON/trailing quote、separator update section、`src/---` 伪目标和
+apply_patch recovery hard-stop 均未再出现。新的 blocker 是 validation required command 与 blocker 语义链路：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cv-separator-update/runs/terminal_bench__organization-json-generator/20260704-223925-994
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `required-schema-validator-command-classification-and-stale-blocker` |
+| 层级 | tool action classification / validation rework blocker semantics |
+| 本质 | required validator command `node process.js && python -m jsonschema -i organization.json schema.json` 未被归类为 test，bootstrap 被 smoke_test gate 拒绝；随后 provider 把已读 schema 和已命名 validator 扭成 validator unavailable |
+| 非根因 | 不是 `schema.json` 未读；不是 `python -m jsonschema` 未被命名；不是 separator patch normalization 未生效 |
+| 修复 | schema validator command 分类为 `ActionClass::Test`；validation rework 中 `have not read schema.json`、`not readable`、`schema validator tool is unavailable` 这类 stale blocker 在已有 rework evidence 时被拒绝并要求 `apply_patch` |
+| focused evidence | CoE H-102/E-209/E-210；`shell_action_classifier_identifies_core_taskspace_classes`；`validation_rework_rejects_stale_schema_and_validator_unavailable_blockers`；`validation_rework` 28/28；`action_contract_prompt` 29/29；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、keyed rerun，验证 required schema validator 是否真正执行并继续定位剩余 blocker。
+
+## 32. 2026-07-04 forced inspect bridge fact-source evidence
+
+`9ebb998` 后 keyed rerun 已 live-clear H-102，但暴露 forced inspect transition 后的 evidence bridge gap：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cw-schema-validator-feedback/runs/terminal_bench__organization-json-generator/20260704-225618-467
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 4
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceNoActionRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `forced-inspect-bridge-fact-source-evidence-gap` |
+| 层级 | forced inspect transition / blocker evidence bridge |
+| 本质 | forced transition 的 accepted bridge result 已包含 schema/csv evidence，但 implementation missing-source blocker guard 没把 bridge evidence 算入 dependency fact-source evidence |
+| 非根因 | 不是 H-102 schema validator command 分类失败；不是 no-action hard-stop 错误触发；不是真实 schema/csv 未读 |
+| 修复 | forced bridge summary 中的 inline `artifacts=...` 纳入 visible artifact refs；implementation blocker guard 识别 dependency fact-source evidence，拒绝 stale reread blocker |
+| focused evidence | CoE H-103/E-211/E-212；`forced_inspect_transition_rejects_missing_fact_source_blocker`；`missing_source_blocker` 3/3；`action_map::runtime::tests::inspect` 18/18；`action_contract_prompt` 29/29；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、keyed rerun，验证 forced inspect 后是否进入 apply_patch implementation。
+
+## 33. 2026-07-04 failed apply_patch recovery-critical semantics
+
+`b2ec9b0` 后 keyed rerun 已 live-clear H-103：forced inspect bridge 后不再接受 `Need to read schema.json...`
+这类 stale fact-source blocker。新 failure 发生在 validation rework 的 apply_patch 恢复链：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cx-forced-inspect-fact-bridge/runs/terminal_bench__organization-json-generator/20260704-230322-342
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `failed-apply-patch-recovery-critical-semantics` |
+| 层级 | apply_patch feedback recovery / path normalization |
+| 本质 | 不是工具失败语义完全缺失；失败已返回，但 recent recovery 没把 `failure_kind`、`failed_target`、路径修正和 mandatory next action 变成强合同 |
+| 非根因 | 不是 H-103 forced inspect bridge；不是 schema validator command 未执行；不是 hard-stop 本身错误 |
+| 修复 | edit-failure recovery 结构化失败类型和目标；`b/app/...` / `/app/app/...` 规范为 app cwd 下真实相对路径；native hunk recovery 明确禁止 unified markers |
+| focused evidence | CoE H-104/E-213/E-214；`edit_failure_recovery` 2/2；`taskspace_apply_patch` 18/18；`action_contract_prompt` 29/29；fmt-check；cargo check；whale build；diff-check |
+
+操作经验落地：
+
+| 场景 | 记录 |
+|---|---|
+| Rust workspace 命令 | `cargo test/check/build` 需要在 `third_party/codex-cli/codex-rs` 下执行；repo 根没有 `Cargo.toml`，从根执行会直接失败 |
+| rustfmt warning | 当前 stable rustfmt 会提示 `imports_granularity = Item` 是 nightly-only，但命令退出码为 0；这不是本轮阻塞 |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再跑 keyed rerun，验证 `TaskSpaceApplyPatchRecoveryHardStopV1` 是否 live-clear。
+
+## 34. 2026-07-04 validation rework expected-lines target pollution
+
+`4e897ff` 后 keyed rerun 证明 H-104 部分 live-clear：结构化 failed-edit contract 已可见，`app/app/process.py`
+路径漂移未再出现；但 validation rework 仍在 repeated expected-lines patch failure 后进入 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cy-structured-apply-patch-feedback/runs/terminal_bench__organization-json-generator/20260704-231827-396
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-expected-lines-target-pollution` |
+| 层级 | apply_patch feedback recovery / validation rework target extraction |
+| 本质 | 失败语义不是缺失；structured failed-edit feedback 已进 rollout，但 flattened expected-lines message 把失败目标污染成 `generate.py: <源码片段>`，patch-only target artifacts 又被 schema/CSV validation refs 污染 |
+| 非根因 | 不是 H-104 路径规范化完全失效；不是 schema validator 未执行；不是缺少 `generate.py` 完整读取 |
+| 修复 | failed-target parser 在源码扩展名处截断；`target_artifacts` 优先于 schema/CSV refs；native `Update File` 内的 unified file headers 在 tool execution 前被 action contract 拒绝 |
+| focused evidence | CoE H-105/E-215/E-216；`validation_rework_patch_only_prefers_explicit_target_artifacts`；`mixed_native_unified` 4/4；`expected_lines_target`；`taskspace_apply_patch` 18/18；`action_contract_prompt` 29/29；`validation_rework_patch_only` 2/2；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再跑 keyed rerun，确认该 expected-lines recovery hard-stop 是否 live-clear，或继续收录下一类 tools 链路问题。
+
+## 35. 2026-07-04 validation rework stale schema-knowledge blocker wording
+
+`42d9777` 后 keyed rerun 已 live-clear H-105 的一部分关键路径：mixed native/unified patch 没有再进入 tool execution，
+而是在 action-contract 层被拒绝为 `apply_patch_mixed_native_unified:process.py`；patch-only recovery 的 target
+也保持为 `process.py`。新 failure 是 stale blocker wording 覆盖不足：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cz-expected-lines-recovery-gate/runs/terminal_bench__organization-json-generator/20260704-233803-895
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-stale-schema-knowledge-blocker` |
+| 层级 | validation rework blocker semantics / feedback predicate coverage |
+| 本质 | `process.py` 已完整读取、schema/CSV evidence 已存在，但 provider 用 `Cannot apply a valid patch without knowing the schema definition` 这种等价说法绕过了 missing-source blocker guard |
+| 非根因 | 不是 mixed native/unified pre-execution gate 失效；不是 patch-only target artifacts 污染；不是状态机应该允许继续读 schema |
+| 修复 | missing-source/schema blocker predicate 增加 `without knowing`、`without schema knowledge`、`lack/lacking schema knowledge`、`need schema definition` 等 live wording |
+| focused evidence | CoE H-106/E-217/E-218；`validation_rework_rejects_missing_current_artifact_visibility_blocker`；`validation_rework_rejects_stale_schema_and_validator_unavailable_blockers`；`validation_rework` 29/29；`missing_source_blocker` 3/3；`action_contract_prompt` 29/29；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再进行下一轮 keyed rerun。
+
+## 36. 2026-07-04 full-visible mixed native hunk recovery drift
+
+`39caa76` 后 keyed rerun 已 live-clear H-106：没有再接受 `without knowing schema` 这类 stale blocker。TaskSpace
+继续进入 validation rework patch 路径，但 provider 连续多次发 mixed native/unified patch，最终 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aa-schema-knowledge-blocker-gate/runs/terminal_bench__organization-json-generator/20260704-234927-306
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-full-visible-mixed-native-hunk-recovery-drift` |
+| 层级 | apply_patch grammar feedback / validation rework recovery actionability |
+| 本质 | full-visible target read 后，native-hunk recovery 仍给 `Update File + @@` 留主路径，DeepSeek 连续照着 mixed native/unified 形态重试 |
+| 非根因 | 不是 H-106 stale blocker；不是 action-contract 没拒绝 mixed grammar；不是 hard-stop 本身错误 |
+| 修复 | full-visible validation rework evidence 下，native-hunk recovery 强制 `Delete File + Add File` whole-file replacement，并禁止 `Update File` |
+| focused evidence | CoE H-107/E-219/E-220；`native_hunk_recovery` 2/2；`mixed_native_unified` 4/4；`apply_patch_recovery`；`action_contract_prompt` 29/29；`validation_rework` 29/29；`taskspace_apply_patch` 18/18；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再进行下一轮 keyed rerun。
+
+## 37. 2026-07-05 replacement-only recovery enforcement gap
+
+`7409c30` 后 keyed rerun 显示 H-107 的 forced replacement recovery 已 live-clear 到 provider-visible feedback：
+hard-stop excerpt 明确要求 whole-file replacement，并禁止 `*** Update File`。但 provider 仍连续发 `Update File`
+mixed native/unified patch：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ab-full-visible-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-000330-979
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-only-recovery-enforcement-gap` |
+| 层级 | apply_patch action-contract enforcement / recovery-state semantics |
+| 本质 | replacement-only recovery 文案已经到达模型，但 action-contract 没有把该状态变成强约束；`Update File` mixed patch 仍按 generic native-hunk rejection 循环 |
+| 非根因 | 不是 H-107 recovery 文案缺失；不是 hard-stop 错误；不是 schema/blocker 问题 |
+| 修复 | 已在 action contract 中对 active validation rework target 的 mixed `*** Update File` 返回 `apply_patch_replacement_required:<target>`，并路由到强制 `Delete File + Add File` recovery |
+| evidence | CoE H-108/E-221/E-222；keyed rerun `20260705-000330-979`；focused tests `requires_replacement`, `mixed_native_unified`, `native_hunk_recovery`, `validation_rework`, `taskspace_apply_patch`；fmt/check/build/diff |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 live 闭环。
+
+## 38. 2026-07-05 terminal blocked fact-source contradiction
+
+`fc7cae1` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ac-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-002052-730
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+H-108 的 replacement-only hard-stop 未复现，但出现新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `terminal-blocked-observed-fact-source-contradiction` |
+| 层级 | terminal blocked gate / feedback truthfulness |
+| 本质 | `rg --files`、`read_file schema.json`、missing fact-source bootstrap 已证明 CSV/schema 存在，terminal `blocked node_id:null` 仍声明它们不在 workspace |
+| 非根因 | 不是文件工具失败；不是 runner 未提供输入文件；不是 replacement-required patch recovery |
+| 修复 | terminal `blocked` 现在调用 observed required fact-source gate；若 blocker 声称已观察的 required fact-source missing/not present/not found，则拒绝为 follow-up |
+| evidence | CoE H-109/E-223/E-224；keyed rerun `20260705-002052-730`；focused tests `terminal_blocker_rejects_missing_fact_sources_after_bootstrap_read`, `missing_fact_source`, `missing_source_blocker`, `action_contract_prompt`；fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 false local-infra blocker 不再终止任务。
+
+## 39. 2026-07-05 non-sticky replacement-required state
+
+`4aeb22f` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ad-terminal-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-003821-682
+reported_evidence_level: E2-candidate
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-109 live-clear：false CSV/schema missing terminal blocker 未复现。新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-non-sticky-update-file` |
+| 层级 | apply_patch action-contract / replacement-required state |
+| 本质 | 第一次 mixed `Update File` 被拒绝为 `apply_patch_replacement_required:process.py`，但同一 active rework target 后续 `Update File` 变体仍落入 generic `unanchored_update` / mixed recovery |
+| 非根因 | 不是 H-109 terminal blocker；不是 provider 未看到 replacement-required；不是文件读取失败 |
+| 修复 | active validation rework target 的任何 `*** Update File` 在 normalize 前后都优先返回 `apply_patch_replacement_required:<target>`；非 rework target 保持 generic feedback |
+| evidence | CoE H-110/E-225/E-226；keyed rerun `20260705-003821-682`；focused tests `requires_replacement`, `keeps_generic_unanchored`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch`, `action_contract_prompt`；fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 replacement-required 不再分流。
+
+## 40. 2026-07-05 replacement-required recovery marker distortion
+
+`b3d31ec` 安装后 keyed rerun 证明 H-110 sticky replacement-required 分类已生效，但 recovery marker 仍把
+`apply_patch_replacement_required` 包装成 `TaskSpaceApplyPatchNativeHunkRecoveryV1`。
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-recovery-marker-distortion` |
+| 层级 | feedback recovery marker / observability / hard-stop audit |
+| 本质 | 失败分类已是 replacement-required，但 provider-visible recovery 和 hard-stop excerpt 显示 native-hunk recovery，语义被改名 |
+| 修复 | 新增 `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`，warning、recovery accounting、duplicate-read preserve、hard-stop excerpt 全链路识别 |
+| evidence | CoE H-111/E-227/E-228；keyed rerun `20260705-005608-072`；focused tests `replacement_required`, `native_hunk_recovery`, `unanchored_update`, `action_contract_prompt`, `validation_rework`, `taskspace_apply_patch` |
+
+状态：focused fixed；后续 keyed rerun 已确认 NativeHunk marker distortion 未复现。
+
+## 41. 2026-07-05 replacement gate blocks actionable normalized patch
+
+`23a25bd` 安装后 keyed rerun 证明 H-111 live-clear，但 item_58 的 active rework `Update File` 可机械归一化并通过
+schema validation，却被 replacement-required gate 无条件拦截。
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-overblocks-actionable-update` |
+| 层级 | apply_patch action-contract / capability normalization / feedback boundary |
+| 本质 | replacement-required enforcement 过宽，把可执行 patch 错误归为必须 whole-file replacement |
+| 修复 | active rework target 先 normalize；归一化后无 malformed/mixed/unanchored 问题则 dispatch `apply_patch`，否则保留 replacement-required |
+| evidence | CoE H-112/E-229/E-230；keyed rerun `20260705-011054-226`；diagnostic `target/r4-h112-patch-diagnostic/item_58`; focused tests `rework_target`, `replacement_required`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch`, `action_contract_prompt` |
+
+状态：focused fixed；后续 keyed rerun 已确认 mechanically actionable rework patch 可 live 执行。
+
+## 42. 2026-07-05 schema type mismatch repair semantics gap
+
+`646edd8` 安装后 keyed rerun 证明 H-112 live-clear：item_37 的 active rework `Update File` 已产生 `file_change`。
+新的 blocker 是 schema type mismatch 没有进入结构化 repair contract。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-schema-type-mismatch-repair-semantics-gap` |
+| 层级 | tool semantic summary / validation rework repair contract / implementation recovery synthesis |
+| 本质 | `jsonschema` 已指出 `skillDistribution` expected object，但 runtime 只结构化 missing required properties 和 rename hints；模型没有稳定收到“把 array-of-objects 改成 object/map”的动作语义 |
+| 非根因 | 不是 apply_patch 失败；不是 schema 未读；不是 validator 不可用；不是状态机越权 |
+| 修复 | `TaskSpaceToolSemanticSummaryV1`、validation failure excerpt、validation repair contract 增加 `schema_type_mismatches`；implementation recovery 对 `expected object` 生成 object/map patch synthesis |
+| evidence | CoE H-113/E-231/E-232；keyed rerun `20260705-012516-669`；focused tests `schema_type_mismatch`, `type_mismatch`, `validation_rework`, `action_contract_prompt`, `taskspace_apply_patch`, `replacement_required`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun 确认 schema type mismatch 能 live 修复。
+
+## 43. 2026-07-05 unlocated array item type mismatch repair gap
+
+`8451089` 安装后 keyed rerun 证明 H-113 live-clear：statistics object-map repair 生效，public validator 的
+statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组，而 schema 和 public validator 要求字符串 id 数组。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-schema-array-item-type-mismatch-repair-gap` |
+| 层级 | validation rework repair contract / schema-backed feedback synthesis |
+| 本质 | `jsonschema` CLI 只输出 dict value `is not of type 'string'`，没有 path；runtime 未结合已读 schema 推导 `members expected string items` |
+| 非根因 | 不是 statistics object-map 修复失败；不是 validator 不可用；不是 schema 未读；不是 apply_patch 不能执行 |
+| 修复 | schema read 中抽取 array item type expectations；unlocated type mismatch 与 schema array field 合并为 `schema_type_mismatches=members expected string items`；recovery 明确输出 string array |
+| evidence | CoE H-114/E-233/E-234；keyed rerun `20260705-024255-572`；focused tests `validation_rework_projects_schema_repair_contract_from_schema_read`, `array_item_type`, `type_mismatch`, `validation_rework`, `action_contract_prompt`, `taskspace_apply_patch`, `replacement_required`; fmt/check/diff |
+
+状态：focused fixed，待 whale build、commit/push、install/attest 和真实 keyed rerun 确认 `members` array item type 能 live 修复。
+
+## 44. 2026-07-05 type mismatch path pollution and placeholder range leakage
+
+`e182c9b` 安装后 keyed rerun 未越过更早的 patch recovery，因此 H-114 尚未 live-clear。新暴露两个 tools 链路问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-schema-type-mismatch-data-bracket-path-pollution` |
+| 层级 | tool semantic summary / validation failure excerpt |
+| 本质 | type mismatch path extractor 把普通数据值 `['RedBull']` 当成 schema path，生成假 `schema_type_mismatches` |
+| 修复 | bracket path extractor 只解析 `schema[...]` / `instance[...]` jsonschema path lines |
+| evidence | CoE H-115/E-235/E-236；keyed rerun `20260705-025939-670`; focused tests `data_lists`, `type_mismatch` |
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-rework-placeholder-range-hunk-leakage` |
+| 层级 | apply_patch action-contract / capability normalization |
+| 本质 | `@@ -... +... @@` placeholder range hunk 被当作 mechanically actionable，进入 apply_patch 后变成 expected-lines failure loop |
+| 修复 | active validation rework update 在 normalize 前后拒绝 placeholder range hunk，返回 replacement-required |
+| evidence | CoE H-116/E-235/E-236；keyed rerun `20260705-025939-670`; focused tests `placeholder_range`, `rework_target`, `mixed_native_unified` |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 49. 2026-07-05 inspect bootstrap root path and fallback transition gap
+
+`fc5c7a8` 安装后 keyed rerun 没有复现 H-120 final closeout 场景，而是在 inspect 阶段提前失败。
+TaskSpace 自动 bootstrap 缺失 CSV fact sources 时用了 `/employees.csv` 这类绝对路径，导致 shell 读失败；
+fallback 后虽然读到了 CSV sections，但没有立即 forced transition，最终 inspect node budget hard-stop。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-bootstrap-root-path-transition-gap` |
+| 层级 | inspect bootstrap capability / fact-source feedback / phase transition control |
+| 本质 | workspace-root-style artifact ref 被当成 shell 绝对路径；fallback evidence 写入后没有立即推进 inspect -> implement |
+| 非根因 | 不是 H-119 generic CSV coverage 失效；不是 H-120 final feedback 修复回退；不是业务 validator 失败 |
+| 修复 | bootstrap read path 归一化为 workspace-relative；relative section headers 满足 root-style fact-source refs；fallback bootstrap 后立即尝试 forced inspect transition |
+| evidence | CoE H-121/E-245/E-246；keyed rerun `20260705-041253-955`; focused tests `missing_fact_source_bootstrap_command_uses_workspace_relative_paths`, `inspect_missing_fact_sources_accept_relative_sections_for_root_refs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 48. 2026-07-05 successful validation closeout reported as blocked
+
+`fc5c7a8` 后补充状态：H-120 已 focused fixed 并提交，但安装后的 keyed rerun `20260705-041253-955`
+未到达 successful validation closeout，因此尚未完成 live-clear；该轮暴露 H-121。
+
+`1b1ddf9` 安装后 keyed rerun 证明 H-119 live-clear：TaskSpace 按要求读取了 schema 和三个 CSV 输入，
+最终 public validation / hidden oracle 均通过，open leaf nodes 为 0。新的问题只剩反馈终态：
+最后一条用户可见消息误报 terminal `blocked`，把已经通过的 schema validation 说成 local infrastructure blocker。
+
+| 字段 | 内容 |
+|---|---|
+| case | `closed-validation-success-final-blocked-false-positive` |
+| 层级 | terminal closeout feedback / successful validation priority / no-active-node action conversion |
+| 本质 | 旧 blocked validation/local infra evidence 与新 accepted successful validation evidence 并存时，feedback 层缺少成功优先级 |
+| 非根因 | 不是工具执行失败；不是 schema validation 失败；不是 H-119 复发；不是业务结果错误 |
+| 修复 | successful validation 抑制 closed-validation/tool-runtime blocker contract；无 active node 且任务已完成验证时，terminal `blocked` 转成 `final_answer` |
+| evidence | CoE H-120/E-243/E-244；keyed rerun `20260705-035754-438`; focused tests `closed_validation_blocker_is_suppressed_after_successful_validation`, `completed_task_final_answer_conversion_includes_blocked_action`, `action_contract_prompt`, `forced_validation_closeout`, `terminal_blocker`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 46. 2026-07-05 missing-source blocker rejection hard-stop overcount
+
+`f2c31e4` 安装后 keyed rerun 证明 H-117 live-clear：TaskSpace 进入 implementation / validation rework。
+新的 blocker 是 provider 在完整 target-read 后发出“缺 schema/source visibility”的 block_node；runtime 已正确拒绝，
+但立即进入 patch-only hard-stop，没有给模型下一轮消费该拒绝反馈。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-missing-source-blocker-rejection-hardstop-overcount` |
+| 层级 | validation rework patch-only recovery accounting / feedback loop |
+| 本质 | `missing_source_visibility_blocker_rejected` 是新语义反馈，但 patch-only hard-stop 把它当作普通重复 non-edit |
+| 非根因 | 不是 schema 未读；不是 target 未读；不是 H-117 复发；不是 validator 未执行 |
+| 修复 | missing-source blocker rejection 获得一次 patch-only recovery grace；重复无效 blocker 仍 hard-stop |
+| evidence | CoE H-118/E-239/E-240；keyed rerun `20260705-032858-986`; focused tests `validation_rework_patch_only_allows_one_missing_source_blocker_rejection_recovery`, `validation_rework_patch_only`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 47. 2026-07-05 generic CSV input fact-source undercoverage
+
+`c8d2359` 安装后 keyed rerun 证明 H-118 live-clear，但 TaskSpace 在 inspect 阶段过早转入 implementation：
+模型的 `start_task` 只记录了泛化 `CSV files`，runtime 看到 `schema.json` 和 list_files 后认为 inspect 足够，
+没有强制读取 `departments.csv`、`employees.csv`、`projects.csv` 内容。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-generic-csv-input-fact-source-undercoverage` |
+| 层级 | inspect fact-source expansion / forced inspect transition / input-data capability boundary |
+| 本质 | 泛化 `CSV files` 需求没有扩展成 list_files 已发现的具体 CSV 输入读取要求 |
+| 非根因 | 不是 H-118 复发；不是 output contract false positive；不是 validator 未执行；不是单纯模型列名猜错 |
+| 修复 | generic CSV requirement 会把发现的具体 `.csv` 文件加入 required fact-source coverage；bootstrap section read 可满足；glob `*.csv` 被过滤 |
+| evidence | CoE H-119/E-241/E-242；keyed rerun `20260705-034521-738`; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 45. 2026-07-05 output-contract fact-source false positive
+
+`c78e8fc` 安装后 keyed rerun 证明 H-115/H-116 不再阻塞当前路径，但 TaskSpace 侧卡在 inspect：
+runtime 要求读取 `organization.json` 作为 declared fact-source artifact，而该文件正是尚未生成的 output contract。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-output-contract-as-fact-source-false-positive` |
+| 层级 | inspect fact-source extraction / context projection / duplicate-read recovery |
+| 本质 | `initial_fact_sources` 中的“generate organization.json”被 artifact extractor 当作输入证据；过滤逻辑只作用于 success criteria，未作用于 fact_sources |
+| 非根因 | 不是 CSV/schema 未读；不是 provider budget 单纯过低；不是 H-115/H-116 复发；不是模型拒绝实现 |
+| 修复 | fact_sources 抽取 artifact 时过滤已声明生成输出；output target 集合排除 schema/validator contracts，保留 `schema.json` 作为必读输入/验证依赖 |
+| evidence | CoE H-117/E-237/E-238；keyed rerun `20260705-031706-550`; focused tests `inspect_fact_source_extraction_ignores_declared_generated_output_targets`, `inspect_fact_source`, `output_contract`, `inspect_duplicate_read`, `force_finish_inspect`, `inspect_missing_fact_sources` |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
+## 28. 2026-07-04 natural-language slash fact-source extraction
+
+`3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source
+coverage 的自然语言 slash token false-positive：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cs-no-action-hardstop/runs/terminal_bench__organization-json-generator/20260704-215805-102
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 19
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context node_request_count=13/12
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-natural-language-slash-fact-source-false-positive` |
+| 层级 | inspect fact-source artifact extraction / coverage gate |
+| 本质 | success criterion 里的 `employees/projects` 是关系描述，不是路径；旧 artifact parser 只因含 `/` 就纳入 required fact-source coverage |
+| 非根因 | 不是真实 CSV/schema 未读；不是 no-action hard-stop 失效；不是 provider budget 本身配置过低 |
+| 修复 | 已知扩展名继续识别为 artifact；无扩展 slash token 必须像真实路径/目录才识别；自然语言关系词不进入 coverage |
+| focused evidence | CoE H-099/E-203/E-204；`natural_language_slash`；`inspect_missing_fact_source` 3/3；`action_map::runtime::tests::inspect` 18/18；`action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun。
+
+## 10. 2026-07-04 validation rework patch directive buried after evidence
+
+`431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露
+新的 validation rework recovery layout 问题。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bo-block-rejection-feedback/runs/terminal_bench__organization-json-generator/20260704-151923-804
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 18
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 431e0eebd1e94425287173393a381851c50485ce
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| validation output 列出 `members`、`averageDepartmentBudget`、`totalEmployees` 等缺失字段 | schema repair contract 可生成 |
+| repair contract 含 `schema_required_groups` 和 `schema_property_rename_hints=member_ids->members` | H-066 repair hint 未丢 |
+| `process.py` 作为 `result-14` 完整读取，`eof_reached=true` | target source 已可 patch |
+| `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 含完整 repair/evidence，但 `Current required behavior` 在长 evidence 后 | 动作指令被长证据稀释 |
+| 模型随后两次 `read_file process.py`，第二次触发 `TaskSpaceValidationReworkDuplicateReadHardStopV1` | runtime hard-stop 上限正确，但反馈 actionability 仍不足 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-patch-directive-buried-after-evidence` |
+| 层级 | validation rework recovery payload layout / actionability |
+| 本质 | 语义齐全但优先级错误：动作要求排在长 evidence 后，模型继续 discovery |
+| 非根因 | 不是 fact-source 缺失；不是 schema repair contract 缺失；不是 repeated-read hard-stop 过早 |
+| 修复 | patch-only 和 duplicate-read recovery 均先输出 `Current required behavior`，再输出 previous feedback/evidence；明确 evidence 只用于构造 patch |
+| focused evidence | recovery ordering tests; `validation_rework_duplicate_read`; `validation_rework` |
+
+状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
+
+## 61. 2026-07-05 formal E3 source identity and non-agent gate unblock
+
+R4 单样本 `organization-json-generator` 已 live-clear 到 E2-candidate solved；继续推进 release 闭环时，正式 E3 gate 暴露两个前置缺口：
+
+| 字段 | 内容 |
+|---|---|
+| formal sample set | `terminal-bench_E3-P0_3_5` |
+| release gate 固定样本 | `processing-pipeline`, `multi-source-data-merger`, `recover-accuracy-log` |
+| 当前 Linux source cache | `91e10457b5410f16c44364da1a34cb6de8c488a5`, `tasks/` |
+| 问题 | 当前 cache 只有 `processing-pipeline`，缺少 `multi-source-data-merger` 和 `recover-accuracy-log` |
+| 恢复路径 | 使用历史正式 P0 source `1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`, `original-tasks/` |
+| task list | `target/r4-e3-formal-p0-20260705/task-list.jsonl` |
+| task list sha256 | `00d9c0ab0fe44c6d0d1079d9917562dc7a906eb177d83185a264f4a567aedfba` |
+| full E3 profile hash | `03f792dbdf15c1d3081f1bf89ca71f4dd008252b45785eaa6d6909d919254dc6` |
+
+PlanOnly 验证结果：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/planonly-attested/suite-20260705-165342
+suite status: completed
+suite_score_ready: true
+suite_score_valid: true
+invalid_harness_sample_count: 0
+sample_set_id: terminal-bench_E3-P0_3_5
+```
+
+non-agent gate 首轮失败在 `active_context_replacement`，根因是测试仍断言 H-132 之前的宽松 mixed native/unified patch normalization 和旧 action-contract 文案。已仅更新测试口径，使其断言当前严格行为：
+
+- mixed native/unified patch 返回 `apply_patch_mixed_native_unified:<target>`，不再进入工具层。
+- implementation_needs_edit 文案允许仅针对显式 validation rework target 的窄 `read_file`，并禁止 `broad read_file`。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core active_context_replacement --lib -- --nocapture
+  PASS: 250/250
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+  PASS: 29/29
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+  PASS: 32/32
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch -- --nocapture
+  PASS: 18/18
+cargo fmt --check
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+  PASS
+git diff --check
+  PASS
+```
+
+状态：formal source/materialization path 已打通；active-context non-agent gate 测试口径已修正。下一步是 commit/push 后重跑 `build-v005-non-agent-gates.ps1`，再生成 code-complete/user-approval markers 和 start gate。
+
+## 62. 2026-07-05 formal E3 start-gate evidence parser and CLI wrapper repair
+
+继续 formal R4/E3 闭环时，`start-gate` 在 v0.0.5 markers 已生成后仍失败，首个失败点是 `cheap_self_tests`。直接复现发现两个真实工具链问题：
+
+| 问题类型 | 层级 | 现象 | 根因 | 修复 |
+|---|---|---|---|---|
+| proof path evidence parser drift | feedback/evidence layer | `test-e3-proof-harness.ps1` 拒绝完整 structured markers | `Test-TaskspacePathUnderRoot` 只接受 `\` 子路径；Linux `/root/child` 被判为不在 artifact root 下 | 路径归属判断同时接受 native/alternate separator |
+| docker timing precision loss | feedback/evidence layer | `docker_observed_duration_ms=4000`，预期 `4200` | PowerShell `ConvertFrom-Json` 将 ISO timestamp 转成 second-precision `DateTime` | docker build result 使用 date-string 保留解析，并以 `DateTimeOffset` 计算 |
+| start-gate wrapper capability gap | capability layer | CLI wrapper 无法传入 v0.0.5 marker 和 formal sample identity | `invoke-taskspace-e3-start-gate.ps1` 未暴露 `V005*MarkerPath`、`Benchmark`、`Repeats`、`ExpectedSampleSetId` | wrapper 增加透传参数 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-proof-harness.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-start-gate.ps1
+  PASS
+git diff --check
+  PASS
+```
+
+formal wrapper start-gate 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/invoke-taskspace-e3-start-gate.ps1 \
+  -OutputDir target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed \
+  -TaskListPath target/r4-e3-formal-p0-20260705/task-list.jsonl \
+  -SourceVersion 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b \
+  -ExpectedTaskListHash 00d9c0ab0fe44c6d0d1079d9917562dc7a906eb177d83185a264f4a567aedfba \
+  -ExpectedProfileHash 03f792dbdf15c1d3081f1bf89ca71f4dd008252b45785eaa6d6909d919254dc6 \
+  -Benchmark terminal-bench -Repeats 5 \
+  -V005NonAgentGatesPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-non-agent-gates.json \
+  -V005CodeCompleteMarkerPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-code-complete.json \
+  -V005UserApprovalMarkerPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-user-approval.json \
+  -RunSelfTests -AllowSkippedPathContract -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate
+exit_code=0
+E3StartGate: target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed/e3-start-gate.json
+```
+
+当前结论：
+
+- formal start-gate 已能在 explicit skipped calibration 模式下放行 full E3 evidence-generation。
+- `gate_decision.calibration_gate_passed=false`，因此这还不是最终 release decision pass。
+- 下一步需要提交当前工具链修复，重建当前 HEAD 的 non-agent gates/markers，然后启动正式 full E3 evidence-generating run。
+
+## 63. 2026-07-05 formal E3 validator fidelity blocker and POSIX source guard
+
+重新生成当前 HEAD markers 后启动 formal full E3 evidence-generating run：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-01c6331/suite-20260705-171525
+PairAbort: samples/processing-pipeline/runs/terminal_bench__processing-pipeline/20260705-171552-266/pair-001/pair-abort.json
+exit_code=3
+```
+
+这次 start-gate 已过，suite 在第一个 pair 的 scoring fast-fail 处退出。根因不是 runtime proof 缺失：
+
+| proof | 状态 |
+|---|---|
+| runtime/mount proof | `runtime_proven=true`, `validator_mount_proven=true` |
+| official runner proof | `source_hashes=[]`, `official_protocol_source_proven=false`, `task_worktree_dirty=true` |
+| source isolation proof | validator source hash/outside-repo proof 通过，但 `source_guard_proven=false` |
+| abort reason | `e3_external_validator_fidelity_unproven`, `e3_external_validator_not_e3_eligible`, `e3_external_validator_source_not_isolated` |
+
+新增修复：
+
+- 旧 P0 sparse checkout 补齐 official Terminal-Bench runner 源文件：
+  - `terminal_bench/harness/harness.py`
+  - `terminal_bench/terminal/docker_compose_manager.py`
+  - `terminal_bench/handlers/trial_handler.py`
+  - `terminal_bench/parsers/pytest_parser.py`
+- `source-guard.ps1` 增加 POSIX `chmod 000` source guard：
+  - `guard_method=posix_chmod_no_permissions`
+  - POSIX probe: `current_powershell`, `powershell_child`, `sh_child`
+  - 记录 original mode、deny rows、release rows 和 hash restoration
+  - Windows `icacls` 路径保留
+- `test-external-wrapper-harness.ps1` 改为在非 Windows 上要求 active POSIX guard。
+
+focused 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-proof-harness.ps1
+  PASS
+git diff --check
+  PASS
+```
+
+真实 diagnostic pair：
+
+```text
+RunDir: target/r4-e3-formal-p0-20260705/processing-pipeline-proof-diagnostic-01c6331/runs/terminal_bench__processing-pipeline/20260705-172210-590
+exit_code=0
+sample_status.run_validity=valid
+pair_report.engineering_unclean=false
+```
+
+关键 proof：
+
+```text
+external-e3-proof.validator_fidelity:
+  official_runner_or_equivalent=true
+  agent_cannot_read_validator_source=true
+  e3_eligible=true
+  runtime_proven=true
+  validator_mount_proven=true
+
+external-runner-equivalence-proof:
+  official_protocol_source_proven=true
+  task_worktree_dirty=false
+  source_hashes: 4/4 pinned files match
+
+external-isolation-proof:
+  source_guard_proven=true
+  agent_cannot_read_validator_source_proven=true
+```
+
+当前结论：
+
+- formal E3 的 validator fidelity blocker 已 focused-cleared。
+- diagnostic pair 中 standard/taskspace 均为 `wrong`，这是样本执行质量问题，不再是 E3 fidelity/harness blocker。
+- 下一步需要提交 POSIX source guard 修复，重新生成当前 HEAD gates/markers，再重启 formal full E3 evidence run。
+
+## 64. 2026-07-05 formal E3 stale validator sentinel after agent timeout
+
+提交 POSIX source guard 修复后，当前 HEAD：
+
+```text
+9b6779dee991bb02ead4d11e67b23b00e9ee9d43
+```
+
+重新生成当前 HEAD gates/markers：
+
+```text
+NonAgentGates: target/r4-e3-formal-p0-20260705/gates-9b6779d/v005-non-agent-gates.json
+  status=pass
+  git_commit=9b6779dee991bb02ead4d11e67b23b00e9ee9d43
+StartGate: target/r4-e3-formal-p0-20260705/start-gate-9b6779d-skipcal/e3-start-gate.json
+  status=pass
+  gate_decision.full_e3_allowed=true
+  gate_decision.v005_markers_passed=true
+  gate_decision.calibration_gate_passed=false
+  gate_decision.calibration_gate_skipped_allowed=true
+```
+
+启动 formal full E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-9b6779d/suite-20260705-173135
+exit_code=3
+completed pair reports before abort=14
+PairAbort: samples/recover-accuracy-log/runs/terminal_bench__recover-accuracy-log/20260705-175915-554/pair-004/pair-abort.json
+reason=active_sentinel_warning:validator_failure
+abort_phase=score_validity
+```
+
+这次不是 validator fidelity 问题：
+
+```text
+external-e3-proof.validator_fidelity:
+  official_runner_or_equivalent=true
+  agent_cannot_read_validator_source=true
+  e3_eligible=true
+  runtime_proven=true
+  validator_mount_proven=true
+external-isolation-proof.source_guard_proven=true
+```
+
+实际阻断语义：
+
+| 侧 | 状态 |
+|---|---|
+| taskspace | `exec_timed_out=true`, `exec_exit_code=124`, `wall_time_ms=900101` |
+| taskspace validation | `public_validation_skipped=true`, `public_validation_skip_reason=agent_exec_timeout`, pre-agent validator probe `passed` |
+| taskspace sentinels | active `validator_failure` sentinel still present |
+| standard | solved, `exec_exit_code=0`, `wall_time_ms=47210` |
+
+根因：
+
+- `run-taskspace-benchmark.ps1` 已经记录了更强、更具体的语义：agent 执行超时，所以 validation 被跳过，且 pre-agent validator probe 通过。
+- `failure-taxonomy.ps1` 后续无条件把 active `validator_failure` sentinel 加回 engineering-unclean，导致 clean agent timeout 被误归类为 `harness_materialization_failure/active_sentinel_warning:validator_failure`。
+- 这是 R4 feedback layer 问题：不是语义完全缺失，而是语义冲突时旧 sentinel 覆盖了更具体的新状态。
+
+修复：
+
+- `failure-taxonomy.ps1` 增加 `Test-TaskspaceCleanAgentTimeoutValidationSkip`。
+- 仅在以下条件全部满足时抑制 stale `active_sentinel_warning:validator_failure`：
+  - `exec_timed_out=true`
+  - `public_validation_skipped=true`
+  - `public_validation_skip_reason=agent_exec_timeout`
+  - `pre_agent_validator_probe_status=passed`
+  - `pre_agent_validator_probe_hash` 是 64 位 SHA-256
+- 非 timeout 的 active validator sentinel 仍保持 engineering-unclean。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  PASS
+Real pair-004 metrics reclassification:
+  reasons=[]
+  outcome=agent_exec_timeout
+  reason_count=0
+```
+
+当前 R4 状态：
+
+- validator fidelity blocker 已解除。
+- stale validator sentinel 覆盖 clean timeout skip 的分类问题已 focused-fixed。
+- formal E3 需要在新 HEAD 上重新生成 gates/markers 后重跑；当前 release 仍不能关，因为 calibration gate 是 skip，且 full E3 最新 run exit 3。
+
+## 65. 2026-07-05 internal validator sentinel after completed external validation
+
+提交 H-137 后重跑当前 HEAD formal full E3：
+
+```text
+HEAD: db63d5bcea6f298c83b5fc0d04b89d54b2feeb48
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-db63d5b/suite-20260705-182918
+PairAbort: samples/processing-pipeline/runs/terminal_bench__processing-pipeline/20260705-182945-595/pair-001/pair-abort.json
+exit_code=3
+reason=active_sentinel_warning:validator_failure
+abort_phase=score_validity
+```
+
+这次不是 agent timeout，而是更一般的 feedback-layer 分类问题。aborting pair 的 taskspace side：
+
+```text
+exec_timed_out=false
+public_validation_exit_code=1
+hidden_oracle_exit_code=0
+tests_started_seen=true
+tests_completed_seen=true
+validation_lifecycle_stage=tests_completed
+validator_environment_failures=[]
+metrics_taints=[]
+active_sentinel_warning_types=[validator_failure]
+business_success=false
+```
+
+结论：
+
+- 外部 Terminal-Bench validator 已完整跑完，返回的是普通业务失败。
+- active `validator_failure` sentinel 来自 TaskSpace 内部反馈链路：模型先提交 mixed patch 被拒，随后又在 validation rework 阶段发起 read，被 TaskSpace 拒绝并 hard stop。
+- 这类 sentinel 应保留为诊断反馈，但不能把一个已完成外部验证的 `wrong` 变成 `invalid_harness`。
+
+修复：
+
+- `failure-taxonomy.ps1` 增加 `Test-TaskspaceExternalValidationCompleted`。
+- 当外部 validation 已 `tests_completed` 时，抑制 `active_sentinel_warning:validator_failure` 对 engineering-unclean 的污染。
+- 如果没有跑到 tests completed，validator sentinel 仍保持 unclean。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  PASS
+Real pair-001 taskspace metrics reclassification:
+  reasons=[]
+  outcome=wrong
+  reason_count=0
+```
+
+当前 R4 状态：
+
+- R4 feedback layer 新增问题类型：内部 TaskSpace sentinel 与外部 benchmark validator 结果的语义边界冲突。
+- 已修复两种冲突：
+  - agent timeout + validation skip + pre-agent probe passed 时，stale validator sentinel 不再覆盖 timeout 语义；
+  - external validation completed 时，internal validator sentinel 不再覆盖 business wrong 语义。
+- 仍需提交该修复，刷新 gates/markers，并再次重跑 formal full E3。
+
+## 66. 2026-07-05 formal E3 completes pair execution after sentinel taxonomy fixes
+
+提交 H-138 修复后，当前 HEAD：
+
+```text
+c173d1cebe3ee0307030d88acef32caddf207f39
+```
+
+重新生成 gates/markers 并启动 formal full E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-c173d1c/suite-20260705-183826
+pair-report count: 15
+pair-abort count: 0
+suite-health.status: audit_required
+invalid_harness_sample_count: 0
+completed_child_processes: 3
+score_pending_audit_child_runs: 3
+```
+
+结论：
+
+- H-137/H-138 修掉的 `active_sentinel_warning:validator_failure` 误杀，在 formal live run 中没有复发。
+- 3 个 sample 均完成 5/5 pair，suite 没有 `invalid_harness` abort。
+- 当前不能把 R4 标成完成，因为：
+  - `suite_score_ready=false`
+  - `suite_score_valid=false`
+  - `score_block_reason=audit_required`
+  - start gate 使用了 `AllowSkippedCalibrationGate`，`calibration_gate_passed=false`
+
+这说明 feedback-layer 分类链路已向前推进一层：错误的 validator sentinel 覆盖问题已关，剩余问题转为 audit、calibration 和真实成本/质量指标。
+
+## 67. 2026-07-05 suite cost gate rollout fallback repair
+
+formal E3 退出后，`suite-cost-gate.json` 初始状态：
+
+```text
+status=FAIL
+reason=missing_cost_data
+missing_fields=[model_request_count,input_tokens,output_tokens]
+ratios:
+  direct_input_output_ratio=2.8406
+  walltime_ratio=1.8388
+  model_request_count_ratio=0.9333
+```
+
+进一步检查发现这不是 suite 聚合完全没有成本数据，而是一个 timeout side 顶层 provider usage 缺失：
+
+```text
+metrics:
+  target/r4-e3-formal-p0-20260705/full-e3-c173d1c/suite-20260705-183826/samples/multi-source-data-merger/runs/terminal_bench__multi-source-data-merger/20260705-185157-964/pair-004/left/artifacts/metrics.json
+top-level:
+  token_summary_availability=usage_unavailable
+  model_request_count=null
+  input_tokens=null
+  output_tokens=null
+  exec_timed_out=true
+  public_validation_skip_reason=agent_exec_timeout
+rollout_trace:
+  availability=measured
+  model_request_count=18
+  input_tokens=2169306
+  output_tokens=58787
+```
+
+根因：
+
+- per-side `request-summary.json.rollout_trace` 已有可用请求/token 统计。
+- suite aggregate 只读 `metrics.json` 顶层 `model_request_count/input_tokens/output_tokens`。
+- timeout 场景没有 `turn.completed` usage，但 rollout trace 是真实 measured fallback。
+- 结果是 cost gate 把“可测但来自 fallback 的高成本”误报为 `missing_cost_data`。
+
+修复：
+
+- `cost-instrumentation.ps1` 的 suite/sample aggregate 对以下字段启用 rollout trace fallback：
+  - `model_request_count <- rollout_trace_model_request_count`
+  - `input_tokens <- rollout_trace_input_tokens`
+  - `output_tokens <- rollout_trace_output_tokens`
+- 仍然只对 cost gate 必需字段启用 fallback；其他字段缺失继续按原规则处理。
+- aggregate token summary 增加 fallback 计数：
+  - `fallback_model_request_count`
+  - `fallback_input_tokens`
+  - `fallback_output_tokens`
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+  cost instrumentation selftest passed
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-diagnostics.ps1
+  TaskSpace cost diagnostics self-test: PASS
+git diff --check
+  PASS
+```
+
+重算 formal suite cost gate 后：
+
+```text
+status=FAIL
+reason=cost_gate_failed
+missing_fields=[]
+direct_input_output_ratio=3.2436
+walltime_ratio=1.8388
+model_request_count_ratio=2.1333
+taskspace fallback counts:
+  fallback_model_request_count=1
+  fallback_input_tokens=1
+  fallback_output_tokens=1
+```
+
+当前 R4 状态：
+
+- `missing_cost_data` 误报已修复。
+- 成本门仍 FAIL，但现在原因正确：TaskSpace direct input/output ratio=3.2436，超过 partial 阈值 3.0。
+- 最大 token driver 都来自 taskspace side；top two:
+  - recover-accuracy-log pair-004 left: 2,429,635 direct tokens
+  - multi-source-data-merger pair-004 left: 2,228,093 direct tokens
+- 下一步应收敛 feedback/control 的高成本循环：validation rework 后仍重复 read/validate，且成功或足够失败证据后没有强制闭合 action space。
+
+## 68. 2026-07-05 budget-pressure forced transition repair
+
+继续追踪 cost gate 的真实失败后，定位到一个控制层缺口：
+
+```text
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+taskspace_budget_pressure_active_for_node_kind(...) => false
+```
+
+也就是说，session 主循环已有 budget-pressure forced transition 分支：
+
+- `force_finish_action_map_inspect_for_provider_budget`
+- `force_finish_action_map_implement_for_provider_budget`
+
+但触发条件被整体关闭。formal trace 中的高成本 taskspace side 正好落入这个缺口。
+
+真实 trace 形态：
+
+| 样本 | 形态 | 结果 |
+|---|---|---|
+| recover-accuracy-log pair-004 left | inspect 阶段连续发出 `Read generator.log...` / `Read raw...` / `Read the generator...`，request_count 进入 warned/thin_downgraded | 直到 `TaskSpaceProviderBudgetHardStopV1 request_count=18/20` |
+| multi-source-data-merger pair-004 left | validation rework 后反复出现 `A successful implementation edit is already recorded.`、`Read current merge_users.py...`、弱验证命令被 recovery 替换 | 进入 warned/thin_downgraded，最终 timeout，rollout trace 18 requests |
+
+修复：
+
+- 重新启用 budget-pressure active 判断，但限制在较大预算场景：
+  - `max_requests < 10` 不触发，避免小测试/短任务误判。
+  - inspect 节点：`request_count * 2 >= max_requests`。
+  - implement 节点：`request_count * 10 >= max_requests * 7`。
+- 扩展 follow-up intent marker，覆盖 action rationale 中的重复读/验证语义：
+  - `read current`
+  - `read generator`
+  - `read raw`
+  - `read the`
+  - `inspect raw`
+  - `examine `
+  - `verify output`
+  - `run validation`
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core budget_pressure_follow_up --lib
+  4 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  8 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+当前状态：
+
+- 该问题类型是 R4 feedback/control 层问题：不是工具能力失败，而是高压状态下 action space 没有及时收束。
+- 代码层 focused-fixed，尚未 formal live 验证。
+- 下一步需要在新 HEAD 上刷新 gates/markers 并重跑 formal full E3，验证：
+  - direct input/output ratio 是否低于 partial 阈值 3.0；
+  - 是否仍为 15/15 pair-report、0 abort；
+  - 是否出现 premature forced transition 导致业务质量下降。
+
+## 69. 2026-07-05 path-not-found feedback semantic repair
+
+在 `60e86fc` 上刷新 non-agent gates/start gate 后，formal E3 进入真实执行：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-60e86fc/suite-20260705-195417
+processing-pipeline: completed_pairs=5/5, reported_evidence_level=E1
+suite invalid_harness abort: 未观察到
+```
+
+出于成本控制，执行到 `multi-source-data-merger` 第 1 个 pair 期间手动中断；中断前已经足够复现新的 R4 tools feedback 问题类型。
+
+### 问题类型 A：路径不存在反馈语义缺失
+
+典型现象：
+
+```text
+processing-pipeline pair-003 TaskSpace:
+  rg --files 已显示相对路径
+  后续仍读取 /app/run_pipeline.sh
+  sed: can't read /app/run_pipeline.sh: No such file or directory
+  最终 TaskSpaceProviderBudgetHardStopV1
+
+multi-source-data-merger pair-001 TaskSpace:
+  初始 fact source 为 /data/source_a、/data/source_b
+  rg --files /data/source_a 失败
+  bootstrap rg --files 显示 data/source_a/... 相对路径
+  后续仍反复读取 /data/source_a/users.json、/data/source_b/users.csv
+  最终 TaskSpaceProviderBudgetHardStopV1
+```
+
+结论：
+
+- 这不是工具能力层完全失败：工具已经返回了 no-such-file 文本。
+- 也不是语义扭曲：错误文本没有被改成成功。
+- 根因是反馈层语义缺失：普通工具输出中的路径失败没有升级为 TaskSpace recovery semantic。
+- `saw_actionable_output=true` 把本轮响应分类为 `Actionable`，盖过了失败输出；下一轮 agent 只看到普通工具历史，继续按原绝对路径重试。
+
+修复：
+
+- 新增 `TaskSpacePathCorrectionRecoveryV1`。
+- 从普通 `FunctionCallOutput` / `CustomToolCallOutput` 提取：
+  - `/data/...` -> `data/...`
+  - `/app/...` -> workspace-relative path
+- `classify_taskspace_provider_response_actionability(...)` 增加 `tool_failure_recovery_message_present`，并在 `saw_actionable_output` 之前判定 recovery。
+- 恢复项明确约束：
+  - 不得重试失败的绝对路径；
+  - 下一步必须使用建议相对路径执行一个合法 action；
+  - 如果相对路径也失败且无替代证据，必须 blocked，不允许循环。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  2 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
+
+## 70. 2026-07-05 apply_patch native-hunk feedback strengthening
+
+同一轮 formal E3 还复现了第二个相似但不同的问题类型：
+
+```text
+processing-pipeline pair-005 TaskSpace:
+  TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:generate_report.sh
+  TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1
+  agent 连续重复 mixed native/unified patch 语法
+  最终 TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+结论：
+
+- 这类不是语义缺失：`TaskSpaceApplyPatchNativeHunkRecoveryV1` 已经存在。
+- 问题是反馈语义弱约束：提示说明了不能混用 unified/range hunk，但没有足够可执行的 native patch scaffold；同时 hard stop 阈值允许过多重复尝试。
+
+修复：
+
+- `TaskSpaceApplyPatchNativeHunkRecoveryV1` 增加可直接照抄的 native `*** Update File` scaffold。
+- 保留小文件/生成文件的 whole-file replacement 建议。
+- native-hunk recovery 的 hard stop 提前到两次 previous recovery；其他 apply_patch recovery 仍保持原阈值。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_native_hunk --lib
+  3 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+当前 R4 状态：
+
+- 已收录并修复两类新的 tools feedback 问题：
+  - `path_not_found_with_relative_candidate`: 反馈语义缺失；
+  - `apply_patch_mixed_native_unified`: 反馈语义存在但弱约束。
+- 仍不能标记 R4 完成；需要在新二进制上重跑 formal E3，观察：
+  - 路径纠偏是否减少 `/data`、`/app` 绝对路径重试；
+  - apply_patch malformed retry 是否减少；
+  - cost gate 是否低于 partial 阈值；
+  - 是否引入 premature block/transition。
+
+## 71. 2026-07-05 e9298eb formal E3 live miss: ActionMap failed-read feedback bridge
+
+在 `e9298eb` 上重建 whale、刷新 attestation，并完成 non-agent gates/start gate 后，按用户授权启动 formal E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-e9298eb/suite-20260705-225206
+processing-pipeline: 5/5 pair-report completed, run_validity=valid, phase=audit_required
+multi-source-data-merger: pair-001/right 中断前复现路径反馈缺口
+```
+
+`processing-pipeline` 的现场信号说明上一轮 apply_patch 修复已经进入真实链路：
+
+```text
+TaskSpaceApplyPatchNativeHunkRecoveryV1: observed
+TaskSpaceApplyPatchRecoveryHardStopV1: observed at attempt_count=3
+```
+
+这证明 native-hunk scaffold/hard-stop 分支已经上线，但模型仍可能继续生成错误 patch grammar。该问题暂时不是“没接上线”的问题，而是后续要通过 E3 统计观察“减少重复”还是“更快、更清楚地 hard stop”。
+
+`multi-source-data-merger` 复现了更关键的 live miss：
+
+```text
+start_task fact sources:
+  /data/source_a/users.json
+  /data/source_b/users.csv
+  /data/source_c/users.parquet
+
+repeated failed read:
+  sed: can't read /data/source_a/users.json: No such file or directory
+
+later workspace evidence:
+  ./data/source_a/users.json
+  ./data/source_b/users.csv
+  ./data/source_c/users.parquet
+
+observed classifier state:
+  TaskSpacePathCorrectionRecoveryV1: absent
+  provider_response_actionability: actionable
+  recovery_action: none
+  TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded
+```
+
+直接原因：
+
+- 第一版 path correction 只从当前 `FunctionCallOutput` / `CustomToolCallOutput` 文本提取 no-such-file 语义。
+- live action-contract 链路里，失败 read 的完整 raw output 存在于当前 ActionMap node 的 failed read result body。
+- classifier 没有读取该 ActionMap failed-read summary，所以 `tool_path_correction_feedback=None`。
+- 同轮又有 `saw_actionable_output=true`，于是响应被归类为 `Actionable`，agent 继续尝试原来的 `/data/...` 绝对路径，直到 node/provider budget hard stop。
+
+结论更新：
+
+- 仍然不是语义扭曲：工具失败文本没有被改写为成功。
+- 是反馈桥接缺失：正确的失败语义停在 ActionMap result，没有进入 response actionability/recovery item。
+- R4 问题类型从单纯 `path_not_found_with_relative_candidate` 扩展为：
+  - response-item tool output path correction；
+  - ActionMap failed-read result path correction。
+
+为避免无意义成本，E3 在该证据充分后手动中断，先修 bridge 再重跑。
+
+## 72. 2026-07-05 ActionMap failed-read path correction bridge repair
+
+修复范围：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+third_party/codex-cli/codex-rs/core/src/session/mod.rs
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+```
+
+核心变更：
+
+- `ActionMapRuntime` 新增 `current_main_recent_failed_read_summary()`。
+- 复用 failed action result summary 机制，但 read summary 使用更长 preview，避免 raw command/output 被 640 字符截断。
+- `Session` 暴露 async wrapper：`action_map_current_recent_failed_read_summary()`。
+- `try_run_sampling_request(...)` 在当前 response item 没有提取到 path correction 时，回退读取当前 ActionMap node 最近一次 failed read summary，并复用同一个 `taskspace_path_correction_from_text(...)`。
+- 新增单测覆盖 live summary 形态：
+
+```text
+path_correction_detects_action_map_failed_read_summary
+```
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  3 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
+
+下一步：
+
+- 构建新 whale 并刷新 attestation。
+- 按新 HEAD 重建 gates/markers/start gate。
+- 继续 formal E3，重点观察：
+  - `multi-source-data-merger` 是否出现 `TaskSpacePathCorrectionRecoveryV1`；
+  - `/data/...` 绝对路径是否不再重复到 provider hard stop；
+  - apply_patch native-hunk 失败是否减少或更早给出清晰 hard stop；
+  - direct token ratio/cost gate 是否下降。
+
+## 73. 2026-07-05 faeb9c1 formal E3 live miss: `/data` root directory correction
+
+在 `faeb9c1` 上重建 whale、刷新 attestation、重建 gates/markers/start gate 后，继续 formal E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-faeb9c1/suite-20260705-232019
+processing-pipeline: completed_pairs=5/5, run_validity=valid
+multi-source-data-merger: pair-001 复现新的 path correction 细分缺口后手动中断
+```
+
+`processing-pipeline` 结果：
+
+- 5/5 pair-report 完成；
+- run_validity 为 valid；
+- native-hunk recovery/hard-stop 确认进入 live 链路；
+- 但业务效果仍不稳定，模型仍多次重复 malformed patch grammar。当前 hard-stop 降低继续烧 token 的概率，但没有根治模型生成错误 patch 语法。
+
+`multi-source-data-merger` 的新 live miss：
+
+```text
+pair-001/right:
+  rg --files /data
+  rg: /data: IO error for operation on /data: No such file or directory (os error 2)
+
+repeated failed commands:
+  item_3
+  item_8
+  item_15
+  item_22
+
+positive workspace evidence:
+  rg --files .
+  ./data/source_a/users.json
+  ./data/source_b/users.csv
+  ./data/source_c/users.parquet
+
+observed classifier state:
+  TaskSpacePathCorrectionRecoveryV1: absent
+  response_actionability: actionable
+  recovery_action: none
+  TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded
+```
+
+直接原因：
+
+- `faeb9c1` 已经把 ActionMap failed-read summary 接入 path correction extractor。
+- 但 extractor 只识别 `/data/...` 和 `/app/...` 子路径。
+- live trace 失败的是根目录本身：`/data`。
+- 因为 `/data` 没被视为可纠偏绝对 workspace alias，`tool_path_correction_feedback` 仍为空。
+- `saw_actionable_output=true` 继续把响应归为 `Actionable`，直到 node request hard stop。
+
+修复：
+
+- path correction prefix 从 `/data/`、`/app/` 扩展为边界检查的 `/data`、`/app`。
+- 新增映射：
+  - `/data` -> `data`
+  - `/app` -> `.`
+- 增加边界判断，避免误把 `/database` 当作 `/data`。
+- 新增测试：
+  - `path_correction_detects_absolute_workspace_root_directory_failure`
+  - `path_correction_does_not_match_non_workspace_prefix_word`
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  5 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+git diff --check
+  pass
+```
+
+当前结论：
+
+- `path_not_found_with_relative_candidate` 类型继续拆细：
+  - 子路径不存在：`/data/source_a/users.json` -> `data/source_a/users.json`；
+  - 根目录不存在：`/data` -> `data`；
+  - `/app/run_pipeline.sh` -> `run_pipeline.sh`；
+  - `/app` -> `.`。
+- 这仍属于 feedback semantic missing，不是工具能力层返回错误。
+- 下一步需要提交该修复、刷新 attestation/gates，然后继续 E3，优先确认 `multi-source-data-merger` 的 `rg --files /data` 是否触发 `TaskSpacePathCorrectionRecoveryV1`。
+
+## 74. 2026-07-05 eb0ae1b formal E3 live miss: path correction 已传达但未被 action contract 强制执行
+
+在 `eb0ae1b` 上刷新 whale/attestation/gates/start gate 后继续 formal E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-eb0ae1b/suite-20260705-234241
+processing-pipeline: completed_pairs=5/5, run_validity=valid
+multi-source-data-merger: pair-001/right 复现 action-contract enforcement 缺口后手动中断
+```
+
+关键变化：
+
+- `TaskSpacePathCorrectionRecoveryV1` 已经出现在 rollout；
+- `/data/source_a/users.json` 能纠正到 `data/source_a/users.json`；
+- `/data` 能纠正到 `data`；
+- provider response actionability 从之前的 `actionable/recovery_action:none` 变成 `no_action_follow_up/recovery_action:developer_recovery`。
+
+但 live trace 仍继续失败：
+
+```text
+重复 action:
+  sed ... /data/source_a/users.json
+  rg --files /data
+
+terminal state:
+  TaskSpaceProviderBudgetHardStopV1
+  reason=provider_node_request_hard_limit_exceeded
+  request_count=7/20
+  node_request_count=7/6
+  phase=budget_recovery
+```
+
+结论：
+
+- 这一次不是 semantic missing。
+- 恢复语义已经正确进入 feedback 层，并且分类为 developer recovery。
+- 真正缺口是 capability/action-contract 层：`TaskSpacePathCorrectionRecoveryV1` 说“不要重试 failed_path”，但解析后的 `TaskSpaceActionV1` 如果继续携带同一个 `args.path`，runtime 仍把它转换成真实 tool call。
+- 因此模型一旦忽略 recovery guidance，就会继续消耗 provider/node request budget，直到 hard stop。
+
+修复：
+
+- 新增 `taskspace_path_correction_retry_reject_reason(...)`；
+- 对 `list_files`、`read_file`、`search` 的 `args.path` 执行 retry-path 检查；
+- 路径比较会归一化 trailing slash 和简单 quote wrapper；
+- 当 action 继续使用同一个 failed absolute path 时，在 tool dispatch 前拒绝：
+
+```text
+path_correction_retry_forbidden:/data:suggested_relative_path=data
+```
+
+- 建议相对路径继续放行，例如 `data`、`data/source_a/users.json`。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  7 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+R4 问题类型收录：
+
+- feedback semantic missing：
+  - raw tool failure 存在，但没有进入 recovery classifier；
+  - 例：ActionMap failed-read summary 未接入；
+  - 例：`/data` 根目录 alias 未被 extractor 识别。
+- feedback semantic delivered but advisory-only：
+  - recovery message 已进入 rollout；
+  - classifier 已识别为 developer recovery；
+  - 但 action contract 未把 recovery 语义升级为执行前约束；
+  - 例：模型继续发 `args.path="/data"`，runtime 仍执行 tool。
+
+下一步：
+
+- 提交该修复并刷新 whale attestation；
+- 重建 formal E3 gates/markers/start gate；
+- 继续 E3，优先确认 `multi-source-data-merger` 不再真实执行重复 `/data` 工具调用；
+- 如果仍有高成本，继续按同样方式拆分“反馈已传达但未被约束”的其他 tool 问题。
+
+## 75. 2026-07-06 targeted multi-source live miss: exact retry enforcement 不足，需要 alias-root enforcement
+
+`fb5b195` 提交后执行了 formal E3 gate 流程：
+
+```text
+Commit: fb5b195 R4 enforce path correction action contract
+NonAgentGates: target/r4-e3-formal-p0-20260705/gates-fb5b195/v005-non-agent-gates.json
+StartGate: target/r4-e3-formal-p0-20260705/start-gate-fb5b195-skipcal-rerun/e3-start-gate.json
+FullE3Attempt: target/r4-e3-formal-p0-20260705/full-e3-fb5b195-env/suite-20260706-001546
+```
+
+过程问题：
+
+- `run-taskspace-e3-suite.ps1` 的 provider credential preflight 只检查进程环境变量 `DEEPSEEK_API_KEY`；
+- 它不会自动读取 repo 根目录的 `.env.local`；
+- 因此直接运行时先出现：
+
+```text
+provider_credential_missing
+DEEPSEEK_API_KEY is required for DeepSeek benchmark model execution.
+```
+
+本次正确启动方式：
+
+```text
+set -a
+. ./.env.local
+set +a
+powershell ... run-taskspace-e3-suite.ps1 ...
+```
+
+注意：不要打印 key；只把 `.env.local` 注入当前子进程环境。
+
+full E3 观察：
+
+- `processing-pipeline` pair-001、pair-002 有效完成；
+- 但该 sample 不覆盖 `/data` path correction；
+- right 侧仍多次出现 `TaskSpaceApplyPatchNativeHunkRecoveryV1`，说明 apply_patch grammar recovery 仍是独立残留问题；
+- 为避免继续在无关 sample 上烧 token，手动中断 full E3，改跑目标 sample 诊断。
+
+目标诊断 run：
+
+```text
+RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-fb5b195
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-fb5b195/runs/terminal_bench__multi-source-data-merger/20260706-002509-479
+pair: pair-001/right
+run_validity: valid
+```
+
+新证据：
+
+```text
+item_4:
+  rg --files /data
+  rg: /data: IO error ... No such file or directory
+
+item_8:
+  sed ... /data/source_a/users.json
+  sed: can't read /data/source_a/users.json: No such file or directory
+
+item_16:
+  sed ... /data/source_b/users.csv
+  sed: can't read /data/source_b/users.csv: No such file or directory
+
+later:
+  data/source_a/users.json succeeds
+  data/source_b/users.csv succeeds
+  data/source_c/users.parquet succeeds
+```
+
+结论：
+
+- `fb5b195` 的 exact retry enforcement 确实降低了“同一个 `/data` 重复执行”的概率；
+- 但 action contract 只拦截 `args.path == failed_path`；
+- 当已知 `/data -> data` 后，模型仍可发 `/data/source_a/users.json`；
+- 这不是 semantic missing，而是 capability enforcement 粒度太窄；
+- 正确语义是：一旦 workspace alias root `/data` 不可见，同一 root 下所有 `/data/...` action 都应在 tool dispatch 前拒绝，并派生 `data/...` 建议。
+
+修复：
+
+- `taskspace_path_correction_retry_reject_reason(...)` 从 exact failed-path comparison 扩展到 workspace alias-root comparison；
+- 新增 `taskspace_workspace_alias_root(...)`；
+- 对同一 alias root 下的 absolute child path 自动派生相对建议：
+
+```text
+/data/source_a/users.json -> data/source_a/users.json
+/app/foo.py -> foo.py
+```
+
+- 新增测试：
+
+```text
+path_correction_rejects_absolute_child_after_alias_root_failure
+```
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  8 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+下一步：
+
+- 提交 alias-root enforcement；
+- 刷新 whale attestation；
+- 重跑 `multi-source-data-merger` targeted diagnostic；
+- 验证 `path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json` 是否出现，且对应 absolute child path 不再真实 dispatch 到 shell tool。
+
+## 76. 2026-07-06 targeted multi-source live miss: enforcement state 在请求边界丢失
+
+`11c43a6` 提交后刷新 attestation，并重跑目标诊断：
+
+```text
+RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-11c43a6
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-11c43a6/runs/terminal_bench__multi-source-data-merger/20260706-003154-395
+pair: pair-001/right
+```
+
+结果没有达到预期：
+
+```text
+rollout:
+  TaskSpacePathCorrectionRecoveryV1 failed_path=/data suggested_relative_path=data
+  TaskSpacePathCorrectionRecoveryV1 failed_path=/data/source_b/users.csv suggested_relative_path=data/source_b/users.csv
+  TaskSpacePathCorrectionRecoveryV1 failed_path=/data/source_a/users.json suggested_relative_path=data/source_a/users.json
+
+whale-exec:
+  path_correction_retry_forbidden: absent
+  sed ... /data/source_b/users.csv
+  sed ... /data/source_b/users.csv
+  sed ... /data/source_a/users.json
+  sed ... /data/source_b/users.csv
+  TaskSpaceProviderBudgetHardStopV1 node_request_count=7/6
+```
+
+结论：
+
+- alias-root helper 单测通过，但 live 没触发；
+- 原因是 `tool_path_correction_feedback` 是 `try_run_sampling_request(...)` 内的局部变量；
+- recovery item 和 failed-read summary 在一次模型请求结束时写入，但下一次模型请求重新进入函数时局部状态又变成 `None`；
+- action parser 因此没有拿到 active correction，自然不会产出 `path_correction_retry_forbidden`。
+
+修复：
+
+- 在 action-contract mode 下，`try_run_sampling_request(...)` 初始化 `tool_path_correction_feedback` 时，立即从当前 ActionMap failed-read summary 恢复一次；
+- 复用已有 `taskspace_path_correction_from_text(...)`；
+- 保留 response-completed 阶段的 fallback，用于同请求内 recovery item 生成。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  8 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+R4 问题类型继续拆分：
+
+- semantic missing：失败语义没有进入 recovery classifier；
+- advisory-only：recovery 已出现但没有 action-contract enforcement；
+- enforcement granularity too narrow：只拦 exact path，没有拦 alias-root descendant；
+- enforcement state not durable across request boundary：helper 存在，但下一次请求解析 action 时没有 active correction。
+
+下一步：
+
+- 提交该生命周期修复；
+- 刷新 attestation；
+- 重跑 targeted `multi-source-data-merger`；
+- 验证 `path_correction_retry_forbidden` 是否在 shell dispatch 前出现。

@@ -1,0 +1,239 @@
+{
+  "schema_version": "r7-sibling-patch-sequence-probe-v1",
+  "generated_at": "2026-07-19T13:33:06.0046417Z",
+  "model": "deepseek-v4-flash",
+  "arm": "sibling_required_next_call",
+  "endpoint": "https://api.deepseek.com/chat/completions",
+  "repeat": 6,
+  "privacy": {
+    "api_key_recorded": false,
+    "raw_arguments_recorded": false,
+    "patch_content_recorded": false
+  },
+  "summary": {
+    "requests": 6,
+    "http_200": 6,
+    "expected_call_names_match": 6,
+    "control_shape_valid": 6,
+    "patch_json_valid": 6,
+    "patch_exact": 6
+  },
+  "events": [
+    {
+      "event_name": "r7.sibling_patch_sequence_observed",
+      "repeat": 1,
+      "transport": "non_streaming_chat_completions",
+      "request": {
+        "tools_sha256": "d4a846627837011bc7d186e7917400ee5e84cef1633b451d36228b1b6169a7eb",
+        "prompt_sha256": "6d9b147a6821089a374a01aafa366ae979d0fdebcabac67ac19bdb11a253f74d",
+        "expected_patch_bytes": 1471,
+        "expected_patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70"
+      },
+      "response": {
+        "http_status": 200,
+        "duration_ms": 4364,
+        "call_count": 2,
+        "call_names": [
+          "taskspace_control",
+          "apply_patch"
+        ],
+        "expected_call_names_match": true,
+        "control_json_valid": true,
+        "control_shape_valid": true,
+        "patch_json_valid": true,
+        "patch_exact": true,
+        "patch_bytes": 1471,
+        "patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70",
+        "control_arguments_bytes": 150,
+        "control_arguments_sha256": "bf188d1d60a3beff205edea717aa999899d7a593bf1a86c5a76b2c771e1d5ad3",
+        "patch_arguments_bytes": 1574,
+        "patch_arguments_sha256": "00e754483d1c361066895400c29a7cf50f6871dd7aa736a158a39dd5b2e3d242",
+        "usage": {
+          "input_tokens": 4056,
+          "cached_input_tokens": 256,
+          "output_tokens": 671
+        }
+      }
+    },
+    {
+      "event_name": "r7.sibling_patch_sequence_observed",
+      "repeat": 2,
+      "transport": "non_streaming_chat_completions",
+      "request": {
+        "tools_sha256": "d4a846627837011bc7d186e7917400ee5e84cef1633b451d36228b1b6169a7eb",
+        "prompt_sha256": "6d9b147a6821089a374a01aafa366ae979d0fdebcabac67ac19bdb11a253f74d",
+        "expected_patch_bytes": 1471,
+        "expected_patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70"
+      },
+      "response": {
+        "http_status": 200,
+        "duration_ms": 4222,
+        "call_count": 2,
+        "call_names": [
+          "taskspace_control",
+          "apply_patch"
+        ],
+        "expected_call_names_match": true,
+        "control_json_valid": true,
+        "control_shape_valid": true,
+        "patch_json_valid": true,
+        "patch_exact": true,
+        "patch_bytes": 1471,
+        "patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70",
+        "control_arguments_bytes": 150,
+        "control_arguments_sha256": "bf188d1d60a3beff205edea717aa999899d7a593bf1a86c5a76b2c771e1d5ad3",
+        "patch_arguments_bytes": 1574,
+        "patch_arguments_sha256": "00e754483d1c361066895400c29a7cf50f6871dd7aa736a158a39dd5b2e3d242",
+        "usage": {
+          "input_tokens": 4056,
+          "cached_input_tokens": 3968,
+          "output_tokens": 671
+        }
+      }
+    },
+    {
+      "event_name": "r7.sibling_patch_sequence_observed",
+      "repeat": 3,
+      "transport": "non_streaming_chat_completions",
+      "request": {
+        "tools_sha256": "d4a846627837011bc7d186e7917400ee5e84cef1633b451d36228b1b6169a7eb",
+        "prompt_sha256": "6d9b147a6821089a374a01aafa366ae979d0fdebcabac67ac19bdb11a253f74d",
+        "expected_patch_bytes": 1471,
+        "expected_patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70"
+      },
+      "response": {
+        "http_status": 200,
+        "duration_ms": 5258,
+        "call_count": 2,
+        "call_names": [
+          "taskspace_control",
+          "apply_patch"
+        ],
+        "expected_call_names_match": true,
+        "control_json_valid": true,
+        "control_shape_valid": true,
+        "patch_json_valid": true,
+        "patch_exact": true,
+        "patch_bytes": 1471,
+        "patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70",
+        "control_arguments_bytes": 150,
+        "control_arguments_sha256": "bf188d1d60a3beff205edea717aa999899d7a593bf1a86c5a76b2c771e1d5ad3",
+        "patch_arguments_bytes": 1574,
+        "patch_arguments_sha256": "00e754483d1c361066895400c29a7cf50f6871dd7aa736a158a39dd5b2e3d242",
+        "usage": {
+          "input_tokens": 4056,
+          "cached_input_tokens": 3968,
+          "output_tokens": 861
+        }
+      }
+    },
+    {
+      "event_name": "r7.sibling_patch_sequence_observed",
+      "repeat": 4,
+      "transport": "non_streaming_chat_completions",
+      "request": {
+        "tools_sha256": "d4a846627837011bc7d186e7917400ee5e84cef1633b451d36228b1b6169a7eb",
+        "prompt_sha256": "6d9b147a6821089a374a01aafa366ae979d0fdebcabac67ac19bdb11a253f74d",
+        "expected_patch_bytes": 1471,
+        "expected_patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70"
+      },
+      "response": {
+        "http_status": 200,
+        "duration_ms": 4161,
+        "call_count": 2,
+        "call_names": [
+          "taskspace_control",
+          "apply_patch"
+        ],
+        "expected_call_names_match": true,
+        "control_json_valid": true,
+        "control_shape_valid": true,
+        "patch_json_valid": true,
+        "patch_exact": true,
+        "patch_bytes": 1471,
+        "patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70",
+        "control_arguments_bytes": 150,
+        "control_arguments_sha256": "bf188d1d60a3beff205edea717aa999899d7a593bf1a86c5a76b2c771e1d5ad3",
+        "patch_arguments_bytes": 1574,
+        "patch_arguments_sha256": "00e754483d1c361066895400c29a7cf50f6871dd7aa736a158a39dd5b2e3d242",
+        "usage": {
+          "input_tokens": 4056,
+          "cached_input_tokens": 3968,
+          "output_tokens": 669
+        }
+      }
+    },
+    {
+      "event_name": "r7.sibling_patch_sequence_observed",
+      "repeat": 5,
+      "transport": "non_streaming_chat_completions",
+      "request": {
+        "tools_sha256": "d4a846627837011bc7d186e7917400ee5e84cef1633b451d36228b1b6169a7eb",
+        "prompt_sha256": "6d9b147a6821089a374a01aafa366ae979d0fdebcabac67ac19bdb11a253f74d",
+        "expected_patch_bytes": 1471,
+        "expected_patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70"
+      },
+      "response": {
+        "http_status": 200,
+        "duration_ms": 3884,
+        "call_count": 2,
+        "call_names": [
+          "taskspace_control",
+          "apply_patch"
+        ],
+        "expected_call_names_match": true,
+        "control_json_valid": true,
+        "control_shape_valid": true,
+        "patch_json_valid": true,
+        "patch_exact": true,
+        "patch_bytes": 1471,
+        "patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70",
+        "control_arguments_bytes": 150,
+        "control_arguments_sha256": "bf188d1d60a3beff205edea717aa999899d7a593bf1a86c5a76b2c771e1d5ad3",
+        "patch_arguments_bytes": 1574,
+        "patch_arguments_sha256": "00e754483d1c361066895400c29a7cf50f6871dd7aa736a158a39dd5b2e3d242",
+        "usage": {
+          "input_tokens": 4056,
+          "cached_input_tokens": 3968,
+          "output_tokens": 632
+        }
+      }
+    },
+    {
+      "event_name": "r7.sibling_patch_sequence_observed",
+      "repeat": 6,
+      "transport": "non_streaming_chat_completions",
+      "request": {
+        "tools_sha256": "d4a846627837011bc7d186e7917400ee5e84cef1633b451d36228b1b6169a7eb",
+        "prompt_sha256": "6d9b147a6821089a374a01aafa366ae979d0fdebcabac67ac19bdb11a253f74d",
+        "expected_patch_bytes": 1471,
+        "expected_patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70"
+      },
+      "response": {
+        "http_status": 200,
+        "duration_ms": 4046,
+        "call_count": 2,
+        "call_names": [
+          "taskspace_control",
+          "apply_patch"
+        ],
+        "expected_call_names_match": true,
+        "control_json_valid": true,
+        "control_shape_valid": true,
+        "patch_json_valid": true,
+        "patch_exact": true,
+        "patch_bytes": 1471,
+        "patch_sha256": "d220e51806f3ca40bb2d5651f7a740845aa8a255bd81761d02eda2b37f9e6c70",
+        "control_arguments_bytes": 150,
+        "control_arguments_sha256": "bf188d1d60a3beff205edea717aa999899d7a593bf1a86c5a76b2c771e1d5ad3",
+        "patch_arguments_bytes": 1574,
+        "patch_arguments_sha256": "00e754483d1c361066895400c29a7cf50f6871dd7aa736a158a39dd5b2e3d242",
+        "usage": {
+          "input_tokens": 4056,
+          "cached_input_tokens": 3968,
+          "output_tokens": 677
+        }
+      }
+    }
+  ]
+}

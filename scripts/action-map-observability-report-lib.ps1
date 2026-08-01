@@ -74,6 +74,12 @@ function Write-ActionMapObservabilityReport {
     $md.Add("- artifact root: " + $Reduced.source.artifactRoot)
     $md.Add("- rollout parse errors: $($Reduced.source.rolloutReadStats.parseErrorCount)")
     $md.Add("- jsonl parse errors: $($Reduced.source.jsonlReadStats.parseErrorCount)")
+    if ($Reduced.source.PSObject.Properties.Name -contains "replay") {
+        $md.Add("- canonical Map Store: $($Reduced.source.mapStore.availability)")
+        $md.Add("- Map Store error code: $($Reduced.source.mapStore.error_code)")
+        $md.Add("- canonical Map SHA256: $($Reduced.source.mapStore.canonical_sha256)")
+        $md.Add("- store/map revision: $($Reduced.source.mapStore.store_revision) / $($Reduced.source.mapStore.map_revision)")
+    }
     $md.Add("")
     $md.Add("## Summary")
     $md.Add("")
@@ -168,10 +174,10 @@ function Write-ActionMapObservabilityReport {
     $md.Add("")
     $md.Add("## Sentinel Warnings")
     $md.Add("")
-    $md.Add("| Sentinel | Type | Severity | Status | Task | Map | Node | Result | Trace Events | Reason | Clearance | Cleared By | Clear Events |")
-    $md.Add("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    $md.Add("| Sentinel | Type | Severity | Status | Task | Map | Node | Result | Trace Events | Reason | Clear Action | Clearance Guidance | Cleared By | Clear Events |")
+    $md.Add("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     foreach ($warning in @(Get-ObjectArray $Reduced.sentinelWarnings)) {
-        $md.Add("| $(Format-MarkdownCell $warning.id) | $(Format-MarkdownCell $warning.sentinelType) | $(Format-MarkdownCell $warning.severity) | $(Format-MarkdownCell $warning.status) | $(Format-MarkdownCell $warning.taskId) | $(Format-MarkdownCell $warning.mapId) | $(Format-MarkdownCell $warning.nodeId) | $(Format-MarkdownCell $warning.resultId) | $(Join-MarkdownValues $warning.traceEventIds) | $(Format-MarkdownCell $warning.reason) | $(Format-MarkdownCell $warning.clearanceAction) | $(Format-MarkdownCell $warning.clearedBy) | $(Join-MarkdownValues $warning.clearEventIds) |")
+        $md.Add("| $(Format-MarkdownCell $warning.id) | $(Format-MarkdownCell $warning.sentinelType) | $(Format-MarkdownCell $warning.severity) | $(Format-MarkdownCell $warning.status) | $(Format-MarkdownCell $warning.taskId) | $(Format-MarkdownCell $warning.mapId) | $(Format-MarkdownCell $warning.nodeId) | $(Format-MarkdownCell $warning.resultId) | $(Join-MarkdownValues $warning.traceEventIds) | $(Format-MarkdownCell $warning.reason) | $(Format-MarkdownCell $warning.clearAction) | $(Format-MarkdownCell $warning.clearanceAction) | $(Format-MarkdownCell $warning.clearedBy) | $(Join-MarkdownValues $warning.clearEventIds) |")
     }
     $md.Add("")
     $md.Add("## Edges")
@@ -327,7 +333,7 @@ const resultRows = [];
   resultRows.push([r.resultId, n.id, r.validity, (ep.claims || []).map(c => c.id).join(', '), JSON.stringify(ep.evidenceRefs || []), (ep.validatorRefs || []).join(', '), ep.validityReason || '']);
 }));
 document.getElementById('resultEvidence').innerHTML = table(['Result','Node','Validity','Claims','Evidence Refs','Validators','Reason'], resultRows);
-document.getElementById('sentinels').innerHTML = table(['Sentinel','Type','Severity','Status','Task','Map','Node','Result','Trace Events','Reason','Clearance','Cleared By','Clear Events'], (data.sentinelWarnings || []).map(w => [w.id, w.sentinelType, w.severity, w.status, w.taskId, w.mapId, w.nodeId, w.resultId, (w.traceEventIds || []).join(', '), w.reason, w.clearanceAction, w.clearedBy, (w.clearEventIds || []).join(', ')]));
+document.getElementById('sentinels').innerHTML = table(['Sentinel','Type','Severity','Status','Task','Map','Node','Result','Trace Events','Reason','Clear Action','Clearance Guidance','Cleared By','Clear Events'], (data.sentinelWarnings || []).map(w => [w.id, w.sentinelType, w.severity, w.status, w.taskId, w.mapId, w.nodeId, w.resultId, (w.traceEventIds || []).join(', '), w.reason, w.clearAction, w.clearanceAction, w.clearedBy, (w.clearEventIds || []).join(', ')]));
 document.getElementById('finalArtifacts').innerHTML = table(['Artifact','Task','Path','Hash','Results','Contracts','Claims','Evidence','Validators','Sources','Sentinels'],
   (data.finalArtifacts || []).map(a => [a.finalArtifactId, a.taskId, a.finalArtifactPath, String(a.artifactHash || '').slice(0, 16), (a.resultIds || []).join(', '), (a.outputContractIds || []).join(', '), (a.claimIds || []).join(', '), (a.evidenceRefIds || []).join(', '), (a.validatorRefs || []).join(', '), (a.factSourceIds || []).join(', '), (a.sentinelIds || []).join(', ')]));
 document.getElementById('timeline').innerHTML = data.timeline.map(e => {

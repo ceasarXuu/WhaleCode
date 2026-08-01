@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/whale-agent-run-ledger-v1.schema.json",
+  "title": "Whale Agent Run Ledger V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "updated_at",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "whale-agent-run-ledger-v1"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_id",
+        "record_type",
+        "status",
+        "started_at",
+        "ended_at",
+        "elapsed_calendar_seconds",
+        "aggregate_agent_wall_time_ms",
+        "reason",
+        "authorization",
+        "execution",
+        "tokens",
+        "monetary_cost",
+        "evidence"
+      ],
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "record_type": {
+          "enum": [
+            "run_batch",
+            "historical_aggregate"
+          ]
+        },
+        "status": {
+          "enum": [
+            "planned",
+            "running",
+            "settled",
+            "failed",
+            "cancelled",
+            "unsettled"
+          ]
+        },
+        "started_at": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "ended_at": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "elapsed_calendar_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "aggregate_agent_wall_time_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authorization": {
+          "$ref": "#/$defs/authorization"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "tokens": {
+          "$ref": "#/$defs/tokens"
+        },
+        "monetary_cost": {
+          "$ref": "#/$defs/monetaryCost"
+        },
+        "evidence": {
+          "type": "object",
+          "minProperties": 1
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "status",
+        "reference",
+        "budget_summary",
+        "note"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "not_required",
+            "pending",
+            "granted",
+            "denied",
+            "not_obtained"
+          ]
+        },
+        "reference": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "budget_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "note": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "id": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model",
+        "batch_count",
+        "sample_ids",
+        "arm_ids",
+        "repeats_per_arm_per_sample",
+        "planned_sample_runs",
+        "actual_sample_runs",
+        "api_requests",
+        "api_requests_evidence_status"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "batch_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sample_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "arm_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "repeats_per_arm_per_sample": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "planned_sample_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_sample_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "api_requests": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "api_requests_minimum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "api_requests_evidence_status": {
+          "enum": [
+            "pending",
+            "complete",
+            "partial",
+            "unavailable"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "api_requests": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "api_requests_evidence_status": {
+              "enum": [
+                "pending",
+                "complete"
+              ]
+            }
+          },
+          "not": {
+            "required": [
+              "api_requests_minimum"
+            ]
+          }
+        },
+        {
+          "required": [
+            "api_requests_minimum"
+          ],
+          "properties": {
+            "api_requests": {
+              "type": "null"
+            },
+            "api_requests_evidence_status": {
+              "enum": [
+                "partial",
+                "unavailable"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input",
+        "cached_input",
+        "uncached_input",
+        "output"
+      ],
+      "properties": {
+        "input": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cached_input": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uncached_input": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "monetaryCost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "currency",
+        "amount",
+        "actual_billed_amount",
+        "components",
+        "pricing_snapshot",
+        "formula",
+        "note"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "planned",
+            "estimated",
+            "estimated_partial",
+            "actual",
+            "unavailable"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "actual_billed_amount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "components": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "pricing_snapshot": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "formula": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "note": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    }
+  }
+}

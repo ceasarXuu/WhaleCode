@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "artifact": "r4-tool-path-coverage",
+  "phase": "R4-A",
+  "updated": "2026-06-30",
+  "status": "active_baseline",
+  "benefit_gate": {
+    "claimed_engineering_benefit": "TaskSpace tool result paths are governed by a machine-readable coverage matrix instead of an informal document list.",
+    "baseline": "R4 static path inventory existed only in Markdown and could not fail a gate when a path was missing an owner, source anchor, priority, or follow-up phase.",
+    "pass_threshold": "unknown_or_unowned_path_count = 0; missing_source_anchor_count = 0; high_priority_without_owner_count = 0"
+  },
+  "allowed_statuses": [
+    "canonical",
+    "needs-fix",
+    "intentionally-excluded",
+    "out-of-scope"
+  ],
+  "paths": [
+    {
+      "id": "direct-tool-success-map-preview",
+      "class": "direct_tool_result",
+      "priority": "P1",
+      "status": "canonical",
+      "owner_phase": "R4-C",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "pattern": "tool_output_model_visible_preview"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "pattern": "record_taskspace_tool_result"
+        }
+      ],
+      "required_semantics": [
+        "call_id",
+        "tool_name",
+        "model_visible_preview",
+        "taskspace_node_id"
+      ],
+      "required_evidence": "Provider-visible preview and TaskSpace map preview are derived from the same response item."
+      ,
+      "coverage_test": "cargo test -j1 -p codex-core tool_output_model_visible_preview --lib"
+    },
+    {
+      "id": "direct-tool-error-map-preview",
+      "class": "direct_tool_error",
+      "priority": "P1",
+      "status": "canonical",
+      "owner_phase": "R4-C",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "pattern": "failure_response_for_error"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "pattern": "response_input_model_visible_preview"
+        }
+      ],
+      "required_semantics": [
+        "call_id",
+        "tool_name",
+        "failure_kind",
+        "stderr_or_error_text",
+        "model_visible_item_hash"
+      ],
+      "required_evidence": "Error feedback uses the same standard failure response item for provider-visible output and TaskSpace map preview."
+      ,
+      "coverage_test": "cargo test -j1 -p codex-core failure_response_preview --lib"
+    },
+    {
+      "id": "action-contract-internal-tool-error",
+      "class": "action_contract_internal_tool",
+      "priority": "P0",
+      "status": "canonical",
+      "owner_phase": "R4-D",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "response_input_for_taskspace_action_tool_error"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "TaskSpaceToolFeedbackV1"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "TaskSpaceEditFailureRecoveryV1"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "pattern": "taskspace_tool_result_preview_with_invocation"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "inspect_duplicate_successful_read_or_search"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "validation_failure_is_missing_command_script_error"
+        }
+      ],
+      "required_semantics": [
+        "synthetic_call_id",
+        "tool_name",
+        "failure_kind",
+        "target_path",
+        "stderr_or_error_text",
+        "changed_artifact_coverage",
+        "declared_fact_source_coverage",
+        "next_payload_visibility"
+      ],
+      "required_evidence": "Failed internal apply_patch/shell/test feedback appears in the next provider-visible payload, validation command and changed-artifact coverage failures are actionable, duplicate inspect reads cannot bypass declared fact-source coverage, and the R4-D count-call-stack rerun solved instead of no-patch/wrong."
+      ,
+      "coverage_test": "cargo test -j1 -p codex-core response_input_for_taskspace_action_tool_error --lib; cargo test -j1 -p codex-core taskspace_implementation_needs_edit_rejection_uses_specific_recovery --lib; cargo test -j1 -p codex-core action_contract_prompt_structures_changed_artifact_coverage_failure --lib; cargo test -j1 -p codex-core action_contract_prompt_structures_missing_validation_script_failure --lib; cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib"
+    },
+    {
+      "id": "action-contract-parse-policy-rejection",
+      "class": "action_contract_rejection",
+      "priority": "P1",
+      "status": "canonical",
+      "owner_phase": "R4-D",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "TaskSpaceActionV1 rejected"
+        }
+      ],
+      "required_semantics": [
+        "rejection_kind",
+        "invalid_action",
+        "allowed_actions",
+        "node_id",
+        "next_payload_visibility"
+      ],
+      "required_evidence": "Parse and policy rejections are structured enough for the next model turn to choose a valid action.",
+      "coverage_test": "cargo test -j1 -p codex-core taskspace_strict_json_apply_patch_intent_rejection_is_detected --lib; cargo test -j1 -p codex-core taskspace_implementation_needs_edit_rejection_uses_specific_recovery --lib"
+    },
+    {
+      "id": "provider-visible-history-projection",
+      "class": "history_projection",
+      "priority": "P0",
+      "status": "canonical",
+      "owner_phase": "R4-E",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "provider_visible_history_action"
+        }
+      ],
+      "required_semantics": [
+        "source_item_id",
+        "projection_action",
+        "projection_reason",
+        "pair_safe_group_id"
+      ],
+      "required_evidence": "Tool call/result pairs are kept, summarized, ref-backed, or omitted as a safe group.",
+      "coverage_test": "cargo test -j1 -p codex-core active_context_replacement_omits_paired --lib"
+    },
+    {
+      "id": "large-raw-tool-output-ref",
+      "class": "large_output",
+      "priority": "P1",
+      "status": "canonical",
+      "owner_phase": "R4-E",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "is_large_raw_tool_output"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+          "pattern": "sanitize_rollout_items_for_persistence"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+          "pattern": "sanitize_rollout_output_text_for_persistence"
+        }
+      ],
+      "required_semantics": [
+        "output_size",
+        "summary",
+        "retrievable_ref",
+        "projection_reason"
+      ],
+      "required_evidence": "Large stdout/stderr remains retrievable while payload and rollout growth are bounded; R4-E rerun reduced TaskSpace rollout from 490,846,386 bytes to 360,600 bytes with exact payload scan large_raw_output_tokens=0."
+      ,
+      "coverage_test": "powershell -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-metrics-extractor-large-rollout.ps1"
+    },
+    {
+      "id": "validation-closeout-tool-drain",
+      "class": "validation_closeout",
+      "priority": "P0",
+      "status": "canonical",
+      "owner_phase": "R4-D",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "forced_validation_closeout"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "validation_success_after_tool_drain"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "build_taskspace_forced_validation_closeout_recovery_item"
+        }
+      ],
+      "required_semantics": [
+        "validation_trigger",
+        "validator_exit_code",
+        "tool_success_vs_business_success",
+        "public_validation_result",
+        "next_payload_visibility"
+      ],
+      "required_evidence": "A diagnostic or shell tool success must not be converted into final validation success unless the public validator result is visible and passing.",
+      "coverage_test": "cargo test -j1 -p codex-core force_finish_validation_rejects --lib"
+    },
+    {
+      "id": "tool-runtime-bootstrap-failure",
+      "class": "tool_runtime_infra_failure",
+      "priority": "P0",
+      "status": "canonical",
+      "owner_phase": "R4-D",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/exec.rs",
+          "pattern": "has_sandbox_bootstrap_signature"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "tool_runtime_bootstrap_failure"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "TaskSpaceActionContractToolRuntimeBootstrapFailureV1"
+        }
+      ],
+      "required_semantics": [
+        "failure_kind",
+        "sandbox_bootstrap_signature",
+        "stderr_or_error_text",
+        "task_level_blocker",
+        "no_create_node_after_terminal_infra",
+        "next_payload_visibility"
+      ],
+      "required_evidence": "Sandbox/tool runtime bootstrap failures such as bwrap loopback RTM_NEWADDR denial are classified as terminal tool-runtime infrastructure blockers, recorded on the TaskSpace map, and narrow the next allowed action set to final_answer or blocked only.",
+      "coverage_test": "cargo test -j1 -p codex-core sandbox_detection_identifies_bwrap_loopback_bootstrap_failure --lib; cargo test -j1 -p codex-core bwrap_bootstrap_failure_auto_blocks_validation_as_local_infra --lib; cargo test -j1 -p codex-core tool_runtime_bootstrap_failure_blocks_inspect_node --lib; cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_failure_forbids_new_nodes --lib"
+    },
+    {
+      "id": "codemode-nested-tool-result",
+      "class": "nested_tool",
+      "priority": "P2",
+      "status": "canonical",
+      "owner_phase": "R4-F",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/code_mode/mod.rs",
+          "pattern": "ToolCallSource::CodeMode"
+        }
+      ],
+      "required_semantics": [
+        "parent_call_id",
+        "nested_tool_name",
+        "model_visible_feedback",
+        "attribution_reason"
+      ],
+      "required_evidence": "CodeMode nested tool feedback is intentionally not provider-visible as a direct model tool result, but it is returned to the CodeMode runtime with traceable parent attribution.",
+      "coverage_test": "cargo test -j1 -p codex-core dispatch_lifecycle_trace_records_direct_and_code_mode_requesters --lib; cargo test -j1 -p codex-core mcp_tool_output_code_mode_result_stays_raw_call_tool_result --lib"
+    },
+    {
+      "id": "multi-agent-tool-output-wrapper",
+      "class": "multi_agent_tool",
+      "priority": "P2",
+      "status": "canonical",
+      "owner_phase": "R4-F",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_common.rs",
+          "pattern": "tool_output_response_item"
+        }
+      ],
+      "required_semantics": [
+        "agent_id",
+        "tool_name",
+        "success",
+        "error_or_result_summary",
+        "attribution_reason"
+      ],
+      "required_evidence": "Multi-agent control outputs and agent result/error outputs are converted through the shared FunctionToolOutput response item path or the CodeMode structured-result path without losing agent/status/message fields.",
+      "coverage_test": "cargo test -j1 -p codex-core multi_agent_tool_output --lib"
+    },
+    {
+      "id": "mcp-tool-output-response-item",
+      "class": "mcp_tool",
+      "priority": "P2",
+      "status": "canonical",
+      "owner_phase": "R4-F",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/context_tests.rs",
+          "pattern": "mcp_tool_output_response_item_includes_wall_time"
+        }
+      ],
+      "required_semantics": [
+        "tool_name",
+        "structured_content",
+        "wall_time",
+        "large_content_truncation_or_ref"
+      ],
+      "required_evidence": "MCP outputs keep structured content, wall time, truncation behavior, and CodeMode raw result semantics through ToolOutput conversion.",
+      "coverage_test": "cargo test -j1 -p codex-core mcp_tool_output_response_item --lib; cargo test -j1 -p codex-core mcp_code_mode_result_serializes_full_call_tool_result --lib"
+    }
+  ]
+}

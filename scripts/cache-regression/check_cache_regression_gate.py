@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""Block cache-sensitive changes without a matching verified surface."""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+from pathlib import Path
+
+from accepted_cache_baseline import validate_accepted_baseline
+from cache_surface import (
+    changed_paths_match_worktree,
+    control_plane_change_summary,
+    load_contract_from_source,
+    release_relevant_changes,
+    source_matches_worktree,
+    semantic_baseline_changes,
+    sensitive_changes,
+    surface_snapshot,
+    validation_input_mismatches,
+    write_json,
+)
+from free_cache_contracts import run_free_validation, validate_free_validation
+
+
+def classify_free_validation(validation: dict | None, required: bool) -> str:
+    if not required:
+        return "not_run"
+    if validation is None:
+        return "unavailable"
+    reports = [
+        command["change_report"]
+        for command in validation["commands"]
+        if command.get("change_report") is not None
+    ]
+    if any(report["status"] == "uncomparable" for report in reports):
+        return "uncomparable"
+    if any(report["status"] == "changed" for report in reports):
+        return "changed"
+    if not validation["passed"]:
+        return "validation_failed"
+    return "unchanged"
+
+
+def print_free_validation_failure(validation: dict) -> None:
+    for command in validation["commands"]:
+        if command["status"] == "pass":
+            continue
+        report = command.get("change_report")
+        print(
+            f"- {command['id']}: {command['status']} "
+            f"(exit={command['exit_code']}, timeout={command['timed_out']})"
+        )
+        if report is None:
+            for line in command["output_tail"]:
+                print(f"  {line}")
+            continue
+        print(
+            f"  change_report={report['status']} scenarios={report['scenario_count']} "
+            f"changed={report['changed_scenario_count']} "
+            f"uncomparable={report['uncomparable_scenario_count']}"
+        )
+        for scenario in report["scenarios"]:
+            if scenario["status"] == "unchanged":
+                continue
+            print(
+                "  - "
+                f"{scenario['scenario_id']}: {scenario['status']} "
+                f"path={scenario['first_difference']} "
+                f"before={scenario['before_payload_sha256']} "
+                f"after={scenario['after_payload_sha256']}"
+            )
+
+
+def is_promotion_transition(
+    *,
+    baseline_changed: bool,
+    semantic_baselines: list[str],
+    accepted_validation: dict,
+    policy_changes: list[str],
+    sensitive_changes: list[dict],
+) -> bool:
+    return bool(
+        baseline_changed
+        and accepted_validation.get("valid")
+        and semantic_baselines == accepted_validation.get("accepted_scenario_paths", [])
+        and not policy_changes
+        and not sensitive_changes
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--contract",
+        type=Path,
+        default=Path("benchmarks/cache-regression/cache-surface-contract.json"),
+    )
+    parser.add_argument(
+        "--source", choices=["index", "head", "worktree"], default="index"
+    )
+    parser.add_argument("--require-live-baseline", action="store_true")
+    parser.add_argument("--require-clean-subject", action="store_true")
+    parser.add_argument("--request-revalidation", action="store_true")
+    parser.add_argument("--json-output", type=Path)
+    args = parser.parse_args()
+
+    repo = args.repo_root.resolve()
+    if args.require_clean_subject and args.source != "head":
+        parser.error("--require-clean-subject requires --source head")
+    if args.request_revalidation and not (
+        args.source == "head"
+        and args.require_live_baseline
+        and args.require_clean_subject
+    ):
+        parser.error(
+            "--request-revalidation requires --source head, "
+            "--require-live-baseline, and --require-clean-subject"
+        )
+    contract_path = args.contract
+    if not contract_path.is_absolute():
+        contract_path = repo / contract_path
+    contract = load_contract_from_source(repo, contract_path, args.source)
+    free_validation_config = contract.get("free_validation")
+    if free_validation_config is not None:
+        validate_free_validation(free_validation_config)
+    contract_matches_worktree = args.source != "index" or source_matches_worktree(
+        repo, contract_path, args.source
+    )
+    actual_hash, entries = surface_snapshot(repo, contract, args.source)
+    expected_hash = contract["baseline"]["surface_sha256"]
+    changes = sensitive_changes(repo, contract, args.source)
+    semantic_baselines = semantic_baseline_changes(repo, contract, args.source)
+    control_plane = control_plane_change_summary(
+        repo, contract_path, args.source, contract
+    )
+    policy_changes = control_plane["policy_changes"]
+    baseline_changed = control_plane["baseline_changed"]
+    policy_baseline_conflict = bool(policy_changes) and baseline_changed
+    policy_product_conflict = bool(policy_changes) and bool(changes)
+    baseline_product_conflict = bool(changes) and (
+        baseline_changed or bool(semantic_baselines)
+    )
+    policy_only_surface_transition = (
+        control_plane["contract_policy_changed"]
+        and not baseline_changed
+        and not changes
+        and not args.require_live_baseline
+    )
+    release_changes = (
+        release_relevant_changes(repo, contract_path, contract)
+        if args.require_clean_subject
+        else []
+    )
+    subject_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    baseline_status = contract["baseline"]["status"]
+    accepted_validation = {"valid": False, "reason": "baseline status is not accepted"}
+    if baseline_status == "accepted":
+        try:
+            accepted_validation = validate_accepted_baseline(
+                repo, contract, args.source, actual_hash
+            )
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            accepted_validation = {"valid": False, "reason": str(error)}
+    accepted_baseline_valid = accepted_validation["valid"]
+    promotion_transition = is_promotion_transition(
+        baseline_changed=baseline_changed,
+        semantic_baselines=semantic_baselines,
+        accepted_validation=accepted_validation,
+        policy_changes=policy_changes,
+        sensitive_changes=changes,
+    )
+    relevant_source_paths = sorted(
+        {change["path"] for change in changes}.union(semantic_baselines).union(
+            accepted_validation.get("evidence_paths", [])
+        )
+    )
+    relevant_source_matches_worktree = changed_paths_match_worktree(
+        repo, relevant_source_paths, args.source
+    )
+    validation_mismatches = validation_input_mismatches(repo, contract, args.source)
+    free_validation_required = bool(free_validation_config) and (
+        bool(changes)
+        or args.request_revalidation
+        or bool(
+            args.require_live_baseline
+            and free_validation_config.get("run_on_release", False)
+        )
+    )
+    free_validation = None
+    can_run_free_validation = (
+        free_validation_required
+        and contract_matches_worktree
+        and relevant_source_matches_worktree
+        and not validation_mismatches
+        and not policy_baseline_conflict
+        and not policy_product_conflict
+        and not baseline_product_conflict
+        and (not semantic_baselines or promotion_transition)
+    )
+    if can_run_free_validation:
+        free_validation = run_free_validation(repo, free_validation_config)
+    free_validation_passed = not free_validation_required or (
+        free_validation is not None and free_validation["passed"]
+    )
+    discovery_state = classify_free_validation(
+        free_validation, free_validation_required
+    )
+    candidate_transition = bool(
+        args.source == "index"
+        and not args.require_live_baseline
+        and changes
+        and discovery_state == "changed"
+        and not policy_changes
+        and not baseline_changed
+        and not semantic_baselines
+    )
+    revalidation_requested = bool(
+        args.request_revalidation
+        and baseline_status == "live_regression_failed"
+        and discovery_state == "unchanged"
+        and not release_changes
+    )
+    semantic_gate_passed = (
+        free_validation_passed or candidate_transition
+        if free_validation_config is not None
+        else actual_hash == expected_hash or policy_only_surface_transition
+    )
+    passed = (
+        contract_matches_worktree
+        and relevant_source_matches_worktree
+        and not validation_mismatches
+        and not release_changes
+        and not policy_baseline_conflict
+        and not policy_product_conflict
+        and not baseline_product_conflict
+        and (not baseline_changed or promotion_transition)
+        and (not semantic_baselines or promotion_transition)
+        and semantic_gate_passed
+        and (accepted_baseline_valid or not args.require_live_baseline)
+    )
+    result = {
+        "schema_version": "whalecode-cache-regression-gate-v1",
+        "status": "pass" if passed else "blocked",
+        "source": args.source,
+        "subject_commit": subject_commit,
+        "actual_surface_sha256": actual_hash,
+        "expected_surface_sha256": expected_hash,
+        "baseline_status": baseline_status,
+        "accepted_baseline_validation": accepted_validation,
+        "promotion_transition": promotion_transition,
+        "require_live_baseline": args.require_live_baseline,
+        "contract_matches_worktree": contract_matches_worktree,
+        "policy_changes": policy_changes,
+        "baseline_changed": baseline_changed,
+        "policy_baseline_conflict": policy_baseline_conflict,
+        "policy_product_conflict": policy_product_conflict,
+        "semantic_baseline_changes": semantic_baselines,
+        "baseline_product_conflict": baseline_product_conflict,
+        "relevant_source_matches_worktree": relevant_source_matches_worktree,
+        "validation_input_mismatches": validation_mismatches,
+        "free_validation_required": free_validation_required,
+        "discovery_state": (
+            "revalidation_requested" if revalidation_requested else discovery_state
+        ),
+        "candidate_transition": candidate_transition,
+        "revalidation_requested": revalidation_requested,
+        "free_validation": free_validation,
+        "require_clean_subject": args.require_clean_subject,
+        "release_relevant_changes": release_changes,
+        "surface_file_count": len(entries),
+        "sensitive_changes": changes,
+    }
+    if args.json_output:
+        output = args.json_output
+        if not output.is_absolute():
+            output = repo / output
+        write_json(output, result)
+
+    if passed:
+        if candidate_transition:
+            suffix = "（已发现可比较的候选变更；发布继续阻断）"
+        elif policy_changes:
+            suffix = "（待验证政策变更；发布保持阻断）"
+        elif baseline_status == "structural_bootstrap":
+            suffix = "（尚待首次真实缓存基线）"
+        elif baseline_status == "live_regression_failed":
+            suffix = "（当前指纹未变；最近一次 live 回归失败）"
+        else:
+            suffix = ""
+        if free_validation_required:
+            suffix = f"（免费 final-wire 验证通过）{suffix}"
+        print(f"cache regression gate: PASS {actual_hash}{suffix}")
+        return 0
+
+    print("cache regression gate: BLOCKED")
+    print(f"expected surface: {expected_hash}")
+    print(f"actual surface:   {actual_hash}")
+    if not contract_matches_worktree:
+        print("- 暂存合同与工作区合同不一致；请完整暂存或还原合同后重试。")
+    if not relevant_source_matches_worktree:
+        print("- 缓存相关暂存源码与工作区不一致；免费验证无法证明即将提交的内容。")
+    if validation_mismatches:
+        print("- 免费合同输入存在未暂存或未跟踪差异，不能代表 index：")
+        for path in validation_mismatches:
+            print(f"  - {path}")
+    if policy_baseline_conflict:
+        print("- 门禁政策与基线不能在同一提交中变更。")
+    if policy_product_conflict:
+        print("- 门禁政策变更必须与缓存敏感产品变更分开提交。")
+    if baseline_product_conflict:
+        print("- final-wire 基准与缓存敏感产品代码不能在同一提交中变更。")
+    if semantic_baselines:
+        print("- final-wire 基准只能通过独立的证据晋升流程更新：")
+        for path in semantic_baselines:
+            print(f"  - {path}")
+    if policy_changes:
+        print("门禁政策变更：")
+        for path in policy_changes:
+            print(f"- {path}")
+    if release_changes:
+        print("- release 受检 HEAD 与当前相关工作区不一致：")
+        for change in release_changes:
+            print(f"  - {change['path']} ({change['state']})")
+    if not accepted_baseline_valid:
+        print(
+            f"- 当前基线状态为 {baseline_status}，尚未形成有效的 accepted 基线："
+            f"{accepted_validation['reason']}"
+        )
+    if args.request_revalidation and not revalidation_requested:
+        print(
+            "- 当前状态不满足显式复验条件；必须是干净 HEAD 上的失败基线且免费合同无变化。"
+        )
+    if changes:
+        print("可能影响缓存命中的变更：")
+        for change in changes:
+            reasons = "；".join(rule["reason"] for rule in change["rules"])
+            print(f"- {change['path']}: {reasons}")
+    elif free_validation_config is None and actual_hash != expected_hash:
+        print("- 当前缓存敏感面与已验证基线不一致；差异可能来自此前未验证提交。")
+    if (
+        free_validation_required
+        and free_validation is not None
+        and not free_validation["passed"]
+    ):
+        print("免费 final-wire 验证失败：")
+        print_free_validation_failure(free_validation)
+        print(
+            "下一步：定位首个 final-wire 差异；确认是有意变更后再申请最小真实回归预算。"
+        )
+    elif semantic_baselines or baseline_product_conflict:
+        print("下一步：保留旧基准，先完成独立真实证据验证，再由晋升流程更新基准。")
+    elif free_validation_config is None and actual_hash != expected_hash:
+        print(
+            "下一步：说明变更为何会影响 provider 前缀，并向用户申请 2 个 sample run 预算。"
+        )
+    else:
+        print("下一步：修复上述门禁条件；不要通过修改基准掩盖失败。")
+    return 20
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

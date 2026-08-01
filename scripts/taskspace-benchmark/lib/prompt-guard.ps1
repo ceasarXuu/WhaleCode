@@ -8,7 +8,6 @@ function Invoke-TaskspacePromptGuard {
         "(?i)\btaskspace\b",
         "(?i)/taskspace\b",
         "(?i)/task-show\b",
-        "(?i)/task-reborn\b",
         "(?i)action\s+map",
         "(?i)\bspawn_agent\b",
         "(?i)\bspawn\s+subagents?\b",

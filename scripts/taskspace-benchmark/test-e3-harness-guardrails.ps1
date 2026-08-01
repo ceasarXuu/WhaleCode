@@ -282,6 +282,59 @@ Assert-True ([int]$suiteChildHealth.remaining_samples_skipped -eq 1 -and [int]$s
 Assert-True ([string]$suiteChildSkipped.phase -eq "skipped" -and [string]$suiteChildSkipped.abort_signature -eq "harness_materialization_failure/stub_score_invalid") "suite child invalid fixture did not skip second sample with first invalid signature"
 Assert-True ($suiteChildInvalidEvents.Count -eq 1 -and [int]$suiteChildInvalidEvents[0].remaining_samples_skipped -eq 1) "suite child invalid fixture did not emit score invalidated event"
 
+$suitePendingAuditRoot = Join-Path $runDir "suite-pending-audit"
+$suitePendingAuditTaskA = Join-Path $suitePendingAuditRoot "task-a"
+$suitePendingAuditTaskB = Join-Path $suitePendingAuditRoot "task-b"
+$suitePendingAuditRunner = Join-Path $suitePendingAuditRoot "stub-runner.ps1"
+New-Item -ItemType Directory -Force -Path $suitePendingAuditTaskA, $suitePendingAuditTaskB | Out-Null
+$suitePendingAuditTaskList = Join-Path $suitePendingAuditRoot "tasks.jsonl"
+@(
+    ([pscustomobject]@{ sample_id = "sample-a"; task_dir = $suitePendingAuditTaskA; source_version = "selftest" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "sample-b"; task_dir = $suitePendingAuditTaskB; source_version = "selftest" } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $suitePendingAuditTaskList -Encoding UTF8
+@'
+param(
+    [string]$Benchmark,
+    [string]$TaskDir,
+    [string]$SampleId,
+    [string]$SourceVersion,
+    [int]$Repeats,
+    [string]$RunRoot,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
+)
+$ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
+[pscustomobject]@{
+    schema_version = 1
+    sample_id = $SampleId
+    phase = "audit_required"
+    run_validity = "valid"
+    exit_code = 0
+    attempted_pairs = $Repeats
+    completed_pairs = $Repeats
+    sample_root = $RunRoot
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+[pscustomobject]@{
+    aggregate_version = "selftest"
+    run_validity = "valid"
+    score_ready = $false
+    score_valid = $false
+    score_block_reason = "audit_required"
+    score_invalid_reason = ""
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "aggregate.json") -Encoding UTF8
+exit 0
+'@ | Set-Content -LiteralPath $suitePendingAuditRunner -Encoding UTF8
+$suitePendingAuditOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $suitePendingAuditTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $suitePendingAuditRoot "runs") -RunnerPath $suitePendingAuditRunner -PlanOnly -ScoringMode -SkipStartGate 2>&1
+Assert-True ($LASTEXITCODE -eq 0) "suite pending-audit fixture should complete without invalid_harness: $($suitePendingAuditOutput -join ' | ')"
+$suitePendingAuditRootLine = @($suitePendingAuditOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+$suitePendingAuditRunRoot = ([string]$suitePendingAuditRootLine) -replace "^SuiteRoot:\s*", ""
+$suitePendingAuditHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suitePendingAuditRunRoot "suite-health.json") | ConvertFrom-Json
+$suitePendingAuditEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $suitePendingAuditRunRoot "events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json })
+$suitePendingAuditMarkers = @($suitePendingAuditEvents | Where-Object { [string]$_.event -eq "suite_score_pending_audit" })
+Assert-True ([string]$suitePendingAuditHealth.status -eq "audit_required" -and -not [bool]$suitePendingAuditHealth.suite_score_valid -and -not [bool]$suitePendingAuditHealth.suite_score_ready) "suite pending-audit fixture did not finalize as audit_required"
+Assert-True ([int]$suitePendingAuditHealth.remaining_samples_skipped -eq 0 -and [int]$suitePendingAuditHealth.score_invalid_child_runs -eq 0 -and [int]$suitePendingAuditHealth.score_pending_audit_child_runs -eq 2) "suite pending-audit fixture miscounted child states"
+Assert-True ($suitePendingAuditMarkers.Count -eq 2) "suite pending-audit fixture did not emit pending-audit events"
+
 $suiteDefaultScoringRoot = Join-Path $runDir "suite-default-scoring"
 $suiteDefaultTaskA = Join-Path $suiteDefaultScoringRoot "task-a"
 $suiteDefaultTaskB = Join-Path $suiteDefaultScoringRoot "task-b"
@@ -334,13 +387,8 @@ if ($scoringEnabled) {
 exit 0
 '@ | Set-Content -LiteralPath $suiteDefaultRunner -Encoding UTF8
 $suiteDefaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $suiteDefaultTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $suiteDefaultScoringRoot "runs") -RunnerPath $suiteDefaultRunner -SkipStartGate 2>&1
-Assert-True ($LASTEXITCODE -eq 3) "suite did not enforce scoring mode by default"
-$suiteDefaultRootLine = @($suiteDefaultOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
-$suiteDefaultRunRoot = ([string]$suiteDefaultRootLine) -replace "^SuiteRoot:\s*", ""
-$suiteDefaultHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteDefaultRunRoot "suite-health.json") | ConvertFrom-Json
-$suiteDefaultSkipped = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteDefaultRunRoot "samples\sample-b\sample-status.json") | ConvertFrom-Json
-Assert-True ([string]$suiteDefaultHealth.status -eq "invalid_harness" -and -not [bool]$suiteDefaultHealth.suite_score_valid) "suite default scoring did not invalidate suite health"
-Assert-True ([string]$suiteDefaultSkipped.phase -eq "skipped" -and [string]$suiteDefaultSkipped.abort_signature -eq "harness_materialization_failure/default_scoring") "suite default scoring did not skip remaining sample"
+Assert-True ($LASTEXITCODE -eq 4) "suite did not reject SkipStartGate when score validity is enforced"
+Assert-True (@($suiteDefaultOutput | Where-Object { [string]$_ -match "SkipStartGate is not allowed when score validity is enforced" }).Count -eq 1) "suite did not render SkipStartGate scoring-mode guardrail"
 
 $parallelSuiteRoot = Join-Path $runDir "suite-parallel"
 $parallelTaskList = Join-Path $parallelSuiteRoot "tasks.jsonl"
@@ -514,11 +562,11 @@ $pairEnd = $pairStart.AddSeconds(10)
 $timingMetrics = @{
     left = [pscustomobject]@{
         logical_mode = "standard"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 700; docker_cache_lock_wait_ms = 3
+        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; process_launch_wait_ms = 11; model_request_duration_ms = 700; model_queue_wait_ms = 3; model_retry_backoff_ms = 0; docker_cache_lock_wait_ms = 3
     }
     right = [pscustomobject]@{
         logical_mode = "taskspace"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 300; docker_cache_lock_wait_ms = 7
+        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; process_launch_wait_ms = 9; model_request_duration_ms = 300; model_queue_wait_ms = 7; model_retry_backoff_ms = 0; docker_cache_lock_wait_ms = 7
     }
 }
 $timingValidation = @{
@@ -533,6 +581,9 @@ Assert-True ([string]$pairTiming.timing_breakdown.largest_span.name -eq "agent")
 Assert-True ([string]$pairTiming.timing_breakdown.top_spans[0].name -eq "agent") "pair timing did not render sorted top spans"
 Assert-True (@($pairTiming.docker_cache_keys).Count -eq 1 -and [string]$pairTiming.docker_cache_keys[0] -eq "cache-a") "pair timing did not record unique Docker cache key"
 Assert-True ([int64]$pairTiming.model_request_duration_ms -eq 1000 -and @($pairTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "pair timing did not aggregate observed model request duration"
+Assert-True ([int64]$pairTiming.model_queue_wait_ms -eq 10 -and @($pairTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_queue_wait_ms" }).Count -eq 0) "pair timing did not aggregate observed model queue wait"
+Assert-True ([int64]$pairTiming.model_retry_backoff_ms -eq 0 -and @($pairTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_retry_backoff_ms" }).Count -eq 0) "pair timing did not aggregate observed model retry backoff"
+Assert-True ([int64]$pairTiming.process_launch_wait_ms -eq 20 -and @($pairTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "process_launch_wait_ms" }).Count -eq 0) "pair timing did not aggregate observed process launch wait"
 Assert-True ([int64]$pairTiming.cache_lock_wait_ms -eq 10 -and [int64]$pairTiming.resource_wait_ms_total -eq 10 -and [string]$pairTiming.resource_wait_attribution_mode -eq "serial_with_cache_lock_observed") "pair timing did not aggregate observed cache lock wait"
 
 $unclean = Get-TaskspaceTimingBottleneck 10000 1000 1000 0 0 0 0 @("docker_run_failure")
@@ -557,6 +608,9 @@ Assert-True ([int]$sampleTiming.bottleneck_counts.docker_build_bound -eq 1) "sam
 Assert-True ([int64]$sampleTiming.phase_distributions.total.median_ms -eq 10000 -and [int64]$sampleTiming.phase_distributions.total.p95_ms -eq 20000) "sample timing did not compute deterministic median/p95"
 Assert-True ([int]$sampleTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$sampleTiming.repeated_docker_cache_keys[0] -eq "cache-a") "sample timing did not detect repeated Docker cache key"
 Assert-True ([int64]$sampleTiming.model_request_duration_ms -eq 2000 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "sample timing did not aggregate observed model request duration"
+Assert-True ([int64]$sampleTiming.model_queue_wait_ms -eq 20 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_queue_wait_ms" }).Count -eq 0) "sample timing did not aggregate observed model queue wait"
+Assert-True ([int64]$sampleTiming.model_retry_backoff_ms -eq 0 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_retry_backoff_ms" }).Count -eq 0) "sample timing did not aggregate observed model retry backoff"
+Assert-True ([int64]$sampleTiming.process_launch_wait_ms -eq 40 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "process_launch_wait_ms" }).Count -eq 0) "sample timing did not aggregate observed process launch wait"
 Assert-True ([int64]$sampleTiming.resource_wait_ms_total -eq 20 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "resource_wait_ms_total" }).Count -eq 0) "sample timing did not aggregate observed cache lock wait"
 
 $suiteRoot = Join-Path $runDir "timing-suite"
@@ -570,39 +624,42 @@ Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suit
 Assert-True ([string]$suiteTiming.task_list_hash -eq "task-list-a" -and [string]$suiteTiming.source_version -eq "source-a" -and [string]$suiteTiming.profile_hash -eq "profile-a") "suite timing did not preserve identity fields"
 Assert-True ([int]$suiteTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$suiteTiming.repeated_docker_cache_keys[0] -eq "cache-a") "suite timing did not aggregate repeated Docker cache keys"
 Assert-True ([int64]$suiteTiming.model_request_duration_ms -eq 2000 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "suite timing did not aggregate observed model request duration"
+Assert-True ([int64]$suiteTiming.model_queue_wait_ms -eq 20 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_queue_wait_ms" }).Count -eq 0) "suite timing did not aggregate observed model queue wait"
+Assert-True ([int64]$suiteTiming.model_retry_backoff_ms -eq 0 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_retry_backoff_ms" }).Count -eq 0) "suite timing did not aggregate observed model retry backoff"
+Assert-True ([int64]$suiteTiming.process_launch_wait_ms -eq 40 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "process_launch_wait_ms" }).Count -eq 0) "suite timing did not aggregate observed process launch wait"
 Assert-True ([int64]$suiteTiming.resource_wait_ms_total -eq 20 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "resource_wait_ms_total" }).Count -eq 0) "suite timing did not aggregate observed cache lock wait"
 $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath (Join-Path $suiteRoot "suite-timing.json") -ScoreValid $true
 $runtimeBottleneckText = Get-Content -Raw -Encoding UTF8 -LiteralPath $runtimeBottleneckPath
 $runtimeBottleneckJson = Get-Content -Raw -Encoding UTF8 -LiteralPath ([System.IO.Path]::ChangeExtension($runtimeBottleneckPath, ".json")) | ConvertFrom-Json
-Assert-True ($runtimeBottleneckText -match "speedup_decision: speedup_blocked_instrumentation") "runtime bottleneck report did not block speedup when wait attribution is missing"
-Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: .*model_queue_wait_ms") "runtime bottleneck report treated unavailable model queue attribution as missing"
-Assert-True ($runtimeBottleneckText -match "wait_attribution_unavailable_fields: .*model_queue_wait_ms=whale_jsonl_provider_queue_retry_telemetry_unavailable") "runtime bottleneck report did not render unavailable wait attribution fields"
+Assert-True ($runtimeBottleneckText -match "speedup_decision: speedup_candidate_parallelism") "runtime bottleneck report did not allow speedup candidate when wait attribution is complete"
+Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: .*model_queue_wait_ms") "runtime bottleneck report treated observed model queue attribution as missing"
+Assert-True ($runtimeBottleneckText -match "wait_attribution_unavailable_fields: none") "runtime bottleneck report did not render empty unavailable wait attribution fields"
 Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: .*resource_wait_ms_total") "runtime bottleneck report treated serial resource wait as missing"
-Assert-True ([string]$runtimeBottleneckJson.speedup_decision -eq "speedup_blocked_instrumentation") "runtime bottleneck JSON did not record speedup decision"
-Assert-True (-not [bool]$runtimeBottleneckJson.speedup_evidence_valid -and $runtimeBottleneckText -match "speedup_evidence_valid: False") "runtime bottleneck report did not block speedup evidence validity"
+Assert-True ([string]$runtimeBottleneckJson.speedup_decision -eq "speedup_candidate_parallelism") "runtime bottleneck JSON did not record speedup decision"
+Assert-True ([bool]$runtimeBottleneckJson.speedup_evidence_valid -and $runtimeBottleneckText -match "speedup_evidence_valid: True") "runtime bottleneck report did not allow speedup evidence validity"
 Assert-True ([string]$runtimeBottleneckJson.resource_wait_attribution_mode -eq "serial_with_cache_lock_observed") "runtime bottleneck JSON did not record observed cache lock attribution mode"
-Assert-True ([string]$runtimeBottleneckJson.wait_attribution_unavailable_fields.model_retry_backoff_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "runtime bottleneck JSON did not record unavailable retry attribution reason"
+Assert-True (@($runtimeBottleneckJson.wait_attribution_unavailable_fields.PSObject.Properties).Count -eq 0) "runtime bottleneck JSON recorded unavailable wait attribution despite complete timing"
 $calibrationParallelismPath = Write-TaskspaceParallelismArtifact $suiteRoot (New-TaskspaceResourceGovernorConfig) $null (Test-TaskspaceDiskReservation @($suiteRoot) 0) (New-TaskspaceResourceWaitSnapshot)
 $calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath (Join-Path $suiteRoot "suite-timing.json") -ScoreValid $true -CommandLine "synthetic calibration" -GitCommit "test-commit" -ProfileHash "test-profile" -ParallelismPath $calibrationParallelismPath
 $calibrationText = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibrationPath
 $calibrationJson = Get-Content -Raw -Encoding UTF8 -LiteralPath ([System.IO.Path]::ChangeExtension($calibrationPath, ".json")) | ConvertFrom-Json
-Assert-True ($calibrationText -match "# TaskSpace Runtime Calibration Report" -and $calibrationText -match "speedup_decision: speedup_blocked_instrumentation") "runtime calibration report did not render speedup decision"
-Assert-True (-not [bool]$calibrationJson.speedup_evidence_valid -and $calibrationText -match "speedup_evidence_valid: False") "runtime calibration report did not render blocked speedup evidence validity"
+Assert-True ($calibrationText -match "# TaskSpace Runtime Calibration Report" -and $calibrationText -match "speedup_decision: speedup_candidate_parallelism") "runtime calibration report did not render speedup decision"
+Assert-True ([bool]$calibrationJson.speedup_evidence_valid -and $calibrationText -match "speedup_evidence_valid: True") "runtime calibration report did not render speedup evidence validity"
 Assert-True ($calibrationText -match "resource_governor_status: pass" -and $calibrationText -match "profile_hash: test-profile") "runtime calibration report did not render parallelism/profile metadata"
-Assert-True ([string]$calibrationJson.speedup_decision -eq "speedup_blocked_instrumentation" -and [string]$calibrationJson.parallelism.resource_governor_status -eq "pass") "runtime calibration JSON did not preserve decision and parallelism status"
+Assert-True ([string]$calibrationJson.speedup_decision -eq "speedup_candidate_parallelism" -and [string]$calibrationJson.parallelism.resource_governor_status -eq "pass") "runtime calibration JSON did not preserve decision and parallelism status"
 
 $timingAggregatePath = Join-Path $suiteRoot "aggregate-report.md"
 Write-TaskspaceAggregateReport -Path $timingAggregatePath -Reports @([pscustomobject]@{ repeat = 1; pair_dir = $pairTimingDir; pair_report = "pair-report.md"; evidence_target = "E3"; evidence = $evidence })
 $timingAggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoot "aggregate.json") | ConvertFrom-Json
 $timingAggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingAggregatePath
 Assert-True ([string]$timingAggregate.timing_summary.bottleneck_classification -eq "mixed_or_unclassified") "aggregate JSON did not include suite timing bottleneck"
-Assert-True ([string]$timingAggregate.timing_summary.speedup_decision -eq "speedup_blocked_instrumentation") "aggregate JSON did not include runtime speedup decision"
-Assert-True (-not [bool]$timingAggregate.timing_summary.speedup_evidence_valid) "aggregate JSON did not include blocked speedup evidence validity"
-Assert-True ([string]$timingAggregate.timing_summary.wait_attribution_unavailable_fields.model_queue_wait_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "aggregate JSON did not include unavailable wait attribution reason"
+Assert-True ([string]$timingAggregate.timing_summary.speedup_decision -eq "speedup_candidate_parallelism") "aggregate JSON did not include runtime speedup decision"
+Assert-True ([bool]$timingAggregate.timing_summary.speedup_evidence_valid) "aggregate JSON did not include speedup evidence validity"
+Assert-True (@($timingAggregate.timing_summary.wait_attribution_unavailable_fields.PSObject.Properties).Count -eq 0) "aggregate JSON recorded unavailable wait attribution despite complete timing"
 Assert-True ($timingAggregateText -match "## Timing Summary" -and $timingAggregateText -match "top_span:" -and $timingAggregateText -match "total_median_ms") "aggregate report did not render timing summary"
-Assert-True ($timingAggregateText -match "speedup_decision: speedup_blocked_instrumentation") "aggregate report did not render speedup decision"
-Assert-True ($timingAggregateText -match "speedup_evidence_valid: False") "aggregate report did not render speedup evidence validity"
-Assert-True ($timingAggregateText -match "wait_attribution_unavailable_fields: .*model_queue_wait_ms=whale_jsonl_provider_queue_retry_telemetry_unavailable") "aggregate report did not render unavailable wait attribution reason"
+Assert-True ($timingAggregateText -match "speedup_decision: speedup_candidate_parallelism") "aggregate report did not render speedup decision"
+Assert-True ($timingAggregateText -match "speedup_evidence_valid: True") "aggregate report did not render speedup evidence validity"
+Assert-True ($timingAggregateText -match "wait_attribution_unavailable_fields: none") "aggregate report did not render empty unavailable wait attribution reason"
 Assert-True ($timingAggregateText -match "repeated_docker_cache_keys: cache-a") "aggregate report did not render repeated Docker cache keys"
 
 $calibrationGateRoot = Join-Path $runDir "calibration-gate"

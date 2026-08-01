@@ -5347,28 +5347,9 @@
       },
       "ActionMapSnapshot": {
         "properties": {
-          "activeMapId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "activeTaskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "bootstrapRequired": {
             "default": false,
             "type": "boolean"
-          },
-          "cognitiveSchemaVersion": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "maintenanceBarriers": {
             "items": {
@@ -5376,22 +5357,25 @@
             },
             "type": "array"
           },
-          "maps": {
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotMap"
-            },
-            "type": "array"
+          "map": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/v2/ActionMapSnapshotMap"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "mode": {
             "$ref": "#/definitions/v2/MapRuntimeMode"
           },
-          "rebornRequested": {
-            "default": false,
-            "type": "boolean"
-          },
           "routingRequired": {
             "default": false,
             "type": "boolean"
+          },
+          "schemaVersion": {
+            "type": "string"
           },
           "sentinelSummary": {
             "allOf": [
@@ -5410,12 +5394,6 @@
             "default": [],
             "items": {
               "$ref": "#/definitions/v2/ActionMapSnapshotSentinelWarningRef"
-            },
-            "type": "array"
-          },
-          "tasks": {
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotTask"
             },
             "type": "array"
           },
@@ -5443,77 +5421,9 @@
         },
         "required": [
           "maintenanceBarriers",
-          "maps",
           "mode",
-          "tasks"
+          "schemaVersion"
         ],
-        "type": "object"
-      },
-      "ActionMapSnapshotCognitiveClaim": {
-        "properties": {
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "statement": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotCognitiveState": {
-        "properties": {
-          "assumptions": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveClaim"
-            },
-            "type": "array"
-          },
-          "factSources": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotFactSource"
-            },
-            "type": "array"
-          },
-          "facts": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveClaim"
-            },
-            "type": "array"
-          },
-          "outputContracts": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotOutputContract"
-            },
-            "type": "array"
-          },
-          "riskNotes": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "successCriteria": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
         "type": "object"
       },
       "ActionMapSnapshotEdge": {
@@ -5533,116 +5443,28 @@
       },
       "ActionMapSnapshotEvidenceRef": {
         "properties": {
-          "artifactRef": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "claimId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "factSourceId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "resultId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "traceEventId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "validatorRef": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotFactSource": {
-        "properties": {
-          "description": {
-            "default": "",
-            "type": "string"
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "provenance": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotLease": {
-        "properties": {
-          "agentPath": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "agentThreadId": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/ThreadId"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "holder": {
+          "actionId": {
             "type": "string"
           },
           "id": {
             "type": "string"
           },
-          "mapId": {
+          "kind": {
             "type": "string"
           },
           "nodeId": {
             "type": "string"
           },
-          "previousNodeStatus": {
+          "reservationId": {
             "type": "string"
-          },
-          "subagentPlanId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
           }
         },
         "required": [
-          "holder",
+          "actionId",
           "id",
-          "mapId",
+          "kind",
           "nodeId",
-          "previousNodeStatus"
+          "reservationId"
         ],
         "type": "object"
       },
@@ -5679,19 +5501,13 @@
       },
       "ActionMapSnapshotMap": {
         "properties": {
-          "baseMapVersion": {
-            "type": "string"
+          "complete": {
+            "type": "boolean"
           },
-          "completedNodeCount": {
+          "completedWorkNodeCount": {
             "format": "uint",
             "minimum": 0.0,
             "type": "integer"
-          },
-          "createdFrom": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "edges": {
             "items": {
@@ -5699,12 +5515,30 @@
             },
             "type": "array"
           },
+          "evidenceRefs": {
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "finishNodeId": {
+            "type": "string"
+          },
+          "finishReady": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
-          "leases": {
+          "inflightWorkNodeCount": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "nodeEvents": {
+            "default": [],
             "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotLease"
+              "$ref": "#/definitions/v2/ActionMapSnapshotNodeEvent"
             },
             "type": "array"
           },
@@ -5724,10 +5558,16 @@
               }
             ]
           },
-          "readyNodeCount": {
+          "readyWorkNodeCount": {
             "format": "uint",
             "minimum": 0.0,
             "type": "integer"
+          },
+          "reservations": {
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotReservation"
+            },
+            "type": "array"
           },
           "results": {
             "items": {
@@ -5735,20 +5575,13 @@
             },
             "type": "array"
           },
-          "runningNodeCount": {
-            "format": "uint",
+          "revision": {
+            "format": "uint64",
             "minimum": 0.0,
             "type": "integer"
           },
-          "status": {
+          "rootNodeId": {
             "type": "string"
-          },
-          "subagentPlans": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotSubagentPlan"
-            },
-            "type": "array"
           },
           "taskId": {
             "type": [
@@ -5756,52 +5589,58 @@
               "null"
             ]
           },
-          "title": {
-            "type": "string"
+          "terminalHistorySummaryRefs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "terminalSummaryRef": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "baseMapVersion",
-          "completedNodeCount",
+          "complete",
+          "completedWorkNodeCount",
           "edges",
+          "evidenceRefs",
+          "finishNodeId",
+          "finishReady",
           "id",
-          "leases",
+          "inflightWorkNodeCount",
           "nodes",
-          "readyNodeCount",
+          "readyWorkNodeCount",
+          "reservations",
           "results",
-          "runningNodeCount",
-          "status",
-          "title"
+          "revision",
+          "rootNodeId"
         ],
         "type": "object"
       },
       "ActionMapSnapshotNode": {
         "properties": {
-          "activeLease": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "evidenceRefIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
-          "canonicalKind": {
-            "default": "custom",
-            "type": "string"
-          },
-          "contextSummary": {
+          "goal": {
             "type": "string"
           },
           "id": {
             "type": "string"
           },
-          "kind": {
-            "default": "custom",
-            "type": "string"
-          },
-          "originNodeId": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "nodeEventIds": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "resultIds": {
             "items": {
@@ -5809,405 +5648,31 @@
             },
             "type": "array"
           },
+          "role": {
+            "type": "string"
+          },
           "sourceRefs": {
             "items": {
               "type": "string"
             },
             "type": "array"
           },
-          "status": {
-            "type": "string"
-          },
-          "title": {
+          "state": {
             "type": "string"
           }
         },
         "required": [
-          "contextSummary",
+          "evidenceRefIds",
+          "goal",
           "id",
           "resultIds",
+          "role",
           "sourceRefs",
-          "status",
-          "title"
+          "state"
         ],
         "type": "object"
       },
-      "ActionMapSnapshotOutputContract": {
-        "properties": {
-          "description": {
-            "default": "",
-            "type": "string"
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "kind": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemBlocker": {
-        "properties": {
-          "description": {
-            "default": "",
-            "type": "string"
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemDecision": {
-        "properties": {
-          "decision": {
-            "default": "",
-            "type": "string"
-          },
-          "decisionKind": {
-            "default": "",
-            "type": "string"
-          },
-          "dependsOnFacts": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "dependsOnResults": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "rationale": {
-            "default": "",
-            "type": "string"
-          },
-          "resolvesQuestions": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "risks": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "supportsCriteria": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemFact": {
-        "properties": {
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "statement": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemHypothesis": {
-        "properties": {
-          "confidence": {
-            "default": "",
-            "type": "string"
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "falsificationCheck": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "statement": {
-            "default": "",
-            "type": "string"
-          },
-          "status": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemNextBestAction": {
-        "properties": {
-          "actionSummary": {
-            "default": "",
-            "type": "string"
-          },
-          "blockedBy": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "expectedArtifact": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "nodeId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "reason": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemOpenQuestion": {
-        "properties": {
-          "blocking": {
-            "default": false,
-            "type": "boolean"
-          },
-          "closedByResultId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "openedByNodeId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "question": {
-            "default": "",
-            "type": "string"
-          },
-          "reason": {
-            "default": "",
-            "type": "string"
-          },
-          "resolution": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemRisk": {
-        "properties": {
-          "description": {
-            "default": "",
-            "type": "string"
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "mitigation": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemStateLedger": {
-        "properties": {
-          "blockers": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotProblemBlocker"
-            },
-            "type": "array"
-          },
-          "decisions": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotProblemDecision"
-            },
-            "type": "array"
-          },
-          "hypotheses": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotProblemHypothesis"
-            },
-            "type": "array"
-          },
-          "knownFacts": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotProblemFact"
-            },
-            "type": "array"
-          },
-          "nextBestAction": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/ActionMapSnapshotProblemNextBestAction"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "objective": {
-            "default": "",
-            "type": "string"
-          },
-          "openQuestions": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotProblemOpenQuestion"
-            },
-            "type": "array"
-          },
-          "risks": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotProblemRisk"
-            },
-            "type": "array"
-          },
-          "schemaIncomplete": {
-            "default": true,
-            "type": "boolean"
-          },
-          "successCriteria": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotProblemSuccessCriterion"
-            },
-            "type": "array"
-          },
-          "updatedAtMs": {
-            "default": 0,
-            "format": "int64",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotProblemSuccessCriterion": {
-        "properties": {
-          "description": {
-            "default": "",
-            "type": "string"
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "kind": {
-            "default": "",
-            "type": "string"
-          },
-          "status": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotResult": {
+      "ActionMapSnapshotNodeEvent": {
         "properties": {
           "actionClass": {
             "default": null,
@@ -6216,44 +5681,31 @@
               "null"
             ]
           },
-          "assignmentId": {
-            "type": "string"
+          "artifactRefs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
-          "body": {
+          "callId": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contentSha256": {
             "type": "string"
           },
           "createdAtMs": {
             "format": "int64",
             "type": "integer"
           },
-          "evidencePackage": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/v2/ActionMapSnapshotResultEvidencePackage"
-              }
-            ],
-            "default": {
-              "adoption": {
-                "adoptedByCriteria": [],
-                "adoptedByDecisions": [],
-                "adoptedByFacts": [],
-                "adoptedByHypotheses": [],
-                "adoptedByNodes": [],
-                "adoptionState": "none"
-              },
-              "changedArtifacts": [],
-              "claims": [],
-              "evidenceRefs": [],
-              "remainingUncertainty": [],
-              "validatorRefs": [],
-              "validity": "unreviewed",
-              "validityReason": ""
-            }
-          },
-          "id": {
+          "eventKind": {
             "type": "string"
           },
-          "kind": {
+          "id": {
             "type": "string"
           },
           "mapId": {
@@ -6262,15 +5714,24 @@
           "nodeId": {
             "type": "string"
           },
-          "sourceThreadId": {
-            "$ref": "#/definitions/v2/ThreadId"
-          },
-          "subagentPlanId": {
+          "rawRef": {
             "default": null,
             "type": [
               "string",
               "null"
             ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceEventId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceThreadId": {
+            "$ref": "#/definitions/v2/ThreadId"
           },
           "toolSuccess": {
             "default": null,
@@ -6281,122 +5742,71 @@
           }
         },
         "required": [
-          "assignmentId",
-          "body",
+          "contentSha256",
           "createdAtMs",
+          "eventKind",
           "id",
-          "kind",
           "mapId",
           "nodeId",
+          "source",
           "sourceThreadId"
         ],
         "type": "object"
       },
-      "ActionMapSnapshotResultAdoption": {
+      "ActionMapSnapshotReservation": {
         "properties": {
-          "adoptedByCriteria": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "actionId": {
+            "type": "string"
           },
-          "adoptedByDecisions": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "id": {
+            "type": "string"
           },
-          "adoptedByFacts": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "nodeId": {
+            "type": "string"
           },
-          "adoptedByHypotheses": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "responseCallIndex": {
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
           },
-          "adoptedByNodes": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "adoptionState": {
-            "default": "",
+          "toolName": {
             "type": "string"
           }
         },
+        "required": [
+          "actionId",
+          "id",
+          "nodeId",
+          "responseCallIndex",
+          "toolName"
+        ],
         "type": "object"
       },
-      "ActionMapSnapshotResultEvidencePackage": {
+      "ActionMapSnapshotResult": {
         "properties": {
-          "adoption": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/v2/ActionMapSnapshotResultAdoption"
-              }
-            ],
-            "default": {
-              "adoptedByCriteria": [],
-              "adoptedByDecisions": [],
-              "adoptedByFacts": [],
-              "adoptedByHypotheses": [],
-              "adoptedByNodes": [],
-              "adoptionState": ""
-            }
-          },
-          "changedArtifacts": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "claims": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveClaim"
-            },
-            "type": "array"
-          },
-          "evidenceRefs": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
-          },
-          "remainingUncertainty": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "validatorRefs": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "validity": {
-            "default": "unreviewed",
+          "actionId": {
             "type": "string"
           },
-          "validityReason": {
-            "default": "",
+          "id": {
+            "type": "string"
+          },
+          "isError": {
+            "type": "boolean"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "reservationId": {
             "type": "string"
           }
         },
+        "required": [
+          "actionId",
+          "id",
+          "isError",
+          "nodeId",
+          "reservationId"
+        ],
         "type": "object"
       },
       "ActionMapSnapshotSentinelSummary": {
@@ -6432,6 +5842,13 @@
       },
       "ActionMapSnapshotSentinelWarningRef": {
         "properties": {
+          "clearAction": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "clearanceAction": {
             "type": "string"
           },
@@ -6497,194 +5914,6 @@
           "severity",
           "status",
           "traceEventIds"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotSubagentPlan": {
-        "properties": {
-          "acceptanceCheck": {
-            "default": "",
-            "type": "string"
-          },
-          "childThreadId": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/ThreadId"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "createdAtMs": {
-            "default": 0,
-            "format": "int64",
-            "type": "integer"
-          },
-          "dependsOnResults": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "expectedArtifact": {
-            "default": "",
-            "type": "string"
-          },
-          "id": {
-            "default": "",
-            "type": "string"
-          },
-          "leaseId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "mapId": {
-            "default": "",
-            "type": "string"
-          },
-          "maxScope": {
-            "default": "",
-            "type": "string"
-          },
-          "parentNodeId": {
-            "default": "",
-            "type": "string"
-          },
-          "resultIds": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "status": {
-            "default": "",
-            "type": "string"
-          },
-          "supportsQuestions": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "taskId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "testsHypotheses": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "updatedAtMs": {
-            "default": 0,
-            "format": "int64",
-            "type": "integer"
-          },
-          "whyParallelizable": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ActionMapSnapshotTask": {
-        "properties": {
-          "activeMapId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "cognitiveState": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveState"
-              }
-            ],
-            "default": {
-              "assumptions": [],
-              "factSources": [],
-              "facts": [],
-              "outputContracts": [],
-              "riskNotes": [],
-              "successCriteria": []
-            }
-          },
-          "id": {
-            "type": "string"
-          },
-          "mapIds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "objective": {
-            "type": "string"
-          },
-          "ownerSessionId": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/ThreadId"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "problemLedger": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/v2/ActionMapSnapshotProblemStateLedger"
-              }
-            ],
-            "default": {
-              "blockers": [],
-              "decisions": [],
-              "hypotheses": [],
-              "knownFacts": [],
-              "nextBestAction": null,
-              "objective": "",
-              "openQuestions": [],
-              "risks": [],
-              "schemaIncomplete": true,
-              "successCriteria": [],
-              "updatedAtMs": 0
-            }
-          },
-          "problemStateLedgerVersion": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "mapIds",
-          "objective",
-          "status",
-          "title"
         ],
         "type": "object"
       },
@@ -9517,6 +8746,18 @@
         "title": "ErrorNotification",
         "type": "object"
       },
+      "ExecOutcome": {
+        "enum": [
+          "exited",
+          "timed_out",
+          "cancelled",
+          "signaled",
+          "spawn_failed",
+          "rejected",
+          "execution_error"
+        ],
+        "type": "string"
+      },
       "ExperimentalFeature": {
         "properties": {
           "announcement": {
@@ -11743,14 +10984,14 @@
       "MapRuntimeMode": {
         "oneOf": [
           {
-            "description": "Preserve the current multi-agent behavior.",
+            "description": "Use natural context without TaskSpace.",
             "enum": [
               "standard"
             ],
             "type": "string"
           },
           {
-            "description": "Enable Action Map runtime hooks as they are implemented.",
+            "description": "Use the current Rooted DAG TaskSpace implementation.",
             "enum": [
               "experiment"
             ],
@@ -16438,7 +15679,7 @@
                 ]
               },
               "exitCode": {
-                "description": "The command's exit code.",
+                "description": "The shell exit code when the process exited normally.",
                 "format": "int32",
                 "type": [
                   "integer",
@@ -16447,6 +15688,28 @@
               },
               "id": {
                 "type": "string"
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/v2/ExecOutcome"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Mechanical execution outcome when the command has completed."
+              },
+              "pipelineStageExitCodes": {
+                "description": "Per-stage pipeline statuses when they were mechanically observable.",
+                "items": {
+                  "format": "int32",
+                  "type": "integer"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
               },
               "processId": {
                 "description": "Identifier for the underlying PTY process (when available).",
@@ -16465,6 +15728,14 @@
               },
               "status": {
                 "$ref": "#/definitions/v2/CommandExecutionStatus"
+              },
+              "terminationSignal": {
+                "description": "POSIX signal number when `outcome` is `signaled`.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "type": {
                 "enum": [

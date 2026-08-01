@@ -1,0 +1,522 @@
+# Problem P-001: canonical Map 被 Session Runtime 和 rollout 恢复链路错误持有
+- Status: fixed
+- Created: 2026-07-24 21:21
+- Updated: 2026-07-25 01:15
+- Objective: 建立独立持久化、全局唯一的 canonical Map；Session、Runtime、resume、fork 和 child agent 只按身份访问同一份 Map，rollout 仅保留对话与审计记录。
+- Symptoms:
+  - `SessionState` 直接持有包含完整 `tasks`、`maps` 的 `ActionMapRuntimeState`。
+  - resume/fork 从 rollout 的 checkpoint/delta 重建 Map。
+  - 节点绑定 child 在重放父 rollout 时可能恢复到不一致的 assignment 中间态。
+- Expected behavior:
+  - Map 从创建起就是独立持久化数据，并始终作为唯一事实源存在。
+  - Runtime 是 Map 操作、硬规则验证和可丢弃缓存层，不是 Map 的所有者。
+  - Session 与 Agent 只持有 `map_id`、`node_id`、`lease_id` 和 revision 等引用。
+  - resume、fork 和 child agent 按 `map_id` 访问同一份持久化 Map，不通过 rollout 重建。
+  - rollout 只记录对话、Tool 结果、审计事件和 Map revision 引用，删除或截断 rollout 不得导致 Map 丢失。
+- Actual behavior:
+  - 完整 Map 数据驻留在 Session-local Runtime HashMap 中。
+  - checkpoint/delta 被写入 rollout，session 恢复再调用 `restore_snapshot` 重建 Runtime Map。
+  - rollout 同时承担自然上下文历史和 Map 恢复事实源，形成错误的双重职责。
+- Impact:
+  - child handoff、resume、fork 和 compaction 都被 rollout 边界绑架。
+  - 任意回放截断或中间态持久化都可能产生 Map 丢失、分叉或不一致。
+  - R-21 即使通过局部时序修补也无法证明 canonical ownership 正确。
+- Reproduction:
+  - 检查 `SessionState::action_map_runtime`、`ActionMapRuntimeState::{tasks,maps}` 和 `try_reconstruct_history_from_rollout -> restore_snapshot`。
+  - 运行 `cargo test -p codex-core action_map_completion_watcher_advances_next_spawn_to_next_node -- --nocapture` 可观察下游 R-21 症状。
+- Environment:
+  - Linux，分支 `whalecode-alpha`，R7.1 continuation baseline。
+- Known facts:
+  - `SessionState` 直接持有 `ActionMapRuntimeState`。
+  - `ActionMapRuntimeState` 直接持有任务与 Map 的 HashMap。
+  - session 恢复从 rollout checkpoint/delta 构造 snapshot 并调用 `restore_snapshot`。
+  - 当前未发现独立的 Map repository 或持久化 Map 表。
+- Ruled out:
+  - Map 只是 projection 或 provider context 中的临时视图。
+  - rollout 重放是 canonical Map 的合理持久化模型。
+  - 仅调整 child spawn 时序即可根治所有权问题。
+- Fix criteria:
+  - 存在唯一持久化 Map Store，复用项目既有 state/SQLite 基建，不新建平行存储体系。
+  - Map、node、edge、lease、result 和 revision 通过一个事务边界持久化。
+  - Session/Runtime 不再持有 authoritative Map 副本；内存状态只能是可丢弃、按 revision 校验的缓存。
+  - rollout 不再存放用于恢复 canonical Map 的 snapshot/delta；不得保留旧回放恢复 fallback 或双 parser。
+  - 进程重启、resume、fork 和 child agent 都按同一 `map_id` 读取同一 revision 链。
+  - 删除或截断对话 rollout 后，Map 仍完整可读；删除 Map Store 后，rollout 不得静默重建 Map。
+  - 并发 child 操作通过 revision/transaction 检测冲突，不产生第二份 Map。
+  - R-21 原始失败测试和相邻生命周期回归在新所有权模型下通过。
+  - 日志能够按 `map_id`、revision、session id、node id 和 lease id 追踪 load、commit、conflict 与 handoff。
+- Current conclusion: canonical ownership 已迁移到独立持久化 Map Store；Session/Runtime 只保留 handle 与可丢弃 cache，
+  resume/fork/child、CLI observer 和 App Server 均执行 Store-backed read，旧 rollout recovery 已由机器门禁止。
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Resolution basis:
+  - canonical Store 生产接线、旧 rollout recovery 删除、child binding/attach、终态 round-trip、真实 observer、
+    App Server freshness、故障门、残留门和多轮空白对抗性审查均通过。
+- Close reason:
+  - 根因修复并验证；R-23 与其上游导致的 R-21 均关闭。
+
+## Hypothesis H-001: Session-local Runtime 和 rollout 被错误当作 canonical Map 持久化层
+- Status: confirmed
+- Parent: P-001
+- Claim: 当前实现把完整 Map 所有权放在 Session-local Runtime 中，并以 rollout checkpoint/delta 作为恢复来源；这与“独立持久化 Map 始终存在”的产品模型冲突。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - Map 数据结构、恢复入口和 rollout 事件链的代码所有权一致指向 Session/replay，而不是独立 repository。
+- Falsifiable predictions:
+  - If true: Runtime 持有完整 Map HashMap，恢复入口从 rollout 读取 snapshot/delta，且不存在独立 Map repository。
+  - If false: Runtime 仅持有 handle/cache，canonical Map 已独立持久化，rollout 只携带 revision 引用。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查 Map 数据所有者、持久化写入点和 session 恢复入口。
+  - Signal: 字段类型、repository/table、snapshot/delta 写入和 restore 调用。
+  - Capture method: 代码路径审计和全仓搜索。
+  - Event name or marker:
+    - `map_runtime_snapshot_delta`
+  - Correlation keys:
+    - map id
+    - revision
+    - session id
+  - Differentiates from:
+    - R-21 的 child spawn 时序假设
+  - Supports if:
+    - 完整 Map 驻留 Session Runtime 且从 rollout 重建。
+  - Refutes if:
+    - 独立 Store 已是唯一事实源。
+  - Instrumentation status: existing-insufficient
+  - Instrumentation lifecycle:
+    - 实施时新增 Store load/commit/conflict/handoff 永久结构化日志。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+  - E-002
+  - E-003
+  - E-004
+  - E-005
+- Conclusion: confirmed；当前 canonical ownership 与目标产品模型不一致。
+- Repair design readiness: implemented
+- Next step: 无；后续工作回到 R-10/R-19/R-22，不再扩展 Map Store 所有权。
+- Blocker:
+  - none
+- Close reason:
+  - root cause fixed
+
+## Evidence E-001: SessionState 直接持有完整 ActionMapRuntimeState
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/state/session.rs:43`
+- Prediction or plan link:
+  - H-001 关于 Session-local ownership 的判断。
+- Matched signal:
+  - `SessionState` 包含 `pub(crate) action_map_runtime: ActionMapRuntimeState`。
+- Correlation keys:
+  - session state
+- Raw content:
+  - `ActionMapRuntimeState` 随 SessionState 创建、重置和恢复。
+- Interpretation: Session 当前不是只持有 Map handle，而是直接拥有 Runtime Map 状态。
+- Time: 2026-07-24 21:21
+
+## Evidence E-002: ActionMapRuntimeState 内部保存 authoritative tasks 和 maps
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:670`
+- Prediction or plan link:
+  - H-001 关于 Runtime 数据所有权的判断。
+- Matched signal:
+  - Runtime 字段为 `tasks: HashMap<TaskId, TaskRecord>` 和 `maps: HashMap<ActionMapId, ActionMapInstance>`。
+- Correlation keys:
+  - task id
+  - map id
+- Raw content:
+  - Runtime 默认构造空 HashMap，并通过 snapshot/restore 管理完整状态。
+- Interpretation: 当前 Runtime 是完整 Map 数据容器，而不只是操作层或缓存。
+- Time: 2026-07-24 21:21
+
+## Evidence E-003: session 从 rollout checkpoint/delta 恢复 Map
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/session/mod.rs:2167`
+- Prediction or plan link:
+  - H-001 关于 rollout recovery authority 的判断。
+- Matched signal:
+  - session 调用 `try_reconstruct_history_from_rollout`，随后以重建 snapshot 调用 `action_map_runtime.restore_snapshot`。
+- Correlation keys:
+  - rollout
+  - map id
+  - revision
+- Raw content:
+  - Map checkpoint/delta 与自然对话历史共同进入 rollout 恢复链路。
+- Interpretation: rollout 当前承担了 canonical Map 恢复源职责；这正是需要移除的错误所有权。
+- Time: 2026-07-24 21:21
+
+## Evidence E-004: codex-state 已提供可复用的事务存储基建
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/state/src/runtime.rs:101`
+- Prediction or plan link:
+  - R7.1-A0.1 不新建平行数据库。
+- Matched signal:
+  - `StateRuntime` 已统一持有 SQLx SQLite pool，启用 WAL、busy timeout 和编译期 migration。
+- Correlation keys:
+  - state db
+  - transaction
+- Raw content:
+  - `runtime_state_migrator()` 和 `SqliteJournalMode::Wal` 已用于现有状态数据。
+- Interpretation: canonical Map 可以作为现有 state aggregate 接入，无需第二套持久化架构。
+- Time: 2026-07-24 22:35
+
+## Evidence E-005: fork 和 child 已携带可建立 Store binding 的父线程身份
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/protocol/src/protocol.rs:3042`
+- Prediction or plan link:
+  - R7.1-A0.1 resume/fork/child 访问同一 Map。
+- Matched signal:
+  - `InitialHistory::forked_from_id()` 可获得 fork 来源；`SubAgentSource::ThreadSpawn` 显式携带 `parent_thread_id`。
+- Correlation keys:
+  - thread id
+  - parent thread id
+  - map binding
+- Raw content:
+  - 当前身份被用于 rollout fork，但尚未用于独立 Map binding。
+- Interpretation: Session 启动无需重放 Map 即可按父线程查找并绑定 canonical Map。
+- Time: 2026-07-24 22:35
+
+## Hypothesis H-002: provider projection 构造绕过 Store 修改了 Runtime cache
+- Status: confirmed
+- Parent: P-001
+- Claim: provider request 构造 projection 时调用有副作用的 `build_developer_context`，写入 projection trace 和 trace sequence，却没有通过 canonical Store transaction；下一次 Map 操作因此检测到 cache hash 与 Store handle 不一致。
+- Layer: migration-regression
+- Factor relation: single
+- Depends on:
+  - H-001
+- Rationale:
+  - 首次初始化成功后，第二次 control 在任何图变更前稳定报 `handle hash mismatch`。
+- Falsifiable predictions:
+  - If true: provider projection 构造前后 `ActionMapSnapshot` hash 会变化，Store revision 不变；下一次 canonical mutation 会在写事务前失败。
+  - If false: projection 构造是纯读取，或其副作用已通过 Store commit 持久化。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对照真实 terminal 集成 trace、projection 构造函数和 snapshot 内容。
+  - Signal: 初始化 Store commit 成功，随后 control 返回 cache hash mismatch；projection 构造写入 `taskspace_trace_events`，而 snapshot 包含这些 trace。
+  - Capture method: 聚焦集成测试与代码路径审计。
+  - Event name or marker:
+    - `taskspace.map_store_committed`
+    - `taskspace.map_budget_measured`
+  - Correlation keys:
+    - map id
+    - store revision
+    - snapshot hash
+  - Differentiates from:
+    - SQLite CAS 冲突
+    - Agent 提交错误 revision
+    - terminal lifecycle 规则拒绝
+  - Supports if:
+    - 第二个 control 在 CAS 前因 handle hash 失败，且唯一中间 snapshot 写点是 projection trace。
+  - Refutes if:
+    - Store revision 已包含 projection trace，或失败来自 expected graph revision。
+  - Instrumentation status: existing-sufficient
+  - Instrumentation lifecycle:
+    - 保留 Store commit/conflict/integrity 日志和 projection budget 日志。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+- Conclusion: confirmed；projection 构造的未持久化副作用破坏了 Runtime cache 的 revision/hash 合同。
+- Repair design readiness: implemented
+- Next step: 保留终态生产测试和 Store revision 日志作为永久回归门。
+- Blocker:
+  - none
+- Close reason:
+  - root cause fixed
+
+## Evidence E-006: terminal 集成测试在第二次 control 前复现 cache hash mismatch
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: failing-test
+- Source: `cargo test -p codex-core --test all committed_finish_control_is_the_only_taskspace_final -- --nocapture`
+- Prediction or plan link:
+  - H-002 关于 projection 与下一次 canonical mutation 之间失配的预测。
+- Matched signal:
+  - 初始化 carrier 返回 `state_commit:true` 和 revision 2；随后 `complete_then_continue` 返回 `TaskSpace Runtime cache is stale ... handle hash mismatch`。
+- Correlation keys:
+  - `map-019f9489-36e3-7992-9349-2924ef582870`
+  - canonical revision 2
+- Raw content:
+  - 失败发生在第二次 control 的 Store CAS 之前，provider mock 因未消费预期响应最终出现 404。
+- Interpretation: Agent 参数和生命周期 revision 尚未进入校验，直接原因是 Runtime cache 在初始化后被旁路修改。
+- Time: 2026-07-24 23:24
+
+## Evidence E-007: projection 构造写入 Store snapshot 覆盖的 trace 列表
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:4425`
+- Prediction or plan link:
+  - H-002 关于未持久化 snapshot 副作用的预测。
+- Matched signal:
+  - `build_projection_developer_context` 调用 `record_runtime_budget_trace_event`；后者写入 `taskspace_trace_events`，而 `snapshot()` 将该列表序列化为 `trace_events`。
+- Correlation keys:
+  - projection kind
+  - trace event id
+  - snapshot hash
+- Raw content:
+  - `prepare_provider_visible_prompt_items` 直接持锁调用 projection 构造，只发送 pending events，没有执行 Store commit。
+- Interpretation: 代码路径与测试中的 hash mismatch 构成完整因果链，并排除 graph revision 和 SQLite CAS 冲突。
+- Time: 2026-07-24 23:24
+
+## Hypothesis H-003: 统一 Store mutation 入口错误要求 Standard 也持有 Map handle
+- Status: confirmed
+- Parent: P-001
+- Claim: A0 初版把原本在 Standard 模式机械 no-op 的 Action Map 检查也先路由到 Store handle 校验，导致普通 Tool 在无 Map 时被 TaskSpace 错误拒绝。
+- Layer: migration-regression
+- Factor relation: single
+- Depends on:
+  - H-001
+- Rationale:
+  - Core 全量测试最初出现大量普通 Multi-Agent Tool 返回 `TaskSpace operation requires a canonical Map Store handle`。
+- Falsifiable predictions:
+  - If true: 单独运行 Standard spawn 测试会在业务 manager 检查前被 Store handle 拒绝。
+  - If false: Standard 会保持原业务结果，只有 Experiment 模式要求 Store。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对照 Standard spawn 定向测试和统一 mutation 入口的模式判断顺序。
+  - Signal: 修复前错误来自 Store handle；按模式分流后恢复预期 `collab manager unavailable`。
+  - Capture method: 聚焦测试和代码路径审计。
+  - Event name or marker:
+    - `TaskSpace operation requires a canonical Map Store handle`
+  - Correlation keys:
+    - runtime mode
+    - map handle presence
+  - Differentiates from:
+    - Multi-Agent manager 生命周期错误
+    - TaskSpace child handoff 错误
+  - Supports if:
+    - 同一 Standard 测试只因 handle 校验顺序改变而恢复。
+  - Refutes if:
+    - 失败仍来自 manager 或 Agent 行为。
+  - Instrumentation status: existing-sufficient
+  - Instrumentation lifecycle:
+    - 保留 TaskSpace Store 缺失的事实错误；Standard 不产生日志噪声。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-010
+  - E-011
+- Conclusion: confirmed；统一入口必须先区分 Standard 与 Experiment，Store 只约束 TaskSpace。
+- Repair design readiness: implemented
+- Next step: 以 Standard 定向回归和 CLI 全链编译守住模式边界。
+- Blocker:
+  - none
+- Close reason:
+  - migration regression fixed
+
+## Evidence E-008: projection 写入 Store 后终态契约恢复通过
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: passing-test
+- Source: `cargo test -p codex-core --test all taskspace_terminal_contract -- --nocapture`
+- Prediction or plan link:
+  - H-002 的修复验证。
+- Matched signal:
+  - 两项终态测试均通过；初始化、provider projection 和后续 complete/finish 不再出现 cache hash mismatch。
+- Correlation keys:
+  - Store revision
+  - terminal graph revision
+- Raw content:
+  - `2 passed; 0 failed`。
+- Interpretation: projection trace 已进入 canonical Store transaction，后续 Map 操作读取到一致 cache/handle。
+- Time: 2026-07-24 23:50
+
+## Evidence E-009: Store 故障边界和重启持久性通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: passing-test
+- Source: `cargo test -p codex-state taskspace_map --lib`
+- Prediction or plan link:
+  - A0.6/A0.7 的事务、完整性、并发、幂等和重启验收。
+- Matched signal:
+  - 7 项测试全部通过，包括并发唯一胜者、错误 binding 全事务回滚、hash 损坏拒读和重启后同 revision 读取。
+- Correlation keys:
+  - map id
+  - Store revision
+  - commit id
+- Raw content:
+  - `7 passed; 0 failed`。
+- Interpretation: canonical Store 已具备 A0 所需的原子性、完整性和持久性证据。
+- Time: 2026-07-24 23:50
+
+## Evidence E-010: Standard 路径曾被 Store handle 校验错误阻断
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: failing-test
+- Source: `cargo test -p codex-core tools::handlers::multi_agents::tests::spawn_agent_errors_when_manager_dropped -- --nocapture`
+- Prediction or plan link:
+  - H-003 关于模式判断顺序的预测。
+- Matched signal:
+  - 预期 `collab manager unavailable`，实际先返回 `TaskSpace operation requires a canonical Map Store handle`。
+- Correlation keys:
+  - Standard mode
+  - no Map handle
+- Raw content:
+  - 失败发生在业务 Multi-Agent manager 检查前。
+- Interpretation: Store 强制范围越过 TaskSpace，构成明确回归。
+- Time: 2026-07-24 23:35
+
+## Evidence E-011: Standard/TaskSpace 分流后普通 Tool 恢复
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: passing-test
+- Source: `cargo test -p codex-core tools::handlers::multi_agents::tests::spawn_agent_errors_when_manager_dropped -- --nocapture`
+- Prediction or plan link:
+  - H-003 修复验证。
+- Matched signal:
+  - Standard 无 handle 时执行原机械路径并得到预期业务结果；定向测试通过。
+- Correlation keys:
+  - Standard mode
+  - no Map handle
+- Raw content:
+  - `1 passed; 0 failed`；CLI 全链 `cargo check -p codex-cli` 同时通过。
+- Interpretation: Store 硬约束已收回 TaskSpace 边界，没有侵入 Standard。
+- Time: 2026-07-24 23:40
+
+## Evidence E-012: R-21 已脱离 rollout recovery，但 handoff invariant 仍失败（历史，已由 E-013 关闭）
+- Related hypotheses:
+  - H-001
+- Direction: neutral
+- Type: failing-test
+- Source: `cargo test -p codex-core action_map_completion_watcher_advances_next_spawn_to_next_node -- --nocapture`
+- Prediction or plan link:
+  - A0 与后续 A1 的边界验证。
+- Matched signal:
+  - parent 已通过 Store 创建并提交 Map；child 从同一持久化 Map 启动时因 `current binding and main lease are inconsistent` 失败。
+- Correlation keys:
+  - parent thread
+  - child thread
+  - shared map id
+  - lease
+- Raw content:
+  - 旧 `map_checkpoint_delta_chain` 和 rollout snapshot restore 不再出现在失败路径。
+- Interpretation: R-23 的双事实源根因已移除；R-21 剩余问题是 attach/lease 事务边界，继续由 R7.1-A1 处理，不能回退 replay。
+- Time: 2026-07-24 23:45
+
+## Evidence E-013: child binding、nested read 与 attach 失败回收闭合
+- Related hypotheses:
+  - H-001
+- Direction: refutes-current
+- Type: passing-tests
+- Source: `36395074e`
+- Prediction or plan link:
+  - R-21 必须在同一 Store Map 上闭合，不得复制或 replay Map。
+- Matched signal:
+  - resume/fork/child 读取同一 `map_id`；nested spawn 使用 Store-backed read；attach 失败关闭 edge、Shutdown child、
+    移除 thread 并释放 registry slot。
+- Correlation keys:
+  - parent thread
+  - child thread
+  - map id
+  - lease id
+- Raw content:
+  - Store hydration `5 passed`；spawn 定向门、completion watcher、原 R-21 失败测试和 abort-after-spawn-failure 均通过。
+- Interpretation: E-012 的 handoff invariant 已在 canonical Store 模型内修复，R-21 可以关闭。
+- Time: 2026-07-25 00:05
+
+## Evidence E-014: 活跃观测链不再调用 rollout replay
+- Related hypotheses:
+  - H-001
+- Direction: refutes-current
+- Type: integration-test
+- Source: `f8e3f67fb`, `776671113`
+- Prediction or plan link:
+  - observer 必须读取 Store，不得从 rollout 重建 canonical snapshot。
+- Matched signal:
+  - `whale debug taskspace-map --thread-id` 导出 map record 与 binding；PowerShell `source.mapStore` 失败时 fail closed；
+    Rust 与脚本 reference gate 中旧 replay 符号为零。
+- Correlation keys:
+  - thread id
+  - map id
+  - store revision
+  - snapshot SHA256
+- Raw content:
+  - CLI 黑盒测试、四组 observer 回归和 benchmark harness 通过。
+- Interpretation: rollout 只作为事件/上下文输入，不再是 observer 的 canonical Map 来源。
+- Time: 2026-07-25 00:17
+
+## Evidence E-015: 真实 Store observer 暴露并关闭终态 round-trip 缺陷
+- Related hypotheses:
+  - H-001
+- Direction: supports-fix
+- Type: failing-then-passing-test
+- Source: `9226c6f91`
+- Prediction or plan link:
+  - 完成后的 Map 在重启或 cache refresh 时必须仍能按 Store hash 忠实恢复。
+- Matched signal:
+  - 真实 SQLite + CLI + PowerShell 测试先发现旧 normalizer schema 假设；外部 Store revision 测试随后发现 complete Map
+    被错误要求存在 `active_map_id`，且 codec 改写持久化 flags。
+- Correlation keys:
+  - map id
+  - store revision
+  - snapshot SHA256
+- Raw content:
+  - 修复后 CLI integration `4 passed`、Action Map Runtime `12 passed`、terminal contract 和 Store hydration 均通过。
+- Interpretation: Store codec 现按 canonical map identity 而非 active binding 验证，终态 encode/decode hash 稳定。
+- Time: 2026-07-25 00:31
+
+## Evidence E-016: App Server read 刷新 Session cache 而不暴露第二事实源
+- Related hypotheses:
+  - H-001
+- Direction: refutes-current
+- Type: integration-test
+- Source: `9226c6f91`
+- Prediction or plan link:
+  - 所有对外当前 Map 读取必须先校验 Store revision/hash。
+- Matched signal:
+  - `ThreadActionMapRead` 与 `ThreadTaskSpaceRead` 通过 `read_canonical_action_map` 加载 binding 和 record；测试在外部
+    CAS 推进 Store revision 后读取到新 snapshot。
+- Correlation keys:
+  - thread id
+  - map id
+  - store revision
+- Raw content:
+  - terminal contract 中 stale Session cache refresh 通过，日志保留 `taskspace.map_store_read` 的 map/revision/relation。
+- Interpretation: App Server 的 Session cache 只作为可丢弃副本，不再是对外观察 authority。
+- Time: 2026-07-25 00:33
+
+## Evidence E-017: interactive read 与活跃残留最终闭合
+- Related hypotheses:
+  - H-001
+- Direction: refutes-current
+- Type: failing-then-passing-test
+- Source: `173abf3c1`, `b1cb7e9b8`, `12d1ca2c2`
+- Prediction or plan link:
+  - 所有用户可见 current Map read 必须校验 Store；活跃工具不得继续解析 rollout snapshot patch。
+- Matched signal:
+  - `ShowActionMap` 改走 canonical Store read；外部 CAS 后交互式 show 输出新 Store goal；
+    active-prefix analyzer 只消费直接 runtime trace event；reference gate 覆盖 Rust、PowerShell、Python 和 Shell，
+    并进入默认 action-map regression。
+- Correlation keys:
+  - thread id
+  - map id
+  - store revision
+  - snapshot SHA256
+- Raw content:
+  - terminal contract、Python `5 passed`、R7 reference gate 和 CLI check 通过；最终空白审查无 blocking。
+- Interpretation: 已知外部 current Map read、observer 和活跃分析器均不再暴露或重建 rollout Map；
+  Session cache 只在 Store revision/hash 一致时可读。
+- Time: 2026-07-25 01:15

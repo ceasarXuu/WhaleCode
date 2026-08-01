@@ -4,7 +4,10 @@ use codex_protocol::models::ReasoningItemContent;
 use codex_protocol::models::ResponseItem;
 use serde_json::Value;
 
-pub(super) fn chat_messages_from_response_items(items: &[ResponseItem]) -> Vec<Value> {
+pub(super) fn chat_messages_from_response_items(
+    items: &[ResponseItem],
+    require_tool_reasoning_field: bool,
+) -> Vec<Value> {
     let mut messages = Vec::new();
     let mut pending_assistant = PendingAssistantMessage::default();
 
@@ -31,7 +34,7 @@ pub(super) fn chat_messages_from_response_items(items: &[ResponseItem]) -> Vec<V
                 pending_assistant.push_tool_call(name, arguments, call_id);
             }
             ResponseItem::Message { role, content, .. } => {
-                pending_assistant.flush_into(&mut messages);
+                pending_assistant.flush_into(&mut messages, require_tool_reasoning_field);
                 let role = if role == "developer" { "system" } else { role };
                 let text = content_items_to_text(content);
                 if !text.trim().is_empty() {
@@ -42,7 +45,7 @@ pub(super) fn chat_messages_from_response_items(items: &[ResponseItem]) -> Vec<V
             | ResponseItem::CustomToolCallOutput {
                 call_id, output, ..
             } => {
-                pending_assistant.flush_into(&mut messages);
+                pending_assistant.flush_into(&mut messages, require_tool_reasoning_field);
                 messages.push(serde_json::json!({
                     "role": "tool",
                     "tool_call_id": call_id,
@@ -54,7 +57,7 @@ pub(super) fn chat_messages_from_response_items(items: &[ResponseItem]) -> Vec<V
                 tools,
                 ..
             } => {
-                pending_assistant.flush_into(&mut messages);
+                pending_assistant.flush_into(&mut messages, require_tool_reasoning_field);
                 messages.push(serde_json::json!({
                     "role": "tool",
                     "tool_call_id": call_id,
@@ -65,7 +68,7 @@ pub(super) fn chat_messages_from_response_items(items: &[ResponseItem]) -> Vec<V
         }
     }
 
-    pending_assistant.flush_into(&mut messages);
+    pending_assistant.flush_into(&mut messages, require_tool_reasoning_field);
     messages
 }
 
@@ -102,7 +105,7 @@ impl PendingAssistantMessage {
         }));
     }
 
-    fn flush_into(&mut self, messages: &mut Vec<Value>) {
+    fn flush_into(&mut self, messages: &mut Vec<Value>, require_tool_reasoning_field: bool) {
         if self.content.trim().is_empty() && self.tool_calls.is_empty() {
             self.reasoning_content.clear();
             return;
@@ -122,6 +125,11 @@ impl PendingAssistantMessage {
             message.insert(
                 "reasoning_content".to_string(),
                 Value::String(std::mem::take(&mut self.reasoning_content)),
+            );
+        } else if require_tool_reasoning_field && !self.tool_calls.is_empty() {
+            message.insert(
+                "reasoning_content".to_string(),
+                Value::String(String::new()),
             );
         }
         if !self.tool_calls.is_empty() {
@@ -171,45 +179,48 @@ mod tests {
 
     #[test]
     fn preserves_reasoning_content_for_tool_calls() {
-        let messages = chat_messages_from_response_items(&[
-            ResponseItem::Message {
-                id: None,
-                role: "user".to_string(),
-                content: vec![ContentItem::InputText {
-                    text: "hi".to_string(),
-                }],
-                end_turn: None,
-                phase: None,
-            },
-            ResponseItem::Reasoning {
-                id: "reasoning-1".to_string(),
-                summary: Vec::new(),
-                content: Some(vec![ReasoningItemContent::ReasoningText {
-                    text: "Need a directory listing.".to_string(),
-                }]),
-                encrypted_content: None,
-            },
-            ResponseItem::Message {
-                id: None,
-                role: "assistant".to_string(),
-                content: vec![ContentItem::OutputText {
-                    text: "I'll inspect the directory.".to_string(),
-                }],
-                end_turn: None,
-                phase: None,
-            },
-            ResponseItem::FunctionCall {
-                id: None,
-                name: "shell_command".to_string(),
-                namespace: None,
-                arguments: r#"{"command":"Get-ChildItem"}"#.to_string(),
-                call_id: "call_1".to_string(),
-            },
-            ResponseItem::FunctionCallOutput {
-                call_id: "call_1".to_string(),
-                output: FunctionCallOutputPayload::from_text("ok".to_string()),
-            },
-        ]);
+        let messages = chat_messages_from_response_items(
+            &[
+                ResponseItem::Message {
+                    id: None,
+                    role: "user".to_string(),
+                    content: vec![ContentItem::InputText {
+                        text: "hi".to_string(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::Reasoning {
+                    id: "reasoning-1".to_string(),
+                    summary: Vec::new(),
+                    content: Some(vec![ReasoningItemContent::ReasoningText {
+                        text: "Need a directory listing.".to_string(),
+                    }]),
+                    encrypted_content: None,
+                },
+                ResponseItem::Message {
+                    id: None,
+                    role: "assistant".to_string(),
+                    content: vec![ContentItem::OutputText {
+                        text: "I'll inspect the directory.".to_string(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "shell_command".to_string(),
+                    namespace: None,
+                    arguments: r#"{"command":"Get-ChildItem"}"#.to_string(),
+                    call_id: "call_1".to_string(),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call_1".to_string(),
+                    output: FunctionCallOutputPayload::from_text("ok".to_string()),
+                },
+            ],
+            false,
+        );
 
         assert_eq!(
             messages,
@@ -239,47 +250,50 @@ mod tests {
 
     #[test]
     fn preserves_reasoning_content_for_parallel_tool_calls() {
-        let messages = chat_messages_from_response_items(&[
-            ResponseItem::Reasoning {
-                id: "reasoning-1".to_string(),
-                summary: Vec::new(),
-                content: Some(vec![ReasoningItemContent::ReasoningText {
-                    text: "Need two directory checks.".to_string(),
-                }]),
-                encrypted_content: None,
-            },
-            ResponseItem::Message {
-                id: None,
-                role: "assistant".to_string(),
-                content: vec![ContentItem::OutputText {
-                    text: "I'll inspect both locations.".to_string(),
-                }],
-                end_turn: None,
-                phase: None,
-            },
-            ResponseItem::FunctionCall {
-                id: None,
-                name: "shell_command".to_string(),
-                namespace: None,
-                arguments: r#"{"command":"Get-ChildItem src"}"#.to_string(),
-                call_id: "call_1".to_string(),
-            },
-            ResponseItem::FunctionCall {
-                id: None,
-                name: "shell_command".to_string(),
-                namespace: None,
-                arguments: r#"{"command":"Get-ChildItem tests"}"#.to_string(),
-                call_id: "call_2".to_string(),
-            },
-            ResponseItem::FunctionCallOutput {
-                call_id: "call_1".to_string(),
-                output: FunctionCallOutputPayload::from_text("src ok".to_string()),
-            },
-            ResponseItem::FunctionCallOutput {
-                call_id: "call_2".to_string(),
-                output: FunctionCallOutputPayload::from_text("tests ok".to_string()),
-            },
-        ]);
+        let messages = chat_messages_from_response_items(
+            &[
+                ResponseItem::Reasoning {
+                    id: "reasoning-1".to_string(),
+                    summary: Vec::new(),
+                    content: Some(vec![ReasoningItemContent::ReasoningText {
+                        text: "Need two directory checks.".to_string(),
+                    }]),
+                    encrypted_content: None,
+                },
+                ResponseItem::Message {
+                    id: None,
+                    role: "assistant".to_string(),
+                    content: vec![ContentItem::OutputText {
+                        text: "I'll inspect both locations.".to_string(),
+                    }],
+                    end_turn: None,
+                    phase: None,
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "shell_command".to_string(),
+                    namespace: None,
+                    arguments: r#"{"command":"Get-ChildItem src"}"#.to_string(),
+                    call_id: "call_1".to_string(),
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "shell_command".to_string(),
+                    namespace: None,
+                    arguments: r#"{"command":"Get-ChildItem tests"}"#.to_string(),
+                    call_id: "call_2".to_string(),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call_1".to_string(),
+                    output: FunctionCallOutputPayload::from_text("src ok".to_string()),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call_2".to_string(),
+                    output: FunctionCallOutputPayload::from_text("tests ok".to_string()),
+                },
+            ],
+            false,
+        );
 
         assert_eq!(messages.len(), 3);
         assert_eq!(
@@ -293,15 +307,41 @@ mod tests {
 
     #[test]
     fn drops_unpaired_reasoning_content() {
-        let messages = chat_messages_from_response_items(&[ResponseItem::Reasoning {
-            id: "reasoning-only".to_string(),
-            summary: Vec::new(),
-            content: Some(vec![ReasoningItemContent::ReasoningText {
-                text: "orphaned".to_string(),
-            }]),
-            encrypted_content: None,
-        }]);
+        let messages = chat_messages_from_response_items(
+            &[ResponseItem::Reasoning {
+                id: "reasoning-only".to_string(),
+                summary: Vec::new(),
+                content: Some(vec![ReasoningItemContent::ReasoningText {
+                    text: "orphaned".to_string(),
+                }]),
+                encrypted_content: None,
+            }],
+            false,
+        );
 
         assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn emits_empty_reasoning_field_for_disabled_thinking_tool_history() {
+        let messages = chat_messages_from_response_items(
+            &[
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "taskspace_control".to_string(),
+                    namespace: None,
+                    arguments: r#"{"action":"initialize_map"}"#.to_string(),
+                    call_id: "call_init".to_string(),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "call_init".to_string(),
+                    output: FunctionCallOutputPayload::from_text("ok".to_string()),
+                },
+            ],
+            true,
+        );
+
+        assert_eq!(messages[0]["reasoning_content"], json!(""));
+        assert_eq!(messages[0]["tool_calls"][0]["id"], json!("call_init"));
     }
 }

@@ -129,6 +129,15 @@ try {
     Assert-True ($health.OpenLeafNodeCount -eq 0) "healthy graph had open leaf nodes"
     $results.Add("healthy-direct: PASS")
 
+    $unixMilliseconds = New-TestObs @(
+        (New-TestNode "inspect" "inspect_code_context" "completed" "1784158601384" "1784158599383"),
+        (New-TestNode "impl" "implement_solution" "completed" "1784158613278" "1784158610592")
+    ) @((New-TestEdge "inspect" "impl"))
+    $health = Get-TaskspaceGraphHealth $unixMilliseconds
+    Assert-True ($health.EdgeOrderViolationCount -eq 0) "Unix millisecond event times were not ordered"
+    Assert-True ((ConvertFrom-TaskspaceEventTime "1784158601").Kind -eq [DateTimeKind]::Utc) "Unix second event time was not normalized to UTC"
+    $results.Add("unix-event-time: PASS")
+
     $transitiveOnly = New-TestObs @(
         (New-TestNode "parser" "inspect_code_context" "completed" "2026-05-30T00:01:00Z" "2026-05-30T00:00:10Z" @("agent-a")),
         (New-TestNode "pricing" "inspect_code_context" "completed" "2026-05-30T00:01:10Z" "2026-05-30T00:00:15Z" @("agent-b")),

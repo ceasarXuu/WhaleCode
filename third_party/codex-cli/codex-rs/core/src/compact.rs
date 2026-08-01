@@ -42,7 +42,7 @@ use codex_model_provider_info::ModelProviderInfo;
 
 pub const SUMMARIZATION_PROMPT: &str = include_str!("../templates/compact/prompt.md");
 pub const SUMMARY_PREFIX: &str = include_str!("../templates/compact/summary_prefix.md");
-pub(crate) const DEEPSEEK_COMPACT_MODEL: &str = "deepseek-v4-pro";
+pub(crate) const DEEPSEEK_COMPACT_MODEL: &str = "deepseek-v4-flash";
 const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
 const WHALE_COMPACT_PROMPT_APPENDIX: &str = r#"
 
@@ -72,7 +72,7 @@ pub(crate) enum InitialContextInjection {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CompactStrategy {
     OpenAiRemote,
-    DeepSeekPro,
+    DeepSeek,
     LocalFallback,
 }
 
@@ -80,7 +80,7 @@ impl CompactStrategy {
     pub(crate) fn telemetry_type(self) -> &'static str {
         match self {
             Self::OpenAiRemote => "remote",
-            Self::DeepSeekPro => "deepseek",
+            Self::DeepSeek => "deepseek",
             Self::LocalFallback => "local",
         }
     }
@@ -90,7 +90,7 @@ pub(crate) fn compact_strategy(provider: &ModelProviderInfo) -> CompactStrategy 
     if provider.supports_remote_compaction() {
         CompactStrategy::OpenAiRemote
     } else if provider.is_deepseek() {
-        CompactStrategy::DeepSeekPro
+        CompactStrategy::DeepSeek
     } else {
         CompactStrategy::LocalFallback
     }
@@ -110,7 +110,7 @@ pub(crate) fn compact_prompt_for_provider(
 
 fn compact_prompt_for_strategy(base_prompt: &str, strategy: CompactStrategy) -> String {
     match strategy {
-        CompactStrategy::DeepSeekPro => format!("{base_prompt}{WHALE_COMPACT_PROMPT_APPENDIX}"),
+        CompactStrategy::DeepSeek => format!("{base_prompt}{WHALE_COMPACT_PROMPT_APPENDIX}"),
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => base_prompt.to_string(),
     }
 }
@@ -214,16 +214,16 @@ async fn run_compact_task_inner(
     result
 }
 
-fn compact_strategy_model_label<'a>(strategy: CompactStrategy, source_model: &'a str) -> &'a str {
+fn compact_strategy_model_label(strategy: CompactStrategy, source_model: &str) -> &str {
     match strategy {
-        CompactStrategy::DeepSeekPro => DEEPSEEK_COMPACT_MODEL,
+        CompactStrategy::DeepSeek => DEEPSEEK_COMPACT_MODEL,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => source_model,
     }
 }
 
 fn compaction_implementation_for_strategy(strategy: CompactStrategy) -> CompactionImplementation {
     match strategy {
-        CompactStrategy::DeepSeekPro => CompactionImplementation::DeepseekPro,
+        CompactStrategy::DeepSeek => CompactionImplementation::Deepseek,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => {
             CompactionImplementation::Responses
         }
@@ -232,7 +232,7 @@ fn compaction_implementation_for_strategy(strategy: CompactStrategy) -> Compacti
 
 fn compaction_analytics_strategy_for_strategy(strategy: CompactStrategy) -> CompactionStrategy {
     match strategy {
-        CompactStrategy::DeepSeekPro => CompactionStrategy::DeepseekCompact,
+        CompactStrategy::DeepSeek => CompactionStrategy::DeepseekCompact,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => {
             CompactionStrategy::Memento
         }
@@ -244,7 +244,7 @@ async fn compact_sampling_turn_context(
     turn_context: &Arc<TurnContext>,
     strategy: CompactStrategy,
 ) -> Arc<TurnContext> {
-    if matches!(strategy, CompactStrategy::DeepSeekPro)
+    if matches!(strategy, CompactStrategy::DeepSeek)
         && turn_context.model_info.slug != DEEPSEEK_COMPACT_MODEL
     {
         Arc::new(
@@ -295,7 +295,7 @@ async fn run_compact_task_inner_impl(
     // request tracking)
     // survives retries within this compact turn.
 
-    loop {
+    let compact_output_items = loop {
         // Clone is required because of the loop
         let turn_input = history
             .clone()
@@ -320,7 +320,7 @@ async fn run_compact_task_inner_impl(
         .await;
 
         match attempt_result {
-            Ok(()) => {
+            Ok(output_items) => {
                 if truncated_count > 0 {
                     sess.notify_background_event(
                         turn_context.as_ref(),
@@ -330,7 +330,7 @@ async fn run_compact_task_inner_impl(
                     )
                     .await;
                 }
-                break;
+                break output_items;
             }
             Err(CodexErr::Interrupted) => {
                 return Err(CodexErr::Interrupted);
@@ -370,12 +370,13 @@ async fn run_compact_task_inner_impl(
                 }
             }
         }
-    }
+    };
 
     let trace_input_history = history.raw_items().to_vec();
     let history_snapshot = sess.clone_history().await;
     let history_items = history_snapshot.raw_items();
-    let summary_suffix = get_last_assistant_message_from_turn(history_items).unwrap_or_default();
+    let summary_suffix =
+        get_last_assistant_message_from_turn(&compact_output_items).unwrap_or_default();
     let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
     let user_messages = collect_user_messages(history_items);
 
@@ -407,8 +408,13 @@ async fn run_compact_task_inner_impl(
         input_history: &trace_input_history,
         replacement_history: &new_history,
     });
-    sess.replace_compacted_history(new_history, reference_context_item, compacted_item)
-        .await;
+    sess.replace_compacted_history(
+        turn_context.as_ref(),
+        new_history,
+        reference_context_item,
+        compacted_item,
+    )
+    .await;
     client_session.reset_websocket_session();
     sess.recompute_token_usage(&turn_context).await;
 
@@ -669,7 +675,7 @@ async fn drain_to_completed(
     turn_metadata_header: Option<&str>,
     compaction_id: &str,
     prompt: &Prompt,
-) -> CodexResult<()> {
+) -> CodexResult<Vec<ResponseItem>> {
     let compact_turn_id = format!("{}:compact:{compaction_id}", turn_context.sub_id);
     let inference_trace = sess.services.rollout_thread_trace.inference_trace_context(
         compact_turn_id,
@@ -688,6 +694,8 @@ async fn drain_to_completed(
             &inference_trace,
         )
         .await?;
+    // Compaction inference feeds the replacement checkpoint; it is not conversation history.
+    let mut output_items = Vec::new();
     loop {
         let maybe_event = stream.next().await;
         let Some(event) = maybe_event else {
@@ -698,8 +706,7 @@ async fn drain_to_completed(
         };
         match event {
             Ok(ResponseEvent::OutputItemDone(item)) => {
-                sess.record_into_history(std::slice::from_ref(&item), turn_context)
-                    .await;
+                output_items.push(item);
             }
             Ok(ResponseEvent::ServerReasoningIncluded(included)) => {
                 sess.set_server_reasoning_included(included).await;
@@ -710,7 +717,7 @@ async fn drain_to_completed(
             Ok(ResponseEvent::Completed { token_usage, .. }) => {
                 sess.update_token_usage_info(turn_context, token_usage.as_ref())
                     .await;
-                return Ok(());
+                return Ok(output_items);
             }
             Ok(_) => continue,
             Err(e) => return Err(e),

@@ -52,6 +52,7 @@ use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path::normalize_for_path_comparison;
 use schemars::JsonSchema;
@@ -73,6 +74,8 @@ const RESERVED_MODEL_PROVIDER_IDS: [&str; 5] = [
 pub struct ConfigToml {
     /// Optional override of model selection.
     pub model: Option<String>,
+    /// Projection delivery policy for TaskSpace sessions.
+    pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
 

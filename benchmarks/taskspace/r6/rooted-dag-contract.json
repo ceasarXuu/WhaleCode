@@ -1,0 +1,284 @@
+{
+  "schema_version": 1,
+  "contract_id": "taskspace-rooted-dag-v1",
+  "status": "phase_a_frozen",
+  "compatibility": "none",
+  "authority": {
+    "canonical_state": "taskspace_map",
+    "completion_source": "root_and_finish_node_states",
+    "agent_owns": [
+      "node_goal",
+      "graph_topology",
+      "node_selection",
+      "semantic_completion",
+      "final_summary"
+    ],
+    "runtime_owns": [
+      "invariant_validation",
+      "atomic_commit",
+      "mechanical_readiness",
+      "event_persistence",
+      "snapshot_replay",
+      "faithful_projection"
+    ],
+    "runtime_forbidden": [
+      "semantic_graph_inference",
+      "automatic_edge_repair",
+      "automatic_terminal_commit",
+      "runtime_generated_summary",
+      "next_action_advice",
+      "semantic_feedback_rewrite"
+    ]
+  },
+  "map": {
+    "required_fields": [
+      "id",
+      "root_node_id",
+      "finish_node_id",
+      "nodes",
+      "edges",
+      "revision"
+    ],
+    "node_roles": {
+      "task_root": {
+        "statuses": ["open", "closed"],
+        "initial_status": "open",
+        "terminal_status": "closed"
+      },
+      "work": {
+        "statuses": ["pending", "ready", "running", "blocked", "completed"],
+        "initial_statuses": ["pending", "ready"],
+        "terminal_status": "completed"
+      },
+      "finish": {
+        "statuses": ["pending", "ready", "closed"],
+        "initial_statuses": ["pending", "ready"],
+        "terminal_status": "closed",
+        "accepts_goal": false
+      }
+    },
+    "edge_semantics": "to_depends_on_from",
+    "separate_parent_relation_allowed": false,
+    "multiple_incoming_edges_allowed": true,
+    "multiple_outgoing_edges_allowed": true
+  },
+  "invariants": [
+    {
+      "code": "single_root",
+      "condition": "exactly_one_task_root_and_id_matches_root_node_id"
+    },
+    {
+      "code": "single_finish",
+      "condition": "exactly_one_finish_and_id_matches_finish_node_id"
+    },
+    {
+      "code": "root_is_only_source",
+      "condition": "root_indegree_zero_and_every_other_node_indegree_at_least_one"
+    },
+    {
+      "code": "finish_is_only_sink",
+      "condition": "finish_outdegree_zero_and_every_other_node_outdegree_at_least_one"
+    },
+    {
+      "code": "acyclic",
+      "condition": "directed_graph_contains_no_cycle_or_self_loop"
+    },
+    {
+      "code": "root_reaches_all",
+      "condition": "forward_traversal_from_root_visits_every_node"
+    },
+    {
+      "code": "all_reach_finish",
+      "condition": "reverse_traversal_from_finish_visits_every_node"
+    },
+    {
+      "code": "valid_references",
+      "condition": "node_ids_and_edges_unique_and_all_edge_endpoints_exist"
+    },
+    {
+      "code": "role_status_coherent",
+      "condition": "every_node_status_is_allowed_for_its_role"
+    },
+    {
+      "code": "finish_has_no_work_goal",
+      "condition": "finish_goal_is_always_empty"
+    },
+    {
+      "code": "terminal_is_manual",
+      "condition": "root_and_finish_close_only_in_agent_requested_terminal_transaction"
+    }
+  ],
+  "readiness": {
+    "task_root_predecessor_satisfied_when": "task_root_open",
+    "work_predecessor_satisfied_when": "work_completed",
+    "finish_as_predecessor_allowed": false,
+    "join_policy": "all_predecessors_satisfied",
+    "semantic_inference_allowed": false
+  },
+  "transitions": {
+    "task_root": [
+      {
+        "from": "open",
+        "to": "closed",
+        "trigger": "agent_terminal_transaction_only"
+      }
+    ],
+    "work": [
+      { "from": "pending", "to": "ready", "trigger": "mechanical_readiness" },
+      { "from": "ready", "to": "running", "trigger": "agent_bind" },
+      { "from": "running", "to": "completed", "trigger": "agent_complete" },
+      { "from": "running", "to": "blocked", "trigger": "agent_block" },
+      { "from": "blocked", "to": "ready", "trigger": "agent_unblock" }
+    ],
+    "finish": [
+      { "from": "pending", "to": "ready", "trigger": "mechanical_readiness" },
+      { "from": "ready", "to": "closed", "trigger": "agent_terminal_transaction_only" }
+    ],
+    "unlisted_transition_policy": "reject_without_commit"
+  },
+  "transactions": {
+    "initialize_map": {
+      "agent_required_fields": ["root", "finish", "work_nodes", "edges"],
+      "runtime_generated_fields": ["map_id", "revision", "event_ids"],
+      "validation": "full_candidate_graph_before_commit",
+      "commit": "all_or_none",
+      "runtime_may_generate_goals_or_edges": false
+    },
+    "mutate_graph": {
+      "agent_required_fields": ["expected_revision", "add_nodes", "add_edges", "remove_edges"],
+      "validation": "apply_to_clone_then_validate_full_candidate",
+      "commit": "all_or_none",
+      "partial_commit_allowed": false,
+      "runtime_edge_inference_allowed": false
+    },
+    "transition_node": {
+      "agent_required_fields": ["expected_revision", "node_id", "transition"],
+      "validation": "role_status_and_lease_preconditions",
+      "commit": "all_or_none"
+    },
+    "finish_end": {
+      "agent_required_fields": ["expected_revision", "final_summary"],
+      "target": "map.finish_node_id",
+      "preconditions": [
+        "finish_ready",
+        "root_open",
+        "graph_invariants_pass",
+        "no_running_or_blocked_required_work",
+        "final_summary_non_empty"
+      ],
+      "atomic_effects": [
+        "finish_ready_to_closed",
+        "root_open_to_closed",
+        "terminal_event_appended",
+        "revision_incremented"
+      ],
+      "runtime_generated_summary_allowed": false,
+      "automatic_trigger_allowed": false
+    }
+  },
+  "tool_contract_draft": {
+    "tool_name": "taskspace_control",
+    "actions": {
+      "initialize_map": {
+        "required": ["action", "root", "finish_identity", "work_nodes", "edges"],
+        "root_required": ["node_id", "goal", "source_refs"],
+        "finish_identity_required": ["id"],
+        "work_node_required": ["node_id", "goal"],
+        "edge_required": ["from", "to"]
+      },
+      "mutate_graph": {
+        "required": [
+          "action",
+          "expected_revision",
+          "add_nodes",
+          "add_edges",
+          "remove_edges"
+        ]
+      },
+      "transition_node": {
+        "required": ["action", "expected_revision", "node_id", "transition"]
+      },
+      "finish_end": {
+        "required": ["action", "expected_revision", "final_summary"]
+      }
+    },
+    "semantic_prompt_allowed": false,
+    "reasoning_parsing_allowed": false
+  },
+  "event_store": {
+    "canonical_events": [
+      "map_initialized",
+      "graph_mutation_committed",
+      "node_bound",
+      "node_blocked",
+      "node_completed",
+      "readiness_changed",
+      "terminal_committed",
+      "node_detail_expanded"
+    ],
+    "reducer_must_rebuild": [
+      "root_node_id",
+      "finish_node_id",
+      "nodes",
+      "edges",
+      "statuses",
+      "revision",
+      "terminal_summary_ref"
+    ],
+    "snapshot_is_authority": false,
+    "replay_deterministic": true
+  },
+  "projection": {
+    "always_visible": [
+      "root",
+      "finish",
+      "all_node_skeletons",
+      "all_edges",
+      "active_frontier",
+      "current_binding"
+    ],
+    "semantic_rewrite_allowed": false,
+    "next_action_hint_allowed": false,
+    "topology_pagination_allowed": false,
+    "detail_folding_requires_exact_ref": true
+  },
+  "stable_error_codes": [
+    "root_missing",
+    "multiple_roots",
+    "finish_missing",
+    "multiple_finishes",
+    "root_id_mismatch",
+    "finish_id_mismatch",
+    "finish_goal_not_empty",
+    "edge_endpoint_missing",
+    "duplicate_edge",
+    "self_loop",
+    "cycle_detected",
+    "non_root_zero_indegree",
+    "non_finish_zero_outdegree",
+    "node_unreachable_from_root",
+    "finish_unreachable_from_node",
+    "role_status_invalid",
+    "transition_invalid",
+    "stale_revision",
+    "finish_not_ready",
+    "unfinished_required_work",
+    "final_summary_empty",
+    "legacy_schema_unsupported"
+  ],
+  "error_result": {
+    "required_fields": ["code", "state_commit", "current_revision", "subjects"],
+    "state_commit_on_error": "none",
+    "strategy_advice_allowed": false
+  },
+  "legacy_rejected": [
+    "task_status_as_completion_authority",
+    "map_status_as_completion_authority",
+    "zero_edge_multi_node_map",
+    "implicit_root_from_zero_indegree_scan",
+    "implicit_finish_from_last_node",
+    "finish_node_ids_terminal_chain",
+    "create_node_without_atomic_rewire",
+    "snapshot_root_or_finish_inference"
+  ]
+}

@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "experiment_id": "r7-working-protocol-v1.0.4-required-next-call",
+  "generated_at": "2026-07-19T22:00:00+08:00",
+  "implementation_commit": "12e7f8e3e",
+  "observer_commit": "04ac1ba24",
+  "binary_sha256": "d7f996618551d18aae9e66f6c208c39734e760d3e3af86d2b88c0a622456eea4",
+  "protocol": {
+    "schema_version": "taskspace-core-working-protocol-v1",
+    "protocol_version": "1.0.4",
+    "rules_sha256": "6bec1ac8d0b1e2d3f84f2361622933066d0dbe3c25a4b562ab8a6f8c3d26448a"
+  },
+  "projection_policy": "map-request",
+  "evidence_level": "E2-candidate",
+  "evidence_limit": "Each Docker scenario was run once; results diagnose the repair but do not estimate population-level utility.",
+  "provider_probe": {
+    "artifact": "benchmarks/taskspace/r7/sibling-required-next-call-production-result.json",
+    "requests": 6,
+    "http_200": 6,
+    "expected_call_sequence": 6,
+    "control_shape_valid": 6,
+    "patch_json_valid": 6,
+    "patch_exact": 6
+  },
+  "runs": [
+    {
+      "scenario": "single-file-fast-fix",
+      "run_root": "target/r7-required-next-call-v104-validation/simple/single-file-fast-fix/20260719-214716-333",
+      "standard": {
+        "outcome": "solved",
+        "requests": 6,
+        "runtime_tools": 8,
+        "wall_seconds": 19.502,
+        "input_tokens": 42678,
+        "cached_input_tokens": 40704,
+        "uncached_input_tokens": 1974,
+        "output_tokens": 1692,
+        "request_2_plus_cache_hit_rate": 0.949575
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "requests": 11,
+        "runtime_tools": 11,
+        "wall_seconds": 31.028,
+        "input_tokens": 112480,
+        "cached_input_tokens": 101248,
+        "uncached_input_tokens": 11232,
+        "output_tokens": 2894,
+        "request_2_plus_cache_hit_rate": 0.964404,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_nodes": 0,
+        "control_calls": 6,
+        "control_failures": 0,
+        "required_call_declarations": 5,
+        "required_call_satisfied": 3,
+        "required_call_violations": 2
+      }
+    },
+    {
+      "scenario": "subscription-billing-repair",
+      "run_root": "target/r7-required-next-call-v104-validation/complex/subscription-billing-repair/20260719-214822-447",
+      "standard": {
+        "outcome": "solved",
+        "requests": 11,
+        "runtime_tools": 17,
+        "wall_seconds": 49.041,
+        "input_tokens": 110380,
+        "cached_input_tokens": 105600,
+        "uncached_input_tokens": 4780,
+        "output_tokens": 4694,
+        "request_2_plus_cache_hit_rate": 0.954777
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "requests": 25,
+        "runtime_tools": 32,
+        "wall_seconds": 104.983,
+        "input_tokens": 501116,
+        "cached_input_tokens": 490496,
+        "uncached_input_tokens": 10620,
+        "output_tokens": 11539,
+        "request_2_plus_cache_hit_rate": 0.978766,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_nodes": 0,
+        "control_calls": 9,
+        "control_failures": 2,
+        "required_call_declarations": 6,
+        "required_call_satisfied": 4,
+        "required_call_violations": 2,
+        "multi_patch_preflight_rejections": 1
+      }
+    }
+  ],
+  "acceptance": {
+    "both_scenarios_solved": true,
+    "public_and_hidden_validation_passed": true,
+    "same_response_control_patch_observed": true,
+    "patch_fidelity_restored": true,
+    "runtime_rewrite_or_inference_added": false,
+    "first_attempt_sibling_adoption_passed": false,
+    "request_efficiency_gate_passed": false
+  },
+  "conclusion": "The patch carrier repair is valid and does not split merged provider responses. Renaming the declaration to required_next_call improves the directed provider probe but is not sufficient to eliminate first-attempt sibling omissions in natural coding runs. Runtime preflight remains a faithful hard rule, while adoption efficiency stays open."
+}

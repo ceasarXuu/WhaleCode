@@ -1,0 +1,132 @@
+{
+  "schema_version": "taskspace-map-compression-strategy-ledger-v3",
+  "baseline_id": "R5-K-B0",
+  "selected_strategy_id": "S4",
+  "strategies": [
+    {
+      "id": "S1",
+      "name": "completed_inactive_leaf_batch_archive_projection",
+      "status": "abandoned",
+      "historical_outcome": "rejected_after_live_validation",
+      "superseded_by": "S4",
+      "relationship": "historical",
+      "previous": "R5-K-B0",
+      "single_behavior_delta": "In provider projection only, replace a deterministic batch of completed, inactive, edge-isolated leaf nodes with one reversible mechanical archive index.",
+      "eligibility": {
+        "minimum_node_count": 3,
+        "required_status": "completed",
+        "active_or_current_allowed": false,
+        "incident_edge_allowed": false,
+        "active_lease_allowed": false
+      },
+      "mechanical_fields": [
+        "archive_ref",
+        "covered_node_count",
+        "covered_node_ids_sha256",
+        "canonical_payload_sha256",
+        "terminal_status",
+        "result_refs"
+      ],
+      "primary_metric": {
+        "name": "activated_projection_bytes",
+        "candidate_previous_max_ratio": 0.9
+      },
+      "decision_reason": "A natural active-map prefix activated S1 in 3/3 runs and reduced projection bytes from 1963 to 856, but candidate median continuation requests, input tokens, and wall time were 1.50x, 1.68x, and 1.51x the matched previous version. The simple no-compaction sample also missed the preregistered 1.10x candidate/previous cost gate. The archive direction was later abandoned because removing nodes from the global projection conflicts with the TaskSpace global-map product contract.",
+      "result_document": "docs/v0.0.5/build-R5/48-r5-k3-s1-natural-prefix-result.md",
+      "next_required_evidence": "None. S1 must not be revised, re-enabled, or retained as a dormant fallback.",
+      "forbidden_co_changes": [
+        "canonical_action_map_schema",
+        "checkpoint_or_delta_format",
+        "replay_semantics",
+        "runtime_generated_natural_language_summary",
+        "semantic_relevance_ranking",
+        "global_skeleton_pagination",
+        "agent_state_transition",
+        "new_tool_action_or_schema"
+      ]
+    },
+    {
+      "id": "S2",
+      "name": "completed_linear_subgraph_archive_projection",
+      "status": "abandoned",
+      "historical_outcome": "never_implemented",
+      "superseded_by": "S4",
+      "relationship": "historical",
+      "single_behavior_delta": "Archive one completed linear connected subgraph while preserving explicit entry and exit edges.",
+      "decision_reason": "Abandoned before implementation because replacing a connected subgraph with an archive still removes canonical nodes from the always-visible global Map."
+    },
+    {
+      "id": "S3",
+      "name": "agent_checkpoint_boundary_archive",
+      "status": "abandoned",
+      "historical_outcome": "never_implemented",
+      "superseded_by": "S4",
+      "relationship": "historical",
+      "single_behavior_delta": "Use an Agent-authored checkpoint event as the visible semantic boundary for an otherwise mechanical archive.",
+      "decision_reason": "Abandoned before implementation because an Agent checkpoint does not correct the underlying loss of node-level global visibility and would make archive boundaries more semantically prominent."
+    },
+    {
+      "id": "S4",
+      "name": "distance_based_node_detail_fold_with_agent_expand",
+      "status": "s4_2_implementation_complete_live_benefit_unverified",
+      "historical_outcome": "S4.1_rejected_and_reverted; S4.2_redefined_on_user_correction",
+      "relationship": "replacement_for_S1_S2_S3",
+      "previous": "R5-K-B0",
+      "single_behavior_delta": "Keep B0-visible details unchanged, explicitly reference only the canonical details that B0 omits for eligible distance>=3 nodes, and let an Agent expansion event restore all node details permanently.",
+      "scope_limit": {
+        "optimization_target": "node_local_detail_projection_bytes",
+        "map_skeleton_bytes_reduced": false,
+        "ultimate_context_overflow_solved": false,
+        "future_skeleton_strategy": "out_of_scope"
+      },
+      "distance": {
+        "metric": "minimum_undirected_edge_distance_to_any_active_frontier_node",
+        "minimum_inclusive": 3,
+        "unknown_or_unreachable": "ineligible"
+      },
+      "eligibility": {
+        "required_status": "completed",
+        "root_allowed": false,
+        "active_or_current_allowed": false,
+        "active_lease_allowed": false,
+        "previously_expanded_allowed": false
+      },
+      "agent_transition": {
+        "tool": "taskspace_control",
+        "action": "expand_nodes",
+        "from": "folded_without_expansion_event",
+        "to": "expanded_with_canonical_NodeDetailExpanded_event",
+        "reverse_allowed": false,
+        "creation_override_allowed": false
+      },
+      "primary_metric": {
+        "name": "recoverable_hidden_detail_coverage",
+        "target": 1.0,
+        "zero_hidden_projection_vs_S4_0": "byte_identical",
+        "fold_profitability": "fold_marker_bytes_less_than_hidden_detail_bytes"
+      },
+      "design_document": "docs/v0.0.5/build-R5/49-r5-k3-s4-distance-fold-design.md",
+      "revision_design_document": "docs/v0.0.5/build-R5/51-r5-k3-s4-2-recoverable-tier-fold-design.md",
+      "contract": "benchmarks/taskspace/map-compression/s4-distance-fold-contract.json",
+      "result_document": "docs/v0.0.5/build-R5/52-r5-k3-s4-2-result.md",
+      "decision_reason": "The existing B0 projection already limits distance>=3 completed nodes to one ordinary D3 detail. S4 replaced that already-compressed line with detail state, distance, ref, and hash metadata. A five-node deterministic chain reduced the S4-internal projection by only 11 bytes, while the comparable S4.0 body was 79 bytes smaller than S4.1. The natural active-prefix had zero dependency edges and zero live folds in 3/3 runs; the zero-activation wall median was 1.161x S4.0. S4.1 was reverted as one unit.",
+      "revision_reason": "S4.2 treats B0 D3 as the visible subset and folds only the canonical details omitted by B0. It adds no marker when nothing is hidden, exposes one content-addressed ref without duplicate hash, and expansion restores all node detail refs.",
+      "s4_2_result": "Deterministic fold/expand and zero-hidden byte parity passed. Natural active-prefix and fresh simple/complex runs had zero dependency edges or zero eligible nodes, so live Agent benefit remains unverified and K4 is blocked.",
+      "implementation_gate": "Keep the B0-visible detail set unchanged; enable hidden-detail marker, Agent expansion, immediate restored refs, and expanded full-detail projection as one provider-visible contract.",
+      "forbidden_co_changes": [
+        "node_importance_attribute",
+        "runtime_semantic_relevance_ranking",
+        "runtime_generated_natural_language_summary",
+        "node_or_edge_removal_from_projection",
+        "archive_or_macro_replacement",
+        "global_skeleton_pagination",
+        "expanded_state_at_node_creation",
+        "agent_or_runtime_refold_action",
+        "expansion_event_deletion_or_reset",
+        "skeleton_overflow_strategy",
+        "compatibility_adapter",
+        "long_lived_feature_flag"
+      ]
+    }
+  ]
+}

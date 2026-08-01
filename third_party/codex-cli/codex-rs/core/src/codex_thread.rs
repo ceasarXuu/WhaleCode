@@ -175,8 +175,8 @@ impl CodexThread {
         self.codex.set_thread_memory_mode(mode).await
     }
 
-    pub async fn action_map_snapshot(&self) -> ActionMapSnapshot {
-        self.codex.session.action_map_snapshot().await
+    pub async fn action_map_snapshot(&self) -> Result<ActionMapSnapshot, String> {
+        self.codex.session.canonical_action_map_snapshot().await
     }
 
     pub async fn steer_input(

@@ -102,7 +102,7 @@ fs.mkdirSync(snapshotDir, { recursive: true });
 let out = '', viewerUrl = null, fetchError = '', browserError = '', browserVersion = '';
 let pageOk = false, graphUiOk = false, stateUiOk = false, initialEmptySnapshotOk = false;
 let snapshotOk = false, activeMapId = '', snapshotMode = '', mapCount = 0, nodeCount = 0, edgeCount = 0, resultCount = 0;
-let entered = false, taskspaceSent = false, rebornSent = false, showSent = false, promptSent = false, finalShowSent = false, exited = false;
+let entered = false, taskspaceSent = false, showSent = false, promptSent = false, finalShowSent = false, exited = false;
 let browserRunning = false, browserInteractionStarted = false, browserInteractionOk = false, browserAttempts = 0;
 let detailStateOk = false, selectionStateOk = false, graphZoomOk = false, graphPanOk = false, graphTransformOk = false;
 let refreshDuringDetailOk = false, refreshDuringGraphOk = false, refreshDuringSelectionOk = false;
@@ -152,7 +152,7 @@ async function probeViewer() {
     const json = await (await fetch(viewerUrl + 'snapshot.json', { cache: 'no-store' })).json();
     const s = stats(json.snapshot);
     applyStats(s);
-    if (!rebornSent && json.ok === true && s.mode === 'experiment' && s.mapCount === 0 && !s.activeMapId) {
+    if (json.ok === true && s.mode === 'experiment' && s.mapCount === 0 && !s.activeMapId) {
       initialEmptySnapshotOk = true;
       saveJson('node-initial-empty-snapshot', json);
     }
@@ -303,8 +303,7 @@ const timer = setInterval(async () => {
   const elapsed = Date.now() - startedAt;
   if (!entered && elapsed > 2500) { entered = true; term.write('\r'); }
   if (!taskspaceSent && elapsed > 8000) { taskspaceSent = true; cmd('/taskspace'); }
-  if (viewerUrl && pageOk && initialEmptySnapshotOk && !rebornSent) { rebornSent = true; cmd('/task-reborn'); }
-  if (rebornSent && !promptSent && elapsed > 13000) { promptSent = true; cmd(markerPrompt); }
+  if (viewerUrl && pageOk && initialEmptySnapshotOk && !promptSent && elapsed > 13000) { promptSent = true; cmd(markerPrompt); }
   if (snapshotOk && promptSent && !showSent) { showSent = true; cmd('/task-show'); }
   if (assistantMarkerObserved() && !finalShowSent) { finalShowSent = true; cmd('/task-show'); }
   const pass = viewerUrl && pageOk && browserInteractionOk && initialEmptySnapshotOk && snapshotOk && assistantMarkerObserved() && !out.includes('Not available in TUI yet');

@@ -10,9 +10,12 @@ use codex_exec_server::ExecutorFileSystem;
 use codex_login::CodexAuth;
 use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::load_default_config_for_test;
@@ -142,6 +145,89 @@ async fn user_turn_includes_skill_instructions() -> Result<()> {
         }),
         "expected skill instructions in user input, got {user_texts:?}"
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn taskspace_explicit_skill_mention_injects_the_pinned_snapshot() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
+        })
+        .build(&server)
+        .await?;
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    core_test_support::wait_for_event(test.codex.as_ref(), |event| {
+        matches!(event, EventMsg::MapRuntime(_))
+    })
+    .await;
+
+    let snapshots_root = test.codex_home_path().join("skills/.system/.snapshots");
+    let snapshot_hash_dir = fs::read_dir(&snapshots_root)?
+        .next()
+        .transpose()?
+        .expect("TaskSpace snapshot hash directory")
+        .path();
+    let skill_path = snapshot_hash_dir.join("taskspace-advanced/SKILL.md");
+    let skill_body = fs::read_to_string(&skill_path)?;
+
+    let mock = mount_sse_once(
+        &server,
+        sse(vec![
+            ev_response_created("resp-taskspace-skill"),
+            ev_assistant_message("msg-taskspace-skill", "done"),
+            ev_completed("resp-taskspace-skill"),
+        ]),
+    )
+    .await;
+    let session_model = test.session_configured.model.clone();
+    test.codex
+        .submit(Op::UserTurn {
+            environments: None,
+            items: vec![
+                UserInput::Text {
+                    text: "use the selected advanced workflow".to_string(),
+                    text_elements: Vec::new(),
+                },
+                UserInput::Skill {
+                    name: "taskspace-advanced".to_string(),
+                    path: skill_path.clone(),
+                },
+            ],
+            final_output_json_schema: None,
+            cwd: test.config.cwd.to_path_buf(),
+            approval_policy: AskForApproval::Never,
+            approvals_reviewer: None,
+            sandbox_policy: SandboxPolicy::DangerFullAccess,
+            permission_profile: None,
+            model: session_model,
+            effort: None,
+            summary: None,
+            service_tier: None,
+            collaboration_mode: None,
+            personality: None,
+        })
+        .await?;
+
+    core_test_support::wait_for_event(test.codex.as_ref(), |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+    let request = mock.single_request();
+    let skill_path_text = skill_path.to_string_lossy();
+    assert!(request.message_input_texts("user").iter().any(|text| {
+        text.contains("<skill>\n<name>taskspace-advanced</name>")
+            && text.contains(skill_path_text.as_ref())
+            && text.contains(&skill_body)
+    }));
 
     Ok(())
 }

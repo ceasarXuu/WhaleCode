@@ -1,0 +1,43 @@
+{
+  "contract_id": "r7-five-layer-lifecycle-golden-v1",
+  "fixture_outputs": {
+    "revision_4": {
+      "canonical_sha256": "96ddd195ccd7fd3069420544092b8a7096a1c3345809312bf0a2e3da5a81b170",
+      "map_always": {
+        "carrier": "ephemeral_current_projection",
+        "sha256": "a5b8cfcc4f1cc80e24e0c58f41af8a66fdc3ca2e74429ac11bc49533545699d6",
+        "text": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: map-42\n- revision: 4\n- canonical_sha256: 96ddd195ccd7fd3069420544092b8a7096a1c3345809312bf0a2e3da5a81b170\n- root_node_id: root-task\n- finish_node_id: finish\n- complete: false\n  root_source_event_ids:\n    - user-turn-1\n- current_node: implement\n  active_frontier:\n    - implement\n  map_nodes:\n    - root-task role=task_root status=open goal=\"Repair subscription cache invalidation and add regression coverage\" result_ids=none event_count=0\n    - investigate role=work status=completed goal=\"Identify the root cause\" result_ids=none event_count=0\n    - implement role=work status=running goal=\"Implement the selected fix\" result_ids=none event_count=0\n    - verify role=work status=pending goal=\"Run focused regression validation\" result_ids=none event_count=0\n    - finish role=finish status=pending goal=\"\" result_ids=none event_count=0\n  map_edges:\n    - implement->verify\n    - investigate->implement\n    - root-task->investigate\n    - verify->finish\n  node_details:\n    - none\nTaskSpaceMapProjectionR7V1 end.\n"
+      },
+      "map_append": {
+        "carrier": "persisted_request_snapshot",
+        "sha256": "d3f94d664d1f359d51d0dfd9a7b009cce329a7d6bcef03305eee27083ec07041",
+        "text": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-42\n- revision: 4\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: 96ddd195ccd7fd3069420544092b8a7096a1c3345809312bf0a2e3da5a81b170\n- root_node_id: root-task\n- finish_node_id: finish\n- complete: false\n  root_source_event_ids:\n    - user-turn-1\n- current_node: implement\n  active_frontier:\n    - implement\n  map_nodes:\n    - root-task role=task_root status=open goal=\"Repair subscription cache invalidation and add regression coverage\" result_ids=none event_count=0\n    - investigate role=work status=completed goal=\"Identify the root cause\" result_ids=none event_count=0\n    - implement role=work status=running goal=\"Implement the selected fix\" result_ids=none event_count=0\n    - verify role=work status=pending goal=\"Run focused regression validation\" result_ids=none event_count=0\n    - finish role=finish status=pending goal=\"\" result_ids=none event_count=0\n  map_edges:\n    - implement->verify\n    - investigate->implement\n    - root-task->investigate\n    - verify->finish\n  node_details:\n    - none\nTaskSpaceMapProjectionR7V1 end.\n"
+      },
+      "map_request": {
+        "carrier": "ephemeral_map_handle",
+        "sha256": "f840d9556fa9ed250ee27950215e4904cd69d95aa87359f1d087f8e4cedc7aa7",
+        "text": "TaskSpaceMapHandleR7V1:\n- schema_version: taskspace-map-handle-r7-v1\n- taskspace_active: true\n- map_id: map-42\n- revision: 4\n- bootstrap_required: false\n- available_read_action: taskspace_control.read_map\nTaskSpaceMapHandleR7V1 end.\n"
+      }
+    },
+    "revision_5": {
+      "canonical_sha256": "756adf1fa6ebc6a6104480c19d0e6e6f11042e7cc595040a05a7837fef97074a",
+      "map_always": {
+        "carrier": "ephemeral_current_projection",
+        "sha256": "9bbedeeaabd1c8bb6dba5b26c5dab2c720da7b344ba667028f8e9c287600297f",
+        "text": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: map-42\n- revision: 5\n- canonical_sha256: 756adf1fa6ebc6a6104480c19d0e6e6f11042e7cc595040a05a7837fef97074a\n- root_node_id: root-task\n- finish_node_id: finish\n- complete: false\n  root_source_event_ids:\n    - user-turn-1\n- current_node: verify\n  active_frontier:\n    - verify\n  map_nodes:\n    - root-task role=task_root status=open goal=\"Repair subscription cache invalidation and add regression coverage\" result_ids=none event_count=0\n    - investigate role=work status=completed goal=\"Identify the root cause\" result_ids=none event_count=0\n    - implement role=work status=completed goal=\"Implement the selected fix\" result_ids=none event_count=0\n    - verify role=work status=running goal=\"Run focused regression validation\" result_ids=none event_count=0\n    - finish role=finish status=pending goal=\"\" result_ids=none event_count=0\n  map_edges:\n    - implement->verify\n    - investigate->implement\n    - root-task->investigate\n    - verify->finish\n  node_details:\n    - none\nTaskSpaceMapProjectionR7V1 end.\n"
+      },
+      "map_append": {
+        "carrier": "persisted_request_snapshot",
+        "sha256": "42699ded2db2bf322812bd2406fd8e8265c18bfdaef98f569f31187d892b9d71",
+        "text": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-42\n- revision: 5\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: 756adf1fa6ebc6a6104480c19d0e6e6f11042e7cc595040a05a7837fef97074a\n- root_node_id: root-task\n- finish_node_id: finish\n- complete: false\n  root_source_event_ids:\n    - user-turn-1\n- current_node: verify\n  active_frontier:\n    - verify\n  map_nodes:\n    - root-task role=task_root status=open goal=\"Repair subscription cache invalidation and add regression coverage\" result_ids=none event_count=0\n    - investigate role=work status=completed goal=\"Identify the root cause\" result_ids=none event_count=0\n    - implement role=work status=completed goal=\"Implement the selected fix\" result_ids=none event_count=0\n    - verify role=work status=running goal=\"Run focused regression validation\" result_ids=none event_count=0\n    - finish role=finish status=pending goal=\"\" result_ids=none event_count=0\n  map_edges:\n    - implement->verify\n    - investigate->implement\n    - root-task->investigate\n    - verify->finish\n  node_details:\n    - none\nTaskSpaceMapProjectionR7V1 end.\n"
+      },
+      "map_request": {
+        "carrier": "ephemeral_map_handle",
+        "sha256": "8e992ea0b3636d81fee1342e11dde4e474f0b619c11cbad9bf9f40c17263f073",
+        "text": "TaskSpaceMapHandleR7V1:\n- schema_version: taskspace-map-handle-r7-v1\n- taskspace_active: true\n- map_id: map-42\n- revision: 5\n- bootstrap_required: false\n- available_read_action: taskspace_control.read_map\nTaskSpaceMapHandleR7V1 end.\n"
+      }
+    }
+  },
+  "schema_version": 1,
+  "source_contract_id": "r7-five-layer-lifecycle-oracles-v1"
+}

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-phase-c-tool-choice-thinking-ablation",
+  "status": "complete_bootstrap_first_action_not_preserved",
+  "generated_at": "2026-07-19T02:35:00+08:00",
+  "production_commit": "e95b5e262",
+  "changes": {
+    "taskspace_tool_choice": "auto_for_all_lifecycle_states",
+    "named_or_required_tool_choice_disables_thinking": false,
+    "state_machine_hard_gates_changed": false,
+    "tool_surface_changed": false
+  },
+  "verification": {
+    "payload_captures": 92,
+    "auto_tool_choice_payloads": 92,
+    "tool_choice_transitions": 0,
+    "first_requests_with_nonzero_reasoning_tokens": 6,
+    "targeted_tests": "passed",
+    "codex_api_tests": "passed",
+    "build": "passed"
+  },
+  "bootstrap": {
+    "taskspace_runs": 6,
+    "eventual_initialize_success": 6,
+    "single_initialize_attempt": 6,
+    "repeated_initialize_attempts": 0,
+    "initialize_on_first_request": 0,
+    "initialize_on_second_request": 6,
+    "ordinary_actions_before_initialize": [
+      2,
+      1,
+      2,
+      1,
+      1,
+      1
+    ],
+    "ordinary_action_failure_code": "no_task_path",
+    "conclusion": "eventually_stable_but_consistently_one_request_late"
+  },
+  "scenarios": [
+    {
+      "scenario_id": "single-file-fast-fix",
+      "repeats": 3,
+      "solved": 3,
+      "provider_requests": 44,
+      "input_tokens": 726242,
+      "cached_input_tokens": 674816,
+      "uncached_input_tokens": 51426,
+      "output_tokens": 10300,
+      "wall_time_ms": 114520,
+      "request_2_plus_cache_hit_rate": 0.927435,
+      "first_request_reasoning_tokens": [
+        32,
+        24,
+        29
+      ],
+      "run_roots": [
+        "target/r7-phase-c/auto-control-ablation/simple/single-file-fast-fix/20260719-021930-018",
+        "target/r7-phase-c/auto-control-ablation/simple-supplement/single-file-fast-fix/20260719-022322-602"
+      ]
+    },
+    {
+      "scenario_id": "subscription-billing-repair",
+      "repeats": 3,
+      "solved": 3,
+      "provider_requests": 48,
+      "input_tokens": 967666,
+      "cached_input_tokens": 907776,
+      "uncached_input_tokens": 59890,
+      "output_tokens": 20228,
+      "wall_time_ms": 167703,
+      "request_2_plus_cache_hit_rate": 0.937212,
+      "first_request_reasoning_tokens": [
+        26,
+        54,
+        25
+      ],
+      "run_root": "target/r7-phase-c/auto-control-ablation/complex/subscription-billing-repair/20260719-022518-908"
+    }
+  ],
+  "decision": {
+    "eventual_bootstrap_gate": "passed",
+    "first_request_bootstrap_gate": "failed",
+    "phase_d_status": "awaiting_bootstrap_behavior_decision"
+  }
+}

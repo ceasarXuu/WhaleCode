@@ -283,13 +283,18 @@ fn test_built_in_model_providers_include_amazon_bedrock() {
 #[test]
 fn test_built_in_model_providers_include_deepseek() {
     let providers = built_in_model_providers(/*openai_base_url*/ None);
+    let deepseek = providers
+        .get(DEEPSEEK_PROVIDER_ID)
+        .expect("built-in DeepSeek provider");
 
+    assert!(deepseek.is_deepseek());
+    assert_eq!(deepseek.wire_api, WireApi::Responses);
     assert_eq!(
-        providers
-            .get(DEEPSEEK_PROVIDER_ID)
-            .map(ModelProviderInfo::is_deepseek),
-        Some(true)
+        deepseek.base_url.as_deref(),
+        Some(DEEPSEEK_DEFAULT_BASE_URL)
     );
+    assert!(!deepseek.requires_openai_auth);
+    assert!(!deepseek.supports_websockets);
 }
 
 #[test]

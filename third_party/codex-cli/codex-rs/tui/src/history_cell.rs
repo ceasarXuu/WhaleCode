@@ -52,6 +52,7 @@ use codex_config::types::McpServerTransportConfig;
 use codex_mcp::qualified_mcp_tool_name_prefix;
 use codex_otel::RuntimeMetricsSummary;
 use codex_protocol::account::PlanType;
+use codex_protocol::exec_output::ExecOutcome;
 #[cfg(test)]
 use codex_protocol::mcp::Resource;
 #[cfg(test)]
@@ -2719,7 +2720,8 @@ pub(crate) fn new_patch_apply_failure(stderr: String) -> PlainHistoryCell {
     if !stderr.trim().is_empty() {
         let output = output_lines(
             Some(&CommandOutput {
-                exit_code: 1,
+                shell_exit_code: Some(1),
+                outcome: ExecOutcome::Exited,
                 formatted_output: String::new(),
                 aggregated_output: stderr,
             }),
@@ -4512,7 +4514,8 @@ mod tests {
         cell.complete_call(
             &call_id,
             CommandOutput {
-                exit_code: 1,
+                shell_exit_code: Some(1),
+                outcome: ExecOutcome::Exited,
                 formatted_output: String::new(),
                 aggregated_output: stderr,
             },
@@ -4560,7 +4563,8 @@ mod tests {
         cell.complete_call(
             &call_id,
             CommandOutput {
-                exit_code: 1,
+                shell_exit_code: Some(1),
+                outcome: ExecOutcome::Exited,
                 formatted_output: String::new(),
                 aggregated_output: stderr,
             },

@@ -24,15 +24,20 @@ pub use codex_core_skills::SkillPolicy;
 pub use codex_core_skills::SkillRenderReport;
 pub use codex_core_skills::SkillsLoadInput;
 pub use codex_core_skills::SkillsManager;
+pub use codex_core_skills::TASKSPACE_ADVANCED_SKILL_NAME;
+pub use codex_core_skills::TASKSPACE_ADVANCED_SKILL_VERSION;
+pub use codex_core_skills::TaskSpaceSkillSnapshot;
 pub use codex_core_skills::build_available_skills;
 pub use codex_core_skills::build_skill_name_counts;
 pub use codex_core_skills::collect_env_var_dependencies;
 pub use codex_core_skills::config_rules;
+pub use codex_core_skills::create_taskspace_advanced_snapshot;
 pub use codex_core_skills::default_skill_metadata_budget;
 pub use codex_core_skills::detect_implicit_skill_invocation_for_command;
 pub use codex_core_skills::filter_skill_load_outcome_for_product;
 pub use codex_core_skills::injection;
 pub use codex_core_skills::injection::SkillInjections;
+pub use codex_core_skills::injection::SkillLoadFailure;
 pub use codex_core_skills::injection::build_skill_injections;
 pub use codex_core_skills::injection::collect_explicit_skill_mentions;
 pub use codex_core_skills::loader;
@@ -175,16 +180,16 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
     turn_context: &TurnContext,
     command: &str,
     workdir: &AbsolutePathBuf,
-) {
+) -> Option<SkillMetadata> {
     let Some(candidate) = detect_implicit_skill_invocation_for_command(
         turn_context.turn_skills.outcome.as_ref(),
         command,
         workdir,
     ) else {
-        return;
+        return None;
     };
     let invocation = SkillInvocation {
-        skill_name: candidate.name,
+        skill_name: candidate.name.clone(),
         skill_scope: candidate.scope,
         skill_path: candidate.path_to_skills_md.to_path_buf(),
         invocation_type: InvocationType::Implicit,
@@ -207,7 +212,7 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
         seen_skills.insert(seen_key)
     };
     if !inserted {
-        return;
+        return Some(candidate);
     }
 
     turn_context.session_telemetry.counter(
@@ -229,4 +234,5 @@ pub(crate) async fn maybe_emit_implicit_skill_invocation(
             ),
             vec![invocation],
         );
+    Some(candidate)
 }

@@ -58,6 +58,8 @@ async fn extract_metadata_from_rollout_uses_session_meta() {
         base_instructions: None,
         dynamic_tools: None,
         memory_mode: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
     };
     let session_meta_line = SessionMetaLine {
         meta: session_meta,
@@ -109,6 +111,8 @@ async fn extract_metadata_from_rollout_returns_latest_memory_mode() {
         base_instructions: None,
         dynamic_tools: None,
         memory_mode: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
     };
     let polluted_meta = SessionMeta {
         memory_mode: Some("polluted".to_string()),
@@ -371,6 +375,8 @@ fn write_rollout_in_sessions_with_cwd(
         base_instructions: None,
         dynamic_tools: None,
         memory_mode: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
     };
     let session_meta_line = SessionMetaLine {
         meta: session_meta,

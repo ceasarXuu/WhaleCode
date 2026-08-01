@@ -65,6 +65,14 @@ use codex_state::StateRuntime;
 use codex_state::ThreadMetadataBuilder;
 use codex_utils_path as path_utils;
 
+/// One immutable file read and its parsed rollout items.
+pub struct LoadedRolloutSource {
+    pub raw_bytes: Vec<u8>,
+    pub items: Vec<RolloutItem>,
+    pub thread_id: Option<ThreadId>,
+    pub parse_errors: usize,
+}
+
 /// Records all [`ResponseItem`]s for a session and flushes them to disk after
 /// every update.
 ///
@@ -91,6 +99,8 @@ pub enum RolloutRecorderParams {
         source: SessionSource,
         base_instructions: BaseInstructions,
         dynamic_tools: Vec<DynamicToolSpec>,
+        taskspace_projection_policy: Option<codex_protocol::protocol::TaskSpaceProjectionPolicy>,
+        taskspace_skill_snapshot: Option<codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity>,
         event_persistence_mode: EventPersistenceMode,
     },
     Resume {
@@ -167,6 +177,8 @@ impl RolloutRecorderParams {
         source: SessionSource,
         base_instructions: BaseInstructions,
         dynamic_tools: Vec<DynamicToolSpec>,
+        taskspace_projection_policy: Option<codex_protocol::protocol::TaskSpaceProjectionPolicy>,
+        taskspace_skill_snapshot: Option<codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity>,
         event_persistence_mode: EventPersistenceMode,
     ) -> Self {
         Self::Create {
@@ -175,6 +187,8 @@ impl RolloutRecorderParams {
             source,
             base_instructions,
             dynamic_tools,
+            taskspace_projection_policy,
+            taskspace_skill_snapshot,
             event_persistence_mode,
         }
     }
@@ -646,6 +660,8 @@ impl RolloutRecorder {
                     source,
                     base_instructions,
                     dynamic_tools,
+                    taskspace_projection_policy,
+                    taskspace_skill_snapshot,
                     event_persistence_mode,
                 } => {
                     let log_file_info = precompute_log_file_info(config, conversation_id)?;
@@ -681,6 +697,8 @@ impl RolloutRecorder {
                         },
                         memory_mode: (!config.generate_memories())
                             .then_some("disabled".to_string()),
+                        taskspace_projection_policy,
+                        taskspace_skill_snapshot,
                     };
 
                     (
@@ -835,11 +853,11 @@ impl RolloutRecorder {
         })?
     }
 
-    pub async fn load_rollout_items(
-        path: &Path,
-    ) -> std::io::Result<(Vec<RolloutItem>, Option<ThreadId>, usize)> {
+    pub async fn load_rollout_source(path: &Path) -> std::io::Result<LoadedRolloutSource> {
         trace!("Resuming rollout from {path:?}");
-        let text = tokio::fs::read_to_string(path).await?;
+        let raw_bytes = tokio::fs::read(path).await?;
+        let text = std::str::from_utf8(&raw_bytes)
+            .map_err(|error| IoError::new(std::io::ErrorKind::InvalidData, error))?;
         if text.trim().is_empty() {
             return Err(IoError::other("empty session file"));
         }
@@ -847,14 +865,14 @@ impl RolloutRecorder {
         let mut items: Vec<RolloutItem> = Vec::new();
         let mut thread_id: Option<ThreadId> = None;
         let mut parse_errors = 0usize;
-        for line in text.lines() {
+        for (line_index, line) in text.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
             let v: Value = match serde_json::from_str(line) {
                 Ok(v) => v,
                 Err(e) => {
-                    warn!("failed to parse line as JSON: {line:?}, error: {e}");
+                    warn!(line_number = line_index + 1, error = %e, "failed to parse rollout JSON line");
                     parse_errors = parse_errors.saturating_add(1);
                     continue;
                 }
@@ -885,7 +903,7 @@ impl RolloutRecorder {
                     }
                 },
                 Err(e) => {
-                    trace!("failed to parse rollout line: {e}");
+                    trace!(line_number = line_index + 1, error = %e, "failed to parse rollout line");
                     parse_errors = parse_errors.saturating_add(1);
                 }
             }
@@ -897,11 +915,28 @@ impl RolloutRecorder {
             thread_id,
             parse_errors,
         );
-        Ok((items, thread_id, parse_errors))
+        Ok(LoadedRolloutSource {
+            raw_bytes,
+            items,
+            thread_id,
+            parse_errors,
+        })
+    }
+
+    pub async fn load_rollout_items(
+        path: &Path,
+    ) -> std::io::Result<(Vec<RolloutItem>, Option<ThreadId>, usize)> {
+        let loaded = Self::load_rollout_source(path).await?;
+        Ok((loaded.items, loaded.thread_id, loaded.parse_errors))
     }
 
     pub async fn get_rollout_history(path: &Path) -> std::io::Result<InitialHistory> {
-        let (items, thread_id, _parse_errors) = Self::load_rollout_items(path).await?;
+        let (items, thread_id, parse_errors) = Self::load_rollout_items(path).await?;
+        if parse_errors > 0 {
+            return Err(IoError::other(format!(
+                "rollout contains {parse_errors} parse errors"
+            )));
+        }
         let conversation_id = thread_id
             .ok_or_else(|| IoError::other("failed to parse thread ID from rollout file"))?;
 

@@ -1,0 +1,175 @@
+{
+  "schema_version": "r7-phase-d-result-v1",
+  "result_id": "r7-phase-d-map-request",
+  "generated_at": "2026-07-19T05:10:00+08:00",
+  "status": "engineering_complete_product_finding_open",
+  "phase_e_started": false,
+  "commits": {
+    "production": "148f1d816",
+    "observer": "8202c3a1a"
+  },
+  "execution": {
+    "model": "deepseek-v4-flash",
+    "reasoning_effort": "max",
+    "substrate": "docker_hard_boundary",
+    "repeats_per_arm": 1,
+    "binary_sha256": "3f4611ce78fd91fbd56976c2e0f7e9e8c0fb302a9278da7d2f0a593753f628a7"
+  },
+  "implementation": {
+    "shared_read_map_schema": true,
+    "shared_renderer": true,
+    "ordinary_request_emission": "none",
+    "explicit_read_emission": "tool_result",
+    "initial_context": "mechanical_map_handle",
+    "runtime_auto_read": false,
+    "runtime_read_reminder": false,
+    "runtime_semantic_correction": false,
+    "hard_gates_changed": false
+  },
+  "gates": {
+    "automatic_projection_zero": "passed",
+    "explicit_read_current_revision_hash": "passed",
+    "bypass_rejected": "passed",
+    "legal_unread_actions_no_policy_rejection": "passed",
+    "no_automatic_read_reminder_or_correction": "passed",
+    "simple_correctness_and_closure": "passed",
+    "complex_correctness_and_closure": "mixed_terminal_protocol_failure"
+  },
+  "scenarios": [
+    {
+      "scenario_id": "single-file-fast-fix",
+      "run_root": "target/r7-phase-d/request/simple/single-file-fast-fix/20260719-045253-348",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 7,
+        "ordinary_tools": 9,
+        "control_tools": 0,
+        "wall_time_ms": 16126,
+        "input_tokens": 49826,
+        "cached_input_tokens": 47744,
+        "uncached_input_tokens": 2082,
+        "output_tokens": 1731,
+        "request_2_plus_cache_hit_rate": 0.955267,
+        "message_prefix_preserved_rate": 1.0
+      },
+      "frozen_r6": {
+        "outcome": "solved",
+        "provider_requests": 19,
+        "ordinary_tools": 9,
+        "control_tools": 9,
+        "wall_time_ms": 46554,
+        "input_tokens": 231221,
+        "cached_input_tokens": 207744,
+        "uncached_input_tokens": 23477,
+        "output_tokens": 4499,
+        "request_2_plus_cache_hit_rate": 0.89735,
+        "message_prefix_preserved_rate": 0.888889,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0
+      },
+      "map_request": {
+        "outcome": "solved",
+        "provider_requests": 12,
+        "ordinary_tools": 10,
+        "control_tools": 9,
+        "wall_time_ms": 28458,
+        "input_tokens": 131219,
+        "cached_input_tokens": 119424,
+        "uncached_input_tokens": 11795,
+        "output_tokens": 3138,
+        "request_2_plus_cache_hit_rate": 0.964154,
+        "message_prefix_preserved_rate": 1.0,
+        "automatic_projection_count_max": 0,
+        "read_map_requests": 1,
+        "read_map_completions": 1,
+        "read_map_failures": 0,
+        "read_map_repeated_revisions": 0,
+        "read_map_revision_lag_max": 0,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0
+      }
+    },
+    {
+      "scenario_id": "subscription-billing-repair",
+      "run_root": "target/r7-phase-d/request/complex/subscription-billing-repair/20260719-045442-647",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 14,
+        "ordinary_tools": 20,
+        "control_tools": 0,
+        "wall_time_ms": 49549,
+        "input_tokens": 149935,
+        "cached_input_tokens": 142848,
+        "uncached_input_tokens": 7087,
+        "output_tokens": 6034,
+        "request_2_plus_cache_hit_rate": 0.951188,
+        "message_prefix_preserved_rate": 1.0
+      },
+      "frozen_r6": {
+        "outcome": "solved",
+        "provider_requests": 16,
+        "ordinary_tools": 15,
+        "control_tools": 7,
+        "wall_time_ms": 58927,
+        "input_tokens": 209772,
+        "cached_input_tokens": 184704,
+        "uncached_input_tokens": 25068,
+        "output_tokens": 5767,
+        "request_2_plus_cache_hit_rate": 0.878669,
+        "message_prefix_preserved_rate": 0.866667,
+        "map_nodes": 4,
+        "map_edges": 3,
+        "open_leaf_nodes": 0
+      },
+      "map_request": {
+        "outcome": "validator_pass_terminal_protocol_failure",
+        "provider_requests": 18,
+        "ordinary_tools": 34,
+        "ordinary_tools_before_initialization": 2,
+        "ordinary_tools_after_initialization": 32,
+        "preinitialization_gate_rejections": 2,
+        "postinitialization_policy_gate_rejections": 0,
+        "control_tools": 1,
+        "wall_time_ms": 71141,
+        "input_tokens_from_provider_trace": 287027,
+        "cached_input_tokens_from_provider_trace": 279040,
+        "uncached_input_tokens_from_provider_trace": 7987,
+        "output_tokens_from_provider_trace": 9507,
+        "request_2_plus_cache_hit_rate": 0.971892,
+        "message_prefix_preserved_rate": 1.0,
+        "automatic_projection_count_max": 0,
+        "read_map_requests": 0,
+        "read_map_completions": 0,
+        "map_nodes": 4,
+        "map_edges": 4,
+        "open_leaf_nodes": 1,
+        "validator": "8_passed",
+        "terminal_error": "taskspace_terminal_protocol_violation",
+        "exec_exit_code": 1
+      }
+    }
+  ],
+  "diagnosis": {
+    "direct_cause": "agent_emitted_plain_final_before_map_closure_and_existing_r6_terminal_gate_failed_without_retry",
+    "introduced_by_phase_d": false,
+    "map_request_visibility_causal_status": "unverified_supported_correlation",
+    "coe": "coe/2026-07-19-04-58-r7-map-request-complex-interruption.md"
+  },
+  "verification": {
+    "codex_tools_lib": "141_passed_1_ignored",
+    "phase_d_core": "passed",
+    "map_request_core": "4_passed",
+    "read_map_args": "1_passed",
+    "terminal_contract": "2_passed",
+    "cost_instrumentation": "passed",
+    "performance_observation": "passed",
+    "projection_policy_contract": "passed",
+    "cli_build": "passed"
+  },
+  "invalid_pre_provider_runs": [
+    "provider_credential_not_exported_from_env_local",
+    "non_neutral_run_root_contained_map_request"
+  ]
+}

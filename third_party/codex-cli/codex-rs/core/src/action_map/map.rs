@@ -1,137 +1,32 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::iter;
+use std::ops::Deref;
 
 use codex_protocol::ThreadId;
 
-use super::cognitive::NodeResultEvidencePackage;
-use super::cognitive::TaskCognitiveState;
-use super::ledger::ProblemStateLedger;
+use super::rooted_dag::EventBatch;
+pub(crate) use super::rooted_dag::MapNode;
+pub(crate) use super::rooted_dag::NodeRole;
+pub(crate) use super::rooted_dag::NodeState;
+use super::rooted_dag::TaskSpaceMap;
+use super::rooted_dag::derive_node_state;
+use super::rooted_dag::derive_node_views;
+use super::rooted_dag::is_complete;
+use super::rooted_dag::node;
+use super::rooted_dag::node_role;
 
 pub(crate) type ActionMapId = String;
-pub(crate) type AssignmentLeaseId = String;
 pub(crate) type MapNodeId = String;
+pub(crate) type NodeEventId = String;
 pub(crate) type NodeResultId = String;
-pub(crate) type SubagentPlanId = String;
 pub(crate) type TaskId = String;
 pub(crate) type TaskSpaceTraceEventId = String;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TaskStatus {
-    Active,
-    Pending,
-}
-
-impl TaskStatus {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            TaskStatus::Active => "active",
-            TaskStatus::Pending => "pending",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskState {
-    pub(crate) id: TaskId,
-    pub(crate) title: String,
-    pub(crate) objective: String,
-    pub(crate) status: TaskStatus,
+pub(crate) struct TaskRecord {
     pub(crate) owner_session_id: Option<ThreadId>,
-    pub(crate) active_map_id: Option<ActionMapId>,
-    pub(crate) map_ids: Vec<ActionMapId>,
-    pub(crate) cognitive_state: TaskCognitiveState,
-    pub(crate) problem_ledger: ProblemStateLedger,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MapStatus {
-    Active,
-    Completed,
-    Abandoned,
-}
-
-impl MapStatus {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            MapStatus::Active => "active",
-            MapStatus::Completed => "completed",
-            MapStatus::Abandoned => "abandoned",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NodeStatus {
-    Pending,
-    Ready,
-    Running,
-    Blocked,
-    Completed,
-}
-
-impl NodeStatus {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            NodeStatus::Pending => "pending",
-            NodeStatus::Ready => "ready",
-            NodeStatus::Running => "running",
-            NodeStatus::Blocked => "blocked",
-            NodeStatus::Completed => "completed",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NodeKind {
-    InspectCodeContext,
-    ImplementSolution,
-    SmokeTest,
-    RegressionTest,
-    FinalSynthesis,
-    Custom,
-}
-
-impl NodeKind {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            NodeKind::InspectCodeContext => "inspect_code_context",
-            NodeKind::ImplementSolution => "implement_solution",
-            NodeKind::SmokeTest => "smoke_test",
-            NodeKind::RegressionTest => "regression_test",
-            NodeKind::FinalSynthesis => "final_synthesis",
-            NodeKind::Custom => "custom",
-        }
-    }
-
-    pub(crate) fn canonical_kind(self) -> &'static str {
-        match self {
-            NodeKind::InspectCodeContext => "discover",
-            NodeKind::ImplementSolution => "patch",
-            NodeKind::SmokeTest | NodeKind::RegressionTest => "validate",
-            NodeKind::FinalSynthesis => "synthesize",
-            NodeKind::Custom => "custom",
-        }
-    }
-
-    pub(crate) fn from_str(value: &str) -> Option<Self> {
-        let normalized = normalize_contract_name(value);
-        match normalized.as_str() {
-            "inspect_code_context" | "inspectcodecontext" => Some(NodeKind::InspectCodeContext),
-            "implement_solution" | "implementsolution" => Some(NodeKind::ImplementSolution),
-            "smoke_test" | "smoketest" => Some(NodeKind::SmokeTest),
-            "regression_test" | "regressiontest" => Some(NodeKind::RegressionTest),
-            "final_synthesis" | "finalsynthesis" => Some(NodeKind::FinalSynthesis),
-            "custom" => Some(NodeKind::Custom),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn from_node_id_or_title(id: &str, title: &str) -> Self {
-        Self::from_str(id)
-            .or_else(|| Self::from_str(title))
-            .unwrap_or(NodeKind::Custom)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -226,157 +121,32 @@ impl From<String> for ToolActionDescriptor {
 }
 
 fn normalize_contract_name(value: &str) -> String {
-    value
-        .trim()
-        .replace('-', "_")
-        .replace(' ', "_")
-        .to_ascii_lowercase()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NodeContext {
-    pub(crate) summary: String,
-    pub(crate) source_refs: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NodeResultRef {
-    pub(crate) id: NodeResultId,
-    pub(crate) kind: NodeResultKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MapNode {
-    pub(crate) id: MapNodeId,
-    pub(crate) title: String,
-    pub(crate) kind: NodeKind,
-    pub(crate) status: NodeStatus,
-    pub(crate) context: NodeContext,
-    pub(crate) active_lease: Option<AssignmentLeaseId>,
-    pub(crate) result_context: Vec<NodeResultRef>,
-    pub(crate) origin_node_id: Option<MapNodeId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MapEdge {
-    pub(crate) from: MapNodeId,
-    pub(crate) to: MapNodeId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LeaseHolder {
-    Main,
-    SubAgent,
-}
-
-impl LeaseHolder {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            LeaseHolder::Main => "main",
-            LeaseHolder::SubAgent => "subagent",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AssignmentLease {
-    pub(crate) id: AssignmentLeaseId,
-    pub(crate) map_id: ActionMapId,
-    pub(crate) node_id: MapNodeId,
-    pub(crate) holder: LeaseHolder,
-    pub(crate) previous_node_status: NodeStatus,
-    pub(crate) agent_thread_id: Option<ThreadId>,
-    pub(crate) agent_path: Option<String>,
-    pub(crate) subagent_plan_id: Option<SubagentPlanId>,
+    value.trim().replace(['-', ' '], "_").to_ascii_lowercase()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInstance {
-    pub(crate) id: ActionMapId,
+    graph: TaskSpaceMap,
+    pub(crate) graph_events: Vec<EventBatch>,
     pub(crate) task_id: Option<TaskId>,
-    pub(crate) title: String,
-    pub(crate) status: MapStatus,
     pub(crate) owner_session_id: Option<ThreadId>,
-    pub(crate) base_map_version: String,
-    pub(crate) nodes: HashMap<MapNodeId, MapNode>,
-    pub(crate) edges: Vec<MapEdge>,
-    pub(crate) created_from: Option<ActionMapId>,
-    pub(crate) leases: HashMap<AssignmentLeaseId, AssignmentLease>,
-    pub(crate) results: HashMap<NodeResultId, NodeResult>,
-    pub(crate) subagent_plans: HashMap<SubagentPlanId, SubagentPlan>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SubagentPlanStatus {
-    Planned,
-    Leased,
-    ResultRecorded,
-}
-
-impl SubagentPlanStatus {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            SubagentPlanStatus::Planned => "planned",
-            SubagentPlanStatus::Leased => "leased",
-            SubagentPlanStatus::ResultRecorded => "result_recorded",
-        }
-    }
+    pub(crate) node_events: HashMap<NodeEventId, NodeEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SubagentPlan {
-    pub(crate) id: SubagentPlanId,
-    pub(crate) task_id: Option<TaskId>,
-    pub(crate) map_id: ActionMapId,
-    pub(crate) parent_node_id: MapNodeId,
-    pub(crate) why_parallelizable: String,
-    pub(crate) expected_artifact: String,
-    pub(crate) acceptance_check: String,
-    pub(crate) max_scope: String,
-    pub(crate) supports_questions: Vec<String>,
-    pub(crate) tests_hypotheses: Vec<String>,
-    pub(crate) depends_on_results: Vec<NodeResultId>,
-    pub(crate) status: SubagentPlanStatus,
-    pub(crate) lease_id: Option<AssignmentLeaseId>,
-    pub(crate) child_thread_id: Option<ThreadId>,
-    pub(crate) result_ids: Vec<NodeResultId>,
-    pub(crate) created_at_ms: i64,
-    pub(crate) updated_at_ms: i64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NodeResultKind {
-    Result,
-    Blocker,
-    MapUpdateRequest,
-    TimeoutSummary,
-    MainToolCall,
-}
-
-impl NodeResultKind {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            NodeResultKind::Result => "result",
-            NodeResultKind::Blocker => "blocker",
-            NodeResultKind::MapUpdateRequest => "map_update_request",
-            NodeResultKind::TimeoutSummary => "timeout_summary",
-            NodeResultKind::MainToolCall => "main_tool_call",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct NodeResult {
-    pub(crate) id: NodeResultId,
-    pub(crate) assignment_id: AssignmentLeaseId,
-    pub(crate) subagent_plan_id: Option<SubagentPlanId>,
+pub(crate) struct NodeEvent {
+    pub(crate) id: NodeEventId,
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: MapNodeId,
-    pub(crate) kind: NodeResultKind,
+    pub(crate) event_kind: String,
+    pub(crate) source: String,
     pub(crate) action_class: Option<ActionClass>,
     pub(crate) tool_success: Option<bool>,
-    pub(crate) body: String,
-    pub(crate) evidence_package: NodeResultEvidencePackage,
+    pub(crate) content_sha256: String,
+    pub(crate) source_event_id: Option<String>,
+    pub(crate) raw_ref: Option<String>,
+    pub(crate) artifact_refs: Vec<String>,
+    pub(crate) call_id: Option<String>,
     pub(crate) source_thread_id: ThreadId,
     pub(crate) created_at_ms: i64,
 }
@@ -388,7 +158,7 @@ pub(crate) struct TaskSpaceTraceEvent {
     pub(crate) task_id: Option<TaskId>,
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: MapNodeId,
-    pub(crate) result_id: Option<NodeResultId>,
+    pub(crate) result_id: Option<String>,
     pub(crate) call_id: Option<String>,
     pub(crate) action_class: Option<ActionClass>,
     pub(crate) tool_success: Option<bool>,
@@ -398,46 +168,244 @@ pub(crate) struct TaskSpaceTraceEvent {
 }
 
 impl ActionMapInstance {
-    pub(crate) fn new(
-        id: ActionMapId,
-        title: String,
+    pub(crate) fn from_graph(
+        graph: TaskSpaceMap,
+        graph_events: Vec<EventBatch>,
         owner_session_id: Option<ThreadId>,
-        base_map_version: impl Into<String>,
     ) -> Self {
         Self {
-            id,
+            graph,
+            graph_events,
             task_id: None,
-            title,
-            status: MapStatus::Active,
             owner_session_id,
-            base_map_version: base_map_version.into(),
-            nodes: HashMap::new(),
-            edges: Vec::new(),
-            created_from: None,
-            leases: HashMap::new(),
-            results: HashMap::new(),
-            subagent_plans: HashMap::new(),
+            node_events: HashMap::new(),
         }
     }
 
-    pub(crate) fn ready_node_count(&self) -> usize {
-        self.nodes
-            .values()
-            .filter(|node| node.status == NodeStatus::Ready)
-            .count()
+    pub(crate) fn canonical_map(&self) -> &TaskSpaceMap {
+        &self.graph
     }
 
-    pub(crate) fn running_node_count(&self) -> usize {
-        self.nodes
-            .values()
-            .filter(|node| node.status == NodeStatus::Running)
-            .count()
+    pub(crate) fn node(&self, node_id: &str) -> Option<&MapNode> {
+        node(&self.graph, node_id)
     }
 
-    pub(crate) fn completed_node_count(&self) -> usize {
-        self.nodes
+    pub(crate) fn all_nodes(&self) -> impl Iterator<Item = (NodeRole, &MapNode)> {
+        iter::once((NodeRole::TaskRoot, &self.graph.root))
+            .chain(
+                self.graph
+                    .work_nodes
+                    .iter()
+                    .map(|work_node| (NodeRole::Work, work_node)),
+            )
+            .chain(iter::once((NodeRole::Finish, &self.graph.finish)))
+    }
+
+    pub(crate) fn node_role(&self, node_id: &str) -> Option<NodeRole> {
+        node_role(&self.graph, node_id)
+    }
+
+    pub(crate) fn node_state(&self, node_id: &str) -> Option<NodeState> {
+        derive_node_state(&self.graph, node_id)
+    }
+
+    pub(crate) fn node_views(&self) -> Vec<codex_protocol::taskspace::TaskSpaceNodeView> {
+        derive_node_views(&self.graph)
+    }
+
+    pub(crate) fn is_complete(&self) -> bool {
+        is_complete(&self.graph)
+    }
+
+    pub(crate) fn ready_work_node_count(&self) -> usize {
+        self.count_work_nodes_in_state(NodeState::Ready)
+    }
+
+    pub(crate) fn inflight_work_node_count(&self) -> usize {
+        self.count_work_nodes_in_state(NodeState::InFlight)
+    }
+
+    pub(crate) fn completed_work_node_count(&self) -> usize {
+        self.count_work_nodes_in_state(NodeState::Completed)
+    }
+
+    pub(crate) fn finish_ready(&self) -> bool {
+        self.node_state(&self.graph.finish.node_id) == Some(NodeState::Ready)
+    }
+
+    pub(crate) fn result_ids_for_node(&self, node_id: &str) -> Vec<String> {
+        self.graph
+            .result_refs
+            .iter()
+            .filter(|(_, result)| result.node_id == node_id)
+            .map(|(result_id, _)| result_id.clone())
+            .collect()
+    }
+
+    pub(crate) fn evidence_ids_for_node(&self, node_id: &str) -> Vec<String> {
+        self.graph
+            .evidence_refs
+            .iter()
+            .filter(|(_, evidence)| evidence.node_id == node_id)
+            .map(|(evidence_id, _)| evidence_id.clone())
+            .collect()
+    }
+
+    pub(crate) fn event_ids_for_node(&self, node_id: &str) -> Vec<String> {
+        let mut event_ids = self
+            .node_events
             .values()
-            .filter(|node| node.status == NodeStatus::Completed)
+            .filter(|event| event.node_id == node_id)
+            .map(|event| event.id.clone())
+            .collect::<Vec<_>>();
+        event_ids.sort();
+        event_ids
+    }
+
+    pub(crate) fn commit_graph(&mut self, graph: TaskSpaceMap, events: EventBatch) {
+        self.graph = graph;
+        self.graph_events.push(events);
+    }
+
+    fn count_work_nodes_in_state(&self, state: NodeState) -> usize {
+        self.graph
+            .work_nodes
+            .iter()
+            .filter(|node| derive_node_state(&self.graph, &node.node_id) == Some(state))
             .count()
+    }
+}
+
+pub(crate) fn node_state_name(state: NodeState) -> &'static str {
+    match state {
+        NodeState::Waiting => "waiting",
+        NodeState::Ready => "ready",
+        NodeState::InFlight => "in_flight",
+        NodeState::Blocked => "blocked",
+        NodeState::Completed => "completed",
+    }
+}
+
+impl Deref for ActionMapInstance {
+    type Target = TaskSpaceMap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.graph
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::action_map::rooted_dag::ActionReservation;
+    use crate::action_map::rooted_dag::CompletionRecord;
+    use crate::action_map::rooted_dag::MapEdge;
+    use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
+    use std::collections::BTreeMap;
+
+    fn forked_map() -> TaskSpaceMap {
+        TaskSpaceMap {
+            schema_version: TASKSPACE_CANONICAL_SCHEMA_VERSION.into(),
+            map_id: "map-1".into(),
+            root: MapNode {
+                node_id: "root".into(),
+                goal: "deliver".into(),
+                source_refs: vec!["user-turn-1".into()],
+            },
+            work_nodes: vec![
+                MapNode {
+                    node_id: "left".into(),
+                    goal: "inspect".into(),
+                    source_refs: vec![],
+                },
+                MapNode {
+                    node_id: "right".into(),
+                    goal: "test".into(),
+                    source_refs: vec![],
+                },
+            ],
+            finish: MapNode {
+                node_id: "finish".into(),
+                goal: "summarize".into(),
+                source_refs: vec![],
+            },
+            edges: vec![
+                MapEdge {
+                    from: "root".into(),
+                    to: "left".into(),
+                },
+                MapEdge {
+                    from: "root".into(),
+                    to: "right".into(),
+                },
+                MapEdge {
+                    from: "left".into(),
+                    to: "finish".into(),
+                },
+                MapEdge {
+                    from: "right".into(),
+                    to: "finish".into(),
+                },
+            ],
+            completion_records: BTreeMap::new(),
+            block_records: BTreeMap::new(),
+            action_reservations: BTreeMap::new(),
+            result_refs: BTreeMap::new(),
+            evidence_refs: BTreeMap::new(),
+            terminal_record: None,
+            terminal_history: Vec::new(),
+            revision: 1,
+        }
+    }
+
+    #[test]
+    fn exposes_nodes_and_counts_only_from_canonical_facts() {
+        let mut graph = forked_map();
+        graph.completion_records.insert(
+            "left".into(),
+            CompletionRecord {
+                action_id: "complete-left".into(),
+                result_ref_ids: vec![],
+                evidence_ref_ids: vec![],
+            },
+        );
+        graph.action_reservations.insert(
+            "reservation-right".into(),
+            ActionReservation {
+                action_id: "action-right".into(),
+                node_id: "right".into(),
+                tool_name: "exec_command".into(),
+                response_call_index: 1,
+            },
+        );
+        let map = ActionMapInstance::from_graph(graph, vec![], None);
+
+        assert_eq!(
+            map.node("left").map(|node| node.goal.as_str()),
+            Some("inspect")
+        );
+        assert_eq!(map.all_nodes().count(), 4);
+        assert_eq!(map.node_state("left"), Some(NodeState::Completed));
+        assert_eq!(map.node_state("right"), Some(NodeState::InFlight));
+        assert_eq!(map.ready_work_node_count(), 0);
+        assert_eq!(map.inflight_work_node_count(), 1);
+        assert_eq!(map.completed_work_node_count(), 1);
+        assert!(!map.finish_ready());
+    }
+
+    #[test]
+    fn multiple_ready_nodes_exist_without_a_current_node() {
+        let map = ActionMapInstance::from_graph(forked_map(), vec![], None);
+
+        assert_eq!(map.ready_work_node_count(), 2);
+        assert_eq!(map.inflight_work_node_count(), 0);
+        assert_eq!(
+            map.node_views()
+                .into_iter()
+                .filter(|view| view.state == NodeState::Ready)
+                .map(|view| view.node_id)
+                .collect::<Vec<_>>(),
+            vec!["left".to_string(), "right".to_string(), "root".to_string()]
+        );
     }
 }

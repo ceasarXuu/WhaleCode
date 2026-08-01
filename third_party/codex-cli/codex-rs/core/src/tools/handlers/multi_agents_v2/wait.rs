@@ -58,12 +58,7 @@ impl ToolHandler for Handler {
             let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
             !wait_for_mailbox_change(&mut mailbox_seq_rx, deadline).await
         };
-        let timeout_summary_requests = if timed_out {
-            session.request_action_map_timeout_summaries(&turn).await
-        } else {
-            0
-        };
-        let result = WaitAgentResult::from_wait(timed_out, timeout_summary_requests);
+        let result = WaitAgentResult::from_wait(timed_out);
 
         session
             .send_event(
@@ -95,12 +90,8 @@ pub(crate) struct WaitAgentResult {
 }
 
 impl WaitAgentResult {
-    fn from_wait(timed_out: bool, timeout_summary_requests: usize) -> Self {
-        let message = if timed_out && timeout_summary_requests > 0 {
-            format!(
-                "Wait timed out. Requested progress summaries from {timeout_summary_requests} TaskSpace subagent(s)."
-            )
-        } else if timed_out {
+    fn from_wait(timed_out: bool) -> Self {
+        let message = if timed_out {
             "Wait timed out.".to_string()
         } else {
             "Wait completed.".to_string()

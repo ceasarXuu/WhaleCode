@@ -12,6 +12,9 @@ pub(crate) struct Session {
     pub(super) agent_status: watch::Sender<AgentStatus>,
     pub(super) out_of_band_elicitation_paused: watch::Sender<bool>,
     pub(super) state: Mutex<SessionState>,
+    /// Serializes canonical TaskSpace Store compare-and-swap transactions.
+    /// Native Tool execution remains parallel; only factual commits are ordered.
+    pub(super) taskspace_store_write_lock: Semaphore,
     /// Serializes rebuild/apply cycles for the running proxy; each cycle
     /// rebuilds from the current SessionState while holding this lock.
     pub(super) managed_network_proxy_refresh_lock: Semaphore,
@@ -39,6 +42,8 @@ pub(crate) struct SessionConfiguration {
     pub(super) collaboration_mode: CollaborationMode,
     pub(super) model_reasoning_summary: Option<ReasoningSummaryConfig>,
     pub(super) service_tier: Option<ServiceTier>,
+    pub(super) taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
+    pub(super) taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>,
 
     /// Developer instructions that supplement the base instructions.
     pub(super) developer_instructions: Option<String>,
@@ -321,6 +326,11 @@ impl Session {
                                     text: session_configuration.base_instructions.clone(),
                                 },
                                 dynamic_tools: session_configuration.dynamic_tools.clone(),
+                                taskspace_projection_policy: session_configuration
+                                    .taskspace_projection_policy,
+                                taskspace_skill_snapshot: session_configuration
+                                    .taskspace_skill_snapshot
+                                    .clone(),
                                 event_persistence_mode,
                             },
                         )
@@ -627,7 +637,19 @@ impl Session {
                     ))
                     .await;
             session_configuration.thread_name = thread_name.clone();
-            let state = SessionState::new(session_configuration.clone());
+            let hydrated_action_map = super::taskspace_store::hydrate_action_map_store(
+                state_db_ctx.as_ref(),
+                conversation_id,
+                &initial_history,
+                &session_configuration.session_source,
+                session_configuration.taskspace_projection_policy.is_some(),
+            )
+            .await?;
+            let mut state = SessionState::new(session_configuration.clone());
+            if let Some(hydrated) = hydrated_action_map {
+                state.action_map_runtime = hydrated.runtime;
+                state.action_map_store_handle = Some(hydrated.handle);
+            }
             let managed_network_requirements_configured = config
                 .config_layer_stack
                 .requirements_toml()
@@ -784,6 +806,7 @@ impl Session {
                 agent_status,
                 out_of_band_elicitation_paused,
                 state: Mutex::new(state),
+                taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
                 managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
                 features: config.features.clone(),
                 pending_mcp_server_refresh_config: Mutex::new(None),
@@ -912,8 +935,6 @@ impl Session {
                     anyhow::bail!("required MCP servers failed to initialize: {details}");
                 }
             }
-            sess.schedule_startup_prewarm(session_configuration.base_instructions.clone())
-                .await;
             let session_start_source = match &initial_history {
                 InitialHistory::Resumed(_) => codex_hooks::SessionStartSource::Resume,
                 InitialHistory::New | InitialHistory::Forked(_) => {
@@ -923,7 +944,26 @@ impl Session {
             };
 
             // record_initial_history can emit events. We record only after the SessionConfiguredEvent is emitted.
-            sess.record_initial_history(initial_history).await;
+            if let Err(error) = sess.record_initial_history(initial_history).await {
+                tracing::error!(
+                    target: "codex_core::taskspace",
+                    event_name = "taskspace.rollout_reconstruction_fatal",
+                    phase = error.phase,
+                    reason = %error.message,
+                    "failed to restore persisted session rollout"
+                );
+                let error_turn = sess.new_default_turn().await;
+                sess.send_event(
+                    error_turn.as_ref(),
+                    EventMsg::Error(ErrorEvent {
+                        message: format!("Failed to restore session rollout: {error}"),
+                        codex_error_info: Some(CodexErrorInfo::Other),
+                    }),
+                )
+                .await;
+                return Err(anyhow::Error::new(error));
+            }
+            sess.schedule_startup_prewarm().await;
             {
                 let mut state = sess.state.lock().await;
                 state.set_pending_session_start_source(Some(session_start_source));

@@ -1,238 +1,197 @@
-# Phase D. BudgetQualityImpactV1 with validator/quality semantics
+# Phase D. Profile Advisory Quality Impact
 
-> Split from `22-v005-completion-engineering-playbook.md` to keep each execution context small and phase-cohesive.
+> 2026-06-25 更新：预算/profile 不再产生硬停；本阶段只保留质量影响与回归检测。
 >
-> Canonical sequence: read `00-overview-and-gates.md` first, then only the phase file you are implementing.
+> 2026-06-26 复核：Phase A 后续修复没有恢复 hard stop。Phase C 已补齐 producer-owned scan 证据；Phase D 已补齐 quality impact 字段解析和 forbidden budget action release gate；release-like closeout 仍依赖 Phase E/G。
 
+## D.1 目标
 
-## D.1 Goal
+成本下降不能通过跳过正确性工作获得。由于 Phase A 已取消 profile 硬上限，Phase D 的职责改为：
 
-A budget action must not fake cost reduction by skipping required correctness work. Every budget-induced stop, downgrade, no-spawn, create-node block, validation skip, or final abort must carry quality impact evidence.
+- 记录 profile hint 是否被超过。
+- 记录旧 blocked 输入是否出现，作为兼容/回归信号。
+- 阻断 release-like 声明中的 validation skip、score-ineligible solved、manual override。
+- 不再要求或鼓励 provider request blocked、node budget block、spawn budget block、final hard stop。
 
-## D.2 Files to change
+## D.1.1 当前状态
+
+Status: implemented for Phase D scope; not standalone release-complete.
+
+当前实现已经把 profile overrun 作为 `over_profile_hint` / `observe`
+处理，并把 `blocked_by_budget_samples_count` 保留为旧硬停回归计数。后续
+Phase D 不应重新引入预算硬停。
+
+Phase D 当前已经完成：
 
 ```text
-third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
-third_party/codex-cli/codex-rs/core/src/session/turn.rs
-third_party/codex-cli/codex-rs/core/src/session/mod.rs
-scripts/taskspace-benchmark/lib/cost-instrumentation.ps1
-scripts/taskspace-benchmark/write-release-decision.ps1
-scripts/taskspace-benchmark/test-cost-instrumentation.ps1
-scripts/taskspace-benchmark/test-release-decision.ps1
+BudgetQualityImpactV1 runtime trace is produced for provider request budget events.
+Cost instrumentation preserves active_budget_source, route_mode, budget_state_before,
+  budget_state_after, budget_transition_reason, logical_request_id, attempt_seq.
+Release decision fails forbidden current budget actions:
+  hard_stop, node_budget_block, spawn_budget_block,
+  provider_request_budget_exhausted, blocked_by_budget.
 ```
 
-## D.3 Runtime struct
+仍需由后续阶段补齐的依赖：
 
-Add in `runtime.rs`:
-
-```rust
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BudgetQualityImpactV1 {
-    pub(crate) schema_version: &'static str,
-    pub(crate) sample_id: Option<String>,
-    pub(crate) request_id: Option<String>,
-    pub(crate) task_id: Option<String>,
-    pub(crate) map_id: Option<String>,
-    pub(crate) node_id: Option<String>,
-    pub(crate) budget_action: String,
-    pub(crate) budget_state_before: String,
-    pub(crate) budget_state_after: String,
-    pub(crate) counter_name: String,
-    pub(crate) counter_value: usize,
-    pub(crate) counter_limit: usize,
-    pub(crate) validator_status_before: String,
-    pub(crate) validator_status_after: String,
-    pub(crate) missing_evidence_count: usize,
-    pub(crate) protected_item_miss_count: usize,
-    pub(crate) solve_risk: String,
-    pub(crate) bounded_recovery_allowed: bool,
-    pub(crate) bounded_recovery_used: bool,
-    pub(crate) route_escalation_allowed: bool,
-    pub(crate) route_escalation_used: bool,
-    pub(crate) manual_override_allowed: bool,
-    pub(crate) manual_override_used: bool,
-    pub(crate) final_classification: String,
-    pub(crate) score_eligible: bool,
-    pub(crate) reason: String,
-}
+```text
+Phase C: exact payload scan producer-owned proof
+Phase E: legacy state action displacement denominator
+Phase G: v005-non-agent-gates.json 聚合器和本地证据 hash
 ```
 
-## D.4 Validator state collector
+## D.2 当前语义
 
-Add:
+允许的 `budget_action`：
 
-```rust
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskSpaceValidationState {
-    pub(crate) validator_status: String,
-    pub(crate) missing_evidence_count: usize,
-    pub(crate) protected_item_miss_count: usize,
-    pub(crate) satisfied_criteria_count: usize,
-    pub(crate) open_criteria_count: usize,
-    pub(crate) blocking_open_question_count: usize,
-    pub(crate) accepted_validator_result_count: usize,
-}
-
-impl ActionMapRuntimeState {
-    fn validation_state_for_active_task(&self) -> TaskSpaceValidationState { /* inspect ledger */ }
-}
+```text
+observe
+legacy_profile_hint_blocked_input
+legacy_compact_checkpoint_blocked_input
+validation_skip
+manual_override
 ```
 
-Pseudo:
+禁止作为当前行为产生：
 
-```rust
-fn validation_state_for_active_task(&self) -> TaskSpaceValidationState {
-    let Some(task_id) = self.active_task_id.as_ref() else { return missing("no_active_task"); };
-    let Some(task) = self.tasks.get(task_id) else { return missing("active_task_missing"); };
-    let open_criteria = task.problem_ledger.success_criteria.iter()
-        .filter(|c| !matches!(c.status.as_str(), "satisfied" | "waived"))
-        .count();
-    let blocking_questions = task.problem_ledger.open_questions.iter()
-        .filter(|q| q.blocking && q.status == "open")
-        .count();
-    let accepted_validator_results = self.active_map()
-        .map(|map| count_accepted_validator_results(map))
-        .unwrap_or(0);
-
-    TaskSpaceValidationState {
-        validator_status: if open_criteria == 0 && blocking_questions == 0 { "clean" } else { "incomplete" }.to_string(),
-        missing_evidence_count: open_criteria + blocking_questions,
-        protected_item_miss_count: 0,
-        satisfied_criteria_count: ...,
-        open_criteria_count: open_criteria,
-        blocking_open_question_count: blocking_questions,
-        accepted_validator_result_count: accepted_validator_results,
-    }
-}
+```text
+hard_stop
+node_budget_block
+spawn_budget_block
+provider_request_budget_exhausted
+blocked_by_budget
 ```
 
-## D.5 Quality impact producer
+`blocked_by_budget_samples_count` 保留在汇总中，但含义是“旧硬停回归计数”。Release-like run 必须为 0。
 
-Replace ad-hoc quality tags in `record_provider_request_budget_events` with a helper:
+## D.3 Runtime producer
 
-```rust
-fn record_budget_quality_impact(
-    &mut self,
-    budget_action: &str,
-    request_id: Option<String>,
-    counter_name: &str,
-    counter_value: usize,
-    counter_limit: usize,
-    state_before: TaskSpaceBudgetState,
-    state_after: TaskSpaceBudgetState,
-    reason: impl Into<String>,
-) -> MapRuntimeEvent
+`record_provider_request_budget_events` 对完成态请求记录：
+
+```text
+budget_action=observe
+provider_request_status=response_completed|response_failed|cancelled
+score_eligible=true unless validation evidence says otherwise
+final_classification=score_eligible
 ```
 
-Pseudo:
+如果读取到历史/兼容 `status=blocked` 输入：
 
-```rust
-let before = self.validation_state_for_active_task();
-let final_classification = match (budget_action, before.validator_status.as_str()) {
-    ("hard_stop", "clean") => "score_eligible",
-    ("early_final", "clean") => "score_eligible",
-    ("validation_skip", _) => "validation_skip",
-    (_, "incomplete") => "blocked_by_budget",
-    _ => "accepted_risk",
-};
-let score_eligible = final_classification == "score_eligible";
-
-BudgetQualityImpactV1 {
-    validator_status_before: before.validator_status.clone(),
-    validator_status_after: before.validator_status,
-    missing_evidence_count: before.missing_evidence_count,
-    protected_item_miss_count: before.protected_item_miss_count,
-    solve_risk: if score_eligible { "none" } else { "possible_solve_loss" }.into(),
-    bounded_recovery_allowed: !score_eligible,
-    bounded_recovery_used: false,
-    final_classification: final_classification.into(),
-    score_eligible,
-    ...
-}
+```text
+provider_request trace tag: legacy_blocked_input_observed:true
+budget_action=legacy_profile_hint_blocked_input
+final_classification=legacy_blocked_input_observed
+score_eligible=false
 ```
 
-## D.6 Required producers
+该兼容路径不得设置 `budget_response_action_taken:true`，否则离线统计会把它误判为当前预算响应动作。
 
-Call `record_budget_quality_impact` from these places:
+## D.4 Cost instrumentation
 
-| Budget action | Producer location |
-|---|---|
-| provider request blocked | `record_provider_request_budget_events` when `status=blocked` |
-| compact checkpoint required | provider budget transition to `compact_checkpoint_required` |
-| thin downgrade | transition to `thin_downgraded` |
-| node budget block | `create_node_for_main_with_kind` over budget |
-| spawn budget block | spawn gate over budget |
-| final response hard stop | `session/turn.rs` when `response_actionability.is_hard_stop()` |
-| no-action recovery exhausted | `session/turn.rs` second non-action response |
-| validation skip | any code path that completes a run without validation node evidence |
-
-## D.7 Cost instrumentation
-
-`New-TaskspaceBudgetArtifacts` must parse all fields, not fixed defaults. Add output fields:
-
-```json
-{
-  "validator_status_before": "incomplete",
-  "validator_status_after": "incomplete",
-  "missing_evidence_count": 2,
-  "protected_item_miss_count": 0,
-  "solve_risk": "possible_solve_loss",
-  "bounded_recovery_allowed": true,
-  "bounded_recovery_used": false,
-  "route_escalation_allowed": false,
-  "route_escalation_used": false,
-  "manual_override_used": false,
-  "final_classification": "blocked_by_budget",
-  "score_eligible": false
-}
-```
-
-Summary must count distinct samples, not only events:
+`budget_induced_quality_impact_summary.json` 必须输出：
 
 ```json
 {
   "budget_quality_impact_logged_for_every_budget_action": true,
+  "budget_quality_impact_missing_count": 0,
   "budget_induced_validation_skip_count": 0,
   "budget_induced_score_ineligible_solved_count": 0,
   "blocked_by_budget_samples_count": 0,
-  "manual_override_used_count": 0,
-  "missing_evidence_event_count": 0
+  "manual_override_used_count": 0
 }
 ```
 
-## D.8 Tests
+注意：`budget_action_count` 只统计真正的预算响应动作。当前 advisory-only profile 超出不应增加该计数。
+
+## D.5 Release gate
+
+Release decision 仍然必须失败于：
+
+```text
+budget_quality_impact_missing_count > 0
+budget_induced_validation_skip_count > 0
+budget_induced_score_ineligible_solved_count > 0
+blocked_by_budget_samples_count > 0
+manual_override_used_count > 0
+summary derived counts 与 event 不一致
+derived_forbidden_budget_action_count > 0
+```
+
+Release decision 不得因为以下情况失败：
+
+```text
+request_count > max_rollout_model_requests
+node_request_count > max_model_requests_per_node
+node_count > max_nodes
+spawn_agent_call_count > max_spawn_agent_calls
+```
+
+这些只进入 `over_profile_hint` 观测。
+
+## D.6 Tests
 
 Rust:
 
-```rust
-#[test]
-fn hard_stop_with_incomplete_validation_is_not_score_eligible() {}
-
-#[test]
-fn early_final_with_clean_validation_is_score_eligible() {}
-
-#[test]
-fn validation_skip_is_release_blocker() {}
-
-#[test]
-fn node_budget_block_records_quality_impact() {}
+```text
+cargo test -p codex-core budget --lib
+cargo test -p codex-core taskspace --lib
 ```
 
 PowerShell:
 
 ```text
-budget quality summary fails if budget action lacks quality event
-budget quality summary fails if blocked_by_budget sample is reported as solved
-budget quality summary passes if hard stop occurs after clean validation and no missing evidence
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
 ```
 
-## D.9 Acceptance
+关键断言：
 
 ```text
+profile hint overrun => budget_action=observe
+legacy blocked input => legacy_* classification, not hard_stop
+blocked_by_budget_samples_count = 0
+manual_override mismatch still fails release decision
+forbidden budget_action such as hard_stop still fails release decision
+```
+
+## D.7 2026-06-26 本地验证
+
+真实 smoke 证据来自：
+
+```text
+target\phase-c-real-benefit-proof\single-file-fast-fix-20260626-202548\
+single-file-fast-fix\20260626-202549-940\pair-001\right\artifacts
+```
+
+该样本不能证明 TaskSpace 业务收益，但能证明 Phase D 没有通过硬停或
+跳过验证来伪造成果：
+
+```text
+budget_event_count = 40
+budget_quality_impact_event_count = 40
+budget_action_count = 0
 budget_quality_impact_logged_for_every_budget_action = true
 budget_quality_impact_missing_count = 0
 budget_induced_validation_skip_count = 0
 budget_induced_score_ineligible_solved_count = 0
-blocked_by_budget_samples_count = 0 for release_pass
-manual_override_used_count = 0 for release_pass
+blocked_by_budget_samples_count = 0
+manual_override_used_count = 0
+spawn-node over_budget_enforcement_status = advisory_only
+spawn-node blocked_budget_event_count = 0
+```
+
+本阶段门禁：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+  passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
+  passed
+
+cargo test -p codex-core budget --lib
+  60 passed
+
+cargo test -p codex-core taskspace --lib
+  91 passed
 ```

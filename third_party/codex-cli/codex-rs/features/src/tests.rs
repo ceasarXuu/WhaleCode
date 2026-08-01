@@ -267,19 +267,6 @@ fn multi_agent_is_stable_and_enabled_by_default() {
 }
 
 #[test]
-fn taskspace_compact_tool_schema_is_under_development() {
-    assert_eq!(
-        feature_for_key("taskspace_compact_tool_schema"),
-        Some(Feature::TaskSpaceCompactToolSchema)
-    );
-    assert_eq!(
-        Feature::TaskSpaceCompactToolSchema.stage(),
-        Stage::UnderDevelopment
-    );
-    assert_eq!(Feature::TaskSpaceCompactToolSchema.default_enabled(), false);
-}
-
-#[test]
 fn enable_fanout_is_under_development() {
     assert_eq!(Feature::SpawnCsv.stage(), Stage::UnderDevelopment);
     assert_eq!(Feature::SpawnCsv.default_enabled(), false);

@@ -4,6 +4,7 @@ use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
+use serde::Deserialize;
 
 use super::ExecContext;
 use super::PUBLIC_TOOL_NAME;
@@ -12,6 +13,12 @@ use super::handle_runtime_response;
 use super::is_exec_tool_name;
 
 pub struct CodeModeExecuteHandler;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CodeModeFunctionArgs {
+    source: String,
+}
 
 impl CodeModeExecuteHandler {
     async fn execute(
@@ -83,7 +90,10 @@ impl ToolHandler for CodeModeExecuteHandler {
     }
 
     fn matches_kind(&self, payload: &ToolPayload) -> bool {
-        matches!(payload, ToolPayload::Custom { .. })
+        matches!(
+            payload,
+            ToolPayload::Custom { .. } | ToolPayload::Function { .. }
+        )
     }
 
     async fn handle(&self, invocation: ToolInvocation) -> Result<Self::Output, FunctionCallError> {
@@ -99,6 +109,15 @@ impl ToolHandler for CodeModeExecuteHandler {
         match payload {
             ToolPayload::Custom { input } if is_exec_tool_name(&tool_name) => {
                 self.execute(session, turn, call_id, input).await
+            }
+            ToolPayload::Function { arguments } if is_exec_tool_name(&tool_name) => {
+                let args =
+                    serde_json::from_str::<CodeModeFunctionArgs>(&arguments).map_err(|error| {
+                        FunctionCallError::RespondToModel(format!(
+                            "failed to parse {PUBLIC_TOOL_NAME} arguments: {error}"
+                        ))
+                    })?;
+                self.execute(session, turn, call_id, args.source).await
             }
             _ => Err(FunctionCallError::RespondToModel(format!(
                 "{PUBLIC_TOOL_NAME} expects raw JavaScript source text"

@@ -1,0 +1,339 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-five-layer-lifecycle-oracles-v1",
+  "status": "obsolete_non_promotable",
+  "superseded_by": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v2.json",
+  "applies_to": "TaskSpaceControlResultV2 and the shared R7 projection-policy runtime",
+  "global_invariants": [
+    "Canonical Map mutation is atomic per taskspace_control call.",
+    "Every accepted graph or lifecycle mutation increments canonical revision exactly once; read calls and node-detail display expansion do not.",
+    "Rejected control calls preserve canonical state and return partial_commit=false.",
+    "An ordinary tool failure after an accepted control call is a separate result and never rolls back the committed Map revision.",
+    "Retries, resume, fork and compaction never infer task meaning or synthesize Map transitions.",
+    "Projection policies may change only provider-context emission; they share the same canonical state and event log."
+  ],
+  "fixture_scopes": {
+    "historical_reference_only": ["LC-01", "LC-02", "LC-03", "LC-04", "LC-05"],
+    "active_fla7_lifecycle": ["LC-06", "LC-07", "LC-08", "LC-09", "LC-10", "LC-11", "LC-12"],
+    "historical_rule": "LC-01 through LC-05 preserve pre-FLA-3.5 evidence and are not current provider contracts.",
+    "active_rule": "Only LC-06 through LC-12 gate FLA-7 projection emission and recovery semantics."
+  },
+  "fixture_maps": {
+    "revision_4": {
+      "canonical_state": {
+        "id": "map-42",
+        "root_node_id": "root-task",
+        "finish_node_id": "finish",
+        "nodes": {
+          "finish": {"role": "finish", "goal": "", "source_refs": [], "status": "pending", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null},
+          "implement": {"role": "work", "goal": "Implement the selected fix", "source_refs": [], "status": "running", "active_lease": "lease-main", "result_context": [], "node_events": [], "origin_node_id": null},
+          "investigate": {"role": "work", "goal": "Identify the root cause", "source_refs": [], "status": "completed", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null},
+          "root-task": {"role": "task_root", "goal": "Repair subscription cache invalidation and add regression coverage", "source_refs": ["user-turn-1"], "status": "open", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null},
+          "verify": {"role": "work", "goal": "Run focused regression validation", "source_refs": [], "status": "pending", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null}
+        },
+        "edges": [
+          {"from": "implement", "to": "verify"},
+          {"from": "investigate", "to": "implement"},
+          {"from": "root-task", "to": "investigate"},
+          {"from": "verify", "to": "finish"}
+        ],
+        "revision": 4,
+        "current_binding": "implement",
+        "terminal_summary_ref": null
+      },
+      "canonical_sha256": "96ddd195ccd7fd3069420544092b8a7096a1c3345809312bf0a2e3da5a81b170"
+    },
+    "revision_5": {
+      "canonical_state": {
+        "id": "map-42",
+        "root_node_id": "root-task",
+        "finish_node_id": "finish",
+        "nodes": {
+          "finish": {"role": "finish", "goal": "", "source_refs": [], "status": "pending", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null},
+          "implement": {"role": "work", "goal": "Implement the selected fix", "source_refs": [], "status": "completed", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null},
+          "investigate": {"role": "work", "goal": "Identify the root cause", "source_refs": [], "status": "completed", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null},
+          "root-task": {"role": "task_root", "goal": "Repair subscription cache invalidation and add regression coverage", "source_refs": ["user-turn-1"], "status": "open", "active_lease": null, "result_context": [], "node_events": [], "origin_node_id": null},
+          "verify": {"role": "work", "goal": "Run focused regression validation", "source_refs": [], "status": "running", "active_lease": "lease-main", "result_context": [], "node_events": [], "origin_node_id": null}
+        },
+        "edges": [
+          {"from": "implement", "to": "verify"},
+          {"from": "investigate", "to": "implement"},
+          {"from": "root-task", "to": "investigate"},
+          {"from": "verify", "to": "finish"}
+        ],
+        "revision": 5,
+        "current_binding": "verify",
+        "terminal_summary_ref": null
+      },
+      "canonical_sha256": "756adf1fa6ebc6a6104480c19d0e6e6f11042e7cc595040a05a7837fef97074a"
+    }
+  },
+  "fixture_event_chain": {
+    "codec": "UTF-8 LF lines; each line is compact JSON with field order revision, canonical_sha256, action; chain head is sha256(previous head ASCII hex + LF + line bytes), initial head is 64 ASCII zeroes",
+    "events": [
+      {"revision": 4, "canonical_sha256_ref": "fixture_maps.revision_4.canonical_sha256", "action": "fixture_checkpoint"},
+      {"revision": 5, "canonical_sha256_ref": "fixture_maps.revision_5.canonical_sha256", "action": "complete_then_continue"}
+    ],
+    "head_after_revision_4": "7d29027b856354cad407d06930b059441d864c20f4ab905606b22c54db971f89",
+    "head_after_revision_5": "209504aa31895077be4a7b6f3a4b4ea7a6ca78e52435bf655c6ee05650c6db61"
+  },
+  "fixtures": [
+    {
+      "id": "LC-01-initialize-with-ordinary-sibling",
+      "pre_state": {"map": null, "revision": 0},
+      "request_calls": [
+        {
+          "index": 0,
+          "tool": "taskspace_control",
+          "arguments": {
+            "action": "initialize_map",
+            "root": {"node_id": "root-task", "goal": "Repair subscription cache invalidation and add regression coverage"},
+            "initial_work_node": {"node_id": "investigate", "goal": "Identify the root cause"},
+            "finish_identity": {"id": "finish"},
+            "additional_work_nodes": [
+              {"node_id": "implement", "goal": "Implement the selected fix"},
+              {"node_id": "verify", "goal": "Run focused regression validation"}
+            ],
+            "edges": [
+              {"from": "root-task", "to": "investigate"},
+              {"from": "investigate", "to": "implement"},
+              {"from": "implement", "to": "verify"},
+              {"from": "verify", "to": "finish"}
+            ],
+            "required_next_call": "ordinary_tool"
+          }
+        },
+        {"index": 1, "tool": "exec_command", "arguments": {"cmd": "rg --files"}}
+      ],
+      "expected": {
+        "preflight": "accept",
+        "control_status": "committed",
+        "control_schema_version": "TaskSpaceControlResultV2",
+        "revision_before": 0,
+        "revision_after": 1,
+        "partial_commit": false,
+        "ordinary_call_dispatched": true,
+        "binding": "the initial_work_node submitted by the Agent"
+      }
+    },
+    {
+      "id": "LC-02-stale-revision-rejection",
+      "pre_state": {"canonical_state_ref": "fixture_maps.revision_4", "revision": 4, "active_binding": "implement"},
+      "request_calls": [
+        {"index": 0, "tool": "taskspace_control", "arguments": {"action": "mutate_graph", "expected_revision": 3, "add_nodes": [], "add_edges": [], "remove_edges": []}}
+      ],
+      "expected": {
+        "preflight": "accept",
+        "control_status": "state_machine_failed",
+        "error_code": "TASKSPACE_STALE_REVISION",
+        "submitted_values": {"expected_revision": 3},
+        "observed_values": {"canonical_revision": 4},
+        "revision_before": 4,
+        "revision_after": 4,
+        "state_commit": "none",
+        "partial_commit": false
+      }
+    },
+    {
+      "id": "LC-03-missing-required-sibling",
+      "pre_state": {"canonical_state_ref": "fixture_maps.revision_4", "revision": 4, "active_binding": "implement"},
+      "request_calls": [
+        {"index": 0, "tool": "taskspace_control", "arguments": {"action": "complete_then_continue", "expected_revision": 4, "current_node_id": "implement", "next_node_id": "verify", "required_next_call": "ordinary_tool"}}
+      ],
+      "expected": {
+        "preflight": "reject_request_before_dispatch",
+        "control_status": "protocol_failed",
+        "error_code": "TASKSPACE_REQUIRED_SIBLING_MISSING",
+        "revision_before": 4,
+        "revision_after": 4,
+        "state_commit": "none",
+        "partial_commit": false,
+        "next_action_advice_present": false
+      }
+    },
+    {
+      "id": "LC-04-control-commit-ordinary-failure",
+      "pre_state": {"canonical_state_ref": "fixture_maps.revision_4", "revision": 4, "active_binding": "implement"},
+      "request_calls": [
+        {"index": 0, "tool": "taskspace_control", "arguments": {"action": "complete_then_continue", "expected_revision": 4, "current_node_id": "implement", "next_node_id": "verify", "required_next_call": "ordinary_tool"}},
+        {"index": 1, "tool": "exec_command", "arguments": {"cmd": "false"}}
+      ],
+      "expected": {
+        "preflight": "accept",
+        "result_count": 2,
+        "control_result": {
+          "status": "committed",
+          "revision_before": 4,
+          "revision_after": 5,
+          "partial_commit": false,
+          "new_binding": "Agent-submitted next_node_id"
+        },
+        "ordinary_result": {"status": "failed", "preserved_verbatim": true},
+        "canonical_revision_after_all_results": 5,
+        "rollback": false,
+        "synthetic_recovery_transition": false
+      }
+    },
+    {
+      "id": "LC-05-multiple-control-calls-independent-commits",
+      "pre_state": {"canonical_state_ref": "fixture_maps.revision_4", "revision": 4},
+      "request_calls": [
+        {
+          "index": 0,
+          "tool": "taskspace_control",
+          "arguments": {
+            "action": "mutate_graph",
+            "expected_revision": 4,
+            "add_nodes": [{"node_id": "audit", "goal": "Inspect cache eviction metrics"}],
+            "add_edges": [{"from": "implement", "to": "audit"}, {"from": "audit", "to": "verify"}],
+            "remove_edges": [{"from": "implement", "to": "verify"}]
+          }
+        },
+        {
+          "index": 1,
+          "tool": "taskspace_control",
+          "arguments": {
+            "action": "mutate_graph",
+            "expected_revision": 5,
+            "add_nodes": [{"node_id": "document", "goal": "Record the verified behavior"}],
+            "add_edges": [{"from": "verify", "to": "document"}, {"from": "document", "to": "finish"}],
+            "remove_edges": [{"from": "verify", "to": "finish"}]
+          }
+        }
+      ],
+      "expected": {
+        "preflight": "accept",
+        "control_results": [
+          {"status": "committed", "revision_before": 4, "revision_after": 5, "partial_commit": false},
+          {"status": "committed", "revision_before": 5, "revision_after": 6, "partial_commit": false}
+        ],
+        "atomicity_scope": "one control call",
+        "canonical_revision_after_request": 6
+      }
+    },
+    {
+      "id": "LC-06-map-append-exact-provider-retry",
+      "policy": "map-append",
+      "pre_state": {"revision": 5, "request_identity": "req-17", "attempt": 1},
+      "input_events": ["build payload for req-17 attempt 1", "retry identical payload for req-17 attempt 2"],
+      "expected": {
+        "attempt_1_projection_count": 1,
+        "attempt_2_projection_count": 1,
+        "persisted_history_additions": 1,
+        "retry_payload_bytes_equal": true,
+        "dedupe_key": "request_identity plus canonical revision plus projection policy plus rendered bytes hash"
+      }
+    },
+    {
+      "id": "LC-07-map-append-same-revision-new-request",
+      "policy": "map-append",
+      "pre_state": {"revision": 5},
+      "input_events": ["valid request req-18", "valid request req-19 without Map mutation"],
+      "expected": {
+        "req_18_tail_projection_revision": 5,
+        "req_19_tail_projection_revision": 5,
+        "persisted_history_additions": 2,
+        "deduplicated": false,
+        "reason": "separate valid requests each receive a current request-tail projection"
+      }
+    },
+    {
+      "id": "LC-08-map-request-read-then-mutate",
+      "policy": "map-request",
+      "pre_state": {"revision": 4},
+      "input_events": ["Agent read_map at revision 4", "accepted mutation commits revision 5", "next provider request"],
+      "expected": {
+        "read_result_revision": 4,
+        "canonical_revision_after_mutation": 5,
+        "automatic_projection_after_mutation": false,
+        "automatic_read_reminder": false,
+        "latest_visible_read_is_current": false,
+        "map_handle_revision": 5,
+        "runtime_selected_recovery_action": false
+      }
+    },
+    {
+      "id": "LC-09-map-always-replacement",
+      "policy": "map-always",
+      "pre_state": {"revision": 4, "visible_projection_count": 1},
+      "input_events": ["accepted mutation commits revision 5", "build next provider request"],
+      "expected": {
+        "visible_projection_count": 1,
+        "visible_projection_revision": 5,
+        "revision_4_projection_visible": false,
+        "historical_chat_items_rewritten": false,
+        "canonical_state_rebuilt_from_projection": false
+      }
+    },
+    {
+      "id": "LC-10-resume-restores-policy-and-state",
+      "pre_state": {"session_id": "session-a", "policy": "map-request", "canonical_state_ref": "fixture_maps.revision_5", "revision": 5, "event_log_head": "209504aa31895077be4a7b6f3a4b4ea7a6ca78e52435bf655c6ee05650c6db61"},
+      "input_events": ["persist session", "resume session-a without policy override"],
+      "expected": {
+        "restored_policy": "map-request",
+        "restored_revision": 5,
+        "restored_canonical_sha256": "756adf1fa6ebc6a6104480c19d0e6e6f11042e7cc595040a05a7837fef97074a",
+        "restored_event_log_head": "209504aa31895077be4a7b6f3a4b4ea7a6ca78e52435bf655c6ee05650c6db61",
+        "automatic_projection": false,
+        "automatic_skill_reload": false,
+        "latest-version-fallback": false
+      }
+    },
+    {
+      "id": "LC-11-fork-restores-fork-point",
+      "pre_state": {"parent_policy": "map-append", "fork_point_state_ref": "fixture_maps.revision_4", "fork_point_revision": 4, "parent_current_state_ref": "fixture_maps.revision_5", "parent_current_revision": 5},
+      "input_events": ["fork parent at revision 4", "start child request"],
+      "expected": {
+        "child_policy": "map-append",
+        "child_initial_revision": 4,
+        "child_canonical_sha256": "96ddd195ccd7fd3069420544092b8a7096a1c3345809312bf0a2e3da5a81b170",
+        "child_sees_parent_revision_5": false,
+        "child_first_request_tail_projection_revision": 4,
+        "parent_state_mutated": false
+      }
+    },
+    {
+      "id": "LC-12-compaction-checkpoint-replay",
+      "pre_state": {"canonical_state_ref": "fixture_maps.revision_5", "revision": 5, "event_log_head": "209504aa31895077be4a7b6f3a4b4ea7a6ca78e52435bf655c6ee05650c6db61", "pinned_skill_sha256": "a6f93fce96f7763ab3c36cb192091a908d744c1ad44ed26f6b4f5adf3422d5b1"},
+      "input_events": ["compact at revision 5", "construct first post-compaction request"],
+      "expected_by_policy": {
+        "map-always": {"current_projection_count": 1, "current_projection_revision": 5},
+        "map-append": {"new_tail_projection_count": 1, "new_tail_projection_revision": 5, "pre_compaction_projection_authority": "obsolete"},
+        "map-request": {"automatic_projection": false, "map_handle_revision": 5}
+      },
+      "shared_expected": {
+        "restored_revision": 5,
+        "restored_canonical_sha256": "756adf1fa6ebc6a6104480c19d0e6e6f11042e7cc595040a05a7837fef97074a",
+        "restored_event_log_head": "209504aa31895077be4a7b6f3a4b4ea7a6ca78e52435bf655c6ee05650c6db61",
+        "restored_pinned_skill_sha256": "a6f93fce96f7763ab3c36cb192091a908d744c1ad44ed26f6b4f5adf3422d5b1",
+        "synthetic_map_transition": false
+      }
+    }
+  ],
+  "deterministic_fixture_rule": {
+    "canonical_map_json": "Serialize the TaskSpaceMap Rust struct in declared field order; BTreeMap node keys and canonicalized edges are lexicographically ordered; compact UTF-8 JSON with no trailing LF",
+    "event_hash": "Use fixture_event_chain.codec exactly",
+    "projection_hash": "sha256(rendered projection UTF-8 bytes)",
+    "freeze_command": "pwsh scripts/taskspace-benchmark/freeze-r7-five-layer-fixtures.ps1 -Contract benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
+    "activation_gate": "The fixture compiler independently reproduces every frozen canonical and event hash and compares production renderer output with the committed golden before FLA-7 production activation.",
+    "golden": "benchmarks/taskspace/r7/five-layer-lifecycle-golden-v1.json"
+  },
+  "required_logs": [
+    "session_id",
+    "request_id",
+    "attempt",
+    "projection_policy",
+    "action",
+    "submitted_revision",
+    "revision_before",
+    "revision_after",
+    "state_commit",
+    "partial_commit",
+    "error_code",
+    "event_log_head",
+    "projection_hash",
+    "projection_emission_reason",
+    "retry_dedupe_key",
+    "resume_or_fork_source"
+  ]
+}

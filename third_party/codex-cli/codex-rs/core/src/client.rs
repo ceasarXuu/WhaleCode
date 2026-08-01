@@ -24,14 +24,28 @@
 //! fails, normal stream retry/fallback logic handles recovery on the same turn.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
+#[cfg(unix)]
+use std::fs::OpenOptions;
+#[cfg(unix)]
+use std::io::Read;
+#[cfg(unix)]
+use std::io::Seek;
+#[cfg(unix)]
+use std::io::SeekFrom;
+#[cfg(unix)]
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::MutexGuard as StdMutexGuard;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::CompactClient as ApiCompactClient;
@@ -43,7 +57,9 @@ use codex_api::MemorySummarizeOutput as ApiMemorySummarizeOutput;
 use codex_api::Provider as ApiProvider;
 use codex_api::RawMemory as ApiRawMemory;
 use codex_api::RealtimeCallClient as ApiRealtimeCallClient;
+use codex_api::RealtimeEventParser;
 use codex_api::RealtimeSessionConfig as ApiRealtimeSessionConfig;
+use codex_api::RealtimeSessionMode;
 use codex_api::Reasoning;
 use codex_api::RequestTelemetry;
 use codex_api::ReqwestTransport;
@@ -80,6 +96,7 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_rollout_trace::CompactionTraceContext;
@@ -112,6 +129,7 @@ use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::client_common::ResponseStream;
 use crate::flags::CODEX_RS_SSE_FIXTURE;
+use crate::provider_wire_trace::ProviderWireTrace;
 use crate::util::emit_feedback_auth_recovery_tags;
 use codex_api::map_api_error;
 use codex_feedback::FeedbackRequestTags;
@@ -144,16 +162,132 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
-const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
-const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
-    "ContextProjectionV1 shadow (not active replacement):";
+const REALTIME_CALLS_ENDPOINT: &str = "/realtime/calls";
+const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR7V1:";
+const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR7V1 end.";
+const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
+    "schema_version",
+    "projection_kind",
+    "map_id",
+    "revision",
+    "canonical_sha256",
+    "root_node_id",
+    "finish_node_id",
+    "complete",
+    "current_terminal",
+    "terminal_history",
+    "root_source_event_ids",
+    "active_frontier",
+    "map_nodes",
+    "map_edges",
+    "node_details",
+];
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
 // period between stream events.
 const COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER: u32 = 4;
 const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
+const PROVIDER_REQUEST_HARD_LIMIT_ENV: &str = "WHALE_PROVIDER_REQUEST_HARD_LIMIT";
+const PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH_ENV: &str =
+    "WHALE_PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH";
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct ExactPayloadScanEventV1 {
+    pub(crate) schema_version: &'static str,
+    pub(crate) scan_event_id: String,
+    pub(crate) request_id: String,
+    pub(crate) provider_payload_sha256: String,
+    pub(crate) scanner_version: String,
+    pub(crate) matcher_version: String,
+    pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
+    pub(crate) negative_checks_performed: Vec<String>,
+    pub(crate) projection_required: bool,
+    pub(crate) active_projection_present: bool,
+    pub(crate) active_projection_count: usize,
+    pub(crate) projection_is_message_tail: bool,
+    pub(crate) large_raw_output_tokens: usize,
+    pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
+    pub(crate) protected_items_present: bool,
+    pub(crate) projection_kind: Option<String>,
+    pub(crate) projection_map_id_sha256: Option<String>,
+    pub(crate) projection_revision: Option<u64>,
+    pub(crate) projection_canonical_sha256: Option<String>,
+    pub(crate) projection_sha256: Option<String>,
+    pub(crate) projection_policy: Option<String>,
+    pub(crate) expected_projection_kind: Option<String>,
+    pub(crate) expected_projection_map_id_sha256: Option<String>,
+    pub(crate) expected_projection_revision: Option<u64>,
+    pub(crate) expected_projection_canonical_sha256: Option<String>,
+    pub(crate) expected_projection_sha256: Option<String>,
+    pub(crate) projection_identity_confirmed: Option<bool>,
+    pub(crate) replacement_confirmed: bool,
+    pub(crate) passed: bool,
+    pub(crate) failure_reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderProjectionIdentityExpectation {
+    policy: TaskSpaceProjectionPolicy,
+    automatic_projection_required: bool,
+    kind: String,
+    map_id_sha256: Option<String>,
+    revision: Option<u64>,
+    canonical_sha256: Option<String>,
+    projection_sha256: String,
+}
+
+impl ProviderProjectionIdentityExpectation {
+    pub(crate) fn from_projection_context(
+        policy: TaskSpaceProjectionPolicy,
+        context: &str,
+    ) -> Option<Self> {
+        let projection = projection_blocks_from_text(context).into_iter().next()?;
+        let projection_sha256 = sha256_hex(projection.as_bytes());
+        let bootstrap = projection.lines().any(|line| line == "- map: none")
+            && projection
+                .lines()
+                .any(|line| line == "- bootstrap_required: true");
+        if bootstrap {
+            return Some(Self {
+                policy,
+                automatic_projection_required: true,
+                kind: "bootstrap_required".to_string(),
+                map_id_sha256: None,
+                revision: None,
+                canonical_sha256: None,
+                projection_sha256,
+            });
+        }
+        let map_id = projection_mechanical_field(projection, "map_id")?;
+        let revision = projection_mechanical_field(projection, "revision")
+            .and_then(|value| value.parse::<u64>().ok())?;
+        let canonical_sha256 = projection_mechanical_field(projection, "canonical_sha256")?;
+        let kind = projection_mechanical_field(projection, "projection_kind")?;
+        Some(Self {
+            policy,
+            automatic_projection_required: true,
+            kind: kind.to_string(),
+            map_id_sha256: Some(sha256_hex(map_id.as_bytes())),
+            revision: Some(revision),
+            canonical_sha256: Some(canonical_sha256.to_string()),
+            projection_sha256,
+        })
+    }
+
+    pub(crate) fn without_automatic_projection(policy: TaskSpaceProjectionPolicy) -> Self {
+        Self {
+            policy,
+            automatic_projection_required: false,
+            kind: "none".to_string(),
+            map_id_sha256: None,
+            revision: None,
+            canonical_sha256: None,
+            projection_sha256: String::new(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderRequestBudgetEvent {
@@ -188,10 +322,11 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) dynamic_suffix_hash: Option<String>,
     pub(crate) exact_payload_scan_passed: Option<bool>,
     pub(crate) active_projection_present: Option<bool>,
-    pub(crate) legacy_taskspace_history_present: Option<bool>,
+    pub(crate) active_projection_count: Option<usize>,
     pub(crate) large_raw_output_tokens: Option<usize>,
     pub(crate) protected_items_present: Option<bool>,
     pub(crate) replacement_confirmed: Option<bool>,
+    pub(crate) exact_payload_scan: Option<ExactPayloadScanEventV1>,
     pub(crate) task_id: Option<String>,
     pub(crate) map_id: Option<String>,
     pub(crate) node_id: Option<String>,
@@ -209,8 +344,6 @@ pub(crate) struct ProviderRequestBudgetLimits {
     pub(crate) max_requests: usize,
     pub(crate) node_request_count: usize,
     pub(crate) max_model_requests_per_node: usize,
-    pub(crate) post_budget_grace_requests: usize,
-    pub(crate) post_budget_grace_request_count: usize,
     pub(crate) budget_state: String,
 }
 
@@ -223,17 +356,36 @@ pub(crate) struct ProviderRequestAttribution {
     pub(crate) request_phase: Option<String>,
 }
 
+impl ProviderRequestAttribution {
+    pub(crate) fn from_snapshot(
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        request_scope_id: &str,
+    ) -> Self {
+        Self {
+            request_scope_id: Some(request_scope_id.to_string()),
+            task_id: snapshot
+                .task_id
+                .as_ref()
+                .map(std::string::ToString::to_string),
+            map_id: Some(snapshot.map_id.to_string()),
+            node_id: snapshot
+                .node_id
+                .as_ref()
+                .map(std::string::ToString::to_string),
+            request_phase: snapshot.request_phase.clone(),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ProviderRequestBudgetState {
     enabled: bool,
     count: AtomicUsize,
     max_requests: usize,
     node_count: AtomicUsize,
-    max_model_requests_per_node: usize,
-    post_budget_grace_requests: usize,
-    post_budget_grace_count: AtomicUsize,
     budget_state: String,
     attribution: ProviderRequestAttribution,
+    expected_projection_identity: Option<ProviderProjectionIdentityExpectation>,
     events: StdMutex<Vec<ProviderRequestBudgetEvent>>,
     active_request: StdMutex<Option<ProviderRequestBudgetActiveRequest>>,
 }
@@ -261,17 +413,7 @@ struct ProviderRequestBudgetActiveRequest {
     messages_hash: Option<String>,
     stable_prefix_hash: Option<String>,
     dynamic_suffix_hash: Option<String>,
-    payload_scan: Option<ProviderPayloadScan>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ProviderPayloadScan {
-    exact_payload_scan_passed: bool,
-    active_projection_present: bool,
-    legacy_taskspace_history_present: bool,
-    large_raw_output_tokens: usize,
-    protected_items_present: bool,
-    replacement_confirmed: bool,
+    payload_scan: Option<ExactPayloadScanEventV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,7 +427,7 @@ struct ProviderPayloadDigest {
     messages_hash: String,
     stable_prefix_hash: String,
     dynamic_suffix_hash: String,
-    scan: ProviderPayloadScan,
+    scan: ExactPayloadScanEventV1,
 }
 
 struct ProviderRequestIdentity {
@@ -296,7 +438,7 @@ struct ProviderRequestIdentity {
 
 fn provider_request_budget_state_for(count: usize, max_requests: usize) -> &'static str {
     if max_requests == 0 || count >= max_requests {
-        return "hard_stopped";
+        return "over_profile_hint";
     }
     let remaining = max_requests.saturating_sub(count);
     if remaining <= 1 {
@@ -319,18 +461,9 @@ fn provider_request_budget_transition_reason(before: &str, after: &str) -> &'sta
         "warned" => "provider_request_warning_threshold_reached",
         "thin_downgraded" => "provider_request_thin_threshold_reached",
         "compact_checkpoint_required" => "provider_request_compact_checkpoint_required",
-        "hard_stopped" => "provider_request_budget_reached",
+        "over_profile_hint" => "provider_request_profile_hint_exceeded",
         _ => "provider_request_state_transition",
     }
-}
-
-fn provider_request_budget_allows_compact_checkpoint_dispatch(
-    attribution: &ProviderRequestAttribution,
-) -> bool {
-    matches!(
-        attribution.request_phase.as_deref(),
-        Some("final_synthesis")
-    )
 }
 
 impl ProviderRequestBudgetContext {
@@ -341,11 +474,9 @@ impl ProviderRequestBudgetContext {
                 count: AtomicUsize::new(0),
                 max_requests: usize::MAX,
                 node_count: AtomicUsize::new(0),
-                max_model_requests_per_node: usize::MAX,
-                post_budget_grace_requests: 0,
-                post_budget_grace_count: AtomicUsize::new(0),
                 budget_state: "disabled".to_string(),
                 attribution: ProviderRequestAttribution::default(),
+                expected_projection_identity: None,
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
             }),
@@ -360,18 +491,18 @@ impl ProviderRequestBudgetContext {
                 max_requests,
                 node_request_count: 0,
                 max_model_requests_per_node: usize::MAX,
-                post_budget_grace_requests: 1,
-                post_budget_grace_request_count: 0,
                 budget_state: provider_request_budget_state_for(starting_count, max_requests)
                     .to_string(),
             },
             ProviderRequestAttribution::default(),
+            None,
         )
     }
 
     pub(crate) fn enabled_with_attribution(
         limits: ProviderRequestBudgetLimits,
         attribution: ProviderRequestAttribution,
+        expected_projection_identity: Option<ProviderProjectionIdentityExpectation>,
     ) -> Self {
         Self {
             state: Arc::new(ProviderRequestBudgetState {
@@ -379,11 +510,9 @@ impl ProviderRequestBudgetContext {
                 count: AtomicUsize::new(limits.request_count),
                 max_requests: limits.max_requests,
                 node_count: AtomicUsize::new(limits.node_request_count),
-                max_model_requests_per_node: limits.max_model_requests_per_node,
-                post_budget_grace_requests: limits.post_budget_grace_requests,
-                post_budget_grace_count: AtomicUsize::new(limits.post_budget_grace_request_count),
                 budget_state: limits.budget_state,
                 attribution,
+                expected_projection_identity,
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
             }),
@@ -395,123 +524,17 @@ impl ProviderRequestBudgetContext {
             return Ok(ProviderRequestBudgetDispatch::disabled());
         }
         let before = self.state.count.load(Ordering::SeqCst);
-        let node_before = self.state.node_count.load(Ordering::SeqCst);
         let budget_state_before = if self.state.budget_state.trim().is_empty() {
             provider_request_budget_state_for(before, self.state.max_requests).to_string()
         } else {
             self.state.budget_state.clone()
         };
-        let compact_checkpoint_final_dispatch =
-            provider_request_budget_allows_compact_checkpoint_dispatch(&self.state.attribution);
-        let explicit_budget_recovery_dispatch = matches!(
-            self.state.attribution.request_phase.as_deref(),
-            Some("budget_recovery")
-        );
-        let grace_before = self.state.post_budget_grace_count.load(Ordering::SeqCst);
-        let node_limit_reached = node_before >= self.state.max_model_requests_per_node
-            && self.state.max_model_requests_per_node != usize::MAX;
-        let node_budget_recovery_dispatch = node_limit_reached
-            && !explicit_budget_recovery_dispatch
-            && grace_before < self.state.post_budget_grace_requests;
-        let budget_recovery_grace_available = (explicit_budget_recovery_dispatch
-            || node_budget_recovery_dispatch)
-            && grace_before < self.state.post_budget_grace_requests;
-        let compact_checkpoint_recovery_slot = budget_state_before == "compact_checkpoint_required"
-            && before + 1 >= self.state.max_requests;
-        let compact_checkpoint_blocked = budget_state_before == "compact_checkpoint_required"
-            && !compact_checkpoint_final_dispatch;
-        let compact_checkpoint_blocked =
-            compact_checkpoint_blocked && !compact_checkpoint_recovery_slot;
-        let node_budget_exhausted = node_limit_reached && !budget_recovery_grace_available;
-        if node_budget_exhausted || before >= self.state.max_requests || compact_checkpoint_blocked
-        {
-            let request_identity = self.build_request_identity(before + 1, 1);
-            let blocked_reason = if compact_checkpoint_blocked {
-                "provider_request_compact_checkpoint_required"
-            } else if node_budget_exhausted {
-                "provider_node_request_budget_exhausted"
-            } else {
-                "provider_request_budget_exhausted"
-            };
-            self.push_event(ProviderRequestBudgetEvent {
-                request_id: request_identity.request_id,
-                logical_request_id: request_identity.logical_request_id,
-                parent_request_id: None,
-                attempt_seq: request_identity.attempt_seq,
-                transport: transport.to_string(),
-                status: "blocked".to_string(),
-                request_count_before: before,
-                request_count_after: before,
-                max_requests: self.state.max_requests,
-                budget_state_before: budget_state_before.clone(),
-                budget_state_after: budget_state_before.clone(),
-                budget_transition_reason: blocked_reason.to_string(),
-                started_at_ms: provider_request_budget_now_ms(),
-                completed_at_ms: Some(provider_request_budget_now_ms()),
-                latency_ms: Some(0),
-                input_tokens: None,
-                cached_input_tokens: None,
-                output_tokens: None,
-                reasoning_output_tokens: None,
-                total_tokens: None,
-                provider_payload_sha256: None,
-                provider_payload_bytes: None,
-                provider_wire_api: None,
-                tools_count: None,
-                tools_present: None,
-                request_shape_classifier: None,
-                messages_hash: None,
-                stable_prefix_hash: None,
-                dynamic_suffix_hash: None,
-                exact_payload_scan_passed: None,
-                active_projection_present: None,
-                legacy_taskspace_history_present: None,
-                large_raw_output_tokens: None,
-                protected_items_present: None,
-                replacement_confirmed: None,
-                task_id: self.state.attribution.task_id.clone(),
-                map_id: self.state.attribution.map_id.clone(),
-                node_id: self.state.attribution.node_id.clone(),
-                request_phase: self.state.attribution.request_phase.clone(),
-            });
-            let message = if compact_checkpoint_blocked {
-                format!(
-                    "TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final synthesis response ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
-                    self.state.max_requests
-                )
-            } else if node_budget_exhausted {
-                format!(
-                    "TaskSpace blocked this provider request because the active node provider request budget is exhausted ({node_before}/{}). Enter budget_recovery, final_synthesis, or bind a different node before requesting another model turn.",
-                    self.state.max_model_requests_per_node
-                )
-            } else {
-                format!(
-                    "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
-                    self.state.max_requests
-                )
-            };
-            return Err(CodexErr::InvalidRequest(message));
-        }
         let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
         let _node_after = self.state.node_count.fetch_add(1, Ordering::SeqCst) + 1;
-        if budget_recovery_grace_available {
-            self.state
-                .post_budget_grace_count
-                .fetch_add(1, Ordering::SeqCst);
-        }
         let budget_state_after = provider_request_budget_state_for(after, self.state.max_requests);
         let budget_transition_reason =
             provider_request_budget_transition_reason(&budget_state_before, budget_state_after);
-        let request_phase = if budget_state_before == "compact_checkpoint_required"
-            && compact_checkpoint_recovery_slot
-            && !compact_checkpoint_final_dispatch
-        {
-            Some("budget_recovery".to_string())
-        } else if node_budget_recovery_dispatch {
-            Some("budget_recovery".to_string())
-        } else {
-            self.state.attribution.request_phase.clone()
-        };
+        let request_phase = self.state.attribution.request_phase.clone();
         let request_identity = self.build_request_identity(after, 1);
         let request_id = request_identity.request_id.clone();
         let started_at_ms = provider_request_budget_now_ms();
@@ -539,11 +562,7 @@ impl ProviderRequestBudgetContext {
             dynamic_suffix_hash: None,
             payload_scan: None,
         };
-        *self
-            .state
-            .active_request
-            .lock()
-            .expect("provider request budget active mutex poisoned") = Some(active_request.clone());
+        *lock_std_mutex(&self.state.active_request) = Some(active_request);
         self.push_event(ProviderRequestBudgetEvent {
             request_id: request_id.clone(),
             logical_request_id: request_identity.logical_request_id.clone(),
@@ -576,10 +595,11 @@ impl ProviderRequestBudgetContext {
             dynamic_suffix_hash: None,
             exact_payload_scan_passed: None,
             active_projection_present: None,
-            legacy_taskspace_history_present: None,
+            active_projection_count: None,
             large_raw_output_tokens: None,
             protected_items_present: None,
             replacement_confirmed: None,
+            exact_payload_scan: None,
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
@@ -614,19 +634,23 @@ impl ProviderRequestBudgetContext {
         self.record_active_terminal_status("cancelled", None);
     }
 
-    fn record_provider_payload(&self, payload: ProviderPayloadDigest) {
+    fn record_provider_payload(&self, mut payload: ProviderPayloadDigest) {
         if !self.state.enabled {
             return;
         }
+        apply_projection_identity_expectation(
+            &mut payload.scan,
+            self.state.expected_projection_identity.as_ref(),
+        );
         let active_request = {
-            let mut active_request = self
-                .state
-                .active_request
-                .lock()
-                .expect("provider request budget active mutex poisoned");
+            let mut active_request = lock_std_mutex(&self.state.active_request);
             let Some(active_request) = active_request.as_mut() else {
                 return;
             };
+            payload.scan.request_id = active_request.request_id.clone();
+            payload.scan.provider_payload_sha256 = payload.sha256.clone();
+            payload.scan.scan_event_id =
+                format!("scan:{}:{}", active_request.request_id, payload.sha256);
             active_request.provider_payload_sha256 = Some(payload.sha256);
             active_request.provider_payload_bytes = Some(payload.bytes);
             active_request.provider_wire_api = Some(payload.provider_wire_api);
@@ -639,7 +663,7 @@ impl ProviderRequestBudgetContext {
             active_request.payload_scan = Some(payload.scan);
             active_request.clone()
         };
-        let scan = active_request.payload_scan;
+        let scan = active_request.payload_scan.clone();
         self.push_event(ProviderRequestBudgetEvent {
             request_id: active_request.request_id,
             logical_request_id: active_request.logical_request_id,
@@ -670,14 +694,13 @@ impl ProviderRequestBudgetContext {
             messages_hash: active_request.messages_hash,
             stable_prefix_hash: active_request.stable_prefix_hash,
             dynamic_suffix_hash: active_request.dynamic_suffix_hash,
-            exact_payload_scan_passed: scan.as_ref().map(|scan| scan.exact_payload_scan_passed),
+            exact_payload_scan_passed: scan.as_ref().map(|scan| scan.passed),
             active_projection_present: scan.as_ref().map(|scan| scan.active_projection_present),
-            legacy_taskspace_history_present: scan
-                .as_ref()
-                .map(|scan| scan.legacy_taskspace_history_present),
+            active_projection_count: scan.as_ref().map(|scan| scan.active_projection_count),
             large_raw_output_tokens: scan.as_ref().map(|scan| scan.large_raw_output_tokens),
             protected_items_present: scan.as_ref().map(|scan| scan.protected_items_present),
             replacement_confirmed: scan.as_ref().map(|scan| scan.replacement_confirmed),
+            exact_payload_scan: scan,
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
@@ -689,12 +712,7 @@ impl ProviderRequestBudgetContext {
         if !self.state.enabled {
             return;
         }
-        let active_request = self
-            .state
-            .active_request
-            .lock()
-            .expect("provider request budget active mutex poisoned")
-            .take();
+        let active_request = lock_std_mutex(&self.state.active_request).take();
         if let Some(active_request) = active_request {
             let completed_at_ms = provider_request_budget_now_ms();
             self.push_event(ProviderRequestBudgetEvent {
@@ -730,15 +748,15 @@ impl ProviderRequestBudgetContext {
                 exact_payload_scan_passed: active_request
                     .payload_scan
                     .as_ref()
-                    .map(|scan| scan.exact_payload_scan_passed),
+                    .map(|scan| scan.passed),
                 active_projection_present: active_request
                     .payload_scan
                     .as_ref()
                     .map(|scan| scan.active_projection_present),
-                legacy_taskspace_history_present: active_request
+                active_projection_count: active_request
                     .payload_scan
                     .as_ref()
-                    .map(|scan| scan.legacy_taskspace_history_present),
+                    .map(|scan| scan.active_projection_count),
                 large_raw_output_tokens: active_request
                     .payload_scan
                     .as_ref()
@@ -751,6 +769,7 @@ impl ProviderRequestBudgetContext {
                     .payload_scan
                     .as_ref()
                     .map(|scan| scan.replacement_confirmed),
+                exact_payload_scan: active_request.payload_scan,
                 task_id: self.state.attribution.task_id.clone(),
                 map_id: self.state.attribution.map_id.clone(),
                 node_id: self.state.attribution.node_id.clone(),
@@ -760,20 +779,12 @@ impl ProviderRequestBudgetContext {
     }
 
     pub(crate) fn drain_events(&self) -> Vec<ProviderRequestBudgetEvent> {
-        let mut events = self
-            .state
-            .events
-            .lock()
-            .expect("provider request budget event mutex poisoned");
+        let mut events = lock_std_mutex(&self.state.events);
         std::mem::take(&mut *events)
     }
 
     fn push_event(&self, event: ProviderRequestBudgetEvent) {
-        self.state
-            .events
-            .lock()
-            .expect("provider request budget event mutex poisoned")
-            .push(event);
+        lock_std_mutex(&self.state.events).push(event);
     }
 
     fn build_request_identity(
@@ -802,16 +813,19 @@ impl ProviderRequestBudgetContext {
         &self,
         request_id: &str,
     ) -> Option<ProviderRequestBudgetActiveRequest> {
-        let active_request = self
-            .state
-            .active_request
-            .lock()
-            .expect("provider request budget active mutex poisoned");
+        let active_request = lock_std_mutex(&self.state.active_request);
         let active_request = active_request.as_ref()?;
         if active_request.request_id != request_id {
             return None;
         }
         Some(active_request.clone())
+    }
+}
+
+fn lock_std_mutex<T>(mutex: &StdMutex<T>) -> StdMutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }
 
@@ -905,15 +919,13 @@ impl ProviderRequestBudgetDispatch {
                 dynamic_suffix_hash: active_payload
                     .as_ref()
                     .and_then(|active| active.dynamic_suffix_hash.clone()),
-                exact_payload_scan_passed: payload_scan
-                    .as_ref()
-                    .map(|scan| scan.exact_payload_scan_passed),
+                exact_payload_scan_passed: payload_scan.as_ref().map(|scan| scan.passed),
                 active_projection_present: payload_scan
                     .as_ref()
                     .map(|scan| scan.active_projection_present),
-                legacy_taskspace_history_present: payload_scan
+                active_projection_count: payload_scan
                     .as_ref()
-                    .map(|scan| scan.legacy_taskspace_history_present),
+                    .map(|scan| scan.active_projection_count),
                 large_raw_output_tokens: payload_scan
                     .as_ref()
                     .map(|scan| scan.large_raw_output_tokens),
@@ -921,6 +933,7 @@ impl ProviderRequestBudgetDispatch {
                     .as_ref()
                     .map(|scan| scan.protected_items_present),
                 replacement_confirmed: payload_scan.as_ref().map(|scan| scan.replacement_confirmed),
+                exact_payload_scan: payload_scan,
                 task_id: context.state.attribution.task_id.clone(),
                 map_id: context.state.attribution.map_id.clone(),
                 node_id: context.state.attribution.node_id.clone(),
@@ -959,13 +972,21 @@ fn provider_payload_digest_for_wire<T: serde::Serialize>(
     payload: &T,
     provider_wire_api: codex_api::WireApi,
 ) -> Option<ProviderPayloadDigest> {
-    let bytes = serde_json::to_vec(payload).ok()?;
     let value = serde_json::to_value(payload).ok()?;
+    provider_payload_digest_for_wire_value(&value, provider_wire_api)
+}
+
+fn provider_payload_digest_for_wire_value(
+    value: &serde_json::Value,
+    provider_wire_api: codex_api::WireApi,
+) -> Option<ProviderPayloadDigest> {
+    let bytes = serde_json::to_vec(value).ok()?;
     let text = String::from_utf8_lossy(&bytes);
+    let sha256 = sha256_hex(&bytes);
     let tools_count = value
         .get("tools")
         .and_then(|tools| tools.as_array())
-        .map(|tools| tools.len())
+        .map(std::vec::Vec::len)
         .unwrap_or(0);
     let tools_present = tools_count > 0;
     let request_shape_classifier = if tools_present {
@@ -973,40 +994,498 @@ fn provider_payload_digest_for_wire<T: serde::Serialize>(
     } else {
         "tool_free_action_contract"
     };
-    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
-    let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
-        || text.contains("TaskSpace Bootstrap")
-        || text.contains("TaskSpace ContextProjectionV1 shadow update");
-    let active_projection_block = text
-        .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
-        .nth(1)
-        .unwrap_or_default();
-    let protected_items_present = active_projection_block.contains("- protected")
-        || active_projection_block.contains("protected_item")
-        || active_projection_block.contains("protected item")
-        || active_projection_block.contains("protected evidence");
-    let large_raw_output_tokens = estimate_large_raw_output_tokens(&value);
-    let replacement_confirmed = active_projection_present
-        && !legacy_taskspace_history_present
-        && large_raw_output_tokens == 0;
     Some(ProviderPayloadDigest {
-        sha256: sha256_hex(&bytes),
+        sha256: sha256.clone(),
         bytes: bytes.len(),
         provider_wire_api: format!("{provider_wire_api:?}"),
         tools_count,
         tools_present,
         request_shape_classifier: request_shape_classifier.to_string(),
-        messages_hash: json_field_hash(&value, "input"),
-        stable_prefix_hash: json_field_hash(&value, "instructions"),
-        dynamic_suffix_hash: json_field_hash(&value, "input"),
-        scan: ProviderPayloadScan {
-            exact_payload_scan_passed: replacement_confirmed,
-            active_projection_present,
-            legacy_taskspace_history_present,
-            large_raw_output_tokens,
-            protected_items_present,
-            replacement_confirmed,
-        },
+        messages_hash: json_field_hash(value, provider_wire_message_field(provider_wire_api)),
+        stable_prefix_hash: provider_wire_stable_prefix_hash(value, provider_wire_api),
+        dynamic_suffix_hash: provider_wire_dynamic_suffix_hash(value, provider_wire_api),
+        scan: scan_provider_payload_text("request-unbound", &sha256, &text, value),
+    })
+}
+
+fn provider_wire_message_field(provider_wire_api: codex_api::WireApi) -> &'static str {
+    if provider_wire_api == codex_api::WireApi::ChatCompletions {
+        "messages"
+    } else {
+        "input"
+    }
+}
+
+fn provider_wire_stable_prefix_hash(
+    value: &serde_json::Value,
+    provider_wire_api: codex_api::WireApi,
+) -> String {
+    let first_message = value
+        .get(provider_wire_message_field(provider_wire_api))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|messages| messages.first())
+        .unwrap_or(&serde_json::Value::Null);
+    let stable_prefix = serde_json::json!({
+        "first_message": first_message,
+        "tools": value.get("tools").unwrap_or(&serde_json::Value::Null),
+    });
+    serde_json::to_vec(&stable_prefix)
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_else(|_| sha256_hex(b"null"))
+}
+
+fn provider_wire_dynamic_suffix_hash(
+    value: &serde_json::Value,
+    provider_wire_api: codex_api::WireApi,
+) -> String {
+    value
+        .get(provider_wire_message_field(provider_wire_api))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|messages| messages.last())
+        .and_then(|message| serde_json::to_vec(message).ok())
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_else(|| sha256_hex(b"null"))
+}
+
+fn scan_provider_payload_text(
+    request_id: &str,
+    sha256: &str,
+    text: &str,
+    value: &serde_json::Value,
+) -> ExactPayloadScanEventV1 {
+    let projection_required = provider_payload_has_tool(value, "taskspace_control");
+    let projection_blocks = provider_projection_blocks(value);
+    let active_projection_count = projection_blocks.len();
+    let active_projection_present = active_projection_count > 0;
+    let projection_is_message_tail = provider_projection_is_message_tail(value);
+    let protected_items_present = !projection_blocks.is_empty()
+        && projection_blocks
+            .iter()
+            .all(|block| projection_block_is_valid(block));
+    let projection_identity = projection_blocks
+        .last()
+        .map(|projection| projection_identity(projection));
+    let revision_sequence_valid = projection_revision_sequence_valid(&projection_blocks);
+    let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
+    let runtime_boundary_forbidden_markers = [
+        "TaskSpaceProviderBudgetHardStopV1",
+        "provider_request_hard_limit_exceeded",
+        "TaskSpaceAgentContextBundleV1",
+        "TaskSpaceToolSemanticSummaryV1",
+        "schema_property_rename_hints=",
+        "next_valid_actions",
+        "validation_needs_test",
+        "rejected_by_state_baseline",
+    ]
+    .into_iter()
+    .filter(|marker| text.contains(marker))
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    let replacement_confirmed = if projection_required {
+        active_projection_count == 1
+            && protected_items_present
+            && large_raw_output_tokens == 0
+            && runtime_boundary_forbidden_markers.is_empty()
+    } else {
+        active_projection_count == 0
+            && large_raw_output_tokens == 0
+            && runtime_boundary_forbidden_markers.is_empty()
+    };
+    let mut failure_reasons = Vec::new();
+    if projection_required && active_projection_count == 0 {
+        failure_reasons.push("current_projection_missing".to_string());
+    }
+    if projection_required && active_projection_count > 0 && !projection_is_message_tail {
+        failure_reasons.push("current_projection_not_message_tail".to_string());
+    }
+    if projection_required && active_projection_count > 1 {
+        failure_reasons.push("current_projection_not_unique".to_string());
+    }
+    if active_projection_count > 1 && !revision_sequence_valid {
+        failure_reasons.push("projection_revision_order_invalid".to_string());
+    }
+    if !projection_required && active_projection_count != 0 {
+        failure_reasons.push("unexpected_current_projection".to_string());
+    }
+    if large_raw_output_tokens > 0 {
+        failure_reasons.push("large_raw_output_present".to_string());
+    }
+    if !runtime_boundary_forbidden_markers.is_empty() {
+        failure_reasons.push("runtime_boundary_forbidden_marker_present".to_string());
+    }
+    if projection_required && active_projection_count == 1 && !protected_items_present {
+        failure_reasons.push("current_projection_required_sections_missing".to_string());
+    }
+    ExactPayloadScanEventV1 {
+        schema_version: "taskspace-exact-payload-scan-event-v1",
+        scan_event_id: format!("scan:{request_id}:{sha256}"),
+        request_id: request_id.to_string(),
+        provider_payload_sha256: sha256.to_string(),
+        scanner_version: "r7-exact-scan-1".to_string(),
+        matcher_version: "r7-projection-checks-1".to_string(),
+        checked_byte_ranges: vec![(0, text.len())],
+        negative_checks_performed: vec![
+            "current_projection_uniqueness".to_string(),
+            "current_projection_message_tail".to_string(),
+            "large_raw_output".to_string(),
+            "runtime_boundary_forbidden_markers".to_string(),
+        ],
+        projection_required,
+        active_projection_present,
+        active_projection_count,
+        projection_is_message_tail,
+        large_raw_output_tokens,
+        runtime_boundary_forbidden_markers,
+        protected_items_present,
+        projection_kind: projection_identity
+            .as_ref()
+            .map(|identity| identity.kind.clone()),
+        projection_map_id_sha256: projection_identity
+            .as_ref()
+            .and_then(|identity| identity.map_id_sha256.clone()),
+        projection_revision: projection_identity
+            .as_ref()
+            .and_then(|identity| identity.revision),
+        projection_canonical_sha256: projection_identity
+            .as_ref()
+            .and_then(|identity| identity.canonical_sha256.clone()),
+        projection_sha256: projection_identity.map(|identity| identity.projection_sha256),
+        projection_policy: None,
+        expected_projection_kind: None,
+        expected_projection_map_id_sha256: None,
+        expected_projection_revision: None,
+        expected_projection_canonical_sha256: None,
+        expected_projection_sha256: None,
+        projection_identity_confirmed: None,
+        replacement_confirmed,
+        passed: failure_reasons.is_empty(),
+        failure_reasons,
+    }
+}
+
+#[derive(Debug)]
+struct ProviderProjectionIdentity {
+    kind: String,
+    map_id_sha256: Option<String>,
+    revision: Option<u64>,
+    canonical_sha256: Option<String>,
+    projection_sha256: String,
+}
+
+fn provider_projection_blocks(value: &serde_json::Value) -> Vec<&str> {
+    let Some(messages) = value.get("messages").or_else(|| value.get("input")) else {
+        return Vec::new();
+    };
+    if let Some(text) = messages.as_str() {
+        return projection_blocks_from_text(text);
+    }
+    let Some(messages) = messages.as_array() else {
+        return Vec::new();
+    };
+    let mut blocks = Vec::new();
+    for message in messages {
+        let role = message.get("role").and_then(serde_json::Value::as_str);
+        if !matches!(role, Some("developer" | "system" | "user")) {
+            continue;
+        }
+        let Some(content) = message.get("content") else {
+            continue;
+        };
+        let mut strings = Vec::new();
+        collect_provider_strings(content, &mut strings);
+        for text in strings {
+            blocks.extend(projection_blocks_from_text(text));
+        }
+    }
+    blocks
+}
+
+fn provider_projection_is_message_tail(value: &serde_json::Value) -> bool {
+    let Some(messages) = value.get("messages").or_else(|| value.get("input")) else {
+        return false;
+    };
+    if let Some(text) = messages.as_str() {
+        return !projection_blocks_from_text(text).is_empty()
+            && text.trim_end().ends_with(TASKSPACE_PROJECTION_END_MARKER);
+    }
+    let Some(last_message) = messages.as_array().and_then(|messages| messages.last()) else {
+        return false;
+    };
+    let role = last_message.get("role").and_then(serde_json::Value::as_str);
+    if !matches!(role, Some("developer" | "system" | "user")) {
+        return false;
+    }
+    let Some(content) = last_message.get("content") else {
+        return false;
+    };
+    let mut strings = Vec::new();
+    collect_provider_strings(content, &mut strings);
+    strings
+        .into_iter()
+        .any(|text| !projection_blocks_from_text(text).is_empty())
+}
+
+fn projection_blocks_from_text(text: &str) -> Vec<&str> {
+    let mut blocks = Vec::new();
+    let mut remainder = text;
+    while let Some(start) = remainder.find(TASKSPACE_PROJECTION_MARKER) {
+        let candidate = &remainder[start..];
+        let Some(end) = candidate.find(TASKSPACE_PROJECTION_END_MARKER) else {
+            blocks.push(candidate);
+            break;
+        };
+        let end = end + TASKSPACE_PROJECTION_END_MARKER.len();
+        blocks.push(&candidate[..end]);
+        remainder = &candidate[end..];
+    }
+    blocks
+}
+
+fn collect_provider_strings<'a>(value: &'a serde_json::Value, strings: &mut Vec<&'a str>) {
+    match value {
+        serde_json::Value::String(text) => strings.push(text),
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_provider_strings(value, strings);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values() {
+                collect_provider_strings(value, strings);
+            }
+        }
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+    }
+}
+
+fn projection_identity(projection: &str) -> ProviderProjectionIdentity {
+    let projection_sha256 = sha256_hex(projection.as_bytes());
+    let bootstrap = projection.lines().any(|line| line == "- map: none")
+        && projection
+            .lines()
+            .any(|line| line == "- bootstrap_required: true");
+    if bootstrap {
+        return ProviderProjectionIdentity {
+            kind: "bootstrap_required".to_string(),
+            map_id_sha256: None,
+            revision: None,
+            canonical_sha256: None,
+            projection_sha256,
+        };
+    }
+    let map_id_sha256 = projection_mechanical_field(projection, "map_id")
+        .map(|map_id| sha256_hex(map_id.as_bytes()));
+    let revision = projection_mechanical_field(projection, "revision")
+        .and_then(|value| value.parse::<u64>().ok());
+    let canonical_sha256 =
+        projection_mechanical_field(projection, "canonical_sha256").map(str::to_string);
+    let kind = projection_mechanical_field(projection, "projection_kind")
+        .filter(|_| map_id_sha256.is_some() && revision.is_some() && canonical_sha256.is_some())
+        .unwrap_or("unavailable")
+        .to_string();
+    ProviderProjectionIdentity {
+        kind,
+        map_id_sha256,
+        revision,
+        canonical_sha256,
+        projection_sha256,
+    }
+}
+
+fn projection_mechanical_field<'a>(projection: &'a str, field: &str) -> Option<&'a str> {
+    let prefix = format!("- {field}: ");
+    projection
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .filter(|value| !value.is_empty())
+}
+
+fn apply_projection_identity_expectation(
+    scan: &mut ExactPayloadScanEventV1,
+    expected: Option<&ProviderProjectionIdentityExpectation>,
+) {
+    let Some(expected) = expected else {
+        return;
+    };
+    scan.projection_policy = Some(expected.policy.to_string());
+    if !expected.automatic_projection_required {
+        scan.projection_required = false;
+        scan.expected_projection_kind = Some("none".to_string());
+        scan.failure_reasons.retain(|reason| {
+            !matches!(
+                reason.as_str(),
+                "current_projection_missing"
+                    | "current_projection_not_message_tail"
+                    | "current_projection_not_unique"
+                    | "current_projection_required_sections_missing"
+            )
+        });
+        let confirmed = scan.active_projection_count == 0;
+        scan.projection_identity_confirmed = Some(confirmed);
+        scan.protected_items_present = confirmed;
+        scan.negative_checks_performed
+            .push("automatic_projection_absence".to_string());
+        scan.matcher_version = "r7-projection-checks-3".to_string();
+        if !confirmed {
+            scan.failure_reasons
+                .push("unexpected_automatic_projection".to_string());
+        }
+        scan.passed = scan.failure_reasons.is_empty();
+        scan.replacement_confirmed = scan.passed && confirmed;
+        return;
+    }
+    scan.expected_projection_kind = Some(expected.kind.clone());
+    scan.expected_projection_map_id_sha256 = expected.map_id_sha256.clone();
+    scan.expected_projection_revision = expected.revision;
+    scan.expected_projection_canonical_sha256 = expected.canonical_sha256.clone();
+    scan.expected_projection_sha256 = Some(expected.projection_sha256.clone());
+    if expected.policy == TaskSpaceProjectionPolicy::MapAppend {
+        scan.failure_reasons.retain(|reason| {
+            !matches!(
+                reason.as_str(),
+                "current_projection_missing"
+                    | "current_projection_not_unique"
+                    | "current_projection_required_sections_missing"
+            )
+        });
+        scan.protected_items_present =
+            scan.active_projection_count == 0 || scan.protected_items_present;
+    }
+    let confirmed = scan.projection_kind.as_ref() == Some(&expected.kind)
+        && scan.projection_map_id_sha256 == expected.map_id_sha256
+        && scan.projection_revision == expected.revision
+        && scan.projection_canonical_sha256 == expected.canonical_sha256
+        && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256);
+    scan.projection_identity_confirmed = Some(confirmed);
+    scan.negative_checks_performed
+        .push("projection_identity".to_string());
+    scan.matcher_version = "r7-projection-checks-2".to_string();
+    if !confirmed {
+        scan.failure_reasons
+            .push("projection_identity_mismatch".to_string());
+        scan.passed = false;
+        scan.replacement_confirmed = false;
+    }
+    if expected.policy == TaskSpaceProjectionPolicy::MapAppend {
+        scan.passed = scan.failure_reasons.is_empty();
+        scan.replacement_confirmed = scan.passed && confirmed;
+    }
+}
+
+fn projection_revision_sequence_valid(blocks: &[&str]) -> bool {
+    if blocks.len() < 2 {
+        return true;
+    }
+    let mut current_map_id = None;
+    let mut previous_revision = None;
+    let mut closed_map_ids = HashSet::new();
+    for block in blocks {
+        if projection_is_bootstrap(block) {
+            if current_map_id.is_some() || !closed_map_ids.is_empty() {
+                return false;
+            }
+            continue;
+        }
+        let Some(map_id) = projection_mechanical_field(block, "map_id") else {
+            return false;
+        };
+        let Some(revision) = projection_mechanical_field(block, "revision")
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            return false;
+        };
+        if current_map_id.is_some_and(|current| current != map_id) {
+            if let Some(current) = current_map_id {
+                closed_map_ids.insert(current);
+            }
+            if closed_map_ids.contains(map_id) {
+                return false;
+            }
+        } else if previous_revision.is_some_and(|previous| previous > revision) {
+            return false;
+        }
+        current_map_id = Some(map_id);
+        previous_revision = Some(revision);
+    }
+    true
+}
+
+fn projection_is_bootstrap(projection: &str) -> bool {
+    projection.lines().any(|line| line == "- map: none")
+        && projection
+            .lines()
+            .any(|line| line == "- bootstrap_required: true")
+}
+
+fn projection_block_is_valid(block: &str) -> bool {
+    let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
+    if !normalized
+        .lines()
+        .any(|line| line.trim() == "- schema_version: taskspace-map-projection-r7-v1")
+    {
+        return false;
+    }
+    if normalized.lines().any(|line| {
+        line.trim().starts_with("- integrity_status: invalid")
+            || line.trim().starts_with("integrity_status: invalid")
+    }) {
+        return false;
+    }
+    let blank_bootstrap = normalized
+        .lines()
+        .any(|line| line.trim().starts_with("- map: none") || line.trim().starts_with("map: none"));
+    if blank_bootstrap {
+        return normalized.lines().any(|line| {
+            line.trim().starts_with("- bootstrap_required: true")
+                || line.trim().starts_with("bootstrap_required: true")
+        });
+    }
+    if !projection_block_contains_required_sections(&normalized) {
+        return false;
+    }
+    if projection_mechanical_field(&normalized, "projection_kind") == Some("request_snapshot") {
+        return projection_mechanical_field(&normalized, "supersedes_all_prior_projections")
+            == Some("true")
+            && projection_mechanical_field(&normalized, "current_state_rule")
+                == Some("last_projection_only");
+    }
+    true
+}
+
+fn provider_payload_has_tool(value: &serde_json::Value, expected: &str) -> bool {
+    value
+        .get("tools")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|tools| {
+            tools
+                .iter()
+                .any(|tool| provider_tool_name(tool) == Some(expected))
+        })
+}
+
+fn provider_tool_name(tool: &serde_json::Value) -> Option<&str> {
+    tool.get("name")
+        .or_else(|| {
+            tool.get("function")
+                .and_then(|function| function.get("name"))
+        })
+        .and_then(serde_json::Value::as_str)
+}
+
+fn projection_block_contains_required_sections(block: &str) -> bool {
+    let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
+    TASKSPACE_PROJECTION_REQUIRED_SECTIONS
+        .iter()
+        .all(|section| projection_block_contains_section(&normalized, section))
+}
+
+fn projection_block_contains_section(block: &str, section: &str) -> bool {
+    let section_prefix = format!("{section}:");
+    block.lines().any(|line| {
+        line.trim_start()
+            .strip_prefix("- ")
+            .unwrap_or_else(|| line.trim_start())
+            .starts_with(&section_prefix)
     })
 }
 
@@ -1074,6 +1553,200 @@ fn provider_request_budget_now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+#[derive(Debug)]
+struct ProviderRequestHardLimit {
+    limit: Option<usize>,
+    count: AtomicUsize,
+    state_path: Option<PathBuf>,
+    configuration_error: Option<String>,
+}
+
+impl ProviderRequestHardLimit {
+    fn from_env() -> Self {
+        let Some(raw) = std::env::var_os(PROVIDER_REQUEST_HARD_LIMIT_ENV) else {
+            return Self::disabled();
+        };
+        let value = raw.to_string_lossy();
+        match value.parse::<usize>() {
+            Ok(limit) if limit > 0 => {
+                let mut value = Self::with_limit(limit);
+                value.state_path =
+                    std::env::var_os(PROVIDER_REQUEST_HARD_LIMIT_STATE_PATH_ENV).map(PathBuf::from);
+                value
+            }
+            _ => Self {
+                limit: None,
+                count: AtomicUsize::new(0),
+                state_path: None,
+                configuration_error: Some(format!(
+                    "{PROVIDER_REQUEST_HARD_LIMIT_ENV} must be a positive integer"
+                )),
+            },
+        }
+    }
+
+    fn disabled() -> Self {
+        Self {
+            limit: None,
+            count: AtomicUsize::new(0),
+            state_path: None,
+            configuration_error: None,
+        }
+    }
+
+    fn with_limit(limit: usize) -> Self {
+        Self {
+            limit: Some(limit),
+            count: AtomicUsize::new(0),
+            state_path: None,
+            configuration_error: None,
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.limit.is_some() && self.configuration_error.is_none()
+    }
+
+    fn claim(&self, route: &str) -> Result<()> {
+        if let Some(error) = &self.configuration_error {
+            warn!(
+                route,
+                error, "provider request hard limit configuration rejected dispatch"
+            );
+            return Err(CodexErr::Fatal(error.clone()));
+        }
+        let Some(limit) = self.limit else {
+            return Ok(());
+        };
+        if let Some(path) = &self.state_path {
+            return self.claim_shared_file(path, limit, route);
+        }
+        self.count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+                (count < limit).then_some(count + 1)
+            })
+            .map(|_| ())
+            .map_err(|count| {
+                warn!(
+                    route,
+                    limit, count, "provider request hard limit rejected dispatch"
+                );
+                CodexErr::Fatal(format!("provider request hard limit reached (max {limit})"))
+            })
+    }
+
+    #[cfg(unix)]
+    fn claim_shared_file(&self, path: &PathBuf, limit: usize, route: &str) -> Result<()> {
+        use std::os::fd::AsRawFd;
+
+        let operation = || -> std::io::Result<usize> {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(false)
+                .open(path)?;
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let result = (|| {
+                let mut raw = String::new();
+                file.read_to_string(&mut raw)?;
+                let count = if raw.trim().is_empty() {
+                    0
+                } else {
+                    raw.trim().parse::<usize>().map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "provider request counter is invalid",
+                        )
+                    })?
+                };
+                if count >= limit {
+                    return Ok(count);
+                }
+                file.seek(SeekFrom::Start(0))?;
+                file.set_len(0)?;
+                write!(file, "{}\n", count + 1)?;
+                file.sync_data()?;
+                Ok(count)
+            })();
+            let unlock = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            if unlock != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            result
+        };
+        match operation() {
+            Ok(count) if count < limit => Ok(()),
+            Ok(count) => {
+                warn!(
+                    route,
+                    limit, count, "provider request hard limit rejected dispatch"
+                );
+                Err(CodexErr::Fatal(format!(
+                    "provider request hard limit reached (max {limit})"
+                )))
+            }
+            Err(error) => Err(CodexErr::Fatal(format!(
+                "provider request hard limit state failed closed: {error}"
+            ))),
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn claim_shared_file(&self, _path: &PathBuf, _limit: usize, _route: &str) -> Result<()> {
+        Err(CodexErr::Fatal(
+            "shared provider request hard limit requires a Unix runtime".to_string(),
+        ))
+    }
+}
+
+fn process_provider_request_hard_limit() -> Arc<ProviderRequestHardLimit> {
+    static LIMIT: OnceLock<Arc<ProviderRequestHardLimit>> = OnceLock::new();
+    Arc::clone(LIMIT.get_or_init(|| Arc::new(ProviderRequestHardLimit::from_env())))
+}
+
+fn apply_provider_request_hard_limit_retry_policy(
+    provider_info: &mut ModelProviderInfo,
+    hard_limit: &ProviderRequestHardLimit,
+) {
+    if hard_limit.is_enabled() {
+        // A hard request budget must count real transports, not logical calls hiding retries.
+        provider_info.request_max_retries = Some(0);
+        provider_info.stream_max_retries = Some(0);
+    }
+}
+
+fn apply_api_provider_request_hard_limit_retry_policy(
+    provider: &mut ApiProvider,
+    hard_limit: &ProviderRequestHardLimit,
+) {
+    if hard_limit.is_enabled() {
+        provider.retry.max_attempts = 0;
+    }
+}
+
+fn ensure_realtime_session_is_metered(
+    hard_limit: &ProviderRequestHardLimit,
+    event_parser: RealtimeEventParser,
+    session_mode: RealtimeSessionMode,
+) -> Result<()> {
+    if let Some(error) = &hard_limit.configuration_error {
+        return Err(CodexErr::Fatal(error.clone()));
+    }
+    let normalized_mode = match event_parser {
+        RealtimeEventParser::V1 => RealtimeSessionMode::Conversational,
+        RealtimeEventParser::RealtimeV2 => session_mode,
+    };
+    if hard_limit.limit.is_some() {
+        return Err(CodexErr::Fatal(format!(
+            "provider request hard limit rejects {normalized_mode:?} Realtime because server-triggered inference cannot be counted before dispatch"
+        )));
+    }
+    Ok(())
+}
+
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
 /// This is intentionally kept minimal so `ModelClient` does not need to hold a full `Config`. Most
@@ -1092,6 +1765,8 @@ struct ModelClientState {
     beta_features_header: Option<String>,
     disable_websockets: AtomicBool,
     cached_websocket_session: StdMutex<WebsocketSession>,
+    provider_wire_trace: ProviderWireTrace,
+    provider_request_hard_limit: Arc<ProviderRequestHardLimit>,
 }
 
 /// Resolved API client setup for a single request attempt.
@@ -1218,6 +1893,31 @@ fn sideband_websocket_auth_headers(api_auth: &dyn AuthProvider) -> ApiHeaderMap 
 }
 
 impl ModelClient {
+    pub(crate) fn prepare_realtime_api_provider(&self, provider: &mut ApiProvider) {
+        apply_api_provider_request_hard_limit_retry_policy(
+            provider,
+            self.state.provider_request_hard_limit.as_ref(),
+        );
+    }
+
+    pub(crate) fn claim_realtime_response_create(&self) -> Result<()> {
+        self.state
+            .provider_request_hard_limit
+            .claim("/realtime/response.create")
+    }
+
+    pub(crate) fn ensure_realtime_session_is_metered(
+        &self,
+        event_parser: RealtimeEventParser,
+        session_mode: RealtimeSessionMode,
+    ) -> Result<()> {
+        ensure_realtime_session_is_metered(
+            self.state.provider_request_hard_limit.as_ref(),
+            event_parser,
+            session_mode,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     /// Creates a new session-scoped `ModelClient`.
     ///
@@ -1227,13 +1927,18 @@ impl ModelClient {
         auth_manager: Option<Arc<AuthManager>>,
         conversation_id: ThreadId,
         installation_id: String,
-        provider_info: ModelProviderInfo,
+        mut provider_info: ModelProviderInfo,
         session_source: SessionSource,
         model_verbosity: Option<VerbosityConfig>,
         enable_request_compression: bool,
         include_timing_metrics: bool,
         beta_features_header: Option<String>,
     ) -> Self {
+        let provider_request_hard_limit = process_provider_request_hard_limit();
+        apply_provider_request_hard_limit_retry_policy(
+            &mut provider_info,
+            provider_request_hard_limit.as_ref(),
+        );
         let model_provider = create_model_provider(provider_info, auth_manager);
         let codex_api_key_env_enabled = model_provider
             .auth_manager()
@@ -1255,6 +1960,8 @@ impl ModelClient {
                 beta_features_header,
                 disable_websockets: AtomicBool::new(false),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
+                provider_wire_trace: ProviderWireTrace::from_env(),
+                provider_request_hard_limit,
             }),
         }
     }
@@ -1409,6 +2116,9 @@ impl ModelClient {
             self.state.conversation_id.to_string(),
         )));
         let trace_attempt = compaction_trace.start_attempt(&payload);
+        self.state
+            .provider_request_hard_limit
+            .claim(RESPONSES_COMPACT_ENDPOINT)?;
         let result = client
             .compact_input(&payload, extra_headers, compact_request_timeout)
             .await
@@ -1431,6 +2141,9 @@ impl ModelClient {
             client_setup.api_auth.as_ref(),
         ));
         let transport = ReqwestTransport::new(build_reqwest_client());
+        self.state
+            .provider_request_hard_limit
+            .claim(REALTIME_CALLS_ENDPOINT)?;
         let response =
             ApiRealtimeCallClient::new(transport, client_setup.api_provider, client_setup.api_auth)
                 .create_with_session_and_headers(sdp, session_config, extra_headers)
@@ -1485,6 +2198,9 @@ impl ModelClient {
             }),
         };
 
+        self.state
+            .provider_request_hard_limit
+            .claim(MEMORIES_SUMMARIZE_ENDPOINT)?;
         client
             .summarize_input(&payload, self.build_subagent_headers())
             .await
@@ -1753,6 +2469,17 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    pub(crate) fn record_provider_wire_terminal(
+        &self,
+        status: &str,
+        token_usage: Option<&TokenUsage>,
+    ) -> Option<crate::provider_wire_trace::ProviderWireRequestIdentity> {
+        self.client
+            .state
+            .provider_wire_trace
+            .record_terminal(status, token_usage)
+    }
+
     pub(crate) fn reset_websocket_session(&mut self) {
         self.websocket_session.connection = None;
         self.websocket_session.last_request = None;
@@ -1774,7 +2501,7 @@ impl ModelClientSession {
         let input = prompt.get_formatted_input();
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
-        let mut reasoning = if model_info.supports_reasoning_summaries {
+        let reasoning = if model_info.supports_reasoning_summaries {
             Some(Reasoning {
                 effort: effort.or(default_reasoning_effort),
                 summary: if summary == ReasoningSummaryConfig::None {
@@ -1793,14 +2520,6 @@ impl ModelClientSession {
         } else {
             None
         };
-        if provider.wire_api == codex_api::WireApi::ChatCompletions
-            && prompt.tool_choice == "required"
-        {
-            reasoning = Some(Reasoning {
-                effort: Some(ReasoningEffortConfig::None),
-                summary: None,
-            });
-        }
         let include = if model_info.supports_reasoning_summaries && reasoning.is_some() {
             vec!["reasoning.encrypted_content".to_string()]
         } else {
@@ -2136,6 +2855,13 @@ impl ModelClientSession {
             .as_ref()
             .map(AuthManager::unauthorized_recovery);
         let mut pending_retry = PendingUnauthorizedRetry::default();
+        let wire_epoch_id = self.client.current_window_id();
+        let wire_logical_request_id = self
+            .client
+            .state
+            .provider_wire_trace
+            .begin_logical_request(wire_epoch_id.as_str());
+        let mut wire_attempt_seq = 0usize;
         loop {
             let client_setup = self.client.current_client_setup().await?;
             let transport = ReqwestTransport::new(build_reqwest_client());
@@ -2170,8 +2896,24 @@ impl ModelClientSession {
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+            self.client
+                .state
+                .provider_request_hard_limit
+                .claim(RESPONSES_ENDPOINT)?;
             let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
-            if let Some(payload) = provider_payload_digest_for_wire(&request, provider_wire_api) {
+            wire_attempt_seq += 1;
+            let wire_value = self.client.state.provider_wire_trace.record_request(
+                wire_epoch_id.as_str(),
+                &wire_logical_request_id,
+                wire_attempt_seq,
+                "responses_http",
+                provider_wire_api,
+                &request,
+                None,
+            );
+            if let Some(payload) =
+                provider_payload_digest_for_wire_value(&wire_value, provider_wire_api)
+            {
                 budget_dispatch.record_provider_payload(payload);
             }
             let stream_result = client.stream_request(request, options).await;
@@ -2189,6 +2931,7 @@ impl ModelClientSession {
                 Err(ApiError::Transport(
                     unauthorized_transport @ TransportError::Http { status, .. },
                 )) if status == StatusCode::UNAUTHORIZED => {
+                    self.record_provider_wire_terminal("retry_unauthorized", None);
                     budget_dispatch.record_status("retry_unauthorized");
                     inference_trace_attempt.record_failed(&unauthorized_transport);
                     pending_retry = PendingUnauthorizedRetry::from_recovery(
@@ -2203,6 +2946,7 @@ impl ModelClientSession {
                 }
                 Err(err) => {
                     let err = map_api_error(err);
+                    self.record_provider_wire_terminal("response_failed", None);
                     budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     return Err(err);
@@ -2246,6 +2990,13 @@ impl ModelClientSession {
             .as_ref()
             .map(AuthManager::unauthorized_recovery);
         let mut pending_retry = PendingUnauthorizedRetry::default();
+        let wire_epoch_id = self.client.current_window_id();
+        let wire_logical_request_id = self
+            .client
+            .state
+            .provider_wire_trace
+            .begin_logical_request(wire_epoch_id.as_str());
+        let mut wire_attempt_seq = 0usize;
         loop {
             let client_setup = self.client.current_client_setup().await?;
             let request_auth_context = AuthRequestTelemetryContext::new(
@@ -2274,6 +3025,10 @@ impl ModelClientSession {
             if warmup {
                 ws_payload.generate = Some(false);
             }
+            self.client
+                .state
+                .provider_request_hard_limit
+                .claim(RESPONSES_ENDPOINT)?;
             let budget_dispatch = if warmup {
                 ProviderRequestBudgetDispatch::disabled()
             } else {
@@ -2333,6 +3088,23 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
+            if !warmup {
+                wire_attempt_seq += 1;
+                let wire_value =
+                    serde_json::to_value(&ws_request).unwrap_or(serde_json::Value::Null);
+                self.client.state.provider_wire_trace.record_request(
+                    wire_epoch_id.as_str(),
+                    &wire_logical_request_id,
+                    wire_attempt_seq,
+                    "responses_websocket",
+                    provider_wire_api,
+                    self.websocket_session
+                        .last_request
+                        .as_ref()
+                        .expect("websocket request source is retained"),
+                    Some(wire_value),
+                );
+            }
             if let Some(payload) = provider_payload_digest_for_wire(&ws_request, provider_wire_api)
             {
                 budget_dispatch.record_provider_payload(payload);
@@ -2342,6 +3114,9 @@ impl ModelClientSession {
                 .await
                 .map_err(|err| {
                     let err = map_api_error(err);
+                    if !warmup {
+                        self.record_provider_wire_terminal("response_failed", None);
+                    }
                     budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     err

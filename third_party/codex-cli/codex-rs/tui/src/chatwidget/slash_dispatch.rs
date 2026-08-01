@@ -240,9 +240,6 @@ impl ChatWidget {
             SlashCommand::TaskSpace => {
                 self.submit_taskspace_enable();
             }
-            SlashCommand::TaskReborn => {
-                self.submit_op(AppCommand::restart_action_map());
-            }
             SlashCommand::TaskShow => {
                 self.submit_op(AppCommand::show_action_map());
             }
@@ -588,9 +585,6 @@ impl ChatWidget {
             SlashCommand::TaskSpace => {
                 self.add_error_message("Usage: /taskspace".to_string());
             }
-            SlashCommand::TaskReborn => {
-                self.add_error_message("Usage: /task-reborn".to_string());
-            }
             SlashCommand::TaskShow => {
                 self.add_error_message("Usage: /task-show".to_string());
             }
@@ -866,7 +860,6 @@ impl ChatWidget {
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
             | SlashCommand::TaskSpace
-            | SlashCommand::TaskReborn
             | SlashCommand::TaskShow
             | SlashCommand::Apps
             | SlashCommand::Plugins

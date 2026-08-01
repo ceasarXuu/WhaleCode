@@ -6,9 +6,11 @@ param(
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120, [int]$ValidationTestTimeoutSeconds = 420,
-    [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "full-auto",
+    [int]$ProviderRequestHardLimit = 0,
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
+    [string]$AdditionalConfigOverride = "",
+    [ValidateSet("map-always", "map-append", "map-request")]
+    [string]$TaskSpaceProjectionPolicy = "map-request",
     [ValidateSet("deferred_materialization_allowed", "hard_sandbox_only")]
     [string]$OracleIsolationPolicy = "deferred_materialization_allowed",
     [string]$AuditReviewRoot = "",
@@ -34,6 +36,8 @@ param(
     [string]$V005NonAgentGatesPath = "",
     [string]$V005CodeCompleteMarkerPath = "",
     [string]$V005UserApprovalMarkerPath = "",
+    [ValidateSet("both", "left", "right")]
+    [string]$RunSide = "both",
     [switch]$ForceRerun,
     [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
@@ -41,7 +45,15 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\bootstrap.ps1") -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot
+
+function ConvertTo-TaskspaceSampleNameList {
+    param([string[]]$Names)
+    @($Names | ForEach-Object { ([string]$_) -split "," } | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+}
+
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
+if ($ProviderRequestHardLimit -lt 0) { throw "ProviderRequestHardLimit must be >= 0" }
+$SampleNames = @(ConvertTo-TaskspaceSampleNameList $SampleNames)
 if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario $ScenarioPath
 $prompt = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifest.PromptPath
@@ -72,7 +84,7 @@ if (-not [string]::IsNullOrWhiteSpace($RunId)) {
 }
 $resuming = (-not [string]::IsNullOrWhiteSpace($runDir) -and (Test-Path -LiteralPath $runDir) -and -not $ForceRerun)
 if (-not $resuming) {
-    $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id
+    $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id $RunId
     Initialize-TaskspaceBenchmarkRunState $runDir $manifest.Id $Repeats $manifest.EvidenceTarget $commandLine | Out-Null
     Set-TaskspaceSampleStatus $runDir $manifest.Id "preflight" 0 0 "" "" "" "" $commandLine | Out-Null
 } else {
@@ -87,6 +99,23 @@ if (-not $resuming) {
     }
     if ($stale) { Write-TaskspaceRunEvent $runDir "stale_lock_reclaimed" @{ previous_lock_owner = [string]$existingStatus.lock_owner } }
 }
+function Assert-TaskspaceArtifactStorage {
+    param([Parameter(Mandatory = $true)][string]$Stage)
+    $safeStage = $Stage -replace '[^A-Za-z0-9_.-]', '_'
+    $healthPath = Join-Path $runDir "artifact-storage-$safeStage.json"
+    $health = New-TaskspaceArtifactStorageHealth $repoRoot $runDir $Stage
+    Write-TaskspaceJson $health $healthPath
+    Write-TaskspaceRunEvent $runDir "artifact_storage_checked" @{ stage = $Stage; status = [string]$health.status; path = $healthPath; run_artifact_bytes = [int64]$health.run_artifact_bytes; repository_artifact_bytes = [int64]$health.repository_usage.artifact_bytes }
+    if ([string]$health.status -eq "fail") {
+        $finding = @($health.findings | Select-Object -First 1)[0]
+        $signature = New-TaskspaceInfraSignature "harness_materialization_failure" $Stage ([string]$finding.stable_code) ([string]$finding.message) "" $healthPath
+        Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id $Stage ([string]$finding.stable_code) $signature $healthPath $commandLine 0 0 | Out-Null
+        Write-Host "RunDir: $runDir"
+        Write-Host "ArtifactStorageHealth: $healthPath"
+        exit $script:TaskspaceInvalidHarnessExitCode
+    }
+}
+Assert-TaskspaceArtifactStorage "run_preflight"
 if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath) -and (Test-Path -LiteralPath $V005NonAgentGatesPath -PathType Leaf)) {
     Copy-Item -LiteralPath $V005NonAgentGatesPath -Destination (Join-Path $runDir "v005-non-agent-gates.json") -Force
 }
@@ -125,6 +154,8 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     suite_receipt_sha256 = if ($SuiteReceiptSha256) { $SuiteReceiptSha256 } elseif ($suiteReceiptCopyPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $suiteReceiptCopyPath).Hash.ToLowerInvariant() } else { "" }
     approval_marker_sha256 = $ApprovalMarkerSha256
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
+    run_side = $RunSide
+    taskspace_projection_policy = $TaskSpaceProjectionPolicy
 } | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
@@ -146,7 +177,7 @@ $providerParamStatus = [ordered]@{
     explicit = [ordered]@{
         model = $Model
         model_reasoning_effort = ""
-        sandbox_mode = $SandboxMode
+        sandbox_mode = "docker_hard_boundary"
     }
     missing = @()
 }
@@ -220,13 +251,63 @@ if ([string]$binaryHealth.status -eq "fail") {
     Write-Host "AbortSummary: $abortPath"
     exit 3
 }
+$providerCredentialHealthPath = Join-Path $runDir "provider-credential-preflight-health.json"
+$providerCredentialFindings = @()
+if ([string]$Model -match '^deepseek' -and [string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY)) {
+    $providerCredentialFindings = @([pscustomobject]@{
+            severity = "fail"
+            stable_code = "provider_credential_missing"
+            message = "DEEPSEEK_API_KEY is required for DeepSeek benchmark model execution."
+            path = "env:DEEPSEEK_API_KEY"
+        })
+}
+$providerCredentialHealth = [pscustomobject]@{
+    schema_version = 1
+    status = if ($providerCredentialFindings.Count -gt 0) { "fail" } else { "pass" }
+    run_validity = if ($providerCredentialFindings.Count -gt 0) { "invalid_harness" } else { "valid" }
+    model = $Model
+    findings = @($providerCredentialFindings)
+    generated_at = (Get-Date).ToString("o")
+}
+Write-TaskspaceHarnessHealth $providerCredentialHealthPath $providerCredentialHealth
+Write-TaskspaceRunEvent $runDir "provider_credential_preflight_completed" @{ status = [string]$providerCredentialHealth.status; path = $providerCredentialHealthPath; model = $Model }
+if ([string]$providerCredentialHealth.status -eq "fail") {
+    $firstFinding = @($providerCredentialHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "provider_credential_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $providerCredentialHealthPath
+    $abortPath = Join-Path $runDir "abort-summary.md"
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace Provider Credential Abort" "provider_credential_preflight" $firstFinding $signature $providerCredentialHealthPath | Set-Content -LiteralPath $abortPath -Encoding UTF8
+    Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "provider_credential_preflight" ([string]$firstFinding.stable_code) $signature $providerCredentialHealthPath $commandLine 0 0 | Out-Null
+    Write-Host "RunDir: $runDir"
+    Write-Host "ProviderCredentialHealth: $providerCredentialHealthPath"
+    Write-Host "AbortSummary: $abortPath"
+    exit 3
+}
 if (-not (Test-Path -LiteralPath $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
+$WhaleBin = (Resolve-Path -LiteralPath $WhaleBin).Path
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
     throw "Whale exec does not expose --taskspace."
 }
 $whaleVersion = (& $WhaleBin --version 2>&1) -join " "
 $whaleSha = [string]$binaryHealth.whale_binary_sha256
+$containerContract = Read-TaskspaceContainerContract $repoRoot
+$containerImage = Resolve-TaskspaceContainerImage $repoRoot $containerContract
+$containerRunId = Split-Path -Leaf $runDir
+$effectiveConfigOverrides = @($ConfigOverride)
+if (-not [string]::IsNullOrWhiteSpace($AdditionalConfigOverride)) {
+    $effectiveConfigOverrides += $AdditionalConfigOverride
+}
+$effectiveConfigOverrides += @($containerContract.agent_config_overrides | ForEach-Object { [string]$_ })
+$providerRouting = $null
+if ($ProviderRequestHardLimit -gt 0) {
+    $effectiveConfigOverrides += @(Get-TaskspaceProviderBoundaryConfigOverrides $containerContract)
+    $providerRouting = Get-TaskspaceProviderBoundaryRouteEvidence $containerContract
+}
+Write-TaskspaceRunEvent $runDir "container_image_ready" @{
+    image_digest = [string]$containerImage.image_digest
+    docker_server_version = [string]$containerImage.docker_server_version
+    build_duration_ms = [int64]$containerImage.build_duration_ms
+}
 
 $pairReports = New-Object System.Collections.Generic.List[object]
 $probe = $null
@@ -251,8 +332,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 evidence = $classified.evidence
         })
         Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $existingPairReport $commandLine | Out-Null
-        if (($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
-        $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
+        if ($RunSide -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
+            $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $($abort.abort_path)"
             exit 3
@@ -308,15 +389,32 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             throw "Non-neutral cwd for $($side.Name): $($side.RepoDir)"
         }
     }
+    $allSides = @($pair.Left, $pair.Right)
+    $selectedSides = @($allSides | Where-Object { Test-TaskspaceRunSideSelected ([string]$_.Name) $RunSide })
+    $skippedSides = @($allSides | Where-Object { -not (Test-TaskspaceRunSideSelected ([string]$_.Name) $RunSide) })
+    Write-TaskspaceRunEvent $runDir "pair_side_selection_completed" @{
+        repeat = $repeat
+        run_side = $RunSide
+        selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
+        skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
+    }
     $probeTimingBySide = @{}
     $probeStatusBySide = @{}
     if ([string]$manifest.EvidenceTarget -eq "E3" -or ($manifest.ExternalBenchmark -and $manifest.ExternalBenchmark.adapter_metadata -and [bool]$manifest.ExternalBenchmark.adapter_metadata.validator_probe_supported)) {
-        foreach ($side in @($pair.Left, $pair.Right)) {
-            $probeStdout = Join-Path $side.ArtifactDir "validator-probe.stdout.log"
-            $probeStderr = Join-Path $side.ArtifactDir "validator-probe.stderr.log"
-            $probeProofDir = Join-Path $side.ArtifactDir "vprobe"
+        foreach ($side in $selectedSides) {
+            $probeRoot = if ($side.PSObject.Properties.Name -contains "RunnerPrivateDir" -and -not [string]::IsNullOrWhiteSpace([string]$side.RunnerPrivateDir)) {
+                New-Dir (Join-Path ([string]$side.RunnerPrivateDir) "vprobe")
+            } else {
+                New-Dir (Join-Path $pair.PairDir "_runner-private\$($side.Name)\vprobe")
+            }
+            $probeStdout = Join-Path $probeRoot "validator-probe.stdout.log"
+            $probeStderr = Join-Path $probeRoot "validator-probe.stderr.log"
+            $probeProofDir = $probeRoot
             $probeStartedAt = Get-Date
-            $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
+            $probeResult = Invoke-TaskspaceDockerValidation $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $manifest.PublicValidation ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) @("-ProbeOnly") $probeRoot
+            $probeExit = [int]$probeResult.exit_code
+            $probeStdout = [string]$probeResult.stdout_path
+            $probeStderr = [string]$probeResult.stderr_path
             $probeFinishedAt = Get-Date
             $probeTimingBySide[$side.Name] = [int64](($probeFinishedAt - $probeStartedAt).TotalMilliseconds)
             $probeValidation = [pscustomobject]@{ exit_code = $probeExit; stdout_path = $probeStdout; stderr_path = $probeStderr }
@@ -378,11 +476,21 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         validation_pretest_timeout_seconds = $ValidationPretestTimeoutSeconds
         validation_test_timeout_seconds = $ValidationTestTimeoutSeconds
         docker_image_cache_enabled = [bool]$EnableDockerImageCache
+        execution_substrate = "docker"
+        container_image_digest = [string]$containerImage.image_digest
+        container_base_image = [string]$containerImage.base_image
+        container_resource_contract = $containerContract.resources
         provider_param_status = $providerParamStatus
-        config_overrides = @($ConfigOverride)
-        sandbox_mode = $SandboxMode
+        provider_request_hard_limit = $ProviderRequestHardLimit
+        provider_routing = $providerRouting
+        config_overrides = @($effectiveConfigOverrides)
+        taskspace_projection_policy = $TaskSpaceProjectionPolicy
+        sandbox_mode = "docker_hard_boundary"
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
+        run_side = $RunSide
+        selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
+        skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
         sample_origin = $manifest.SampleOrigin
         external_benchmark = $manifest.ExternalBenchmark
         human_review_required = $manifest.HumanReviewRequired
@@ -394,7 +502,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $sourceGuard = $null
     try {
         $sourceGuard = Protect-TaskspaceExternalSensitiveSource $manifest $pair.PairDir
-        foreach ($side in @($pair.Left, $pair.Right)) {
+        foreach ($side in $selectedSides) {
             $jsonlPath = Join-Path $side.ArtifactDir "whale-exec.jsonl"
             $stderrPath = Join-Path $side.ArtifactDir "whale-exec.stderr.log"
             $lastMessagePath = Join-Path $side.ArtifactDir "last-message.md"
@@ -402,64 +510,90 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
             $sidePrompt = if ($side.LogicalMode -eq "taskspace") { $taskspacePrompt } else { $prompt }
             Write-Text $stdinPath $sidePrompt
-            $mount = $null
-            try {
-                $mount = Mount-TaskspaceExecutionAlias $side
-                $executionRepoDir = [string]$mount.execution_repo_dir
-                $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
-                $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
-                Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
-                $childEnvironment = @{}
-                if ($side.LogicalMode -eq "taskspace") {
-                    $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
-                    $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
-                }
-                $started = Get-Date
-                $timedOut = $false
-                try {
-                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath $processTimingPath $childEnvironment
-                } catch {
-                    if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
-                    $exitCode = 124
-                    $timedOut = $true
-                    if (-not (Test-Path -LiteralPath $jsonlPath)) { Write-Text $jsonlPath "" }
-                    $timeoutText = "Process timed out after $TimeoutSeconds seconds: $WhaleBin $($args -join ' ')`n$($_.Exception.Message)"
-                    Write-Text $stderrPath $timeoutText
-                }
-                $finished = Get-Date
-            } finally {
-                Dismount-TaskspaceExecutionAlias $mount
+            $executionRepoDir = [string]$containerContract.paths.workspace
+            $containerLastMessagePath = Join-Path ([string]$containerContract.paths.artifacts) "last-message.md"
+            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $effectiveConfigOverrides $TaskSpaceProjectionPolicy
+            $commonArgs = Get-TaskspaceCommonArgvWithoutTreatment $args
+            $childEnvironment = @{
+                WHALE_PROVIDER_WIRE_TRACE_PATH = "/artifacts/provider-wire-trace.jsonl"
             }
+            if ($ProviderRequestHardLimit -gt 0) {
+                $childEnvironment["WHALE_PROVIDER_BOUNDARY"] = "docker-isolated-proxy-v1"
+            }
+            if ($side.LogicalMode -eq "taskspace") {
+                $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
+                $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
+            }
+            $treatmentDelta = if ($side.LogicalMode -eq "taskspace") {
+                @("--taskspace", "-c taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`"")
+            } else {
+                @()
+            }
+            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = $treatmentDelta; execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment; provider_routing = $providerRouting }) (Join-Path $side.ArtifactDir "whale-argv.json")
+            $started = Get-Date
+            $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $ProviderRequestHardLimit $Model $TimeoutSeconds
+            $exitCode = [int]$containerExec.exit_code
+            $timedOut = [bool]$containerExec.timed_out
+            $finished = Get-Date
             $threadId = if (Test-Path -LiteralPath $jsonlPath) { Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath) } else { "" }
             $obs = $null
             if ($side.LogicalMode -eq "taskspace") {
-                $obs = Export-TaskspaceObservabilityIfAvailable $repoRoot $side.RepoDir $side.ArtifactDir $jsonlPath $started $threadId
+                $obs = Export-TaskspaceObservabilityIfAvailable $repoRoot $side.RepoDir $side.ArtifactDir $jsonlPath $started $WhaleBin $threadId
             }
             $execBySide[$side.Name] = [pscustomobject]@{
                 exit_code = $exitCode
-                wall_time_ms = [int64](($finished - $started).TotalMilliseconds)
+                wall_time_ms = [int64]$containerExec.wall_time_ms
                 timed_out = $timedOut
                 jsonl_path = $jsonlPath
                 stderr_path = $stderrPath
                 last_message_path = $lastMessagePath
                 process_timing_path = $processTimingPath
-                process_launch_wait_ms = if (Test-Path -LiteralPath $processTimingPath) {
-                    try {
-                        $processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
-                        if ($processTiming.PSObject.Properties.Name -contains "process_launch_wait_ms") { [int64]$processTiming.process_launch_wait_ms } else { $null }
-                    } catch { $null }
-                } else { $null }
+                process_launch_wait_ms = 0
+                execution_substrate = "docker"
+                container_id = [string]$containerExec.container_id
             }
             $obsBySide[$side.Name] = $obs
         }
     } finally {
         $sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
     }
-    $probe = Invoke-TaskspaceOracleIsolationProbe $WhaleBin $pair.Left.RepoDir $pair.PairDir $pair.CanaryPath $pair.CanaryText $Model $SandboxMode $ConfigOverride 180
+    $probe = if ($RunSide -eq "both") {
+        Get-TaskspaceDockerOracleIsolationProbe $pair.Left $pair.CanaryPath $pair.CanaryText
+    } else {
+        Write-TaskspaceRunEvent $runDir "oracle_isolation_probe_skipped" @{ repeat = $repeat; run_side = $RunSide; reason = "side_selection" }
+        $null
+    }
     Materialize-TaskspacePrivateOracle $pair $manifest
     $metricsBySide = @{}
     $validationTimingBySide = @{}
     foreach ($side in @($pair.Left, $pair.Right)) {
+        if (-not (Test-TaskspaceRunSideSelected ([string]$side.Name) $RunSide)) {
+            $skipTimestamp = Get-Date
+            $metrics = New-TaskspaceSideSelectionSkipMetrics $side $RunSide $skipTimestamp
+            $validationTimingBySide[$side.Name] = [pscustomobject]@{
+                logical_mode = [string]$side.LogicalMode
+                validation_started_at = $skipTimestamp
+                validation_finished_at = $skipTimestamp
+                validation_exit_code = 0
+                validation_skipped = $true
+                validation_skip_reason = "side_selection"
+                validation_process_launch_wait_ms = 0
+                probe_duration_ms = 0
+                oracle_started_at = $skipTimestamp
+                oracle_finished_at = $skipTimestamp
+                oracle_exit_code = 0
+                engineering_unclean_reasons = @($metrics.metrics_taints)
+            }
+            Write-TaskspaceJson $metrics (Join-Path $side.ArtifactDir "metrics.json")
+            $metricsBySide[$side.Name] = $metrics
+            Write-TaskspaceRunEvent $runDir "side_execution_skipped" @{
+                repeat = $repeat
+                side = [string]$side.Name
+                logical_mode = [string]$side.LogicalMode
+                run_side = $RunSide
+            }
+            continue
+        }
         $validationStdout = Join-Path $side.ArtifactDir "validation.stdout.log"
         $validationStderr = Join-Path $side.ArtifactDir "validation.stderr.log"
         $validationProofDir = Join-Path $side.ArtifactDir "vrun"
@@ -499,17 +633,21 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $validationStartedAt = Get-Date
             $oldDockerImageCache = $env:TASKSPACE_DOCKER_IMAGE_CACHE
             try { if ($EnableDockerImageCache) { $env:TASKSPACE_DOCKER_IMAGE_CACHE = "1" } else { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue }
-                $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir @() $ValidationPretestTimeoutSeconds $ValidationTestTimeoutSeconds
+                $validationResult = Invoke-TaskspaceDockerValidation $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $manifest.PublicValidation $effectiveValidationTimeout
+                $validationExit = [int]$validationResult.exit_code
+                $validationStdout = [string]$validationResult.stdout_path
+                $validationStderr = [string]$validationResult.stderr_path
             } finally { if ($null -eq $oldDockerImageCache) { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue } else { $env:TASKSPACE_DOCKER_IMAGE_CACHE = $oldDockerImageCache } }
             $validationFinishedAt = Get-Date
             $oracleStartedAt = Get-Date
-            $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")
+            $oracle = Invoke-TaskspaceDockerOracle $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $pair.HiddenOraclePath
             $oracleFinishedAt = Get-Date
         }
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
         $metrics = Get-TaskspaceBenchmarkMetrics $side $exec $validation $oracle $obsBySide[$side.Name]
         $metrics.invalid_prompt = $promptGuard.invalid_prompt
-        $modelTiming = Get-TaskspaceModelTimingAttribution $exec.jsonl_path
+        $modelTimingPath = Get-TaskspaceModelTimingSourcePath $side.ArtifactDir $exec.jsonl_path
+        $modelTiming = Get-TaskspaceModelTimingAttribution $modelTimingPath
         $metrics | Add-Member -NotePropertyName model_queue_wait_ms -NotePropertyValue $modelTiming.model_queue_wait_ms -Force
         $metrics | Add-Member -NotePropertyName model_retry_backoff_ms -NotePropertyValue $modelTiming.model_retry_backoff_ms -Force
         $metrics | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue $modelTiming.model_request_duration_ms -Force
@@ -522,6 +660,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $metrics | Add-Member -NotePropertyName public_validation_skip_reason -NotePropertyValue $(if ($skipValidationAfterExecTimeout) { "agent_exec_timeout" } else { "" }) -Force
         $metrics | Add-Member -NotePropertyName pre_agent_validator_probe_status -NotePropertyValue $(if ($probeStatus) { [string]$probeStatus.status } else { "" }) -Force
         $metrics | Add-Member -NotePropertyName pre_agent_validator_probe_hash -NotePropertyValue $(if ($probeStatus) { [string]$probeStatus.hash } else { "" }) -Force
+        Set-TaskspaceLifecycleClassification $metrics | Out-Null
         $mapManagement = Write-TaskspaceMapManagementArtifacts -ArtifactDir $side.ArtifactDir -ObservabilityJsonPath ([string]$metrics.observability_json)
         $metrics | Add-Member -NotePropertyName map_management_summary_path -NotePropertyValue (Join-Path $side.ArtifactDir "map-management-summary.json") -Force
         $metrics | Add-Member -NotePropertyName compaction_events_path -NotePropertyValue (Join-Path $side.ArtifactDir "compaction-events.jsonl") -Force
@@ -600,16 +739,20 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         taskspace_success = ($taskspaceMetrics -and [bool]$taskspaceMetrics.business_success)
         exec_timeouts = @($metricsBySide.Values | Where-Object { $_.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$_.exec_timed_out } | ForEach-Object { "$($_.mode)/$($_.logical_mode)" })
     }
+    $agentLifecycleEligible = @($metricsBySide.Values | Where-Object {
+            $_.PSObject.Properties.Name -contains "agent_completion_status" -and [string]$_.agent_completion_status -eq "complete" -and
+            $_.PSObject.Properties.Name -contains "sampling_interrupted" -and -not [bool]$_.sampling_interrupted
+        }).Count -eq 2
     $e3MinimumRepeats = 5
     if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "minimum_repeats") {
         $e3MinimumRepeats = [Math]::Max(5, [int]$manifest.E3.minimum_repeats)
     }
     $pairReportPath = Join-Path $pair.PairDir "pair-report.md"
-    $candidateEvidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false $externalProof $sideOutcomes $metricsTaints $environmentFailures
+    $candidateEvidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false $externalProof $sideOutcomes $metricsTaints $environmentFailures $agentLifecycleEligible
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $candidateEvidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     $expectedClaimScope = if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "claim_scope") { [string]$manifest.E3.claim_scope } else { "" }
     $auditReview = Get-TaskspaceAuditReview $pair.PairDir $AuditReviewRoot $repeat $expectedClaimScope
-    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes $metricsTaints $environmentFailures
+    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes $metricsTaints $environmentFailures $agentLifecycleEligible
     $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $auditReview.source_path -Force
     $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
     if ($externalProof) {
@@ -643,7 +786,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence_target = $manifest.EvidenceTarget; evidence = $evidence })
     Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
-    if (($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
+    Assert-TaskspaceArtifactStorage ("pair_{0:000}_completed" -f $repeat)
+    if ($RunSide -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
         $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $pair.PairDir $pairReportPath $evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
         Write-Host "RunDir: $runDir"
         Write-Host "PairAbort: $($abort.abort_path)"

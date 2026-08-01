@@ -73,26 +73,6 @@ fn create_history_with_items(items: Vec<ResponseItem>) -> ContextManager {
     h
 }
 
-#[test]
-fn remove_items_matching_removes_only_matching_history_items() {
-    let keep = user_msg("keep");
-    let remove = assistant_msg("remove me");
-    let mut history = create_history_with_items(vec![keep.clone(), remove, assistant_msg("keep")]);
-    let version_before = history.history_version();
-
-    let removed = history.remove_items_matching(|item| match item {
-        ResponseItem::Message { content, .. } => content
-            .iter()
-            .any(|entry| matches!(entry, ContentItem::OutputText { text } if text == "remove me")),
-        _ => false,
-    });
-
-    assert_eq!(removed, 1);
-    assert_eq!(history.history_version(), version_before.saturating_add(1));
-    assert_eq!(history.raw_items().len(), 2);
-    assert_eq!(history.raw_items()[0], keep);
-}
-
 fn user_msg(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
@@ -1439,7 +1419,7 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
     let items = vec![
         ResponseItem::FunctionCallOutput {
             call_id: "call-taskspace".to_string(),
-            output: FunctionCallOutputPayload::from_text("TaskSpace node created".to_string()),
+            output: FunctionCallOutputPayload::from_text("TaskSpace graph mutated".to_string()),
         },
         ResponseItem::Message {
             id: None,
@@ -1454,7 +1434,7 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
             id: None,
             name: "taskspace_control".to_string(),
             namespace: None,
-            arguments: r#"{"action":"create_node"}"#.to_string(),
+            arguments: r#"{"action":"mutate_graph"}"#.to_string(),
             call_id: "call-taskspace".to_string(),
         },
     ];
@@ -1478,12 +1458,12 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
                 id: None,
                 name: "taskspace_control".to_string(),
                 namespace: None,
-                arguments: r#"{"action":"create_node"}"#.to_string(),
+                arguments: r#"{"action":"mutate_graph"}"#.to_string(),
                 call_id: "call-taskspace".to_string(),
             },
             ResponseItem::FunctionCallOutput {
                 call_id: "call-taskspace".to_string(),
-                output: FunctionCallOutputPayload::from_text("TaskSpace node created".to_string()),
+                output: FunctionCallOutputPayload::from_text("TaskSpace graph mutated".to_string()),
             },
         ]
     );

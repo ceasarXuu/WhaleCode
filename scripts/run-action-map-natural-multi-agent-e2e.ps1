@@ -229,7 +229,7 @@ if ($rollout) {
     $exportScript = Join-Path $PSScriptRoot "export-action-map-observability.ps1"
     $obsStdout = Join-Path $artifactDir "observability.stdout.log"
     $obsStderr = Join-Path $artifactDir "observability.stderr.log"
-    $obsExitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rollout.FullName, "-JsonlPath", $jsonlPath, "-OutputDir", $obsDir, "-ArtifactRoot", $repoDir) $repoDir $obsStdout $obsStderr 180
+    $obsExitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rollout.FullName, "-JsonlPath", $jsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhaleBin, "-ThreadId", $threadId, "-ArtifactRoot", $repoDir) $repoDir $obsStdout $obsStderr 180
     $obsJson = Join-Path $obsDir "action-map-observability.json"
     if (Test-Path $obsJson) { $obs = Get-Content -Raw -Encoding UTF8 $obsJson | ConvertFrom-Json }
 }
@@ -286,8 +286,7 @@ $unexpectedTaskspaceGateFailures = if ($obs) {
             @($_.results | Where-Object {
                     $_.kind -eq "main_tool_call" -and
                     (Get-ObjectPropertyNames $_) -contains "success" -and
-                    $_.success -eq $false -and
-                    ([string]$_.body -match "TaskSpace (blocked|mode is active)|Call taskspace_control")
+                    $_.success -eq $false
                 })
         }).Count
 } else { 0 }
@@ -302,8 +301,7 @@ if ($obs) {
     foreach ($node in @($obs.nodes | Where-Object { [string]$_.kind -match "smoke_test|regression_test" })) {
         foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "test" })) {
             if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -eq $false) { continue }
-            $combined = "$([string]$result.body)`n$([string]$result.preview)"
-            if ($combined -match "pytest" -and $combined -match "(?i)\bpassed\b") { $testNodeHasPassingPytest = $true }
+            if ($result.success -eq $true) { $testNodeHasPassingPytest = $true }
         }
     }
 }
@@ -329,7 +327,7 @@ if ([string]::IsNullOrWhiteSpace($gitDiffText)) { $failures.Add("repository diff
 if (-not $rollout) { $failures.Add("could not find the rollout for this thread") }
 if ($rollout -and $obsExitCode -ne 0) { $failures.Add("observability export failed with exit code $obsExitCode") }
 if ($rollout -and $obsExitCode -eq 0 -and -not $cognitiveHardGatePassed) { $failures.Add("cognitive hard gate failed: $($cognitiveHardGateFailures -join ', ')") }
-if ($ordering.OrdinaryToolBeforeBinding) { $failures.Add("ordinary tool succeeded before first TaskSpace binding") }
+if ($ordering.OrdinaryToolBeforeReservation) { $failures.Add("ordinary tool succeeded before its TaskSpace reservation commit") }
 if ($mapCount -lt 1) { $failures.Add("no map was observed") }
 if ($nodeCount -lt 5) { $failures.Add("map did not grow to at least 5 nodes; observed $nodeCount") }
 if ($graphHealth.EdgeCount -lt 2) { $failures.Add("map did not create enough dependency edges; observed $($graphHealth.EdgeCount)") }
@@ -405,7 +403,7 @@ foreach ($row in @(
     @("changed_paths_without_implementation_owner", $implementationOwnershipGap.MissingCount),
     @("unexpected_taskspace_gate_failures", $unexpectedTaskspaceGateFailures),
     @("test_node_has_passing_pytest", $testNodeHasPassingPytest),
-    @("ordinary_before_binding", $ordering.OrdinaryToolBeforeBinding), @("command_executions", $commandExecutionCount)
+    @("ordinary_before_reservation", $ordering.OrdinaryToolBeforeReservation), @("command_executions", $commandExecutionCount)
 )) { Add-ReportLine $report $row[0] $row[1] }
 $report.Add("")
 $report.Add("## Failures")

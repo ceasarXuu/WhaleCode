@@ -1,0 +1,420 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/candidate-artifact-content-v1.schema.json",
+  "title": "R7 continuous-action plan scaffold artifacts (not candidate completion evidence)",
+  "description": "Planning-only v1 structure. FLA-3.5 completion requires candidate-artifact-content-v2.schema.json and executable evidence.",
+  "oneOf": [
+    {"$ref": "#/$defs/l4Schema"},
+    {"$ref": "#/$defs/transitionSchema"},
+    {"$ref": "#/$defs/typedOutcome"},
+    {"$ref": "#/$defs/carrierProtocolOracle"},
+    {"$ref": "#/$defs/entryClosure"},
+    {"$ref": "#/$defs/capabilityMatrix"},
+    {"$ref": "#/$defs/rollbackManifest"},
+    {"$ref": "#/$defs/continuousActionEvaluation"}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "metricSet": {
+      "const": {
+        "transition_carrier_rate": {"formula": "committed_transition_with_reserved_tool / accepted_nonterminal_transition", "unit": "ratio"},
+        "carrier_execution_started_rate": {"formula": "handler_handoff_started / committed_transition_with_reserved_tool", "unit": "ratio"},
+        "correctness_rate": {"formula": "correct_runs / attempted_runs", "unit": "ratio"},
+        "standalone_nonterminal_count": {"formula": "count(accepted_nonterminal_transition_without_reserved_tool)", "unit": "count"},
+        "h003_count": {"formula": "count(TASKSPACE_REQUIRED_SIBLING_MISSING)", "unit": "count"},
+        "patch_input_exact_rate": {"formula": "byte_exact_patch_inputs / patch_inputs", "unit": "ratio"},
+        "typed_output_exact_rate": {"formula": "schema_and_payload_exact_outputs / carrier_outputs", "unit": "ratio"},
+        "request_count": {"formula": "count(provider_requests)", "unit": "count"},
+        "input_tokens": {"formula": "sum(provider_input_tokens)", "unit": "tokens"},
+        "output_tokens": {"formula": "sum(provider_output_tokens)", "unit": "tokens"},
+        "cache_hit_rate": {"formula": "cached_input_tokens / input_tokens", "unit": "ratio"},
+        "wall_time_ms": {"formula": "run_finished_at_ms - run_started_at_ms", "unit": "milliseconds"},
+        "provider_time_ms": {"formula": "sum(provider_request_duration_ms)", "unit": "milliseconds"},
+        "tool_time_ms": {"formula": "sum(tool_execution_duration_ms)", "unit": "milliseconds"}
+      }
+    },
+    "thresholdSet": {
+      "const": {
+        "transition_carrier_rate_min": 1,
+        "correctness_rate_min": 1,
+        "standalone_nonterminal_count_max": 0,
+        "h003_count_max": 0,
+        "patch_input_exact_rate_min": 1,
+        "typed_output_exact_rate_min": 1,
+        "request_amplification_max": 1,
+        "input_token_amplification_max": 1,
+        "output_token_amplification_max": 1,
+        "wall_time_amplification_max": 1,
+        "cache_hit_rate_delta_min": 0
+      }
+    },
+    "l4Schema": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "provider_tools", "reserved_collision_policy"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "l4_schema"},
+        "provider_tools": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["name", "wire_api", "wire_kind", "carrier_field", "business_schema_sha256", "standard_wire_sha256", "parser_identity", "handler_identity"],
+            "properties": {
+              "name": {"$ref": "#/$defs/nonEmptyString"},
+              "wire_api": {"enum": ["deepseek_chat", "responses"]},
+              "wire_kind": {"enum": ["function", "taskspace_function_projection"]},
+              "carrier_field": {"const": "taskspace_action"},
+              "business_schema_sha256": {"$ref": "#/$defs/sha256"},
+              "standard_wire_sha256": {"$ref": "#/$defs/sha256"},
+              "parser_identity": {"type": "string", "minLength": 8},
+              "handler_identity": {"type": "string", "minLength": 8}
+            },
+            "additionalProperties": false
+          },
+          "allOf": [
+            {"contains": {"properties": {"name": {"const": "exec_command"}}, "required": ["name"]}},
+            {"contains": {"properties": {"name": {"const": "apply_patch"}}, "required": ["name"]}},
+            {"contains": {"properties": {"name": {"const": "exec"}}, "required": ["name"]}}
+          ]
+        },
+        "reserved_collision_policy": {"const": "reject_epoch"}
+      },
+      "additionalProperties": false
+    },
+    "transitionSchema": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "transition_schema"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "transition_schema"},
+        "transition_schema": {
+          "type": "object",
+          "required": ["schema_id", "action_contracts", "standalone_nonterminal_allowed"],
+          "properties": {
+            "schema_id": {"$ref": "#/$defs/nonEmptyString"},
+            "action_contracts": {
+              "type": "object",
+              "required": ["initialize_map", "bind_node", "complete_then_continue"],
+              "properties": {
+                "initialize_map": {"$ref": "#/$defs/initializeMapAction"},
+                "bind_node": {"$ref": "#/$defs/bindNodeAction"},
+                "complete_then_continue": {"$ref": "#/$defs/completeContinueAction"}
+              },
+              "additionalProperties": false
+            },
+            "standalone_nonterminal_allowed": {"const": false}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "initializeMapAction": {
+      "type": "object",
+      "required": ["required_fields", "state_effect"],
+      "properties": {
+        "required_fields": {"const": ["action", "expected_revision", "root_goal", "next_node_id"]},
+        "state_effect": {"const": "create_root_and_bind_next"}
+      },
+      "additionalProperties": false
+    },
+    "bindNodeAction": {
+      "type": "object",
+      "required": ["required_fields", "state_effect"],
+      "properties": {
+        "required_fields": {"const": ["action", "expected_revision", "next_node_id"]},
+        "state_effect": {"const": "bind_ready_node"}
+      },
+      "additionalProperties": false
+    },
+    "completeContinueAction": {
+      "type": "object",
+      "required": ["required_fields", "state_effect"],
+      "properties": {
+        "required_fields": {"const": ["action", "expected_revision", "current_node_id", "next_node_id", "final_summary"]},
+        "state_effect": {"const": "complete_current_and_bind_next"}
+      },
+      "additionalProperties": false
+    },
+    "typedOutcome": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "outcome_type", "outcome_variants", "deferred_authorization_contract", "tool_output_preservation", "post_hook_separate"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "typed_outcome"},
+        "outcome_type": {"const": "TaskSpaceCarrierOutcome"},
+        "outcome_variants": {
+          "type": "object",
+          "required": ["RejectedBeforeCommit", "CommittedNotExecuted", "Executed"],
+          "properties": {
+            "RejectedBeforeCommit": {
+              "const": {"commit_state": "not_committed", "tool_state": "not_dispatched", "required_facts": ["pre_hook_fact", "failure"]}
+            },
+            "CommittedNotExecuted": {
+              "const": {"commit_state": "committed", "tool_state": "not_started", "required_facts": ["transition_fact", "pre_hook_fact", "cancellation_or_start_failure"]}
+            },
+            "Executed": {
+              "const": {"commit_state": "committed", "tool_state": "started", "required_facts": ["transition_fact", "pre_hook_fact", "execution", "post_hook_fact", "retention_fact", "deferred_authorization_fact", "delivery_fact"]}
+            }
+          },
+          "additionalProperties": false
+        },
+        "deferred_authorization_contract": {
+          "const": {
+            "NotRequired": {"required_fields": ["decision"]},
+            "Requested": {"required_fields": ["kind", "discovered_scope", "denial_hash", "decision", "grant_id"]},
+            "Approved": {"required_fields": ["kind", "discovered_scope", "denial_hash", "decision", "grant_id"]},
+            "Denied": {"required_fields": ["kind", "discovered_scope", "denial_hash", "decision", "grant_id", "factual_error"]}
+          }
+        },
+        "tool_output_preservation": {"const": "opaque"},
+        "post_hook_separate": {"const": true}
+      },
+      "additionalProperties": false
+    },
+    "oracleEntry": {
+      "type": "object",
+      "required": ["id", "given", "when", "then"],
+      "properties": {
+        "id": {"enum": ["empty_map_initialize", "ready_bind", "complete_continue", "commit_cancel_boundary", "resume_lease", "compaction_projection"]},
+        "given": {"type": "string", "minLength": 8},
+        "when": {"type": "string", "minLength": 8},
+        "then": {"type": "string", "minLength": 8}
+      },
+      "additionalProperties": false
+    },
+    "carrierProtocolOracle": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "oracle_version", "oracles"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "carrier_protocol_oracle"},
+        "oracle_version": {"const": 2},
+        "oracles": {
+          "const": [
+            {"id": "empty_map_initialize", "pre_state": "empty_map", "transition": "initialize_map", "commit": "committed", "tool_state": "reserved", "result": "root_and_next_bound"},
+            {"id": "ready_bind", "pre_state": "ready_node", "transition": "bind_node", "commit": "committed", "tool_state": "reserved", "result": "ready_node_bound"},
+            {"id": "complete_continue", "pre_state": "active_node", "transition": "complete_then_continue", "commit": "committed", "tool_state": "reserved", "result": "current_completed_next_bound"},
+            {"id": "standalone_negative", "pre_state": "active_node", "transition": "complete_only", "commit": "not_committed", "tool_state": "not_dispatched", "result": "schema_rejected"},
+            {"id": "argument_failure", "pre_state": "active_node", "transition": "complete_then_continue", "commit": "not_committed", "tool_state": "not_dispatched", "result": "business_args_rejected"},
+            {"id": "commit_tool_failure", "pre_state": "active_node", "transition": "complete_then_continue", "commit": "committed", "tool_state": "started_failed", "result": "transition_and_failure_returned"},
+            {"id": "code_mode_carrier", "pre_state": "active_node", "transition": "complete_then_continue", "commit": "committed", "tool_state": "reserved", "result": "outer_carrier_nested_attribution"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilityEntry": {
+      "type": "object",
+      "required": ["wire_api", "tool_spec", "tool_payload", "registration_source", "invocation_origin", "route", "disposition", "reason_code"],
+      "properties": {
+        "wire_api": {"enum": ["deepseek_chat", "responses"]},
+        "tool_spec": {"enum": ["Function", "Namespace", "ToolSearch", "LocalShell", "ImageGeneration", "WebSearch", "Freeform"]},
+        "tool_payload": {"enum": ["Function", "ToolSearch", "Custom", "LocalShell", "Mcp", "NotApplicable"]},
+        "registration_source": {"enum": ["builtin", "dynamic", "mcp"]},
+        "invocation_origin": {"enum": ["direct", "code_mode", "nested"]},
+        "route": {"enum": ["function", "namespace", "tool_search", "local_shell", "image_generation", "web_search", "apply_patch", "code_exec", "mcp"]},
+        "disposition": {"enum": ["carrier", "projected_carrier", "non_carrier", "container"]},
+        "reason_code": {"enum": ["shared_function_handler", "namespace_container", "provider_native", "decorated_provider_tool", "taskspace_function_projection", "decorated_mcp_function"]}
+      },
+      "additionalProperties": false
+    },
+    "entryClosure": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "generator_version", "generated", "source_inventory", "source_hashes", "generation_digest", "entries"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "entry_closure"},
+        "generator_version": {"const": 1},
+        "generated": {"const": true},
+        "source_inventory": {
+          "type": "object",
+          "required": ["tool_spec_source", "tool_payload_source", "router_source", "registry_source", "code_mode_source", "tool_spec_variants", "tool_payload_variants"],
+          "properties": {
+            "tool_spec_source": {"const": "third_party/codex-cli/codex-rs/tools/src/tool_spec.rs"},
+            "tool_payload_source": {"const": "third_party/codex-cli/codex-rs/core/src/tools/context.rs"},
+            "router_source": {"const": "third_party/codex-cli/codex-rs/core/src/tools/router.rs"},
+            "registry_source": {"const": "third_party/codex-cli/codex-rs/core/src/tools/registry.rs"},
+            "code_mode_source": {"const": "third_party/codex-cli/codex-rs/tools/src/code_mode.rs"},
+            "tool_spec_variants": {"const": ["Function", "Namespace", "ToolSearch", "LocalShell", "ImageGeneration", "WebSearch", "Freeform"]},
+            "tool_payload_variants": {"const": ["Function", "ToolSearch", "Custom", "LocalShell", "Mcp"]}
+          },
+          "additionalProperties": false
+        },
+        "source_hashes": {
+          "type": "object",
+          "required": ["tool_spec", "tool_payload", "router", "registry", "code_mode"],
+          "properties": {
+            "tool_spec": {"$ref": "#/$defs/sha256"},
+            "tool_payload": {"$ref": "#/$defs/sha256"},
+            "router": {"$ref": "#/$defs/sha256"},
+            "registry": {"$ref": "#/$defs/sha256"},
+            "code_mode": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": false
+        },
+        "generation_digest": {"$ref": "#/$defs/sha256"},
+        "entries": {
+          "type": "array",
+          "minItems": 16,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/capabilityEntry"},
+          "allOf": [
+            {"contains": {"properties": {"wire_api": {"const": "deepseek_chat"}}, "required": ["wire_api"]}},
+            {"contains": {"properties": {"wire_api": {"const": "responses"}}, "required": ["wire_api"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Function"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "ToolSearch"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Custom"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "LocalShell"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Mcp"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"disposition": {"const": "carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "projected_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "non_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "container"}}, "required": ["disposition"]}}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilityMatrix": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "matrix_id", "entry_closure", "entries"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "capability_matrix"},
+        "matrix_id": {"$ref": "#/$defs/nonEmptyString"},
+        "entry_closure": {
+          "type": "object",
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": {"type": "string", "pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/entry-closure.json$"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": false
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 16,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/capabilityEntry"},
+          "allOf": [
+            {"contains": {"properties": {"wire_api": {"const": "deepseek_chat"}}, "required": ["wire_api"]}},
+            {"contains": {"properties": {"wire_api": {"const": "responses"}}, "required": ["wire_api"]}},
+            {"contains": {"properties": {"tool_spec": {"const": "Function"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_spec": {"const": "Namespace"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_spec": {"const": "ToolSearch"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_spec": {"const": "LocalShell"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_spec": {"const": "ImageGeneration"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_spec": {"const": "WebSearch"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_spec": {"const": "Freeform"}}, "required": ["tool_spec"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Function"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "ToolSearch"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Custom"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "LocalShell"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"tool_payload": {"const": "Mcp"}}, "required": ["tool_payload"]}},
+            {"contains": {"properties": {"disposition": {"const": "carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "projected_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "non_carrier"}}, "required": ["disposition"]}},
+            {"contains": {"properties": {"disposition": {"const": "container"}}, "required": ["disposition"]}}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "restoreTarget": {
+      "type": "object",
+      "required": ["target_role", "path", "sha256"],
+      "properties": {
+        "target_role": {"enum": ["authority", "production_manifest", "runtime_manifest", "schema_parser"]},
+        "path": {"type": "string", "minLength": 8},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"target_role": {"const": "authority"}}, "required": ["target_role"]},
+          "then": {"properties": {"path": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"}}}
+        },
+        {
+          "if": {"properties": {"target_role": {"const": "production_manifest"}}, "required": ["target_role"]},
+          "then": {"properties": {"path": {"const": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"}}}
+        }
+      ],
+      "additionalProperties": false
+    },
+    "rollbackManifest": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "baseline_authority_sha256", "baseline_production_sha256", "restore_targets", "verification_commands"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "rollback_manifest"},
+        "baseline_authority_sha256": {"$ref": "#/$defs/sha256"},
+        "baseline_production_sha256": {"$ref": "#/$defs/sha256"},
+        "restore_targets": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/restoreTarget"},
+          "allOf": [
+            {"contains": {"properties": {"target_role": {"const": "authority"}}, "required": ["target_role"]}},
+            {"contains": {"properties": {"target_role": {"const": "production_manifest"}}, "required": ["target_role"]}},
+            {"contains": {"properties": {"target_role": {"const": "runtime_manifest"}}, "required": ["target_role"]}},
+            {"contains": {"properties": {"target_role": {"const": "schema_parser"}}, "required": ["target_role"]}}
+          ]
+        },
+        "verification_commands": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["id", "command"],
+            "properties": {
+              "id": {"enum": ["contract_tests", "rollback_drill"]},
+              "command": {"type": "string", "minLength": 10}
+            },
+            "additionalProperties": false
+          },
+          "allOf": [
+            {"contains": {"properties": {"id": {"const": "contract_tests"}}, "required": ["id"]}},
+            {"contains": {"properties": {"id": {"const": "rollback_drill"}}, "required": ["id"]}}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "sampleIdentity": {
+      "type": "object",
+      "required": ["category", "fixture_sha256", "repeats"],
+      "properties": {
+        "category": {"enum": ["simple", "complex", "carrier_validation"]},
+        "fixture_sha256": {"$ref": "#/$defs/sha256"},
+        "repeats": {"type": "integer", "minimum": 3}
+      },
+      "additionalProperties": false
+    },
+    "continuousActionEvaluation": {
+      "type": "object",
+      "required": ["schema_version", "artifact_role", "evaluation_id", "sealed", "seed", "arm_order", "samples", "sample_order", "metrics", "thresholds", "statistics"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_role": {"const": "continuous_action_evaluation"},
+        "evaluation_id": {"$ref": "#/$defs/nonEmptyString"},
+        "sealed": {"const": true},
+        "seed": {"type": "integer", "minimum": 1},
+        "arm_order": {"const": ["standard", "sibling_baseline", "fla3_5_candidate"]},
+        "samples": {"type": "object", "minProperties": 2, "additionalProperties": {"$ref": "#/$defs/sampleIdentity"}},
+        "sample_order": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmptyString"}},
+        "metrics": {"$ref": "#/$defs/metricSet"},
+        "thresholds": {"$ref": "#/$defs/thresholdSet"},
+        "statistics": {
+          "const": {"aggregates": ["total", "mean", "median"], "adaptive_stop": false}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

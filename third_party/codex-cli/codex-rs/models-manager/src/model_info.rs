@@ -1,4 +1,5 @@
 use codex_protocol::config_types::ReasoningSummary;
+use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD;
 use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelInstructionsVariables;
@@ -21,6 +22,7 @@ const LOCAL_PRAGMATIC_TEMPLATE: &str = "You are a deeply pragmatic, effective so
 const PERSONALITY_PLACEHOLDER: &str = "{{ personality }}";
 
 pub fn with_config_overrides(mut model: ModelInfo, config: &ModelsManagerConfig) -> ModelInfo {
+    apply_whalecode_builtin_base_instructions(&mut model);
     if let Some(supports_reasoning_summaries) = config.model_supports_reasoning_summaries
         && supports_reasoning_summaries
     {
@@ -60,6 +62,18 @@ pub fn with_config_overrides(mut model: ModelInfo, config: &ModelsManagerConfig)
     }
 
     model
+}
+
+pub fn apply_whalecode_builtin_base_instructions(model: &mut ModelInfo) {
+    if is_whalecode_deepseek_model(&model.slug) {
+        model.base_instructions = BASE_INSTRUCTIONS_WHALECODE_STANDARD.to_string();
+        model.model_messages = None;
+    }
+}
+
+pub fn is_whalecode_deepseek_model(slug: &str) -> bool {
+    let slug = slug.rsplit('/').next().unwrap_or(slug);
+    slug == "deepseek-v4-flash" || slug == "deepseek-v4-pro"
 }
 
 /// Build a minimal fallback model descriptor for missing/unknown slugs.

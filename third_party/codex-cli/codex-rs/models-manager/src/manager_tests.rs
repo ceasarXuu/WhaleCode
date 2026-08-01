@@ -12,6 +12,7 @@ use codex_login::TokenData;
 use codex_login::auth::AgentIdentityAuth;
 use codex_login::auth::AgentIdentityAuthRecord;
 use codex_protocol::account::PlanType;
+use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
 use pretty_assertions::assert_eq;
@@ -755,7 +756,7 @@ async fn refresh_available_models_fetches_with_agent_identity() {
 }
 
 #[test]
-fn build_available_models_picks_default_after_hiding_hidden_models() {
+fn build_available_models_keeps_hidden_deepseek_models_out_of_default_selection() {
     let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
 
     let hidden_model =
@@ -774,6 +775,34 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
     let available = manager.build_available_models(vec![hidden_model, visible_model]);
 
     assert_eq!(available, vec![expected_hidden, expected_visible]);
+}
+
+#[test]
+fn build_available_models_cannot_remotely_reenable_pro() {
+    let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
+    let pro = remote_model_with_visibility(
+        "deepseek-v4-pro",
+        "DeepSeek V4 Pro",
+        /*priority*/ 0,
+        "list",
+    );
+    let flash = remote_model_with_visibility(
+        "deepseek-v4-flash",
+        "DeepSeek V4 Flash",
+        /*priority*/ 1,
+        "list",
+    );
+
+    let available = manager.build_available_models(vec![pro, flash]);
+    let pro = available
+        .iter()
+        .find(|preset| preset.model == "deepseek-v4-pro")
+        .expect("Pro metadata remains available internally");
+
+    assert!(!pro.show_in_picker);
+    assert!(!pro.supported_in_api);
+    assert!(!pro.is_default);
+    assert_eq!(default_model_from_available(available), "deepseek-v4-flash");
 }
 
 #[test]
@@ -800,7 +829,7 @@ fn build_available_models_removes_non_deepseek_from_whale_listing() {
 }
 
 #[tokio::test]
-async fn bundled_models_default_to_deepseek_pro() {
+async fn bundled_models_default_to_deepseek_flash() {
     let manager = StaticModelsManager::new(
         None,
         crate::bundled_models_response().expect("bundled models.json should parse"),
@@ -811,7 +840,7 @@ async fn bundled_models_default_to_deepseek_pro() {
         manager
             .get_default_model(&None, RefreshStrategy::Offline)
             .await,
-        "deepseek-v4-pro"
+        "deepseek-v4-flash"
     );
 }
 
@@ -831,13 +860,7 @@ async fn bundled_models_only_list_deepseek_choices() {
         .map(|preset| preset.model)
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        visible_models,
-        vec![
-            "deepseek-v4-pro".to_string(),
-            "deepseek-v4-flash".to_string()
-        ]
-    );
+    assert_eq!(visible_models, vec!["deepseek-v4-flash".to_string()]);
 }
 
 #[tokio::test]
@@ -849,21 +872,36 @@ async fn bundled_deepseek_models_use_official_reasoning_efforts() {
     );
 
     let models = manager.list_models(RefreshStrategy::Offline).await;
-    for slug in ["deepseek-v4-pro", "deepseek-v4-flash"] {
-        let preset = models
+    let flash = models
+        .iter()
+        .find(|preset| preset.model == "deepseek-v4-flash")
+        .expect("bundled Flash preset should be public");
+    assert_eq!(flash.default_reasoning_effort, ReasoningEffort::High);
+    assert_eq!(
+        flash
+            .supported_reasoning_efforts
             .iter()
-            .find(|preset| preset.model == slug)
-            .expect("bundled DeepSeek preset should exist");
-        assert_eq!(preset.default_reasoning_effort, ReasoningEffort::High);
-        assert_eq!(
-            preset
-                .supported_reasoning_efforts
-                .iter()
-                .map(|preset| preset.effort)
-                .collect::<Vec<_>>(),
-            vec![ReasoningEffort::High, ReasoningEffort::Max]
-        );
-    }
+            .map(|preset| preset.effort)
+            .collect::<Vec<_>>(),
+        vec![
+            ReasoningEffort::Low,
+            ReasoningEffort::High,
+            ReasoningEffort::Max
+        ]
+    );
+    assert!(
+        models
+            .iter()
+            .all(|preset| preset.model != "deepseek-v4-pro")
+    );
+    let catalog = manager.raw_model_catalog(RefreshStrategy::Offline).await;
+    let pro = catalog
+        .models
+        .iter()
+        .find(|model| model.slug == "deepseek-v4-pro")
+        .expect("bundled Pro metadata should remain available internally");
+    assert_eq!(pro.visibility, ModelVisibility::Hide);
+    assert!(!pro.supported_in_api);
 }
 
 #[tokio::test]
@@ -964,6 +1002,19 @@ fn bundled_models_json_roundtrips() {
             .models
             .iter()
             .any(|model| model.slug == "deepseek-v4-pro"),
-        "bundled models.json should include Whale's default DeepSeek model"
+        "bundled models.json should retain Pro metadata for later official Codex support"
     );
+    for model in response
+        .models
+        .iter()
+        .filter(|model| model.slug == "deepseek-v4-flash" || model.slug == "deepseek-v4-pro")
+    {
+        assert_eq!(
+            model.base_instructions,
+            codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD,
+            "bundled DeepSeek model {} should use WhaleCode Standard base instructions",
+            model.slug
+        );
+        assert_eq!(model.model_messages, None);
+    }
 }

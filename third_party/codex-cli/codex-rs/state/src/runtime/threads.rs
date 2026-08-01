@@ -1356,6 +1356,8 @@ mod tests {
                 base_instructions: None,
                 dynamic_tools: None,
                 memory_mode: Some("polluted".to_string()),
+                taskspace_projection_policy: None,
+                taskspace_skill_snapshot: None,
             },
             git: None,
         })];
@@ -1414,6 +1416,8 @@ mod tests {
                 base_instructions: None,
                 dynamic_tools: None,
                 memory_mode: None,
+                taskspace_projection_policy: None,
+                taskspace_skill_snapshot: None,
             },
             git: Some(GitInfo {
                 commit_hash: Some(codex_git_utils::GitSha::new("rollout-sha")),
@@ -1752,6 +1756,9 @@ mod tests {
                     model_context_window: None,
                 }),
                 rate_limits: None,
+                provider_request_id: None,
+                provider_logical_request_id: None,
+                provider_attempt_seq: None,
             },
         ))];
         let override_updated_at =

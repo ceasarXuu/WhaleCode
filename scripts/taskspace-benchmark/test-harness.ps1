@@ -11,7 +11,6 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\routing-report.ps1")
 . (Join-Path $PSScriptRoot "lib\prompt-guard.ps1")
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
-. (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\graph-health.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
@@ -27,7 +26,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\matrix-report.ps1")
 . (Join-Path $PSScriptRoot "adapters\external-benchmark-common.ps1")
 
-if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\paired-bench-selftest" }
+$autoRunRoot = [string]::IsNullOrWhiteSpace($RunRoot)
+if ($autoRunRoot) { $RunRoot = Join-Path ([IO.Path]::GetTempPath()) "paired-bench-harness-$([guid]::NewGuid().ToString('N'))" }
 $failures = New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { $script:failures.Add($Message) } }
 function Assert-Throws([scriptblock]$Body, [string]$Message) {
@@ -37,7 +37,8 @@ function Assert-Throws([scriptblock]$Body, [string]$Message) {
     } catch {}
 }
 $aggregateCommand = Get-Command Write-TaskspaceAggregateReport
-Assert-True ([string]$aggregateCommand.ScriptBlock.File -like "*lib\aggregate-report.ps1") "aggregate report writer was not loaded from lib\aggregate-report.ps1"
+$aggregateCommandFile = ([string]$aggregateCommand.ScriptBlock.File).Replace("\", "/")
+Assert-True ($aggregateCommandFile -like "*/lib/aggregate-report.ps1") "aggregate report writer was not loaded from lib\aggregate-report.ps1"
 
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario
 $manifestByPath = Read-TaskspaceScenarioManifest $repoRoot "" $manifest.ScenarioRoot
@@ -61,9 +62,7 @@ $verificationRouting = New-TaskspaceRoutingDecision $verificationManifest "Produ
 Assert-True ([string]$verificationRouting.recommended_mode -eq "verification_first") "format-sensitive scenario did not route to verification_first"
 Assert-True ([bool]$verificationRouting.initial_constraints.must_read_validator_first) "verification_first did not require validator-first"
 $verificationPrompt = New-TaskspaceRoutingPrompt $verificationRouting
-Assert-True ($verificationPrompt.Contains("recommended_mode: verification_first")) "verification prompt omitted mode"
-Assert-True ($verificationPrompt.Contains("Use at most three TaskSpace nodes")) "verification prompt omitted node budget guidance"
-Assert-True ($verificationPrompt.Contains("visible validator is the final format check")) "verification prompt omitted final validator guidance"
+Assert-True ([string]::IsNullOrEmpty($verificationPrompt)) "verification routing prompt should remain report-only"
 $subagentManifest = [pscustomobject]@{
     Id = "parallel-evidence"; Level = "L2"; HiddenOracleStrategy = "independent evidence tracks"
     PublicValidation = [pscustomobject]@{ command = "python"; args = @("validator.py") }
@@ -72,8 +71,7 @@ $subagentManifest = [pscustomobject]@{
 $subagentRouting = New-TaskspaceRoutingDecision $subagentManifest "Investigate two independent failing modules."
 Assert-True ([string]$subagentRouting.recommended_mode -eq "subagent_assisted") "spawn-budget scenario did not route to subagent_assisted"
 $subagentPrompt = New-TaskspaceRoutingPrompt $subagentRouting
-Assert-True ($subagentPrompt.Contains("recommended_mode: subagent_assisted")) "subagent-assisted prompt omitted mode"
-Assert-True ($subagentPrompt.Contains("explicit independent inspect_code_context nodes")) "subagent-assisted prompt omitted node-before-spawn rule"
+Assert-True ([string]::IsNullOrEmpty($subagentPrompt)) "subagent routing prompt should remain report-only"
 $deepManifest = [pscustomobject]@{
     Id = "deep-cross-module"; Level = "L3"; HiddenOracleStrategy = "long-horizon cross-module ambiguity"
     PublicValidation = [pscustomobject]@{ command = "python"; args = @("validator.py") }
@@ -83,8 +81,7 @@ $deepRouting = New-TaskspaceRoutingDecision $deepManifest "Repair a long-horizon
 Assert-True ([string]$deepRouting.recommended_mode -eq "deep") "L3 ambiguous scenario did not route to deep"
 Assert-True ([int]$deepRouting.initial_constraints.state_commit_budget -eq 12) "deep route did not raise state_commit budget"
 $deepPrompt = New-TaskspaceRoutingPrompt $deepRouting
-Assert-True ($deepPrompt.Contains("recommended_mode: deep")) "deep prompt omitted mode"
-Assert-True ($deepPrompt.Contains("broader evidence plan")) "deep prompt omitted evidence-plan guidance"
+Assert-True ([string]::IsNullOrEmpty($deepPrompt)) "deep routing prompt should remain report-only"
 
 $routingReportDir = Join-Path $RunRoot "routing-report-selftest"
 New-Item -ItemType Directory -Path (Join-Path $routingReportDir "pair-001\left\artifacts") -Force | Out-Null
@@ -118,6 +115,11 @@ Assert-True ($maliciousDomainGuard.invalid_prompt) "domain allowlist suppressed 
 $naturalControlGuard = Invoke-TaskspacePromptGuard "Please spawn subagents and bind node before editing."
 Assert-True ($naturalControlGuard.invalid_prompt) "natural language spawn/bind control prompt was not rejected"
 
+$explicitRunId = "CACHE-EXPLICIT-001"
+$explicitRunDir = New-TaskspaceBenchmarkRun $RunRoot "explicit-run-id" $explicitRunId
+Assert-True ((Split-Path -Leaf $explicitRunDir) -eq $explicitRunId) "explicit RunId was not preserved as the run directory leaf"
+Assert-Throws { New-TaskspaceBenchmarkRun $RunRoot "explicit-run-id" $explicitRunId } "duplicate explicit RunId was not rejected"
+Assert-Throws { New-TaskspaceBenchmarkRun $RunRoot "explicit-run-id" "../escape" } "path-bearing explicit RunId was not rejected"
 $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id
 Initialize-TaskspaceBenchmarkRunState $runDir $manifest.Id 2 "E3" "self-test" | Out-Null
 Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" 1 0 "" "" "" "" "self-test" | Out-Null
@@ -177,26 +179,20 @@ $terminalBenchBudgetRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("tbe3-" 
 $terminalBenchRunDir = Join-Path (Join-Path $terminalBenchBudgetRoot ("suite-" + ("s" * 15))) "samples\analyze-access-logs\runs\terminal_bench__analyze-access-logs\20260615-000000-000"
 $terminalBenchPair = New-TaskspacePairWorkspace $terminalBenchManifest $terminalBenchRunDir 1
 $worstLooseObjectPath = Join-Path $terminalBenchPair.Left.RepoDir ".git\objects\3e\40a9fe4e99fc548b9421b013c75c8cc706cb9d"
-$probeResultPath = Join-Path (Join-Path $terminalBenchPair.Left.ArtifactDir "vprobe") "validator-probe-result.json"
+$probeResultPath = Join-Path (Join-Path $terminalBenchPair.Left.RunnerPrivateDir "vprobe") "validator-probe-result.json"
 $runtimeResultPath = Join-Path (Join-Path $terminalBenchPair.Left.ArtifactDir "vrun") "validation-cleanup-result.json"
 Assert-True ($terminalBenchPair.Left.ExecutionAliasRoot -eq (Split-Path -Parent $terminalBenchPair.Left.RepoDir)) "terminal-bench alias root should map side root directly"
-Assert-True ($terminalBenchPair.Left.RepoDir.EndsWith("\left\app") -and -not ($terminalBenchPair.Left.RepoDir -match "terminal-bench-drive")) "terminal-bench repo path was not shortened"
+$terminalBenchRepoDir = ([string]$terminalBenchPair.Left.RepoDir).Replace("\", "/")
+Assert-True ($terminalBenchRepoDir.EndsWith("/left/app") -and -not ($terminalBenchRepoDir -match "terminal-bench-drive")) "terminal-bench repo path was not shortened"
 Assert-True ($worstLooseObjectPath.Length -lt 260) "terminal-bench workspace path exceeds Git object path budget: $($worstLooseObjectPath.Length)"
 Assert-True ($probeResultPath.Length -lt 260) "terminal-bench probe proof path exceeds Windows path budget: $($probeResultPath.Length)"
 Assert-True ($runtimeResultPath.Length -lt 260) "terminal-bench runtime proof path exceeds Windows path budget: $($runtimeResultPath.Length)"
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $terminalBenchPair.Left.ArtifactDir "vprobe"))) "pre-agent validator probe should not be materialized in agent-visible artifacts"
 $leftPrivateHits = @(Get-ChildItem -LiteralPath $pairOne.Left.RepoDir -Recurse -Force | Where-Object { $_.FullName -match 'private-oracle|reviewer-only' })
 $rightPrivateHits = @(Get-ChildItem -LiteralPath $pairOne.Right.RepoDir -Recurse -Force | Where-Object { $_.FullName -match 'private-oracle|reviewer-only' })
 Assert-True ($leftPrivateHits.Count -eq 0) "private oracle leaked into left repo"
 Assert-True ($rightPrivateHits.Count -eq 0) "private oracle leaked into right repo"
 
-$leakFile = Join-Path $pairOne.Left.ArtifactDir "leak.txt"
-Write-Text $leakFile $pairOne.HiddenOraclePath
-$leak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath
-Assert-True ($leak.leaked) "oracle path leak test did not detect leaked path"
-$repoLeakFile = Join-Path $pairOne.Left.RepoDir "oracle-path-leak.txt"
-Write-Text $repoLeakFile $pairOne.HiddenOraclePath
-$repoLeak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath
-Assert-True ($repoLeak.leaked) "oracle path leak test did not detect repo-visible leaked path"
 $untrackedPath = Join-Path $pairOne.Left.RepoDir "new-output.txt"
 Write-Text $untrackedPath "new file"
 $nestedUntrackedPath = Join-Path $pairOne.Left.RepoDir "app\hello.txt"
@@ -305,11 +301,11 @@ $mapMgmtObs = [pscustomobject]@{
             id = "node-1"; kind = "inspect_code_context"; status = "completed"
             results = @(
                 [pscustomobject]@{
-                    resultId = "result-output"; mapId = "map-1"; taskId = "task-1"; kind = "main_tool_call"; validity = "unreviewed"; body = "OutputReferenceV1:`noutput_ref: output-ref://sha256/abc"; preview = ""
+                    resultId = "result-output"; mapId = "map-1"; taskId = "task-1"; kind = "main_tool_call"; validity = "unreviewed"; sourceEventRef = "task-event-8"; artifactRefs = @("output-ref://sha256/abc")
                     evidencePackage = [pscustomobject]@{ evidenceRefs = @(); validatorRefs = @(); changedArtifacts = @() }
                 },
                 [pscustomobject]@{
-                    resultId = "result-accepted"; mapId = "map-1"; taskId = "task-1"; kind = "result"; validity = "accepted"; body = "Accepted evidence"; preview = ""
+                    resultId = "result-accepted"; mapId = "map-1"; taskId = "task-1"; kind = "result"; validity = "accepted"; sourceEventRef = "task-event-9"; artifactRefs = @("README.md")
                     evidencePackage = [pscustomobject]@{ evidenceRefs = @([pscustomobject]@{ artifactRef = "README.md" }); validatorRefs = @("pytest"); changedArtifacts = @() }
                 }
             )
@@ -360,6 +356,35 @@ $nonReviewableObs = [pscustomobject]@{
 $nonReviewableReport = New-TaskspaceGraphHealthReport $nonReviewableObs "right" "taskspace"
 Assert-True (-not (@($nonReviewableReport.warnings) -contains "high_unreviewed_result_ratio")) "graph health counted tool/final summary results as reviewable debt"
 Assert-True ([int]$nonReviewableReport.reviewable_result_count -eq 0) "graph health reviewable result count included tool/final summary results"
+$linearGraphObs = [pscustomobject]@{
+    nodes = @(
+        [pscustomobject]@{ id = "node-1"; kind = "inspect_code_context"; status = "completed"; leases = @(); results = @(); events = @() },
+        [pscustomobject]@{ id = "node-2"; kind = "implement_solution"; status = "completed"; leases = @(); results = @(); events = @() },
+        [pscustomobject]@{ id = "node-3"; kind = "smoke_test"; status = "completed"; leases = @(); results = @(); events = @() },
+        [pscustomobject]@{ id = "node-4"; kind = "final_synthesis"; status = "completed"; leases = @(); results = @(); events = @() }
+    )
+    edges = @(
+        [pscustomobject]@{ from = "node-1"; to = "node-2" },
+        [pscustomobject]@{ from = "node-2"; to = "node-3" },
+        [pscustomobject]@{ from = "node-1"; to = "node-4" },
+        [pscustomobject]@{ from = "node-2"; to = "node-4" },
+        [pscustomobject]@{ from = "node-3"; to = "node-4" }
+    )
+    toolCalls = @()
+    timeline = @()
+}
+$linearGraphReport = New-TaskspaceGraphHealthReport $linearGraphObs "right" "taskspace"
+Assert-True (-not (@($linearGraphReport.warnings) -contains "low_decision_density")) "linear task graph should not require synthetic decisions"
+Assert-True ([string]$linearGraphReport.metric_availability.decision_density -eq "not_applicable_linear") "linear decision density applicability should be explicit"
+$subagentLowDecisionObs = [pscustomobject]@{
+    nodes = $linearGraphObs.nodes
+    edges = $linearGraphObs.edges
+    maps = @([pscustomobject]@{ subagentPlans = @([pscustomobject]@{ id = "subagent-plan-1" }) })
+    toolCalls = @()
+    timeline = @()
+}
+$subagentLowDecisionReport = New-TaskspaceGraphHealthReport $subagentLowDecisionObs "right" "taskspace"
+Assert-True (@($subagentLowDecisionReport.warnings) -contains "low_decision_density") "subagent graph should still report missing decision density"
 $graphDecisionObs = [pscustomobject]@{
     nodes = @(
         [pscustomobject]@{
@@ -449,8 +474,10 @@ $costObs = Join-Path $costDir "observability.json"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costDir "taskspace.graph.final.json") -Encoding UTF8
 @(
     (@{ type = "response.completed"; response = @{ usage = @{ input_tokens = 120; output_tokens = 30; input_tokens_details = @{ cached_tokens = 20 } } } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"start_task","title":"x"}' } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_node","node_id":"node-1"}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"x"},"work_nodes":[{"node_id":"node-1","goal":"work"}],"finish":{"node_id":"finish","goal":"finish"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"actions":[{"node_id":"node-1","tool":"exec_command"}]}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_map","expected_revision":2,"finish_node_id":"finish","complete_work_node_ids":["node-1"],"exact_summary":"done"}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action_name":"initialize_and_execute"}}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"finish","args":{"command":"finish_map","node_id":"finish"}}' } } | ConvertTo-Json -Compress -Depth 8),
     (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
 @(
@@ -478,21 +505,25 @@ $outputRefEventLines = @(Get-Content -LiteralPath $costArtifacts.output_ref_even
 Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.created"')) "output-ref-events.jsonl omitted output_ref.created"
 Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.slice_read"')) "output-ref-events.jsonl omitted output_ref.slice_read"
 Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
-Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from usage events"
-Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 120) "max input tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.p95_input_tokens_per_request -eq 120) "p95 input tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.first_input_tokens_per_request -eq 120) "first input tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.max_output_tokens_per_request -eq 30) "max output tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.p95_output_tokens_per_request -eq 30) "p95 output tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.last_output_tokens_per_request -eq 7) "last output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from rollout request events"
+Assert-True ([string]$costArtifacts.request_summary.model_request_count_source -eq "rollout_trace") "model request source was not recorded"
+Assert-True ([int]$costArtifacts.request_summary.token_usage_record_count -eq 2) "turn usage record count was not preserved separately"
+Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 300) "max input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.p95_input_tokens_per_request -eq 300) "p95 input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.first_input_tokens_per_request -eq 100) "first input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.max_output_tokens_per_request -eq 21) "max output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.p95_output_tokens_per_request -eq 21) "p95 output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.last_output_tokens_per_request -eq 21) "last output tokens per request was not reported"
 Assert-True ([string]$costArtifacts.request_summary.rollout_trace.availability -eq "measured") "rollout request trace was not measured"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.model_request_count -eq 2) "rollout request trace count was not parsed"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.input_tokens -eq 400) "rollout request trace input tokens were not summed"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.max_input_tokens_per_request -eq 300) "rollout max input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.last_input_tokens_per_request -eq 300) "rollout last input tokens per request was not reported"
-Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 2) "taskspace_control count was not parsed"
-Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.start_task -eq 1) "taskspace_control start_task action was not counted"
-Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_node -eq 1) "taskspace_control finish_node action was not counted"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 4) "taskspace_control count was not parsed"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.native_taskspace_control_count -eq 2) "native taskspace_control count was not parsed"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_contract_taskspace_control_count -eq 2) "action-contract taskspace_control count was not parsed"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.initialize_and_execute -eq 2) "taskspace_control initialize_and_execute action was not counted"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_map -eq 2) "taskspace_control finish_map action was not counted"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_runtime_event_count -eq 5) "taskspace runtime event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_state_commit_count -eq 1) "runtime state_commit event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_output_ref_created_count -eq 1) "runtime output_ref.created count was not parsed from observability"
@@ -502,79 +533,76 @@ Assert-True ([int]$costArtifacts.replay_summary.output_reference_count -eq 1) "o
 Assert-True ([int]$costArtifacts.replay_summary.output_slice_count -eq 1) "output slice count was not parsed"
 Assert-True ([int]$costArtifacts.replay_summary.large_output_replay_count -eq 0) "output reference artifact was incorrectly treated as raw replay"
 $projectionJsonl = Join-Path $costDir "projection-source.jsonl"
-$activeProjectionBlock = @"
-ContextProjectionV1 active replacement:
-- projection_id: projection-active-task-1-map-1
-- task_id: task-1
-- mode: default_compact
-- active_objective: Verify projection metrics.
-- sections:
-  success_criteria:
-    - projected criteria
-  current_node: node-1
-  blockers:
-    - none
-  decisions:
-    - decision: use active compact profile
-  facts:
-    - fact: output refs active
-  relevant_results:
-    - result:abc
-  next_valid_actions:
-    - inspect_code_context
-  hidden_refs_available:
-    - result:abc
-- estimated_tokens: 123
-"@
-$shadowProjectionBlock = @"
-ContextProjectionV1 shadow (not active replacement):
-- projection_id: projection-shadow-task-1-map-1
-- task_id: task-1
-- mode: default_compact
-- active_objective: Verify projection metrics.
-- sections:
-  success_criteria:
-    - projected criteria
-  current_node: node-1
-  blockers:
-    - none
-  decisions:
-    - decision: keep shadow mode
-  facts:
-    - fact: output refs active
-  relevant_results:
-    - result:abc
-  next_valid_actions:
-    - inspect_code_context
-  hidden_refs_available:
-    - result:abc
-- estimated_tokens: 123
+$currentProjectionBlock = @"
+TaskSpaceMapProjectionR7V1:
+- schema_version: taskspace-map-projection-r7-v1
+- projection_kind: request_snapshot
+- supersedes_all_prior_projections: true
+- current_state_rule: last_projection_only
+- map_id: map-1
+- revision: 4
+- canonical_sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+- root_node_id: root
+- finish_node_id: finish
+- complete: false
+- root_source_event_ids: event-1
+- current_terminal: none
+- terminal_history: none
+- active_frontier: work
+- map_nodes: root|work|finish
+- map_edges: root->work|work->finish
+- node_details: none
+TaskSpaceMapProjectionR7V1 end.
 "@
 @(
-    (@{ type = "response.created"; input = $activeProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
+    (@{ type = "response.created"; input = $currentProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $projectionJsonl -Encoding UTF8
 $projectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection") $projectionJsonl ""
 Assert-True ([string]$projectionArtifacts.context_projection_summary.availability -eq "measured") "context projection summary was not marked measured"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_count -eq 1) "context projection block was not counted"
-Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_tokens_total -eq 123) "context projection tokens were not parsed"
+Assert-True ($null -eq $projectionArtifacts.context_projection_summary.projection_tokens_total) "current projection should not expose an estimated token field"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.protected_miss_count -eq 0) "context projection protected sections were reported missing"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.active_projection_count -eq 1) "active projection count was not reported"
-Assert-True ([int]$projectionArtifacts.context_projection_summary.shadow_projection_count -eq 0) "active projection fixture was counted as shadow"
+Assert-True ([int]$projectionArtifacts.context_projection_summary.shadow_projection_count -eq 0) "current projection fixture was counted as shadow"
 $projectionEventLine = Get-Content -LiteralPath $projectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $projectionEvent = $projectionEventLine | ConvertFrom-Json
-Assert-True ([string]$projectionEvent.projection_id -eq "projection-active-task-1-map-1") "active projection event id was not parsed"
-Assert-True ([string]$projectionEvent.projection_kind -eq "active_replacement") "active projection kind was not parsed"
-$shadowProjectionJsonl = Join-Path $costDir "projection-shadow-source.jsonl"
+Assert-True ([string]$projectionEvent.map_id -eq "map-1") "current projection map id was not parsed"
+Assert-True ([string]$projectionEvent.projection_kind -eq "request_snapshot") "current projection kind was not parsed"
+Assert-True ([int64]$projectionEvent.revision -eq 4) "current projection revision was not parsed"
+Assert-True ([string]$projectionEvent.canonical_sha256 -eq "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc") "current projection canonical hash was not parsed"
+$epochProjectionRollout = Join-Path $costDir "projection-epoch-rollout.jsonl"
 @(
-    (@{ type = "response.created"; input = $shadowProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
-) | Set-Content -LiteralPath $shadowProjectionJsonl -Encoding UTF8
-$shadowProjectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection-shadow") $shadowProjectionJsonl ""
-Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.projection_count -eq 1) "legacy shadow projection block was not counted"
-Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.active_projection_count -eq 0) "shadow projection fixture was counted as active"
-Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.shadow_projection_count -eq 1) "shadow projection count was not reported"
-$shadowProjectionEventLine = Get-Content -LiteralPath $shadowProjectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
-$shadowProjectionEvent = $shadowProjectionEventLine | ConvertFrom-Json
-Assert-True ([string]$shadowProjectionEvent.projection_kind -eq "shadow") "legacy shadow projection kind was not parsed"
+    ([pscustomobject]@{
+            type = "event_msg"
+            payload = [pscustomobject]@{
+                type = "map_runtime"
+                map_event_type = "snapshot_updated"
+                snapshot = [pscustomobject]@{
+                    traceEvents = @(
+                        [pscustomobject]@{
+                            id = "trace-projection-1"
+                            kind = "projection_budget"
+                            taskId = "task-1"
+                            mapId = "map-1"
+                            nodeId = "projection"
+                            tags = @(
+                                "schema:taskspace-projection-budget-v1",
+                                "projection_tokens:189",
+                                "max_projection_tokens:16000",
+                                "status:within_budget"
+                            )
+                        }
+                    )
+                }
+            }
+        } | ConvertTo-Json -Compress -Depth 12)
+) | Set-Content -LiteralPath $epochProjectionRollout -Encoding UTF8
+$epochProjectionSummary = New-TaskspaceContextProjectionSummary "" "" $epochProjectionRollout
+Assert-True ([string]$epochProjectionSummary.availability -eq "measured") "epoch projection trace was not measured"
+Assert-True ([int]$epochProjectionSummary.projection_count -eq 1) "epoch projection trace was not counted"
+Assert-True ([int]$epochProjectionSummary.projection_tokens_total -eq 189) "epoch projection tokens were not extracted"
+Assert-True ([int]$epochProjectionSummary.active_projection_count -eq 1) "epoch projection was not active"
+Assert-True ([string]$epochProjectionSummary.events[0].projection_kind -eq "current_projection") "current projection kind was not preserved"
 $costObsFallback = Join-Path $costDir "observability-output-ref-fallback.json"
 [pscustomobject]@{
     timeline = @(
@@ -643,11 +671,30 @@ Assert-True ([string]$partialGate.status -eq "PARTIAL") "cost gate did not retur
 $missingGate = (Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample").gate
 Assert-True ([string]$missingGate.status -eq "FAIL" -and [string]$missingGate.reason -eq "missing_cost_data") "cost gate did not fail closed on missing input tokens"
 
+$fallbackCostRoot = Join-Path $runDir "cost-aggregate-rollout-fallback"
+New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\left\artifacts") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\right\artifacts") -Force | Out-Null
+[pscustomobject]@{
+    logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
+    input_tokens = 1000; output_tokens = 200; wall_time_ms = 1000
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $fallbackCostRoot "pair-001\left\artifacts\metrics.json") -Encoding UTF8
+[pscustomobject]@{
+    logical_mode = "taskspace"; token_summary_availability = "usage_unavailable"
+    rollout_trace_model_request_count = 12; rollout_trace_input_tokens = 1800; rollout_trace_output_tokens = 500
+    wall_time_ms = 1900
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $fallbackCostRoot "pair-001\right\artifacts\metrics.json") -Encoding UTF8
+$fallbackAggregate = Write-TaskspaceCostAggregateArtifacts -RootDir $fallbackCostRoot -Scope "sample"
+Assert-True ([string]$fallbackAggregate.gate.reason -ne "missing_cost_data") "cost gate ignored rollout trace fallback usage"
+$fallbackTokenSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath $fallbackAggregate.token_summary_path | ConvertFrom-Json
+Assert-True ([int]$fallbackTokenSummary.modes.taskspace.fallback_input_tokens -eq 1) "fallback input token count was not tracked"
+Assert-True ([int]$fallbackTokenSummary.modes.taskspace.fallback_output_tokens -eq 1) "fallback output token count was not tracked"
+Assert-True ([int]$fallbackTokenSummary.modes.taskspace.fallback_model_request_count -eq 1) "fallback model request count was not tracked"
+
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"
-$normalizedStandard = Get-NormalizedTaskspaceWhaleArgv $standardArgv
-$normalizedTaskspace = @(Get-NormalizedTaskspaceWhaleArgv $taskspaceArgv | Where-Object { $_ -ne "--taskspace" })
-Assert-True (($normalizedStandard -join "`n") -eq ($normalizedTaskspace -join "`n")) "standard/taskspace argv differ by more than --taskspace after path normalization"
+$normalizedStandard = Get-NormalizedTaskspaceWhaleArgv (Get-TaskspaceCommonArgvWithoutTreatment $standardArgv)
+$normalizedTaskspace = Get-NormalizedTaskspaceWhaleArgv (Get-TaskspaceCommonArgvWithoutTreatment $taskspaceArgv)
+Assert-True (($normalizedStandard -join "`n") -eq ($normalizedTaskspace -join "`n")) "standard/taskspace argv differ outside the declared treatment after path normalization"
 
 $promptGuardOk = Invoke-TaskspacePromptGuard "Please fix the failing tax calculation test."
 $evidenceRepeatOne = Get-TaskspaceEvidenceGate 1 $promptGuardOk "soft_denylist" "provider-default-or-unknown"
@@ -843,7 +890,10 @@ instruction: |-
   Create a file called hello.txt.
 category: file-operations
 '@ | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "task.yaml") -Encoding UTF8
-"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "Dockerfile") -Encoding UTF8
+@'
+FROM scratch
+COPY task-deps/input.csv ./
+'@ | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "Dockerfile") -Encoding UTF8
 "do not leak" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "solution.sh") -Encoding UTF8
 "echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "run-tests.sh") -Encoding UTF8
 New-Item -ItemType Directory -Path (Join-Path $terminalBenchNoEnv "task-deps\nested") -Force | Out-Null
@@ -856,6 +906,7 @@ $adapterScenarioDir = [string]($adapterOutput | Select-Object -Last 1 | ForEach-
 Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")) "terminal-bench adapter did not extract task.yaml instruction"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\solution.sh"))) "terminal-bench adapter leaked solution.sh from official task root"
 Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\input.csv")) "terminal-bench adapter dropped public task-deps fixture"
+Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\input.csv")) "terminal-bench adapter did not project Dockerfile COPY into agent /app fixture"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\nested\run-tests.sh"))) "terminal-bench adapter leaked nested validator script"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\tests\case.py"))) "terminal-bench adapter leaked nested tests directory"
 $adapterScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "scenario.json") | ConvertFrom-Json
@@ -865,10 +916,21 @@ Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.agent_
 Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker_runtime) "terminal-bench Docker runtime capability was not recorded"
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
 Assert-True (@($adapterScenario.prompt_guard.source_spans).Count -eq 2) "terminal-bench prompt guard source spans were not recorded"
+$adapterPromptText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")
+Assert-True ($adapterPromptText -match "Local tools start in the directory that the public validator later mounts as /app") "terminal-bench prompt did not describe local /app path mapping"
+Assert-True ($adapterPromptText -match "the matching local path is <path> under the current working directory") "terminal-bench prompt did not map /app paths to cwd-relative paths"
 Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "task-deps/input.csv") "terminal-bench recursive fixture allowlist missed public file"
+Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "input.csv") "terminal-bench fixture allowlist missed projected app file"
+Assert-True ([bool]$adapterScenario.external_benchmark.adapter_metadata.agent_app_fixture_projection.projected) "terminal-bench fixture projection metadata was not recorded"
+Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.agent_app_fixture_projection.projections[0].destination -eq "input.csv") "terminal-bench fixture projection destination was not recorded"
 $adapterValidatorText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "external-validator.ps1")
-Assert-True ($adapterValidatorText -match "proxy_env_skipped_loopback") "terminal-bench validator did not guard WSL loopback proxy injection"
+Assert-True ($adapterValidatorText -match "proxy_env_preserved_loopback") "terminal-bench validator did not preserve WSL loopback proxy under host networking"
+Assert-True ($adapterValidatorText -match [regex]::Escape('$proxyBuildArgs += @("--build-arg", "$proxyName=$proxyValue")')) "terminal-bench validator did not forward proxy variables to Docker build"
+Assert-True ($adapterValidatorText -notmatch "proxy_env_skipped_loopback") "terminal-bench validator still skips WSL loopback proxy"
 Assert-True ($adapterValidatorText -match "Invoke-DockerBackendProbe") "terminal-bench validator did not time-bound Docker backend probing"
+Assert-True ($adapterValidatorText -match "TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS") "terminal-bench validator did not expose configurable Docker backend probe timeout"
+Assert-True ($adapterValidatorText -match "return 60") "terminal-bench validator did not default Docker backend probe timeout to 60 seconds"
+Assert-True ($adapterValidatorText -match '\$value -lt 20') "terminal-bench validator did not preserve a minimum Docker backend probe timeout"
 Assert-True ($adapterValidatorText -match "Requested native Docker backend is unavailable") "terminal-bench validator did not validate native Docker wrapper availability"
 Assert-True ($adapterValidatorText -match "Test-DockerCommandIsWslWrapper") "terminal-bench validator did not detect WSL docker command wrappers"
 Assert-True ($adapterValidatorText -match "getpwnam\\\(root\\\) failed") "terminal-bench validator did not classify WSL root lookup backend failures"
@@ -892,7 +954,12 @@ New-Item -ItemType Directory -Path (Join-Path $aliasRoot "app") -Force | Out-Nul
 $aliasSide = [pscustomobject]@{ RepoDir = (Join-Path $aliasRoot "app"); ExecutionAliasRoot = $aliasRoot }
 $aliasMount = Mount-TaskspaceExecutionAlias $aliasSide
 try {
-    powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path /app/subst-smoke.txt | Out-Null"
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path /app/subst-smoke.txt | Out-Null"
+    } else {
+        Assert-True ([string]$aliasMount.app_root_alias_env -eq "") "Terminal-Bench non-Windows /app alias should not request an unverified sandbox env"
+        powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path subst-smoke.txt | Out-Null"
+    }
 } finally {
     Dismount-TaskspaceExecutionAlias $aliasMount
 }
@@ -905,7 +972,7 @@ $metrics = [pscustomobject]@{
     changed_file_inventory = @([pscustomobject]@{ path = "src/tax_calc.py"; status = "M "; source = "git_status"; sha256 = "abc123"; size_bytes = 12 })
     validator_environment_mismatch = $false
     maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0
-    subagent_results = 0; open_leaf_nodes = 0; ordinary_before_binding = $false
+    subagent_results = 0; open_leaf_nodes = 0; ordinary_before_reservation = $false
     graph_health_path = ""; graph_health_warnings = @(); decision_count = 0; decision_density = 0.0
     accepted_results = 0; unreviewed_results = 0; questioned_or_invalid_results = 0
     result_adoption_rate = 0.0; subagent_decision_yield = 0.0
@@ -1058,11 +1125,21 @@ foreach ($side in @("left", "right")) {
 $resumeLeftMetrics = $metrics.PSObject.Copy()
 $resumeLeftMetrics.mode = "left"; $resumeLeftMetrics.logical_mode = "standard"; $resumeLeftMetrics.business_success = $true
 $resumeLeftMetrics.public_validation_exit_code = 0; $resumeLeftMetrics.hidden_oracle_exit_code = 0
+$resumeLeftMetrics | Add-Member -NotePropertyName agent_final_observed -NotePropertyValue $true -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName agent_completion_status -NotePropertyValue "complete" -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName sampling_interrupted -NotePropertyValue $false -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName external_validation_status -NotePropertyValue "passed" -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName utility_eligible -NotePropertyValue $true -Force
 $resumeLeftMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @() -Force
 $resumeLeftMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @() -Force
 $resumeRightMetrics = $rightMetrics.PSObject.Copy()
 $resumeRightMetrics.mode = "right"; $resumeRightMetrics.logical_mode = "taskspace"; $resumeRightMetrics.business_success = $true
 $resumeRightMetrics.public_validation_exit_code = 0; $resumeRightMetrics.hidden_oracle_exit_code = 0
+$resumeRightMetrics | Add-Member -NotePropertyName agent_final_observed -NotePropertyValue $true -Force
+$resumeRightMetrics | Add-Member -NotePropertyName agent_completion_status -NotePropertyValue "complete" -Force
+$resumeRightMetrics | Add-Member -NotePropertyName sampling_interrupted -NotePropertyValue $false -Force
+$resumeRightMetrics | Add-Member -NotePropertyName external_validation_status -NotePropertyValue "passed" -Force
+$resumeRightMetrics | Add-Member -NotePropertyName utility_eligible -NotePropertyValue $true -Force
 $resumeRightMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @() -Force
 $resumeRightMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @() -Force
 Write-TaskspaceJson $resumeLeftMetrics (Join-Path $resumeClassifyPair "left\artifacts\metrics.json")
@@ -1151,7 +1228,7 @@ $finalizeLeftMetrics = [pscustomobject]@{
     changed_paths = @(); changed_file_inventory = @(); metrics_warnings = @(); metrics_taints = @("metrics_critical_artifact_unhashed:tests/x.py")
     validator_environment_failures = @("public_validation_timeout", "docker_cleanup_container_failure")
     docker_build_result_path = ""; validator_environment_mismatch = $false
-    maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0; subagent_results = 0; open_leaf_nodes = 0; ordinary_before_binding = $false
+    maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0; subagent_results = 0; open_leaf_nodes = 0; ordinary_before_reservation = $false
 }
 $finalizeRightMetrics = $finalizeLeftMetrics.PSObject.Copy()
 $finalizeRightMetrics.mode = "right"; $finalizeRightMetrics.logical_mode = "taskspace"; $finalizeRightMetrics.business_success = $true; $finalizeRightMetrics.public_validation_exit_code = 0
@@ -1206,3 +1283,7 @@ if ($failures.Count -gt 0) {
 }
 Write-Host "TaskSpace benchmark harness self-test: PASS"
 Write-Host "RunRoot: $runDir"
+if ($autoRunRoot -and (Test-Path -LiteralPath $RunRoot)) {
+    Remove-Item -Force -Recurse -LiteralPath $RunRoot
+    Write-Host "ArtifactsRetained: False"
+}

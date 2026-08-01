@@ -227,11 +227,7 @@ impl ChatWidget {
 
     fn set_search_provider(&mut self, provider: WebSearchProvider) {
         let provider_name = web_search_provider_name(provider);
-        let configured_providers = self
-            .web_config_for_update()
-            .client
-            .configured_providers
-            .clone();
+        let configured_providers = self.web_config_for_update().client.configured_providers;
         let edits = vec![
             ConfigEdit::SetPath {
                 segments: segments(&["web_search"]),
@@ -267,11 +263,7 @@ impl ChatWidget {
     }
 
     fn set_search_fallback(&mut self, fallback: Option<WebSearchProvider>) {
-        let configured_providers = self
-            .web_config_for_update()
-            .client
-            .configured_providers
-            .clone();
+        let configured_providers = self.web_config_for_update().client.configured_providers;
         let mut edits = vec![match fallback {
             Some(provider) => ConfigEdit::SetPath {
                 segments: segments(&["tools", "web_search", "fallback_provider"]),

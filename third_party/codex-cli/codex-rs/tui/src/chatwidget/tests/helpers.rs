@@ -686,7 +686,10 @@ pub(super) fn end_exec(
             stdout: stdout.to_string(),
             stderr: stderr.to_string(),
             aggregated_output: aggregated.clone(),
-            exit_code,
+            shell_exit_code: Some(exit_code),
+            outcome: codex_protocol::exec_output::ExecOutcome::Exited,
+            termination_signal: None,
+            pipeline_stage_exit_codes: None,
             duration: std::time::Duration::from_millis(5),
             formatted_output: aggregated,
             status: if exit_code == 0 {

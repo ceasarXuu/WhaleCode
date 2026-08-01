@@ -1,0 +1,352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/taskspace-contract-manifest-v1.schema.json",
+  "title": "R7 TaskSpace production contract manifest",
+  "$comment": "candidate_record in v1 is planning scaffold only; FLA-3.5 completion requires the CA-0 executable v2 candidate toolchain",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "schema_path",
+    "contract_id",
+    "manifest_version",
+    "contract_status",
+    "runtime_status_enum",
+    "activation_through",
+    "source_authority",
+    "layers"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema_path": {"const": "benchmarks/taskspace/r7/taskspace-contract-manifest-v1.schema.json"},
+    "contract_id": {"type": "string", "minLength": 1},
+    "manifest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "contract_status": {"enum": ["production_active", "candidate_record"]},
+    "candidate_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_status": {
+      "enum": ["evaluation_candidate", "promotion_pending", "rejected", "promoted", "reverted"]
+    },
+    "superseded_by": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "active_authority": {
+      "type": "object",
+      "required": ["contract_id", "path", "git_commit", "sha256"],
+      "properties": {
+        "contract_id": {"const": "r7-five-layer-contract-authority-v1"},
+        "path": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"},
+        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "active_production_manifest": {
+      "type": "object",
+      "required": ["contract_id", "path", "git_commit", "sha256"],
+      "properties": {
+        "contract_id": {"const": "r7-taskspace-five-layer-production-v1"},
+        "path": {"const": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"},
+        "git_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "activation_targets": {
+      "type": "object",
+      "required": ["activation_through", "authority_contract_status", "production_manifest_version", "promotion_commit_paths", "blocking_repair", "production_runtime_status", "L4", "L5"],
+      "properties": {
+        "activation_through": {"const": "FLA-3.5"},
+        "authority_contract_status": {"const": "production_active_through_fla3_5_with_terminal_contract_repair"},
+        "production_manifest_version": {"const": "1.0.11"},
+        "promotion_commit_paths": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1},
+          "allOf": [
+            {"contains": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"}},
+            {"contains": {"const": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_contract_manifest_v1.json"}},
+            {"contains": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/manifest.json$"}}
+          ]
+        },
+        "blocking_repair": {
+          "type": "object",
+          "required": ["id", "implementation_status"],
+          "properties": {
+            "id": {"const": "FLA-3.5-continuous-action-regression-repair"},
+            "implementation_status": {"const": "active_verified"}
+          },
+          "additionalProperties": false
+        },
+        "production_runtime_status": {
+          "type": "object",
+          "required": ["L4", "L5"],
+          "properties": {
+            "L4": {"const": "carrier_repair_active"},
+            "L5": {"const": "carrier_result_repair_active_projection_baseline"}
+          },
+          "additionalProperties": false
+        },
+        "L4": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/l4ActivationTarget"}
+        },
+        "L5": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/l5ActivationTarget"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact_hashes": {
+      "type": "object",
+      "required": [
+        "l4_schema",
+        "transition_schema",
+        "typed_outcome",
+        "carrier_protocol_oracle",
+        "entry_closure",
+        "capability_matrix",
+        "rollback_manifest",
+        "continuous_action_evaluation"
+      ],
+      "properties": {
+        "l4_schema": {"$ref": "#/$defs/l4SchemaArtifact"},
+        "transition_schema": {"$ref": "#/$defs/transitionSchemaArtifact"},
+        "typed_outcome": {"$ref": "#/$defs/typedOutcomeArtifact"},
+        "carrier_protocol_oracle": {"$ref": "#/$defs/carrierProtocolOracleArtifact"},
+        "entry_closure": {"$ref": "#/$defs/entryClosureArtifact"},
+        "capability_matrix": {"$ref": "#/$defs/capabilityMatrixArtifact"},
+        "rollback_manifest": {"$ref": "#/$defs/rollbackManifestArtifact"},
+        "continuous_action_evaluation": {"$ref": "#/$defs/continuousActionEvaluationArtifact"}
+      },
+      "additionalProperties": false
+    },
+    "promoted_candidate_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "runtime_status_enum": {
+      "oneOf": [
+        {"const": ["selected_not_active", "active", "repair_active", "result_repair_active_projection_baseline", "carrier_active_projection_baseline"]},
+        {"const": ["selected_not_active", "active", "repair_active", "result_repair_active_projection_baseline", "carrier_active_projection_baseline", "carrier_repair_active", "carrier_result_repair_active_projection_baseline"]}
+      ]
+    },
+    "activation_through": {"enum": ["FLA-1", "FLA-2", "FLA-3", "FLA-3.5", "FLA-4", "FLA-5", "FLA-7", "FLA-8", "A2-B1X", "A2-B2", "A2-B5", "A2-C repair", "W0 evidence authority repair"]},
+    "evaluation_candidates": {
+      "type": "object",
+      "required": ["FLA_9"],
+      "properties": {
+        "FLA_9": {
+          "type": "object",
+          "required": ["status", "production_path_active", "promoted"],
+          "properties": {
+            "status": {"const": "production_path_evaluation_candidate"},
+            "production_path_active": {"const": true},
+            "promoted": {"const": false}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "source_authority": {
+      "type": "object",
+      "required": ["contract_id", "path", "sha256"],
+      "properties": {
+        "contract_id": {"const": "r7-five-layer-contract-authority-v1"},
+        "path": {"const": "benchmarks/taskspace/r7/five-layer-contract-authority-v1.json"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "owner", "carrier", "runtime_status", "selected_targets"],
+        "properties": {
+          "id": {"enum": ["L1", "L2", "L3", "L4", "L5"]},
+          "owner": {"type": "string", "minLength": 1},
+          "carrier": {"type": "string", "minLength": 1},
+          "runtime_status": {
+            "enum": [
+              "selected_not_active",
+              "active",
+              "repair_active",
+              "result_repair_active_projection_baseline",
+              "carrier_active_projection_baseline",
+              "carrier_repair_active",
+              "carrier_result_repair_active_projection_baseline"
+            ]
+          },
+          "selected_targets": {"type": "array", "minItems": 1}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"contract_status": {"const": "production_active"}}},
+      "then": {
+        "properties": {"contract_id": {"const": "r7-taskspace-five-layer-production-v1"}},
+        "not": {
+          "anyOf": [
+            {"required": ["candidate_id"]},
+            {"required": ["candidate_commit"]},
+            {"required": ["candidate_status"]},
+            {"required": ["superseded_by"]},
+            {"required": ["active_authority"]},
+            {"required": ["active_production_manifest"]},
+            {"required": ["activation_targets"]},
+            {"required": ["artifact_hashes"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"properties": {"contract_status": {"const": "candidate_record"}}},
+      "then": {
+        "required": ["candidate_id", "candidate_commit", "candidate_status", "active_authority", "active_production_manifest", "activation_targets", "artifact_hashes"],
+        "properties": {
+          "contract_id": {"pattern": "^r7-taskspace-five-layer-candidate-[0-9a-f]{64}$"}
+        },
+        "not": {"required": ["promoted_candidate_id"]}
+      }
+    },
+    {
+      "if": {"required": ["superseded_by"]},
+      "then": {
+        "properties": {
+          "candidate_status": {"enum": ["rejected", "reverted"]}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "activationTarget": {
+      "type": "object",
+      "required": ["artifact_role", "authority_layer", "implementation_status", "path", "sha256", "activation_phase"],
+      "properties": {
+        "artifact_role": {"type": "string", "minLength": 1},
+        "authority_layer": {"enum": ["L4", "L5-result", "L5-projection", "L5-lifecycle"]},
+        "implementation_status": {"enum": ["selected_baseline", "selected_not_implemented", "active_verified", "active_repair_verified"]},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "activation_phase": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "l4ActivationTarget": {
+      "allOf": [
+        {"$ref": "#/$defs/activationTarget"},
+        {
+          "properties": {
+            "artifact_role": {"const": "l4_schema"},
+            "authority_layer": {"const": "L4"},
+            "implementation_status": {"const": "active_repair_verified"},
+            "activation_phase": {"const": "FLA-3.5"},
+            "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/l4-schema.json$"}
+          }
+        }
+      ]
+    },
+    "l5ActivationTarget": {
+      "allOf": [
+        {"$ref": "#/$defs/activationTarget"},
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "artifact_role": {"const": "typed_outcome"},
+                "authority_layer": {"const": "L5-result"},
+                "implementation_status": {"const": "active_repair_verified"},
+                "activation_phase": {"const": "FLA-3.5"},
+                "path": {"pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/typed-outcome.json$"}
+              }
+            },
+            {
+              "properties": {
+                "artifact_role": {"const": "projection_baseline"},
+                "authority_layer": {"const": "L5-projection"},
+                "implementation_status": {"const": "selected_baseline"}
+              }
+            },
+            {
+              "properties": {
+                "artifact_role": {"const": "lifecycle_baseline"},
+                "authority_layer": {"const": "L5-lifecycle"},
+                "implementation_status": {"const": "selected_not_implemented"}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "candidateArtifact": {
+      "type": "object",
+      "required": ["artifact_role", "path", "sha256"],
+      "properties": {
+        "artifact_role": {"type": "string", "minLength": 1},
+        "path": {
+          "type": "string",
+          "pattern": "^benchmarks/taskspace/r7/candidates/[0-9a-f]{64}/[^/].*$"
+        },
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "l4SchemaArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "l4_schema"}, "path": {"pattern": "/l4-schema.json$"}}}
+      ]
+    },
+    "transitionSchemaArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "transition_schema"}, "path": {"pattern": "/transition-schema.json$"}}}
+      ]
+    },
+    "typedOutcomeArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "typed_outcome"}, "path": {"pattern": "/typed-outcome.json$"}}}
+      ]
+    },
+    "carrierProtocolOracleArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "carrier_protocol_oracle"}, "path": {"pattern": "/carrier-protocol-oracle.json$"}}}
+      ]
+    },
+    "capabilityMatrixArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "capability_matrix"}, "path": {"pattern": "/capability-matrix.json$"}}}
+      ]
+    },
+    "entryClosureArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "entry_closure"}, "path": {"pattern": "/entry-closure.json$"}}}
+      ]
+    },
+    "rollbackManifestArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "rollback_manifest"}, "path": {"pattern": "/rollback-manifest.json$"}}}
+      ]
+    },
+    "continuousActionEvaluationArtifact": {
+      "allOf": [
+        {"$ref": "#/$defs/candidateArtifact"},
+        {"properties": {"artifact_role": {"const": "continuous_action_evaluation"}, "path": {"pattern": "/continuous-action-evaluation.json$"}}}
+      ]
+    }
+  },
+  "additionalProperties": true
+}

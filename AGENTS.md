@@ -46,5 +46,8 @@
 - 禁止未经允许新开分支，如有必要向用户申请确认
 - 最小化提交原则：每次有小主题改动就积极 commit 并 push到远端，增强安全性，无需用户确认
 - repo中所有改动都要提交，不要有未提交的改动，所有代码都是你改的，不要甩锅给用户
+- 真实 Whale Agent 运行实行成本授权门禁：未经用户明确允许，禁止启动单次计划执行总数超过 3 个 sample 的真实 Whale Agent run。单次命令、脚本或矩阵中的 `sample × arm × repeat` 均累计计数，串行、并行、重试和包装脚本不得拆分或换名绕过；API Key 可用、阶段执行授权、测试或审查要求均不等同于付费运行授权。判断确有必要执行超过 3 个 sample 的大规模运行时，必须在启动前主动向用户申请专项预算，不得先运行后补报；预算申请至少说明模型、sample/arm/repeat 数量、预计 API 请求数、input/output token 与费用上限、最长耗时、停止条件及允许的重试范围，获得明确批准后方可执行。
+- 每次真实 Whale Agent run 都必须登记到全局账本 `benchmarks/whale-agent-run-ledger.json`：启动前先创建 `planned` 记录并写明时间、理由、模型、规模和预算，结束、失败或取消后立即结算实际请求数、input/cached/uncached/output token、费用、耗时、状态及证据路径。超过 3 个 sample 的记录必须关联用户预算批准；重试必须新建记录，不得覆盖或删除历史运行。
+- 缓存敏感面变更必须通过 `python3 scripts/cache-regression/check_cache_regression_gate.py --source index`。门禁阻断时，先向用户说明具体变更路径、可能破坏的 provider 前缀结构和验证理由，再申请专用真实回归预算；不得使用 `--no-verify` 绕过。获批后只允许使用专用 runner，真实结果通过且与当前敏感面指纹一致时方可晋升基线。
 - `third_party/codex-cli/` 未来作为 Codex upstream vendor 快照时，应尽量保持上游原样；上游文件可保留原始长度和结构，不受本项目普通单文件 500 行限制。Whale 自有代码仍遵守 500 行原则。
 - 严禁为自然语言用户输入设置本地固定答复、寒暄模板、关键词答复或绕过模型的“智能回复”；所有自然语言输入必须进入 Agent/Model 路径，由 Agent 生成回答。CLI/slash 命令只能输出明确的机械状态、错误、路径或配置结果，不能伪装成 Agent 回答。

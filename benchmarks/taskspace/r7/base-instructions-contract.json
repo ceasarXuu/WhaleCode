@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-whalecode-dual-base-instructions",
+  "status": "contract_validated",
+  "selection": {
+    "standard_runtime_mode": "standard",
+    "taskspace_runtime_mode": "experiment",
+    "exactly_one_complete_base_per_request": true,
+    "separate_taskspace_developer_protocol_allowed": true,
+    "projection_policy_variants_allowed": false
+  },
+  "profiles": {
+    "standard": {
+      "version": "1.0.2",
+      "sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "source": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_standard.md",
+      "required_tool": "update_plan",
+      "forbidden_tool": "taskspace_control"
+    },
+    "taskspace": {
+      "version": "2.0.1",
+      "sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "source": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md",
+      "required_tool": "taskspace_control",
+      "forbidden_tool": "update_plan"
+    }
+  },
+  "taskspace_core_protocol": {
+    "version": "taskspace-core-v3.5",
+    "sha256": "45a013c2ce2b68d78b8dc8b01c7fd84b0965342c9b1fd61336854ece23672a14",
+    "source": "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v3.md",
+    "wire_role": "system",
+    "message_index": 1,
+    "section_order": 0,
+    "standard_visible": false
+  },
+  "shared_runtime": {
+    "request_pipeline": true,
+    "tool_router": true,
+    "projection_policies": [
+      "map-always",
+      "map-append",
+      "map-request"
+    ],
+    "difference_boundary": "base_instructions_core_protocol_and_plan_tool_visibility"
+  },
+  "observability": {
+    "wire_trace_schema": "provider-chat-wire-trace-v8",
+    "selection_event": "base_instructions.profile_selected",
+    "prewarm_selection_event": "base_instructions.prewarm_profile_selected",
+    "wire_identity_field": "base_instructions_identity",
+    "summary_field": "base_instructions_identity_summary",
+    "core_protocol_wire_identity_field": "taskspace_core_protocol_identity",
+    "taskspace_wire_contract_identity_field": "taskspace_wire_contract_identity",
+    "taskspace_system_message_count": 2,
+    "map_request_handle_carrier_role": "user",
+    "map_request_handle_position": "request_tail"
+  },
+  "version_history": [
+    {
+      "version": "1.0.0",
+      "standard_sha256": "7c27bcb65c43dcfc9eb38284e6968003f2cb3bbaff3568437740208e39cadf19",
+      "taskspace_sha256": "95f6cc4eac04af52fd052e23f63e5ba2ccffcca59b041b68ff4269f6b78d8d55",
+      "status": "diagnostic_validated",
+      "result": "benchmarks/taskspace/r7/dual-base-instructions-v1.0.0-result.json"
+    },
+    {
+      "version": "1.0.1",
+      "standard_sha256": "771ddae462f1f4df770892c85a90e7d20453baac153e2ca59cc0b75edca46551",
+      "taskspace_sha256": "0cea4c521de4659b43b29e9ada83f836f84d92f5ae88e301f04860ec301106d2",
+      "status": "contract_validated",
+      "change": "remove non-operational product foundation and model optimization description"
+    },
+    {
+      "version": "2.0.0",
+      "standard_sha256": "771ddae462f1f4df770892c85a90e7d20453baac153e2ca59cc0b75edca46551",
+      "taskspace_sha256": "851e4bc36e9326b448d6d6979eef6fe71de3434f0fcb69870592cf30978be64e",
+      "core_protocol_version": "taskspace-core-v2",
+      "core_protocol_sha256": "02d8849e94b8ac15466a33d92ab17813c9cbe9c81fba2c7811fd98ea55ee8f24",
+      "status": "production_active",
+      "change": "activate five-layer L1 and L2 with one stable developer-bundle section"
+    },
+    {
+      "version": "2.0.1",
+      "standard_sha256": "771ddae462f1f4df770892c85a90e7d20453baac153e2ca59cc0b75edca46551",
+      "taskspace_sha256": "851e4bc36e9326b448d6d6979eef6fe71de3434f0fcb69870592cf30978be64e",
+      "core_protocol_version": "taskspace-core-v2.1",
+      "core_protocol_sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
+      "status": "production_active",
+      "change": "scope factual rejection recovery to taskspace_control Result V2 fields"
+    },
+    {
+      "version": "2.0.2",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.1",
+      "core_protocol_sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80",
+      "status": "production_active",
+      "change": "remove Tool wire examples from both WhaleCode Base profiles and enforce the L1/L4 ownership boundary"
+    },
+    {
+      "version": "2.0.3",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.2",
+      "core_protocol_sha256": "9b0f04354026f81f23b9e4570e2f321caf204050c0068d77dfb65a65f393717b",
+      "status": "production_active",
+      "change": "align the L2 working protocol with action-carried TaskSpace lifecycle transitions"
+    },
+    {
+      "version": "2.0.4",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.3",
+      "core_protocol_sha256": "60e9ecf495edd694997512b0b997ecbe02b1e65b9704a2fed02d3384b86dcfcb",
+      "status": "production_active",
+      "change": "require every ordinary TaskSpace Tool call to declare continue_current or a lifecycle action"
+    },
+    {
+      "version": "2.0.5",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.4",
+      "core_protocol_sha256": "cddde1c815c53c37d30437b5b7a23a6d6be9f1f2653d86a2243da15089ad90a1",
+      "status": "production_active",
+      "change": "distinguish completing a running final Work node from closing an already Ready Finish"
+    },
+    {
+      "version": "2.0.6",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.5",
+      "core_protocol_sha256": "1f45e18d84c9d0310519256f85eebb20d4ee56e1f7752d481b20d985cb43a66e",
+      "status": "production_active",
+      "change": "encode mutually exclusive terminal states in action names and required state declarations"
+    },
+    {
+      "version": "2.0.7",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.6",
+      "core_protocol_sha256": "1faf64648dbf31237d1eabc0153470023b48f225df5daf9d6d313fd05e3f035d",
+      "status": "production_active",
+      "change": "require the terminal Work action to declare that no other incomplete Work remains"
+    },
+    {
+      "version": "2.0.8",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.7",
+      "core_protocol_sha256": "316fb3f4bef12f3d78a7c2d75c0f2e81daea2500ce3d70d280caf97acc8d4c90",
+      "status": "production_active",
+      "change": "replace competing terminal actions with one finish_map state discriminator"
+    },
+    {
+      "version": "2.0.9",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.8",
+      "core_protocol_sha256": "733622424cc520a6403f36af3df6f6430d50eef796d23b1793dabd8e462bfa60",
+      "status": "production_active",
+      "change": "require an exact terminal lifecycle snapshot inside the unified finish_map action"
+    },
+    {
+      "version": "2.0.10",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v2.9",
+      "core_protocol_sha256": "9764007b78c66a6a0fea625740c322f021d250f1b6cd0fe4d840b55084b79ac4",
+      "status": "production_active",
+      "change": "remove Agent-visible terminal prestate branches and use one terminal entry node contract"
+    },
+    {
+      "version": "2.0.11",
+      "standard_profile_version": "1.0.2",
+      "standard_sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382",
+      "taskspace_profile_version": "2.0.1",
+      "taskspace_sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272",
+      "core_protocol_version": "taskspace-core-v3.0",
+      "core_protocol_sha256": "8ae643f9e874aedbc8f459f2640b69e2268b98a28cf97f7855a43edcc9d7f98a",
+      "status": "production_active",
+      "change": "replace the replicated lifecycle carrier with a central boundary control plus lightweight ordinary Tool binding"
+    }
+  ],
+  "diagnostic_validation": {
+    "validated_version": "1.0.0",
+    "implementation_commit": "5ecfefbcd67c7b92e7a118555ce3b253b970d0d0",
+    "observer_commit": "de7a8f547",
+    "scenario": "single-file-fast-fix",
+    "repeats": 1,
+    "standard_contract_match": "6/6",
+    "taskspace_contract_match": "7/7",
+    "result": "both_solved",
+    "evidence_limit": "single diagnostic pair; not a population utility estimate"
+  }
+}

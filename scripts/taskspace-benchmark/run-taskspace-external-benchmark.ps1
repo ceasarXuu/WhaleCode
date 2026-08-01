@@ -13,8 +13,6 @@ param(
     [int]$ValidationTimeoutSeconds = 420,
     [int]$ValidationPretestTimeoutSeconds = 120,
     [int]$ValidationTestTimeoutSeconds = 420,
-    [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
     [string]$RunnerPath = "",
@@ -28,11 +26,15 @@ param(
     [string]$ChildRunnerSha256 = "",
     [string]$TaskListSha256 = "",
     [string]$SuiteManifestPath = "",
+    [string]$SuiteReceiptPath = "",
+    [string]$SuiteReceiptSha256 = "",
     [string]$ApprovalMarkerSha256 = "",
     [string]$CodeCompleteMarkerSha256 = "",
     [string]$V005NonAgentGatesPath = "",
     [string]$V005CodeCompleteMarkerPath = "",
     [string]$V005UserApprovalMarkerPath = "",
+    [ValidateSet("both", "left", "right")]
+    [string]$RunSide = "both",
     [switch]$EnableAggregate,
     [switch]$AllowDiagnosticNonTargetResult,
     [switch]$ScoringMode,
@@ -45,11 +47,34 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+
+function ConvertTo-TaskspaceSampleNameList {
+    param([string[]]$Names)
+    @($Names | ForEach-Object { ([string]$_) -split "," } | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+}
+
 if ([string]::IsNullOrWhiteSpace($SourceVersion)) { throw "SourceVersion must pin the external benchmark source revision." }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-external-bench-runs" }
 $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
-$scenarioRoot = Join-Path $RunRoot "materialized-scenarios"
+$materializationHashInput = [System.Text.Encoding]::UTF8.GetBytes("$RunRoot`n$TaskDir`n$SampleId`n$SourceVersion")
+$materializationSha = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $materializationKey = (([System.BitConverter]::ToString($materializationSha.ComputeHash($materializationHashInput)) -replace "-", "").ToLowerInvariant()).Substring(0, 16)
+} finally {
+    $materializationSha.Dispose()
+}
+$scenarioRoot = Join-Path $repoRoot "target\external-materialized\$materializationKey"
+New-Item -ItemType Directory -Path $scenarioRoot -Force | Out-Null
+[pscustomobject]@{
+    schema_version = 1
+    run_root = $RunRoot
+    scenario_root = $scenarioRoot
+    task_dir = $TaskDir
+    sample_id = $SampleId
+    source_version = $SourceVersion
+    generated_at = (Get-Date).ToString("o")
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "materialized-scenarios-pointer.json") -Encoding UTF8
 $binaryHealthPath = Join-Path $RunRoot "whale-binary-preflight-health.json"
 $binaryHealth = New-TaskspaceWhaleBinaryHealth $WhaleBin $repoRoot -AllowStale:$AllowStaleWhaleBin
 Write-TaskspaceHarnessHealth $binaryHealthPath $binaryHealth
@@ -159,14 +184,16 @@ $args = @(
     "-TimeoutSeconds", $TimeoutSeconds,
     "-ValidationTimeoutSeconds", $ValidationTimeoutSeconds,
     "-ValidationPretestTimeoutSeconds", $ValidationPretestTimeoutSeconds,
-    "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds,
-    "-SandboxMode", $SandboxMode
+    "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds
 )
 if (-not [string]::IsNullOrWhiteSpace($TaskListHash)) { $args += @("-TaskListHash", $TaskListHash) }
 $args += @("-SourceVersion", $SourceVersion)
 if (-not [string]::IsNullOrWhiteSpace($ProfileHash)) { $args += @("-ProfileHash", $ProfileHash) }
 if (-not [string]::IsNullOrWhiteSpace($SampleSetId)) { $args += @("-SampleSetId", $SampleSetId) }
-foreach ($sampleName in @($SampleNames)) { if (-not [string]::IsNullOrWhiteSpace($sampleName)) { $args += @("-SampleNames", $sampleName) } }
+$nonEmptySampleNames = @(ConvertTo-TaskspaceSampleNameList $SampleNames)
+if ($nonEmptySampleNames.Count -gt 0) {
+    $args += @("-SampleNames", (@($nonEmptySampleNames) -join ","))
+}
 $args += @("-BenchmarkFamily", $Benchmark)
 if (-not [string]::IsNullOrWhiteSpace($SuiteRunnerEntrypoint)) { $args += @("-RunnerEntrypoint", $SuiteRunnerEntrypoint) }
 if (-not [string]::IsNullOrWhiteSpace($ArtifactOrigin)) { $args += @("-ArtifactOrigin", $ArtifactOrigin) }
@@ -174,11 +201,14 @@ if (-not [string]::IsNullOrWhiteSpace($RunnerScriptSha256)) { $args += @("-Runne
 if (-not [string]::IsNullOrWhiteSpace($ChildRunnerSha256)) { $args += @("-ChildRunnerSha256", $ChildRunnerSha256) }
 if (-not [string]::IsNullOrWhiteSpace($TaskListSha256)) { $args += @("-TaskListSha256", $TaskListSha256) }
 if (-not [string]::IsNullOrWhiteSpace($SuiteManifestPath)) { $args += @("-SuiteManifestPath", $SuiteManifestPath) }
+if (-not [string]::IsNullOrWhiteSpace($SuiteReceiptPath)) { $args += @("-SuiteReceiptPath", $SuiteReceiptPath) }
+if (-not [string]::IsNullOrWhiteSpace($SuiteReceiptSha256)) { $args += @("-SuiteReceiptSha256", $SuiteReceiptSha256) }
 if (-not [string]::IsNullOrWhiteSpace($ApprovalMarkerSha256)) { $args += @("-ApprovalMarkerSha256", $ApprovalMarkerSha256) }
 if (-not [string]::IsNullOrWhiteSpace($CodeCompleteMarkerSha256)) { $args += @("-CodeCompleteMarkerSha256", $CodeCompleteMarkerSha256) }
 if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath)) { $args += @("-V005NonAgentGatesPath", $V005NonAgentGatesPath) }
 if (-not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath)) { $args += @("-V005CodeCompleteMarkerPath", $V005CodeCompleteMarkerPath) }
 if (-not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath)) { $args += @("-V005UserApprovalMarkerPath", $V005UserApprovalMarkerPath) }
+$args += @("-RunSide", $RunSide)
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
 if ($EnableAggregate) { $args += "-EnableAggregate" }

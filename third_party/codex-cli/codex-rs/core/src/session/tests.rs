@@ -106,6 +106,7 @@ use codex_protocol::protocol::ResumedHistory;
 use codex_protocol::protocol::RolloutItem;
 use codex_protocol::protocol::SkillScope;
 use codex_protocol::protocol::Submission;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::ThreadGoalStatus;
 use codex_protocol::protocol::ThreadRolledBackEvent;
 use codex_protocol::protocol::TokenCountEvent;
@@ -125,10 +126,13 @@ use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_completed_with_tokens;
 use core_test_support::responses::ev_function_call;
+use core_test_support::responses::ev_reasoning_item;
 use core_test_support::responses::ev_response_created;
+use core_test_support::responses::mount_response_once;
 use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
+use core_test_support::responses::sse_response;
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_codex::test_codex;
 use core_test_support::test_path_buf;
@@ -455,22 +459,6 @@ async fn preview_session_start_hooks(
             source: codex_hooks::SessionStartSource::Startup,
         }),
     )
-}
-
-fn test_tool_runtime(session: Arc<Session>, turn_context: Arc<TurnContext>) -> ToolCallRuntime {
-    let router = Arc::new(ToolRouter::from_config(
-        &turn_context.tools_config,
-        crate::tools::router::ToolRouterParams {
-            mcp_tools: None,
-            deferred_mcp_tools: None,
-            unavailable_called_tools: Vec::new(),
-            parallel_mcp_server_names: HashSet::new(),
-            discoverable_tools: None,
-            dynamic_tools: turn_context.dynamic_tools.as_slice(),
-        },
-    ));
-    let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
-    ToolCallRuntime::new(router, session, turn_context, tracker)
 }
 
 fn make_connector(id: &str, name: &str) -> AppInfo {
@@ -1003,8 +991,7 @@ async fn user_shell_commands_do_not_inherit_managed_network_proxy() -> anyhow::R
     );
     #[cfg(not(windows))]
     let command = format!(
-        r#"sh -c 'if [ "${{HTTP_PROXY:-}}" = "{}" ]; then printf managed-proxy; else printf not-managed; fi'"#,
-        managed_proxy_url
+        r#"sh -c 'if [ "${{HTTP_PROXY:-}}" = "{managed_proxy_url}" ]; then printf managed-proxy; else printf not-managed; fi'"#
     );
 
     execute_user_shell_command(
@@ -1019,7 +1006,7 @@ async fn user_shell_commands_do_not_inherit_managed_network_proxy() -> anyhow::R
     loop {
         let event = rx.recv().await.expect("channel open");
         if let EventMsg::ExecCommandEnd(event) = event.msg {
-            assert_eq!(event.exit_code, 0);
+            assert_eq!(event.shell_exit_code, Some(0));
             assert_eq!(event.stdout.trim(), "not-managed");
             break;
         }
@@ -1288,7 +1275,8 @@ async fn record_initial_history_reconstructs_resumed_transcript() {
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     let history = session.state.lock().await.clone_history();
     assert_eq!(expected, history.raw_items());
@@ -1298,7 +1286,10 @@ async fn record_initial_history_reconstructs_resumed_transcript() {
 async fn record_initial_history_new_defers_initial_context_until_first_turn() {
     let (session, _turn_context) = make_session_and_context().await;
 
-    session.record_initial_history(InitialHistory::New).await;
+    session
+        .record_initial_history(InitialHistory::New)
+        .await
+        .expect("record new initial history");
 
     let history = session.clone_history().await;
     assert_eq!(history.raw_items().to_vec(), Vec::<ResponseItem>::new());
@@ -1307,32 +1298,142 @@ async fn record_initial_history_new_defers_initial_context_until_first_turn() {
 }
 
 #[tokio::test]
-async fn build_initial_context_consumes_action_map_transition_notice_once() {
+async fn provider_composer_injects_one_blank_map_projection() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
     }
 
-    let first_context = session.build_initial_context(&turn_context).await;
-    let first_developer_text = developer_input_texts(&first_context).join("\n");
+    let initial_context = session.build_initial_context(&turn_context).await;
     assert!(
-        first_developer_text.contains("TaskSpace mode is now active"),
-        "expected transition notice in developer context, got: {first_developer_text}"
+        !developer_input_texts(&initial_context)
+            .join("\n")
+            .contains("TaskSpaceMapProjectionR7V1:")
     );
-
-    let second_context = session.build_initial_context(&turn_context).await;
-    let second_developer_text = developer_input_texts(&second_context).join("\n");
-    assert!(
-        !second_developer_text.contains("TaskSpace mode is now active"),
-        "transition notice should be consumed once, got: {second_developer_text}"
-    );
+    let mut previous_context = None;
+    for _ in 0..2 {
+        let context = session
+            .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
+            .await
+            .expect("prepare provider prompt")
+            .items;
+        let developer_text = developer_input_texts(&context).join("\n");
+        assert!(!developer_text.contains("TaskSpace mode is now active"));
+        assert_eq!(
+            developer_text
+                .matches("TaskSpaceMapProjectionR7V1:")
+                .count(),
+            1
+        );
+        assert!(developer_text.contains("- map: none"));
+        assert!(developer_text.contains("- bootstrap_required: true"));
+        assert!(developer_text.contains(
+            "- required_initialization_action: taskspace_control.initialize_and_execute"
+        ));
+        let projection = latest_taskspace_projection_context(&context)
+            .expect("provider request must contain the current projection");
+        assert!(!projection.contains("binding"));
+        assert!(!projection.contains("current_node"));
+        assert!(!developer_text.contains("active_task_path_without_nodes"));
+        if let Some(previous_context) = previous_context.as_ref() {
+            assert_eq!(
+                &context, previous_context,
+                "same canonical state must render byte-identical projection content"
+            );
+        }
+        previous_context = Some(context);
+    }
 }
 
 #[tokio::test]
-async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
+async fn provider_map_append_persists_bootstrap_at_request_tail() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.taskspace_projection_policy =
+            Some(TaskSpaceProjectionPolicy::MapAppend);
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
+    }
+
+    let initial_context = session.build_initial_context(&turn_context).await;
+    let provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, initial_context)
+        .await
+        .expect("prepare provider prompt");
+    let last = provider.items.last().expect("provider request tail");
+    assert_eq!(taskspace_projection_context(Some(last)).is_some(), true);
+    assert!(matches!(last, ResponseItem::Message { role, .. } if role == "user"));
+    let user_text = user_input_texts(&provider.items).join("\n");
+    assert!(user_text.contains("TaskSpaceMapProjectionR7V1:"));
+    assert!(user_text.contains("- map: none"));
+    assert!(user_text.contains("- current_state_rule: last_projection_only"));
+    let history = session.clone_history().await;
+    assert!(
+        history
+            .raw_items()
+            .last()
+            .is_some_and(is_action_map_projection_developer_item)
+    );
+    assert!(provider.projection_identity.is_some());
+}
+
+#[tokio::test]
+async fn provider_map_request_exposes_current_request_tail_handle_until_explicit_read() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.taskspace_projection_policy =
+            Some(TaskSpaceProjectionPolicy::MapRequest);
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
+    }
+
+    let initial_context = session.build_initial_context(&turn_context).await;
+    let initial_text = developer_input_texts(&initial_context).join("\n");
+    assert!(!initial_text.contains("TaskSpaceMapHandleR7V1:"));
+    assert!(!initial_text.contains("TaskSpaceMapProjectionR7V1:"));
+
+    let provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, initial_context)
+        .await
+        .expect("prepare provider prompt");
+    let handle = taskspace_map_handle_context(provider.items.last())
+        .expect("provider request must end with the current map handle");
+    assert!(
+        matches!(provider.items.last(), Some(ResponseItem::Message { role, .. }) if role == "user")
+    );
+    assert!(handle.contains("- taskspace_active: true"));
+    assert!(handle.contains(&format!("- map_id: map-{}", session.conversation_id)));
+    assert!(handle.contains("- revision: none"));
+    assert!(handle.contains("- bootstrap_required: true"));
+    assert!(handle.contains("- available_read_action: taskspace_control.read_map"));
+    assert!(
+        handle
+            .contains("- required_initialization_action: taskspace_control.initialize_and_execute")
+    );
+    assert!(!handle.contains("map_nodes"));
+    assert!(!handle.contains("map_edges"));
+    assert!(!handle.contains("active_frontier"));
+    assert!(
+        provider
+            .items
+            .iter()
+            .all(|item| taskspace_projection_context(Some(item)).is_none())
+    );
+    assert!(provider.projection_identity.is_some());
+}
+
+#[tokio::test]
+async fn provider_composer_keeps_projection_separate_from_skills() {
     let (session, mut turn_context) = make_session_and_context().await;
     let mut outcome = SkillLoadOutcome::default();
     outcome.skills = vec![SkillMetadata {
@@ -1348,9 +1449,10 @@ async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
     turn_context.turn_skills = TurnSkillsContext::new(Arc::new(outcome));
     {
         let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
     }
 
     let initial_context = session.build_initial_context(&turn_context).await;
@@ -1358,14 +1460,7 @@ async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
     let skills_index = first_developer_text
         .find("<skills_instructions>")
         .unwrap_or_else(|| panic!("expected skills instructions: {first_developer_text}"));
-    let taskspace_index = first_developer_text
-        .find("TaskSpace mode is now active")
-        .unwrap_or_else(|| panic!("expected TaskSpace context: {first_developer_text}"));
-
-    assert!(
-        skills_index < taskspace_index,
-        "stable skills block should precede dynamic TaskSpace context for provider prefix caching: {first_developer_text}"
-    );
+    assert!(skills_index < first_developer_text.len());
 
     let developer_texts = developer_input_texts(&initial_context);
     let stable_developer_text = developer_texts
@@ -1376,597 +1471,32 @@ async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
         !stable_developer_text.contains("TaskSpace mode is now active"),
         "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
     );
+    assert!(!stable_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
     assert!(
-        developer_texts
+        !developer_texts
             .iter()
-            .any(|text| text.contains("TaskSpace mode is now active")),
-        "expected TaskSpace transition in a separate developer item: {developer_texts:?}"
+            .any(|text| text.contains("TaskSpaceMapProjectionR7V1:"))
     );
-}
-
-#[tokio::test]
-async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() {
-    let (session, turn_context) = make_session_and_context().await;
-    {
-        let mut state = session.state.lock().await;
-        state.set_reference_context_item(Some(turn_context.to_turn_context_item()));
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main(
-                session.conversation_id,
-                "Architecture review".to_string(),
-                "Find structure risks.".to_string(),
-                "Scope review".to_string(),
-                "Collect current architecture scope.".to_string(),
-                false,
-            )
-            .expect("task starts");
-    }
-
-    session
-        .record_context_updates_and_set_reference_context_item(&turn_context)
-        .await;
-
-    let history = session.clone_history().await;
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
-    assert!(
-        developer_text.contains("TaskSpace v0.0.5 active compact profile is enabled."),
-        "expected active compact TaskSpace update in steady-state context: {developer_text}"
-    );
-    assert!(
-        developer_text.contains("projection_id: projection-default_compact-task-1-map-1"),
-        "expected latest active projection in steady-state context: {developer_text}"
-    );
-    assert!(
-        developer_text.contains("active_objective: Find structure risks."),
-        "expected active objective in steady-state context: {developer_text}"
-    );
-    assert!(
-        developer_text.contains("taskspace_control(action=bind_node or create_node)"),
-        "expected compact next valid action in steady-state context: {developer_text}"
-    );
-    assert!(
-        !developer_text.contains("ContextProjectionV1 shadow (not active replacement):"),
-        "steady-state active profile should not inject shadow projection: {developer_text}"
-    );
-
-    let removed = session.remove_action_map_projection_history_items().await;
-    assert_eq!(removed, 1, "active projection update should be removable");
-    let history = session.clone_history().await;
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
-    assert!(
-        !developer_text.contains("projection-active-task-1-map-1"),
-        "active projection should be removed from history: {developer_text}"
-    );
-}
-
-#[tokio::test]
-async fn action_map_final_gate_failure_records_developer_followup() {
-    let (session, turn_context) = make_session_and_context().await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main_with_kind(
-                session.conversation_id,
-                NodeKind::ImplementSolution,
-                "Patch bug".to_string(),
-                "Apply a code edit.".to_string(),
-                "Patch code".to_string(),
-                "Modify the target file.".to_string(),
-                true,
-            )
-            .expect("task starts");
-        let evidence_ref = crate::action_map::ActionMapEvidenceRefInput {
-            artifact_ref: Some("current user request".to_string()),
-            ..Default::default()
-        };
-        state
-            .action_map_runtime
-            .record_success_criteria_for_main(
-                session.conversation_id,
-                vec![crate::action_map::ActionMapSuccessCriterionInput {
-                    id: "sc-test".to_string(),
-                    kind: "test".to_string(),
-                    description: "Review scope is inspected.".to_string(),
-                    status: "open".to_string(),
-                    evidence_refs: vec![evidence_ref.clone()],
-                }],
-            )
-            .expect("success criteria records");
-        state
-            .action_map_runtime
-            .record_output_contract_for_main(
-                session.conversation_id,
-                "oc-test",
-                "artifact",
-                "A concise architecture risk summary.".to_string(),
-                vec![evidence_ref.clone()],
-            )
-            .expect("output contract records");
-        state
-            .action_map_runtime
-            .record_fact_source_for_main(
-                session.conversation_id,
-                "fs-test",
-                "provided_by_user",
-                "User asked to continue the architecture review.".to_string(),
-                vec![evidence_ref],
-            )
-            .expect("fact source records");
-    }
-    let source_evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
-        artifact_ref: Some("test-fixture:user-request".to_string()),
-        ..Default::default()
-    }];
-    session
-        .record_action_map_output_contract(
-            &turn_context,
-            "contract-test",
-            "artifact",
-            "Test fixture acceptance contract.".to_string(),
-            source_evidence_refs.clone(),
-        )
+    let provider_context = session
+        .prepare_provider_visible_prompt_items(&turn_context, initial_context)
         .await
-        .expect("output contract records");
-    session
-        .record_action_map_fact_source(
-            &turn_context,
-            "source-test",
-            "provided_by_user",
-            "Test fixture source facts.".to_string(),
-            source_evidence_refs,
-        )
-        .await
-        .expect("fact source records");
-    session
-        .prepare_action_map_main_tool_call(
-            &turn_context,
-            ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
-                .with_call_id("call-edit"),
-        )
-        .await
-        .expect("edit is allowed");
-    session
-        .record_action_map_main_tool_result(
-            &turn_context,
-            "call-edit",
-            "apply_patch",
-            Some(ActionClass::Edit),
-            true,
-            "M src/lib.rs".to_string(),
-        )
-        .await;
-    let result_id = {
-        let mut state = session.state.lock().await;
-        let (outcome, _) = state
-            .action_map_runtime
-            .finish_main_node_with_next(
-                session.conversation_id,
-                "node-1",
-                "Patched target file.".to_string(),
-                None,
-                Some(crate::action_map::ActionMapNextNodeDraft {
-                    kind: NodeKind::FinalSynthesis,
-                    title: "Final summary".to_string(),
-                    context_summary: "Summarize the patch.".to_string(),
-                    dependency_node_ids: vec!["node-1".to_string()],
-                }),
-            )
-            .expect("finish into final synthesis");
-        outcome.result_id
-    };
-    session
-        .mark_action_map_result_validity(
-            &turn_context,
-            &result_id,
-            "accepted",
-            "Implementation result accepted.".to_string(),
-            vec![crate::action_map::ActionMapCognitiveClaimInput {
-                id: "claim-impl".to_string(),
-                statement: "The implementation edited the target file.".to_string(),
-                evidence_refs: vec![crate::action_map::ActionMapEvidenceRefInput {
-                    result_id: Some(result_id.clone()),
-                    ..Default::default()
-                }],
-            }],
-            vec![crate::action_map::ActionMapEvidenceRefInput {
-                result_id: Some(result_id.clone()),
-                ..Default::default()
-            }],
-            vec!["src/lib.rs".to_string()],
-            Vec::new(),
-            Vec::new(),
-        )
-        .await
-        .expect("implementation result validity records");
-
-    let error = session
-        .record_action_map_main_final_response(&turn_context, "Done.")
-        .await
-        .expect_err("final response gate failure must propagate to turn");
-
-    assert!(error.contains("accepted smoke_test or regression_test result"));
-    let history = session.clone_history().await;
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
-    assert!(developer_text.contains("TaskSpace final answer gate rejected"));
-    assert!(developer_text.contains("Do not treat the previous response as final"));
-    assert!(developer_text.contains("accepted smoke_test or regression_test result"));
-}
-
-#[tokio::test]
-async fn real_user_input_sets_taskspace_routing_gate_and_snapshot() {
-    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main(
-                session.conversation_id,
-                "Architecture review".to_string(),
-                "Find structure risks.".to_string(),
-                "Scope review".to_string(),
-                "Collect current architecture scope.".to_string(),
-                true,
-            )
-            .expect("task starts");
-        let evidence_ref = crate::action_map::ActionMapEvidenceRefInput {
-            artifact_ref: Some("current user request".to_string()),
-            ..Default::default()
-        };
-        state
-            .action_map_runtime
-            .record_success_criteria_for_main(
-                session.conversation_id,
-                vec![crate::action_map::ActionMapSuccessCriterionInput {
-                    id: "sc-test".to_string(),
-                    kind: "test".to_string(),
-                    description: "Review scope is inspected.".to_string(),
-                    status: "open".to_string(),
-                    evidence_refs: vec![evidence_ref.clone()],
-                }],
-            )
-            .expect("success criteria records");
-        state
-            .action_map_runtime
-            .record_output_contract_for_main(
-                session.conversation_id,
-                "oc-test",
-                "artifact",
-                "A concise architecture risk summary.".to_string(),
-                vec![evidence_ref.clone()],
-            )
-            .expect("output contract records");
-        state
-            .action_map_runtime
-            .record_fact_source_for_main(
-                session.conversation_id,
-                "fs-test",
-                "provided_by_user",
-                "User asked to continue the architecture review.".to_string(),
-                vec![evidence_ref],
-            )
-            .expect("fact source records");
-    }
-    session
-        .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
-        .await
-        .expect("existing binding should allow work before a new user turn");
-
-    handlers::user_input_or_turn(
-        &session,
-        "taskspace-user-turn".to_string(),
-        Op::UserInput {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "continue the review".to_string(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-        },
-    )
-    .await;
-
-    let mut emitted_snapshot = None;
-    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let event = tokio::time::timeout(remaining, rx.recv())
-            .await
-            .expect("timeout waiting for TaskSpace snapshot event")
-            .expect("event");
-        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
-            if payload.snapshot.routing_required {
-                emitted_snapshot = Some(payload.snapshot);
-                break;
-            }
-        }
-    }
-    let emitted_snapshot =
-        emitted_snapshot.expect("real user turn should emit a persisted TaskSpace snapshot");
-    assert!(emitted_snapshot.routing_required);
-    assert!(!emitted_snapshot.bootstrap_required);
-
-    let snapshot = session.action_map_snapshot().await;
-    assert!(snapshot.routing_required);
-    assert!(!snapshot.bootstrap_required);
-    assert!(
-        session
-            .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
-            .await
-            .expect_err("new user turn must force task routing before ordinary work")
-            .contains("TaskSpace task routing is required")
-    );
-    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
-}
-
-#[tokio::test]
-async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
-    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main_with_kind(
-                session.conversation_id,
-                NodeKind::SmokeTest,
-                "Trace session path".to_string(),
-                "Record trace through the session event path.".to_string(),
-                "Run validation".to_string(),
-                "Run a validation command.".to_string(),
-                true,
-            )
-            .expect("task starts");
-    }
-    let evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
-        artifact_ref: Some("test-fixture:user-request".to_string()),
-        ..Default::default()
-    }];
-    session
-        .record_action_map_output_contract(
-            turn_context.as_ref(),
-            "contract-test",
-            "artifact",
-            "Test fixture acceptance contract.".to_string(),
-            evidence_refs.clone(),
-        )
-        .await
-        .expect("output contract records");
-    session
-        .record_action_map_fact_source(
-            turn_context.as_ref(),
-            "source-test",
-            "provided_by_user",
-            "Test fixture source facts.".to_string(),
-            evidence_refs,
-        )
-        .await
-        .expect("fact source records");
-
-    session
-        .prepare_action_map_main_tool_call(
-            turn_context.as_ref(),
-            ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest")
-                .with_call_id("call-session-test"),
-        )
-        .await
-        .expect("session prepare allows test action");
-    session
-        .record_action_map_main_tool_result(
-            turn_context.as_ref(),
-            "call-session-test",
-            "shell_command",
-            Some(ActionClass::Test),
-            false,
-            "pytest failed".to_string(),
-        )
-        .await;
-
-    let mut trace_event_seen = false;
-    let mut sentinel_event_seen = false;
-    let mut snapshot_seen = false;
-    let mut map_runtime_order = Vec::new();
-    let mut main_tool_trace_event_id = None;
-    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline
-        && (!trace_event_seen || !sentinel_event_seen || !snapshot_seen)
-    {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let event = tokio::time::timeout(remaining, rx.recv())
-            .await
-            .expect("timeout waiting for TaskSpace trace events")
-            .expect("event");
-        match event.msg {
-            EventMsg::MapRuntime(MapRuntimeEvent::NodeResultRecorded(event)) => {
-                if event.result_id == "result-1" {
-                    map_runtime_order.push("node_result_recorded");
-                }
-            }
-            EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event))
-                if event.kind == "main_tool_result" =>
-            {
-                map_runtime_order.push("taskspace_trace_event_recorded");
-                assert!(event.trace_event_id.starts_with("trace-"));
-                assert_eq!(event.kind, "main_tool_result");
-                assert_eq!(event.result_id.as_deref(), Some("result-1"));
-                assert_eq!(event.call_id.as_deref(), Some("call-session-test"));
-                assert_eq!(event.action_class.as_deref(), Some("test"));
-                assert_eq!(event.tool_success, Some(false));
-                assert!(event.tags.iter().any(|tag| tag == "validator_failure"));
-                main_tool_trace_event_id = Some(event.trace_event_id);
-                trace_event_seen = true;
-            }
-            EventMsg::MapRuntime(MapRuntimeEvent::SentinelWarningRaised(event)) => {
-                map_runtime_order.push("sentinel_warning_raised");
-                assert_eq!(event.sentinel_id, "sentinel-1");
-                assert_eq!(event.sentinel_type, "validator_failure");
-                assert_eq!(event.status, "active");
-                assert_eq!(event.result_id.as_deref(), Some("result-1"));
-                if let Some(trace_event_id) = main_tool_trace_event_id.as_ref() {
-                    assert_eq!(event.trace_event_ids, vec![trace_event_id.clone()]);
-                } else {
-                    assert_eq!(event.trace_event_ids.len(), 1);
-                    assert!(event.trace_event_ids[0].starts_with("trace-"));
-                }
-                sentinel_event_seen = true;
-            }
-            EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
-                if payload.snapshot.trace_events.iter().any(|event| {
-                    event.kind == "main_tool_result"
-                        && event.result_id.as_deref() == Some("result-1")
-                }) {
-                    assert_eq!(payload.snapshot.sentinel_summary.total_warning_count, 1);
-                    assert_eq!(payload.snapshot.sentinel_warnings.len(), 1);
-                    let warning = &payload.snapshot.sentinel_warnings[0];
-                    assert_eq!(warning.sentinel_type, "validator_failure");
-                    assert_eq!(warning.status, "active");
-                    assert_eq!(warning.result_id.as_deref(), Some("result-1"));
-                    if let Some(trace_event_id) = main_tool_trace_event_id.as_ref() {
-                        assert_eq!(warning.trace_event_ids, vec![trace_event_id.clone()]);
-                    }
-                    snapshot_seen = true;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    assert!(
-        trace_event_seen,
-        "expected TaskSpace trace event from session path"
-    );
-    assert!(
-        sentinel_event_seen,
-        "expected TaskSpace sentinel warning event from session path"
-    );
-    assert!(
-        snapshot_seen,
-        "expected snapshot with trace event from session path"
-    );
+        .expect("prepare provider prompt")
+        .items;
+    let provider_developer_texts = developer_input_texts(&provider_context);
     assert_eq!(
-        map_runtime_order,
-        vec![
-            "node_result_recorded",
-            "taskspace_trace_event_recorded",
-            "sentinel_warning_raised"
-        ]
+        provider_developer_texts
+            .iter()
+            .filter(|text| text.contains("TaskSpaceMapProjectionR7V1:"))
+            .count(),
+        1
     );
-}
-
-#[tokio::test]
-async fn session_standard_mode_main_tool_result_does_not_record_trace() {
-    let (session, turn_context) = make_session_and_context().await;
-
-    session
-        .record_action_map_main_tool_result(
-            &turn_context,
-            "call-standard",
-            "shell_command",
-            Some(ActionClass::Test),
-            false,
-            "pytest failed".to_string(),
-        )
-        .await;
-
-    let snapshot = session.action_map_snapshot().await;
-    assert_eq!(
-        snapshot.mode,
-        codex_protocol::protocol::MapRuntimeMode::Standard
+    assert!(
+        !provider_developer_texts
+            .iter()
+            .find(|text| text.contains("<skills_instructions>"))
+            .expect("stable skills developer item")
+            .contains("TaskSpaceMapProjectionR7V1:")
     );
-    assert_eq!(snapshot.trace_summary.total_event_count, 0);
-    assert!(snapshot.trace_events.is_empty());
-    assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
-    assert!(snapshot.sentinel_warnings.is_empty());
-}
-
-#[tokio::test]
-async fn real_user_turn_sets_taskspace_routing_gate_and_snapshot() {
-    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
-    let config = session.get_config().await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main(
-                session.conversation_id,
-                "Architecture review".to_string(),
-                "Find structure risks.".to_string(),
-                "Scope review".to_string(),
-                "Collect current architecture scope.".to_string(),
-                true,
-            )
-            .expect("task starts");
-    }
-    session
-        .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
-        .await
-        .expect("existing binding should allow work before a new user turn");
-
-    handlers::user_input_or_turn(
-        &session,
-        "taskspace-user-turn-op".to_string(),
-        Op::UserTurn {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "continue the review".to_string(),
-                text_elements: Vec::new(),
-            }],
-            cwd: config.cwd.to_path_buf(),
-            approval_policy: config.permissions.approval_policy.value(),
-            approvals_reviewer: Some(codex_config::types::ApprovalsReviewer::AutoReview),
-            sandbox_policy: config.permissions.sandbox_policy.get().clone(),
-            permission_profile: None,
-            model: turn_context.model_info.slug.clone(),
-            effort: config.model_reasoning_effort,
-            summary: config.model_reasoning_summary,
-            service_tier: None,
-            final_output_json_schema: None,
-            collaboration_mode: None,
-            personality: config.personality,
-        },
-    )
-    .await;
-
-    let mut emitted_snapshot = None;
-    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let event = tokio::time::timeout(remaining, rx.recv())
-            .await
-            .expect("timeout waiting for TaskSpace snapshot event")
-            .expect("event");
-        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
-            if payload.snapshot.routing_required {
-                emitted_snapshot = Some(payload.snapshot);
-                break;
-            }
-        }
-    }
-    let emitted_snapshot =
-        emitted_snapshot.expect("real user turn should emit a persisted TaskSpace snapshot");
-    assert!(emitted_snapshot.routing_required);
-    assert!(!emitted_snapshot.bootstrap_required);
-
-    let snapshot = session.action_map_snapshot().await;
-    assert!(snapshot.routing_required);
-    assert!(!snapshot.bootstrap_required);
-    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
 }
 
 #[tokio::test]
@@ -1980,7 +1510,8 @@ async fn resumed_history_injects_initial_context_on_first_context_update_only() 
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     let history_before_seed = session.state.lock().await.clone_history();
     assert_eq!(expected, history_before_seed.raw_items());
@@ -2046,24 +1577,36 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
         TokenCountEvent {
             info: Some(info1),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
     rollout_items.push(RolloutItem::EventMsg(EventMsg::TokenCount(
         TokenCountEvent {
             info: None,
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
     rollout_items.push(RolloutItem::EventMsg(EventMsg::TokenCount(
         TokenCountEvent {
             info: Some(info2.clone()),
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
     rollout_items.push(RolloutItem::EventMsg(EventMsg::TokenCount(
         TokenCountEvent {
             info: None,
             rate_limits: None,
+            provider_request_id: None,
+            provider_logical_request_id: None,
+            provider_attempt_seq: None,
         },
     )));
 
@@ -2073,7 +1616,8 @@ async fn record_initial_history_seeds_token_info_from_rollout() {
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     let actual = session.state.lock().await.token_info();
     assert_eq!(actual, Some(info2));
@@ -2101,8 +1645,13 @@ async fn recompute_token_usage_uses_session_base_instructions() {
     let expected_tokens = history
         .estimate_token_count_with_base_instructions(&session_base_instructions)
         .expect("estimate with session base instructions");
+    let model_base_instructions = BaseInstructions {
+        text: turn_context
+            .model_info
+            .get_model_instructions(turn_context.personality),
+    };
     let model_estimated_tokens = history
-        .estimate_token_count(&turn_context)
+        .estimate_token_count_with_base_instructions(&model_base_instructions)
         .expect("estimate with model instructions");
     assert_ne!(expected_tokens, model_estimated_tokens);
 
@@ -2117,6 +1666,81 @@ async fn recompute_token_usage_uses_session_base_instructions() {
         .last_token_usage
         .total_tokens;
     assert_eq!(actual_tokens, expected_tokens.max(0));
+}
+
+#[tokio::test]
+async fn runtime_mode_selects_the_matching_complete_base_instructions() {
+    let (session, _turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.base_instructions =
+            codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD.to_string();
+    }
+
+    let standard = session.get_resolved_base_instructions().await;
+    assert_eq!(standard.profile.as_str(), "standard");
+    assert_eq!(
+        standard.instructions.text,
+        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD
+    );
+
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode_for_session(MapRuntimeMode::Experiment, session.conversation_id);
+    }
+
+    let taskspace = session.get_resolved_base_instructions().await;
+    assert_eq!(taskspace.profile.as_str(), "taskspace");
+    assert_eq!(
+        taskspace.instructions.text,
+        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
+    );
+}
+
+#[tokio::test]
+async fn taskspace_core_protocol_is_first_in_the_stable_developer_bundle() {
+    let (standard_session, standard_context) = make_session_and_context().await;
+    let standard_initial = standard_session
+        .build_initial_context(&standard_context)
+        .await;
+    assert!(
+        developer_input_texts(&standard_initial)
+            .iter()
+            .all(|text| !text.contains("<taskspace_core_protocol"))
+    );
+
+    let (taskspace_session, taskspace_context) = make_session_and_context().await;
+    {
+        let mut state = taskspace_session.state.lock().await;
+        state.action_map_runtime.set_mode_for_session(
+            MapRuntimeMode::Experiment,
+            taskspace_session.conversation_id,
+        );
+    }
+    let taskspace_initial = taskspace_session
+        .build_initial_context(&taskspace_context)
+        .await;
+    let developer_texts = developer_input_texts(&taskspace_initial);
+
+    assert_eq!(
+        developer_texts.first().copied(),
+        Some(crate::context::TASKSPACE_CORE_PROTOCOL)
+    );
+    assert_eq!(
+        developer_texts
+            .iter()
+            .filter(|text| text.contains("<taskspace_core_protocol"))
+            .count(),
+        1
+    );
+    assert!(
+        developer_texts
+            .iter()
+            .skip(1)
+            .all(|text| !text.contains("<taskspace_core_protocol"))
+    );
 }
 
 #[tokio::test]
@@ -2148,7 +1772,8 @@ async fn record_initial_history_reconstructs_forked_transcript() {
 
     session
         .record_initial_history(InitialHistory::Forked(rollout_items))
-        .await;
+        .await
+        .expect("restore initial history");
 
     let history = session.state.lock().await.clone_history();
     assert_eq!(expected, history.raw_items());
@@ -2371,7 +1996,8 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
 
     session
         .record_initial_history(InitialHistory::Forked(rollout_items))
-        .await;
+        .await
+        .expect("restore initial history");
 
     let history = session.clone_history().await;
     assert_eq!(
@@ -2455,6 +2081,72 @@ async fn thread_rollback_drops_last_turn_from_history() {
             if rollback.num_turns == 1
         )
     }));
+}
+
+#[tokio::test]
+async fn rollout_persistence_referenceizes_large_tool_outputs() {
+    let (mut sess, _tc, _rx) = make_session_and_context_with_rx().await;
+    let rollout_path = attach_thread_persistence(
+        Arc::get_mut(&mut sess).expect("session should not have additional references"),
+    )
+    .await;
+    let sentinel = "R4_E_RAW_SENTINEL_SHOULD_NOT_BE_IN_ROLLOUT";
+    let raw_output = format!("{}{}{}", "A".repeat(60_000), sentinel, "B".repeat(60_000));
+    let item = RolloutItem::ResponseItem(ResponseItem::FunctionCallOutput {
+        call_id: "call-large-output".to_string(),
+        output: FunctionCallOutputPayload::from_text(raw_output.clone()),
+    });
+
+    sess.persist_rollout_items(&[item]).await;
+    sess.flush_rollout().await.expect("rollout should flush");
+
+    let rollout_text = tokio::fs::read_to_string(&rollout_path)
+        .await
+        .expect("read rollout");
+    assert!(rollout_text.contains("OutputReferenceV1"));
+    assert!(rollout_text.contains("output-ref://sha256/"));
+    assert!(!rollout_text.contains(sentinel));
+
+    let Some(sha) = rollout_text
+        .split("output-ref://sha256/")
+        .nth(1)
+        .map(|value| value.chars().take(64).collect::<String>())
+    else {
+        panic!("output ref sha missing");
+    };
+    let session_store_root = rollout_path
+        .ancestors()
+        .find_map(|ancestor| {
+            (ancestor.file_name().and_then(|name| name.to_str()) == Some("sessions"))
+                .then(|| ancestor.parent())
+                .flatten()
+        })
+        .unwrap_or_else(|| rollout_path.parent().expect("rollout parent"));
+    let artifact_path = session_store_root
+        .join("session-store")
+        .join("output-refs")
+        .join("sha256")
+        .join(format!("{sha}.stdout"));
+    let artifact_text = tokio::fs::read_to_string(&artifact_path)
+        .await
+        .expect("read output-ref artifact");
+    assert_eq!(artifact_text, raw_output);
+
+    let InitialHistory::Resumed(resumed) = RolloutRecorder::get_rollout_history(&rollout_path)
+        .await
+        .expect("read rollout history")
+    else {
+        panic!("expected resumed rollout history");
+    };
+    let persisted_output = resumed.history.iter().find_map(|item| match item {
+        RolloutItem::ResponseItem(ResponseItem::FunctionCallOutput { output, .. }) => {
+            output.text_content()
+        }
+        _ => None,
+    });
+    let persisted_output = persisted_output.expect("persisted function output");
+    assert!(persisted_output.contains("OutputReferenceV1"));
+    assert!(!persisted_output.contains(sentinel));
 }
 
 #[tokio::test]
@@ -2911,6 +2603,8 @@ async fn set_rate_limits_retains_previous_credits() {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3015,6 +2709,8 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3127,11 +2823,13 @@ fn prefers_structured_content_when_present() {
 async fn includes_timed_out_message() {
     let exec = ExecToolCallOutput {
         exit_code: 0,
+        outcome: codex_protocol::exec_output::ExecOutcome::TimedOut,
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         stdout: StreamOutput::new(String::new()),
         stderr: StreamOutput::new(String::new()),
         aggregated_output: StreamOutput::new("Command output".to_string()),
         duration: StdDuration::from_secs(1),
-        timed_out: true,
     };
     let (_, turn_context) = make_session_and_context().await;
 
@@ -3289,6 +2987,8 @@ async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
             source: SessionSource::Exec,
             base_instructions: BaseInstructions::default(),
             dynamic_tools: Vec::new(),
+            taskspace_projection_policy: None,
+            taskspace_skill_snapshot: None,
             event_persistence_mode: ThreadEventPersistenceMode::Limited,
         },
     )
@@ -3464,6 +3164,8 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3779,6 +3481,8 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3885,6 +3589,8 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -4040,6 +3746,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         agent_status: agent_status_tx,
         out_of_band_elicitation_paused: watch::channel(false).0,
         state: Mutex::new(state),
+        taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
         managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
         features: config.features.clone(),
         pending_mcp_server_refresh_config: Mutex::new(None),
@@ -4100,6 +3807,8 @@ async fn make_session_with_config_and_rx(
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -5249,6 +4958,8 @@ where
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: None,
+        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -5404,6 +5115,7 @@ where
         agent_status: agent_status_tx,
         out_of_band_elicitation_paused: watch::channel(false).0,
         state: Mutex::new(state),
+        taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
         managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
         features: config.features.clone(),
         pending_mcp_server_refresh_config: Mutex::new(None),
@@ -6079,8 +5791,6 @@ async fn handle_output_item_done_records_image_save_history_message() {
     let mut ctx = HandleOutputCtx {
         sess: Arc::clone(&session),
         turn_context: Arc::clone(&turn_context),
-        tool_runtime: test_tool_runtime(Arc::clone(&session), Arc::clone(&turn_context)),
-        cancellation_token: CancellationToken::new(),
     };
     handle_output_item_done(&mut ctx, item.clone(), /*previously_active_item*/ None)
         .await
@@ -6131,8 +5841,6 @@ async fn handle_output_item_done_skips_image_save_message_when_save_fails() {
     let mut ctx = HandleOutputCtx {
         sess: Arc::clone(&session),
         turn_context: Arc::clone(&turn_context),
-        tool_runtime: test_tool_runtime(Arc::clone(&session), Arc::clone(&turn_context)),
-        cancellation_token: CancellationToken::new(),
     };
     handle_output_item_done(&mut ctx, item.clone(), /*previously_active_item*/ None)
         .await
@@ -6475,10 +6183,14 @@ async fn run_user_shell_command_does_not_set_reference_context_item() {
         state.set_reference_context_item(/*item*/ None);
     }
 
-    handlers::run_user_shell_command(&session, "sub-id".to_string(), "echo shell".to_string())
-        .await;
+    let command = if cfg!(windows) {
+        "cmd /C exit 0"
+    } else {
+        "true"
+    };
+    handlers::run_user_shell_command(&session, "sub-id".to_string(), command.to_string()).await;
 
-    let deadline = StdDuration::from_secs(15);
+    let deadline = StdDuration::from_secs(60);
     let start = std::time::Instant::now();
     loop {
         let remaining = deadline.saturating_sub(start.elapsed());
@@ -7787,8 +7499,6 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
     let mut ctx = HandleOutputCtx {
         sess: Arc::clone(&sess),
         turn_context: Arc::clone(&tc),
-        tool_runtime: test_tool_runtime(Arc::clone(&sess), Arc::clone(&tc)),
-        cancellation_token: CancellationToken::new(),
     };
 
     let output = handle_output_item_done(&mut ctx, item, /*previously_active_item*/ None)
@@ -7796,10 +7506,520 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
         .expect("tool call should be handled");
 
     assert!(output.needs_follow_up);
-    assert!(output.tool_future.is_some());
+    assert!(matches!(
+        output.tool_declaration,
+        Some(crate::tools::provider_tool_declaration::ProviderToolDeclaration::Ready(_))
+    ));
     assert_eq!(
         sess.get_pending_input().await,
         vec![communication.to_response_input_item()],
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mailbox_preemption_never_executes_an_uncompleted_tool_prefix() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex().build(&server).await?;
+    let response = mount_response_once(
+        &server,
+        sse_response(sse(vec![
+            ev_response_created("mailbox-prefix-response"),
+            ev_function_call(
+                "prefix-side-effect",
+                "shell_command",
+                r#"{"command":"printf executed > mailbox-prefix.txt"}"#,
+            ),
+            ev_reasoning_item("reasoning-after-tool", &["continue"], &[]),
+            ev_function_call(
+                "invalid-patch-1",
+                "apply_patch",
+                r#"{"input":"first patch"}"#,
+            ),
+            ev_function_call(
+                "invalid-patch-2",
+                "apply_patch",
+                r#"{"input":"second patch"}"#,
+            ),
+            ev_completed("mailbox-prefix-response"),
+        ]))
+        .set_delay(Duration::from_millis(200)),
+    )
+    .await;
+
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise complete-response ownership".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    timeout(Duration::from_secs(2), async {
+        while response.requests().is_empty() {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    test.codex
+        .submit(Op::InterAgentCommunication {
+            communication: InterAgentCommunication::new(
+                AgentPath::try_from("/root/worker").expect("worker path"),
+                AgentPath::root(),
+                Vec::new(),
+                "mail arrived after provider request started".into(),
+                /*trigger_turn*/ true,
+            ),
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            if std::fs::read_to_string(&rollout_path)
+                .unwrap_or_default()
+                .contains("ToolSequencePreflightResultV3")
+            {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    assert!(
+        !test.workspace_path("mailbox-prefix.txt").exists(),
+        "a provider-response prefix executed before response.completed preflight"
+    );
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn malformed_suffix_rejects_the_complete_provider_tool_response() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex().build(&server).await?;
+    mount_response_once(
+        &server,
+        sse_response(sse(vec![
+            ev_response_created("build-failure-response"),
+            ev_function_call(
+                "prefix-side-effect",
+                "exec_command",
+                r#"{"cmd":"printf executed > build-failure-prefix.txt"}"#,
+            ),
+            ev_function_call("malformed-suffix", "exec_command", "{"),
+            ev_completed("build-failure-response"),
+        ])),
+    )
+    .await;
+
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise response-level build failure preflight".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            if std::fs::read_to_string(&rollout_path)
+                .unwrap_or_default()
+                .contains("ProviderToolResponsePreflightV2")
+            {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    assert!(
+        !test.workspace_path("build-failure-prefix.txt").exists(),
+        "a valid prefix executed despite a malformed suffix in the same provider response"
+    );
+    let rollout = std::fs::read_to_string(rollout_path)?;
+    assert!(rollout.contains("provider_tool_declaration_invalid"));
+    assert!(rollout.contains("failed to parse exec_command arguments"));
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
+}
+
+async fn assert_missing_client_tool_search_call_id_zero_dispatch(
+    provider_item_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
+        })
+        .build(&server)
+        .await?;
+    let side_effect_file = provider_item_id
+        .map(|id| format!("missing-tool-search-call-id-{id}.txt"))
+        .unwrap_or_else(|| "missing-tool-search-call-id-none.txt".to_string());
+    let mut missing_call_id_item = json!({
+        "type": "tool_search_call",
+        "status": "completed",
+        "execution": "client",
+        "arguments": {
+            "query": "must fail before dispatch"
+        }
+    });
+    if let Some(provider_item_id) = provider_item_id {
+        missing_call_id_item["id"] = json!(provider_item_id);
+    }
+    mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("initialize-before-missing-search-id"),
+                ev_function_call(
+                    "initialize-control",
+                    "taskspace_control",
+                    &json!({
+                        "action": "initialize_and_execute",
+                        "root": {"node_id": "root", "goal": "Exercise response preflight"},
+                        "work_nodes": [{"node_id": "work", "goal": "Run the work"}],
+                        "finish": {"node_id": "finish", "goal": "Close the task"},
+                        "edges": [
+                            {"from": "root", "to": "work"},
+                            {"from": "work", "to": "finish"}
+                        ],
+                        "actions": [{"node_id": "work", "tool": "exec_command"}]
+                    })
+                    .to_string(),
+                ),
+                ev_function_call(
+                    "initialize-action",
+                    "exec_command",
+                    &json!({"cmd": "pwd"}).to_string(),
+                ),
+                ev_completed("initialize-before-missing-search-id"),
+            ]),
+            sse(vec![
+                ev_response_created("missing-search-id-response"),
+                ev_function_call(
+                    "execute-control",
+                    "taskspace_control",
+                    &json!({
+                        "action": "execute",
+                        "expected_revision": 2,
+                        "mutations": [],
+                        "actions": [
+                            {"node_id": "work", "tool": "exec_command"},
+                            {"node_id": "work", "tool": "tool_search"}
+                        ]
+                    })
+                    .to_string(),
+                ),
+                ev_function_call(
+                    "side-effect-prefix",
+                    "exec_command",
+                    &json!({"cmd": format!("printf executed > {side_effect_file}")}).to_string(),
+                ),
+                json!({
+                    "type": "response.output_item.done",
+                    "item": missing_call_id_item,
+                }),
+                ev_completed("missing-search-id-response"),
+            ]),
+        ],
+    )
+    .await;
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise missing client ToolSearch call id".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            let rollout = std::fs::read_to_string(&rollout_path).unwrap_or_default();
+            if rollout.contains("client tool_search call is missing call_id") {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    assert!(
+        !test.workspace_path(&side_effect_file).exists(),
+        "a valid prefix executed despite a client ToolSearch call missing call_id"
+    );
+    let rollout = std::fs::read_to_string(rollout_path)?;
+    assert!(rollout.contains("provider_tool_declaration_invalid"));
+    assert!(rollout.contains("build_failed_unpaired"));
+    assert!(rollout.contains("tool_search"));
+    if let Some(provider_item_id) = provider_item_id {
+        assert!(rollout.contains(provider_item_id));
+    }
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_client_tool_search_call_id_rejects_the_complete_response() -> anyhow::Result<()> {
+    assert_missing_client_tool_search_call_id_zero_dispatch(Some("provider-search-id")).await?;
+    assert_missing_client_tool_search_call_id_zero_dispatch(None).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn taskspace_rejects_hidden_image_added_event_before_artifact_write() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
+        })
+        .build(&server)
+        .await?;
+    let image_id = "hidden-added-image";
+    mount_response_once(
+        &server,
+        sse_response(sse(vec![
+            ev_response_created("hidden-added-response"),
+            json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "image_generation_call",
+                    "id": image_id,
+                    "status": "completed",
+                    "revised_prompt": "must not be persisted",
+                    "result": "aGlkZGVuLWFkZGVkLWJ5dGVz",
+                }
+            }),
+            ev_completed("hidden-added-response"),
+        ])),
+    )
+    .await;
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise hidden native added event".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await?;
+
+    let rollout_path = test
+        .session_configured
+        .rollout_path
+        .clone()
+        .expect("rollout path");
+    timeout(Duration::from_secs(3), async {
+        loop {
+            test.codex.flush_rollout().await.expect("flush rollout");
+            if std::fs::read_to_string(&rollout_path)
+                .unwrap_or_default()
+                .contains("ProviderToolResponsePreflightV2")
+            {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+
+    let image_path = crate::stream_events_utils::image_generation_artifact_path(
+        &test.config.codex_home,
+        &test.session_configured.session_id.to_string(),
+        image_id,
+    );
+    assert!(
+        !image_path.exists(),
+        "TaskSpace hidden image added event wrote an artifact"
+    );
+    test.codex.submit(Op::Interrupt).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn malformed_tool_arguments_are_deferred_to_response_preflight() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    {
+        let mut state = sess.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode_for_session(MapRuntimeMode::Experiment, sess.conversation_id);
+        state.activate_taskspace_context();
+    }
+    let item = ResponseItem::FunctionCall {
+        id: None,
+        name: "exec_command".to_string(),
+        namespace: None,
+        arguments: r#"{"arguments":{"command":"pwd"}}"#.to_string(),
+        call_id: "malformed-exec".to_string(),
+    };
+    let mut ctx = HandleOutputCtx {
+        sess: Arc::clone(&sess),
+        turn_context: Arc::clone(&tc),
+    };
+
+    let output = handle_output_item_done(&mut ctx, item, None)
+        .await
+        .expect("malformed arguments should return typed feedback");
+
+    assert!(output.needs_follow_up);
+    assert!(matches!(
+        output.tool_declaration,
+        Some(crate::tools::provider_tool_declaration::ProviderToolDeclaration::BuildFailed(_))
+    ));
+    let history = sess.clone_history().await;
+    assert!(history.raw_items().iter().any(|item| {
+        matches!(item, ResponseItem::FunctionCall { call_id, .. } if call_id == "malformed-exec")
+    }));
+    assert!(!history.raw_items().iter().any(|item| {
+        matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "malformed-exec")
+    }));
+}
+
+#[tokio::test]
+async fn standard_missing_client_tool_search_call_id_is_a_mechanical_build_failure() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    for provider_item_id in [Some("standard-provider-search-id"), None] {
+        let item = ResponseItem::ToolSearchCall {
+            id: provider_item_id.map(str::to_string),
+            call_id: None,
+            status: Some("completed".to_string()),
+            execution: "client".to_string(),
+            arguments: json!({"query": "missing call identity"}),
+        };
+        let mut ctx = HandleOutputCtx {
+            sess: Arc::clone(&sess),
+            turn_context: Arc::clone(&tc),
+        };
+
+        let output = handle_output_item_done(&mut ctx, item, None)
+            .await
+            .expect("missing client call identity should enter response preflight");
+
+        assert!(output.needs_follow_up);
+        assert!(matches!(
+            &output.tool_declaration,
+            Some(
+                crate::tools::provider_tool_declaration::ProviderToolDeclaration::UnpairedBuildFailed(
+                    _
+                )
+            )
+        ));
+        let descriptor = output
+            .tool_declaration
+            .as_ref()
+            .expect("unpaired declaration")
+            .descriptor();
+        assert_eq!(
+            descriptor
+                .get("call_id")
+                .and_then(serde_json::Value::as_str),
+            provider_item_id
+        );
+    }
+}
+
+#[tokio::test]
+async fn taskspace_hidden_native_tools_are_rejected_before_local_side_effects() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    {
+        let mut state = sess.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode_for_session(MapRuntimeMode::Experiment, sess.conversation_id);
+        state.activate_taskspace_context();
+    }
+    let image_id = "hidden-native-image";
+    let image_path = crate::stream_events_utils::image_generation_artifact_path(
+        &tc.config.codex_home,
+        &sess.conversation_id.to_string(),
+        image_id,
+    );
+    let items = [
+        ResponseItem::WebSearchCall {
+            id: Some("hidden-native-web".to_string()),
+            status: Some("completed".to_string()),
+            action: None,
+        },
+        ResponseItem::ImageGenerationCall {
+            id: image_id.to_string(),
+            status: "completed".to_string(),
+            revised_prompt: Some("must not be persisted".to_string()),
+            result: "aGlkZGVuLW5hdGl2ZS1ieXRlcw==".to_string(),
+        },
+    ];
+
+    for item in items {
+        let mut ctx = HandleOutputCtx {
+            sess: Arc::clone(&sess),
+            turn_context: Arc::clone(&tc),
+        };
+        let output = handle_output_item_done(&mut ctx, item, None)
+            .await
+            .expect("hidden native call should become a response preflight declaration");
+        assert!(output.needs_follow_up);
+        assert!(matches!(
+            output.tool_declaration,
+            Some(
+                crate::tools::provider_tool_declaration::ProviderToolDeclaration::RejectedNative(_)
+            )
+        ));
+    }
+
+    assert!(
+        !image_path.exists(),
+        "TaskSpace hidden image generation wrote an artifact before response preflight"
     );
 }
 
@@ -8366,7 +8586,7 @@ async fn rejects_escalated_permissions_when_policy_not_on_request() {
     };
 
     let expected = format!(
-        "approval policy is {policy:?}; reject command �?you should not ask for escalated permissions if the approval policy is {policy:?}",
+        "approval policy is {policy:?}; reject command — you should not ask for escalated permissions if the approval policy is {policy:?}",
         policy = turn_context.approval_policy.value()
     );
 
@@ -8444,7 +8664,7 @@ async fn unified_exec_rejects_escalated_permissions_when_policy_not_on_request()
     };
 
     let expected = format!(
-        "approval policy is {policy:?}; reject command �?you cannot ask for escalated permissions if the approval policy is {policy:?}",
+        "approval policy is {policy:?}; reject command — you cannot ask for escalated permissions if the approval policy is {policy:?}",
         policy = turn_context.approval_policy.value()
     );
 

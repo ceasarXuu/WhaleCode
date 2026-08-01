@@ -63,6 +63,97 @@ function Test-TaskspaceBenchmarkResultSupportsDecision {
     return $false
 }
 
+function Test-TaskspaceGraphNeedsDecisionDensity {
+    param([object[]]$Nodes, [object[]]$Edges, [int]$SubagentSpawnCount)
+    if ($SubagentSpawnCount -gt 0) { return $true }
+    $nodeKindById = @{}
+    foreach ($node in @($Nodes)) {
+        $nodeId = [string]$node.id
+        if (-not [string]::IsNullOrWhiteSpace($nodeId)) {
+            $nodeKindById[$nodeId] = [string]$node.kind
+        }
+    }
+    $nonFinalOutgoing = @{}
+    foreach ($edge in @($Edges)) {
+        $from = [string]$edge.from
+        $to = [string]$edge.to
+        if ([string]::IsNullOrWhiteSpace($from) -or [string]::IsNullOrWhiteSpace($to)) { continue }
+        if ($nodeKindById.ContainsKey($to) -and [string]$nodeKindById[$to] -eq "final_synthesis") { continue }
+        if (-not $nonFinalOutgoing.ContainsKey($from)) {
+            $nonFinalOutgoing[$from] = [System.Collections.Generic.HashSet[string]]::new()
+        }
+        [void]$nonFinalOutgoing[$from].Add($to)
+    }
+    foreach ($from in @($nonFinalOutgoing.Keys)) {
+        if ($nonFinalOutgoing[$from].Count -gt 1) { return $true }
+    }
+    return $false
+}
+
+function Get-TaskspaceRootedGraphMetrics {
+    param([object[]]$Nodes, [object[]]$Edges, [object[]]$Maps)
+    $map = @($Maps | Select-Object -First 1)
+    $rootId = if ($map.Count -gt 0) { [string]$map[0].rootNodeId } else { "" }
+    $finishId = if ($map.Count -gt 0) { [string]$map[0].finishNodeId } else { "" }
+    $ids = @($Nodes | ForEach-Object { [string]$_.id } | Where-Object { $_ })
+    $outgoing = @{}
+    $incoming = @{}
+    foreach ($id in $ids) {
+        $outgoing[$id] = New-Object System.Collections.Generic.List[string]
+        $incoming[$id] = New-Object System.Collections.Generic.List[string]
+    }
+    foreach ($edge in @($Edges)) {
+        $from = [string]$edge.from
+        $to = [string]$edge.to
+        if ($outgoing.ContainsKey($from) -and $incoming.ContainsKey($to)) {
+            $outgoing[$from].Add($to)
+            $incoming[$to].Add($from)
+        }
+    }
+    $reachable = [System.Collections.Generic.HashSet[string]]::new()
+    $queue = [System.Collections.Generic.Queue[string]]::new()
+    if ($outgoing.ContainsKey($rootId)) { $queue.Enqueue($rootId) }
+    while ($queue.Count -gt 0) {
+        $id = $queue.Dequeue()
+        if (-not $reachable.Add($id)) { continue }
+        foreach ($next in @($outgoing[$id])) { $queue.Enqueue($next) }
+    }
+    $toFinish = [System.Collections.Generic.HashSet[string]]::new()
+    if ($incoming.ContainsKey($finishId)) { $queue.Enqueue($finishId) }
+    while ($queue.Count -gt 0) {
+        $id = $queue.Dequeue()
+        if (-not $toFinish.Add($id)) { continue }
+        foreach ($previous in @($incoming[$id])) { $queue.Enqueue($previous) }
+    }
+    $indegree = @{}
+    $depth = @{}
+    foreach ($id in $ids) { $indegree[$id] = @($incoming[$id]).Count; $depth[$id] = 0 }
+    foreach ($id in @($ids | Where-Object { $indegree[$_] -eq 0 })) { $queue.Enqueue($id) }
+    $visited = 0
+    while ($queue.Count -gt 0) {
+        $id = $queue.Dequeue()
+        $visited++
+        foreach ($next in @($outgoing[$id])) {
+            $depth[$next] = [Math]::Max([int]$depth[$next], [int]$depth[$id] + 1)
+            $indegree[$next]--
+            if ($indegree[$next] -eq 0) { $queue.Enqueue($next) }
+        }
+    }
+    $pathNodeCount = @($ids | Where-Object { $reachable.Contains($_) -and $toFinish.Contains($_) }).Count
+    [pscustomobject]@{
+        root_node_id = $rootId
+        finish_node_id = $finishId
+        source_node_count = @($ids | Where-Object { @($incoming[$_]).Count -eq 0 }).Count
+        sink_node_count = @($ids | Where-Object { @($outgoing[$_]).Count -eq 0 }).Count
+        rooted_path_node_count = $pathNodeCount
+        all_nodes_on_root_finish_path = ($ids.Count -gt 0 -and $pathNodeCount -eq $ids.Count)
+        cycle_detected = ($visited -ne $ids.Count)
+        max_depth = if ($depth.Count -gt 0) { [int](($depth.Values | Measure-Object -Maximum).Maximum) } else { 0 }
+        max_in_degree = if ($ids.Count -gt 0) { [int](($ids | ForEach-Object { @($incoming[$_]).Count } | Measure-Object -Maximum).Maximum) } else { 0 }
+        max_out_degree = if ($ids.Count -gt 0) { [int](($ids | ForEach-Object { @($outgoing[$_]).Count } | Measure-Object -Maximum).Maximum) } else { 0 }
+    }
+}
+
 function New-TaskspaceGraphHealthReport {
     param(
         $Observability,
@@ -71,6 +162,7 @@ function New-TaskspaceGraphHealthReport {
     )
     $nodes = if ($Observability) { @($Observability.nodes) } else { @() }
     $edges = if ($Observability) { @($Observability.edges) } else { @() }
+    $maps = if ($Observability) { @($Observability.maps) } else { @() }
     $toolCalls = if ($Observability) { @($Observability.toolCalls) } else { @() }
     $results = @($nodes | ForEach-Object { @($_.results) })
     $reviewableResults = @($nodes | ForEach-Object {
@@ -80,6 +172,7 @@ function New-TaskspaceGraphHealthReport {
                 })
         })
     $legacyHealth = Get-TaskspaceGraphHealth $Observability
+    $rootedHealth = Get-TaskspaceRootedGraphMetrics $nodes $edges $maps
     $resultCount = @($results).Count
     $accepted = @($results | Where-Object { [string]$_.validity -eq "accepted" })
     $unreviewed = @($results | Where-Object { [string]$_.validity -eq "unreviewed" })
@@ -108,6 +201,9 @@ function New-TaskspaceGraphHealthReport {
         $decisions = @($Observability.tasks | ForEach-Object { @($_.problemLedger.decisions) + @($_.problem_ledger.decisions) } | Where-Object { $null -ne $_ })
     }
     $blockedNodes = @($nodes | Where-Object { [string]$_.status -eq "blocked" })
+    $readyWorkNodes = @($nodes | Where-Object { [string]$_.kind -eq "work" -and [string]$_.status -eq "ready" })
+    $runningWorkNodes = @($nodes | Where-Object { [string]$_.kind -eq "work" -and [string]$_.status -eq "running" })
+    $finishReady = @($nodes | Where-Object { [string]$_.kind -eq "finish" -and [string]$_.status -eq "ready" }).Count -eq 1
     $spawnCalls = @($toolCalls | Where-Object { [string]$_.tool -eq "spawn_agent" -and [string]$_.status -eq "completed" })
     $subagentPlans = if ($Observability -and $Observability.PSObject.Properties.Name -contains "maps") {
         @($Observability.maps | ForEach-Object { @($_.subagentPlans) + @($_.subagent_plans) } | Where-Object { $null -ne $_ })
@@ -144,8 +240,9 @@ function New-TaskspaceGraphHealthReport {
     $decisionDensity = Get-TaskspaceSafeRatio $decisionCount $nodeCount
     $blockedRatio = Get-TaskspaceSafeRatio @($blockedNodes).Count $nodeCount
     $nodeInflationRatio = if ($decisionCount -gt 0) { Get-TaskspaceSafeRatio $nodeCount $decisionCount } else { [double]$nodeCount }
+    $decisionDensityApplicable = Test-TaskspaceGraphNeedsDecisionDensity $nodes $edges $subagentSpawnCount
     if (@($reviewableResults).Count -gt 0 -and $reviewableUnreviewedRatio -gt 0.3) { $warnings.Add("high_unreviewed_result_ratio") }
-    if ($nodeCount -ge 4 -and $decisionDensity -lt 0.25) { $warnings.Add("low_decision_density") }
+    if ($decisionDensityApplicable -and $nodeCount -ge 4 -and $decisionDensity -lt 0.25) { $warnings.Add("low_decision_density") }
     if ($nodeCount -gt 0 -and $blockedRatio -gt 0.25) { $warnings.Add("high_blocked_node_ratio") }
     if ($nodeInflationRatio -gt 12) { $warnings.Add("node_inflation_high") }
     if ($subagentSpawnCount -gt 0 -and $subagentAdoptedCount -eq 0 -and $adoptionMetricState -eq "measured") { $warnings.Add("subagent_no_adoption") }
@@ -157,6 +254,20 @@ function New-TaskspaceGraphHealthReport {
         logical_mode = $LogicalMode
         node_count = $nodeCount
         edge_count = @($edges).Count
+        root_node_id = [string]$rootedHealth.root_node_id
+        finish_node_id = [string]$rootedHealth.finish_node_id
+        source_node_count = [int]$rootedHealth.source_node_count
+        sink_node_count = [int]$rootedHealth.sink_node_count
+        rooted_path_node_count = [int]$rootedHealth.rooted_path_node_count
+        all_nodes_on_root_finish_path = [bool]$rootedHealth.all_nodes_on_root_finish_path
+        cycle_detected = [bool]$rootedHealth.cycle_detected
+        max_depth = [int]$rootedHealth.max_depth
+        max_in_degree = [int]$rootedHealth.max_in_degree
+        max_out_degree = [int]$rootedHealth.max_out_degree
+        ready_work_node_count = @($readyWorkNodes).Count
+        running_work_node_count = @($runningWorkNodes).Count
+        active_frontier_count = @($readyWorkNodes).Count + @($runningWorkNodes).Count
+        finish_ready = $finishReady
         result_count = $resultCount
         decision_count = $decisionCount
         accepted_result_count = @($accepted).Count
@@ -173,7 +284,7 @@ function New-TaskspaceGraphHealthReport {
         node_inflation_ratio = $nodeInflationRatio
         metric_availability = [ordered]@{
             result_adoption = $adoptionMetricState
-            decision_density = "measured"
+            decision_density = if ($decisionDensityApplicable) { "measured" } else { "not_applicable_linear" }
             open_question_closure = "unsupported"
         }
         open_question_closure_rate = $null

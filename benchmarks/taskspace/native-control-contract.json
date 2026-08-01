@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "fixed_topology": {
+    "nodes": [
+      { "key": "inspect", "kind": "inspect_code_context" },
+      { "key": "implement", "kind": "implement_solution" },
+      { "key": "validate", "kind": "smoke_test" }
+    ],
+    "edges": [
+      { "from": "inspect", "to": "implement" },
+      { "from": "implement", "to": "validate" }
+    ]
+  },
+  "hard_state_selection": {
+    "state": "active_task_path_without_nodes",
+    "tool_name": "taskspace_control",
+    "chat_tool_choice": {
+      "type": "function",
+      "function": { "name": "taskspace_control" }
+    },
+    "thinking": { "type": "disabled" },
+    "preserve_tools_schema": true,
+    "semantic_prompt_allowed": false
+  },
+  "ordered_barrier": {
+    "barrier_tool": "taskspace_control",
+    "order_source": "provider_response_item_order",
+    "preflight_state": "latest_committed_state_at_sequence_step",
+    "stop_after_first_failure": true,
+    "skipped_output": {
+      "schema": "taskspace-skipped-tool-output-v1",
+      "status": "skipped",
+      "reason": "prior_sequence_failure",
+      "required_fields": [
+        "schema",
+        "status",
+        "reason",
+        "failed_call_id",
+        "sequence_index"
+      ]
+    }
+  },
+  "terminal_transaction": {
+    "action": "finish_node",
+    "candidate_field": "final_candidate",
+    "candidate_source": "agent_tool_argument",
+    "candidate_transform": "none",
+    "release_after_finish_and_final_gate": true,
+    "release_on_failure": false,
+    "runtime_generated_candidate_allowed": false
+  },
+  "forbidden": [
+    "runtime_semantic_order_inference",
+    "runtime_generated_final",
+    "map_coarsening",
+    "action_contract_transport",
+    "semantic_initialization_prompt"
+  ]
+}

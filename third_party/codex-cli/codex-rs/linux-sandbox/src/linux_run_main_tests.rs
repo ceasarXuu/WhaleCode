@@ -36,6 +36,30 @@ fn ignores_non_proc_mount_errors() {
 }
 
 #[test]
+fn detects_network_namespace_loopback_failure() {
+    let stderr = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted";
+    assert!(is_network_namespace_loopback_failure(stderr));
+}
+
+#[test]
+fn ignores_unrelated_network_namespace_errors() {
+    let stderr = "bwrap: Can't mount proc on /newroot/proc: Operation not permitted";
+    assert!(!is_network_namespace_loopback_failure(stderr));
+}
+
+#[test]
+fn detects_bwrap_user_namespace_uid_map_failure() {
+    let stderr = "bwrap: setting up uid map: Permission denied";
+    assert!(is_bwrap_user_namespace_failure(stderr));
+}
+
+#[test]
+fn ignores_unrelated_bwrap_permission_failures_for_user_namespace() {
+    let stderr = "bwrap: Can't bind mount /dev/null: Operation not permitted";
+    assert!(!is_bwrap_user_namespace_failure(stderr));
+}
+
+#[test]
 fn inserts_bwrap_argv0_before_command_separator() {
     let sandbox_policy = SandboxPolicy::new_read_only_policy();
     let mut argv = build_bwrap_argv(
@@ -189,6 +213,100 @@ fn proxy_only_mode_takes_precedence_over_full_network_policy() {
         /*allow_network_for_proxy*/ true,
     );
     assert_eq!(mode, BwrapNetworkMode::ProxyOnly);
+}
+
+#[test]
+fn restricted_network_falls_back_to_seccomp_when_isolated_netns_unsupported() {
+    let mode = choose_bwrap_network_mode(
+        NetworkSandboxPolicy::Restricted,
+        /*allow_network_for_proxy*/ false,
+        /*isolated_network_supported*/ false,
+    );
+
+    assert_eq!(mode, BwrapNetworkMode::FullAccess);
+}
+
+#[test]
+fn restricted_network_uses_isolated_netns_when_supported() {
+    let mode = choose_bwrap_network_mode(
+        NetworkSandboxPolicy::Restricted,
+        /*allow_network_for_proxy*/ false,
+        /*isolated_network_supported*/ true,
+    );
+
+    assert_eq!(mode, BwrapNetworkMode::Isolated);
+}
+
+#[test]
+fn proxy_only_network_does_not_fallback_without_isolated_netns() {
+    let mode = choose_bwrap_network_mode(
+        NetworkSandboxPolicy::Restricted,
+        /*allow_network_for_proxy*/ true,
+        /*isolated_network_supported*/ false,
+    );
+
+    assert_eq!(mode, BwrapNetworkMode::ProxyOnly);
+}
+
+#[test]
+fn legacy_landlock_supports_legacy_workspace_write_policy() {
+    let temp_dir = tempfile::TempDir::new().expect("tempdir");
+    let sandbox_policy = SandboxPolicy::new_workspace_write_policy();
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &sandbox_policy,
+        temp_dir.path(),
+    );
+
+    assert!(legacy_landlock_mode_supports_policy(
+        &file_system_policy,
+        NetworkSandboxPolicy::Restricted,
+        temp_dir.path(),
+    ));
+}
+
+#[test]
+fn legacy_landlock_rejects_split_direct_runtime_policy() {
+    let temp_dir = tempfile::TempDir::new().expect("tempdir");
+    let docs = temp_dir.path().join("docs");
+    std::fs::create_dir_all(&docs).expect("create docs");
+    let docs = AbsolutePathBuf::from_absolute_path(&docs).expect("absolute docs");
+    let policy = FileSystemSandboxPolicy::restricted(vec![
+        codex_protocol::permissions::FileSystemSandboxEntry {
+            path: codex_protocol::permissions::FileSystemPath::Special {
+                value: codex_protocol::permissions::FileSystemSpecialPath::Root,
+            },
+            access: codex_protocol::permissions::FileSystemAccessMode::Read,
+        },
+        codex_protocol::permissions::FileSystemSandboxEntry {
+            path: codex_protocol::permissions::FileSystemPath::Path { path: docs },
+            access: codex_protocol::permissions::FileSystemAccessMode::Write,
+        },
+    ]);
+
+    assert!(!legacy_landlock_mode_supports_policy(
+        &policy,
+        NetworkSandboxPolicy::Restricted,
+        temp_dir.path(),
+    ));
+}
+
+#[test]
+fn bwrap_bootstrap_failure_does_not_fallback_for_proxy_only_network() {
+    let temp_dir = tempfile::TempDir::new().expect("tempdir");
+    let sandbox_policy = SandboxPolicy::new_workspace_write_policy();
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &sandbox_policy,
+        temp_dir.path(),
+    );
+
+    assert!(
+        !can_fallback_to_legacy_landlock_after_bwrap_bootstrap_failure(
+            /*allow_network_for_proxy*/ true,
+            &file_system_policy,
+            NetworkSandboxPolicy::Restricted,
+            temp_dir.path(),
+        )
+    );
 }
 
 #[test]

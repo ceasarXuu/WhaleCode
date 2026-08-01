@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/r7-1-execution-plan-v1.schema.json",
+  "title": "R7.1 atomic execution plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "schema_path",
+    "plan_id",
+    "phase_count",
+    "current_phase_id",
+    "dynamic_cost_phase_id",
+    "candidate_freeze_phase_id",
+    "formal_evaluation_phase_id",
+    "promotion_decision_phase_id",
+    "route_role_phase_ids",
+    "defect_roots",
+    "held_out_sets",
+    "state_transition_audit",
+    "phases"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema_path": {
+      "const": "benchmarks/taskspace/r7/r7-1-execution-plan-v1.schema.json"
+    },
+    "plan_id": {"const": "R7.1"},
+    "phase_count": {"type": "integer", "minimum": 1},
+    "current_phase_id": {"$ref": "#/$defs/phaseId"},
+    "dynamic_cost_phase_id": {"$ref": "#/$defs/phaseId"},
+    "candidate_freeze_phase_id": {"$ref": "#/$defs/phaseId"},
+    "formal_evaluation_phase_id": {"$ref": "#/$defs/phaseId"},
+    "promotion_decision_phase_id": {"$ref": "#/$defs/phaseId"},
+    "route_role_phase_ids": {
+      "type": "object",
+      "required": [
+        "nested_dispatch_boundary",
+        "multi_patch_runtime_safety",
+        "multi_patch_agent_behavior"
+      ],
+      "properties": {
+        "nested_dispatch_boundary": {"$ref": "#/$defs/phaseId"},
+        "multi_patch_runtime_safety": {"$ref": "#/$defs/phaseId"},
+        "multi_patch_agent_behavior": {"$ref": "#/$defs/phaseId"}
+      },
+      "additionalProperties": false
+    },
+    "defect_roots": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/rootId"}
+    },
+    "held_out_sets": {
+      "type": "object",
+      "required": ["engineering", "promotion"],
+      "properties": {
+        "engineering": {"$ref": "#/$defs/heldOutSet"},
+        "promotion": {
+          "allOf": [
+            {"$ref": "#/$defs/heldOutSet"},
+            {
+              "type": "object",
+              "required": ["must_differ_from"],
+              "properties": {
+                "must_differ_from": {"type": "string", "minLength": 1}
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "state_transition_audit": {"$ref": "#/$defs/observability"},
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/phase"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "phaseId": {
+      "type": "string",
+      "pattern": "^R71-[0-9]{2}$"
+    },
+    "rootId": {
+      "type": "string",
+      "pattern": "^R71-GI-[0-9]{3}$"
+    },
+    "heldOutSet": {
+      "type": "object",
+      "required": ["identity", "owner_phase_id", "purpose", "sample_manifest"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "owner_phase_id": {"$ref": "#/$defs/phaseId"},
+        "purpose": {"type": "string", "minLength": 1},
+        "must_differ_from": {"type": "string", "minLength": 1},
+        "sample_manifest": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/evidenceRef"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidenceRef": {
+      "type": "object",
+      "required": ["path", "sha256", "artifact_type", "schema_path", "schema_version"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "artifact_type": {"type": "string", "pattern": "^[a-z0-9_.-]+$"},
+        "schema_path": {"type": "string", "minLength": 1},
+        "schema_version": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "spawnedRepair": {
+      "type": "object",
+      "required": ["root_cause_id", "phase_id"],
+      "properties": {
+        "root_cause_id": {"$ref": "#/$defs/rootId"},
+        "phase_id": {"$ref": "#/$defs/phaseId"}
+      },
+      "additionalProperties": false
+    },
+    "failureRoute": {
+      "type": "object",
+      "required": ["failure_signal", "action", "existing_phase_reuse"],
+      "properties": {
+        "failure_signal": {"type": "string", "minLength": 1},
+        "action": {"const": "spawn_atomic_phase"},
+        "existing_phase_reuse": {"const": "forbidden"}
+      },
+      "additionalProperties": false
+    },
+    "observability": {
+      "type": "object",
+      "required": ["mode", "event_name", "required_fields"],
+      "properties": {
+        "mode": {"enum": ["runtime_event", "artifact", "decision"]},
+        "event_name": {"type": "string", "minLength": 1},
+        "required_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "additionalProperties": false
+    },
+    "phase": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "severity",
+        "status",
+        "root_ids",
+        "depends_on",
+        "change_domain_key",
+        "parent_diagnosis_id",
+        "allowed_closure_outcomes",
+        "closure_outcome",
+        "evidence_artifact",
+        "spawned_repairs",
+        "failure_route",
+        "acceptance_evidence_type",
+        "observability"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/phaseId"},
+        "title": {"type": "string", "minLength": 1},
+        "kind": {
+          "enum": [
+            "repair",
+            "implementation",
+            "decision",
+            "diagnosis",
+            "validation",
+            "audit",
+            "evaluation",
+            "release",
+            "promotion"
+          ]
+        },
+        "severity": {"enum": ["high", "blocking"]},
+        "status": {
+          "enum": [
+            "repair",
+            "planned",
+            "decision_pending",
+            "verification_pending",
+            "gated",
+            "in_progress",
+            "closed"
+          ]
+        },
+        "root_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/rootId"}
+        },
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/phaseId"}
+        },
+        "change_domain_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+$"
+        },
+        "parent_diagnosis_id": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/phaseId"}
+          ]
+        },
+        "allowed_closure_outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "implemented",
+              "approved",
+              "not_reproduced",
+              "root_causes_identified",
+              "verified_no_attempts",
+              "verified",
+              "frozen",
+              "promoted",
+              "rejected"
+            ]
+          }
+        },
+        "closure_outcome": {
+          "enum": [
+            "pending",
+            "implemented",
+            "approved",
+            "not_reproduced",
+            "root_causes_identified",
+            "verified_no_attempts",
+            "verified",
+            "frozen",
+            "promoted",
+            "rejected"
+          ]
+        },
+        "evidence_artifact": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/evidenceRef"}
+          ]
+        },
+        "spawned_repairs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/spawnedRepair"}
+        },
+        "failure_route": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/failureRoute"}
+          ]
+        },
+        "acceptance_evidence_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observability": {"$ref": "#/$defs/observability"}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"status": {"const": "closed"}},
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "closure_outcome": {"not": {"const": "pending"}},
+              "evidence_artifact": {"$ref": "#/$defs/evidenceRef"}
+            }
+          },
+          "else": {
+            "properties": {
+              "closure_outcome": {"const": "pending"},
+              "evidence_artifact": {"type": "null"}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "closure_outcome": {"const": "root_causes_identified"}
+            },
+            "required": ["closure_outcome"]
+          },
+          "then": {
+            "properties": {
+              "spawned_repairs": {"minItems": 1}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

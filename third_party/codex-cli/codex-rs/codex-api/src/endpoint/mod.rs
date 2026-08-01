@@ -24,5 +24,6 @@ pub use realtime_websocket::RealtimeWebsocketWriter;
 pub use realtime_websocket::session_update_session_json;
 pub use responses::ResponsesClient;
 pub use responses::ResponsesOptions;
+pub use responses::build_chat_completions_body;
 pub use responses_websocket::ResponsesWebsocketClient;
 pub use responses_websocket::ResponsesWebsocketConnection;

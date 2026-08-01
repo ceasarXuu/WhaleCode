@@ -7,7 +7,6 @@ use crate::agent::next_thread_spawn_depth;
 use crate::agent::role::DEFAULT_ROLE_NAME;
 use crate::agent::role::apply_role_to_config;
 use crate::session::turn_context::TurnEnvironment;
-use codex_protocol::protocol::Op;
 
 pub(crate) struct Handler;
 
@@ -37,7 +36,7 @@ impl ToolHandler for Handler {
             .as_deref()
             .map(str::trim)
             .filter(|role| !role.is_empty());
-        let mut initial_operation = parse_collab_input(args.message, args.items)?;
+        let initial_operation = parse_collab_input(args.message, args.items)?;
         let session_source = turn.session_source.clone();
         let child_depth = next_thread_spawn_depth(&session_source);
         let max_depth = turn.config.agent_max_depth;
@@ -46,8 +45,10 @@ impl ToolHandler for Handler {
                 "Agent depth limit reached. Solve the task yourself.".to_string(),
             ));
         }
-        let mut config =
-            build_agent_spawn_config(&session.get_base_instructions().await, turn.as_ref())?;
+        let mut config = build_agent_spawn_config(
+            &session.get_standard_base_instructions().await,
+            turn.as_ref(),
+        )?;
         if args.fork_context {
             reject_full_fork_spawn_overrides(
                 role_name,
@@ -70,18 +71,6 @@ impl ToolHandler for Handler {
         apply_spawn_agent_runtime_overrides(&mut config, turn.as_ref())?;
         apply_spawn_agent_overrides(&mut config, child_depth);
 
-        let action_map_assignment = session
-            .prepare_action_map_spawn_assignment(
-                &turn,
-                role_name.unwrap_or(DEFAULT_ROLE_NAME),
-                args.node_id.as_deref(),
-            )
-            .await
-            .map_err(FunctionCallError::RespondToModel)?;
-        if let Some(assignment) = action_map_assignment.as_ref() {
-            initial_operation =
-                prepend_taskspace_assignment(initial_operation, &assignment.message_prefix);
-        }
         let prompt = render_input_preview(&initial_operation);
         session
             .send_event(
@@ -105,18 +94,7 @@ impl ToolHandler for Handler {
             /*task_name*/ None,
         ) {
             Ok(spawn_source) => spawn_source,
-            Err(err) => {
-                if let Some(assignment) = action_map_assignment.as_ref() {
-                    session
-                        .release_action_map_assignment(
-                            &turn,
-                            &assignment.lease_id,
-                            "invalid_spawn_source",
-                        )
-                        .await;
-                }
-                return Err(err);
-            }
+            Err(err) => return Err(err),
         };
         let result = Box::pin(
             session.services.agent_control.spawn_agent_with_metadata(
@@ -155,39 +133,14 @@ impl ToolHandler for Handler {
             }
             None => None,
         };
-        let (new_agent_path, new_agent_nickname, new_agent_role) =
-            match (&agent_snapshot, new_agent_metadata) {
-                (Some(snapshot), _) => (
-                    snapshot.session_source.get_agent_path().map(String::from),
-                    snapshot.session_source.get_nickname(),
-                    snapshot.session_source.get_agent_role(),
-                ),
-                (None, Some(metadata)) => (
-                    metadata.agent_path.map(String::from),
-                    metadata.agent_nickname,
-                    metadata.agent_role,
-                ),
-                (None, None) => (None, None, None),
-            };
-        if let Some(assignment) = action_map_assignment.as_ref() {
-            if let Some(thread_id) = new_thread_id {
-                session
-                    .attach_action_map_assignment(
-                        &turn,
-                        &assignment.lease_id,
-                        thread_id,
-                        new_agent_path.clone(),
-                    )
-                    .await;
-                session
-                    .record_final_action_map_child_result_if_needed(thread_id)
-                    .await;
-            } else {
-                session
-                    .release_action_map_assignment(&turn, &assignment.lease_id, "spawn_failed")
-                    .await;
-            }
-        }
+        let (new_agent_nickname, new_agent_role) = match (&agent_snapshot, new_agent_metadata) {
+            (Some(snapshot), _) => (
+                snapshot.session_source.get_nickname(),
+                snapshot.session_source.get_agent_role(),
+            ),
+            (None, Some(metadata)) => (metadata.agent_nickname, metadata.agent_role),
+            (None, None) => (None, None),
+        };
         let effective_model = agent_snapshot
             .as_ref()
             .map(|snapshot| snapshot.model.clone())
@@ -229,26 +182,6 @@ impl ToolHandler for Handler {
     }
 }
 
-fn prepend_taskspace_assignment(mut operation: Op, prefix: &str) -> Op {
-    if let Op::UserInput { items, .. } = &mut operation {
-        if let Some(UserInput::Text { text, .. }) = items
-            .iter_mut()
-            .find(|item| matches!(item, UserInput::Text { .. }))
-        {
-            text.insert_str(0, prefix);
-        } else {
-            items.insert(
-                0,
-                UserInput::Text {
-                    text: prefix.trim_end().to_string(),
-                    text_elements: Vec::new(),
-                },
-            );
-        }
-    }
-    operation
-}
-
 #[derive(Debug, Deserialize)]
 struct SpawnAgentArgs {
     message: Option<String>,
@@ -256,7 +189,6 @@ struct SpawnAgentArgs {
     agent_type: Option<String>,
     model: Option<String>,
     reasoning_effort: Option<ReasoningEffort>,
-    node_id: Option<String>,
     #[serde(default)]
     fork_context: bool,
 }

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla0-baseline",
+  "status": "fla0_complete",
+  "production_behavior_changed": false,
+  "source_commit": "37d5a4e8c4d385dc30af970922de6f1666a9adba",
+  "frozen_contract_commit": "48922ce9b6bedb7ea8e04e825dd6437e58eb2cc0",
+  "projection_policy": "map-request",
+  "binary": {
+    "path": "target/r7-five-layer/fla0/whale-baseline",
+    "sha256": "cd3fff064d8aaeb329032846f4236fb764677d4276335c3fc657d455fa48642e",
+    "attestation_path": "target/r7-five-layer/fla0/whale-baseline.build-attestation.json"
+  },
+  "runs": [
+    {
+      "sample": "single-file-fast-fix",
+      "repeats": 3,
+      "run_root": "target/r7-five-layer/fla0-smoke/single-file-fast-fix/20260720-183056-155",
+      "score_valid": true,
+      "both_success": 3,
+      "engineering_unclean_count": 0,
+      "summary_hashes": {
+        "aggregate": "6cb72ebf81e7b0756e19419ceb9206cf13d75a685bc18abfdf0977665fbab37c",
+        "tokens": "dfeb6efdba11c99d15f5daf911a0082ced93b317bca190fa3f60a4b1081a7382",
+        "cache": "0ffbd517d61606c86ece492a568607615408ff5a1f9f1a98b9bb384398cef052"
+      },
+      "standard": {
+        "provider_requests": 22,
+        "input_tokens": 255518,
+        "cached_input_tokens": 238720,
+        "uncached_input_tokens": 16798,
+        "output_tokens": 6025,
+        "wall_time_ms": 71386
+      },
+      "taskspace": {
+        "provider_requests": 30,
+        "input_tokens": 421325,
+        "cached_input_tokens": 398464,
+        "uncached_input_tokens": 22861,
+        "output_tokens": 9838,
+        "wall_time_ms": 93766,
+        "control_calls": 20,
+        "request_2_plus_cache_hit_rate": 0.970684
+      }
+    },
+    {
+      "sample": "subscription-billing-repair",
+      "repeats": 3,
+      "run_root": "target/r7-five-layer/fla0-smoke/subscription-billing-repair/20260720-183107-387",
+      "score_valid": true,
+      "both_success": 3,
+      "engineering_unclean_count": 0,
+      "summary_hashes": {
+        "aggregate": "c7bcf0a47bb494482d493f1356f7ca807fe976ae7f2966dfe096973ca605b62d",
+        "tokens": "01738367de1e82a451849ca097f2d3f58174d9727f59aa9aa2e80cfa03877f5d",
+        "cache": "78c953f1734a2343726b3cbffb95411ef2bfa522205e61158262652086558b01"
+      },
+      "standard": {
+        "provider_requests": 47,
+        "input_tokens": 779193,
+        "cached_input_tokens": 756736,
+        "uncached_input_tokens": 22457,
+        "output_tokens": 18483,
+        "wall_time_ms": 173161
+      },
+      "taskspace": {
+        "provider_requests": 52,
+        "input_tokens": 984340,
+        "cached_input_tokens": 957824,
+        "uncached_input_tokens": 26516,
+        "output_tokens": 23468,
+        "wall_time_ms": 214385,
+        "control_calls": 25,
+        "request_2_plus_cache_hit_rate": 0.972431
+      }
+    }
+  ],
+  "claim_limit": "This is a six-pair smoke baseline. It freezes behavior and cost but does not establish utility or non-inferiority."
+}

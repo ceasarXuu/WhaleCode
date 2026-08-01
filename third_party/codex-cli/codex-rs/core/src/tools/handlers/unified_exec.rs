@@ -215,13 +215,14 @@ impl ToolHandler for UnifiedExecHandler {
         let manager: &UnifiedExecProcessManager = &session.services.unified_exec_manager;
         let context = UnifiedExecContext::new(session.clone(), turn.clone(), call_id.clone());
 
+        let mut implicit_skill = None;
         let response = match tool_name.name.as_str() {
             "exec_command" => {
                 let cwd = resolve_workdir_base_path(&arguments, &context.turn.cwd)?;
                 let args: ExecCommandArgs = parse_arguments_with_base_path(&arguments, &cwd)?;
                 let hook_command = args.cmd.clone();
                 let workdir = context.turn.resolve_path(args.workdir.clone());
-                maybe_emit_implicit_skill_invocation(
+                implicit_skill = maybe_emit_implicit_skill_invocation(
                     session.as_ref(),
                     context.turn.as_ref(),
                     &hook_command,
@@ -435,6 +436,15 @@ impl ToolHandler for UnifiedExecHandler {
             }
         };
 
+        if let Some(skill) = implicit_skill.as_ref() {
+            crate::taskspace_skill::log_agent_file_read(
+                &turn.turn_skills.outcome,
+                skill,
+                response.exit_code == Some(0),
+                response.raw_output.len(),
+            );
+        }
+
         let mut response = response;
         match session.current_rollout_path().await {
             Ok(rollout_path) => {
@@ -445,21 +455,6 @@ impl ToolHandler for UnifiedExecHandler {
                 .await
                 {
                     Ok(artifact_ref) => {
-                        if let Some(ref artifact_ref) = artifact_ref {
-                            session
-                                .record_action_map_output_ref_trace_event(
-                                    turn.as_ref(),
-                                    "output_ref.created",
-                                    Some(context.call_id.clone()),
-                                    artifact_ref.clone(),
-                                    vec![
-                                        "output_ref".to_string(),
-                                        "created".to_string(),
-                                        format!("bytes:{}", response.raw_output.len()),
-                                    ],
-                                )
-                                .await;
-                        }
                         response.artifact_ref = artifact_ref;
                     }
                     Err(err) => {

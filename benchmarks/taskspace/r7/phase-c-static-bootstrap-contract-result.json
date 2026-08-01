@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-phase-c-static-bootstrap-contract",
+  "status": "complete_first_request_bootstrap_validated",
+  "generated_at": "2026-07-19T03:15:00+08:00",
+  "production_commit": "2b24886ae",
+  "implementation": {
+    "tool_choice": "auto_for_all_lifecycle_states",
+    "taskspace_control_position": 0,
+    "tool_surface_dynamic": false,
+    "tool_schema_dynamic": false,
+    "bootstrap_projection_fields": [
+      "bootstrap_control_action",
+      "ordinary_tools_allowed",
+      "ordinary_tool_failure"
+    ],
+    "runtime_inferred_semantics": false,
+    "runtime_initialized_map": false
+  },
+  "verification": {
+    "taskspace_payload_captures": 64,
+    "auto_tool_choice_payloads": 64,
+    "tools_count": 13,
+    "unique_tool_hashes": 1,
+    "tool_choice_transitions": 0,
+    "shape_transitions": 0,
+    "message_prefix_preserved_rate": 1.0,
+    "same_shape_zero_hit_count": 0,
+    "first_requests_with_nonzero_reasoning_tokens": 6,
+    "tests": "passed",
+    "build": "passed"
+  },
+  "observation_coverage": {
+    "benchmark_sides_complete": 12,
+    "benchmark_sides_incomplete": 0,
+    "benchmark_sides_skipped": 0,
+    "control_detail_rows_measured": 5,
+    "control_detail_rows_partial_with_parse_errors": 1,
+    "partial_row": "subscription-billing-repair/taskspace/repeat-1",
+    "unaffected_evidence": [
+      "first_provider_call",
+      "provider_payload",
+      "result",
+      "provider_requests",
+      "tokens",
+      "cache"
+    ]
+  },
+  "bootstrap": {
+    "taskspace_runs": 6,
+    "initialize_on_first_request": 6,
+    "single_initialize_attempt": 6,
+    "repeated_initialize_attempts": 0,
+    "ordinary_calls_before_initialize": 0,
+    "no_task_path_tool_failures": 0,
+    "eventual_initialize_success": 6,
+    "conclusion": "static_contract_passed"
+  },
+  "baseline": {
+    "source": "benchmarks/taskspace/r7/phase-c-tool-choice-ablation-result.json",
+    "initialize_on_first_request": 0,
+    "taskspace_runs": 6
+  },
+  "scenarios": [
+    {
+      "scenario_id": "single-file-fast-fix",
+      "run_root": "target/r7-phase-c/static-bootstrap-contract/simple/single-file-fast-fix/20260719-030052-065",
+      "repeats_per_arm": 3,
+      "standard": {
+        "solved": 3,
+        "provider_requests": 21,
+        "wall_time_ms": 53810,
+        "input_tokens": 152951,
+        "cached_input_tokens": 146944,
+        "uncached_input_tokens": 6007,
+        "output_tokens": 5153,
+        "request_2_plus_cache_hit_rate": 0.9582
+      },
+      "taskspace": {
+        "solved": 3,
+        "provider_requests": 31,
+        "wall_time_ms": 82120,
+        "input_tokens": 426148,
+        "cached_input_tokens": 385280,
+        "uncached_input_tokens": 40868,
+        "output_tokens": 7731,
+        "request_2_plus_cache_hit_rate": 0.916988,
+        "first_request_reasoning_tokens": [
+          52,
+          53,
+          63
+        ]
+      },
+      "previous_taskspace": {
+        "provider_requests": 44,
+        "wall_time_ms": 114520,
+        "input_tokens": 726242,
+        "uncached_input_tokens": 51426,
+        "output_tokens": 10300,
+        "request_2_plus_cache_hit_rate": 0.927435
+      }
+    },
+    {
+      "scenario_id": "subscription-billing-repair",
+      "run_root": "target/r7-phase-c/static-bootstrap-contract/complex/subscription-billing-repair/20260719-030418-675",
+      "repeats_per_arm": 3,
+      "standard": {
+        "solved": 3,
+        "provider_requests": 37,
+        "wall_time_ms": 143670,
+        "input_tokens": 412229,
+        "cached_input_tokens": 393600,
+        "uncached_input_tokens": 18629,
+        "output_tokens": 16654,
+        "request_2_plus_cache_hit_rate": 0.9532
+      },
+      "taskspace": {
+        "solved": 3,
+        "provider_requests": 33,
+        "wall_time_ms": 158090,
+        "input_tokens": 643989,
+        "cached_input_tokens": 582784,
+        "uncached_input_tokens": 61205,
+        "output_tokens": 20180,
+        "request_2_plus_cache_hit_rate": 0.911611,
+        "first_request_reasoning_tokens": [
+          117,
+          99,
+          48
+        ]
+      },
+      "previous_taskspace": {
+        "provider_requests": 48,
+        "wall_time_ms": 167703,
+        "input_tokens": 967666,
+        "uncached_input_tokens": 59890,
+        "output_tokens": 20228,
+        "request_2_plus_cache_hit_rate": 0.937212
+      }
+    }
+  ],
+  "decision": {
+    "first_request_bootstrap_gate": "passed",
+    "cache_shape_gate": "passed",
+    "constant_named_control_carrier_required": false,
+    "phase_d_status": "ready"
+  }
+}

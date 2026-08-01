@@ -1193,23 +1193,18 @@ async fn taskspace_slash_command_enables_mode_and_opens_viewer() {
 }
 
 #[tokio::test]
-async fn task_show_and_reborn_use_existing_taskspace_runtime_ops() {
+async fn task_show_uses_existing_taskspace_runtime_op() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
     submit_composer_text(&mut chat, "/task-show");
-    submit_composer_text(&mut chat, "/task-reborn");
 
     let mut observed_show = false;
-    let mut observed_reborn = false;
     while let Ok(op) = op_rx.try_recv() {
-        match op {
-            Op::ShowActionMap => observed_show = true,
-            Op::RestartActionMap => observed_reborn = true,
-            _ => {}
+        if let Op::ShowActionMap = op {
+            observed_show = true;
         }
     }
     assert!(observed_show);
-    assert!(observed_reborn);
 }
 
 #[tokio::test]
@@ -1220,6 +1215,7 @@ async fn legacy_map_slash_commands_are_not_user_visible_commands() {
     submit_composer_text(&mut chat, "/map-show");
     submit_composer_text(&mut chat, "/map-restart");
     submit_composer_text(&mut chat, "/map-node");
+    submit_composer_text(&mut chat, "/task-reborn");
 
     assert_no_submit_op(&mut op_rx);
     let cells = drain_insert_history(&mut rx);
@@ -1228,7 +1224,13 @@ async fn legacy_map_slash_commands_are_not_user_visible_commands() {
         .map(|cell| lines_to_single_string(cell))
         .collect::<Vec<_>>()
         .join("\n");
-    for command in ["/map-mode", "/map-show", "/map-restart", "/map-node"] {
+    for command in [
+        "/map-mode",
+        "/map-show",
+        "/map-restart",
+        "/map-node",
+        "/task-reborn",
+    ] {
         assert!(
             rendered.contains(&format!("Unrecognized command '{command}'")),
             "expected {command} to be rejected, got: {rendered:?}"

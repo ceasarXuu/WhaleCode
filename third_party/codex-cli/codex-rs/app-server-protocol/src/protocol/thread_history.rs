@@ -1192,6 +1192,7 @@ mod tests {
     use crate::protocol::v2::CommandExecutionSource;
     use codex_protocol::ThreadId;
     use codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem as CoreDynamicToolCallOutputContentItem;
+    use codex_protocol::exec_output::ExecOutcome;
     use codex_protocol::items::HookPromptFragment as CoreHookPromptFragment;
     use codex_protocol::items::TurnItem as CoreTurnItem;
     use codex_protocol::items::UserMessageItem as CoreUserMessageItem;
@@ -1827,7 +1828,10 @@ mod tests {
                 stdout: String::new(),
                 stderr: String::new(),
                 aggregated_output: "hello world\n".into(),
-                exit_code: 0,
+                shell_exit_code: Some(0),
+                outcome: ExecOutcome::Exited,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration: Duration::from_millis(12),
                 formatted_output: String::new(),
                 status: CoreExecCommandStatus::Completed,
@@ -1878,6 +1882,9 @@ mod tests {
                 }],
                 aggregated_output: Some("hello world\n".into()),
                 exit_code: Some(0),
+                outcome: Some(ExecOutcome::Exited),
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: Some(12),
             }
         );
@@ -2055,7 +2062,10 @@ mod tests {
                 stdout: String::new(),
                 stderr: "exec command rejected by user".into(),
                 aggregated_output: "exec command rejected by user".into(),
-                exit_code: -1,
+                shell_exit_code: None,
+                outcome: ExecOutcome::Rejected,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration: Duration::ZERO,
                 formatted_output: String::new(),
                 status: CoreExecCommandStatus::Declined,
@@ -2098,7 +2108,10 @@ mod tests {
                     command: "ls".into(),
                 }],
                 aggregated_output: Some("exec command rejected by user".into()),
-                exit_code: Some(-1),
+                exit_code: None,
+                outcome: Some(ExecOutcome::Rejected),
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: Some(0),
             }
         );
@@ -2190,6 +2203,9 @@ mod tests {
                 }],
                 aggregated_output: None,
                 exit_code: None,
+                outcome: None,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: None,
             }
         );
@@ -2251,6 +2267,9 @@ mod tests {
                 }],
                 aggregated_output: None,
                 exit_code: None,
+                outcome: None,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: None,
             }
         );
@@ -2304,7 +2323,10 @@ mod tests {
                 stdout: "done\n".into(),
                 stderr: String::new(),
                 aggregated_output: "done\n".into(),
-                exit_code: 0,
+                shell_exit_code: Some(0),
+                outcome: ExecOutcome::Exited,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration: Duration::from_millis(5),
                 formatted_output: "done\n".into(),
                 status: CoreExecCommandStatus::Completed,
@@ -2342,6 +2364,9 @@ mod tests {
                 }],
                 aggregated_output: Some("done\n".into()),
                 exit_code: Some(0),
+                outcome: Some(ExecOutcome::Exited),
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: Some(5),
             }
         );
@@ -2395,7 +2420,10 @@ mod tests {
                 stdout: "done\n".into(),
                 stderr: String::new(),
                 aggregated_output: "done\n".into(),
-                exit_code: 0,
+                shell_exit_code: Some(0),
+                outcome: ExecOutcome::Exited,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration: Duration::from_millis(5),
                 formatted_output: "done\n".into(),
                 status: CoreExecCommandStatus::Completed,

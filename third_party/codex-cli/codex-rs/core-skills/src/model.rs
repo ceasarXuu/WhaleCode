@@ -94,6 +94,7 @@ pub struct SkillLoadOutcome {
     pub(crate) file_systems_by_skill_path: SkillFileSystemsByPath,
     pub(crate) implicit_skills_by_scripts_dir: Arc<HashMap<AbsolutePathBuf, SkillMetadata>>,
     pub(crate) implicit_skills_by_doc_path: Arc<HashMap<AbsolutePathBuf, SkillMetadata>>,
+    pub(crate) integrity_by_path: Arc<HashMap<AbsolutePathBuf, String>>,
 }
 
 impl SkillLoadOutcome {
@@ -126,6 +127,93 @@ impl SkillLoadOutcome {
         self.file_systems_by_skill_path
             .get(&skill.path_to_skills_md)
     }
+
+    pub fn expected_body_sha256(&self, skill: &SkillMetadata) -> Option<&str> {
+        self.integrity_by_path
+            .get(&skill.path_to_skills_md)
+            .map(String::as_str)
+    }
+
+    pub fn remove_skill_at_path(&mut self, path: &AbsolutePathBuf) -> Option<SkillMetadata> {
+        let index = self
+            .skills
+            .iter()
+            .position(|skill| &skill.path_to_skills_md == path)?;
+        let removed = self.skills.remove(index);
+        self.disabled_paths.remove(path);
+        Arc::make_mut(&mut self.skill_root_by_path).remove(path);
+        self.file_systems_by_skill_path.remove(path);
+        Arc::make_mut(&mut self.implicit_skills_by_doc_path)
+            .retain(|_, skill| &skill.path_to_skills_md != path);
+        Arc::make_mut(&mut self.implicit_skills_by_scripts_dir)
+            .retain(|_, skill| &skill.path_to_skills_md != path);
+        Arc::make_mut(&mut self.integrity_by_path).remove(path);
+        Some(removed)
+    }
+
+    pub fn rebind_skill_to_snapshot(
+        &mut self,
+        source_path: &AbsolutePathBuf,
+        snapshot_path: AbsolutePathBuf,
+        body_sha256: String,
+    ) -> Result<(), String> {
+        let Some(index) = self
+            .skills
+            .iter()
+            .position(|skill| &skill.path_to_skills_md == source_path)
+        else {
+            return Err(format!(
+                "skill source path is not loaded: {}",
+                source_path.display()
+            ));
+        };
+        if self
+            .skills
+            .iter()
+            .any(|skill| skill.path_to_skills_md == snapshot_path)
+        {
+            return Err(format!(
+                "skill snapshot path is already loaded: {}",
+                snapshot_path.display()
+            ));
+        }
+
+        let mut rebound = self.skills[index].clone();
+        rebound.path_to_skills_md = snapshot_path.clone();
+        self.skills[index] = rebound.clone();
+
+        let source_disabled = self.disabled_paths.remove(source_path);
+        if source_disabled {
+            self.disabled_paths.insert(snapshot_path.clone());
+        }
+        if let Some(root) = Arc::make_mut(&mut self.skill_root_by_path).remove(source_path) {
+            Arc::make_mut(&mut self.skill_root_by_path).insert(snapshot_path.clone(), root);
+        }
+        self.file_systems_by_skill_path
+            .rebind(source_path, &snapshot_path);
+        rebind_implicit_skill_index(&mut self.implicit_skills_by_doc_path, source_path, &rebound);
+        rebind_implicit_skill_index(
+            &mut self.implicit_skills_by_scripts_dir,
+            source_path,
+            &rebound,
+        );
+        let integrity = Arc::make_mut(&mut self.integrity_by_path);
+        integrity.remove(source_path);
+        integrity.insert(snapshot_path, body_sha256);
+        Ok(())
+    }
+}
+
+fn rebind_implicit_skill_index(
+    index: &mut Arc<HashMap<AbsolutePathBuf, SkillMetadata>>,
+    source_path: &AbsolutePathBuf,
+    rebound: &SkillMetadata,
+) {
+    for skill in Arc::make_mut(index).values_mut() {
+        if &skill.path_to_skills_md == source_path {
+            *skill = rebound.clone();
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -152,6 +240,17 @@ impl SkillFileSystemsByPath {
                 .map(|(path, fs)| (path.clone(), Arc::clone(fs)))
                 .collect(),
         );
+    }
+
+    fn remove(&mut self, path: &AbsolutePathBuf) {
+        Arc::make_mut(&mut self.values).remove(path);
+    }
+
+    fn rebind(&mut self, source_path: &AbsolutePathBuf, snapshot_path: &AbsolutePathBuf) {
+        let values = Arc::make_mut(&mut self.values);
+        if let Some(file_system) = values.remove(source_path) {
+            values.insert(snapshot_path.clone(), file_system);
+        }
     }
 }
 
@@ -207,5 +306,57 @@ pub fn filter_skill_load_outcome_for_product(
             .map(|(path, skill)| (path.clone(), skill.clone()))
             .collect(),
     );
+    outcome.integrity_by_path = Arc::new(
+        outcome
+            .integrity_by_path
+            .iter()
+            .filter(|(path, _)| retained_paths.contains(*path))
+            .map(|(path, hash)| (path.clone(), hash.clone()))
+            .collect(),
+    );
     outcome
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    use codex_protocol::protocol::SkillScope;
+    use codex_utils_absolute_path::test_support::PathBufExt;
+    use codex_utils_absolute_path::test_support::test_path_buf;
+
+    fn skill(path: &str) -> SkillMetadata {
+        SkillMetadata {
+            name: "taskspace-advanced".to_string(),
+            description: "advanced TaskSpace guidance".to_string(),
+            short_description: None,
+            interface: None,
+            dependencies: None,
+            policy: None,
+            path_to_skills_md: test_path_buf(path).abs(),
+            scope: SkillScope::System,
+        }
+    }
+
+    #[test]
+    fn rebind_skill_to_snapshot_moves_catalog_identity_and_integrity() {
+        let source = test_path_buf("/tmp/.system/taskspace-advanced/SKILL.md").abs();
+        let snapshot =
+            test_path_buf("/tmp/.system/.snapshots/abc/taskspace-advanced/SKILL.md").abs();
+        let mut outcome = SkillLoadOutcome {
+            skills: vec![skill(source.to_string_lossy().as_ref())],
+            ..Default::default()
+        };
+
+        outcome
+            .rebind_skill_to_snapshot(&source, snapshot.clone(), "abc".to_string())
+            .expect("rebind snapshot");
+
+        assert_eq!(outcome.skills[0].path_to_skills_md, snapshot);
+        assert_eq!(
+            outcome.expected_body_sha256(&outcome.skills[0]),
+            Some("abc")
+        );
+        assert!(outcome.remove_skill_at_path(&snapshot).is_some());
+        assert!(outcome.skills.is_empty());
+    }
 }

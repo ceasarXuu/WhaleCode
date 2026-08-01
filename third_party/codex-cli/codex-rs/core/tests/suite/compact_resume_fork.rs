@@ -19,8 +19,13 @@ use codex_core::spawn::CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Settings;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::MapRuntimeEvent;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::WarningEvent;
 use codex_protocol::user_input::UserInput;
 use core_test_support::context_snapshot;
@@ -791,6 +796,7 @@ async fn start_test_conversation(
         config.model_provider.name = "Non-OpenAI Model provider".to_string();
         config.model_provider.base_url = Some(base_url);
         config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_string());
+        config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAppend);
         if let Some(model) = model {
             config.model = Some(model);
         }
@@ -834,6 +840,64 @@ async fn compact_conversation(conversation: &Arc<CodexThread>) {
     };
     assert_eq!(message, COMPACT_WARNING_MESSAGE);
     wait_for_event(conversation, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn taskspace_manual_compact_rollout_resumes_without_event_sequence_gap() {
+    if network_disabled() {
+        println!("Skipping test because network is disabled in this sandbox");
+        return;
+    }
+
+    let server = MockServer::start().await;
+    mount_sse_sequence(
+        &server,
+        vec![sse(vec![
+            ev_assistant_message("compact-summary", SUMMARY_TEXT),
+            ev_completed("compact-response"),
+        ])],
+    )
+    .await;
+    let (_home, config, manager, conversation) = start_test_conversation(&server, None).await;
+
+    conversation
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await
+        .expect("enable TaskSpace");
+    wait_for_event(&conversation, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+    conversation
+        .inject_response_items(vec![
+            ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "persisted task".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            ResponseItem::Message {
+                id: None,
+                role: "assistant".to_string(),
+                content: vec![ContentItem::OutputText {
+                    text: "persisted response".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+        ])
+        .await
+        .expect("seed persisted TaskSpace history");
+
+    compact_conversation(&conversation).await;
+    let rollout_path = fetch_conversation_path(&conversation);
+    let resumed = resume_conversation(&manager, &config, rollout_path.clone()).await;
+    assert_eq!(fetch_conversation_path(&resumed), rollout_path);
 }
 
 fn fetch_conversation_path(conversation: &Arc<CodexThread>) -> std::path::PathBuf {

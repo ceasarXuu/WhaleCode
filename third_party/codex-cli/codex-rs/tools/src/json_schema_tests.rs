@@ -99,6 +99,24 @@ fn parse_tool_input_schema_preserves_integer_and_defaults_array_items() {
 }
 
 #[test]
+fn array_min_items_round_trips_without_affecting_other_arrays() {
+    let constrained = JsonSchema::array(JsonSchema::string(None), None).with_min_items(1);
+    let value = serde_json::to_value(&constrained).expect("serialize schema");
+
+    assert_eq!(value["minItems"], serde_json::json!(1));
+    assert_eq!(value["items"]["type"], serde_json::json!("string"));
+
+    let parsed = parse_tool_input_schema(&value).expect("parse schema");
+    assert_eq!(parsed, constrained);
+    assert_eq!(
+        serde_json::to_value(JsonSchema::array(JsonSchema::string(None), None))
+            .expect("serialize unconstrained schema")
+            .get("minItems"),
+        None
+    );
+}
+
+#[test]
 fn parse_tool_input_schema_sanitizes_additional_properties_schema() {
     // Example schema shape:
     // {
@@ -184,12 +202,16 @@ fn parse_tool_input_schema_infers_number_from_numeric_keywords() {
     // Expected normalization behavior:
     // - Numeric constraint keywords imply a number schema when `type` is
     //   omitted.
+    // - Supported numeric constraints remain present after normalization.
     let schema = parse_tool_input_schema(&serde_json::json!({
         "minimum": 1
     }))
     .expect("parse schema");
 
-    assert_eq!(schema, JsonSchema::number(/*description*/ None));
+    assert_eq!(
+        schema,
+        JsonSchema::number(/*description*/ None).with_minimum(1)
+    );
 }
 
 #[test]
@@ -710,6 +732,41 @@ fn parse_tool_input_schema_preserves_nested_any_of_property() {
             /*required*/ None,
             /*additional_properties*/ None
         )
+    );
+}
+
+#[test]
+fn parse_tool_input_schema_preserves_local_definitions_and_references() {
+    let schema = parse_tool_input_schema(&serde_json::json!({
+        "type": "object",
+        "$defs": {
+            "command": {
+                "type": "object",
+                "properties": { "cmd": { "type": "string" } },
+                "required": ["cmd"],
+                "additionalProperties": false
+            }
+        },
+        "properties": {
+            "action": { "$ref": "#/$defs/command" }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+    }))
+    .expect("parse schema");
+
+    assert_eq!(
+        schema.properties.as_ref().unwrap()["action"]
+            .schema_ref
+            .as_deref(),
+        Some("#/$defs/command")
+    );
+    assert_eq!(
+        schema.definitions.as_ref().unwrap()["command"]
+            .properties
+            .as_ref()
+            .unwrap()["cmd"],
+        JsonSchema::string(None)
     );
 }
 

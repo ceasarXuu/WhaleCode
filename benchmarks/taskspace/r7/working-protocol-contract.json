@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-taskspace-core-working-protocol",
+  "status": "superseded_historical_evidence",
+  "protocol": {
+    "schema_version": "taskspace-core-working-protocol-v1",
+    "protocol_version": "1.0.4",
+    "rules_sha256": "6bec1ac8d0b1e2d3f84f2361622933066d0dbe3c25a4b562ab8a6f8c3d26448a",
+    "source": "third_party/codex-cli/codex-rs/core/src/context/taskspace_working_protocol.rs"
+  },
+  "version_history": [
+    {
+      "protocol_version": "1.0.0",
+      "rules_sha256": "d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa",
+      "status": "evaluated_not_accepted",
+      "implementation_commit": "daf6b4787",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.0-result.json"
+    },
+    {
+      "protocol_version": "1.0.1",
+      "rules_sha256": "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db",
+      "status": "evaluated_superseded",
+      "change": "explicit_same_response_lifecycle_batching",
+      "secondary_intent": "concise_rules_not_achieved",
+      "predecessor": "1.0.0",
+      "implementation_commit": "deacc3405",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json"
+    },
+    {
+      "protocol_version": "1.0.2",
+      "rules_sha256": "b9217a385a451a23cf2b27593065709404b63c7723c9a9d749b94d8c33828574",
+      "status": "evaluated_superseded",
+      "change": "atomic_complete_then_continue_and_complete_then_end",
+      "secondary_intent": "remove_provider_visible_standalone_complete",
+      "predecessor": "1.0.1",
+      "implementation_commit": "26814f3f4",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.2-result.json"
+    },
+    {
+      "protocol_version": "1.0.3",
+      "rules_sha256": "6d4dd3049120ac78dec8b4bfb6098c8c12416748606aa8be130551343a15aa97",
+      "status": "evaluated_not_accepted",
+      "change": "top_level_continuation_scalar",
+      "secondary_intent": "remove_nested_tool_payloads",
+      "predecessor": "1.0.2",
+      "implementation_commit": "839832c5f",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.3-result.json"
+    },
+    {
+      "protocol_version": "1.0.4",
+      "rules_sha256": "6bec1ac8d0b1e2d3f84f2361622933066d0dbe3c25a4b562ab8a6f8c3d26448a",
+      "status": "evaluated_superseded",
+      "change": "explicit_required_next_call_declaration",
+      "secondary_intent": "preserve_same_response_control_patch_batching",
+      "predecessor": "1.0.3",
+      "implementation_commit": "12e7f8e3e",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.4-result.json"
+    }
+  ],
+  "scope": {
+    "taskspace_projection_policies": [
+      "map-always",
+      "map-append",
+      "map-request"
+    ],
+    "standard_injection_count": 0,
+    "policy_specific_variants_allowed": false
+  },
+  "delivery": {
+    "role": "developer",
+    "provider_wire_roles": [
+      "developer",
+      "system"
+    ],
+    "provider_input_position": 0,
+    "taskspace_count_per_request": 1,
+    "persistent_in_natural_history": false,
+    "dynamic_fields_allowed": false,
+    "map_state_allowed": false,
+    "projection_policy_details_allowed": false
+  },
+  "responsibility": {
+    "protocol": "agent_working_method",
+    "tool_schema": "available_actions_and_argument_mechanics",
+    "runtime": "hard_graph_and_lifecycle_validation_only",
+    "projection": "faithful_map_facts_only"
+  },
+  "versioning": {
+    "semantic_or_behavioral_rule_change": "bump_protocol_version_and_rules_sha256",
+    "rule_text_byte_change": "bump_protocol_version_and_rules_sha256",
+    "envelope_or_identity_shape_change": "bump_protocol_schema_version",
+    "delivery_mechanism_change": "new_benchmark_candidate_and_contract_revision",
+    "silent_rule_change_allowed": false,
+    "result_join_key": [
+      "protocol.schema_version",
+      "protocol.protocol_version",
+      "protocol.rules_sha256",
+      "git_commit"
+    ]
+  },
+  "observability": {
+    "wire_trace_schema_minimum": "provider-chat-wire-trace-v4",
+    "per_request_fields": [
+      "count",
+      "message_index",
+      "wire_role",
+      "message_bytes",
+      "estimated_tokens",
+      "schema_version",
+      "protocol_version",
+      "rules_sha256",
+      "matches_current_contract"
+    ],
+    "summary_artifact": "provider-cache-trace-summary.json",
+    "summary_field": "taskspace_working_protocol_identity_summary"
+  },
+  "acceptance": {
+    "taskspace_exactly_once_rate": 1.0,
+    "current_contract_match_rate": 1.0,
+    "standard_present_count": 0,
+    "provider_prefix_position_stable": true,
+    "same_protocol_hash_across_projection_policies": true
+  }
+}

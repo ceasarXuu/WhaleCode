@@ -1,0 +1,1478 @@
+# Subagent VS Review: R7.1 W0 事实基础
+
+- Created: 2026-07-30T03:19:45+08:00
+- Updated: 2026-07-30T11:53:00+08:00
+- Report schema: adversarial-v1
+- Task: 审查 R7.1 W0 的实现、测试、真实样本证据与问题关闭是否成立
+- Report path: `vs_review/2026-07-30-r7-1-w0-factual-foundation-review.md`
+- Review mode: fresh internal subagents
+- Source session policy: no inherited main-agent context
+- Status: blocked
+
+## Round 1: W0 完整性与证据有效性审查
+
+### Review Input
+
+#### Objective
+
+独立尝试证伪 W0 已完成的结论。W0 声明关闭：
+
+- `R71-GI-007`：每个 provider request 的唯一一级失败分类、secondary tags、sibling copy 和
+  receipt/revision/cache 归因；
+- `R71-GI-005`：节点状态拒绝向 Agent 忠实透传 Runtime 已知的机械事实，不注入动作建议。
+
+#### Review Target
+
+代码实现、生产接线、测试有效性、真实运行日志、COE 证据和关闭文档。
+
+#### Target Locations
+
+- `third_party/codex-cli/codex-rs/core/src/action_map/response.rs`
+- `third_party/codex-cli/codex-rs/core/src/action_map/rooted_dag/`
+- `third_party/codex-cli/codex-rs/core/src/action_map/runtime/transactions.rs`
+- `third_party/codex-cli/codex-rs/core/src/session/taskspace_response.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/sequence.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+- `third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs`
+- `scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1`
+- `scripts/taskspace-benchmark/lib/r7-request-observability.ps1`
+- `scripts/taskspace-benchmark/lib/ordinary-tool-outcome.ps1`
+- `scripts/taskspace-benchmark/lib/native-cadence.ps1`
+- `scripts/taskspace-benchmark/lib/performance-observation.ps1`
+- `scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1`
+- `scripts/taskspace-benchmark/test-*.ps1`
+- `docs/v0.0.5/build-R7/47-r7.1-global-issue-register.md`
+- `docs/v0.0.5/build-R7/48-r7.1-w0-factual-foundation-result.md`
+- `coe/2026-07-29-19-18-r7-a2-c-rejection-taxonomy.md`
+- `target/r7-w0-live-credentialed/subscription-billing-repair/20260730-025642-404`
+- Commit range `1d086fd7e^..a9264f5ff`
+
+#### Change Introduction
+
+W0 新增 request 级失败 taxonomy 和 provider wire receipt identity，扩展节点状态 violation 的结构化事实，
+统一 ordinary Tool 失败解析，并据此将 GI-005、GI-007 从开放问题移入关闭记录。
+
+#### Risk Focus
+
+- 状态事实是否在所有生产失败路径中保留，还是只有部分 transaction/sequence 路径保留；
+- `node_state_invalid` 是否错误替代其他 violation，或泄漏语义判断/动作建议；
+- request 一级分类是否真的互斥且完整，优先级是否掩盖更关键的失败；
+- sibling copy 去重是否会把多个真实独立失败误当复制；
+- receipt-before、wire role、revision 和 cache 是否存在 off-by-one、错误 carrier 或缺失 terminal 事件；
+- observer 是否仍可在解析失败、缺失边界、未知 schema 或旧字段下生成误导性完整报告；
+- 单次 live sample 是否足够满足关闭标准，测试是否只验证实现自身叙事；
+- metrics、performance report 和 request taxonomy 是否仍有平行口径。
+
+#### User-Perspective Review Focus
+
+- Agent 实际看到的状态拒绝是否完整、直接、可理解且无 Runtime 建议；
+- 失败信息是否因 sibling 复制、嵌套字符串、角色转换或上下文构造而扭曲；
+- 报告读者能否明确区分业务成功、普通 Tool 失败、协议失败、状态失败和 Map terminal。
+
+#### Implementation Completeness Focus
+
+- 从 rooted DAG 产生 violation，到 runtime/session/sequence，再到 model-visible Tool output 的完整生产路径；
+- 从 rollout/provider wire 原始事件，到 request reconstruction、matrix report 和性能报告的完整生产路径；
+- Waiting、Completed、Blocked、Ready/InFlight、multi-parent、重复 reservation、原子零执行等测试是否覆盖真实入口；
+- live artifacts 是否由本次实现二进制产生，是否存在事后手工改写、mock 或只在测试中生效的接线。
+
+#### Target Benefit Focus
+
+- W0 声明的收益是“事实可可信归因”和“状态反馈无丢失/扭曲”，不是降低 request、token 或 wall time；
+- 检查 baseline、关闭标准、测量方法、对比证据和可能回归；
+- 不把 receipt-before 的低缓存、sequence failure 或 Agent 第二次误选节点误写成 W0 已解决收益。
+
+#### Assumptions To Attack
+
+- `token_count` 与 provider request 一一对应；
+- wire trace terminal cache facts 总是完整且顺序稳定；
+- 同 request 内最高优先级 failure class 足以表示唯一根因；
+- 相同 failure signature 的 sibling 结果必然只是复制；
+- model-visible failure JSON 总在首行且可完整解析；
+- `actual_state` 和 `unsatisfied_predecessor_ids` 在并发或多前驱状态下保持一致；
+- live request 12、13、14 足以证明没有因原因缺失发生同形重试；
+- historical metrics 不会污染新报告或关闭结论。
+
+#### Adversarial Lenses
+
+- requirements
+- state
+- failure
+- data
+- implementation-completeness
+- target-benefit
+- testing
+- observability
+- maintenance
+
+#### Verification Status
+
+- Rust rooted DAG、sequence、runtime transaction 和 model-visible 聚焦测试已通过；
+- provider wire receipt identity 聚焦测试已通过；
+- PowerShell trace、request observer、performance、metrics、cost、contract、matrix 和 harness 门禁已通过；
+- locked Whale build 已通过；
+- `subscription-billing-repair` Standard/TaskSpace 各运行一次并通过外部验证；
+- 尚未执行 W0 的独立对抗性审查；
+- 单次 live run 只作为诊断验收，不作为 projection policy 晋升证据。
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+- Try to falsify the closure of GI-005 and GI-007.
+- Report only correctness, completeness, evidence, observability, maintenance, or user-comprehension issues with concrete counterexamples.
+- Distinguish blocking findings from non-blocking benefit warnings.
+
+### Internal Subagent Unavailable Fallback
+
+- Internal subagent unavailable reason: n/a
+- Local CLI discovery commands: n/a
+- Discovered CLI candidates: n/a
+- User-recommended alternative agent requested: n/a
+- User-recommended agent command: n/a
+- User-recommended agent verification: n/a
+- User approval requested: n/a
+- User-approved CLI command: n/a
+- User decision: n/a
+- Fallback outcome: n/a
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 20 minutes | 10 minutes once when alive | 2 | accepted blocking finding must be fixed and reviewed by a fresh replacement |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| implementation-completeness-adversary | W0 已声明阶段完成并关闭两个问题，首要风险是生产接线、真实证据或关闭标准只完成一部分 | 状态反馈全链路、observer 全链路、测试与 live evidence |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| implementation-completeness-adversary | `multi_agent_v1.spawn_agent` | `019faf52-85fa-7260-897c-55634799451c` (`Heisenberg`) | spawn tool result in parent session | `fork_context=false` | Round 1 Review Input | main-agent history、reasoning、drafts、conclusions、full diff dump | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer | Attempt | Wait | Result | Action |
+|---|---:|---:|---|---|
+| implementation-completeness-adversary | 1 | 20 minutes maximum | completed within initial wait | completed |
+
+### Reviewer Outputs
+
+#### Summary
+
+Reviewer verdict: **W0 的关闭结论不成立，应重新打开 R71-GI-005 和 R71-GI-007**。
+
+结构化状态事实已经进入 Function/Custom Tool 输出，保留样本也确实包含 Waiting/Completed
+拒绝。但 ToolSearch sibling 会扭曲该结构，observer 遗漏受支持的非 Function Tool
+形态，畸形失败仍能作为 ordinary Tool 完成对账，sibling copy 缺乏因果身份，保留样本也没有证明最终
+实现候选。
+
+#### Blocking Findings
+
+1. **GI-007 taxonomy 遗漏受支持的非 Function request 形态。**
+   - Broken assumption: 所有生产 Tool request 都进入一级分类。
+   - Trigger: `custom_tool_call`、`tool_search_call` 或 `local_shell_call` 在 Standard/TaskSpace
+     中失败。
+   - Evidence:
+     `scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1:185-260` 只解析
+     `function_call/function_call_output`；生产事件 codec 在
+     `third_party/codex-cli/codex-rs/core/src/action_map/event_codec.rs:107-138`
+     支持更多类型。
+   - Impact: 失败 Tool 可被遗漏，request 仍被归为 `none`，总数仍可形成表面正确的对账。
+   - Proof needed: 两种模式覆盖所有受支持执行型 call/output 载体的生产 fixture。
+
+2. **GI-007 对畸形失败和不完整 receipt fail-open。**
+   - Broken assumption: `classification_reconciled=true` 表示所有失败和因果事实都已成功解析。
+   - Trigger: failure JSON 畸形，或 receipt 有 role 但 hash/revision/delta 缺失、`complete=false`。
+   - Evidence:
+     `r7-five-layer-trace-analysis.ps1:68-123` 静默吞掉 JSON 解析错误并降级为
+     `ordinary_tool/tool_failed_unclassified`；`r7-request-observability.ps1:132-165`
+     只复制 receipt 字段，没有完整性门禁。
+   - Impact: 损坏或因果不完整的证据仍可被标记为已知、已对账、可比较。
+   - Proof needed: schema/parse health/receipt identity 门禁将结果降为 `partial` 或 `blocked`。
+
+3. **GI-007 sibling-copy 统计把独立失败合并。**
+   - Broken assumption: 相同 class/code/violation signature 可以证明 sibling-copy 身份。
+   - Trigger: 两个独立执行的 call 都返回 `shell_exit_1`，或两个节点独立产生相同 state violation。
+   - Evidence:
+     `r7-request-observability.ps1:23-49` 的 signature 不包含 call identity、执行状态或因果来源；
+     reviewer 和主线程反例都得到 `2 failed calls -> 1 sibling copy`。
+   - Impact: 多个真实独立失败被错误从唯一失败计数中删除。
+   - Proof needed: 显式 derivative-copy 因果身份或等价的 zero-dispatch provenance。
+
+4. **GI-005 状态事实没有在 ToolSearch sibling 输出中忠实保留。**
+   - Broken assumption: 每个 model-visible sibling 都直接保留结构化状态反馈，且不存在嵌套 JSON。
+   - Trigger: 状态拒绝与 ToolSearch sibling 同时出现。
+   - Evidence:
+     `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs:349-393` 生成
+     `status=completed` 的空 ToolSearch pairing，并将原始失败 JSON 放入
+     `ToolSearchFailureV1.error.message` 字符串；
+     `third_party/codex-cli/codex-rs/core/src/tools/sequence.rs:460-470` 将同一状态失败复制到每个 call。
+   - Impact: sibling 表面完成，直接 `error.violations[]` 丢失，嵌套 JSON 回归。
+   - Proof needed: TaskSpace state rejection + ToolSearch 的端到端测试，断言失败语义和 typed facts。
+
+5. **保留 live run 不能证明最终关闭候选。**
+   - Broken assumption: 当前 retained run 由最终脚本和可验证二进制生成。
+   - Trigger: build attestation 无效，观测 artifact 早于最后 metrics 实现提交生成。
+   - Evidence:
+     `whale-binary-preflight-health.json:20-22` 为
+     `binary_sha_mismatch,codex_source_commit_mismatch`；
+     `run-status.json` 的 `final_aggregate_ready=false` 且 provenance 字段为空；
+     `performance-observation.json` 与 `w0-request-observability.json` 均早于
+     `4a136ca32` 生成。
+   - Impact: source-to-binary provenance 和最终共享 metrics 行为没有被 retained evidence 证明。
+   - Proof needed: 修复后由最终 committed candidate 生成、attestation 通过的 live run。
+
+#### Non-blocking Risks
+
+1. 单次运行不能证明“不再因同一原因重复同形请求”的收益具有稳定性；需要 repeat 或显式 retry-cause
+   telemetry。
+2. rollout、wire、receipt 和 cache 仍依赖 request 位置对齐；等长但重排/重复时会错配，需要跨源逻辑
+   request identity。
+3. 关闭文档的恢复路径叙述错误：request 14 实际是 `read_map`，request 15 才执行 corrective
+   Patch，且出现 ordinary `apply_patch` failure。
+
+#### User-Perspective Checks
+
+| Check | Result |
+|---|---|
+| Function-call Waiting/Completed rejection 直接返回事实且不注入建议 | pass |
+| ToolSearch sibling 返回同样清晰的状态事实 | fail |
+| 报告读者能相信每个 request 只有一个正确一级分类 | fail |
+| receipt/revision/cache 归因完整且因果相连 | partial |
+| Agent 无需中间 read 即完成纠正 | fail |
+| 证据畸形或不完整时报告 fail-closed | fail |
+
+#### Implementation Completeness
+
+| Area | Status |
+|---|---|
+| GI-005 typed DAG state facts | complete |
+| GI-005 Function/Custom response path | complete |
+| GI-005 ToolSearch sibling path | incomplete, blocking |
+| GI-005 state matrix tests | partial |
+| GI-007 Function-call taxonomy | partial |
+| GI-007 complete request taxonomy | incomplete, blocking |
+| GI-007 sibling-copy correlation | incomplete, blocking |
+| GI-007 receipt/revision/cache capture | partial |
+| GI-007 fail-closed behavior | incomplete, blocking |
+| Final live-evidence provenance | incomplete, blocking |
+
+#### Target Benefit Checks
+
+- Function-call 路径已经实现直接事实反馈。
+- “所有受支持 request 均可可信归因”尚未实现。
+- live sample 的 9 个 receipt correlation 只能证明该样本有数据，不能证明通用完整性。
+- 单次运行不能证明消除了 cause-based retry。
+- W0 不要求性能收益，本审查没有将 request/token/cache 波动当作阻断项。
+
+#### Required Fixes
+
+- 扩展 trace extraction/taxonomy 到所有受支持的执行型 call/output 载体。
+- 使用显式 derivative-copy provenance 取代 signature 去重。
+- ToolSearch sibling 保留结构化状态事实和失败语义。
+- parse/schema/receipt/cadence/provenance 缺陷必须让报告降级并失去比较资格。
+- rollout/wire/receipt/revision/cache 使用稳定的逻辑 request identity。
+- 生成 final-commit-attested live run，并纠正文档中的 request 14 叙述。
+
+#### Missing Tests
+
+- TaskSpace state rejection + ToolSearch sibling。
+- Standard/TaskSpace 的 Custom、ToolSearch、LocalShell taxonomy。
+- malformed failure JSON 导致报告拒绝。
+- 独立同码失败与真正 sibling copy 的区分。
+- receipt 缺 hash/revision/delta、`complete=false`、旧 schema 和多 receipt。
+- cadence 解析错误令顶层 observation 失去资格。
+- 跨源重排、retry、重复 terminal、缺 output。
+- retained artifact 保存 request identity、source hash 和 implementation commit。
+
+#### Missing Logs / Observability
+
+- 每个 call 的 parse status 和 schema version。
+- derivative copy 的 causal call ID/copy group/zero-dispatch reason。
+- 跨源 durable logical request ID。
+- receipt identity 完整性计数。
+- structured 与 nested sibling failure carrier 形态。
+- artifact generator version、implementation commit、source hashes 和 final aggregate readiness。
+
+## Round 2: W0 修复闭环复审
+
+### Review Input
+
+#### Objective
+
+独立尝试证伪 R71-GI-005 与 R71-GI-007 已达到关闭条件的主张，并逐项复测 Round 1 的 6 个
+blocking findings。
+
+#### Review Target
+
+- W0 修复提交 `e9d705a23558d3f777179ad8696351866e79081a`
+- 当前文档提交 `e7c600f25`
+- 全局约束 C-01 至 C-21
+- W0 代码、测试、COE、唯一问题清单和 final-commit retained matrix
+
+#### Target Locations
+
+- `third_party/codex-cli/codex-rs/core/src/action_map/response.rs`
+- `third_party/codex-cli/codex-rs/core/src/action_map/rooted_dag/`
+- `third_party/codex-cli/codex-rs/core/src/tools/failure_provenance.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/sequence.rs`
+- `third_party/codex-cli/codex-rs/core/src/provider_wire_trace.rs`
+- `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- `third_party/codex-cli/codex-rs/protocol/src/protocol.rs`
+- `scripts/taskspace-benchmark/lib/r7-call-evidence.ps1`
+- `scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1`
+- `scripts/taskspace-benchmark/lib/r7-request-observability.ps1`
+- `scripts/taskspace-benchmark/lib/r7-artifact-provenance.ps1`
+- `scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1`
+- `scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1`
+- `docs/v0.0.5/build-R7/38-r7-five-layer-integrated-change-constraints.md`
+- `docs/v0.0.5/build-R7/47-r7.1-global-issue-register.md`
+- `docs/v0.0.5/build-R7/48-r7.1-w0-factual-foundation-result.md`
+- `coe/2026-07-29-19-18-r7-a2-c-rejection-taxonomy.md`
+- `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/e9d705a23558d3f777179ad8696351866e79081a/20260730-045032-584`
+
+#### Change Introduction
+
+Round 2 候选扩展 call/output 观测模型并使证据 fail-closed；增加 explicit zero-dispatch copy provenance
+和 provider request identity；重构 ToolSearch failure carrier；拆分 canonical/evaluated state scope；
+正式矩阵增加 binary/run artifact provenance 门。
+
+#### Risk Focus
+
+- 生产接线是否完整，还是测试只验证自定义 fixture；
+- malformed、unknown、orphan、duplicate、missing、retry 和重排是否仍可 fail-open；
+- request/logical request/attempt identity 是否真实因果关联；
+- provenance 是否可接受 stale、dirty、伪造、部分或事后生成工件；
+- ToolSearch、Custom、LocalShell、MCP 是否保留准确失败语义；
+- 新增反馈是否违反 C-01 至 C-21，尤其 Runtime 越界、普通 Tool 侵入和语义建议；
+- retained matrix 是否真的满足 GI-005/GI-007 close criteria。
+
+#### User-Perspective Review Focus
+
+Agent-visible feedback 必须是直接、机械、无歧义、无丢失且无动作建议的事实；报告读者必须能区分业务成功、
+Tool execution、协议/状态失败、sibling copy、receipt/cache 和 evidence invalidity。
+
+#### Implementation Completeness Focus
+
+逐段追踪 DAG violation 到 model-visible result，以及 provider response 到 rollout/wire、observer、
+eligibility 和报告的完整生产链；检查 fixture 是否与生产 ResponseItem 和事件形态一致。
+
+#### Target Benefit Focus
+
+W0 只声明可信事实归因和无扭曲状态反馈，不声明请求、Token 或缓存收益。审查应验证这些收益边界，没有把
+GI-001/003/004 的现存失败误写为 W0 收益。
+
+#### Assumptions To Attack
+
+- 非 Function Tool 形态均被完整覆盖；
+- token count 只对应完成的 provider response；
+- retry/terminal 重排不会破坏 identity；
+- attestation/provenance 不可由不一致工件伪造；
+- null canonical state 对 rejected transaction 中新节点仍无歧义；
+- `classification_reconciled=true` 必然意味着证据完整。
+
+#### Adversarial Lenses
+
+- requirements
+- state
+- failure
+- data
+- implementation-completeness
+- target-benefit
+- testing
+- observability
+- maintenance
+
+#### Verification Status
+
+- `cargo test -p codex-core --lib`：1926 passed、0 failed、3 ignored；
+- `cargo check --workspace`：passed；
+- 相关 PowerShell trace/report/cost/performance/harness tests：passed；
+- retained matrix：24/24 business success、taxonomy reconciled、artifact provenance valid。
+
+#### Reviewer Instructions
+
+- fresh internal subagent；
+- `fork_context=false`，不继承主线程历史；
+- 只读，直接读取目标文件与原始 artifact；
+- 不修改文件；
+- 尝试证伪而不是确认；
+- blocking finding 必须给出反例、触发条件、影响、所需证明及路径行号。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| high-risk | 25 minutes | 10 minutes once when alive | 2 | accepted blocking finding 必须修复并由新的 fresh reviewer 复审 |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| implementation-completeness-adversary | Round 1 blocking closure 修复涉及状态反馈、Tool carrier、provider identity 和正式证据链 | 生产接线、证据 fail-closed、全局边界回归 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| implementation-completeness-adversary | `multi_agent_v1.spawn_agent` | `019fafaf-810e-72f1-bea0-ced3007b425e` (`Boyle`) | spawn tool result in parent session | false | Round 2 Review Input | 主线程历史、reasoning、草稿、结论、完整 diff dump | yes |
+
+## Round 1 Main Agent Response
+
+#### Blocking Finding Triage
+
+1. `accept`：生产事件类型与 observer 支持集合确实不一致；归入重新打开的 GI-007。
+2. `accept`：主线程反例确认畸形 `TaskSpaceResponseCommitFailureV1` 被归为
+   `ordinary_tool/tool_failed_unclassified`，且 `classification_reconciled=true`；归入 GI-007。
+3. `accept`：主线程反例确认两个独立 `shell_exit_1` 被统计为一份 sibling copy；归入 GI-007。
+4. `accept`：ToolSearch provider pairing 的 `completed` 可能是载体合同，但 supplemental failure
+   确实把 typed state payload 重新嵌套为 message 字符串；归入 GI-005。
+5. `accept`：attestation 和最终实现证据不合格；重新验收必须由修复后的最终 commit 生成。
+   Reviewer 所述“13/21 requests 与文档 2/3 冲突”不成立：文档同样记录 13/21，2/3 是失败普通
+   Tool call 数。本裁决接受 provenance 阻断，不接受该附带表述。
+
+#### Non-blocking Risk Triage
+
+1. `accept`：稳定收益需要 repeat；作为重新关闭 GI-005 的 live 行为证据要求。
+2. `accept`：位置相关不是可靠因果 identity；作为 GI-007 的工程验收项。
+3. `accept`：保留 trace 明确显示 request 14 是 `read_map`，request 15 才是 corrective execute；
+   W0 历史结果文档需要纠正。
+
+#### Required Fix Triage
+
+- `accept`：扩展所有受支持执行型 call/output 载体的观测支持；tracked by GI-007。
+- `accept`：引入明确的 derivative-copy provenance；tracked by GI-007。
+- `accept`：修复 ToolSearch sibling 的状态失败 carrier；tracked by GI-005。
+- `accept`：所有 evidence health 缺陷统一 fail-closed；tracked by GI-007。
+- `accept`：建立跨源逻辑 request identity；tracked by GI-007。
+- `accept`：最终 committed candidate 重新实跑并纠正文档；tracked by GI-005/GI-007。
+
+#### Missing Test Triage
+
+- `accept`：增加 state rejection + ToolSearch sibling 测试。
+- `accept`：增加 Custom/ToolSearch/LocalShell 双模式 taxonomy 测试。
+- `accept`：增加 malformed failure JSON fail-closed 测试。
+- `accept`：增加 independent same-code 与 derivative copy 对照测试。
+- `accept`：增加 receipt identity 完整性矩阵。
+- `accept`：增加 cadence parse failure 顶层失效测试。
+- `accept`：增加跨源重排、retry、重复 terminal、缺 output 测试。
+- `accept`：增加 retained artifact provenance 测试。
+
+#### Missing Observability Triage
+
+- `accept`：记录 per-call parse/schema health。
+- `accept`：记录 derivative-copy causal identity 和 zero-dispatch provenance。
+- `accept`：记录 durable logical request identity。
+- `accept`：输出 receipt identity completeness counters。
+- `accept`：输出 sibling failure carrier shape。
+- `accept`：输出 artifact generator/source/finalization provenance。
+
+#### Main-Agent Supplemental Blocking Finding
+
+6. **`actual_state` 混淆拒绝事务中的临时候选状态与 canonical 状态。**
+   - `transactions.rs:219-228` 先应用 `complete_node` 再应用 reservation；
+   - live request 13 在同一拒绝事务内先完成 `explore`，再尝试把 action 绑定到 `explore`；
+   - rejection 返回 `state_commit=false`、`canonical_revision=17`，同时返回
+     `actual_state=completed`；
+   - Agent 在下一轮明确把它理解为 canonical Map 中 “explore already completed”，随后额外
+     `read_map`；read_map 显示 revision 17 的 `explore` 实际仍为 `ready`。
+   - Triage: `accept`，blocking，归入 GI-005。
+   - Required product contract: 同时忠实区分 canonical pre-transaction state 与
+     evaluated-at-violation state，不注入建议、不解释任务语义。
+
+#### Main-Agent Counterexample Validation
+
+```json
+{
+  "independent_failed_calls": 2,
+  "reported_sibling_copies": 1,
+  "malformed_failure_class": "ordinary_tool",
+  "malformed_failure_code": "tool_failed_unclassified",
+  "malformed_classification_reconciled": true
+}
+```
+
+### Closure Status
+
+- Blocking findings found: 6
+- Accepted blocking findings fixed: no
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Blocking re-review round links:
+  - pending after fixes
+- Blocking re-review launch records:
+  - pending after fixes
+- Rejected findings backed by evidence: reviewer finding 5 的附带数值冲突表述已用文档与 artifact
+  字段语义驳回
+- Deferred findings documented: none
+- Implementation completeness gaps resolved or accepted by user: no
+- Target benefit warnings recorded: yes
+- Blocked reason: GI-005/GI-007 closure criteria not met; accepted blocking findings await fixes and
+  fresh closure review
+- Allowed to proceed: no
+
+## Final Conclusion
+
+W0 不能维持 `Completed`。R71-GI-005 与 R71-GI-007 必须重新打开；在实现、测试、最终 commit
+实跑和 fresh blocking closure review 全部通过前，不得进入 W1。
+
+### Reviewer Output
+
+Reviewer verdict：**R71-GI-005 与 R71-GI-007 均未达到关闭条件，W0 blocking closure 应拒绝。**
+
+#### Blocking Findings
+
+1. **Retained live trace 仍出现 candidate/canonical 误读。**
+   - `single-file-fast-fix/r-2/a1` 中，拒绝事务返回 canonical `verify=ready`、evaluated
+     `verify=completed`；
+   - Agent 随后表述 “Either way, it's already done”，并产生额外普通 Tool 请求、
+     `taskspace_control_required` 拒绝和重复测试；
+   - 这直接反驳 W0 结果文档与 COE 中“未复现”的结论。
+2. **Provider request universe 排除了失败 attempt，且 WebSocket 未接线。**
+   - observer 先过滤 `response_completed` 再检查完整性；
+   - HTTP retry 每轮生成新的 logical ID，`attempt_seq` 恒为 1；
+   - WebSocket 路径没有进入 wire request identity；
+   - retained matrix 仅覆盖 278 个成功的 ChatCompletions terminal，未覆盖 retry、cancel、
+     stream failure、shape-only 或 WebSocket。
+3. **ToolSearch zero-dispatch 仍被报告为成功，MCP fixture 不是生产形态。**
+   - ToolSearch skipped pairing 使用 `status=completed`，observer 未消费
+     `TaskSpaceToolSkippedV1` supplemental；
+   - MCP fixture 使用生产 `ResponseItem` 不存在的 `mcp_tool_call`，真实 MCP 是 namespaced
+     `FunctionCall` / `FunctionCallOutput`。
+4. **Duplicate output 与任意 Tool 文本可覆盖或伪造 failure provenance。**
+   - 同一 call 的后续 output 采用 last-write-wins；
+   - 普通 Tool 返回形似 TaskSpace failure schema 的文本时，可伪造 failure class 和 sibling
+     copy provenance。
+5. **Artifact provenance 与提交态合同门不足。**
+   - provenance 记录但不拒绝 `final_aggregate_ready=false`；
+   - raw rollout/wire 没有内容哈希锚定；
+   - attestation 未绑定 clean source tree 与可执行探针；
+   - `taskspace_contract_manifest_v1.json` 中 `sequence.rs` 哈希已漂移，
+     `test-r7-five-layer-contracts.ps1` 失败。
+
+#### Non-blocking Risks
+
+- 被拒绝事务中新建的节点只返回 `canonical_state_before_transaction=null`，没有机械区分
+  “canonical 中不存在”与“状态缺失”。
+- observer 把所有 `token_count` 当作 provider response boundary；无 provider identity 的普通
+  token/rate-limit 更新会阻断合法 trace。
+
+#### Boundary Check
+
+Reviewer 未发现 Runtime 自动选 node、自动修正 mutation、读取普通 Tool 业务参数或其他
+C-01 至 C-21 越界。阻断项集中在忠实反馈、观测全集和证据可信度。
+
+### Main Agent Triage
+
+- 5 个 blocking findings：全部 `accept`。
+- 2 个 non-blocking risks：全部 `accept`，随对应 blocking fix 一并处理。
+- Round 2 结论：W0 保持 blocked，不得进入 W1。
+- 修复依赖顺序：
+  1. canonical / rejected-candidate 事实结构；
+  2. provider dispatch / logical request / attempt / terminal identity；
+  3. Tool carrier 与可信 supplemental evidence；
+  4. build/raw artifact/final aggregate provenance；
+  5. final committed repeat-live 与 fresh closure review。
+
+## Round 3: W0 修复闭环完整性复审
+
+### Review Input
+
+- Objective: 对当前 W0 候选重新证伪 GI-005/GI-007 的关闭条件，并逐项复查 Round 1/2 blocker
+  与 C-01 至 C-21。
+- Reviewed commit: `d64b74191`
+- Review mode: fresh internal subagent，`fork_context=false`，只读。
+- Verification supplied:
+  - 24-run current-commit matrix；
+  - Rust 全量、构建、PowerShell gates；
+  - Round 1/2 修复链和 artifact provenance。
+- Required output: `PASS/BLOCKED`、可复现 blocker、全局约束矩阵、旧 blocker closure matrix，
+  不得修改文件。
+
+### Reviewer Launch Record
+
+| Reviewer | Session / Job ID | Context Forked | Read-only | Result |
+|---|---|---:|---:|---|
+| implementation-completeness-adversary (`Banach`) | `019fb018-6196-7522-a1e6-f8b9eca3c468` | false | yes | blocked |
+
+### Reviewer Output
+
+Reviewer 接受此前 candidate/canonical、provider identity、artifact provenance、ordinary Tool
+可信边界等修复，也明确裁定 4 次 `map-request` 保守 `read_map` 不是反馈丢失或扭曲。但发现三个新的
+blocking closure gap：
+
+1. **生产 `ToolSearchFailureV3` 与 observer provenance 合同漂移。**
+   - producer 没有 `failure_provenance`，observer 却强制要求；
+   - fixture 注入了生产不存在的 `tool_sequence_skip` provenance；
+   - 合法 ToolSearch 执行失败因此会被报告误判为证据损坏。
+2. **缺少 state rejection + ToolSearch 的精确组合测试。**
+   - state rejection、ToolSearch 和 complete/reserve canonical/candidate 反例分别有测试；
+   - 没有一条测试穿过真实状态机、sequence preflight 和 ToolSearch sibling 的完整路径。
+3. **TaskSpace MCP 双模式生产 fixture 不完整。**
+   - Standard 已使用 namespaced Function MCP；
+   - TaskSpace 缺同形 fixture，metrics 测试仍使用生产不存在的 `mcp_tool_call`。
+
+Round 3 的 C-01、C-14、C-15 因上述合同漂移失败，其余 C-02 至 C-21 未发现 Runtime 越界、普通
+Tool 参数侵入、Map 权威分叉或生命周期回归。
+
+### Main Agent Triage
+
+三个 blocking finding 全部 `accept`，四个 non-blocking test gap 也全部纳入同一修复：
+
+- canonical node absent 直接序列化测试；
+- provider response cross-request affected calls 反例；
+- affected call subset 与 duplicate 反例；
+- duplicate supplemental 继续 fail-closed。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| ToolSearch provenance 漂移 | 新增 `tool_execution_failure_provenance(call_id)`；producer、observer、fixture 统一要求 `scope=tool_execution`、self cause、精确单 call set、`zero_dispatch=false` | Rust producer JSON 断言；Standard/TaskSpace 正例；错误 scope、缺失/残缺/重复/cross-request 反例 |
+| state rejection + ToolSearch 缺口 | 使用真实 Map 初始化、release、complete+reserve 冲突和 ToolSearch sibling 走 production response path | canonical=`ready`、candidate=`completed`、ToolSearch execution=`failed`、完整 affected calls、零 dispatch、零 state commit |
+| TaskSpace MCP fixture 缺口 | TaskSpace observer 与 metrics fixture 改为 namespaced `function_call/function_call_output` | 两个 PowerShell harness 通过 |
+| canonical absent | 直接断言 `node_present=false`、canonical state=`null`、candidate state 保留 | Rust 单测通过 |
+
+修复还发现旧 `sync-r7-five-layer-contract-manifest.ps1` 会把当前合同降级到 FLA-1。该脚本已收敛为只生成
+当前 A2-C 五层合同，删除旧 phase/兼容分支，并由 14 项合同与 inventory gate 验证。
+
+### Replacement Review Readiness
+
+- Fix commit: `1196b4e99ca507d5cb3bcb619343053463cf752c`
+- Rust: 1931 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 14/14 passed
+- Current-commit matrix: 24/24，artifact provenance=`valid`，final aggregate=`finalized`
+- Replacement requirement: 因 Round 3 存在接受的 blocker，必须由另一名 `fork_context=false`
+  reviewer 重新审查，Banach 不得作为自己的修复关闭 reviewer。
+
+## Round 4: W0 replacement closure review
+
+### Review Input
+
+- Objective: 对 Round 3 修复候选和 current-commit retained matrix 执行 replacement closure review，
+  逐项复查 GI-005、GI-007、Round 1/2/3 blocker 与 C-01 至 C-21。
+- Reviewed commit: `3b0831208`
+- Review mode: fresh internal subagent，`fork_context=false`，只读。
+- Reviewer: implementation-completeness-adversary (`Ampere`)
+- Session / Job ID: `019fb049-4437-7331-be0e-104759654f9c`
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 接受了 Round 1/2 的主要生产链修复，但发现四个新的 blocking closure gap：
+
+1. **supplemental failure 对畸形、未知和残缺结构仍可能 fail-open。**
+   - observer 只对已成功解析且 schema 已知的 payload 做严格校验；
+   - malformed JSON、未知保留 schema family 或缺少关键字段的可信 developer carrier 可能被跳过。
+2. **state rejection + ToolSearch 组合测试没有穿过异步生产入口。**
+   - 现有测试覆盖内部 sequence helper，但没有证明 `execute_response_tool_sequence` 在 dispatch 前执行相同
+     preflight 和零提交路径。
+3. **状态拒绝的文档统计与 retained artifact 不一致。**
+   - 文档声称 7 个 `node_state_invalid`、4 个后续 `read_map`；
+   - 被审工件实际有 13 个状态拒绝，按 arm 为 7/2/4，只有 3 个下一请求 `read_map`。
+4. **ToolSearch failure origin 仍由错误文本中的 scope 推断。**
+   - execution failure helper 从嵌套错误 payload 读取 scope；
+   - provider-response rejection 与真实 ToolSearch execution failure 没有由 typed control flow 结构性分离。
+
+Reviewer 另将 C-10 单 Patch 和 C-13 成本标记为失败。主线程不把它们作为 W0 新 blocker：两项始终分别由
+R71-GI-006、R71-GI-008 公开追踪，W0 从未声明关闭；但 current matrix 必须继续如实报告，不得用该边界
+掩盖现象。
+
+### Main Agent Triage
+
+- 四个 W0 blocking findings：全部 `accept`。
+- C-10/C-13：作为已知下游开放问题保留，不并入 GI-005/GI-007，不作为 W0 修复范围漂移的理由。
+- 结论：Round 4 不通过；完成修复后必须由 Ampere 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| supplemental fail-open | 对保留 schema family 的 malformed/unknown/incomplete/duplicate payload、非布尔 `success`、错误 role/scope/call set 全部 fail-closed | `test-r7-supplemental-failure-evidence.ps1` 正反例 |
+| 异步生产入口缺口 | 新增真实 Map 初始化、release、complete+reserve 和 ToolSearch sibling 的 `execute_response_tool_sequence` 回归；将 ToolSearch dispatch 指向必失败 handler，证明 preflight 已零执行拦截 | `production_entry_rejects_complete_then_tool_search_before_dispatch` |
+| 文档手工错计 | 报告自动输出被拒请求数、违规事实数、canonical/candidate 状态对和下一请求动作；同一请求多个 violation 不重复计为多个请求 | request observer fixture 与 current matrix `trace-analysis.json` |
+| ToolSearch origin 推断 | provider-response rejection 只生成原生 pairing；仅真实 ToolSearch dispatch error 生成 `tool_execution` supplemental，不读取错误文本决定来源 | Rust 正例与伪造 `scope=provider_response` 错误文本反例 |
+| 合同身份漂移 | 同步生产 manifest 内容 SHA；全量合同身份测试重新通过 | `production_manifest_matches_its_identity` |
+
+### Replacement Review Readiness
+
+- Fix commits: `2c6d65ddb`、`92cccd7e0`、`50c2b77d1`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 15/15 passed
+- Current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/50c2b77d199cfa41615f03e97f8dc07e72cd4c74/20260730-083136-712`
+- Matrix: 24/24，artifact provenance=`valid`，final aggregate=`finalized`
+- State rejection facts: 11 requests / 11 violations / 2 next-request `read_map`
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Ampere 不得关闭自己的
+  blocker。
+
+## Round 5: W0 strict-evidence replacement review
+
+### Review Input
+
+- Objective: 对 Round 4 修复、current-commit retained matrix、GI-005/GI-007 关闭条件和 C-01 至
+  C-21 执行完整 replacement review。
+- Reviewed HEAD: `ddab5f12c`
+- Production code through: `50c2b77d1`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: implementation-completeness-adversary (`Franklin`)
+- Session / Job ID: `019fb07d-cd31-7f92-9aa3-db1901e1a5f1`
+- Timeout record: 10 分钟检查点未完成；在 20 分钟 high-risk 初始窗口内完成。
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 将 GI-007 与 W0 判定为 `BLOCKED`；GI-005 的 Rust 生产实现未被证伪，但因 GI-007 是验收
+前置，不能单独关闭。两个 blocking finding 均由独立内存反例复现：
+
+1. **畸形及类型混淆 supplemental evidence 仍可 fail-open。**
+   - `{"padding":0,"schema_version":"ToolSearchFailureV3"` 因 schema 不在首字段而被忽略，request 仍为
+     `primary_failure_class=none`、`evidence_health=valid`；
+   - `affected_call_ids` 使用字符串而非数组时，PowerShell pipeline 将其提升为单元素数组并接受；
+   - 根因分别是 malformed 识别依赖字段位置，以及 shape validator 没有验证 provenance JSON 类型。
+2. **状态 violation 汇总按内容三元组合并不同事实。**
+   - 同一 request 的两个 violation 使用相同 node/canonical/candidate state，但 subjects、allowed states
+     和前驱集合不同；
+   - 汇总仍从 2 条压成 1 条；
+   - 根因是去重 key 只有 `node_id|canonical_state|candidate_state`，重新引入了 Round 1 已淘汰的
+     signature heuristic。
+
+Reviewer 对 Round 1-4 其他 blocker 均判定 `PASS`：异步生产入口、ToolSearch typed origin、
+canonical/candidate 状态域、provider attempt/WS 接线、ordinary Tool trust boundary、MCP 生产形态、
+artifact provenance 和 manifest identity 未发现回归。
+
+### Global Constraint Result
+
+| Constraint | Result | Review conclusion |
+|---|---|---|
+| C-03 | fail | malformed supplemental 可静默遗漏，独立 violation 可被合并 |
+| C-14 | fail | 上述两项可产生虚假 comparison eligibility 或错误归因 |
+| C-10 | fail, known downstream | current matrix 有 3 次 TaskSpace multi-Patch，由 GI-006 追踪 |
+| C-13 | fail, known downstream | receipt/cache 成本未达发布门，由 GI-002/GI-008 追踪 |
+| C-01/C-02/C-04 至 C-09/C-11/C-12/C-15 至 C-21 | pass | 未发现 Runtime 越界、普通 Tool 侵入、双 Map 权威、current/Open 回归或兼容分叉 |
+
+C-10/C-13 没有被 W0 隐藏或恶化，不作为本轮新 W0 blocker；C-03/C-14 是必须修复的新证伪结果。
+
+### User-Perspective And Benefit Checks
+
+- 11 个 live state rejection 中 10 个后续 reasoning 正确区分 canonical/candidate；
+- 1 个 Agent 将 `allowed_states` 误读为状态迁移集合，但反馈仍是纯机械事实，没有建议、自动改绑或自动推进；
+  该现象继续作为 GI-003/GI-004 下游理解风险，不要求 Runtime 增加语义纠正；
+- 当前矩阵 provenance、11/11/2 状态统计与文档一致；
+- W0 只主张事实保真与可归因，不主张性能收益，24/24 业务成功不能作为 W0 收益证明。
+
+### Main Agent Triage
+
+- Finding 1：`accept`，归 GI-007/C-03/C-14。
+- Finding 2：`accept`，归 GI-007/C-03/C-14。
+- 用户理解风险：`accept` 为下游观察，不扩大 W0 Runtime 语义。
+- C-10/C-13：保留在 GI-006 与 GI-002/GI-008，不重复建账。
+- 结论：Round 5 不通过；修复后必须由 Franklin 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| malformed/type-confused supplemental | 保留 schema family 使用顺序无关识别；严格验证 status/success、object/array/string/boolean、error class、scope、call identity 和 schema-specific 字段 | reordered malformed、scalar/object/boolean/array mutation 负向矩阵 |
+| violation signature merge | 删除状态内容 key；仅按 producer 的 `copy_group_id + affected_call_ids + zero_dispatch` 合并 sibling carrier，按原始 ordinal 保存完整 violation | 同状态对不同 subjects/allowed/predecessors 保留 3 条；同 copy group 两个 sibling 只计一次 |
+
+### Replacement Review Readiness
+
+- Fix commit: `e72637d070764c2f2de03a978761a6739780f37b`
+- Rust production baseline: 1933 passed、0 failed、3 ignored
+- PowerShell gates: 15/15 passed
+- Current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/e72637d070764c2f2de03a978761a6739780f37b/20260730-091713-589`
+- Matrix: 24/24 run finalized，23/24 business success，24/24 comparison eligible，
+  artifact provenance=`valid`
+- TaskSpace requests: 289，classification unreconciled run=0
+- State rejection facts: 11 requests / 11 violations / 3 next-request `read_map`
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Franklin 不得关闭自己的
+  blocker。
+
+## Round 6: W0 evidence-identity replacement review
+
+### Review Input
+
+- Objective: 对 Round 5 修复、current-commit retained matrix、GI-005/GI-007 关闭条件和 C-01 至
+  C-21 执行完整 replacement review。
+- Reviewed HEAD: `905f8adf3`
+- Production code through: `e72637d07`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: evidence-identity-adversary (`Curie`)
+- Session / Job ID: `019fb0a6-6602-7c90-b655-9d4048351510`
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 独立重算了 GI-005 的 11 个状态拒绝：11/11 反馈均保留机械事实，11 个后续 reasoning 均引用了
+正确状态事实，3 次 `read_map` 发生在正确理解之后，没有证据表明 carrier 继续扭曲或丢失语义。GI-005
+生产路径本身未被证伪，但其关闭仍依赖 GI-007 的可信 observer。
+
+GI-007 与 W0 因四个证据身份缺口继续 `BLOCKED`：
+
+1. **保留 supplemental schema family 仍存在 fail-open 形态。**
+   - schema array、root array 和使用 JSON unicode escape 的畸形截断可以绕过保留 family 识别；
+   - 这些输入可能被静默当作无 supplemental 的普通请求。
+2. **provider/skip/bound provenance 可以伪造。**
+   - observer 验证了部分字段存在，但未证明 copy group、cause call、reservation 和 owning request
+     是该 call 的精确生产身份。
+3. **request 级 token 事实不完整。**
+   - wire 已有 output/reasoning/total token，但 request path 只保留 input/cached；
+   - 因而报告无法证明输出 token 没有在 join/aggregate 中丢失，也无法做总量守恒。
+4. **resolved manifest 只封存文件哈希，没有验证内容身份。**
+   - sample、repeat、side、mode、projection、model、capability、prompt/fixture 和 Docker image 可以与
+     四臂合同不一致，但旧 provenance 仍可能判定 valid。
+
+### Global Constraint Result
+
+| Constraint | Result | Review conclusion |
+|---|---|---|
+| C-01/C-03/C-14 | fail | F1-F4 可导致事实静默遗漏、伪造因果身份或错误比较资格 |
+| C-13 | fail, known downstream | TaskSpace 成本仍高于 Standard，由 GI-002/GI-008 追踪；F3 属于 W0 观测缺口 |
+| C-10 | fail, known downstream | multi-Patch 仍由 GI-006 追踪 |
+| C-02/C-04 至 C-09/C-11/C-12/C-15 至 C-21 | pass | 未发现 Runtime 语义决策、普通 Tool 入侵、Map 双权威或生命周期扩张 |
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`，归 GI-007/C-01/C-03/C-14。
+- GI-005 语义路径：接受 reviewer 的独立重算结论，但在 GI-007 关闭前不单独关闭。
+- C-10/C-13：继续留在 GI-006 与 GI-002/GI-008，不扩大 W0 产品范围。
+- 结论：Round 6 不通过；修复后必须由 Curie 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| reserved family fail-open | JSON unicode escape 归一化后识别保留 family；root/schema array、非 object root、畸形截断和严格 schema 字符串类型全部 fail-closed | 扩展 supplemental 正反例矩阵 |
+| provenance 可伪造 | provider、ToolSearch、skip、bound 分别校验精确 copy group、call set、cause call、reservation、scope、zero-dispatch 和先后关系；state/status/class code 也进入语义合同 | provider/skip/bound forged provenance 负向测试 |
+| request token 丢失 | request path 保留 input/cached/output/reasoning/total 五字段；校验非负数、字段不等式与 `total=input+output`；run aggregate 与 request sum 对账 | `test-r7-provider-token-identity.ps1` 和 347-request live 汇总 |
+| resolved manifest 内容未验 | 新增 resolved manifest identity validator；逐 run 校验 sample/repeat/side/mode/policy/model/binary/provider/capability，逐 sample-repeat 校验精确四臂及共享 prompt/fixture/model/image/binary | `test-r7-resolved-manifest-identity.ps1` 与 24-run provenance |
+
+### Replacement Review Readiness
+
+- Fix commit: `2005442d34416820a888dc7395ac8ba1b3812635`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 14/14 scripts passed
+- Current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/2005442d34416820a888dc7395ac8ba1b3812635/20260730-101516-783`
+- Matrix: 24/24 run finalized，24/24 business success，24/24 comparison eligible，
+  artifact provenance=`valid`
+- Request token identity: 347 requests；input `7,947,276`、cached `3,519,488`、output
+  `135,380`、reasoning `54,288`、total `8,082,656`，request/run aggregate 全部对账
+- State rejection facts: 5 requests / 5 violations / 2 next-request `read_map`
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Curie 不得关闭自己的
+  blocker。
+
+## Round 7: W0 evaluation-authority replacement review
+
+### Review Input
+
+- Objective: 对 Round 6 修复、retained matrix、GI-005/GI-007 关闭条件和 C-01 至 C-21 执行完整
+  replacement review。
+- Reviewed production commit: `2005442d34416820a888dc7395ac8ba1b3812635`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: evidence-authority-adversary (`Turing`)
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 接受 Round 1-6 中 ToolSearch carrier、canonical/evaluated state、provider attempt、reserved
+family 基础门、request token 字段完整性和 resolved manifest 内容校验的主要修复，但发现四个更深的证据权威
+blocker：
+
+1. **保留 supplemental JSON 仍可 fail-open。**
+   - root/object 形态之外，递归重复保留属性和相关畸形结构没有被唯一属性门拒绝；
+   - malformed family 仍可能被当作没有 supplemental 的请求。
+2. **failure provenance 与真实 request/output 顺序没有完全绑定。**
+   - reservation/cause 可以跨 request 引用；
+   - supplemental 可以在受影响 call 的实际 output 缺失时成立；
+   - 后续 ordinary output 可以覆盖 supplemental failure；
+   - skip/bound 没有证明 cause output 或 reservation 属于同一个 owning request。
+3. **token identity 不是精确整数身份。**
+   - string、fraction、double 和超过 IEEE-754 精确范围的值可能通过数值比较；
+   - 多层求和即使总数表面相同，也不能证明逐 request token 没有被舍入或替换。
+4. **评估身份仍可由同一轮 mutable manifest 自证。**
+   - sample、repeat、arm、model、image、sandbox、provider API/transport 和 Tool identity 没有由独立冻结
+     authority 声明；
+   - resolved manifest 与 matrix manifest 可以同步篡改后继续相互通过。
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`，归 GI-007/C-01/C-03/C-14。
+- GI-005：reviewer 未给出新的 carrier 扭曲反例，但继续依赖 GI-007 的可信 observer，暂不关闭。
+- C-10/C-13：current matrix 中的 multi-Patch 和成本问题继续归 GI-006/GI-008，不扩大 W0 范围。
+- 结论：Round 7 不通过；修复后必须由 Turing 之外的 fresh reviewer 重新审查。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| supplemental fail-open | 严格识别保留 JSON family，递归拒绝重复属性和畸形 root/schema；字段顺序不影响识别 | 扩展 supplemental malformed/duplicate 负向矩阵 |
+| provenance/order 可伪造 | actual output、owning request、copy group、affected calls、cause output、reservation 和 ordinal 全部精确绑定；普通后续 output 不得覆盖已识别 failure | cross-request、missing-output、overwrite、skip/bound forgery 反例 |
+| token 非精确身份 | token/count 只接受非负 Int64；拒绝 string/fraction/double/越界，request/run/report 使用精确求和 | provider token 与 performance observation 类型/守恒门 |
+| mutable manifest 自证 | 新增冻结 evaluation contract 和 production authority hash chain；逐 run 校验 sample/repeat/arm/model/reasoning/image/sandbox/API/transport，实际 wire tools hash/count 必须稳定且匹配权威 | resolved manifest、matrix harness 和 artifact provenance 篡改反例 |
+
+### Replacement Review Readiness
+
+- Fix commits: `93985d3f5`、`a2f697c6b`、`9dc9add2d`、`a67737478`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 14/14 scripts passed
+- 第一份矩阵因 observation 将整数 token 转成 double，在 report gate 被拒绝并弃用。
+- Retained current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/a677374782ff4ac15ad3242af19e1a681fec7e08/20260730-114506-875`
+- Matrix: 24/24 finalized，24/24 business success，24/24 comparison eligible，
+  artifact provenance=`valid`，0 findings。
+- Request token identity: 360 requests；input `8,794,679`、cached `3,649,536`、output
+  `146,406`、reasoning `64,166`、total `8,941,085`。
+- Replacement requirement: 必须由另一名 `fork_context=false` reviewer 复审，Turing 不得关闭自己的
+  blocker。
+
+## Round 8: W0 output/token/candidate-authority review
+
+### Review Input
+
+- Objective: 对 Round 7 修复、retained matrix、GI-005/GI-007 和 C-01 至 C-21 执行 fresh
+  closure review。
+- Reviewed HEAD: `f167616ff`
+- Reviewed candidate: `a677374782ff4ac15ad3242af19e1a681fec7e08`
+- Primary reviewer: `Halley`，session `019fb12c-...`，fresh、`fork_context=false`、只读；
+  platform safety classifier 终止，没有 reviewer output，不能计为通过。
+- Replacement reviewer: evidence-authority-adversary (`Jason`)
+- Session / Job ID: `019fb136-da88-7031-bbd4-a723998d9aff`
+- Review mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Result: blocked
+
+### Reviewer Output
+
+Reviewer 独立重算了 24/24 run、360 request、token 汇总和 192/192 raw seal，与报告一致；GI-005 的
+机械反馈事实被判定 `PASS`。GI-007 仍有三个真实 blocker：
+
+1. provider supplemental 只绑定 call set，没有绑定每个 call 的实际 output 内容与先后关系；
+2. observation 把字符串 `"0"` token 归一为 null 后，仍可标记 complete/eligible，report 又把缺失值
+   默认成零；
+3. current dirty worktree 没有进入 binary/provenance 一致性条件，报告脚本、evaluation contract 和
+   production authority 的当前字节也没有绑定候选提交 blob。
+
+Reviewer 另建议所有 business-incomplete run 不得进入 finalized report。
+
+### Main Agent Triage
+
+- output binding：`accept`，归 GI-007/C-03/C-14。
+- token fail-open：`accept`，归 GI-007/C-03/C-14。
+- dirty/current commit bytes：`accept`，归 GI-007/C-01/C-14。
+- business-incomplete 不得 finalized：`reject`。C-14 要求保留 Agent 的真实失败；`finalized` 表示证据
+  已封存，不表示所有业务运行成功。基础设施/token 无效 run 必须 fail-closed，但合法观察到的 Agent
+  incomplete run 必须保留。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| supplemental 未绑定 actual output | call 保存实际 output 原文；provider supplemental 要求全部 affected call 已有一次失败 output 且原文逐字相同；supplemental-before-output 和覆盖均拒绝 | `test-r7-supplemental-failure-evidence.ps1` 与 live serialized carrier |
+| token 缺失/类型 fail-open | performance observation 与 request/report 只接受非负精确 Int64；字符串、浮点、负数、溢出、缺失及算术不守恒均 `invalid`，并记录稳定事件 | `test-performance-observation.ps1`、`test-r7-provider-token-identity.ps1` |
+| candidate authority 未闭合 | current worktree 必须 clean；evaluation contract、production authority、report script 当前字节必须匹配 manifest candidate commit 的 Git blob | `test-r7-candidate-authority.ps1`、matrix harness、artifact provenance |
+| production serialized output 差异 | production output 为 JSON string；observer 机械解码显式 bool `success`，不再回退文本启发式误判；exact-output 合同不放宽 | 第一轮 matrix report fail-closed、E-025、serialized fixture |
+
+### Replacement Review Readiness
+
+- Fix commits: `ba8cf3564`、`7b13b6bc6`、`4869e3f65`、`f2dea4765`、`ebaedcf6c`
+- Rust: 1933 passed、0 failed、3 ignored
+- Build/check: passed
+- PowerShell gates: 15/15 passed
+- 第一份 `f2dea4765` matrix 的 24/24 raw run 完成，但 report 发现 production serialized output
+  解码缺口并 fail-closed；没有把失败候选作为有效结果。
+- Retained current-commit matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22/20260730-125939-756`
+- Matrix: 24/24 complete、24/24 business success、24/24 comparison eligible；
+  artifact provenance=`valid`、192 raw artifacts、0 findings、final aggregate=`finalized`。
+- Request tokens: 385 requests；input `8,991,942`、cached `4,454,912`、uncached
+  `4,537,030`、output `140,946`、reasoning `62,246`、total `9,132,888`。
+- State rejection facts: 12 requests / 12 violations / 2 next-request `read_map`。
+- Replacement requirement: 必须由 Jason 之外的新 `fork_context=false` reviewer 关闭 blocker。
+
+## Round 9: W0 full-constraint closure review
+
+### Review Input
+
+- Objective: 尝试证伪 Round 8 修复、retained current-commit matrix、GI-005/GI-007 关闭条件和
+  C-01 至 C-21；不得把业务成功当作证据正确性的替代。
+- Review target: production/observer implementation、负向 fixtures、冻结评估 authority、current-commit
+  matrix 与 R7.1 全局约束。
+- Candidate commit: `ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22`
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/ebaedcf6c6c641a0d4361d68ab9c99fc0c594f22/20260730-125939-756`
+- Reviewer mode: fresh internal subagent，`fork_context=false`，只读，`gpt-5.6-sol/xhigh`。
+- Reviewer: evidence-authority-adversary (`Mencius`)
+- Session / Job ID: `019fb16d-c10a-7082-b81a-7c328f19e9da`
+- Mechanism: internal `spawn_agent`，未继承主线程上下文。
+- Context excluded: 主线程聊天、隐藏 reasoning、既有结论和说服性摘要。
+- Required output: summary、blocking findings、non-blocking risks、C-01 至 C-21 逐项结论、GI-005/GI-007
+  关闭意见、对矩阵关键数字和 seal 的独立复算、每项 finding 的路径/行号与可复现证据。
+- Timeout policy: high-risk，初始等待 20 分钟，必要时只延长一次。
+- Status: blocked
+
+### Reviewer Output
+
+Reviewer 独立复算 retained matrix，确认 24/24 run、385 request、token 守恒、192 raw seal 与报告一致，
+且候选生产代码未漂移；同时复现四项 blocker：
+
+1. `TaskSpaceResponseCommitFailureV3` 和直接 `TaskSpaceControlResultV2` 可缺失 violations 或节点状态
+   机械事实，observer 仍标记 valid；
+2. 非 token 的 provider/action/failure count 仍使用 `double`，缺失时 report 默认成 0；
+3. W0 结果和唯一问题清单仍引用 `a677374` 的旧矩阵数字，与 retained `ebaedcf6c` 工件冲突；
+4. provider supplemental 在比较前排序 affected call IDs，交换实际调用顺序仍可通过。
+
+判定：C-01/C-03/C-09/C-12/C-13/C-14 FAIL，GI-005/GI-007 均不可关闭。
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`。它们均属于 producer→observer→report→seal 事实身份缺口，不需要扩大 Runtime
+  状态机职责，也不需要修改 Agent 行为。
+- detached/signed root、可复现构建和 live Blocked carrier：记录为非阻断证据增强，不纳入本轮产品语义。
+- 结论：Round 9 不通过；修复后必须使用 Mencius 之外的新空白 reviewer。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| state rejection 结构残缺 | 按 producer 合同校验 state violation；`node_state_invalid` 必须保留 node、canonical/candidate state、allowed states 与两侧前驱；直接 control failure 从 `error.actual.violations` 读取 | 新增 state failure contract 正反例 |
+| count 精度/缺失 | 普通计数只接受非负 Int64；observation 记录稳定 invalid event，report 对必需字段 fail-closed，聚合使用 BigInt 中间和 Int64 上界 | fractional/string/2^53/missing 反例 |
+| 权威文档冲突 | 唯一问题清单和 W0 结果先绑定 retained `ebaedcf6c` sealed matrix，并明确它是 Round 9 修复前证据；新矩阵后只切换一个当前引用 | 文档数值与 artifact 独立复算一致 |
+| affected call 顺序丢失 | request call IDs 与 supplemental affected IDs 逐位 ordinal 比较，不再排序成集合 | 交换两个 call 的负向 fixture |
+
+## Current Conclusion
+
+W0 当前保持 `validating`。Round 9 四项 blocker 已在 `ea6f27b1b` 修复；post-repair 汇总发现的普通
+Tool `shell_exit_code` 形状遗漏已在 `ab2595847` 修复。current-candidate 正式矩阵已完成，必须由
+Mencius 之外的 fresh replacement reviewer 复审。通过前不得关闭 R71-GI-005/R71-GI-007，也不得进入 W1。
+
+## Round 10: W0 fresh full-constraint replacement review
+
+### Review Input
+
+- Objective: 对 Round 1 至 Round 9 的全部 accepted blocker、Round 9 修复、普通 Tool
+  `shell_exit_code` 修复、GI-005/GI-007 关闭条件和 C-01 至 C-21 重新执行空白对抗性审查。
+- Candidate commit: `ab2595847238443a33795652174a744ef2dfd093`
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/ab2595847238443a33795652174a744ef2dfd093/20260730-135544-601`
+- Matrix boundary: 24/24 complete/business/eligible，354 request，192 evidence artifacts；
+  这些是待 reviewer 独立复算的主线程声明，不是预设结论。
+- Reviewer requirement: fresh internal subagent，`fork_context=false`，只读，
+  `gpt-5.6-sol/xhigh`，不得使用 Mencius 或 Jason。
+- Reviewer: evidence-authority-adversary (`Euclid`)
+- Session / Job ID: `019fb1a2-b8cd-7fe2-9430-91e90a6a1a10`
+- Mechanism: internal `spawn_agent`，`fork_context=false`，未继承主线程上下文。
+- Trace source: runtime spawn record returned the session ID above.
+- Context excluded: 主线程聊天、隐藏 reasoning、既有结论和说服性摘要；只发送中性文件导航、
+  反例目标和输出合同。
+- Access: repository read-only review instruction，禁止修改文件。
+- Model: `gpt-5.6-sol`，reasoning effort `xhigh`，priority tier。
+- Required challenge surface:
+  - producer → observer → report → seal 的全链路身份与 fail-closed；
+  - direct/supplemental state violation 完整性、affected call ordinal、actual Tool output 绑定；
+  - token/count 精确整数、缺失字段、candidate/current bytes 和文档唯一权威；
+  - Runtime 边界、C-01 至 C-21、GI-005/GI-007 分别关闭意见；
+  - 对 24 run、request/token/state rejection 和 192 seal 的独立复算。
+- Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
+- Status: blocked
+
+### Reviewer Output
+
+Euclid 独立复算 `ab2595847` retained matrix，确认 24/24 run、354 request、token 守恒和 192 个 raw
+artifact seal 与报告一致，但复现四项 blocker：
+
+1. 直接 Runtime rejection 与 lifecycle 路径没有复用同一份 model-visible state violation 构造器，
+   `canonical/evaluated/allowed/predecessor/subject` 等机械事实可在直接载体中被裁剪；
+2. ordinary Tool 的 structured exit parser 接受非顶层 `metadata.shell_exit_code`、fraction/string/zero、
+   重复字段或畸形 JSON，可能把无效事实归类为真实退出；
+3. 直接 `TaskSpaceControlResultV2` 非状态失败只凭 schema/status/class 等局部字段即可通过，缺少完整
+   success/error/state-commit/canonical-revision envelope 仍被视为有效；
+4. request/report/provenance 的普通 count 使用 PowerShell `Measure-Object`/double 中间值，
+   `2^53+1` 可静默变成 `2^53`，破坏 report 与 seal 的精确身份。
+
+判定：C-01/C-03/C-09/C-12/C-13/C-14 FAIL；GI-005 和 GI-007 均不可关闭。其余观察不要求扩大
+Runtime 语义或约束 Agent。
+
+### Main Agent Triage
+
+- F1-F4：全部 `accept`。四项均是 producer/observer/report/seal 的机械事实完整性问题；
+- 不接受把问题归因到 Agent 理解能力或状态机约束不足，也不增加动作建议、自动改绑、自动推进或普通 Tool
+  参数侵入；
+- Round 10 不通过；修复后必须使用 Euclid 之外的新 `fork_context=false` reviewer。
+
+### Repairs
+
+| Finding | 修复 | 确定性证据 |
+|---|---|---|
+| 直接 rejection 丢失事实 | `response.rs` 提取共享 `model_visible_state_violations`；direct runtime 与 lifecycle 共用完整 serializer，日志增加 violation count/codes | Rust direct rejection 回归断言 canonical/candidate/allowed/predecessor/subjects 全量一致 |
+| ordinary exit 解析过宽 | 只接受完整 JSON 顶层唯一 `metadata.shell_exit_code` 的正 Int64，保留明确 line 形态；错误 scope、fraction、string、zero、duplicate、malformed 全部拒绝 | `test-r7-ordinary-tool-outcome.ps1` 正反 fixture |
+| direct control envelope 残缺 | `TaskSpaceControlResultV2` 按完整字段、类型、status/class/null/failure 语义和 state violation 合同校验 | `test-r7-state-failure-contract.ps1` incomplete direct envelope 反例 |
+| 普通 count 浮点失真 | request/report/provenance/duplication 统一使用 BigInt 中间求和和 Int64 边界，移除 count 的 `Measure-Object -Sum` | `test-r7-exact-counts.ps1` 覆盖 `2^53+1`、invalid 和 overflow |
+
+### Replacement Review Readiness
+
+- Repair commit: `6e487f0578be834afc178a7a377393383346c296`
+- Rust: 1934 passed、0 failed、3 ignored；workspace check 与 locked Whale build 通过。
+- Current matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/6e487f0578be834afc178a7a377393383346c296/20260730-145945-966`
+- Matrix: 24/24 complete、business success、comparison eligible；298 request，192 raw artifacts，
+  provenance 0 findings，final aggregate finalized。
+- Request token identity: input `6,322,711`、cached `2,970,624`、uncached `3,352,087`、
+  output `127,666`、reasoning `58,076`、total `6,450,377`。
+- State rejection facts: 12 requests / 12 violations / 2 next-request `read_map`。
+- Replacement requirement: 必须由 Euclid、Mencius、Jason 之外的全新 reviewer 独立复算并对
+  C-01 至 C-21 逐项裁决。
+
+## Round 11: W0 final full-constraint replacement review
+
+### Review Input
+
+- Objective: 从空白上下文独立证伪 Round 1 至 Round 10 的全部 accepted blocker、`6e487f057` 修复、
+  current-candidate matrix、GI-005/GI-007 关闭条件和 C-01 至 C-21。
+- Product/evidence candidate: `6e487f0578be834afc178a7a377393383346c296`
+- Review-time HEAD: `3c0ced9db`；候选后只增加 COE、问题清单、W0 结果和审查记录，reviewer 必须独立核对。
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/6e487f0578be834afc178a7a377393383346c296/20260730-145945-966`
+- Reviewer: W0-final-constraint-adversary (`Hubble`)
+- Session / Job ID: `019fb1dd-b0fc-7ad1-b0a5-334d791e073d`
+- Mechanism: internal `spawn_agent`，`fork_context=false`，未继承主线程上下文。
+- Context excluded: 主线程聊天、隐藏 reasoning、既有结论和说服性摘要；只发送中性文件导航、待证伪
+  反例和输出合同。
+- Access: repository read-only review instruction，禁止修改文件。
+- Model: `gpt-5.6-sol`，reasoning effort `xhigh`，priority tier。
+- Required challenge surface:
+  - Round 10 direct violation serializer、ordinary exit、direct control envelope、精确 count；
+  - Round 1 至 Round 9 全部 producer/observer/report/seal 反例；
+  - 24 run、298 request、token/state/sibling/multi-Patch 和 192 raw seal 独立复算；
+  - Runtime 边界、普通 Tool 非侵入、C-01 至 C-21、GI-005/GI-007 分别关闭意见。
+- Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
+- Status: timed-out
+
+### Timeout Record
+
+- First wait: 20 minutes，no final status。
+- Single extension: 20 minutes，no final status。
+- Agent status before shutdown: `running`。
+- Disposition: session 已关闭，本轮不产生 PASS/BLOCKED 结论；不得用主线程检查替代 fresh review。
+- Replacement requirement: 使用 Hubble 之外的新 `fork_context=false` reviewer，重新执行完整审查包。
+
+## Round 12: W0 timeout-replacement full review
+
+### Review Input
+
+- Objective: 完整重跑 Round 11 未产出结论的 closure review；独立证伪 Round 1 至 Round 10、
+  `6e487f057`、C-01 至 C-21 和 GI-005/GI-007 关闭标准。
+- Product/evidence candidate: `6e487f0578be834afc178a7a377393383346c296`
+- Matrix:
+  `target/r7-five-layer-matrix/r7-five-layer-evaluation-contract-v1/6e487f0578be834afc178a7a377393383346c296/20260730-145945-966`
+- Reviewer: W0-timeout-replacement-adversary (`Copernicus`)
+- Session / Job ID: `019fb204-0400-74c2-97e8-a061521e41af`
+- Mechanism: internal `spawn_agent`，`fork_context=false`，未继承主线程或 Hubble 上下文。
+- Access: repository read-only review instruction，禁止修改文件。
+- Model: `gpt-5.6-sol`，reasoning effort `xhigh`，priority tier。
+- Required output: PASS/BLOCKED、blocking/non-blocking、C-01 至 C-21 逐项判定、GI-005/GI-007
+  分别裁决、current matrix 与 192 raw seal 独立复算、Runtime 边界/旧逻辑/平行事实源检查。
+- Timeout policy: high-risk，初始等待 20 分钟；存活时最多延长一次。
+- Status: blocked_due_to_review_unavailable
+
+### Timeout And Closure Record
+
+- First wait: 20 minutes，no final status。
+- Single extension: 20 minutes，no final status。
+- Agent status before shutdown: `running`。
+- Role attempts: primary Hubble 与 replacement Copernicus 均达到 high-risk 超时上限。
+- Disposition: Round 12 不产生 reviewer output 或无 finding 结论；fresh internal review 角色标记为
+  `blocked_due_to_review_unavailable`。
+- Closure status: W0 保持 `validating`；GI-005/GI-007 不关闭，开放问题仍为 8。
+- Next action requires user choice: 再尝试一次、缩小审查包、改用其他 reviewer 类型，或明确接受未完成独立
+  审查的风险。未经用户选择不得把本轮记为通过。
+
+## Round 13: W0 independent review shards
+
+### Timeout Root Cause
+
+用户选择将审查拆成无依赖小块。Rollout 复核证明 Round 11/12 不是 Tool、模型服务或长命令挂起：
+
+- Hubble 在 41 分钟内完成 66 次只读 Tool 调用，关闭前仍在约束扫描；
+- Copernicus 在 40 分钟内完成 49 次只读 Tool 调用，关闭前仍在 raw matrix 重算；
+- 两者的 Tool 均正常返回；单体包同时要求 21 条约束、10 轮 blocker、两项 GI、生产代码和 192 个
+  artifact，超过固定 `20 + 20` 分钟窗口；
+- `wait_agent` 只等待最终状态，主线程未及时读取 rollout 中间进度，过早将两个活跃 session 关闭。
+
+因此 Round 13 不再建立一个全量 reviewer。以下 shard 各自无前置依赖、使用一个 fresh reviewer、只产生局部
+PASS/BLOCKED；任何 blocker 只使自己的 shard 复审。
+
+### Coverage Matrix
+
+| Shard | 独立审查目标 | 约束/GI | 明确不做 |
+|---|---|---|---|
+| A | state rejection 的 direct/lifecycle/ToolSearch carrier、canonical/evaluated scope 与 live read 归因 | GI-005；C-01、C-03、C-12 | 不复算全部 token/seal，不审成本 |
+| B | direct `TaskSpaceControlResultV2` 完整 envelope 与 ordinary exit 严格解析 | GI-007；C-01、C-03、C-11、C-12、C-14 | 不扫描其他 count，不复算矩阵 |
+| C | request/report/duplication/provenance/final-status 的精确 Int64 与 fail-closed | GI-007；C-01、C-03、C-14 | 不审 Tool carrier，不重跑 live sample |
+| D | retained 24-run 的 request/token/taxonomy/hash/authority/final aggregate 独立复算 | GI-007；C-06、C-07、C-13、C-14 | 不审 parser 实现，不重跑模型 |
+| E | Runtime 底线、连续动作、普通 Tool/Patch 保真、Agent 显式 `node_id` | C-02、C-05、C-09～C-12、C-18 | 不审 Map 存储实现，不审成本数字 |
+| F | rooted DAG、持久化唯一 Map、无 current/Open、finish/reopen 与历史事实 | C-08、C-15～C-17、C-19～C-21 | 不审 observer/seal，不审 Tool 文案 |
+| G | 五层内容归属、immutable capability epoch、三 projection 仅 L5 不同、固定成本观测 | C-04、C-06、C-07、C-13 | 不判断默认 policy，不修成本 |
+
+### Aggregation Rules
+
+1. Shard 之间不读取彼此输出，不互相等待，不以另一 shard 的 PASS 补足本 shard 证据；
+2. GI-005 只有 A 通过才可关闭；
+3. GI-007 只有 B、C、D 全部通过才可关闭；
+4. C-01 至 C-21 的全局回归结论只有 A 至 G 全部完成后才汇总；已知 GI-002/GI-006/GI-008 现象可记录，
+   但不得偷换为 W0 blocker；
+5. 每块最多读取指定实现、测试和最小文档行段，目标 12 分钟，最多一次 8 分钟延长；
+6. reviewer 发现 blocker 后只需给出一个最小可复现反例和生产调用路径，无需继续扩大为全仓审计；
+7. 每项 finding 仍由主线程逐一 `accept`、`reject` 或 `defer`；accepted blocker 修复后只启动对应 shard 的
+   fresh replacement review。
+
+### Wave 1 Launch Records
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| A | state-feedback-adversary (`Hume`) | `019fb2ae-8c6d-7401-bdb4-2fbd0c5065cc` | GI-005 carrier/state scope；C-01/C-03/C-12 | internal fresh，`fork_context=false`，只读 | running |
+| B | direct-parser-adversary (`Huygens`) | `019fb2ae-c0c5-78f1-a560-3eed1b9201d6` | direct V2 envelope、ordinary exit；C-01/C-03/C-11/C-12/C-14 | internal fresh，`fork_context=false`，只读 | running |
+| C | exact-count-adversary (`Pascal`) | `019fb2ae-fb1a-7bc2-8299-dcb6149e5276` | count/provenance/final status；C-01/C-03/C-14 | internal fresh，`fork_context=false`，只读 | running |
+
+三块均使用 `gpt-5.6-sol/xhigh/priority`。输入只包含各自文件导航、局部反例和输出合同，未继承主线程、其他
+reviewer、Round 11/12 rollout 或既有结论；每块目标 12 分钟，最多延长 8 分钟。
+
+### Wave 1 Outputs
+
+#### Shard A: State Feedback
+
+- Status: `BLOCKED`
+- Blocking finding: lifecycle `normalize_control_result` 在
+  `error.actual.violations` 保留权威 violation 的同时，又把包含同一 `violations` 的原始 rejection 放进
+  `error.actual.condition`，形成确定性重复包装，违反 C-03。
+- Passed sub-gates:
+  - shared serializer 完整保留 node、canonical/evaluated state、allowed state、两侧 predecessor、subjects；
+  - direct、response-commit 和 ToolSearch sibling 均保留 typed failure、顺序和零执行事实；
+  - current matrix 12 个 state rejection 的 24 份 call copy 均保持失败语义；
+  - 2 次后续 `read_map` 的 trace 已先正确理解 waiting node 和未满足前驱，属于 Agent 保守读取，不是 carrier
+    扭曲；
+  - 未发现建议、自动改绑或 Runtime 语义越界。
+- GI-005: keep-open，只剩 lifecycle authoritative violation 去重子门。
+
+#### Shard B: Direct Envelope And Ordinary Exit
+
+- Status: `BLOCKED`
+- Blocking findings:
+  1. direct control JSON 使用 last-wins parser，重复 `schema_version/success/error.code` 可进入 valid evidence；
+  2. action 只要求非空字符串，非 state `actual/expected` 只要求存在，action/expected 和
+     error code/first violation 缺少一致性校验；
+  3. outer `toolSuccess=true` 在解析 inner failure 前直接返回 success，可产生
+     `success=true + state_commit=false`；
+  4. 任意普通 Tool 自有非空 `schema_version` 被误认成 TaskSpace untrusted carrier，破坏 ordinary Tool
+     隔离。
+- Passed sub-gate: ordinary exit 的正 Int64、错误 scope/root、string/fraction/zero/negative/overflow、
+  duplicate/malformed 和两种 line 形态全部符合合同。
+- GI-007: ordinary-exit 子门 PASS；direct carrier/fail-closed/ordinary isolation 子门 keep-open。
+
+#### Shard C: Exact Count And Provenance
+
+- Status: `BLOCKED`
+- Blocking finding: `Test-R7ProvenanceFileFact` 通过 `[int64]$Fact.bytes` 强转比较，匹配的 string、
+  fraction 和零字节 missing `bytes` 可通过；run/final-status provenance 不产生 finding，最终 aggregate
+  仍可标记 ready。
+- Passed sub-gate: shared integer helper 使用 CLR integer type gate、BigInt 中间和及 Int64 上界；
+  `2^53+1` 精确保留，helper 层 string/fraction/overflow 均被拒绝。
+- GI-007: count/provenance 子门 keep-open。
+
+### Wave 1 Main Agent Triage
+
+| Shard/Finding | Decision | Reason |
+|---|---|---|
+| A lifecycle duplicate violation | `accept` | 生产 normalizer 同时构造 `actual.violations` 和包含同一数组的 `actual.condition`；属于忠实反馈重复，不是 Agent/Runtime 边界问题 |
+| B duplicate JSON properties | `accept` | direct parser 使用 `ConvertFrom-Json`，未复用严格唯一属性门 |
+| B incomplete/cross-field envelope | `accept` | action domain、actual/expected shape 和机械字段间一致性均未完整校验 |
+| B outer success overrides inner failure | `accept` | success early-return 发生在 structured payload 校验之前 |
+| B ordinary schema misclassification | `accept` | 任意非空 `schema_version` 都进入 TaskSpace carrier 分支，违反普通 Tool 保真 |
+| C provenance bytes coercion | `accept` | verifier 绕过 shared Int64 helper，非法类型可进入 valid final provenance |
+
+这些 finding 均属于反馈/observer/seal 的机械事实边界，不授权 Runtime 增加语义决策。修复前 GI-005、
+GI-007 保持 `validating`。
+
+### Wave 2 Launch Records
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| D | retained-matrix-adversary (`Gauss`) | `019fb2b6-afaf-7550-9614-4d36af63196a` | raw matrix/seal；GI-007、C-06/C-07/C-13/C-14 | internal fresh，`fork_context=false`，只读 | running |
+| E | runtime-boundary-adversary (`Avicenna`) | `019fb2b6-e17f-7a60-ae07-a2aeb833be16` | Runtime/ordinary Tool/Patch；C-02/C-05/C-09～C-12/C-18 | internal fresh，`fork_context=false`，只读 | running |
+| F | map-lifecycle-adversary (`Lorentz`) | `019fb2b7-2592-7211-8587-985e90edaa53` | Map/persistence/lifecycle；C-08/C-15～C-17/C-19～C-21 | internal fresh，`fork_context=false`，只读 | running |
+
+三块均使用 `gpt-5.6-sol/xhigh/priority`，只收到局部导航和输出合同；不继承其他 shard 结论。目标 12 分钟，
+最多一次 8 分钟延长。
+
+### Wave 2 Outputs
+
+#### Shard D: Retained Matrix
+
+- Status: `PASS`
+- Independent recomputation:
+  - 24/24 complete、business success、comparison eligible；
+  - 298 requests；input `6,322,711`、cached `2,970,624`、uncached `3,352,087`、output
+    `127,666`、reasoning `58,076`、total `6,450,377`；
+  - primary class `none=181`、`sequence=65`、`state=27`、`taskspace_protocol=1`、
+    `ordinary=24`，总和 298；sibling copy 98；
+  - state rejection 12 requests / 12 violations / 2 next `read_map`；
+  - 24 evidence manifests × 8 facts = 192/192，逐文件 bytes/hash 0 mismatch；
+  - commit、binary、image、Tool identity、evaluation contract、attestation、final inputs/outputs 全部匹配。
+- Local conclusion: GI-007 retained-matrix、C-06/C-07/C-13/C-14 的工件切片 PASS。该 PASS 只证明当前
+  retained matrix 自洽，不抵消 B/C 对同类无效输入入口的 blocker。
+
+#### Shard E: Runtime And Ordinary Tool Boundary
+
+- Status: `BLOCKED`
+- Blocking finding: CodeMode `exec` 的 nested registry 只关闭再次嵌套 CodeMode，仍保留
+  `apply_patch` 和 `taskspace_control`；nested filter 只排除 `exec/wait`。外层 response preflight 只看到一个
+  ordinary `exec`，无法逐项校验内部 Patch/control 的 node ownership、顺序、单 Patch、reservation 和
+  zero-dispatch。
+- Passed sub-gate: 直接顶层路径保持 control-first、数量/名称/顺序、连续动作、control+Patch、零执行拒绝、
+  原始 ordinary output 和无 current/binding；未发现直接装饰普通 Tool schema/handler。
+- Local conclusion: C-02/C-05/C-09～C-12/C-18 在 nested capability 下 BLOCKED。
+
+#### Shard F: Map Persistence And Lifecycle
+
+- Status: `BLOCKED`
+- Blocking finding: Store hydrate 的 `restore_store_map` 只核对 `map_id`，随后直接安装 canonical map；没有在
+  恢复边界验证 canonical schema 或 rooted-DAG。旧 schema 或存在不可达/无入边 Work 的 Map 可进入 Runtime
+  cache。
+- Passed sub-gates:
+  - Store CAS 是唯一持久事实，resume/fork/child 使用同 Map，缺 Store 不从 rollout 重建；
+  - 无 persisted Open/current/next/lease，节点状态由事实派生；
+  - init schema 保持 root/work_nodes/finish 分区；
+  - finish 可同事务完成最后 Work，reopen 保留旧 completion/result/terminal history；
+  - 无生产 `rework_node`、current 或平行 Map 权威源。
+- Local conclusion: C-08/C-15 BLOCKED；C-16/C-17/C-19/C-20/C-21 PASS。
+
+### Wave 2 Main Agent Triage
+
+| Shard/Finding | Decision | Reason |
+|---|---|---|
+| D retained matrix | `accept-pass` | 独立 raw 重算覆盖 request/token/taxonomy/seal/authority，数字与工件逐项一致 |
+| E nested dispatcher bypass | `accept` | `for_code_mode_nested_tools` 保留 collab/Patch，nested eligibility 只排除 exec/wait；生产 nested router 同样构造该 capability |
+| F Store hydrate validation gap | `accept` | `runtime_from_record -> restore_store_map -> restore_canonical_map` 只校验 map_id，未调用 schema/rooted-DAG validator |
+
+### Wave 3 Launch Record
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| G | layer-epoch-projection-adversary (`Hooke`) | `019fb2be-4f80-7162-924a-7bc2c7ae4f6f` | L1-L5/epoch/projection/cost observation；C-04/C-06/C-07/C-13 | internal fresh，`fork_context=false`，只读 | running |
+
+Reviewer 使用 `gpt-5.6-sol/xhigh/priority`，仅收到分层、projection、Tool epoch 和现成观测导航；不读取其他 shard
+输出，目标 12 分钟，最多一次 8 分钟延长。
+
+### Wave 3 Output
+
+#### Shard G: Layering, Epoch And Projection
+
+- Status: `BLOCKED`
+- Blocking finding: `built_tools()` 每请求可因 MCP inventory、connector selection 或 discovery 改变可见 Tool
+  capability，但 `wire_epoch_id` 只由 `conversation_id:window_generation` 构成；未发生 compaction 时，同一
+  epoch 可出现不同 tools hash，违反 C-06 的明确 capability epoch。
+- Passed sub-gates:
+  - C-04：L1 宏观、L2 常规协议、L3 可选经验、L4 schema、L5 动态事实职责清楚；
+  - C-07：三 projection 共用 Base/L2/L3/Tool/Map/Runtime/feedback，只在 L5 emission 不同；
+  - C-13 observation：24 observations 与 298 requests 均有 tools/messages/input/cache/section/wall-time；
+  - 未发现 policy/Map revision/lifecycle 驱动的动态 schema、平行架构或重复固定上下文。
+- Fixed Tool observation: Standard `21,195 bytes / 5,299 estimated tokens / 12 tools`；TaskSpace
+  `27,166 bytes / 6,792 tokens / 13 tools`；每 request 增量 `5,971 bytes / 1,493 tokens / 1 tool`。
+- Non-blocking observation: 226 个 TaskSpace request 的
+  `taskspace_contract_manifest_identity.matches_current_contract=false`，原因均为
+  `taskspace_wire_shape_invalid`；Base/L2 自身仍 exact-once/hash match。该字段是否构成 GI-007 fail-open
+  交由独立 Shard H 裁决。
+
+### Wave 3 Main Agent Triage
+
+| Finding | Decision | Reason |
+|---|---|---|
+| discovery 未换 capability epoch | `accept` | visible tools 由每请求 discovery 输入重建；现有 epoch ID 不含 profile/provider capability/tools hash，也不随 discovery 变化 |
+
+### Wave 4 Launch Record
+
+| Shard | Reviewer | Session / Job ID | Scope | Context | Status |
+|---|---|---|---|---|---|
+| H | contract-identity-adversary (`Tesla`) | `019fb2c7-c7e6-7523-ac9c-2ac46355d8f1` | 226 个 contract mismatch 与 eligibility；C-03/C-04/C-14、GI-007 | internal fresh，`fork_context=false`，只读 | running |
+
+Reviewer 使用 `gpt-5.6-sol/xhigh/priority`，只读取 manifest identity producer、freshness gate 和最小 matrix
+字段，不复算其他工件；目标 10 分钟。
+
+### Wave 4 Output
+
+#### Shard H: Contract Identity And Eligibility
+
+- Status: `BLOCKED`
+- Blocking finding:
+  - 238 个 TaskSpace request 中 226 个 manifest/wire identity 为 false：
+    `map-always=100/100`、`map-append=67/73`、`map-request=59/65`；
+  - observer 将 Chat Completions wire 上所有 `system` role 一并计数并硬要求总数为 2，但额外项是生产合同允许
+    的 L5 active projection/control feedback；真正静态 `system_messages.count` 在 226/226 中均为 2；
+  - 因此 `taskspace_system_message_count_invalid/taskspace_wire_shape_invalid` 是错误事实和错误命名；
+  - freshness 能产生 manifest/wire mismatch finding，但 retained matrix observation/report/finalize 没有调用该
+    gate，也没有等价 run-level gate；同一 request 可同时 identity=false、observation complete、comparison
+    eligible。
+- Local conclusion: C-03/C-04/C-14 FAIL；GI-007 evidence-health/eligibility 子门 keep-open。
+
+### Wave 4 Main Agent Triage
+
+| Finding | Decision | Reason |
+|---|---|---|
+| legal L5 carrier 被计为静态 system mismatch | `accept` | section classifier 已能识别 active projection/control feedback，manifest identity 却重新按 transport role 总数解释 |
+| freshness finding 未进入 eligibility | `accept` | performance observation/report 只消费 token/count/Agent completion，未调用 freshness 或等价 gate |
+
+## Round 13 Closure
+
+- Overall status: `BLOCKED`
+- Reviewer attempts: 8 fresh shards，8/8 在目标窗口内完成，0 timeout。
+- Accepted blocking findings: 10；accepted PASS shard: D。
+- GI-005: keep-open；大部分关闭门已通过，只剩 lifecycle authoritative violation 重复包装。
+- GI-007: keep-open；ordinary exit 和 retained raw matrix 子门通过，但 direct carrier、provenance integer、
+  contract identity/eligibility 仍阻断。
+- Global regressions:
+  - CodeMode nested dispatcher 绕过 response-level Patch/control 硬门，归入 GI-006；
+  - Store hydrate 未验证 canonical schema/rooted-DAG，新增独立问题；
+  - discovery 改变 capability set 但未换明确 epoch，新增独立问题。
+
+### Constraint Summary
+
+| 约束 | Round 13 结论 |
+|---|---|
+| C-01 | FAIL：direct envelope 和 provenance verifier 重解释生产合同 |
+| C-02 | FAIL：nested exec 内部动作绕过 reservation 底线 |
+| C-03 | FAIL：lifecycle 重复、direct failure 误判、provenance coercion、wire identity 扭曲 |
+| C-04 | FAIL：manifest identity 把合法 L5 carrier 混入静态 system 计数；五层实现本身通过 |
+| C-05 | FAIL：ordinary exec 可承载 nested TaskSpace control/Patch |
+| C-06 | FAIL：discovery 变化没有建立明确 capability epoch；静态矩阵 epoch 切片通过 |
+| C-07 | PASS：三 policy 只在 L5 emission 不同 |
+| C-08 | FAIL：Store hydrate 绕过 rooted-DAG 门 |
+| C-09 | FAIL：nested calls 不在 response manifest 中逐项声明 |
+| C-10 | FAIL：nested Patch 绕过顶层单 Patch 计数 |
+| C-11 | FAIL：nested control/Patch 和 observer 普通 schema 误分类破坏隔离 |
+| C-12 | FAIL：nested dispatch 与 direct carrier 不能保证原子事实失败 |
+| C-13 | 观测完整性 PASS；发布成本仍由 GI-008 保持开放 |
+| C-14 | FAIL：无效 direct/provenance/freshness evidence 仍可比较/finalize |
+| C-15 | FAIL：Store hydrate 不拒绝旧 canonical schema |
+| C-16 | PASS：root/work_nodes/finish 机械角色分区 |
+| C-17 | PASS：Store 是唯一权威，resume/fork/child 不从 rollout 重建 |
+| C-18 | FAIL：nested calls 缺 Agent 逐项 node ownership |
+| C-19 | PASS：无 persisted Open/current/next，状态由事实派生 |
+| C-20 | PASS：finish/reopen 生命周期闭合且可继续 |
+| C-21 | PASS：reopen 不倒退历史 completion/result |
+
+Round 13 证明拆分策略有效：每个 finding 都有唯一局部 owner，后续修复和 replacement review 必须继续按
+A/B/C/E/F/G/H 分块；D 只在新候选生成 retained matrix 后重跑。

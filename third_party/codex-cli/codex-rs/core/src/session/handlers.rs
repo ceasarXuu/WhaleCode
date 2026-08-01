@@ -249,8 +249,6 @@ pub(super) async fn user_input_or_turn_inner(
         // new_turn_with_sub_id already emits the error event.
         return;
     };
-    sess.begin_action_map_user_turn(current_context.as_ref())
-        .await;
     sess.maybe_emit_unknown_model_warning_for_turn(current_context.as_ref())
         .await;
     let accepted_items = match sess
@@ -814,8 +812,20 @@ pub async fn thread_rollback(sess: &Arc<Session>, sub_id: String, num_turns: u32
         .into_iter()
         .chain(std::iter::once(RolloutItem::EventMsg(rollback_msg.clone())))
         .collect::<Vec<_>>();
-    sess.apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice())
+    if let Err(error) = sess
+        .apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice(), false)
+        .await
+    {
+        sess.send_event_raw(Event {
+            id: turn_context.sub_id.clone(),
+            msg: EventMsg::Error(ErrorEvent {
+                message: format!("Failed to restore session rollout: {error}"),
+                codex_error_info: Some(CodexErrorInfo::Other),
+            }),
+        })
         .await;
+        return;
+    }
     sess.recompute_token_usage(turn_context.as_ref()).await;
 
     sess.persist_rollout_items(&[RolloutItem::EventMsg(rollback_msg.clone())])
@@ -947,11 +957,59 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 
 pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: MapRuntimeMode) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let (outcome, bootstrap_events) = {
+    if mode == MapRuntimeMode::Experiment {
+        let policy = {
+            let state = sess.state.lock().await;
+            state.session_configuration.taskspace_projection_policy
+        };
+        if policy.is_none() {
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.projection_policy_missing",
+                "rejected TaskSpace activation without an explicit projection policy"
+            );
+            sess.send_event(
+                &turn_context,
+                EventMsg::Error(ErrorEvent {
+                    message: "TaskSpace activation requires taskspace_projection_policy; R7 Phase C enables map-always and map-append.".to_string(),
+                    codex_error_info: Some(CodexErrorInfo::Other),
+                }),
+            )
+            .await;
+            return;
+        }
+    }
+    let (outcome, bootstrap_events) = match sess.set_persisted_action_map_mode(mode).await {
+        Ok(result) => result,
+        Err(message) => {
+            sess.send_event(
+                &turn_context,
+                EventMsg::Error(ErrorEvent {
+                    message,
+                    codex_error_info: Some(CodexErrorInfo::Other),
+                }),
+            )
+            .await;
+            return;
+        }
+    };
+    let ownership_event = {
         let mut state = sess.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode_for_session(mode, sess.conversation_id)
+        outcome.mode.changed.then(|| {
+            let events = if outcome.mode.current_mode == MapRuntimeMode::Experiment {
+                state.activate_taskspace_context()
+            } else {
+                state.deactivate_taskspace_context();
+                Vec::new()
+            };
+            codex_protocol::protocol::MapRuntimeTaskContextOwnershipChangedEvent {
+                active: outcome.mode.current_mode == MapRuntimeMode::Experiment,
+                events: events
+                    .into_iter()
+                    .map(|event| event.to_protocol())
+                    .collect(),
+            }
+        })
     };
 
     sess.send_event(
@@ -966,13 +1024,33 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
         sess.send_event(&turn_context, EventMsg::MapRuntime(event))
             .await;
     }
-
+    if let Some(event) = ownership_event {
+        sess.send_event(
+            &turn_context,
+            EventMsg::MapRuntime(MapRuntimeEvent::TaskContextOwnershipChanged(event)),
+        )
+        .await;
+    }
+    if outcome.mode.changed {
+        if let Some(startup_prewarm) = sess.take_session_startup_prewarm().await {
+            startup_prewarm.abort();
+        }
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "base_instructions.prewarm_replaced_after_mode_change",
+            previous_mode = %outcome.mode.previous_mode,
+            current_mode = %outcome.mode.current_mode,
+            "replaced startup prewarm after base instructions profile changed"
+        );
+        sess.schedule_startup_prewarm().await;
+    }
     let status = if outcome.mode.changed {
         if outcome.mode.current_mode == MapRuntimeMode::Experiment {
             match outcome.active_map_id.as_deref() {
-                Some(map_id) => format!("TaskSpace enabled. Active task path {map_id} is ready."),
-                None => "TaskSpace enabled. The next agent turn must create an active task path."
-                    .to_string(),
+                Some(map_id) => {
+                    format!("TaskSpace enabled. Mechanical blank task path {map_id} is ready.")
+                }
+                None => "TaskSpace enabled, but no active task path is available.".to_string(),
             }
         } else {
             format!(
@@ -997,17 +1075,23 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
     sess.notify_background_event(&turn_context, status).await;
 }
 
-pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
-    let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    sess.request_action_map_reborn(&turn_context).await;
-    let status = "Task reborn requested. Runtime did not create a task path automatically; the next agent turn must route or start a task through taskspace_control.".to_string();
-    sess.notify_background_event(&turn_context, status).await;
-}
-
 pub async fn show_action_map(sess: &Arc<Session>, sub_id: String) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let snapshot = sess.action_map_snapshot().await;
-    let status = crate::action_map::format_action_map_snapshot(&snapshot);
+    let status = match sess.canonical_action_map_snapshot().await {
+        Ok(snapshot) => crate::action_map::format_action_map_snapshot(&snapshot),
+        Err(error) => {
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.show_map_failed",
+                actor_thread_id = %sess.conversation_id,
+                operation = "show_action_map",
+                reason_code = "canonical_read_failed",
+                error = %error,
+                "failed to read canonical TaskSpace Map for interactive display"
+            );
+            format!("TaskSpace map is unavailable: {error}")
+        }
+    };
     sess.notify_background_event(&turn_context, status).await;
 }
 
@@ -1282,10 +1366,6 @@ pub(super) async fn submission_loop(
                 }
                 Op::SetMapRuntimeMode { mode } => {
                     set_map_runtime_mode(&sess, sub.id.clone(), mode).await;
-                    false
-                }
-                Op::RestartActionMap => {
-                    restart_action_map(&sess, sub.id.clone()).await;
                     false
                 }
                 Op::ShowActionMap => {

@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-five-layer-fla2-blocker-repair",
+  "status": "active_verified_after_adversarial_reacceptance",
+  "date": "2026-07-21",
+  "projection_policy": "map-request",
+  "product_source_commit": "6ebe2c6794d338d32f70dc6cf2d1ab60acf0fabd",
+  "observer_source_commit": "30be4585e",
+  "evidence_gate_source_commit": "4baec0710029187ef9a098dbf73174fefed44231",
+  "binary": {
+    "path": "target/r7-five-layer/fla2-current-identity-reacceptance/bin/whale",
+    "sha256": "d8e20fe3eaac8b8fc25982debd09e2de17ce75d5efe2d4eb564e873876910222",
+    "attested_codex_source_commit": "6ebe2c6794d338d32f70dc6cf2d1ab60acf0fabd",
+    "attestation_path": "target/r7-five-layer/fla2-current-identity-reacceptance/bin/whale.build-attestation.json"
+  },
+  "contracts": {
+    "standard_base": {
+      "version": "1.0.2",
+      "sha256": "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382"
+    },
+    "taskspace_base": {
+      "version": "2.0.1",
+      "sha256": "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272"
+    },
+    "taskspace_core_protocol": {
+      "version": "taskspace-core-v2.1",
+      "sha256": "164fc9f5d2941f361608d42ac8a6ab8ca98a794d92be0cea4273c29f75467c80"
+    },
+    "taskspace_control": {
+      "sha256": "53cad3b85cbf739d755520cffc0e3be9c5fd303900b0a7c8b6de2de19e7800ce"
+    },
+    "taskspace_result": {
+      "schema_version": "TaskSpaceControlResultV2",
+      "sha256": "d41aeb3faa4ea0afcd26d5f303032e5c7e24b2636cc40fff75e789d5d57722d8"
+    },
+    "production_manifest": {
+      "version": "1.0.2",
+      "sha256": "c88716057c165659419a046673b3579fbf48980f18e74c65f1807ef581ad1d43"
+    }
+  },
+  "repair_acceptance": {
+    "b1_static_system_handle": {
+      "status": "verified",
+      "taskspace_requests": 21,
+      "system_message_count_per_request": 2,
+      "map_handle_count_per_request": 1,
+      "map_handle_role": "user",
+      "map_handle_is_request_tail_for_all_requests": true,
+      "wire_contract_exact_for_all_requests": true
+    },
+    "b2_result_capability_mismatch": {
+      "status": "verified",
+      "control_results": 13,
+      "v2_control_results": 13,
+      "non_v2_control_results": 0,
+      "initialize_commits_with_node_bound": 2,
+      "rejected_results_with_state_commit_false": 5
+    },
+    "h4_observability": {
+      "status": "verified",
+      "control_calls": 13,
+      "control_failures": 5,
+      "preflight_failures": 5,
+      "handler_failures": 0,
+      "ordinary_gate_failures": 0,
+      "committed_controls": 8,
+      "graph_revision_commits": 8,
+      "state_commit_count": 8,
+      "state_commit_count_source": "control_result_state_commit"
+    },
+    "h6_direct_actions": {
+      "status": "verified",
+      "nested_transition_calls": 0,
+      "invalid_lifecycle_argument_calls": 0,
+      "direct_complete_then_continue_calls": 6,
+      "direct_complete_then_end_calls": 2
+    },
+    "h7_binding_feedback": {
+      "status": "mechanism_verified_behavior_observation_pending",
+      "redundant_bind_calls": 0,
+      "read_map_calls": 0
+    }
+  },
+  "runs": [
+    {
+      "sample": "single-file-fast-fix",
+      "repeats": 1,
+      "run_root": "target/r7-five-layer/fla2-current-identity-reacceptance/simple/single-file-fast-fix/20260721-040119-688",
+      "performance_observation_sha256": "daa17ed4ef34c8fcfd6c4c7de0e932d8bd8baad3784c94e367e05faec7b357d1",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 6,
+        "ordinary_tools": 8,
+        "wall_time_ms": 13603,
+        "input_tokens": 65013,
+        "cached_input_tokens": 63488,
+        "uncached_input_tokens": 1525,
+        "output_tokens": 1098,
+        "request_2_plus_cache_hit_rate": 0.973719
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 11,
+        "ordinary_tools": 12,
+        "control_calls": 6,
+        "control_failures": 2,
+        "preflight_failures": 2,
+        "ordinary_gate_failures": 0,
+        "committed_controls": 4,
+        "state_commit_count": 4,
+        "wall_time_ms": 34517,
+        "input_tokens": 156630,
+        "cached_input_tokens": 148224,
+        "uncached_input_tokens": 8406,
+        "output_tokens": 3476,
+        "request_2_plus_cache_hit_rate": 0.942432,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0
+      },
+      "behavior_observations": [
+        "two missing-sibling preflight rejections",
+        "one failed apply_patch attempt followed by an Agent-authored corrected patch"
+      ]
+    },
+    {
+      "sample": "subscription-billing-repair",
+      "repeats": 1,
+      "run_root": "target/r7-five-layer/fla2-current-identity-reacceptance/complex/subscription-billing-repair/20260721-040231-776",
+      "performance_observation_sha256": "870849b9475043b1dde8adeed672814959b5f0828f09910d2f6e65e7e5471a3a",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 11,
+        "ordinary_tools": 17,
+        "wall_time_ms": 56430,
+        "input_tokens": 163140,
+        "cached_input_tokens": 158208,
+        "uncached_input_tokens": 4932,
+        "output_tokens": 6584,
+        "request_2_plus_cache_hit_rate": 0.968754
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 10,
+        "ordinary_tools": 16,
+        "control_calls": 7,
+        "control_failures": 3,
+        "preflight_failures": 3,
+        "ordinary_gate_failures": 0,
+        "committed_controls": 4,
+        "state_commit_count": 4,
+        "wall_time_ms": 48773,
+        "input_tokens": 157404,
+        "cached_input_tokens": 137856,
+        "uncached_input_tokens": 19548,
+        "output_tokens": 6090,
+        "request_2_plus_cache_hit_rate": 0.867829,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0
+      },
+      "behavior_observations": [
+        "three missing-sibling preflight rejections",
+        "one valid multi-file patch",
+        "TaskSpace used one fewer provider request and one fewer Runtime tool than Standard"
+      ]
+    }
+  ],
+  "adversarial_reacceptance": {
+    "status": "pass_reacceptance",
+    "round": 4,
+    "reviewer": "Raw-count gate closure adversary",
+    "report": "vs_review/2026-07-20-r7-fla2-l1-l2-effectiveness-review.md",
+    "blocking_findings": 0,
+    "independent_mutation": "simple taskspace committed_controls 4 -> 5",
+    "mutation_result": "result_taskspace_committed_controls_mismatch"
+  },
+  "remaining_issue": {
+    "id": "H-003",
+    "status": "confirmed_unresolved",
+    "summary": "The schema states that required_next_call is only a declaration and requires a separate top-level sibling, but JSON Schema cannot structurally require another provider tool call. Both samples still produced standalone control calls before correcting.",
+    "guardrail": "Do not add semantic Runtime repair or more L2 prompting without a separate product experiment."
+  },
+  "claim_limit": "This current-identity one-repeat simple and one-repeat complex paired smoke verifies the repaired wire, feedback, direct-action, observability, and evidence-freshness mechanisms. It does not establish statistical utility, eliminate stochastic Agent mistakes, close H-003, or replace a fresh independent closure review."
+}

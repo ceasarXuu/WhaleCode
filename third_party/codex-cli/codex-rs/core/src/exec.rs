@@ -28,6 +28,7 @@ use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
 use codex_protocol::error::SandboxErr;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::permissions::FileSystemSandboxKind;
@@ -170,6 +171,13 @@ impl From<u64> for ExecExpiration {
 }
 
 impl ExecExpiration {
+    fn outcome(&self) -> ExecOutcome {
+        match self {
+            Self::Cancellation(_) => ExecOutcome::Cancelled,
+            Self::Timeout(_) | Self::DefaultTimeout => ExecOutcome::TimedOut,
+        }
+    }
+
     pub(crate) async fn wait(self) {
         match self {
             ExecExpiration::Timeout(duration) => tokio::time::sleep(duration).await,
@@ -636,7 +644,7 @@ async fn exec_windows_sandbox(
         stdout,
         stderr,
         aggregated_output,
-        timed_out: capture.timed_out,
+        forced_outcome: capture.timed_out.then_some(ExecOutcome::TimedOut),
     })
 }
 
@@ -647,22 +655,21 @@ fn finalize_exec_result(
 ) -> Result<ExecToolCallOutput> {
     match raw_output_result {
         Ok(raw_output) => {
-            #[allow(unused_mut)]
-            let mut timed_out = raw_output.timed_out;
+            let mut outcome = raw_output.forced_outcome.unwrap_or(ExecOutcome::Exited);
+            let mut termination_signal = None;
 
             #[cfg(target_family = "unix")]
             {
-                if let Some(signal) = raw_output.exit_status.signal() {
-                    if signal == TIMEOUT_CODE {
-                        timed_out = true;
-                    } else {
-                        return Err(CodexErr::Sandbox(SandboxErr::Signal(signal)));
-                    }
+                if raw_output.forced_outcome.is_none()
+                    && let Some(signal) = raw_output.exit_status.signal()
+                {
+                    outcome = ExecOutcome::Signaled;
+                    termination_signal = Some(signal);
                 }
             }
 
             let mut exit_code = raw_output.exit_status.code().unwrap_or(-1);
-            if timed_out {
+            if outcome == ExecOutcome::TimedOut {
                 exit_code = EXEC_TIMEOUT_EXIT_CODE;
             }
 
@@ -671,14 +678,16 @@ fn finalize_exec_result(
             let aggregated_output = raw_output.aggregated_output.from_utf8_lossy();
             let exec_output = ExecToolCallOutput {
                 exit_code,
+                outcome,
+                termination_signal,
+                pipeline_stage_exit_codes: None,
                 stdout,
                 stderr,
                 aggregated_output,
                 duration,
-                timed_out,
             };
 
-            if timed_out {
+            if outcome == ExecOutcome::TimedOut {
                 return Err(CodexErr::Sandbox(SandboxErr::Timeout {
                     output: Box::new(exec_output),
                 }));
@@ -727,6 +736,29 @@ pub(crate) fn is_likely_sandbox_denied(
         "failed to write file",
     ];
 
+    let has_sandbox_bootstrap_signature = [
+        &exec_output.stderr.text,
+        &exec_output.stdout.text,
+        &exec_output.aggregated_output.text,
+    ]
+    .into_iter()
+    .any(|section| {
+        let lower = section.to_lowercase();
+        let compact = lower
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+            .collect::<String>();
+        (lower.contains("bwrap") || lower.contains("bubblewrap"))
+            && (lower.contains("loopback")
+                || lower.contains("rtm_newaddr")
+                || compact.contains("failedrtmnewaddr"))
+            && lower.contains("operation not permitted")
+    });
+
+    if has_sandbox_bootstrap_signature {
+        return true;
+    }
+
     let has_sandbox_keyword = [
         &exec_output.stderr.text,
         &exec_output.stdout.text,
@@ -768,7 +800,7 @@ struct RawExecToolCallOutput {
     pub stdout: StreamOutput<Vec<u8>>,
     pub stderr: StreamOutput<Vec<u8>>,
     pub aggregated_output: StreamOutput<Vec<u8>>,
-    pub timed_out: bool,
+    pub forced_outcome: Option<ExecOutcome>,
 }
 
 #[inline]
@@ -1267,6 +1299,7 @@ async fn consume_output(
         retained_bytes_cap,
     ));
 
+    let expiration_outcome = expiration.outcome();
     let expiration_wait = async {
         if capture_policy.uses_expiration() {
             expiration.wait().await;
@@ -1275,20 +1308,26 @@ async fn consume_output(
         }
     };
     tokio::pin!(expiration_wait);
-    let (exit_status, timed_out) = tokio::select! {
+    let (exit_status, forced_outcome) = tokio::select! {
         status_result = child.wait() => {
             let exit_status = status_result?;
-            (exit_status, false)
+            (exit_status, None)
         }
         _ = &mut expiration_wait => {
             kill_child_process_group(&mut child)?;
             child.start_kill()?;
-            (synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + TIMEOUT_CODE), true)
+            (
+                synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + TIMEOUT_CODE),
+                Some(expiration_outcome),
+            )
         }
         _ = tokio::signal::ctrl_c() => {
             kill_child_process_group(&mut child)?;
             child.start_kill()?;
-            (synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + SIGKILL_CODE), false)
+            (
+                synthetic_exit_status(EXIT_CODE_SIGNAL_BASE + SIGKILL_CODE),
+                Some(ExecOutcome::Cancelled),
+            )
         }
     };
 
@@ -1327,7 +1366,7 @@ async fn consume_output(
         stdout,
         stderr,
         aggregated_output,
-        timed_out,
+        forced_outcome,
     })
 }
 

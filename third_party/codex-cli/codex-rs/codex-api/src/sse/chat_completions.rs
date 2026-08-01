@@ -358,6 +358,42 @@ async fn process_sse(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use serde_json::Value;
+
+    const PROVIDER_USAGE_CONTRACT: &str =
+        include_str!("../../tests/fixtures/provider_usage_contract.json");
+
+    fn assert_usage(usage: &TokenUsage, expected: &Value) {
+        assert_eq!(usage.input_tokens, expected["input_tokens"]);
+        assert_eq!(usage.cached_input_tokens, expected["cached_input_tokens"]);
+        assert_eq!(usage.output_tokens, expected["output_tokens"]);
+        assert_eq!(
+            usage.reasoning_output_tokens,
+            expected["reasoning_output_tokens"]
+        );
+        assert_eq!(usage.total_tokens, expected["total_tokens"]);
+    }
+
+    #[test]
+    fn frozen_chat_usage_contract_covers_hit_miss_missing_and_invalid() {
+        let fixture: Value = serde_json::from_str(PROVIDER_USAGE_CONTRACT).expect("fixture JSON");
+        assert_eq!(fixture["schema_version"], "whalecode-provider-usage-v1");
+        for case in fixture["chat_completions"]
+            .as_array()
+            .expect("chat fixture cases")
+        {
+            let parsed = serde_json::from_value::<ChatChunk>(case["payload"].clone());
+            if case["expected_error"] == true {
+                assert!(parsed.is_err(), "case {} must fail", case["id"]);
+                continue;
+            }
+            let usage = parsed
+                .expect("valid chat usage fixture")
+                .usage
+                .expect("chat usage");
+            assert_usage(&TokenUsage::from(usage), &case["expected"]);
+        }
+    }
 
     #[test]
     fn chat_usage_maps_cached_and_reasoning_tokens() {

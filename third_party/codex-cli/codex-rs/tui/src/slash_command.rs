@@ -36,8 +36,6 @@ pub enum SlashCommand {
     Collab,
     #[strum(serialize = "taskspace")]
     TaskSpace,
-    #[strum(serialize = "task-reborn")]
-    TaskReborn,
     #[strum(serialize = "task-show")]
     TaskShow,
     Agent,
@@ -117,7 +115,6 @@ impl SlashCommand {
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::Collab => "change collaboration mode (experimental)",
             SlashCommand::TaskSpace => "enter TaskSpace mode and open the live viewer",
-            SlashCommand::TaskReborn => "reborn the active task path",
             SlashCommand::TaskShow => "open the live TaskSpace browser viewer",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
@@ -190,7 +187,6 @@ impl SlashCommand {
             | SlashCommand::Review
             | SlashCommand::Plan
             | SlashCommand::TaskSpace
-            | SlashCommand::TaskReborn
             | SlashCommand::Clear
             | SlashCommand::Logout
             | SlashCommand::MemoryDrop
@@ -289,13 +285,6 @@ mod tests {
         assert!(!SlashCommand::TaskSpace.available_during_task());
 
         assert_eq!(
-            SlashCommand::from_str("task-reborn"),
-            Ok(SlashCommand::TaskReborn)
-        );
-        assert!(!SlashCommand::TaskReborn.supports_inline_args());
-        assert!(!SlashCommand::TaskReborn.available_during_task());
-
-        assert_eq!(
             SlashCommand::from_str("task-show"),
             Ok(SlashCommand::TaskShow)
         );
@@ -309,5 +298,6 @@ mod tests {
         assert!(SlashCommand::from_str("map-restart").is_err());
         assert!(SlashCommand::from_str("map-show").is_err());
         assert!(SlashCommand::from_str("map-node").is_err());
+        assert!(SlashCommand::from_str("task-reborn").is_err());
     }
 }

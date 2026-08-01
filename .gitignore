@@ -3,6 +3,7 @@ tmp/
 node_modules/
 dist/
 coverage/
+.vscode/
 target/
 target-test/
 target-map-show/
@@ -15,3 +16,6 @@ docs/testing/v0.0.4/testing/
 .env
 .env.*
 !.env.example
+benchmarks/whale-agent-run-ledger.json.lock
+__pycache__/
+*.py[cod]

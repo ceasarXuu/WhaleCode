@@ -5,6 +5,26 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 #[test]
+fn exact_summary_is_redacted_only_from_tool_logs() {
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({
+            "action": "finish_map",
+            "expected_revision": 7,
+            "complete_work_node_ids": ["implement"],
+            "exact_summary": "private final text"
+        })
+        .to_string(),
+    };
+    let logged = payload
+        .log_payload_for_tool(&ToolName::plain("taskspace_control"))
+        .into_owned();
+
+    assert!(!logged.contains("private final text"));
+    assert!(logged.contains("\"redacted\":true"));
+    assert!(payload.log_payload().contains("private final text"));
+}
+
+#[test]
 fn custom_tool_calls_should_roundtrip_as_custom_outputs() {
     let payload = ToolPayload::Custom {
         input: "patch".to_string(),
@@ -394,6 +414,189 @@ fn log_preview_uses_content_items_when_plain_text_is_missing() {
         function_call_output_content_items_to_text(&output.body),
         Some("preview".to_string())
     );
+}
+
+#[test]
+fn model_visible_preview_uses_response_item_not_log_preview() {
+    struct DivergentToolOutput;
+
+    impl ToolOutput for DivergentToolOutput {
+        fn log_preview(&self) -> String {
+            "log-only-preview".to_string()
+        }
+
+        fn success_for_logging(&self) -> bool {
+            true
+        }
+
+        fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem {
+            function_tool_response(
+                call_id,
+                payload,
+                vec![FunctionCallOutputContentItem::InputText {
+                    text: "standard model-visible feedback".to_string(),
+                }],
+                Some(true),
+            )
+        }
+    }
+
+    let payload = ToolPayload::Function {
+        arguments: "{}".to_string(),
+    };
+    let preview = tool_output_model_visible_preview(&DivergentToolOutput, "call-1", &payload);
+
+    assert!(preview.contains("standard model-visible feedback"));
+    assert!(!preview.contains("log-only-preview"));
+}
+
+#[test]
+fn taskspace_preview_preserves_raw_exec_output_without_semantic_summary() {
+    let raw_output = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{'name': 'Madrid', 'member_ids': ['E001']}: 'members' is a required property",
+        "{'name': 'Ferrari', 'member_ids': ['E002']}: 'members' is a required property",
+        "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 256),
+        "{'statistics': {}}: 'averageDepartmentBudget' is a required property",
+        "{'statistics': {}}: 'totalEmployees' is a required property",
+        "{'statistics': {}}: 'skillDistribution' is a required property",
+        "{'statistics': {}}: 'departmentSizes' is a required property",
+        "{'statistics': {}}: 'projectStatusDistribution' is a required property",
+        "{'statistics': {}}: 'averageYearsOfService' is a required property",
+    );
+    let output = ExecCommandToolOutput {
+        event_call_id: "event-1".to_string(),
+        chunk_id: "chunk-1".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: raw_output.into_bytes(),
+        artifact_ref: None,
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(1),
+        original_token_count: None,
+        hook_command: None,
+    };
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({
+            "command": "python generate_org.py && python -m jsonschema -i organization.json schema.json"
+        })
+        .to_string(),
+    };
+
+    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
+
+    assert!(!preview.contains("TaskSpaceToolSemanticSummaryV1"));
+    assert!(preview.contains("'members' is a required property"));
+    assert!(preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
+}
+
+#[test]
+fn taskspace_preview_preserves_read_file_summary_after_telemetry_truncation() {
+    let summary = "TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=240 eof_reached=false max_lines=240";
+    let raw_output = format!(
+        "import csv\n{}\n{summary}\n",
+        "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 256)
+    );
+    let output = ExecCommandToolOutput {
+        event_call_id: "event-1".to_string(),
+        chunk_id: "chunk-1".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: raw_output.into_bytes(),
+        artifact_ref: None,
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(0),
+        original_token_count: None,
+        hook_command: None,
+    };
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({
+            "command": "sed -n '1,240p' -- process_csv.py && awk '{ printf \"TaskSpaceReadFileSummaryV1: path=%s\" }' process_csv.py"
+        })
+        .to_string(),
+    };
+
+    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
+
+    assert!(preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
+    assert!(preview.contains("TaskSpaceToolTailSentinelV1"));
+    assert!(preview.contains(summary));
+    assert!(
+        preview.rfind(summary).expect("summary present")
+            > preview
+                .find(TELEMETRY_PREVIEW_TRUNCATION_NOTICE)
+                .expect("truncation present")
+    );
+}
+
+#[test]
+fn taskspace_preview_preserves_complete_read_file_content_beyond_telemetry_limit() {
+    let summary = "TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240";
+    let body = (0..90)
+        .map(|idx| {
+            format!(
+                "line_{idx:02} = 'schema repair context averageDepartmentBudget members projects'"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let late_line = "line_94 = 'late project members and averageDepartmentBudget fix target'";
+    let raw_output = format!("{body}\n{late_line}\n{summary}\n");
+    assert!(raw_output.len() > TELEMETRY_PREVIEW_MAX_BYTES);
+    let output = ExecCommandToolOutput {
+        event_call_id: "event-1".to_string(),
+        chunk_id: "chunk-1".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: raw_output.into_bytes(),
+        artifact_ref: None,
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(0),
+        original_token_count: None,
+        hook_command: None,
+    };
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({
+            "command": "sed -n '1,240p' -- generate_organization.py && awk '{ printf \"TaskSpaceReadFileSummaryV1\" }' generate_organization.py"
+        })
+        .to_string(),
+    };
+
+    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
+
+    assert!(!preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
+    assert!(preview.contains("line_00 = 'schema repair context"));
+    assert!(preview.contains(late_line));
+    assert!(preview.contains(summary));
+}
+
+#[test]
+fn taskspace_preview_does_not_add_schema_summary_for_plain_exec_output() {
+    let output = ExecCommandToolOutput {
+        event_call_id: "event-1".to_string(),
+        chunk_id: "chunk-1".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: format!(
+            "ordinary failure\n{}",
+            "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 32)
+        )
+        .into_bytes(),
+        artifact_ref: None,
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(1),
+        original_token_count: None,
+        hook_command: None,
+    };
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({ "command": "pytest" }).to_string(),
+    };
+
+    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
+
+    assert!(!preview.contains("TaskSpaceToolSemanticSummaryV1"));
+    assert!(!preview.contains("missing_required_properties:"));
+    assert!(preview.contains("ordinary failure"));
 }
 
 #[test]

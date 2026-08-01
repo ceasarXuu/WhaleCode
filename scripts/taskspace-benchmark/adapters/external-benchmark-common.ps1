@@ -14,9 +14,52 @@ function Write-TaskspaceExternalJson {
     ($Value | ConvertTo-Json -Depth 30) | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Test-TaskspaceExternalWindowsAclAvailable {
+    ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) -and
+    $null -ne (Get-Command icacls -ErrorAction SilentlyContinue)
+}
+
+function Repair-TaskspaceExternalStaleDenyForCurrentUser {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    if (-not (Test-TaskspaceExternalWindowsAclAvailable)) { return $resolved }
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls $resolved /remove:d "$identity" *> $null
+    $resolved
+}
+
+function Repair-TaskspaceExternalStaleDenyTreeForCurrentUser {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    if (-not (Test-TaskspaceExternalWindowsAclAvailable)) { return $resolved }
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls $resolved /remove:d "$identity" /T /C *> $null
+    $resolved
+}
+
+function ConvertTo-TaskspaceExternalLongPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { return $full }
+    if ($full.StartsWith("\\?\")) { return $full }
+    if ($full.StartsWith("\\")) { return "\\?\UNC\" + $full.Substring(2) }
+    "\\?\$full"
+}
+
 function Get-TaskspaceExternalFileSha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
-    (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    try { Repair-TaskspaceExternalStaleDenyForCurrentUser $Path | Out-Null } catch { }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead((ConvertTo-TaskspaceExternalLongPath $Path))
+        try {
+            ([System.BitConverter]::ToString($sha.ComputeHash($stream)) -replace "-", "").ToLowerInvariant()
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha.Dispose()
+    }
 }
 
 function Get-TaskspaceExternalTreeSha256 {
@@ -31,6 +74,37 @@ function Get-TaskspaceExternalTreeSha256 {
     $bytes = [System.Text.Encoding]::UTF8.GetBytes(($rows -join "`n"))
     $sha = [System.Security.Cryptography.SHA256]::Create()
     ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+}
+
+function Copy-TaskspaceExternalFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+    $sourceFull = [System.IO.Path]::GetFullPath($SourcePath)
+    $destinationFull = [System.IO.Path]::GetFullPath($DestinationPath)
+    if ([string]::Equals($sourceFull, $destinationFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+    [System.IO.Directory]::CreateDirectory((ConvertTo-TaskspaceExternalLongPath (Split-Path -Parent $DestinationPath))) | Out-Null
+    [System.IO.File]::Copy((ConvertTo-TaskspaceExternalLongPath $sourceFull), (ConvertTo-TaskspaceExternalLongPath $destinationFull), $true)
+}
+
+function Copy-TaskspaceExternalTreeContent {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceDir,
+        [Parameter(Mandatory = $true)][string]$DestinationDir
+    )
+    $sourceRoot = [System.IO.Path]::GetFullPath($SourceDir)
+    [System.IO.Directory]::CreateDirectory((ConvertTo-TaskspaceExternalLongPath $DestinationDir)) | Out-Null
+    foreach ($dir in Get-ChildItem -LiteralPath $sourceRoot -Recurse -Directory -Force) {
+        $relativeDir = $dir.FullName.Substring($sourceRoot.Length).TrimStart("\", "/")
+        [System.IO.Directory]::CreateDirectory((ConvertTo-TaskspaceExternalLongPath (Join-Path $DestinationDir $relativeDir))) | Out-Null
+    }
+    foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Force) {
+        $relativeFile = $file.FullName.Substring($sourceRoot.Length).TrimStart("\", "/")
+        Copy-TaskspaceExternalFile $file.FullName (Join-Path $DestinationDir $relativeFile)
+    }
 }
 
 function Test-TaskspaceExternalLeakyName {
@@ -48,14 +122,13 @@ function Copy-TaskspaceExternalFixture {
         [Parameter(Mandatory = $true)][string]$DestinationDir
     )
     $dest = New-TaskspaceExternalDir $DestinationDir
+    Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $SourceDir | Out-Null
     $sourceLeaks = @(Get-ChildItem -LiteralPath $SourceDir -Recurse -Force -ErrorAction SilentlyContinue |
         Where-Object { Test-TaskspaceExternalLeakyName $_.Name })
     if ($sourceLeaks.Count -gt 0) {
         throw "External fixture source contains solution/gold/private/hidden files: $(@($sourceLeaks | ForEach-Object { $_.FullName }) -join ', ')"
     }
-    foreach ($item in Get-ChildItem -LiteralPath $SourceDir -Force) {
-        Copy-Item -LiteralPath $item.FullName -Destination $dest -Recurse -Force
-    }
+    Copy-TaskspaceExternalTreeContent $SourceDir $dest
     $leaks = @(Get-ChildItem -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue |
         Where-Object { Test-TaskspaceExternalLeakyName $_.Name })
     if ($leaks.Count -gt 0) {
@@ -69,7 +142,8 @@ function Copy-TaskspaceExternalShellScript {
         [Parameter(Mandatory = $true)][string]$SourcePath,
         [Parameter(Mandatory = $true)][string]$DestinationPath
     )
-    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $SourcePath).Path)
+    $resolvedSourcePath = Repair-TaskspaceExternalStaleDenyForCurrentUser $SourcePath
+    $bytes = [System.IO.File]::ReadAllBytes($resolvedSourcePath)
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
         $bytes = if ($bytes.Length -eq 3) { [byte[]]@() } else { [byte[]]$bytes[3..($bytes.Length - 1)] }
     }
@@ -105,15 +179,17 @@ function New-TaskspaceExternalScenario {
         }
     }
     $scenarioRoot = New-TaskspaceExternalDir $ScenarioDir
+    Repair-TaskspaceExternalStaleDenyForCurrentUser $InstructionPath | Out-Null
+    Repair-TaskspaceExternalStaleDenyForCurrentUser $ValidatorScriptPath | Out-Null
+    Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $FixtureSourceDir | Out-Null
+    Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $ValidatorSourceDir | Out-Null
     $promptPath = Join-Path $scenarioRoot "prompt.txt"
-    Copy-Item -LiteralPath $InstructionPath -Destination $promptPath -Force
+    Copy-TaskspaceExternalFile $InstructionPath $promptPath
     $fixtureDir = Copy-TaskspaceExternalFixture $FixtureSourceDir (Join-Path $scenarioRoot "fixture")
     $validatorSourceDest = New-TaskspaceExternalDir (Join-Path $scenarioRoot "external-validator-source")
-    foreach ($item in Get-ChildItem -LiteralPath $ValidatorSourceDir -Force) {
-        Copy-Item -LiteralPath $item.FullName -Destination $validatorSourceDest -Recurse -Force
-    }
+    Copy-TaskspaceExternalTreeContent $ValidatorSourceDir $validatorSourceDest
     $validatorDest = Join-Path $scenarioRoot "external-validator.ps1"
-    Copy-Item -LiteralPath $ValidatorScriptPath -Destination $validatorDest -Force
+    Copy-TaskspaceExternalFile $ValidatorScriptPath $validatorDest
     $promptSha = Get-TaskspaceExternalFileSha256 $promptPath
     $wrapperSha = Get-TaskspaceExternalFileSha256 $validatorDest
     if ($null -eq $ValidatorFidelity) {

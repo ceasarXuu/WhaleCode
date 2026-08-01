@@ -1,0 +1,60 @@
+{
+  "artifact_schema_version": 1,
+  "contract_id": "r7-five-layer-taskspace-result-v3",
+  "status": "active_repair_verified",
+  "activation_phase": "R7.1-A2-C repair",
+  "model_visible_schema_version": "TaskSpaceControlResultV2",
+  "response_prepare_schema_version": "TaskSpaceResponseCommitV1",
+  "response_final_receipt_schema_version": "TaskSpaceResponseFinalReceiptV1",
+  "shared_fields": [
+    "schema_version",
+    "action",
+    "status",
+    "success",
+    "state_commit",
+    "partial_commit",
+    "canonical_revision",
+    "submitted_expected_revision"
+  ],
+  "partial_commit": false,
+  "accepted_actions": [
+    "initialize_and_execute",
+    "execute",
+    "reopen_map",
+    "read_map",
+    "read_output_ref",
+    "finish_map"
+  ],
+  "terminal_result": {
+    "required_facts": [
+      "finish_node_id",
+      "completed_work_node_ids",
+      "map_id",
+      "revision",
+      "finish_closed",
+      "root_closed"
+    ],
+    "summary_carrier": "exact_agent_summary"
+  },
+  "response_final_receipt": {
+    "carrier": "developer_factual_message_after_all_sibling_outputs",
+    "canonical_source": "persistent_map_store",
+    "receipt_only": true,
+    "required_facts": [
+      "map_id",
+      "control_call_id",
+      "reservation_revision_after",
+      "canonical_revision",
+      "prepared_action_count",
+      "attributed_result_count",
+      "outstanding_reservation_count"
+    ]
+  },
+  "feedback_rules": [
+    "control_and_ordinary_tool_results_are_independent_ordered_facts",
+    "response_prepare_and_response_final_revision_are_separate_mechanical_facts",
+    "preflight_rejection_claims_zero_dispatch_and_zero_state_commit",
+    "ordinary_tool_failure_is_not_reinterpreted",
+    "runtime_emits_no_next_action_advice"
+  ]
+}

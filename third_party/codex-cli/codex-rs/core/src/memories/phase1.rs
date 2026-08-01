@@ -337,7 +337,7 @@ mod job {
             }],
             tools: Vec::new(),
             parallel_tool_calls: false,
-            tool_choice: "auto".to_string(),
+            tool_choice: "auto".into(),
             base_instructions: BaseInstructions {
                 text: phase_one::PROMPT.to_string(),
             },

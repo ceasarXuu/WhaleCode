@@ -364,7 +364,6 @@ impl UnifiedExecProcessManager {
             // same helper as the background watcher, so all end events share
             // one implementation.
             let exit_code = process.exit_code();
-            let exit = exit_code.unwrap_or(-1);
             emit_exec_end_for_unified_exec(
                 Arc::clone(&context.session),
                 Arc::clone(&context.turn),
@@ -374,7 +373,7 @@ impl UnifiedExecProcessManager {
                 Some(process_id.to_string()),
                 Arc::clone(&transcript),
                 text.clone(),
-                exit,
+                exit_code,
                 wall_time,
             )
             .await;

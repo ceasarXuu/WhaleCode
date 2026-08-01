@@ -361,7 +361,15 @@ async fn assert_model_tools(
         .iter()
         .map(ToolSpec::name)
         .collect::<Vec<_>>();
-    assert_eq!(&tool_names, &expected_tools,);
+    let mut expected_tools = expected_tools.to_vec();
+    if let Some(index) = expected_tools
+        .iter()
+        .position(|name| *name == "taskspace_control")
+    {
+        let taskspace = expected_tools.remove(index);
+        expected_tools.insert(0, taskspace);
+    }
+    assert_eq!(tool_names, expected_tools);
 }
 
 async fn assert_default_model_tools(
@@ -396,6 +404,7 @@ async fn test_build_specs_gpt5_codex_default() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -422,6 +431,7 @@ async fn test_build_specs_gpt51_codex_default() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -450,6 +460,7 @@ async fn test_build_specs_gpt5_codex_unified_exec_web_search() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -478,6 +489,7 @@ async fn test_build_specs_gpt51_codex_unified_exec_web_search() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -504,6 +516,7 @@ async fn test_gpt_5_1_codex_max_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -530,6 +543,7 @@ async fn test_codex_5_1_mini_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -556,6 +570,7 @@ async fn test_gpt_5_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -582,6 +597,7 @@ async fn test_gpt_5_1_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -610,6 +626,7 @@ async fn test_gpt_5_1_codex_max_unified_exec_web_search() {
             "web_fetch",
             "image_generation",
             "view_image",
+            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -734,7 +751,6 @@ async fn spawn_agent_description_omits_usage_hint_when_disabled() {
             \s+Spawned\ agents\ inherit\ your\ current\ model\ by\ default\.\ Omit\ `model`\ to\ use\ that\ preferred\ default;\ set\ `model`\ only\ when\ an\ explicit\ override\ is\ needed\.
             \s+It\ will\ be\ able\ to\ send\ you\ and\ other\ running\ agents\ messages,\ and\ its\ final\ answer\ will\ be\ provided\ to\ you\ when\ it\ finishes\.
             \s+The\ new\ agent's\ canonical\ task\ name\ will\ be\ provided\ to\ it\ along\ with\ the\ message\.
-            \s+When\ TaskSpace\ mode\ has\ more\ than\ one\ ready\ node,\ include\ node_id\ so\ the\ runtime\ can\ bind\ the\ new\ agent\ to\ the\ intended\ node\.
             \s+This\ session\ is\ configured\ with\ `max_concurrent_threads_per_session\ =\ 4`\ for\ concurrently\ open\ agent\ threads\.
             \s*$
         "#,
@@ -761,7 +777,6 @@ async fn spawn_agent_description_uses_configured_usage_hint_text() {
             \s+Spawned\ agents\ inherit\ your\ current\ model\ by\ default\.\ Omit\ `model`\ to\ use\ that\ preferred\ default;\ set\ `model`\ only\ when\ an\ explicit\ override\ is\ needed\.
             \s+It\ will\ be\ able\ to\ send\ you\ and\ other\ running\ agents\ messages,\ and\ its\ final\ answer\ will\ be\ provided\ to\ you\ when\ it\ finishes\.
             \s+The\ new\ agent's\ canonical\ task\ name\ will\ be\ provided\ to\ it\ along\ with\ the\ message\.
-            \s+When\ TaskSpace\ mode\ has\ more\ than\ one\ ready\ node,\ include\ node_id\ so\ the\ runtime\ can\ bind\ the\ new\ agent\ to\ the\ intended\ node\.
             \s+This\ session\ is\ configured\ with\ `max_concurrent_threads_per_session\ =\ 4`\ for\ concurrently\ open\ agent\ threads\.
             \s+Custom\ delegation\ guidance\ only\.
             \s*$

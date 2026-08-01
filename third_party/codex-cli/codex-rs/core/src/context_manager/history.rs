@@ -2,7 +2,6 @@ use crate::context_manager::normalize;
 use crate::event_mapping::has_non_contextual_dev_message_content;
 use crate::event_mapping::is_contextual_dev_message_content;
 use crate::event_mapping::is_contextual_user_message_content;
-use crate::session::turn_context::TurnContext;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use codex_protocol::models::BaseInstructions;
@@ -135,15 +134,6 @@ impl ContextManager {
 
     // Estimate token usage using byte-based heuristics from the truncation helpers.
     // This is a coarse lower bound, not a tokenizer-accurate count.
-    pub(crate) fn estimate_token_count(&self, turn_context: &TurnContext) -> Option<i64> {
-        let model_info = &turn_context.model_info;
-        let personality = turn_context.personality.or(turn_context.config.personality);
-        let base_instructions = BaseInstructions {
-            text: model_info.get_model_instructions(personality),
-        };
-        self.estimate_token_count_with_base_instructions(&base_instructions)
-    }
-
     pub(crate) fn estimate_token_count_with_base_instructions(
         &self,
         base_instructions: &BaseInstructions,
@@ -180,19 +170,6 @@ impl ContextManager {
         } else {
             false
         }
-    }
-
-    pub(crate) fn remove_items_matching(
-        &mut self,
-        mut should_remove: impl FnMut(&ResponseItem) -> bool,
-    ) -> usize {
-        let before = self.items.len();
-        self.items.retain(|item| !should_remove(item));
-        let removed = before.saturating_sub(self.items.len());
-        if removed > 0 {
-            self.history_version = self.history_version.saturating_add(1);
-        }
-        removed
     }
 
     pub(crate) fn replace(&mut self, items: Vec<ResponseItem>) {

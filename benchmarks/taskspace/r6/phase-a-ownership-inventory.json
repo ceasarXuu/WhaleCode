@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "inventory_id": "r6-phase-a-taskspace-ownership",
+  "status": "complete",
+  "allowed_classifications": [
+    "retain_mechanical",
+    "adapt",
+    "replace",
+    "delete",
+    "regenerate",
+    "hold_rebase"
+  ],
+  "coverage_domains": [
+    "domain_model",
+    "runtime_state",
+    "tool_contract",
+    "event_store",
+    "snapshot_replay",
+    "projection",
+    "viewer_protocol",
+    "benchmark_observability"
+  ],
+  "items": [
+    {
+      "id": "task_status_enum",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "delete",
+      "target_owner": "root_and_finish_states",
+      "target_phase": "C",
+      "reason": "independent completion authority"
+    },
+    {
+      "id": "task_state",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "replace",
+      "target_owner": "taskspace_map_root",
+      "target_phase": "C",
+      "reason": "task identity and lifecycle are mixed outside the graph"
+    },
+    {
+      "id": "map_status_enum",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "delete",
+      "target_owner": "root_and_finish_states",
+      "target_phase": "C",
+      "reason": "map completion must be derived from graph nodes"
+    },
+    {
+      "id": "action_map_instance",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "adapt",
+      "target_owner": "rooted_dag_model",
+      "target_phase": "B-C",
+      "reason": "retain map identity and collections, add root finish revision, remove status authority"
+    },
+    {
+      "id": "map_node_kind",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "replace",
+      "target_owner": "node_role",
+      "target_phase": "B-C",
+      "reason": "semantic inspect implement test kinds must not drive runtime permissions"
+    },
+    {
+      "id": "map_node_status",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "replace",
+      "target_owner": "role_specific_status",
+      "target_phase": "B-C",
+      "reason": "root work and finish have different legal lifecycles"
+    },
+    {
+      "id": "map_edge",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "retain_mechanical",
+      "target_owner": "rooted_dag_model",
+      "target_phase": "B",
+      "reason": "from to dependency direction already matches target"
+    },
+    {
+      "id": "origin_node_id",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "replace",
+      "target_owner": "agent_authored_edges_and_events",
+      "target_phase": "D",
+      "reason": "special rework ancestry must not become a second parent relation"
+    },
+    {
+      "id": "leases",
+      "domain": "domain_model",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "adapt",
+      "target_owner": "rooted_dag_runtime",
+      "target_phase": "C-D",
+      "reason": "mechanical ownership remains useful but root and finish cannot own ordinary tool leases"
+    },
+    {
+      "id": "node_results_and_events",
+      "domain": "event_store",
+      "current_owner": "action_map_map",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+      "classification": "adapt",
+      "target_owner": "canonical_map_event_refs",
+      "target_phase": "C-E",
+      "reason": "retain faithful refs and remove duplicated lifecycle authority"
+    },
+    {
+      "id": "runtime_active_task_and_map",
+      "domain": "runtime_state",
+      "current_owner": "action_map_runtime",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+      "classification": "replace",
+      "target_owner": "active_map_index",
+      "target_phase": "C",
+      "reason": "task and map active fields can drift independently"
+    },
+    {
+      "id": "runtime_current_binding",
+      "domain": "runtime_state",
+      "current_owner": "action_map_runtime",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+      "classification": "adapt",
+      "target_owner": "active_frontier_binding",
+      "target_phase": "C-D",
+      "reason": "binding is mechanical but must reference a ready or running work node"
+    },
+    {
+      "id": "runtime_task_store",
+      "domain": "runtime_state",
+      "current_owner": "action_map_runtime",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+      "classification": "delete",
+      "target_owner": "map_root_and_session_index",
+      "target_phase": "C",
+      "reason": "tasks hashmap duplicates graph identity and lifecycle"
+    },
+    {
+      "id": "runtime_map_store",
+      "domain": "runtime_state",
+      "current_owner": "action_map_runtime",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+      "classification": "adapt",
+      "target_owner": "rooted_dag_runtime",
+      "target_phase": "C",
+      "reason": "map store remains the session-owned canonical graph collection"
+    },
+    {
+      "id": "budget_and_sentinel_observability",
+      "domain": "runtime_state",
+      "current_owner": "action_map_runtime",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+      "classification": "retain_mechanical",
+      "target_owner": "runtime_observability",
+      "target_phase": "C-H",
+      "reason": "retain external resource and diagnostic facts without semantic graph decisions"
+    },
+    {
+      "id": "initialize_then_actions",
+      "domain": "tool_contract",
+      "current_owner": "taskspace_control",
+      "current_path": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+      "classification": "replace",
+      "target_owner": "initialize_map_contract",
+      "target_phase": "C",
+      "reason": "current schema has no explicit root or finish and allows empty dependencies"
+    },
+    {
+      "id": "create_node",
+      "domain": "tool_contract",
+      "current_owner": "taskspace_control",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
+      "classification": "replace",
+      "target_owner": "mutate_graph_contract",
+      "target_phase": "C-D",
+      "reason": "single node append cannot preserve a single sink during rewiring"
+    },
+    {
+      "id": "finish_node_chain",
+      "domain": "tool_contract",
+      "current_owner": "taskspace_control",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
+      "classification": "replace",
+      "target_owner": "finish_end_contract",
+      "target_phase": "C-E",
+      "reason": "terminal target must be the map-owned finish node, not a caller supplied list"
+    },
+    {
+      "id": "ordered_tool_sequence",
+      "domain": "tool_contract",
+      "current_owner": "tool_sequence_router",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs",
+      "classification": "adapt",
+      "target_owner": "tool_sequence_router",
+      "target_phase": "C",
+      "reason": "mechanical ordering and stop-after-failure remain valid after schema replacement"
+    },
+    {
+      "id": "taskspace_event_store",
+      "domain": "event_store",
+      "current_owner": "action_map_event_store",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/event_store.rs",
+      "classification": "retain_mechanical",
+      "target_owner": "canonical_context_event_store",
+      "target_phase": "B-E",
+      "reason": "raw payload ownership and deterministic linearization match semantic fidelity goals"
+    },
+    {
+      "id": "event_codec",
+      "domain": "event_store",
+      "current_owner": "action_map_event_codec",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/event_codec.rs",
+      "classification": "adapt",
+      "target_owner": "canonical_context_and_map_events",
+      "target_phase": "B-E",
+      "reason": "retain raw response round trip and add map lifecycle event types"
+    },
+    {
+      "id": "compaction_checkpoint",
+      "domain": "event_store",
+      "current_owner": "action_map_event_store",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/event_store.rs",
+      "classification": "retain_mechanical",
+      "target_owner": "canonical_context_event_store",
+      "target_phase": "E-G",
+      "reason": "hash checked replacement and refs remain valid outside graph semantics"
+    },
+    {
+      "id": "action_map_snapshot_protocol",
+      "domain": "snapshot_replay",
+      "current_owner": "codex_protocol",
+      "current_path": "third_party/codex-cli/codex-rs/protocol/src/protocol.rs",
+      "classification": "replace",
+      "target_owner": "rooted_dag_protocol",
+      "target_phase": "C-E",
+      "reason": "current snapshot serializes tasks and maps separately and lacks root finish revision"
+    },
+    {
+      "id": "snapshot_delta_hash",
+      "domain": "snapshot_replay",
+      "current_owner": "action_map_snapshot_delta",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/snapshot_delta.rs",
+      "classification": "adapt",
+      "target_owner": "rooted_dag_snapshot_delta",
+      "target_phase": "C-E",
+      "reason": "exact hash and atomic reconstruction are reusable with the new snapshot"
+    },
+    {
+      "id": "active_projection",
+      "domain": "projection",
+      "current_owner": "action_map_projection",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/projection.rs",
+      "classification": "replace",
+      "target_owner": "rooted_dag_projection",
+      "target_phase": "C-F",
+      "reason": "current header exposes independent task map statuses and root refs outside the graph"
+    },
+    {
+      "id": "detail_fold_s4_2",
+      "domain": "projection",
+      "current_owner": "action_map_detail_fold",
+      "current_path": "third_party/codex-cli/codex-rs/core/src/action_map/detail_fold.rs",
+      "classification": "hold_rebase",
+      "target_owner": "r6_projection_strategy",
+      "target_phase": "G",
+      "reason": "mechanism passed but natural R5 maps had no dependency edges and benefit is unverified"
+    },
+    {
+      "id": "taskspace_read_rpc",
+      "domain": "viewer_protocol",
+      "current_owner": "app_server",
+      "current_path": "third_party/codex-cli/codex-rs/app-server/src/codex_message_processor.rs",
+      "classification": "retain_mechanical",
+      "target_owner": "app_server",
+      "target_phase": "C-H",
+      "reason": "read-only snapshot transport is valid and adds no second persistence"
+    },
+    {
+      "id": "taskspace_viewer",
+      "domain": "viewer_protocol",
+      "current_owner": "tui_action_map_viewer",
+      "current_path": "third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs",
+      "classification": "adapt",
+      "target_owner": "rooted_dag_viewer",
+      "target_phase": "C-D-H",
+      "reason": "transport can remain but rendering must use explicit root finish and real DAG edges"
+    },
+    {
+      "id": "generated_typescript_snapshot",
+      "domain": "viewer_protocol",
+      "current_owner": "app_server_protocol_codegen",
+      "current_path": "third_party/codex-cli/codex-rs/app-server-protocol/schema/typescript",
+      "classification": "regenerate",
+      "target_owner": "rooted_dag_protocol_codegen",
+      "target_phase": "C",
+      "reason": "generated snapshot types must exactly follow the new Rust protocol and remove stale shapes"
+    },
+    {
+      "id": "docker_benchmark_harness",
+      "domain": "benchmark_observability",
+      "current_owner": "taskspace_benchmark",
+      "current_path": "scripts/taskspace-benchmark",
+      "classification": "adapt",
+      "target_owner": "r6_benchmark_observability",
+      "target_phase": "A-H",
+      "reason": "retain Docker isolation and metrics, add rooted DAG health fields"
+    },
+    {
+      "id": "performance_observer",
+      "domain": "benchmark_observability",
+      "current_owner": "taskspace_benchmark",
+      "current_path": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
+      "classification": "adapt",
+      "target_owner": "r6_benchmark_observability",
+      "target_phase": "A-H",
+      "reason": "retain request token cache action reporting and replace legacy map health interpretation"
+    }
+  ]
+}

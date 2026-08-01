@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "external-benchmark-common.ps1")
+. (Join-Path $PSScriptRoot "terminal-bench-fixture-projection.ps1")
 . (Join-Path $PSScriptRoot "terminal-bench-uv-cache.ps1")
 . (Join-Path $PSScriptRoot "terminal-bench-remote-assets.ps1")
 . (Join-Path $PSScriptRoot "terminal-bench-equivalence.ps1")
@@ -102,6 +103,15 @@ function Test-TerminalBenchPublicFixtureRelativePath {
     return $true
 }
 
+function ConvertTo-TerminalBenchLongPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { return $full }
+    if ($full.StartsWith("\\?\")) { return $full }
+    if ($full.StartsWith("\\")) { return "\\?\UNC\" + $full.Substring(2) }
+    "\\?\$full"
+}
+
 function Get-TerminalBenchDockerfileBaseImageProof {
     param([Parameter(Mandatory = $true)][string]$DockerfilePath)
     if (-not (Test-Path -LiteralPath $DockerfilePath)) { return [pscustomobject]@{ from_images = @(); digest_pinned = $false } }
@@ -117,6 +127,7 @@ function Get-TerminalBenchDockerfileBaseImageProof {
 }
 
 $taskRoot = (Resolve-Path -LiteralPath $TaskDir).Path
+Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $taskRoot | Out-Null
 if ([string]::IsNullOrWhiteSpace($SampleId)) { $SampleId = Split-Path -Leaf $taskRoot }
 $instructionCandidates = @("instruction.md", "prompt.md", "task.md", "README.md") |
     ForEach-Object { Join-Path $taskRoot $_ } |
@@ -163,7 +174,7 @@ $upstreamPromptText = $originalPromptText.TrimEnd()
 $runnerNote = @"
 
 Local runner environment note:
-Treat the current working directory as the task's /app directory. If the instruction names /app/<path>, create or update <path> in the current working directory rather than creating a nested app/ directory or C:\app.
+Local tools start in the directory that the public validator later mounts as /app. In local tool calls, use relative paths or current-working-directory paths for task files. If the instruction names /app/<path>, the matching local path is <path> under the current working directory; do not create a nested app/ directory or C:\app.
 "@
 $adaptedPromptText = $upstreamPromptText + $runnerNote
 Set-Content -LiteralPath $adaptedPrompt -Encoding UTF8 -Value $adaptedPromptText
@@ -181,8 +192,11 @@ $fixtureSource = if (Test-Path -LiteralPath $fixtureSource) {
         $relative = $file.FullName.Substring($taskRoot.Length).TrimStart("\", "/").Replace("\", "/")
         if (-not (Test-TerminalBenchPublicFixtureRelativePath $relative)) { continue }
         $dest = Join-Path $generatedFixture ($relative.Replace("/", [System.IO.Path]::DirectorySeparatorChar))
-        New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
-        Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
+        [System.IO.Directory]::CreateDirectory((ConvertTo-TerminalBenchLongPath (Split-Path -Parent $dest))) | Out-Null
+        [System.IO.File]::Copy((ConvertTo-TerminalBenchLongPath $file.FullName), (ConvertTo-TerminalBenchLongPath $dest), $true)
+        if (-not [System.IO.File]::Exists((ConvertTo-TerminalBenchLongPath $dest))) {
+            throw "Fixture file copy failed: $relative"
+        }
         $copiedFiles.Add($relative)
     }
     $generatedFixtureAllowlist = @($copiedFiles.ToArray())
@@ -192,12 +206,22 @@ $remoteInjection = Initialize-TerminalBenchRemoteAssetInjection $fixtureSource $
 $fixtureSource = [string]$remoteInjection.fixture_source
 $remoteAssets = @($remoteInjection.remote_assets)
 $remoteAssetsE3Eligible = @($remoteAssets | Where-Object { $_.required_for_e3 -and -not [bool]$_.equivalence_proven }).Count -eq 0
+$appProjection = ConvertTo-TerminalBenchAgentAppFixture $fixtureSource $generatedDir $SampleId
+$fixtureSource = [string]$appProjection.fixture_source
+if ($fixtureMode -eq "generated_public_allowlist" -and [bool]$appProjection.projected) {
+    $projectedDestinations = @($appProjection.projections | ForEach-Object { [string]$_.destination })
+    $generatedFixtureAllowlist = @(@($generatedFixtureAllowlist) + $projectedDestinations | Sort-Object -Unique)
+}
 $validatorSourceDir = New-TaskspaceExternalDir (Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator-source")
 Copy-TaskspaceExternalShellScript $validatorSource (Join-Path $validatorSourceDir "run-tests.sh")
 if (Test-Path -LiteralPath (Join-Path $taskRoot "tests")) {
     foreach ($item in Get-ChildItem -LiteralPath (Join-Path $taskRoot "tests") -Force) {
         if (-not $item.PSIsContainer -and [System.IO.Path]::GetExtension($item.FullName).ToLowerInvariant() -eq ".sh") {
             Copy-TaskspaceExternalShellScript $item.FullName (Join-Path $validatorSourceDir $item.Name)
+        } elseif (-not $item.PSIsContainer) {
+            $dest = Join-Path $validatorSourceDir $item.Name
+            [System.IO.Directory]::CreateDirectory((ConvertTo-TerminalBenchLongPath (Split-Path -Parent $dest))) | Out-Null
+            [System.IO.File]::Copy((ConvertTo-TerminalBenchLongPath $item.FullName), (ConvertTo-TerminalBenchLongPath $dest), $true)
         } else {
             Copy-Item -LiteralPath $item.FullName -Destination $validatorSourceDir -Recurse -Force
         }
@@ -251,8 +275,17 @@ $validatorLines = @(
     '$script:TaskspaceDockerBackend = ""',
     '$script:LastDockerExitCode = 0',
     '$script:TaskspaceDockerProbeFailure = ""',
+    'function Get-DockerBackendProbeTimeoutSeconds {',
+    '    $raw = [string]$env:TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS',
+    '    if ([string]::IsNullOrWhiteSpace($raw)) { return 60 }',
+    '    try { $value = [int]$raw } catch { return 60 }',
+    '    if ($value -lt 20) { return 20 }',
+    '    if ($value -gt 300) { return 300 }',
+    '    return $value',
+    '}',
     'function Invoke-DockerBackendProbe {',
-    '    param([Parameter(Mandatory = $true)][string]$Command, [Parameter(Mandatory = $true)][string[]]$Arguments, [int]$TimeoutSeconds = 20)',
+    '    param([Parameter(Mandatory = $true)][string]$Command, [Parameter(Mandatory = $true)][string[]]$Arguments, [int]$TimeoutSeconds = 0)',
+    '    if ($TimeoutSeconds -le 0) { $TimeoutSeconds = Get-DockerBackendProbeTimeoutSeconds }',
     '    $job = Start-Job -ScriptBlock {',
     '        param([string]$InnerCommand, [string[]]$InnerArguments)',
     '        try {',
@@ -526,6 +559,8 @@ $validatorLines = @(
     '        docker_platform = $dockerPlatform',
     '        docker_network_mode = $dockerNetworkMode',
     '        docker_build_environment_mode = $dockerBuildEnvironmentMode',
+    '        proxy_env_count = [int]($proxyArgs.Count / 2)',
+    '        proxy_build_arg_count = [int]($proxyBuildArgs.Count / 2)',
     '        dockerfile_from_images = @($cacheBaseImages)',
     '        container_name = $containerName',
     '        result_path = $dockerResultPath',
@@ -583,22 +618,24 @@ $validatorLines = @(
     '    Write-ValidatorProbeResult "pass" "probe_docker" "" ""',
     '    exit 0',
     '}',
-    '$networkArgs = if ($backend -eq "wsl") { @("--network", "host") } else { @("--add-host", "host.docker.internal:host-gateway") }',
     '$proxyArgs = @()',
+    '$proxyBuildArgs = @()',
+    '$nativeLoopbackProxy = $false',
     'foreach ($proxyName in @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")) {',
     '    $proxyValue = [Environment]::GetEnvironmentVariable($proxyName)',
     '    if ([string]::IsNullOrWhiteSpace($proxyValue)) { continue }',
-    '    if ($backend -eq "wsl" -and $proxyValue -match "://(127\.0\.0\.1|localhost):") {',
-    '        Write-Host "proxy_env_skipped_loopback=$proxyName"',
-    '        continue',
-    '    }',
-    '    if ($backend -ne "wsl") {',
-    '        $proxyValue = $proxyValue -replace "://127\.0\.0\.1:", "://host.docker.internal:"',
-    '        $proxyValue = $proxyValue -replace "://localhost:", "://host.docker.internal:"',
+    '    if ($proxyValue -match "://(127\.0\.0\.1|localhost):") {',
+    '        if ($backend -ne "wsl") { $nativeLoopbackProxy = $true }',
+    '        Write-Host "proxy_env_preserved_loopback=$proxyName"',
     '    }',
     '    $proxyArgs += @("-e", "$proxyName=$proxyValue")',
+    '    $proxyBuildArgs += @("--build-arg", "$proxyName=$proxyValue")',
     '}',
+    '$networkArgs = if ($backend -eq "wsl" -or $nativeLoopbackProxy) { @("--network", "host") } else { @("--add-host", "host.docker.internal:host-gateway") }',
+    '$buildNetworkArgs = if ($backend -eq "wsl" -or $nativeLoopbackProxy) { @("--network", "host") } else { @("--add-host", "host.docker.internal:host-gateway") }',
+    'if ($nativeLoopbackProxy) { Write-Host "proxy_native_loopback_network=host" }',
     'Write-Host "proxy_env_count=$($proxyArgs.Count / 2)"',
+    'Write-Host "proxy_build_arg_count=$($proxyBuildArgs.Count / 2)"',
     '$exitCode = 0',
     '$script:TaskspaceDockerCacheHit = $false',
     'try {',
@@ -609,10 +646,10 @@ $validatorLines = @(
     '            if ($script:LastDockerExitCode -eq 0) {',
     '                $script:TaskspaceDockerCacheHit = $true',
     '            } else {',
-    '                Invoke-Docker -Arguments @("build", "--pull", "-t", $cacheImage, $fixtureDockerPath)',
+    '                Invoke-Docker -Arguments (@("build") + $buildNetworkArgs + $proxyBuildArgs + @("--pull", "-t", $cacheImage, $fixtureDockerPath))',
     '            }',
     '        } else {',
-    '            Invoke-Docker -Arguments @("build", "--pull", "-t", $image, $fixtureDockerPath)',
+    '            Invoke-Docker -Arguments (@("build") + $buildNetworkArgs + $proxyBuildArgs + @("--pull", "-t", $image, $fixtureDockerPath))',
     '        }',
     '    }',
     '    $phaseFinishedAt = Get-Date',
@@ -731,6 +768,11 @@ $adapterMetadata = [ordered]@{
     generated_validator_path = $validator
     validator_probe_supported = $true
     prompt_adaptation = "current_working_directory_is_terminal_bench_app"
+    agent_app_fixture_projection = [ordered]@{
+        projected = [bool]$appProjection.projected
+        source = "dockerfile_public_copy_add_to_agent_app"
+        projections = @($appProjection.projections)
+    }
     original_instruction_sha256 = (Get-TaskspaceExternalFileSha256 $originalPromptSource)
     solution_visible_to_agent = $false
     engineering_smoke_only = $false

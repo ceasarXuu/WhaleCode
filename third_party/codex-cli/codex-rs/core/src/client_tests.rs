@@ -1,25 +1,38 @@
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
+use super::Prompt;
+use super::ProviderProjectionIdentityExpectation;
 use super::ProviderRequestAttribution;
 use super::ProviderRequestBudgetContext;
 use super::ProviderRequestBudgetLimits;
+use super::ProviderRequestHardLimit;
 use super::UnauthorizedRecoveryExecution;
 use super::X_CODEX_INSTALLATION_ID_HEADER;
 use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
+use super::apply_api_provider_request_hard_limit_retry_policy;
+use super::apply_projection_identity_expectation;
+use super::apply_provider_request_hard_limit_retry_policy;
+use super::ensure_realtime_session_is_metered;
 use super::provider_payload_digest;
+use codex_api::RealtimeEventParser;
+use codex_api::RealtimeSessionMode;
+use codex_api::ToolChoice;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
+use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TokenUsage;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -37,6 +50,150 @@ fn test_model_client(session_source: SessionSource) -> ModelClient {
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
     )
+}
+
+#[test]
+fn provider_request_hard_limit_rejects_before_the_excess_dispatch() {
+    let limit = ProviderRequestHardLimit::with_limit(2);
+    assert!(limit.claim("/responses").is_ok());
+    assert!(limit.claim("/responses").is_ok());
+    let error = limit
+        .claim("/responses")
+        .expect_err("third dispatch must be rejected");
+    assert_eq!(
+        error.to_string(),
+        "Fatal error: provider request hard limit reached (max 2)"
+    );
+    assert_eq!(limit.count.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[test]
+fn invalid_provider_request_hard_limit_fails_closed() {
+    let limit = ProviderRequestHardLimit {
+        limit: None,
+        count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: None,
+        configuration_error: Some(
+            "WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer".to_string(),
+        ),
+    };
+    assert_eq!(
+        limit
+            .claim("/responses")
+            .expect_err("invalid limit must reject")
+            .to_string(),
+        "Fatal error: WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer"
+    );
+}
+
+#[test]
+fn model_clients_share_one_process_provider_request_hard_limit() {
+    let first = test_model_client(SessionSource::Cli);
+    let second = test_model_client(SessionSource::Cli);
+    assert!(std::sync::Arc::ptr_eq(
+        &first.state.provider_request_hard_limit,
+        &second.state.provider_request_hard_limit,
+    ));
+}
+
+#[test]
+fn enabled_provider_request_hard_limit_disables_hidden_transport_retries() {
+    let limit = ProviderRequestHardLimit::with_limit(2);
+    let mut provider =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+    provider.request_max_retries = Some(9);
+    provider.stream_max_retries = Some(7);
+    apply_provider_request_hard_limit_retry_policy(&mut provider, &limit);
+    assert_eq!(provider.request_max_retries, Some(0));
+    assert_eq!(provider.stream_max_retries, Some(0));
+
+    let mut api_provider = provider
+        .to_api_provider(/*auth_mode*/ None)
+        .expect("create realtime API provider");
+    apply_api_provider_request_hard_limit_retry_policy(&mut api_provider, &limit);
+    assert_eq!(api_provider.retry.max_attempts, 0);
+}
+
+#[test]
+fn provider_request_hard_limit_rejects_unmetered_realtime_generation() {
+    let enabled = ProviderRequestHardLimit::with_limit(2);
+    let disabled = ProviderRequestHardLimit::disabled();
+    assert!(
+        ensure_realtime_session_is_metered(
+            &enabled,
+            RealtimeEventParser::RealtimeV2,
+            RealtimeSessionMode::Conversational
+        )
+        .is_err()
+    );
+    assert!(
+        ensure_realtime_session_is_metered(
+            &enabled,
+            RealtimeEventParser::RealtimeV2,
+            RealtimeSessionMode::Transcription
+        )
+        .is_err()
+    );
+    assert!(
+        ensure_realtime_session_is_metered(
+            &disabled,
+            RealtimeEventParser::V1,
+            RealtimeSessionMode::Conversational
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn provider_request_hard_limit_uses_normalized_realtime_mode() {
+    let enabled = ProviderRequestHardLimit::with_limit(2);
+    assert!(
+        ensure_realtime_session_is_metered(
+            &enabled,
+            RealtimeEventParser::V1,
+            RealtimeSessionMode::Transcription
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn invalid_provider_request_hard_limit_rejects_realtime_before_connect() {
+    let invalid = ProviderRequestHardLimit {
+        limit: None,
+        count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: None,
+        configuration_error: Some("invalid hard limit".to_string()),
+    };
+    let error = ensure_realtime_session_is_metered(
+        &invalid,
+        RealtimeEventParser::RealtimeV2,
+        RealtimeSessionMode::Transcription,
+    )
+    .expect_err("invalid hard limit must reject every Realtime session");
+    assert_eq!(error.to_string(), "Fatal error: invalid hard limit");
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_request_hard_limit_is_shared_across_process_state_instances() {
+    let directory = tempfile::tempdir().expect("temporary hard-limit state");
+    let state_path = directory.path().join("request-count");
+    let first = ProviderRequestHardLimit {
+        limit: Some(2),
+        count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: Some(state_path.clone()),
+        configuration_error: None,
+    };
+    let second = ProviderRequestHardLimit {
+        limit: Some(2),
+        count: std::sync::atomic::AtomicUsize::new(0),
+        state_path: Some(state_path),
+        configuration_error: None,
+    };
+    assert!(first.claim("/responses").is_ok());
+    assert!(second.claim("/responses").is_ok());
+    assert!(first.claim("/responses").is_err());
 }
 
 fn test_model_info() -> ModelInfo {
@@ -85,48 +242,80 @@ fn test_session_telemetry() -> SessionTelemetry {
 }
 
 #[test]
-fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
-    let budget = ProviderRequestBudgetContext::enabled(1, 1);
+fn named_tool_choice_preserves_requested_chat_reasoning() {
+    let provider_info =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::ChatCompletions);
+    let api_provider = provider_info
+        .to_api_provider(/*auth_mode*/ None)
+        .expect("create chat completions provider");
+    let client = ModelClient::new(
+        /*auth_manager*/ None,
+        ThreadId::new(),
+        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
+        provider_info,
+        SessionSource::Cli,
+        /*model_verbosity*/ None,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+    );
+    let session = client.new_session();
+    let prompt = Prompt {
+        tool_choice: ToolChoice::function("taskspace_control"),
+        ..Prompt::default()
+    };
 
-    let err = budget
-        .before_dispatch("responses_http")
-        .expect_err("exhausted budget should block before dispatch");
+    let request = session
+        .build_responses_request(
+            &api_provider,
+            &prompt,
+            &test_model_info(),
+            Some(ReasoningEffort::Max),
+            ReasoningSummary::None,
+            /*service_tier*/ None,
+        )
+        .expect("build named-tool request");
 
-    assert!(
-        err.to_string()
-            .contains("active provider request budget is exhausted")
-    );
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 1);
     assert_eq!(
-        events[0].request_id,
-        "provider-request:scope-unknown:logical-2:attempt-1"
+        request.reasoning.and_then(|reasoning| reasoning.effort),
+        Some(ReasoningEffort::Max)
     );
     assert_eq!(
-        events[0].logical_request_id,
-        "provider-request:scope-unknown:logical-2"
-    );
-    assert_eq!(events[0].attempt_seq, 1);
-    assert_eq!(events[0].transport, "responses_http");
-    assert_eq!(events[0].status, "blocked");
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 1);
-    assert_eq!(events[0].max_requests, 1);
-    assert_eq!(events[0].budget_state_before, "hard_stopped");
-    assert_eq!(events[0].budget_state_after, "hard_stopped");
-    assert_eq!(
-        events[0].budget_transition_reason,
-        "provider_request_budget_exhausted"
+        request.tool_choice,
+        ToolChoice::function("taskspace_control")
     );
 }
 
 #[test]
-fn provider_request_budget_allows_bounded_recovery_at_compact_checkpoint() {
+fn provider_request_budget_observes_profile_hint_overrun_before_dispatch() {
+    let budget = ProviderRequestBudgetContext::enabled(1, 1);
+
+    let dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("profile hint overrun should not block dispatch");
+
+    assert_eq!(dispatch.request_count_before, 1);
+    assert_eq!(dispatch.request_count_after, 2);
+    assert_eq!(dispatch.budget_state_before, "over_profile_hint");
+    assert_eq!(dispatch.budget_state_after, "over_profile_hint");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+    assert_eq!(events[0].max_requests, 1);
+    assert_eq!(events[0].budget_state_before, "over_profile_hint");
+    assert_eq!(events[0].budget_state_after, "over_profile_hint");
+}
+
+#[test]
+fn provider_request_budget_compact_checkpoint_remains_advisory() {
     let budget = ProviderRequestBudgetContext::enabled(1, 2);
 
     let _dispatch = budget
         .before_dispatch("responses_http")
-        .expect("compact checkpoint should allow one bounded recovery dispatch");
+        .expect("compact checkpoint profile hint should not block dispatch");
 
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
@@ -135,51 +324,37 @@ fn provider_request_budget_allows_bounded_recovery_at_compact_checkpoint() {
     assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].max_requests, 2);
     assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
-    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(events[0].budget_state_after, "over_profile_hint");
     assert_eq!(
         events[0].budget_transition_reason,
-        "provider_request_budget_reached"
+        "provider_request_profile_hint_exceeded"
     );
-    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_phase.as_deref(), None);
 
     budget.record_response_completed(None);
-    let terminal_events = budget.drain_events();
-    assert_eq!(terminal_events.len(), 1);
-    assert_eq!(
-        terminal_events[0].request_id,
-        "provider-request:scope-unknown:logical-2:attempt-1"
-    );
-    assert_eq!(terminal_events[0].status, "response_completed");
-    assert_eq!(
-        terminal_events[0].request_phase.as_deref(),
-        Some("budget_recovery")
-    );
-
-    let err = budget
+    let _ = budget.drain_events();
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("budget should hard stop after bounded recovery is spent");
-    assert!(
-        err.to_string()
-            .contains("active provider request budget is exhausted")
-    );
+        .expect("profile hint overrun should continue after terminal event");
+    assert_eq!(dispatch.request_count_before, 2);
+    assert_eq!(dispatch.request_count_after, 3);
 }
 
 #[test]
-fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
+fn provider_request_budget_preserves_final_synthesis_phase_at_profile_hint() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 1,
             max_requests: 2,
             node_request_count: 0,
             max_model_requests_per_node: usize::MAX,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
             budget_state: "compact_checkpoint_required".to_string(),
         },
         ProviderRequestAttribution {
             request_phase: Some("final_synthesis".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
     let _dispatch = budget
@@ -192,7 +367,7 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
     assert_eq!(events[0].request_count_before, 1);
     assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
-    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(events[0].budget_state_after, "over_profile_hint");
     assert_eq!(events[0].request_phase.as_deref(), Some("final_synthesis"));
     assert_eq!(
         events.last().expect("terminal event").status,
@@ -209,15 +384,13 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
 }
 
 #[test]
-fn provider_request_budget_allows_automatic_node_budget_recovery_once() {
+fn provider_request_budget_node_profile_hint_does_not_force_recovery_phase() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 1,
             max_requests: 10,
             node_request_count: 1,
             max_model_requests_per_node: 1,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -225,41 +398,37 @@ fn provider_request_budget_allows_automatic_node_budget_recovery_once() {
             request_phase: Some("model_sampling".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
     let _dispatch = budget
         .before_dispatch("responses_http")
-        .expect("node budget should allow one automatic recovery dispatch");
+        .expect("node profile hint should not force recovery dispatch");
 
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].status, "started");
-    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_phase.as_deref(), Some("model_sampling"));
     assert_eq!(events[0].request_count_before, 1);
     assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].node_id.as_deref(), Some("node-1"));
 
     budget.record_response_completed(None);
     let _ = budget.drain_events();
-    let err = budget
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("node budget should block after automatic recovery is spent");
-    assert!(
-        err.to_string()
-            .contains("active node provider request budget is exhausted")
-    );
+        .expect("node profile hint should stay advisory after repeated use");
+    assert_eq!(dispatch.request_phase.as_deref(), Some("model_sampling"));
 }
 
 #[test]
-fn provider_request_budget_allows_budget_recovery_grace_once() {
+fn provider_request_budget_explicit_budget_recovery_phase_remains_advisory() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 1,
             max_requests: 10,
             node_request_count: 1,
             max_model_requests_per_node: 1,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -267,11 +436,12 @@ fn provider_request_budget_allows_budget_recovery_grace_once() {
             request_phase: Some("budget_recovery".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
     let _dispatch = budget
         .before_dispatch("responses_http")
-        .expect("budget_recovery should bypass the node request budget");
+        .expect("budget_recovery phase should remain advisory");
 
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
@@ -282,25 +452,20 @@ fn provider_request_budget_allows_budget_recovery_grace_once() {
 
     budget.record_response_completed(None);
     let _ = budget.drain_events();
-    let err = budget
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("budget_recovery grace should be single-use");
-    assert!(
-        err.to_string()
-            .contains("active node provider request budget is exhausted")
-    );
+        .expect("budget_recovery phase should not be single-use");
+    assert_eq!(dispatch.request_phase.as_deref(), Some("budget_recovery"));
 }
 
 #[test]
-fn provider_request_budget_blocks_rebuilt_context_after_recovery_grace_spent() {
+fn provider_request_budget_allows_rebuilt_context_after_recovery_grace_spent() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 2,
             max_requests: 10,
             node_request_count: 2,
             max_model_requests_per_node: 2,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 1,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -308,15 +473,13 @@ fn provider_request_budget_blocks_rebuilt_context_after_recovery_grace_spent() {
             request_phase: Some("budget_recovery".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
-    let err = budget
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("rebuilt budget context must honor spent recovery grace");
-    assert!(
-        err.to_string()
-            .contains("active node provider request budget is exhausted")
-    );
+        .expect("rebuilt budget context should not hard-stop after recovery grace");
+    assert_eq!(dispatch.request_phase.as_deref(), Some("budget_recovery"));
 }
 
 #[test]
@@ -327,7 +490,11 @@ fn provider_request_budget_records_started_and_terminal_status() {
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
     let payload = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- protected"
+        "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
     }))
     .expect("payload digest");
     let payload_sha256 = payload.sha256.clone();
@@ -367,8 +534,18 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(events[1].provider_payload_bytes, Some(payload_bytes));
     assert_eq!(events[1].exact_payload_scan_passed, Some(true));
     assert_eq!(events[1].active_projection_present, Some(true));
-    assert_eq!(events[1].legacy_taskspace_history_present, Some(false));
     assert_eq!(events[1].replacement_confirmed, Some(true));
+    let exact_scan = events[1]
+        .exact_payload_scan
+        .as_ref()
+        .expect("payload_captured exact scan");
+    assert_eq!(exact_scan.request_id, events[1].request_id);
+    assert_eq!(exact_scan.provider_payload_sha256, payload_sha256);
+    assert_eq!(
+        exact_scan.scan_event_id,
+        format!("scan:{}:{}", events[1].request_id, payload_sha256)
+    );
+    assert!(exact_scan.passed);
     assert_eq!(
         events[2].provider_payload_sha256.as_deref(),
         Some(payload_sha256.as_str())
@@ -401,95 +578,414 @@ fn provider_request_budget_records_started_and_terminal_status() {
     );
     assert_eq!(terminal_events[0].exact_payload_scan_passed, Some(true));
     assert_eq!(terminal_events[0].replacement_confirmed, Some(true));
+    assert_eq!(
+        terminal_events[0]
+            .exact_payload_scan
+            .as_ref()
+            .map(|scan| scan.scan_event_id.as_str()),
+        Some(exact_scan.scan_event_id.as_str())
+    );
     assert!(terminal_events[0].completed_at_ms.is_some());
     assert!(terminal_events[0].latency_ms.is_some());
 }
 
 #[test]
-fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
+fn provider_request_budget_confirms_projection_identity_on_final_payload() {
+    let projection = "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.";
+    let expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAlways,
+        projection,
+    )
+    .expect("bootstrap projection identity");
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 0,
+            max_requests: 2,
+            node_request_count: 0,
+            max_model_requests_per_node: usize::MAX,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution::default(),
+        Some(expectation),
+    );
+    let dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("request dispatch");
+    let payload = provider_payload_digest(&json!({
+        "input": projection,
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
+    }))
+    .expect("payload digest");
+    dispatch.record_provider_payload(payload);
+
+    let event = budget
+        .drain_events()
+        .into_iter()
+        .find(|event| event.status == "payload_captured")
+        .expect("payload captured event");
+    let scan = event.exact_payload_scan.expect("exact payload scan");
+    assert_eq!(scan.projection_identity_confirmed, Some(true));
+    assert_eq!(scan.projection_kind.as_deref(), Some("bootstrap_required"));
+    assert_eq!(scan.projection_policy.as_deref(), Some("map-always"));
+    assert_eq!(
+        scan.projection_sha256.as_deref(),
+        scan.expected_projection_sha256.as_deref()
+    );
+    assert!(scan.passed);
+    assert!(scan.replacement_confirmed);
+}
+
+#[test]
+fn provider_request_budget_accepts_map_request_without_automatic_projection() {
+    let payload = provider_payload_digest(&json!({
+        "input": "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- available_read_action: taskspace_control.read_map\nTaskSpaceMapHandleR7V1 end.",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
+    }))
+    .expect("map-request payload digest");
+    let mut scan = payload.scan;
+    let expectation = ProviderProjectionIdentityExpectation::without_automatic_projection(
+        TaskSpaceProjectionPolicy::MapRequest,
+    );
+    apply_projection_identity_expectation(&mut scan, Some(&expectation));
+
+    assert!(!scan.projection_required);
+    assert_eq!(scan.active_projection_count, 0);
+    assert_eq!(scan.projection_policy.as_deref(), Some("map-request"));
+    assert_eq!(scan.projection_identity_confirmed, Some(true));
+    assert!(scan.passed, "{:?}", scan.failure_reasons);
+    assert!(scan.replacement_confirmed);
+}
+
+#[test]
+fn provider_payload_scan_validates_canonical_projection_shape() {
+    let standard = provider_payload_digest(&json!({
+        "input": "standard request",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "shell_command" }
+        }]
+    }))
+    .expect("standard payload digest");
+    assert!(!standard.scan.projection_required);
+    assert!(standard.scan.passed);
+
+    let blank_bootstrap = provider_payload_digest(&json!({
+        "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
+    }))
+    .expect("blank bootstrap payload digest");
+    assert!(blank_bootstrap.scan.projection_required);
+    assert_eq!(blank_bootstrap.scan.active_projection_count, 1);
+    assert!(blank_bootstrap.scan.passed);
+    assert!(blank_bootstrap.scan.replacement_confirmed);
+
+    let fresh_active_without_projection = provider_payload_digest(&json!({
+        "input": "canonical initialize/control history",
+        "tools": [
+            { "type": "function", "function": { "name": "taskspace_control" } },
+            { "type": "function", "function": { "name": "shell_command" } }
+        ]
+    }))
+    .expect("fresh active payload digest");
+    assert!(fresh_active_without_projection.scan.projection_required);
+    assert_eq!(
+        fresh_active_without_projection.scan.active_projection_count,
+        0
+    );
+    assert!(!fresh_active_without_projection.scan.passed);
+    assert!(!fresh_active_without_projection.scan.replacement_confirmed);
+    assert!(
+        fresh_active_without_projection
+            .scan
+            .failure_reasons
+            .contains(&"current_projection_missing".to_string())
+    );
+
+    let active_projection = concat!(
+        "TaskSpaceMapProjectionR7V1:\n",
+        "- schema_version: taskspace-map-projection-r7-v1\n",
+        "- projection_kind: current_projection\n",
+        "- map_id: map-1\n",
+        "- revision: 2\n",
+        "- canonical_sha256: canonical-map-2\n",
+        "- root_node_id: root\n",
+        "- finish_node_id: finish\n",
+        "- complete: false\n",
+        "- current_terminal: none\n",
+        "- terminal_history:\n",
+        "  - none\n",
+        "- root_source_event_ids:\n",
+        "  - task-event-1\n",
+        "  active_frontier:\n",
+        "    - node-1\n",
+        "  map_nodes:\n",
+        "    - root role=task_root status=open\n",
+        "    - node-1 role=work status=running\n",
+        "    - finish role=finish status=pending\n",
+        "  map_edges:\n",
+        "    - root->node-1\n",
+        "    - node-1->finish\n",
+        "  node_details:\n",
+        "    - none\n",
+        "TaskSpaceMapProjectionR7V1 end.\n",
+    );
+    let active_tools = json!([
+        { "type": "function", "function": { "name": "taskspace_control" } },
+        { "type": "function", "function": { "name": "shell_command" } }
+    ]);
     let active = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- protected"
+        "input": active_projection,
+        "tools": active_tools
     }))
     .expect("active payload digest");
-    assert!(active.scan.exact_payload_scan_passed);
+    assert!(
+        active.scan.passed,
+        "scan failure reasons: {:?}",
+        active.scan.failure_reasons
+    );
+    assert!(active.scan.projection_required);
+    assert_eq!(active.scan.active_projection_count, 1);
     assert!(active.scan.replacement_confirmed);
 
-    let active_with_current_control_guidance = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\nUse taskspace_control for state changes."
+    let matching_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAlways,
+        active_projection,
+    )
+    .expect("matching projection identity");
+    let mut matching_scan = active.scan.clone();
+    apply_projection_identity_expectation(&mut matching_scan, Some(&matching_expectation));
+    assert_eq!(matching_scan.projection_identity_confirmed, Some(true));
+    assert!(matching_scan.passed);
+    assert!(matching_scan.replacement_confirmed);
+
+    let request_snapshot = |revision: u64| {
+        active_projection
+            .replace(
+                "- projection_kind: current_projection",
+                "- projection_kind: request_snapshot",
+            )
+            .replace("- revision: 2", &format!("- revision: {revision}"))
+            .replace(
+                "- canonical_sha256: canonical-map-2",
+                &format!(
+                    "- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-map-{revision}"
+                ),
+            )
+    };
+    let append_revision_2 = request_snapshot(2);
+    let append_revision_3 = request_snapshot(3);
+    let append_payload = provider_payload_digest(&json!({
+        "input": format!("{append_revision_2}\n{append_revision_3}"),
+        "tools": active_tools
     }))
-    .expect("active payload digest with current control guidance");
-    assert!(
-        active_with_current_control_guidance
-            .scan
-            .exact_payload_scan_passed
+    .expect("append payload digest");
+    let append_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAppend,
+        &append_revision_3,
+    )
+    .expect("latest append projection identity");
+    let mut append_scan = append_payload.scan;
+    apply_projection_identity_expectation(&mut append_scan, Some(&append_expectation));
+    assert_eq!(append_scan.active_projection_count, 2);
+    assert_eq!(
+        append_scan.projection_kind.as_deref(),
+        Some("request_snapshot")
+    );
+    assert_eq!(append_scan.projection_revision, Some(3));
+    assert_eq!(append_scan.projection_identity_confirmed, Some(true));
+    assert!(append_scan.passed, "{:?}", append_scan.failure_reasons);
+    assert!(append_scan.replacement_confirmed);
+
+    let duplicate_append = provider_payload_digest(&json!({
+        "input": format!("{append_revision_2}\n{append_revision_2}"),
+        "tools": active_tools
+    }))
+    .expect("duplicate append payload digest");
+    let mut duplicate_append_scan = duplicate_append.scan;
+    apply_projection_identity_expectation(
+        &mut duplicate_append_scan,
+        Some(
+            &ProviderProjectionIdentityExpectation::from_projection_context(
+                TaskSpaceProjectionPolicy::MapAppend,
+                &append_revision_2,
+            )
+            .expect("duplicate expectation"),
+        ),
     );
     assert!(
-        active_with_current_control_guidance
-            .scan
-            .replacement_confirmed
+        duplicate_append_scan.passed,
+        "same revision is valid when the map did not change between requests: {:?}",
+        duplicate_append_scan.failure_reasons
     );
 
-    let legacy = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- protected\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control"
+    let revision_3_projection = active_projection.replace("- revision: 2", "- revision: 3");
+    let revision_3_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAlways,
+        &revision_3_projection,
+    )
+    .expect("revision 3 projection identity");
+    let mut stale_scan = active.scan;
+    apply_projection_identity_expectation(&mut stale_scan, Some(&revision_3_expectation));
+    assert_eq!(stale_scan.projection_identity_confirmed, Some(false));
+    assert!(!stale_scan.passed);
+    assert!(!stale_scan.replacement_confirmed);
+    assert!(
+        stale_scan
+            .failure_reasons
+            .contains(&"projection_identity_mismatch".to_string())
+    );
+
+    let tool_output_marker = provider_payload_digest(&json!({
+        "messages": [
+            { "role": "tool", "content": active_projection },
+            { "role": "developer", "content": active_projection }
+        ],
+        "tools": active_tools
     }))
-    .expect("legacy payload digest");
-    assert!(legacy.scan.active_projection_present);
-    assert!(legacy.scan.legacy_taskspace_history_present);
-    assert!(!legacy.scan.exact_payload_scan_passed);
-    assert!(!legacy.scan.replacement_confirmed);
+    .expect("tool output marker payload digest");
+    assert_eq!(tool_output_marker.scan.active_projection_count, 1);
+    assert!(tool_output_marker.scan.passed);
+
+    let projection_not_at_tail = provider_payload_digest(&json!({
+        "messages": [
+            { "role": "user", "content": append_revision_2 },
+            { "role": "assistant", "content": "later history" }
+        ],
+        "tools": active_tools
+    }))
+    .expect("non-tail projection payload digest");
+    assert!(!projection_not_at_tail.scan.passed);
+    assert!(
+        projection_not_at_tail
+            .scan
+            .failure_reasons
+            .contains(&"current_projection_not_message_tail".to_string())
+    );
+
+    let duplicate_active = provider_payload_digest(&json!({
+        "input": format!("{active_projection}\n{active_projection}"),
+        "tools": active_tools
+    }))
+    .expect("duplicate active payload digest");
+    assert_eq!(duplicate_active.scan.active_projection_count, 2);
+    assert!(!duplicate_active.scan.passed);
+    assert!(!duplicate_active.scan.replacement_confirmed);
+    assert!(
+        duplicate_active
+            .scan
+            .failure_reasons
+            .contains(&"current_projection_not_unique".to_string())
+    );
+
+    let active_with_transition_notice = provider_payload_digest(&json!({
+        "input": format!(
+            "TaskSpace mode is now active.\n\
+             hard_state: current node binding is required.\n\
+             execution_contract: runtime executes Agent-declared provider calls in order.\n\
+             strategy_owner: Agent.\n\
+             {active_projection}"
+        ),
+        "tools": active_tools
+    }))
+    .expect("active payload with transition notice");
+    assert!(active_with_transition_notice.scan.passed);
+
+    let bundled_active_with_forbidden_strategy = provider_payload_digest(&json!({
+        "input": format!("{active_projection}\nTaskSpaceAgentContextBundleV1\nnext_valid_actions"),
+        "tools": active_tools
+    }))
+    .expect("bundled active payload digest");
+    assert!(!bundled_active_with_forbidden_strategy.scan.passed);
+    assert!(
+        bundled_active_with_forbidden_strategy
+            .scan
+            .protected_items_present
+    );
+    assert_eq!(
+        bundled_active_with_forbidden_strategy
+            .scan
+            .runtime_boundary_forbidden_markers,
+        vec![
+            "TaskSpaceAgentContextBundleV1".to_string(),
+            "next_valid_actions".to_string(),
+        ]
+    );
+    assert!(
+        bundled_active_with_forbidden_strategy
+            .scan
+            .failure_reasons
+            .contains(&"runtime_boundary_forbidden_marker_present".to_string())
+    );
 
     let missing_protected = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- summary only"
+        "input": "TaskSpaceMapProjectionR7V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapProjectionR7V1 end.",
+        "tools": active_tools
     }))
     .expect("missing protected payload digest");
     assert!(missing_protected.scan.active_projection_present);
     assert!(!missing_protected.scan.protected_items_present);
-    assert!(missing_protected.scan.exact_payload_scan_passed);
+    assert!(!missing_protected.scan.passed);
+    assert_eq!(
+        missing_protected.scan.failure_reasons,
+        vec!["current_projection_required_sections_missing".to_string()]
+    );
 
     let large_instruction_text = "x".repeat(60 * 1024);
     let large_active_instructions = provider_payload_digest(&json!({
-        "input": format!("ContextProjectionV1 active replacement:\n- protected\n{large_instruction_text}")
+        "input": format!("{large_instruction_text}\n{active_projection}"),
+        "tools": active_tools
     }))
     .expect("large active instruction payload digest");
     assert_eq!(large_active_instructions.scan.large_raw_output_tokens, 0);
-    assert!(large_active_instructions.scan.exact_payload_scan_passed);
+    assert!(large_active_instructions.scan.passed);
 
     let raw_output = "x".repeat(60 * 1024);
     let large_raw = provider_payload_digest(&json!({
         "input": [
             {
-                "type": "message",
-                "role": "developer",
-                "content": "ContextProjectionV1 active replacement:\n- protected"
-            },
-            {
                 "type": "function_call_output",
                 "call_id": "call-1",
                 "output": raw_output
+            },
+            {
+                "type": "message",
+                "role": "developer",
+                "content": active_projection
             }
-        ]
+        ],
+        "tools": active_tools
     }))
     .expect("large raw payload digest");
     assert!(large_raw.scan.large_raw_output_tokens > 0);
-    assert!(!large_raw.scan.exact_payload_scan_passed);
+    assert!(!large_raw.scan.passed);
 
     let output_ref = provider_payload_digest(&json!({
         "input": [
             {
-                "type": "message",
-                "role": "developer",
-                "content": "ContextProjectionV1 active replacement:\n- protected"
-            },
-            {
                 "type": "function_call_output",
                 "call_id": "call-1",
                 "output": format!("OutputReferenceV1:\nraw_output_elided: true\n{raw_output}")
+            },
+            {
+                "type": "message",
+                "role": "developer",
+                "content": active_projection
             }
-        ]
+        ],
+        "tools": active_tools
     }))
     .expect("output ref payload digest");
     assert_eq!(output_ref.scan.large_raw_output_tokens, 0);
-    assert!(output_ref.scan.exact_payload_scan_passed);
+    assert!(output_ref.scan.passed);
 }
 
 #[test]
