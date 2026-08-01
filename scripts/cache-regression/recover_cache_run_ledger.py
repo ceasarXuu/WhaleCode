@@ -85,6 +85,11 @@ def mark_unsettled(ledger_path: Path, record_id: str, reason: str) -> str:
             raise ValueError("only an incomplete cache run can be marked unsettled")
         entry["status"] = "unsettled"
         entry["ended_at"] = now()
+        known_requests = entry["execution"].get("api_requests")
+        entry["execution"]["api_requests"] = None
+        entry["execution"]["api_requests_minimum"] = (
+            known_requests if type(known_requests) is int else 0
+        )
         entry["execution"]["api_requests_evidence_status"] = "unavailable"
         entry["monetary_cost"].update(
             {

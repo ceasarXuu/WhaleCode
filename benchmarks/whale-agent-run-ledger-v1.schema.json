@@ -66,7 +66,8 @@
             "running",
             "settled",
             "failed",
-            "cancelled"
+            "cancelled",
+            "unsettled"
           ]
         },
         "started_at": {
@@ -77,7 +78,7 @@
         },
         "elapsed_calendar_seconds": {
           "type": [
-            "integer",
+            "number",
             "null"
           ],
           "minimum": 0
@@ -145,6 +146,9 @@
         },
         "note": {
           "$ref": "#/$defs/nullableString"
+        },
+        "id": {
+          "$ref": "#/$defs/nullableString"
         }
       }
     },
@@ -202,8 +206,23 @@
           "minimum": 0
         },
         "api_requests": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "api_requests_minimum": {
           "type": "integer",
           "minimum": 0
+        },
+        "api_requests_evidence_status": {
+          "enum": [
+            "pending",
+            "complete",
+            "partial",
+            "unavailable"
+          ]
         }
       }
     },
@@ -253,6 +272,7 @@
           "enum": [
             "planned",
             "estimated",
+            "estimated_partial",
             "actual",
             "unavailable"
           ]

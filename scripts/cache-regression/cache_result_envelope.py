@@ -23,7 +23,12 @@ def validate_result_envelope(
 ) -> None:
     started = parse_timestamp(result.get("started_at"), "cache result started_at")
     ended = parse_timestamp(result.get("ended_at"), "cache result ended_at")
-    expected_exit_codes = {"completed": 0, "failed": 3, "cancelled": 130}
+    expected_exit_codes = {
+        "completed": 0,
+        "partial": 3,
+        "failed": 3,
+        "cancelled": 130,
+    }
     status = result.get("status")
     valid = (
         ended >= started

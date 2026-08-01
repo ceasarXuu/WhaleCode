@@ -58,11 +58,33 @@ foreach ($entry in @($ledger.entries)) {
         "batch_count",
         "repeats_per_arm_per_sample",
         "planned_sample_runs",
-        "actual_sample_runs",
-        "api_requests"
+        "actual_sample_runs"
     )) {
         Assert-Ledger (Test-NonnegativeInteger $execution.$field) `
             "$id execution.$field is not a nonnegative integer"
+    }
+    $requestEvidence = $execution.PSObject.Properties["api_requests_evidence_status"]
+    if ($null -eq $requestEvidence) {
+        Assert-Ledger (Test-NonnegativeInteger $execution.api_requests) `
+            "$id execution.api_requests is not a nonnegative integer"
+    } else {
+        $requestStatus = [string]$requestEvidence.Value
+        Assert-Ledger (
+            @("pending", "complete", "partial", "unavailable") -ccontains $requestStatus
+        ) "$id execution.api_requests_evidence_status is invalid"
+        Assert-Ledger (Test-NonnegativeInteger $execution.api_requests_minimum) `
+            "$id execution.api_requests_minimum is not a nonnegative integer"
+        if ($requestStatus -cin @("pending", "complete")) {
+            Assert-Ledger (Test-NonnegativeInteger $execution.api_requests) `
+                "$id exact execution.api_requests is missing"
+            Assert-Ledger (
+                [int64]$execution.api_requests -eq
+                [int64]$execution.api_requests_minimum
+            ) "$id exact and minimum API request counts differ"
+        } else {
+            Assert-Ledger ($null -eq $execution.api_requests) `
+                "$id inexact execution.api_requests must be null"
+        }
     }
 
     $tokens = $entry.tokens
@@ -89,9 +111,10 @@ foreach ($entry in @($ledger.entries)) {
 
     $cost = $entry.monetary_cost
     Assert-Ledger (
-        @("planned", "estimated", "actual", "unavailable") -ccontains [string]$cost.status
+        @("planned", "estimated", "estimated_partial", "actual", "unavailable") `
+            -ccontains [string]$cost.status
     ) "$id monetary cost status is invalid"
-    if ([string]$cost.status -cin @("estimated", "actual")) {
+    if ([string]$cost.status -cin @("estimated", "estimated_partial", "actual")) {
         Assert-Ledger ($null -ne $cost.amount -and [decimal]$cost.amount -ge 0) `
             "$id settled monetary amount is missing"
         Assert-Ledger ($null -ne $cost.pricing_snapshot) `

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -107,6 +109,40 @@ class CacheRunLedgerTest(unittest.TestCase):
         self.assertEqual(entry["execution"]["api_requests_evidence_status"], "partial")
         self.assertIsNone(entry["execution"]["api_requests"])
         self.assertEqual(entry["execution"]["api_requests_minimum"], 2)
+
+    @unittest.skipUnless(shutil.which("powershell"), "PowerShell is unavailable")
+    def test_global_checker_accepts_truthful_partial_request_count(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        ledger = json.loads(
+            (repo / "benchmarks/whale-agent-run-ledger.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        execution = ledger["entries"][0]["execution"]
+        execution["api_requests"] = None
+        execution["api_requests_minimum"] = 2
+        execution["api_requests_evidence_status"] = "partial"
+        fixture = self.path.parent / "partial-ledger.json"
+        fixture.write_text(json.dumps(ledger), encoding="utf-8")
+
+        completed = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(
+                    repo / "scripts/taskspace-benchmark/test-whale-agent-run-ledger.ps1"
+                ),
+                "-LedgerPath",
+                str(fixture),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_authoritative_request_count_survives_usage_failure(self) -> None:
         entry = {
