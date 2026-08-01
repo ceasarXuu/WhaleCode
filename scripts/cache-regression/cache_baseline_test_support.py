@@ -333,6 +333,8 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "observed_scope": selection,
         "unverified_scope": [],
         "actual_sample_runs": 1,
+        "provider_boundary_requests_minimum": observation["provider_requests"],
+        "provider_boundary_accounting_status": "complete",
         "credential_source": "fixture",
         "run_root": "target/cache-fixture",
         "observations": [observation],
