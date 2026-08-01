@@ -187,7 +187,6 @@ def planned_entry(
             "planned_sample_runs": selection["planned_sample_runs"],
             "actual_sample_runs": 0,
             "api_requests": 0,
-            "api_requests_minimum": 0,
             "api_requests_evidence_status": "pending",
         },
         "tokens": {"input": 0, "cached_input": 0, "uncached_input": 0, "output": 0},
@@ -225,7 +224,7 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     accounted_requests = [
         attempt["provider_boundary_request_count"]
         for attempt in attempts
-        if isinstance(attempt.get("provider_boundary_request_count"), int)
+        if type(attempt.get("provider_boundary_request_count")) is int
         and attempt["provider_boundary_request_count"] >= 0
     ]
     accounting_complete = len(attempts) == result.get("actual_sample_runs") and len(
@@ -265,17 +264,16 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     entry["ended_at"] = result["ended_at"]
     entry["elapsed_calendar_seconds"] = result["elapsed_seconds"]
     entry["execution"]["actual_sample_runs"] = result["actual_sample_runs"]
-    entry["execution"]["api_requests"] = (
-        authoritative_request_total if accounting_complete else None
-    )
-    entry["execution"]["api_requests_minimum"] = authoritative_request_total
-    entry["execution"]["api_requests_evidence_status"] = (
-        "complete"
-        if accounting_complete
-        else "partial"
-        if accounted_requests
-        else "unavailable"
-    )
+    if accounting_complete:
+        entry["execution"]["api_requests"] = authoritative_request_total
+        entry["execution"].pop("api_requests_minimum", None)
+        entry["execution"]["api_requests_evidence_status"] = "complete"
+    else:
+        entry["execution"]["api_requests"] = None
+        entry["execution"]["api_requests_minimum"] = authoritative_request_total
+        entry["execution"]["api_requests_evidence_status"] = (
+            "partial" if accounted_requests else "unavailable"
+        )
     entry["tokens"] = {
         "input": totals["input_tokens"],
         "cached_input": totals["cached_input_tokens"],

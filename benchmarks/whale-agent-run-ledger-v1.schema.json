@@ -165,7 +165,6 @@
         "planned_sample_runs",
         "actual_sample_runs",
         "api_requests",
-        "api_requests_minimum",
         "api_requests_evidence_status"
       ],
       "properties": {
@@ -226,7 +225,44 @@
             "unavailable"
           ]
         }
-      }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "api_requests": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "api_requests_evidence_status": {
+              "enum": [
+                "pending",
+                "complete"
+              ]
+            }
+          },
+          "not": {
+            "required": [
+              "api_requests_minimum"
+            ]
+          }
+        },
+        {
+          "required": [
+            "api_requests_minimum"
+          ],
+          "properties": {
+            "api_requests": {
+              "type": "null"
+            },
+            "api_requests_evidence_status": {
+              "enum": [
+                "partial",
+                "unavailable"
+              ]
+            }
+          }
+        }
+      ]
     },
     "tokens": {
       "type": "object",

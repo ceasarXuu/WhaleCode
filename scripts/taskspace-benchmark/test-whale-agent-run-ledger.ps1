@@ -67,18 +67,19 @@ foreach ($entry in @($ledger.entries)) {
     Assert-Ledger (
         @("pending", "complete", "partial", "unavailable") -ccontains $requestStatus
     ) "$id execution.api_requests_evidence_status is invalid"
-    Assert-Ledger (Test-NonnegativeInteger $execution.api_requests_minimum) `
-        "$id execution.api_requests_minimum is not a nonnegative integer"
+    $requestMinimumProperty = $execution.PSObject.Properties["api_requests_minimum"]
     if ($requestStatus -cin @("pending", "complete")) {
         Assert-Ledger (Test-NonnegativeInteger $execution.api_requests) `
             "$id exact execution.api_requests is missing"
-        Assert-Ledger (
-            [int64]$execution.api_requests -eq
-            [int64]$execution.api_requests_minimum
-        ) "$id exact and minimum API request counts differ"
+        Assert-Ledger ($null -eq $requestMinimumProperty) `
+            "$id exact request evidence must not repeat a minimum"
     } else {
         Assert-Ledger ($null -eq $execution.api_requests) `
             "$id inexact execution.api_requests must be null"
+        Assert-Ledger ($null -ne $requestMinimumProperty) `
+            "$id inexact request evidence has no minimum"
+        Assert-Ledger (Test-NonnegativeInteger $execution.api_requests_minimum) `
+            "$id execution.api_requests_minimum is not a nonnegative integer"
     }
 
     $tokens = $entry.tokens

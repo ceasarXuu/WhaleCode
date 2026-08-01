@@ -84,9 +84,7 @@ def validate_ledger(
         )
         and exact_int(execution.get("actual_sample_runs"), result["actual_sample_runs"])
         and exact_int(execution.get("api_requests"), totals["provider_requests"])
-        and exact_int(
-            execution.get("api_requests_minimum"), totals["provider_requests"]
-        )
+        and "api_requests_minimum" not in execution
         and execution.get("api_requests_evidence_status") == "complete",
         "cache ledger execution mismatch",
     )

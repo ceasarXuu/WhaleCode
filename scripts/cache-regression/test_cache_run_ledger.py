@@ -10,6 +10,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+try:
+    from jsonschema import Draft202012Validator
+except ImportError:  # pragma: no cover - optional validation dependency
+    Draft202012Validator = None
+
 from cache_run_ledger import (
     _lock_file,
     _unlock_file,
@@ -144,8 +149,6 @@ class CacheRunLedgerTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
-        execution.pop("api_requests_minimum")
-        execution.pop("api_requests_evidence_status")
         execution["api_requests"] = 0
         fixture.write_text(json.dumps(ledger), encoding="utf-8")
         completed = subprocess.run(
@@ -155,6 +158,37 @@ class CacheRunLedgerTest(unittest.TestCase):
             check=False,
         )
         self.assertNotEqual(completed.returncode, 0)
+
+    @unittest.skipIf(Draft202012Validator is None, "jsonschema is unavailable")
+    def test_schema_enforces_exclusive_request_evidence_forms(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        schema = json.loads(
+            (repo / "benchmarks/whale-agent-run-ledger-v1.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        ledger = json.loads(
+            (repo / "benchmarks/whale-agent-run-ledger.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+        validator.validate(ledger)
+
+        partial = json.loads(json.dumps(ledger))
+        partial_execution = partial["entries"][0]["execution"]
+        partial_execution["api_requests"] = None
+        partial_execution["api_requests_minimum"] = 2
+        partial_execution["api_requests_evidence_status"] = "partial"
+        validator.validate(partial)
+
+        partial_execution["api_requests"] = 2
+        self.assertFalse(validator.is_valid(partial))
+
+        exact_with_minimum = json.loads(json.dumps(ledger))
+        exact_with_minimum["entries"][0]["execution"]["api_requests_minimum"] = 2
+        self.assertFalse(validator.is_valid(exact_with_minimum))
 
     def test_authoritative_request_count_survives_usage_failure(self) -> None:
         entry = {
@@ -185,7 +219,7 @@ class CacheRunLedgerTest(unittest.TestCase):
         }
         settle_entry(entry, result)
         self.assertEqual(entry["execution"]["api_requests"], 3)
-        self.assertEqual(entry["execution"]["api_requests_minimum"], 3)
+        self.assertNotIn("api_requests_minimum", entry["execution"])
         self.assertEqual(entry["execution"]["api_requests_evidence_status"], "complete")
         self.assertEqual(entry["monetary_cost"]["status"], "unavailable")
 
