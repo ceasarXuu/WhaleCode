@@ -19,6 +19,7 @@ from metadata_contract import (  # noqa: E402
     validate_ledger,
     validate_ledger_paths,
     validate_patch_digest,
+    validate_tui_baseline,
 )
 
 
@@ -87,11 +88,13 @@ class ContractTests(unittest.TestCase):
         cls.backlog = json.loads(
             (topic / "backport-provenance-backlog.json").read_text()
         )
+        cls.tui_baseline = json.loads((topic / "tui-baseline.json").read_text())
 
     def test_current_documents_are_structurally_valid(self) -> None:
         self.assertEqual([], validate_inventory(self.inventory))
         self.assertEqual([], validate_ledger(self.ledger))
         self.assertEqual([], validate_backlog(self.backlog))
+        self.assertEqual([], validate_tui_baseline(self.tui_baseline))
 
     def test_duplicate_active_upstream_is_rejected(self) -> None:
         document = copy.deepcopy(self.ledger)
@@ -129,6 +132,12 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(2, len(errors))
         self.assertTrue(any("upstream commit tree" in error for error in errors))
         self.assertTrue(any("baseline and current tree" in error for error in errors))
+
+    def test_tui_summary_tamper_is_rejected(self) -> None:
+        document = copy.deepcopy(self.tui_baseline)
+        document["summary"]["test_count"] += 1
+        errors = validate_tui_baseline(document)
+        self.assertIn("TUI baseline summary does not match entries", errors)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections import Counter
 from html.parser import HTMLParser
+import json
 
 CLASSIFICATIONS = (
     "environment",
@@ -117,6 +118,31 @@ def parse_junit(xml_bytes: bytes) -> dict:
     entries.sort(key=lambda entry: entry["name"])
     if len(entries) != len({entry["name"] for entry in entries}):
         raise ValueError("JUnit contains duplicate normalized test names")
+    return _document(entries)
+
+
+def parse_ignored_tests(list_json: bytes) -> list[str]:
+    document = json.loads(list_json)
+    ignored: list[str] = []
+    for suite_name, suite in document.get("rust-suites", {}).items():
+        for test_name, testcase in suite.get("testcases", {}).items():
+            filter_status = testcase.get("filter-match", {}).get("status", "matches")
+            if testcase.get("ignored") and filter_status == "matches":
+                ignored.append(f"{suite_name}::{test_name}")
+    return sorted(ignored)
+
+
+def add_ignored_tests(document: dict, ignored_names: list[str]) -> dict:
+    entries = [dict(entry) for entry in document["entries"]]
+    existing = {entry["name"] for entry in entries}
+    for name in ignored_names:
+        if name not in existing:
+            entries.append({"name": name, "result": "ignored", "classification": None})
+    entries.sort(key=lambda entry: entry["name"])
+    return _document(entries)
+
+
+def _document(entries: list[dict]) -> dict:
     counts = Counter(entry["result"] for entry in entries)
     classifications = Counter(
         entry["classification"]
@@ -139,3 +165,21 @@ def parse_junit(xml_bytes: bytes) -> dict:
             "by_classification": dict(sorted(classifications.items())),
         },
     }
+
+
+def compare_runs(documents: list[dict]) -> list[str]:
+    if len(documents) < 2:
+        raise ValueError("at least two TUI runs are required for comparison")
+    result_maps = [
+        {
+            entry["name"]: (entry["result"], entry["classification"])
+            for entry in document["entries"]
+        }
+        for document in documents
+    ]
+    names = set().union(*(result_map.keys() for result_map in result_maps))
+    return sorted(
+        name
+        for name in names
+        if len({result_map.get(name) for result_map in result_maps}) != 1
+    )

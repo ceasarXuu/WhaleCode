@@ -8,6 +8,7 @@ import re
 from collections import Counter
 
 from classification import CATEGORIES
+from tui_baseline import CLASSIFICATIONS
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
@@ -202,4 +203,50 @@ def validate_ledger_paths(
     for path in entry.get("paths", []):
         if path not in baseline_paths and path not in current_paths:
             errors.append(f"ledger path absent from baseline and current tree: {path}")
+    return errors
+
+
+def validate_tui_baseline(document: dict) -> list[str]:
+    errors: list[str] = []
+    expected_root = {
+        "schema_version": 1,
+        "runner": "cargo-nextest",
+        "package": "codex-tui",
+        "profile": "whale-baseline",
+        "environment": {
+            "INSTA_UPDATE": "no",
+            "RUST_MIN_STACK": "8388608",
+        },
+    }
+    for field, expected in expected_root.items():
+        if document.get(field) != expected:
+            errors.append(f"TUI baseline {field} is invalid")
+    entries = document.get("entries", [])
+    names = [entry.get("name") for entry in entries]
+    if names != sorted(set(names)):
+        errors.append("TUI baseline entries must be sorted and unique")
+    counts: Counter[str] = Counter()
+    classifications: Counter[str] = Counter()
+    for entry in entries:
+        name = entry.get("name", "<missing>")
+        result = entry.get("result")
+        classification = entry.get("classification")
+        if result not in {"passed", "failed", "ignored"}:
+            errors.append(f"{name}: invalid TUI result")
+            continue
+        counts[result] += 1
+        if result == "failed":
+            if classification not in CLASSIFICATIONS:
+                errors.append(f"{name}: failed test has invalid classification")
+            else:
+                classifications[classification] += 1
+        elif classification is not None:
+            errors.append(f"{name}: non-failed test must not have a classification")
+    expected_summary = {
+        "test_count": len(entries),
+        "by_result": dict(sorted(counts.items())),
+        "by_classification": dict(sorted(classifications.items())),
+    }
+    if document.get("summary") != expected_summary:
+        errors.append("TUI baseline summary does not match entries")
     return errors

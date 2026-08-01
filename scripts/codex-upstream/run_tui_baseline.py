@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tui_baseline import parse_junit
+from tui_baseline import add_ignored_tests, parse_ignored_tests, parse_junit
 
 BASELINE_PATH = "docs/v0.0.5/codex-upstream-sync/tui-baseline.json"
 CODEX_ROOT = "third_party/codex-cli/codex-rs"
@@ -53,6 +53,39 @@ def _run_nextest(repo: Path, filter_expr: str | None) -> int:
     ).returncode
 
 
+def _list_ignored(repo: Path, filter_expr: str | None) -> list[str]:
+    codex_root = repo / CODEX_ROOT
+    tool_config = (repo / "scripts/codex-upstream/nextest-whale.toml").resolve()
+    command = [
+        "cargo",
+        "nextest",
+        "list",
+        "-p",
+        "codex-tui",
+        "--profile",
+        "whale-baseline",
+        "--tool-config-file",
+        f"whale:{tool_config}",
+        "--message-format",
+        "json",
+        "--run-ignored",
+        "all",
+    ]
+    if filter_expr:
+        command.extend(["-E", filter_expr])
+    completed = subprocess.run(
+        command,
+        cwd=codex_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", "replace")[-2000:]
+        raise RuntimeError(f"cargo nextest list failed: {stderr}")
+    return parse_ignored_tests(completed.stdout)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
@@ -84,8 +117,12 @@ def main() -> int:
         logging.error("Nextest JUnit report was not produced: %s", junit)
         return 2
     try:
-        rendered = render(parse_junit(junit.read_bytes()))
-    except (OSError, ValueError) as error:
+        document = parse_junit(junit.read_bytes())
+        if not args.parse_junit:
+            ignored = _list_ignored(repo, args.filter_expr)
+            document = add_ignored_tests(document, ignored)
+        rendered = render(document)
+    except (OSError, RuntimeError, ValueError) as error:
         logging.error("failed to normalize JUnit: %s", error)
         return 2
 

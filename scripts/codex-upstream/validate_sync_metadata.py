@@ -22,10 +22,12 @@ from metadata_contract import (
     validate_ledger,
     validate_ledger_paths,
     validate_patch_digest,
+    validate_tui_baseline,
 )
 
 LEDGER_PATH = "docs/v0.0.5/codex-upstream-sync/backport-ledger.json"
 BACKLOG_PATH = "docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json"
+TUI_BASELINE_PATH = "docs/v0.0.5/codex-upstream-sync/tui-baseline.json"
 UPSTREAM_PATH = "third_party/codex-cli/UPSTREAM.md"
 SCHEMA_PATHS = (
     "scripts/codex-upstream/schemas/overlay-inventory.schema.json",
@@ -64,6 +66,9 @@ def validate_repository(repo: Path) -> list[str]:
     errors.extend(validate_inventory(inventory))
     errors.extend(validate_ledger(ledger))
     errors.extend(validate_backlog(backlog))
+    tui_baseline_path = repo / TUI_BASELINE_PATH
+    if tui_baseline_path.exists():
+        errors.extend(validate_tui_baseline(_load(repo, TUI_BASELINE_PATH)))
     if ledger.get("baseline_commit") != BASELINE:
         errors.append("ledger baseline does not match generator baseline")
     if inventory.get("baseline_commit") != BASELINE:

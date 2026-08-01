@@ -7,7 +7,13 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from tui_baseline import classify_failure, parse_junit  # noqa: E402
+from tui_baseline import (  # noqa: E402
+    add_ignored_tests,
+    classify_failure,
+    compare_runs,
+    parse_ignored_tests,
+    parse_junit,
+)
 
 
 class TuiBaselineTests(unittest.TestCase):
@@ -57,6 +63,28 @@ class TuiBaselineTests(unittest.TestCase):
             parse_junit(
                 b"<testsuite><testcase name='x'/><testcase name='x'/></testsuite>"
             )
+
+    def test_ignored_tests_from_nextest_list_are_added(self) -> None:
+        ignored = parse_ignored_tests(
+            b'{"rust-suites":{"codex-tui":{"testcases":'
+            b'{"a":{"ignored":false},"b":{"ignored":true},'
+            b'"c":{"ignored":true,"filter-match":{"status":"mismatch"}}}}}}'
+        )
+        document = parse_junit(b"<testsuite><testcase name='a'/></testsuite>")
+        augmented = add_ignored_tests(document, ignored)
+        self.assertEqual({"ignored": 1, "passed": 1}, augmented["summary"]["by_result"])
+        self.assertEqual("codex-tui::b", augmented["entries"][1]["name"])
+
+    def test_compare_runs_reports_result_drift(self) -> None:
+        first = parse_junit(b"<testsuite><testcase name='a'/></testsuite>")
+        second = parse_junit(
+            b"<testsuite><testcase name='a'><failure>boom</failure></testcase></testsuite>"
+        )
+        self.assertEqual(["a"], compare_runs([first, second]))
+
+    def test_compare_runs_accepts_identical_results(self) -> None:
+        document = parse_junit(b"<testsuite><testcase name='a'/></testsuite>")
+        self.assertEqual([], compare_runs([document, document]))
 
 
 if __name__ == "__main__":
