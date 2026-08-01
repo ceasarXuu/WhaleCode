@@ -234,6 +234,18 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "timestamps"):
             self.validate(result=result)
 
+    def test_rejects_boolean_elapsed_values_in_full_promotion(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["elapsed_seconds"] = True
+        for attempt, observation in zip(result["attempts"], result["observations"]):
+            attempt["elapsed_seconds"] = False
+            observation["elapsed_seconds"] = False
+        self.result = result
+        self.write_ledger()
+
+        with self.assertRaisesRegex(ValueError, "elapsed|failed attempt"):
+            self.validate(result=result)
+
     def test_rejects_incomplete_runner_or_authorization_envelope(self) -> None:
         result = copy.deepcopy(self.result)
         result.pop("ended_at")

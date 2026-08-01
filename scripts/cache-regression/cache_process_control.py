@@ -63,15 +63,15 @@ def _terminate_process_tree(
                 "error": "job object does not own the benchmark process tree",
             }
         close_error = None
+        terminate_succeeded = False
         try:
             windows_job.close()
         except OSError as error:
             close_error = error
             try:
                 windows_job.terminate()
-                process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
-                windows_job.close()
-            except (OSError, subprocess.TimeoutExpired) as fallback_error:
+                terminate_succeeded = True
+            except OSError as fallback_error:
                 return {
                     "status": "failed",
                     "method": "windows_job_object_explicit_terminate",
@@ -81,8 +81,44 @@ def _terminate_process_tree(
                         f"explicit termination failed: {fallback_error}"
                     ),
                 }
+            release_error = None
+            for _ in range(3):
+                try:
+                    windows_job.close()
+                    release_error = None
+                    break
+                except OSError as error:
+                    release_error = error
+            if release_error is not None:
+                return {
+                    "status": "failed",
+                    "method": "windows_job_object_explicit_terminate",
+                    "descendants_guaranteed_terminated": terminate_succeeded,
+                    "error": f"job handle release failed: {release_error}",
+                }
+        wait_error = None
+        process_release_error = None
         try:
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            wait_error = error
+            for _ in range(3):
+                try:
+                    process.close()
+                    process_release_error = None
+                    break
+                except AttributeError:
+                    break
+                except OSError as close_failure:
+                    process_release_error = close_failure
+            if process_release_error is not None:
+                return {
+                    "status": "failed",
+                    "method": "windows_job_object_handle_release",
+                    "descendants_guaranteed_terminated": True,
+                    "error": f"process handle release failed: {process_release_error}",
+                }
+        if close_error is None or terminate_succeeded:
             return {
                 "status": "terminated",
                 "exit_code": process.returncode,
@@ -92,13 +128,11 @@ def _terminate_process_tree(
                     else "windows_job_object"
                 ),
                 "descendants_guaranteed_terminated": True,
-            }
-        except (OSError, subprocess.TimeoutExpired) as error:
-            return {
-                "status": "failed",
-                "method": "windows_job_object",
-                "descendants_guaranteed_terminated": False,
-                "error": f"{type(error).__name__}: {error}",
+                **(
+                    {"process_wait_error": f"{type(wait_error).__name__}: {wait_error}"}
+                    if wait_error
+                    else {}
+                ),
             }
     if process.poll() is not None:
         return {"status": "already_exited", "exit_code": process.returncode}

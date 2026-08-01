@@ -23,20 +23,15 @@ def finalize_run_result(
         [list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]], bool
     ],
 ) -> None:
-    try:
-        _aggregate(
-            result,
-            matrix,
-            stop_at,
-            cleanup_failed=cleanup_failed,
-            supervision_failed=supervision_failed,
-            cancelled=cancelled,
-            execution_completed=execution_completed,
-        )
-    except BaseException as error:
-        result["status"] = "failed"
-        result["runner_exit_code"] = 3
-        result["aggregation_error"] = f"{type(error).__name__}: {error}"
+    _aggregate(
+        result,
+        matrix,
+        stop_at,
+        cleanup_failed=cleanup_failed,
+        supervision_failed=supervision_failed,
+        cancelled=cancelled,
+        execution_completed=execution_completed,
+    )
     result["ended_at"] = now()
     result["elapsed_seconds"] = round(time.time() - started, 3)
 

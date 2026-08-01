@@ -17,6 +17,7 @@ WAIT_OBJECT_0 = 0x00000000
 WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
 RESUME_THREAD_FAILED = 0xFFFFFFFF
+TERMINATE_PROCESS_ATTEMPTS = 3
 
 
 class JobObjectError(OSError):
@@ -198,9 +199,12 @@ class WindowsJobProcess:
         exit_code = wintypes.DWORD()
         if not self._kernel32.GetExitCodeProcess(self._handle, ctypes.byref(exit_code)):
             raise JobObjectError(ctypes.get_last_error(), "GetExitCodeProcess failed")
-        self.returncode = int(exit_code.value)
         self._close_handle()
+        self.returncode = int(exit_code.value)
         return self.returncode
+
+    def close(self) -> None:
+        self._close_handle()
 
     def _close_handle(self) -> None:
         if self._handle:
@@ -213,14 +217,15 @@ def start_windows_job_process(
     command: list[str], cwd: Path
 ) -> tuple[WindowsJobProcess, WindowsKillOnCloseJob]:
     job = WindowsKillOnCloseJob()
-    kernel32 = job._kernel32
-    _configure_process_signatures(kernel32)
-    startup = _StartupInfo()
-    startup.cb = ctypes.sizeof(startup)
-    process_info = _ProcessInformation()
-    command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(command))
+    process_info = None
     thread_handle = None
     try:
+        kernel32 = job._kernel32
+        _configure_process_signatures(kernel32)
+        startup = _StartupInfo()
+        startup.cb = ctypes.sizeof(startup)
+        process_info = _ProcessInformation()
+        command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(command))
         created = kernel32.CreateProcessW(
             None,
             command_line,
@@ -249,9 +254,12 @@ def start_windows_job_process(
         )
     except BaseException as error:
         cleanup_errors = []
-        if process_info.hProcess:
+        if process_info is not None and process_info.hProcess:
             cleanup_errors = _terminate_and_close_created_process(
-                kernel32, process_info.hProcess, thread_handle or process_info.hThread
+                kernel32,
+                process_info.hProcess,
+                thread_handle or process_info.hThread,
+                int(process_info.dwProcessId),
             )
         try:
             job.close()
@@ -296,16 +304,49 @@ def _close_handle(kernel32, handle: wintypes.HANDLE) -> None:
 
 
 def _terminate_and_close_created_process(
-    kernel32, process_handle: wintypes.HANDLE, thread_handle: wintypes.HANDLE
+    kernel32,
+    process_handle: wintypes.HANDLE,
+    thread_handle: wintypes.HANDLE,
+    process_id: int,
 ) -> list[str]:
     errors = []
-    if not kernel32.TerminateProcess(process_handle, 1):
-        errors.append("TerminateProcess failed")
-    else:
-        wait_result = kernel32.WaitForSingleObject(process_handle, 5000)
-        if wait_result != WAIT_OBJECT_0:
-            errors.append(f"terminated process wait failed: {wait_result}")
-    for label, handle in (("thread", thread_handle), ("process", process_handle)):
+    terminated = False
+    for _ in range(TERMINATE_PROCESS_ATTEMPTS):
+        if kernel32.TerminateProcess(process_handle, 1):
+            terminated = (
+                kernel32.WaitForSingleObject(process_handle, 5000) == WAIT_OBJECT_0
+            )
+        else:
+            terminated = (
+                kernel32.WaitForSingleObject(process_handle, 0) == WAIT_OBJECT_0
+            )
+        if terminated:
+            break
+    if not terminated:
+        try:
+            fallback = subprocess.run(
+                ["taskkill", "/PID", str(process_id), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            terminated = fallback.returncode == 0 and (
+                kernel32.WaitForSingleObject(process_handle, 5000) == WAIT_OBJECT_0
+            )
+            fallback_error = fallback.stderr.strip()
+        except (OSError, subprocess.TimeoutExpired) as error:
+            fallback_error = f"{type(error).__name__}: {error}"
+        if not terminated:
+            errors.append(
+                "TerminateProcess failed; "
+                + (fallback_error or "taskkill failed")
+                + f"; PID {process_id} handle retained"
+            )
+    handles = [("thread", thread_handle)]
+    if terminated:
+        handles.append(("process", process_handle))
+    for label, handle in handles:
         try:
             _close_handle(kernel32, handle)
         except OSError as error:

@@ -9,7 +9,7 @@ from typing import Any
 
 from cache_budget import validate_budget_proposal, validate_gate_trigger
 from cache_cost import settled_monetary_cost
-from cache_elapsed import validate_elapsed_evidence
+from cache_elapsed import is_elapsed_number, validate_elapsed_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_gate_evidence import changed_scenarios
 from cache_run_analysis import (
@@ -147,7 +147,7 @@ def validate_attempts(
             and item.get("timed_out") is False
             and isinstance(item.get("run_id"), str)
             and item["run_id"].strip()
-            and isinstance(item.get("elapsed_seconds"), (int, float))
+            and is_elapsed_number(item.get("elapsed_seconds"))
             and item["elapsed_seconds"] >= 0
             and item["elapsed_seconds"] <= limits["elapsed_seconds"]
             and cleanup_verified(item.get("post_run_cleanup", {}))

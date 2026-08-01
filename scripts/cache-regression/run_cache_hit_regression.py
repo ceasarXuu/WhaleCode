@@ -37,7 +37,7 @@ from cache_run_ledger import (
     store_entry,
 )
 from cache_run_result import finalize_run_result
-from cache_run_supervision import emergency_cleanup, persist_final_settlement
+from cache_run_supervision import emergency_cleanup, finalize_and_persist
 from cache_surface import load_contract
 
 
@@ -216,6 +216,7 @@ def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     record_id = f"WAR-{stamp}-CACHE-REGRESSION-{uuid.uuid4().hex[:8].upper()}"
     run_root = args.run_root or repo / "target/cache-hit-regression" / record_id
+    result_path = repo / "benchmarks/cache-regression/results" / f"{record_id}.json"
     ledger_path = repo / "benchmarks/whale-agent-run-ledger.json"
     entry = planned_entry(
         record_id,
@@ -252,6 +253,7 @@ def main() -> int:
         "actual_sample_runs": 0,
         "credential_source": credential_source,
         "run_root": str(run_root.relative_to(repo)),
+        "result_path": str(result_path.relative_to(repo)),
         "attempts": [],
         "observations": [],
     }
@@ -406,21 +408,23 @@ def main() -> int:
             attempt["stop_reason"] = stop_at
             break
 
-    finalize_run_result(
+    finalize_and_persist(
+        entry,
         result,
-        matrix,
-        stop_at,
-        cleanup_failed=cleanup_failed,
-        supervision_failed=supervision_failed,
-        cancelled=cancelled,
-        started=started,
-        execution_completed=execution_completed,
+        result_path,
+        ledger_path,
+        started,
+        lambda: finalize_run_result(
+            result,
+            matrix,
+            stop_at,
+            cleanup_failed=cleanup_failed,
+            supervision_failed=supervision_failed,
+            cancelled=cancelled,
+            started=started,
+            execution_completed=execution_completed,
+        ),
     )
-
-    result_dir = repo / "benchmarks/cache-regression/results"
-    result_path = result_dir / f"{record_id}.json"
-    result["result_path"] = str(result_path.relative_to(repo))
-    persist_final_settlement(entry, result, result_path, ledger_path)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result["runner_exit_code"]
 

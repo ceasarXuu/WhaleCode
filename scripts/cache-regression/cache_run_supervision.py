@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Callable
 
-from cache_run_ledger import atomic_write_json, settle_entry, store_entry
+from cache_run_ledger import atomic_write_json, now, settle_entry, store_entry
 
 
 def cleanup_failure(error: BaseException) -> dict[str, Any]:
@@ -47,6 +48,28 @@ def persist_final_settlement(
         result["runner_exit_code"] = 3
         result["finalization_error"] = f"{type(error).__name__}: {error}"
         _persist(entry, result, result_path, ledger_path)
+
+
+def finalize_and_persist(
+    entry: dict[str, Any],
+    result: dict[str, Any],
+    result_path: Path,
+    ledger_path: Path,
+    started: float,
+    finalize: Callable[[], None],
+) -> None:
+    try:
+        finalize()
+        persist_final_settlement(entry, result, result_path, ledger_path)
+    except BaseException as error:
+        result["status"] = "failed"
+        result["runner_exit_code"] = 3
+        result["finalization_error"] = f"{type(error).__name__}: {error}"
+        result["ended_at"] = result.get("ended_at") or now()
+        result["elapsed_seconds"] = result.get("elapsed_seconds") or round(
+            time.time() - started, 3
+        )
+        persist_final_settlement(entry, result, result_path, ledger_path)
 
 
 def _persist(

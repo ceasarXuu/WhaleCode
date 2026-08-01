@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 from typing import Any
+
+
+def is_elapsed_number(value: object) -> bool:
+    return type(value) in {int, float} and isfinite(value)
 
 
 def validate_elapsed_evidence(
@@ -16,7 +21,7 @@ def validate_elapsed_evidence(
 ) -> None:
     elapsed = result.get("elapsed_seconds")
     if not (
-        isinstance(elapsed, (int, float))
+        is_elapsed_number(elapsed)
         and elapsed >= 0
         and elapsed <= maximum_elapsed_seconds
     ):

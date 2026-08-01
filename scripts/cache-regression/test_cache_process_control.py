@@ -197,12 +197,17 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         with (
             patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
             patch("cache_windows_job._configure_process_signatures"),
+            patch(
+                "cache_windows_job.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 1, "", "taskkill failed"),
+            ),
             self.assertRaisesRegex(JobObjectError, "TerminateProcess"),
         ):
             start_windows_job_process(["pwsh", "runner.ps1"], self.repo)
         closed_handles = [call.args[0] for call in kernel32.CloseHandle.call_args_list]
-        self.assertIn(100, closed_handles)
+        self.assertNotIn(100, closed_handles)
         self.assertIn(101, closed_handles)
+        self.assertGreater(kernel32.TerminateProcess.call_count, 1)
 
     def test_windows_job_close_retains_handle_when_close_fails(self) -> None:
         kernel32 = unittest.mock.Mock()
@@ -232,6 +237,19 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
 
         self.assertEqual(result["status"], "terminated")
         self.assertTrue(result["descendants_guaranteed_terminated"])
+        job.terminate.assert_called_once()
+        self.assertEqual(job.close.call_count, 2)
+
+    def test_windows_job_fallback_always_retries_handle_release(self) -> None:
+        process = unittest.mock.Mock()
+        process.wait.side_effect = OSError("wait failed")
+        job = unittest.mock.Mock()
+        job.owns_process_tree = True
+        job.close.side_effect = [JobObjectError("close failed"), None]
+
+        result = _terminate_process_tree(process, job)
+
+        self.assertEqual(result["status"], "terminated")
         job.terminate.assert_called_once()
         self.assertEqual(job.close.call_count, 2)
 
