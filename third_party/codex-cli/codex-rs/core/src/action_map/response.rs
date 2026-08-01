@@ -58,6 +58,21 @@ pub(crate) struct ActionMapPreparedResponse {
 }
 
 impl ActionMapPreparedResponse {
+    fn reserved_actions_json(&self) -> Vec<serde_json::Value> {
+        self.prepared_calls
+            .iter()
+            .map(|call| {
+                serde_json::json!({
+                    "call_index": call.call_index,
+                    "call_id": call.call_id,
+                    "node_id": call.node_id,
+                    "tool": call.tool_name,
+                    "reservation_id": call.reservation_id,
+                })
+            })
+            .collect()
+    }
+
     pub(crate) fn model_visible_result(&self) -> String {
         serde_json::json!({
             "schema_version": "TaskSpaceResponseCommitV1",
@@ -68,15 +83,7 @@ impl ActionMapPreparedResponse {
             "action": self.action,
             "revision_before": self.revision_before,
             "revision_after": self.revision_after,
-            "reserved_actions": self.prepared_calls.iter().map(|call| {
-                serde_json::json!({
-                    "call_index": call.call_index,
-                    "call_id": call.call_id,
-                    "node_id": call.node_id,
-                    "tool": call.tool_name,
-                    "reservation_id": call.reservation_id,
-                })
-            }).collect::<Vec<_>>(),
+            "reserved_actions": self.reserved_actions_json(),
         })
         .to_string()
     }
@@ -315,109 +322,43 @@ impl ActionMapResponseFinalReceipt {
         }
         result.to_string()
     }
+
+    pub(crate) fn finalized_model_visible_result(
+        &self,
+        prepared: &ActionMapPreparedResponse,
+    ) -> String {
+        debug_assert_eq!(self.map_id, prepared.map_id);
+        let mut result = serde_json::json!({
+            "schema_version": "TaskSpaceResponseResultV2",
+            "status": if self.complete() { "settled" } else { "settlement_incomplete" },
+            "success": self.complete(),
+            "state_commit": true,
+            "map_id": self.map_id,
+            "action": prepared.action,
+            "canonical_revision": self.canonical_revision,
+            "reserved_actions": prepared.reserved_actions_json(),
+            "settlement": {
+                "prepared_action_count": self.prepared_action_count,
+                "attributed_result_count": self.attributed_result_count,
+                "outstanding_reservation_count": self.outstanding_reservation_count,
+            },
+        });
+        if let Some(error) = self.error.as_ref() {
+            result["error"] = serde_json::json!({
+                "class": "resource",
+                "code": "taskspace_response_final_state_unavailable",
+                "detail": error,
+            });
+        } else if !self.complete() {
+            result["error"] = serde_json::json!({
+                "class": "state_machine",
+                "code": "taskspace_response_attribution_incomplete",
+            });
+        }
+        result.to_string()
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::action_map::rooted_dag::NodeState;
-    use crate::action_map::rooted_dag::Violation;
-
-    #[test]
-    fn state_rejection_exposes_node_facts_without_nested_json() {
-        let error = ActionMapResponsePrepareError::state(Rejection {
-            state_commit: false,
-            current_revision: 7,
-            violations: vec![Violation::node_state(
-                "verify",
-                Some(NodeState::Waiting),
-                vec![NodeState::Ready, NodeState::InFlight],
-                vec!["inspect".into(), "patch".into()],
-            )],
-        });
-
-        let value: serde_json::Value = serde_json::from_str(&error.model_visible_failure(
-            Some(7),
-            serde_json::json!({
-                "scope": "provider_response",
-                "copy_group_id": "provider_response:control",
-                "zero_dispatch": true,
-            }),
-        ))
-        .unwrap();
-
-        assert_eq!(value["schema_version"], "TaskSpaceResponseCommitFailureV3");
-        assert_eq!(value["current_revision"], 7);
-        assert_eq!(value["rejected_candidate_committed"], false);
-        assert_eq!(
-            value["error"]["code"],
-            ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE
-        );
-        assert_eq!(
-            value["error"]["violations"][0]["code"],
-            "node_state_invalid"
-        );
-        assert_eq!(value["error"]["violations"][0]["node_id"], "verify");
-        assert_eq!(
-            value["error"]["violations"][0]["rejected_candidate_at_violation"]["state"],
-            "waiting"
-        );
-        assert_eq!(
-            value["error"]["violations"][0]["rejected_candidate_at_violation"]["allowed_states"],
-            serde_json::json!(["ready", "in_flight"])
-        );
-        assert_eq!(
-            value["error"]["violations"][0]["rejected_candidate_at_violation"]["unsatisfied_predecessor_ids"],
-            serde_json::json!(["inspect", "patch"])
-        );
-        assert_eq!(
-            value["error"]["violations"][0]["rejected_candidate_at_violation"]["committed"],
-            false
-        );
-        assert!(
-            value["error"]["violations"][0]
-                .get("evaluated_state_at_violation")
-                .is_none()
-        );
-        assert_eq!(
-            value["failure_provenance"]["copy_group_id"],
-            "provider_response:control"
-        );
-        assert!(value["error"].get("detail").is_none());
-    }
-
-    #[test]
-    fn state_rejection_serializes_absent_canonical_node_explicitly() {
-        let mut violation = Violation::node_state(
-            "missing",
-            Some(NodeState::Completed),
-            vec![NodeState::Ready],
-            Vec::new(),
-        );
-        violation.canonical_node_present_before_transaction = Some(false);
-        let error = ActionMapResponsePrepareError::state(Rejection {
-            state_commit: false,
-            current_revision: 7,
-            violations: vec![violation],
-        });
-
-        let value: serde_json::Value = serde_json::from_str(&error.model_visible_failure(
-            Some(7),
-            serde_json::json!({
-                "scope": "provider_response",
-                "copy_group_id": "provider_response:control",
-                "zero_dispatch": true,
-                "affected_call_ids": ["control"],
-            }),
-        ))
-        .unwrap();
-
-        let canonical = &value["error"]["violations"][0]["canonical_before_transaction"];
-        assert_eq!(canonical["node_present"], false);
-        assert!(canonical["state"].is_null());
-        assert_eq!(
-            value["error"]["violations"][0]["rejected_candidate_at_violation"]["state"],
-            "completed"
-        );
-    }
-}
+#[path = "response_tests.rs"]
+mod tests;
