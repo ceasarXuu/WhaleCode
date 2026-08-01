@@ -258,9 +258,10 @@ class CacheRunContractTest(unittest.TestCase):
         source = BENCHMARK_RUNNER.read_text(encoding="utf-8")
         self.assertIn("[int]$ProviderRequestHardLimit = 0", source)
         self.assertIn(
-            "model_providers.deepseek.base_url=",
+            "Get-TaskspaceProviderBoundaryConfigOverrides",
             source,
         )
+        self.assertNotIn("model_providers.deepseek.base_url=", source)
         self.assertIn(
             '$childEnvironment["WHALE_PROVIDER_BOUNDARY"] = "docker-isolated-proxy-v1"',
             source,

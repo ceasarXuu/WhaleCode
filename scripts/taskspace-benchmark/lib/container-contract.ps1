@@ -55,6 +55,28 @@ function Assert-TaskspaceContainerContract {
             throw "Container benchmark must not disable product Skill behavior: $forbiddenOverride"
         }
     }
+    $providerBoundary = $Contract.provider_boundary
+    if ($null -eq $providerBoundary) { throw "Container provider boundary contract is missing" }
+    $expectedProviderBoundary = [ordered]@{
+        logical_provider_id = 'deepseek'
+        transport_provider_id = 'deepseek-boundary'
+        name = 'DeepSeek'
+        base_url = 'http://provider-proxy:8080'
+        env_key = 'DEEPSEEK_API_KEY'
+        env_key_instructions = 'Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale.'
+        wire_api = 'responses'
+    }
+    foreach ($field in $expectedProviderBoundary.Keys) {
+        if ([string]$providerBoundary.$field -cne [string]$expectedProviderBoundary[$field]) {
+            throw "Container provider boundary $field is invalid"
+        }
+    }
+    $intentionalDifferences = @($providerBoundary.intentional_differences | ForEach-Object { [string]$_ })
+    if ($intentionalDifferences.Count -ne 2 -or
+        $intentionalDifferences[0] -cne 'provider_id' -or
+        $intentionalDifferences[1] -cne 'base_url') {
+        throw "Container provider boundary intentional differences are invalid"
+    }
     $requiredCodes = @(
         'docker_unavailable',
         'container_preflight_failed',
@@ -68,6 +90,34 @@ function Assert-TaskspaceContainerContract {
             throw "Container reason code is missing: $code"
         }
     }
+}
+
+function Get-TaskspaceProviderBoundaryRouteEvidence {
+    param([Parameter(Mandatory = $true)]$Contract)
+    $route = $Contract.provider_boundary
+    [ordered]@{
+        route_kind = 'custom_provider_transport_alias'
+        logical_provider_id = [string]$route.logical_provider_id
+        transport_provider_id = [string]$route.transport_provider_id
+        provider_name = [string]$route.name
+        base_url = [string]$route.base_url
+        env_key = [string]$route.env_key
+        wire_api = [string]$route.wire_api
+        intentional_differences = @($route.intentional_differences | ForEach-Object { [string]$_ })
+    }
+}
+
+function Get-TaskspaceProviderBoundaryConfigOverrides {
+    param([Parameter(Mandatory = $true)]$Contract)
+    $route = $Contract.provider_boundary
+    @(
+        "model_provider=`"$([string]$route.transport_provider_id)`""
+        "model_providers.$([string]$route.transport_provider_id).name=`"$([string]$route.name)`""
+        "model_providers.$([string]$route.transport_provider_id).base_url=`"$([string]$route.base_url)`""
+        "model_providers.$([string]$route.transport_provider_id).env_key=`"$([string]$route.env_key)`""
+        "model_providers.$([string]$route.transport_provider_id).env_key_instructions=`"$([string]$route.env_key_instructions)`""
+        "model_providers.$([string]$route.transport_provider_id).wire_api=`"$([string]$route.wire_api)`""
+    )
 }
 
 function Get-TaskspaceContainerResourceArgs {

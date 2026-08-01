@@ -298,8 +298,10 @@ if (-not [string]::IsNullOrWhiteSpace($AdditionalConfigOverride)) {
     $effectiveConfigOverrides += $AdditionalConfigOverride
 }
 $effectiveConfigOverrides += @($containerContract.agent_config_overrides | ForEach-Object { [string]$_ })
+$providerRouting = $null
 if ($ProviderRequestHardLimit -gt 0) {
-    $effectiveConfigOverrides += 'model_providers.deepseek.base_url="http://provider-proxy:8080"'
+    $effectiveConfigOverrides += @(Get-TaskspaceProviderBoundaryConfigOverrides $containerContract)
+    $providerRouting = Get-TaskspaceProviderBoundaryRouteEvidence $containerContract
 }
 Write-TaskspaceRunEvent $runDir "container_image_ready" @{
     image_digest = [string]$containerImage.image_digest
@@ -480,6 +482,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         container_resource_contract = $containerContract.resources
         provider_param_status = $providerParamStatus
         provider_request_hard_limit = $ProviderRequestHardLimit
+        provider_routing = $providerRouting
         config_overrides = @($effectiveConfigOverrides)
         taskspace_projection_policy = $TaskSpaceProjectionPolicy
         sandbox_mode = "docker_hard_boundary"
@@ -526,7 +529,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             } else {
                 @()
             }
-            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = $treatmentDelta; execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
+            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = $treatmentDelta; execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment; provider_routing = $providerRouting }) (Join-Path $side.ArtifactDir "whale-argv.json")
             $started = Get-Date
             $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $ProviderRequestHardLimit $Model $TimeoutSeconds
             $exitCode = [int]$containerExec.exit_code

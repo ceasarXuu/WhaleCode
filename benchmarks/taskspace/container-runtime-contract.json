@@ -12,6 +12,19 @@
   "agent_config_overrides": [
     "features.plugins=false"
   ],
+  "provider_boundary": {
+    "logical_provider_id": "deepseek",
+    "transport_provider_id": "deepseek-boundary",
+    "name": "DeepSeek",
+    "base_url": "http://provider-proxy:8080",
+    "env_key": "DEEPSEEK_API_KEY",
+    "env_key_instructions": "Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale.",
+    "wire_api": "responses",
+    "intentional_differences": [
+      "provider_id",
+      "base_url"
+    ]
+  },
   "resources": {
     "cpus": 4.0,
     "memory_bytes": 8589934592,

@@ -7,6 +7,21 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 . (Join-Path $PSScriptRoot 'lib/container-benchmark-runner.ps1')
 
 $contract = Read-TaskspaceContainerContract $repoRoot
+$routeOverrides = @(Get-TaskspaceProviderBoundaryConfigOverrides $contract)
+$expectedRouteOverrides = @(
+    'model_provider="deepseek-boundary"',
+    'model_providers.deepseek-boundary.name="DeepSeek"',
+    'model_providers.deepseek-boundary.base_url="http://provider-proxy:8080"',
+    'model_providers.deepseek-boundary.env_key="DEEPSEEK_API_KEY"',
+    'model_providers.deepseek-boundary.env_key_instructions="Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."',
+    'model_providers.deepseek-boundary.wire_api="responses"'
+)
+if (($routeOverrides -join "`n") -cne ($expectedRouteOverrides -join "`n")) {
+    throw "Provider boundary config overrides drifted from the reviewed route contract"
+}
+if (@($routeOverrides | Where-Object { $_ -like 'model_providers.deepseek.*' }).Count -ne 0) {
+    throw "Provider boundary config overrides a reserved built-in provider"
+}
 $image = Resolve-TaskspaceContainerImage $repoRoot $contract
 $root = New-Dir (Join-Path $repoRoot ("target/provider-boundary-selftest/{0}" -f ([guid]::NewGuid().ToString('N'))))
 $side = [pscustomobject]@{

@@ -25,6 +25,17 @@ if ($oracle.workspace -ne 'ro' -or $oracle.oracle -ne 'ro') {
 if (@($contract.agent_config_overrides) -notcontains 'features.plugins=false') {
     throw "Benchmark plugin isolation override is missing"
 }
+$providerOverrides = @(Get-TaskspaceProviderBoundaryConfigOverrides $contract)
+if ($providerOverrides -notcontains 'model_provider="deepseek-boundary"') {
+    throw "Provider boundary transport alias selection is missing"
+}
+if ($providerOverrides -contains 'model_providers.deepseek.base_url="http://provider-proxy:8080"') {
+    throw "Provider boundary attempts to override the reserved DeepSeek provider"
+}
+$providerRoute = Get-TaskspaceProviderBoundaryRouteEvidence $contract
+if ($providerRoute.logical_provider_id -ne 'deepseek' -or $providerRoute.transport_provider_id -ne 'deepseek-boundary') {
+    throw "Provider boundary route evidence is incomplete"
+}
 
 $invalid = $contract | ConvertTo-Json -Depth 20 | ConvertFrom-Json
 $invalid.base_image = 'ubuntu:24.04'
@@ -40,5 +51,11 @@ $invalidOverrides.agent_config_overrides = @(
 $failed = $false
 try { Assert-TaskspaceContainerContract $invalidOverrides } catch { $failed = $true }
 if (-not $failed) { throw "Product Skill suppression was accepted" }
+
+$invalidProvider = $contract | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+$invalidProvider.provider_boundary.transport_provider_id = 'deepseek'
+$failed = $false
+try { Assert-TaskspaceContainerContract $invalidProvider } catch { $failed = $true }
+if (-not $failed) { throw "Reserved DeepSeek provider override route was accepted" }
 
 Write-Host "container contract tests passed"

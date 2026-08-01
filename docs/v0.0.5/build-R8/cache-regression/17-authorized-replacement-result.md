@@ -27,17 +27,21 @@
 
 ## 3. 工程判断
 
-不能通过放开 `model_providers.deepseek` 覆盖来修复。上游 Codex 明确把内置 provider ID 设为不可覆盖，并对内置
-OpenAI 单独提供顶层 `openai_base_url`；这表明“保留 provider 身份 + 专用 endpoint 配置”是现有架构模式，而非
-把内置 provider 伪装为用户自定义 provider。
+不能通过放开 `model_providers.deepseek` 覆盖来修复，也无需为产品新增 `deepseek_base_url`。进一步追踪确认，现有
+custom provider 已能在 benchmark 内声明一个 `deepseek-boundary` 传输别名，并完整复现内置 DeepSeek 的名称、认证变量、
+Responses wire、重试、超时和 WebSocket 字段；唯一差异是本地 provider ID 和有意指向隔离代理的 base URL。
 
-首选方向是为 Whale 内置 DeepSeek 增加同构的 `deepseek_base_url`，默认仍为官方
-`https://api.deepseek.com`，benchmark 仅在隔离容器内把它设置为 provider boundary。这样不改变 provider ID、认证变量、
-Responses wire 或模型选择。参考：[Codex config schema](https://github.com/openai/codex/blob/main/codex-rs/core/config.schema.json)、
+离线探针证明内置 DeepSeek 与该别名生成的模型可见上下文均为 16,336 bytes，SHA-256 完全相同。修复应仅修改
+benchmark，并在 artifact 中同时记录 `logical_provider_id=deepseek` 与
+`transport_provider_id=deepseek-boundary`。全局 final-wire 门禁继续保护生产 `provider_id=deepseek`，不得为测试别名
+放宽。参考：[Codex config schema](https://github.com/openai/codex/blob/main/codex-rs/core/config.schema.json)、
 [DeepSeek Agent 集成配置](https://api-docs.deepseek.com/quick_start/agent_integrations/deepcode)。
 
-RunId 则应保持更简单的机械合同：传入显式 ID 时，新目录就使用该 ID；未传入时才生成时间戳。修复必须覆盖非法路径、
-已存在目录、resume 和 force，避免为找回证据引入模糊扫描 fallback。
+该修复已通过生产 `ConfigToml` 解析、provider 字段等价、Docker provider boundary、DeepSeek final-wire payload 和
+缓存门禁离线回归。缓存门禁将本次变更标记为待真实验证，发布继续阻断；这与工程缺陷已经修复并不矛盾。
+
+RunId 保持更简单的机械合同：传入显式 ID 时，新目录就使用该 ID；未传入时才生成时间戳。当前修复已覆盖非法路径、
+已存在目录和默认时间戳，并通过 cache regression 与 E3 guardrails 回归，没有引入模糊扫描 fallback。
 
 ## 4. 证据边界
 

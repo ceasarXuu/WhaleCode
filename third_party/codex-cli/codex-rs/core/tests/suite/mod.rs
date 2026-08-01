@@ -38,6 +38,7 @@ mod cache_payload_contract;
 mod cache_payload_mcp_contract;
 mod cache_payload_permissions_contract;
 mod cache_payload_skill_contract;
+mod cache_provider_boundary_route;
 mod cli_stream;
 mod client;
 mod client_websockets;
