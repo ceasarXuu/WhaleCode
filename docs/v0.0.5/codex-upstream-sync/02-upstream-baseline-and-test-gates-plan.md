@@ -83,7 +83,8 @@ Windows tests/smoke ─ evidence record ─────────────�
 | provenance backlog | `docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json` | 有候选来源但缺少权威证据的本地回移 | verified |
 | TUI 基线 | `docs/v0.0.5/codex-upstream-sync/tui-baseline.json` | 规范化测试集合与失败分类 | planned |
 | metadata 同步工具 | `scripts/codex-upstream/` | inventory 生成、合同和统一校验 | verified |
-| TUI/Windows runner | `scripts/codex-upstream/` | TUI baseline 和 Windows 自动验证 | planned |
+| TUI runner | `scripts/codex-upstream/` | Nextest/JUnit 执行与规范化 | verified |
+| Windows runner | `scripts/codex-upstream/` | Windows 自动验证 | planned |
 | 执行记录 | `docs/migration/codex-sync/2026-08-01-upstream-baseline-and-test-gates.md` | 命令、结果、例外、证据路径 | partial |
 
 JSON 工件记录 schema version，但不写生成时间、绝对路径、测试耗时、随机 run id 等易变字段。所有数组按稳定键排序；同一代码状态重复生成必须逐字节一致。
@@ -175,7 +176,7 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 | W2 | verified | 实现 `generate_overlay_inventory.py`，生成首份 inventory | 连续生成逐字节相同；特殊路径 fixture 通过 | W1 |
 | W3 | verified | 从历史文档与 trailers 整理 backport ledger | 每个 upstream/local SHA、digest、路径均校验通过 | W1 |
 | W4 | verified | 实现 `validate_sync_metadata.py`，修正 `UPSTREAM.md` | 一条命令校验三份元数据且无 `unclassified` | W2、W3 |
-| W5 | planned | 实现 Nextest/JUnit runner 与规范化 parser | 定向栈敏感用例在 8 MiB 下稳定通过；runner 不生成 `.snap.new` | W0、W1 |
+| W5 | verified | 实现 Nextest/JUnit runner 与规范化 parser | 定向栈敏感用例在 8 MiB 下稳定通过；runner 不生成 `.snap.new` | W0、W1 |
 | W6 | planned | 连续 3 次捕获当前 TUI 全量失败集合并分类 | 三次测试名集合一致；差异被标记为 flaky candidate | W5 |
 | W7 | planned | 审阅并处理 status/model/detail 类快照 | 每份 diff 有产品判断；该组定向测试归零 | W6 |
 | W8 | planned | 审阅并处理 chatwidget/guardian/MCP 类快照 | 每份 diff 有产品判断；该组定向测试归零 | W6 |
