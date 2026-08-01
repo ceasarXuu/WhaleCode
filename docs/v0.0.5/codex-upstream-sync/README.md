@@ -11,6 +11,7 @@
 ## 专题文档
 
 - [第一批：完全无文本冲突的快速 backport 合入方案](01-conflict-free-fast-backports-plan.md)
+- [第二批：上游基线、overlay 账本与测试门禁工程计划](02-upstream-baseline-and-test-gates-plan.md)
 
 ## 1. 执行摘要
 
