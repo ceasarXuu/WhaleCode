@@ -325,6 +325,9 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         result["attempts"][1]["provider_boundary_evidence_sha256"] = result[
             "observations"
         ][1]["artifact_sha256"]["provider_boundary"]
+        result["observations"][1]["provider_payload_sha256"] = list(
+            result["observations"][0]["provider_payload_sha256"]
+        )
 
         with self.assertRaisesRegex(ValueError, "identical provider wire"):
             self.validate(result=result)

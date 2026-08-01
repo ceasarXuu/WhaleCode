@@ -150,8 +150,7 @@ def validate_cross_arm_provider_evidence(observations: list[dict[str, Any]]) -> 
             if left["arm"] == right["arm"]:
                 continue
             require(
-                left["artifact_sha256"]["provider_boundary"]
-                != right["artifact_sha256"]["provider_boundary"],
+                left["provider_payload_sha256"] != right["provider_payload_sha256"],
                 "different cache arms share identical provider wire evidence",
             )
 

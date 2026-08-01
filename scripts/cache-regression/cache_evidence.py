@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-RESULT_SCHEMA_VERSION = "whalecode-cache-hit-regression-v5"
+RESULT_SCHEMA_VERSION = "whalecode-cache-hit-regression-v6"
 
 
 def canonical_json_sha256(value: Any) -> str:

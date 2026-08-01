@@ -19,6 +19,7 @@ CACHE_OBSERVATION_KEYS = (
     "logical_mode",
     "provider_model",
     "provider_requests",
+    "provider_payload_sha256",
     "request_2_plus_count",
     "request_2_plus_hit_rate",
     "request_2_plus_cached_input_tokens",
@@ -126,6 +127,9 @@ def analyze_artifact_values(
         "logical_mode": metrics["logical_mode"],
         "provider_model": expected_model,
         "provider_requests": boundary["boundary_request_count"],
+        "provider_payload_sha256": [
+            request["body_sha256"] for request in boundary["boundary_requests"]
+        ],
         "request_2_plus_count": usage["request_2_plus_count"],
         "request_2_plus_hit_rate": usage["request_2_plus_hit_rate"],
         "request_2_plus_cached_input_tokens": usage[
