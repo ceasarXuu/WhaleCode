@@ -20,6 +20,7 @@ from cache_windows_job import (
     start_windows_job_process,
 )
 from cache_windows_owner_journal import write_owner_journal
+from cache_windows_test_support import FakeJobListAttribute
 
 
 class CacheWindowsOwnershipTest(unittest.TestCase):
@@ -27,8 +28,13 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
         _RETAINED_PROCESS_HANDLES.clear()
         self.temp = tempfile.TemporaryDirectory()
         self.cwd = Path(self.temp.name)
+        self.job_attribute = patch(
+            "cache_windows_job.JobListAttribute", FakeJobListAttribute
+        )
+        self.job_attribute.start()
 
     def tearDown(self) -> None:
+        self.job_attribute.stop()
         _RETAINED_PROCESS_HANDLES.clear()
         self.temp.cleanup()
 
@@ -81,10 +87,13 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
         kernel32.WaitForSingleObject.return_value = 0
         kernel32.CloseHandle.return_value = True
         job = unittest.mock.Mock(_kernel32=kernel32)
-        job.assign_handle.side_effect = JobObjectError("assignment failed")
         with (
             patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
             patch("cache_windows_job._configure_process_signatures"),
+            patch(
+                "cache_windows_job.write_owner_journal",
+                side_effect=JobObjectError("journal failed"),
+            ),
             self.assertRaisesRegex(JobObjectError, "TerminateProcess attempt"),
         ):
             start_windows_job_process(["pwsh", "runner.ps1"], self.cwd)
@@ -162,6 +171,42 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
         self.assertFalse(journal.exists())
         kernel32.TerminateProcess.assert_called_once_with(100, 1)
         kernel32.CloseHandle.assert_called_once_with(100)
+
+    def test_durable_recovery_releases_existing_handles_before_opening_pid(
+        self,
+    ) -> None:
+        creation_time = 123456
+        journal = write_owner_journal(self.cwd, 456, creation_time)
+        retained_kernel = unittest.mock.Mock()
+        retained_kernel.TerminateProcess.return_value = True
+        retained_kernel.WaitForSingleObject.return_value = 0
+        retained_kernel.CloseHandle.return_value = True
+        _RETAINED_PROCESS_HANDLES[456] = (
+            retained_kernel,
+            100,
+            101,
+            journal,
+            creation_time,
+        )
+        recovery_kernel = unittest.mock.Mock()
+
+        with (
+            patch(
+                "cache_windows_job.ctypes.WinDLL",
+                return_value=recovery_kernel,
+                create=True,
+            ),
+            patch("cache_windows_job._configure_process_signatures"),
+        ):
+            recover_durable_process_cleanup(self.cwd)
+
+        self.assertNotIn(456, _RETAINED_PROCESS_HANDLES)
+        self.assertFalse(journal.exists())
+        self.assertCountEqual(
+            [call.args[0] for call in retained_kernel.CloseHandle.call_args_list],
+            [100, 101],
+        )
+        recovery_kernel.OpenProcess.assert_not_called()
 
 
 if __name__ == "__main__":

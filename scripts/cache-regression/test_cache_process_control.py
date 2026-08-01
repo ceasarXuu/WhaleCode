@@ -16,20 +16,47 @@ from cache_process_control import (
 )
 from cache_run_execution_test_support import CacheRunExecutionFixture
 from cache_windows_job import (
+    EXTENDED_STARTUPINFO_PRESENT,
     _RETAINED_PROCESS_HANDLES,
     JobObjectError,
     _ProcessInformation,
     WindowsKillOnCloseJob,
     start_windows_job_process,
 )
+from cache_windows_test_support import FakeJobListAttribute
+
+
+def _windows_process_mocks(on_create=None):
+    kernel32 = unittest.mock.Mock()
+
+    def create_process(*args):
+        if on_create:
+            on_create(args)
+        process_info = ctypes.cast(
+            args[-1], ctypes.POINTER(_ProcessInformation)
+        ).contents
+        process_info.hProcess = 100
+        process_info.hThread = 101
+        process_info.dwProcessId = 456
+        return True
+
+    kernel32.CreateProcessW.side_effect = create_process
+    job = unittest.mock.Mock()
+    job._kernel32 = kernel32
+    return kernel32, job
 
 
 class CacheProcessControlTest(CacheRunExecutionFixture):
     def setUp(self) -> None:
         super().setUp()
         _RETAINED_PROCESS_HANDLES.clear()
+        self.job_attribute = patch(
+            "cache_windows_job.JobListAttribute", FakeJobListAttribute
+        )
+        self.job_attribute.start()
 
     def tearDown(self) -> None:
+        self.job_attribute.stop()
         _RETAINED_PROCESS_HANDLES.clear()
         super().tearDown()
 
@@ -123,26 +150,17 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         process.terminate.assert_not_called()
         process.kill.assert_not_called()
 
-    def test_windows_process_is_assigned_before_its_thread_is_resumed(self) -> None:
+    def test_windows_process_is_created_in_job_before_thread_resume(self) -> None:
         events = []
-        kernel32 = unittest.mock.Mock()
 
-        def create_process(*args):
-            events.append("create_suspended")
-            process_info = ctypes.cast(
-                args[-1], ctypes.POINTER(_ProcessInformation)
-            ).contents
-            process_info.hProcess = 100
-            process_info.hThread = 101
-            process_info.dwProcessId = 456
-            return True
+        def record_creation(args):
+            events.append("create_in_job")
+            self.assertTrue(args[5] & EXTENDED_STARTUPINFO_PRESENT)
 
-        kernel32.CreateProcessW.side_effect = create_process
+        kernel32, job = _windows_process_mocks(record_creation)
         kernel32.ResumeThread.side_effect = lambda _handle: events.append("resume") or 0
         kernel32.CloseHandle.return_value = True
-        job = unittest.mock.Mock()
-        job._kernel32 = kernel32
-        job.assign_handle.side_effect = lambda _handle: events.append("assign")
+        job.mark_creation_assigned.side_effect = lambda: events.append("owned")
         with (
             patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
             patch("cache_windows_job._configure_process_signatures"),
@@ -150,61 +168,43 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             process, returned_job = start_windows_job_process(
                 ["pwsh", "runner.ps1"], self.repo
             )
-        self.assertEqual(events, ["create_suspended", "assign", "resume"])
+        self.assertEqual(events, ["create_in_job", "owned", "resume"])
         self.assertEqual(process.pid, 456)
         self.assertIs(returned_job, job)
         kernel32.TerminateProcess.assert_not_called()
 
-    def test_windows_assignment_failure_terminates_the_suspended_process(self) -> None:
-        kernel32 = unittest.mock.Mock()
-
-        def create_process(*args):
-            process_info = ctypes.cast(
-                args[-1], ctypes.POINTER(_ProcessInformation)
-            ).contents
-            process_info.hProcess = 100
-            process_info.hThread = 101
-            process_info.dwProcessId = 456
-            return True
-
-        kernel32.CreateProcessW.side_effect = create_process
+    def test_windows_post_create_setup_failure_terminates_suspended_process(
+        self,
+    ) -> None:
+        kernel32, job = _windows_process_mocks()
         kernel32.TerminateProcess.return_value = True
         kernel32.WaitForSingleObject.return_value = 0
         kernel32.CloseHandle.return_value = True
-        job = unittest.mock.Mock()
-        job._kernel32 = kernel32
-        job.assign_handle.side_effect = JobObjectError("assignment failed")
         with (
             patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
             patch("cache_windows_job._configure_process_signatures"),
-            self.assertRaisesRegex(JobObjectError, "assignment failed"),
+            patch(
+                "cache_windows_job.write_owner_journal",
+                side_effect=JobObjectError("journal failed"),
+            ),
+            self.assertRaisesRegex(JobObjectError, "journal failed"),
         ):
             start_windows_job_process(["pwsh", "runner.ps1"], self.repo)
         kernel32.ResumeThread.assert_not_called()
         kernel32.TerminateProcess.assert_called_once_with(100, 1)
         job.close.assert_called_once()
 
-    def test_windows_assignment_failure_reports_unconfirmed_termination(self) -> None:
-        kernel32 = unittest.mock.Mock()
-
-        def create_process(*args):
-            process_info = ctypes.cast(
-                args[-1], ctypes.POINTER(_ProcessInformation)
-            ).contents
-            process_info.hProcess = 100
-            process_info.hThread = 101
-            process_info.dwProcessId = 456
-            return True
-
-        kernel32.CreateProcessW.side_effect = create_process
+    def test_windows_post_create_failure_reports_unconfirmed_termination(self) -> None:
+        kernel32, job = _windows_process_mocks()
         kernel32.TerminateProcess.return_value = False
         kernel32.CloseHandle.return_value = True
-        job = unittest.mock.Mock()
-        job._kernel32 = kernel32
-        job.assign_handle.side_effect = JobObjectError("assignment failed")
         with (
             patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
             patch("cache_windows_job._configure_process_signatures"),
+            patch(
+                "cache_windows_job.remove_owner_journal",
+                side_effect=JobObjectError("journal removal failed"),
+            ),
             patch(
                 "cache_windows_job.subprocess.run",
                 return_value=subprocess.CompletedProcess([], 1, "", "taskkill failed"),
@@ -269,7 +269,7 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         self.assertEqual(job.close.call_count, 2)
 
     def test_windows_create_interrupt_cleans_suspended_process(self) -> None:
-        kernel32 = unittest.mock.Mock()
+        kernel32, job = _windows_process_mocks()
 
         def interrupted_create(*args):
             process_info = ctypes.cast(
@@ -284,8 +284,6 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         kernel32.TerminateProcess.return_value = True
         kernel32.WaitForSingleObject.return_value = 0
         kernel32.CloseHandle.return_value = True
-        job = unittest.mock.Mock()
-        job._kernel32 = kernel32
         with (
             patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
             patch("cache_windows_job._configure_process_signatures"),

@@ -13,13 +13,19 @@ from cache_windows_owner_journal import (
     remove_owner_journal,
     write_owner_journal,
 )
-from cache_windows_native import process_creation_time
+from cache_windows_native import (
+    JobListAttribute,
+    ProcessInformation as _ProcessInformation,
+    StartupInfoEx,
+    process_creation_time,
+)
 
 
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
 CREATE_SUSPENDED = 0x00000004
 CREATE_NEW_PROCESS_GROUP = 0x00000200
+EXTENDED_STARTUPINFO_PRESENT = 0x00080000
 WAIT_OBJECT_0 = 0x00000000
 WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
@@ -80,38 +86,6 @@ class _ExtendedLimitInformation(ctypes.Structure):
     ]
 
 
-class _StartupInfo(ctypes.Structure):
-    _fields_ = [
-        ("cb", wintypes.DWORD),
-        ("lpReserved", wintypes.LPWSTR),
-        ("lpDesktop", wintypes.LPWSTR),
-        ("lpTitle", wintypes.LPWSTR),
-        ("dwX", wintypes.DWORD),
-        ("dwY", wintypes.DWORD),
-        ("dwXSize", wintypes.DWORD),
-        ("dwYSize", wintypes.DWORD),
-        ("dwXCountChars", wintypes.DWORD),
-        ("dwYCountChars", wintypes.DWORD),
-        ("dwFillAttribute", wintypes.DWORD),
-        ("dwFlags", wintypes.DWORD),
-        ("wShowWindow", wintypes.WORD),
-        ("cbReserved2", wintypes.WORD),
-        ("lpReserved2", ctypes.POINTER(ctypes.c_ubyte)),
-        ("hStdInput", wintypes.HANDLE),
-        ("hStdOutput", wintypes.HANDLE),
-        ("hStdError", wintypes.HANDLE),
-    ]
-
-
-class _ProcessInformation(ctypes.Structure):
-    _fields_ = [
-        ("hProcess", wintypes.HANDLE),
-        ("hThread", wintypes.HANDLE),
-        ("dwProcessId", wintypes.DWORD),
-        ("dwThreadId", wintypes.DWORD),
-    ]
-
-
 class WindowsKillOnCloseJob:
     def __init__(self) -> None:
         self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -143,11 +117,6 @@ class WindowsKillOnCloseJob:
             wintypes.DWORD,
         ]
         self._kernel32.SetInformationJobObject.restype = wintypes.BOOL
-        self._kernel32.AssignProcessToJobObject.argtypes = [
-            wintypes.HANDLE,
-            wintypes.HANDLE,
-        ]
-        self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
         self._kernel32.TerminateJobObject.argtypes = [
             wintypes.HANDLE,
             wintypes.UINT,
@@ -160,11 +129,11 @@ class WindowsKillOnCloseJob:
     def owns_process_tree(self) -> bool:
         return self._assigned
 
-    def assign_handle(self, process_handle: wintypes.HANDLE) -> None:
-        if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
-            raise JobObjectError(
-                ctypes.get_last_error(), "AssignProcessToJobObject failed"
-            )
+    @property
+    def handle(self) -> wintypes.HANDLE:
+        return self._handle
+
+    def mark_creation_assigned(self) -> None:
         self._assigned = True
 
     def close(self) -> None:
@@ -243,9 +212,9 @@ def start_windows_job_process(
 def _start_windows_job_process(
     command: list[str], cwd: Path
 ) -> tuple[WindowsJobProcess, WindowsKillOnCloseJob]:
-    recover_durable_process_cleanup(cwd)
     if not retry_retained_process_cleanup():
         raise JobObjectError("a previously created benchmark process is still owned")
+    recover_durable_process_cleanup(cwd)
     job = WindowsKillOnCloseJob()
     process_info = None
     thread_handle = None
@@ -254,30 +223,31 @@ def _start_windows_job_process(
     try:
         kernel32 = job._kernel32
         _configure_process_signatures(kernel32)
-        startup = _StartupInfo()
-        startup.cb = ctypes.sizeof(startup)
         process_info = _ProcessInformation()
         command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(command))
-        created = kernel32.CreateProcessW(
-            None,
-            command_line,
-            None,
-            None,
-            False,
-            CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP,
-            None,
-            str(cwd),
-            ctypes.byref(startup),
-            ctypes.byref(process_info),
-        )
-        if not created:
-            raise JobObjectError(ctypes.get_last_error(), "CreateProcessW failed")
+        with JobListAttribute(kernel32, job.handle) as job_attribute:
+            created = kernel32.CreateProcessW(
+                None,
+                command_line,
+                None,
+                None,
+                False,
+                CREATE_SUSPENDED
+                | CREATE_NEW_PROCESS_GROUP
+                | EXTENDED_STARTUPINFO_PRESENT,
+                None,
+                str(cwd),
+                ctypes.byref(job_attribute.startup),
+                ctypes.byref(process_info),
+            )
+            if not created:
+                raise JobObjectError(ctypes.get_last_error(), "CreateProcessW failed")
+            job.mark_creation_assigned()
         thread_handle = process_info.hThread
         creation_time = process_creation_time(kernel32, process_info.hProcess)
         owner_path = write_owner_journal(
             cwd, int(process_info.dwProcessId), creation_time
         )
-        job.assign_handle(process_info.hProcess)
         remove_owner_journal(owner_path)
         owner_path = None
         if kernel32.ResumeThread(thread_handle) == RESUME_THREAD_FAILED:
@@ -342,7 +312,7 @@ def _configure_process_signatures(kernel32) -> None:
         wintypes.DWORD,
         wintypes.LPVOID,
         wintypes.LPCWSTR,
-        ctypes.POINTER(_StartupInfo),
+        ctypes.POINTER(StartupInfoEx),
         ctypes.POINTER(_ProcessInformation),
     ]
     kernel32.CreateProcessW.restype = wintypes.BOOL
@@ -365,6 +335,25 @@ def _configure_process_signatures(kernel32) -> None:
         ctypes.POINTER(wintypes.FILETIME),
     ]
     kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.InitializeProcThreadAttributeList.argtypes = [
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    kernel32.InitializeProcThreadAttributeList.restype = wintypes.BOOL
+    kernel32.UpdateProcThreadAttribute.argtypes = [
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.c_size_t,
+        wintypes.LPVOID,
+        ctypes.c_size_t,
+        wintypes.LPVOID,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    kernel32.UpdateProcThreadAttribute.restype = wintypes.BOOL
+    kernel32.DeleteProcThreadAttributeList.argtypes = [wintypes.LPVOID]
+    kernel32.DeleteProcThreadAttributeList.restype = None
 
 
 def _close_handle(kernel32, handle: wintypes.HANDLE) -> None:
@@ -471,6 +460,13 @@ def recover_durable_process_cleanup(cwd: Path) -> None:
     kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
     for path, process_id, creation_time in records:
+        if process_id in _RETAINED_PROCESS_HANDLES:
+            if not retry_retained_process_cleanup():
+                raise JobObjectError(
+                    f"owned PID {process_id} still has retained process handles"
+                )
+            if not path.exists():
+                continue
         process_handle = kernel32.OpenProcess(
             PROCESS_TERMINATE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
             False,
