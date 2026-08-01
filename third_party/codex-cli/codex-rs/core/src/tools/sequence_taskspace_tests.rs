@@ -118,6 +118,77 @@ fn final_receipt(outputs: &[codex_protocol::models::ResponseInputItem]) -> serde
     serde_json::from_str(text).expect("final receipt JSON")
 }
 
+fn function_call_output(
+    outputs: &[codex_protocol::models::ResponseInputItem],
+    expected_call_id: &str,
+) -> serde_json::Value {
+    let output = outputs
+        .iter()
+        .find_map(|item| match item {
+            codex_protocol::models::ResponseInputItem::FunctionCallOutput { call_id, output }
+                if call_id == expected_call_id =>
+            {
+                Some(output)
+            }
+            _ => None,
+        })
+        .expect("function call output");
+    let codex_protocol::models::FunctionCallOutputBody::Text(text) = &output.body else {
+        panic!("TaskSpace control output must be JSON text");
+    };
+    serde_json::from_str(text).expect("function call output JSON")
+}
+
+#[tokio::test]
+async fn current_response_exposes_prepare_and_final_revision_as_distinct_authorities() {
+    let (session, mut turn) = make_session_and_context().await;
+    turn.tools_config
+        .experimental_supported_tools
+        .push("test_sync_tool".to_string());
+    session
+        .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
+        .await;
+    let router = router_for_turn(&turn);
+    let runtime = ToolCallRuntime::new(
+        Arc::new(router),
+        Arc::new(session),
+        Arc::new(turn),
+        Arc::new(Mutex::new(TurnDiffTracker::new())),
+    );
+
+    let outcome = execute_response_tool_sequence(
+        runtime,
+        vec![
+            initialize_actions(&[("work", "test_sync_tool")]),
+            function_call("test_sync_tool", "initial-work", "{}"),
+        ],
+        CancellationToken::new(),
+    )
+    .await
+    .expect("initialize response");
+
+    let prepare = function_call_output(&outcome.outputs, "control");
+    let receipt = final_receipt(&outcome.outputs);
+    let prepare_revision = prepare["revision_after"]
+        .as_u64()
+        .expect("prepare revision");
+    let final_revision = receipt["canonical_revision"]
+        .as_u64()
+        .expect("final canonical revision");
+
+    assert_eq!(prepare["schema_version"], "TaskSpaceResponseCommitV1");
+    assert_eq!(receipt["schema_version"], "TaskSpaceResponseFinalReceiptV1");
+    assert!(final_revision > prepare_revision);
+    assert_eq!(
+        [Some(prepare_revision), Some(final_revision)]
+            .into_iter()
+            .flatten()
+            .count(),
+        2,
+        "one response currently exposes two successful continuation revisions"
+    );
+}
+
 #[tokio::test]
 async fn response_final_receipt_revision_is_accepted_by_the_next_execute() {
     let (session, mut turn) = make_session_and_context().await;

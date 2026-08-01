@@ -335,3 +335,42 @@ request 6 after new receipt: cached=5888
   ```
 - Interpretation: 缓存回归来自 receipt carrier，而不是 Tool schema 或自然历史前缀重写
 - Time: 2026-07-29 06:20
+
+## Evidence E-007: R8 当前 HEAD 确定性复现两个 Agent-visible continuation revision
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: reproduction
+- Source:
+  - source commit `90389c9f9`
+  - `core/src/tools/sequence_taskspace_tests.rs`
+- Prediction or plan link:
+  - R8 I01-W0 当前版本 characterization
+  - H-001 的 prepare 与 final revision 分离预测
+  - H-003 的两个成功 revision 竞争预测
+- Matched signal:
+  - 原 `taskspace_control` FunctionCallOutput 使用 schema `TaskSpaceResponseCommitV1` 并返回
+    `revision_after=1`
+  - 同一 output vector 末尾的 developer message 使用 schema `TaskSpaceResponseFinalReceiptV1` 并返回
+    `canonical_revision=2`
+  - 两个结果都表示成功，且 final revision 大于 prepare revision
+- Capture method:
+  - 当前生产 `execute_response_tool_sequence()` 的确定性集成 fixture
+- Correlation keys:
+  - control call ID `control`
+  - ordinary call ID `initial-work`
+- Raw content:
+  ```text
+  cargo test -p codex-core \
+    current_response_exposes_prepare_and_final_revision_as_distinct_authorities \
+    -- --nocapture
+
+  result: 1 passed; 0 failed
+  prepare schema=TaskSpaceResponseCommitV1 revision_after=1
+  final schema=TaskSpaceResponseFinalReceiptV1 canonical_revision=2
+  Agent-visible continuation revision count=2
+  ```
+- Interpretation: 当前 HEAD 仍在一次 response 中暴露两个可竞争的成功 revision；问题不是仅存在于 R7.1
+  历史 trace，也不是 projection policy 自身产生。
+- Time: 2026-08-01
