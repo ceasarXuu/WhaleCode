@@ -8,7 +8,6 @@ from typing import Any
 
 from cache_acceptance_identity import validate_proposal_identity
 from cache_budget import validate_gate_trigger
-from cache_cost import settled_monetary_cost
 from cache_elapsed import is_elapsed_number, validate_elapsed_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_arm_identity import validate_arm_identity
@@ -19,6 +18,7 @@ from cache_run_analysis import (
     budget_observation_exceeded,
 )
 from cache_process_control import cleanup_verified
+from accepted_cache_ledger import exact_int, validate_ledger
 from cache_run_contract import (
     execution_matrix,
     validate_authorization as validate_run_authorization,
@@ -128,7 +128,7 @@ def validate_attempts(
     require(
         all(
             item.get("status") == "completed"
-            and item.get("exit_code") == 0
+            and exact_int(item.get("exit_code"), 0)
             and item.get("timed_out") is False
             and isinstance(item.get("run_id"), str)
             and item["run_id"].strip()
@@ -153,108 +153,6 @@ def validate_cross_arm_provider_evidence(observations: list[dict[str, Any]]) -> 
                 left["provider_payload_sha256"] != right["provider_payload_sha256"],
                 "different cache arms share identical provider wire evidence",
             )
-
-
-def validate_ledger(
-    repo: Path,
-    result: dict[str, Any],
-    acceptance: dict[str, Any],
-    proposal: dict[str, Any],
-    authorization: dict[str, Any],
-    proposal_path: str,
-    authorization_path: str,
-    source: str,
-) -> str:
-    path = "benchmarks/whale-agent-run-ledger.json"
-    ledger = source_json(repo, path, source)
-    matches = [
-        item
-        for item in ledger.get("entries", [])
-        if item.get("record_id") == result["record_id"]
-    ]
-    require(len(matches) == 1, "cache result has no unique ledger entry")
-    authorization_matches = [
-        item
-        for item in ledger.get("entries", [])
-        if item.get("authorization", {}).get("id") == authorization["authorization_id"]
-    ]
-    require(
-        len(authorization_matches) == 1,
-        "cache authorization is not unique in the ledger",
-    )
-    entry = matches[0]
-    selection = proposal["selection"]
-    observations = result["observations"]
-    totals = {
-        key: sum(int(item[key]) for item in observations)
-        for key in (
-            "provider_requests",
-            "input_tokens",
-            "cached_input_tokens",
-            "uncached_input_tokens",
-            "output_tokens",
-        )
-    }
-    execution = entry.get("execution", {})
-    require(
-        entry.get("status") == "settled"
-        and entry.get("started_at") == result["started_at"]
-        and entry.get("ended_at") == result["ended_at"]
-        and entry.get("elapsed_calendar_seconds") == result["elapsed_seconds"]
-        and entry.get("authorization", {}).get("status") == "granted"
-        and entry.get("authorization", {}).get("id")
-        == authorization["authorization_id"]
-        and entry.get("authorization", {}).get("reference")
-        == authorization["approval_reference"],
-        "cache ledger status or authorization mismatch",
-    )
-    require(
-        entry["authorization"].get("budget_summary") == proposal["maximums"],
-        "cache ledger budget summary mismatch",
-    )
-    require(
-        execution.get("model") == selection["model"]
-        and execution.get("sample_ids") == selection["samples"]
-        and execution.get("arm_ids") == selection["arms"]
-        and execution.get("repeats_per_arm_per_sample") == selection["repeat"]
-        and execution.get("planned_sample_runs") == selection["planned_sample_runs"]
-        and execution.get("actual_sample_runs") == result["actual_sample_runs"]
-        and execution.get("api_requests") == totals["provider_requests"]
-        and execution.get("api_requests_minimum") == totals["provider_requests"]
-        and execution.get("api_requests_evidence_status") == "complete",
-        "cache ledger execution mismatch",
-    )
-    tokens = entry.get("tokens", {})
-    require(
-        tokens.get("input") == totals["input_tokens"]
-        and tokens.get("cached_input") == totals["cached_input_tokens"]
-        and tokens.get("uncached_input") == totals["uncached_input_tokens"]
-        and tokens.get("output") == totals["output_tokens"],
-        "cache ledger token totals mismatch",
-    )
-    evidence = entry.get("evidence", {})
-    require(
-        evidence.get("result_path") == acceptance["result_path"]
-        and evidence.get("actual_run_root") == result["run_root"]
-        and evidence.get("runner_exit_code") == 0
-        and evidence.get("outcome") == "completed"
-        and evidence.get("usage_evidence_status") == "complete"
-        and evidence.get("proposal_path") == proposal_path
-        and evidence.get("proposal_sha256")
-        == source_sha256(repo, proposal_path, source)
-        and evidence.get("authorization_path") == authorization_path
-        and evidence.get("authorization_sha256")
-        == source_sha256(repo, authorization_path, source),
-        "cache ledger evidence mismatch",
-    )
-    expected_cost = settled_monetary_cost(
-        tokens, proposal["pricing_snapshot"], evidence_status="complete"
-    )
-    require(
-        entry.get("monetary_cost") == expected_cost,
-        "cache ledger cost settlement mismatch",
-    )
-    return path
 
 
 def validate_run_evidence(

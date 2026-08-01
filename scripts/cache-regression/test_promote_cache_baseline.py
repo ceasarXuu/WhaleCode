@@ -273,6 +273,29 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "envelope"):
             self.validate(result=result)
 
+    def test_rejects_boolean_attempt_exit_code_in_full_promotion(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["attempts"][0]["exit_code"] = False
+
+        with self.assertRaisesRegex(ValueError, "failed attempt"):
+            self.validate(result=result)
+
+    def test_rejects_boolean_ledger_integer_evidence(self) -> None:
+        ledger_path = self.repo / "benchmarks/whale-agent-run-ledger.json"
+        mutations = (
+            (("execution", "repeats_per_arm_per_sample"), True, "ledger execution"),
+            (("evidence", "runner_exit_code"), False, "ledger evidence"),
+            (("tokens", "input"), False, "token totals"),
+        )
+        for path, value, message in mutations:
+            with self.subTest(path=path):
+                self.write_ledger()
+                ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+                ledger["entries"][0][path[0]][path[1]] = value
+                write_json(ledger_path, ledger)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.validate()
+
     def test_rejects_nan_business_success_in_full_promotion(self) -> None:
         result = copy.deepcopy(self.result)
         self._replace_observation_artifact(
