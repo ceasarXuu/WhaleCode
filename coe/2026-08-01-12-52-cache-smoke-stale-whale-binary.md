@@ -27,8 +27,9 @@
 - Current conclusion: 根因已确认是本机 Whale 构建产物落后于当前 Codex 源码身份；先恢复构建证明，不修改 TaskSpace 或缓存门禁语义。
 - Related hypotheses:
   - H-001
+  - H-002
 - Resolution basis:
-  - pending fix-validation E-003
+  - pending fix-validation E-004
 - Close reason:
   - not closed
 
@@ -119,7 +120,68 @@
 - Interpretation: 没有 Agent 业务结果或缓存性能结果；账本保守保留未知精确请求数，不能伪造 0 费用结论。
 - Time: 2026-08-01 12:52
 
-## Evidence E-003: 重建后的 binary health
+## Evidence E-003: Linux 安装器未满足 writer 参数合同
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: reproduction
+- Source: `scripts/install-whale-local.sh` 对新构建 binary 的实际安装输出
+- Prediction or plan link:
+  - H-002 必需参数预测
+- Matched signal:
+  - attestation writer 抛出 `BuildCommand is required for a binary attestation.`
+- Correlation keys:
+  - HEAD `fcde9b97b`
+- Raw content:
+  ```text
+  Installed Whale: /home/zhangxu/.whale/bin/whale
+  BuildCommand is required for a binary attestation.
+  ```
+- Interpretation: 新 binary 已安装，但 Linux wrapper 没有满足既有 writer 合同，因此旧 attestation 未被替换。
+- Time: 2026-08-01 12:57
+
+## Hypothesis H-002: Linux 安装器遗漏 attestation writer 的必需参数
+- Status: confirmed
+- Parent: P-001
+- Claim: `install-whale-local.sh` 调用 writer 时只传 `WhaleBin`，而 writer 要求非空 `BuildCommand`；PowerShell 安装器已传递该参数。
+- Layer: sub-cause
+- Factor relation: part_of
+- Depends on:
+  - H-001
+- Rationale:
+  - 实际安装稳定复现 writer 的明确合同错误，代码调用点与参数声明可直接对照。
+- Falsifiable predictions:
+  - If true: Linux 调用点缺少 `-BuildCommand`，加入参数后捕获测试和真实 writer 均通过。
+  - If false: Linux 已传非空参数，失败应来自 worktree、binary hash 或 probe。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: Linux wrapper 是否传递非空构建来源证明。
+  - Signal: fake `pwsh` 捕获的 argv 和真实 writer 退出状态。
+  - Capture method: 临时 HOME 安装测试加干净 HEAD 实际签发。
+  - Event name or marker:
+    - BuildCommand is required for a binary attestation
+  - Correlation keys:
+    - HEAD `fcde9b97b`
+  - Differentiates from:
+    - binary 内容过期、Git worktree dirty、version probe 失败
+  - Supports if:
+    - 旧调用缺参数且修复后 argv/真实签发均包含非空 BuildCommand。
+  - Refutes if:
+    - 修复后仍以同一缺参错误失败。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - 保留临时 HOME 回归测试。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-003
+- Conclusion: confirmed by direct invocation contract and actual failure
+- Repair design readiness: ready
+- Next step: 对齐 PowerShell 安装器的参数合同并测试。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-004: 重建后的 binary health
 - Related hypotheses:
   - H-001
 - Direction: neutral

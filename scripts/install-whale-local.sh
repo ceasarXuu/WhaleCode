@@ -204,5 +204,8 @@ sha256sum "$destination"
 
 attestation_script="$repo_root/scripts/taskspace-benchmark/write-whale-binary-attestation.ps1"
 if command -v pwsh >/dev/null 2>&1 && [ -f "$attestation_script" ]; then
-  pwsh -NoLogo -NoProfile -File "$attestation_script" -WhaleBin "$destination"
+  install_provenance="cp '$source_path' '$destination' via scripts/install-whale-local.sh"
+  pwsh -NoLogo -NoProfile -File "$attestation_script" \
+    -WhaleBin "$destination" \
+    -BuildCommand "$install_provenance"
 fi

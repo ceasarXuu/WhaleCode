@@ -49,3 +49,6 @@ artifact 看，没有创建 pair 或 provider boundary；但正式监督计数�
 
 先从干净 HEAD 重建 Whale，安装到隔离目录并生成匹配的 binary attestation，再用离线 binary health probe 验证。
 本次授权明确禁止重试且已被一次性认领；修复后如需再次运行，必须生成绑定新 HEAD 的 proposal 并重新取得用户授权。
+
+首次恢复安装还发现 Linux `install-whale-local.sh` 没有向既有 attestation writer 传递必需的 `BuildCommand`；新 binary
+已经复制但旧证明未更新。该安装器缺口需要先通过临时 HOME 参数捕获测试修复，再从干净 HEAD 重新签发证明。
