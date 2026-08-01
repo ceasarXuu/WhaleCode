@@ -2,7 +2,7 @@
 
 - Created: 2026-07-31
 - Plan mode: Authoring
-- Plan status: implementation complete（CR-01 至 CR-23 离线工程完成；Round 2 blocking 已修复，fresh closure review 待完成；真实 accepted 基线另行激活）
+- Plan status: completed（CR-01 至 CR-23 离线工程与 fresh closure review 完成；真实 accepted 基线另行申请预算激活）
 - Risk: High，涉及发布门、付费验证触发与证据可信性
 - Problem register: [02-known-issues.md](02-known-issues.md)
 
@@ -68,7 +68,7 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-15 | 覆盖 Skill 上下文 | scenario matrix | `core/tests/suite/cache_payload_contract.rs`、skills fixtures | selected skill injection | 增加显式选择内置 Skill 的 request pair，并固定 Skill snapshot identity | Skill 内容和插入位置进入 payload 合同 | 内置 Skill 变化不再靠目录 glob 推测 | 无 Skill/有 Skill 对照与快照身份断言 | Skill fixture 不稳定时暂停该场景 | completed（`d43941d2f`） |
 | CR-15A | 使用 DeepSeek 官方 Codex 协议 | provider route | `model-provider-info/src/lib.rs` | `create_deepseek_provider()` | 将内置 DeepSeek provider 的 `wire_api` 从 Chat Completions 改为 Responses，不增加第二 provider 或 Chat namespace 兼容层 | WhaleCode 通过 DeepSeek 原生 Responses API 发送 Codex 请求 | 恢复 Codex 原生 Tool 表达，避免维护私有协议翻译分支 | provider 单测、Responses endpoint 本地 mock、Chat endpoint 不得收到请求 | 单独回退 provider 提交；CR-16/17 保持阻塞 | completed（`1e5b5c0ba`） |
 | CR-15B | 只暴露当前官方支持的 Codex 模型 | model catalog | `models-manager/models.json`、`models-manager/src/manager.rs` | Flash/Pro preset 与默认模型 | 将默认模型改为 Flash，按官方 Codex 元数据更新 Flash；在 Pro 官方支持前从选择列表隐藏且不得作为默认压缩模型 | 新会话默认使用可工作的 Flash Responses；用户不会误选尚未支持 Codex 的 Pro | 产品能力声明与 provider 实际支持一致 | catalog/default/selection/compact model 单测；Pro 不出现在可选列表 | 若隐藏语义无法覆盖所有入口则暂停，不做静默 fallback | completed（`3e0a36aba`） |
-| CR-15C | 重建 Responses final-wire 基线 | cache contract | `core/tests/suite/cache_final_wire.rs`、`cache_payload_*` 与 snapshots | CR-12 至 CR-15 request pairs | 将既有 DeepSeek Chat fixture 改为生产 Responses endpoint，保留相同场景事实并重新生成快照 | Standard、三种 TaskSpace、权限、Skill 的权威基线与当前生产协议一致 | 后续缓存门禁不再保护已经退出的旧协议载荷 | 每个场景重复两次稳定；断言只命中 `/v1/responses` | 任一场景不稳定时停在对应 fixture，不进入 CR-16 | completed（`128b47d88`、`d229ac0aa`） |
+| CR-15C | 重建 Responses final-wire 基线 | cache contract | `core/tests/suite/cache_final_wire.rs`、`cache_payload_*` 与 snapshots | CR-12 至 CR-15 request pairs | 将既有 DeepSeek Chat fixture 改为生产 Responses endpoint，保留相同场景事实并重新生成快照 | Standard、三种 TaskSpace、权限、Skill 的权威基线与当前生产协议一致 | 后续缓存门禁不再保护已经退出的旧协议载荷 | 每个场景重复两次稳定；断言只命中 `/responses` | 任一场景不稳定时停在对应 fixture，不进入 CR-16 | completed（`128b47d88`、`d229ac0aa`） |
 | CR-16 | 覆盖 Apps 与 Plugins 能力 | scenario matrix | `core/tests/suite/cache_payload_capabilities_contract.rs`、现有 apps/plugins fixtures | app/plugin-provided context and tools | 各用一个最小 fixture 触发生产能力注入路径 | Apps/Plugins 造成的消息或 Tool 变化可定位 | 动态能力不再被固定 Tool 样本掩盖 | 默认、App、Plugin 三者差异来源断言 | 任一能力可单独暂停，不合并失败原因 | completed（`60c8744ef`） |
 | CR-17 | 覆盖 MCP Tool 集合 | scenario matrix | `core/tests/suite/cache_payload_mcp_contract.rs`、MCP test server | MCP provider-visible tools | 用本地 MCP fixture 增删一个 Tool 并捕获 final-wire | MCP Tool 集合与顺序进入合同 | 外部 Tool 变化不会静默破坏前缀 | MCP off/on request pair 与 Tool order mutation | 不连接真实 MCP 服务；失败时停在本地 fixture | completed（`e8a810a0d`） |
 | CR-18 | 覆盖模型与 provider 路由 | scenario matrix | `model-provider-info`、`core/src/config/mod.rs`、`models-manager/models.json` | Flash/Pro identity 与 wire API | 建立路由元数据和最终请求身份快照；若两模型共享路径则以证据合并，不机械复制场景 | 路由变化能定位到模型/provider 身份 | 防止沿用不适用于当前模型或 wire API 的基线 | route matrix assertions 和错误模型反例 | 发现未知路由时标记 blocked-on-discovery | completed（`f4cc55d28`） |
@@ -76,7 +76,7 @@ serializer 产生的原始 body SHA，防止可读快照遗漏真实 wire 变化
 | CR-20 | 源码变化先触发免费语义测试 | gate orchestration | `cache_surface.py`、pre-commit、non-agent gate | source sentinel 和 payload runner | 将宽生产 crate、依赖配置和控制面列为免费测试触发面；只有 final-wire/measurement contract diff 才输出付费候选 | 注释、测试和等价重构可免费通过；真实 payload 变化阻断 | 同时减少漏报和不必要预算申请 | test/comment-only、生产字段变化、依赖变化、控制面变化 fixtures | 免费 runner 不稳定或过慢时保持 release 阻断，先优化 fixture | completed（`71c8f0cf0`、`3b7d7b4fa`） |
 | CR-21 | 输出判别结果并交接获批 smoke | validation handoff | `scripts/cache-regression/`、cache contract | change report、budget proposal、authorized run plan | 免费合同严格判别缓存相关语义是否变化并输出可复算差异；有意变化由人选择 smoke 配置，工具只计算预算并保证授权、命令和账本一致 | 门禁重发现、强判别、轻处置，不决定产品正确性或哪个 benchmark 足以证明变更 | 防止未知上下文变化静默进入，同时避免建设主观 coverage 推理系统 | protected-field mutation 精确报警，确定性噪声不报警；dry-run 零 API/零账本副作用 | 未获批永不执行；门禁不得自动选择或扩大 sample/arm | completed（`5edb46ce6` 至 `724433022`） |
 | CR-22 | 忠实晋升已接受基线 | baseline identity | cache contract 与 promotion script | accepted final-wire baseline、smoke evidence reference | 记录精确 commit、已接受 payload digest、实际 model/sample/arm/repeat 和真实结果；明确 smoke 仅代表其运行配置，删除全局“所有路径已验证”语义 | release 能识别当前 final-wire 已经人工接受且有代表性真实 smoke，但不会把证据扩大到未执行路径 | 保留回归门禁价值，同时消除虚假覆盖声明和复杂逐路径基线 | 错 commit、错 digest、错授权或篡改结果拒绝；报告中必须保留证据边界 | 新模型未验证前继续 fail closed，不保留双权威路径 | completed（`d3cb32441`、`c7a5cddc6`、`2edb5458a`） |
-| CR-23 | 恢复门禁发布权威性 | release/review | pre-commit、non-agent gate、文档 | final gate integration | 跑全套免费测试并启动新的空白对抗性审查；只有 blocking 全关闭才结束工程修复 | 发布门使用三段式证据链；没有 accepted 基线时继续阻断 | 团队可依赖门禁而不频繁误付费 | 单元/集成测试、门禁自测、fresh review；真实 run 另行申请预算 | 审查失败则保持 release 阻断并修复，不伪造 accepted 基线 | implementation complete；Round 2 blocking 已修复，fresh closure review 待完成 |
+| CR-23 | 恢复门禁发布权威性 | release/review | pre-commit、non-agent gate、文档 | final gate integration | 跑全套免费测试并启动新的空白对抗性审查；只有 blocking 全关闭才结束工程修复 | 发布门使用三段式证据链；没有 accepted 基线时继续阻断 | 团队可依赖门禁而不频繁误付费 | 单元/集成测试、门禁自测、fresh review；真实 run 另行申请预算 | 审查失败则保持 release 阻断并修复，不伪造 accepted 基线 | completed（`bbbf1fc16`；fresh review P0/P1=0） |
 
 ### 3.1 CR-21 执行拆分与架构边界
 
@@ -88,7 +88,7 @@ sample/arm、把可选 provider 请求硬上限机械传给子进程并产出事
 |---|---|---|---|---|---|---|
 | CR-21.1 | 免费 final-wire 合同与 runner | 对版本化保护字段执行严格语义比较，并为每个确定性 fixture 输出 scenario ID、比较对象、首差异和新旧 payload digest | 免费结果能可靠区分语义未变、语义变化和不可比较三种状态 | 强化未知变化发现与判别，同时把产品接受和测试选择留给人 | 每个受保护字段 mutation 命中对应 fixture/字段；允许的确定性噪声不报警；不可比较状态阻断 | completed（`e35cf681b`；[结果](13-cr21-1-change-report-result.md)） |
 | CR-21.2 | 新 budget proposal CLI | 接受人工明确提供的 model/sample/arm/repeat 和停止条件；按进程级请求上限与 provider 官方单请求 token 上限计算保守最坏费用，另列常态观测阈值 | dry-run 不读取 API Key、不启动 Whale、不修改全局运行账本，也不推荐测试配置 | 用户能在发生费用前区分真正硬边界和期望观测值 | 无 Key 环境运行；零文件副作用；预算乘法、官方上限和价格计算测试 | completed（`5edb46ce6`、`4e7c293ad`） |
-| CR-21.3 | `run_cache_hit_regression.py/.ps1` | 只接受已保存预算提案和完全匹配的用户授权；授权在锁内一次性认领；provider 进程共享请求硬上限；外层超时按 run 标签回收容器；拒绝扩大矩阵、失败 attempt 和自动重试 | 获批内容、实际命令、provider dispatch 和账本计划使用同一不可变计划 | 防止授权重放、并发重复付费、计划篡改、子 Agent 分摊绕过或超时容器继续消费 | mock subprocess、授权错配、并发认领、provider cap、timeout cleanup、部分费用和账本恢复测试；不调用 provider | completed（`27d5aa5f9`、`724433022`、`5173f8f89`、`7d233aaa6` 至 `4e7c293ad`） |
+| CR-21.3 | `run_cache_hit_regression.py/.ps1` | 只接受已保存预算提案和完全匹配的用户授权；授权在锁内一次性认领；真实 Key 与权威请求计数位于 Agent 外部的隔离 provider boundary；代理只接受批准模型的 Responses 请求；外层超时终止进程树并回收容器、网络和 host secret；拒绝扩大矩阵、失败 attempt 和自动重试 | 获批内容、实际命令、所有 provider dispatch 和账本计划使用同一不可变计划；wire 对账只判定性能证据资格，不判断 Agent 动机 | 防止授权重放、并发重复付费、计划篡改、Agent/子进程绕过或超时资源继续消费；证据失败不抹掉费用事实 | mock subprocess、授权错配、并发认领、隔离代理、监督计数/对账、Realtime、跨平台 process tree、timeout cleanup、secret 残留、部分费用和账本恢复测试；不调用 provider | completed（`27d5aa5f9` 至 `9204926c2`） |
 | CR-21.4 | gate 输出与结果 schema | 免费失败输出 change report；真实结果只声明实际配置、attempt、指标和证据路径；共享校验器从 artifact 复算 | 发现、人工决策、预算、执行和接受边界清晰 | 避免结果被过度解释或由自洽假字段自授权 | source、trigger、attempt、artifact、budget、ledger、acceptance 负向 fixture | completed（`26fa4625f`、`cbed6ce00`、`2edb5458a`） |
 
 ### 3.2 Dev Loop 约束
@@ -108,7 +108,8 @@ sample/arm、把可选 provider 请求硬上限机械传给子进程并产出事
 - **反馈门禁**：CR-21.1 只有在 affected mutation 被发现、unaffected case 明确报告 `unchanged` 且无差异、失败
   位置可操作、热态耗时没有实质扩大时才保留；当前验收已满足。
 - **停止条件**：当免费失败能精确定位 fixture/字段且不添加语义分类时进入下一单元；若精确定位必须侵入
-  通用 benchmark 或依赖真实 API，则暂停 CR-21，不能扩大架构。
+  通用 benchmark 或依赖真实 API，则暂停 CR-21，不能扩大架构。唯一必要的 benchmark 变更是显式硬上限启用时
+  接入语义无关的 provider boundary；未启用硬上限的一般 benchmark 保持原联网路径。
 - **长期 guardrail**：任何新增阻断检查必须声明触发面、独立证据、预期热/冷耗时、失败升级路径和移除条件；
   不允许用“更全面”作为无条件扩大 E2E 矩阵的理由。
 - **成本边界**：`provider_requests` 与 agent 容器运行时间由执行路径硬限制；input/output token 的日常值只作逐 run

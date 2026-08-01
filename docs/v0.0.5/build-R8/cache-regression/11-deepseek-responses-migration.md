@@ -52,7 +52,7 @@ DeepSeek 于 2026-07-31 发布 V4-Flash 正式更新，官方同时声明：
 
 ## 4. 验收
 
-- DeepSeek Flash 请求只发送到 `/v1/responses`；
+- DeepSeek Flash 以 `https://api.deepseek.com/` 为 provider 根地址，请求只发送到 `/responses`；
 - Apps/MCP namespace 在生产 final-wire 中保持 Codex 原生结构；
 - 默认模型和模型选择器不会提供当前官方未支持 Codex 的 Pro；
 - Standard、TaskSpace、权限、Skill、Apps、Plugins 的本地两请求快照可重复；

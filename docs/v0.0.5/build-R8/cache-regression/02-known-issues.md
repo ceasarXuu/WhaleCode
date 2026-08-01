@@ -7,16 +7,17 @@
 
 ## 1. 当前结论
 
-当前 v1 的根本缺陷不是少写了几个 glob，而是把“相关源码的原始字节发生变化”直接当成“最终 provider 请求发生
-变化”。这个代理关系不可靠：
+本子主题的历史起点是 v1 把“相关源码的原始字节发生变化”直接当成“最终 provider 请求发生变化”。这个代理关系
+曾经导致：
 
 - **漏报**：真实请求构造链位于 glob 外时，最终 payload 已改变而源码指纹不变；
 - **误报**：测试、注释、格式或等价重构改变文件字节，但最终 payload 完全不变；
 - **过度证明**：固定一个 Flash 样本通过后，结果却可能被解释为整个缓存敏感面已验证；
 - **证据错配**：worktree、index、HEAD、合同和结果文件可能不属于同一源码快照。
 
-因此当前门禁只可用于诊断和保守阻断，不具备发布权威性。修复方向是以生产 final wire payload 的确定性变化作为
-付费验证触发依据，而不是继续扩大原始文件 glob。
+当前离线工程已改为以生产 final wire payload 的确定性变化作为付费验证触发依据，并完成预算、执行、结算、晋升
+和发布证据闭环。9 个已知工程问题全部关闭。仓库尚未建立新的真实 accepted baseline，因此 release 仍按预期因
+历史 `live_regression_failed` 阻断；这属于待用户另行授权的外部状态，不是门禁工程缺陷。
 
 ## 2. 唯一问题清单
 
@@ -28,11 +29,11 @@
 | CR-I04 | P0 | 真实 DeepSeek wire、Tool serializer 和 usage decoder 未覆盖 | `codex-api` endpoint/SSE 与 `tools/src/tool_spec.rs` 位于当前 18 个 glob 外 | payload 或缓存指标解释改变时门禁可能静默通过 | closed | CR-06、CR-09 至 CR-11 |
 | CR-I05 | P0 | 主要上下文和 Tool 选择入口未覆盖 | `session/mod.rs`、`session/turn.rs`、`tools/router.rs` 可改变消息顺序、可见 Tool 和 `tool_choice` | 最容易破坏稳定前缀的变更可能漏报 | closed | CR-06、CR-12 至 CR-17 |
 | CR-I06 | P1 | model/provider 路由和请求元数据未覆盖 | provider config、模型默认值和 `models.json` 不在当前合同中 | 模型或 wire API 切换可能沿用无效基线 | closed | CR-18 |
-| CR-I07 | P0 | 一个固定付费 smoke 被赋予过宽证明范围 | 旧 runner 固定配置且结果缺少明确证据边界 | 一次代表性 smoke 可能被错误宣称为所有上下文路径都已验证 | implementation fixed；Round 2 blocking 已修复，待 fresh closure review | CR-21 至 CR-23 |
+| CR-I07 | P0 | 一个固定付费 smoke 被赋予过宽证明范围 | 旧 runner 固定配置且结果缺少明确证据边界 | 一次代表性 smoke 可能被错误宣称为所有上下文路径都已验证 | closed | CR-21 至 CR-23 |
 | CR-I08 | P1 | 原始文件字节造成付费误报 | 当前 77 个匹配文件中至少 10 个是显式测试文件；注释和格式也进入 hash | 无缓存语义变化的提交会阻断并要求 API 预算 | closed | CR-07、CR-08、CR-20 |
 | CR-I09 | P0 | 发布证据没有绑定唯一源码快照 | worktree 枚举忽略 untracked，release 记录 HEAD 却检查 dirty worktree | 报告的 commit 不一定是实际测试对象 | closed | CR-05 |
 
-问题总数：**9**；Open：**1**；Closed：**8**。
+问题总数：**9**；Open：**0**；Closed：**9**。
 
 CR-I01 关闭证据：提交 `6a44bf0f1` 删除 bootstrap 的 release 放行语义；6 个 gate tests 通过，当前普通开发门
 保持通过，`--require-live-baseline` 对非 `live_verified` 基线返回退出码 20。未运行真实 Whale Agent。
@@ -95,7 +96,7 @@ Tool schema 等其他上下文没有被权限 fixture 意外改变。连续两�
 真实 Whale Agent。CR-I05 仍需 CR-16、CR-17 的 Apps/Plugins 与 MCP 条件入口场景。
 
 提交 `1e5b5c0ba`、`3e0a36aba`、`128b47d88` 和 `d229ac0aa` 完成 CR-15A 至 CR-15C：DeepSeek 内置路径、默认
-模型及既有缓存场景已统一到真实 DeepSeek Flash Responses provider；所有请求只命中 `/v1/responses`，完整
+模型及既有缓存场景已统一到真实 DeepSeek Flash Responses provider；所有请求只命中 `/responses`，完整
 final-wire 快照连续两轮稳定。未运行真实 Whale Agent。
 
 提交 `60c8744ef` 完成 CR-16：Default、显式 App 与显式 Plugin 分别生成两次生产 Responses 请求。App 使用
@@ -130,6 +131,49 @@ provider 出口建立进程共享的请求硬上限，覆盖 HTTP、WebSocket、
 语义。提交 `4e7c293ad` 将官方单请求上限、runner 超时、容器标签回收和部分费用语义接入授权预算链。最新 110 项
 Python 测试、7 组免费合同、3 项 provider hard-limit Rust 测试及 PowerShell start/release/builder 自测通过，未运行
 真实 Whale Agent。CR-I07 只等待新的空白 closure review，不等待或伪造真实 accepted 基线。
+
+后续空白审查继续发现并关闭了授权执行边界的深层缺口：`cccb47004` 至 `76568a061` 将 observation、实际 arm、
+runner/scenario/control scripts 和稳定清理绑定到同一授权身份；`ecd1e929b`、`26c5a87fd` 将 Realtime 从建连计数
+改为逐次推理计数，并对 Server VAD 自动生成 fail closed；`84b94ceef` 又按实际 Realtime parser 归一化模式，并让
+非法 hard-limit 配置在建连前拒绝；`d08be480a` 用 Windows Job Object 补齐整树所有权。`fac57d0d8`、
+`d620349f9`、`e619890f1` 把真实 Key 和权威计数移出 Agent 容器，仅允许批准模型的 `POST /responses`，并将代理
+真实 dispatch 与 Whale wire trace 逐条核对；`123116c4a` 把 host secret 清理纳入结算后置条件。最新 128 项
+Python、4 项代理单测、43 项 core Realtime、46 项 codex-api Realtime 及离线 Docker 边界自检通过；真实 Whale
+Agent/provider 运行仍为 0。
+
+最新收口继续修复了审查发现的五个底层缺口：`0d3af4b54` 让专项硬限额拒绝全部无法前置计数的 Realtime 模式；
+`837460b75` 增加 Windows 账本锁并让 promotion 复用容器、网络、secret 的完整清理合同；`040c27ae6` 以
+`CREATE_SUSPENDED -> AssignProcessToJobObject -> ResumeThread` 消除 Windows 逃逸竞态，并把 Agent 外 provider
+boundary 请求数作为费用账本权威。wire/token 证据失败仍会阻断样本和晋升，但不会把已发生请求低报为 0；证据缺失
+时请求总数为 `null` 并保留已知最小值。Ctrl-C 只有在完整清理证明成立时才记为 cancelled。`809e1d513`、
+`8bd820a9a`、`3410db334` 又补齐完整结算事务、严格 JSON/类型、实际 arm 启动证据、Windows 异常所有权和网络删除后
+稳定空状态证明。`dc1faeecd`、`3b291b111` 继续保留关闭失败的 thread/process handle owner，并对 observation
+复算执行类型和值的精确匹配。`a23b29cb6`、`1ba6c1232`、`9204926c2` 进一步绑定三种 TaskSpace policy 与跨 arm
+provider wire，改用锁内 recovery compare-and-set，并为未进入 Job 的 Windows 挂起进程持久化 PID+creation-time
+owner；`13022a905` 将 journal 移出可清理构建目录，并串行化跨进程 owner handoff。最新 Python 回归
+`171 passed`，Rust hard-limit `8 passed`，Docker provider boundary、non-agent
+builder、release decision 和 E3 start gate 自测通过；正式 release
+继续只因历史 `live_regression_failed` 阻断，真实 Whale Agent/provider 运行仍为 0。
+
+Round 12 又发现正式整数证据的 `bool` 混淆、Windows 创建后到 journal 前的硬退出空窗，以及同 PID durable
+recovery 覆盖旧 handle owner。`72566a1b6` 将晋升整数证据收紧为精确类型和值；`a3344da1d` 使用
+`PROC_THREAD_ATTRIBUTE_JOB_LIST` 在进程创建时原子归属 Kill-on-close Job，并在 durable recovery 前优先释放已有
+handle owner。该阶段 Python 回归 `177 passed`，五组 PowerShell/Docker 集成自测通过；随后进入 Round 13 空白复审。
+
+Round 13 无 P0，但继续发现 recovery 身份、partial 恢复、proposal 布尔 repeat、全局账本 unknown 请求语义四项 P1，
+以及重复 JSON key 的 P2。`9ae528efb`、`5821b3354`、`1042384ff` 已分别从源预算合同、全局账本合同和 durable
+claim 恢复边界完成修复。该阶段 Python 回归 `182 passed`，账本 JSON Schema 与五组离线集成自测通过；随后进入
+Round 14 空白复审。
+
+Round 14 至最终 closure review 继续按失败反例收紧证据链：`e1fa83ef1`、`8083f31ab` 拒绝嵌套 bool/int
+混淆；`79f1c1d8c` 统一 exact 与 inexact 请求证据的互斥合同；`650657a1d` 让 proposal/recovery 共用 selection
+合法性；`b49765f47`、`94c3cf53e` 统一 result 请求汇总；`ad6df97d7` 绑定 completed attempt、cleanup 与 token
+恒等式并单调保留下限；`bbbf1fc16` 将 direct settlement 绑定批准矩阵，并在证据复制前持久化请求下限。
+最终 reviewer `019fbb4f-f64a-7ae0-ac4c-3c04c17140da` 对 HEAD `bbbf1fc16` 报告 P0=0、P1=0；
+Python `195 passed, 0 skipped`，Schema 与五组 PowerShell/Docker 集成自测通过。CR-I07 关闭。
+
+非阻断残余：多文件 promotion 仍不是事务写入；中断会留下 dirty worktree，但正式 clean-HEAD gate 与 accepted
+manifest 重验会阻断该中间状态，不构成发布绕过。它作为后续工程增强记录，不重新打开 CR-I07。
 
 ## 3. 已验证但不属于门禁缺陷的产品现象
 

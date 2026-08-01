@@ -1,7 +1,7 @@
 # R8 缓存命中回归门禁子主题
 
 - Created: 2026-07-31
-- Status: 离线工程完成；Round 2 blocking 已修复，fresh closure review 待完成；真实 accepted 基线待单独预算激活
+- Status: 离线工程与 fresh closure review 完成；工程问题关闭，真实 accepted 基线待单独预算激活
 - Scope: DeepSeek 请求稳定前缀、缓存 usage 观测、变更门禁与付费复验
 - Related R8 issues: R8-I02、R8-I07、R8-I08
 
@@ -16,9 +16,9 @@
 
 本子主题建设的是测试与发布基础设施，不改变 TaskSpace 产品语义，也不替代 R8 各产品问题的根因调查。
 
-## 2. 当前工程现场
+## 2. 工程现场
 
-当前 v1 已具备以下能力：
+历史 v1 曾具备以下能力：
 
 - 对一组配置路径计算源码内容 SHA-256，并接入 pre-commit 和 non-agent release gate；
 - 使用统一 Docker benchmark 运行 Standard 与 map-request 各一次；
@@ -29,18 +29,18 @@
 首次结果为 Standard `96.62%`、map-request `35.79%`，两臂业务均成功，usage 覆盖率均为 `100%`。这证明真实
 runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正确。
 
-对抗性审查确认 v1 同时存在严重漏报与误报：真实 wire/context/tool/provider 构造入口未完整覆盖，而测试、注释和
-格式变化会因为原始文件字节变化触发付费复验。当前 `live_regression_failed` 状态继续阻断发布；不得把
-`structural_bootstrap` 或一次固定样本解释成完整缓存敏感面的验证。
+对抗性审查确认 v1 同时存在严重漏报与误报。当前实现已用生产 final-wire 场景矩阵和完整证据链替代这套代理判断，
+并关闭 [唯一问题清单](02-known-issues.md)中的 9 个工程问题。`live_regression_failed` 继续阻断发布；不得把离线
+工程完成或一次固定样本解释成新的真实 accepted baseline。
 
 ## 3. 文档导航
 
 | 文档 | 职责 | 状态 |
 |---|---|---|
-| [00-cache-hit-regression-gate.md](00-cache-hit-regression-gate.md) | 记录 v1 已实现设计和操作方法 | reviewed，待替换 |
+| [00-cache-hit-regression-gate.md](00-cache-hit-regression-gate.md) | 记录 v1 历史设计和操作方法 | historical |
 | [01-first-validation-result.md](01-first-validation-result.md) | 记录首次两臂真实验证数据与证据 | verified |
-| [02-known-issues.md](02-known-issues.md) | 本子主题唯一问题清单 | reviewed |
-| [03-repair-plan.md](03-repair-plan.md) | 三段式门禁修复计划与验收顺序 | planned |
+| [02-known-issues.md](02-known-issues.md) | 本子主题唯一问题清单 | 9/9 closed |
+| [03-repair-plan.md](03-repair-plan.md) | 三段式门禁修复计划与验收顺序 | completed |
 | [04-final-wire-call-chain.md](04-final-wire-call-chain.md) | CR-06 生产 final-wire 调用链与本地捕获证据 | verified |
 | [05-final-wire-evidence.md](05-final-wire-evidence.md) | CR-07 原始 body SHA 与结构化证据合同 | verified |
 | [06-final-wire-comparison-policy.md](06-final-wire-comparison-policy.md) | CR-08 final-wire 保护面与差异分类合同 | verified |
@@ -51,8 +51,8 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [12-cr20-free-semantic-gate-result.md](12-cr20-free-semantic-gate-result.md) | CR-20 免费语义门禁实现与验收结果 | verified |
 | [14-cr21-2-cr23-closeout.md](14-cr21-2-cr23-closeout.md) | CR-21.2 至 CR-23 实现、验证和剩余外部状态 | implementation verified |
 | [15-authorized-run-budget-boundary.md](15-authorized-run-budget-boundary.md) | 真实回归的硬成本边界、观测阈值与超时回收 | implementation verified |
-| [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | reviewed，blocking |
-| [收尾对抗性审查](../../../../vs_review/2026-08-01-r8-cache-gate-closeout-review.md) | CR-21.2 至 CR-23 多轮独立闭环审查 | Round 2 fixed；fresh closure pending |
+| [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | historical findings closed |
+| [收尾对抗性审查](../../../../vs_review/2026-08-01-r8-cache-gate-closeout-review.md) | CR-21.2 至 CR-23 多轮独立闭环审查 | closure passed；P0/P1=0 |
 
 `02-known-issues.md` 是缓存门禁工程缺陷的唯一清单。R8 产品问题状态仍以
 [`../01-r8-known-issues.md`](../01-r8-known-issues.md) 为唯一事实源，两者不得重复登记或相互关闭。
@@ -84,4 +84,10 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 
 当前 CR-21.2 至 CR-23 的离线实现已完成：免费合同可严格区分未变、已变和不可比较；预算提案无 API/账本副作用；
 授权一次性原子认领；失败或越预算结果不可晋升；pre-commit 允许明确可比较的候选产品提交，但 release 继续阻断，
-直到独立 accepted 基线提交形成。当前仓库仍是历史 `live_regression_failed`，本轮没有真实 provider 运行。
+直到独立 accepted 基线提交形成。付费执行启用硬上限时，Agent 无真实 Key 和直接 provider 出口，隔离代理只接受
+批准模型的 Responses 请求并权威记录全部 dispatch；Whale wire 对账只控制性能证据资格。跨平台超时会终止进程树
+并清理容器、网络与 host secret。当前仓库仍是历史 `live_regression_failed`，本轮没有真实 provider 运行。
+
+最终离线验收为 Python `195 passed, 0 skipped`，账本 Schema、PowerShell、容器/provider、non-agent、E3 和 release
+自测全部通过；最终空白审查在 HEAD `bbbf1fc16` 未发现 P0/P1。历史 `live_regression_failed` 只表示尚未获得新的
+用户授权真实 accepted baseline，不再表示缓存门禁工程仍有 open 问题。
