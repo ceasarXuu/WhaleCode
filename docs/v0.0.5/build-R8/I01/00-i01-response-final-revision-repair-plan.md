@@ -7,6 +7,7 @@
 - Scope: 三种 TaskSpace projection policy 共用的 response 事务与反馈链路
 - Standard impact: 只做隔离回归，不改变 Standard 行为
 - Real Whale Agent runs in planning: 0
+- Cache gate authorization: 用户已批准 I01 实施期间执行免费门禁检查，并按已解释的 final-wire 变化更新确定性合同与快照；不包含真实 provider 运行或 accepted baseline 晋升
 
 ## 1. 产品问题
 
