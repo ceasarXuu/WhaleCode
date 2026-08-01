@@ -738,25 +738,18 @@ async fn execute_prepared_taskspace_siblings(
         "audited TaskSpace prepared action closure attempts"
     );
     outputs.extend(supplemental_outputs);
-    let receipt = match runtime
-        .taskspace_response_final_receipt(&prepared, &control_call_id)
-        .await
-    {
-        Ok(receipt) => receipt,
-        Err(error) => crate::action_map::ActionMapResponseFinalReceipt::unavailable(
-            &prepared,
-            &control_call_id,
-            error,
-        ),
+    let settlement = match runtime.taskspace_response_settlement(&prepared).await {
+        Ok(settlement) => settlement,
+        Err(error) => crate::action_map::ActionMapResponseSettlement::unavailable(&prepared, error),
     };
-    emit_taskspace_response_finalized(&prepared, &receipt, &control_call_id);
+    emit_taskspace_response_finalized(&prepared, &settlement, &control_call_id);
     let control_output = ResponseInputItem::FunctionCallOutput {
         call_id: control_call_id,
         output: codex_protocol::models::FunctionCallOutputPayload {
             body: codex_protocol::models::FunctionCallOutputBody::Text(
-                receipt.finalized_model_visible_result(&prepared),
+                settlement.finalized_model_visible_result(&prepared),
             ),
-            success: Some(receipt.complete()),
+            success: Some(settlement.complete()),
         },
     };
     outputs.insert(0, control_output);
@@ -768,7 +761,7 @@ async fn execute_prepared_taskspace_siblings(
 
 fn emit_taskspace_response_finalized(
     prepared: &crate::action_map::ActionMapPreparedResponse,
-    receipt: &crate::action_map::ActionMapResponseFinalReceipt,
+    settlement: &crate::action_map::ActionMapResponseSettlement,
     control_call_id: &str,
 ) {
     tracing::info!(
@@ -777,14 +770,14 @@ fn emit_taskspace_response_finalized(
         control_call_id,
         map_id = prepared.map_id,
         prepare_revision = prepared.revision_after,
-        canonical_revision = receipt.canonical_revision.unwrap_or_default(),
-        canonical_revision_available = receipt.canonical_revision.is_some(),
-        prepared_action_count = receipt.prepared_action_count,
-        attributed_result_count = receipt.attributed_result_count,
-        outstanding_reservation_count = receipt.outstanding_reservation_count,
-        status = receipt.settlement_status(),
-        reason_code = receipt.reason_code().unwrap_or("none"),
-        settlement_complete = receipt.complete(),
+        canonical_revision = settlement.canonical_revision.unwrap_or_default(),
+        canonical_revision_available = settlement.canonical_revision.is_some(),
+        prepared_action_count = settlement.prepared_action_count,
+        attributed_result_count = settlement.attributed_result_count,
+        outstanding_reservation_count = settlement.outstanding_reservation_count,
+        status = settlement.settlement_status(),
+        reason_code = settlement.reason_code().unwrap_or("none"),
+        settlement_complete = settlement.complete(),
         "finalized the canonical TaskSpace control result"
     );
 }

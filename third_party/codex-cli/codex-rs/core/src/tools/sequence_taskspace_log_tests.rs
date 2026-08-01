@@ -14,7 +14,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use super::emit_taskspace_response_finalized;
 use crate::action_map::ActionMapPreparedCall;
 use crate::action_map::ActionMapPreparedResponse;
-use crate::action_map::ActionMapResponseFinalReceipt;
+use crate::action_map::ActionMapResponseSettlement;
 
 #[derive(Default)]
 struct FieldVisitor(BTreeMap<String, String>);
@@ -86,9 +86,8 @@ fn finalization_log_records_mechanical_identity_without_tool_content() {
         })
         .set_default();
     let prepared = prepared_response();
-    let receipt = ActionMapResponseFinalReceipt {
+    let settlement = ActionMapResponseSettlement {
         map_id: prepared.map_id.clone(),
-        control_call_id: "control-log".to_string(),
         reservation_revision_after: prepared.revision_after,
         canonical_revision: Some(8),
         prepared_action_count: 1,
@@ -97,7 +96,7 @@ fn finalization_log_records_mechanical_identity_without_tool_content() {
         error: None,
     };
 
-    emit_taskspace_response_finalized(&prepared, &receipt, "control-log");
+    emit_taskspace_response_finalized(&prepared, &settlement, "control-log");
 
     let fields = fields.lock().unwrap();
     assert_eq!(

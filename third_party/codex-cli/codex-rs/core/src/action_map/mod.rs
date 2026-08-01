@@ -27,9 +27,9 @@ pub(crate) use response::ACTION_MAP_RESPONSE_STATE_COMMIT_FAILED_CODE;
 pub(crate) use response::ActionMapDeclaredCall;
 pub(crate) use response::ActionMapPreparedCall;
 pub(crate) use response::ActionMapPreparedResponse;
-pub(crate) use response::ActionMapResponseFinalReceipt;
 pub(crate) use response::ActionMapResponseOperation;
 pub(crate) use response::ActionMapResponsePrepareError;
+pub(crate) use response::ActionMapResponseSettlement;
 #[cfg(test)]
 pub(crate) use rooted_dag::ActionReservation as ActionMapActionReservation;
 pub(crate) use rooted_dag::BlockRecord;

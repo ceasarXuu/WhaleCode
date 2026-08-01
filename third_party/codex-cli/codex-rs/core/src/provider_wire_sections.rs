@@ -8,10 +8,9 @@ use sha2::Sha256;
 
 const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
 const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
-const TASKSPACE_FEEDBACK_SCHEMAS: [&str; 6] = [
+const TASKSPACE_FEEDBACK_SCHEMAS: [&str; 5] = [
     "TaskSpaceControlResultV2",
     "TaskSpaceResponseResultV2",
-    "TaskSpaceResponseCommitV1",
     "TaskSpaceResponseCommitFailureV3",
     "ToolSequencePreflightResultV3",
     "ProviderToolResponsePreflightV2",

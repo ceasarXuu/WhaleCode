@@ -100,14 +100,11 @@ impl ToolCallRuntime {
             .await
     }
 
-    pub(crate) async fn taskspace_response_final_receipt(
+    pub(crate) async fn taskspace_response_settlement(
         &self,
         prepared: &crate::action_map::ActionMapPreparedResponse,
-        control_call_id: &str,
-    ) -> Result<crate::action_map::ActionMapResponseFinalReceipt, String> {
-        self.session
-            .taskspace_response_final_receipt(prepared, control_call_id)
-            .await
+    ) -> Result<crate::action_map::ActionMapResponseSettlement, String> {
+        self.session.taskspace_response_settlement(prepared).await
     }
 
     pub(crate) fn provider_response_rejection_responses(

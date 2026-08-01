@@ -72,21 +72,6 @@ impl ActionMapPreparedResponse {
             })
             .collect()
     }
-
-    pub(crate) fn model_visible_result(&self) -> String {
-        serde_json::json!({
-            "schema_version": "TaskSpaceResponseCommitV1",
-            "status": "accepted",
-            "success": true,
-            "state_commit": true,
-            "map_id": self.map_id,
-            "action": self.action,
-            "revision_before": self.revision_before,
-            "revision_after": self.revision_after,
-            "reserved_actions": self.reserved_actions_json(),
-        })
-        .to_string()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,9 +210,8 @@ pub(crate) fn model_visible_state_violations(rejection: &Rejection) -> serde_jso
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ActionMapResponseFinalReceipt {
+pub(crate) struct ActionMapResponseSettlement {
     pub(crate) map_id: String,
-    pub(crate) control_call_id: String,
     pub(crate) reservation_revision_after: u64,
     pub(crate) canonical_revision: Option<u64>,
     pub(crate) prepared_action_count: usize,
@@ -236,10 +220,9 @@ pub(crate) struct ActionMapResponseFinalReceipt {
     pub(crate) error: Option<String>,
 }
 
-impl ActionMapResponseFinalReceipt {
+impl ActionMapResponseSettlement {
     pub(crate) fn from_canonical_map(
         prepared: &ActionMapPreparedResponse,
-        control_call_id: &str,
         map: &TaskSpaceCanonicalMap,
     ) -> Self {
         let reservation_ids = prepared
@@ -261,7 +244,6 @@ impl ActionMapResponseFinalReceipt {
             .count();
         Self {
             map_id: prepared.map_id.clone(),
-            control_call_id: control_call_id.to_string(),
             reservation_revision_after: prepared.revision_after,
             canonical_revision: Some(map.revision),
             prepared_action_count: prepared.prepared_calls.len(),
@@ -271,14 +253,9 @@ impl ActionMapResponseFinalReceipt {
         }
     }
 
-    pub(crate) fn unavailable(
-        prepared: &ActionMapPreparedResponse,
-        control_call_id: &str,
-        error: String,
-    ) -> Self {
+    pub(crate) fn unavailable(prepared: &ActionMapPreparedResponse, error: String) -> Self {
         Self {
             map_id: prepared.map_id.clone(),
-            control_call_id: control_call_id.to_string(),
             reservation_revision_after: prepared.revision_after,
             canonical_revision: None,
             prepared_action_count: prepared.prepared_calls.len(),
@@ -310,35 +287,6 @@ impl ActionMapResponseFinalReceipt {
         } else {
             None
         }
-    }
-
-    pub(crate) fn model_visible_result(&self) -> String {
-        let mut result = serde_json::json!({
-            "schema_version": "TaskSpaceResponseFinalReceiptV1",
-            "status": if self.complete() { "complete" } else { "incomplete" },
-            "success": self.complete(),
-            "receipt_only": true,
-            "map_id": self.map_id,
-            "control_call_id": self.control_call_id,
-            "reservation_revision_after": self.reservation_revision_after,
-            "canonical_revision": self.canonical_revision,
-            "prepared_action_count": self.prepared_action_count,
-            "attributed_result_count": self.attributed_result_count,
-            "outstanding_reservation_count": self.outstanding_reservation_count,
-        });
-        if let Some(error) = self.error.as_ref() {
-            result["error"] = serde_json::json!({
-                "class": "resource",
-                "code": "taskspace_response_final_receipt_unavailable",
-                "detail": error,
-            });
-        } else if !self.complete() {
-            result["error"] = serde_json::json!({
-                "class": "state_machine",
-                "code": "taskspace_response_attribution_incomplete",
-            });
-        }
-        result.to_string()
     }
 
     pub(crate) fn finalized_model_visible_result(

@@ -68,14 +68,14 @@ fn current_taskspace_feedback_family_and_final_control_result_share_one_section(
         "messages": [
             {
                 "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceResponseCommitV1\",\"success\":true}"
+                "content": "{\"schema_version\":\"TaskSpaceControlResultV2\",\"success\":true}"
             },
             {
                 "role": "tool",
                 "content": "{\"schema_version\":\"TaskSpaceResponseCommitFailureV3\",\"success\":false}"
             },
             {
-                "role": "system",
+                "role": "tool",
                 "content": "{\"schema_version\":\"TaskSpaceResponseResultV2\",\"success\":true}"
             }
         ]

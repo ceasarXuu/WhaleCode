@@ -23,9 +23,8 @@ fn prepared_response() -> ActionMapPreparedResponse {
 #[test]
 fn finalized_result_exposes_one_continuation_revision() {
     let prepared = prepared_response();
-    let receipt = ActionMapResponseFinalReceipt {
+    let settlement = ActionMapResponseSettlement {
         map_id: prepared.map_id.clone(),
-        control_call_id: "control".to_string(),
         reservation_revision_after: prepared.revision_after,
         canonical_revision: Some(5),
         prepared_action_count: 1,
@@ -35,7 +34,7 @@ fn finalized_result_exposes_one_continuation_revision() {
     };
 
     let value: serde_json::Value =
-        serde_json::from_str(&receipt.finalized_model_visible_result(&prepared)).unwrap();
+        serde_json::from_str(&settlement.finalized_model_visible_result(&prepared)).unwrap();
 
     assert_eq!(value["schema_version"], "TaskSpaceResponseResultV2");
     assert_eq!(value["status"], "settled");
@@ -56,9 +55,8 @@ fn finalized_result_exposes_one_continuation_revision() {
 #[test]
 fn finalized_result_reports_incomplete_attribution_without_hiding_commit() {
     let prepared = prepared_response();
-    let receipt = ActionMapResponseFinalReceipt {
+    let settlement = ActionMapResponseSettlement {
         map_id: prepared.map_id.clone(),
-        control_call_id: "control".to_string(),
         reservation_revision_after: prepared.revision_after,
         canonical_revision: Some(5),
         prepared_action_count: 1,
@@ -68,7 +66,7 @@ fn finalized_result_reports_incomplete_attribution_without_hiding_commit() {
     };
 
     let value: serde_json::Value =
-        serde_json::from_str(&receipt.finalized_model_visible_result(&prepared)).unwrap();
+        serde_json::from_str(&settlement.finalized_model_visible_result(&prepared)).unwrap();
 
     assert_eq!(value["status"], "settlement_incomplete");
     assert_eq!(value["success"], false);
@@ -83,14 +81,11 @@ fn finalized_result_reports_incomplete_attribution_without_hiding_commit() {
 #[test]
 fn finalized_result_reports_unavailable_store_without_guessing_revision() {
     let prepared = prepared_response();
-    let receipt = ActionMapResponseFinalReceipt::unavailable(
-        &prepared,
-        "control",
-        "store unavailable".to_string(),
-    );
+    let settlement =
+        ActionMapResponseSettlement::unavailable(&prepared, "store unavailable".to_string());
 
     let value: serde_json::Value =
-        serde_json::from_str(&receipt.finalized_model_visible_result(&prepared)).unwrap();
+        serde_json::from_str(&settlement.finalized_model_visible_result(&prepared)).unwrap();
 
     assert_eq!(value["status"], "settlement_incomplete");
     assert_eq!(value["success"], false);
