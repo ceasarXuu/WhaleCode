@@ -82,6 +82,7 @@ xychart-beta
 | TUI baseline check | test | `run_tui_baseline.py --check --allow-test-failures` | baseline 逐字节匹配 | `--allow-test-failures` 只用于事实基线；最终门禁不得使用 |
 | W8 chatwidget 快照 | test/product decision | `INSTA_UPDATE=no ... nextest ... test(/chatwidget::tests::/)` | 514 passed、1378 skipped；20 个旧失败归零；`.snap.new` 为 0 | Pro 恢复需等待官方 Responses API 适配和专项回归 |
 | W8 后 TUI 全量 | test | `run_tui_baseline.py --update --allow-test-failures` | 1874 passed、13 failed、5 ignored | 12 个 status 快照和 1 个 ActionMap 断言待处理 |
+| W7 Flash status 探针 | test/diagnosis | 模型管理器默认测试 + catalog 断言 + 临时精确 Flash 渲染断言 | 默认模型与 catalog 合同通过；渲染红灯显示 `summaries auto`，期望为 catalog 的 `summaries off` | status 未复用请求路径的 effective summary；临时失败探针已撤回，修复时转为永久回归测试 |
 | Python XML 环境诊断 | runtime/test | Homebrew Python 3.14 `pyexpat` 导入栈 + parser regression | 确认动态库符号不兼容；runner 改为无 expat 依赖并通过真实 JUnit | 系统 Python 安装问题未修复，但 runner 已隔离 |
 | 历史快照临时文件 | runtime | 两个已被 Git 跟踪的 core compact `.snap.new` | 曾移入桌面回收站，确认 tracked deletion 后已原位恢复且 diff 为空；W5 运行增量 0 | 内容未接受，留待快照审阅工作单元处理 |
 | TUI 全量 | test | Nextest/JUnit runner | 初始三次为 1854 passed、33 failed、5 ignored；W8 后为 1874 passed、13 failed、5 ignored | W7、W9–W11 尚未关闭失败 |
@@ -91,7 +92,7 @@ xychart-beta
 
 | 未完成项 | 计划范围 | 当前状态 | 未完成原因 | 证据 | 不完成的影响 | 所需动作 |
 | --- | --- | --- | --- | --- | --- | --- |
-| W7 | status 快照审阅 | in progress | 模型可见性已决策，12 个 status reasoning/summaries 展示仍待产品判断 | 当前事实基线 | `/status` 组仍非绿色 | 审阅后独立接受或修正 |
+| W7 | status 快照审阅 | in progress | 定向测试确认不是单纯快照决策，而是 effective summary 取值错误 | Flash catalog 为 `none`，实际 status 为 `auto` | `/status` 会误报实际请求配置 | 先修复取值路径并补永久回归测试，再审阅快照 |
 | W9 | ActionMap 功能断言 | blocked-on-discovery | 尚无 Nextest 规范化失败证据 | 第一批仅有失败摘要 | TaskSpace TUI 门禁非绿色 | 先复现并做根因诊断 |
 | W10 | memory-setting flake | blocked-on-discovery | 尚未在相同配置重复三次 | 无重复证据 | 可能误判确定性回归 | 隔离重复测试 |
 | W11 | TUI 零失败门禁 | not started | 依赖 W7–W10 | 计划依赖图 | vendor refresh 仍缺 TUI 准入门禁 | 完成前置工作 |
@@ -102,7 +103,7 @@ xychart-beta
 
 | 优先级 | 动作 | 原因 | 依赖 | 预期结果 | 验证 |
 | ---: | --- | --- | --- | --- | --- |
-| P0 | 完成 W7 status 快照审阅 | W8 的 20 个 Flash-only 快照已关闭，尚余 12 个 status 快照 | W6、W8 | status 组独立产品判断和提交 | focused + full Nextest |
+| P0 | 修复 W7 effective summary 取值 | Flash 默认应为 `none/off`，当前 `/status` 错报 `auto` | W6、W8、Flash 定向诊断 | 状态页与请求构建复用同一 resolved model 默认值 | 永久 Flash 测试 + status focused + full Nextest |
 | P0 | 诊断 W9 ActionMap 断言 | 唯一 functional failure 已稳定复现 | W6 | 根因证据和回归测试 | focused test + TaskSpace 定向回归 |
 | P1 | 核对 W10 memory-setting 候选 | 三次全量未出现该失败 | W6 | 证明已稳定或保留 flake 结论 | 隔离重复三次 |
 | P1 | 实施 W12 Windows runner | 先把平台验证步骤机械化 | Phase 1 | 可在 Windows 一键执行三组测试 | PowerShell exit code 与日志 |

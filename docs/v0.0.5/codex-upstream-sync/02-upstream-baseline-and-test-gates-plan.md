@@ -197,6 +197,18 @@ W7 和 W8 的每个快照族必须独立提交。若快照显示用户可见交�
 - 恢复门槛：官方适配上线，并通过 Whale provider 请求、reasoning/tool-call streaming、缓存回归、模型选择器与 TUI 全量测试；
 - 验证：20 个已审阅 chatwidget 快照独立提交，514 个 chatwidget 测试通过；更新后的全量基线只剩 12 个 status 快照与 1 个 ActionMap 功能断言。
 
+### 6.2 W7 Flash `/status` 默认值诊断
+
+2026-08-01 的定向测试证明 12 个 status 快照不能直接接受：
+
+- 模型管理器确认默认模型为 `deepseek-v4-flash`；
+- bundled catalog 声明 Flash 支持 reasoning summaries，但 `default_reasoning_summary` 为 `none`；
+- 使用真实 `deepseek-v4-flash`、默认 summary 配置和 High reasoning effort 渲染 `/status`，实际得到 `reasoning high, summaries auto`；
+- 根因边界已收敛到 status 取值路径：Responses provider 分支直接把空的 `config.model_reasoning_summary` 回退成 `auto`，没有使用已解析模型的 `default_reasoning_summary`；
+- 现有 `status_snapshot_uses_default_reasoning_when_config_empty` 还会通过 test-support 回退到 `gpt-5.1-codex-max`，不能代表 Whale 的真实默认模型。
+
+因此 W7 下一步不是接受快照，而是让 `/status` 复用与请求构建相同的 effective reasoning summary。修复前先固化真实 Flash 回归测试；修复后要求默认显示 `summaries off`，显式配置仍分别显示 `auto`、`detailed` 或 `off`。
+
 W9、W10、W13 当前信息不足，使用 `blocked-on-discovery` 是计划状态，不表示实施已被阻断。各工作单元在执行阶段先收集证据，再决定修复或另立需求。
 
 ## 7. 分阶段实施与提交边界
