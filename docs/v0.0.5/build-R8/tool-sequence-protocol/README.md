@@ -1,7 +1,7 @@
 # R8 TaskSpace Tool 序列协议专题
 
 - Created: 2026-08-01
-- Status: Product definition
+- Status: Product definition confirmed / engineering feasibility planned
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Tool 顺序、节点归属与 Runtime 硬边界
 
@@ -19,13 +19,16 @@ Agent 生成动作时直接表达“这些调用共同构成一个合法序列�
 
 ## 2. 当前阶段
 
-当前只定义产品逻辑和不可违反的约束，不编写工程设计，不选择 provider schema、解析结构、反馈 wire 或迁移步骤。
+产品逻辑和不可违反的约束已经形成基线。当前先验证“单一序列容器 + 执行归属分派”能否在不侵入原生 Tool、
+不放松执行前预检、也不改变 Standard provider wire 的前提下复用现有基建。可行性验证只回答基础路线是否成立，
+不提前实施完整序列协议。
 
 文档顺序：
 
-1. [`00-product-definition.md`](00-product-definition.md)：已确认的产品模型、角色边界、合法行为和非目标。
-2. 工程设计：尚未开始；必须在产品定义确认后另建文档。
-3. 实施计划：尚未开始；必须从已确认的工程设计派生。
+1. [`00-product-definition.md`](00-product-definition.md)：已确认的产品模型、角色边界、合法行为和执行归属原则。
+2. [`01-execution-ownership-mvp-feasibility-plan.md`](01-execution-ownership-mvp-feasibility-plan.md)：执行归属方案的最小可行性测试计划。
+3. 完整工程设计：等待可行性测试结论，避免在基础路线未证实时展开。
+4. 正式实施计划：等待工程设计确认后派生，不沿用 spike 的临时结构。
 
 ## 3. 与 R8 其他问题的关系
 
@@ -41,10 +44,14 @@ Agent 生成动作时直接表达“这些调用共同构成一个合法序列�
 
 专题完成后必须重新盘点问题全集，不能直接恢复旧队列，也不能自动把受影响问题判为关闭。
 
-## 4. 本阶段完成条件
+## 4. 当前阶段完成条件
 
 - 顶层序列、原生 Tool、`taskspace_control`、节点归属和 Runtime 的产品责任清楚且互不冲突；
 - Standard 与 TaskSpace 的差异被限定在正确边界；
 - 连续动作、多节点动作、终态动作和非法空转的产品规则明确；
 - 已确认决策与待工程阶段选择的事项明确分开；
-- 用户确认该产品定义后，才进入工程设计。
+- 本地可行性测试能证明非法序列零执行、合法本地 Tool 复用原 Router、hosted Tool 只在预检后触发；
+- 单一序列顺序能够成为调用和归属的唯一事实，不再产生 sibling manifest 或 shadow call；
+- Standard 请求结构保持不变，TaskSpace 主请求不直接暴露 provider-hosted Tool；
+- 测试结论明确区分“架构不可行”和“某个 provider 暂不支持受控 hosted 调用”；
+- 只有可行性门槛通过后才进入完整工程设计。

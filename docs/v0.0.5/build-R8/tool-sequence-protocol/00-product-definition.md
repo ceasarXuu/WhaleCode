@@ -2,7 +2,7 @@
 
 - Created: 2026-08-01
 - Updated: 2026-08-02
-- Status: Draft for product review
+- Status: Product baseline confirmed / feasibility validation pending
 - Source: 2026-08-01 关于普通 Tool 零侵入、连续动作和顶层序列容器的多轮讨论
 - Supersedes: 当前 `taskspace_control.actions[] + sibling Tool calls` 作为目标产品模型的假设
 - Does not contain: 工程架构、数据结构、schema、代码路径、迁移或测试计划
@@ -132,6 +132,21 @@ Runtime 不负责：
 3. 多个节点可以同时 Ready 或 InFlight，不存在单一 current node。
 4. 每个普通动作的节点归属由 Agent 在该动作外层明确声明。
 5. Runtime 只检查声明的节点是否机械可执行，不判断 Agent 选择是否最优。
+
+### 4.6 执行归属与 Provider 托管 Tool
+
+Tool 序列是唯一动作事实，但序列成员的实际执行位置可以不同：
+
+1. Client-managed Tool 继续由现有 `ToolRouter`、handler、hook、权限和 sandbox 路径执行。
+2. Provider-hosted Tool 只能由 Runtime 在完整序列预检通过后，通过受控的 provider 执行能力触发。
+3. 执行位置是 Runtime 内部事实，不改变 Agent 声明的 Tool 身份、序列位置或节点归属。
+4. TaskSpace 主请求不得在序列容器之外同时暴露同一个 provider-hosted Tool；否则 provider 可能在预检前执行动作。
+5. 不允许用“序列内声明 + 顶层真实调用”的双写，也不允许根据事后结果反推它属于哪个序列项。
+6. 某个 hosted capability 若没有可确定触发、可核验结果的执行能力，则它在 TaskSpace 中不可用；不得静默退回序列外调用。
+7. Standard 继续使用 provider 原生 hosted Tool，TaskSpace 的执行归属机制不得改变 Standard 行为。
+
+这意味着“所有 Tool 都在序列内”描述的是 Agent 的唯一行动合同，不要求所有能力都在同一个进程执行。Runtime 只根据
+已声明的序列项选择既有 client 执行路径或受控 provider 执行路径，不根据任务语义替 Agent 选择 Tool。
 
 ## 5. 期望行动形状
 
@@ -287,6 +302,29 @@ C 的能力，只是让 TaskSpace 的合法行动单位在生成时可见、在�
 
 这条结论同时满足连续动作、普通 Tool 零侵入、Agent 声明节点归属和 Runtime 只守硬边界四个长期约束。
 
+### 9.6 为什么事后记录 Provider Tool 仍不成立
+
+Provider-hosted Tool 在 provider 生成响应期间已经执行。Runtime 收到 `web_search_call` 或
+`image_generation_call` 时，只能观察已发生的结果，无法再保证执行前的 Map、节点和序列规则。若另外提交一份顺序
+记录，实际调用 `A,B,C` 与记录 `B,C,A` 仍可能不一致；若同时在序列和顶层各写一次，又会恢复双重事实。
+
+结论：TaskSpace 主请求只能暴露序列入口。hosted 动作必须先作为序列项通过整体预检，再由 Runtime 按该唯一序列位置
+触发 provider 执行。事后结果只能结算已经获准的同一序列项，不能创建或修正动作归属。
+
+### 9.7 最小工程方向
+
+现有本地 Tool 执行、序列预检、Map reservation、串并行屏障和 provider 通信继续复用。需要补充的最小连接点是：
+
+```text
+已预检的序列项
+  -> client-managed：现有 ToolRouter
+  -> provider-hosted：受控 Hosted Tool Executor
+```
+
+该连接点只决定已声明动作在哪里执行，不新增规划、节点选择、重排、重试建议或语义判断。完整工程设计必须先通过
+[`01-execution-ownership-mvp-feasibility-plan.md`](01-execution-ownership-mvp-feasibility-plan.md) 的最小可行性测试，
+避免在 provider 边界尚未证实时扩建协议。
+
 ## 10. 非目标
 
 本专题不试图：
@@ -312,6 +350,7 @@ C 的能力，只是让 TaskSpace 的合法行动单位在生成时可见、在�
 6. 如何返回序列结果并保持 provider pairing、原生结果保真、唯一 revision 和缓存稳定。
 7. 如何确保 Standard 的 provider wire、Tool schema、Tool choice 和执行行为逐字或语义不变。
 8. 如何删除旧 manifest、旧 sibling 配对、普通 Tool decoration 和兼容 parser，而不是保留双路径。
+9. provider-hosted capability 的受控调用描述如何保持足够明确，同时不复制普通 Tool schema 或形成通用插件框架。
 
 ## 12. 产品验收标准
 
@@ -340,4 +379,7 @@ C 的能力，只是让 TaskSpace 的合法行动单位在生成时可见、在�
 | current node / bind | 均不存在 | 已确认 |
 | 结果外形 | 可以整体返回或逐调用返回 | 工程可选，但受语义底线约束 |
 | Standard | 保持原生多 Tool 调用路径，不使用 TaskSpace 序列 | 已确认 |
+| 执行归属 | 序列项是唯一事实；Runtime 只在预检后选择既有 client 路径或受控 provider 路径 | 已确认，待工程验证 |
+| Provider-hosted Tool | 不在 TaskSpace 主请求中顶层暴露；无确定执行能力时在 TaskSpace 中不可用 | 已确认，待 provider 能力验证 |
+| 事后记录 / 双写 | 不作为动作来源，不允许用于补建、猜配或修正序列 | 已确认禁止 |
 | 旧问题队列 | 暂停；专题完成后重新盘点 | 已确认 |
