@@ -12,6 +12,7 @@ from typing import Any
 
 from cache_cost import settled_monetary_cost
 from cache_evidence import file_sha256
+from cache_json import strict_json_loads
 
 try:
     import fcntl
@@ -28,15 +29,20 @@ def now() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
-def _locked_ledger(path: Path, update) -> None:
+def _locked_ledger(path: Path, update) -> Any:
     lock_path = path.with_suffix(path.suffix + ".lock")
     with lock_path.open("a+", encoding="utf-8") as lock:
         _lock_file(lock)
         try:
-            ledger = json.loads(path.read_text(encoding="utf-8"))
-            update(ledger)
+            ledger = strict_json_loads(path.read_text(encoding="utf-8"))
+            if not isinstance(ledger, dict) or not isinstance(
+                ledger.get("entries"), list
+            ):
+                raise ValueError("cache ledger must contain an entries list")
+            result = update(ledger)
             ledger["updated_at"] = now()
             atomic_write_json(path, ledger)
+            return result
         finally:
             _unlock_file(lock)
 
@@ -72,7 +78,7 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     temporary_path = Path(temporary)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, indent=2)
+            json.dump(value, handle, ensure_ascii=False, indent=2, allow_nan=False)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -108,7 +114,7 @@ def entry_exists(path: Path, record_id: str) -> bool:
     with lock_path.open("a+", encoding="utf-8") as lock:
         _lock_file(lock)
         try:
-            ledger = json.loads(path.read_text(encoding="utf-8"))
+            ledger = strict_json_loads(path.read_text(encoding="utf-8"))
             return any(item.get("record_id") == record_id for item in ledger["entries"])
         finally:
             _unlock_file(lock)
@@ -126,6 +132,20 @@ def store_entry(path: Path, entry: dict[str, Any]) -> None:
         ledger["entries"][matches[0]] = entry
 
     _locked_ledger(path, store)
+
+
+def mutate_entry(path: Path, record_id: str, update) -> Any:
+    """Read, compare and update one ledger record under the same lock."""
+
+    def mutate(ledger: dict[str, Any]) -> Any:
+        matches = [
+            item for item in ledger["entries"] if item.get("record_id") == record_id
+        ]
+        if len(matches) != 1:
+            raise ValueError("cache ledger record is missing or duplicated")
+        return update(matches[0])
+
+    return _locked_ledger(path, mutate)
 
 
 def planned_entry(

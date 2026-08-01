@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from cache_evidence import RESULT_SCHEMA_VERSION
 from cache_surface import write_json
@@ -49,6 +50,7 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
             "runner_exit_code": 0,
             "run_root": "target/run",
             "actual_sample_runs": 1,
+            "credential_source": "fixture",
             "observations": [
                 {
                     "provider_requests": 2,
@@ -92,6 +94,35 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         self.assertEqual(
             entry["evidence"]["recovery_reason"], "runner crashed before result"
         )
+
+    def test_recovery_does_not_overwrite_concurrent_final_settlement(self) -> None:
+        from cache_run_ledger import mutate_entry as locked_mutate
+
+        def settle_before_recovery(path, record_id, update):
+            ledger = json.loads(path.read_text(encoding="utf-8"))
+            entry = ledger["entries"][0]
+            entry["status"] = "settled"
+            entry["evidence"]["result_path"] = self.result.relative_to(
+                self.repo
+            ).as_posix()
+            write_json(path, ledger)
+            return locked_mutate(path, record_id, update)
+
+        with patch(
+            "recover_cache_run_ledger.mutate_entry",
+            side_effect=settle_before_recovery,
+        ):
+            self.assertEqual(
+                recover(self.repo, self.ledger, self.result), "already_settled"
+            )
+
+    def test_recovery_rejects_nonstandard_json_numbers(self) -> None:
+        content = self.result.read_text(encoding="utf-8").replace(
+            '"elapsed_seconds": 2.0', '"elapsed_seconds": NaN'
+        )
+        self.result.write_text(content, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "JSON constant"):
+            recover(self.repo, self.ledger, self.result)
 
 
 if __name__ == "__main__":

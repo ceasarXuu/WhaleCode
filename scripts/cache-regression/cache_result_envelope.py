@@ -18,7 +18,9 @@ def parse_timestamp(value: Any, label: str) -> datetime:
         raise ValueError(f"{label} is invalid") from error
 
 
-def validate_result_envelope(result: dict[str, Any], result_path: str) -> None:
+def validate_result_envelope(
+    result: dict[str, Any], result_path: str, *, require_success: bool = True
+) -> None:
     started = parse_timestamp(result.get("started_at"), "cache result started_at")
     ended = parse_timestamp(result.get("ended_at"), "cache result ended_at")
     valid = (
@@ -26,7 +28,11 @@ def validate_result_envelope(result: dict[str, Any], result_path: str) -> None:
         and is_elapsed_number(result.get("elapsed_seconds"))
         and result["elapsed_seconds"] >= 0
         and type(result.get("runner_exit_code")) is int
-        and result["runner_exit_code"] == 0
+        and (
+            result["runner_exit_code"] == 0
+            if require_success
+            else result["runner_exit_code"] in {0, 3, 130}
+        )
         and result.get("result_path") == result_path
         and isinstance(result.get("run_root"), str)
         and result["run_root"].strip()
