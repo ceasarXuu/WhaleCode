@@ -10,9 +10,9 @@ const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
 const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
 const TASKSPACE_FEEDBACK_SCHEMAS: [&str; 6] = [
     "TaskSpaceControlResultV2",
+    "TaskSpaceResponseResultV2",
     "TaskSpaceResponseCommitV1",
     "TaskSpaceResponseCommitFailureV3",
-    "TaskSpaceResponseFinalReceiptV1",
     "ToolSequencePreflightResultV3",
     "ProviderToolResponsePreflightV2",
 ];

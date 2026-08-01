@@ -63,7 +63,7 @@ fn standard_payload_has_zero_taskspace_section_cost() {
 }
 
 #[test]
-fn current_taskspace_feedback_family_and_final_receipt_share_one_section() {
+fn current_taskspace_feedback_family_and_final_control_result_share_one_section() {
     let wire = json!({
         "messages": [
             {
@@ -76,7 +76,7 @@ fn current_taskspace_feedback_family_and_final_receipt_share_one_section() {
             },
             {
                 "role": "system",
-                "content": "{\"schema_version\":\"TaskSpaceResponseFinalReceiptV1\",\"success\":true}"
+                "content": "{\"schema_version\":\"TaskSpaceResponseResultV2\",\"success\":true}"
             }
         ]
     });
