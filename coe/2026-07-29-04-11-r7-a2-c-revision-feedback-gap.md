@@ -418,3 +418,38 @@ request 6 after new receipt: cached=5888
 - Interpretation: 当前实现已消除已确认的双 revision 和独立 receipt carrier。该证据是确定性的工程验证，不能替代
   W9 的真实 Agent stale 复验，也不能自行晋升 W10 的真实缓存 accepted baseline。
 - Time: 2026-08-01
+
+## Evidence E-009: R8 map-always 单次真实运行未再出现 revision 竞争
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports
+- Type: repair-verification
+- Source:
+  - ledger `WAR-20260801-222316-R8-I01-W9-MA-1B64DB37`
+  - `docs/v0.0.5/build-R8/I01/02-i01-w9-map-always-repeat1-result.md`
+  - durable evidence `target/r8-i01-w9/WAR-20260801-222316-R8-I01-W9-MA-1B64DB37/map-always-r1`
+- Prediction or plan link:
+  - I01-W9：真实 Agent 不再因隐藏 result attribution 使用旧 revision
+- Matched signal:
+  - 5 次成功 control response 均只有一个与原 control call 配对的 `TaskSpaceResponseResultV2`
+  - 唯一 continuation revision 链为 `2 -> 4 -> 6 -> 8 -> 10`
+  - 下一次成功提交均使用前一最终 `canonical_revision`
+  - `stale_revision` 为 0，旧 `TaskSpaceResponseFinalReceiptV1` 为 0
+- Correlation keys:
+  - mode `map-always`
+  - sample `single-file-fast-fix`
+  - product commit `9b49f6dc96ad553ab454fefc2c96c975a6838442`
+- Raw content:
+  ```text
+  canonical revisions: 2, 4, 6, 8, 10
+  stale_revision: 0
+  TaskSpaceResponseFinalReceiptV1: 0
+  public validation: passed
+  hidden oracle: passed
+  agent lifecycle: interrupted before finish_map
+  ```
+- Interpretation: I01 的双 revision 根因在 map-always 当前单次真实路径中未复现。运行整体失败来自既有 I03
+  组合动作拒绝耗尽请求预算，不能据此反驳 I01 修复，也不能据此把 W9 或 I01 标记完成。
+- Time: 2026-08-01

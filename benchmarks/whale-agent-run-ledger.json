@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-01T22:23:16+08:00",
+  "updated_at": "2026-08-01T22:34:20+08:00",
   "entries": [
     {
       "record_id": "WAR-20260801-222316-R8-I01-W9-MA-1B64DB37",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "failed",
+      "started_at": "2026-08-01T22:24:58+08:00",
+      "ended_at": "2026-08-01T22:25:48+08:00",
+      "elapsed_calendar_seconds": 50,
+      "aggregate_agent_wall_time_ms": 44671,
       "reason": "R8-I01 W9 map-always 优先复验：确认历史集中的 hidden-attribution stale 是否已由唯一 final control result 消除。",
       "authorization": {
         "required": true,
@@ -48,22 +48,26 @@
         ],
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 3,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 1,
+        "api_requests": 10,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 172079,
+        "cached_input": 59904,
+        "uncached_input": 112175,
+        "output": 4649
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "USD",
-        "amount": 0.093,
+        "amount": 0.0171739512,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0001677312,
+          "uncached_input": 0.0157045,
+          "output": 0.00130172
+        },
         "pricing_snapshot": {
           "currency": "USD",
           "captured_at": "2026-07-31",
@@ -72,8 +76,8 @@
           "uncached_input_per_million": 0.14,
           "output_per_million": 0.28
         },
-        "formula": "observed cached/uncached/output usage at frozen rates",
-        "note": "本记录只覆盖获批总预算中的 map-always 三次优先复验。"
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "只执行 repeat 1；10 次已完成上游请求的 usage 由 provider wire terminal 逐项求和。第 11 次本地 wire attempt 被 provider boundary 在上游 dispatch 前拒绝，不计入 API 请求和 token。"
       },
       "evidence": {
         "planned_run_root": "/tmp/wrun/20260801w9ma",
@@ -87,7 +91,28 @@
           "after_any_budget_observation_exceeded"
         ],
         "diagnostic_target": "For every response, compare TaskSpaceResponseResultV2 canonical_revision with the next submitted expected_revision and any stale_revision rejection.",
-        "evidence_boundary": "single-file-fast-fix map-always repeat 3 only; no retries"
+        "evidence_boundary": "single-file-fast-fix map-always repeat 1 only; stop conditions prevented repeat 2 and 3; no retries",
+        "actual_run_root": "/tmp/wrun/20260801w9ma/a1/r-1/single-file-fast-fix/20260801-222449-350",
+        "durable_evidence_copy": "target/r8-i01-w9/WAR-20260801-222316-R8-I01-W9-MA-1B64DB37/map-always-r1",
+        "provider_boundary_request_count": 10,
+        "provider_wire_attempt_count": 11,
+        "provider_completed_response_count": 10,
+        "provider_rejected_before_dispatch_count": 1,
+        "provider_boundary_reconciliation": "request limit held; verifier reports mismatch because it compares one locally rejected wire attempt with upstream dispatch count",
+        "stale_revision_count": 0,
+        "successful_control_revision_chain": [
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "business_validation_status": "passed",
+        "agent_lifecycle_status": "interrupted_before_finish_map",
+        "failure_stage": "taskspace_agent_protocol_before_terminal_closure",
+        "failure_reason": "Five zero-dispatch protocol/state rejections consumed the request budget before the Agent could submit finish_map: two missing-control responses, two manifest/sibling mismatches, and one completed-node ownership conflict.",
+        "outcome": "i01_map_always_stale_target_passed_but_run_failed_on_known_i03_behavior",
+        "observer_discrepancy": "rollout-derived request-summary reports 19 requests and double-counted tokens; provider boundary and provider wire terminals establish 10 dispatched requests and exact usage"
       }
     },
     {

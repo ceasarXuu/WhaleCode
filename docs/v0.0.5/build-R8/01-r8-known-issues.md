@@ -60,6 +60,21 @@ I01 当前进展：
   `9e64a3ddc`、`ad117ce24`、`cb91900c3`、`d2be70030`、`cec426afd`；
 - 三种 TaskSpace policy 只保留原 control call 的唯一最终结果，Standard 和普通 Tool final wire 未变；
 - 正式缓存快照未自行晋升；W9 真实行为验证和 W10 真实缓存证据仍需分别获得用户预算授权，因此 I01 保持 open。
+- W9 的 `map-always` repeat 1 未复现 stale，成功 revision 链为 `2 -> 4 -> 6 -> 8 -> 10`；代码和两层验证均
+  通过，但 5 次零执行协议/状态拒绝耗尽请求预算，Agent 未提交 `finish_map`。该运行停止并结算，阻塞归入既有
+  I03，详见 [`I01/02-i01-w9-map-always-repeat1-result.md`](I01/02-i01-w9-map-always-repeat1-result.md)。
+
+I03 当前新增证据：
+
+- `map-always` 单次简单样本中先后出现 1 次缺少 control、2 次 control manifest 缺少 sibling、1 次初始化后
+  普通动作仍缺少 control，以及 1 次完成节点与动作归属冲突；所有错误均被零执行拒绝，但使 Agent 在业务验证通过后
+  仍无法在 10 次上游请求内闭合 Map。
+
+I05/I07 当前新增证据：
+
+- 同一 preflight/state rejection 同时以 Tool pairing output 和 developer factual message 暴露，属于 I05 待收敛的
+  重复反馈；rollout observer 将 10 次 completed provider 请求统计为 19 次并近似双计 token，provider boundary
+  verifier 又把 1 次本地 pre-dispatch reject 当成 upstream mismatch，属于 I07 待修复的证据口径问题。
 
 已关闭问题：
 [`I09/00-i09-store-hydrate-repair-plan.md`](I09/00-i09-store-hydrate-repair-plan.md)。
