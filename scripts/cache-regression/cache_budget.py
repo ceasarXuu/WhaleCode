@@ -130,9 +130,9 @@ def build_budget_proposal(
         (observed_output_tokens_per_run, "output token observation threshold"),
         (max_seconds_per_run, "time limit"),
     ):
-        require(isinstance(value, int) and value > 0, f"{label} must be positive")
+        require(type(value) is int and value > 0, f"{label} must be positive")
     require(
-        isinstance(retry_sample_run_limit, int) and retry_sample_run_limit >= 0,
+        type(retry_sample_run_limit) is int and retry_sample_run_limit >= 0,
         "retry sample-run limit must be non-negative",
     )
 
@@ -142,7 +142,7 @@ def build_budget_proposal(
     require(isinstance(provider_limits, dict), "model has no provider hard limits")
     require(
         all(
-            isinstance(provider_limits.get(key), int) and provider_limits[key] > 0
+            type(provider_limits.get(key)) is int and provider_limits[key] > 0
             for key in (
                 "max_input_tokens_per_request",
                 "max_output_tokens_per_request",
@@ -155,7 +155,7 @@ def build_budget_proposal(
         isinstance(pricing.get("currency"), str)
         and pricing["currency"].strip() != ""
         and all(
-            isinstance(pricing.get(key), (int, float)) and pricing[key] >= 0
+            type(pricing.get(key)) in (int, float) and pricing[key] >= 0
             for key in ("uncached_input_per_million", "output_per_million")
         ),
         "pricing snapshot is incomplete",
@@ -287,10 +287,13 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
     provider_limits = proposal.get("provider_hard_limits", {})
     pricing = proposal.get("pricing_snapshot", {})
     sample_runs = selection.get("maximum_sample_runs")
+    repeat = selection.get("repeat")
+    planned_runs = selection.get("planned_sample_runs")
+    retries = selection.get("retry_sample_run_limit")
     requests_per_run = limits.get("provider_requests")
     require(
         all(
-            isinstance(value, int) and value > 0
+            type(value) is int and value > 0
             for value in (
                 sample_runs,
                 requests_per_run,
@@ -305,10 +308,22 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
         "budget proposal limits are incomplete",
     )
     require(
+        type(repeat) is int
+        and repeat > 0
+        and type(planned_runs) is int
+        and planned_runs > 0
+        and type(retries) is int
+        and retries >= 0
+        and planned_runs
+        == len(selection.get("samples", [])) * len(selection.get("arms", [])) * repeat
+        and sample_runs == planned_runs + retries,
+        "budget proposal execution matrix is inconsistent",
+    )
+    require(
         isinstance(pricing.get("currency"), str)
         and pricing["currency"].strip() != ""
         and all(
-            isinstance(pricing.get(key), (int, float)) and pricing[key] >= 0
+            type(pricing.get(key)) in (int, float) and pricing[key] >= 0
             for key in ("uncached_input_per_million", "output_per_million")
         ),
         "budget proposal pricing is incomplete",

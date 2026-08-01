@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,7 @@ from cache_budget import (
     validate_budget_proposal,
 )
 from cache_evidence import file_sha256
+from cache_json import strict_json_loads
 from cache_time import parse_timestamp, require_not_future, require_ordered
 
 
@@ -26,7 +26,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8-sig"))
+    value = strict_json_loads(path.read_text(encoding="utf-8-sig"))
     require(isinstance(value, dict), "cache run contract root must be an object")
     return value
 

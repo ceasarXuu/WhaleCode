@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cache_budget import build_budget_proposal, validate_budget_proposal
+from cache_evidence import canonical_json_sha256
 from cache_surface import load_contract, surface_snapshot, write_json
 
 
@@ -187,6 +188,19 @@ class CacheBudgetProposalTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "digest"):
             validate_budget_proposal(proposal)
 
+    def test_rejects_boolean_or_inconsistent_execution_counts(self) -> None:
+        proposal = self.proposal()
+        proposal["selection"]["repeat"] = True
+        self._reseal(proposal)
+        with self.assertRaisesRegex(ValueError, "matrix"):
+            validate_budget_proposal(proposal)
+
+        proposal = self.proposal()
+        proposal["selection"]["planned_sample_runs"] += 1
+        self._reseal(proposal)
+        with self.assertRaisesRegex(ValueError, "matrix"):
+            validate_budget_proposal(proposal)
+
     def test_rejects_future_proposal_timestamp(self) -> None:
         proposal = self.proposal()
         proposal["created_at"] = "2999-01-01T00:00:00+00:00"
@@ -257,6 +271,13 @@ class CacheBudgetProposalTest(unittest.TestCase):
             "stop_conditions": ["after_any_run_failure"],
             "selection_reason": "human choice",
         }
+
+    @staticmethod
+    def _reseal(proposal: dict) -> None:
+        proposal.pop("proposal_sha256", None)
+        proposal.pop("proposal_id", None)
+        proposal["proposal_id"] = f"CBP-{canonical_json_sha256(proposal)[:16].upper()}"
+        proposal["proposal_sha256"] = canonical_json_sha256(proposal)
 
 
 if __name__ == "__main__":

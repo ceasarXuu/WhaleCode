@@ -146,6 +146,23 @@ class CacheRunContractTest(unittest.TestCase):
         self.assertEqual(proposal, self.proposal)
         self.assertEqual(authorization, self.authorization)
 
+    def test_rejects_duplicate_authorization_keys(self) -> None:
+        content = self.authorization_path.read_text(encoding="utf-8")
+        content = content.replace(
+            '"approved_maximums": {',
+            '"approved_maximums": {},\n  "approved_maximums": {',
+            1,
+        )
+        self.authorization_path.write_text(content, encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "duplicate JSON object key"):
+            load_authorized_proposal(
+                self.repo,
+                self.contract,
+                self.proposal_path,
+                self.authorization_path,
+            )
+
     def test_authorization_cannot_expand_selection_or_maximums(self) -> None:
         authorization = copy.deepcopy(self.authorization)
         authorization["approved_selection"]["repeat"] = 3

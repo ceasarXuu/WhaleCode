@@ -11,7 +11,7 @@ from cache_source_evidence import require, source_json, source_sha256
 
 
 def exact_int(value: Any, expected: int) -> bool:
-    return type(value) is int and value == expected
+    return type(value) is int and type(expected) is int and value == expected
 
 
 def validate_ledger(
