@@ -1,7 +1,7 @@
 # 第一批：完全无文本冲突的快速 backport 合入方案
 
-- 文档状态：计划已编写，代码尚未实施
-- 计划模式：Plan Authoring
+- 文档状态：代码 backport 已完成；Linux 验证完成，Windows 动态验证与 TUI 基线债务待关闭
+- 计划模式：Execution Tracking
 - 创建日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - 计划基线：`d4be990a332d934884b872951f6f1e6a831e8e1f`
@@ -84,15 +84,15 @@ git show "$upstream_sha" --format= --binary \
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| W0 | 冻结批次输入 | compatibility | 六个官方 commit 与目标路径 | upstream SHA、patch digest、vendor-base equality | 在实施前重跑对象存在、SHA-256、基线 equality 和 apply check | 执行输入与本文记录一致 | 防止上游 ref 漂移或本地新改动让“无冲突”结论失效 | 六项检查结果与第 3 节完全一致 | 任一不一致即停止，不应用任何 patch | planned |
-| W1 | 禁止 `git -C` 自动批准 | security | `codex-rs/shell-command/src/command_safety/` | `git_global_option_requires_prompt()`、`is_known_safe_command()` | 应用 `2e598df6`，把 `-C` 和 `-C<path>` 归入必须提示的 Git 全局选项 | 即使子命令看似只读，带 `-C` 的 Git 命令也不走已知安全自动批准 | 阻止仓库 `core.fsmonitor` 等配置借目录切换在无确认时执行 helper | 两个新增测试 + `cargo test -p codex-shell-command --lib` | focused/full test 任一失败则不提交；已提交后用 `git revert <W1-local-commit>` | planned |
-| W2 | 识别混合大小写 URL | security | `codex-rs/shell-command/src/command_safety/windows_dangerous_commands.rs` | `looks_like_url()` | 应用 `9deb4f9c8`，在定位 URL prefix 时进行 ASCII lowercase 比较并保留原始 slice | `HTTP://`、`hTtPs://` 等变体进入与小写 URL 相同的危险命令判断 | 降低 Windows PowerShell URL 大小写变体绕过安全判断的风险 | 新增 mixed-case 测试 + `cargo test -p codex-shell-command --lib` | 测试失败则不提交；已提交后单独 revert W2 | planned |
-| W3 | 禁止元数据读取启动 fsmonitor | security | `codex-rs/git-utils/src/info.rs`、`codex-rs/core/src/git_info_tests.rs` | `run_git_command_with_timeout()` | 应用 `6ec8c4a6`，为 Git metadata 命令固定追加 `-c core.fsmonitor=false` | Whale 的工作树状态采集不会执行 repository 自定义 fsmonitor helper | 降低打开陌生仓库时的隐式代码执行面，并减少元数据诊断副作用 | Unix helper marker 测试、`cargo test -p codex-git-utils --lib`、相关 `codex-core` test | 非 Git、clean、tracked/untracked 现有用例回归失败即停止；已提交后单独 revert W3 | planned |
-| W4 | 统一 Windows paste burst 判定窗口 | client | `codex-rs/tui/src/bottom_pane/paste_burst.rs` | `PASTE_BURST_CHAR_INTERVAL` | 应用 `36912ce3`，移除 Windows 30ms 特例，统一为 8ms | Windows 慢速键入更不容易被误判为 paste burst | 减少 VS Code/Windows 终端中正常输入被缓冲或吞键的用户体验问题 | `cargo test -p codex-tui paste_burst --lib`、`cargo test -p codex-tui --lib`、Windows TUI smoke | Windows smoke 未执行时批次保持未验证；失败则 revert W4 | planned |
-| W5 | 安全处理外部 borrowed slice | internal | `codex-rs/tui/src/wrapping.rs` | `borrowed_slice_range()` 与 wrapped range 计算 | 应用 `5d7e6a25`，先验证 slice 是否属于源文本，不属于时走已有 range mapping | wrapping 不再对外部 slice 做无效 pointer offset | 避免未定义行为，并让外部/合成 slice 的终端换行可预测 | 新增 rejection test、`cargo test -p codex-tui wrapping --lib`、`cargo test -p codex-tui --lib` | 任一 wrapping regression 失败即停止；已提交后单独 revert W5 | planned |
-| W6 | 消除 diff render 的 FileChange clone | performance | `codex-rs/tui/src/diff_render.rs` | `Row<'a>`、`collect_rows()`、`line_counts()`、`DiffSummary -> Renderable` | 应用 `c86b1be3`，列表渲染借用 change，消费式渲染移动 change，并集中行数计算 | diff 展示保持排序和内容不变，同时不再为每个文件复制完整 diff 内容 | 大 diff 场景减少不必要内存复制；收益来自明确移除 clone，不声明未经测量的延迟百分比 | `cargo test -p codex-tui diff_render --lib`、snapshot review、`cargo test -p codex-tui --lib` | snapshot 内容变化或排序变化即停止；已提交后单独 revert W6 | planned |
-| W7 | 验证批次集成 | compatibility | `third_party/codex-cli/codex-rs` workspace | 六个本地 backport commits | 在六项独立提交后执行格式、workspace check、CLI build、缓存 gate 和 Git clean 检查 | 六项可共同编译，Whale CLI 仍可构建，未误触 cache contract | 在进入下一上游批次前提供可复现的稳定检查点 | 第 7 节全部通过，HEAD 与远端一致 | 失败时定位首个引入提交并使用 `git revert`，不使用 reset | planned |
-| W8 | 固化追溯与失败原因 | observability | `docs/migration/codex-sync/`、本计划 | 新 dated sync log、work-unit execution table | 记录每个 upstream/local commit、patch digest、测试输出、平台缺口、revert 记录和最终状态 | 后续 vendor refresh 可识别已回移提交，失败无需重新调查 | 减少重复 backport 和故障归因成本，为下一批次提供审计证据 | 链接、commit、命令结果与 Git 历史逐项一致 | 只记录事实；验证未通过时标记 blocked/failed，不修改成乐观结论 | planned |
+| W0 | 冻结批次输入 | compatibility | 六个官方 commit 与目标路径 | upstream SHA、patch digest、vendor-base equality | 在实施前重跑对象存在、SHA-256、基线 equality 和 apply check | 执行输入与本文记录一致 | 防止上游 ref 漂移或本地新改动让“无冲突”结论失效 | 六项检查结果与第 3 节完全一致 | 任一不一致即停止，不应用任何 patch | verified |
+| W1 | 禁止 `git -C` 自动批准 | security | `codex-rs/shell-command/src/command_safety/` | `git_global_option_requires_prompt()`、`is_known_safe_command()` | 应用 `2e598df6`，把 `-C` 和 `-C<path>` 归入必须提示的 Git 全局选项 | 即使子命令看似只读，带 `-C` 的 Git 命令也不走已知安全自动批准 | 阻止仓库 `core.fsmonitor` 等配置借目录切换在无确认时执行 helper | 两个新增测试 + `cargo test -p codex-shell-command --lib` | focused/full test 任一失败则不提交；已提交后用 `git revert <W1-local-commit>` | verified `44e48e210` |
+| W2 | 识别混合大小写 URL | security | `codex-rs/shell-command/src/command_safety/windows_dangerous_commands.rs` | `looks_like_url()` | 应用 `9deb4f9c8`，在定位 URL prefix 时进行 ASCII lowercase 比较并保留原始 slice | `HTTP://`、`hTtPs://` 等变体进入与小写 URL 相同的危险命令判断 | 降低 Windows PowerShell URL 大小写变体绕过安全判断的风险 | 新增 mixed-case 测试 + `cargo test -p codex-shell-command --lib` | 测试失败则不提交；已提交后单独 revert W2 | merged `4162a91c9`；Windows test pending |
+| W3 | 禁止元数据读取启动 fsmonitor | security | `codex-rs/git-utils/src/info.rs`、`codex-rs/core/src/git_info_tests.rs` | `run_git_command_with_timeout()` | 应用 `6ec8c4a6`，为 Git metadata 命令固定追加 `-c core.fsmonitor=false` | Whale 的工作树状态采集不会执行 repository 自定义 fsmonitor helper | 降低打开陌生仓库时的隐式代码执行面，并减少元数据诊断副作用 | Unix helper marker 测试、`cargo test -p codex-git-utils --lib`、相关 `codex-core` test | 非 Git、clean、tracked/untracked 现有用例回归失败即停止；已提交后单独 revert W3 | verified `a5670f9a6` |
+| W4 | 统一 Windows paste burst 判定窗口 | client | `codex-rs/tui/src/bottom_pane/paste_burst.rs` | `PASTE_BURST_CHAR_INTERVAL` | 应用 `36912ce3`，移除 Windows 30ms 特例，统一为 8ms | Windows 慢速键入更不容易被误判为 paste burst | 减少 VS Code/Windows 终端中正常输入被缓冲或吞键的用户体验问题 | `cargo test -p codex-tui paste_burst --lib`、`cargo test -p codex-tui --lib`、Windows TUI smoke | Windows smoke 未执行时批次保持未验证；失败则 revert W4 | merged `00b9d9006`；Windows smoke pending |
+| W5 | 安全处理外部 borrowed slice | internal | `codex-rs/tui/src/wrapping.rs` | `borrowed_slice_range()` 与 wrapped range 计算 | 应用 `5d7e6a25`，先验证 slice 是否属于源文本，不属于时走已有 range mapping | wrapping 不再对外部 slice 做无效 pointer offset | 避免未定义行为，并让外部/合成 slice 的终端换行可预测 | 新增 rejection test、`cargo test -p codex-tui wrapping --lib`、`cargo test -p codex-tui --lib` | 任一 wrapping regression 失败即停止；已提交后单独 revert W5 | focused verified `595ff6d37` |
+| W6 | 消除 diff render 的 FileChange clone | performance | `codex-rs/tui/src/diff_render.rs` | `Row<'a>`、`collect_rows()`、`line_counts()`、`DiffSummary -> Renderable` | 应用 `c86b1be3`，列表渲染借用 change，消费式渲染移动 change，并集中行数计算 | diff 展示保持排序和内容不变，同时不再为每个文件复制完整 diff 内容 | 大 diff 场景减少不必要内存复制；收益来自明确移除 clone，不声明未经测量的延迟百分比 | `cargo test -p codex-tui diff_render --lib`、snapshot review、`cargo test -p codex-tui --lib` | snapshot 内容变化或排序变化即停止；已提交后单独 revert W6 | focused verified `2c81aca14` |
+| W7 | 验证批次集成 | compatibility | `third_party/codex-cli/codex-rs` workspace | 六个本地 backport commits | 在六项独立提交后执行格式、workspace check、CLI build、缓存 gate 和 Git clean 检查 | 六项可共同编译，Whale CLI 仍可构建，未误触 cache contract | 在进入下一上游批次前提供可复现的稳定检查点 | 第 7 节全部通过，HEAD 与远端一致 | 失败时定位首个引入提交并使用 `git revert`，不使用 reset | partial：TUI baseline 33 failures |
+| W8 | 固化追溯与失败原因 | observability | `docs/migration/codex-sync/`、本计划 | 新 dated sync log、work-unit execution table | 记录每个 upstream/local commit、patch digest、测试输出、平台缺口、revert 记录和最终状态 | 后续 vendor refresh 可识别已回移提交，失败无需重新调查 | 减少重复 backport 和故障归因成本，为下一批次提供审计证据 | 链接、commit、命令结果与 Git 历史逐项一致 | 只记录事实；验证未通过时标记 blocked/failed，不修改成乐观结论 | verified |
 
 ## 6. 实施阶段
 
@@ -187,12 +187,17 @@ cargo check -p codex-cli --bin whale --locked
 cargo test -p codex-shell-command --lib
 cargo test -p codex-git-utils --lib
 cargo test -p codex-tui --lib
-python3 ../../../scripts/cache-regression/check_cache_regression_gate.py --source index
 git diff --check
 git status --short --branch
 ```
 
-注意：最后的缓存 gate 从 `codex-rs` 目录执行时脚本相对路径如上；若从仓库根执行，则使用 `python3 scripts/cache-regression/check_cache_regression_gate.py --source index`。
+缓存门禁必须另从仓库根执行：
+
+```bash
+python3 scripts/cache-regression/check_cache_regression_gate.py --source index
+```
+
+脚本按当前工作目录解析仓库根；即使从 `codex-rs` 能通过相对路径启动脚本，也会错误地在该目录下查找 `benchmarks/`。
 
 ## 8. 提交、推送与回滚
 
