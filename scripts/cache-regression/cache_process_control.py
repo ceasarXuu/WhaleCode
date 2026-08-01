@@ -294,48 +294,66 @@ def cleanup_labeled_containers(
 
 
 def _cleanup_labeled_networks(run_id: str, timeout_seconds: int) -> dict[str, Any]:
-    try:
-        listed = subprocess.run(
-            [
-                "docker",
-                "network",
-                "ls",
-                "-q",
-                "--filter",
-                f"label=whalecode.run_id={run_id}",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=min(10, timeout_seconds),
-        )
-        network_ids = [item for item in listed.stdout.splitlines() if item.strip()]
-        if listed.returncode != 0:
-            return {
-                "status": "failed",
-                "network_ids": network_ids,
-                "error": listed.stderr.strip() or "docker network ls failed",
-            }
-        if not network_ids:
-            return {"status": "verified_absent", "network_ids": [], "error": ""}
-        removed = subprocess.run(
-            ["docker", "network", "rm", *network_ids],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=min(30, timeout_seconds),
-        )
-        return {
-            "status": "removed_verified" if removed.returncode == 0 else "failed",
-            "network_ids": network_ids,
-            "error": removed.stderr.strip() if removed.returncode != 0 else "",
-        }
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return {
-            "status": "failed",
-            "network_ids": [],
-            "error": f"{type(error).__name__}: {error}",
-        }
+    deadline = time.monotonic() + max(1, timeout_seconds)
+    removed_ids: set[str] = set()
+    stable_empty_polls = 0
+    last_error = ""
+    while time.monotonic() < deadline:
+        remaining = max(1, int(deadline - time.monotonic()))
+        try:
+            listed = subprocess.run(
+                [
+                    "docker",
+                    "network",
+                    "ls",
+                    "-q",
+                    "--filter",
+                    f"label=whalecode.run_id={run_id}",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=min(10, remaining),
+            )
+            network_ids = [item for item in listed.stdout.splitlines() if item.strip()]
+            if listed.returncode != 0:
+                stable_empty_polls = 0
+                last_error = listed.stderr.strip() or "docker network ls failed"
+            elif not network_ids:
+                stable_empty_polls += 1
+                if stable_empty_polls >= CLEANUP_STABLE_EMPTY_POLLS:
+                    return {
+                        "status": (
+                            "removed_verified" if removed_ids else "verified_absent"
+                        ),
+                        "network_ids": sorted(removed_ids),
+                        "error": "",
+                    }
+            else:
+                stable_empty_polls = 0
+                removed = subprocess.run(
+                    ["docker", "network", "rm", *network_ids],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=min(30, remaining),
+                )
+                removed_ids.update(network_ids)
+                if removed.returncode != 0:
+                    return {
+                        "status": "failed",
+                        "network_ids": sorted(removed_ids),
+                        "error": removed.stderr.strip() or "docker network rm failed",
+                    }
+        except (OSError, subprocess.TimeoutExpired) as error:
+            stable_empty_polls = 0
+            last_error = f"{type(error).__name__}: {error}"
+        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+    return {
+        "status": "failed",
+        "network_ids": sorted(removed_ids),
+        "error": last_error or "network cleanup grace expired",
+    }
 
 
 def _cleanup_run_secrets(run_root: Path, run_id: str) -> dict[str, Any]:

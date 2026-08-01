@@ -9,12 +9,16 @@ from pathlib import Path
 from typing import Any
 
 
-RESULT_SCHEMA_VERSION = "whalecode-cache-hit-regression-v4"
+RESULT_SCHEMA_VERSION = "whalecode-cache-hit-regression-v5"
 
 
 def canonical_json_sha256(value: Any) -> str:
     encoded = json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 

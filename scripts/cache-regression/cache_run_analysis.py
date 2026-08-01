@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
-import json
+import math
 from pathlib import Path
 from typing import Any
 
 from cache_evidence import file_sha256
+from cache_json import strict_json_loads
 from cache_usage_contract import SCHEMA_VERSION as PROVIDER_USAGE_CONTRACT_VERSION
 from cache_usage_contract import validate_cache_artifacts
 
@@ -35,7 +36,10 @@ CACHE_OBSERVATION_KEYS = (
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    value = strict_json_loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(value, dict):
+        raise ValueError("cache artifact must be an object")
+    return value
 
 
 def budget_observation_exceeded(
@@ -107,6 +111,15 @@ def analyze_artifact_values(
             f"cache artifact logical_mode does not match arm {arm}: "
             f"expected {expected_logical_mode}"
         )
+    trace_coverage = cache.get("trace_coverage")
+    if (
+        type(trace_coverage) not in {int, float}
+        or not math.isfinite(trace_coverage)
+        or not 0 <= trace_coverage <= 1
+    ):
+        raise ValueError("cache trace coverage must be a finite ratio")
+    if type(metrics.get("business_success")) is not bool:
+        raise ValueError("cache business success must be boolean")
     return {
         "arm": arm,
         "provider_usage_contract_version": PROVIDER_USAGE_CONTRACT_VERSION,
@@ -121,13 +134,13 @@ def analyze_artifact_values(
         "request_2_plus_uncached_input_tokens": usage[
             "request_2_plus_uncached_input_tokens"
         ],
-        "trace_coverage": float(cache["trace_coverage"]),
+        "trace_coverage": float(trace_coverage),
         "cache_usage_missing_count": usage["cache_usage_missing_count"],
         "input_tokens": usage["input_tokens"],
         "cached_input_tokens": usage["cached_input_tokens"],
         "uncached_input_tokens": usage["uncached_input_tokens"],
         "output_tokens": usage["output_tokens"],
-        "business_success": bool(metrics["business_success"]),
+        "business_success": metrics["business_success"],
         "artifacts": artifacts,
         "artifact_sha256": artifact_sha256,
     }

@@ -7,50 +7,15 @@ import subprocess
 from pathlib import Path
 
 from accepted_cache_baseline import ACCEPTANCE_SCHEMA_VERSION
+from cache_boundary_test_support import write_provider_boundary_evidence
 from cache_budget import BUDGET_PROPOSAL_SCHEMA_VERSION
 from cache_cost import complete_cost_from_counts
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
+from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION
 from cache_source_evidence import protected_manifest
 from cache_surface import load_contract, surface_snapshot, write_json
-
-
-def write_provider_boundary_evidence(
-    path: Path, request_count: int, model: str = "deepseek-v4-flash"
-) -> None:
-    hashes = [f"{index:064x}" for index in range(1, request_count + 1)]
-    write_json(
-        path,
-        {
-            "schema_version": "whalecode-provider-boundary-evidence-v1",
-            "status": "reconciled",
-            "expected_model": model,
-            "allowed_method": "POST",
-            "allowed_path": "/responses",
-            "boundary_request_count": request_count,
-            "wire_request_count": request_count,
-            "boundary_requests": [
-                {
-                    "count": index,
-                    "method": "POST",
-                    "path": "/responses",
-                    "model": model,
-                    "body_sha256": digest,
-                }
-                for index, digest in enumerate(hashes, 1)
-            ],
-            "wire_requests": [
-                {
-                    "request_id": f"request-{index}",
-                    "request_count_after": index,
-                    "provider_payload_sha256": digest,
-                }
-                for index, digest in enumerate(hashes, 1)
-            ],
-            "errors": [],
-        },
-    )
 
 
 def git(repo: Path, *args: str) -> str:
@@ -150,6 +115,8 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
     request_path = artifacts_root / "request-summary.json"
     metrics_path = artifacts_root / "metrics.json"
     boundary_path = artifacts_root / "provider-boundary-evidence.json"
+    execution_argv_path = artifacts_root / "whale-argv.json"
+    logical_mode_map_path = artifacts_root / "logical-mode-map.json"
     write_json(
         cache_path,
         {
@@ -177,6 +144,9 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         {"logical_mode": "standard", "business_success": True},
     )
     write_provider_boundary_evidence(boundary_path, 3)
+    argv_value, mode_map_value = fixture_arm_identity("standard")
+    write_json(execution_argv_path, argv_value)
+    write_json(logical_mode_map_path, mode_map_value)
     observation = analyze_artifacts(
         cache_path,
         request_path,
@@ -189,6 +159,18 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         key: Path(path).relative_to(repo).as_posix()
         for key, path in observation["artifacts"].items()
     }
+    observation["artifacts"].update(
+        {
+            "execution_argv": execution_argv_path.relative_to(repo).as_posix(),
+            "logical_mode_map": logical_mode_map_path.relative_to(repo).as_posix(),
+        }
+    )
+    observation["artifact_sha256"].update(
+        {
+            "execution_argv": file_sha256(execution_argv_path),
+            "logical_mode_map": file_sha256(logical_mode_map_path),
+        }
+    )
     observation.update(
         {
             "sample": "simple",

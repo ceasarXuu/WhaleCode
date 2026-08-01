@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import subprocess
 import unittest
 from pathlib import Path
 
 from cache_evidence import canonical_json_sha256, file_sha256
+from cache_arm_identity import fixture_arm_identity
 from cache_gate_evidence import changed_scenarios
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import execution_matrix
@@ -24,6 +26,22 @@ def run(*args: str, cwd: Path) -> str:
 
 
 class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
+    def _replace_observation_artifact(
+        self, result: dict, observation_index: int, key: str, value: dict
+    ) -> None:
+        observation = result["observations"][observation_index]
+        path = self.repo / observation["artifacts"][key]
+        write_json(path, value)
+        observation["artifact_sha256"][key] = file_sha256(path)
+        result["evidence_sha256"] = canonical_json_sha256(
+            [
+                {**scope, "artifact_sha256": item["artifact_sha256"]}
+                for scope, item in zip(
+                    execution_matrix(self.proposal), result["observations"]
+                )
+            ]
+        )
+
     def test_rejects_standard_artifacts_relabelled_as_taskspace(self) -> None:
         forged = copy.deepcopy(self.result["observations"][0])
         forged.update(
@@ -243,7 +261,54 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         self.result = result
         self.write_ledger()
 
-        with self.assertRaisesRegex(ValueError, "elapsed|failed attempt"):
+        with self.assertRaisesRegex(ValueError, "envelope|elapsed|failed attempt"):
+            self.validate(result=result)
+
+    def test_rejects_false_runner_exit_code_in_full_promotion(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["runner_exit_code"] = False
+        self.result = result
+        self.write_ledger()
+
+        with self.assertRaisesRegex(ValueError, "envelope"):
+            self.validate(result=result)
+
+    def test_rejects_nan_business_success_in_full_promotion(self) -> None:
+        result = copy.deepcopy(self.result)
+        self._replace_observation_artifact(
+            result,
+            0,
+            "metrics",
+            {"logical_mode": "standard", "business_success": math.nan},
+        )
+        with self.assertRaisesRegex(ValueError, "invalid|constant|boolean"):
+            self.validate(result=result)
+
+    def test_rejects_infinite_trace_coverage_in_full_promotion(self) -> None:
+        result = copy.deepcopy(self.result)
+        self._replace_observation_artifact(
+            result,
+            0,
+            "cache_summary",
+            {
+                "provider_request_count": 3,
+                "request_2_plus_count": 2,
+                "request_2_plus_cached_input_tokens": 90,
+                "request_2_plus_uncached_input_tokens": 10,
+                "request_2_plus_hit_rate": 0.9,
+                "trace_coverage": math.inf,
+                "cache_usage_missing_count": 0,
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "invalid|constant|finite"):
+            self.validate(result=result)
+
+    def test_rejects_taskspace_arm_with_standard_launch_identity(self) -> None:
+        result = copy.deepcopy(self.result)
+        standard_argv, _ = fixture_arm_identity("standard")
+        self._replace_observation_artifact(result, 1, "execution_argv", standard_argv)
+
+        with self.assertRaisesRegex(ValueError, "execution identity|taskspace"):
             self.validate(result=result)
 
     def test_rejects_incomplete_runner_or_authorization_envelope(self) -> None:
@@ -299,6 +364,12 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
             "deepseek-v4-flash",
         )
         recomputed["artifacts"] = observation["artifacts"]
+        recomputed["artifact_sha256"].update(
+            {
+                key: observation["artifact_sha256"][key]
+                for key in ("execution_argv", "logical_mode_map")
+            }
+        )
         recomputed.update(
             {
                 "sample": "simple",

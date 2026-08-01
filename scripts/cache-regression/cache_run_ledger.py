@@ -102,6 +102,18 @@ def claim_entry(path: Path, entry: dict[str, Any]) -> None:
     _locked_ledger(path, claim)
 
 
+def entry_exists(path: Path, record_id: str) -> bool:
+    """Return whether a claim reached durable ledger storage."""
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        _lock_file(lock)
+        try:
+            ledger = json.loads(path.read_text(encoding="utf-8"))
+            return any(item.get("record_id") == record_id for item in ledger["entries"])
+        finally:
+            _unlock_file(lock)
+
+
 def store_entry(path: Path, entry: dict[str, Any]) -> None:
     def store(ledger: dict[str, Any]) -> None:
         matches = [

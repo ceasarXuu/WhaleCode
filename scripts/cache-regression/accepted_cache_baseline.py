@@ -3,14 +3,15 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any
 
-from cache_budget import validate_budget_proposal, validate_gate_trigger
+from cache_acceptance_identity import validate_proposal_identity
+from cache_budget import validate_gate_trigger
 from cache_cost import settled_monetary_cost
 from cache_elapsed import is_elapsed_number, validate_elapsed_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
+from cache_arm_identity import validate_arm_identity
 from cache_gate_evidence import changed_scenarios
 from cache_run_analysis import (
     CACHE_OBSERVATION_KEYS,
@@ -36,33 +37,6 @@ from cache_time import parse_timestamp, require_not_future, require_ordered
 ACCEPTANCE_SCHEMA_VERSION = "whalecode-cache-baseline-acceptance-v1"
 
 
-def validate_proposal(
-    repo: Path,
-    proposal: dict[str, Any],
-    result: dict[str, Any],
-    require_current_head: bool,
-) -> None:
-    validate_budget_proposal(proposal)
-    require(
-        proposal.get("proposal_id") == result.get("proposal_id")
-        and proposal.get("proposal_sha256") == result.get("proposal_sha256"),
-        "cache proposal identity mismatch",
-    )
-    require(
-        proposal.get("subject_commit") == result.get("subject_commit")
-        and proposal.get("surface_sha256") == result.get("surface_sha256")
-        and proposal.get("selection") == result.get("observed_scope"),
-        "cache proposal source or scope mismatch",
-    )
-    if require_current_head:
-        head = subprocess.check_output(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
-        ).strip()
-        require(
-            proposal["subject_commit"] == head, "cache proposal is not current HEAD"
-        )
-
-
 def validate_observation(
     repo: Path,
     result: dict[str, Any],
@@ -82,6 +56,8 @@ def validate_observation(
             "request_summary",
             "metrics",
             "provider_boundary",
+            "execution_argv",
+            "logical_mode_map",
         )
     }
     require(
@@ -100,6 +76,11 @@ def validate_observation(
     request = source_json(repo, artifacts["request_summary"], source)["rollout_trace"]
     metrics = source_json(repo, artifacts["metrics"], source)
     boundary = source_json(repo, artifacts["provider_boundary"], source)
+    validate_arm_identity(
+        source_json(repo, artifacts["execution_argv"], source),
+        source_json(repo, artifacts["logical_mode_map"], source),
+        observation["arm"],
+    )
     recomputed = analyze_artifact_values(
         cache,
         request,
@@ -305,7 +286,7 @@ def validate_run_evidence(
     authorization_path = relative_path(repo, acceptance.get("authorization_path"))
     proposal = source_json(repo, proposal_path, source)
     authorization = source_json(repo, authorization_path, source)
-    validate_proposal(repo, proposal, result, require_current_head)
+    validate_proposal_identity(repo, proposal, result, require_current_head)
     if require_current_head:
         actual_surface, _ = surface_snapshot(repo, contract, source)
         require(

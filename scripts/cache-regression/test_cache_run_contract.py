@@ -245,8 +245,7 @@ class CacheRunContractTest(unittest.TestCase):
             source,
         )
         self.assertIn(
-            '$childEnvironment["WHALE_PROVIDER_BOUNDARY"] = '
-            '"docker-isolated-proxy-v1"',
+            '$childEnvironment["WHALE_PROVIDER_BOUNDARY"] = "docker-isolated-proxy-v1"',
             source,
         )
         self.assertIn("$ProviderRequestHardLimit $Model $TimeoutSeconds", source)

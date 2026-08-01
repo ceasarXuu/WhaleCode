@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import time
 import uuid
@@ -14,11 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
+from cache_arm_identity import validate_arm_identity
+from cache_json import strict_json_loads
 from cache_process_control import (
     cleanup_labeled_containers,
     cleanup_verified,
     run_benchmark_command,
 )
+from cache_run_environment import ensure_deepseek_api_key, find_run_dir_by_id
 from cache_run_analysis import (
     analyze_arm,
     analyze_artifacts,
@@ -32,6 +34,7 @@ from cache_run_contract import (
 )
 from cache_run_ledger import (
     claim_entry,
+    entry_exists,
     now,
     planned_entry,
     store_entry,
@@ -39,39 +42,6 @@ from cache_run_ledger import (
 from cache_run_result import finalize_run_result
 from cache_run_supervision import emergency_cleanup, finalize_and_persist
 from cache_surface import load_contract
-
-
-def ensure_deepseek_api_key(repo: Path) -> str:
-    if os.environ.get("DEEPSEEK_API_KEY", "").strip():
-        return "process_environment"
-    env_path = repo / ".env.local"
-    if not env_path.is_file():
-        raise RuntimeError("DEEPSEEK_API_KEY is missing and .env.local does not exist")
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line.removeprefix("export ").lstrip()
-        key, separator, value = line.partition("=")
-        if separator and key.strip() == "DEEPSEEK_API_KEY":
-            value = value.strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-                value = value[1:-1]
-            if not value:
-                break
-            os.environ["DEEPSEEK_API_KEY"] = value
-            return ".env.local"
-    raise RuntimeError("DEEPSEEK_API_KEY is missing from .env.local")
-
-
-def find_run_dir_by_id(run_root: Path, run_id: str) -> Path:
-    candidates = [path for path in run_root.glob(f"*/{run_id}") if path.is_dir()]
-    if len(candidates) != 1:
-        raise RuntimeError(
-            f"benchmark run id {run_id} resolved to {len(candidates)} directories"
-        )
-    return candidates[0]
 
 
 def persist_observation_artifacts(
@@ -89,10 +59,21 @@ def persist_observation_artifacts(
         "request_summary": "request-summary.json",
         "metrics": "metrics.json",
         "provider_boundary": "provider-boundary-evidence.json",
+        "execution_argv": "whale-argv.json",
+        "logical_mode_map": "logical-mode-map.json",
+    }
+    metrics_source = Path(observation["artifacts"]["metrics"])
+    source_paths = {
+        **{
+            key: Path(observation["artifacts"][key]) for key in observation["artifacts"]
+        },
+        "execution_argv": metrics_source.parent / "whale-argv.json",
+        "logical_mode_map": metrics_source.parent.parent.parent
+        / "logical-mode-map.json",
     }
     persisted = {}
     for key, filename in artifact_names.items():
-        source = Path(observation["artifacts"][key])
+        source = source_paths[key]
         if not source.is_file():
             raise FileNotFoundError(f"cache observation artifact is missing: {key}")
         target = destination / filename
@@ -125,8 +106,18 @@ def persist_observation_artifacts(
         or durable["artifact_sha256"] != observation["artifact_sha256"]
     ):
         raise ValueError("persisted cache observation does not match source artifacts")
+    validate_arm_identity(
+        strict_json_loads(persisted["execution_argv"].read_text(encoding="utf-8-sig")),
+        strict_json_loads(
+            persisted["logical_mode_map"].read_text(encoding="utf-8-sig")
+        ),
+        arm,
+    )
     durable["artifacts"] = {
         key: path.relative_to(repo).as_posix() for key, path in persisted.items()
+    }
+    durable["artifact_sha256"] = {
+        key: file_sha256(path) for key, path in persisted.items()
     }
     return durable
 
@@ -144,7 +135,7 @@ def persist_provider_boundary_accounting(
     )
     if not source.is_file():
         raise FileNotFoundError("provider boundary accounting evidence is missing")
-    boundary = json.loads(source.read_text(encoding="utf-8-sig"))
+    boundary = strict_json_loads(source.read_text(encoding="utf-8-sig"))
     request_count = validate_provider_boundary_accounting(boundary, expected_model)
     destination = repo / "benchmarks/cache-regression/evidence" / record_id / run_id
     destination.mkdir(parents=True, exist_ok=False)
@@ -192,71 +183,20 @@ def execution_completed(
     )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--proposal", type=Path, required=True)
-    parser.add_argument("--authorization", type=Path, required=True)
-    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument(
-        "--whale-bin", type=Path, default=Path.home() / ".whale/bin/whale"
-    )
-    parser.add_argument("--run-root", type=Path)
-    args = parser.parse_args()
-    repo = args.repo_root.resolve()
-    contract_path = repo / "benchmarks/cache-regression/cache-surface-contract.json"
-    contract = load_contract(contract_path)
-    try:
-        proposal, authorization, proposal_path, authorization_path = (
-            load_authorized_proposal(repo, contract, args.proposal, args.authorization)
-        )
-        matrix = execution_matrix(proposal)
-    except (KeyError, TypeError, ValueError) as error:
-        raise SystemExit(str(error)) from error
-    credential_source = ensure_deepseek_api_key(repo)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    record_id = f"WAR-{stamp}-CACHE-REGRESSION-{uuid.uuid4().hex[:8].upper()}"
-    run_root = args.run_root or repo / "target/cache-hit-regression" / record_id
-    result_path = repo / "benchmarks/cache-regression/results" / f"{record_id}.json"
-    ledger_path = repo / "benchmarks/whale-agent-run-ledger.json"
-    entry = planned_entry(
-        record_id,
-        proposal,
-        authorization,
-        proposal_path,
-        authorization_path,
-        repo,
-        run_root,
-    )
-    try:
-        claim_entry(ledger_path, entry)
-    except ValueError as error:
-        raise SystemExit(str(error)) from error
-
-    started = time.time()
+def execute_attempts(
+    repo: Path,
+    whale_bin: Path,
+    run_root: Path,
+    record_id: str,
+    proposal: dict[str, Any],
+    matrix: list[dict[str, Any]],
+    result: dict[str, Any],
+    entry: dict[str, Any],
+    ledger_path: Path,
+) -> tuple[str | None, bool, bool, bool]:
     selection = proposal["selection"]
     limits = proposal["per_sample_run_limits"]
     thresholds = proposal["per_sample_run_observation_thresholds"]
-    result = {
-        "schema_version": RESULT_SCHEMA_VERSION,
-        "record_id": record_id,
-        "status": "failed",
-        "started_at": now(),
-        "subject_commit": proposal["subject_commit"],
-        "surface_sha256": proposal["surface_sha256"],
-        "proposal_id": proposal["proposal_id"],
-        "proposal_sha256": proposal["proposal_sha256"],
-        "authorization_reference": authorization["approval_reference"],
-        "authorization_sha256": file_sha256(authorization_path),
-        "observed_scope": selection,
-        "unverified_scope": [],
-        "evidence_boundary": proposal["evidence_boundary"],
-        "actual_sample_runs": 0,
-        "credential_source": credential_source,
-        "run_root": str(run_root.relative_to(repo)),
-        "result_path": str(result_path.relative_to(repo)),
-        "attempts": [],
-        "observations": [],
-    }
     stop_at = None
     cancelled = False
     cleanup_failed = False
@@ -264,7 +204,7 @@ def main() -> int:
     for index, execution in enumerate(matrix, start=1):
         run_id = f"{record_id}-CACHE-{index:03d}"
         command = benchmark_command(
-            repo, args.whale_bin, run_root, run_id, proposal, execution
+            repo, whale_bin, run_root, run_id, proposal, execution
         )
         attempt = {**execution, "run_id": run_id, "status": "running"}
         result["attempts"].append(attempt)
@@ -407,24 +347,132 @@ def main() -> int:
             )
             attempt["stop_reason"] = stop_at
             break
+    return stop_at, cancelled, cleanup_failed, supervision_failed
 
-    finalize_and_persist(
-        entry,
-        result,
-        result_path,
-        ledger_path,
-        started,
-        lambda: finalize_run_result(
-            result,
-            matrix,
-            stop_at,
-            cleanup_failed=cleanup_failed,
-            supervision_failed=supervision_failed,
-            cancelled=cancelled,
-            started=started,
-            execution_completed=execution_completed,
-        ),
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--proposal", type=Path, required=True)
+    parser.add_argument("--authorization", type=Path, required=True)
+    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--whale-bin", type=Path, default=Path.home() / ".whale/bin/whale"
     )
+    parser.add_argument("--run-root", type=Path)
+    args = parser.parse_args()
+    repo = args.repo_root.resolve()
+    contract_path = repo / "benchmarks/cache-regression/cache-surface-contract.json"
+    contract = load_contract(contract_path)
+    try:
+        proposal, authorization, proposal_path, authorization_path = (
+            load_authorized_proposal(repo, contract, args.proposal, args.authorization)
+        )
+        matrix = execution_matrix(proposal)
+    except (KeyError, TypeError, ValueError) as error:
+        raise SystemExit(str(error)) from error
+    credential_source = ensure_deepseek_api_key(repo)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    record_id = f"WAR-{stamp}-CACHE-REGRESSION-{uuid.uuid4().hex[:8].upper()}"
+    run_root = args.run_root or repo / "target/cache-hit-regression" / record_id
+    result_path = repo / "benchmarks/cache-regression/results" / f"{record_id}.json"
+    ledger_path = repo / "benchmarks/whale-agent-run-ledger.json"
+    entry = planned_entry(
+        record_id,
+        proposal,
+        authorization,
+        proposal_path,
+        authorization_path,
+        repo,
+        run_root,
+    )
+    started = time.time()
+    selection = proposal["selection"]
+    limits = proposal["per_sample_run_limits"]
+    result = {
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "record_id": record_id,
+        "status": "failed",
+        "started_at": now(),
+        "subject_commit": proposal["subject_commit"],
+        "surface_sha256": proposal["surface_sha256"],
+        "proposal_id": proposal["proposal_id"],
+        "proposal_sha256": proposal["proposal_sha256"],
+        "authorization_reference": authorization["approval_reference"],
+        "authorization_sha256": file_sha256(authorization_path),
+        "observed_scope": selection,
+        "unverified_scope": [],
+        "evidence_boundary": proposal["evidence_boundary"],
+        "actual_sample_runs": 0,
+        "credential_source": credential_source,
+        "run_root": str(run_root.relative_to(repo)),
+        "result_path": str(result_path.relative_to(repo)),
+        "attempts": [],
+        "observations": [],
+    }
+    stop_at = None
+    cancelled = False
+    cleanup_failed = False
+    supervision_failed = False
+    claim_error = None
+    try:
+        try:
+            claim_entry(ledger_path, entry)
+        except ValueError as error:
+            claim_error = error
+        if claim_error is None:
+            stop_at, cancelled, cleanup_failed, supervision_failed = execute_attempts(
+                repo,
+                args.whale_bin,
+                run_root,
+                record_id,
+                proposal,
+                matrix,
+                result,
+                entry,
+                ledger_path,
+            )
+    except BaseException as error:
+        supervision_failed = True
+        stop_at = (
+            "supervisor_interrupted"
+            if isinstance(error, KeyboardInterrupt)
+            else "supervisor_failure"
+        )
+        if result["attempts"]:
+            attempt = result["attempts"][-1]
+            recovery = emergency_cleanup(
+                cleanup_labeled_containers,
+                attempt["run_id"],
+                limits["cleanup_grace_seconds"],
+                run_root,
+            )
+            attempt["supervisor_cleanup"] = recovery
+            attempt["post_run_cleanup"] = recovery
+            attempt["status"] = "failed"
+            attempt["execution_error"] = f"{type(error).__name__}: {error}"
+            attempt["stop_reason"] = stop_at
+            cleanup_failed = not cleanup_verified(recovery)
+    finally:
+        if claim_error is None and entry_exists(ledger_path, record_id):
+            finalize_and_persist(
+                entry,
+                result,
+                result_path,
+                ledger_path,
+                started,
+                lambda: finalize_run_result(
+                    result,
+                    matrix,
+                    stop_at,
+                    cleanup_failed=cleanup_failed,
+                    supervision_failed=supervision_failed,
+                    cancelled=cancelled,
+                    started=started,
+                    execution_completed=execution_completed,
+                ),
+            )
+    if claim_error is not None:
+        raise SystemExit(str(claim_error)) from claim_error
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result["runner_exit_code"]
 

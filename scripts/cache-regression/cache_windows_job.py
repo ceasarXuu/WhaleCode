@@ -18,6 +18,7 @@ WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
 RESUME_THREAD_FAILED = 0xFFFFFFFF
 TERMINATE_PROCESS_ATTEMPTS = 3
+_RETAINED_PROCESS_HANDLES: dict[int, tuple[object, wintypes.HANDLE]] = {}
 
 
 class JobObjectError(OSError):
@@ -216,6 +217,8 @@ class WindowsJobProcess:
 def start_windows_job_process(
     command: list[str], cwd: Path
 ) -> tuple[WindowsJobProcess, WindowsKillOnCloseJob]:
+    if not retry_retained_process_cleanup():
+        raise JobObjectError("a previously created benchmark process is still owned")
     job = WindowsKillOnCloseJob()
     process_info = None
     thread_handle = None
@@ -255,15 +258,21 @@ def start_windows_job_process(
     except BaseException as error:
         cleanup_errors = []
         if process_info is not None and process_info.hProcess:
-            cleanup_errors = _terminate_and_close_created_process(
-                kernel32,
-                process_info.hProcess,
-                thread_handle or process_info.hThread,
-                int(process_info.dwProcessId),
-            )
+            try:
+                cleanup_errors = _terminate_and_close_created_process(
+                    kernel32,
+                    process_info.hProcess,
+                    thread_handle or process_info.hThread,
+                    int(process_info.dwProcessId),
+                )
+            except BaseException as cleanup_error:
+                cleanup_errors.append(
+                    f"process cleanup interrupted: {type(cleanup_error).__name__}: "
+                    f"{cleanup_error}"
+                )
         try:
             job.close()
-        except OSError as cleanup_error:
+        except BaseException as cleanup_error:
             cleanup_errors.append(f"job close failed: {cleanup_error}")
         if cleanup_errors:
             raise JobObjectError("; ".join(cleanup_errors)) from error
@@ -312,13 +321,15 @@ def _terminate_and_close_created_process(
     errors = []
     terminated = False
     for _ in range(TERMINATE_PROCESS_ATTEMPTS):
-        if kernel32.TerminateProcess(process_handle, 1):
+        try:
+            terminate_requested = kernel32.TerminateProcess(process_handle, 1)
+            wait_ms = 5000 if terminate_requested else 0
             terminated = (
-                kernel32.WaitForSingleObject(process_handle, 5000) == WAIT_OBJECT_0
+                kernel32.WaitForSingleObject(process_handle, wait_ms) == WAIT_OBJECT_0
             )
-        else:
-            terminated = (
-                kernel32.WaitForSingleObject(process_handle, 0) == WAIT_OBJECT_0
+        except BaseException as error:
+            errors.append(
+                f"TerminateProcess attempt interrupted: {type(error).__name__}: {error}"
             )
         if terminated:
             break
@@ -335,9 +346,10 @@ def _terminate_and_close_created_process(
                 kernel32.WaitForSingleObject(process_handle, 5000) == WAIT_OBJECT_0
             )
             fallback_error = fallback.stderr.strip()
-        except (OSError, subprocess.TimeoutExpired) as error:
+        except BaseException as error:
             fallback_error = f"{type(error).__name__}: {error}"
         if not terminated:
+            _RETAINED_PROCESS_HANDLES[process_id] = (kernel32, process_handle)
             errors.append(
                 "TerminateProcess failed; "
                 + (fallback_error or "taskkill failed")
@@ -345,10 +357,22 @@ def _terminate_and_close_created_process(
             )
     handles = [("thread", thread_handle)]
     if terminated:
+        _RETAINED_PROCESS_HANDLES.pop(process_id, None)
         handles.append(("process", process_handle))
     for label, handle in handles:
         try:
             _close_handle(kernel32, handle)
-        except OSError as error:
+        except BaseException as error:
             errors.append(f"{label} handle close failed: {error}")
     return errors
+
+
+def retry_retained_process_cleanup() -> bool:
+    """Retry and retain ownership of any suspended process left by setup failure."""
+    for process_id, (kernel32, process_handle) in list(
+        _RETAINED_PROCESS_HANDLES.items()
+    ):
+        _terminate_and_close_created_process(
+            kernel32, process_handle, wintypes.HANDLE(), process_id
+        )
+    return not _RETAINED_PROCESS_HANDLES

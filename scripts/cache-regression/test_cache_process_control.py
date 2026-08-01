@@ -17,6 +17,7 @@ from cache_process_control import (
 )
 from cache_run_execution_test_support import CacheRunExecutionFixture
 from cache_windows_job import (
+    _RETAINED_PROCESS_HANDLES,
     JobObjectError,
     _ProcessInformation,
     WindowsKillOnCloseJob,
@@ -25,6 +26,14 @@ from cache_windows_job import (
 
 
 class CacheProcessControlTest(CacheRunExecutionFixture):
+    def setUp(self) -> None:
+        super().setUp()
+        _RETAINED_PROCESS_HANDLES.clear()
+
+    def tearDown(self) -> None:
+        _RETAINED_PROCESS_HANDLES.clear()
+        super().tearDown()
+
     def test_timeout_cleanup_removes_all_run_labeled_containers(self) -> None:
         completed = [
             type(
@@ -35,7 +44,7 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             )(),
             *[
                 type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-                for _ in range(4)
+                for _ in range(6)
             ],
         ]
         with (
@@ -332,7 +341,7 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             )(),
             *[
                 type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-                for _ in range(4)
+                for _ in range(6)
             ],
         ]
         with (
@@ -355,9 +364,15 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             type(
                 "Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""}
             )(),
+            type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
             type(
-                "Completed", (), {"returncode": 0, "stdout": "net-one\n", "stderr": ""}
+                "Completed", (), {"returncode": 0, "stdout": "net-late\n", "stderr": ""}
             )(),
+            type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
+            *[
+                type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+                for _ in range(3)
+            ],
         ]
         with (
             patch("cache_process_control.subprocess.run", side_effect=completed) as run,
@@ -365,10 +380,14 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         ):
             result = cleanup_labeled_containers("CACHE-NETWORK", 10, self.repo)
         self.assertEqual(result["network_cleanup_status"], "removed_verified")
-        self.assertEqual(result["network_ids"], ["net-one"])
+        self.assertEqual(result["network_ids"], ["net-late", "net-one"])
         self.assertEqual(
             run.call_args_list[4].args[0],
             ["docker", "network", "rm", "net-one"],
+        )
+        self.assertEqual(
+            run.call_args_list[6].args[0],
+            ["docker", "network", "rm", "net-late"],
         )
 
     def test_cleanup_erases_host_provider_secret_before_verification(self) -> None:
@@ -383,7 +402,7 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         completed = [
             *[
                 type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-                for _ in range(4)
+                for _ in range(6)
             ]
         ]
         with (

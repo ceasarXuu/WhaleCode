@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from cache_elapsed import is_elapsed_number
+
 
 def parse_timestamp(value: Any, label: str) -> datetime:
     if not isinstance(value, str) or not value.strip():
@@ -21,9 +23,10 @@ def validate_result_envelope(result: dict[str, Any], result_path: str) -> None:
     ended = parse_timestamp(result.get("ended_at"), "cache result ended_at")
     valid = (
         ended >= started
-        and isinstance(result.get("elapsed_seconds"), (int, float))
+        and is_elapsed_number(result.get("elapsed_seconds"))
         and result["elapsed_seconds"] >= 0
-        and result.get("runner_exit_code") == 0
+        and type(result.get("runner_exit_code")) is int
+        and result["runner_exit_code"] == 0
         and result.get("result_path") == result_path
         and isinstance(result.get("run_root"), str)
         and result["run_root"].strip()

@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from cache_baseline_test_support import write_provider_boundary_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
+from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
 from cache_run_execution_test_support import CacheRunExecutionFixture
 from cache_surface import write_json
@@ -366,12 +367,14 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
         self._assert_post_wait_interrupt_is_settled("evidence")
 
     def test_persists_recomputable_artifacts_outside_target(self) -> None:
-        source = self.repo / "target/source"
+        source = self.repo / "target/run/pair-001/left/artifacts"
         source.mkdir(parents=True)
         cache = source / "provider-cache-trace-summary.json"
         request = source / "request-summary.json"
         metrics = source / "metrics.json"
         boundary = source / "provider-boundary-evidence.json"
+        execution_argv = source / "whale-argv.json"
+        logical_mode_map = source.parent.parent / "logical-mode-map.json"
         write_json(
             cache,
             {
@@ -399,6 +402,9 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
             {"logical_mode": "standard", "business_success": True},
         )
         write_provider_boundary_evidence(boundary, 2)
+        argv_value, mode_map_value = fixture_arm_identity("standard")
+        write_json(execution_argv, argv_value)
+        write_json(logical_mode_map, mode_map_value)
         observation = analyze_artifacts(
             cache,
             request,

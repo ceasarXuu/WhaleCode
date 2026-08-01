@@ -97,9 +97,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             write_provider_boundary_evidence(
                 artifacts / "provider-boundary-evidence.json", 3
             )
-            arm = analyze_arm(
-                run_dir, "left", "standard", "deepseek-v4-flash"
-            )
+            arm = analyze_arm(run_dir, "left", "standard", "deepseek-v4-flash")
             self.assertEqual(arm["uncached_input_tokens"], 100)
             self.assertEqual(arm["request_2_plus_hit_rate"], 0.91)
 
@@ -241,9 +239,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             evidence["boundary_request_count"] = 3
             boundary.write_text(json.dumps(evidence), encoding="utf-8")
             self.assertEqual(
-                validate_provider_boundary_accounting(
-                    evidence, "deepseek-v4-flash"
-                ),
+                validate_provider_boundary_accounting(evidence, "deepseek-v4-flash"),
                 3,
             )
             with self.assertRaisesRegex(ValueError, "request count"):

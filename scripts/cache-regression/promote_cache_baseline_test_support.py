@@ -15,6 +15,7 @@ from cache_baseline_test_support import (
     write_settled_ledger,
 )
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
+from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
 from cache_surface import load_contract, surface_snapshot, write_json
@@ -253,6 +254,8 @@ class PromoteCacheBaselineFixture:
         request = artifacts / "request-summary.json"
         metrics = artifacts / "metrics.json"
         boundary = artifacts / "provider-boundary-evidence.json"
+        execution_argv = artifacts / "whale-argv.json"
+        logical_mode_map = artifacts / "logical-mode-map.json"
         write_json(
             cache,
             {
@@ -283,6 +286,9 @@ class PromoteCacheBaselineFixture:
             },
         )
         write_provider_boundary_evidence(boundary, 3)
+        argv_value, mode_map_value = fixture_arm_identity(arm)
+        write_json(execution_argv, argv_value)
+        write_json(logical_mode_map, mode_map_value)
         observation = analyze_artifacts(
             cache, request, metrics, boundary, arm, "deepseek-v4-flash"
         )
@@ -290,6 +296,18 @@ class PromoteCacheBaselineFixture:
             key: Path(path).relative_to(self.repo).as_posix()
             for key, path in observation["artifacts"].items()
         }
+        observation["artifacts"].update(
+            {
+                "execution_argv": execution_argv.relative_to(self.repo).as_posix(),
+                "logical_mode_map": logical_mode_map.relative_to(self.repo).as_posix(),
+            }
+        )
+        observation["artifact_sha256"].update(
+            {
+                "execution_argv": file_sha256(execution_argv),
+                "logical_mode_map": file_sha256(logical_mode_map),
+            }
+        )
         observation.update(
             {
                 "sample": "simple",

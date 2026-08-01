@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from cache_evidence import canonical_json_sha256
+from cache_json import strict_json_loads
 from cache_surface import read_content, tracked_paths
 
 
@@ -39,8 +39,10 @@ def source_bytes(repo: Path, raw_path: str, source: str) -> bytes:
 
 def source_json(repo: Path, raw_path: str, source: str) -> dict[str, Any]:
     try:
-        value = json.loads(source_bytes(repo, raw_path, source).decode("utf-8-sig"))
-    except (UnicodeError, json.JSONDecodeError) as error:
+        value = strict_json_loads(
+            source_bytes(repo, raw_path, source).decode("utf-8-sig")
+        )
+    except (UnicodeError, ValueError) as error:
         raise ValueError(f"cache evidence is invalid: {raw_path}") from error
     require(isinstance(value, dict), "cache evidence must be an object")
     return value
@@ -57,7 +59,7 @@ def snapshot_payload(content: bytes) -> dict[str, Any]:
         text.startswith("---\n") and separator in text,
         "invalid accepted final-wire snapshot",
     )
-    payload = json.loads(text.split(separator, 1)[1])
+    payload = strict_json_loads(text.split(separator, 1)[1])
     require(isinstance(payload, dict), "final-wire snapshot must contain an object")
     return payload
 
