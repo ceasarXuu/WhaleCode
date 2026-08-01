@@ -17,9 +17,8 @@ $requests = @(
         output_tokens = [int64]0
         reasoning_output_tokens = [int64]0
         total_tokens = [int64]0
-        receipt_before = $false
-        receipt_original_role = ""
-        receipt_wire_role = ""
+        final_control_result_before = $false
+        final_control_result_item_kind = ""
     },
     [pscustomobject]@{
         primary_failure_class = "none"
@@ -31,9 +30,8 @@ $requests = @(
         output_tokens = [int64]0
         reasoning_output_tokens = [int64]0
         total_tokens = [int64]0
-        receipt_before = $false
-        receipt_original_role = ""
-        receipt_wire_role = ""
+        final_control_result_before = $false
+        final_control_result_item_kind = ""
     }
 )
 $summary = Get-R7RequestObservabilitySummary $requests

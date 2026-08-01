@@ -16,7 +16,7 @@ function Write-WireFixture([string]$Path, $Terminal) {
         provider_wire_api = "ChatCompletions"
         lcp_message_count = 0
         message_shapes = @()
-        taskspace_final_receipt_identity = @{ count = 0; receipts = @() }
+        taskspace_final_control_result_identity = @{ count = 0; results = @() }
     }
     [IO.File]::WriteAllLines(
         $Path,
@@ -115,7 +115,7 @@ try {
         provider_wire_api = "ChatCompletions"
         lcp_message_count = 0
         message_shapes = @()
-        taskspace_final_receipt_identity = @{ count = 0; receipts = @() }
+        taskspace_final_control_result_identity = @{ count = 0; results = @() }
     }
     [IO.File]::WriteAllLines(
         $identityPath,

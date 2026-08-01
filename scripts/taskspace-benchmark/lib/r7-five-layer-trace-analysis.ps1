@@ -17,7 +17,7 @@ if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction Silently
 . (Join-Path $PSScriptRoot "r7-state-failure-contract.ps1")
 . (Join-Path $PSScriptRoot "r7-call-evidence.ps1")
 . (Join-Path $PSScriptRoot "r7-direct-failure-carrier.ps1")
-. (Join-Path $PSScriptRoot "r7-response-commit-binding.ps1")
+. (Join-Path $PSScriptRoot "r7-final-control-result-binding.ps1")
 . (Join-Path $PSScriptRoot "r7-supplemental-failure.ps1")
 
 function New-R7RequestRows {
@@ -27,9 +27,9 @@ function New-R7RequestRows {
             $requests.Add([pscustomobject]@{
                 request_index = $index
                 calls = [Collections.Generic.List[object]]::new()
-                receipt_before = $false
-                receipt_count = 0
-                receipt_original_role = ""
+                final_control_result_before = $false
+                final_control_result_count = 0
+                final_control_result_item_kind = ""
                 rollout_provider_request_id = ""
                 rollout_provider_logical_request_id = ""
                 rollout_provider_attempt_seq = 0
@@ -195,24 +195,24 @@ function Apply-R7ObservedOutcome {
         -ToolName ([string]$call.tool)
     if ([string]$call.tool -ceq "taskspace_control" -and
         $outcome.success -eq $true -and
-        [string]$outcome.carrier_schema -ceq "TaskSpaceResponseCommitV1") {
-        $bindingError = Get-R7ResponseCommitRequestBindingError `
+        [string]$outcome.carrier_schema -ceq "TaskSpaceResponseResultV2") {
+        $bindingError = Get-R7FinalControlResultRequestBindingError `
             $call `
             $outcome.parsed_payload
-        $bindingReason = "response_commit_request_mismatch"
+        $bindingReason = "final_control_result_request_mismatch"
         if ([string]::IsNullOrWhiteSpace([string]$bindingError)) {
             $bindingError = Set-R7ExpectedReservations `
                 $CallsById `
                 $call `
                 $outcome.parsed_payload
-            $bindingReason = "response_commit_reservation_mismatch"
+            $bindingReason = "final_control_result_reservation_mismatch"
         }
         if (-not [string]::IsNullOrWhiteSpace([string]$bindingError)) {
             $outcome = Complete-R7CallOutcomeFacts (
                 New-R7InvalidCallOutcome `
                     $bindingReason `
                     $bindingReason `
-                    "TaskSpaceResponseCommitV1" `
+                    "TaskSpaceResponseResultV2" `
                     $true
             ) $outcome.parsed_payload
         } else {
@@ -279,19 +279,31 @@ function Get-R7TaskspaceRequestPath {
             if ($null -ne $observedOutcome) {
                 Apply-R7ObservedOutcome $callsById $observedOutcome
             }
+            $rawType = [string](Get-R7JsonProperty $raw "type" $eventType)
+            if ($rawType -in @(
+                    "function_call_output", "custom_tool_call_output",
+                    "tool_search_output", "tool_search_call_output"
+                )) {
+                $resultText = [string](Get-R7JsonProperty $raw "output" "")
+                $resultFact = $null
+                if (-not [string]::IsNullOrWhiteSpace($resultText)) {
+                    try { $resultFact = $resultText | ConvertFrom-Json } catch {}
+                }
+                if ([string](Get-R7JsonProperty $resultFact "schema_version" "") -eq
+                    "TaskSpaceResponseResultV2") {
+                    $request = $requests[$requestIndex - 1]
+                    $request.final_control_result_before = $true
+                    $request.final_control_result_count =
+                        [int]$request.final_control_result_count + 1
+                    $request.final_control_result_item_kind = $rawType
+                }
+            }
             foreach ($text in @(Get-R7MessageTexts $raw $eventType)) {
                 Apply-R7SupplementalFailure `
                     $callsById `
                     $requests `
                     $text `
                     ([string](Get-R7JsonProperty $payload "originalRole" ""))
-                if ($text -match '"schema_version"\s*:\s*"TaskSpaceResponseFinalReceiptV1"') {
-                    $request = $requests[$requestIndex - 1]
-                    $request.receipt_before = $true
-                    $request.receipt_count = [int]$request.receipt_count + 1
-                    $request.receipt_original_role =
-                        [string](Get-R7JsonProperty $payload "originalRole" "")
-                }
             }
             continue
         }

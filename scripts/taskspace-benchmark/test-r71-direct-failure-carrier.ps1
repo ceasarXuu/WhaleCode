@@ -263,36 +263,38 @@ Assert-R71DirectCarrier (
     $domainCall.success -and $domainCall.evidence_valid
 ) "Ordinary domain success field was treated as Tool transport status"
 
-$responseCommitJson =
-    '{"schema_version":"TaskSpaceResponseCommitV1","status":"accepted",' +
+$responseResultJson =
+    '{"schema_version":"TaskSpaceResponseResultV2","status":"settled",' +
     '"success":true,"state_commit":true,"map_id":"map-1",' +
-    '"action":"execute","revision_before":1,"revision_after":2,' +
+    '"action":"execute","canonical_revision":2,' +
     '"reserved_actions":[{"call_index":0,"call_id":"tool-1",' +
     '"node_id":"work","tool":"exec_command",' +
-    '"reservation_id":"reservation:tool-1"}]}'
-$responseCommit = Get-R7CallOutcome `
+    '"reservation_id":"reservation:tool-1"}],' +
+    '"settlement":{"prepared_action_count":1,' +
+    '"attributed_result_count":1,"outstanding_reservation_count":0}}'
+$responseResult = Get-R7CallOutcome `
     -ToolSuccess $true `
-    -Output $responseCommitJson `
+    -Output $responseResultJson `
     -ToolName "taskspace_control"
 Assert-R71DirectCarrier (
-    $responseCommit.evidence_valid -and
-    $responseCommit.success -and
-    $responseCommit.state_commit
-) "Valid response-prepare success carrier was rejected"
-$malformedResponseCommit = Assert-InvalidCarrier `
-    "incomplete response-prepare carrier" `
-    ($responseCommitJson.Replace('"map_id":"map-1",', "")) `
+    $responseResult.evidence_valid -and
+    $responseResult.success -and
+    $responseResult.state_commit
+) "Valid final control result carrier was rejected"
+$malformedResponseResult = Assert-InvalidCarrier `
+    "incomplete final control result carrier" `
+    ($responseResultJson.Replace('"map_id":"map-1",', "")) `
     $true
 $trustedMalformedResponseCommit = Get-R7CallOutcome `
     -ToolSuccess $true `
-    -Output ($responseCommitJson.Replace('"map_id":"map-1",', "")) `
+    -Output ($responseResultJson.Replace('"map_id":"map-1",', "")) `
     -TrustedRuntimeCarrier
 Assert-R71DirectCarrier (
     -not $trustedMalformedResponseCommit.evidence_valid
 ) "Trusted carrier path bypassed response-prepare shape validation"
 $spoofedResponseCommit = Assert-InvalidCarrier `
     "response-prepare schema on ordinary Tool" `
-    $responseCommitJson `
+    $responseResultJson `
     $true `
     "exec_command"
 Assert-R71DirectCarrier (
@@ -300,7 +302,7 @@ Assert-R71DirectCarrier (
         "taskspace_failure_untrusted_carrier"
 ) "Reserved response-prepare schema was accepted from an ordinary Tool"
 
-$invalidPrepareJson = $responseCommitJson.Replace(
+$invalidPrepareJson = $responseResultJson.Replace(
     '"action":"execute"',
     '"action":"finish_map"'
 )
@@ -329,9 +331,9 @@ Assert-R71DirectCarrier (
     [string]::IsNullOrWhiteSpace([string]$siblingCall.expected_reservation_id)
 ) "Invalid response-prepare carrier mutated sibling attribution"
 
-$duplicatePrepareJson = $responseCommitJson.Replace(
-    '"status":"accepted"',
-    '"status":"accepted","Status":"accepted"'
+$duplicatePrepareJson = $responseResultJson.Replace(
+    '"status":"settled"',
+    '"status":"settled","Status":"settled"'
 )
 $duplicateControl = ConvertTo-R7CallDescriptor `
     -CallId "duplicate-control" `
@@ -385,7 +387,7 @@ if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
         )
         $call
     }
-    $mismatchedResponseCommitJson = $responseCommitJson.Replace(
+    $mismatchedResponseCommitJson = $responseResultJson.Replace(
         '"action":"execute"',
         '"action":"reopen_map"'
     )

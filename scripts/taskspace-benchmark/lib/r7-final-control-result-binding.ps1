@@ -40,10 +40,10 @@ function Set-R7ExpectedReservations {
     ""
 }
 
-function Get-R7ResponseCommitRequestBindingError {
+function Get-R7FinalControlResultRequestBindingError {
     param($ControlCall, $Payload)
     if ([string]$ControlCall.tool -cne "taskspace_control") {
-        return "response commit did not originate from taskspace_control"
+        return "final control result did not originate from taskspace_control"
     }
     if ([string]$ControlCall.argument_parse_status -cne "valid_json") {
         return "taskspace_control request arguments were not valid strict JSON"
@@ -51,25 +51,25 @@ function Get-R7ResponseCommitRequestBindingError {
     $submittedAction = [string]$ControlCall.control_action
     $carrierAction = [string](Get-R7JsonProperty $Payload "action" "")
     if ($submittedAction -cne $carrierAction) {
-        return "response commit action does not match the submitted action"
+        return "final control result action does not match the submitted action"
     }
     $carrierRevision = ConvertTo-R7NonnegativeInt64Fact (
-        Get-R7JsonProperty $Payload "revision_before"
+        Get-R7JsonProperty $Payload "canonical_revision"
     )
     if ($null -eq $carrierRevision) {
-        return "response commit revision_before is not an exact nonnegative Int64"
+        return "final control result canonical_revision is not an exact nonnegative Int64"
     }
     $hasExpectedRevision =
         $ControlCall.submitted_expected_revision_present -is [bool] -and
         [bool]$ControlCall.submitted_expected_revision_present
     if ($submittedAction -ceq "initialize_and_execute") {
-        if ($hasExpectedRevision -or $carrierRevision -ne 0) {
-            return "initialize response commit has an invalid revision binding"
+        if ($hasExpectedRevision -or $carrierRevision -lt 1) {
+            return "initialize final control result has an invalid revision binding"
         }
         return ""
     }
     if ($submittedAction -cnotin @("execute", "reopen_map")) {
-        return "response commit action is not response-preparable"
+        return "final control result action is not response-executable"
     }
     if (-not $hasExpectedRevision) {
         return "taskspace_control request is missing expected_revision"
@@ -77,9 +77,8 @@ function Get-R7ResponseCommitRequestBindingError {
     $submittedRevision = ConvertTo-R7NonnegativeInt64Fact (
         $ControlCall.submitted_expected_revision
     )
-    if ($null -eq $submittedRevision -or
-        $submittedRevision -ne $carrierRevision) {
-        return "response commit revision_before does not match expected_revision"
+    if ($null -eq $submittedRevision -or $carrierRevision -le $submittedRevision) {
+        return "final control result canonical_revision did not advance beyond expected_revision"
     }
     ""
 }

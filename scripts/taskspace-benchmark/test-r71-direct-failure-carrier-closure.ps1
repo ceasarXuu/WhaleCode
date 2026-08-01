@@ -5,7 +5,7 @@ function Assert-R71Closure([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
-function New-R71PrepareJson {
+function New-R71FinalControlResultJson {
     param(
         [string]$Action = "execute",
         [int64]$RevisionBefore = 1,
@@ -20,15 +20,19 @@ function New-R71PrepareJson {
         )
     )
     [ordered]@{
-        schema_version = "TaskSpaceResponseCommitV1"
-        status = "accepted"
+        schema_version = "TaskSpaceResponseResultV2"
+        status = "settled"
         success = $true
         state_commit = $true
         map_id = "map-1"
         action = $Action
-        revision_before = $RevisionBefore
-        revision_after = $RevisionBefore + 1
+        canonical_revision = $RevisionBefore + 1
         reserved_actions = $Reservations
+        settlement = [ordered]@{
+            prepared_action_count = $Reservations.Count
+            attributed_result_count = $Reservations.Count
+            outstanding_reservation_count = 0
+        }
     } | ConvertTo-Json -Compress -Depth 20
 }
 
@@ -70,11 +74,11 @@ $executeArgs =
     '"actions":[{"node_id":"work","tool":"exec_command"}]}'
 $actionMismatch = Invoke-R71PrepareApply `
     $executeArgs `
-    (New-R71PrepareJson "reopen_map" 1)
+    (New-R71FinalControlResultJson "reopen_map" 1)
 Assert-R71Closure (
     -not $actionMismatch.control.evidence_valid -and
     $actionMismatch.control.reason_code -eq
-        "response_commit_request_mismatch" -and
+        "final_control_result_request_mismatch" -and
     [string]::IsNullOrWhiteSpace(
         [string]$actionMismatch.calls["tool-1"].expected_reservation_id
     )
@@ -82,12 +86,12 @@ Assert-R71Closure (
 
 $matching = Invoke-R71PrepareApply `
     $executeArgs `
-    (New-R71PrepareJson "execute" 1)
+    (New-R71FinalControlResultJson "execute" 1)
 Assert-R71Closure (
     $matching.control.evidence_valid -and
     $matching.control.reservation_mutated -and
     $matching.control.submitted_expected_revision -eq 1 -and
-    $matching.control.carrier_revision_before -eq 1 -and
+    $matching.control.carrier_canonical_revision -eq 2 -and
     $matching.calls["tool-1"].expected_reservation_id -eq
         "reservation:tool-1"
 ) "Matching response-prepare carrier did not bind its reservation"
@@ -97,11 +101,11 @@ $revisionMismatchArgs =
     '"actions":[{"node_id":"work","tool":"exec_command"}]}'
 $revisionMismatch = Invoke-R71PrepareApply `
     $revisionMismatchArgs `
-    (New-R71PrepareJson "execute" 1)
+    (New-R71FinalControlResultJson "execute" 1)
 Assert-R71Closure (
     -not $revisionMismatch.control.evidence_valid -and
     $revisionMismatch.control.reason_code -eq
-        "response_commit_request_mismatch" -and
+        "final_control_result_request_mismatch" -and
     [string]::IsNullOrWhiteSpace(
         [string]$revisionMismatch.calls["tool-1"].expected_reservation_id
     )
@@ -117,11 +121,11 @@ foreach ($invalidExpectedRevision in @(
     )) {
     $invalidBinding = Invoke-R71PrepareApply `
         $invalidExpectedRevision `
-        (New-R71PrepareJson "execute" 1)
+        (New-R71FinalControlResultJson "execute" 1)
     Assert-R71Closure (
         -not $invalidBinding.control.evidence_valid -and
         $invalidBinding.control.reason_code -eq
-            "response_commit_request_mismatch" -and
+            "final_control_result_request_mismatch" -and
         -not $invalidBinding.control.reservation_mutated -and
         [string]::IsNullOrWhiteSpace(
             [string]$invalidBinding.calls["tool-1"].expected_reservation_id
@@ -134,7 +138,7 @@ $initializeArgs =
     '"actions":[{"node_id":"work","tool":"exec_command"}]}'
 $initializeMatch = Invoke-R71PrepareApply `
     $initializeArgs `
-    (New-R71PrepareJson "initialize_and_execute" 0)
+    (New-R71FinalControlResultJson "initialize_and_execute" 0)
 Assert-R71Closure (
     $initializeMatch.control.evidence_valid -and
     $initializeMatch.control.reservation_mutated
@@ -142,7 +146,7 @@ Assert-R71Closure (
 
 $missingTransport = Invoke-R71PrepareApply `
     $executeArgs `
-    (New-R71PrepareJson) `
+    (New-R71FinalControlResultJson) `
     $null
 Assert-R71Closure (
     -not $missingTransport.control.evidence_valid -and
@@ -155,7 +159,7 @@ Assert-R71Closure (
 
 $nonBooleanTransport = Invoke-R71PrepareApply `
     $executeArgs `
-    (New-R71PrepareJson) `
+    (New-R71FinalControlResultJson) `
     "true"
 Assert-R71Closure (
     -not $nonBooleanTransport.control.evidence_valid -and
@@ -197,7 +201,7 @@ $siblings = @(
 )
 $lateMismatch = Invoke-R71PrepareApply `
     $twoArgs `
-    (New-R71PrepareJson "execute" 1 $twoReservations) `
+    (New-R71FinalControlResultJson "execute" 1 $twoReservations) `
     $true `
     $siblings
 Assert-R71Closure (
@@ -211,8 +215,8 @@ Assert-R71Closure (
 ) "Late reservation mismatch partially mutated attribution"
 
 $caseDrift = (
-    New-R71PrepareJson
-).Replace("TaskSpaceResponseCommitV1", "taskspaceresponsecommitv1")
+    New-R71FinalControlResultJson
+).Replace("TaskSpaceResponseResultV2", "taskspaceresponseresultv2")
 $caseMismatch = Invoke-R71PrepareApply $executeArgs $caseDrift
 Assert-R71Closure (
     -not $caseMismatch.control.evidence_valid
