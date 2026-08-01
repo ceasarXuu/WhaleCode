@@ -4,26 +4,33 @@ from __future__ import annotations
 
 import ctypes
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from ctypes import wintypes
 
 from cache_windows_job import (
     _RETAINED_PROCESS_HANDLES,
     _ProcessInformation,
     JobObjectError,
     WindowsJobProcess,
+    recover_durable_process_cleanup,
     retry_retained_process_cleanup,
     start_windows_job_process,
 )
+from cache_windows_owner_journal import write_owner_journal
 
 
 class CacheWindowsOwnershipTest(unittest.TestCase):
     def setUp(self) -> None:
         _RETAINED_PROCESS_HANDLES.clear()
+        self.temp = tempfile.TemporaryDirectory()
+        self.cwd = Path(self.temp.name)
 
     def tearDown(self) -> None:
         _RETAINED_PROCESS_HANDLES.clear()
+        self.temp.cleanup()
 
     def test_job_is_closed_when_process_setup_is_interrupted(self) -> None:
         job = unittest.mock.Mock()
@@ -36,7 +43,7 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
             ),
             self.assertRaises(KeyboardInterrupt),
         ):
-            start_windows_job_process(["pwsh", "runner.ps1"], Path.cwd())
+            start_windows_job_process(["pwsh", "runner.ps1"], self.cwd)
         job.close.assert_called_once()
 
     def test_process_handle_close_failure_is_retryable(self) -> None:
@@ -80,7 +87,7 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
             patch("cache_windows_job._configure_process_signatures"),
             self.assertRaisesRegex(JobObjectError, "TerminateProcess attempt"),
         ):
-            start_windows_job_process(["pwsh", "runner.ps1"], Path.cwd())
+            start_windows_job_process(["pwsh", "runner.ps1"], self.cwd)
 
         job.close.assert_called_once()
         self.assertCountEqual(
@@ -93,7 +100,7 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
         kernel32.TerminateProcess.return_value = False
         kernel32.WaitForSingleObject.return_value = 0x00000102
         kernel32.CloseHandle.return_value = True
-        _RETAINED_PROCESS_HANDLES[456] = (kernel32, 100, None)
+        _RETAINED_PROCESS_HANDLES[456] = (kernel32, 100, None, None, None)
 
         with patch(
             "cache_windows_job.subprocess.run",
@@ -114,16 +121,47 @@ class CacheWindowsOwnershipTest(unittest.TestCase):
         kernel32.TerminateProcess.return_value = True
         kernel32.WaitForSingleObject.return_value = 0
         kernel32.CloseHandle.side_effect = [False, False, True, True]
-        _RETAINED_PROCESS_HANDLES[456] = (kernel32, 100, 101)
+        _RETAINED_PROCESS_HANDLES[456] = (kernel32, 100, 101, None, None)
 
         with patch(
             "cache_windows_job.ctypes.get_last_error", return_value=5, create=True
         ):
             self.assertFalse(retry_retained_process_cleanup())
-            self.assertEqual(_RETAINED_PROCESS_HANDLES[456], (kernel32, 100, 101))
+            self.assertEqual(
+                _RETAINED_PROCESS_HANDLES[456],
+                (kernel32, 100, 101, None, None),
+            )
             self.assertTrue(retry_retained_process_cleanup())
 
         self.assertNotIn(456, _RETAINED_PROCESS_HANDLES)
+
+    def test_durable_owner_is_recovered_before_a_future_launch(self) -> None:
+        creation_time = 123456
+        journal = write_owner_journal(self.cwd, 456, creation_time)
+        kernel32 = unittest.mock.Mock()
+        kernel32.OpenProcess.return_value = 100
+        kernel32.TerminateProcess.return_value = True
+        kernel32.WaitForSingleObject.return_value = 0
+        kernel32.CloseHandle.return_value = True
+
+        def get_process_times(_handle, creation, *_rest):
+            value = ctypes.cast(creation, ctypes.POINTER(wintypes.FILETIME)).contents
+            value.dwHighDateTime = creation_time >> 32
+            value.dwLowDateTime = creation_time & 0xFFFFFFFF
+            return True
+
+        kernel32.GetProcessTimes.side_effect = get_process_times
+        with (
+            patch(
+                "cache_windows_job.ctypes.WinDLL", return_value=kernel32, create=True
+            ),
+            patch("cache_windows_job._configure_process_signatures"),
+        ):
+            recover_durable_process_cleanup(self.cwd)
+
+        self.assertFalse(journal.exists())
+        kernel32.TerminateProcess.assert_called_once_with(100, 1)
+        kernel32.CloseHandle.assert_called_once_with(100)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,13 @@ import subprocess
 from ctypes import wintypes
 from pathlib import Path
 
+from cache_windows_owner_journal import (
+    owner_records,
+    remove_owner_journal,
+    write_owner_journal,
+)
+from cache_windows_native import process_creation_time
+
 
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
@@ -18,8 +25,18 @@ WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
 RESUME_THREAD_FAILED = 0xFFFFFFFF
 TERMINATE_PROCESS_ATTEMPTS = 3
+PROCESS_TERMINATE = 0x0001
+SYNCHRONIZE = 0x00100000
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _RETAINED_PROCESS_HANDLES: dict[
-    int, tuple[object, wintypes.HANDLE | None, wintypes.HANDLE | None]
+    int,
+    tuple[
+        object,
+        wintypes.HANDLE | None,
+        wintypes.HANDLE | None,
+        Path | None,
+        int | None,
+    ],
 ] = {}
 
 
@@ -219,11 +236,14 @@ class WindowsJobProcess:
 def start_windows_job_process(
     command: list[str], cwd: Path
 ) -> tuple[WindowsJobProcess, WindowsKillOnCloseJob]:
+    recover_durable_process_cleanup(cwd)
     if not retry_retained_process_cleanup():
         raise JobObjectError("a previously created benchmark process is still owned")
     job = WindowsKillOnCloseJob()
     process_info = None
     thread_handle = None
+    owner_path = None
+    creation_time = None
     try:
         kernel32 = job._kernel32
         _configure_process_signatures(kernel32)
@@ -246,7 +266,13 @@ def start_windows_job_process(
         if not created:
             raise JobObjectError(ctypes.get_last_error(), "CreateProcessW failed")
         thread_handle = process_info.hThread
+        creation_time = process_creation_time(kernel32, process_info.hProcess)
+        owner_path = write_owner_journal(
+            cwd, int(process_info.dwProcessId), creation_time
+        )
         job.assign_handle(process_info.hProcess)
+        remove_owner_journal(owner_path)
+        owner_path = None
         if kernel32.ResumeThread(thread_handle) == RESUME_THREAD_FAILED:
             raise JobObjectError(ctypes.get_last_error(), "ResumeThread failed")
         _close_handle(kernel32, thread_handle)
@@ -260,12 +286,29 @@ def start_windows_job_process(
     except BaseException as error:
         cleanup_errors = []
         if process_info is not None and process_info.hProcess:
+            if owner_path is None:
+                try:
+                    creation_time = creation_time or process_creation_time(
+                        kernel32, process_info.hProcess
+                    )
+                    owner_path = write_owner_journal(
+                        cwd, int(process_info.dwProcessId), creation_time
+                    )
+                except BaseException as journal_error:
+                    cleanup_errors.append(
+                        "process owner journal failed: "
+                        f"{type(journal_error).__name__}: {journal_error}"
+                    )
             try:
-                cleanup_errors = _terminate_and_close_created_process(
-                    kernel32,
-                    process_info.hProcess,
-                    thread_handle or process_info.hThread,
-                    int(process_info.dwProcessId),
+                cleanup_errors.extend(
+                    _terminate_and_close_created_process(
+                        kernel32,
+                        process_info.hProcess,
+                        thread_handle or process_info.hThread,
+                        int(process_info.dwProcessId),
+                        owner_path,
+                        creation_time,
+                    )
                 )
             except BaseException as cleanup_error:
                 cleanup_errors.append(
@@ -307,6 +350,14 @@ def _configure_process_signatures(kernel32) -> None:
     kernel32.GetExitCodeProcess.restype = wintypes.BOOL
     kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
     kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
 
 
 def _close_handle(kernel32, handle: wintypes.HANDLE) -> None:
@@ -319,6 +370,8 @@ def _terminate_and_close_created_process(
     process_handle: wintypes.HANDLE,
     thread_handle: wintypes.HANDLE,
     process_id: int,
+    owner_path: Path | None = None,
+    creation_time: int | None = None,
 ) -> list[str]:
     errors = []
     terminated = not process_handle
@@ -378,18 +431,69 @@ def _terminate_and_close_created_process(
             kernel32,
             retained_process,
             retained_thread,
+            owner_path,
+            creation_time,
         )
     else:
         _RETAINED_PROCESS_HANDLES.pop(process_id, None)
+        if terminated:
+            remove_owner_journal(owner_path)
     return errors
 
 
 def retry_retained_process_cleanup() -> bool:
     """Retry and retain ownership of any suspended process left by setup failure."""
-    for process_id, (kernel32, process_handle, thread_handle) in list(
-        _RETAINED_PROCESS_HANDLES.items()
-    ):
+    for process_id, (
+        kernel32,
+        process_handle,
+        thread_handle,
+        owner_path,
+        creation_time,
+    ) in list(_RETAINED_PROCESS_HANDLES.items()):
         _terminate_and_close_created_process(
-            kernel32, process_handle, thread_handle, process_id
+            kernel32,
+            process_handle,
+            thread_handle,
+            process_id,
+            owner_path,
+            creation_time,
         )
     return not _RETAINED_PROCESS_HANDLES
+
+
+def recover_durable_process_cleanup(cwd: Path) -> None:
+    records = owner_records(cwd)
+    if not records:
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _configure_process_signatures(kernel32)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    for path, process_id, creation_time in records:
+        process_handle = kernel32.OpenProcess(
+            PROCESS_TERMINATE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            process_id,
+        )
+        if not process_handle:
+            if ctypes.get_last_error() == 87:
+                remove_owner_journal(path)
+                continue
+            raise JobObjectError(
+                ctypes.get_last_error(),
+                f"OpenProcess failed for owned PID {process_id}",
+            )
+        if process_creation_time(kernel32, process_handle) != creation_time:
+            _close_handle(kernel32, process_handle)
+            remove_owner_journal(path)
+            continue
+        errors = _terminate_and_close_created_process(
+            kernel32,
+            process_handle,
+            None,
+            process_id,
+            path,
+            creation_time,
+        )
+        if errors or process_id in _RETAINED_PROCESS_HANDLES:
+            raise JobObjectError("; ".join(errors) or "owned process cleanup failed")

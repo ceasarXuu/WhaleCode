@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
 import ctypes
+import json
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -217,6 +216,13 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         self.assertNotIn(100, closed_handles)
         self.assertIn(101, closed_handles)
         self.assertGreater(kernel32.TerminateProcess.call_count, 1)
+        journals = list(
+            (self.repo / "target/cache-hit-regression/windows-process-owners").glob(
+                "*.json"
+            )
+        )
+        self.assertEqual(len(journals), 1)
+        self.assertEqual(json.loads(journals[0].read_text())["pid"], 456)
 
     def test_windows_job_close_retains_handle_when_close_fails(self) -> None:
         kernel32 = unittest.mock.Mock()
