@@ -1,14 +1,14 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-01T21:50:33+08:00",
+  "updated_at": "2026-08-01T21:56:44+08:00",
   "entries": [
     {
       "record_id": "WAR-20260801-215033-R8-I01-W9-9B49F6DC",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
+      "status": "failed",
+      "started_at": "2026-08-01T21:55:38+08:00",
+      "ended_at": "2026-08-01T21:55:48+08:00",
+      "elapsed_calendar_seconds": 10,
       "aggregate_agent_wall_time_ms": null,
       "reason": "R8-I01 W9：验证三种 TaskSpace projection policy 不再因隐藏 result attribution 使用旧 revision。",
       "authorization": {
@@ -56,7 +56,7 @@
         "planned_sample_runs": 9,
         "actual_sample_runs": 0,
         "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 0,
@@ -65,11 +65,15 @@
         "output": 0
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "USD",
-        "amount": 0.28,
+        "amount": 0.0,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0,
+          "uncached_input": 0.0,
+          "output": 0.0
+        },
         "pricing_snapshot": {
           "currency": "USD",
           "captured_at": "2026-07-31",
@@ -78,8 +82,8 @@
           "uncached_input_per_million": 0.14,
           "output_per_million": 0.28
         },
-        "formula": "observed cached/uncached/output usage at frozen rates; planned amount is the normal observation threshold, not the provider theoretical worst case",
-        "note": "Provider 理论极端上限单独记录在 authorization budget_summary，不能与常态观测阈值混称。"
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "工作目录中性检查在 pair dispatch 前拒绝；attempted_pairs=0，未创建 provider boundary，因此精确结算为 0。"
       },
       "evidence": {
         "planned_run_root": "target/r8-i01-w9/WAR-20260801-215033-R8-I01-W9-9B49F6DC",
@@ -91,7 +95,17 @@
           "after_any_usage_gap",
           "after_any_budget_observation_exceeded"
         ],
-        "evidence_boundary": "only single-file-fast-fix on map-always, map-append, and map-request at repeat 3; no retries"
+        "evidence_boundary": "only single-file-fast-fix on map-always, map-append, and map-request at repeat 3; no retries",
+        "actual_run_root": "target/r8-i01-w9/WAR-20260801-215033-R8-I01-W9-9B49F6DC/map-always/r-1/single-file-fast-fix/20260801-215538-636",
+        "runner_log": "target/r8-i01-w9/WAR-20260801-215033-R8-I01-W9-9B49F6DC/map-always/r-1/runner.log",
+        "runner_exit_code": 1,
+        "attempted_pairs": 0,
+        "completed_pairs": 0,
+        "provider_boundary_artifact_count": 0,
+        "provider_resource_cleanup_status": "verified_absent",
+        "failure_stage": "treatment_neutral_cwd_preflight",
+        "failure_reason": "RunRoot contained treatment labels (r8-i01 and map-always), so both materialized repo paths were rejected as non-neutral before provider dispatch.",
+        "outcome": "preflight_failed_no_provider_dispatch"
       }
     },
     {
