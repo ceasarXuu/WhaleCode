@@ -3841,9 +3841,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::exec_flow::preamble_keeps_working_status_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -3856,9 +3856,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::exec_flow::unified_exec_begin_restores_working_status_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -3901,9 +3901,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::exec_flow::unified_exec_wait_status_renders_command_in_single_details_row_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -3941,9 +3941,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::guardian::app_server_guardian_review_denied_renders_denied_request_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -3951,24 +3951,24 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::guardian::app_server_guardian_review_timed_out_renders_timed_out_request_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::guardian::guardian_approved_exec_renders_approved_request",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::guardian::guardian_approved_request_permissions_renders_request_summary",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::guardian::guardian_denied_exec_renders_warning_and_denied_request",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -3976,14 +3976,14 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::guardian::guardian_parallel_reviews_render_aggregate_status_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::guardian::guardian_timed_out_exec_renders_warning_and_timed_out_request",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -4146,9 +4146,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::mcp_startup::app_server_mcp_startup_failure_renders_warning_history",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -4181,9 +4181,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::mcp_startup::mcp_startup_header_booting_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -4686,9 +4686,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::popups_and_settings::model_selection_popup_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -4986,9 +4986,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::review_mode::review_queues_user_messages_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -5026,14 +5026,14 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::side::side_context_label_preserves_status_line_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::side::side_context_label_shows_parent_status_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -5061,9 +5061,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::side::slash_side_requests_forked_side_question_while_task_running",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -5101,9 +5101,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::slash_commands::compact_queues_user_messages_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -5476,9 +5476,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::status_and_layout::chatwidget_tall",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -5786,9 +5786,9 @@
       "result": "passed"
     },
     {
-      "classification": "snapshot_review",
+      "classification": null,
       "name": "codex-tui::chatwidget::tests::status_and_layout::status_widget_active_snapshot",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "classification": null,
@@ -9472,12 +9472,12 @@
   "summary": {
     "by_classification": {
       "functional_assertion": 1,
-      "snapshot_review": 32
+      "snapshot_review": 12
     },
     "by_result": {
-      "failed": 33,
+      "failed": 13,
       "ignored": 5,
-      "passed": 1854
+      "passed": 1874
     },
     "test_count": 1892
   }

@@ -178,8 +178,8 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 | W4 | verified | 实现 `validate_sync_metadata.py`，修正 `UPSTREAM.md` | 一条命令校验三份元数据且无 `unclassified` | W2、W3 |
 | W5 | verified | 实现 Nextest/JUnit runner 与规范化 parser | 定向栈敏感用例在 8 MiB 下稳定通过；runner 不生成 `.snap.new` | W0、W1 |
 | W6 | verified | 连续 3 次捕获当前 TUI 全量失败集合并分类 | 三次测试名集合一致；差异被标记为 flaky candidate | W5 |
-| W7 | planned | 审阅并处理 status/model/detail 类快照 | 每份 diff 有产品判断；该组定向测试归零 | W6 |
-| W8 | planned | 审阅并处理 chatwidget/guardian/MCP 类快照 | 每份 diff 有产品判断；该组定向测试归零 | W6 |
+| W7 | in-progress | 审阅并处理 status/model/detail 类快照；模型可见性部分已决策，status 细节仍待审阅 | 每份 diff 有产品判断；该组定向测试归零 | W6 |
+| W8 | verified | 接受 chatwidget/guardian/MCP 中 Flash 默认与 Pro 隐藏的 20 个快照 | 514 个 chatwidget 测试通过；全量基线中该组失败归零 | W6 |
 | W9 | blocked-on-discovery | 诊断 ActionMap route-mode 等功能断言 | 根因写入执行记录；修复有回归测试且不改变 TaskSpace 合同 | W6 |
 | W10 | blocked-on-discovery | 隔离复现潜在 memory-setting flake | 同配置 3 次结果稳定，或找到可验证根因 | W6 |
 | W11 | planned | 运行最终 TUI 全量门禁并固化零失败基线 | Nextest exit 0，规范化结果无失败/unknown | W7-W10 |
@@ -188,6 +188,14 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 | W14 | planned | 收口执行文档、README 状态和所有账本 | 全部门禁通过；主题提交已 push；工作树干净 | W4、W11-W13 |
 
 W7 和 W8 的每个快照族必须独立提交。若快照显示用户可见交互语义变化，先向用户说明旧/新行为及影响，得到决策后再接受；不得运行批量 `cargo insta accept` 代替审阅。
+
+### 6.1 W8 模型可见性决策记录
+
+- 决策日期：2026-08-01；
+- 决策：`deepseek-v4-flash` 继续作为默认且当前唯一可见模型，`deepseek-v4-pro` 继续隐藏；
+- 原因：DeepSeek 官方 Responses API 对 Pro 的适配仍在进行，不能把模型目录可用误写成当前 Codex Responses API 路径已经完成产品适配；
+- 恢复门槛：官方适配上线，并通过 Whale provider 请求、reasoning/tool-call streaming、缓存回归、模型选择器与 TUI 全量测试；
+- 验证：20 个已审阅 chatwidget 快照独立提交，514 个 chatwidget 测试通过；更新后的全量基线只剩 12 个 status 快照与 1 个 ActionMap 功能断言。
 
 W9、W10、W13 当前信息不足，使用 `blocked-on-discovery` 是计划状态，不表示实施已被阻断。各工作单元在执行阶段先收集证据，再决定修复或另立需求。
 

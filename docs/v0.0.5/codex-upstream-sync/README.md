@@ -27,7 +27,7 @@
 - 当前 vendor 基线到稳定版相差 2,790 个提交、4,209 个文件；
 - Whale 相对基线修改了 723 个路径，官方和 Whale 同时修改 496 个路径，其中 495 个最终内容仍然不同；
 - Codex 是通过 codeload tarball 导入子目录，仓库根历史与官方 Git 历史没有 merge-base，普通 merge/cherry-pick 不是可靠同步机制；
-- DeepSeek 官方 Codex 接入当前要求 Responses API、仅支持 `deepseek-v4-flash`，并将最低 Codex 客户端版本标为 `0.144.0`；Whale 的 provider 方向已经对齐，但 substrate 基线仍停留在约 0.125 时代；
+- DeepSeek 官方 Codex 接入当前要求 Responses API；Whale 现阶段只向用户展示 `deepseek-v4-flash`，`deepseek-v4-pro` 的官方 Responses API 适配完成后再恢复；provider 方向已经对齐，但 substrate 基线仍停留在约 0.125 时代；
 - TaskSpace 目前不是薄插件，而是贯穿协议、状态、session、provider payload、tool sequence、app-server 和 TUI 的纵向改造，必须进行语义级重放。
 
 ## 2. 审计范围与方法
@@ -149,11 +149,11 @@ Whale 当前内置 DeepSeek provider 已经：
 - 使用 `https://api.deepseek.com`；
 - 使用 Responses API；
 - 默认选择 `deepseek-v4-flash`；
-- 暂时隐藏不支持 Codex 的 `deepseek-v4-pro`；
+- 暂时隐藏仍在进行官方 Responses API 适配的 `deepseek-v4-pro`，适配完成后恢复；
 - 禁用 Responses WebSocket；
 - 保留 1M context、755K auto compact、parallel tool calls 和 reasoning 能力。
 
-这与 DeepSeek 官方 Codex 接入说明一致：当前只有 Flash 支持 Codex，Codex 使用 DeepSeek 原生 Responses API，官方模型配置要求最低 Codex 客户端 `0.144.0`。
+这是当前阶段的显式产品门禁：Codex 使用 DeepSeek 原生 Responses API，Flash 作为默认且唯一可见模型；Pro 并非永久移除，其恢复条件是官方 Responses API 适配完成并通过 Whale provider/TUI 回归。
 
 ### 7.2 必须保留的 Whale 产品合同
 
