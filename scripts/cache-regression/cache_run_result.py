@@ -60,7 +60,8 @@ def _aggregate(
     accounted_requests = [
         item["provider_boundary_request_count"]
         for item in result["attempts"]
-        if isinstance(item.get("provider_boundary_request_count"), int)
+        if type(item.get("provider_boundary_request_count")) is int
+        and item["provider_boundary_request_count"] >= 0
     ]
     result["provider_boundary_requests_minimum"] = sum(accounted_requests)
     result["provider_boundary_accounting_status"] = (

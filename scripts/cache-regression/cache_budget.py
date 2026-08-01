@@ -90,6 +90,62 @@ def _unique_nonempty(values: list[str], label: str) -> list[str]:
     return normalized
 
 
+def validate_budget_selection(selection: object) -> None:
+    require(isinstance(selection, dict), "budget proposal selection is invalid")
+    model = selection.get("model")
+    reason = selection.get("selection_reason")
+    samples = selection.get("samples")
+    arms = selection.get("arms")
+    stop_conditions = selection.get("stop_conditions")
+    require(
+        isinstance(model, str) and model.strip() == model and bool(model),
+        "budget proposal model is invalid",
+    )
+    require(
+        isinstance(reason, str) and reason.strip() == reason and bool(reason),
+        "budget proposal selection reason is invalid",
+    )
+    require(
+        isinstance(samples, list)
+        and exact_json_equal(samples, _unique_nonempty(samples, "samples")),
+        "budget proposal samples are invalid",
+    )
+    require(
+        isinstance(arms, list)
+        and exact_json_equal(arms, _unique_nonempty(arms, "arms"))
+        and all(arm in SUPPORTED_ARMS for arm in arms),
+        "budget proposal contains an unsupported arm",
+    )
+    require(
+        isinstance(stop_conditions, list)
+        and exact_json_equal(
+            stop_conditions,
+            _unique_nonempty(stop_conditions, "stop conditions"),
+        )
+        and all(
+            condition in SUPPORTED_STOP_CONDITIONS for condition in stop_conditions
+        ),
+        "budget proposal contains an unsupported stop condition",
+    )
+    repeat = selection.get("repeat")
+    planned_runs = selection.get("planned_sample_runs")
+    retries = selection.get("retry_sample_run_limit")
+    maximum_runs = selection.get("maximum_sample_runs")
+    require(
+        type(repeat) is int
+        and repeat > 0
+        and type(planned_runs) is int
+        and planned_runs > 0
+        and type(retries) is int
+        and retries >= 0
+        and type(maximum_runs) is int
+        and maximum_runs > 0
+        and planned_runs == len(samples) * len(arms) * repeat
+        and maximum_runs == planned_runs + retries,
+        "budget proposal execution matrix is inconsistent",
+    )
+
+
 def build_budget_proposal(
     *,
     repo: Path,
@@ -283,14 +339,12 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
         "budget proposal id mismatch",
     )
     selection = proposal.get("selection", {})
+    validate_budget_selection(selection)
     limits = proposal.get("per_sample_run_limits", {})
     thresholds = proposal.get("per_sample_run_observation_thresholds", {})
     provider_limits = proposal.get("provider_hard_limits", {})
     pricing = proposal.get("pricing_snapshot", {})
     sample_runs = selection.get("maximum_sample_runs")
-    repeat = selection.get("repeat")
-    planned_runs = selection.get("planned_sample_runs")
-    retries = selection.get("retry_sample_run_limit")
     requests_per_run = limits.get("provider_requests")
     require(
         all(
@@ -307,18 +361,6 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
             )
         ),
         "budget proposal limits are incomplete",
-    )
-    require(
-        type(repeat) is int
-        and repeat > 0
-        and type(planned_runs) is int
-        and planned_runs > 0
-        and type(retries) is int
-        and retries >= 0
-        and planned_runs
-        == len(selection.get("samples", [])) * len(selection.get("arms", [])) * repeat
-        and sample_runs == planned_runs + retries,
-        "budget proposal execution matrix is inconsistent",
     )
     require(
         isinstance(pricing.get("currency"), str)

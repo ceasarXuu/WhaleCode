@@ -10,11 +10,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-try:
-    from jsonschema import Draft202012Validator
-except ImportError:  # pragma: no cover - optional validation dependency
-    Draft202012Validator = None
-
 from cache_run_ledger import (
     _lock_file,
     _unlock_file,
@@ -115,8 +110,10 @@ class CacheRunLedgerTest(unittest.TestCase):
         self.assertIsNone(entry["execution"]["api_requests"])
         self.assertEqual(entry["execution"]["api_requests_minimum"], 2)
 
-    @unittest.skipUnless(shutil.which("powershell"), "PowerShell is unavailable")
     def test_global_checker_accepts_truthful_partial_request_count(self) -> None:
+        powershell = shutil.which("powershell")
+        if powershell is None:
+            self.fail("PowerShell is required for the global ledger contract test")
         repo = Path(__file__).resolve().parents[2]
         ledger = json.loads(
             (repo / "benchmarks/whale-agent-run-ledger.json").read_text(
@@ -132,7 +129,7 @@ class CacheRunLedgerTest(unittest.TestCase):
 
         completed = subprocess.run(
             [
-                "powershell",
+                powershell,
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
@@ -159,36 +156,32 @@ class CacheRunLedgerTest(unittest.TestCase):
         )
         self.assertNotEqual(completed.returncode, 0)
 
-    @unittest.skipIf(Draft202012Validator is None, "jsonschema is unavailable")
-    def test_schema_enforces_exclusive_request_evidence_forms(self) -> None:
+    def test_schema_declares_exclusive_request_evidence_forms(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         schema = json.loads(
             (repo / "benchmarks/whale-agent-run-ledger-v1.schema.json").read_text(
                 encoding="utf-8"
             )
         )
-        ledger = json.loads(
-            (repo / "benchmarks/whale-agent-run-ledger.json").read_text(
-                encoding="utf-8"
-            )
+        execution = schema["$defs"]["execution"]
+        self.assertIn("api_requests", execution["required"])
+        self.assertIn("api_requests_evidence_status", execution["required"])
+        self.assertNotIn("api_requests_minimum", execution["required"])
+        self.assertEqual(execution["properties"]["api_requests_minimum"]["minimum"], 0)
+        exact, inexact = execution["oneOf"]
+        self.assertEqual(
+            exact["properties"]["api_requests_evidence_status"]["enum"],
+            ["pending", "complete"],
         )
-        Draft202012Validator.check_schema(schema)
-        validator = Draft202012Validator(schema)
-        validator.validate(ledger)
-
-        partial = json.loads(json.dumps(ledger))
-        partial_execution = partial["entries"][0]["execution"]
-        partial_execution["api_requests"] = None
-        partial_execution["api_requests_minimum"] = 2
-        partial_execution["api_requests_evidence_status"] = "partial"
-        validator.validate(partial)
-
-        partial_execution["api_requests"] = 2
-        self.assertFalse(validator.is_valid(partial))
-
-        exact_with_minimum = json.loads(json.dumps(ledger))
-        exact_with_minimum["entries"][0]["execution"]["api_requests_minimum"] = 2
-        self.assertFalse(validator.is_valid(exact_with_minimum))
+        self.assertEqual(exact["properties"]["api_requests"]["type"], "integer")
+        self.assertEqual(exact["properties"]["api_requests"]["minimum"], 0)
+        self.assertEqual(exact["not"]["required"], ["api_requests_minimum"])
+        self.assertEqual(inexact["required"], ["api_requests_minimum"])
+        self.assertEqual(inexact["properties"]["api_requests"]["type"], "null")
+        self.assertEqual(
+            inexact["properties"]["api_requests_evidence_status"]["enum"],
+            ["partial", "unavailable"],
+        )
 
     def test_authoritative_request_count_survives_usage_failure(self) -> None:
         entry = {

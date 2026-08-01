@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from cache_budget import validate_budget_selection
 from cache_evidence import RESULT_SCHEMA_VERSION
 from cache_json import exact_json_equal, strict_json_loads
 from cache_result_envelope import validate_result_envelope
@@ -86,8 +87,7 @@ def _validate_claim_identity(entry: dict, result: dict) -> None:
     evidence = entry.get("evidence", {})
     authorization = entry.get("authorization", {})
     scope = evidence.get("approved_selection")
-    if not isinstance(scope, dict):
-        raise ValueError("cache recovery claim has no approved selection")
+    validate_budget_selection(scope)
     expected_execution = {
         "model": scope.get("model"),
         "sample_ids": scope.get("samples"),

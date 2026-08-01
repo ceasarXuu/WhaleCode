@@ -211,6 +211,34 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "durable claim"):
             recover(self.repo, self.ledger, self.result)
 
+    def test_recovery_rejects_synchronized_boolean_claim_counts(self) -> None:
+        original_ledger = json.loads(self.ledger.read_text(encoding="utf-8"))
+        original_result = json.loads(self.result.read_text(encoding="utf-8"))
+        for field in (
+            "repeat",
+            "planned_sample_runs",
+            "retry_sample_run_limit",
+            "maximum_sample_runs",
+        ):
+            with self.subTest(field=field):
+                ledger = json.loads(json.dumps(original_ledger))
+                result = json.loads(json.dumps(original_result))
+                selection = ledger["entries"][0]["evidence"]["approved_selection"]
+                selection[field] = True
+                result["observed_scope"][field] = True
+                if field == "repeat":
+                    ledger["entries"][0]["execution"]["repeats_per_arm_per_sample"] = (
+                        True
+                    )
+                    result["attempts"][0]["repeat"] = True
+                    result["observations"][0]["repeat"] = True
+                elif field == "planned_sample_runs":
+                    ledger["entries"][0]["execution"][field] = True
+                write_json(self.ledger, ledger)
+                write_json(self.result, result)
+                with self.assertRaisesRegex(ValueError, "execution matrix"):
+                    recover(self.repo, self.ledger, self.result)
+
     def test_partial_result_recovers_with_truthful_request_minimum(self) -> None:
         value = json.loads(self.result.read_text(encoding="utf-8"))
         value["status"] = "partial"

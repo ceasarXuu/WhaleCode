@@ -7,11 +7,41 @@ import io
 import json
 from unittest.mock import patch
 
+from cache_run_result import finalize_run_result
 from cache_run_execution_test_support import CacheRunExecutionFixture
 from run_cache_hit_regression import main
 
 
 class CacheRunAggregationTest(CacheRunExecutionFixture):
+    def test_invalid_request_counts_are_not_reported_as_accounted(self) -> None:
+        matrix = [{"sample": "simple", "arm": "standard", "repeat": 1}]
+        for invalid_count in (True, -1):
+            with self.subTest(invalid_count=invalid_count):
+                result = {
+                    "actual_sample_runs": 1,
+                    "attempts": [
+                        {
+                            **matrix[0],
+                            "provider_boundary_request_count": invalid_count,
+                        }
+                    ],
+                    "observations": [],
+                }
+                finalize_run_result(
+                    result,
+                    matrix,
+                    None,
+                    cleanup_failed=False,
+                    supervision_failed=False,
+                    cancelled=False,
+                    started=0,
+                    execution_completed=lambda _matrix, _attempts, _observations: False,
+                )
+                self.assertEqual(result["provider_boundary_requests_minimum"], 0)
+                self.assertEqual(
+                    result["provider_boundary_accounting_status"], "unavailable"
+                )
+
     def _run_with_finalization_interrupt(self, patch_target: str) -> tuple[int, dict]:
         argv = [
             "run_cache_hit_regression.py",
