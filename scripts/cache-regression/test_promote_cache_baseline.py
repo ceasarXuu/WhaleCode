@@ -216,6 +216,24 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cost"):
             self.validate()
 
+    def test_rejects_result_elapsed_shorter_than_attempt_total(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["elapsed_seconds"] = 0.0
+        ledger_path = self.repo / "benchmarks/whale-agent-run-ledger.json"
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        ledger["entries"][0]["elapsed_calendar_seconds"] = 0.0
+        write_json(ledger_path, ledger)
+
+        with self.assertRaisesRegex(ValueError, "elapsed"):
+            self.validate(result=result)
+
+    def test_rejects_result_elapsed_inconsistent_with_timestamps(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["ended_at"] = result["started_at"]
+
+        with self.assertRaisesRegex(ValueError, "timestamps"):
+            self.validate(result=result)
+
     def test_rejects_incomplete_runner_or_authorization_envelope(self) -> None:
         result = copy.deepcopy(self.result)
         result.pop("ended_at")

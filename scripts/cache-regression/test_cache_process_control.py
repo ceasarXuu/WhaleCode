@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from cache_process_control import (
     BenchmarkTimeoutError,
+    _cleanup_run_secrets,
     _terminate_process_tree,
     cleanup_labeled_containers,
     cleanup_verified,
@@ -219,6 +220,53 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             job.close()
         self.assertEqual(job._handle, 77)
 
+    def test_windows_job_close_failure_terminates_tree_explicitly(self) -> None:
+        process = unittest.mock.Mock()
+        process.wait.return_value = 1
+        process.returncode = 1
+        job = unittest.mock.Mock()
+        job.owns_process_tree = True
+        job.close.side_effect = [JobObjectError("close failed"), None]
+
+        result = _terminate_process_tree(process, job)
+
+        self.assertEqual(result["status"], "terminated")
+        self.assertTrue(result["descendants_guaranteed_terminated"])
+        job.terminate.assert_called_once()
+        self.assertEqual(job.close.call_count, 2)
+
+    def test_windows_create_interrupt_cleans_suspended_process(self) -> None:
+        kernel32 = unittest.mock.Mock()
+
+        def interrupted_create(*args):
+            process_info = ctypes.cast(
+                args[-1], ctypes.POINTER(_ProcessInformation)
+            ).contents
+            process_info.hProcess = 100
+            process_info.hThread = 101
+            process_info.dwProcessId = 456
+            raise KeyboardInterrupt
+
+        kernel32.CreateProcessW.side_effect = interrupted_create
+        kernel32.TerminateProcess.return_value = True
+        kernel32.WaitForSingleObject.return_value = 0
+        kernel32.CloseHandle.return_value = True
+        job = unittest.mock.Mock()
+        job._kernel32 = kernel32
+        with (
+            patch("cache_windows_job.WindowsKillOnCloseJob", return_value=job),
+            patch("cache_windows_job._configure_process_signatures"),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            start_windows_job_process(["pwsh", "runner.ps1"], self.repo)
+
+        kernel32.TerminateProcess.assert_called_once_with(100, 1)
+        self.assertCountEqual(
+            [call.args[0] for call in kernel32.CloseHandle.call_args_list],
+            [100, 101],
+        )
+        job.close.assert_called_once()
+
     def test_windows_wait_failure_still_closes_owned_job(self) -> None:
         process = unittest.mock.Mock()
         process.wait.side_effect = [OSError("wait failed"), 1]
@@ -327,6 +375,16 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
             result = cleanup_labeled_containers("CACHE-SECRET", 10, self.repo)
         self.assertEqual(result["secret_cleanup_status"], "removed_verified")
         self.assertFalse(secret.exists())
+        self.assertFalse(secret_dir.exists())
+
+    def test_empty_secret_directory_is_verified_absent(self) -> None:
+        secret_dir = self.repo / "simple/CACHE-EMPTY/.container-secrets"
+        secret_dir.mkdir(parents=True)
+
+        result = _cleanup_run_secrets(self.repo, "CACHE-EMPTY")
+
+        self.assertEqual(result["status"], "verified_absent")
+        self.assertEqual(result["secret_paths"], [])
         self.assertFalse(secret_dir.exists())
 
     def test_only_verified_cleanup_statuses_allow_completion(self) -> None:

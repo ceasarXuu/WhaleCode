@@ -62,13 +62,35 @@ def _terminate_process_tree(
                 "descendants_guaranteed_terminated": False,
                 "error": "job object does not own the benchmark process tree",
             }
+        close_error = None
         try:
             windows_job.close()
+        except OSError as error:
+            close_error = error
+            try:
+                windows_job.terminate()
+                process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
+                windows_job.close()
+            except (OSError, subprocess.TimeoutExpired) as fallback_error:
+                return {
+                    "status": "failed",
+                    "method": "windows_job_object_explicit_terminate",
+                    "descendants_guaranteed_terminated": False,
+                    "error": (
+                        f"job close failed: {close_error}; "
+                        f"explicit termination failed: {fallback_error}"
+                    ),
+                }
+        try:
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
             return {
                 "status": "terminated",
                 "exit_code": process.returncode,
-                "method": "windows_job_object",
+                "method": (
+                    "windows_job_object_explicit_terminate"
+                    if close_error
+                    else "windows_job_object"
+                ),
                 "descendants_guaranteed_terminated": True,
             }
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -140,7 +162,12 @@ def run_benchmark_command(
         error.process_tree_termination = _terminate_process_tree(process, windows_job)
         raise
     if windows_job is not None:
-        windows_job.close()
+        termination = _terminate_process_tree(process, windows_job)
+        if termination["status"] != "terminated":
+            raise OSError(
+                "completed benchmark process tree could not be released: "
+                + termination.get("error", "unknown Windows Job Object failure")
+            )
     return subprocess.CompletedProcess(command, return_code)
 
 
@@ -306,9 +333,7 @@ def _cleanup_run_secrets(run_root: Path, run_id: str) -> dict[str, Any]:
         if remaining:
             raise ValueError("provider secret files remain after cleanup")
         return {
-            "status": "removed_verified"
-            if removed or candidates
-            else "verified_absent",
+            "status": "removed_verified" if removed else "verified_absent",
             "secret_paths": removed,
             "error": "",
         }

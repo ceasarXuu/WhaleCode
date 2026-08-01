@@ -127,6 +127,11 @@ class WindowsKillOnCloseJob:
             wintypes.HANDLE,
         ]
         self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        self._kernel32.TerminateJobObject.argtypes = [
+            wintypes.HANDLE,
+            wintypes.UINT,
+        ]
+        self._kernel32.TerminateJobObject.restype = wintypes.BOOL
         self._kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         self._kernel32.CloseHandle.restype = wintypes.BOOL
 
@@ -146,6 +151,12 @@ class WindowsKillOnCloseJob:
             if not self._kernel32.CloseHandle(self._handle):
                 raise JobObjectError(ctypes.get_last_error(), "CloseHandle failed")
             self._handle = None
+
+    def terminate(self, exit_code: int = 1) -> None:
+        if not self._handle or not self._assigned:
+            raise JobObjectError("job object does not own a process tree")
+        if not self._kernel32.TerminateJobObject(self._handle, exit_code):
+            raise JobObjectError(ctypes.get_last_error(), "TerminateJobObject failed")
 
 
 class WindowsJobProcess:
@@ -208,24 +219,23 @@ def start_windows_job_process(
     startup.cb = ctypes.sizeof(startup)
     process_info = _ProcessInformation()
     command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(command))
-    created = kernel32.CreateProcessW(
-        None,
-        command_line,
-        None,
-        None,
-        False,
-        CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP,
-        None,
-        str(cwd),
-        ctypes.byref(startup),
-        ctypes.byref(process_info),
-    )
-    if not created:
-        error = ctypes.get_last_error()
-        job.close()
-        raise JobObjectError(error, "CreateProcessW failed")
-    thread_handle = process_info.hThread
+    thread_handle = None
     try:
+        created = kernel32.CreateProcessW(
+            None,
+            command_line,
+            None,
+            None,
+            False,
+            CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP,
+            None,
+            str(cwd),
+            ctypes.byref(startup),
+            ctypes.byref(process_info),
+        )
+        if not created:
+            raise JobObjectError(ctypes.get_last_error(), "CreateProcessW failed")
+        thread_handle = process_info.hThread
         job.assign_handle(process_info.hProcess)
         if kernel32.ResumeThread(thread_handle) == RESUME_THREAD_FAILED:
             raise JobObjectError(ctypes.get_last_error(), "ResumeThread failed")
@@ -238,9 +248,11 @@ def start_windows_job_process(
             kernel32,
         )
     except BaseException as error:
-        cleanup_errors = _terminate_and_close_created_process(
-            kernel32, process_info.hProcess, thread_handle
-        )
+        cleanup_errors = []
+        if process_info.hProcess:
+            cleanup_errors = _terminate_and_close_created_process(
+                kernel32, process_info.hProcess, thread_handle or process_info.hThread
+            )
         try:
             job.close()
         except OSError as cleanup_error:

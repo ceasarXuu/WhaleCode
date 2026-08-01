@@ -6,6 +6,7 @@ import copy
 import json
 import subprocess
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from cache_budget import build_budget_proposal
@@ -179,7 +180,10 @@ class PromoteCacheBaselineFixture:
             "record_id": "WAR-FIXTURE",
             "status": "completed",
             "started_at": self.proposal["created_at"],
-            "ended_at": self.proposal["created_at"],
+            "ended_at": (
+                datetime.fromisoformat(self.proposal["created_at"])
+                + timedelta(seconds=2)
+            ).isoformat(),
             "elapsed_seconds": 2.0,
             "subject_commit": self.head,
             "surface_sha256": self.proposal["surface_sha256"],
@@ -211,15 +215,13 @@ class PromoteCacheBaselineFixture:
                         "secret_paths": [],
                         "error": "",
                     },
-                    "provider_boundary_request_count": observation[
-                        "provider_requests"
-                    ],
+                    "provider_boundary_request_count": observation["provider_requests"],
                     "provider_boundary_evidence_path": observation["artifacts"][
                         "provider_boundary"
                     ],
-                    "provider_boundary_evidence_sha256": observation[
-                        "artifact_sha256"
-                    ]["provider_boundary"],
+                    "provider_boundary_evidence_sha256": observation["artifact_sha256"][
+                        "provider_boundary"
+                    ],
                 }
                 for index, (scope, observation) in enumerate(
                     zip(execution_matrix(self.proposal), observations), start=1
@@ -319,7 +321,7 @@ class PromoteCacheBaselineFixture:
             "schema_version": ACCEPTANCE_SCHEMA_VERSION,
             "status": "accepted",
             "accepted_by": "user",
-            "accepted_at": self.proposal["created_at"],
+            "accepted_at": self.result["ended_at"],
             "acceptance_reference": "user accepted exact result in thread",
             "result_path": self.result_path.relative_to(self.repo).as_posix(),
             "result_sha256": file_sha256(self.result_path),

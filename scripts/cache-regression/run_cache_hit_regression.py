@@ -13,11 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from cache_evidence import (
-    RESULT_SCHEMA_VERSION,
-    canonical_json_sha256,
-    file_sha256,
-)
+from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
 from cache_process_control import (
     cleanup_labeled_containers,
     cleanup_verified,
@@ -40,6 +36,7 @@ from cache_run_ledger import (
     planned_entry,
     store_entry,
 )
+from cache_run_result import finalize_run_result
 from cache_run_supervision import emergency_cleanup, persist_final_settlement
 from cache_surface import load_contract
 
@@ -409,54 +406,16 @@ def main() -> int:
             attempt["stop_reason"] = stop_at
             break
 
-    attempted_keys = {
-        (item["sample"], item["arm"], item["repeat"]) for item in result["attempts"]
-    }
-    result["unverified_scope"] = [
-        item
-        for item in matrix
-        if (item["sample"], item["arm"], item["repeat"]) not in attempted_keys
-    ]
-    result["stop_reason"] = stop_at
-    accounted_requests = [
-        item["provider_boundary_request_count"]
-        for item in result["attempts"]
-        if isinstance(item.get("provider_boundary_request_count"), int)
-    ]
-    result["provider_boundary_requests_minimum"] = sum(accounted_requests)
-    result["provider_boundary_accounting_status"] = (
-        "complete"
-        if len(accounted_requests) == result["actual_sample_runs"]
-        else "partial"
-        if accounted_requests
-        else "unavailable"
+    finalize_run_result(
+        result,
+        matrix,
+        stop_at,
+        cleanup_failed=cleanup_failed,
+        supervision_failed=supervision_failed,
+        cancelled=cancelled,
+        started=started,
+        execution_completed=execution_completed,
     )
-    if cleanup_failed or supervision_failed:
-        result["status"] = "failed"
-    elif cancelled:
-        result["status"] = "cancelled"
-    elif execution_completed(matrix, result["attempts"], result["observations"]):
-        result["status"] = "completed"
-    elif result["attempts"]:
-        result["status"] = "partial"
-    else:
-        result["status"] = "failed"
-    result["evidence_sha256"] = canonical_json_sha256(
-        [
-            {
-                "sample": item["sample"],
-                "arm": item["arm"],
-                "repeat": item["repeat"],
-                "artifact_sha256": item["artifact_sha256"],
-            }
-            for item in result["observations"]
-        ]
-    )
-    result["runner_exit_code"] = (
-        0 if result["status"] == "completed" else 130 if cancelled else 3
-    )
-    result["ended_at"] = now()
-    result["elapsed_seconds"] = round(time.time() - started, 3)
 
     result_dir = repo / "benchmarks/cache-regression/results"
     result_path = result_dir / f"{record_id}.json"

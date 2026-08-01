@@ -9,6 +9,7 @@ from typing import Any
 
 from cache_budget import validate_budget_proposal, validate_gate_trigger
 from cache_cost import settled_monetary_cost
+from cache_elapsed import validate_elapsed_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_gate_evidence import changed_scenarios
 from cache_run_analysis import (
@@ -25,6 +26,7 @@ from cache_result_envelope import validate_result_envelope
 from cache_source_evidence import (
     protected_manifest,
     relative_path,
+    require,
     source_json,
     source_sha256,
 )
@@ -32,11 +34,6 @@ from cache_surface import surface_snapshot
 from cache_time import parse_timestamp, require_not_future, require_ordered
 
 ACCEPTANCE_SCHEMA_VERSION = "whalecode-cache-baseline-acceptance-v1"
-
-
-def require(condition: bool, message: str) -> None:
-    if not condition:
-        raise ValueError(message)
 
 
 def validate_proposal(
@@ -339,6 +336,13 @@ def validate_run_evidence(
         "cache observation matrix mismatch",
     )
     validate_attempts(result, matrix, proposal["per_sample_run_limits"])
+    validate_elapsed_evidence(
+        result,
+        result["attempts"],
+        started_at,
+        ended_at,
+        proposal["maximums"]["elapsed_seconds"],
+    )
     require(
         all(
             observation.get("run_id") == attempt.get("run_id")
