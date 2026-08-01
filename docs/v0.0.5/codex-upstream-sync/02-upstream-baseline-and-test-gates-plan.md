@@ -1,6 +1,6 @@
 # 第二批：上游基线、overlay 账本与测试门禁工程计划
 
-- 文档状态：实施中；Phase 1 已验证，Phase 2/3 待执行
+- 文档状态：实施中；Phase 1 已验证，Phase 2 已完成 W5–W8，Phase 3 待执行
 - 计划模式：Execution Tracking
 - 创建日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
@@ -178,7 +178,7 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 | W4 | verified | 实现 `validate_sync_metadata.py`，修正 `UPSTREAM.md` | 一条命令校验三份元数据且无 `unclassified` | W2、W3 |
 | W5 | verified | 实现 Nextest/JUnit runner 与规范化 parser | 定向栈敏感用例在 8 MiB 下稳定通过；runner 不生成 `.snap.new` | W0、W1 |
 | W6 | verified | 连续 3 次捕获当前 TUI 全量失败集合并分类 | 三次测试名集合一致；差异被标记为 flaky candidate | W5 |
-| W7 | in-progress | 审阅并处理 status/model/detail 类快照；模型可见性部分已决策，status 细节仍待审阅 | 每份 diff 有产品判断；该组定向测试归零 | W6 |
+| W7 | verified | 按 DeepSeek 官方 Responses 合同解耦 reasoning effort/summary，审阅并接受 12 个 status 快照 | request、SSE、catalog、status 定向回归通过；12 个 status 失败归零 | W6 |
 | W8 | verified | 接受 chatwidget/guardian/MCP 中 Flash 默认与 Pro 隐藏的 20 个快照 | 514 个 chatwidget 测试通过；全量基线中该组失败归零 | W6 |
 | W9 | blocked-on-discovery | 诊断 ActionMap route-mode 等功能断言 | 根因写入执行记录；修复有回归测试且不改变 TaskSpace 合同 | W6 |
 | W10 | blocked-on-discovery | 隔离复现潜在 memory-setting flake | 同配置 3 次结果稳定，或找到可验证根因 | W6 |
@@ -197,17 +197,26 @@ W7 和 W8 的每个快照族必须独立提交。若快照显示用户可见交�
 - 恢复门槛：官方适配上线，并通过 Whale provider 请求、reasoning/tool-call streaming、缓存回归、模型选择器与 TUI 全量测试；
 - 验证：20 个已审阅 chatwidget 快照独立提交，514 个 chatwidget 测试通过；更新后的全量基线只剩 12 个 status 快照与 1 个 ActionMap 功能断言。
 
-### 6.2 W7 Flash `/status` 默认值诊断
+### 6.2 W7 Flash `/status` 合同修复结果
 
-2026-08-01 的定向测试证明 12 个 status 快照不能直接接受：
+2026-08-01 的定向测试证明 12 个 status 快照不能直接接受。随后结合 DeepSeek 官方 Responses API 文档确认：
 
 - 模型管理器确认默认模型为 `deepseek-v4-flash`；
-- bundled catalog 声明 Flash 支持 reasoning summaries，但 `default_reasoning_summary` 为 `none`；
+- `reasoning.effort` 受支持；`reasoning.summary` 虽可传入但不会生成摘要；
+- raw thinking 通过 `response.reasoning_text.delta/done` 返回，与 summary 事件相互独立；
 - 使用真实 `deepseek-v4-flash`、默认 summary 配置和 High reasoning effort 渲染 `/status`，实际得到 `reasoning high, summaries auto`；
-- 根因边界已收敛到 status 取值路径：Responses provider 分支直接把空的 `config.model_reasoning_summary` 回退成 `auto`，没有使用已解析模型的 `default_reasoning_summary`；
-- 现有 `status_snapshot_uses_default_reasoning_when_config_empty` 还会通过 test-support 回退到 `gpt-5.1-codex-max`，不能代表 Whale 的真实默认模型。
+- 根因是 `supports_reasoning_summaries` 同时控制了整个 reasoning object 和 summary 字段，无法表达“支持 effort、不支持 summary”的 provider 合同；
+- `/status` 又没有使用 resolved model capability，因而把不受支持的 summary 显示为 `auto`。
 
-因此 W7 下一步不是接受快照，而是让 `/status` 复用与请求构建相同的 effective reasoning summary。修复前先固化真实 Flash 回归测试；修复后要求默认显示 `summaries off`，显式配置仍分别显示 `auto`、`detailed` 或 `off`。
+修复后的合同为：
+
+- Flash 请求保留 `reasoning.effort`，不发送 `reasoning.summary`，也不请求 `reasoning.encrypted_content`；
+- SSE 继续解析 raw reasoning text；
+- `/status` 显示 `deepseek-v4-flash (reasoning high)`，不展示不存在的 summaries 能力；
+- summary-capable 模型仍通过显式 capability fixture 覆盖详细摘要展示；
+- 相关回归为 model manager 36/36、Responses SSE 28/28、core client 24/24、TUI status 28/28；全量 TUI 为 1887 passed、1 failed、5 ignored。
+
+该修复由用户在阅读官方文档后明确授权，作为第二批原范围之外的独立根因修复提交 `27e3d51a7`；12 个 status 快照在独立提交 `73b7b78eb` 中接受。缓存 index gate 将 final-wire 的 `include` 删除识别为可比较 candidate transition并通过，但当前 live baseline 仍为 `live_regression_failed`，因此发布继续阻断。
 
 W9、W10、W13 当前信息不足，使用 `blocked-on-discovery` 是计划状态，不表示实施已被阻断。各工作单元在执行阶段先收集证据，再决定修复或另立需求。
 
@@ -289,11 +298,12 @@ powershell -File scripts/codex-upstream/verify-quick-backports.ps1
 
 ```bash
 git diff --check
+cargo build -p codex-rmcp-client --bin test_stdio_server
 python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 git status --short --branch
 ```
 
-本批原则上不应触及缓存敏感面。若 gate 报告敏感路径，必须按仓库预算规则停止并说明原因，不得用 `--no-verify`。
+缓存 final-wire matrix 的 MCP 场景依赖 `test_stdio_server`；target 中缺少该二进制时，wiremock 的零请求断言会遮蔽真实的 binary-not-found，使场景被误报为 `uncomparable`。先执行上述无模型费用 build，再运行 gate。本批原则上不应触及缓存敏感面；W7 是用户明确授权的例外。若 gate 报告敏感路径，必须按仓库预算规则停止并说明原因，不得用 `--no-verify`。
 
 ## 9. 风险、停止条件与回退
 
@@ -313,14 +323,14 @@ git status --short --branch
 
 ## 10. 验收清单
 
-- [ ] `UPSTREAM.md` 不再包含人工维护且失真的 overlay 数量；
-- [ ] overlay inventory 对同一 tree 连续生成逐字节一致；
-- [ ] 所有路径已分类，没有 `unclassified`；
-- [ ] backport ledger 覆盖历史记录和第一批六个提交，无 active 重复；
-- [ ] metadata validator 对篡改 SHA、digest、路径和重复记录的 fixture 均会失败；
-- [ ] TUI runner 不写 `.snap.new`，规范化结果无时间与路径噪声；
-- [ ] 当前失败集合已经稳定捕获并分类；
-- [ ] 所有快照均经过逐组审阅；
+- [x] `UPSTREAM.md` 不再包含人工维护且失真的 overlay 数量；
+- [x] overlay inventory 对同一 tree 连续生成逐字节一致；
+- [x] 所有路径已分类，没有 `unclassified`；
+- [x] backport ledger 覆盖历史记录和第一批六个提交，无 active 重复；
+- [x] metadata validator 对篡改 SHA、digest、路径和重复记录的 fixture 均会失败；
+- [x] TUI runner 不写新的 `.snap.new`，规范化结果无时间与路径噪声；
+- [x] 当前失败集合已经稳定捕获并分类；
+- [x] W7/W8 范围内的快照均经过逐组审阅；
 - [ ] TUI 全量 Nextest 最终零失败；
 - [ ] Windows 自动测试和两类终端人工 smoke 均有真实证据；
 - [ ] 缓存 index gate 通过且未启动真实 Whale Agent run；
