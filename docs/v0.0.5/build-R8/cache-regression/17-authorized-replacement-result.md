@@ -37,8 +37,10 @@ benchmark，并在 artifact 中同时记录 `logical_provider_id=deepseek` 与
 放宽。参考：[Codex config schema](https://github.com/openai/codex/blob/main/codex-rs/core/config.schema.json)、
 [DeepSeek Agent 集成配置](https://api-docs.deepseek.com/quick_start/agent_integrations/deepcode)。
 
-该修复已通过生产 `ConfigToml` 解析、provider 字段等价、Docker provider boundary、DeepSeek final-wire payload 和
-缓存门禁离线回归。缓存门禁将本次变更标记为待真实验证，发布继续阻断；这与工程缺陷已经修复并不矛盾。
+当前实现已通过 `ConfigToml` 解析、provider 字段等价、Docker provider boundary 和内置 DeepSeek final-wire payload
+回归，但对抗性审查指出这些证据尚未覆盖精确 PowerShell 参数经过真实 CLI/完整 `Config` 的入口，也未直接执行 alias
+normal final-wire，正式证据与 ledger 也没有绑定 resolved transport identity。因此工程状态回退为 validating；缓存门禁和
+发布继续阻断。详见 `vs_review/2026-08-01-r8-provider-boundary-alias-review.md`。
 
 RunId 保持更简单的机械合同：传入显式 ID 时，新目录就使用该 ID；未传入时才生成时间戳。当前修复已覆盖非法路径、
 已存在目录和默认时间戳，并通过 cache regression 与 E3 guardrails 回归，没有引入模糊扫描 fallback。

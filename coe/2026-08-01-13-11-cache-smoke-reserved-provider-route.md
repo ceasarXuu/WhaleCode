@@ -1,7 +1,7 @@
 # Problem P-001: 缓存 smoke 无法通过隔离 provider boundary 启动 Whale
-- Status: fixed
+- Status: validating
 - Created: 2026-08-01 13:11
-- Updated: 2026-08-01 14:12
+- Updated: 2026-08-01 15:39
 - Objective: 让获批缓存 smoke 在不绕过内置 DeepSeek provider 合同的前提下，经隔离 provider boundary 发出并记录请求。
 - Symptoms:
   - Standard 首臂在 Agent 启动前退出，map-request 因失败即停未运行。
@@ -36,7 +36,7 @@
   - H-001 confirmed the invalid reserved-ID override.
   - H-002 and E-004/E-005 validate the custom transport alias through production config parsing, prompt equivalence, container routing, and final-wire contracts.
 - Close reason:
-  - 工程缺陷已离线闭合；新的真实 smoke 只用于缓存效果复验，不再用于证明该配置加载根因。
+  - 对抗性审查确认仍缺少 exact production-entry preflight、alias normal final-wire 和 route evidence binding，暂不关闭。
 
 ## Hypothesis H-001: 保留 provider 覆盖导致启动前失败
 - Status: confirmed
