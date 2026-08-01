@@ -94,6 +94,8 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
             "observed_scope": entry["evidence"]["approved_selection"],
             "evidence_boundary": "fixture only",
             "actual_sample_runs": 1,
+            "provider_boundary_requests_minimum": 2,
+            "provider_boundary_accounting_status": "complete",
             "credential_source": "fixture",
             "observations": [
                 {
@@ -197,6 +199,7 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         value["proposal_id"] = "CBP-FIXTURE"
         value["attempts"] *= 2
         value["actual_sample_runs"] = 2
+        value["provider_boundary_requests_minimum"] = 4
         write_json(self.result, value)
         with self.assertRaisesRegex(ValueError, "approved matrix"):
             recover(self.repo, self.ledger, self.result)
@@ -245,6 +248,8 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         value["runner_exit_code"] = 3
         value["observations"] = []
         value["attempts"][0]["provider_boundary_request_count"] = None
+        value["provider_boundary_requests_minimum"] = 0
+        value["provider_boundary_accounting_status"] = "unavailable"
         write_json(self.result, value)
 
         self.assertEqual(recover(self.repo, self.ledger, self.result), "settled")
@@ -255,6 +260,21 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         self.assertEqual(
             entry["execution"]["api_requests_evidence_status"], "unavailable"
         )
+
+    def test_recovery_rejects_contradictory_result_request_accounting(self) -> None:
+        original = json.loads(self.result.read_text(encoding="utf-8"))
+        for field, value in (
+            ("provider_boundary_requests_minimum", True),
+            ("provider_boundary_requests_minimum", -99),
+            ("provider_boundary_requests_minimum", 6),
+            ("provider_boundary_accounting_status", "unavailable"),
+        ):
+            with self.subTest(field=field, value=value):
+                result = json.loads(json.dumps(original))
+                result[field] = value
+                write_json(self.result, result)
+                with self.assertRaisesRegex(ValueError, "request accounting"):
+                    recover(self.repo, self.ledger, self.result)
 
 
 if __name__ == "__main__":

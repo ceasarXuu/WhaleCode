@@ -13,6 +13,7 @@ from typing import Any
 from cache_cost import settled_monetary_cost
 from cache_evidence import file_sha256
 from cache_json import strict_json_loads
+from cache_request_accounting import summarize_request_accounting
 
 try:
     import fcntl
@@ -221,16 +222,10 @@ def planned_entry(
 def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     observations = result.get("observations", [])
     attempts = result.get("attempts", [])
-    accounted_requests = [
-        attempt["provider_boundary_request_count"]
-        for attempt in attempts
-        if type(attempt.get("provider_boundary_request_count")) is int
-        and attempt["provider_boundary_request_count"] >= 0
-    ]
-    accounting_complete = len(attempts) == result.get("actual_sample_runs") and len(
-        accounted_requests
-    ) == len(attempts)
-    authoritative_request_total = sum(accounted_requests)
+    authoritative_request_total, request_accounting_status = (
+        summarize_request_accounting(attempts, result.get("actual_sample_runs"))
+    )
+    accounting_complete = request_accounting_status == "complete"
     usage_complete = (
         bool(observations)
         and accounting_complete
@@ -271,9 +266,7 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
     else:
         entry["execution"]["api_requests"] = None
         entry["execution"]["api_requests_minimum"] = authoritative_request_total
-        entry["execution"]["api_requests_evidence_status"] = (
-            "partial" if accounted_requests else "unavailable"
-        )
+        entry["execution"]["api_requests_evidence_status"] = request_accounting_status
     entry["tokens"] = {
         "input": totals["input_tokens"],
         "cached_input": totals["cached_input_tokens"],

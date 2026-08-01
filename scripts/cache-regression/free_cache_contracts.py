@@ -39,7 +39,7 @@ def validate_free_validation(config: dict[str, Any]) -> None:
             raise ValueError(f"free validation command {command_id} has invalid argv")
         if not isinstance(cwd, str) or Path(cwd).is_absolute():
             raise ValueError(f"free validation command {command_id} has invalid cwd")
-        if not isinstance(timeout, int) or timeout <= 0:
+        if type(timeout) is not int or timeout <= 0:
             raise ValueError(
                 f"free validation command {command_id} has invalid timeout"
             )

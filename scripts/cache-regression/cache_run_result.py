@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable
 
 from cache_evidence import canonical_json_sha256
+from cache_request_accounting import summarize_request_accounting
 from cache_run_ledger import now
 
 
@@ -57,20 +58,11 @@ def _aggregate(
         if (item["sample"], item["arm"], item["repeat"]) not in attempted_keys
     ]
     result["stop_reason"] = stop_at
-    accounted_requests = [
-        item["provider_boundary_request_count"]
-        for item in result["attempts"]
-        if type(item.get("provider_boundary_request_count")) is int
-        and item["provider_boundary_request_count"] >= 0
-    ]
-    result["provider_boundary_requests_minimum"] = sum(accounted_requests)
-    result["provider_boundary_accounting_status"] = (
-        "complete"
-        if len(accounted_requests) == result["actual_sample_runs"]
-        else "partial"
-        if accounted_requests
-        else "unavailable"
+    request_minimum, request_status = summarize_request_accounting(
+        result["attempts"], result["actual_sample_runs"]
     )
+    result["provider_boundary_requests_minimum"] = request_minimum
+    result["provider_boundary_accounting_status"] = request_status
     if cleanup_failed or supervision_failed:
         result["status"] = "failed"
     elif cancelled:

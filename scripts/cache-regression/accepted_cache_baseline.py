@@ -25,6 +25,7 @@ from cache_run_contract import (
     validate_authorization as validate_run_authorization,
 )
 from cache_result_envelope import validate_result_envelope
+from cache_request_accounting import validate_result_request_accounting
 from cache_source_evidence import (
     protected_manifest,
     relative_path,
@@ -236,6 +237,7 @@ def validate_run_evidence(
         "cache observation matrix mismatch",
     )
     validate_attempts(result, matrix, proposal["per_sample_run_limits"])
+    validate_result_request_accounting(result)
     validate_elapsed_evidence(
         result,
         result["attempts"],

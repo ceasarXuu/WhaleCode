@@ -101,8 +101,22 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
     def test_rejects_tampered_provider_accounting_on_attempt(self) -> None:
         result = copy.deepcopy(self.result)
         result["attempts"][0]["provider_boundary_request_count"] += 1
+        result["provider_boundary_requests_minimum"] += 1
         with self.assertRaisesRegex(ValueError, "provider accounting"):
             self.validate(result=result)
+
+    def test_rejects_contradictory_result_request_accounting(self) -> None:
+        for field, value in (
+            ("provider_boundary_requests_minimum", True),
+            ("provider_boundary_requests_minimum", -99),
+            ("provider_boundary_requests_minimum", 5),
+            ("provider_boundary_accounting_status", "unavailable"),
+        ):
+            with self.subTest(field=field, value=value):
+                result = copy.deepcopy(self.result)
+                result[field] = value
+                with self.assertRaisesRegex(ValueError, "request accounting"):
+                    self.validate(result=result)
 
     def test_accepts_complete_exact_evidence(self) -> None:
         validated = self.validate()

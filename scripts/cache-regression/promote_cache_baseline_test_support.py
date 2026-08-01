@@ -195,6 +195,8 @@ class PromoteCacheBaselineFixture:
             "observed_scope": self.proposal["selection"],
             "unverified_scope": [],
             "actual_sample_runs": 2,
+            "provider_boundary_requests_minimum": 6,
+            "provider_boundary_accounting_status": "complete",
             "credential_source": "fixture",
             "run_root": "target/cache-fixture",
             "observations": observations,

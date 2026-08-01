@@ -10,6 +10,7 @@ from cache_budget import validate_budget_selection
 from cache_evidence import RESULT_SCHEMA_VERSION
 from cache_json import exact_json_equal, strict_json_loads
 from cache_result_envelope import validate_result_envelope
+from cache_request_accounting import validate_result_request_accounting
 from cache_run_ledger import mutate_entry, now, settle_entry
 
 
@@ -80,6 +81,7 @@ def _validate_settlement_payload(result: dict) -> None:
         accounted += 1
     if result.get("status") == "completed" and accounted != actual:
         raise ValueError("completed cache recovery accounting is incomplete")
+    validate_result_request_accounting(result)
 
 
 def _validate_claim_identity(entry: dict, result: dict) -> None:

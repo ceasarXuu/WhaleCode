@@ -96,6 +96,13 @@ class FreeCacheContractsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate"):
             validate_free_validation(config)
 
+    def test_boolean_timeout_is_rejected(self) -> None:
+        config = command_config(["python3", "-c", "pass"])
+        config["commands"][0]["timeout_seconds"] = True
+
+        with self.assertRaisesRegex(ValueError, "invalid timeout"):
+            validate_free_validation(config)
+
     def write_snapshot(self, value: dict) -> None:
         snapshots = self.repo / "snapshots"
         snapshots.mkdir(exist_ok=True)
