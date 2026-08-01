@@ -1,7 +1,95 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-01T21:56:44+08:00",
+  "updated_at": "2026-08-01T22:23:16+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260801-222316-R8-I01-W9-MA-1B64DB37",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "R8-I01 W9 map-always 优先复验：确认历史集中的 hidden-attribution stale 是否已由唯一 final control result 消除。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-20260801-R8-I01-W9-MAP-ALWAYS",
+        "reference": "用户在当前会话明确回复“批准。先把map-always问题解决”，批准修正中性路径后优先执行 map-always repeat 3。",
+        "budget_summary": {
+          "model": "deepseek-v4-flash",
+          "sample": "single-file-fast-fix",
+          "arms": [
+            "map-always"
+          ],
+          "repeat": 3,
+          "planned_sample_runs": 3,
+          "provider_requests_hard_limit": 30,
+          "provider_requests_hard_limit_per_run": 10,
+          "observed_input_tokens_limit": 600000,
+          "observed_output_tokens_limit": 24000,
+          "elapsed_seconds_hard_limit": 1800,
+          "normal_estimated_cost_limit": 0.093,
+          "provider_theoretical_worst_cost": 7.4256,
+          "currency": "USD",
+          "automatic_retry_limit": 0
+        },
+        "note": "使用仓库外中性路径；任一 run/业务失败、usage 缺失或观测阈值越界即停止。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-always"
+        ],
+        "repeats_per_arm_per_sample": 3,
+        "planned_sample_runs": 3,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "USD",
+        "amount": 0.093,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "observed cached/uncached/output usage at frozen rates",
+        "note": "本记录只覆盖获批总预算中的 map-always 三次优先复验。"
+      },
+      "evidence": {
+        "planned_run_root": "/tmp/wrun/20260801w9ma",
+        "product_subject_commit": "9b49f6dc96ad553ab454fefc2c96c975a6838442",
+        "neutral_path_preflight": "passed",
+        "sample_arm_repeat_count": 3,
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "diagnostic_target": "For every response, compare TaskSpaceResponseResultV2 canonical_revision with the next submitted expected_revision and any stale_revision rejection.",
+        "evidence_boundary": "single-file-fast-fix map-always repeat 3 only; no retries"
+      }
+    },
     {
       "record_id": "WAR-20260801-215033-R8-I01-W9-9B49F6DC",
       "record_type": "run_batch",
