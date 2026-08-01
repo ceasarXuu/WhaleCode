@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """Provider-boundary evidence builders shared by cache control-plane tests."""
 
+import hashlib
 from pathlib import Path
 
 from cache_surface import write_json
 
 
 def write_provider_boundary_evidence(
-    path: Path, request_count: int, model: str = "deepseek-v4-flash"
+    path: Path,
+    request_count: int,
+    model: str = "deepseek-v4-flash",
+    identity: str = "fixture",
 ) -> None:
-    hashes = [f"{index:064x}" for index in range(1, request_count + 1)]
+    hashes = [
+        hashlib.sha256(f"{identity}:{index}".encode()).hexdigest()
+        for index in range(1, request_count + 1)
+    ]
     write_json(
         path,
         {

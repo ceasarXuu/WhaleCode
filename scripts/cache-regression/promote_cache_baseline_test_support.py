@@ -285,7 +285,7 @@ class PromoteCacheBaselineFixture:
                 "business_success": True,
             },
         )
-        write_provider_boundary_evidence(boundary, 3)
+        write_provider_boundary_evidence(boundary, 3, identity=arm)
         argv_value, mode_map_value = fixture_arm_identity(arm)
         write_json(execution_argv, argv_value)
         write_json(logical_mode_map, mode_map_value)

@@ -311,6 +311,24 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "execution identity|taskspace"):
             self.validate(result=result)
 
+    def test_rejects_cross_arm_reuse_of_provider_wire_evidence(self) -> None:
+        result = copy.deepcopy(self.result)
+        boundary_path = (
+            self.repo / result["observations"][0]["artifacts"]["provider_boundary"]
+        )
+        self._replace_observation_artifact(
+            result,
+            1,
+            "provider_boundary",
+            json.loads(boundary_path.read_text(encoding="utf-8")),
+        )
+        result["attempts"][1]["provider_boundary_evidence_sha256"] = result[
+            "observations"
+        ][1]["artifact_sha256"]["provider_boundary"]
+
+        with self.assertRaisesRegex(ValueError, "identical provider wire"):
+            self.validate(result=result)
+
     def test_rejects_float_request_count_in_observation(self) -> None:
         result = copy.deepcopy(self.result)
         result["observations"][0]["provider_requests"] = 3.0

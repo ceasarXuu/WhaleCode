@@ -144,6 +144,18 @@ def validate_attempts(
     )
 
 
+def validate_cross_arm_provider_evidence(observations: list[dict[str, Any]]) -> None:
+    for index, left in enumerate(observations):
+        for right in observations[index + 1 :]:
+            if left["arm"] == right["arm"]:
+                continue
+            require(
+                left["artifact_sha256"]["provider_boundary"]
+                != right["artifact_sha256"]["provider_boundary"],
+                "different cache arms share identical provider wire evidence",
+            )
+
+
 def validate_ledger(
     repo: Path,
     result: dict[str, Any],
@@ -354,6 +366,7 @@ def validate_run_evidence(
                 source,
             )
         )
+    validate_cross_arm_provider_evidence(observations)
     digest_rows = [
         {**scope, "artifact_sha256": observation["artifact_sha256"]}
         for scope, observation in zip(matrix, observations)

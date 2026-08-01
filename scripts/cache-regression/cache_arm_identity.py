@@ -6,12 +6,20 @@ from __future__ import annotations
 from typing import Any
 
 
-POLICY_ARGUMENT = 'taskspace_projection_policy="map-request"'
+TASKSPACE_ARMS = ("map-always", "map-append", "map-request")
+
+
+def policy_argument(arm: str) -> str:
+    if arm not in TASKSPACE_ARMS:
+        raise ValueError(f"unsupported taskspace cache arm: {arm}")
+    return f'taskspace_projection_policy="{arm}"'
 
 
 def validate_arm_identity(
     argv_evidence: dict[str, Any], mode_map: dict[str, Any], arm: str
 ) -> None:
+    if arm != "standard" and arm not in TASKSPACE_ARMS:
+        raise ValueError(f"unsupported cache arm: {arm}")
     expected_mode = "standard" if arm == "standard" else "taskspace"
     expected_side = "left" if arm == "standard" else "right"
     argv = argv_evidence.get("argv")
@@ -33,17 +41,18 @@ def validate_arm_identity(
             argv != common
             or argv_evidence.get("treatment_delta") is not None
             or "--taskspace" in argv
-            or POLICY_ARGUMENT in argv
+            or any(policy_argument(item) in argv for item in TASKSPACE_ARMS)
         ):
             raise ValueError("standard cache execution identity is invalid")
         return
-    expected_delta = ["--taskspace", f"-c {POLICY_ARGUMENT}"]
+    expected_policy = policy_argument(arm)
+    expected_delta = ["--taskspace", f"-c {expected_policy}"]
     if argv_evidence.get("treatment_delta") != expected_delta:
         raise ValueError("taskspace cache treatment delta is invalid")
     normalized = list(argv)
     try:
         normalized.remove("--taskspace")
-        policy_index = normalized.index(POLICY_ARGUMENT)
+        policy_index = normalized.index(expected_policy)
     except ValueError as error:
         raise ValueError("taskspace cache launch arguments are incomplete") from error
     if policy_index == 0 or normalized[policy_index - 1] != "-c":
@@ -59,17 +68,18 @@ def fixture_arm_identity(arm: str) -> tuple[dict[str, Any], dict[str, Any]]:
         argv = list(common)
         delta = None
     else:
+        expected_policy = policy_argument(arm)
         argv = [
             "exec",
             "--json",
             "--taskspace",
             "-c",
-            POLICY_ARGUMENT,
+            expected_policy,
             "-m",
             "deepseek-v4-flash",
             "-",
         ]
-        delta = ["--taskspace", f"-c {POLICY_ARGUMENT}"]
+        delta = ["--taskspace", f"-c {expected_policy}"]
     return (
         {
             "logical_mode": "standard" if arm == "standard" else "taskspace",
