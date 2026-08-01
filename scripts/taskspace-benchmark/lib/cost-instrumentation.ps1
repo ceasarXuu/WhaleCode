@@ -1426,12 +1426,11 @@ function New-TaskspaceControlUsageSummary {
                 }
                 $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
                 $isLifecycleResult = $schemaVersion -eq "TaskSpaceControlResultV2"
-                $isResponseCommit = $schemaVersion -eq "TaskSpaceResponseCommitV1"
                 $isResponseCommitFailure = $schemaVersion -eq "TaskSpaceResponseCommitFailureV3"
                 $isResponseFinalControlResult = $schemaVersion -eq "TaskSpaceResponseResultV2"
                 $isControlPreflightResult = $schemaVersion -eq "ToolSequencePreflightResultV3"
-                $isControlResult = $isLifecycleResult -or $isResponseCommit -or
-                    $isResponseCommitFailure -or $isResponseFinalControlResult
+                $isControlResult = $isLifecycleResult -or $isResponseCommitFailure -or
+                    $isResponseFinalControlResult
                 if ($isResponseFinalControlResult) {
                     $responseFinalControlResultCount++
                     if ([string](Get-TaskspaceCostProperty $batch @("status")) -eq "settled" -and
@@ -1500,7 +1499,7 @@ function New-TaskspaceControlUsageSummary {
                         [void]$rolloutControlProtocolFailureCallIds.Add($callId)
                     }
                 }
-                $stateCommitted = ($isLifecycleResult -or $isResponseCommit -or
+                $stateCommitted = ($isLifecycleResult -or
                     $isResponseFinalControlResult) -and
                     [bool](Get-TaskspaceCostProperty $batch @("success")) -and
                     [bool](Get-TaskspaceCostProperty $batch @("state_commit"))
