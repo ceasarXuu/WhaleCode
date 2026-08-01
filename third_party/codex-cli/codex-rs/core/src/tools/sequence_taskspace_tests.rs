@@ -102,22 +102,6 @@ fn router_for_turn(turn: &crate::session::turn_context::TurnContext) -> ToolRout
     )
 }
 
-fn final_receipt(outputs: &[codex_protocol::models::ResponseInputItem]) -> serde_json::Value {
-    let codex_protocol::models::ResponseInputItem::Message { content, .. } =
-        outputs.last().expect("final receipt")
-    else {
-        panic!("response-final receipt must be the final factual message");
-    };
-    let text = content
-        .iter()
-        .find_map(|item| match item {
-            codex_protocol::models::ContentItem::InputText { text } => Some(text),
-            _ => None,
-        })
-        .expect("final receipt text");
-    serde_json::from_str(text).expect("final receipt JSON")
-}
-
 fn function_call_output(
     outputs: &[codex_protocol::models::ResponseInputItem],
     expected_call_id: &str,
@@ -140,7 +124,7 @@ fn function_call_output(
 }
 
 #[tokio::test]
-async fn current_response_exposes_prepare_and_final_revision_as_distinct_authorities() {
+async fn response_exposes_one_final_control_revision_authority() {
     let (session, mut turn) = make_session_and_context().await;
     turn.tools_config
         .experimental_supported_tools
@@ -149,9 +133,10 @@ async fn current_response_exposes_prepare_and_final_revision_as_distinct_authori
         .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
         .await;
     let router = router_for_turn(&turn);
+    let session = Arc::new(session);
     let runtime = ToolCallRuntime::new(
         Arc::new(router),
-        Arc::new(session),
+        Arc::clone(&session),
         Arc::new(turn),
         Arc::new(Mutex::new(TurnDiffTracker::new())),
     );
@@ -167,30 +152,33 @@ async fn current_response_exposes_prepare_and_final_revision_as_distinct_authori
     .await
     .expect("initialize response");
 
-    let prepare = function_call_output(&outcome.outputs, "control");
-    let receipt = final_receipt(&outcome.outputs);
-    let prepare_revision = prepare["revision_after"]
-        .as_u64()
-        .expect("prepare revision");
-    let final_revision = receipt["canonical_revision"]
+    let result = function_call_output(&outcome.outputs, "control");
+    let final_revision = result["canonical_revision"]
         .as_u64()
         .expect("final canonical revision");
+    let map_revision = session
+        .canonical_action_map_snapshot()
+        .await
+        .expect("canonical snapshot")
+        .map
+        .expect("initialized map")
+        .revision;
 
-    assert_eq!(prepare["schema_version"], "TaskSpaceResponseCommitV1");
-    assert_eq!(receipt["schema_version"], "TaskSpaceResponseFinalReceiptV1");
-    assert!(final_revision > prepare_revision);
-    assert_eq!(
-        [Some(prepare_revision), Some(final_revision)]
-            .into_iter()
-            .flatten()
-            .count(),
-        2,
-        "one response currently exposes two successful continuation revisions"
+    assert_eq!(result["schema_version"], "TaskSpaceResponseResultV2");
+    assert_eq!(result["status"], "settled");
+    assert_eq!(final_revision, map_revision);
+    assert!(result.get("revision_after").is_none());
+    assert!(
+        outcome.outputs.iter().all(|output| !matches!(
+            output,
+            codex_protocol::models::ResponseInputItem::Message { .. }
+        )),
+        "the response must not expose a second developer-message authority"
     );
 }
 
 #[tokio::test]
-async fn response_final_receipt_revision_is_accepted_by_the_next_execute() {
+async fn response_final_control_revision_is_accepted_by_the_next_execute() {
     let (session, mut turn) = make_session_and_context().await;
     turn.tools_config
         .experimental_supported_tools
@@ -217,16 +205,11 @@ async fn response_final_receipt_revision_is_accepted_by_the_next_execute() {
     )
     .await
     .expect("initialize response");
-    let initial_receipt = final_receipt(&initialized.outputs);
-    let final_revision = initial_receipt["canonical_revision"]
+    let initial_result = function_call_output(&initialized.outputs, "control");
+    let final_revision = initial_result["canonical_revision"]
         .as_u64()
         .expect("canonical revision");
-    assert!(
-        final_revision
-            > initial_receipt["reservation_revision_after"]
-                .as_u64()
-                .expect("reservation revision")
-    );
+    assert_eq!(initial_result["status"], "settled");
 
     let continued = execute_response_tool_sequence(
         runtime,
@@ -238,10 +221,10 @@ async fn response_final_receipt_revision_is_accepted_by_the_next_execute() {
     )
     .await
     .expect("next execute response");
-    let continued_receipt = final_receipt(&continued.outputs);
-    assert_eq!(continued_receipt["status"], "complete");
+    let continued_result = function_call_output(&continued.outputs, "control-next");
+    assert_eq!(continued_result["status"], "settled");
     assert!(
-        continued_receipt["canonical_revision"]
+        continued_result["canonical_revision"]
             .as_u64()
             .expect("continued revision")
             > final_revision
@@ -276,7 +259,7 @@ async fn prior_failure_releases_every_prepared_taskspace_reservation() {
         .await
         .expect("response sequence");
 
-    assert_eq!(outcome.outputs.len(), 5);
+    assert_eq!(outcome.outputs.len(), 4);
     let map = session
         .canonical_action_map_snapshot()
         .await
@@ -295,15 +278,13 @@ async fn prior_failure_releases_every_prepared_taskspace_reservation() {
             .any(|result| result.id == "tool-result://call/verify" && result.is_error),
         "the skipped action must be attributed as a failed result"
     );
-    let receipt = final_receipt(&outcome.outputs);
-    assert_eq!(receipt["schema_version"], "TaskSpaceResponseFinalReceiptV1");
-    assert_eq!(receipt["status"], "complete");
-    assert_eq!(receipt["receipt_only"], true);
-    assert_eq!(receipt["reservation_revision_after"], 1);
-    assert_eq!(receipt["canonical_revision"], map.revision);
-    assert_eq!(receipt["prepared_action_count"], 2);
-    assert_eq!(receipt["attributed_result_count"], 2);
-    assert_eq!(receipt["outstanding_reservation_count"], 0);
+    let result = function_call_output(&outcome.outputs, "control");
+    assert_eq!(result["schema_version"], "TaskSpaceResponseResultV2");
+    assert_eq!(result["status"], "settled");
+    assert_eq!(result["canonical_revision"], map.revision);
+    assert_eq!(result["settlement"]["prepared_action_count"], 2);
+    assert_eq!(result["settlement"]["attributed_result_count"], 2);
+    assert_eq!(result["settlement"]["outstanding_reservation_count"], 0);
 }
 
 #[tokio::test]
@@ -343,7 +324,7 @@ async fn cancelled_parallel_actions_release_every_prepared_reservation() {
         .await
         .expect("cancelled response sequence");
 
-    assert_eq!(outcome.outputs.len(), 4);
+    assert_eq!(outcome.outputs.len(), 3);
     let map = session
         .canonical_action_map_snapshot()
         .await
@@ -353,9 +334,9 @@ async fn cancelled_parallel_actions_release_every_prepared_reservation() {
     assert!(map.reservations.is_empty());
     assert_eq!(map.results.len(), 2);
     assert!(map.results.iter().all(|result| result.is_error));
-    let receipt = final_receipt(&outcome.outputs);
-    assert_eq!(receipt["status"], "complete");
-    assert_eq!(receipt["canonical_revision"], map.revision);
+    let result = function_call_output(&outcome.outputs, "control");
+    assert_eq!(result["status"], "settled");
+    assert_eq!(result["canonical_revision"], map.revision);
 }
 
 #[tokio::test]
@@ -393,7 +374,7 @@ async fn parallel_tool_timeouts_release_every_prepared_reservation() {
         .await
         .expect("timed out response sequence");
 
-    assert_eq!(outcome.outputs.len(), 4);
+    assert_eq!(outcome.outputs.len(), 3);
     let map = session
         .canonical_action_map_snapshot()
         .await
@@ -403,9 +384,9 @@ async fn parallel_tool_timeouts_release_every_prepared_reservation() {
     assert!(map.reservations.is_empty());
     assert_eq!(map.results.len(), 2);
     assert!(map.results.iter().all(|result| result.is_error));
-    let receipt = final_receipt(&outcome.outputs);
-    assert_eq!(receipt["status"], "complete");
-    assert_eq!(receipt["canonical_revision"], map.revision);
+    let result = function_call_output(&outcome.outputs, "control");
+    assert_eq!(result["status"], "settled");
+    assert_eq!(result["canonical_revision"], map.revision);
 }
 
 #[tokio::test]

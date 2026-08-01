@@ -603,17 +603,7 @@ async fn execute_prepared_taskspace_siblings(
     );
     let bound_calls = prepared_calls;
     let segments = sequence_segments(&calls);
-    let control_output = ResponseInputItem::FunctionCallOutput {
-        call_id: control_call_id.clone(),
-        output: codex_protocol::models::FunctionCallOutputPayload {
-            body: codex_protocol::models::FunctionCallOutputBody::Text(
-                prepared.model_visible_result(),
-            ),
-            success: Some(true),
-        },
-    };
-    let mut outputs = Vec::with_capacity(calls.len() + 2);
-    outputs.push(control_output);
+    let mut outputs = Vec::with_capacity(calls.len() + 1);
     let mut supplemental_outputs = Vec::new();
     let mut prior_failure: Option<String> = None;
     let mut terminal_completion: Option<TaskSpaceTerminalCompletion> = None;
@@ -761,7 +751,7 @@ async fn execute_prepared_taskspace_siblings(
     };
     tracing::info!(
         target: "codex_core::taskspace",
-        event_name = "taskspace_response_final_receipt_emitted",
+        event_name = "taskspace_response_finalized",
         control_call_id,
         map_id = prepared.map_id,
         reservation_revision_after = prepared.revision_after,
@@ -769,15 +759,19 @@ async fn execute_prepared_taskspace_siblings(
         prepared_action_count,
         attributed_result_count = receipt.attributed_result_count,
         outstanding_reservation_count = receipt.outstanding_reservation_count,
-        receipt_complete = receipt.complete(),
-        "emitted response-final canonical TaskSpace receipt"
+        settlement_complete = receipt.complete(),
+        "finalized the canonical TaskSpace control result"
     );
-    outputs.push(ResponseInputItem::Message {
-        role: "developer".to_string(),
-        content: vec![codex_protocol::models::ContentItem::InputText {
-            text: receipt.model_visible_result(),
-        }],
-    });
+    let control_output = ResponseInputItem::FunctionCallOutput {
+        call_id: control_call_id,
+        output: codex_protocol::models::FunctionCallOutputPayload {
+            body: codex_protocol::models::FunctionCallOutputBody::Text(
+                receipt.finalized_model_visible_result(&prepared),
+            ),
+            success: Some(receipt.complete()),
+        },
+    };
+    outputs.insert(0, control_output);
     Ok(ToolSequenceOutcome {
         outputs,
         terminal_completion,
