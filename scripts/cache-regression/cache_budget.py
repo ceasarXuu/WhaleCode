@@ -8,6 +8,7 @@ from typing import Any
 
 from cache_evidence import canonical_json_sha256, file_sha256
 from cache_execution_identity import build_execution_identity
+from cache_json import exact_json_equal
 from cache_surface import surface_snapshot
 from cache_time import now_iso, parse_timestamp, require_not_future
 
@@ -337,32 +338,36 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
         10,
     )
     require(
-        proposal.get("maximums")
-        == {
-            "provider_requests": hard_requests,
-            "input_tokens": hard_input,
-            "output_tokens": hard_output,
-            "elapsed_seconds": sample_runs
-            * (limits["elapsed_seconds"] + limits["cleanup_grace_seconds"]),
-            "estimated_cost": hard_cost,
-            "currency": pricing["currency"],
-        },
+        exact_json_equal(
+            proposal.get("maximums"),
+            {
+                "provider_requests": hard_requests,
+                "input_tokens": hard_input,
+                "output_tokens": hard_output,
+                "elapsed_seconds": sample_runs
+                * (limits["elapsed_seconds"] + limits["cleanup_grace_seconds"]),
+                "estimated_cost": hard_cost,
+                "currency": pricing["currency"],
+            },
+        ),
         "budget proposal hard maximums are inconsistent",
     )
     observed_input = sample_runs * thresholds["input_tokens"]
     observed_output = sample_runs * thresholds["output_tokens"]
     require(
-        proposal.get("observation_threshold_totals")
-        == {
-            "input_tokens": observed_input,
-            "output_tokens": observed_output,
-            "estimated_cost": round(
-                observed_input / 1_000_000 * pricing["uncached_input_per_million"]
-                + observed_output / 1_000_000 * pricing["output_per_million"],
-                10,
-            ),
-            "currency": pricing["currency"],
-        },
+        exact_json_equal(
+            proposal.get("observation_threshold_totals"),
+            {
+                "input_tokens": observed_input,
+                "output_tokens": observed_output,
+                "estimated_cost": round(
+                    observed_input / 1_000_000 * pricing["uncached_input_per_million"]
+                    + observed_output / 1_000_000 * pricing["output_per_million"],
+                    10,
+                ),
+                "currency": pricing["currency"],
+            },
+        ),
         "budget proposal observation thresholds are inconsistent",
     )
     boundary = proposal.get("enforcement_boundary", {})

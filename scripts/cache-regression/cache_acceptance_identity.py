@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from cache_budget import validate_budget_proposal
+from cache_json import exact_json_equal
 from cache_source_evidence import require
 
 
@@ -24,7 +25,7 @@ def validate_proposal_identity(
     require(
         proposal.get("subject_commit") == result.get("subject_commit")
         and proposal.get("surface_sha256") == result.get("surface_sha256")
-        and proposal.get("selection") == result.get("observed_scope"),
+        and exact_json_equal(proposal.get("selection"), result.get("observed_scope")),
         "cache proposal source or scope mismatch",
     )
     if require_current_head:

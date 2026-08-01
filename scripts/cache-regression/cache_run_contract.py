@@ -13,7 +13,7 @@ from cache_budget import (
     validate_budget_proposal,
 )
 from cache_evidence import file_sha256
-from cache_json import strict_json_loads
+from cache_json import exact_json_equal, strict_json_loads
 from cache_time import parse_timestamp, require_not_future, require_ordered
 
 
@@ -77,7 +77,10 @@ def validate_proposal_context(
         selection_reason=selection["selection_reason"],
         created_at=proposal["created_at"],
     )
-    require(proposal == expected, "budget proposal does not match current evidence")
+    require(
+        exact_json_equal(proposal, expected),
+        "budget proposal does not match current evidence",
+    )
     require(proposal_path.is_file(), "budget proposal file does not exist")
 
 
@@ -119,11 +122,13 @@ def validate_authorization(
         "authorization proposal digest mismatch",
     )
     require(
-        authorization.get("approved_selection") == proposal["selection"],
+        exact_json_equal(
+            authorization.get("approved_selection"), proposal["selection"]
+        ),
         "authorization selection does not match proposal",
     )
     require(
-        authorization.get("approved_maximums") == proposal["maximums"],
+        exact_json_equal(authorization.get("approved_maximums"), proposal["maximums"]),
         "authorization maximums do not match proposal",
     )
 

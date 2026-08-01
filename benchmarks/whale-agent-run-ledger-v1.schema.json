@@ -164,7 +164,9 @@
         "repeats_per_arm_per_sample",
         "planned_sample_runs",
         "actual_sample_runs",
-        "api_requests"
+        "api_requests",
+        "api_requests_minimum",
+        "api_requests_evidence_status"
       ],
       "properties": {
         "provider": {

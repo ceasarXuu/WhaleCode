@@ -163,7 +163,7 @@ def _validate_claimed_budget(budget: object, result: dict) -> None:
     if not isinstance(budget, dict):
         raise ValueError("cache recovery claim has no budget")
     request_minimum = sum(
-        attempt.get("provider_boundary_request_count", 0)
+        attempt.get("provider_boundary_request_count") or 0
         for attempt in result["attempts"]
     )
     totals = {

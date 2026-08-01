@@ -144,6 +144,18 @@ class CacheRunLedgerTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+        execution.pop("api_requests_minimum")
+        execution.pop("api_requests_evidence_status")
+        execution["api_requests"] = 0
+        fixture.write_text(json.dumps(ledger), encoding="utf-8")
+        completed = subprocess.run(
+            completed.args,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+
     def test_authoritative_request_count_survives_usage_failure(self) -> None:
         entry = {
             "status": "running",

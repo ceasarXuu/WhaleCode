@@ -206,7 +206,7 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         value["status"] = "partial"
         value["runner_exit_code"] = 3
         value["observations"] = []
-        value["attempts"][0].pop("provider_boundary_request_count")
+        value["attempts"][0]["provider_boundary_request_count"] = None
         write_json(self.result, value)
 
         self.assertEqual(recover(self.repo, self.ledger, self.result), "settled")

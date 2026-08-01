@@ -296,6 +296,15 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     self.validate()
 
+    def test_rejects_boolean_scope_even_when_acceptance_matches(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["observed_scope"]["repeat"] = True
+        acceptance = copy.deepcopy(self.acceptance)
+        acceptance["accepted_scope"] = copy.deepcopy(result["observed_scope"])
+
+        with self.assertRaisesRegex(ValueError, "scope"):
+            self.validate(result=result, acceptance=acceptance)
+
     def test_rejects_nan_business_success_in_full_promotion(self) -> None:
         result = copy.deepcopy(self.result)
         self._replace_observation_artifact(

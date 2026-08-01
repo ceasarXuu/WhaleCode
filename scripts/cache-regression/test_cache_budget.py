@@ -196,6 +196,12 @@ class CacheBudgetProposalTest(unittest.TestCase):
             validate_budget_proposal(proposal)
 
         proposal = self.proposal()
+        proposal["maximums"]["provider_requests"] = True
+        self._reseal(proposal)
+        with self.assertRaisesRegex(ValueError, "maximums"):
+            validate_budget_proposal(proposal)
+
+        proposal = self.proposal()
         proposal["selection"]["planned_sample_runs"] += 1
         self._reseal(proposal)
         with self.assertRaisesRegex(ValueError, "matrix"):

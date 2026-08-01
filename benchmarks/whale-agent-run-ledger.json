@@ -40,7 +40,9 @@
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 2,
         "actual_sample_runs": 2,
-        "api_requests": 13
+        "api_requests": 13,
+        "api_requests_minimum": 13,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 190830,
@@ -118,7 +120,9 @@
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 2,
         "actual_sample_runs": 0,
-        "api_requests": 0
+        "api_requests": 0,
+        "api_requests_minimum": 0,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 0,
@@ -192,7 +196,9 @@
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 2,
         "actual_sample_runs": 0,
-        "api_requests": 0
+        "api_requests": 0,
+        "api_requests_minimum": 0,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 0,
@@ -264,7 +270,9 @@
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
         "actual_sample_runs": 1,
-        "api_requests": 9
+        "api_requests": 9,
+        "api_requests_minimum": 9,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 171613,
@@ -348,7 +356,9 @@
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 2,
         "actual_sample_runs": 2,
-        "api_requests": 19
+        "api_requests": 19,
+        "api_requests_minimum": 19,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 372050,
@@ -437,7 +447,9 @@
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 3,
         "actual_sample_runs": 3,
-        "api_requests": 35
+        "api_requests": 35,
+        "api_requests_minimum": 35,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 724377,
@@ -527,7 +539,9 @@
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
         "actual_sample_runs": 1,
-        "api_requests": 18
+        "api_requests": 18,
+        "api_requests_minimum": 18,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 489490,
@@ -608,7 +622,9 @@
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 336,
         "actual_sample_runs": 336,
-        "api_requests": 4873
+        "api_requests": 4873,
+        "api_requests_minimum": 4873,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 112826378,

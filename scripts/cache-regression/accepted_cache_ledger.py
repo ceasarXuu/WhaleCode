@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from cache_cost import settled_monetary_cost
+from cache_json import exact_json_equal
 from cache_source_evidence import require, source_json, source_sha256
 
 
@@ -68,7 +69,9 @@ def validate_ledger(
         "cache ledger status or authorization mismatch",
     )
     require(
-        entry["authorization"].get("budget_summary") == proposal["maximums"],
+        exact_json_equal(
+            entry["authorization"].get("budget_summary"), proposal["maximums"]
+        ),
         "cache ledger budget summary mismatch",
     )
     require(

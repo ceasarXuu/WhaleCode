@@ -63,28 +63,22 @@ foreach ($entry in @($ledger.entries)) {
         Assert-Ledger (Test-NonnegativeInteger $execution.$field) `
             "$id execution.$field is not a nonnegative integer"
     }
-    $requestEvidence = $execution.PSObject.Properties["api_requests_evidence_status"]
-    if ($null -eq $requestEvidence) {
+    $requestStatus = [string]$execution.api_requests_evidence_status
+    Assert-Ledger (
+        @("pending", "complete", "partial", "unavailable") -ccontains $requestStatus
+    ) "$id execution.api_requests_evidence_status is invalid"
+    Assert-Ledger (Test-NonnegativeInteger $execution.api_requests_minimum) `
+        "$id execution.api_requests_minimum is not a nonnegative integer"
+    if ($requestStatus -cin @("pending", "complete")) {
         Assert-Ledger (Test-NonnegativeInteger $execution.api_requests) `
-            "$id execution.api_requests is not a nonnegative integer"
-    } else {
-        $requestStatus = [string]$requestEvidence.Value
+            "$id exact execution.api_requests is missing"
         Assert-Ledger (
-            @("pending", "complete", "partial", "unavailable") -ccontains $requestStatus
-        ) "$id execution.api_requests_evidence_status is invalid"
-        Assert-Ledger (Test-NonnegativeInteger $execution.api_requests_minimum) `
-            "$id execution.api_requests_minimum is not a nonnegative integer"
-        if ($requestStatus -cin @("pending", "complete")) {
-            Assert-Ledger (Test-NonnegativeInteger $execution.api_requests) `
-                "$id exact execution.api_requests is missing"
-            Assert-Ledger (
-                [int64]$execution.api_requests -eq
-                [int64]$execution.api_requests_minimum
-            ) "$id exact and minimum API request counts differ"
-        } else {
-            Assert-Ledger ($null -eq $execution.api_requests) `
-                "$id inexact execution.api_requests must be null"
-        }
+            [int64]$execution.api_requests -eq
+            [int64]$execution.api_requests_minimum
+        ) "$id exact and minimum API request counts differ"
+    } else {
+        Assert-Ledger ($null -eq $execution.api_requests) `
+            "$id inexact execution.api_requests must be null"
     }
 
     $tokens = $entry.tokens

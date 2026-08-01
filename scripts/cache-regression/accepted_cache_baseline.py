@@ -12,6 +12,7 @@ from cache_elapsed import is_elapsed_number, validate_elapsed_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_arm_identity import validate_arm_identity
 from cache_gate_evidence import changed_scenarios
+from cache_json import exact_json_equal
 from cache_run_analysis import (
     CACHE_OBSERVATION_KEYS,
     analyze_artifact_values,
@@ -124,7 +125,10 @@ def validate_attempts(
     actual = [
         {key: item[key] for key in ("sample", "arm", "repeat")} for item in attempts
     ]
-    require(actual == expected_matrix, "cache result attempt matrix mismatch")
+    require(
+        exact_json_equal(actual, expected_matrix),
+        "cache result attempt matrix mismatch",
+    )
     require(
         all(
             item.get("status") == "completed"
@@ -226,7 +230,9 @@ def validate_run_evidence(
         {key: item[key] for key in ("sample", "arm", "repeat")} for item in observations
     ]
     require(
-        observed_matrix == matrix and result.get("actual_sample_runs") == len(matrix),
+        exact_json_equal(observed_matrix, matrix)
+        and type(result.get("actual_sample_runs")) is int
+        and result["actual_sample_runs"] == len(matrix),
         "cache observation matrix mismatch",
     )
     validate_attempts(result, matrix, proposal["per_sample_run_limits"])
@@ -295,9 +301,9 @@ def validate_run_evidence(
         for item in scenarios
     ]
     require(
-        acceptance.get("accepted_scope") == result["observed_scope"]
+        exact_json_equal(acceptance.get("accepted_scope"), result["observed_scope"])
         and acceptance.get("acknowledged_unverified_scope") == []
-        and acceptance.get("accepted_scenarios") == expected_scenarios,
+        and exact_json_equal(acceptance.get("accepted_scenarios"), expected_scenarios),
         "cache acceptance scope or scenarios mismatch",
     )
     ledger_path = validate_ledger(
