@@ -32,8 +32,9 @@
 3. Runtime 在真实动作开始前一次性验证整个 Tool 序列的成员、顺序、节点归属和 Map 操作是否合法。
 4. preflight 失败时整批普通工具零执行、Map 零提交。
 5. 普通 Tool 失败保持普通 Tool 失败；Map 拒绝保持 Map 拒绝，二者不得互相伪装。
-6. `apply_patch` 保持原生顶层文本输入；一个 response 最多实际执行一个 Patch。
+6. `apply_patch` 作为序列成员时仍保持原生 freeform 文本输入形态；一个 response 最多实际执行一个 Patch。
 7. `finish_map` 是 Agent 显式终态事务；它必须能够同时完成最后 Work、Finish、Root 和总结。
+8. 事实读取也必须通过 Tool 序列提交；存在结果依赖时允许只包含一个读取 Tool 的单项序列，但不存在序列外入口。
 
 ## 4. 上下文与反馈
 

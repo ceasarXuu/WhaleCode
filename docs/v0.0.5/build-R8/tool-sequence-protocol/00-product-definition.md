@@ -1,6 +1,7 @@
 # TaskSpace Tool 序列协议产品定义
 
 - Created: 2026-08-01
+- Updated: 2026-08-02
 - Status: Draft for product review
 - Source: 2026-08-01 关于普通 Tool 零侵入、连续动作和顶层序列容器的多轮讨论
 - Supersedes: 当前 `taskspace_control.actions[] + sibling Tool calls` 作为目标产品模型的假设
@@ -197,12 +198,22 @@ Tool 序列(
 
 ### 5.6 事实读取
 
-读取 Map 或被渐进折叠的 Tool 输出，可以在确实需要结果后才能决定下一步时单独形成序列。它是读取事实，不是
-Runtime 对 Agent 的引导，也不自动改变节点。
+事实读取同样严格使用 Tool 序列，不存在序列外的直接 Tool 调用。当 Agent 必须先取得 Map 或渐进折叠输出，才能
+决定后续动作时，它提交一个只包含事实读取 Tool 的**单项 Tool 序列**：
+
+```text
+Tool 序列(
+  读取 Map
+)
+```
+
+“单项”只表示该 Tool 序列只有一个成员，不表示存在第二种调用入口。读取结果返回后，Agent 根据事实决定下一步，
+并在下一轮提交新的 Tool 序列。事实读取不引导 Agent，也不自动改变节点。
 
 ## 6. 明确禁止的产品形状
 
 - TaskSpace 下绕过序列直接调用顶层原生 Tool；
+- 以“事实读取”为理由绕过序列入口直接调用读取 Tool；
 - 序列外单独放置 `taskspace_control`；
 - 普通 Tool 参数中出现 `node_id`、Map mutation、TaskSpace lifecycle 或 binding；
 - control 内再维护一份与序列重复的普通 Tool manifest；
