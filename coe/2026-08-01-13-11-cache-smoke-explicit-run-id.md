@@ -1,7 +1,7 @@
 # Problem P-001: 缓存 smoke 丢失显式 RunId 对应的运行证据
-- Status: open
+- Status: fixed
 - Created: 2026-08-01 13:11
-- Updated: 2026-08-01 13:11
+- Updated: 2026-08-01 13:17
 - Objective: 让外部授权记录、benchmark 目录、容器标签和证据结算始终使用同一个显式 RunId。
 - Symptoms:
   - benchmark 已写出完整失败 artifact，但外层 runner 报告 RunId 解析到 0 个目录，账本最初无法结算请求数。
@@ -25,13 +25,13 @@
   - 新显式 RunId 创建精确同名目录，并保留 timestamp 默认路径。
   - 非法 RunId、已存在活动目录、resume 和 force 语义均有测试。
   - cache runner 能从显式目录读取边界证据并结算精确请求数。
-- Current conclusion: 新运行分支无条件调用时间戳创建器，覆盖显式 RunId；根因已由控制流和实际目录差异确认。
+- Current conclusion: 显式 RunId 现在是唯一目录叶子，非法或重复 ID 被明确拒绝；默认时间戳、E3 guardrails 和 cache regression 回归全部通过。
 - Related hypotheses:
   - H-001
 - Resolution basis:
-  - not satisfied
+  - PowerShell harness 与 E3 guardrails 通过；cache regression Python 196/196 通过。
 - Close reason:
-  - not closed
+  - 根因修复已由本地目录合同和完整相关回归验证。
 
 ## Hypothesis H-001: 非 resume 分支覆盖显式 RunId
 - Status: confirmed
@@ -69,7 +69,7 @@
   - E-002
 - Conclusion: confirmed
 - Repair design readiness: ready
-- Next step: 把“选择新目录名”和“初始化目录”拆开，显式 RunId 只使用经过校验的同名目录。
+- Next step: 执行 PowerShell harness 与 cache regression 测试，确认新 ID、默认时间戳和 resume 路径没有回归。
 - Blocker:
   - none
 - Close reason:
@@ -117,3 +117,86 @@
   ```
 - Interpretation: artifact 存在但身份链断裂，排除了“未写出证据”。
 - Time: 2026-08-01 13:06
+
+## Hypothesis H-002: 显式目录合同修复可消除身份断裂
+- Status: confirmed
+- Parent: P-001
+- Claim: 仅在未传 RunId 时生成时间戳；传入 RunId 时校验并创建同名目录，能够让授权、容器标签和证据 finder 使用同一身份。
+- Layer: fix-validation
+- Factor relation: single
+- Depends on:
+  - H-001
+- Rationale:
+  - finder 已要求精确目录名，修复创建端比增加模糊查找更能保持身份唯一性。
+- Falsifiable predictions:
+  - If true: 显式 ID 目录叶子完全相同，重复和路径型 ID 被拒绝，默认运行仍生成时间戳。
+  - If false: 测试仍观察到目录叶子变化、身份碰撞或默认路径回归。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 显式和默认目录合同均保持确定。
+  - Signal: PowerShell harness、Python cache contract tests、实际目录断言。
+  - Capture method: 运行不调用模型的本地测试。
+  - Event name or marker:
+    - `benchmark_run_id_invalid`
+    - `benchmark_run_id_already_exists`
+  - Correlation keys:
+    - none
+  - Differentiates from:
+    - finder fallback 或运行后扫描修补。
+  - Supports if:
+    - 所有目录合同测试通过。
+  - Refutes if:
+    - 任一身份、重复或默认命名断言失败。
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - 保留明确错误码和测试。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-003
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: 真实 cache smoke 获得新预算后，验证外层 runner 自动读取同名目录；该步骤不阻塞本地根因关闭。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-003: 显式 RunId 目录合同实现
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: code-location
+- Source: `scripts/taskspace-benchmark/lib/workspace.ps1`、`scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+- Prediction or plan link:
+  - H-002 显式 ID 保持与非法/重复 ID 拒绝预测。
+- Matched signal:
+  - 创建器接受可选 RunId，校验单一路径段，拒绝已存在目录；runner 将 RunId 原样传入。
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  New-TaskspaceBenchmarkRun $RunRoot $manifest.Id $RunId
+  ```
+- Interpretation: 修复位于身份创建源头，没有引入 finder fallback。
+- Time: 2026-08-01 13:14
+
+## Evidence E-004: RunId 相关回归全部通过
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts/taskspace-benchmark/test-harness.ps1`、`scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1`、`scripts/cache-regression/test_*.py`
+- Prediction or plan link:
+  - H-002 目录身份、默认命名和相关调用链均不回归的预测。
+- Matched signal:
+  - harness PASS；E3 guardrails PASS；cache regression 196 tests OK。
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  TaskSpace benchmark harness self-test: PASS
+  E3 harness guardrails self-test: PASS
+  Ran 196 tests in 6.683s
+  OK
+  ```
+- Interpretation: 显式 ID 修复没有破坏默认运行、E3 约束或缓存门禁调用合同。
+- Time: 2026-08-01 13:17

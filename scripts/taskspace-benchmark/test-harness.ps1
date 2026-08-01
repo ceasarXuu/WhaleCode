@@ -115,6 +115,11 @@ Assert-True ($maliciousDomainGuard.invalid_prompt) "domain allowlist suppressed 
 $naturalControlGuard = Invoke-TaskspacePromptGuard "Please spawn subagents and bind node before editing."
 Assert-True ($naturalControlGuard.invalid_prompt) "natural language spawn/bind control prompt was not rejected"
 
+$explicitRunId = "CACHE-EXPLICIT-001"
+$explicitRunDir = New-TaskspaceBenchmarkRun $RunRoot "explicit-run-id" $explicitRunId
+Assert-True ((Split-Path -Leaf $explicitRunDir) -eq $explicitRunId) "explicit RunId was not preserved as the run directory leaf"
+Assert-Throws { New-TaskspaceBenchmarkRun $RunRoot "explicit-run-id" $explicitRunId } "duplicate explicit RunId was not rejected"
+Assert-Throws { New-TaskspaceBenchmarkRun $RunRoot "explicit-run-id" "../escape" } "path-bearing explicit RunId was not rejected"
 $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id
 Initialize-TaskspaceBenchmarkRunState $runDir $manifest.Id 2 "E3" "self-test" | Out-Null
 Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" 1 0 "" "" "" "" "self-test" | Out-Null

@@ -268,6 +268,13 @@ class CacheRunContractTest(unittest.TestCase):
         self.assertIn("$ProviderRequestHardLimit $Model $TimeoutSeconds", source)
         self.assertNotIn("provider-request-hard-limit.count", source)
 
+    def test_benchmark_runner_preserves_explicit_run_id(self) -> None:
+        source = BENCHMARK_RUNNER.read_text(encoding="utf-8")
+        self.assertIn(
+            "$runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id $RunId",
+            source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

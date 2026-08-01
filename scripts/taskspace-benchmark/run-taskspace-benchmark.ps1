@@ -84,7 +84,7 @@ if (-not [string]::IsNullOrWhiteSpace($RunId)) {
 }
 $resuming = (-not [string]::IsNullOrWhiteSpace($runDir) -and (Test-Path -LiteralPath $runDir) -and -not $ForceRerun)
 if (-not $resuming) {
-    $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id
+    $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id $RunId
     Initialize-TaskspaceBenchmarkRunState $runDir $manifest.Id $Repeats $manifest.EvidenceTarget $commandLine | Out-Null
     Set-TaskspaceSampleStatus $runDir $manifest.Id "preflight" 0 0 "" "" "" "" $commandLine | Out-Null
 } else {

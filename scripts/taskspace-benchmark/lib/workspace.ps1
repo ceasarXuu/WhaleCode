@@ -1,10 +1,22 @@
 function New-TaskspaceBenchmarkRun {
     param(
         [Parameter(Mandatory = $true)][string]$RunRoot,
-        [Parameter(Mandatory = $true)][string]$ScenarioId
+        [Parameter(Mandatory = $true)][string]$ScenarioId,
+        [string]$RunId = ""
     )
-    $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
-    New-Dir (Join-Path $RunRoot "$ScenarioId\$stamp")
+    $leaf = if ([string]::IsNullOrWhiteSpace($RunId)) {
+        Get-Date -Format "yyyyMMdd-HHmmss-fff"
+    } else {
+        if ($RunId -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$') {
+            throw "benchmark_run_id_invalid: RunId must be a single safe path segment"
+        }
+        $RunId
+    }
+    $path = Join-Path $RunRoot "$ScenarioId\$leaf"
+    if (Test-Path -LiteralPath $path) {
+        throw "benchmark_run_id_already_exists: $path"
+    }
+    New-Dir $path
 }
 
 function Get-NeutralTaskspaceBenchmarkRunRoot {
