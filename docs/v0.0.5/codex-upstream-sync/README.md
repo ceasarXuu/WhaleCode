@@ -8,6 +8,10 @@
 - 建议追赶目标：Codex CLI `rust-v0.146.0` / `e363b08c9175ac1cbe5893615dd2cb9ddf95043b`
 - 范围：只读差异审计、合并风险分类和追赶顺序；不代表已经实施上游同步
 
+## 专题文档
+
+- [第一批：完全无文本冲突的快速 backport 合入方案](01-conflict-free-fast-backports-plan.md)
+
 ## 1. 执行摘要
 
 当前不适合把官方 Codex `main` 直接合入 WhaleCode，也不适合继续长期只做零散 backport。
@@ -102,6 +106,7 @@
 | 优先级 | 官方提交 | 内容 | 主要验证 |
 | --- | --- | --- | --- |
 | P0 | [`2e598df6`](https://github.com/openai/codex/commit/2e598df6fcd30717cfdcd2a898746a84d365ca23) | 禁止错误自动批准 `git -C ...` | `codex-shell-command` 定向测试与审批回归 |
+| P0 | [`9deb4f9c8`](https://github.com/openai/codex/commit/9deb4f9c86426c40ba1e189831d7bc3634dd7b94) | Windows 命令安全识别混合大小写 URL | `codex-shell-command` Windows safety 测试 |
 | P1 | [`6ec8c4a6`](https://github.com/openai/codex/commit/6ec8c4a6ecb17bc3ab10d0c5edf75494b50cab7e) | Git 元数据读取忽略 repository fsmonitor 配置 | `git-utils` 测试 |
 | P1 | [`36912ce3`](https://github.com/openai/codex/commit/36912ce3de1c039f7faaddd509d0465ff644e6c1) | 修复 Windows paste burst interval | TUI 定向测试与 Windows smoke |
 | P1 | [`5d7e6a25`](https://github.com/openai/codex/commit/5d7e6a2503fc71f09cea71bfca9e193e0c3fd215) | 修复 TUI borrowed slice wrapping | TUI wrapping 测试 |
