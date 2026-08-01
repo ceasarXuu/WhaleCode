@@ -13,4 +13,4 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
 
 › Ask Whale to do anything
 
-  deepseek-v4-pro default · /tmp/project
+  deepseek-v4-flash default · /tmp/project

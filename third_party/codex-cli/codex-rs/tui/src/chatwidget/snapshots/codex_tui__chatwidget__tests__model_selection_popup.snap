@@ -5,9 +5,7 @@ expression: popup
   Select Model and Effort
   Choose a DeepSeek model and reasoning level.
 
-› 1. deepseek-v4-pro (current)  Default Whale coding model for planning,
-                                diagnosis, review, and verification.
-  2. deepseek-v4-flash          Fast Whale coding model for low-latency
-                                everyday implementation work.
+› 1. deepseek-v4-flash (default)  Fast Whale coding model for low-latency
+                                  everyday implementation work.
 
   Press enter to select reasoning effort, or esc to dismiss.
