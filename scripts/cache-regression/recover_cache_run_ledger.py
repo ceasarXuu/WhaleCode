@@ -54,6 +54,8 @@ def _validate_settlement_payload(result: dict) -> None:
     ):
         raise ValueError("cache recovery result has an invalid run count")
     for observation in observations:
+        if not isinstance(observation, dict):
+            raise ValueError("cache recovery observation must be an object")
         for field in (
             "provider_requests",
             "input_tokens",
@@ -65,6 +67,8 @@ def _validate_settlement_payload(result: dict) -> None:
             if type(value) is not int or value < 0:
                 raise ValueError(f"cache recovery {field} must be nonnegative integer")
     for attempt in attempts:
+        if not isinstance(attempt, dict):
+            raise ValueError("cache recovery attempt must be an object")
         value = attempt.get("provider_boundary_request_count")
         if type(value) is not int or value < 0:
             raise ValueError("cache recovery request accounting is invalid")

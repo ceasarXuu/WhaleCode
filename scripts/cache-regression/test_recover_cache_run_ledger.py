@@ -124,6 +124,13 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "JSON constant"):
             recover(self.repo, self.ledger, self.result)
 
+    def test_recovery_rejects_status_exit_code_mismatch(self) -> None:
+        value = json.loads(self.result.read_text(encoding="utf-8"))
+        value["runner_exit_code"] = 3
+        write_json(self.result, value)
+        with self.assertRaisesRegex(ValueError, "envelope"):
+            recover(self.repo, self.ledger, self.result)
+
 
 if __name__ == "__main__":
     unittest.main()
