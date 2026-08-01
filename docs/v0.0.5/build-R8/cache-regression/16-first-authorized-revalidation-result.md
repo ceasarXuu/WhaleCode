@@ -52,3 +52,8 @@ artifact 看，没有创建 pair 或 provider boundary；但正式监督计数�
 
 首次恢复安装还发现 Linux `install-whale-local.sh` 没有向既有 attestation writer 传递必需的 `BuildCommand`；新 binary
 已经复制但旧证明未更新。该安装器缺口需要先通过临时 HOME 参数捕获测试修复，再从干净 HEAD 重新签发证明。
+
+环境恢复已于 HEAD `a65ba90e3` 完成：Linux 安装器回归测试通过；新 binary SHA 为
+`ac4c1579277b1018db8fc97586cbb5115afe825a443ecaa881498edcd87ee4db`；离线 binary health 返回 `pass/valid`，
+attestation 绑定当前 HEAD 和 Codex source commit `0d3af4b54`，没有 findings。该验证只证明预检环境恢复，不替代新的
+真实 Standard/map-request smoke。

@@ -1,7 +1,7 @@
 # Problem P-001: R8 真实缓存 smoke 在 Whale 二进制预检阶段终止
-- Status: open
+- Status: fixed
 - Created: 2026-08-01 12:52
-- Updated: 2026-08-01 12:52
+- Updated: 2026-08-01 12:59
 - Objective: 恢复与当前源码身份一致、可由 attestation 证明的本机 Whale 二进制，使获批缓存 smoke 能进入实际 pair 执行。
 - Symptoms:
   - 获批批次 `WAR-20260801-125219-CACHE-REGRESSION-34ACB825` 的 Standard 首臂在 8.577 秒后退出 3。
@@ -24,14 +24,14 @@
   - 不是 Agent、模型、sample 业务逻辑或 TaskSpace 执行失败，因为实际 pair 数为 0。
 - Fix criteria:
   - 从当前干净源码重新构建并安装 Whale；生成 schema v2 attestation；`New-TaskspaceWhaleBinaryHealth` 返回 `status=pass` 和 `run_validity=valid`。
-- Current conclusion: 根因已确认是本机 Whale 构建产物落后于当前 Codex 源码身份；先恢复构建证明，不修改 TaskSpace 或缓存门禁语义。
+- Current conclusion: 本机 Whale 已从当前 Codex 源码重建；Linux 安装器参数合同已修复；binary health 在 HEAD `a65ba90e3` 返回 `pass/valid`。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - pending fix-validation E-004
+  - satisfied by E-004
 - Close reason:
-  - not closed
+  - current binary, attestation and source identity match; offline preflight is valid
 
 ## Hypothesis H-001: 已安装 Whale 的构建证明与当前源码身份不一致
 - Status: confirmed
@@ -184,18 +184,23 @@
 ## Evidence E-004: 重建后的 binary health
 - Related hypotheses:
   - H-001
-- Direction: neutral
+- Direction: supports
 - Type: fix-validation
-- Source: pending
+- Source: `New-TaskspaceWhaleBinaryHealth` on HEAD `a65ba90e3`
 - Prediction or plan link:
   - P-001 fix criteria
 - Matched signal:
-  - pending
+  - `status=pass`、`run_validity=valid`、`build_attestation_status=pass`、findings 为空。
 - Correlation keys:
   - current HEAD
 - Raw content:
   ```text
-  pending
+  current_git_head: a65ba90e324ed72fd0f903c14d15d3d5b5e07847
+  codex_source_latest_commit: 0d3af4b54250f159c4d06ea837369bbb7dcab64e
+  whale_binary_sha256: ac4c1579277b1018db8fc97586cbb5115afe825a443ecaa881498edcd87ee4db
+  status: pass
+  run_validity: valid
+  findings: []
   ```
-- Interpretation: 等待干净源码重建和离线 health probe。
-- Time: 2026-08-01 12:52
+- Interpretation: 原始预检失败的必要条件已经消失，且没有放宽 stale/attestation 门禁。
+- Time: 2026-08-01 12:59
