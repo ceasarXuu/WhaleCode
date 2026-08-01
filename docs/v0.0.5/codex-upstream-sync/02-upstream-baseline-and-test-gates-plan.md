@@ -1,6 +1,6 @@
 # 第二批：上游基线、overlay 账本与测试门禁工程计划
 
-- 文档状态：实施中；Phase 1 已验证，Phase 2 已完成 W5–W8，W9 已定位并延期到 TaskSpace 专项分支，最终门禁待后续恢复
+- 文档状态：已收口；12/15 工作单元 verified，W9/W12/W13 经用户决策 deferred
 - 计划模式：Execution Tracking
 - 创建日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
@@ -181,11 +181,11 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 | W7 | verified | 按 DeepSeek 官方 Responses 合同解耦 reasoning effort/summary，审阅并接受 12 个 status 快照 | request、SSE、catalog、status 定向回归通过；12 个 status 失败归零 | W6 |
 | W8 | verified | 接受 chatwidget/guardian/MCP 中 Flash 默认与 Pro 隐藏的 20 个快照 | 514 个 chatwidget 测试通过；全量基线中该组失败归零 | W6 |
 | W9 | deferred | 已定位 ActionMap route-mode 断言：夹具缺少 projection policy，RPC 仅确认入队 | 延期到 TaskSpace 专项分支；恢复时修复局部夹具、补拒绝回归且不改变 `Standard` 默认值 | W6 |
-| W10 | blocked-on-discovery | 隔离复现潜在 memory-setting flake | 同配置 3 次结果稳定，或找到可验证根因 | W6 |
-| W11 | planned | 运行最终 TUI 全量门禁并固化零失败基线 | Nextest exit 0，规范化结果无失败/unknown | W7-W10 |
-| W12 | planned | 增加 Windows PowerShell 自动验证入口 | mixed-case URL、shell-command crate、paste-burst 定向测试通过 | W0 |
-| W13 | blocked-on-discovery | 在 VS Code 集成终端和 Windows 原生终端执行 paste smoke | 两类终端各有环境、步骤、结果证据；未执行则保持阻塞 | W12、Windows 环境 |
-| W14 | planned | 收口执行文档、README 状态和所有账本 | 全部门禁通过；主题提交已 push；工作树干净 | W4、W11-W13 |
+| W10 | verified | 隔离复现潜在 memory-setting flake | 两个目标用例在相同配置连续 3 轮、共 6/6 通过 | W6 |
+| W11 | verified | 运行最终 TUI 全量门禁并固化已知失败基线 | 1887 passed、唯一失败精确等于 deferred W9、5 skipped、无新增/unknown | W7-W10 |
+| W12 | deferred | 增加 Windows PowerShell 自动验证入口 | 用户决定本批跳过；未来 Windows 专项恢复时实现 | W0 |
+| W13 | deferred | 在 VS Code 集成终端和 Windows 原生终端执行 paste smoke | 用户决定本批跳过；不得解释为平台验证通过 | W12、Windows 环境 |
+| W14 | verified | 收口执行文档、README 状态和所有账本 | 非延期门禁通过；延期项、恢复条件、测试结果和提交边界均已记录 | W4、W11-W13 |
 
 W7 和 W8 的每个快照族必须独立提交。若快照显示用户可见交互语义变化，先向用户说明旧/新行为及影响，得到决策后再接受；不得运行批量 `cargo insta accept` 代替审阅。
 
@@ -228,7 +228,20 @@ W7 和 W8 的每个快照族必须独立提交。若快照显示用户可见交�
 - 恢复条件：TaskSpace 专项工作明确启动，局部夹具显式配置支持的 projection policy，新增缺失策略时的拒绝/可观测性回归，并重跑 TaskSpace 与 TUI 全量门禁；
 - 权威诊断记录：`coe/2026-08-01-23-55-w9-taskspace-mode-routing.md`。
 
-W10、W13 当前信息不足，使用 `blocked-on-discovery` 是计划状态，不表示实施已被阻断。各工作单元在执行阶段先收集证据，再决定修复或另立需求。W9 已完成 discovery，但依据用户决策转为 `deferred`。
+W9 已完成 discovery 后依据用户决策转为 `deferred`；W10 已通过隔离重复验证；W12/W13 依据用户决策转为 `deferred`。三项延期均保留恢复条件，不计为 verified。
+
+### 6.4 W10 稳定性验证结果
+
+2026-08-02 使用与 TUI 基线相同的 `INSTA_UPDATE=no`、`RUST_MIN_STACK=8388608` 环境，连续三次运行 `test(/update_memory_settings/)`。每轮两个用例均通过，合计 6/6 passed；未复现 memory-setting flake，满足 W10 原定验收条件。
+
+### 6.5 Windows 延期与批次收口决策
+
+- 决策日期：2026-08-02；
+- 决策：W12 PowerShell runner 与 W13 两类 Windows 终端 smoke 在本批记录后跳过，转为未来 Windows 专项工作；
+- 事实边界：Linux 上的 shell-command、paste-burst 和 TUI 测试不能替代 Windows 动态证据，本批不声明 Windows verified；
+- W11 修订口径：用户明确延期 W9 后，最终基线要求改为“所有非延期测试通过，失败集合精确等于已登记的 W9，且不存在新增或 unknown 失败”；测试本身不设 ignored；
+- W14 收口口径：15 个工作单元全部有最终 disposition，其中 12 个 verified、3 个 deferred；批次以“带延期项收口”结束，不等同于原始 15/15 全量验证；
+- 恢复条件：W9 进入 TaskSpace 专项分支；W12/W13 进入具备真实 Windows 与 VS Code integrated terminal 的专项环境。
 
 ## 7. 分阶段实施与提交边界
 
@@ -247,13 +260,13 @@ Phase 1 退出条件：inventory 可复现、ledger 无重复、`UPSTREAM.md` �
 
 按 W5 → W6 → W7/W8/W9/W10 → W11 执行。W7-W10 可在 W6 后独立推进，但不得并行修改同一快照或测试文件。每个快照族或根因修复独立提交，提交消息不得混写“更新快照”和“修复功能”。
 
-Phase 2 退出条件：全量 Nextest 零失败、没有 `.snap.new` 遗留、三次重复集合稳定、基线 JSON 与当前结果一致。
+Phase 2 实际退出条件（2026-08-02 用户决策修订）：非延期测试全部通过；唯一失败精确等于 deferred W9；W10 三次重复稳定；基线 JSON 与当前结果一致；不新增 `.snap.new`。仓库中两个被 Git 跟踪的 core compact `.snap.new` 属于既有上游历史工件，不计为本批新增污染，也不在未审阅时删除或接受。
 
 ### Phase 3：Windows 与批次收口
 
 按 W12 → W13 → W14 执行。自动测试和人工 smoke 分开记账；没有真实 Windows 结果时允许合并脚本，但第二批整体状态保持未验证。
 
-Phase 3 退出条件：Windows 自动测试通过，两类终端 paste smoke 有证据，执行记录和专题首页同步更新，所有改动已提交并推送。
+Phase 3 实际退出条件（2026-08-02 用户决策修订）：W12/W13 明确标记 deferred 并记录未验证影响；执行记录和专题首页同步更新；所有本批改动提交并推送。Windows 动态验收保留到未来专项，不计为本批 achieved benefit。
 
 ## 8. 验证矩阵
 
@@ -341,11 +354,12 @@ git status --short --branch
 - [x] TUI runner 不写新的 `.snap.new`，规范化结果无时间与路径噪声；
 - [x] 当前失败集合已经稳定捕获并分类；
 - [x] W7/W8 范围内的快照均经过逐组审阅；
-- [ ] TUI 全量 Nextest 最终零失败；
-- [ ] Windows 自动测试和两类终端人工 smoke 均有真实证据；
-- [ ] 缓存 index gate 通过且未启动真实 Whale Agent run；
-- [ ] 执行记录、专题首页与机器工件一致；
-- [ ] 每个小主题均已 commit、push，工作树干净。
+- [x] TUI 全量 Nextest 与已知基线一致：1887 passed、唯一失败为 deferred W9、5 skipped；
+- [x] W10 两个 memory-setting 用例连续三轮共 6/6 通过；
+- [x] Windows 自动测试和两类终端 smoke 明确延期，未写成已验证；
+- [x] 缓存 index gate 通过且未启动真实 Whale Agent run；
+- [x] 执行记录、专题首页与机器工件一致；
+- [x] 每个小主题均已 commit、push，工作树干净。
 
 ## 11. 外部依据
 

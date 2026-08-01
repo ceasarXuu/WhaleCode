@@ -17,3 +17,4 @@ Required fields:
 ## 执行记录
 
 - [2026-08-01：第二批上游基线与测试门禁](2026-08-01-upstream-baseline-and-test-gates.md)
+- [2026-08-02：第二批上游基线与测试门禁最终收口](2026-08-02-upstream-baseline-and-test-gates-closeout.md)

@@ -1,6 +1,6 @@
 # Codex CLI 上游追赶差异分析与合并策略
 
-- 文档状态：分析完成，待实施决策
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - 当前仓库提交：`c539cbe18030727ae9c48e27246c0439ad246390`
@@ -12,6 +12,15 @@
 
 - [第一批：完全无文本冲突的快速 backport 合入方案](01-conflict-free-fast-backports-plan.md)
 - [第二批：上游基线、overlay 账本与测试门禁工程计划](02-upstream-baseline-and-test-gates-plan.md)
+- [第二批最终实施报告](../../migration/codex-sync/2026-08-02-upstream-baseline-and-test-gates-closeout.md)
+
+## 当前批次状态
+
+- 第一批六个无文本冲突 backport 已独立提交并推送；
+- 第二批 W0–W8、W10、W11、W14 已验证；
+- W9 已定位并延期到 TaskSpace 专项分支；
+- W12/W13 Windows 自动与实机验证按用户决策延期到 Windows 专项；
+- 第二批以 12/15 verified、3/15 deferred 收口，不把延期项表述为通过。
 
 ## 1. 执行摘要
 
