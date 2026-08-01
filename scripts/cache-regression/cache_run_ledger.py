@@ -159,6 +159,7 @@ def planned_entry(
 ) -> dict[str, Any]:
     selection = proposal["selection"]
     pricing = proposal["pricing_snapshot"]
+    planned_run_root = run_root.resolve().relative_to(repo).as_posix()
     return {
         "record_id": record_id,
         "record_type": "run_batch",
@@ -186,6 +187,8 @@ def planned_entry(
             "planned_sample_runs": selection["planned_sample_runs"],
             "actual_sample_runs": 0,
             "api_requests": 0,
+            "api_requests_minimum": 0,
+            "api_requests_evidence_status": "pending",
         },
         "tokens": {"input": 0, "cached_input": 0, "uncached_input": 0, "output": 0},
         "monetary_cost": {
@@ -199,13 +202,17 @@ def planned_entry(
             "note": "运行后按 provider token 遥测估算。",
         },
         "evidence": {
-            "planned_run_root": str(run_root),
+            "planned_run_root": planned_run_root,
             "subject_commit": proposal["subject_commit"],
             "surface_sha256": proposal["surface_sha256"],
+            "proposal_id": proposal["proposal_id"],
+            "proposal_contract_sha256": proposal["proposal_sha256"],
             "proposal_path": proposal_path.relative_to(repo).as_posix(),
             "proposal_sha256": file_sha256(proposal_path),
             "authorization_path": authorization_path.relative_to(repo).as_posix(),
             "authorization_sha256": file_sha256(authorization_path),
+            "approved_selection": selection,
+            "evidence_boundary": proposal["evidence_boundary"],
             "stop_conditions": selection["stop_conditions"],
             "usage_evidence_status": "pending",
         },

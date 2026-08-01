@@ -25,8 +25,25 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
             "started_at": "2026-08-01T00:00:00+00:00",
             "ended_at": None,
             "elapsed_calendar_seconds": None,
-            "authorization": {"id": "CBA-FIXTURE-001"},
-            "execution": {"actual_sample_runs": 1, "api_requests": 0},
+            "authorization": {
+                "id": "CBA-FIXTURE-001",
+                "reference": "approved fixture",
+                "budget_summary": {
+                    "provider_requests": 2,
+                    "input_tokens": 100,
+                    "output_tokens": 10,
+                    "elapsed_seconds": 10,
+                },
+            },
+            "execution": {
+                "model": "deepseek-v4-flash",
+                "sample_ids": ["simple"],
+                "arm_ids": ["standard"],
+                "repeats_per_arm_per_sample": 1,
+                "planned_sample_runs": 1,
+                "actual_sample_runs": 1,
+                "api_requests": 0,
+            },
             "tokens": {},
             "monetary_cost": {
                 "pricing_snapshot": {
@@ -36,7 +53,26 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
                     "output_per_million": 0.28,
                 }
             },
-            "evidence": {},
+            "evidence": {
+                "planned_run_root": "target/run",
+                "subject_commit": "a" * 40,
+                "surface_sha256": "b" * 64,
+                "proposal_id": "CBP-FIXTURE",
+                "proposal_contract_sha256": "c" * 64,
+                "authorization_sha256": "d" * 64,
+                "approved_selection": {
+                    "model": "deepseek-v4-flash",
+                    "samples": ["simple"],
+                    "arms": ["standard"],
+                    "repeat": 1,
+                    "planned_sample_runs": 1,
+                    "retry_sample_run_limit": 0,
+                    "maximum_sample_runs": 1,
+                    "stop_conditions": ["after_any_run_failure"],
+                    "selection_reason": "fixture",
+                },
+                "evidence_boundary": "fixture only",
+            },
         }
         write_json(self.ledger, {"updated_at": None, "entries": [entry]})
         result = {
@@ -49,6 +85,14 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
             "result_path": self.result.relative_to(self.repo).as_posix(),
             "runner_exit_code": 0,
             "run_root": "target/run",
+            "subject_commit": "a" * 40,
+            "surface_sha256": "b" * 64,
+            "proposal_id": "CBP-FIXTURE",
+            "proposal_sha256": "c" * 64,
+            "authorization_reference": "approved fixture",
+            "authorization_sha256": "d" * 64,
+            "observed_scope": entry["evidence"]["approved_selection"],
+            "evidence_boundary": "fixture only",
             "actual_sample_runs": 1,
             "credential_source": "fixture",
             "observations": [
@@ -58,9 +102,21 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
                     "cached_input_tokens": 80,
                     "uncached_input_tokens": 20,
                     "output_tokens": 10,
+                    "sample": "simple",
+                    "arm": "standard",
+                    "repeat": 1,
+                    "run_id": "CACHE-001",
                 }
             ],
-            "attempts": [{"provider_boundary_request_count": 2}],
+            "attempts": [
+                {
+                    "sample": "simple",
+                    "arm": "standard",
+                    "repeat": 1,
+                    "run_id": "CACHE-001",
+                    "provider_boundary_request_count": 2,
+                }
+            ],
         }
         write_json(self.result, result)
 
@@ -130,6 +186,37 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         write_json(self.result, value)
         with self.assertRaisesRegex(ValueError, "envelope"):
             recover(self.repo, self.ledger, self.result)
+
+    def test_recovery_rejects_result_outside_durable_claim(self) -> None:
+        value = json.loads(self.result.read_text(encoding="utf-8"))
+        value["proposal_id"] = "CBP-OTHER"
+        write_json(self.result, value)
+        with self.assertRaisesRegex(ValueError, "durable claim"):
+            recover(self.repo, self.ledger, self.result)
+
+        value["proposal_id"] = "CBP-FIXTURE"
+        value["attempts"] *= 2
+        value["actual_sample_runs"] = 2
+        write_json(self.result, value)
+        with self.assertRaisesRegex(ValueError, "approved matrix"):
+            recover(self.repo, self.ledger, self.result)
+
+    def test_partial_result_recovers_with_truthful_request_minimum(self) -> None:
+        value = json.loads(self.result.read_text(encoding="utf-8"))
+        value["status"] = "partial"
+        value["runner_exit_code"] = 3
+        value["observations"] = []
+        value["attempts"][0].pop("provider_boundary_request_count")
+        write_json(self.result, value)
+
+        self.assertEqual(recover(self.repo, self.ledger, self.result), "settled")
+        entry = json.loads(self.ledger.read_text(encoding="utf-8"))["entries"][0]
+        self.assertEqual(entry["status"], "failed")
+        self.assertIsNone(entry["execution"]["api_requests"])
+        self.assertEqual(entry["execution"]["api_requests_minimum"], 0)
+        self.assertEqual(
+            entry["execution"]["api_requests_evidence_status"], "unavailable"
+        )
 
 
 if __name__ == "__main__":
