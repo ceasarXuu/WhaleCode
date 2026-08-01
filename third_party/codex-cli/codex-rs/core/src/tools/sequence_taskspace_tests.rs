@@ -106,6 +106,30 @@ fn function_call_output(
     outputs: &[codex_protocol::models::ResponseInputItem],
     expected_call_id: &str,
 ) -> serde_json::Value {
+    let mut matching_outputs = outputs.iter().filter_map(|item| match item {
+        codex_protocol::models::ResponseInputItem::FunctionCallOutput { call_id, output }
+            if call_id == expected_call_id =>
+        {
+            Some(output)
+        }
+        _ => None,
+    });
+    let output = matching_outputs.next().expect("function call output");
+    assert!(
+        matching_outputs.next().is_none(),
+        "each provider call_id must have exactly one output"
+    );
+    let codex_protocol::models::FunctionCallOutputBody::Text(text) = &output.body else {
+        panic!("TaskSpace control output must be JSON text");
+    };
+    serde_json::from_str(text).expect("function call output JSON")
+}
+
+fn assert_ordinary_result_is_unwrapped(
+    outputs: &[codex_protocol::models::ResponseInputItem],
+    expected_call_id: &str,
+    expected_success: Option<bool>,
+) {
     let output = outputs
         .iter()
         .find_map(|item| match item {
@@ -116,11 +140,12 @@ fn function_call_output(
             }
             _ => None,
         })
-        .expect("function call output");
+        .expect("ordinary function call output");
+    assert_eq!(output.success, expected_success);
     let codex_protocol::models::FunctionCallOutputBody::Text(text) = &output.body else {
-        panic!("TaskSpace control output must be JSON text");
+        panic!("ordinary test output must be text");
     };
-    serde_json::from_str(text).expect("function call output JSON")
+    assert!(!text.contains("TaskSpaceResponseResultV2"));
 }
 
 #[tokio::test]
@@ -285,6 +310,8 @@ async fn prior_failure_releases_every_prepared_taskspace_reservation() {
     assert_eq!(result["settlement"]["prepared_action_count"], 2);
     assert_eq!(result["settlement"]["attributed_result_count"], 2);
     assert_eq!(result["settlement"]["outstanding_reservation_count"], 0);
+    assert_ordinary_result_is_unwrapped(&outcome.outputs, "patch", Some(false));
+    assert_ordinary_result_is_unwrapped(&outcome.outputs, "verify", Some(false));
 }
 
 #[tokio::test]
@@ -337,6 +364,8 @@ async fn cancelled_parallel_actions_release_every_prepared_reservation() {
     let result = function_call_output(&outcome.outputs, "control");
     assert_eq!(result["status"], "settled");
     assert_eq!(result["canonical_revision"], map.revision);
+    assert_ordinary_result_is_unwrapped(&outcome.outputs, "left", None);
+    assert_ordinary_result_is_unwrapped(&outcome.outputs, "right", None);
 }
 
 #[tokio::test]
@@ -387,6 +416,8 @@ async fn parallel_tool_timeouts_release_every_prepared_reservation() {
     let result = function_call_output(&outcome.outputs, "control");
     assert_eq!(result["status"], "settled");
     assert_eq!(result["canonical_revision"], map.revision);
+    assert_ordinary_result_is_unwrapped(&outcome.outputs, "left", Some(false));
+    assert_ordinary_result_is_unwrapped(&outcome.outputs, "right", Some(false));
 }
 
 #[tokio::test]
