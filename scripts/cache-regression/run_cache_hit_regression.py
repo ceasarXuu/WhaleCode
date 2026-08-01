@@ -12,12 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from cache_cleanup_contract import cleanup_verified
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
 from cache_arm_identity import validate_arm_identity
 from cache_json import strict_json_loads
 from cache_process_control import (
     cleanup_labeled_containers,
-    cleanup_verified,
     run_benchmark_command,
 )
 from cache_run_environment import ensure_deepseek_api_key, find_run_dir_by_id
@@ -33,6 +33,7 @@ from cache_run_contract import (
     load_authorized_proposal,
 )
 from cache_run_ledger import (
+    checkpoint_request_count,
     claim_entry,
     entry_exists,
     now,
@@ -284,6 +285,10 @@ def execute_attempts(
                         selection["model"],
                     )
                 )
+                checkpoint_request_count(
+                    entry, attempt["provider_boundary_request_count"]
+                )
+                store_entry(ledger_path, entry)
                 observation = analyze_arm(
                     run_dir, side, execution["arm"], selection["model"]
                 )

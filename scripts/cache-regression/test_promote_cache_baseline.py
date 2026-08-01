@@ -102,7 +102,9 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         result = copy.deepcopy(self.result)
         result["attempts"][0]["provider_boundary_request_count"] += 1
         result["provider_boundary_requests_minimum"] += 1
-        with self.assertRaisesRegex(ValueError, "provider accounting"):
+        with self.assertRaisesRegex(
+            ValueError, "provider accounting|completed cache result evidence"
+        ):
             self.validate(result=result)
 
     def test_rejects_contradictory_result_request_accounting(self) -> None:
@@ -381,7 +383,9 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
     def test_rejects_float_request_count_in_observation(self) -> None:
         result = copy.deepcopy(self.result)
         result["observations"][0]["provider_requests"] = 3.0
-        with self.assertRaisesRegex(ValueError, "observation metrics mismatch"):
+        with self.assertRaisesRegex(
+            ValueError, "observation metrics mismatch|completed cache result evidence"
+        ):
             self.validate(result=result)
 
     def test_rejects_incomplete_runner_or_authorization_envelope(self) -> None:

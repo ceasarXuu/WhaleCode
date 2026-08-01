@@ -14,6 +14,7 @@ from cache_cost import settled_monetary_cost
 from cache_evidence import file_sha256
 from cache_json import strict_json_loads
 from cache_request_accounting import summarize_request_accounting
+from cache_result_integrity import validate_completed_result_integrity
 
 try:
     import fcntl
@@ -149,6 +150,24 @@ def mutate_entry(path: Path, record_id: str, update) -> Any:
     return _locked_ledger(path, mutate)
 
 
+def checkpoint_request_count(entry: dict[str, Any], request_count: int) -> None:
+    if type(request_count) is not int or request_count < 0:
+        raise ValueError("cache request checkpoint must be a nonnegative integer")
+    execution = entry["execution"]
+    exact = execution.get("api_requests")
+    minimum = execution.get("api_requests_minimum")
+    known = (
+        exact
+        if type(exact) is int and exact >= 0
+        else minimum
+        if type(minimum) is int and minimum >= 0
+        else 0
+    )
+    execution["api_requests"] = None
+    execution["api_requests_minimum"] = known + request_count
+    execution["api_requests_evidence_status"] = "partial"
+
+
 def planned_entry(
     record_id: str,
     proposal: dict[str, Any],
@@ -220,6 +239,7 @@ def planned_entry(
 
 
 def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
+    validate_completed_result_integrity(result)
     observations = result.get("observations", [])
     attempts = result.get("attempts", [])
     authoritative_request_total, request_accounting_status = (

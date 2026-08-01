@@ -92,6 +92,7 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
             "authorization_reference": "approved fixture",
             "authorization_sha256": "d" * 64,
             "observed_scope": entry["evidence"]["approved_selection"],
+            "unverified_scope": [],
             "evidence_boundary": "fixture only",
             "actual_sample_runs": 1,
             "provider_boundary_requests_minimum": 2,
@@ -116,6 +117,20 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
                     "arm": "standard",
                     "repeat": 1,
                     "run_id": "CACHE-001",
+                    "status": "completed",
+                    "exit_code": 0,
+                    "timed_out": False,
+                    "elapsed_seconds": 1.0,
+                    "post_run_cleanup": {
+                        "status": "verified_absent",
+                        "container_ids": [],
+                        "stable_empty_polls": 3,
+                        "network_cleanup_status": "verified_absent",
+                        "network_ids": [],
+                        "secret_cleanup_status": "verified_absent",
+                        "secret_paths": [],
+                        "error": "",
+                    },
                     "provider_boundary_request_count": 2,
                 }
             ],
@@ -152,6 +167,23 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
         self.assertEqual(
             entry["evidence"]["recovery_reason"], "runner crashed before result"
         )
+
+    def test_mark_unsettled_preserves_known_request_minimum(self) -> None:
+        ledger = json.loads(self.ledger.read_text(encoding="utf-8"))
+        execution = ledger["entries"][0]["execution"]
+        execution["api_requests"] = None
+        execution["api_requests_minimum"] = 2
+        execution["api_requests_evidence_status"] = "partial"
+        write_json(self.ledger, ledger)
+
+        self.assertEqual(
+            mark_unsettled(self.ledger, "WAR-1", "result was not durable"),
+            "unsettled",
+        )
+        entry = json.loads(self.ledger.read_text(encoding="utf-8"))["entries"][0]
+        self.assertIsNone(entry["execution"]["api_requests"])
+        self.assertEqual(entry["execution"]["api_requests_minimum"], 2)
+        self.assertEqual(entry["execution"]["api_requests_evidence_status"], "partial")
 
     def test_recovery_does_not_overwrite_concurrent_final_settlement(self) -> None:
         from cache_run_ledger import mutate_entry as locked_mutate
@@ -198,6 +230,7 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
 
         value["proposal_id"] = "CBP-FIXTURE"
         value["attempts"] *= 2
+        value["observations"] *= 2
         value["actual_sample_runs"] = 2
         value["provider_boundary_requests_minimum"] = 4
         write_json(self.result, value)
@@ -275,6 +308,24 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
                 write_json(self.result, result)
                 with self.assertRaisesRegex(ValueError, "request accounting"):
                     recover(self.repo, self.ledger, self.result)
+
+    def test_recovery_rejects_failed_attempt_in_completed_result(self) -> None:
+        result = json.loads(self.result.read_text(encoding="utf-8"))
+        result["attempts"][0].update(
+            {"status": "failed", "exit_code": 3, "execution_error": "provider failed"}
+        )
+        write_json(self.result, result)
+
+        with self.assertRaisesRegex(ValueError, "completed cache result evidence"):
+            recover(self.repo, self.ledger, self.result)
+
+    def test_recovery_rejects_broken_observation_token_identity(self) -> None:
+        result = json.loads(self.result.read_text(encoding="utf-8"))
+        result["observations"][0]["uncached_input_tokens"] = 0
+        write_json(self.result, result)
+
+        with self.assertRaisesRegex(ValueError, "completed cache result evidence"):
+            recover(self.repo, self.ledger, self.result)
 
 
 if __name__ == "__main__":

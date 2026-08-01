@@ -14,6 +14,7 @@ from cache_run_ledger import (
     _lock_file,
     _unlock_file,
     atomic_write_json,
+    checkpoint_request_count,
     claim_entry,
     settle_entry,
     store_entry,
@@ -54,6 +55,23 @@ class CacheRunLedgerTest(unittest.TestCase):
         store_entry(self.path, updated)
         ledger = json.loads(self.path.read_text(encoding="utf-8"))
         self.assertEqual(ledger["entries"][0]["status"], "running")
+
+    def test_request_checkpoint_accumulates_a_durable_minimum(self) -> None:
+        entry = {
+            "execution": {
+                "api_requests": 0,
+                "api_requests_evidence_status": "pending",
+            }
+        }
+        checkpoint_request_count(entry, 2)
+        checkpoint_request_count(entry, 3)
+        execution = entry["execution"]
+        self.assertIsNone(execution["api_requests"])
+        self.assertEqual(execution["api_requests_minimum"], 5)
+        self.assertEqual(execution["api_requests_evidence_status"], "partial")
+
+        with self.assertRaisesRegex(ValueError, "nonnegative integer"):
+            checkpoint_request_count(entry, True)
 
     def test_interrupted_replace_preserves_valid_ledger(self) -> None:
         before = self.path.read_text(encoding="utf-8")

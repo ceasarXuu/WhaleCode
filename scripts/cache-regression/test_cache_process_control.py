@@ -6,12 +6,12 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
+from cache_cleanup_contract import cleanup_verified
 from cache_process_control import (
     BenchmarkTimeoutError,
     _cleanup_run_secrets,
     _terminate_process_tree,
     cleanup_labeled_containers,
-    cleanup_verified,
     run_benchmark_command,
 )
 from cache_run_execution_test_support import CacheRunExecutionFixture

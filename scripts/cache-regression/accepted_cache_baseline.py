@@ -8,6 +8,7 @@ from typing import Any
 
 from cache_acceptance_identity import validate_proposal_identity
 from cache_budget import validate_gate_trigger
+from cache_cleanup_contract import cleanup_verified
 from cache_elapsed import is_elapsed_number, validate_elapsed_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_arm_identity import validate_arm_identity
@@ -18,7 +19,6 @@ from cache_run_analysis import (
     analyze_artifact_values,
     budget_observation_exceeded,
 )
-from cache_process_control import cleanup_verified
 from accepted_cache_ledger import exact_int, validate_ledger
 from cache_run_contract import (
     execution_matrix,
@@ -26,6 +26,7 @@ from cache_run_contract import (
 )
 from cache_result_envelope import validate_result_envelope
 from cache_request_accounting import validate_result_request_accounting
+from cache_result_integrity import validate_completed_result_integrity
 from cache_source_evidence import (
     protected_manifest,
     relative_path,
@@ -238,6 +239,7 @@ def validate_run_evidence(
     )
     validate_attempts(result, matrix, proposal["per_sample_run_limits"])
     validate_result_request_accounting(result)
+    validate_completed_result_integrity(result)
     validate_elapsed_evidence(
         result,
         result["attempts"],

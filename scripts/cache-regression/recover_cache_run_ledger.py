@@ -10,7 +10,11 @@ from cache_budget import validate_budget_selection
 from cache_evidence import RESULT_SCHEMA_VERSION
 from cache_json import exact_json_equal, strict_json_loads
 from cache_result_envelope import validate_result_envelope
-from cache_request_accounting import validate_result_request_accounting
+from cache_request_accounting import (
+    summarize_request_accounting,
+    validate_result_request_accounting,
+)
+from cache_result_integrity import validate_completed_result_integrity
 from cache_run_ledger import mutate_entry, now, settle_entry
 
 
@@ -82,6 +86,7 @@ def _validate_settlement_payload(result: dict) -> None:
     if result.get("status") == "completed" and accounted != actual:
         raise ValueError("completed cache recovery accounting is incomplete")
     validate_result_request_accounting(result)
+    validate_completed_result_integrity(result)
 
 
 def _validate_claim_identity(entry: dict, result: dict) -> None:
@@ -173,9 +178,8 @@ def _validate_claimed_matrix(execution: dict, result: dict) -> None:
 def _validate_claimed_budget(budget: object, result: dict) -> None:
     if not isinstance(budget, dict):
         raise ValueError("cache recovery claim has no budget")
-    request_minimum = sum(
-        attempt.get("provider_boundary_request_count") or 0
-        for attempt in result["attempts"]
+    request_minimum, _ = summarize_request_accounting(
+        result["attempts"], result["actual_sample_runs"]
     )
     totals = {
         key: sum(observation[key] for observation in result["observations"])
@@ -205,12 +209,22 @@ def mark_unsettled(ledger_path: Path, record_id: str, reason: str) -> str:
             raise ValueError("only an incomplete cache run can be marked unsettled")
         entry["status"] = "unsettled"
         entry["ended_at"] = now()
-        known_requests = entry["execution"].get("api_requests")
-        entry["execution"]["api_requests"] = None
-        entry["execution"]["api_requests_minimum"] = (
-            known_requests if type(known_requests) is int else 0
+        execution = entry["execution"]
+        exact_requests = execution.get("api_requests")
+        minimum_requests = execution.get("api_requests_minimum")
+        known_requests = max(
+            value
+            for value in (exact_requests, minimum_requests, 0)
+            if type(value) is int and value >= 0
         )
-        entry["execution"]["api_requests_evidence_status"] = "unavailable"
+        previous_status = execution.get("api_requests_evidence_status")
+        execution["api_requests"] = None
+        execution["api_requests_minimum"] = known_requests
+        execution["api_requests_evidence_status"] = (
+            "partial"
+            if known_requests > 0 or previous_status in {"partial", "complete"}
+            else "unavailable"
+        )
         entry["monetary_cost"].update(
             {
                 "status": "unavailable",

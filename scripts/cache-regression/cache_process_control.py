@@ -10,11 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cache_cleanup_contract import CLEANUP_STABLE_EMPTY_POLLS
 from cache_windows_job import WindowsKillOnCloseJob, start_windows_job_process
 
 
-CLEANUP_SUCCESS_STATUSES = frozenset({"verified_absent", "removed_verified"})
-CLEANUP_STABLE_EMPTY_POLLS = 3
 PROCESS_GROUP_TERMINATION_SECONDS = 5
 
 
@@ -24,31 +23,6 @@ class BenchmarkTimeoutError(TimeoutError):
     ):
         super().__init__(f"benchmark exceeded {timeout_seconds}s: {command[0]}")
         self.process_tree_termination = termination
-
-
-def cleanup_verified(result: dict[str, Any]) -> bool:
-    dimensions = (
-        ("status", "container_ids"),
-        ("network_cleanup_status", "network_ids"),
-        ("secret_cleanup_status", "secret_paths"),
-    )
-    if (
-        not isinstance(result, dict)
-        or not isinstance(result.get("stable_empty_polls"), int)
-        or result["stable_empty_polls"] < CLEANUP_STABLE_EMPTY_POLLS
-        or result.get("error") != ""
-    ):
-        return False
-    for status_key, residue_key in dimensions:
-        status = result.get(status_key)
-        residue = result.get(residue_key)
-        if status not in CLEANUP_SUCCESS_STATUSES or not isinstance(residue, list):
-            return False
-        if (status == "verified_absent" and residue) or (
-            status == "removed_verified" and not residue
-        ):
-            return False
-    return True
 
 
 def _terminate_process_tree(
