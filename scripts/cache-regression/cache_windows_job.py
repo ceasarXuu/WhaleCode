@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Windows Job Object ownership for paid benchmark process trees."""
 
 from __future__ import annotations
@@ -9,6 +8,7 @@ from ctypes import wintypes
 from pathlib import Path
 
 from cache_windows_owner_journal import (
+    owner_launch_lock,
     owner_records,
     remove_owner_journal,
     write_owner_journal,
@@ -236,6 +236,13 @@ class WindowsJobProcess:
 def start_windows_job_process(
     command: list[str], cwd: Path
 ) -> tuple[WindowsJobProcess, WindowsKillOnCloseJob]:
+    with owner_launch_lock(cwd):
+        return _start_windows_job_process(command, cwd)
+
+
+def _start_windows_job_process(
+    command: list[str], cwd: Path
+) -> tuple[WindowsJobProcess, WindowsKillOnCloseJob]:
     recover_durable_process_cleanup(cwd)
     if not retry_retained_process_cleanup():
         raise JobObjectError("a previously created benchmark process is still owned")
@@ -443,20 +450,14 @@ def _terminate_and_close_created_process(
 
 def retry_retained_process_cleanup() -> bool:
     """Retry and retain ownership of any suspended process left by setup failure."""
-    for process_id, (
-        kernel32,
-        process_handle,
-        thread_handle,
-        owner_path,
-        creation_time,
-    ) in list(_RETAINED_PROCESS_HANDLES.items()):
+    for process_id, owner in list(_RETAINED_PROCESS_HANDLES.items()):
         _terminate_and_close_created_process(
-            kernel32,
-            process_handle,
-            thread_handle,
+            owner[0],
+            owner[1],
+            owner[2],
             process_id,
-            owner_path,
-            creation_time,
+            owner[3],
+            owner[4],
         )
     return not _RETAINED_PROCESS_HANDLES
 

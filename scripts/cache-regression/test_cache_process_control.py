@@ -217,7 +217,7 @@ class CacheProcessControlTest(CacheRunExecutionFixture):
         self.assertIn(101, closed_handles)
         self.assertGreater(kernel32.TerminateProcess.call_count, 1)
         journals = list(
-            (self.repo / "target/cache-hit-regression/windows-process-owners").glob(
+            (self.repo / "benchmarks/cache-regression/windows-process-owners").glob(
                 "*.json"
             )
         )

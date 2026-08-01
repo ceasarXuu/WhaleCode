@@ -2,16 +2,29 @@
 """Durable identity records for suspended Windows benchmark processes."""
 
 from pathlib import Path
+from contextlib import contextmanager
 
 from cache_json import strict_json_loads
-from cache_run_ledger import atomic_write_json
+from cache_run_ledger import _lock_file, _unlock_file, atomic_write_json
 
 
 SCHEMA_VERSION = "whalecode-windows-process-owner-v1"
 
 
 def owner_directory(cwd: Path) -> Path:
-    return cwd / "target/cache-hit-regression/windows-process-owners"
+    return cwd / "benchmarks/cache-regression/windows-process-owners"
+
+
+@contextmanager
+def owner_launch_lock(cwd: Path):
+    directory = cwd / "target/cache-hit-regression/windows-process-owner-lock"
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / ".launch.lock").open("a+", encoding="utf-8") as lock:
+        _lock_file(lock)
+        try:
+            yield
+        finally:
+            _unlock_file(lock)
 
 
 def write_owner_journal(cwd: Path, process_id: int, creation_time: int) -> Path:
