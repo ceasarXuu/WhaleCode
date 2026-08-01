@@ -1,7 +1,7 @@
 # Problem P-001: W9 TaskSpace mode command is acknowledged without observable activation
 - Status: open
 - Created: 2026-08-01 23:55
-- Updated: 2026-08-02 00:18
+- Updated: 2026-08-02 00:31
 - Objective: Identify the first boundary where an explicit TUI TaskSpace activation stops propagating from the embedded app-server command to the thread TaskSpace snapshot.
 - Symptoms:
   - `action_map_commands_are_routed_through_app_server_in_tui` is the only failing TUI test.
@@ -34,6 +34,13 @@
 - Resolution basis:
   - Static call-chain evidence proves the RPC response follows queue submission rather than semantic mode application.
   - A single-variable controlled run changed only the temporary test Codex home to `taskspace_projection_policy = "map-always"`; W9 changed from deterministic failure to pass.
+- Disposition: deferred by user decision; do not repair or suppress the test in the current upstream-sync batch.
+- Deferred owner: future TaskSpace-focused branch/workstream; this record does not authorize creating that branch now.
+- Re-entry criteria:
+  - TaskSpace-focused work is explicitly started.
+  - The local W9 fixture is given an explicit supported projection policy without changing `Standard` as the product default.
+  - A complementary rejection/observability regression covers the missing-policy path.
+  - Focused W9, TaskSpace state/store regressions, and the full TUI gate are rerun.
 - Close reason:
   - not closed
 
@@ -235,7 +242,7 @@
   - E-004
 - Conclusion: the original default-only fixture lacks a policy and fails; writing exactly `taskspace_projection_policy = "map-always"` into its temporary Codex home makes the unchanged set/read behavior pass.
 - Repair design readiness: ready
-- Next step: after repair authorization, make W9's TaskSpace precondition explicit in its local fixture and add a complementary rejection/observability assertion rather than changing the global Standard default.
+- Next step: none in the current batch; resume only in the future TaskSpace-focused branch/workstream under the re-entry criteria in P-001.
 - Blocker:
   - none
 - Close reason:

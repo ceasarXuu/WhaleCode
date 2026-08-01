@@ -1,6 +1,6 @@
 # 第二批：上游基线、overlay 账本与测试门禁工程计划
 
-- 文档状态：实施中；Phase 1 已验证，Phase 2 已完成 W5–W8，Phase 3 待执行
+- 文档状态：实施中；Phase 1 已验证，Phase 2 已完成 W5–W8，W9 已定位并延期到 TaskSpace 专项分支，最终门禁待后续恢复
 - 计划模式：Execution Tracking
 - 创建日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
@@ -180,7 +180,7 @@ JSON 工件记录 schema version，但不写生成时间、绝对路径、测试
 | W6 | verified | 连续 3 次捕获当前 TUI 全量失败集合并分类 | 三次测试名集合一致；差异被标记为 flaky candidate | W5 |
 | W7 | verified | 按 DeepSeek 官方 Responses 合同解耦 reasoning effort/summary，审阅并接受 12 个 status 快照 | request、SSE、catalog、status 定向回归通过；12 个 status 失败归零 | W6 |
 | W8 | verified | 接受 chatwidget/guardian/MCP 中 Flash 默认与 Pro 隐藏的 20 个快照 | 514 个 chatwidget 测试通过；全量基线中该组失败归零 | W6 |
-| W9 | blocked-on-discovery | 诊断 ActionMap route-mode 等功能断言 | 根因写入执行记录；修复有回归测试且不改变 TaskSpace 合同 | W6 |
+| W9 | deferred | 已定位 ActionMap route-mode 断言：夹具缺少 projection policy，RPC 仅确认入队 | 延期到 TaskSpace 专项分支；恢复时修复局部夹具、补拒绝回归且不改变 `Standard` 默认值 | W6 |
 | W10 | blocked-on-discovery | 隔离复现潜在 memory-setting flake | 同配置 3 次结果稳定，或找到可验证根因 | W6 |
 | W11 | planned | 运行最终 TUI 全量门禁并固化零失败基线 | Nextest exit 0，规范化结果无失败/unknown | W7-W10 |
 | W12 | planned | 增加 Windows PowerShell 自动验证入口 | mixed-case URL、shell-command crate、paste-burst 定向测试通过 | W0 |
@@ -218,7 +218,17 @@ W7 和 W8 的每个快照族必须独立提交。若快照显示用户可见交�
 
 该修复由用户在阅读官方文档后明确授权，作为第二批原范围之外的独立根因修复提交 `27e3d51a7`；12 个 status 快照在独立提交 `73b7b78eb` 中接受。缓存 index gate 将 final-wire 的 `include` 删除识别为可比较 candidate transition并通过，但当前 live baseline 仍为 `live_regression_failed`，因此发布继续阻断。
 
-W9、W10、W13 当前信息不足，使用 `blocked-on-discovery` 是计划状态，不表示实施已被阻断。各工作单元在执行阶段先收集证据，再决定修复或另立需求。
+### 6.3 W9 延期决策记录
+
+- 决策日期：2026-08-02；
+- 决策：当前 upstream-sync 批次记录并跳过 W9，不修复、不忽略测试、不改变最终零失败口径；后续在 TaskSpace 专项分支处理；
+- 已定位根因：W9 的 embedded thread 夹具缺少 `taskspace_projection_policy`，Core 正确拒绝 `Experiment` 并保持 `Standard`；app-server 空响应只表示提交进入 Core 队列；
+- 对照证据：原始用例稳定得到 `Standard != Experiment`；仅在临时 Codex home 增加 `taskspace_projection_policy = "map-always"` 后，同一用例通过；诊断性源码改动已撤回；
+- 当前批次影响：W11 的零失败基线不能在 W9 未恢复前标记 `verified`，不得把 W9 加入 ignored 或豁免清单来伪造通过；
+- 恢复条件：TaskSpace 专项工作明确启动，局部夹具显式配置支持的 projection policy，新增缺失策略时的拒绝/可观测性回归，并重跑 TaskSpace 与 TUI 全量门禁；
+- 权威诊断记录：`coe/2026-08-01-23-55-w9-taskspace-mode-routing.md`。
+
+W10、W13 当前信息不足，使用 `blocked-on-discovery` 是计划状态，不表示实施已被阻断。各工作单元在执行阶段先收集证据，再决定修复或另立需求。W9 已完成 discovery，但依据用户决策转为 `deferred`。
 
 ## 7. 分阶段实施与提交边界
 
