@@ -294,6 +294,24 @@ impl ActionMapResponseFinalReceipt {
             && self.outstanding_reservation_count == 0
     }
 
+    pub(crate) fn settlement_status(&self) -> &'static str {
+        if self.complete() {
+            "settled"
+        } else {
+            "settlement_incomplete"
+        }
+    }
+
+    pub(crate) fn reason_code(&self) -> Option<&'static str> {
+        if self.error.is_some() {
+            Some("taskspace_response_final_state_unavailable")
+        } else if !self.complete() {
+            Some("taskspace_response_attribution_incomplete")
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn model_visible_result(&self) -> String {
         let mut result = serde_json::json!({
             "schema_version": "TaskSpaceResponseFinalReceiptV1",
@@ -330,7 +348,7 @@ impl ActionMapResponseFinalReceipt {
         debug_assert_eq!(self.map_id, prepared.map_id);
         let mut result = serde_json::json!({
             "schema_version": "TaskSpaceResponseResultV2",
-            "status": if self.complete() { "settled" } else { "settlement_incomplete" },
+            "status": self.settlement_status(),
             "success": self.complete(),
             "state_commit": true,
             "map_id": self.map_id,
@@ -346,13 +364,13 @@ impl ActionMapResponseFinalReceipt {
         if let Some(error) = self.error.as_ref() {
             result["error"] = serde_json::json!({
                 "class": "resource",
-                "code": "taskspace_response_final_state_unavailable",
+                "code": self.reason_code(),
                 "detail": error,
             });
         } else if !self.complete() {
             result["error"] = serde_json::json!({
                 "class": "state_machine",
-                "code": "taskspace_response_attribution_incomplete",
+                "code": self.reason_code(),
             });
         }
         result.to_string()

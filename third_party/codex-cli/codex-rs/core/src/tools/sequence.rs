@@ -749,19 +749,7 @@ async fn execute_prepared_taskspace_siblings(
             error,
         ),
     };
-    tracing::info!(
-        target: "codex_core::taskspace",
-        event_name = "taskspace_response_finalized",
-        control_call_id,
-        map_id = prepared.map_id,
-        reservation_revision_after = prepared.revision_after,
-        canonical_revision = receipt.canonical_revision,
-        prepared_action_count,
-        attributed_result_count = receipt.attributed_result_count,
-        outstanding_reservation_count = receipt.outstanding_reservation_count,
-        settlement_complete = receipt.complete(),
-        "finalized the canonical TaskSpace control result"
-    );
+    emit_taskspace_response_finalized(&prepared, &receipt, &control_call_id);
     let control_output = ResponseInputItem::FunctionCallOutput {
         call_id: control_call_id,
         output: codex_protocol::models::FunctionCallOutputPayload {
@@ -776,6 +764,29 @@ async fn execute_prepared_taskspace_siblings(
         outputs,
         terminal_completion,
     })
+}
+
+fn emit_taskspace_response_finalized(
+    prepared: &crate::action_map::ActionMapPreparedResponse,
+    receipt: &crate::action_map::ActionMapResponseFinalReceipt,
+    control_call_id: &str,
+) {
+    tracing::info!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace_response_finalized",
+        control_call_id,
+        map_id = prepared.map_id,
+        prepare_revision = prepared.revision_after,
+        canonical_revision = receipt.canonical_revision.unwrap_or_default(),
+        canonical_revision_available = receipt.canonical_revision.is_some(),
+        prepared_action_count = receipt.prepared_action_count,
+        attributed_result_count = receipt.attributed_result_count,
+        outstanding_reservation_count = receipt.outstanding_reservation_count,
+        status = receipt.settlement_status(),
+        reason_code = receipt.reason_code().unwrap_or("none"),
+        settlement_complete = receipt.complete(),
+        "finalized the canonical TaskSpace control result"
+    );
 }
 
 fn execution_failure_call_id(
@@ -802,6 +813,10 @@ mod tests;
 #[cfg(test)]
 #[path = "sequence_taskspace_tests.rs"]
 mod taskspace_tests;
+
+#[cfg(test)]
+#[path = "sequence_taskspace_log_tests.rs"]
+mod taskspace_log_tests;
 
 #[cfg(test)]
 #[path = "sequence_taskspace_rejection_tests.rs"]
