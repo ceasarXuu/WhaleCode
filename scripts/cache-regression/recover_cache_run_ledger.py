@@ -35,6 +35,7 @@ def recover(repo: Path, ledger_path: Path, result_path: Path) -> str:
     def settle(entry: dict) -> str:
         _validate_settlement_payload(result)
         _validate_claim_identity(entry, result)
+        validate_completed_result_integrity(result)
         if (
             entry.get("status") in {"settled", "failed", "cancelled"}
             and entry.get("evidence", {}).get("result_path") == expected_path
@@ -86,7 +87,6 @@ def _validate_settlement_payload(result: dict) -> None:
     if result.get("status") == "completed" and accounted != actual:
         raise ValueError("completed cache recovery accounting is incomplete")
     validate_result_request_accounting(result)
-    validate_completed_result_integrity(result)
 
 
 def _validate_claim_identity(entry: dict, result: dict) -> None:

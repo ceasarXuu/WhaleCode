@@ -11,13 +11,13 @@ from unittest.mock import patch
 from cache_baseline_test_support import write_provider_boundary_evidence
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
 from cache_arm_identity import fixture_arm_identity
+from cache_provider_boundary_evidence import persist_provider_boundary_accounting
 from cache_run_analysis import analyze_artifacts
 from cache_run_execution_test_support import CacheRunExecutionFixture
 from cache_surface import write_json
 from run_cache_hit_regression import (
     main,
     persist_observation_artifacts,
-    persist_provider_boundary_accounting,
 )
 
 
@@ -59,6 +59,22 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
                 "business_success": True,
                 "artifacts": {"metrics": "fixture"},
                 "artifact_sha256": {"metrics": "d" * 64},
+            }
+
+        def fake_persist_boundary(*_args, **_kwargs):
+            ledger = json.loads(
+                (self.repo / "benchmarks/whale-agent-run-ledger.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            execution = ledger["entries"][0]["execution"]
+            self.assertIsNone(execution["api_requests"])
+            self.assertEqual(execution["api_requests_minimum"], len(calls) * 3)
+            self.assertEqual(execution["api_requests_evidence_status"], "partial")
+            return {
+                "provider_boundary_request_count": 3,
+                "provider_boundary_evidence_path": "fixture-boundary.json",
+                "provider_boundary_evidence_sha256": "e" * 64,
             }
 
         argv = [
@@ -107,12 +123,12 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
             ),
             patch("run_cache_hit_regression.analyze_arm", side_effect=fake_analyze),
             patch(
+                "run_cache_hit_regression.read_provider_boundary_request_count",
+                return_value=3,
+            ),
+            patch(
                 "run_cache_hit_regression.persist_provider_boundary_accounting",
-                return_value={
-                    "provider_boundary_request_count": 3,
-                    "provider_boundary_evidence_path": "fixture-boundary.json",
-                    "provider_boundary_evidence_sha256": "e" * 64,
-                },
+                side_effect=fake_persist_boundary,
             ),
             patch(
                 "run_cache_hit_regression.persist_observation_artifacts",

@@ -61,7 +61,7 @@ class CacheRunExecutionFixture(unittest.TestCase):
                 "planned_sample_runs": 2,
                 "retry_sample_run_limit": 0,
                 "maximum_sample_runs": 2,
-                "stop_conditions": [],
+                "stop_conditions": ["after_any_run_failure"],
                 "selection_reason": "approved fixture",
             },
             "per_sample_run_limits": {

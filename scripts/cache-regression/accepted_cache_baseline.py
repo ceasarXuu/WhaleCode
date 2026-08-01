@@ -239,7 +239,7 @@ def validate_run_evidence(
     )
     validate_attempts(result, matrix, proposal["per_sample_run_limits"])
     validate_result_request_accounting(result)
-    validate_completed_result_integrity(result)
+    validate_completed_result_integrity(result, matrix)
     validate_elapsed_evidence(
         result,
         result["attempts"],

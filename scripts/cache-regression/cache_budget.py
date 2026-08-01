@@ -146,6 +146,19 @@ def validate_budget_selection(selection: object) -> None:
     )
 
 
+def selection_matrix(
+    selection: dict[str, Any], *, validate: bool = True
+) -> list[dict[str, Any]]:
+    if validate:
+        validate_budget_selection(selection)
+    return [
+        {"sample": sample, "arm": arm, "repeat": repeat_index}
+        for sample in selection["samples"]
+        for arm in selection["arms"]
+        for repeat_index in range(1, selection["repeat"] + 1)
+    ]
+
+
 def build_budget_proposal(
     *,
     repo: Path,

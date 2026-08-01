@@ -10,7 +10,9 @@ from cache_elapsed import is_elapsed_number
 from cache_json import exact_json_equal
 
 
-def validate_completed_result_integrity(result: dict[str, Any]) -> None:
+def validate_completed_result_integrity(
+    result: dict[str, Any], expected_matrix: list[dict[str, Any]] | None = None
+) -> None:
     if result.get("status") != "completed":
         return
     actual = result.get("actual_sample_runs")
@@ -26,6 +28,15 @@ def validate_completed_result_integrity(result: dict[str, Any]) -> None:
         or result.get("unverified_scope") != []
     ):
         raise ValueError("completed cache result evidence is inconsistent")
+    attempt_matrix = [
+        {key: attempt.get(key) for key in ("sample", "arm", "repeat")}
+        for attempt in attempts
+        if isinstance(attempt, dict)
+    ]
+    if expected_matrix is not None and not exact_json_equal(
+        attempt_matrix, expected_matrix
+    ):
+        raise ValueError("completed cache result scope is unauthorized")
     for attempt, observation in zip(attempts, observations):
         if not isinstance(attempt, dict) or not isinstance(observation, dict):
             raise ValueError("completed cache result evidence is inconsistent")
@@ -44,7 +55,13 @@ def validate_completed_result_integrity(result: dict[str, Any]) -> None:
             )
         ]
         valid = (
-            attempt.get("status") == "completed"
+            isinstance(scope["sample"], str)
+            and bool(scope["sample"].strip())
+            and isinstance(scope["arm"], str)
+            and bool(scope["arm"].strip())
+            and type(scope["repeat"]) is int
+            and scope["repeat"] > 0
+            and attempt.get("status") == "completed"
             and type(attempt.get("exit_code")) is int
             and attempt["exit_code"] == 0
             and attempt.get("timed_out") is False

@@ -10,6 +10,7 @@ from typing import Any
 from cache_budget import (
     build_budget_proposal,
     repository_evidence_path,
+    selection_matrix,
     validate_budget_proposal,
 )
 from cache_evidence import file_sha256
@@ -149,17 +150,7 @@ def load_authorized_proposal(
 
 
 def execution_matrix(proposal: dict[str, Any]) -> list[dict[str, Any]]:
-    selection = proposal["selection"]
-    matrix = []
-    for sample in selection["samples"]:
-        for arm in selection["arms"]:
-            for repeat_index in range(1, selection["repeat"] + 1):
-                matrix.append({"sample": sample, "arm": arm, "repeat": repeat_index})
-    require(
-        len(matrix) == selection["planned_sample_runs"],
-        "proposal sample-run count is inconsistent",
-    )
-    return matrix
+    return selection_matrix(proposal["selection"], validate=False)
 
 
 def benchmark_command(

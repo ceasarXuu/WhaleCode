@@ -20,12 +20,15 @@ from cache_process_control import (
     cleanup_labeled_containers,
     run_benchmark_command,
 )
+from cache_provider_boundary_evidence import (
+    persist_provider_boundary_accounting,
+    read_provider_boundary_request_count,
+)
 from cache_run_environment import ensure_deepseek_api_key, find_run_dir_by_id
 from cache_run_analysis import (
     analyze_arm,
     analyze_artifacts,
     budget_observation_exceeded,
-    validate_provider_boundary_accounting,
 )
 from cache_run_contract import (
     benchmark_command,
@@ -121,32 +124,6 @@ def persist_observation_artifacts(
         key: file_sha256(path) for key, path in persisted.items()
     }
     return durable
-
-
-def persist_provider_boundary_accounting(
-    repo: Path,
-    record_id: str,
-    run_id: str,
-    run_dir: Path,
-    side: str,
-    expected_model: str,
-) -> dict[str, Any]:
-    source = (
-        run_dir / "pair-001" / side / "artifacts" / "provider-boundary-evidence.json"
-    )
-    if not source.is_file():
-        raise FileNotFoundError("provider boundary accounting evidence is missing")
-    boundary = strict_json_loads(source.read_text(encoding="utf-8-sig"))
-    request_count = validate_provider_boundary_accounting(boundary, expected_model)
-    destination = repo / "benchmarks/cache-regression/evidence" / record_id / run_id
-    destination.mkdir(parents=True, exist_ok=False)
-    target = destination / "provider-boundary-evidence.json"
-    shutil.copyfile(source, target)
-    return {
-        "provider_boundary_request_count": request_count,
-        "provider_boundary_evidence_path": target.relative_to(repo).as_posix(),
-        "provider_boundary_evidence_sha256": file_sha256(target),
-    }
 
 
 def stop_reason(
@@ -275,6 +252,12 @@ def execute_attempts(
             try:
                 run_dir = find_run_dir_by_id(run_root, run_id)
                 side = "left" if execution["arm"] == "standard" else "right"
+                request_count = read_provider_boundary_request_count(
+                    run_dir, side, selection["model"]
+                )
+                attempt["provider_boundary_request_count"] = request_count
+                checkpoint_request_count(entry, request_count)
+                store_entry(ledger_path, entry)
                 attempt.update(
                     persist_provider_boundary_accounting(
                         repo,
@@ -283,12 +266,9 @@ def execute_attempts(
                         run_dir,
                         side,
                         selection["model"],
+                        request_count,
                     )
                 )
-                checkpoint_request_count(
-                    entry, attempt["provider_boundary_request_count"]
-                )
-                store_entry(ledger_path, entry)
                 observation = analyze_arm(
                     run_dir, side, execution["arm"], selection["model"]
                 )

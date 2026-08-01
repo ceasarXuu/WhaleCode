@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cache_budget import selection_matrix
 from cache_cost import settled_monetary_cost
 from cache_evidence import file_sha256
 from cache_json import strict_json_loads
@@ -239,7 +240,12 @@ def planned_entry(
 
 
 def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
-    validate_completed_result_integrity(result)
+    expected_matrix = (
+        selection_matrix(entry.get("evidence", {}).get("approved_selection"))
+        if result.get("status") == "completed"
+        else None
+    )
+    validate_completed_result_integrity(result, expected_matrix)
     observations = result.get("observations", [])
     attempts = result.get("attempts", [])
     authoritative_request_total, request_accounting_status = (
