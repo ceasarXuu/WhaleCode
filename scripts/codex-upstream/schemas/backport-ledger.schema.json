@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "baseline_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "entries": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "adapted": {"type": "boolean"},
+          "local_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+          "patch_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+          "paths": {"items": {"type": "string"}, "minItems": 1, "type": "array"},
+          "status": {"enum": ["applied", "reverted", "superseded_by_vendor"]},
+          "trailer_required": {"type": "boolean"},
+          "upstream_paths": {"items": {"type": "string"}, "minItems": 1, "type": "array"},
+          "upstream_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+          "verification": {
+            "additionalProperties": false,
+            "properties": {
+              "evidence": {"type": "string"},
+              "linux": {"type": "string"},
+              "windows": {"type": "string"}
+            },
+            "required": ["evidence", "linux", "windows"],
+            "type": "object"
+          }
+        },
+        "required": ["upstream_commit", "local_commit", "patch_sha256", "paths", "status", "adapted", "trailer_required", "verification"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "patch_digest_policy": {
+      "additionalProperties": false,
+      "properties": {
+        "trailer_required_false": {"const": "recomputed_2026-08-01_not_historical"},
+        "trailer_required_true": {"const": "historical_commit_trailer"}
+      },
+      "required": ["trailer_required_true", "trailer_required_false"],
+      "type": "object"
+    },
+    "schema_version": {"const": 1}
+  },
+  "required": ["schema_version", "baseline_commit", "patch_digest_policy", "entries"],
+  "title": "Whale selective Codex backport ledger",
+  "type": "object"
+}

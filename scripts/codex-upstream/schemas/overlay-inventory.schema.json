@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "baseline_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "baseline_tree": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "entries": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "additions": {"type": ["integer", "null"]},
+          "baseline_sha256": {"type": ["string", "null"]},
+          "binary": {"type": "boolean"},
+          "categories": {"items": {"type": "string"}, "type": "array"},
+          "current_sha256": {"type": ["string", "null"]},
+          "deletions": {"type": ["integer", "null"]},
+          "evidence_commit_count": {"minimum": 0, "type": "integer"},
+          "evidence_commits": {"items": {"pattern": "^[0-9a-f]{40}$", "type": "string"}, "type": "array"},
+          "evidence_truncated": {"type": "boolean"},
+          "matched_rule_ids": {"items": {"type": "string"}, "type": "array"},
+          "path": {"type": "string"},
+          "status": {"enum": ["added", "modified", "deleted"]}
+        },
+        "required": ["path", "status", "baseline_sha256", "current_sha256", "additions", "deletions", "binary", "categories", "matched_rule_ids", "evidence_commits", "evidence_commit_count", "evidence_truncated"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "excluded_control_paths": {"const": ["UPSTREAM.md"]},
+    "schema_version": {"const": 1},
+    "source": {"const": "git-index"},
+    "summary": {"type": "object"},
+    "target_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "vendor_path": {"const": "third_party/codex-cli"}
+  },
+  "required": ["schema_version", "vendor_path", "baseline_commit", "baseline_tree", "target_commit", "source", "excluded_control_paths", "entries", "summary"],
+  "title": "Whale Codex overlay inventory",
+  "type": "object"
+}

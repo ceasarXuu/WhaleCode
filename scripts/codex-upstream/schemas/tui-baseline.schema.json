@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "classification": {"enum": ["snapshot_review", "functional_assertion", "environment", "flaky_candidate", "unknown"]},
+          "name": {"type": "string"},
+          "result": {"enum": ["passed", "failed", "ignored"]}
+        },
+        "required": ["name", "result"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "runner": {"const": "cargo-nextest"},
+    "schema_version": {"const": 1}
+  },
+  "required": ["schema_version", "runner", "entries"],
+  "title": "Whale codex-tui normalized test baseline",
+  "type": "object"
+}
