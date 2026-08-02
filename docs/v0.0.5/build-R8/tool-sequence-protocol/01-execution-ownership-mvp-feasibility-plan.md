@@ -81,7 +81,7 @@ Spike 不新建 crate、不引入依赖、不增加配置开关，也不接入�
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| MVT-0 | 冻结可比较的请求基线 | API/cache | `core/tests/suite/` provider request fixture | Standard 与当前 TaskSpace 请求 body | 在任何生产代码变化前，用现有 request recorder 固化 Tool 列表、schema hash、tool choice、parallel flag、instructions/input hash | 后续每项请求变化都有明确基线 | 防止用改动后的快照自证“Standard 没变化” | Complexity: +2 本地 fixture 和基线证据，无运行时状态；Reach/Cost: 增加少量测试数据和维护责任，无 API 费用 | 重复运行 fixture 得到相同 canonical body/hash | 基线不稳定时先修测试归一化，不开始 MVT-1 | planned |
+| MVT-0 | 冻结可比较的请求基线 | API/cache | `core/tests/suite/` provider request fixture | Standard 与当前 TaskSpace 请求 body | 在任何生产代码变化前，用现有 request recorder 固化 Tool 列表、schema hash、tool choice、parallel flag、instructions/input hash | 后续每项请求变化都有明确基线 | 防止用改动后的快照自证“Standard 没变化” | Complexity: 复用现有 4 份本地 fixture，无运行时状态；Reach/Cost: 当前 TaskSpace fixture 与实现不一致，需按缓存门禁完成独立真实证据晋升 | Standard 通过；TaskSpace mock 候选通过但门禁阻断，证据见 9.1 | 保留 accepted fixture，不开始 MVT-1，取得专用预算后完成真实回归与基线晋升 | blocked |
 | MVT-1 | 证明原 Router 可承接容器内普通 Tool | internal | `core/src/tools/code_mode/mod.rs`、`parallel.rs` 相邻测试 | nested payload 构造与 `ToolCallRuntime` | 只开放或抽取现有 payload 构造的最小可复用入口，并用两项记录型 Tool 走真实 Router | 容器项可复用现有 handler、hook 和结果转换 | 排除“序列容器必然要求第二套 Tool 实现”的基础风险 | Complexity: 至多移动一个已有 helper 或收窄可见性并增加测试；Reach/Cost: Code Mode 和 Tool 单测需共同回归，无运行时网络成本 | H1；运行目标 Rust 单测并确认旧 Code Mode 测试不变 | 若必须复制协议或 handler，回退 helper 变更并判定路线暂停 | planned |
 | MVT-2 | 证明执行归属可以位于单项分派边界 | internal | `core/src/tools/sequence.rs` 相邻测试 | 测试用 `ExecutableSequenceItem` 与记录型 hosted executor | 在测试范围建立 `Client/ProviderHosted` 两种 binding，把带 `N1 -> N2 -> N3` 依赖的合法 S1 交给现有序列调度 | 同一调度器可按唯一序列和显式依赖选择本地或 mock provider 执行 | 排除新建平行调度器的必要性，验证新增连接点可以保持很窄 | Complexity: +1 测试专用 binding 和 fake executor，不进入 CLI；Reach/Cost: 只增加 core 测试编译时间和少量认知成本 | H3；断言唯一事件顺序、item identity 和结果顺序 | 若需要修改各 Tool handler 或复制整个 scheduler，删除 spike 并暂停路线 | planned |
 | MVT-3 | 证明非法序列对两类执行均零副作用 | state | `core/src/tools/sequence_*tests.rs` | preflight 到 dispatcher 的调用边界 | 为 revision、node、Patch 规则各造一个非法 S1，使用共享事件计数器和 mock 请求计数 | 所有拒绝都发生在 client/provider 分派之前 | 证明 hosted adapter 不会削弱状态机底线 | Complexity: +3 负例 fixture，无新生产状态；Reach/Cost: TaskSpace 序列回归测试时间增加 | H2；三个 fixture 均断言事件 0、HTTP 0、revision 不变 | 任一测试出现先执行后拒绝，停止后续 hosted 设计 | planned |
@@ -139,7 +139,33 @@ Phase A/B 通过后，如正式范围确实需要该 provider-hosted capability�
 
 当前 DeepSeek 主路径没有暴露原生 `image_generation`，因此真实图像 probe 不是 Phase A/B 的前置条件。
 
-## 9. 外部依据
+## 9. 执行记录
+
+### 9.1 MVT-0 请求基线
+
+2026-08-02 在未修改生产代码前复用现有最终 wire fixture 检查基线。Standard 基线稳定；TaskSpace
+当前实现与受保护 fixture 不一致，MVT-0 尚未完成。
+
+| 模式 | 当前 accepted fixture SHA-256 | 本地 mock 候选 SHA-256 |
+|---|---|---|
+| Standard | `d5808bdd792f343716cab7e79cf902ddeff7e155161d9e36e956cad9ee264b86` | 无变化 |
+| Map Always | `2cf6090311979b38089c2402a48617c1df7cebdab516bc88216678e6afe1f9d5` | `e355ee1d827604ef3e826e5235f9bd2843ca9d12c4d58b549013d8af2cad933a` |
+| Map Append | `76fc55757bfb9df4bd03fa32e1ed753abdae25ba8820425d57c5dec3ba849d47` | `6dc4c18cd9d22f838e59c83ef53de7cf6540e2b18ead19cbd4e383c0011ec61b` |
+| Map Request | `8ad4f318e1d9886656cc2b3675e294ee6efe622bdf69c0437959e39d8a8df2f1` | `7fde706ebfee95158ef421132f67271caad3e2e451a1f9f813782f3d19a2f733` |
+
+验证结果：
+
+- `standard_request_pair_preserves_the_complete_prefix`：通过，原 fixture 无变化。
+- `taskspace_projection_policies_have_independent_request_pairs`：本地 mock 候选通过；候选使用单一
+  `TaskSpaceResponseResultV2` 反馈，替代 accepted fixture 中的 commit + developer receipt 双反馈。
+- 缓存门禁：`BLOCKED`。expected surface 为
+  `9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc`，候选 actual surface 为
+  `204978af2218017fe58f2322973b2a605cce6ec16e1e91f92ef4386aa1e3926b`；基线状态为
+  `live_regression_failed`，必须先取得专用真实回归预算并走独立晋升流程。
+- 候选快照已回退，受保护的 accepted fixture 保持不变。
+- 本阶段未启动真实 Whale Agent 或外部 provider 请求。
+
+## 10. 外部依据
 
 1. [OpenAI Agents SDK：Hosted tools 与 local/runtime tools 的执行边界](https://openai.github.io/openai-agents-python/tools/)
 2. [OpenAI Responses API：`tool_choice` 与 allowed tools 合同](https://platform.openai.com/docs/api-reference/responses-streaming/response/web_search_call?lang=curl)
