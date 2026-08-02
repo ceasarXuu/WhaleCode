@@ -1,7 +1,7 @@
 # R8 TaskSpace Tool 序列协议专题
 
 - Created: 2026-08-01
-- Status: MVT-0～MVT-6 completed / MVT-7 boundary verified / production ingress decision pending
+- Status: MVT-0～MVT-7 completed / formal plan ready / TS-04 Router seam verified
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Tool 顺序、节点归属与 Runtime 硬边界
 
@@ -41,7 +41,9 @@ MVT-7 核验发现：Standard 完整请求基线保持不变，但生产 TaskSpa
 3. [`02-mvt1-native-router-reuse-result.md`](02-mvt1-native-router-reuse-result.md)：MVT-1 原 Router 复用实现与验证结果。
 4. [`03-production-engineering-plan.md`](03-production-engineering-plan.md)：基于 MVT-0～MVT-7 证据形成的生产容器
    schema、切换边界、工作单元、验收和安全停止计划。
-5. 正式实施结果：执行计划后单独形成，不以 MVT 测试 adapter 代替生产完成证据。
+5. [`04-ts04-control-router-seam-result.md`](04-ts04-control-router-seam-result.md)：停点 1 的统一 Router 生命周期、
+   单一 Map transaction 和唯一 binding 来源验证结果。
+6. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
 
 ## 3. 与 R8 其他问题的关系
 
