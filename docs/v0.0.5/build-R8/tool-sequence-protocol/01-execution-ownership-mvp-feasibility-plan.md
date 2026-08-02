@@ -1,7 +1,7 @@
 # Tool 序列执行归属最小可行性测试计划
 
 - Created: 2026-08-02
-- Status: Planned
+- Status: Executing；MVT-0 测量基础设施已修复，真实双臂基线待新预算
 - Scope: 只验证“单一序列容器 + client/provider 执行归属”基础路线
 - Excludes: 完整生产 schema、旧协议迁移、真实 Agent 行为收益和全量 provider 兼容
 
@@ -81,7 +81,7 @@ Spike 不新建 crate、不引入依赖、不增加配置开关，也不接入�
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| MVT-0 | 冻结可比较的请求基线 | API/cache | `core/tests/suite/` provider request fixture | Standard 与当前 TaskSpace 请求 body | 在任何生产代码变化前，用现有 request recorder 固化 Tool 列表、schema hash、tool choice、parallel flag、instructions/input hash | 后续每项请求变化都有明确基线 | 防止用改动后的快照自证“Standard 没变化” | Complexity: 复用现有 4 份本地 fixture，无运行时状态；Reach/Cost: 当前 TaskSpace fixture 与实现不一致，需按缓存门禁完成独立真实证据晋升 | Standard 通过；TaskSpace mock 候选通过但门禁阻断，证据见 9.1 | 保留 accepted fixture，不开始 MVT-1，取得专用预算后完成真实回归与基线晋升 | blocked |
+| MVT-0 | 冻结可比较的请求基线 | API/cache | `core/tests/suite/` provider request fixture | Standard 与当前 TaskSpace 请求 body | 在任何生产代码变化前，用现有 request recorder 固化 Tool 列表、schema hash、tool choice、parallel flag、instructions/input hash | 后续每项请求变化都有明确基线 | 防止用改动后的快照自证“Standard 没变化” | Complexity: 复用现有 4 份本地 fixture，无运行时状态；Reach/Cost: 首次真实运行只完成 Standard，测量阻塞已由 `0076e720a` 修复 | Standard 业务通过且离线重算完整；map-request 未执行，证据见 9.1、9.2 | 不开始 MVT-1；新预算下完成 Standard + map-request 同批次复验 | blocked |
 | MVT-1 | 证明原 Router 可承接容器内普通 Tool | internal | `core/src/tools/code_mode/mod.rs`、`parallel.rs` 相邻测试 | nested payload 构造与 `ToolCallRuntime` | 只开放或抽取现有 payload 构造的最小可复用入口，并用两项记录型 Tool 走真实 Router | 容器项可复用现有 handler、hook 和结果转换 | 排除“序列容器必然要求第二套 Tool 实现”的基础风险 | Complexity: 至多移动一个已有 helper 或收窄可见性并增加测试；Reach/Cost: Code Mode 和 Tool 单测需共同回归，无运行时网络成本 | H1；运行目标 Rust 单测并确认旧 Code Mode 测试不变 | 若必须复制协议或 handler，回退 helper 变更并判定路线暂停 | planned |
 | MVT-2 | 证明执行归属可以位于单项分派边界 | internal | `core/src/tools/sequence.rs` 相邻测试 | 测试用 `ExecutableSequenceItem` 与记录型 hosted executor | 在测试范围建立 `Client/ProviderHosted` 两种 binding，把带 `N1 -> N2 -> N3` 依赖的合法 S1 交给现有序列调度 | 同一调度器可按唯一序列和显式依赖选择本地或 mock provider 执行 | 排除新建平行调度器的必要性，验证新增连接点可以保持很窄 | Complexity: +1 测试专用 binding 和 fake executor，不进入 CLI；Reach/Cost: 只增加 core 测试编译时间和少量认知成本 | H3；断言唯一事件顺序、item identity 和结果顺序 | 若需要修改各 Tool handler 或复制整个 scheduler，删除 spike 并暂停路线 | planned |
 | MVT-3 | 证明非法序列对两类执行均零副作用 | state | `core/src/tools/sequence_*tests.rs` | preflight 到 dispatcher 的调用边界 | 为 revision、node、Patch 规则各造一个非法 S1，使用共享事件计数器和 mock 请求计数 | 所有拒绝都发生在 client/provider 分派之前 | 证明 hosted adapter 不会削弱状态机底线 | Complexity: +3 负例 fixture，无新生产状态；Reach/Cost: TaskSpace 序列回归测试时间增加 | H2；三个 fixture 均断言事件 0、HTTP 0、revision 不变 | 任一测试出现先执行后拒绝，停止后续 hosted 设计 | planned |
@@ -164,6 +164,18 @@ Phase A/B 通过后，如正式范围确实需要该 provider-hosted capability�
   `live_regression_failed`，必须先取得专用真实回归预算并走独立晋升流程。
 - 候选快照已回退，受保护的 accepted fixture 保持不变。
 - 本阶段未启动真实 Whale Agent 或外部 provider 请求。
+
+### 9.2 MVT-0 首次真实运行与测量修复
+
+用户批准 Standard 与 map-request 各一次。运行 `WAR-20260802-165454-CACHE-REGRESSION-2723DE14` 只完成
+Standard：业务验证通过，5 次 provider 请求的真实 usage 为 60,617 input、48,128 cached、810 output，request 2+
+命中率为 97.0812%。旧 runner 把 rollout 中 9 条重复累计快照当成 token 真值，证据合同拒绝后按停止条件没有执行
+map-request。
+
+提交 `0076e720a` 完成两项修复：provider terminal 成为 usage 唯一事实源，并在 provider-route 前复用现有
+binary-health。原始 artifact 离线重算和 219 项缓存回归均通过，staged cache gate 的 provider 上下文指纹未变。
+本次授权已消费，MVT-0 仍保持 blocked；取得新预算前不得补跑或进入 MVT-1。详细结果见
+[`../cache-regression/19-provider-terminal-usage-repair.md`](../cache-regression/19-provider-terminal-usage-repair.md)。
 
 ## 10. 外部依据
 

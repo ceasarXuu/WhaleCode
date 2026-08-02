@@ -54,6 +54,7 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [16-first-authorized-revalidation-result.md](16-first-authorized-revalidation-result.md) | 首次获批 revalidation 的预检失败、成本边界与后续动作 | diagnosed |
 | [17-authorized-replacement-result.md](17-authorized-replacement-result.md) | 获批替代运行暴露的 provider 路由与 RunId 身份链阻塞 | diagnosed |
 | [18-provider-route-preflight-repair.md](18-provider-route-preflight-repair.md) | transport alias 启动前预检、final-wire 等价与证据身份闭环 | closure passed；真实复验待预算 |
+| [19-provider-terminal-usage-repair.md](19-provider-terminal-usage-repair.md) | provider terminal usage 唯一事实源与 binary-health 前置修复 | implementation verified；真实双臂待预算 |
 | [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | historical findings closed |
 | [收尾对抗性审查](../../../../vs_review/2026-08-01-r8-cache-gate-closeout-review.md) | CR-21.2 至 CR-23 多轮独立闭环审查 | closure passed；P0/P1=0 |
 
@@ -90,6 +91,10 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 直到独立 accepted 基线提交形成。付费执行启用硬上限时，Agent 无真实 Key 和直接 provider 出口，隔离代理只接受
 批准模型的 Responses 请求并权威记录全部 dispatch；Whale wire 对账只控制性能证据资格。跨平台超时会终止进程树
 并清理容器、网络与 host secret。当前仓库仍是历史 `live_regression_failed`，本轮没有真实 provider 运行。
+
+2026-08-02 的 MVT-0 获批运行新增了 1 个 Standard 真实样本。其业务成功，但旧 runner 因混用 rollout 重复
+快照而拒绝完整 usage；提交 `0076e720a` 已把 provider terminal 设为唯一计量事实，并将 binary-health 前置。
+原始 artifact 已离线复算成功，新的 Standard + map-request 对照仍需单独预算。
 
 最终离线验收为 Python `195 passed, 0 skipped`，账本 Schema、PowerShell、容器/provider、non-agent、E3 和 release
 自测全部通过；最终空白审查在 HEAD `bbbf1fc16` 未发现 P0/P1。历史 `live_regression_failed` 只表示尚未获得新的

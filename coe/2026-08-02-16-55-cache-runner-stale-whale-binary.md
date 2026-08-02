@@ -1,7 +1,7 @@
 # Problem P-001: 缓存 runner 在 provider-route 预检阶段使用过期 Whale binary
-- Status: diagnosed
+- Status: fixed
 - Created: 2026-08-02 16:55
-- Updated: 2026-08-02 16:59
+- Updated: 2026-08-02 17:17
 - Objective: 让获批缓存回归在任何 provider 请求前使用与当前 subject HEAD 能力一致的 Whale binary。
 - Symptoms:
   - `run_cache_hit_regression.py` 在 authorization claim 前报错：`provider_route_cli_failed: standard alias debug provider exited 2`。
@@ -25,14 +25,14 @@
 - Fix criteria:
   - 当前 HEAD 构建并安装的 binary 暴露 `debug provider`，attestation 绑定当前源码；同一未认领 authorization 的预检通过。
   - 后续单独修复 runner 前置校验缺口，使过期 binary 在 provider-route 前以稳定错误拒绝。
-- Current conclusion: 直接阻塞由过期 binary 引起；runner 的校验顺序让错误反馈晚且不准确，是独立的预防性缺口。
+- Current conclusion: 直接阻塞由过期 binary 引起；当前 binary 已恢复，runner 也在 provider-route 前复用唯一 binary-health 合同，旧 binary 会以稳定 attestation 错误被拒绝。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - E-001 至 E-004
+  - H-001、H-002；E-001 至 E-006
 - Close reason:
-  - not closed
+  - 当前安装 binary 与 attestation 通过离线探针，前置顺序由测试锁定。
 
 ## Hypothesis H-001: runner 选择了缺少当前 CLI 能力的旧 binary
 - Status: confirmed
@@ -70,12 +70,12 @@
   - E-002
   - E-003
 - Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: 从当前 HEAD 重建并安装 binary，再做无网络 CLI 探针。
+- Repair design readiness: implemented
+- Next step: closed
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - E-005、E-006 满足修复验收。
 
 ## Hypothesis H-002: provider-route 位于 binary-health 之前导致错误未被准确前置拒绝
 - Status: confirmed
@@ -111,12 +111,12 @@
 - Related evidence:
   - E-004
 - Conclusion: confirmed
-- Repair design readiness: ready；不得在当前 proposal 执行前修改 execution identity
-- Next step: 先恢复运行环境；完成 MVT-0 后作为独立小主题修复 runner 顺序。
+- Repair design readiness: implemented
+- Next step: closed
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - E-006 证明 binary-health 先于 provider-route 和 authorization claim。
 
 ## Evidence E-001: provider-route 原始 CLI 失败
 - Related hypotheses:
@@ -199,3 +199,41 @@
   ```
 - Interpretation: 现有身份校验无法为 provider-route 预检提供前置保护。
 - Time: 2026-08-02 16:54
+
+## Evidence E-005: 当前安装 binary 通过共享 health 合同
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts/taskspace-benchmark/check-whale-binary-health.ps1`
+- Prediction or plan link:
+  - H-001 的当前 binary 身份和能力验收。
+- Matched signal:
+  - `status=pass`、`build_attestation_status=pass`、无 finding。
+- Correlation keys:
+  - binary SHA-256 `45d37c43cef498e2ed075856ee6f2d631f85c35efedf7f05d04fec9165625aa0`
+- Raw content:
+  ```text
+  status=pass run_validity=valid build_attestation_status=pass findings=[]
+  ```
+- Interpretation: 当前运行环境满足 provider-route 所需的 binary provenance。
+- Time: 2026-08-02 17:12
+
+## Evidence E-006: binary-health 已前置且不会认领授权
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts/cache-regression/test_cache_binary_health.py`；提交 `0076e720a`
+- Prediction or plan link:
+  - H-002 的校验顺序验收。
+- Matched signal:
+  - attestation failure 时 provider-route 未调用，ledger 仍为空。
+- Correlation keys:
+  - `CacheBinaryHealthRunnerTest.test_blocks_before_provider_route_and_authorization_claim`
+- Raw content:
+  ```text
+  provider_route_mock.assert_not_called(); ledger.entries == []
+  ```
+- Interpretation: 过期 binary 现在在 provider-route 和 authorization claim 前被准确拒绝。
+- Time: 2026-08-02 17:14

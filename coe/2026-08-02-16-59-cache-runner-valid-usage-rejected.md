@@ -1,7 +1,7 @@
 # Problem P-001: 缓存 runner 拒绝完整的 provider usage 证据
-- Status: diagnosed
+- Status: verifying
 - Created: 2026-08-02 16:59
-- Updated: 2026-08-02 16:59
+- Updated: 2026-08-02 17:17
 - Objective: 让缓存回归只使用逐次 provider terminal 证据计算请求数、token 和缓存命中，并拒绝真正缺失或矛盾的 usage。
 - Symptoms:
   - 获批运行完成 Standard 样本后，runner 报 `ValueError: input_tokens must be a nonnegative integer`，停止执行 map-request。
@@ -29,12 +29,12 @@
   - 对 5 个现有 terminal 证据的离线分析得到 input 60,617、cached input 48,128、output 810、request 2+ hit rate 0.970812。
   - 缺失、非整数或与 provider boundary 不一致的 terminal usage 继续 fail closed。
   - 新授权下的 Standard + map-request 最小回归能够完整结算；在获批前不得再次发起真实运行。
-- Current conclusion: 缓存 runner 选择了错误的 token 事实源；rollout 摘要的重复累计快照和浮点序列化触发了严格合同，但严格合同本身行为正确。
+- Current conclusion: 根因已在提交 `0076e720a` 修复并通过原始 artifact 离线复算；新授权下的双臂真实结算仍是唯一未完成验收。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - E-001 至 E-004
+  - H-001、H-002；E-001 至 E-007；真实双臂验收待预算
 - Close reason:
   - not closed
 
@@ -75,10 +75,10 @@
   - E-002
   - E-004
 - Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: 等待用户确认后，将缓存 observation 的 token 真值切换到 provider terminal，并保留严格一致性校验。
+- Repair design readiness: implemented
+- Next step: 取得新预算后执行 Standard + map-request 各一次，不自动重试。
 - Blocker:
-  - repair authorization required
+  - real-run authorization required
 - Close reason:
   - not closed
 
@@ -118,10 +118,10 @@
   - E-002
   - E-003
 - Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: 缓存 runner 先解除对该摘要的真值依赖；另行评估通用 request-summary 去重。
+- Repair design readiness: implemented
+- Next step: rollout 摘要保留为诊断附件；其通用统计准确性不再阻塞缓存 runner。
 - Blocker:
-  - repair authorization required
+  - none
 - Close reason:
   - not closed
 
@@ -203,3 +203,63 @@
   ```
 - Interpretation: 失败机制由生产代码与运行 artifact 共同闭合，不是推测。
 - Time: 2026-08-02 16:59
+
+## Evidence E-005: provider terminal 成为唯一 usage 事实源
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts/cache-regression/cache_usage_contract.py`、`cache_run_analysis.py`；提交 `0076e720a`
+- Prediction or plan link:
+  - H-001 的修复验收。
+- Matched signal:
+  - analyzer 解析 `provider-wire-trace.jsonl`，并按 request ID、payload hash 与 provider boundary 严格对账。
+- Correlation keys:
+  - `parse_provider_wire_usage`
+- Raw content:
+  ```text
+  usage = validate_cache_artifacts(cache, provider_usage)
+  provider terminal usage does not match provider boundary evidence
+  ```
+- Interpretation: token、缓存分项和请求边界不再混用 rollout 事实。
+- Time: 2026-08-02 17:10
+
+## Evidence E-006: 原始失败 artifact 离线复算成功
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: `analyze_arm()` 对运行 `WAR-20260802-165454-CACHE-REGRESSION-2723DE14-CACHE-001` 的只读重算
+- Prediction or plan link:
+  - P-001 的原始症状复验。
+- Matched signal:
+  - 不再出现整数合同错误，得到完整 provider 数值。
+- Correlation keys:
+  - `WAR-20260802-165454-CACHE-REGRESSION-2723DE14-CACHE-001`
+- Raw content:
+  ```text
+  requests=5 input=60617 cached=48128 uncached=12489 output=810 hit_rate=0.970812 business_success=true
+  ```
+- Interpretation: 修复直接消除了原始证据汇总失败，未通过重新运行或类型强转掩盖问题。
+- Time: 2026-08-02 17:13
+
+## Evidence E-007: 离线回归和缓存门禁通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: Python cache-regression suite、Ruff、cache regression gate
+- Prediction or plan link:
+  - P-001 的 fail-closed 与回归验收。
+- Matched signal:
+  - 219 项测试通过；Ruff 通过；staged index 门禁通过且发布仍保持待真实验证阻断。
+- Correlation keys:
+  - commit `0076e720a`
+- Raw content:
+  ```text
+  Ran 219 tests: OK
+  cache regression gate: PASS 204978af... (pending live verification; release blocked)
+  ```
+- Interpretation: 修复没有放宽缺失/矛盾 usage，也没有改变当前 provider 上下文指纹。
+- Time: 2026-08-02 17:16
