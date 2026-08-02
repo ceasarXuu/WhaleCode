@@ -822,3 +822,7 @@ mod identity_tests;
 #[cfg(test)]
 #[path = "sequence_ownership_tests.rs"]
 mod ownership_tests;
+
+#[cfg(test)]
+#[path = "sequence_hosted_wire_tests.rs"]
+mod hosted_wire_tests;
