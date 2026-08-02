@@ -826,3 +826,7 @@ mod ownership_tests;
 #[cfg(test)]
 #[path = "sequence_hosted_wire_tests.rs"]
 mod hosted_wire_tests;
+
+#[cfg(test)]
+#[path = "sequence_hosted_failure_tests.rs"]
+mod hosted_failure_tests;

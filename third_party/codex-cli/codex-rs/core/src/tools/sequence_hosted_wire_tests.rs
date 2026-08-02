@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::Provider;
 use codex_api::ReqwestTransport;
@@ -54,6 +55,34 @@ impl AuthProvider for DummyAuth {
 
 struct HostedImageHandler {
     base_url: String,
+}
+
+enum HostedFailureKind {
+    Failed,
+    OutcomeUnknown,
+}
+
+impl HostedFailureKind {
+    fn from_api_error(error: &ApiError) -> Self {
+        match error {
+            ApiError::ContextWindowExceeded
+            | ApiError::QuotaExceeded
+            | ApiError::InvalidRequest { .. }
+            | ApiError::CyberPolicy { .. } => Self::Failed,
+            _ => Self::OutcomeUnknown,
+        }
+    }
+
+    fn output(self, error: ApiError) -> FunctionToolOutput {
+        let status = match self {
+            Self::Failed => "failed",
+            Self::OutcomeUnknown => "outcome_unknown",
+        };
+        FunctionToolOutput::from_text(
+            serde_json::json!({"status": status, "error": error.to_string()}).to_string(),
+            Some(false),
+        )
+    }
 }
 
 impl HostedImageHandler {
@@ -132,13 +161,20 @@ impl ToolHandler for HostedImageHandler {
             self.provider(),
             Arc::new(DummyAuth),
         );
-        let mut stream = client
+        let mut stream = match client
             .stream_request(request, ResponsesOptions::default())
             .await
-            .map_err(|error| FunctionCallError::RespondToModel(error.to_string()))?;
+        {
+            Ok(stream) => stream,
+            Err(error) => return Ok(HostedFailureKind::from_api_error(&error).output(error)),
+        };
         let mut results = Vec::new();
         while let Some(event) = stream.next().await {
-            match event.map_err(|error| FunctionCallError::RespondToModel(error.to_string()))? {
+            let event = match event {
+                Ok(event) => event,
+                Err(error) => return Ok(HostedFailureKind::from_api_error(&error).output(error)),
+            };
+            match event {
                 ResponseEvent::OutputItemDone(ResponseItem::ImageGenerationCall {
                     id,
                     status,
@@ -157,10 +193,17 @@ impl ToolHandler for HostedImageHandler {
             }
         }
         if results.len() != 1 || results[0]["status"] != "completed" {
-            return Err(FunctionCallError::RespondToModel(format!(
-                "hosted image response requires one completed image_generation_call; got {}",
-                results.len()
-            )));
+            return Ok(FunctionToolOutput::from_text(
+                serde_json::json!({
+                    "status": "outcome_unknown",
+                    "error": format!(
+                        "hosted image response requires one completed image_generation_call; got {}",
+                        results.len()
+                    )
+                })
+                .to_string(),
+                Some(false),
+            ));
         }
         let result = results.pop().ok_or_else(|| {
             FunctionCallError::RespondToModel(
@@ -174,7 +217,7 @@ impl ToolHandler for HostedImageHandler {
     }
 }
 
-fn function_call(name: &str, call_id: &str, arguments: impl Into<String>) -> ToolCall {
+pub(super) fn function_call(name: &str, call_id: &str, arguments: impl Into<String>) -> ToolCall {
     ToolCall {
         provider_tool_name: ToolName::plain(name),
         dispatch_tool_name: ToolName::plain(name),
@@ -185,7 +228,7 @@ fn function_call(name: &str, call_id: &str, arguments: impl Into<String>) -> Too
     }
 }
 
-fn hosted_router(base_url: String) -> ToolRouter {
+pub(super) fn hosted_router(base_url: String) -> ToolRouter {
     let mut builder = ToolRegistryBuilder::new();
     builder.push_spec_with_parallel_support(
         ToolSpec::Function(ResponsesApiTool {
