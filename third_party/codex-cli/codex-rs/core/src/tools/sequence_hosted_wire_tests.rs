@@ -259,6 +259,7 @@ async fn hosted_work_uses_one_constrained_responses_request_after_map_preflight(
         .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
         .await;
     let session = Arc::new(session);
+    let history_before = session.clone_history().await.raw_items().to_vec();
     let runtime = ToolCallRuntime::new(
         Arc::new(hosted_router(server.uri())),
         Arc::clone(&session),
@@ -313,6 +314,7 @@ async fn hosted_work_uses_one_constrained_responses_request_after_map_preflight(
     assert_eq!(body["input"].as_array().map(Vec::len), Some(1));
     assert!(body.get("previous_response_id").is_none());
     assert!(body.get("instructions").is_none());
+    assert_eq!(session.clone_history().await.raw_items(), history_before);
     let hosted_output = outcome
         .outputs
         .iter()
