@@ -25,8 +25,9 @@ Agent 生成动作时直接表达“这些调用共同构成一个合法序列�
 
 MVT-0 已形成用户接受的 Standard + map-request 真实基线。MVT-1 已证明 Function/Freeform 普通 Tool 可以从未来
 序列项还原为原生 `ToolCall`，并继续复用同一个 `ToolRouter -> ToolRegistry -> handler/hook` 链路；没有修改普通
-Tool schema，也没有增加第二套执行器。当前下一项为 MVT-2：只在测试范围验证同一序列调度器能按显式执行归属处理
-client/provider-hosted 项，不启动真实 Agent，不接入生产 CLI。
+Tool schema，也没有增加第二套执行器。当前下一项为 MVT-2：只在测试范围验证同一序列调度器能在 Map 操作边界后，
+按 canonical Map 的 ready frontier 处理 client/provider-hosted Work。Tools 容器不再声明 Work 之间的顺序或依赖，
+不启动真实 Agent，不接入生产 CLI。
 
 文档顺序：
 

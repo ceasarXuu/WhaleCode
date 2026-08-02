@@ -52,6 +52,6 @@ patch   / patch body
 
 ## 5. 下一步
 
-进入 MVT-2：在测试范围内为序列项声明 `Client/ProviderHosted` 执行归属，复用现有序列调度器验证
-`local-A -> hosted-B -> local-C` 的唯一顺序和结果配对。若需要修改普通 Tool handler、复制 scheduler 或引入第二份
-顺序事实，应立即停止并重新讨论基础路线。
+进入 MVT-2：在测试范围内为 ready Work 声明 `Client/ProviderHosted` 执行归属，复用现有序列调度器验证同一
+Map ready frontier 内三项 Work 的执行和结果配对。Tools 容器只保证 Map 操作边界，不声明 Work 之间的全序或依赖；
+若需要修改普通 Tool handler、复制 scheduler 或引入第二份 Work DAG，应立即停止并重新讨论基础路线。
