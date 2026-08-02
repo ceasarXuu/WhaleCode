@@ -1,7 +1,7 @@
 # Tool 序列执行归属最小可行性测试计划
 
 - Created: 2026-08-02
-- Status: Executing；MVT-0～MVT-3 completed，下一项 MVT-4
+- Status: Executing；MVT-0～MVT-6 completed；MVT-7 已完成边界核验并暴露正式接入决策点
 - Scope: 只验证“单一序列容器 + client/provider 执行归属”基础路线
 - Excludes: 完整生产 schema、旧协议迁移、真实 Agent 行为收益和全量 provider 兼容
 
@@ -83,7 +83,7 @@ Spike 不新建 crate、不引入依赖、不增加配置开关，也不接入�
 | H1 | 普通 Tool 可从容器还原到原生执行路径 | `item-1`、`item-3` 进入真实 `ToolRouter`，保留原参数和 handler 结果 | 无第二 handler、无 Tool 参数 decoration、现有 hook 测试继续通过 | 必须复制 handler 或修改普通 Tool schema |
 | H2 | 完整预检发生在所有执行之前 | 对 S1 制造非法 revision、非法 node 和第二个 Patch 变体，并执行依赖后继未 ready 的 S2 | 每个非法变体均为本地 0 次、provider 0 次、Map 0 提交 | 任一动作先发生再被拒绝 |
 | H3 | 混合 Work 只有一个声明和依赖事实源 | 合法 S1 的事件日志、provider 请求和结果数组均带 `sequence_id/item_id`；调度读取 Map ready frontier | 三项均执行且结果逐项一一对应；不要求 Work 完成顺序；S2 的依赖只来自 Map | 容器再声明 Work 依赖、按名称/位置猜配，或忽略 Map readiness |
-| H4 | Hosted 失败不扭曲后续状态 | mock 分别返回明确失败、断流后结果未知 | item-2 分别为 `failed`、`outcome_unknown`；item-3 为 `not_executed`；无自动重试 | 把未执行伪装成失败，或自动重试收费动作 |
+| H4 | Hosted 失败不扭曲后续状态 | mock 分别返回明确失败、断流后结果未知 | 当前节点分别记录 `failed`、`outcome_unknown`；依赖后继保持 waiting，下一批才可由 Agent 声明；无自动重试 | 把未知伪装成失败、提前声明未 Ready 后继，或自动重试收费动作 |
 | H5 | 主 Agent 请求不会提前触发 hosted Tool | 捕获 TaskSpace 主请求和 hosted 子请求 | 主请求只含序列入口；hosted Tool 仅出现在预检后的专用请求 | 主请求仍暴露 `image_generation` 或出现 shadow call |
 | H6 | Standard wire 不受影响 | 对 spike 前冻结的同一 Standard fixture 比较序列化请求 | tools、tool schema、tool choice、parallel flag 和输入保持相同 | Standard 引入容器、TaskSpace 字段或 provider 分支 |
 | H7 | Hosted 子请求不成为新的 Agent turn | 比较执行前后的主 history、request chain 和 mock 子请求 body | 子请求不带主 `previous_response_id`，不产生额外 assistant reasoning/message；主 history 只收到对应序列结果 | 复用完整 `ModelClientSession::stream`、重放主上下文或改变主缓存链 |
@@ -96,10 +96,10 @@ Spike 不新建 crate、不引入依赖、不增加配置开关，也不接入�
 | MVT-1 | 证明原 Router 可承接容器内普通 Tool | internal | `core/src/tools/nested_call.rs`、`code_mode/mod.rs`、`router_tests.rs` | nested payload 构造与 `ToolRouter` | 抽取不依赖 Code Mode 的原生嵌套调用构造器，并让 Function/Freeform 两项记录型 Tool 依次走真实 Router | 容器项可复用现有 registry、handler、hook 和结果转换；普通 Tool schema 不变 | 排除“序列容器必然要求第二套 Tool 实现”的基础风险 | Complexity: 移动一个已有 helper 并增加测试；Reach/Cost: 无 provider wire、prompt 或运行时网络变化 | H1 通过；构造器 1/1、Router 7/7、dispatch trace 3/3、缓存门禁通过，见 9.5 | 若必须复制协议或 handler，回退 helper 变更并判定路线暂停 | completed |
 | MVT-2 | 证明执行归属可以位于 ready Work 的单项分派边界 | internal | `core/src/tools/sequence.rs`、`router.rs` 相邻测试 | 记录型 client/hosted adapter 与真实序列调度器 | 用测试专用 adapter 将 S1 三项 ready Work 交给同一 Router/调度器；用 S2 验证依赖后继不会因容器位置提前执行 | Map prelude 先提交；同一 ready frontier 可混合 client/hosted 并发；Work 结果按 call/item identity 配对 | 排除新建平行调度器和第二套 Work DAG 的必要性 | Complexity: 只增加测试构造入口和 fake adapter，不进入 CLI；Reach/Cost: 只增加 core 测试编译时间 | H3；S1 三项执行且结果一一配对，不断言 Work 完成全序；S2 零 adapter 调用、Map 0 提交 | 若必须复制 scheduler、修改普通 Tool schema，或容器必须再声明 Work 依赖，删除 spike 并暂停路线 | completed |
 | MVT-3 | 证明非法序列对两类执行均零副作用 | state | `core/src/tools/sequence_*tests.rs` | preflight 到 dispatcher 的调用边界 | 为 revision、node、Patch 规则各造一个非法 S1，使用共享事件计数器和 mock 请求计数 | 所有拒绝都发生在 client/provider 分派之前 | 证明 hosted adapter 不会削弱状态机底线 | Complexity: +3 负例 fixture，无新生产状态；Reach/Cost: TaskSpace 序列回归测试时间增加 | H2；三个 fixture 均断言事件 0、HTTP 0、revision 不变 | 任一测试出现先执行后拒绝，停止后续 hosted 设计 | completed |
-| MVT-4 | 证明受限 hosted provider wire 可以机械构造和解析 | provider API | `codex-api/src/common.rs`、`core/tests/suite/` | hosted tool choice、Responses request、SSE parser | 仅实现 mock 所需的 provider-neutral hosted selector，将 WireMock executor 接入 MVT-2 同一 dispatcher，发出只含一个 hosted Tool 的请求并解析固定结果 | hosted 调用由序列项触发，provider 请求无其他可选 Tool | 提前发现当前 API 类型、认证/传输或返回 parser 是否阻断路线 | Complexity: 扩展一个通用请求枚举和测试，不增加 Images endpoint；Reach/Cost: Responses 序列化测试受影响，无真实 API 费用 | H5 的 hosted 子请求部分；匹配 `tools`、`tool_choice`、`parallel_tool_calls=false` 并解析一个 `ImageGenerationCall` | 若 provider wire 只能通过重进完整 Agent turn 或主请求顶层调用，回退并判定该 hosted 路径不可行 | planned |
-| MVT-5 | 证明 hosted 执行不污染主 Agent 会话 | context/cache | `core/tests/suite/` request recorder 与 history fixture | hosted executor 的 provider client 边界 | 用独立机械请求执行 item-2，比较主 history、response chain 和子请求字段 | hosted 执行只产出 item-2 结果，不制造额外 Agent turn 或动态主上下文 | 避免序列执行重新退化成隐藏的线性 Agent 请求并破坏缓存 | Complexity: +1 history/request-chain fixture，不新增产品状态；Reach/Cost: provider client 构造与缓存测试受影响，无真实 token 成本 | H7；断言无主 `previous_response_id`、无额外 reasoning/message、主请求基线仍可追加 | 若只能复用完整 Agent turn，停止 hosted 方案并评估直接能力 API | planned |
-| MVT-6 | 证明失败和未知结果不会触发重复副作用 | failure | `core/tests/suite/` hosted mock fixture | hosted execution outcome | 分别模拟确定失败和响应中断，记录尝试次数与后续 item 状态 | 失败忠实返回，未知保持未知，后续动作跳过且调用次数固定为 1 | 防止重复收费和错误的成功/失败语义污染 Map | Complexity: +2 provider 故障 fixture 和一个 outcome 枚举原型；Reach/Cost: 错误处理测试增加，无生产重试策略 | H4；每个 fixture provider 请求恰好 1 次、item-3 未执行 | 若现有 transport 强制自动重试非幂等调用，暂停并先解决 retry ownership | planned |
-| MVT-7 | 证明 TaskSpace 隔离且 Standard 不回归 | API/cache | provider request fixture、缓存敏感面门禁 | TaskSpace/Standard model-visible Tool 集合 | 捕获两种模式请求，断言 TaskSpace 只有容器、Standard 与 MVT-0 基线相同，并执行缓存敏感面门禁 | 模式差异只位于 TaskSpace Tool 投影和分派入口 | 避免为新协议再次牺牲 Standard 行业兼容与缓存稳定性 | Complexity: +2 request snapshot；Reach/Cost: provider request 和缓存门禁测试增加，无真实 token 成本 | H5、H6；`check_cache_regression_gate.py --source index` 通过或准确阻断待授权验证 | Standard fixture 有变化时回退所有共享请求构造变更 | planned |
+| MVT-4 | 证明受限 hosted provider wire 可以机械构造和解析 | provider API | `codex-api/src/common.rs`、`core/src/tools/sequence_hosted_wire_tests.rs` | hosted tool choice、Responses request、SSE parser | 复用现有 `Required` 选择器并只提供一个 hosted Tool，将 WireMock executor 接入 MVT-2 同一 dispatcher，解析固定结果 | hosted 调用由序列项触发，provider 请求无其他可选 Tool | 提前发现当前 API 类型、传输或返回 parser 是否阻断路线 | Complexity: 仅测试 adapter/fixture，不增加产品枚举或 Images endpoint；Reach/Cost: 无生产 wire 变化、无真实 API 费用 | H5 的 hosted 子请求部分；严格匹配 `tools`、`tool_choice`、`parallel_tool_calls=false`，并解析唯一 `ImageGenerationCall` | 若 provider wire 只能通过重进完整 Agent turn或主请求顶层调用，删除 spike 并判定 hosted 路径不可行 | completed |
+| MVT-5 | 证明 hosted 执行不污染主 Agent 会话 | context/cache | `core/src/tools/sequence_hosted_wire_tests.rs` | hosted executor 的 provider client 边界 | 用独立机械请求执行 hosted Work，比较主 history、response chain 和子请求字段 | hosted 执行只产出当前节点结果，不制造额外 Agent turn 或动态主上下文 | 避免序列执行退化成隐藏的线性 Agent 请求并破坏缓存 | Complexity: 复用 MVT-4 fixture，不新增产品状态；Reach/Cost: 无真实 token 成本 | H7；无主 `previous_response_id`、无额外 reasoning/message、主 history 逐值不变 | 若只能复用完整 Agent turn，停止 hosted 方案并评估直接能力 API | completed |
+| MVT-6 | 证明失败和未知结果不会触发重复副作用 | failure | `core/src/tools/sequence_hosted_failure_tests.rs` | hosted execution outcome | 分别模拟 provider 明确失败和响应中断，记录尝试次数与 Map 状态 | 当前节点忠实记录失败或未知；依赖后继保持 waiting，下一批才可声明；调用次数固定为 1 | 防止重复收费和错误语义污染 Map | Complexity: 测试内 outcome 原型和 2 个故障 fixture，不增加生产重试策略；Reach/Cost: 无真实费用 | H4；每个 fixture provider 请求恰好 1 次，当前节点结果准确，依赖后继保持 waiting | 若 transport 强制自动重试非幂等调用，暂停并先解决 retry ownership | completed |
+| MVT-7 | 核验 TaskSpace 隔离接入边界且 Standard 不回归 | API/cache | provider request fixture、`session/turn.rs` 可见性单测 | TaskSpace/Standard model-visible Tool 集合 | 复验 Standard 完整 wire，并检查生产 TaskSpace 请求投影是否已经只暴露容器 | Standard 与 MVT-0 基线相同；TaskSpace 生产入口仍是旧的原生 Tool 集合，证明 H5 需要正式接入而不能靠 spike fixture 宣称通过 | 避免为新协议牺牲 Standard，也避免以测试专用假容器冒充产品完成 | Complexity: 不新增代码；Reach/Cost: 只运行本地测试，无真实 token 成本 | H6 通过；H5 主请求部分明确未实现，见 9.11 | 不在 feasibility 阶段悄然接入完整 schema；进入正式工程设计前由用户确认范围 | boundary verified; H5 implementation pending decision |
 | MVT-8 | 形成可执行的路线决策 | documentation | 本专题目录 | spike 结果文档 | 汇总每项证据、未证明事项和代码净增量，按第 7 节矩阵作出单一结论 | 完整工程设计只基于已验证边界展开 | 防止把局部 mock 成功误报为 provider/产品全链路成功 | Complexity: +1 结果文档，不增加运行时概念；Reach/Cost: 后续设计必须引用该结论 | 所有 H1-H7 有证据路径且无模糊的“基本通过” | 证据不足时状态保持 blocked，不进入正式实施 | planned |
 
 ## 6. 执行顺序与安全停止点
@@ -280,6 +280,66 @@ provider 响应中的两个 `apply_patch`。每个批次都同时包含本地与
 
 MVT-3 没有新增错误分类或状态规则，只证明现有预检和 Map 事务底线位于两类执行归属之前。Phase A 的 H1～H3
 已经通过，可以进入 MVT-4 的 mock provider wire；真实 provider 能力仍未被证明。
+
+### 9.8 MVT-4 受限 Hosted Provider Wire
+
+提交 `102b74dd7` 复用现有 `ResponsesClient::stream_request` 和真实 SSE parser，在 MVT-2 的同一 `ToolRouter` 分派边界
+注册测试专用 hosted adapter。专用请求只提供一个 `image_generation` Tool，因此现有 `ToolChoice::Required` 已能准确
+约束 provider，不需要新增 provider-specific selector 或修改 Tool 原生结构。
+
+提交 `b6168c782` 进一步收紧证据：合法批次必须得到唯一 completed provider item，并保持 provider item id、外层 call id
+和 Map 节点结果逐项配对；非法 Map 批次复用同一 adapter，断言 HTTP 请求为 0。
+
+验证结果：
+
+- 请求中恰有一个 `image_generation`，`tool_choice=required`，`parallel_tool_calls=false`；
+- 请求不含主会话 `previous_response_id`、instructions 或其他 Agent 输入；
+- 唯一 `ImageGenerationCall` 经现有 parser 返回并结算到 Agent 声明的节点；
+- 合法/非法 hosted wire 测试：2/2 通过；当时相邻 `tools::sequence` 回归：40/40 通过；
+- 缓存门禁通过；未运行真实 Whale Agent 或外部 provider 请求。
+
+### 9.9 MVT-5 主 Agent 会话隔离
+
+提交 `118b20c55` 在 hosted 执行前后逐值比较主 Session 的 `clone_history().raw_items()`，并继续检查专用请求字段。
+
+验证结果：
+
+- hosted 请求不携带主 `previous_response_id`；
+- hosted 请求只含当前 Work 的机械输入，不重放主上下文；
+- 执行前后主 history 完全相同，不产生 assistant reasoning/message 或隐藏 Agent turn；
+- MVT-5 本地测试和缓存门禁均通过；无真实 token 成本。
+
+### 9.10 MVT-6 失败与结果未知
+
+提交 `749df97b8` 用同一个 hosted adapter 分别模拟 provider 明确返回失败与请求发出后 SSE 中断。测试内只引入
+`failed`/`outcome_unknown` 两种执行结果原型，不增加生产协议枚举或自动恢复策略。
+
+验证结果：
+
+- 明确失败忠实记录为当前节点 error result；断流记录为 `outcome_unknown`，不伪装成确定失败；
+- 两种情况 provider 请求都恰好 1 次，不自动重试可能产生副作用或费用的动作；
+- 当前 hosted 节点保持 ready，依赖后继保持 waiting；Agent 只能在后续请求中基于 Map 决定下一步，容器不提前声明
+  未 Ready 后继；
+- 参数化故障测试覆盖 2 个场景并通过；相邻 `tools::sequence` 回归：41/41 通过；
+- 缓存门禁通过；未运行真实 Whale Agent 或外部 provider 请求。
+
+### 9.11 MVT-7 Standard 隔离与生产入口边界
+
+2026-08-02 复验 `standard_request_pair_preserves_the_complete_prefix`：1/1 通过。两次请求保持完整追加前缀，Tool 集合、
+schema、`tool_choice` 和已冻结快照均无变化，H6 通过。
+
+同时运行 `session::turn::active_context_replacement_tests`：17/17 通过。这里暴露的不是新回归，而是当前生产事实：
+
+- Standard 隐藏 `taskspace_control`，保留原生 `update_plan`；
+- TaskSpace 只隐藏 `update_plan`，仍直接暴露普通 Tool、`taskspace_control` 和 provider-native Tool；
+- 响应处理又会拒绝 TaskSpace 下出现的 `web_search`/`image_generation` provider-native item。
+
+因此 H5 的“主 Agent 请求只暴露序列容器”尚未生产接入。MVT-4～MVT-6 已证明所需 hosted 执行部件可行，但不能证明
+尚不存在的顶层容器 schema 和生产投影。若在本 spike 中加入只供测试使用的假容器，只会形成自证式测试；若直接修改
+生产 Tool 集合，则已进入完整协议实施，超出本计划声明的 feasibility 范围。
+
+MVT-7 的准确结论是：H6 已通过；H5 的 hosted 子请求部分可行，主请求隔离部分等待正式工程接入。下一步需要用户确认
+进入完整工程设计，而不是继续增加 mock。
 
 ## 10. 外部依据
 

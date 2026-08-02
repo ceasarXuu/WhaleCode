@@ -1,7 +1,7 @@
 # R8 TaskSpace Tool 序列协议专题
 
 - Created: 2026-08-01
-- Status: MVT-0～MVT-3 completed / MVT-4 next
+- Status: MVT-0～MVT-6 completed / MVT-7 boundary verified / production ingress decision pending
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Tool 顺序、节点归属与 Runtime 硬边界
 
@@ -27,8 +27,12 @@ MVT-0 已形成用户接受的 Standard + map-request 真实基线。MVT-1 已�
 序列项还原为原生 `ToolCall`，并继续复用同一个 `ToolRouter -> ToolRegistry -> handler/hook` 链路；没有修改普通
 Tool schema，也没有增加第二套执行器。MVT-2 已证明同一序列调度器可在 Map 操作边界后，按 canonical Map 的 ready
 frontier 处理 client/provider-hosted adapter；容器不需要也不得重复表达 Work 依赖。MVT-3 已证明非法 revision、
-非法 node、双 Patch 及未满足依赖均在任何 client/hosted adapter 启动前零副作用拒绝。Phase A 完成，当前下一项为
-MVT-4：只通过 mock provider 验证受控 hosted 请求的 wire 构造与解析。不启动真实 Agent，不接入生产 CLI。
+非法 node、双 Patch 及未满足依赖均在任何 client/hosted adapter 启动前零副作用拒绝。MVT-4～MVT-6 又证明了
+受控 hosted 请求可由同一分派边界机械构造、不会污染主 Agent 会话，并能区分确定失败与结果未知且不自动重试。
+
+MVT-7 核验发现：Standard 完整请求基线保持不变，但生产 TaskSpace 请求当前仍直接暴露原生 Tool；“主请求只暴露
+序列容器”需要正式接入完整容器 schema 和入口分派，不能由测试专用假容器代替。当前因此停在正式工程设计的范围
+决策点，不启动真实 Agent，也不把尚未接入的 H5 误报为完成。
 
 文档顺序：
 
