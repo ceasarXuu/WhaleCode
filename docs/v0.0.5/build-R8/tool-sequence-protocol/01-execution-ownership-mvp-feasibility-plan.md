@@ -1,7 +1,7 @@
 # Tool 序列执行归属最小可行性测试计划
 
 - Created: 2026-08-02
-- Status: Executing；MVT-0 completed，下一项 MVT-1
+- Status: Executing；MVT-0、MVT-1 completed，下一项 MVT-2
 - Scope: 只验证“单一序列容器 + client/provider 执行归属”基础路线
 - Excludes: 完整生产 schema、旧协议迁移、真实 Agent 行为收益和全量 provider 兼容
 
@@ -82,7 +82,7 @@ Spike 不新建 crate、不引入依赖、不增加配置开关，也不接入�
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | MVT-0 | 冻结可比较的请求基线 | API/cache | `core/tests/suite/` provider request fixture | Standard 与当前 TaskSpace 请求 body | 在任何生产代码变化前，用现有 request recorder 固化 Tool 列表、schema hash、tool choice、parallel flag、instructions/input hash | 后续每项请求变化都有明确基线 | 防止用改动后的快照自证“Standard 没变化” | Complexity: 复用现有 4 份本地 fixture，无运行时状态；Reach/Cost: usage 与单臂退出合同由 `0076e720a`、`c2246a6f1` 修复 | 双臂业务/usage 完整，用户接受当前三份 TaskSpace final-wire；Standard 不变，见 9.1～9.4 | accepted baseline 已绑定完整证据；后续变化重新走缓存门禁 | completed |
-| MVT-1 | 证明原 Router 可承接容器内普通 Tool | internal | `core/src/tools/code_mode/mod.rs`、`parallel.rs` 相邻测试 | nested payload 构造与 `ToolCallRuntime` | 只开放或抽取现有 payload 构造的最小可复用入口，并用两项记录型 Tool 走真实 Router | 容器项可复用现有 handler、hook 和结果转换 | 排除“序列容器必然要求第二套 Tool 实现”的基础风险 | Complexity: 至多移动一个已有 helper 或收窄可见性并增加测试；Reach/Cost: Code Mode 和 Tool 单测需共同回归，无运行时网络成本 | H1；运行目标 Rust 单测并确认旧 Code Mode 测试不变 | 若必须复制协议或 handler，回退 helper 变更并判定路线暂停 | planned |
+| MVT-1 | 证明原 Router 可承接容器内普通 Tool | internal | `core/src/tools/nested_call.rs`、`code_mode/mod.rs`、`router_tests.rs` | nested payload 构造与 `ToolRouter` | 抽取不依赖 Code Mode 的原生嵌套调用构造器，并让 Function/Freeform 两项记录型 Tool 依次走真实 Router | 容器项可复用现有 registry、handler、hook 和结果转换；普通 Tool schema 不变 | 排除“序列容器必然要求第二套 Tool 实现”的基础风险 | Complexity: 移动一个已有 helper 并增加测试；Reach/Cost: 无 provider wire、prompt 或运行时网络变化 | H1 通过；构造器 1/1、Router 7/7、dispatch trace 3/3、缓存门禁通过，见 9.5 | 若必须复制协议或 handler，回退 helper 变更并判定路线暂停 | completed |
 | MVT-2 | 证明执行归属可以位于单项分派边界 | internal | `core/src/tools/sequence.rs` 相邻测试 | 测试用 `ExecutableSequenceItem` 与记录型 hosted executor | 在测试范围建立 `Client/ProviderHosted` 两种 binding，把带 `N1 -> N2 -> N3` 依赖的合法 S1 交给现有序列调度 | 同一调度器可按唯一序列和显式依赖选择本地或 mock provider 执行 | 排除新建平行调度器的必要性，验证新增连接点可以保持很窄 | Complexity: +1 测试专用 binding 和 fake executor，不进入 CLI；Reach/Cost: 只增加 core 测试编译时间和少量认知成本 | H3；断言唯一事件顺序、item identity 和结果顺序 | 若需要修改各 Tool handler 或复制整个 scheduler，删除 spike 并暂停路线 | planned |
 | MVT-3 | 证明非法序列对两类执行均零副作用 | state | `core/src/tools/sequence_*tests.rs` | preflight 到 dispatcher 的调用边界 | 为 revision、node、Patch 规则各造一个非法 S1，使用共享事件计数器和 mock 请求计数 | 所有拒绝都发生在 client/provider 分派之前 | 证明 hosted adapter 不会削弱状态机底线 | Complexity: +3 负例 fixture，无新生产状态；Reach/Cost: TaskSpace 序列回归测试时间增加 | H2；三个 fixture 均断言事件 0、HTTP 0、revision 不变 | 任一测试出现先执行后拒绝，停止后续 hosted 设计 | planned |
 | MVT-4 | 证明受限 hosted provider wire 可以机械构造和解析 | provider API | `codex-api/src/common.rs`、`core/tests/suite/` | hosted tool choice、Responses request、SSE parser | 仅实现 mock 所需的 provider-neutral hosted selector，将 WireMock executor 接入 MVT-2 同一 dispatcher，发出只含一个 hosted Tool 的请求并解析固定结果 | hosted 调用由序列项触发，provider 请求无其他可选 Tool | 提前发现当前 API 类型、认证/传输或返回 parser 是否阻断路线 | Complexity: 扩展一个通用请求枚举和测试，不增加 Images endpoint；Reach/Cost: Responses 序列化测试受影响，无真实 API 费用 | H5 的 hosted 子请求部分；匹配 `tools`、`tool_choice`、`parallel_tool_calls=false` 并解析一个 `ImageGenerationCall` | 若 provider wire 只能通过重进完整 Agent turn 或主请求顶层调用，回退并判定该 hosted 路径不可行 | planned |
@@ -201,6 +201,32 @@ promotion 自动关闭。详细结果见
 [`../cache-regression/21-mvt0-accepted-baseline-result.md`](../cache-regression/21-mvt0-accepted-baseline-result.md)。
 
 MVT-0 状态更新为 completed；下一项为 MVT-1，且只运行本地测试。
+
+### 9.5 MVT-1 原 Router 复用证明
+
+提交 `228c68ff8` 把 Code Mode 内已有的 Function/Freeform payload 构造逻辑抽取到
+`core/src/tools/nested_call.rs`。新入口只把已知 `ToolSpec`、原始名称、call id 和 JSON 输入构造成 `ToolCall`；它不执行
+Tool、不解释 TaskSpace、不修改普通 Tool 参数，也不复制 handler。Code Mode 改为调用该入口后，仍通过原有
+`ToolCallRuntime -> ToolRouter -> ToolRegistry` 链路执行。
+
+记录型测试注册一个同时接受 Function/Custom payload 的原生 handler，将 `inspect({path})` 与 freeform `patch(text)`
+依次交给真实 `ToolRouter`。断言得到的调用顺序、名称和 payload 分别为
+`inspect/{"path":"README.md"}`、`patch/patch body`，证明未来容器项无需第二套 Tool 实现即可复用原分派路径。
+
+验证结果：
+
+- `nested_call_builder_preserves_native_tool_identity_and_payload_kind`：1/1 通过；
+- `tools::router::tests`：7/7 通过；
+- `dispatch_lifecycle_trace`：3/3 通过，原 dispatch trace 仍有效；
+- 缓存门禁：通过，指纹 `a0e06b82dc2c7eab23ecbf4a07b980fd913971e54780dadce4e2af6154faf84c`，无需真实回归；
+- 未运行真实 Whale Agent 或外部 provider 请求。
+
+完整 `code_mode` 邻接筛选为 38/39：`code_mode_notify_injects_additional_exec_tool_output_into_active_context`
+缺少 notify marker。该测试已在改动前基线 `b3913f965` 的 detached worktree 中以相同症状复现，因此不是 MVT-1
+回归；问题如实保留，不计入 H1 通过证据，也不在本单元扩展修复。
+
+MVT-1 状态更新为 completed；下一项为 MVT-2，只在测试范围验证同一调度器能按显式执行归属处理
+client/provider-hosted 项，仍不进入生产 CLI。
 
 ## 10. 外部依据
 

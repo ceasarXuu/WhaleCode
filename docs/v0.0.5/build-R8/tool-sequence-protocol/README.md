@@ -1,7 +1,7 @@
 # R8 TaskSpace Tool 序列协议专题
 
 - Created: 2026-08-01
-- Status: MVT-0 completed / MVT-1 next
+- Status: MVT-0、MVT-1 completed / MVT-2 next
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Tool 顺序、节点归属与 Runtime 硬边界
 
@@ -23,15 +23,18 @@ Agent 生成动作时直接表达“这些调用共同构成一个合法序列�
 不放松执行前预检、也不改变 Standard provider wire 的前提下复用现有基建。可行性验证只回答基础路线是否成立，
 不提前实施完整序列协议。
 
-MVT-0 已完成并形成用户接受的 Standard + map-request 真实基线。当前下一项为 MVT-1：只验证普通 Tool 从序列项
-还原后能否复用现有 `ToolRouter`，不启动真实 Agent，不进入 hosted provider 适配。
+MVT-0 已形成用户接受的 Standard + map-request 真实基线。MVT-1 已证明 Function/Freeform 普通 Tool 可以从未来
+序列项还原为原生 `ToolCall`，并继续复用同一个 `ToolRouter -> ToolRegistry -> handler/hook` 链路；没有修改普通
+Tool schema，也没有增加第二套执行器。当前下一项为 MVT-2：只在测试范围验证同一序列调度器能按显式执行归属处理
+client/provider-hosted 项，不启动真实 Agent，不接入生产 CLI。
 
 文档顺序：
 
 1. [`00-product-definition.md`](00-product-definition.md)：已确认的产品模型、角色边界、合法行为和执行归属原则。
 2. [`01-execution-ownership-mvp-feasibility-plan.md`](01-execution-ownership-mvp-feasibility-plan.md)：执行归属方案的最小可行性测试计划。
-3. 完整工程设计：等待可行性测试结论，避免在基础路线未证实时展开。
-4. 正式实施计划：等待工程设计确认后派生，不沿用 spike 的临时结构。
+3. [`02-mvt1-native-router-reuse-result.md`](02-mvt1-native-router-reuse-result.md)：MVT-1 原 Router 复用实现与验证结果。
+4. 完整工程设计：等待可行性测试结论，避免在基础路线未证实时展开。
+5. 正式实施计划：等待工程设计确认后派生，不沿用 spike 的临时结构。
 
 ## 3. 与 R8 其他问题的关系
 
