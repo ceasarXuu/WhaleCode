@@ -93,6 +93,12 @@ def validate_candidate(document: dict) -> list[str]:
             errors.append(f"candidate command {command_id}: exit_code must be an integer")
         if not _is_relative_artifact_path(entry.get("evidence")):
             errors.append(f"candidate command {command_id}: evidence must be relative")
+        expected_environment = {
+            "INSTA_UPDATE": "no",
+            "RUST_MIN_STACK": "8388608",
+        }
+        if entry.get("environment") != expected_environment:
+            errors.append(f"candidate command {command_id}: environment is invalid")
     expected_summary = {
         "command_count": len(commands),
         "by_result": dict(sorted(status_counts.items())),

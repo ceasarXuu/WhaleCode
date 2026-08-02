@@ -120,7 +120,7 @@ class ContractTests(unittest.TestCase):
             "source_method": "git-archive",
             "source_object_verified": True,
             "toolchain": {"rustc": "x", "cargo": "y", "nextest": "z"},
-            "qualification_commands": [{"id": "fmt", "command": ["cargo", "fmt"], "cwd": "codex-rs", "result": "passed", "exit_code": 0, "evidence": "/tmp/log"}],
+            "qualification_commands": [{"id": "fmt", "command": ["cargo", "fmt"], "cwd": "codex-rs", "environment": {"INSTA_UPDATE": "no", "RUST_MIN_STACK": "8388608"}, "result": "passed", "exit_code": 0, "evidence": "/tmp/log"}],
             "production_vendor_unchanged": True,
             "model_request_count": 0,
             "summary": {"command_count": 1, "by_result": {"passed": 1}},
