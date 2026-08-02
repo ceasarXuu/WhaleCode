@@ -1,0 +1,11 @@
+{
+  "schema_version": "whalecode-provider-route-preflight-v1",
+  "status": "failed",
+  "model": "deepseek-v4-flash",
+  "preflight_started_at": "2026-08-02T08:49:39.3352676Z",
+  "operation": "config_resolution_only",
+  "network_mode": "none",
+  "preflight_completed_at": "2026-08-02T08:49:40.4286563Z",
+  "failure_code": "provider_route_cli_failed",
+  "failure_summary": "provider route preflight failed before authorization claim"
+}
