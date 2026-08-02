@@ -18,8 +18,12 @@ pub(crate) mod sequence;
 pub(crate) mod sequence_manifest;
 pub(crate) mod sequence_preflight;
 pub(crate) mod spec;
+pub(crate) mod taskspace_sequence_context;
 pub(crate) mod tool_dispatch_trace;
 pub(crate) mod tool_search_entry;
+
+#[cfg(test)]
+mod taskspace_sequence_context_tests;
 
 use codex_protocol::exec_output::ExecOutputMetadata;
 use codex_protocol::exec_output::ExecToolCallOutput;

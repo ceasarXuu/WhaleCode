@@ -37,6 +37,24 @@ impl Session {
         args: TaskSpaceControlArgs,
         declared_calls: Vec<TaskSpaceDeclaredCall>,
     ) -> Result<ActionMapPreparedResponse, ActionMapResponsePrepareError> {
+        self.prepare_taskspace_response_from_source(
+            turn_context,
+            control_call_id,
+            control_call_id,
+            args,
+            declared_calls,
+        )
+        .await
+    }
+
+    pub(crate) async fn prepare_taskspace_response_from_source(
+        &self,
+        turn_context: &TurnContext,
+        control_call_id: &str,
+        source_event_call_id: &str,
+        args: TaskSpaceControlArgs,
+        declared_calls: Vec<TaskSpaceDeclaredCall>,
+    ) -> Result<ActionMapPreparedResponse, ActionMapResponsePrepareError> {
         let source_refs = {
             let state = self.state.lock().await;
             for call in &declared_calls {
@@ -56,7 +74,7 @@ impl Session {
             }
             state
                 .taskspace_events
-                .initialization_source_event_ids(control_call_id)
+                .initialization_source_event_ids(source_event_call_id)
         };
         let operation =
             response_operation(args, control_call_id, &source_refs).map_err(|error| {

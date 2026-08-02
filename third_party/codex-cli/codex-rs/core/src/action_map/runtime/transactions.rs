@@ -336,11 +336,11 @@ fn validate_declared_calls(
     }
     let mut call_ids = HashSet::with_capacity(calls.len() + 1);
     call_ids.insert(control_call_id);
+    let mut previous_call_index = None;
     for (index, call) in calls.iter().enumerate() {
         if call.call_id.trim().is_empty()
             || call.node_id.trim().is_empty()
             || call.tool_name.trim().is_empty()
-            || call.call_index != index
         {
             return Err(Rejection::one(
                 0,
@@ -348,6 +348,14 @@ fn validate_declared_calls(
                 format!("call_identity:{index}"),
             ));
         }
+        if previous_call_index.is_some_and(|previous| call.call_index <= previous) {
+            return Err(Rejection::one(
+                0,
+                ViolationCode::ReservationInvalid,
+                format!("call_index_order:{index}"),
+            ));
+        }
+        previous_call_index = Some(call.call_index);
         if !call_ids.insert(call.call_id.as_str()) {
             return Err(Rejection::one(
                 0,

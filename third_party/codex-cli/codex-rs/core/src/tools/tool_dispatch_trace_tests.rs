@@ -24,6 +24,7 @@ use crate::tools::context::ToolPayload;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::tools::registry::ToolRegistry;
+use crate::tools::taskspace_sequence_context::TaskSpaceSequenceInvocation;
 use crate::turn_diff_tracker::TurnDiffTracker;
 
 #[derive(Default)]
@@ -72,14 +73,29 @@ async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> a
         .await?;
     registry
         .dispatch_any(test_invocation(
-            session,
-            turn,
+            Arc::clone(&session),
+            Arc::clone(&turn),
             "code-mode-call",
             "test_tool",
             ToolCallSource::CodeMode {
                 cell_id: "cell-1".to_string(),
                 runtime_tool_call_id: "tool-1".to_string(),
             },
+            "{}",
+        ))
+        .await?;
+    registry
+        .dispatch_any(test_invocation(
+            session,
+            turn,
+            "outer-1/work-1",
+            "test_tool",
+            ToolCallSource::TaskSpaceSequence(TaskSpaceSequenceInvocation {
+                outer_call_id: "outer-1".to_string(),
+                item_id: "work-1".to_string(),
+                node_id: Some("inspect".to_string()),
+                work_bindings: Arc::from([]),
+            }),
             "{}",
         ))
         .await?;
@@ -124,6 +140,20 @@ async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> a
             .raw_result_payload_id
             .is_some(),
         "code-mode calls should keep the result returned to JavaScript",
+    );
+    assert_eq!(
+        replayed.tool_calls["outer-1/work-1"].model_visible_call_id,
+        Some("outer-1".to_string()),
+    );
+    assert_eq!(
+        replayed.tool_calls["outer-1/work-1"].requester,
+        ToolCallRequester::Model,
+    );
+    assert!(
+        replayed.tool_calls["outer-1/work-1"]
+            .raw_result_payload_id
+            .is_some(),
+        "TaskSpace sequence items should keep their dispatch-level result payload",
     );
 
     Ok(())

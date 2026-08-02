@@ -64,6 +64,9 @@ fn tool_dispatch_invocation(invocation: &ToolInvocation) -> Option<ToolDispatchI
         ToolCallSource::Direct => ToolDispatchRequester::Model {
             model_visible_call_id: invocation.call_id.clone(),
         },
+        ToolCallSource::TaskSpaceSequence(sequence) => ToolDispatchRequester::Model {
+            model_visible_call_id: sequence.outer_call_id.clone(),
+        },
         ToolCallSource::CodeMode {
             cell_id,
             runtime_tool_call_id,
@@ -92,6 +95,9 @@ fn tool_dispatch_result(
 ) -> Option<ToolDispatchResult> {
     match invocation.source {
         ToolCallSource::Direct => Some(ToolDispatchResult::DirectResponse {
+            response_item: result.to_response_item(call_id, payload),
+        }),
+        ToolCallSource::TaskSpaceSequence(_) => Some(ToolDispatchResult::DirectResponse {
             response_item: result.to_response_item(call_id, payload),
         }),
         ToolCallSource::CodeMode { .. } => Some(ToolDispatchResult::CodeModeResponse {

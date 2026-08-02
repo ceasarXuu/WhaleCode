@@ -100,6 +100,62 @@ fn prepare_initialize_rejects_waiting_action_with_exact_state_facts() {
 }
 
 #[test]
+fn taskspace_sequence_accepts_nonzero_ordered_item_indexes() {
+    let owner = ThreadId::new();
+    let mut runtime = ActionMapRuntimeState::default();
+    runtime
+        .restore_store_map("store-map-sequence-index", owner, None)
+        .expect("restore empty identity");
+
+    let (prepared, _) = runtime
+        .prepare_response_for_main(
+            owner,
+            "outer/control",
+            initialize_operation(),
+            vec![declared_call_at(1, "outer/work", "inspect", "exec_command")],
+        )
+        .expect("container item index should be accepted");
+
+    assert_eq!(prepared.prepared_calls[0].call_index, 1);
+    assert_eq!(
+        runtime
+            .canonical_map_for_store()
+            .expect("initialized map")
+            .action_reservations
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn taskspace_sequence_rejects_duplicate_or_descending_item_indexes() {
+    let owner = ThreadId::new();
+    for (map_id, indexes) in [
+        ("store-map-duplicate-index", [1, 1]),
+        ("store-map-descending-index", [2, 1]),
+    ] {
+        let mut runtime = ActionMapRuntimeState::default();
+        runtime
+            .restore_store_map(map_id, owner, None)
+            .expect("restore empty identity");
+        let error = runtime
+            .prepare_response_for_main(
+                owner,
+                "outer/control",
+                parallel_initialize_operation(),
+                vec![
+                    declared_call_at(indexes[0], "outer/work-1", "inspect", "read_file"),
+                    declared_call_at(indexes[1], "outer/work-2", "verify", "exec_command"),
+                ],
+            )
+            .expect_err("ambiguous item indexes must be rejected");
+
+        assert_eq!(error.violations[0].code, ViolationCode::ReservationInvalid);
+        assert!(runtime.canonical_map_for_store().is_none());
+    }
+}
+
+#[test]
 fn release_rejects_prepared_call_metadata_mismatch() {
     let owner = ThreadId::new();
     let mut runtime = ActionMapRuntimeState::default();

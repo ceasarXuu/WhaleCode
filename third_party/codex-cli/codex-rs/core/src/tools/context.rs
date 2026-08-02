@@ -6,6 +6,7 @@ use crate::tools::TELEMETRY_PREVIEW_MAX_BYTES;
 use crate::tools::TELEMETRY_PREVIEW_MAX_LINES;
 use crate::tools::TELEMETRY_PREVIEW_TRUNCATION_NOTICE;
 use crate::tools::output_reference::reference_text_for_raw_output;
+use crate::tools::taskspace_sequence_context::TaskSpaceSequenceInvocation;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::unified_exec::resolve_max_tokens;
 use codex_protocol::mcp::CallToolResult;
@@ -47,6 +48,11 @@ pub(crate) struct TaskSpaceTerminalCarrier {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
+    #[allow(
+        dead_code,
+        reason = "TS-04 proves the seam before production sequence ingress is connected"
+    )]
+    TaskSpaceSequence(TaskSpaceSequenceInvocation),
     CodeMode {
         /// Runtime cell that issued the nested tool request.
         cell_id: String,
