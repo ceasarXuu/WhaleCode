@@ -18,21 +18,30 @@ from generate_overlay_inventory import (
 from git_snapshot import GitError, git, list_tree, resolve_tree
 from metadata_contract import (
     validate_backlog,
+    validate_candidate,
     validate_inventory,
     validate_ledger,
     validate_ledger_paths,
     validate_patch_digest,
+    validate_replay_ledger,
     validate_tui_baseline,
+    validate_upstream_delta,
 )
 
 LEDGER_PATH = "docs/v0.0.5/codex-upstream-sync/backport-ledger.json"
 BACKLOG_PATH = "docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json"
 TUI_BASELINE_PATH = "docs/v0.0.5/codex-upstream-sync/tui-baseline.json"
+CANDIDATE_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-candidate.json"
+DELTA_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json"
+REPLAY_PATH = "docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json"
 UPSTREAM_PATH = "third_party/codex-cli/UPSTREAM.md"
 SCHEMA_PATHS = (
     "scripts/codex-upstream/schemas/overlay-inventory.schema.json",
     "scripts/codex-upstream/schemas/backport-ledger.schema.json",
     "scripts/codex-upstream/schemas/tui-baseline.schema.json",
+    "scripts/codex-upstream/schemas/upstream-candidate.schema.json",
+    "scripts/codex-upstream/schemas/upstream-delta-inventory.schema.json",
+    "scripts/codex-upstream/schemas/overlay-replay-ledger.schema.json",
 )
 
 
@@ -69,6 +78,28 @@ def validate_repository(repo: Path) -> list[str]:
     tui_baseline_path = repo / TUI_BASELINE_PATH
     if tui_baseline_path.exists():
         errors.extend(validate_tui_baseline(_load(repo, TUI_BASELINE_PATH)))
+    candidate_path = repo / CANDIDATE_PATH
+    if candidate_path.exists():
+        candidate = _load(repo, CANDIDATE_PATH)
+        errors.extend(validate_candidate(candidate))
+        if candidate.get("commit_sha") != TARGET:
+            errors.append("candidate commit does not match generator target")
+    delta_path = repo / DELTA_PATH
+    if delta_path.exists():
+        delta = _load(repo, DELTA_PATH)
+        errors.extend(validate_upstream_delta(delta))
+        if delta.get("baseline_commit") != BASELINE:
+            errors.append("upstream delta baseline does not match generator baseline")
+        if delta.get("target_commit") != TARGET:
+            errors.append("upstream delta target does not match generator target")
+    replay_path = repo / REPLAY_PATH
+    if replay_path.exists():
+        replay = _load(repo, REPLAY_PATH)
+        errors.extend(validate_replay_ledger(replay))
+        if replay.get("baseline_commit") != BASELINE:
+            errors.append("replay baseline does not match generator baseline")
+        if replay.get("target_commit") != TARGET:
+            errors.append("replay target does not match generator target")
     if ledger.get("baseline_commit") != BASELINE:
         errors.append("ledger baseline does not match generator baseline")
     if inventory.get("baseline_commit") != BASELINE:

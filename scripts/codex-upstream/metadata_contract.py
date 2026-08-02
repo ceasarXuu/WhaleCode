@@ -12,6 +12,234 @@ from tui_baseline import CLASSIFICATIONS
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA64 = re.compile(r"^[0-9a-f]{64}$")
+REPLAY_DISPOSITIONS = {
+    "adopt-upstream",
+    "reapply-exact",
+    "adapt-semantically",
+    "regenerate",
+    "drop",
+    "defer",
+    "blocked-on-discovery",
+}
+
+
+def _is_relative_artifact_path(value: object) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    return not value.startswith(("/", "~")) and ".." not in value.split("/")
+
+
+def validate_candidate(document: dict) -> list[str]:
+    errors: list[str] = []
+    required = {
+        "schema_version",
+        "release_tag",
+        "commit_sha",
+        "tree_sha",
+        "release_date",
+        "license_path",
+        "license_sha256",
+        "source_method",
+        "source_object_verified",
+        "toolchain",
+        "qualification_commands",
+        "production_vendor_unchanged",
+        "model_request_count",
+        "summary",
+    }
+    missing = sorted(required - document.keys())
+    if missing:
+        return [f"candidate missing fields: {', '.join(missing)}"]
+    if document["schema_version"] != 1:
+        errors.append("candidate schema_version must be 1")
+    if document["release_tag"] != "rust-v0.146.0":
+        errors.append("candidate release_tag must be rust-v0.146.0")
+    for field in ("commit_sha", "tree_sha"):
+        if not SHA40.fullmatch(str(document[field])):
+            errors.append(f"candidate {field} must be a full SHA")
+    if document["source_method"] != "git-archive":
+        errors.append("candidate source_method must be git-archive")
+    if document["source_object_verified"] is not True:
+        errors.append("candidate source object must be verified")
+    if document["production_vendor_unchanged"] is not True:
+        errors.append("candidate must preserve the production vendor")
+    if document["model_request_count"] != 0:
+        errors.append("candidate model_request_count must be zero")
+    if not _is_relative_artifact_path(document["license_path"]):
+        errors.append("candidate license_path must be repository-relative")
+    if not SHA64.fullmatch(str(document["license_sha256"])):
+        errors.append("candidate license_sha256 must be a SHA-256")
+    toolchain = document["toolchain"]
+    if not isinstance(toolchain, dict) or any(
+        not toolchain.get(field) for field in ("rustc", "cargo", "nextest")
+    ):
+        errors.append("candidate toolchain must record rustc, cargo, and nextest")
+    commands = document["qualification_commands"]
+    ids = [entry.get("id") for entry in commands]
+    if ids != sorted(set(ids)) or not ids:
+        errors.append("candidate qualification command ids must be sorted and unique")
+    status_counts: Counter[str] = Counter()
+    for entry in commands:
+        command_id = entry.get("id", "<missing>")
+        result = entry.get("result")
+        if result not in {"passed", "failed", "not-run"}:
+            errors.append(f"candidate command {command_id}: invalid result")
+        else:
+            status_counts[result] += 1
+        exit_code = entry.get("exit_code")
+        if result == "not-run" and exit_code is not None:
+            errors.append(f"candidate command {command_id}: not-run must have null exit_code")
+        if result != "not-run" and not isinstance(exit_code, int):
+            errors.append(f"candidate command {command_id}: exit_code must be an integer")
+        if not _is_relative_artifact_path(entry.get("evidence")):
+            errors.append(f"candidate command {command_id}: evidence must be relative")
+    expected_summary = {
+        "command_count": len(commands),
+        "by_result": dict(sorted(status_counts.items())),
+    }
+    if document["summary"] != expected_summary:
+        errors.append("candidate summary does not match commands")
+    return errors
+
+
+def validate_upstream_delta(document: dict) -> list[str]:
+    errors: list[str] = []
+    for field in ("baseline_commit", "baseline_tree", "target_commit", "target_tree"):
+        if not SHA40.fullmatch(str(document.get(field, ""))):
+            errors.append(f"upstream delta {field} must be a full SHA")
+    if document.get("schema_version") != 1:
+        errors.append("upstream delta schema_version must be 1")
+    if document.get("source") != "git-tree":
+        errors.append("upstream delta source must be git-tree")
+    entries = document.get("entries", [])
+    paths = [entry.get("path") for entry in entries]
+    if paths != sorted(set(paths)):
+        errors.append("upstream delta entries must be sorted and unique")
+    statuses: Counter[str] = Counter()
+    crates: Counter[str] = Counter()
+    generated: Counter[str] = Counter()
+    for entry in entries:
+        path = entry.get("path", "<missing>")
+        status = entry.get("status")
+        if status not in {"added", "modified", "deleted"}:
+            errors.append(f"{path}: invalid upstream delta status")
+        else:
+            statuses[status] += 1
+        for field in ("baseline_sha256", "target_sha256"):
+            value = entry.get(field)
+            if value is not None and not SHA64.fullmatch(str(value)):
+                errors.append(f"{path}: invalid {field}")
+        owner = entry.get("crate_owner")
+        if not isinstance(owner, str) or not owner:
+            errors.append(f"{path}: crate_owner is required")
+        else:
+            crates[owner] += 1
+        kind = entry.get("generated_kind")
+        if kind is not None:
+            generated[str(kind)] += 1
+    expected_summary = {
+        "path_count": len(entries),
+        "by_status": dict(sorted(statuses.items())),
+        "by_crate_owner": dict(sorted(crates.items())),
+        "by_generated_kind": dict(sorted(generated.items())),
+    }
+    if document.get("summary") != expected_summary:
+        errors.append("upstream delta summary does not match entries")
+    return errors
+
+
+def validate_replay_ledger(document: dict) -> list[str]:
+    errors: list[str] = []
+    if document.get("schema_version") != 1:
+        errors.append("replay ledger schema_version must be 1")
+    for field in ("baseline_commit", "target_commit", "overlay_tree"):
+        if not SHA40.fullmatch(str(document.get(field, ""))):
+            errors.append(f"replay ledger {field} must be a full SHA")
+    entries = document.get("entries", [])
+    cutover_batches = document.get("cutover_batches", [])
+    batch_ids = [batch.get("id") for batch in cutover_batches]
+    if batch_ids != sorted(set(batch_ids)) or not batch_ids:
+        errors.append("replay cutover batch ids must be sorted, unique, non-empty")
+    known_batches = set(batch_ids)
+    dependencies: dict[str, list[str]] = {}
+    for batch in cutover_batches:
+        batch_id = batch.get("id", "<missing>")
+        depends_on = batch.get("depends_on", [])
+        if depends_on != sorted(set(depends_on)):
+            errors.append(f"{batch_id}: batch dependencies must be sorted and unique")
+        unknown = sorted(set(depends_on) - known_batches)
+        if unknown:
+            errors.append(f"{batch_id}: unknown batch dependencies {unknown}")
+        if batch_id in depends_on:
+            errors.append(f"{batch_id}: batch cannot depend on itself")
+        dependencies[str(batch_id)] = depends_on
+    errors.extend(_validate_acyclic_batches(dependencies))
+    paths = [entry.get("path") for entry in entries]
+    if paths != sorted(set(paths)):
+        errors.append("replay ledger entries must be sorted and unique")
+    dispositions: Counter[str] = Counter()
+    batches: Counter[str] = Counter()
+    for entry in entries:
+        path = entry.get("path", "<missing>")
+        disposition = entry.get("disposition")
+        if disposition not in REPLAY_DISPOSITIONS:
+            errors.append(f"{path}: invalid replay disposition")
+        else:
+            dispositions[disposition] += 1
+        categories = entry.get("categories", [])
+        if categories != sorted(set(categories)) or not categories:
+            errors.append(f"{path}: replay categories must be sorted, unique, non-empty")
+        evidence = entry.get("decision_basis", [])
+        verification = entry.get("verification", [])
+        if not evidence or evidence != sorted(set(evidence)):
+            errors.append(f"{path}: decision_basis must be sorted, unique, non-empty")
+        if not verification or verification != sorted(set(verification)):
+            errors.append(f"{path}: verification must be sorted, unique, non-empty")
+        batch = entry.get("cutover_batch")
+        if not isinstance(batch, str) or not batch:
+            errors.append(f"{path}: cutover_batch is required")
+        else:
+            batches[batch] += 1
+            if batch not in known_batches:
+                errors.append(f"{path}: cutover_batch is not declared")
+        lineage = entry.get("generated_lineage")
+        if disposition == "regenerate" and not isinstance(lineage, dict):
+            errors.append(f"{path}: regenerate requires generated_lineage")
+        if isinstance(lineage, dict) and any(
+            not lineage.get(field) for field in ("generator", "command")
+        ):
+            errors.append(f"{path}: generated_lineage is incomplete")
+    expected_summary = {
+        "path_count": len(entries),
+        "by_disposition": dict(sorted(dispositions.items())),
+        "by_cutover_batch": dict(sorted(batches.items())),
+    }
+    if document.get("summary") != expected_summary:
+        errors.append("replay ledger summary does not match entries")
+    return errors
+
+
+def _validate_acyclic_batches(dependencies: dict[str, list[str]]) -> list[str]:
+    errors: list[str] = []
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(batch_id: str) -> None:
+        if batch_id in visiting:
+            errors.append(f"cutover batch dependency cycle includes {batch_id}")
+            return
+        if batch_id in visited:
+            return
+        visiting.add(batch_id)
+        for dependency in dependencies.get(batch_id, []):
+            if dependency in dependencies:
+                visit(dependency)
+        visiting.remove(batch_id)
+        visited.add(batch_id)
+
+    for batch_id in sorted(dependencies):
+        visit(batch_id)
+    return errors
 
 
 def validate_inventory(document: dict) -> list[str]:

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "commit_sha": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "license_path": {"type": "string"},
+    "license_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "model_request_count": {"const": 0},
+    "production_vendor_unchanged": {"const": true},
+    "qualification_commands": {"items": {"type": "object"}, "minItems": 1, "type": "array"},
+    "release_date": {"type": "string"},
+    "release_tag": {"const": "rust-v0.146.0"},
+    "schema_version": {"const": 1},
+    "source_method": {"const": "git-archive"},
+    "source_object_verified": {"const": true},
+    "summary": {"type": "object"},
+    "toolchain": {"type": "object"},
+    "tree_sha": {"pattern": "^[0-9a-f]{40}$", "type": "string"}
+  },
+  "required": ["schema_version", "release_tag", "commit_sha", "tree_sha", "release_date", "license_path", "license_sha256", "source_method", "source_object_verified", "toolchain", "qualification_commands", "production_vendor_unchanged", "model_request_count", "summary"],
+  "title": "Codex upstream candidate qualification",
+  "type": "object"
+}

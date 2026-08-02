@@ -1,7 +1,7 @@
 # 第三批：Codex 0.146 候选基底资格审查与 Overlay 重放工程计划
 
-- 文档状态：计划完成，待执行授权
-- 计划模式：Plan Authoring
+- 文档状态：实施中（W1 合同已完成）
+- 计划模式：Execution Tracking
 - 创建日期：2026-08-02
 - 适用版本：WhaleCode v0.0.5
 - 计划基线：`b460ece4e25bb0a7b6484ffe83b84a09ae46804d`
@@ -136,7 +136,7 @@
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W0 | 冻结候选身份 | compatibility | `UPSTREAM.md`、candidate manifest | 0.146 tag/commit/tree/license | 从本地官方对象和官方 release 交叉核验并写入不可变字段 | 本批所有工具只接受一个目标身份 | 防止分析期间 latest 漂移导致账本混用不同版本 | Complexity: 增加一份 manifest 合同；Reach/Cost: 同步工具和文档校验需共同维护目标 SHA | `git cat-file`、`git rev-parse <sha>^{tree}`、license digest、官方 release 对照 | 任一身份不一致即停止，不生成后续工件 | planned |
-| W1 | 定义机器合同 | internal | `schemas/`、`metadata_contract.py` | candidate/delta/replay schemas | 增加三个 schema 及正反例 fixture，扩展现有联合 validator | 缺字段、非法 disposition、重复路径、绝对路径和非确定字段会失败 | 让资格结果和迁移决策可由 CI 审计，减少人工表格漂移 | Complexity: +3 schema 和 validator 分支；Reach/Cost: Python test/维护范围扩大，不影响生产二进制 | `python3 -m unittest discover -s scripts/codex-upstream/tests -p 'test_*.py'` | schema 未稳定前不实现生成器；单提交 revert | planned |
+| W1 | 定义机器合同 | internal | `schemas/`、`metadata_contract.py` | candidate/delta/replay schemas | 增加三个 schema 及正反例 fixture，扩展现有联合 validator | 缺字段、非法 disposition、重复路径、绝对路径、循环批次依赖和非确定字段会失败 | 让资格结果和迁移决策可由 CI 审计，减少人工表格漂移 | Complexity: +3 schema 和 validator 分支；Reach/Cost: Python test/维护范围扩大，不影响生产二进制 | 23 项 Python 单测与联合 validator 已通过 | 单提交 revert | completed |
 | W2 | 导出纯上游候选 | developer-tooling | `qualify_candidate.py`、临时目录 | `git archive` candidate tree | 使用精确 commit 导出到 `mktemp` 目录，校验 tree/license 后打印可恢复证据路径 | qualification 不读取或覆盖当前 vendor | 排除 Whale 工作树污染，也避免提交第二份 vendor | Complexity: +1 临时导出流程；Reach/Cost: 使用额外磁盘和 IO，临时目录需在记录证据后安全清理 | 导出文件清单/tree identity 与 commit 一致；`git diff --exit-code HEAD -- third_party/codex-cli` | 导出不一致或触碰 vendor 立即停止；临时目录移入系统临时回收/安全清理 | planned |
 | W3 | 验证 pristine substrate | compatibility | 临时候选 `codex-rs/`、candidate manifest | Cargo workspace 与关键 crates | 按官方工具链运行 fmt/check，并运行 CLI/core/app-server/TUI 的无模型测试集合，规范化 exit/result | 候选自身问题与 Whale replay 问题分离 | 在投入 overlay 迁移前暴露工具链、平台或上游基线 blocker | Complexity: 不增生产代码，增加 qualification command matrix；Reach/Cost: Rust 构建时间、磁盘和 CI 时间上升，无 API 费用 | `cargo fmt --all -- --check`；locked CLI check；关键 crate tests；结果写 manifest | 任一失败先分类 upstream/environment；禁止用 Whale patch 修候选以求通过 | planned |
 | W4 | 建立 upstream delta | observability | `git_snapshot.py`、新 delta 生成逻辑 | baseline → target path/crate graph | 复用 no-renames 和确定性 JSON 规则，记录状态、hash、numstat、crate ownership、生成物标记 | 官方 4,209 文件变化可按结构和依赖查询 | 为后续按 crate/宿主边界切批提供事实，而不是按提交标题猜测 | Complexity: 增加 delta 生成与 crate mapping；Reach/Cost: Git 对象扫描时间增加，输出文件需版本化 | 连续生成 SHA-256 一致；路径总数与 `git diff --name-status` 一致；0 unknown ownership 或显式例外 | 计数/哈希不一致时停止，不进入 replay 分类 | planned |
