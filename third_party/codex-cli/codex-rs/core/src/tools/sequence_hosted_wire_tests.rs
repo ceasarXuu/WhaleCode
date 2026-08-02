@@ -12,6 +12,7 @@ use codex_api::RetryConfig;
 use codex_api::ToolChoice;
 use codex_api::WireApi;
 use codex_protocol::models::ContentItem;
+use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_tools::JsonSchema;
@@ -288,7 +289,7 @@ async fn hosted_work_uses_one_constrained_responses_request_after_map_preflight(
         ),
     ];
 
-    execute_response_tool_sequence(runtime, calls, CancellationToken::new())
+    let outcome = execute_response_tool_sequence(runtime, calls, CancellationToken::new())
         .await
         .expect("hosted Work sequence");
 
@@ -308,8 +309,27 @@ async fn hosted_work_uses_one_constrained_responses_request_after_map_preflight(
     );
     assert_eq!(body["tool_choice"], "required");
     assert_eq!(body["parallel_tool_calls"], false);
+    assert_eq!(body["model"], "mvt-provider-model");
     assert_eq!(body["input"].as_array().map(Vec::len), Some(1));
     assert!(body.get("previous_response_id").is_none());
+    assert!(body.get("instructions").is_none());
+    let hosted_output = outcome
+        .outputs
+        .iter()
+        .find_map(|output| match output {
+            ResponseInputItem::FunctionCallOutput { call_id, output }
+                if call_id == "hosted-image" =>
+            {
+                output.text_content()
+            }
+            _ => None,
+        })
+        .expect("hosted result pairing");
+    let hosted_output: serde_json::Value =
+        serde_json::from_str(hosted_output).expect("hosted result JSON");
+    assert_eq!(hosted_output["id"], "ig-mvt-4");
+    assert_eq!(hosted_output["status"], "completed");
+    assert_eq!(hosted_output["result"], "Zm9v");
 
     let map = session
         .canonical_action_map_snapshot()
@@ -321,4 +341,61 @@ async fn hosted_work_uses_one_constrained_responses_request_after_map_preflight(
     assert_eq!(map.results[0].node_id, "image");
     assert!(!map.results[0].is_error);
     assert!(map.reservations.is_empty());
+}
+
+#[tokio::test]
+async fn invalid_map_execute_rejects_before_the_hosted_request() {
+    let server = MockServer::start().await;
+    let (session, turn) = make_session_and_context().await;
+    session
+        .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
+        .await;
+    let session = Arc::new(session);
+    let runtime = ToolCallRuntime::new(
+        Arc::new(hosted_router(server.uri())),
+        Arc::clone(&session),
+        Arc::new(turn),
+        Arc::new(Mutex::new(TurnDiffTracker::new())),
+    );
+    let calls = vec![
+        function_call(
+            "taskspace_control",
+            "invalid-control",
+            serde_json::json!({
+                "action": "execute",
+                "expected_revision": 0,
+                "actions": [{"node_id": "missing", "tool": "mvt_hosted_image"}]
+            })
+            .to_string(),
+        ),
+        function_call(
+            "mvt_hosted_image",
+            "hosted-must-not-run",
+            serde_json::json!({"prompt": "Must not execute"}).to_string(),
+        ),
+    ];
+
+    let outcome = execute_response_tool_sequence(runtime, calls, CancellationToken::new())
+        .await
+        .expect("preflight rejection response");
+
+    assert!(matches!(
+        outcome.outputs.last(),
+        Some(ResponseInputItem::Message { .. })
+    ));
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("captured requests")
+            .is_empty()
+    );
+    assert!(
+        session
+            .canonical_action_map_snapshot()
+            .await
+            .expect("snapshot")
+            .map
+            .is_none()
+    );
 }
