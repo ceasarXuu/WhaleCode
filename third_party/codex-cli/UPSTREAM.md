@@ -19,6 +19,9 @@ Imported for WhaleCode as a whole-repo upstream substrate.
 | Authoritative backport ledger | [`backport-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/backport-ledger.json) |
 | Provenance backlog | [`backport-provenance-backlog.json`](../../docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json) |
 | Planned sync target, not imported | `rust-v0.146.0` / `e363b08c9175ac1cbe5893615dd2cb9ddf95043b` |
+| Candidate qualification | [`upstream-candidate.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-candidate.json), no-go (1 passed / 4 failed) |
+| Upstream delta | [`upstream-delta-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json) |
+| Overlay replay ledger | [`overlay-replay-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json) |
 | License | Apache-2.0, see `LICENSE` |
 
 This is a derived vendor tree, not an unchanged snapshot of the initial

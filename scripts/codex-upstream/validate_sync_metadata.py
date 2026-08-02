@@ -179,6 +179,9 @@ def validate_repository(repo: Path) -> list[str]:
         "overlay-inventory.json",
         "backport-ledger.json",
         "backport-provenance-backlog.json",
+        "upstream-candidate.json",
+        "upstream-delta-inventory.json",
+        "overlay-replay-ledger.json",
         "Responses API",
     )
     for text in required_text:

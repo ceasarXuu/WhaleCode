@@ -1,6 +1,6 @@
 # Codex CLI 上游追赶差异分析与合并策略
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成并作出 0.146 no-go 结论
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - 当前仓库提交：`c539cbe18030727ae9c48e27246c0439ad246390`
@@ -13,6 +13,7 @@
 - [第一批：完全无文本冲突的快速 backport 合入方案](01-conflict-free-fast-backports-plan.md)
 - [第二批：上游基线、overlay 账本与测试门禁工程计划](02-upstream-baseline-and-test-gates-plan.md)
 - [第三批：Codex 0.146 候选基底资格审查与 Overlay 重放计划](03-rust-0.146-candidate-qualification-plan.md)
+- [第三批执行报告：0.146 candidate qualification no-go](../../migration/codex-sync/2026-08-02-rust-0.146-candidate-qualification.md)
 - [第二批最终实施报告](../../migration/codex-sync/2026-08-02-upstream-baseline-and-test-gates-closeout.md)
 
 ## 当前批次状态
@@ -22,7 +23,7 @@
 - W9 已定位并延期到 TaskSpace 专项分支；
 - W12/W13 Windows 自动与实机验证按用户决策延期到 Windows 专项；
 - 第二批以 12/15 verified、3/15 deferred 收口，不把延期项表述为通过。
-- 第三批进入计划阶段：只资格审查官方 0.146 候选并建立 Overlay 重放账本，不替换当前 vendor。
+- 第三批 W0–W8 已完成：候选身份、4,355 条无 rename 推断的 upstream delta、730 路径 replay ledger 和五批 DAG 已落地；纯上游资格矩阵为 1 passed / 4 failed，因此 0.146 当前 no-go，未替换当前 vendor。
 
 ## 1. 执行摘要
 

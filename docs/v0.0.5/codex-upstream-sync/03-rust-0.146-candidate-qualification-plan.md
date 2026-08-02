@@ -1,6 +1,6 @@
 # 第三批：Codex 0.146 候选基底资格审查与 Overlay 重放工程计划
 
-- 文档状态：实施中（W1 合同已完成）
+- 文档状态：实施完成（W0–W8 completed；0.146 candidate no-go）
 - 计划模式：Execution Tracking
 - 创建日期：2026-08-02
 - 适用版本：WhaleCode v0.0.5
@@ -143,7 +143,7 @@
 | W5 | 建立 generated lineage | cleanup | delta/replay generator、Cargo/just/schema export 配置 | generated artifact 标签路径 | 对 app-server JSON/TS 与 config schema 记录官方 generator/command；snapshot 与 Cargo.lock 在源集成完成前显式 defer | 已知生成族必须重新生成，尚未具备正确输入的生成族不会被手工合并 | 减少 schema 漂移和大批伪冲突，保留官方生成链 | Complexity: 生成族映射与存在性校验；Reach/Cost: 49 路径 regenerate、127 路径 defer，不改变运行时 | 49 条 lineage 的 generator 均存在于目标 tree；127 条 defer 均有最终批次与恢复条件 | 单提交 revert | completed |
 | W6 | 生成 replay ledger | compatibility | `generate_replay_ledger.py`、replay JSON | 现有 730 overlay paths | 合并 overlay/delta/lineage，以 hash、风险域和生成族规则生成 disposition、批次、验证和依赖 | 每个 Whale overlay 都有唯一且可追溯的处理方式 | 避免整仓替换时漏掉 DeepSeek、WHALE_HOME、缓存或 TaskSpace 合同 | Complexity: +1 决策账本；Reach/Cost: 506 adapt、1 adopt、47 exact replay、49 regenerate、127 defer | 730/730 唯一路径；0 `blocked-on-discovery`；33 项单测和联合 validator 通过 | 单提交 revert | completed |
 | W7 | 划分 cutover 依赖 | internal | replay ledger、执行报告 | `cutover_batch` 与 `depends_on` | 固化 brand/home → substrate → DeepSeek/wire → TaskSpace/Multi-Agent → generated/release 五批 DAG | 后续每批都有明确输入、停止点和回滚边界 | 限制单次变更爆炸半径，避免两个状态权威或双 transport 长期并存 | Complexity: 5 个批次和根级 DAG 合同；Reach/Cost: 后续提交/测试数量增加但归因更清晰 | schema 拒绝未知依赖、自依赖和环；730 条均绑定声明批次与 verification | 单提交 revert | completed |
-| W8 | 完成资格结论 | documentation | 专题 README、执行报告、三份 JSON | go/no-go decision | 汇总 qualification、ledger completeness、blockers、后续批次及恢复条件，运行全套 validator 后提交推送 | 形成是否启动真实 vendor cutover 的可审计决策包 | 下一批可以按证据选定范围，不重复做全量差异调查 | Complexity: 增加一次性结果文档；Reach/Cost: 文档/账本维护和 review 成本，无运行时成本 | metadata tests、三份 `--check`、cache index gate、vendor diff clean、Git clean/push | 任一 blocker 未关闭则结论只能 no-go；不得以文档完成替代资格通过 | planned |
+| W8 | 完成资格结论 | documentation | 专题 README、执行报告、三份 JSON | go/no-go decision | 汇总 qualification、ledger completeness、blockers、后续批次及恢复条件，运行全套 validator 后提交推送 | 形成是否启动真实 vendor cutover 的可审计决策包 | 下一批可以先修候选资格，不重复做全量差异调查 | Complexity: +1 执行报告；Reach/Cost: 文档/账本维护和 review 成本，无运行时成本 | 33 项 metadata 单测、四份 `--check`、联合 validator、cache index gate、vendor source diff 和隐私扫描通过 | no-go；当前 vendor 不变 | completed |
 
 ## 6. 分阶段执行
 
@@ -262,18 +262,18 @@ W7 必须验证这一顺序是否无环。若 brand/home 与 substrate 无法独
 
 ## 11. 验收清单
 
-- [ ] 0.146 tag、commit、tree、release 和 license 身份一致；
-- [ ] pristine candidate 未进入仓库且当前 vendor 零改动；
-- [ ] candidate/delta/replay schema 正反例测试通过；
-- [ ] pristine fmt/check/test 结果完整记录且模型请求为 0；
-- [ ] upstream delta 路径计数、hash 和 crate ownership 可重复；
-- [ ] generated artifact 全部存在 generator lineage 或显式 blocker；
-- [ ] 730 个 Whale overlay 路径全部有唯一 disposition；
-- [ ] `adapt-semantically`、`regenerate`、`defer` 均有验证和恢复条件；
-- [ ] cutover DAG 无环，跨域路径有 owner domain；
-- [ ] cache index gate 通过，未启动真实 Whale Agent run；
-- [ ] 执行报告明确 go/no-go，不把账本完成等同于 vendor 已迁移；
-- [ ] 所有改动已提交、push，工作树 clean。
+- [x] 0.146 tag、commit、tree、release 和 license 身份一致；
+- [x] pristine candidate 未进入仓库且当前 vendor 零改动；
+- [x] candidate/delta/replay schema 正反例测试通过；
+- [x] pristine fmt/check/test 结果完整记录且模型请求为 0；
+- [x] upstream delta 路径计数、hash 和 crate ownership 可重复；
+- [x] generated artifact 全部存在 generator lineage 或显式 defer blocker；
+- [x] 730 个 Whale overlay 路径全部有唯一 disposition；
+- [x] `adapt-semantically`、`regenerate`、`defer` 均有验证和恢复条件；
+- [x] cutover DAG 无环，跨域路径有 owner domain；
+- [x] cache index gate 通过，未启动真实 Whale Agent run；
+- [x] 执行报告明确 no-go，不把账本完成等同于 vendor 已迁移；
+- [x] 所有改动已提交、push，工作树 clean。
 
 ## 12. 外部依据
 
