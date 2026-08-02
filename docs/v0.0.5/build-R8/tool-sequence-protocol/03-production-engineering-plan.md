@@ -2,6 +2,7 @@
 
 - Created: 2026-08-02
 - Status: Drafted / plan authoring
+- Product decision: 2026-08-02 批准“terminal 结果结算后，单独一次无 Tool 请求生成最终总结”
 - Scope: 将已验证的 Tool 序列执行部件接入生产 TaskSpace 请求与执行链
 - Risk depth: Full，涉及 model-visible Tool API、Map 事务、provider 执行归属、反馈和缓存
 - Prerequisite: [`00-product-definition.md`](00-product-definition.md) 与
@@ -97,11 +98,15 @@ MVT 的测试 adapter 不是生产协议。尤其 `mvt_hosted_image({prompt})` �
 4. Function 的 `input` 保持原参数 object，Freeform 的 `input` 保持 string。每个变体从现有 `ToolSpec` 机械生成，禁止
    手写第二份普通 Tool 参数 schema。
 5. `taskspace_control` 删除 `actions[]`，只保留 Map 读取、图变更、节点状态和显式终态参数。
-6. Map open 且请求仍需推进时，合法 Agent 行动必须包含容器；Map closed 后才允许提交无 Tool 的最终自然语言响应。TS-07
-   必须先冻结这份请求状态表以及“terminal finish 与最终总结”唯一合同。支持强制指定函数的 provider 可按冻结合同选择
-   `taskspace_tools`；不支持或拒绝 `tool_choice` 的 DeepSeek 路径必须省略字段，不能伪造 provider 保证，并由 L1/L2 协议、
-   唯一 Tool 暴露和 Runtime 零执行硬合同共同守底线。该差异必须进入 final-wire/cache fixture，不在实现中临时切换。
-7. 支持禁并行字段的 TaskSpace provider 请求发送 `parallel_tool_calls=false`；忽略或不支持该字段的路径不能假设它生效。
+6. Map open 且请求仍需推进时，合法 Agent 行动必须包含容器。terminal container 先执行最后一批 Work 和 Agent 声明的
+   finish；Runtime 返回真实结果并关闭 Map。随后固定发起一次不投影任何 Tool 的 provider 请求，让 Agent 基于刚收到的
+   结果生成最终自然语言总结；总结不进入容器、`taskspace_control` 或 Runtime 模板。总结完成后结束本轮任务。
+7. 若用户在最终总结后反馈任务未完成，下一请求重新投影容器，由 Agent 提交 `[reopen, work+]`；Runtime 不自动 reopen，
+   也不创建“返工”等额外状态。支持强制指定函数的 provider 可在 open Map 请求按 TS-07 状态表选择 `taskspace_tools`；
+   不支持或拒绝 `tool_choice` 的 DeepSeek 路径必须省略字段，不能伪造 provider 保证，并由 L1/L2 协议、唯一 Tool 暴露和
+   Runtime 零执行硬合同共同守底线。open、pending-summary、user-feedback-after-close 三类请求必须进入 final-wire/cache
+   fixture，不在实现中临时切换。
+8. 支持禁并行字段的 TaskSpace provider 请求发送 `parallel_tool_calls=false`；忽略或不支持该字段的路径不能假设它生效。
    Runtime 对同一 response 的多个 outer 容器整批零执行拒绝。容器内部 Work 并发由预检后的 Runtime 执行，Standard
    provider flags 保持原值。
 
@@ -198,7 +203,7 @@ TaskSpace provider 只认识外层 `taskspace_tools` call id，因此下一轮�
 | TS-04 | 证明 Map control 的统一分派 seam | discovery | `taskspace_control.rs`、`ToolCallRuntime`、`session/taskspace_response.rs` | initialize/execute/reopen 与 outer bindings | 做最小本地 seam probe，比较 Router invocation context、Map 原子事务和 bindings 传递；排除 sequence engine 直接提交、参数复制和全局 transient registry | control 能否保持普通 Tool 调用地位在编码前被证实 | 避免把旧 preflight 特例带入新容器 | Complexity: +1 seam probe/决策记录，无生产路由变化；Reach/Cost: 该结论阻塞 Map 接入 | Router lifecycle、单 Map commit、无隐藏 binding source 三项同时成立 | 无可行 seam 时暂停并与用户决策 | planned |
 | TS-05 | 盘点旧协议全部生产消费者 | discovery | `sequence*.rs`、`taskspace_control_args*`、turn/provider/benchmark/docs | actions/sibling manifest、旧 reservation 类型、错误码、日志、fixtures | 建立删除清单并逐项审计 `TaskSpaceDeclaredCall`、`ActionMapDeclaredCall`、`TaskSpaceExecute.declared_calls`、`prepare_taskspace_response`、actions parser/mismatch 和 supplemental/developer receipt；区分 Standard 共用逻辑与 TaskSpace 专属逻辑 | 切换后可以完整删除旧路径而不误删 Standard | 降低兼容残留和清理阶段意外发现 | Complexity: +1 消费面清单；Reach/Cost: 无运行时影响 | 每个旧 marker 有 owner、协议中性重命名/删除单元或保留理由 | 清单不完整时不进入 TS-27 | planned |
 | TS-06 | 冻结容器输入身份合同 | API contract | 本专题、`tools` JSON fixtures | tool name、item_id、node_id、input | 固化第 3.1 节 canonical 正反 fixture 和 JSON Schema 约束 | 输入身份和普通 Tool 零侵入可机械验收 | 防止实施中增加 bind/current node 等概念 | Complexity: +输入 fixture；Reach/Cost: 后续 wire 变化必须显式审阅 | JSON Schema validator 通过；未知/重名/type mismatch fixture 失败 | 未确认合同则停在 artifact | planned |
-| TS-07 | 冻结请求、批次与事务合同 | state contract | 本专题、request/preflight fixtures | open/closed 请求状态、terminal summary、五种合法形状、零执行负例、legal failure 边界 | 先固化 Map open/closed 时 Tool requirement 与最终总结的唯一表达，再固化第 3.2/3.4 节状态前后 fixture；明确 hypothetical preflight、独立 Work 无位置失败传播、prelude 保留和 finish skip | Agent 的合法请求出口与 Runtime 底线完整且无暗门 | 防止 `Auto` 允许零推进、额外总结请求或把合法失败误作原子回滚 | Complexity: +请求状态表/状态 fixture；Reach/Cost: provider wire、缓存和 Map 测试矩阵扩大 | 每个 request state/case 有 provider field、before/after revision/result/reservation/dispatch 期望 | terminal summary 产品合同或 provider 可行性未确认时暂停，不实现 preflight | planned |
+| TS-07 | 固化请求、批次与事务合同 | state contract | 本专题、request/preflight fixtures | open、pending-summary、user-feedback-after-close 请求状态，五种合法形状、零执行负例、legal failure 边界 | 将已批准的终态合同固化为 fixture：terminal 结果结算后恰好一次无 Tool 总结请求；用户后续反馈才恢复容器并由 Agent reopen；同时固化第 3.2/3.4 节状态前后 fixture | Agent 的推进、总结和重新打开出口唯一且 Runtime 不代写语义 | 防止 `Auto` 允许零推进、总结早于真实结果、重复总结或把合法失败误作原子回滚 | Complexity: +请求状态表/状态 fixture；Reach/Cost: terminal 固定增加一次 provider 请求，provider wire、缓存和 Map 测试矩阵扩大 | 三类 request state 的 tools/flags/input 逐值 fixture；pending-summary tools=0且仅一次；每个 case 有 before/after revision/result/reservation/dispatch 期望 | provider 无法表达无 Tool 总结请求时暂停；不得把总结塞回 control 或增加兼容分支 | planned |
 | TS-08 | 冻结 multipart 结果合同 | feedback contract | 本专题、protocol fixture | manifest、content ranges、text/image items、唯一 continuation revision | 固化第 3.3 节 output fixture，定义索引相对 manifest 后 payload、空范围、失败/未知和唯一 revision；纯 control payload 不重复 revision | 多 Tool 结果可配对且多模态无损，continuation 只有一个事实 | 避免反馈层再次压缩、重写或双写语义 | Complexity: +结果 fixture；Reach/Cost: control output 与 context/history consumer 必须支持该结构 | ranges 完整无重叠；text/image逐值 round-trip；整个 outer result 只匹配一个 canonical revision | fixture 无法无损 round-trip 或需保留第二 revision 时重新讨论结果外形 | planned |
 | TS-09 | 冻结切换前 final-wire | cache baseline | `cache_payload_contract.rs`、snapshots | Standard 与三种 TaskSpace policy 请求对 | 复用现有本地两请求 fixture记录 tools/schema/flags/input hash | 切换前后差异有可信基准 | 防止修改后的快照自证不回归 | Complexity: +基线记录，无生产代码；Reach/Cost: fixture 运行时间增加 | Standard/三 policy repeat 稳定、哈希可复算 | fixture 不稳先修测量 | planned |
 | TS-10 | 建立 schema 成本预算 | performance baseline | schema profile、cache report | 当前原生 Tool 总 bytes、重复字段、容器固定开销 | 分开测量原生 schema、旧 control actions 和固定 envelope，形成 TS-13 的可解释预算 | 新容器膨胀可定位到具体结构 | 避免以语义压缩掩盖重复 schema | Complexity: +离线报告；Reach/Cost: 无 token 费用 | 各 section bytes/hash 可复算，预算不依赖真实模型 | 不能分段测量时先修 observer | planned |
@@ -332,7 +337,7 @@ Map 或反馈的第二事实源。
 | 动态 `oneOf` schema 过大 | TS-13 bytes 明显超过 TS-10 中原生 Tool 总量与固定容器开销 | 检查重复 description/schema 和 deferred Tool 集合；不先做语义压缩 | 停在 Phase B，保持当前生产路径并讨论 ToolSearch/按需暴露 |
 | 特殊 Tool 没有可控输入合同 | TS-02/03 无法从现有 API/handler 得到输入或唯一结果 | TaskSpace 不暴露该 capability，Standard 保留 | 不造通用 adapter，不双写顶层调用 |
 | open Map 仍生成无 Tool 响应 | provider 不支持强制 Tool，或 request state 合同存在纯文本出口 | TS-07 明确状态表；使用 provider 已证能力、L1/L2 协议、唯一 Tool 投影和 Runtime 零执行硬合同，不伪造 `tool_choice` | 若客观 fixture 仍稳定零推进，暂停切换并讨论 provider 适配，不增加关键词判断或固定回复 |
-| finish 后最终总结合同缺失 | 需要额外请求、总结进入 control 语义或 Map 已关闭却仍强制 Tool | TS-07 在 schema 编码前冻结唯一表达与缓存影响 | 未确认前 TS-13 不开始，不由 Runtime 代写或补总结 |
+| 终态总结被错误接入 | 总结早于 terminal 结果、进入 control/container、重复请求，或 pending-summary 仍暴露 Tool | TS-07 固定三态 wire fixture；只允许 terminal 结算后一次无 Tool 请求 | 回退所属接入单元；不由 Runtime 代写总结，也不减少已批准的终态请求 |
 | Map control 继续成为特殊旁路 | TS-04/16 需要 sequence engine 直接提交 Map、复制 bindings 或 transient registry | 要求 control 由统一 Tool lifecycle 触发，batch context 只存在于 Runtime 外层且单一传递 | Phase A 停止并与用户重新讨论，不用旧 preflight 特例冒充完成 |
 | Provider 忽略/拒绝 Tool flags | DeepSeek thinking/Anthropic 路径拒绝 `tool_choice` 或忽略禁并行 | 按 model capability 发送或省略；Runtime 完整预检和多 outer call 零执行始终生效 | 不为统一 wire 破坏可用 provider；Standard 保持原行为 |
 | 容器让 Runtime 重建 Work DAG | preflight/scheduler 出现 item dependency、next/current node | 删除容器依赖字段，只读取 canonical Map Ready frontier | 回退 TS-15/17 并重新审查合同 |
@@ -362,7 +367,7 @@ Map 或反馈的第二事实源。
 本文当前只是 `drafted` 的工程计划，不表示代码已实施。计划进入执行前需要确认：
 
 1. 第 3 节容器 wire、五种合法形状和单一结果外形没有偏离产品预期；
-2. TS-07 已明确 open/closed 请求状态、provider Tool requirement 和 terminal finish 后最终总结的唯一表达；
+2. TS-07 按 2026-08-02 已批准方案固化 open、pending-summary、user-feedback-after-close 三态合同；
 3. TS-02/03 的特殊 Tool 发现允许“不支持即隐藏”，且 TS-04 control 统一分派 seam 必须在实施前证明；
 4. Phase D 采用一次切换并删除旧协议，不保留实验开关；
 5. TS-31 的真实运行预算在执行到该阶段时另行申请，当前授权不包含任何 DeepSeek 调用。
