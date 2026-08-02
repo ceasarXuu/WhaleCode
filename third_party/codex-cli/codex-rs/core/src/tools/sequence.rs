@@ -818,3 +818,7 @@ mod taskspace_rejection_tests;
 #[cfg(test)]
 #[path = "sequence_identity_tests.rs"]
 mod identity_tests;
+
+#[cfg(test)]
+#[path = "sequence_ownership_tests.rs"]
+mod ownership_tests;

@@ -8,6 +8,8 @@ use crate::tools::context::ToolPayload;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::registry::ToolRegistry;
+#[cfg(test)]
+use crate::tools::registry::ToolRegistryBuilder;
 use crate::tools::spec::build_specs_with_discoverable_tools;
 use codex_mcp::ToolInfo;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
@@ -67,6 +69,18 @@ pub(crate) struct ToolRouterParams<'a> {
 }
 
 impl ToolRouter {
+    #[cfg(test)]
+    pub(crate) fn from_builder_for_test(builder: ToolRegistryBuilder) -> Self {
+        let (specs, registry) = builder.build();
+        let model_visible_specs = specs.iter().map(|item| item.spec.clone()).collect();
+        Self {
+            registry,
+            specs,
+            model_visible_specs,
+            parallel_mcp_server_names: HashSet::new(),
+        }
+    }
+
     pub fn from_config(config: &ToolsConfig, params: ToolRouterParams<'_>) -> Self {
         let ToolRouterParams {
             mcp_tools,
