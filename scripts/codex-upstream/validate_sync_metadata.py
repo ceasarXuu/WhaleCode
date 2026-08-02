@@ -15,7 +15,7 @@ from generate_overlay_inventory import (
     build_inventory,
     render,
 )
-from git_snapshot import GitError, git, list_tree, resolve_tree
+from git_snapshot import GitError, git, index_subtree, list_tree, resolve_tree
 from metadata_contract import (
     validate_backlog,
     validate_candidate,
@@ -72,6 +72,7 @@ def validate_repository(repo: Path) -> list[str]:
     inventory = _load(repo, OUTPUT_PATH)
     ledger = _load(repo, LEDGER_PATH)
     backlog = _load(repo, BACKLOG_PATH)
+    delta: dict | None = None
     errors.extend(validate_inventory(inventory))
     errors.extend(validate_ledger(ledger))
     errors.extend(validate_backlog(backlog))
@@ -100,6 +101,31 @@ def validate_repository(repo: Path) -> list[str]:
             errors.append("replay baseline does not match generator baseline")
         if replay.get("target_commit") != TARGET:
             errors.append("replay target does not match generator target")
+        current_vendor_tree = index_subtree(repo, "third_party/codex-cli")
+        if replay.get("overlay_tree") != current_vendor_tree:
+            errors.append("replay overlay tree is stale relative to the Git index")
+        overlay_by_path = {entry["path"]: entry for entry in inventory["entries"]}
+        replay_by_path = {entry["path"]: entry for entry in replay.get("entries", [])}
+        if replay_by_path.keys() != overlay_by_path.keys():
+            errors.append("replay paths do not exactly cover the overlay inventory")
+        delta_by_path = (
+            {entry["path"]: entry for entry in delta["entries"]}
+            if delta is not None
+            else {}
+        )
+        for path in sorted(replay_by_path.keys() & overlay_by_path.keys()):
+            source = overlay_by_path[path]
+            decision = replay_by_path[path]
+            upstream = delta_by_path.get(path)
+            expected_target = (
+                upstream["target_sha256"]
+                if upstream is not None
+                else source["baseline_sha256"]
+            )
+            if decision.get("current_sha256") != source["current_sha256"]:
+                errors.append(f"{path}: replay current hash is stale")
+            if decision.get("target_sha256") != expected_target:
+                errors.append(f"{path}: replay target hash is stale")
     if ledger.get("baseline_commit") != BASELINE:
         errors.append("ledger baseline does not match generator baseline")
     if inventory.get("baseline_commit") != BASELINE:
