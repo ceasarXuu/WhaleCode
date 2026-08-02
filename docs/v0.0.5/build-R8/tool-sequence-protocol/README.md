@@ -39,8 +39,9 @@ MVT-7 核验发现：Standard 完整请求基线保持不变，但生产 TaskSpa
 1. [`00-product-definition.md`](00-product-definition.md)：已确认的产品模型、角色边界、合法行为和执行归属原则。
 2. [`01-execution-ownership-mvp-feasibility-plan.md`](01-execution-ownership-mvp-feasibility-plan.md)：执行归属方案的最小可行性测试计划。
 3. [`02-mvt1-native-router-reuse-result.md`](02-mvt1-native-router-reuse-result.md)：MVT-1 原 Router 复用实现与验证结果。
-4. 完整工程设计：等待可行性测试结论，避免在基础路线未证实时展开。
-5. 正式实施计划：等待工程设计确认后派生，不沿用 spike 的临时结构。
+4. [`03-production-engineering-plan.md`](03-production-engineering-plan.md)：基于 MVT-0～MVT-7 证据形成的生产容器
+   schema、切换边界、工作单元、验收和安全停止计划。
+5. 正式实施结果：执行计划后单独形成，不以 MVT 测试 adapter 代替生产完成证据。
 
 ## 3. 与 R8 其他问题的关系
 
