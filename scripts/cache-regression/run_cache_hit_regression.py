@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from cache_cleanup_contract import cleanup_verified
+from cache_binary_health import run_whale_binary_health_preflight
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
 from cache_arm_identity import validate_arm_identity
 from cache_json import strict_json_loads
@@ -61,6 +62,7 @@ def persist_observation_artifacts(
     destination.mkdir(parents=True, exist_ok=True)
     artifact_names = {
         "cache_summary": "provider-cache-trace-summary.json",
+        "provider_wire": "provider-wire-trace.jsonl",
         "request_summary": "request-summary.json",
         "metrics": "metrics.json",
         "provider_boundary": "provider-boundary-evidence.json",
@@ -90,6 +92,7 @@ def persist_observation_artifacts(
         persisted[key] = target
     durable = analyze_artifacts(
         persisted["cache_summary"],
+        persisted["provider_wire"],
         persisted["request_summary"],
         persisted["metrics"],
         persisted["provider_boundary"],
@@ -373,6 +376,11 @@ def main() -> int:
         / "provider-route-preflight/provider-route-preflight.json"
     )
     try:
+        run_whale_binary_health_preflight(
+            repo,
+            args.whale_bin,
+            route_preflight_path.parent / "whale-binary-health.json",
+        )
         provider_route = run_provider_route_preflight(
             repo,
             args.whale_bin,

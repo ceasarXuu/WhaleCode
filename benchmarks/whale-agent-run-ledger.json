@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-02T16:55:38+08:00",
+  "updated_at": "2026-08-02T17:17:14+08:00",
   "entries": [
     {
       "record_id": "WAR-20260802-165454-CACHE-REGRESSION-2723DE14",
@@ -46,17 +46,21 @@
         "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 60617,
+        "cached_input": 48128,
+        "uncached_input": 12489,
+        "output": 810
       },
       "monetary_cost": {
-        "status": "unavailable",
+        "status": "estimated",
         "currency": "USD",
-        "amount": null,
+        "amount": 0.0021100184,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0001347584,
+          "uncached_input": 0.00174846,
+          "output": 0.0002268
+        },
         "pricing_snapshot": {
           "currency": "USD",
           "captured_at": "2026-07-31",
@@ -65,8 +69,8 @@
           "uncached_input_per_million": 0.14,
           "output_per_million": 0.28
         },
-        "formula": null,
-        "note": "无完整 token 证据。"
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "原 runner 混用 rollout 重复累计快照而拒绝 usage；修复后由 5 个 provider terminal 记录离线重算并与 provider boundary 对账。"
       },
       "evidence": {
         "planned_run_root": "target/cache-hit-regression/WAR-20260802-165454-CACHE-REGRESSION-2723DE14",
@@ -106,7 +110,8 @@
           "after_any_usage_gap",
           "after_any_budget_observation_exceeded"
         ],
-        "usage_evidence_status": "unavailable",
+        "usage_evidence_status": "complete_posthoc_reconciliation",
+        "usage_reconciliation_path": "benchmarks/cache-regression/evidence/WAR-20260802-165454-CACHE-REGRESSION-2723DE14/WAR-20260802-165454-CACHE-REGRESSION-2723DE14-CACHE-001/usage-reconciliation.json",
         "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260802-165454-CACHE-REGRESSION-2723DE14/provider-route-preflight/provider-route-preflight.json",
         "provider_route_attestation_sha256": "c68ff80f69824cca13c476d182f2133f9a55e97bf1eb91c7f57226702e565d9f",
         "actual_run_root": "target/cache-hit-regression/WAR-20260802-165454-CACHE-REGRESSION-2723DE14",

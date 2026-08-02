@@ -97,6 +97,12 @@ class CacheRunExecutionFixture(unittest.TestCase):
         write_json(self.proposal_path, self.proposal)
         write_json(self.authorization_path, self.authorization)
         self.provider_route = route_summary()
+        self.binary_health_patcher = patch(
+            "run_cache_hit_regression.run_whale_binary_health_preflight",
+            return_value={"status": "passed"},
+        )
+        self.binary_health_mock = self.binary_health_patcher.start()
+        self.addCleanup(self.binary_health_patcher.stop)
         self.route_preflight_patcher = patch(
             "run_cache_hit_regression.run_provider_route_preflight",
             return_value=self.provider_route,

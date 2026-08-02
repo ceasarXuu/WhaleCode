@@ -12,8 +12,9 @@ from pathlib import Path
 from cache_budget import build_budget_proposal
 from cache_baseline_test_support import (
     write_provider_boundary_evidence,
-    write_settled_ledger,
+    write_provider_wire_trace,
 )
+from cache_ledger_test_support import write_settled_ledger
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
 from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
@@ -267,6 +268,7 @@ class PromoteCacheBaselineFixture:
         )
         artifacts.mkdir(parents=True)
         cache = artifacts / "provider-cache-trace-summary.json"
+        provider_wire = artifacts / "provider-wire-trace.jsonl"
         request = artifacts / "request-summary.json"
         metrics = artifacts / "metrics.json"
         boundary = artifacts / "provider-boundary-evidence.json"
@@ -294,6 +296,15 @@ class PromoteCacheBaselineFixture:
                 }
             },
         )
+        write_provider_wire_trace(
+            provider_wire,
+            [
+                {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
+                {"input_tokens": 50, "cached_input_tokens": 45, "output_tokens": 5},
+                {"input_tokens": 50, "cached_input_tokens": 45, "output_tokens": 5},
+            ],
+            identity=arm,
+        )
         write_json(
             metrics,
             {
@@ -306,7 +317,13 @@ class PromoteCacheBaselineFixture:
         write_json(execution_argv, argv_value)
         write_json(logical_mode_map, mode_map_value)
         observation = analyze_artifacts(
-            cache, request, metrics, boundary, arm, "deepseek-v4-flash"
+            cache,
+            provider_wire,
+            request,
+            metrics,
+            boundary,
+            arm,
+            "deepseek-v4-flash",
         )
         observation["artifacts"] = {
             key: Path(path).relative_to(self.repo).as_posix()

@@ -20,6 +20,7 @@ from cache_run_analysis import (
     analyze_artifact_values,
     budget_observation_exceeded,
 )
+from cache_usage_contract import parse_provider_wire_usage
 from accepted_cache_ledger import exact_int, validate_ledger
 from cache_run_contract import (
     execution_matrix,
@@ -32,6 +33,7 @@ from cache_source_evidence import (
     protected_manifest,
     relative_path,
     require,
+    source_bytes,
     source_json,
     source_sha256,
 )
@@ -57,6 +59,7 @@ def validate_observation(
         key: relative_path(repo, observation["artifacts"][key])
         for key in (
             "cache_summary",
+            "provider_wire",
             "request_summary",
             "metrics",
             "provider_boundary",
@@ -77,7 +80,9 @@ def validate_observation(
         "cache observation evidence digest mismatch",
     )
     cache = source_json(repo, artifacts["cache_summary"], source)
-    request = source_json(repo, artifacts["request_summary"], source)["rollout_trace"]
+    provider_usage = parse_provider_wire_usage(
+        source_bytes(repo, artifacts["provider_wire"], source).decode("utf-8-sig")
+    )
     metrics = source_json(repo, artifacts["metrics"], source)
     boundary = source_json(repo, artifacts["provider_boundary"], source)
     validate_arm_identity(
@@ -87,7 +92,7 @@ def validate_observation(
     )
     recomputed = analyze_artifact_values(
         cache,
-        request,
+        provider_usage,
         metrics,
         boundary,
         observation["arm"],

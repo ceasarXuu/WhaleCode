@@ -2,6 +2,7 @@
 """Provider-boundary evidence builders shared by cache control-plane tests."""
 
 import hashlib
+import json
 from pathlib import Path
 
 from cache_surface import write_json
@@ -47,4 +48,44 @@ def write_provider_boundary_evidence(
             ],
             "errors": [],
         },
+    )
+
+
+def write_provider_wire_trace(
+    path: Path,
+    usage_records: list[dict[str, int]],
+    identity: str = "fixture",
+) -> None:
+    lines = []
+    for index, usage in enumerate(usage_records, 1):
+        request_id = f"request-{index}"
+        digest = hashlib.sha256(f"{identity}:{index}".encode()).hexdigest()
+        completed_usage = {
+            "reasoning_output_tokens": 0,
+            "total_tokens": usage["input_tokens"] + usage["output_tokens"],
+            **usage,
+        }
+        lines.extend(
+            (
+                {
+                    "schema_version": "provider-chat-wire-trace-v10",
+                    "status": "payload_captured",
+                    "request_id": request_id,
+                    "request_index": index,
+                    "provider_payload_sha256": digest,
+                },
+                {
+                    "schema_version": "provider-chat-wire-trace-v10",
+                    "status": "response_completed",
+                    "request_id": request_id,
+                    **completed_usage,
+                },
+            )
+        )
+    path.write_text(
+        "".join(
+            json.dumps(line, ensure_ascii=False, separators=(",", ":")) + "\n"
+            for line in lines
+        ),
+        encoding="utf-8",
     )
