@@ -185,6 +185,7 @@ def benchmark_command(
         policy,
         "-RunSide",
         side,
+        "-AllowNonE2Result",
         "-TimeoutSeconds",
         str(proposal["per_sample_run_limits"]["elapsed_seconds"]),
         "-ProviderRequestHardLimit",
