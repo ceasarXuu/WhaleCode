@@ -1,8 +1,25 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use codex_tools::FreeformTool;
+use codex_tools::FreeformToolFormat;
+use codex_tools::JsonSchema;
+use codex_tools::ResponsesApiTool;
+use codex_tools::ToolSpec;
+use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
+
+use crate::function_tool::FunctionCallError;
 use crate::session::tests::make_session_and_context;
+use crate::tools::context::FunctionToolOutput;
+use crate::tools::context::ToolCallSource;
+use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
+use crate::tools::nested_call::build_native_nested_tool_call;
+use crate::tools::registry::ToolHandler;
+use crate::tools::registry::ToolKind;
+use crate::tools::registry::ToolRegistryBuilder;
+use crate::turn_diff_tracker::TurnDiffTracker;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::models::ShellCommandToolCallParams;
 use codex_tools::ToolName;
@@ -10,6 +27,37 @@ use codex_tools::ToolName;
 use super::ToolCall;
 use super::ToolRouter;
 use super::ToolRouterParams;
+
+#[derive(Default)]
+struct RecordingHandler {
+    calls: Mutex<Vec<(String, String)>>,
+}
+
+impl ToolHandler for RecordingHandler {
+    type Output = FunctionToolOutput;
+
+    fn kind(&self) -> ToolKind {
+        ToolKind::Function
+    }
+
+    fn matches_kind(&self, payload: &ToolPayload) -> bool {
+        matches!(
+            payload,
+            ToolPayload::Function { .. } | ToolPayload::Custom { .. }
+        )
+    }
+
+    async fn handle(&self, invocation: ToolInvocation) -> Result<Self::Output, FunctionCallError> {
+        self.calls.lock().await.push((
+            invocation.tool_name.display(),
+            invocation.payload.log_payload().into_owned(),
+        ));
+        Ok(FunctionToolOutput::from_text(
+            "recorded".to_string(),
+            Some(true),
+        ))
+    }
+}
 
 #[tokio::test]
 #[expect(
@@ -252,5 +300,84 @@ async fn ordinary_tool_payload_is_forwarded_without_taskspace_parsing() -> anyho
         panic!("expected function payload");
     };
     assert_eq!(forwarded, arguments);
+    Ok(())
+}
+
+#[tokio::test]
+async fn nested_native_calls_reuse_original_router_in_declared_order() -> anyhow::Result<()> {
+    let function_name = ToolName::plain("inspect");
+    let freeform_name = ToolName::plain("patch");
+    let function_spec = ToolSpec::Function(ResponsesApiTool {
+        name: function_name.name.clone(),
+        description: String::new(),
+        strict: false,
+        defer_loading: None,
+        parameters: JsonSchema::default(),
+        output_schema: None,
+    });
+    let freeform_spec = ToolSpec::Freeform(FreeformTool {
+        name: freeform_name.name.clone(),
+        description: String::new(),
+        format: FreeformToolFormat {
+            r#type: "grammar".into(),
+            syntax: "lark".into(),
+            definition: String::new(),
+        },
+    });
+    let handler = Arc::new(RecordingHandler::default());
+    let mut builder = ToolRegistryBuilder::new();
+    builder.push_spec(function_spec.clone());
+    builder.push_spec(freeform_spec.clone());
+    builder.register_handler(function_name.clone(), Arc::clone(&handler));
+    builder.register_handler(freeform_name.clone(), Arc::clone(&handler));
+    let (specs, registry) = builder.build();
+    let router = ToolRouter {
+        registry,
+        model_visible_specs: specs.iter().map(|item| item.spec.clone()).collect(),
+        specs,
+        parallel_mcp_server_names: HashSet::new(),
+    };
+    let (session, turn) = make_session_and_context().await;
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    let tracker = Arc::new(Mutex::new(TurnDiffTracker::new()));
+
+    let calls = [
+        build_native_nested_tool_call(
+            &function_spec,
+            function_name,
+            "nested-function".into(),
+            Some(serde_json::json!({"path": "README.md"})),
+        )
+        .map_err(anyhow::Error::msg)?,
+        build_native_nested_tool_call(
+            &freeform_spec,
+            freeform_name,
+            "nested-freeform".into(),
+            Some(serde_json::Value::String("patch body".into())),
+        )
+        .map_err(anyhow::Error::msg)?,
+    ];
+
+    for call in calls {
+        router
+            .dispatch_tool_call_with_code_mode_result(
+                Arc::clone(&session),
+                Arc::clone(&turn),
+                CancellationToken::new(),
+                Arc::clone(&tracker),
+                call,
+                ToolCallSource::Direct,
+            )
+            .await?;
+    }
+
+    assert_eq!(
+        *handler.calls.lock().await,
+        vec![
+            ("inspect".to_string(), r#"{"path":"README.md"}"#.to_string()),
+            ("patch".to_string(), "patch body".to_string()),
+        ]
+    );
     Ok(())
 }

@@ -4,6 +4,7 @@ pub(crate) mod events;
 pub(crate) mod failure_provenance;
 pub(crate) mod handlers;
 pub(crate) mod hook_names;
+pub(crate) mod nested_call;
 pub(crate) mod network_approval;
 pub(crate) mod orchestrator;
 pub(crate) mod output_reference;
