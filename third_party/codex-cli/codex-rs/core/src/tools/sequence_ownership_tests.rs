@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
+use codex_protocol::protocol::ActionMapSnapshot;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
@@ -162,12 +164,18 @@ fn recording_router(events: Arc<Mutex<Vec<String>>>, ready_frontier: Arc<Barrier
         ready_frontier,
     });
     let mut builder = ToolRegistryBuilder::new();
-    for name in ["mvt_client_a", "mvt_hosted_b", "mvt_client_c"] {
+    for name in [
+        "mvt_client_a",
+        "mvt_hosted_b",
+        "mvt_client_c",
+        "apply_patch",
+    ] {
         builder.push_spec_with_parallel_support(function_spec(name), true);
     }
     builder.register_handler("mvt_client_a", Arc::clone(&client));
     builder.register_handler("mvt_hosted_b", hosted);
-    builder.register_handler("mvt_client_c", client);
+    builder.register_handler("mvt_client_c", Arc::clone(&client));
+    builder.register_handler("apply_patch", client);
     ToolRouter::from_builder_for_test(builder)
 }
 
@@ -199,6 +207,37 @@ fn output_call_ids(outputs: &[ResponseInputItem]) -> Vec<&str> {
             ResponseInputItem::Message { .. } => None,
         })
         .collect()
+}
+
+fn factual_message(outputs: &[ResponseInputItem]) -> serde_json::Value {
+    let Some(ResponseInputItem::Message { content, .. }) = outputs.last() else {
+        panic!("response-level factual message must be last");
+    };
+    let text = content
+        .iter()
+        .find_map(|item| match item {
+            ContentItem::InputText { text } => Some(text),
+            _ => None,
+        })
+        .expect("factual JSON");
+    serde_json::from_str(text).expect("factual message JSON")
+}
+
+async fn execute_initialized_frontier(
+    runtime: &ToolCallRuntime,
+    session: &crate::session::session::Session,
+    events: &Arc<Mutex<Vec<String>>>,
+) -> ActionMapSnapshot {
+    let mut calls = vec![initialize_work_batch(false)];
+    calls.extend(work_calls());
+    execute_response_tool_sequence(runtime.clone(), calls, CancellationToken::new())
+        .await
+        .expect("initialize ready frontier");
+    events.lock().await.clear();
+    session
+        .canonical_action_map_snapshot()
+        .await
+        .expect("snapshot")
 }
 
 #[tokio::test]
@@ -292,4 +331,124 @@ async fn dependent_successors_in_one_batch_are_rejected_before_any_adapter_runs(
         outcome.outputs.last(),
         Some(ResponseInputItem::Message { .. })
     ));
+}
+
+#[tokio::test]
+async fn stale_revision_and_unknown_node_reject_before_any_adapter_runs() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let router = recording_router(Arc::clone(&events), Arc::new(Barrier::new(3)));
+    let (session, runtime) = test_runtime(router).await;
+    let before = execute_initialized_frontier(&runtime, &session, &events)
+        .await
+        .map
+        .expect("initialized map");
+
+    for (label, expected_revision, node_id, expected_code) in [
+        (
+            "stale-revision",
+            before.revision.saturating_sub(1),
+            "local-a",
+            "stale_revision",
+        ),
+        (
+            "unknown-node",
+            before.revision,
+            "missing-node",
+            "transition_invalid",
+        ),
+    ] {
+        let control = function_call(
+            "taskspace_control",
+            &format!("{label}-control"),
+            serde_json::json!({
+                "action": "execute",
+                "expected_revision": expected_revision,
+                "actions": [
+                    {"node_id": node_id, "tool": "mvt_client_a"},
+                    {"node_id": "hosted-b", "tool": "mvt_hosted_b"},
+                    {"node_id": "local-c", "tool": "mvt_client_c"}
+                ]
+            })
+            .to_string(),
+        );
+        let mut calls = vec![control];
+        calls.extend(work_calls());
+        let outcome =
+            execute_response_tool_sequence(runtime.clone(), calls, CancellationToken::new())
+                .await
+                .expect("state rejection response");
+
+        assert!(events.lock().await.is_empty(), "{label} dispatched a Tool");
+        let failure = factual_message(&outcome.outputs);
+        assert_eq!(failure["state_commit"], false, "{label}");
+        assert_eq!(failure["executed_tool_call_count"], 0, "{label}");
+        assert_eq!(failure["error"]["violations"][0]["code"], expected_code);
+        if label == "unknown-node" {
+            assert_eq!(
+                failure["error"]["violations"][0]["subjects"],
+                serde_json::json!(["missing-node"])
+            );
+        }
+        let after = session
+            .canonical_action_map_snapshot()
+            .await
+            .expect("snapshot")
+            .map
+            .expect("initialized map");
+        assert_eq!(after.revision, before.revision, "{label}");
+        assert_eq!(after.results, before.results, "{label}");
+        assert!(after.reservations.is_empty(), "{label}");
+    }
+}
+
+#[tokio::test]
+async fn second_patch_rejects_before_client_or_hosted_adapter_runs() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let router = recording_router(Arc::clone(&events), Arc::new(Barrier::new(3)));
+    let (session, runtime) = test_runtime(router).await;
+    let before = execute_initialized_frontier(&runtime, &session, &events)
+        .await
+        .map
+        .expect("initialized map");
+    let control = function_call(
+        "taskspace_control",
+        "second-patch-control",
+        serde_json::json!({
+            "action": "execute",
+            "expected_revision": before.revision,
+            "actions": [
+                {"node_id": "local-a", "tool": "apply_patch"},
+                {"node_id": "hosted-b", "tool": "apply_patch"},
+                {"node_id": "local-c", "tool": "mvt_hosted_b"}
+            ]
+        })
+        .to_string(),
+    );
+    let calls = vec![
+        control,
+        function_call("apply_patch", "patch-a", "{}"),
+        function_call("apply_patch", "patch-b", "{}"),
+        function_call("mvt_hosted_b", "hosted-after-patches", "{}"),
+    ];
+    let outcome = execute_response_tool_sequence(runtime, calls, CancellationToken::new())
+        .await
+        .expect("multiple patch rejection response");
+
+    assert!(events.lock().await.is_empty());
+    let failure = factual_message(&outcome.outputs);
+    assert_eq!(failure["state_commit"], false);
+    assert_eq!(failure["request"]["executed_tool_call_count"], 0);
+    assert_eq!(
+        failure["error"]["code"],
+        "request_multiple_apply_patch_calls_not_allowed"
+    );
+    let after = session
+        .canonical_action_map_snapshot()
+        .await
+        .expect("snapshot")
+        .map
+        .expect("initialized map");
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.results, before.results);
+    assert!(after.reservations.is_empty());
 }
