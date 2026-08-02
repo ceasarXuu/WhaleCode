@@ -1,7 +1,124 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-02T18:01:02+08:00",
+  "updated_at": "2026-08-02T18:20:45+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260802-181842-CACHE-REGRESSION-7A794B3A",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-02T18:18:51+08:00",
+      "ended_at": "2026-08-02T18:20:45+08:00",
+      "elapsed_calendar_seconds": 114.633,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户批准两轮预算，第一轮执行 R8 Tool Sequence MVT-0 Standard 与 map-request 各一次；若失败允许再执行一轮，当前提案仅对应第一轮且禁止自动重试。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260802-SEQUENCE-R1-94C0F4C009ACD2C8",
+        "reference": "用户在当前会话明确回复‘批准两轮预算，允许再失败一次，继续’，批准 R8 Tool Sequence MVT-0 最多两轮；本授权仅对应第一轮 Standard 与 map-request 各一次。",
+        "budget_summary": {
+          "provider_requests": 20,
+          "input_tokens": 20000000,
+          "output_tokens": 7680000,
+          "elapsed_seconds": 1440,
+          "estimated_cost": 4.9504,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-94C0F4C009ACD2C8。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "03aaa3d5a171b923483e5fe4b296459a9bb6eca61e07f2679a79d9b1e1fd7d33",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 15,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 219143,
+        "cached_input": 171392,
+        "uncached_input": 47751,
+        "output": 3985
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.0082808376,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00047989759999999995,
+          "uncached_input": 0.006685140000000001,
+          "output": 0.0011158000000000001
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A",
+        "subject_commit": "0c9dd07aa91808ab01abe1a77a27ce20c907931c",
+        "surface_sha256": "204978af2218017fe58f2322973b2a605cce6ec16e1e91f92ef4386aa1e3926b",
+        "proposal_id": "CBP-94C0F4C009ACD2C8",
+        "proposal_contract_sha256": "a488a59c24d9ec5c77380d8873b3b2d80e3d6f4081d6ac58b20677e1af27d9bf",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-94C0F4C009ACD2C8.json",
+        "proposal_sha256": "ddeddc2b2ebd843a09767bc045491a8c8d4cefab377f77258945e04ae9340f61",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260802-SEQUENCE-R1-94C0F4C009ACD2C8.json",
+        "authorization_sha256": "f68216a404c2394eea23dd9a33266aa04176afba14e83b433cc0c253ba1d4640",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户批准两轮预算，第一轮执行 R8 Tool Sequence MVT-0 Standard 与 map-request 各一次；若失败允许再执行一轮，当前提案仅对应第一轮且禁止自动重试。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "2733873724cb5cda0a613e860f845135ea95b349cd6eba5e481fcd118505379c",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260802-180016-CACHE-REGRESSION-2E8B3F50",
       "record_type": "run_batch",

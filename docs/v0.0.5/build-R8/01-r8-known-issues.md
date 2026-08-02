@@ -97,6 +97,9 @@ I02 当前缓存证据：
   命中率为 96.62%，map-request 为 35.79%；两臂业务均通过，provider usage 覆盖率均为 100%。
 - [缓存命中回归门禁子主题](cache-regression/README.md)：门禁自身的覆盖、误报、证据身份和修复计划独立维护，
   不重复增加 R8 产品问题编号。
+- [MVT-0 accepted baseline](cache-regression/21-mvt0-accepted-baseline-result.md)：最新同批次 Standard/map-request
+  request 2+ 命中率为 97.90%/67.85%，两臂业务与 usage 均通过；一次 state rejection 仍被复制到 control output、
+  普通 Tool output 和 developer message，因此 I02/I05 保持 open。
 
 ## 4. 依赖与重评关系
 

@@ -1,7 +1,7 @@
 # R8 TaskSpace Tool 序列协议专题
 
 - Created: 2026-08-01
-- Status: Product definition confirmed / engineering feasibility planned
+- Status: MVT-0 completed / MVT-1 next
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Tool 顺序、节点归属与 Runtime 硬边界
 
@@ -22,6 +22,9 @@ Agent 生成动作时直接表达“这些调用共同构成一个合法序列�
 产品逻辑和不可违反的约束已经形成基线。当前先验证“单一序列容器 + 执行归属分派”能否在不侵入原生 Tool、
 不放松执行前预检、也不改变 Standard provider wire 的前提下复用现有基建。可行性验证只回答基础路线是否成立，
 不提前实施完整序列协议。
+
+MVT-0 已完成并形成用户接受的 Standard + map-request 真实基线。当前下一项为 MVT-1：只验证普通 Tool 从序列项
+还原后能否复用现有 `ToolRouter`，不启动真实 Agent，不进入 hosted provider 适配。
 
 文档顺序：
 

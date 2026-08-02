@@ -1217,23 +1217,13 @@ expression: "serde_json::to_string_pretty(&append)?"
       },
       {
         "call_id": "taskspace-init",
-        "output": "{\"action\":\"initialize_and_execute\",\"map_id\":\"<MAP_ID>\",\"reserved_actions\":[{\"call_id\":\"taskspace-exec\",\"call_index\":0,\"node_id\":\"work\",\"reservation_id\":\"<MAP_ID>:reservation:taskspace-init:0:taskspace-exec\",\"tool\":\"exec_command\"}],\"revision_after\":1,\"revision_before\":0,\"schema_version\":\"TaskSpaceResponseCommitV1\",\"state_commit\":true,\"status\":\"accepted\",\"success\":true}",
+        "output": "{\"action\":\"initialize_and_execute\",\"canonical_revision\":2,\"map_id\":\"<MAP_ID>\",\"reserved_actions\":[{\"call_id\":\"taskspace-exec\",\"call_index\":0,\"node_id\":\"work\",\"reservation_id\":\"<MAP_ID>:reservation:taskspace-init:0:taskspace-exec\",\"tool\":\"exec_command\"}],\"schema_version\":\"TaskSpaceResponseResultV2\",\"settlement\":{\"attributed_result_count\":1,\"outstanding_reservation_count\":0,\"prepared_action_count\":1},\"state_commit\":true,\"status\":\"settled\",\"success\":true}",
         "type": "function_call_output"
       },
       {
         "call_id": "taskspace-exec",
         "output": "Execution outcome: exited\nShell exit code: 0\nPipeline stage exit codes: unavailable\nTermination signal: unavailable\nWall time: 0 seconds\nOutput:\ntaskspace-contract",
         "type": "function_call_output"
-      },
-      {
-        "content": [
-          {
-            "text": "{\"attributed_result_count\":1,\"canonical_revision\":2,\"control_call_id\":\"taskspace-init\",\"map_id\":\"<MAP_ID>\",\"outstanding_reservation_count\":0,\"prepared_action_count\":1,\"receipt_only\":true,\"reservation_revision_after\":1,\"schema_version\":\"TaskSpaceResponseFinalReceiptV1\",\"status\":\"complete\",\"success\":true}",
-            "type": "input_text"
-          }
-        ],
-        "role": "developer",
-        "type": "message"
       },
       {
         "content": [

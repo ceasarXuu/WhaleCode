@@ -2,7 +2,7 @@
 
 - Date: 2026-08-02
 - Commit: `c2246a6f1`
-- Status: 离线修复完成；真实双臂复验待新预算
+- Status: 修复与真实双臂复验完成
 - Related run: `WAR-20260802-180016-CACHE-REGRESSION-2E8B3F50`
 
 ## 1. 本轮事实
@@ -60,5 +60,7 @@ usage 覆盖完整、provider boundary 对账通过、预算未超限、容器/�
 | `git diff --check` | passed |
 | 缓存敏感面 staged gate | passed；指纹仍为 `204978af...`；政策变化待真实验证，发布保持阻断 |
 
-本轮授权已经消费，不能在修复后复用。map-request 仍未验证，MVT-0 保持 blocked；后续需要新预算重新运行同批次
-Standard + map-request，才能判断 MVT-0 是否完成并处理 accepted baseline。
+本轮授权已经消费，不能在修复后复用。后续获批运行
+`WAR-20260802-181842-CACHE-REGRESSION-7A794B3A` 已完成 Standard + map-request 同批次复验，证明单臂成功可继续
+下一臂；结果已由用户接受并完成 promotion，见
+[`21-mvt0-accepted-baseline-result.md`](21-mvt0-accepted-baseline-result.md)。

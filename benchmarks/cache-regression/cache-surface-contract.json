@@ -1,11 +1,90 @@
 {
   "schema_version": "whalecode-cache-surface-v1",
   "baseline": {
-    "surface_sha256": "9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc",
-    "status": "live_regression_failed",
-    "source_commit": "6e492ea63",
-    "live_result_path": "benchmarks/cache-regression/results/WAR-20260731-121102-CACHE-REGRESSION-03B04648.json",
-    "note": "最近一次已授权真实缓存回归未通过；修复并重新获批验证前保持阻断。"
+    "status": "accepted",
+    "surface_sha256": "204978af2218017fe58f2322973b2a605cce6ec16e1e91f92ef4386aa1e3926b",
+    "source_commit": "0c9dd07aa91808ab01abe1a77a27ce20c907931c",
+    "accepted_at": "2026-08-02T18:27:18+08:00",
+    "acceptance_reference": "用户在当前会话明确回复‘接受’，同意将 WAR-20260802-181842-CACHE-REGRESSION-7A794B3A 作为 R8 Tool Sequence MVT-0 当前缓存基线；该接受不代表关闭 I02/I05 或认可 map-request 成本水平。",
+    "acceptance_evidence": {
+      "path": "benchmarks/cache-regression/acceptances/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A.json",
+      "sha256": "17b4b91607a20bac67073a4d945fc20669306d31163010edd825002c97c9d914"
+    },
+    "final_wire_manifest": [
+      {
+        "scenario_id": "taskspace_production_tool_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
+        "payload_sha256": "a5ceed2e2e8fa8fa7f70653d2a879e685a9ac1f98582f4e7159fec91d6b44310"
+      },
+      {
+        "scenario_id": "app_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_capabilities_contract__app_two_request_final_wire.snap",
+        "payload_sha256": "77a193b2ea84c450bed32245413d40a31afdfb743db04a92e780bc9abb4df6a9"
+      },
+      {
+        "scenario_id": "plugin_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_capabilities_contract__plugin_two_request_final_wire.snap",
+        "payload_sha256": "40392e098dc35cd70b4db1adc24e0abde0e6653b87225c0e68f89dbde3078c7b"
+      },
+      {
+        "scenario_id": "local_compaction_three_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_compaction_contract__local_compaction_three_request_final_wire.snap",
+        "payload_sha256": "cb8e0d2dc4ef105285ad3bace0be452ed0888f7b45069787eeca10fddaab0528"
+      },
+      {
+        "scenario_id": "standard_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
+        "payload_sha256": "3e6f1602ab3a1a2349420afafca95570b25ce7eca1faad07de1d7c649a956c08"
+      },
+      {
+        "scenario_id": "taskspace_map_always_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__taskspace_map_always_two_request_final_wire.snap",
+        "payload_sha256": "89d8a90c7e7e03de8222732ccee24895ba6d02b4c1e51107176a9e46729f7825"
+      },
+      {
+        "scenario_id": "taskspace_map_append_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__taskspace_map_append_two_request_final_wire.snap",
+        "payload_sha256": "9981e6e6ad87f05f72ee91e64902b2dda56ad8257894845b1ecc0aa3dd7567c7"
+      },
+      {
+        "scenario_id": "taskspace_map_request_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__taskspace_map_request_two_request_final_wire.snap",
+        "payload_sha256": "6ac8d5ea071f6080b7969d2657e01eb125c1925ce977d09b2d13b2d7811fec57"
+      },
+      {
+        "scenario_id": "mcp_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_mcp_contract__mcp_two_request_final_wire.snap",
+        "payload_sha256": "e30388d5a5c61fc094c594a979947820ba6fb51d6d5ccef451dc84580c57da1d"
+      },
+      {
+        "scenario_id": "restricted_permissions_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_permissions_contract__restricted_permissions_two_request_final_wire.snap",
+        "payload_sha256": "7811a013da3b3965052a84bd58b46fdd3fe1f3a27045043b20f867ffaa5bb574"
+      },
+      {
+        "scenario_id": "selected_bundled_skill_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_skill_contract__selected_bundled_skill_two_request_final_wire.snap",
+        "payload_sha256": "367b29ddd389d03b5b371b6829013692439bfab874da66d9c83d140f50ad522a"
+      }
+    ],
+    "final_wire_manifest_sha256": "22dbe47c562b23b50a14906f5682852c97821c5324600acdff02a5283c3b129c",
+    "smoke_evidence": {
+      "result_path": "benchmarks/cache-regression/results/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A.json",
+      "result_sha256": "313450581c004781f804edec2b7ab2a7fdc3664630b226f32f7c203302fcfc97",
+      "proposal_id": "CBP-94C0F4C009ACD2C8",
+      "model": "deepseek-v4-flash",
+      "samples": [
+        "single-file-fast-fix"
+      ],
+      "arms": [
+        "standard",
+        "map-request"
+      ],
+      "repeat": 1,
+      "actual_sample_runs": 2,
+      "unverified_scope": []
+    },
+    "note": "仅接受所列 final-wire 场景，并仅引用实际执行的 smoke 范围。"
   },
   "surface_rules": [
     {
@@ -106,7 +185,16 @@
       {
         "id": "final_wire_matrix",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "cache_payload_"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--test",
+          "all",
+          "cache_payload_"
+        ],
         "timeout_seconds": 600,
         "change_report": {
           "type": "final_wire_snapshot_set",
@@ -118,7 +206,16 @@
       {
         "id": "tool_wire_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "taskspace_tools_use_production_wire_schema"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--test",
+          "all",
+          "taskspace_tools_use_production_wire_schema"
+        ],
         "timeout_seconds": 600,
         "change_report": {
           "type": "final_wire_snapshot_set",
@@ -130,31 +227,62 @@
       {
         "id": "provider_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-model-provider-info", "deepseek"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-model-provider-info",
+          "deepseek"
+        ],
         "timeout_seconds": 120
       },
       {
         "id": "model_catalog_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-models-manager", "deepseek"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-models-manager",
+          "deepseek"
+        ],
         "timeout_seconds": 120
       },
       {
         "id": "default_route_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--lib", "defaults_to_deepseek_flash_responses_provider"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--lib",
+          "defaults_to_deepseek_flash_responses_provider"
+        ],
         "timeout_seconds": 600
       },
       {
         "id": "usage_decoder_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-api"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-api"
+        ],
         "timeout_seconds": 300
       },
       {
         "id": "final_wire_comparison_contract",
         "cwd": ".",
-        "argv": ["python3", "scripts/cache-regression/test_cache_payload_contract.py"],
+        "argv": [
+          "python3",
+          "scripts/cache-regression/test_cache_payload_contract.py"
+        ],
         "timeout_seconds": 60
       }
     ]
