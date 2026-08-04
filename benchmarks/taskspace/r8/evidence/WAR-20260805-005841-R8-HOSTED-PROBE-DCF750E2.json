@@ -1,0 +1,66 @@
+{
+  "schema_version": "r8-hosted-container-probe-v1",
+  "record_id": "WAR-20260805-005841-R8-HOSTED-PROBE-DCF750E2",
+  "generated_at": "2026-08-05T01:03:27+08:00",
+  "model": "deepseek-v4-flash",
+  "endpoint": "https://api.deepseek.com/responses",
+  "repeat_limit": 2,
+  "automatic_retries": 0,
+  "observations": [
+    {
+      "http_status": 200,
+      "event_count": 1033,
+      "provider_web_item_ids": [
+        "call_00_Gs0GByqxruQmIvnqZNaL4976",
+        "call_01_3HoOUJvJKNuxQtBtYLYX0670",
+        "call_02_I7F9ySxTfUnRnEf5UTz71157",
+        "call_03_Ei2fziUvIei5uQgXjUoB4617",
+        "call_04_Hsjm0DWk5AABKGih0hxD9023"
+      ],
+      "container_call_count": 1,
+      "container_arguments": {
+        "node_id": "research-node",
+        "provider_item_id": "https://api-docs.deepseek.com/quick_start/pricing/?push_animated=1&show_loading=0&theme=light&webview_progress_bar=1"
+      },
+      "hosted_and_container_coexist": true,
+      "provider_id_echo_exact": false,
+      "node_id_exact": true,
+      "protocol_supported": true,
+      "usage": {
+        "input_tokens": 11119,
+        "cached_input_tokens": 7424,
+        "uncached_input_tokens": 3695,
+        "output_tokens": 1325
+      },
+      "repeat": 1,
+      "elapsed_seconds": 15.666
+    },
+    {
+      "http_status": 200,
+      "event_count": 2022,
+      "provider_web_item_ids": [
+        "call_00_tpCzezMAhe5A8t5BNX0A0469"
+      ],
+      "container_call_count": 1,
+      "container_arguments": {
+        "node_id": "research-node",
+        "provider_item_id": "https://api-docs.deepseek.com/quick_start/pricing/"
+      },
+      "hosted_and_container_coexist": true,
+      "provider_id_echo_exact": false,
+      "node_id_exact": true,
+      "protocol_supported": true,
+      "usage": {
+        "input_tokens": 3433,
+        "cached_input_tokens": 1408,
+        "uncached_input_tokens": 2025,
+        "output_tokens": 2105
+      },
+      "repeat": 2,
+      "elapsed_seconds": 21.574
+    }
+  ],
+  "all_coexist": true,
+  "all_provider_ids_exact": false,
+  "all_node_ids_exact": true
+}

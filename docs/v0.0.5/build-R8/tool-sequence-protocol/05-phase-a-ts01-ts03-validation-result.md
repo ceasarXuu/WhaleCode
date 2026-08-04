@@ -126,16 +126,17 @@ OpenAI Responses 的 `tool_choice=required` 只保证调用一个或多个允许
 同时出现；named function choice 可以强制容器，但不表达“容器必选且 Hosted Tool 仍可选”。仓库当前 `ToolChoice` 也只有
 `Auto`、`None`、`Required` 和单一 named Function 四种形状。
 
-因此本地 wire 已证明“容器和 Hosted descriptor 可以同时暴露”，但尚未证明 Provider 会在需要 Hosted Tool 时稳定同时生成
-容器。这是 Agent 行为/Provider 能力验证，不应由 serde fixture 冒充通过。
+本地 wire 只能证明“容器和 Hosted descriptor 可以同时暴露”。后续真实 Provider 探针已进一步取得 2/2 同响应共存，
+详见 [`06-hosted-container-provider-probe-result.md`](06-hosted-container-provider-probe-result.md)。这证明当前模型具备该能力，
+但 `tool_choice=auto` 仍不构成容器必达的协议硬保证。
 
 ## 6. 下一步与安全停止
 
-1. TS-06 先冻结最小节点归属合同，不再讨论 Agent 回显 Provider ID 或另造调用 ID。
-2. 用本地 fixture 验证同类型多次 Hosted Tool、并行乱序完成、重复绑定和无绑定结果；原始 Provider 事实必须始终保留。
-3. `tool_choice` 暂保持 provider 原生 `auto`；本地代码不能伪称它保证容器必达。
-4. 合同 fixture 通过后，再申请最小真实 Provider 预算验证 Hosted Tool 与容器在实际模型响应中的共存率和行动路径。
-5. 若实际模型会稳定漏掉容器，返回产品设计停点，不用事后惩罚、内容猜配或 Runtime 语义补全掩盖。
+1. 用户确认是否接受“同一 Response 的 Hosted output 全部归属一个 Agent 声明节点”的最简合同。
+2. 获准后由 TS-06 冻结 `hosted_node_id`，不得要求 Agent 回显 Provider ID 或另造调用 ID。
+3. 用本地 fixture 验证同类型多次 Hosted Tool、并行乱序完成、无容器结果和重复结算；原始 Provider 事实必须始终保留。
+4. `tool_choice` 保持 Provider 原生 `auto`；缺失容器时事实为 unbound，不伪称 Runtime 能强制容器必达。
+5. 后续复杂样本继续观测容器缺失率；若稳定漏掉容器，再返回产品设计停点。
 
 当前证据不推翻容器，但也没有证明完整产品路径。它关闭了“Provider 调用身份”问题，并把后续验证准确收敛到“节点归属”与
 “容器必达性”。

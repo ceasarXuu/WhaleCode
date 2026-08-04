@@ -53,7 +53,9 @@ capability；顶层 client-managed Tool 不再单独暴露。正式工程计划�
    单一 Map transaction 和唯一 binding 来源验证结果。
 6. [`05-phase-a-ts01-ts03-validation-result.md`](05-phase-a-ts01-ts03-validation-result.md)：client Tool 能力矩阵、hosted
    identity/request wire 本地验证，以及节点归属与容器必达性的剩余合同缺口。
-7. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
+7. [`06-hosted-container-provider-probe-result.md`](06-hosted-container-provider-probe-result.md)：DeepSeek V4 Flash 两轮
+   真实 Provider 探针，验证 Hosted Tool 与容器共存、节点声明和 Provider ID 可见性。
+8. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
 
 ## 3. 与 R8 其他问题的关系
 
