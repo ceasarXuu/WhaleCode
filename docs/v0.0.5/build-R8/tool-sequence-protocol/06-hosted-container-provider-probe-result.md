@@ -70,8 +70,9 @@ TS-06 不得再设计 `provider_result_ref.response_item_id` 让 Agent 逐项填
 中观察到的全部 Hosted output item ID 机械登记到该节点。
 
 该候选没有内容匹配、ordinal、自造调用 ID 或 Agent 回显，但会形成一个明确产品限制：**同一 Response 的 Hosted Tool
-事实只能归属一个节点**。多个节点分别需要 Hosted 工作时必须拆成不同 Response。这个限制影响并行性和请求成本，必须由
-用户确认后才能冻结 schema 和本地正反 fixture。
+事实只能归属一个节点**。多个节点分别需要 Hosted 工作时必须拆成不同 Response。用户已在 2026-08-05 接受该限制进入
+本地合同验证；验证结果见
+[`07-ts06-hosted-response-scope-mvt-result.md`](07-ts06-hosted-response-scope-mvt-result.md)。
 
 若实际响应缺少容器，Provider 原始事实必须保留为 unbound；Runtime 不能丢弃、重执行或推断节点。后续是否允许 Agent
 使用 Runtime 暴露的真实 ID 补绑定，属于恢复合同，不应掩盖正常路径的容器缺失率。

@@ -25,6 +25,9 @@ pub(crate) mod tool_search_entry;
 #[cfg(test)]
 mod taskspace_sequence_context_tests;
 
+#[cfg(test)]
+mod taskspace_hosted_binding_contract_tests;
+
 use codex_protocol::exec_output::ExecOutputMetadata;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_utils_output_truncation::TruncationPolicy;

@@ -1,7 +1,7 @@
 # Phase A TS-01～TS-03 提前验证结果
 
 - Date: 2026-08-04
-- Status: TS-01～TS-03 completed / hosted node binding and container presence remain contract gaps
+- Status: TS-01～TS-03 completed / Hosted 节点归属合同片段已在 TS-06 验证
 - Scope: client Tool 能力边界、provider-native hosted 输出身份、TaskSpace 请求 wire
 - Runtime change: 无生产行为变化；只新增两项 `codex-api` 协议回归测试
 - Whale Agent/API run: 未执行，token 与费用均为 0
@@ -130,11 +130,12 @@ OpenAI Responses 的 `tool_choice=required` 只保证调用一个或多个允许
 详见 [`06-hosted-container-provider-probe-result.md`](06-hosted-container-provider-probe-result.md)。这证明当前模型具备该能力，
 但 `tool_choice=auto` 仍不构成容器必达的协议硬保证。
 
-## 6. 下一步与安全停止
+## 6. 后续验证状态
 
-1. 用户确认是否接受“同一 Response 的 Hosted output 全部归属一个 Agent 声明节点”的最简合同。
-2. 获准后由 TS-06 冻结 `hosted_node_id`，不得要求 Agent 回显 Provider ID 或另造调用 ID。
-3. 用本地 fixture 验证同类型多次 Hosted Tool、并行乱序完成、无容器结果和重复结算；原始 Provider 事实必须始终保留。
+1. 用户已接受“同一 Response 的 Hosted output 全部归属一个 Agent 声明节点”的最简合同。
+2. TS-06 已用本地 fixture 验证 `hosted_node_id`、混合状态、无容器、重复、重放与冲突；详见
+   [`07-ts06-hosted-response-scope-mvt-result.md`](07-ts06-hosted-response-scope-mvt-result.md)。
+3. Agent 不得回显 Provider ID 或另造调用 ID；Runtime 从原始响应逐项登记，原始 Provider 事实始终保留。
 4. `tool_choice` 保持 Provider 原生 `auto`；缺失容器时事实为 unbound，不伪称 Runtime 能强制容器必达。
 5. 后续复杂样本继续观测容器缺失率；若稳定漏掉容器，再返回产品设计停点。
 

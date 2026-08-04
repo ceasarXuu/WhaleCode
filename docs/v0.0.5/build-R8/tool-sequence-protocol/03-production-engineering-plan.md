@@ -1,8 +1,8 @@
 # TaskSpace Tool 序列容器正式工程计划
 
 - Created: 2026-08-02
-- Updated: 2026-08-04
-- Status: Active plan / product contract realigned / implementation not started
+- Updated: 2026-08-05
+- Status: Active plan / Hosted 归属合同片段已验证 / production implementation not started
 - Scope: 将 Tool 序列容器接入生产 TaskSpace，并兼容 provider 原生 hosted Tool 输出
 - Risk depth: Full，涉及 model-visible Tool API、provider 响应解析、Map 事务、反馈和缓存
 - Prerequisite: [`00-product-definition.md`](00-product-definition.md)
@@ -51,9 +51,12 @@ function call C1: taskspace_tools(...)
 
 其中 H1/H2 已由 provider 执行；C1 只负责：
 
-- 用稳定身份引用 H1/H2 并声明其 `node_id`；
+- 声明本响应全部 Hosted 事实所属的 `hosted_node_id`；
 - 声明需要 Runtime 执行的 client-managed Tool；
 - 声明 `taskspace_control` Map 操作。
+
+Agent 不读取或回填 H1/H2 的 provider ID。Runtime 从响应事实取得真实 ID，并在结算记录中把每项 Hosted 事实机械关联到
+`hosted_node_id`。
 
 ### 1.3 Runtime processing
 
@@ -75,14 +78,15 @@ provider 已经产生的原始输出事实。
 
 ## 2. 单一数据合同
 
-### 2.1 容器项类别
+### 2.1 Agent 声明与 Runtime 结算类别
 
-正式容器暂定名 `taskspace_tools`。每项必须属于以下三类之一：
+正式容器暂定名 `taskspace_tools`。Agent 输入只声明 Map/client 行动和可选的响应级 Hosted 作用域；Runtime 结算后形成
+三类逐项事实：
 
 | 类别 | Agent 声明 | 权威业务事实 | Runtime 动作 |
 |---|---|---|---|
 | `client_call` | `item_id`、`node_id`、原生 Tool 名和 input | 现有 ToolSpec 与 ToolRouter 结果 | 预检后执行一次 |
-| `provider_result_ref` | `item_id`、`node_id`、本响应 hosted 输出引用 | provider 原生输出 item | 核对、绑定、记录，不执行 |
+| `provider_result` | 响应级 `hosted_node_id`，不声明逐项 ID | provider 原生输出 item | 用真实 provider ID 逐项绑定、记录，不执行 |
 | `map_call` | `item_id`、`taskspace_control` 原生 input | canonical Map transaction | 经统一 ToolRouter 执行 |
 
 `taskspace_control` 在结构、Router 和 handler 地位上仍是普通 Tool。类别差异只来自它提供 Map 能力，不允许建立 control
@@ -94,6 +98,7 @@ provider 已经产生的原始输出事实。
 
 ```json
 {
+  "hosted_node_id": "research",
   "items": [
     {
       "kind": "map_call",
@@ -104,12 +109,6 @@ provider 已经产生的原始输出事实。
         "expected_revision": 12,
         "mutations": [{"action": "complete_node", "node_id": "inspect"}]
       }
-    },
-    {
-      "kind": "provider_result_ref",
-      "item_id": "hosted-1",
-      "node_id": "research",
-      "output_ref": {"response_item_id": "ws_123"}
     },
     {
       "kind": "client_call",
@@ -125,12 +124,14 @@ provider 已经产生的原始输出事实。
 冻结要求：
 
 1. `item_id` 在一个容器内唯一；内部身份由 `outer_call_id/item_id` 形成。
-2. `node_id` 对 client 和 provider ref 必填，对 map_call 禁止；Runtime 不默认、不继承、不推断。
+2. `node_id` 对 client 必填，对 map_call 禁止；Runtime 不默认、不继承、不推断。
 3. client `tool/input` 从现有 ToolSpec 机械派生，Function、Freeform、Namespace/MCP 不手写第二份协议。
-4. provider ref 只携带最小稳定身份和节点归属，不复制 Tool 名、参数、状态或结果；这些字段以 provider 输出为准。
+4. `hosted_node_id` 是本响应全部 Hosted 事实的唯一 Agent 归属声明；它不允许携带 provider ID、Tool 名、参数、状态或结果。
+   Runtime 仅用响应中的真实 provider ID 展开逐项结算事实。
 5. `taskspace_tools` 不得成为自己的 item，容器只允许一层。
 6. `taskspace_control` 删除 `actions[]`，只保留 Map 读取、图变更、节点生命周期和显式终态。
-7. provider ref 的最终身份字段必须先由本地 response fixture 证明稳定；不能退回按名称、位置或内容猜配。
+7. 同一响应的 Hosted 事实最多归属一个节点；多个节点需要 Hosted 工作时使用不同响应。缺少容器或 `hosted_node_id` 时，
+   原始事实保留为 unbound，不能按名称、位置或内容猜配。
 
 ### 2.3 合法行动形状
 
@@ -144,15 +145,16 @@ provider 已经产生的原始输出事实。
 | `[actions+, map_epilogue]` | Agent 显式变更节点或最终 finish | epilogue 是 Map 边界，不以 Tool 成功为前提 |
 | `[map_prelude, actions+, map_epilogue]` | 有限任务的一轮完整推进 | 分别验证两个 Map 边界与 action 归属 |
 
-`actions` 可以混合 client calls 与 provider result refs。B、C 是否有依赖，只由 Map 中 Agent 声明的边表达；容器不得
+`actions` 是 client calls；Hosted 事实由 Runtime 在同一响应结算时加入归属记录。B、C 是否有依赖，只由 Map 中 Agent 声明
+的边表达；容器不得
 用数组位置、Ready frontier、Tool 成败或隐藏 scheduler 推导 `B -> C`。
 
 以下结构拒绝尚未发生的 client/map 动作：
 
 - 初始化、reopen 或非终态 complete 后没有任何实际 action；
 - Map 操作位于 action 集合中间；
-- client/provider ref 缺失 `node_id`，或 map_call 伪造 `node_id`；
-- provider ref 不存在、重复引用或跨响应引用；
+- client 缺失 `node_id`，或 map_call 伪造 `node_id`；
+- `hosted_node_id` 为空、结构错误或试图携带 provider ID；
 - 超过一个 `apply_patch`；
 - 未知/重复/空 `item_id`，未知 Tool，递归容器；
 - 顶层出现 client-managed Tool、顶层 `taskspace_control` 或多个容器。
@@ -183,7 +185,8 @@ Node lifecycle fact:
 ### 3.2 可保证的原子边界
 
 - Provider-hosted 输出：已发生，不属于 Runtime 事务，不能回滚。
-- 容器结构与 hosted binding：可在本地完整核对；非法 binding 不写入 Map，但保留 provider 原始事实。
+- 容器结构与 hosted binding：可在本地完整核对；同响应真实 provider ID 只绑定一次。缺失作用域或绑定冲突不写入 Map，
+  但保留 provider 原始事实。
 - Map call：每个 call 使用 canonical transaction；不允许外层 sequence runtime 直接提交第二次。
 - Client call：只在容器机械预检通过后 dispatch；开始后按真实副作用和结果结算，不伪装回滚。
 - Tool outcome 与 Map lifecycle：独立提交和记录，双方都不成为另一方的隐式触发器。
@@ -198,7 +201,7 @@ Node lifecycle fact:
 
 容器结果可使用一个机械 manifest 索引内容，但不得复制业务结果。每项状态只描述该项本身：
 
-- `provider_result_ref`：`bound` / `unbound` / `invalid_ref`，不重写 provider Tool 状态；
+- `provider_result`：`bound` / `already_bound` / `unbound` / `identity_missing` / `binding_conflict`，不重写 provider Tool 状态；
 - `client_call`：真实 Tool outcome；
 - `map_call`：真实 Map transaction outcome。
 
@@ -224,12 +227,12 @@ Node lifecycle fact:
 | `tools/src/taskspace_tool.rs` | 纯 Map Tool schema | 删除 `actions[]`，不描述其他 Tool |
 | `tools/src/taskspace_sequence_tool.rs`（候选） | 生成容器 ToolSpec | 只含薄 envelope、归属和原生派生 schema |
 | `core/src/tools/nested_call.rs` | client item 还原为原生 ToolCall | 复用 MVT-1；未知类型明确失败 |
-| `core/src/tools/sequence_preflight.rs` | 容器、引用、Map 边界、Patch 硬校验 | 不读取 Tool outcome，不实现 Work DAG |
+| `core/src/tools/sequence_preflight.rs` | 容器、Hosted 作用域、Map 边界、Patch 硬校验 | 不读取 Tool outcome，不实现 Work DAG |
 | `core/src/tools/sequence.rs` | 分段、Router dispatch、结果聚合 | 不提交 Map、不推断节点、不重试 hosted |
 | `core/src/session/taskspace_response.rs` | Map transaction 支持 | 由 control handler 唯一调用 |
 | `core/src/session/turn.rs` | 模式化 Tool 投影和响应收集 | Standard 原样；TaskSpace=容器+hosted descriptors |
 | `core/src/tools/provider_tool_declaration.rs` | provider output 事实识别 | hosted 输出进入 reconciler，不再 `RejectedNative` |
-| 新的窄 reconciler（候选） | hosted output identity 核对与绑定 | 不执行 hosted Tool，不解析语义 |
+| 新的窄 reconciler（候选） | hosted output identity 核对与响应级节点绑定 | 不执行 hosted Tool，不解析语义 |
 
 不新增第二个 Tool registry、Map scheduler、工作流引擎、provider client、持久化表、配置开关或旧协议兼容层。
 
@@ -257,7 +260,7 @@ Node lifecycle fact:
 | TS-03 | 盘点 provider 请求能力 | provider profiles、tool flags | 容器+hosted descriptors 的本地 wire fixture | completed（见 05） |
 | TS-04 | 证明 control 统一 Router seam | control/Router/Map transaction | 已有本地测试 | verified (`148406cde`) |
 | TS-05 | 盘点旧 actions/sibling/RejectedNative 消费面 | core/tools/session/tests/docs | 删除清单与 Standard 共用边界 | planned |
-| TS-06 | 冻结三类容器 item schema | JSON schema fixtures | 正反 schema fixture；无递归/复制 | planned |
+| TS-06 | 冻结容器 schema 与三类结算事实 | JSON schema/response fixtures | Hosted 归属片段 5/5；client/map schema 待冻结 | partial（见 07） |
 | TS-07 | 冻结五种容器形状与 Map 边界 | preflight fixtures | map 中置、空推进、双 Patch 等负例 | planned |
 | TS-08 | 冻结 Tool/节点状态正交合同 | state fixtures | outcome×node lifecycle 交叉矩阵 | planned |
 | TS-09 | 冻结无损结果与唯一 revision 合同 | protocol fixtures | text/image/error round trip | planned |
@@ -281,8 +284,8 @@ Node lifecycle fact:
 
 - 单元：TS-01～TS-09。
 - 收益：先确定 provider 输出身份、容器三类 item、状态正交和反馈边界，不在错误假设上写生产代码。
-- 停点：provider 输出身份已经通过；若 TS-06 仍无法在不复制原生 Tool、按内容猜配或要求 Agent 回显 provider ID 的前提下
-  表达节点归属，暂停并与用户讨论。
+- 停点：provider 输出身份与响应级节点归属已通过；若 TS-06 其余 schema 必须复制原生 Tool 或引入第二套执行协议，暂停并
+  与用户讨论。
 
 ### Phase B：未接线内核
 
@@ -336,7 +339,7 @@ Node lifecycle fact:
 
 | 风险 | 发现信号 | 处理 |
 |---|---|---|
-| Hosted 节点归属含糊 | provider item 有稳定 id，但 Agent 的节点声明无法与该事实机械关联 | 停在 TS-06；不按内容猜配，也不要求 Agent 回显 provider ID |
+| Hosted 节点归属含糊 | 一个响应尝试声明多个 Hosted 节点，或缺少作用域 | 保留原始事实为 unbound；不按内容猜配，也不要求 Agent 回显 provider ID |
 | 容器 schema 膨胀 | TS-11 大量复制原生 description/schema | 检查 descriptor 派生；不做语义压缩掩盖重复 |
 | Runtime 重建 Work DAG | 出现 item dependency、success gate、current/next node | 删除该逻辑，回到 Map 唯一依赖事实 |
 | Tool outcome 污染节点 | 失败自动 block、成功自动 complete、finish 等待 Tool 成功 | TS-08/16 交叉矩阵阻断切换 |
