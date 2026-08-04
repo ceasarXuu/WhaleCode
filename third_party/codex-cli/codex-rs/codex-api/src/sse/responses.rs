@@ -826,6 +826,104 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn preserves_hosted_item_ids_alongside_a_function_call() {
+        let function_arguments = json!({
+            "web_result_id": "ws_123",
+            "image_result_id": "ig_123"
+        })
+        .to_string();
+        let events = run_sse(vec![
+            json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "web_search_call",
+                    "id": "ws_123",
+                    "status": "in_progress"
+                }
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "web_search_call",
+                    "id": "ws_123",
+                    "status": "completed",
+                    "action": {"type": "search", "query": "TaskSpace protocol"}
+                }
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "image_generation_call",
+                    "id": "ig_123",
+                    "status": "completed",
+                    "revised_prompt": "A dependency map",
+                    "result": "ZmFrZS1pbWFnZQ=="
+                }
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_123",
+                    "call_id": "call_123",
+                    "name": "record_hosted_results",
+                    "status": "completed",
+                    "arguments": function_arguments
+                }
+            }),
+            json!({
+                "type": "response.completed",
+                "response": {"id": "resp_123"}
+            }),
+        ])
+        .await;
+
+        assert_eq!(events.len(), 5);
+        assert_matches!(
+            &events[0],
+            ResponseEvent::OutputItemAdded(ResponseItem::WebSearchCall {
+                id: Some(id),
+                status: Some(status),
+                ..
+            }) if id == "ws_123" && status == "in_progress"
+        );
+        assert_matches!(
+            &events[1],
+            ResponseEvent::OutputItemDone(ResponseItem::WebSearchCall {
+                id: Some(id),
+                status: Some(status),
+                ..
+            }) if id == "ws_123" && status == "completed"
+        );
+        assert_matches!(
+            &events[2],
+            ResponseEvent::OutputItemDone(ResponseItem::ImageGenerationCall {
+                id,
+                status,
+                result,
+                ..
+            }) if id == "ig_123" && status == "completed" && result == "ZmFrZS1pbWFnZQ=="
+        );
+        assert_matches!(
+            &events[3],
+            ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
+                id: Some(id),
+                call_id,
+                name,
+                arguments,
+                ..
+            }) if id == "fc_123"
+                && call_id == "call_123"
+                && name == "record_hosted_results"
+                && arguments == &function_arguments
+        );
+        assert_matches!(
+            &events[4],
+            ResponseEvent::Completed { response_id, .. } if response_id == "resp_123"
+        );
+    }
+
+    #[tokio::test]
     async fn parses_tool_call_input_deltas() {
         let events = run_sse(vec![
             json!({

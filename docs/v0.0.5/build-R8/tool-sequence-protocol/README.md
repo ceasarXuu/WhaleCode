@@ -2,7 +2,7 @@
 
 - Created: 2026-08-01
 - Updated: 2026-08-04
-- Status: Product baseline and formal plan realigned / implementation not started / TS-04 Router seam remains verified
+- Status: Phase A discovery active / TS-01 and TS-03 completed / TS-02 stopped at Agent-visible hosted reference
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Map 边界顺序、节点归属与 Runtime 硬边界
 
@@ -51,7 +51,9 @@ capability；顶层 client-managed Tool 不再单独暴露。正式工程计划�
    和 Map 边界约束重写后的生产容器计划。
 5. [`04-ts04-control-router-seam-result.md`](04-ts04-control-router-seam-result.md)：停点 1 的统一 Router 生命周期、
    单一 Map transaction 和唯一 binding 来源验证结果。
-6. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
+6. [`05-phase-a-ts01-ts03-validation-result.md`](05-phase-a-ts01-ts03-validation-result.md)：client Tool 能力矩阵、hosted
+   identity/request wire 本地验证及 Agent 可见引用停点。
+7. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
 
 ## 3. 与 R8 其他问题的关系
 

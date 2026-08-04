@@ -252,9 +252,9 @@ Node lifecycle fact:
 
 | ID | 目标 | 变更位置 | 验证 | 状态 |
 |---|---|---|---|---|
-| TS-01 | 盘点 client Tool 类型与原生 descriptor 来源 | ToolSpec、Code Mode、MCP/Namespace、ToolSearch、LocalShell | 每类 source/input/router/result 路径 | planned |
-| TS-02 | 冻结 provider-native hosted output 类型与稳定身份 | protocol models、stream events、response fixtures | Web/Image output item identity 与同响应共存 fixture | planned |
-| TS-03 | 盘点 provider 请求能力 | provider profiles、tool flags | 容器+hosted descriptors 的本地 wire fixture | planned |
+| TS-01 | 盘点 client Tool 类型与原生 descriptor 来源 | ToolSpec、Code Mode、MCP/Namespace、ToolSearch、LocalShell | 每类 source/input/router/result 路径 | completed（见 05） |
+| TS-02 | 冻结 provider-native hosted output 类型与稳定身份 | protocol models、stream events、response fixtures | Web/Image output item identity 与同响应共存 fixture | blocked-on-agent-visible-reference（transport verified） |
+| TS-03 | 盘点 provider 请求能力 | provider profiles、tool flags | 容器+hosted descriptors 的本地 wire fixture | completed（见 05） |
 | TS-04 | 证明 control 统一 Router seam | control/Router/Map transaction | 已有本地测试 | verified (`148406cde`) |
 | TS-05 | 盘点旧 actions/sibling/RejectedNative 消费面 | core/tools/session/tests/docs | 删除清单与 Standard 共用边界 | planned |
 | TS-06 | 冻结三类容器 item schema | JSON schema fixtures | 正反 schema fixture；无递归/复制 | planned |
