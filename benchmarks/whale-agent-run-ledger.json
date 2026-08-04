@@ -1,14 +1,14 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-05T05:31:41+08:00",
+  "updated_at": "2026-08-05T05:35:52+08:00",
   "entries": [
     {
       "record_id": "WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
+      "status": "settled",
+      "started_at": "2026-08-05T05:34:42+08:00",
+      "ended_at": "2026-08-05T05:34:43+08:00",
+      "elapsed_calendar_seconds": 1,
       "aggregate_agent_wall_time_ms": null,
       "reason": "验证 DeepSeek V4 Flash 在当前 Whale HEAD 上能否稳定使用 code_mode_only：由顶层 exec 编排嵌套读取、修改和测试工具，并正确接收结果后完成任务。",
       "authorization": {
@@ -37,9 +37,9 @@
         ],
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 3,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 0,
@@ -48,11 +48,15 @@
         "output": 0
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
+        "amount": 0.0,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0,
+          "uncached_input": 0.0,
+          "output": 0.0
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-08-05",
@@ -61,8 +65,8 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": null,
-        "note": "运行完成后按 provider usage 遥测估算。"
+        "formula": "0/1e6*0.02 + 0/1e6*1.0 + 0/1e6*2.0 = 0 CNY",
+        "note": "Provider 在请求 schema 校验阶段拒绝 exec custom tool，未返回 usage；按可观测 token 计为 0，不等同于账户实扣金额。"
       },
       "evidence": {
         "planned_run_root": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001",
@@ -86,7 +90,13 @@
           "after_budget_observation_exceeded",
           "after_three_sample_runs"
         ],
-        "usage_evidence_status": "pending"
+        "usage_evidence_status": "complete",
+        "actual_run_root": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001/run-1",
+        "result_path": "benchmarks/taskspace/r8/evidence/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001.json",
+        "events_path": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001/run-1/events.jsonl",
+        "outcome": "protocol_rejected",
+        "outcome_detail": "DeepSeek 返回 invalid_request_error：Unsupported custom tool: 'exec'. Only 'apply_patch' is supported. 模型未开始生成动作；按首个协议失败停止，剩余 2 次未执行。",
+        "invalid_harness_preflight": "首次本地入口因 --ask-for-approval 参数位置错误在 provider 请求前退出，保存在 invalid-harness-cli-args，不计 actual_sample_runs。"
       }
     },
     {

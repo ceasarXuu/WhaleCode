@@ -1,0 +1,58 @@
+{
+  "schema_version": "r8-deepseek-exec-stability-v1",
+  "record_id": "WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001",
+  "generated_at": "2026-08-05T05:35:52+08:00",
+  "subject_commit": "4c6b2c87214c7c8480b5852263e5f46f07f58756",
+  "ledger_commit_before_run": "ca8e5a0579bfa35d63119df59c09976e2e55e48c",
+  "whale_binary_sha256": "b102fc053e27fdcf34a912344bac3beef4fac9dc262055ac1c24475614ab78eb",
+  "model": "deepseek-v4-flash",
+  "provider": "deepseek",
+  "mode": "code_mode_only",
+  "sample": "single-file-fast-fix",
+  "planned_repeats": 3,
+  "actual_repeats": 1,
+  "automatic_retries": 0,
+  "remaining_repeats_cancelled": 2,
+  "container": {
+    "image": "whalecode/taskspace-benchmark:r5",
+    "image_id": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
+    "python_pytest": "pytest 7.4.4"
+  },
+  "local_preflight": {
+    "build_passed": true,
+    "code_mode_contract_tests_passed": 4,
+    "code_mode_contract_tests_failed": 0,
+    "model_visible_top_level_tools": [
+      "exec",
+      "wait"
+    ]
+  },
+  "observation": {
+    "agent_exit_code": 1,
+    "oracle_exit_code": 1,
+    "provider_request_count": 1,
+    "provider_usage_returned": false,
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "output_tokens": 0,
+    "model_action_generated": false,
+    "error_type": "invalid_request_error",
+    "error_message": "Unsupported custom tool: 'exec'. Only 'apply_patch' is supported.",
+    "failure_layer": "provider_request_schema_validation",
+    "events_sha256": "2c52854220e14b047d2485ff29e349019a1a08adf804af82a67966c0b67e0d3f",
+    "stderr_sha256": "1aa26269eb1cc57f86b235a03cda53c004edb5b1e9fc99d4da4f00843293d721",
+    "oracle_sha256": "455d0a5fc1f4ef61e4da97daf6a450794497f4c159a794e2c94ec4c16689ba1f"
+  },
+  "result": {
+    "current_exec_freeform_protocol_supported": false,
+    "stability_assessable": false,
+    "conclusion": "当前 Codex Code Mode 将 exec 声明为 Freeform Custom Tool；DeepSeek 在模型推理前拒绝该声明，因此当前实现无法进入 exec 执行阶段，不能声称稳定运行。",
+    "stop_reason": "首个有效运行即出现确定性 provider 协议拒绝，继续重复不会提供模型稳定性信息。"
+  },
+  "evidence_paths": {
+    "events": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001/run-1/events.jsonl",
+    "stderr": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001/run-1/stderr.log",
+    "rollout_root": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001/run-1/artifacts/home/.whale/sessions",
+    "invalid_harness_preflight": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001/invalid-harness-cli-args"
+  }
+}
