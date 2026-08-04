@@ -11,14 +11,17 @@ const CODE_MODE_ONLY_PREFACE: &str =
     "Use `exec/wait` tool to run all other tools, do not attempt to use any other tools directly";
 const DEFERRED_NESTED_TOOLS_GUIDANCE: &str = r#"Some nested MCP/app tools may be omitted from this description. They are still available on the global `tools` object and listed in `ALL_TOOLS`.
 To find one, filter `ALL_TOOLS` by `name` and `description`; do not print the full `ALL_TOOLS` array. Print only a small set of relevant matches if you need to inspect them."#;
-const EXEC_DESCRIPTION_TEMPLATE: &str = r#"Run JavaScript code to orchestrate/compose tool calls
+const EXEC_DESCRIPTION_PREFIX: &str = r#"Run JavaScript code to orchestrate/compose tool calls
 - Evaluates the provided JavaScript code in a fresh V8 isolate as an async module.
 - All nested tools are available on the global `tools` object, for example `await tools.exec_command(...)`. Tool names are exposed as normalized JavaScript identifiers, for example `await tools.mcp__ologs__get_profile(...)`.
 - Nested tool methods take either a string or an object as their input argument.
 - Nested tools return either an object or a string, based on the description.
-- Runs raw JavaScript -- no Node, no file system, no network access, no console.
-- Accepts raw JavaScript source text, not JSON, quoted strings, or markdown code fences.
-- You may optionally start the tool input with a first-line pragma like `// @exec: {"yield_time_ms": 10000, "max_output_tokens": 1000}`.
+- Runs raw JavaScript -- no Node, no file system, no network access, no console."#;
+const EXEC_FREEFORM_INPUT_GUIDANCE: &str =
+    "- Accepts raw JavaScript source text, not JSON, quoted strings, or markdown code fences.";
+const EXEC_FUNCTION_INPUT_GUIDANCE: &str = r#"- Call `exec` with a JSON object containing exactly one required `source` string, for example `{"source":"text(\"ok\");"}`.
+- The `source` value is raw JavaScript. Do not put it in `cmd`, quote the whole object as a string, or wrap it in markdown fences."#;
+const EXEC_DESCRIPTION_SUFFIX: &str = r#"- You may optionally start the JavaScript source with a first-line pragma like `// @exec: {"yield_time_ms": 10000, "max_output_tokens": 1000}`.
 - `yield_time_ms` asks `exec` to yield early after that many milliseconds if the script is still running.
 - `max_output_tokens` sets the token budget for direct `exec` results. By default the result is truncated to 10000 tokens.
 - When the JS code is fully evaluated, the isolate's lifetime ends and unawaited promises are silently discarded.
@@ -255,11 +258,44 @@ pub fn build_exec_tool_description(
     code_mode_only: bool,
     deferred_tools_available: bool,
 ) -> String {
+    build_exec_tool_description_with_input_guidance(
+        enabled_tools,
+        namespace_descriptions,
+        code_mode_only,
+        deferred_tools_available,
+        EXEC_FREEFORM_INPUT_GUIDANCE,
+    )
+}
+
+pub fn build_function_exec_tool_description(
+    enabled_tools: &[ToolDefinition],
+    namespace_descriptions: &BTreeMap<String, ToolNamespaceDescription>,
+    code_mode_only: bool,
+    deferred_tools_available: bool,
+) -> String {
+    build_exec_tool_description_with_input_guidance(
+        enabled_tools,
+        namespace_descriptions,
+        code_mode_only,
+        deferred_tools_available,
+        EXEC_FUNCTION_INPUT_GUIDANCE,
+    )
+}
+
+fn build_exec_tool_description_with_input_guidance(
+    enabled_tools: &[ToolDefinition],
+    namespace_descriptions: &BTreeMap<String, ToolNamespaceDescription>,
+    code_mode_only: bool,
+    deferred_tools_available: bool,
+    input_guidance: &str,
+) -> String {
     let mut sections = Vec::new();
     if code_mode_only {
         sections.push(CODE_MODE_ONLY_PREFACE.to_string());
     }
-    sections.push(EXEC_DESCRIPTION_TEMPLATE.to_string());
+    sections.push(format!(
+        "{EXEC_DESCRIPTION_PREFIX}\n{input_guidance}\n{EXEC_DESCRIPTION_SUFFIX}"
+    ));
     if deferred_tools_available {
         sections.push(DEFERRED_NESTED_TOOLS_GUIDANCE.to_string());
     }

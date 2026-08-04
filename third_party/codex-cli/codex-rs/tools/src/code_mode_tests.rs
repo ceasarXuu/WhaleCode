@@ -110,6 +110,11 @@ fn tool_spec_to_code_mode_tool_definition_returns_augmented_nested_tools() {
             tool_name: ToolName::plain("apply_patch"),
             description: r#"Apply a patch
 
+Nested exec input must match this lark grammar:
+```lark
+start: "patch"
+```
+
 exec tool declaration:
 ```ts
 declare const tools: { apply_patch(input: string): Promise<unknown>; };
@@ -237,12 +242,14 @@ fn create_code_mode_tool_can_use_function_wire_shape() {
         input_schema: None,
         output_schema: None,
     }];
-    let description = codex_code_mode::build_exec_tool_description(
+    let description = codex_code_mode::build_function_exec_tool_description(
         &enabled_tools,
         &BTreeMap::new(),
         /*code_mode_only*/ true,
         /*deferred_tools_available*/ false,
     );
+    assert!(description.contains("exactly one required `source` string"));
+    assert!(!description.contains("Accepts raw JavaScript source text, not JSON"));
 
     assert_eq!(
         create_code_mode_tool(

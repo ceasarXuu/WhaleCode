@@ -142,12 +142,21 @@ pub fn create_code_mode_tool(
     exec_as_function: bool,
     deferred_tools_available: bool,
 ) -> ToolSpec {
-    let description = codex_code_mode::build_exec_tool_description(
-        enabled_tools,
-        namespace_descriptions,
-        code_mode_only,
-        deferred_tools_available,
-    );
+    let description = if exec_as_function {
+        codex_code_mode::build_function_exec_tool_description(
+            enabled_tools,
+            namespace_descriptions,
+            code_mode_only,
+            deferred_tools_available,
+        )
+    } else {
+        codex_code_mode::build_exec_tool_description(
+            enabled_tools,
+            namespace_descriptions,
+            code_mode_only,
+            deferred_tools_available,
+        )
+    };
     if exec_as_function {
         return ToolSpec::Function(ResponsesApiTool {
             name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
@@ -215,10 +224,21 @@ fn code_mode_tool_definitions_for_spec(spec: &ToolSpec) -> Vec<CodeModeToolDefin
         }
         ToolSpec::Freeform(tool) => {
             let name = tool.name.clone();
+            let description = if codex_code_mode::is_code_mode_nested_tool(&name) {
+                format!(
+                    "{}\n\nNested exec input must match this {} grammar:\n```{}\n{}\n```",
+                    tool.description.trim_end(),
+                    tool.format.syntax,
+                    tool.format.syntax,
+                    tool.format.definition.trim()
+                )
+            } else {
+                tool.description.clone()
+            };
             vec![CodeModeToolDefinition {
                 tool_name: ToolName::plain(name.clone()),
                 name,
-                description: tool.description.clone(),
+                description,
                 kind: CodeModeToolKind::Freeform,
                 input_schema: None,
                 output_schema: None,
