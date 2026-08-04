@@ -75,3 +75,5 @@ mod phase_d_tests;
 mod property_tests;
 #[cfg(test)]
 mod replay_tests;
+#[cfg(test)]
+mod sequence_state_contract_tests;

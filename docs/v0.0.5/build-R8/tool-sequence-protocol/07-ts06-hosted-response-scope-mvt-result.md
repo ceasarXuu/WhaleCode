@@ -68,4 +68,5 @@ cargo test -p codex-core taskspace_hosted_binding_contract_tests
 - `tool_choice=auto` 仍不提供容器必达的 Provider 硬保证；缺失率需要后续获批真实产品样本观测。
 - MCP、ToolSearch、LocalShell 等 client Tool 的容器兼容性属于 Phase B，不由本测试代替。
 
-因此，Hosted 节点归属不再是 Phase A 的设计阻塞；Phase A 仍需完成 TS-06 其余 schema 和 TS-07～TS-09 合同。
+因此，Hosted 节点归属不再是 Phase A 的设计阻塞。TS-06 其余 schema 和 TS-07～TS-09 已在后续一次性验证中完成，详见
+[`08-phase-a-ts05-ts09-complete-validation-result.md`](08-phase-a-ts05-ts09-complete-validation-result.md)。

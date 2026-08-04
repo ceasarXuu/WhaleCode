@@ -2,7 +2,7 @@
 
 - Created: 2026-08-02
 - Updated: 2026-08-05
-- Status: Active plan / Hosted 归属合同片段已验证 / production implementation not started
+- Status: Phase A validation completed / production blockers frozen / Phase B not started
 - Scope: 将 Tool 序列容器接入生产 TaskSpace，并兼容 provider 原生 hosted Tool 输出
 - Risk depth: Full，涉及 model-visible Tool API、provider 响应解析、Map 事务、反馈和缓存
 - Prerequisite: [`00-product-definition.md`](00-product-definition.md)
@@ -139,7 +139,9 @@ provider 已经产生的原始输出事实。
 
 | 形状 | 产品用途 | 机械规则 |
 |---|---|---|
+| `[hosted_scope]` | 本响应只有 Provider-hosted 工作 | 容器只声明 `hosted_node_id`；Runtime 展开真实 Hosted 事实 |
 | `[map_read]` | 读取 Map 或引用内容 | 单项容器；不改变节点状态 |
+| `[map_terminal]` | Agent 显式关闭 Map | 单项 `finish_map`；后续由独立无 Tool 请求生成自然语言总结 |
 | `[map_prelude, actions+]` | initialize、reopen、图变更或完成旧节点后继续工作 | prelude 先提交，随后处理 action 集合 |
 | `[actions+]` | Map 无变化时继续多个节点工作 | action 列表不表达业务依赖 |
 | `[actions+, map_epilogue]` | Agent 显式变更节点或最终 finish | epilogue 是 Map 边界，不以 Tool 成功为前提 |
@@ -259,11 +261,11 @@ Node lifecycle fact:
 | TS-02 | 冻结 provider-native hosted output 类型与稳定身份 | protocol models、stream events、response fixtures | Web/Image output item identity 与同响应共存 fixture | completed（见 05，`7c75c03ab`） |
 | TS-03 | 盘点 provider 请求能力 | provider profiles、tool flags | 容器+hosted descriptors 的本地 wire fixture | completed（见 05） |
 | TS-04 | 证明 control 统一 Router seam | control/Router/Map transaction | 已有本地测试 | verified (`148406cde`) |
-| TS-05 | 盘点旧 actions/sibling/RejectedNative 消费面 | core/tools/session/tests/docs | 删除清单与 Standard 共用边界 | planned |
-| TS-06 | 冻结容器 schema 与三类结算事实 | JSON schema/response fixtures | Hosted 归属片段 5/5；client/map schema 待冻结 | partial（见 07） |
-| TS-07 | 冻结五种容器形状与 Map 边界 | preflight fixtures | map 中置、空推进、双 Patch 等负例 | planned |
-| TS-08 | 冻结 Tool/节点状态正交合同 | state fixtures | outcome×node lifecycle 交叉矩阵 | planned |
-| TS-09 | 冻结无损结果与唯一 revision 合同 | protocol fixtures | text/image/error round trip | planned |
+| TS-05 | 盘点旧 actions/sibling/RejectedNative 消费面 | core/tools/session/tests/docs | 删除清单与 Standard 共用边界 | completed（见 08） |
+| TS-06 | 冻结容器 schema 与三类结算事实 | JSON schema/response fixtures | Hosted 5/5；完整输入 schema 4/4 | completed（见 07/08） |
+| TS-07 | 冻结七种合法形状与 Map 边界 | preflight fixtures | 正向形状及 map 中置、空推进、双 Patch 等负例 | completed（见 08） |
+| TS-08 | 冻结 Tool/节点状态正交合同 | state fixtures/source audit | 成败同效应通过；当前 reservation/lifecycle 耦合已定位 | completed with blockers（见 08） |
+| TS-09 | 冻结无损结果与唯一 revision 合同 | protocol/Event Store fixtures | 合同 4/4、无损 1/1、revision 3/3；旧 outcome/反馈阻塞已定位 | completed with blockers（见 08） |
 | TS-10 | 抽取共享原生 Tool descriptor | tools crate | Code Mode/Standard wire 逐值不变 | planned |
 | TS-11 | 生成未接线容器 ToolSpec | tools crate | schema hash、大小、无 self-reference | planned |
 | TS-12 | 实现纯 decoder 与 hosted ref reconciler | core/tools | 存在/重复/跨响应/未绑定 fixture | planned |
@@ -284,6 +286,8 @@ Node lifecycle fact:
 
 - 单元：TS-01～TS-09。
 - 收益：先确定 provider 输出身份、容器三类 item、状态正交和反馈边界，不在错误假设上写生产代码。
+- 状态：2026-08-05 完成；结果和 blocker 见
+  [`08-phase-a-ts05-ts09-complete-validation-result.md`](08-phase-a-ts05-ts09-complete-validation-result.md)。
 - 停点：provider 输出身份与响应级节点归属已通过；若 TS-06 其余 schema 必须复制原生 Tool 或引入第二套执行协议，暂停并
   与用户讨论。
 

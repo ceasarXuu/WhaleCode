@@ -2,7 +2,7 @@
 
 - Created: 2026-08-01
 - Updated: 2026-08-05
-- Status: Phase A contract active / TS-01～TS-04 completed / TS-06 Hosted 归属片段已验证
+- Status: Phase A validation completed / TS-01～TS-09 已验证 / production blockers frozen
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Map 边界顺序、节点归属与 Runtime 硬边界
 
@@ -57,7 +57,9 @@ capability；顶层 client-managed Tool 不再单独暴露。正式工程计划�
    真实 Provider 探针，验证 Hosted Tool 与容器共存、节点声明和 Provider ID 可见性。
 8. [`07-ts06-hosted-response-scope-mvt-result.md`](07-ts06-hosted-response-scope-mvt-result.md)：响应级 Hosted 节点归属的
    本地合同验证，覆盖混合状态、缺失容器、重复、重放与冲突。
-9. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
+9. [`08-phase-a-ts05-ts09-complete-validation-result.md`](08-phase-a-ts05-ts09-complete-validation-result.md)：TS-05～TS-09
+   一次性完整验证、唯一 blocking 清单和进入 Phase B 的边界。
+10. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
 
 ## 3. 与 R8 其他问题的关系
 
@@ -84,5 +86,5 @@ capability；顶层 client-managed Tool 不再单独暴露。正式工程计划�
 - Standard 请求结构保持不变，TaskSpace 主请求只额外保留 provider 原生 hosted capability；
 - Tool 执行事实与节点生命周期分别结算，不相互推导；
 - 测试结论明确区分“client/map 容器不可行”和“某个 provider hosted 输出缺少稳定引用身份”；
-- TS-02 已证明 hosted 输出存在稳定的响应内身份；TS-06 已验证 Agent 声明响应级节点归属、Runtime 使用真实身份逐项登记
-  的合同片段。TS-06 其余 client/map schema 与 TS-07～TS-09 合同冻结后，才进入生产代码实施。
+- TS-02 已证明 hosted 输出存在稳定的响应内身份；TS-05～TS-09 已完成旧路径审计、完整输入合同、边界形状、状态正交和
+  无损反馈验证。剩余项均为生产实现 blocker，不再通过增加同类 fixture 延后 Phase B。
