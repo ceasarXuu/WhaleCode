@@ -10,6 +10,11 @@
 > 配对路线已降级并封存在 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。主方案实施并验证后重新盘点
 > 本表；现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
 
+TaskSpace Exec 与全局问题的处理边界统一记录在
+[`taskspace-exec/03-global-issue-prerequisite-review.md`](taskspace-exec/03-global-issue-prerequisite-review.md)：I07 已确认的
+请求/usage 双计子问题前置为 TX-00；I10、I06、I01/I02/I05 分别融入新方案对应单元；I03/I04/I08 等生产接入后
+重评。该映射不改变本表任何问题状态，也不新增 I07 子问题编号。
+
 ## 1. 使用规则
 
 本账本迁移 R7.1 已观测到的问题，不迁移旧根因和旧修复方案。`Source` 只用于追溯历史证据。
@@ -134,6 +139,9 @@ I02 当前缓存证据：
 
 I07 不作为所有问题的整体前置。每个底层问题先建设自身所需的最小、可重算证据；I07 随后只负责收敛跨问题
 共用的观测身份和报告口径，避免再次形成长期 Observer 专项。
+
+例外仅限 I07 中已经由同一真实 trace 和当前源码同时证明的 request/usage 双计：它作为 TaskSpace Exec TX-00 在
+Phase A 前修复。I07 的 local reject/upstream mismatch 等其余范围仍进入 TX-11，不因 TX-00 通过而关闭 I07。
 
 ## 5. 已知但不作为独立问题迁移
 

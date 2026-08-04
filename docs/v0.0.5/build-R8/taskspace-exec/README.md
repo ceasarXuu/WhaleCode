@@ -41,10 +41,14 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 2. [`01-upstream-and-feasibility-evidence.md`](01-upstream-and-feasibility-evidence.md)：最新 Codex 主线事实、本地 Function
    exec 证据和可复用边界。
 3. [`02-engineering-plan.md`](02-engineering-plan.md)：按最小闭环单元拆分的发现、实现、切换、清理和验证计划。
+4. [`03-global-issue-prerequisite-review.md`](03-global-issue-prerequisite-review.md)：I01～I10 哪些前置、融入或后置的
+   唯一映射，以及 I07 计数子问题的 TX-00 边界。
 
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。
+- 唯一允许在 Phase A 前实施的全局问题子范围是 TX-00：修复 I07 已坐实的 usage/request 聚合错误；它不改变 Tool、
+  Map、prompt 或 provider 行为。
 - 不再向旧三类方案追加生产实现；必要的历史 fixture 只能作为新方案的反例或回归证据。
 - 每个阶段只验证一个主要不变量；涉及 provider/Agent 行为的真实运行必须重新申请预算。
 - Tool declaration、prompt 或 provider payload 发生变化时，先运行缓存敏感面门禁，再说明变化并申请真实缓存回归。
