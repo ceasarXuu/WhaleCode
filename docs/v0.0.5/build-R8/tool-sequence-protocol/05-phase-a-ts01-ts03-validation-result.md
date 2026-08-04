@@ -1,7 +1,7 @@
 # Phase A TS-01～TS-03 提前验证结果
 
 - Date: 2026-08-04
-- Status: TS-01 completed / TS-02 transport verified but binding contract blocked / TS-03 completed
+- Status: TS-01～TS-03 completed / hosted node binding and container presence remain contract gaps
 - Scope: client Tool 能力边界、provider-native hosted 输出身份、TaskSpace 请求 wire
 - Runtime change: 无生产行为变化；只新增两项 `codex-api` 协议回归测试
 - Whale Agent/API run: 未执行，token 与费用均为 0
@@ -72,7 +72,10 @@ OpenAI Responses 公开协议把 response output 定义为有序 item 数组，�
 - [OpenAI Web Search](https://developers.openai.com/api/docs/guides/tools-web-search)
 - [OpenAI Image Generation](https://developers.openai.com/api/docs/guides/image-generation)
 
-### 3.2 当前停点
+### 3.2 身份结论
+
+Provider 返回的 `id` / SSE `item_id` 已经能够唯一识别实际 hosted output item。Runtime 应直接保存并使用该 ID 关联
+流式阶段、最终结果和后续 replay，不再为同一次调用创造 ordinal、内容指纹或 TaskSpace 自有调用 ID。
 
 候选文档曾示例：
 
@@ -80,11 +83,11 @@ OpenAI Responses 公开协议把 response output 定义为有序 item 数组，�
 {"output_ref":{"response_item_id":"ws_123"}}
 ```
 
-这只能证明 Runtime 可以解析该字符串，不能证明 Agent 能生成真实 ID。直接冻结会形成自证式合同，因此 TS-02 当前状态
-是 `blocked-on-agent-visible-reference`。
+这个结构错误地要求 Agent 回显 provider 在协议层生成的 ID。Agent 能使用 Hosted Tool 结果，并不等价于官方合同保证
+模型能读取并复制 response item 的传输层 ID。该字段不得进入 Agent 必填合同。
 
-Responses SSE 还提供 `output_index`，但当前 `ResponseEvent::OutputItemDone(ResponseItem)` 会丢弃 event envelope 中的
-index。使用 ordinal 需要先保留该机械事实，并验证并行 hosted output 的稳定排序；不能依赖 done 事件到达顺序猜配。
+因此 TS-02 的“Provider 是否提供稳定调用身份”已经完成。剩余问题不是身份，而是 TS-06 必须回答的节点归属：Agent 如何
+声明 `node_id`，Runtime 又如何把这项声明与拥有真实 `id` 的 provider 事实机械关联。不能按参数、结果正文或工具名称猜配。
 
 ## 4. TS-03：请求能力矩阵
 
@@ -103,23 +106,36 @@ index。使用 ordinal 需要先保留该机械事实，并验证并行 hosted o
 TS-03 的请求能力盘点已经完成。纯 serde fixture 可以证明本地 wire 可表达，但在正式 `taskspace_tools` ToolSpec 出现前，
 不能把合成 fixture 当成生产投影通过。
 
-## 5. 需要用户决策的引用方案
+## 5. 剩余合同缺口
 
-| 方案 | 机制 | 收益 | 代价/风险 |
-|---|---|---|---|
-| A. Provider item ID | Agent 在容器中复制 `ws_.../ig_...` | Runtime 核对最直接 | 没有证据证明模型能看到平台 ID；需要真实 provider probe |
-| B. Type + ordinal | Agent 声明 `web_search#1` 等响应内顺序 | 不依赖平台 ID，Runtime 最终仍保存权威 ID | 必须保留 `output_index`；并行同类 Tool 和 Agent 计数需要验证 |
-| C. 下一请求 handle | Runtime 在反馈中暴露机械 handle，Agent 下一轮绑定 | 身份最可靠，不要求模型知道隐藏 ID | hosted 动作稳定增加一次请求，降低连续行动收益 |
+### 5.1 Hosted Tool 与节点归属
 
-当前建议优先验证 B，并保留 C 作为“当前响应未绑定”的自然恢复路径，不把 C 变成所有 hosted 调用的固定流程。A 只有在
-真实 provider probe 证明模型稳定复制 ID 后才可采用。
+确定事实：
+
+- Provider `id` 是 Tool 调用输出身份的唯一事实源；
+- `node_id` 必须来自 Agent 声明；
+- Runtime 只能机械关联两者，不能推断节点、复制 Tool 语义或按内容猜配；
+- Tool 执行状态与节点生命周期继续正交。
+
+未冻结的是两者之间的关联合同。TS-06 必须用最小 schema 和正反 fixture 证明它只有一份声明，且对同类型多次 Hosted Tool、
+并行完成、无绑定结果和重复绑定都无歧义。
+
+### 5.2 容器必达性
+
+OpenAI Responses 的 `tool_choice=required` 只保证调用一个或多个允许的 Tool，不保证特定的容器 Tool 必须与 Hosted Tool
+同时出现；named function choice 可以强制容器，但不表达“容器必选且 Hosted Tool 仍可选”。仓库当前 `ToolChoice` 也只有
+`Auto`、`None`、`Required` 和单一 named Function 四种形状。
+
+因此本地 wire 已证明“容器和 Hosted descriptor 可以同时暴露”，但尚未证明 Provider 会在需要 Hosted Tool 时稳定同时生成
+容器。这是 Agent 行为/Provider 能力验证，不应由 serde fixture 冒充通过。
 
 ## 6. 下一步与安全停止
 
-1. 用户确认是否允许以 B 为主候选。
-2. 获准后先做纯本地 MVT：保留 hosted `output_index`，验证 added/done identity、并行乱序完成、类型+ordinal 唯一核对。
-3. 本地 MVT 通过后再冻结 TS-06 的 `provider_result_ref`，不提前实施 reconciler。
-4. `tool_choice` 暂保持 provider 原生 `auto`；缺失容器时保留 hosted 输出为 unbound，不丢失、不猜配、不回滚。
-5. 若要验证 Agent 是否稳定生成 ordinal 或复制 ID，需另行申请最小真实 provider 预算；当前未获授权。
+1. TS-06 先冻结最小节点归属合同，不再讨论 Agent 回显 Provider ID 或另造调用 ID。
+2. 用本地 fixture 验证同类型多次 Hosted Tool、并行乱序完成、重复绑定和无绑定结果；原始 Provider 事实必须始终保留。
+3. `tool_choice` 暂保持 provider 原生 `auto`；本地代码不能伪称它保证容器必达。
+4. 合同 fixture 通过后，再申请最小真实 Provider 预算验证 Hosted Tool 与容器在实际模型响应中的共存率和行动路径。
+5. 若实际模型会稳定漏掉容器，返回产品设计停点，不用事后惩罚、内容猜配或 Runtime 语义补全掩盖。
 
-本停点不推翻容器。它只阻止在 Agent 可见引用尚未证实时冻结错误字段。
+当前证据不推翻容器，但也没有证明完整产品路径。它关闭了“Provider 调用身份”问题，并把后续验证准确收敛到“节点归属”与
+“容器必达性”。

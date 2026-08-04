@@ -253,7 +253,7 @@ Node lifecycle fact:
 | ID | 目标 | 变更位置 | 验证 | 状态 |
 |---|---|---|---|---|
 | TS-01 | 盘点 client Tool 类型与原生 descriptor 来源 | ToolSpec、Code Mode、MCP/Namespace、ToolSearch、LocalShell | 每类 source/input/router/result 路径 | completed（见 05） |
-| TS-02 | 冻结 provider-native hosted output 类型与稳定身份 | protocol models、stream events、response fixtures | Web/Image output item identity 与同响应共存 fixture | blocked-on-agent-visible-reference（transport verified） |
+| TS-02 | 冻结 provider-native hosted output 类型与稳定身份 | protocol models、stream events、response fixtures | Web/Image output item identity 与同响应共存 fixture | completed（见 05，`7c75c03ab`） |
 | TS-03 | 盘点 provider 请求能力 | provider profiles、tool flags | 容器+hosted descriptors 的本地 wire fixture | completed（见 05） |
 | TS-04 | 证明 control 统一 Router seam | control/Router/Map transaction | 已有本地测试 | verified (`148406cde`) |
 | TS-05 | 盘点旧 actions/sibling/RejectedNative 消费面 | core/tools/session/tests/docs | 删除清单与 Standard 共用边界 | planned |
@@ -281,7 +281,8 @@ Node lifecycle fact:
 
 - 单元：TS-01～TS-09。
 - 收益：先确定 provider 输出身份、容器三类 item、状态正交和反馈边界，不在错误假设上写生产代码。
-- 停点：若 provider 输出没有任何稳定、可机械引用的响应内身份，暂停并与用户讨论，不使用内容猜配。
+- 停点：provider 输出身份已经通过；若 TS-06 仍无法在不复制原生 Tool、按内容猜配或要求 Agent 回显 provider ID 的前提下
+  表达节点归属，暂停并与用户讨论。
 
 ### Phase B：未接线内核
 
@@ -335,7 +336,7 @@ Node lifecycle fact:
 
 | 风险 | 发现信号 | 处理 |
 |---|---|---|
-| Hosted 引用身份不稳定 | provider item 无 id，或流式/非流式身份不一致 | 停在 TS-02；不按内容、名称或位置猜配 |
+| Hosted 节点归属含糊 | provider item 有稳定 id，但 Agent 的节点声明无法与该事实机械关联 | 停在 TS-06；不按内容猜配，也不要求 Agent 回显 provider ID |
 | 容器 schema 膨胀 | TS-11 大量复制原生 description/schema | 检查 descriptor 派生；不做语义压缩掩盖重复 |
 | Runtime 重建 Work DAG | 出现 item dependency、success gate、current/next node | 删除该逻辑，回到 Map 唯一依赖事实 |
 | Tool outcome 污染节点 | 失败自动 block、成功自动 complete、finish 等待 Tool 成功 | TS-08/16 交叉矩阵阻断切换 |

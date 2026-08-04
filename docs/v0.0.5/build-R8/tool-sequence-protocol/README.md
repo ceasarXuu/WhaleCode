@@ -1,8 +1,8 @@
 # R8 TaskSpace Tool 序列协议专题
 
 - Created: 2026-08-01
-- Updated: 2026-08-04
-- Status: Phase A discovery active / TS-01 and TS-03 completed / TS-02 stopped at Agent-visible hosted reference
+- Updated: 2026-08-05
+- Status: Phase A discovery active / TS-01～TS-04 completed / hosted node binding and container presence unresolved
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Map 边界顺序、节点归属与 Runtime 硬边界
 
@@ -52,7 +52,7 @@ capability；顶层 client-managed Tool 不再单独暴露。正式工程计划�
 5. [`04-ts04-control-router-seam-result.md`](04-ts04-control-router-seam-result.md)：停点 1 的统一 Router 生命周期、
    单一 Map transaction 和唯一 binding 来源验证结果。
 6. [`05-phase-a-ts01-ts03-validation-result.md`](05-phase-a-ts01-ts03-validation-result.md)：client Tool 能力矩阵、hosted
-   identity/request wire 本地验证及 Agent 可见引用停点。
+   identity/request wire 本地验证，以及节点归属与容器必达性的剩余合同缺口。
 7. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
 
 ## 3. 与 R8 其他问题的关系
@@ -80,4 +80,5 @@ capability；顶层 client-managed Tool 不再单独暴露。正式工程计划�
 - Standard 请求结构保持不变，TaskSpace 主请求只额外保留 provider 原生 hosted capability；
 - Tool 执行事实与节点生命周期分别结算，不相互推导；
 - 测试结论明确区分“client/map 容器不可行”和“某个 provider hosted 输出缺少稳定引用身份”；
-- TS-02 证明 hosted 输出存在稳定的响应内引用身份，TS-06～TS-09 合同冻结后，才进入生产代码实施。
+- TS-02 已证明 hosted 输出存在稳定的响应内身份；TS-06 必须进一步冻结 Agent 声明节点归属与 Runtime 使用该身份登记事实的
+  单一合同，TS-07～TS-09 合同冻结后，才进入生产代码实施。

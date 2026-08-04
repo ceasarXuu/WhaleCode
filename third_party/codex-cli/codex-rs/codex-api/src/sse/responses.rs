@@ -826,10 +826,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn preserves_hosted_item_ids_alongside_a_function_call() {
+    async fn preserves_hosted_item_ids_without_requiring_a_function_echo() {
         let function_arguments = json!({
-            "web_result_id": "ws_123",
-            "image_result_id": "ig_123"
+            "node_id": "research",
+            "operation": "record_progress"
         })
         .to_string();
         let events = run_sse(vec![
