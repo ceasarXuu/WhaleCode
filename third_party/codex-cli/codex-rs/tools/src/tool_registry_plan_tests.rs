@@ -2197,6 +2197,53 @@ fn code_mode_only_exec_description_includes_full_nested_tool_details() {
 }
 
 #[test]
+fn code_mode_exec_function_feature_changes_only_the_exec_wire_shape() {
+    let model_info = model_info();
+    let mut features = Features::with_defaults();
+    features.enable(Feature::CodeModeOnly);
+    features.enable(Feature::CodeModeExecFunction);
+    features.normalize_dependencies();
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+
+    let (tools, _) = build_specs(
+        &tools_config,
+        /*mcp_tools*/ None,
+        /*deferred_mcp_tools*/ None,
+        &[],
+    );
+    let ToolSpec::Function(ResponsesApiTool {
+        name,
+        description,
+        parameters,
+        ..
+    }) = &find_tool(&tools, "exec").spec
+    else {
+        panic!("expected function exec tool");
+    };
+    let parameters = serde_json::to_value(parameters).expect("serialize exec parameters");
+
+    assert_eq!(name, "exec");
+    assert!(description.contains("### `exec_command`"));
+    assert_eq!(parameters["required"], json!(["source"]));
+    assert_eq!(parameters["properties"]["source"]["type"], "string");
+    assert_eq!(parameters["additionalProperties"], false);
+    assert!(matches!(
+        find_tool(&tools, "wait").spec,
+        ToolSpec::Function(_)
+    ));
+}
+
+#[test]
 fn code_mode_exec_description_omits_nested_tool_details_when_not_code_mode_only() {
     let model_info = model_info();
     let mut features = Features::with_defaults();

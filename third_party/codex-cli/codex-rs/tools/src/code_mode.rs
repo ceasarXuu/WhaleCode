@@ -139,8 +139,36 @@ pub fn create_code_mode_tool(
     enabled_tools: &[CodeModeToolDefinition],
     namespace_descriptions: &BTreeMap<String, codex_code_mode::ToolNamespaceDescription>,
     code_mode_only: bool,
+    exec_as_function: bool,
     deferred_tools_available: bool,
 ) -> ToolSpec {
+    let description = codex_code_mode::build_exec_tool_description(
+        enabled_tools,
+        namespace_descriptions,
+        code_mode_only,
+        deferred_tools_available,
+    );
+    if exec_as_function {
+        return ToolSpec::Function(ResponsesApiTool {
+            name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
+            description,
+            strict: false,
+            parameters: JsonSchema::object(
+                BTreeMap::from([(
+                    "source".to_string(),
+                    JsonSchema::string(Some(
+                        "JavaScript source to execute. Do not wrap it in Markdown fences."
+                            .to_string(),
+                    )),
+                )]),
+                Some(vec!["source".to_string()]),
+                Some(false.into()),
+            ),
+            output_schema: None,
+            defer_loading: None,
+        });
+    }
+
     const CODE_MODE_FREEFORM_GRAMMAR: &str = r#"
 start: pragma_source | plain_source
 pragma_source: PRAGMA_LINE NEWLINE SOURCE
@@ -153,12 +181,7 @@ SOURCE: /[\s\S]+/
 
     ToolSpec::Freeform(FreeformTool {
         name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
-        description: codex_code_mode::build_exec_tool_description(
-            enabled_tools,
-            namespace_descriptions,
-            code_mode_only,
-            deferred_tools_available,
-        ),
+        description,
         format: FreeformToolFormat {
             r#type: "grammar".to_string(),
             syntax: "lark".to_string(),

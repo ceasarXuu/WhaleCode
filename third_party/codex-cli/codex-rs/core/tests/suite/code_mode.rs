@@ -525,6 +525,65 @@ text(output.output);
     Ok(())
 }
 
+#[cfg_attr(windows, ignore = "no exec_command on Windows")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_mode_function_exec_can_call_nested_tools() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = responses::start_mock_server().await;
+    let source = r#"
+const output = await tools.exec_command({ cmd: "printf code_mode_function_marker" });
+text(output.output);
+"#;
+    responses::mount_sse_once(
+        &server,
+        sse(vec![
+            ev_response_created("resp-1"),
+            responses::ev_function_call(
+                "call-1",
+                "exec",
+                &serde_json::json!({ "source": source }).to_string(),
+            ),
+            ev_completed("resp-1"),
+        ]),
+    )
+    .await;
+    let follow_up_mock = responses::mount_sse_once(
+        &server,
+        sse(vec![
+            ev_assistant_message("msg-1", "done"),
+            ev_completed("resp-2"),
+        ]),
+    )
+    .await;
+
+    let mut builder = test_codex().with_config(|config| {
+        let _ = config.features.enable(Feature::CodeModeOnly);
+        let _ = config.features.enable(Feature::CodeModeExecFunction);
+    });
+    let test = builder.build(&server).await?;
+    test.submit_turn("use function exec to run a nested tool")
+        .await?;
+
+    let request = follow_up_mock.single_request();
+    let (content, success) = request
+        .function_call_output_content_and_success("call-1")
+        .expect("function exec output should be present");
+    let output = function_tool_output_items(&request, "call-1")
+        .iter()
+        .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .collect::<String>();
+    assert_ne!(
+        success,
+        Some(false),
+        "function exec failed unexpectedly: {}",
+        content.unwrap_or_default()
+    );
+    assert!(output.contains("code_mode_function_marker"));
+
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn code_mode_update_plan_nested_tool_result_is_empty_object() -> Result<()> {
     skip_if_no_network!(Ok(()));

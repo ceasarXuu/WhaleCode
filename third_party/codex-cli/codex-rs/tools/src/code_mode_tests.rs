@@ -198,6 +198,7 @@ fn create_code_mode_tool_matches_expected_spec() {
             &enabled_tools,
             &BTreeMap::new(),
             /*code_mode_only*/ true,
+            /*exec_as_function*/ false,
             /*deferred_tools_available*/ false,
         ),
         ToolSpec::Freeform(FreeformTool {
@@ -222,6 +223,52 @@ SOURCE: /[\s\S]+/
 "#
                 .to_string(),
             },
+        })
+    );
+}
+
+#[test]
+fn create_code_mode_tool_can_use_function_wire_shape() {
+    let enabled_tools = vec![codex_code_mode::ToolDefinition {
+        name: "update_plan".to_string(),
+        tool_name: ToolName::plain("update_plan"),
+        description: "Update the plan".to_string(),
+        kind: codex_code_mode::CodeModeToolKind::Function,
+        input_schema: None,
+        output_schema: None,
+    }];
+    let description = codex_code_mode::build_exec_tool_description(
+        &enabled_tools,
+        &BTreeMap::new(),
+        /*code_mode_only*/ true,
+        /*deferred_tools_available*/ false,
+    );
+
+    assert_eq!(
+        create_code_mode_tool(
+            &enabled_tools,
+            &BTreeMap::new(),
+            /*code_mode_only*/ true,
+            /*exec_as_function*/ true,
+            /*deferred_tools_available*/ false,
+        ),
+        ToolSpec::Function(ResponsesApiTool {
+            name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
+            description,
+            strict: false,
+            parameters: JsonSchema::object(
+                BTreeMap::from([(
+                    "source".to_string(),
+                    JsonSchema::string(Some(
+                        "JavaScript source to execute. Do not wrap it in Markdown fences."
+                            .to_string(),
+                    )),
+                )]),
+                Some(vec!["source".to_string()]),
+                Some(false.into()),
+            ),
+            output_schema: None,
+            defer_loading: None,
         })
     );
 }

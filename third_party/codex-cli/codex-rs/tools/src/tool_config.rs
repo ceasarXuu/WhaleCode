@@ -107,6 +107,7 @@ pub struct ToolsConfig {
     pub request_permissions_tool_enabled: bool,
     pub code_mode_enabled: bool,
     pub code_mode_only_enabled: bool,
+    pub code_mode_exec_function_enabled: bool,
     pub can_request_original_image_detail: bool,
     pub collab_tools: bool,
     pub goal_tools: bool,
@@ -147,6 +148,8 @@ impl ToolsConfig {
         let include_apply_patch_tool = features.enabled(Feature::ApplyPatchFreeform);
         let include_code_mode = features.enabled(Feature::CodeMode);
         let include_code_mode_only = include_code_mode && features.enabled(Feature::CodeModeOnly);
+        let include_code_mode_exec_function =
+            include_code_mode && features.enabled(Feature::CodeModeExecFunction);
         let include_collab_tools = features.enabled(Feature::Collab);
         let include_goal_tools = features.enabled(Feature::Goals);
         let include_multi_agent_v2 = features.enabled(Feature::MultiAgentV2);
@@ -225,6 +228,7 @@ impl ToolsConfig {
             request_permissions_tool_enabled,
             code_mode_enabled: include_code_mode,
             code_mode_only_enabled: include_code_mode_only,
+            code_mode_exec_function_enabled: include_code_mode_exec_function,
             can_request_original_image_detail: include_original_image_detail,
             collab_tools: include_collab_tools,
             goal_tools: include_goal_tools,
@@ -324,6 +328,7 @@ impl ToolsConfig {
         let mut nested = self.clone();
         nested.code_mode_enabled = false;
         nested.code_mode_only_enabled = false;
+        nested.code_mode_exec_function_enabled = false;
         nested
     }
 }

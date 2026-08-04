@@ -118,6 +118,7 @@ pub fn build_tool_registry_plan(
                 &enabled_tools,
                 &namespace_descriptions,
                 config.code_mode_only_enabled,
+                config.code_mode_exec_function_enabled,
                 config.search_tool
                     && params
                         .deferred_mcp_tools
