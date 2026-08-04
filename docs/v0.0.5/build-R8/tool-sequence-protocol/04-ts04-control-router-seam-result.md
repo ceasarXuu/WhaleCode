@@ -7,6 +7,9 @@
 - Production behavior: 未切换
 - Whale Agent run: 未执行，API 成本为 0
 
+> 2026-08-04 复核：本验证只涉及 `taskspace_control` 的统一 Router/Map transaction seam，不依赖 hosted adapter、
+> Ready frontier 或 Tool outcome 推导节点状态。产品基线纠偏后，本结论仍完整有效。
+
 ## 1. 验证结论
 
 停点 1 已通过，不需要修改产品路线。
@@ -77,7 +80,7 @@ handler 结果。它没有伪造第二个模型调用，也没有把内部 item 
 
 ## 5. 对正式工程计划的约束
 
-TS-16 必须沿此 seam 接入，不能重新解释为另一条实现：
+重写后正式计划的 TS-15 必须沿此 seam 接入，不能重新解释为另一条实现：
 
 1. 正式 `TaskSpaceControlHandler` 消费 Runtime 传入的 sequence invocation metadata；
 2. batch preflight 只验证并生成计划，不提交 Map；
@@ -86,11 +89,11 @@ TS-16 必须沿此 seam 接入，不能重新解释为另一条实现：
 5. 普通 Tool schema、原生 input 和 handler 保持无侵入；
 6. 不增加 transient global registry、隐式 current node 或 Runtime 主动绑定策略。
 
-当前探针仍复用了旧 control parser，以便只验证 Router/Map seam；它不代表 `actions[]` 会进入正式容器协议。纯 Map control
-schema、容器 decoder、preflight 和生产原子切换仍分别属于 TS-12、TS-14、TS-15、TS-27。生产入口在 TS-27 前继续使用
-旧路径，不能同时启用新旧两条 Map 提交路线。
+当前探针仍复用了旧 control parser，以便只验证 Router/Map seam；它不代表 `actions[]` 会进入正式容器协议。重写后
+容器合同、decoder/reconciler、preflight 和生产原子切换分别属于 TS-06、TS-12、TS-13、TS-19；纯 Map control 由
+TS-15 沿本文 seam 接入。生产入口在 TS-19 前继续使用旧路径，不能同时启用新旧两条 Map 提交路线。
 
 ## 6. 停点判定
 
-停点 1 的工程可行性风险已消除：统一 Router seam 可行，TS-16 可以从 `blocked-on-discovery` 转为 `planned`。本次没有
+停点 1 的工程可行性风险已消除：统一 Router seam 可行，当前 TS-15 状态为 `planned`。本次没有
 启动 Phase B、没有接入生产容器、没有运行真实 Whale Agent，也没有自动推进其他 R8 已知问题。

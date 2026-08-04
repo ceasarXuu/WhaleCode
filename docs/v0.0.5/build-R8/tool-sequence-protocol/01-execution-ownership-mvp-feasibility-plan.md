@@ -1,9 +1,33 @@
 # Tool 序列执行归属最小可行性测试计划
 
 - Created: 2026-08-02
-- Status: Executing；MVT-0～MVT-6 completed；MVT-7 已完成边界核验并暴露正式接入决策点
+- Updated: 2026-08-04
+- Status: Historical feasibility evidence；部分产品假设已被新基线替代
 - Scope: 只验证“单一序列容器 + client/provider 执行归属”基础路线
 - Excludes: 完整生产 schema、旧协议迁移、真实 Agent 行为收益和全量 provider 兼容
+
+> **产品解释更新（2026-08-04）**
+>
+> 本文保留当时的假设、测试和执行记录，不能再作为正式产品合同直接实施。MVT-1 的原 Router 复用、MVT-7 的
+> Standard 隔离，以及 TS-04 的统一 control Router seam 仍是有效生产证据；MVT-2～MVT-6 证明专用 hosted adapter
+> 在技术上可行，但“主请求隐藏原生 hosted Tool、预检后由 Runtime 再触发 hosted 调用”不再是默认产品方向。
+>
+> 当前权威基线见 [`00-product-definition.md`](00-product-definition.md) 和
+> [`03-production-engineering-plan.md`](03-production-engineering-plan.md)：provider-hosted Tool 由 provider 原生执行，
+> 容器引用其已完成输出并声明节点归属；Tool 执行状态与节点生命周期正交，DAG 不根据 Tool outcome 推导节点状态。
+
+### 0.1 历史证据的保留与撤回范围
+
+| 历史结论 | 当前处理 |
+|---|---|
+| 普通 Tool 可从容器还原并复用原 Router | 保留，直接进入正式设计 |
+| `taskspace_control` 可经统一 Router 触发唯一 Map 事务 | 保留，直接进入正式设计 |
+| Standard wire 可与 TaskSpace 隔离 | 保留，继续作为门禁 |
+| 专用 hosted 子请求可机械构造、隔离主会话并区分失败/未知 | 保留为 adapter 可行性证据，不作为默认生产路径 |
+| 所有 hosted 动作必须在容器预检后才开始 | 撤回；原生 hosted 输出在 provider 内已经发生 |
+| Tool 失败决定节点保持 Ready、后继保持 Waiting | 撤回；Tool 状态与节点生命周期正交 |
+| Work 必须按 Ready frontier 才能由容器 dispatch | 撤回为通用 Tool gate；DAG 只验证 Agent 声明的节点/边和生命周期变更 |
+| 非法批次保证 provider-hosted 动作零执行 | 限定为历史 adapter 路径；原生 hosted 输出只能如实保留并拒绝非法绑定 |
 
 ## 1. 要提前消除的风险
 
