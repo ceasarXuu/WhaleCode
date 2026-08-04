@@ -1,0 +1,69 @@
+{
+  "schema_version": "r8-deepseek-function-exec-v1",
+  "record_id": "WAR-20260805-054853-R8-DEEPSEEK-FUNCTION-EXEC-001",
+  "generated_at": "2026-08-05T05:53:52+08:00",
+  "subject_commit": "e8c4ce1a0d9cd4151f84ce04fb47d33b4969adfd",
+  "whale_binary_sha256": "22b1f23625498d8eb1f610a72cd0d86e7cccbe971668a607752a049e7a5b9a38",
+  "model": "deepseek-v4-flash",
+  "provider": "deepseek",
+  "features": [
+    "code_mode_only",
+    "code_mode_exec_function"
+  ],
+  "sample": "single-file-fast-fix",
+  "planned_repeats": 2,
+  "actual_repeats": 1,
+  "automatic_retries": 0,
+  "remaining_repeats_cancelled": 1,
+  "local_validation": {
+    "build_passed": true,
+    "feature_tests_passed": 37,
+    "code_mode_tool_tests_passed": 14,
+    "existing_code_mode_only_tests_passed": 4,
+    "function_exec_nested_runtime_test_passed": true,
+    "cache_regression_gate": "pass"
+  },
+  "provider_observation": {
+    "function_exec_schema_accepted": true,
+    "provider_request_count": 18,
+    "function_exec_calls": 16,
+    "wait_calls": 2,
+    "input_tokens": 395239,
+    "cached_input_tokens": 373504,
+    "uncached_input_tokens": 21735,
+    "output_tokens": 10329
+  },
+  "runtime_observation": {
+    "agent_exit_code": 137,
+    "oracle_exit_code": 1,
+    "model_generated_function_exec": true,
+    "function_exec_arguments_parsed": true,
+    "javascript_runtime_started": true,
+    "nested_tools_dispatched": true,
+    "nested_tools_succeeded": false,
+    "failure_layer": "docker_nested_sandbox",
+    "failure_message": "bwrap: No permissions to create a new namespace",
+    "agent_terminated_to_stop_repeated_failed_attempts": true
+  },
+  "root_cause": {
+    "invalid_argument": "--full-auto",
+    "required_argument": "--dangerously-bypass-approvals-and-sandbox",
+    "reason": "项目 Docker benchmark 以容器作为硬沙箱边界，禁止在容器内再次启动 Whale workspace-write/bwrap 沙箱。",
+    "existing_guard": "scripts/taskspace-benchmark/lib/container-benchmark-runner.ps1::Assert-TaskspaceDockerWhaleArgv",
+    "existing_guard_test": "scripts/taskspace-benchmark/test-docker-only-call-graph.ps1"
+  },
+  "result": {
+    "provider_protocol_supported": true,
+    "model_can_generate_function_exec": true,
+    "full_task_success": false,
+    "stability_assessable": false,
+    "conclusion": "Function exec 已消除 DeepSeek 的 Freeform schema 阻塞，并走通到嵌套工具调度；本轮因测试命令绕过了现有 Docker runner 的沙箱参数门禁，不能用于判断完整任务稳定性。"
+  },
+  "evidence": {
+    "events_sha256": "fac7f68d415439b3b1a43def2952703701dd563673d689c0be1a3e75ea676ea4",
+    "stderr_sha256": "1aa26269eb1cc57f86b235a03cda53c004edb5b1e9fc99d4da4f00843293d721",
+    "oracle_sha256": "455d0a5fc1f4ef61e4da97daf6a450794497f4c159a794e2c94ec4c16689ba1f",
+    "rollout_sha256": "2e9db280d15ae7f935cb63e2072726e940a599dcfa77258975208699b299e86f",
+    "run_root": "target/r8-deepseek-function-exec/WAR-20260805-054853-R8-DEEPSEEK-FUNCTION-EXEC-001/run-1"
+  }
+}
