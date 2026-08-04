@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-05T06:36:52+08:00",
+  "updated_at": "2026-08-05T06:39:30+08:00",
   "entries": [
     {
       "record_id": "WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-05T06:38:09+08:00",
+      "ended_at": "2026-08-05T06:38:54+08:00",
+      "elapsed_calendar_seconds": 45,
+      "aggregate_agent_wall_time_ms": 15997,
       "reason": "替代零请求预检失败批次，低成本复验嵌套工具结果可见性合同；两个批次合计仍只执行一个真实 sample。",
       "authorization": {
         "required": false,
@@ -37,21 +37,36 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 1,
+        "api_requests": 8,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 114476,
+        "cached_input": 104448,
+        "uncached_input": 10028,
+        "output": 1240
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
-        "actual_billed_amount": null
+        "amount": 0.01459696,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00208896,
+          "uncached_input": 0.010028,
+          "output": 0.00248
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-05",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "104448/1e6*0.02 + 10028/1e6*1.0 + 1240/1e6*2.0 = 0.01459696 CNY",
+        "note": "按 provider boundary 与 8 个 response_completed final-wire usage 结算；两者已 reconciled。"
       },
       "evidence": {
         "planned_run_root": "target/r8-function-exec-result-visibility/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002",
@@ -78,10 +93,13 @@
           "after_180_elapsed_seconds",
           "after_first_infrastructure_or_protocol_failure"
         ],
-        "usage_evidence_status": "pending",
-        "actual_run_root": null,
-        "result_path": null,
-        "outcome": "pending"
+        "usage_evidence_status": "complete",
+        "actual_run_root": "target/r8-function-exec-result-visibility/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002/single-file-fast-fix/20260805-063809-645",
+        "result_path": "benchmarks/taskspace/r8/evidence/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002.json",
+        "provider_boundary_path": "target/r8-function-exec-result-visibility/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002/single-file-fast-fix/20260805-063809-645/pair-001/left/artifacts/provider-boundary-events.jsonl",
+        "rollout_path": "target/r8-function-exec-result-visibility/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002/single-file-fast-fix/20260805-063809-645/pair-001/left/artifacts/rollout.jsonl",
+        "outcome": "target_contract_passed_full_lifecycle",
+        "outcome_detail": "6/6 个有效 exec 调用均显式暴露嵌套结果，空输出、重复发现和重复 pytest 均消失；代码、公开 validator、隐藏 oracle 和最终答复全部完成。请求数仍为 8，因为首次 Function exec 顶层 cmd 错用再次偶发。"
       }
     },
     {

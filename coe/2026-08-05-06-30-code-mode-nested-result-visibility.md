@@ -1,7 +1,7 @@
 # Problem P-001: Code Mode 嵌套工具结果未进入 Agent 可见输出
-- Status: open
+- Status: fixed
 - Created: 2026-08-05 06:30
-- Updated: 2026-08-05 06:30
+- Updated: 2026-08-05 06:39
 - Objective: 让 Agent 明确知道嵌套工具返回值默认只存在于当前 JavaScript 中，并正确选择需要送回上下文的结果。
 - Symptoms:
   - Agent 三次 `await tools.exec_command(...)` 后没有调用 `text(...)`，对应 `exec` 对 Agent 返回空输出。
@@ -27,14 +27,15 @@
   - 工具描述明确声明单独 `await` 不产生 Agent 可见输出，并提供 `const result = await ...; text(result);` 示例。
   - 回归测试锁定 Function 与 Freeform 两种 exec 描述中的该合同。
   - 本地测试和构建通过；一次获批真实样本不再因遗漏 `text(...)` 重复读取或重复测试。
-- Current conclusion: 根因是 Agent 可见工具合同缺失了“嵌套返回值必须显式追加”的关键关系，不是 Runtime 丢失结果。
+- Current conclusion: 工具合同已补全；获批真实样本中 6/6 个有效 exec 都显式追加嵌套结果，空输出重复动作消失，Agent 完整结束。
 - Related hypotheses:
   - H-001
   - H-002
+  - H-003
 - Resolution basis:
-  - not satisfied
-- Close reason:
-  - not closed
+  - E-003
+  - E-004
+- Close reason: 工具合同、本地回归、真实 trace、公开验证和隐藏 oracle 均满足 fix criteria。
 
 ## Hypothesis H-001: 输出合同缺少 await 与 Agent 可见结果的关系
 - Status: confirmed
@@ -160,3 +161,88 @@
   ```
 - Interpretation: Runtime 的职责边界是把结果返回给脚本，并只转发 Agent 显式追加的内容；现有行为符合设计，缺口位于公开合同。
 - Time: 2026-08-05 06:30
+
+## Hypothesis H-003: 补全合同可消除空输出导致的重复动作
+- Status: confirmed
+- Parent: P-001
+- Claim: 在 exec 描述中直接说明 await 不自动输出并给出显式追加示例后，Agent 会把所需嵌套结果送回上下文，不再因空输出重复操作。
+- Layer: fix-validation
+- Factor relation: single
+- Depends on:
+  - H-001
+- Rationale:
+  - 修复只补全 Agent 可见合同，不改变 Runtime 执行或结果选择语义。
+- Falsifiable predictions:
+  - If true: 有效嵌套调用均使用输出 helper，目录发现和 pytest 不因空输出重复。
+  - If false: 仍会出现无输出 helper 的嵌套调用，并发生相同重复动作。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 单次获批真实样本中所有有效 exec 的 source 和 output。
+  - Signal: `text(...)` 使用、空输出数量、重复发现/测试数量和最终生命周期。
+  - Capture method: Docker benchmark rollout、provider boundary、公开 validator 和隐藏 oracle。
+  - Event name or marker:
+    - `WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002`
+  - Correlation keys:
+    - run `20260805-063809-645`
+  - Differentiates from:
+    - Runtime 自动转发嵌套结果
+  - Supports if:
+    - 需要反馈的嵌套调用全部显式输出且没有空输出重复。
+  - Refutes if:
+    - 任何需要反馈的调用仍因未显式输出而重复。
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - 保留 rollout 与 provider boundary 作为运行证据。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-003
+  - E-004
+- Conclusion: 6/6 个有效 exec 显式输出，重复发现和重复 pytest 均为 0，完整生命周期成功。
+- Repair design readiness: completed
+- Next step: closed
+- Blocker:
+  - none
+- Close reason:
+  - confirmed by E-003 and E-004
+
+## Evidence E-003: 本地合同回归和构建通过
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: test
+- Source: `cargo test -p codex-code-mode --locked`; `cargo test -p codex-tools --lib --locked`; Code Mode core integration；CLI build；cache regression gate
+- Prediction or plan link:
+  - H-003 的工具合同存在性与回归预测
+- Matched signal:
+  - 24 个 code-mode 测试通过；149 个 tools 测试通过、1 ignored；core integration 通过；CLI 构建通过；免费 final-wire 门禁通过。
+- Correlation keys:
+  - commit `49213445b5251ff6b574f8f9c1fb943c6d1c87e6`
+- Raw content:
+  ```text
+  cache regression gate: PASS 88c27e2e1ecc32c492f6652ca6d77426bf7f3a258ddfd23a8945a2c0df35b0f7
+  ```
+- Interpretation: 两种 exec carrier 均包含结果可见性合同，相关工具和集成回归未受损。
+- Time: 2026-08-05 06:34
+
+## Evidence E-004: 真实样本不再遗漏嵌套结果
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `benchmarks/taskspace/r8/evidence/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002.json`
+- Prediction or plan link:
+  - H-003 的真实行为预测
+- Matched signal:
+  - 6/6 个有效 exec 显式调用 `text(...)`；空输出、重复发现、重复 pytest 均为 0；最终答复在第 8 请求完成。
+- Correlation keys:
+  - `WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002`
+  - run `20260805-063809-645`
+- Raw content:
+  ```text
+  valid_function_exec_calls_with_explicit_output=6
+  valid_function_exec_calls_without_explicit_output=0
+  agent_completion_status=complete
+  public validation: 3 passed
+  hidden oracle passed
+  ```
+- Interpretation: 原始症状在修复后的获批真实样本中消失，且没有通过 Runtime 自动处理结果来改变职责边界。
+- Time: 2026-08-05 06:39

@@ -1,0 +1,194 @@
+{
+  "schema_version": "r8-nested-result-visibility-fix-v1",
+  "record_id": "WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002",
+  "generated_at": "2026-08-05T06:39:30+08:00",
+  "subject_commit": "49213445b5251ff6b574f8f9c1fb943c6d1c87e6",
+  "ledger_commit": "303f1fbac",
+  "whale_binary_sha256": "0eddf8ea6e1189b84a8cc94048b23034f88e0eade09073391b256d1b3c727afe",
+  "baseline_record_id": "WAR-20260805-061947-R8-FUNCTION-EXEC-CONTRACT-FIX-001",
+  "replaced_preflight_record_id": "WAR-20260805-063405-R8-NESTED-RESULT-VISIBILITY-001",
+  "model": "deepseek-v4-flash",
+  "provider": "deepseek",
+  "features": [
+    "code_mode_only",
+    "code_mode_exec_function"
+  ],
+  "sample": "single-file-fast-fix",
+  "planned_repeats": 1,
+  "actual_repeats": 1,
+  "automatic_agent_retries": 0,
+  "fix_under_test": {
+    "id": "nested_result_visibility_contract",
+    "change": "exec 工具合同明确说明 await 仅把嵌套结果返回当前 JavaScript；需要后续使用的结果必须由 Agent 通过 text 显式追加到 exec 输出。",
+    "result": "passed",
+    "evidence": "6 个有效 exec 调用中的全部嵌套工具结果均被显式追加；不存在空 exec 输出，也未重复执行目录发现或 pytest。"
+  },
+  "provider_observation": {
+    "completed_provider_requests": 8,
+    "locally_rejected_provider_attempts": 0,
+    "request_hard_limit": 8,
+    "top_level_exec_calls": 7,
+    "valid_function_exec_calls": 6,
+    "valid_function_exec_calls_with_explicit_output": 6,
+    "valid_function_exec_calls_without_explicit_output": 0,
+    "top_level_exec_calls_with_legacy_cmd": 1,
+    "apply_patch_calls": 1,
+    "apply_patch_format_failures": 0,
+    "input_tokens": 114476,
+    "cached_input_tokens": 104448,
+    "uncached_input_tokens": 10028,
+    "output_tokens": 1240,
+    "reasoning_output_tokens": 429,
+    "cache_hit_rate": 0.9124008525804535,
+    "request_2_plus_cache_hit_rate": 0.984042080746874,
+    "estimated_cost_cny": 0.01459696
+  },
+  "runtime_observation": {
+    "agent_exit_code": 0,
+    "agent_wall_time_ms": 15997,
+    "agent_completion_status": "complete",
+    "interruption_source": "none",
+    "public_validator_exit_code": 0,
+    "hidden_oracle_exit_code": 0,
+    "code_change_correct": true,
+    "business_success_reported": true,
+    "changed_paths": [
+      "src/tax_calc.py"
+    ],
+    "final_test_result": "3 passed",
+    "final_agent_answer_generated": true
+  },
+  "request_path": [
+    {
+      "request": 1,
+      "action": "首次错误地以顶层 cmd 调用 Function exec，被 schema 拒绝。",
+      "input_tokens": 13147,
+      "cached_input_tokens": 4736,
+      "output_tokens": 100
+    },
+    {
+      "request": 2,
+      "action": "使用 source 调用 exec_command 查看目录，并用 text(r.output) 暴露结果。",
+      "input_tokens": 13281,
+      "cached_input_tokens": 13184,
+      "output_tokens": 111
+    },
+    {
+      "request": 3,
+      "action": "读取 README、pyproject 和目录信息，并用 text(r.output) 暴露结果。",
+      "input_tokens": 13595,
+      "cached_input_tokens": 13312,
+      "output_tokens": 107
+    },
+    {
+      "request": 4,
+      "action": "读取源码和测试，并用 text(r.output) 暴露结果。",
+      "input_tokens": 13998,
+      "cached_input_tokens": 13696,
+      "output_tokens": 87
+    },
+    {
+      "request": 5,
+      "action": "运行失败基线 pytest，并用 text(r.output) 暴露 2 failed / 1 passed。",
+      "input_tokens": 14398,
+      "cached_input_tokens": 14080,
+      "output_tokens": 477
+    },
+    {
+      "request": 6,
+      "action": "调用 apply_patch 并用 text(JSON.stringify(result)) 暴露结果；首次成功。",
+      "input_tokens": 15184,
+      "cached_input_tokens": 14848,
+      "output_tokens": 171
+    },
+    {
+      "request": 7,
+      "action": "运行修复后 pytest，并用 text(r.output) 暴露 3 passed。",
+      "input_tokens": 15381,
+      "cached_input_tokens": 15232,
+      "output_tokens": 70
+    },
+    {
+      "request": 8,
+      "action": "生成最终答复，Agent 生命周期正常结束。",
+      "input_tokens": 15492,
+      "cached_input_tokens": 15360,
+      "output_tokens": 117
+    }
+  ],
+  "baseline_comparison": {
+    "completed_provider_requests": {
+      "baseline": 8,
+      "candidate": 8
+    },
+    "nested_calls_without_explicit_output": {
+      "baseline": 3,
+      "candidate": 0
+    },
+    "repeated_discovery_or_test_due_to_empty_output": {
+      "baseline": 3,
+      "candidate": 0
+    },
+    "full_agent_lifecycle_success": {
+      "baseline": false,
+      "candidate": true
+    },
+    "agent_wall_time_ms": {
+      "baseline": 17250,
+      "candidate": 15997
+    },
+    "input_tokens": {
+      "baseline": 113467,
+      "candidate": 114476
+    },
+    "uncached_input_tokens": {
+      "baseline": 14779,
+      "candidate": 10028
+    },
+    "output_tokens": {
+      "baseline": 1436,
+      "candidate": 1240
+    },
+    "cache_hit_rate": {
+      "baseline": 0.8697506764081187,
+      "candidate": 0.9124008525804535
+    },
+    "estimated_cost_cny": {
+      "baseline": 0.01962476,
+      "candidate": 0.01459696
+    }
+  },
+  "new_observations": [
+    {
+      "id": "function_exec_legacy_cmd_not_stably_eliminated",
+      "status": "confirmed_single_run_recurrence",
+      "impact": "首次请求仍错用顶层 cmd，消耗一次 provider 请求；模型收到精确 schema 错误后立即纠正。",
+      "interpretation": "此前单次样本中的消失不是稳定性证明。本轮工具 schema 已明确限定 source，因此当前证据更接近 Agent 偶发错用；需要独立重复实验后才能决定是否仍有能力暴露缺口。"
+    },
+    {
+      "id": "aggregate_model_request_count_mismatch",
+      "status": "confirmed_observation",
+      "impact": "sample request summary 报告 15 次，而 provider boundary 与 final-wire 均一致证明实际付费请求为 8 次。",
+      "interpretation": "当前只确认聚合口径不一致，尚未追踪到具体计数代码；成本结算采用 provider boundary 和 terminal final-wire，不采用该聚合字段。"
+    }
+  ],
+  "result": {
+    "nested_result_visibility_contract_passed": true,
+    "empty_exec_output_repetition_removed": true,
+    "code_and_oracle_success": true,
+    "full_agent_lifecycle_success": true,
+    "provider_request_count_reduced": false,
+    "uncached_input_cost_reduced": true,
+    "conclusion": "本轮目标修复成立：Agent 对所有有效嵌套调用都显式暴露结果，未再因空输出重复发现或测试，并在 8 请求内完成代码、验证和最终答复。请求数未下降，原因是首次 Function exec 顶层 cmd 错用再次偶发；该残留与聚合请求计数异常应作为独立问题处理。"
+  },
+  "evidence": {
+    "run_root": "target/r8-function-exec-result-visibility/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002/single-file-fast-fix/20260805-063809-645",
+    "provider_boundary_events_sha256": "7372dbd9b21470b7b552d759e39275a46e77d96350148677e6a1515670b5f728",
+    "provider_wire_trace_sha256": "6a41deb520cc41b4c5fca6f07bd20307b05a32176db75af092c785484a914c20",
+    "rollout_sha256": "eeb9029f0185d9c2fb70f286a0d7b73e5fce2309444a6c6f800977439494cad9",
+    "git_diff_sha256": "27175656c4c606c9551894154249d85a7e90705c523cf422fe5560f31fc1350a",
+    "public_validation_sha256": "6778a9feaf41e273797d9dc9debad9d54cd77dab63c334e8a4c939a29cee2fa6",
+    "hidden_oracle_sha256": "973f01157775d31e1ceac6ed2d938ff8a802fd68e47e2677d0dc9731eb1ac9fe",
+    "final_message_sha256": "3e80110d9263521d0ba4dbbe5c7f06c281768a9fa14969160fd953b54b103640"
+  }
+}
