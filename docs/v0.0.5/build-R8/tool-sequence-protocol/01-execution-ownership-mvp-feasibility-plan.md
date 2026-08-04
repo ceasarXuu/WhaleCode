@@ -1,5 +1,8 @@
 # Tool 序列执行归属最小可行性测试计划
 
+> **已封存 / 非现行计划（2026-08-05）**：该计划不再推进；验证证据可供 TaskSpace Exec 复用。主计划见
+> [`../taskspace-exec/02-engineering-plan.md`](../taskspace-exec/02-engineering-plan.md)。
+
 - Created: 2026-08-02
 - Updated: 2026-08-04
 - Status: Historical feasibility evidence；部分产品假设已被新基线替代

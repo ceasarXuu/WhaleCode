@@ -1,5 +1,8 @@
 # MVT-1 原生 Tool Router 复用结果
 
+> **已封存证据（2026-08-05）**：旧容器方案不再实施；本文关于原 Router 复用的结果仍作为
+> [`TaskSpace Exec`](../taskspace-exec/01-upstream-and-feasibility-evidence.md) 的输入证据。
+
 - Date: 2026-08-02
 - Status: Completed
 - Commit: `228c68ff8`

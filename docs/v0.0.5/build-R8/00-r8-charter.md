@@ -2,6 +2,7 @@
 
 - Version: v0.0.5 build-R8
 - Created: 2026-07-31
+- Updated: 2026-08-05
 - Status: Active
 - Previous milestone: `docs/v0.0.5/build-R7/`
 
@@ -140,3 +141,12 @@ R8 使用外部规范校验协议边界，但不照搬外部架构：
   用于核对 Map Store 原子提交和失败回滚边界。
 
 这些资料只支持原生 Tool 结果、前缀缓存和事务边界等通用事实，不预先决定 TaskSpace 的具体实现。
+
+## 8. 当前主方案
+
+2026-08-05 起，R8 暂停原问题队列，优先实施
+[`taskspace-exec/`](taskspace-exec/README.md)。该方案以 Function Call 形态的 `taskspace_exec` 作为 TaskSpace 唯一
+client/map 入口，承担合法序列与节点绑定；provider-hosted Tool 保持原生执行，并在 exec 中双写归属供 Runtime 核对。
+
+此前的普通 Tool schema 入侵、独立顶层结构化容器和 control manifest + sibling calls 路线已降级为封存候选。封存
+只停止其生产实施，不删除已经形成的 Router、provider identity、状态正交和反例证据。

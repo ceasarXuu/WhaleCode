@@ -5,9 +5,10 @@
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
-> **推进暂停（2026-08-01）**：当前发现的问题共同依赖更底层的 TaskSpace 顶层动作承载方式。原执行序暂停，
-> 先完成 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md) 基建专题。专题实施并验证后重新盘点本表；
-> 现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
+> **推进暂停（2026-08-05 更新）**：当前发现的问题共同依赖更底层的 TaskSpace 顶层动作承载方式。原执行序暂停，
+> 先完成 [`taskspace-exec/`](taskspace-exec/README.md) 主方案。此前的 Tool schema 入侵、顶层结构化容器和 sibling
+> 配对路线已降级并封存在 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。主方案实施并验证后重新盘点
+> 本表；现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
 
 ## 1. 使用规则
 
@@ -53,7 +54,7 @@
 | 9 | R8-I04 | F5 | P2 | Agent 有时会提前执行依赖尚未满足的任务，或继续操作已经完成的节点 | 状态机只能拒绝这些动作，造成无效请求；严重时 Agent 会误判当前可做的工作 | Agent 能准确识别当前可执行节点，并稳定完成“结束前一步后继续下一步”的合法连续动作 | queued | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 完成同类任务所需的请求、输入、时间和未缓存成本仍明显高于 Standard | 即使任务质量有收益，也可能因成本过高而缺乏商业可用性 | 在不删减语义和硬约束的前提下，把额外成本收敛到可解释、稳定且与产品收益匹配的范围 | queued | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Tool 序列协议**；原问题队列暂停。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec 主方案**；原问题队列暂停。
 
 I01 暂停前计划：
 [`I01/00-i01-response-final-revision-repair-plan.md`](I01/00-i01-response-final-revision-repair-plan.md)。

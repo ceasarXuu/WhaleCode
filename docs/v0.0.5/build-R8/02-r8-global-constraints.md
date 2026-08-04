@@ -1,6 +1,7 @@
 # R8 TaskSpace 全局约束
 
 - Created: 2026-07-31
+- Updated: 2026-08-05
 - Status: Active
 - Scope: 产品、设计、实现、测试和评测
 
@@ -19,22 +20,32 @@
 1. Agent 负责目标、拆解、依赖、节点选择、动作归属、完成判断、重规划和总结。
 2. Runtime 只验证图结构、revision、节点可执行状态、Agent 声明的动作对应、原子性和底线安全规则。
 3. Runtime 不自动初始化、不代选节点、不补动作、不修改参数、不解释任务语义，也不因 Agent 可能犯错增加语义约束。
-4. TaskSpace 下 Agent 只通过顶层 Tool 序列提交动作；所有原生 Tool，包括 `taskspace_control`，都位于序列内部。
-5. Agent 在序列动作外层为每个普通 Tool call 显式声明 `node_id`；Runtime 只解析，不推断或选择归属。
-6. 序列是顺序和归属的唯一表达；`taskspace_control` 不再维护 sibling Tool 的重复 action manifest。
-7. `taskspace_control` 只提供 Map 操作和读取能力，在序列与执行路径中的地位不高于普通 Tool。
-8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感。
+4. TaskSpace 下 Agent 只通过 Function Call 形态的 `taskspace_exec` 提交 client/map 动作；普通 client Tool 和
+   `taskspace_control` 都由该工具内部声明，不再作为 TaskSpace 顶层 sibling Tool 暴露。
+5. Provider-hosted Tool 保持 provider 原生能力和执行路径；Agent 在同一响应的 `taskspace_exec` 中双写其节点归属，
+   Runtime 逐项核对错绑、漏绑、重复和未知引用，但不重执行或猜配。
+6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个 client/provider 动作显式声明 `node_id`；Runtime 只
+   解析和校验，不推断或选择归属，`node_id` 不得进入普通 Tool 原生参数。
+7. `taskspace_exec` 只负责承载合法序列和节点绑定；`taskspace_control` 只提供 Map 操作和读取能力，在内部执行路径中
+   地位不高于普通 Tool。
+8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感；内部 Tool 合同必须
+   从同一原生 ToolSpec 机械派生，不手写第二套协议。
+9. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
+   只有主方案被证据否定且用户重新决策后才能恢复评估。
 
 ## 3. 动作与状态硬约束
 
 1. 初始化、reopen 和非终态节点完成必须与至少一个真实后续动作位于同一 Agent response。
 2. 一个 response 可以包含多个无结果依赖的普通工具动作，并可推进多个节点。
-3. Runtime 在真实动作开始前一次性验证整个 Tool 序列的成员、顺序、节点归属和 Map 操作是否合法。
+3. Runtime 在已定义的真实动作副作用边界前验证 `taskspace_exec` 计划的成员、Map 边界、节点归属和硬规则；完整批次
+   预检边界必须先由 TX-03/TX-04 证明确立，不能用执行后的惩罚式拒绝代替。
 4. preflight 失败时整批普通工具零执行、Map 零提交。
 5. 普通 Tool 失败保持普通 Tool 失败；Map 拒绝保持 Map 拒绝，二者不得互相伪装。
-6. `apply_patch` 作为序列成员时仍保持原生 freeform 文本输入形态；一个 response 最多实际执行一个 Patch。
+6. `apply_patch` 作为 `taskspace_exec` 内部成员时仍保持原生 freeform 文本输入形态；一个 response 最多实际执行一个
+   Patch。
 7. `finish_map` 是 Agent 显式终态事务；它必须能够同时完成最后 Work、Finish、Root 和总结。
-8. 事实读取也必须通过 Tool 序列提交；存在结果依赖时允许只包含一个读取 Tool 的单项序列，但不存在序列外入口。
+8. client 事实读取也必须通过 `taskspace_exec` 提交；存在结果依赖时允许只包含一个读取 Tool 的单项调用，但不存在
+   TaskSpace client Tool 的序列外入口。
 
 ## 4. 上下文与反馈
 

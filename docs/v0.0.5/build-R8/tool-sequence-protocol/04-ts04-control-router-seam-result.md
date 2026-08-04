@@ -1,5 +1,7 @@
 # TS-04：TaskSpace Control 统一 Router Seam 验证结果
 
+> **已封存证据（2026-08-05）**：旧容器计划停止；统一 Router seam 结果保留供 TaskSpace Exec 复用，不代表旧方案仍有效。
+
 - Date: 2026-08-03
 - Status: Verified
 - Code evidence: `148406cde`

@@ -1,8 +1,11 @@
 # TaskSpace Tool 序列容器正式工程计划
 
+> **已封存 / 禁止继续执行（2026-08-05）**：独立顶层容器已降级为候选。现行生产计划见
+> [`../taskspace-exec/02-engineering-plan.md`](../taskspace-exec/02-engineering-plan.md)。本文中的 planned 单元全部失效。
+
 - Created: 2026-08-02
 - Updated: 2026-08-05
-- Status: Phase A directional feasibility completed / production blockers and Phase B stop points frozen
+- Status: Archived candidate plan / all remaining work units cancelled
 - Scope: 将 Tool 序列容器接入生产 TaskSpace，并兼容 provider 原生 hosted Tool 输出
 - Risk depth: Full，涉及 model-visible Tool API、provider 响应解析、Map 事务、反馈和缓存
 - Prerequisite: [`00-product-definition.md`](00-product-definition.md)

@@ -1,5 +1,8 @@
 # R8-I01 唯一最终 Revision 反馈修复计划
 
+> **已暂停（2026-08-05）**：本文已完成的实现与证据继续作为当前现场；尚未完成的真实验证和后续动作不得继续按旧
+> sibling 协议推进。R8 先实施 [`../taskspace-exec/`](../taskspace-exec/README.md)，随后依据新生产 trace 重评 I01。
+
 - Created: 2026-08-01
 - Artifact status: W0-W8 implemented and deterministically verified
 - Issue status: verifying; W9-W11 require separately authorized live evidence

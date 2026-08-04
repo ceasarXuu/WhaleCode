@@ -1,10 +1,24 @@
 # R8 TaskSpace Tool 序列协议专题
 
+> **已封存 / 非主方案（2026-08-05）**：本专题中的 Tool schema 入侵、独立顶层结构化容器和 control manifest +
+> sibling calls 路线均已降级为候选，不得继续按本文档实施生产代码。当前主方案见
+> [`../taskspace-exec/`](../taskspace-exec/README.md)。本文只保留历史实验、反例和可复用的 Router/Hosted/状态边界证据。
+
 - Created: 2026-08-01
 - Updated: 2026-08-05
-- Status: Phase A directional feasibility completed / TS-01～TS-09 已验证 / Phase B stop points frozen
+- Status: Archived candidate evidence / superseded by TaskSpace Exec
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Map 边界顺序、节点归属与 Runtime 硬边界
+
+封存状态不等于当前代码已经清理：生产代码在 TaskSpace Exec 原子切换前仍可能运行旧
+`taskspace_control.actions[] + sibling calls` 路径。它只是当前遗留实现，不再是目标协议；不得因为代码仍存在而继续
+扩展旧路线。
+
+| 历史路线 | 封存后的地位 | 可保留内容 |
+|---|---|---|
+| 普通 Tool schema 入侵 | 候选，停止实施 | 失败反例与对普通 Tool 零侵入约束 |
+| 独立顶层结构化序列容器 | 候选，停止实施 | Router 复用、Hosted identity 和边界 fixture |
+| control manifest + sibling calls | 遗留生产路径，等待删除 | 迁移前回归基线与失败 trace |
 
 ## 1. 专题目的
 

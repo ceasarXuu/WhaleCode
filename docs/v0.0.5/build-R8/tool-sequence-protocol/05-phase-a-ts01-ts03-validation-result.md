@@ -1,5 +1,7 @@
 # Phase A TS-01～TS-03 提前验证结果
 
+> **已封存证据（2026-08-05）**：旧容器计划停止；Tool 类型矩阵和 provider wire 事实仅作为 TaskSpace Exec 的调查输入。
+
 - Date: 2026-08-04
 - Status: TS-01～TS-03 completed / Hosted 节点归属合同片段已在 TS-06 验证
 - Scope: client Tool 能力边界、provider-native hosted 输出身份、TaskSpace 请求 wire

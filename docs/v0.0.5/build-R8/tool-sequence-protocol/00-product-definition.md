@@ -1,5 +1,8 @@
 # TaskSpace Tool 序列协议产品定义
 
+> **已封存 / 非现行产品合同（2026-08-05）**：独立顶层结构化容器已降级为候选。现行合同见
+> [`../taskspace-exec/00-product-contract.md`](../taskspace-exec/00-product-contract.md)。本文仅用于追溯历史决策与反例。
+
 - Created: 2026-08-01
 - Updated: 2026-08-04
 - Status: Product baseline revised / production design pending update

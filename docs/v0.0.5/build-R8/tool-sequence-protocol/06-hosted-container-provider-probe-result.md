@@ -1,5 +1,8 @@
 # Hosted Tool 与容器真实 Provider 探针结果
 
+> **已封存证据（2026-08-05）**：旧容器方案不再实施；Hosted 原始响应与身份观测仍有效，需由 TaskSpace Exec 的
+> 双写 reconciliation 重新解释。
+
 - Date: 2026-08-05
 - Record: `WAR-20260805-005841-R8-HOSTED-PROBE-DCF750E2`
 - Model: `deepseek-v4-flash`

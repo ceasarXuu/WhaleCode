@@ -1,5 +1,7 @@
 # Phase A TS-05～TS-09 完整验证结果
 
+> **已封存证据（2026-08-05）**：旧容器 Phase B 不再启动；本文的生产 blocker 需按 TaskSpace Exec 新合同重新盘点。
+
 - Date: 2026-08-05
 - Status: Phase A directional feasibility completed
 - Scope: 旧协议审计、完整容器输入、合法边界、状态正交、无损结果
