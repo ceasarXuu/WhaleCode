@@ -1,7 +1,94 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-05T01:03:27+08:00",
+  "updated_at": "2026-08-05T05:31:41+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 DeepSeek V4 Flash 在当前 Whale HEAD 上能否稳定使用 code_mode_only：由顶层 exec 编排嵌套读取、修改和测试工具，并正确接收结果后完成任务。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "reference": "用户于 2026-08-05 明确要求先验证 DeepSeek 能否稳定运行 exec 模式；本批次总计 3 个 sample run，未超过全局门禁。",
+        "budget_summary": {
+          "sample_run_limit": 3,
+          "api_request_limit": 30,
+          "input_token_limit": 600000,
+          "output_token_limit": 60000,
+          "estimated_cost_limit_cny": 0.72,
+          "elapsed_seconds_limit": 1200
+        },
+        "note": "single-file-fast-fix、code_mode_only、repeat=3；首轮若出现基础设施或协议失败则停止剩余运行；禁止自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "code-mode-only-current-head"
+        ],
+        "repeats_per_arm_per_sample": 3,
+        "planned_sample_runs": 3,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-05",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": null,
+        "note": "运行完成后按 provider usage 遥测估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-deepseek-exec-stability/WAR-20260805-053141-R8-DEEPSEEK-EXEC-STABILITY-001",
+        "subject_commit": "4c6b2c87214c7c8480b5852263e5f46f07f58756",
+        "whale_binary_sha256": "b102fc053e27fdcf34a912344bac3beef4fac9dc262055ac1c24475614ab78eb",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "code-mode-only-current-head"
+          ],
+          "repeat": 3,
+          "planned_sample_runs": 3,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 3
+        },
+        "stop_conditions": [
+          "after_first_infrastructure_or_protocol_failure",
+          "after_budget_observation_exceeded",
+          "after_three_sample_runs"
+        ],
+        "usage_evidence_status": "pending"
+      }
+    },
     {
       "record_id": "WAR-20260805-005841-R8-HOSTED-PROBE-DCF750E2",
       "record_type": "run_batch",
