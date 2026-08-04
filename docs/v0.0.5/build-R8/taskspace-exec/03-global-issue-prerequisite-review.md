@@ -21,7 +21,7 @@
 | 问题 | 与 TaskSpace Exec 的关系 | 决策 | 对应工作单元 | 问题状态处理 |
 |---|---|---|---|---|
 | I09 Map 恢复合法性 | 所有 Runtime/Map 工作的事实前提 | 已关闭，满足建设前置，不新增动作 | 已有 I09 证据；TX-14 做邻接回归 | 保持 closed |
-| I07 观测可信性 | 已确认的请求/token 双计会污染后续成本结论；本地 reject 口径会被新 trace 改写 | 只把已坐实的计数子问题前置为 TX-00；其余融入 TX-11 | TX-00、TX-11、TX-14 | 保持 queued，直到完整 I07 验收 |
+| I07 观测可信性 | 已确认的请求/token 双计会污染后续成本结论；本地 attempt、Provider boundary 与 completed response 也被混同 | 按 [I07 专题计划](../I07/00-i07-observability-trust-repair-plan.md) 先完成 TX-00；其余融入 TX-11 | TX-00、TX-11、TX-14 | 保持 queued，直到完整 I07 验收 |
 | I10 能力身份 | exec 内部 catalog、实际 Router、缓存和报告必须认同同一工具能力版本 | 不做旧路径外围补丁；提升为外层合同和共享 catalog 的硬条件 | TX-02、TX-06、TX-12、TX-14 | 保持 queued，生产切换后重评 |
 | I06 统一 admission | 超级工具内部调用如果直接复用当前 Code Mode dispatch，可能绕过顶层 sequence preflight | 不独立修旧 sibling；作为 typed plan、preflight 和 nested dispatch 的核心验收 | TX-03、TX-04、TX-08、TX-14 | 保持 queued，生产切换后重评 |
 | I01 唯一最终 revision | W0～W8 已形成确定性基础，但旧协议 E3 会在切换后失效 | 保留当前实现和测试，不继续旧 W9/W10；新外层结果重新验证 | TX-10、TX-14、TX-15 | 保持 verifying |
@@ -52,8 +52,9 @@ TX-00 的最小修复边界是消费语义，不预设删除 Runtime 的 rate-li
 4. fixture 必须复现“一个 completed usage + 一个无 ID rate-limit snapshot”的真实成对形态；
 5. provider boundary、final wire 与 rollout 聚合对同一请求集合逐 ID 对账。
 
-I07 的另一部分“本地 preflight reject 被当成 upstream mismatch”不在 TX-00 修旧语义。TaskSpace Exec 会改变 preflight
-和内部 item trace，应在 TX-11 按新身份模型解决。
+I07 的另一部分“本地 attempt 被当成 boundary-accepted request，并将 preflight/local failure 判成 upstream mismatch”
+不在 TX-00 修旧语义。其通用对账口径按 I07-W4～W8 收敛；TaskSpace Exec 的 item/node 关联在 TX-11（I07-W9～W11）
+接入，不能让新协议另造一套 Provider 请求计数。
 
 ## 4. 两个必须融入主方案的硬问题
 
