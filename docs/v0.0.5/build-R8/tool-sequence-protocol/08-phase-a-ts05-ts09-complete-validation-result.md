@@ -1,14 +1,16 @@
 # Phase A TS-05～TS-09 完整验证结果
 
 - Date: 2026-08-05
-- Status: Phase A validation completed
+- Status: Phase A directional feasibility completed
 - Scope: 旧协议审计、完整容器输入、合法边界、状态正交、无损结果
 - Production behavior change: 无；新增代码均为 `#[cfg(test)]` 合同和特征测试
 - Whale Agent/API run: 未执行，token 与费用均为 0
 
 ## 1. 总结
 
-TS-05～TS-09 能通过本地确定性证据回答的问题已经一次性验证完成。容器方向没有出现新的产品设计歧义：
+TS-05～TS-09 能通过本地确定性证据回答的问题已经一次性验证完成。以下结论针对候选合同和关键生产 seam，证明容器方向
+可以进入正式实施；它不代表最终生产 ToolSpec、全部 typed Tool 或恢复路径已经端到端验证。容器方向没有出现新的产品
+设计歧义：
 
 - Agent 输入只包含响应级 `hosted_node_id`、`client_call` 和 `map_call`；
 - 原生 Tool input 作为 JSON object 或 freeform string 原样保留，容器不解释参数；
@@ -125,7 +127,21 @@ Runtime 结算时从真实 Provider 响应生成 `provider_result`，它不是 A
 | PB-06 | Tool outcome 粒度不足 | `bool/is_error` 无法区分 failed、cancelled、not_executed、outcome_unknown | TS-16 |
 | PB-07 | 失败反馈复制 Map/revision | 旧 preflight 将同一失败 payload 复制给每个 pairing，再附加 developer fact | TS-16 |
 
-## 8. 非 Blocking 的后续验证
+## 8. 可行性复审后的实施停点
+
+独立对抗性审查未发现方案级 Blocking，但确认当前部分合同测试仍使用测试内候选类型。以下事项必须在对应生产单元关闭前
+验证，不能用当前 fixture 代替：
+
+1. 生产 ToolSpec、decoder、settlement 和 Hosted ledger 落地后，合同测试直接消费生产类型，避免测试结构与实现漂移；
+2. ToolSearch、Namespace/MCP、LocalShell 的输入与外层结果闭环，包括下一请求的动态 Tool schema 刷新；
+3. 历史 unbound Hosted 事实的跨轮恢复载体，以及响应作用域身份在 Event Store 重启 replay 后的唯一性；
+4. 节点进入 Completed/Blocked/Finished 后，迟到 Tool 结果仍能持久化且不反向改变 lifecycle；
+5. 实际生成的完整容器 ToolSpec 通过 Provider acceptance。该项涉及真实请求时必须另行申请预算。
+
+这些是 Phase B 的架构停点，不是已经发现的方案不可行。任一停点若迫使修改普通 Tool schema、引入第二套 Router/执行协议、
+让 Runtime 根据 Tool outcome 决定节点状态，才升级为方案级 Blocking 并暂停。
+
+## 9. 非 Blocking 的后续效果验证
 
 以下事项需要在生产接线后验证，但不阻止 Phase B 开始：
 
@@ -135,7 +151,7 @@ Runtime 结算时从真实 Provider 响应生成 `provider_result`，它不是 A
 
 这些项目不应被误写为当前产品 blocker，也不能在没有生产路径时提前消耗 Whale Agent 预算。
 
-## 9. 验证命令
+## 10. 验证命令
 
 ```bash
 cargo test -p codex-core taskspace_hosted_binding_contract_tests
@@ -147,4 +163,5 @@ python3 -m unittest scripts/taskspace-benchmark/test_r8_hosted_container_probe.p
 python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 ```
 
-Phase A 到此结束。下一步不是继续增加验证样例，而是按 PB-01～PB-07 的依赖关系进入 Phase B 未接线生产内核。
+Phase A 的方向可行性验证到此结束。下一步不是继续增加测试内候选结构，而是按 PB-01～PB-07 和上述停点进入 Phase B
+未接线生产内核。

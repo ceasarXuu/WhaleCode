@@ -2,7 +2,7 @@
 
 - Created: 2026-08-02
 - Updated: 2026-08-05
-- Status: Phase A validation completed / production blockers frozen / Phase B not started
+- Status: Phase A directional feasibility completed / production blockers and Phase B stop points frozen
 - Scope: 将 Tool 序列容器接入生产 TaskSpace，并兼容 provider 原生 hosted Tool 输出
 - Risk depth: Full，涉及 model-visible Tool API、provider 响应解析、Map 事务、反馈和缓存
 - Prerequisite: [`00-product-definition.md`](00-product-definition.md)
@@ -262,17 +262,17 @@ Node lifecycle fact:
 | TS-03 | 盘点 provider 请求能力 | provider profiles、tool flags | 容器+hosted descriptors 的本地 wire fixture | completed（见 05） |
 | TS-04 | 证明 control 统一 Router seam | control/Router/Map transaction | 已有本地测试 | verified (`148406cde`) |
 | TS-05 | 盘点旧 actions/sibling/RejectedNative 消费面 | core/tools/session/tests/docs | 删除清单与 Standard 共用边界 | completed（见 08） |
-| TS-06 | 冻结容器 schema 与三类结算事实 | JSON schema/response fixtures | Hosted 5/5；完整输入 schema 4/4 | completed（见 07/08） |
+| TS-06 | 冻结候选容器 schema 与三类结算事实 | JSON schema/response fixtures | Hosted 5/5；候选输入 schema 4/4 | completed（见 07/08） |
 | TS-07 | 冻结七种合法形状与 Map 边界 | preflight fixtures | 正向形状及 map 中置、空推进、双 Patch 等负例 | completed（见 08） |
 | TS-08 | 冻结 Tool/节点状态正交合同 | state fixtures/source audit | 成败同效应通过；当前 reservation/lifecycle 耦合已定位 | completed with blockers（见 08） |
 | TS-09 | 冻结无损结果与唯一 revision 合同 | protocol/Event Store fixtures | 合同 4/4、无损 1/1、revision 3/3；旧 outcome/反馈阻塞已定位 | completed with blockers（见 08） |
 | TS-10 | 抽取共享原生 Tool descriptor | tools crate | Code Mode/Standard wire 逐值不变 | planned |
-| TS-11 | 生成未接线容器 ToolSpec | tools crate | schema hash、大小、无 self-reference | planned |
-| TS-12 | 实现纯 decoder 与 hosted ref reconciler | core/tools | 存在/重复/跨响应/未绑定 fixture | planned |
+| TS-11 | 生成未接线容器 ToolSpec | tools crate | schema hash、大小、无 self-reference、真实 Provider acceptance | planned |
+| TS-12 | 实现纯 decoder 与 hosted ref reconciler | core/tools | 持久化响应内身份、重复/冲突、重启 replay、历史 unbound 恢复 | planned |
 | TS-13 | 实现无副作用 preflight | core/tools | 非法 client/map 零 dispatch；hosted 原事实保留 | planned |
-| TS-14 | 接入 client item 原 Router | nested_call/Router | Function/Freeform/MCP 定向测试 | planned |
+| TS-14 | 接入 client item 原 Router | nested_call/Router | Function/Freeform/MCP/Namespace/ToolSearch/LocalShell 输入与结果闭环 | planned |
 | TS-15 | 接入 map_call 原 Router | control handler/Map transaction | 单 Map commit、无外层旁路 | planned |
-| TS-16 | 实现三类事实独立结算 | result/reconciliation | 不发生 Tool→node 自动转换 | planned |
+| TS-16 | 实现三类事实独立结算 | result/reconciliation | 不发生 Tool→node 自动转换；终态后迟到结果仍可持久化 | planned |
 | TS-17 | 建立生命周期日志 | sequence/reconciler | 事件计数、身份、正文不入日志 | planned |
 | TS-18 | 建立候选请求与缓存门禁 | final-wire/cache gate | Standard 0 diff；TaskSpace changed set 可解释 | planned |
 | TS-19 | 原子切换 TaskSpace Tool 投影 | turn/provider declaration | TaskSpace=容器+hosted；Standard 原样 | planned |
@@ -286,16 +286,23 @@ Node lifecycle fact:
 
 - 单元：TS-01～TS-09。
 - 收益：先确定 provider 输出身份、容器三类 item、状态正交和反馈边界，不在错误假设上写生产代码。
-- 状态：2026-08-05 完成；结果和 blocker 见
+- 状态：2026-08-05 方向可行性验证完成；结果和 blocker 见
   [`08-phase-a-ts05-ts09-complete-validation-result.md`](08-phase-a-ts05-ts09-complete-validation-result.md)。
-- 停点：provider 输出身份与响应级节点归属已通过；若 TS-06 其余 schema 必须复制原生 Tool 或引入第二套执行协议，暂停并
-  与用户讨论。
+- 边界：该阶段证明薄容器方向与关键边界可行，不代表最终生产 ToolSpec、全部 typed Tool 或恢复路径已经端到端验证。
 
 ### Phase B：未接线内核
 
 - 单元：TS-10～TS-17。
 - 收益：容器 schema、decoder、reconciler、preflight、Router 和结果可独立测试，生产仍走旧路径。
-- 停点：若必须修改普通 Tool schema、引入第二 Router/Map scheduler，或读取 Tool outcome 才能运行，判定设计偏离并停止。
+- 停点：
+  1. TS-11 关闭前，测试必须直接消费生产 ToolSpec/decoder，实际生成的完整 schema 必须通过 Provider acceptance；真实请求
+     另行申请预算。
+  2. TS-12 关闭前，必须冻结历史 unbound 的跨轮恢复合同，并用生产 Event Store 验证响应作用域身份与重启 replay。
+  3. TS-14 关闭前，ToolSearch、Namespace/MCP 和 LocalShell 必须完成输入、外层结果及下一请求状态刷新的闭环；不能以
+     Function/Freeform 通过代替。
+  4. TS-16 关闭前，必须证明节点进入终态后迟到 Tool 结果仍可持久化且不反写 lifecycle。
+  5. 若任何停点要求修改普通 Tool schema、引入第二 Router/Map scheduler，或读取 Tool outcome 才能决定节点状态，判定
+     设计偏离并停止。
 
 ### Phase C：请求与原子切换
 

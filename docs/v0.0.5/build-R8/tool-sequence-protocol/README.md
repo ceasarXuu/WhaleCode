@@ -2,7 +2,7 @@
 
 - Created: 2026-08-01
 - Updated: 2026-08-05
-- Status: Phase A validation completed / TS-01～TS-09 已验证 / production blockers frozen
+- Status: Phase A directional feasibility completed / TS-01～TS-09 已验证 / Phase B stop points frozen
 - Priority: Foundation / blocks the existing issue queue
 - Scope: TaskSpace 的 Agent 动作入口、Map 边界顺序、节点归属与 Runtime 硬边界
 
@@ -58,7 +58,7 @@ capability；顶层 client-managed Tool 不再单独暴露。正式工程计划�
 8. [`07-ts06-hosted-response-scope-mvt-result.md`](07-ts06-hosted-response-scope-mvt-result.md)：响应级 Hosted 节点归属的
    本地合同验证，覆盖混合状态、缺失容器、重复、重放与冲突。
 9. [`08-phase-a-ts05-ts09-complete-validation-result.md`](08-phase-a-ts05-ts09-complete-validation-result.md)：TS-05～TS-09
-   一次性完整验证、唯一 blocking 清单和进入 Phase B 的边界。
+   一次性方向可行性验证、唯一 blocking 清单和进入 Phase B 的边界。
 10. 后续正式实施结果：按工作单元单独形成，不以 MVT 或 seam 测试 adapter 代替生产完成证据。
 
 ## 3. 与 R8 其他问题的关系

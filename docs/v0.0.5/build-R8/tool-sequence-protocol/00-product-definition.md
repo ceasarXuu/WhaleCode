@@ -161,13 +161,14 @@ Tool 序列是唯一的 TaskSpace 行动与归属账本，但 Tool 的真实执�
 2. Provider-hosted Tool 由 provider 在生成响应期间直接执行；Runtime 收到的是 provider 原生输出事实，而不是一个等待
    本地 dispatch 的调用。
 3. TaskSpace 请求继续原生暴露 provider-hosted capability。一次响应可以同时包含已完成的 hosted 输出，以及一个装有
-   client-managed/Map 动作和 hosted 结果引用的 Tool 序列。
-4. 序列中的 hosted 项只引用本响应内已经发生的 provider 输出，并声明其 `node_id`；它不复制业务结果、不再次执行，
-   也不把 hosted Tool 伪装成 client Tool。
-5. Provider 输出是 hosted Tool 身份、执行状态和结果的权威事实；序列只补充 Agent 声明的 TaskSpace 归属。Runtime 必须
-   机械核对引用是否唯一存在，不能按语义猜配。
-6. 若 provider 已产生 hosted 输出但 Agent 未在序列中绑定，Runtime 必须保留原始未绑定事实。它不能丢弃、回滚、推断
-   节点或伪装成未执行；Agent 可在后续行动中显式完成绑定。
+   client-managed/Map 动作和响应级 Hosted 归属声明的 Tool 序列。
+4. 序列不包含 hosted item，也不要求 Agent 回填 provider output ID；它只用 `hosted_node_id` 声明本响应全部 Hosted 事实
+   所属的单一节点。Runtime 从真实响应中枚举每个 Hosted output item 的身份、状态和结果并机械登记。
+5. Provider 输出是 hosted Tool 身份、执行状态和结果的权威事实；序列只补充 Agent 声明的 TaskSpace 归属。Runtime 不能
+   复制业务结果、再次执行 Hosted Tool、按语义猜配或把它伪装成 client Tool。
+6. 若 provider 已产生 hosted 输出但 Agent 未在序列中提供有效 `hosted_node_id`，Runtime 必须保留原始未绑定事实。它不能
+   丢弃、回滚、推断节点或伪装成未执行。后续显式补绑定仍是产品要求，但跨轮恢复载体尚未冻结，必须在生产 decoder 与
+   reconciler 接线前作为独立停点完成设计和验证。
 7. Standard 继续使用 provider 原生 hosted Tool，TaskSpace 的记录与归属能力不得改变 Standard 行为。
 
 此前“Runtime 预检后再通过专用 hosted executor 触发 provider”的适配器方案，只证明了执行适配技术可行，不再是默认
@@ -414,7 +415,7 @@ Provider response
 进入工程设计前，需确认：
 
 - Agent 在 TaskSpace 下只通过 Tool 序列提交 client-managed Tool 与 `taskspace_control`；
-- provider-hosted capability 保持原生暴露，其已完成输出通过序列进行节点归属；
+- provider-hosted capability 保持原生暴露，其已完成输出通过序列的响应级声明进行节点归属；
 - control 不再复制普通动作清单；
 - 普通 Tool 对 TaskSpace 完全无感，Standard 行为不变；
 - 节点归属由 Agent 对每个动作声明，且不产生单独 bind 或 current node；
@@ -429,7 +430,7 @@ Provider response
 | 主题 | 当前结论 | 状态 |
 |---|---|---|
 | TaskSpace client/map 入口 | 只允许一个 Tool 序列，而不是多个独立顶层 client Tool | 已确认 |
-| 序列成员 | client-managed Tool、`taskspace_control` 和 hosted 结果引用均在容器内 | 已确认 |
+| 序列成员 | item 只有 client-managed Tool 和 `taskspace_control`；响应级 `hosted_node_id` 不复制 hosted item | 已确认 |
 | 普通 Tool | 原生定义、参数、handler 和结果对 TaskSpace 无感 | 已确认 |
 | control 地位 | 是提供 Map 能力的普通 Tool，不是外置 manifest 或特殊 sibling | 已确认 |
 | 节点选择 | Agent 逐动作声明；Runtime 不推断 | 已确认 |
@@ -438,7 +439,7 @@ Provider response
 | 结果外形 | 可以整体返回或逐调用返回 | 工程可选，但受语义底线约束 |
 | Standard | 保持原生多 Tool 调用路径，不使用 TaskSpace 序列 | 已确认 |
 | 执行归属 | client/map 调用由序列声明；hosted 执行事实由 provider 声明、节点归属由序列声明 | 已确认，待工程验证 |
-| Provider-hosted Tool | 原生暴露和执行；容器引用已完成输出并声明节点归属 | 已确认，待身份核对验证 |
+| Provider-hosted Tool | 原生暴露和执行；容器声明本响应统一节点，Runtime 登记真实输出身份 | 已确认，待生产 Store/replay 验证 |
 | Tool/节点状态 | 两类事实正交，不自动互相推导 | 已确认 |
 | 事后猜配 / 双执行 | 禁止；只允许用稳定身份机械核对本响应 hosted 输出 | 已确认 |
 | 旧问题队列 | 暂停；专题完成后重新盘点 | 已确认 |
