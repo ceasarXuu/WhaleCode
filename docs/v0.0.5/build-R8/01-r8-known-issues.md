@@ -1,7 +1,7 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-01
+- Updated: 2026-08-05
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
@@ -79,6 +79,23 @@ I05/I07 当前新增证据：
 - 同一 preflight/state rejection 同时以 Tool pairing output 和 developer factual message 暴露，属于 I05 待收敛的
   重复反馈；rollout observer 将 10 次 completed provider 请求统计为 19 次并近似双计 token，provider boundary
   verifier 又把 1 次本地 pre-dispatch reject 当成 upstream mismatch，属于 I07 待修复的证据口径问题。
+
+I07 最新确定性根因证据（2026-08-05）：
+
+- `WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002` 中，provider boundary 与 final-wire 均证明实际完成
+  8 次请求，但 Harness `request-summary.json` 和 `metrics.json` 报告 15 次；原始 rollout 恰好是前 7 个请求各有
+  2 条带 usage 的 `token_count`，最终请求只有 1 条，即 `7 × 2 + 1 = 15`。
+- 每个重复对由一条带唯一 `provider_request_id` 的 response-completed token 事件，和一条不带请求 ID、重复携带
+  `last_token_usage` 的 rate-limit 状态事件组成。后者由提交 `e9d705a235` 增加；调用处注释声明应延迟发送以避免
+  重复，但 `update_rate_limits()` 实际仍发送了第二条 `TokenCount`。
+- Harness `New-TaskspaceRolloutRequestTraceSummary` 当前把每条带 `last_token_usage` 的 `token_count` 都计作请求，
+  不检查 `provider_request_id`，也不按请求身份去重。因此 rollout input 被重复累计为 `213,460`，而 sample 聚合
+  又用正确累计 input `114,476` 除以错误请求数 15，派生的平均每请求 token 同样失真。
+- 现有合成测试只构造“一次请求对应一条 token 事件”，没有覆盖同一次请求同时出现 provider usage 事件与无 ID
+  rate-limit 广播的真实形态，因此未能阻止该回归。
+- 本轮费用账本不受影响：结算使用 reconciled provider boundary 和 8 个唯一 final-wire terminal，而不是错误的
+  Harness 聚合值。完整证据见
+  [`WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002.json`](../../../benchmarks/taskspace/r8/evidence/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002.json)。
 
 已关闭问题：
 [`I09/00-i09-store-hydrate-repair-plan.md`](I09/00-i09-store-hydrate-repair-plan.md)。
