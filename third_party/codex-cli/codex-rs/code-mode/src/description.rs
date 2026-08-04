@@ -16,6 +16,8 @@ const EXEC_DESCRIPTION_PREFIX: &str = r#"Run JavaScript code to orchestrate/comp
 - All nested tools are available on the global `tools` object, for example `await tools.exec_command(...)`. Tool names are exposed as normalized JavaScript identifiers, for example `await tools.mcp__ologs__get_profile(...)`.
 - Nested tool methods take either a string or an object as their input argument.
 - Nested tools return either an object or a string, based on the description.
+- Awaiting a nested tool makes its result available only inside the current JavaScript execution; it does not automatically add the result to `exec` output.
+- When the result is needed after `exec`, append it explicitly, for example `const result = await tools.exec_command(...); text(result);`. Omit output only when the result is intentionally not needed.
 - Runs raw JavaScript -- no Node, no file system, no network access, no console."#;
 const EXEC_FREEFORM_INPUT_GUIDANCE: &str =
     "- Accepts raw JavaScript source text, not JSON, quoted strings, or markdown code fences.";
@@ -752,6 +754,7 @@ mod tests {
     use super::ToolNamespaceDescription;
     use super::augment_tool_definition;
     use super::build_exec_tool_description;
+    use super::build_function_exec_tool_description;
     use super::normalize_code_mode_identifier;
     use super::parse_exec_source;
     use codex_protocol::ToolName;
@@ -813,6 +816,20 @@ mod tests {
             "hidden_dynamic_tool",
             normalize_code_mode_identifier("hidden-dynamic-tool")
         );
+    }
+
+    #[test]
+    fn exec_descriptions_explain_nested_result_visibility() {
+        let expected = "Awaiting a nested tool makes its result available only inside the current JavaScript execution; it does not automatically add the result to `exec` output.";
+        let example = "const result = await tools.exec_command(...); text(result);";
+
+        for description in [
+            build_exec_tool_description(&[], &BTreeMap::new(), false, false),
+            build_function_exec_tool_description(&[], &BTreeMap::new(), false, false),
+        ] {
+            assert!(description.contains(expected));
+            assert!(description.contains(example));
+        }
     }
 
     #[test]

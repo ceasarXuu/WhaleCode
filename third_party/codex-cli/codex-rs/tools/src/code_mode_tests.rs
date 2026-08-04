@@ -250,6 +250,10 @@ fn create_code_mode_tool_can_use_function_wire_shape() {
     );
     assert!(description.contains("exactly one required `source` string"));
     assert!(!description.contains("Accepts raw JavaScript source text, not JSON"));
+    assert!(description.contains(
+        "Awaiting a nested tool makes its result available only inside the current JavaScript execution"
+    ));
+    assert!(description.contains("const result = await tools.exec_command(...); text(result);"));
 
     assert_eq!(
         create_code_mode_tool(
