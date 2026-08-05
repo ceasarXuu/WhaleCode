@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase A evidence-complete / Phase B1 ready / 生产代码尚未接入
+- Status: Phase A direction-supported / Phase B1 plan-ready / 生产代码尚未接入
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -23,6 +23,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    使用的 Tool、数量、参数、数组顺序和节点归属全部由 Agent 构造；Runtime 收到调用后才执行硬规则预检和机械路由。
 7. 普通 Client Tool 合同从 Standard 顶层迁移到 Exec 内部，只暴露一次；运行时 Map、node、plan、Provider output 和
    Session 状态不进入 Tool declaration。
+8. Agent 不回显协议版本、能力快照身份或内部调用 ID；Runtime 从 request-local ToolSpec、outer `call_id` 和数组位置
+   机械维护这些关联信息。
 
 旧的普通 Tool schema 入侵、顶层结构化序列容器和 `taskspace_control.actions[] + sibling calls` 三条路线降级为候选，
 统一封存在 [`../tool-sequence-protocol/`](../tool-sequence-protocol/README.md)。它们不再拥有生产实施状态；只有主方案
@@ -41,6 +43,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - Phase A 已证明完整 typed plan、零副作用 preflight、Runtime 可直接读取 Provider `id/item_id`，以及逐项多节点
   Hosted 归属可机械核对。`source:string` 只保留为被淘汰候选的历史证据；Phase A 已完成，Phase B1 从结构化 Function
   schema 开始实施。
+- Phase A 没有证明现有 Event Store 已支持一份 Hosted fact 的多节点引用。该数据模型事实已经从“可直接复用”纠正为
+  Phase B2 的有界发现与实施单元。
 
 ## 3. 文档
 

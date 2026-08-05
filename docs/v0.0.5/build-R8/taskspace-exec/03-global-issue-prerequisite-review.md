@@ -20,16 +20,16 @@
 
 | 问题 | 与 TaskSpace Exec 的关系 | 决策 | 对应工作单元 | 问题状态处理 |
 |---|---|---|---|---|
-| I09 Map 恢复合法性 | 所有 Runtime/Map 工作的事实前提 | 已关闭，满足建设前置，不新增动作 | 已有 I09 证据；TX-17 做邻接回归 | 保持 closed |
-| I07 观测可信性 | 已确认的请求/token 双计会污染后续成本结论；本地 attempt、Provider boundary 与 completed response 也被混同 | 按 [I07 专题计划](../I07/00-i07-observability-trust-repair-plan.md) 先完成 TX-00；其余融入 TX-14 | TX-00、TX-14、TX-17 | 保持 queued，直到完整 I07 验收 |
-| I10 能力身份 | exec 内部 catalog、实际 Router、缓存和报告必须认同同一工具能力版本 | 不做旧路径外围补丁；提升为外层合同和共享 catalog 的硬条件 | TX-02、TX-06、TX-15、TX-17 | 保持 queued，生产切换后重评 |
-| I06 统一 admission | 超级工具内部调用如果直接复用当前 Code Mode dispatch，可能绕过顶层 sequence preflight | 不独立修旧 sibling；作为 typed plan、canonical admission 和 nested dispatch 的核心验收 | TX-03、TX-04、TX-09、TX-10、TX-17 | 保持 queued，生产切换后重评 |
-| I01 唯一最终 revision | W0～W8 已形成确定性基础，但旧协议 E3 会在切换后失效 | 保留当前实现和测试，不继续旧 W9/W10；新外层结果重新验证 | TX-13、TX-17、TX-18 | 保持 verifying |
-| I05 拒绝反馈 | 旧 pairing output、developer message 和状态事实重复会被 outer exec result 替换 | 不修旧 carrier；在新结果中一次区分 preflight、Tool、Provider 和 Map 事实 | TX-13、TX-17 | 保持 queued |
-| I02 上下文重复 | 旧独立高优先级副本会随旧反馈路径删除 | 不单独优化旧上下文；用新 final wire 和缓存门禁验收 | TX-13、TX-15、TX-17、TX-18 | 保持 queued |
-| I03 动作组合 | 主要证据来自旧 control manifest + sibling 生成失败 | 不在旧协议上增强 prompt 或拒绝；新 ToolSpec 接入后真实观测 | TX-02、TX-15、TX-18 | 保持 queued |
-| I04 节点选择 | 需要先排除协议、反馈和上下文失真 | 不增加 Runtime 语义约束；新协议正确后重测 | TX-17、TX-18、TX-19 | 保持 queued |
-| I08 成本 | 依赖能力身份、计数、反馈和 Agent 行为全部可信 | 最后评价，不反向删减语义或硬规则 | TX-00、TX-15、TX-18、TX-19 | 保持 queued |
+| I09 Map 恢复合法性 | 所有 Runtime/Map 工作的事实前提 | 已关闭，满足建设前置，不新增动作 | 已有 I09 证据；TX-17C 做邻接回归 | 保持 closed |
+| I07 观测可信性 | 已确认的请求/token 双计会污染后续成本结论；本地 attempt、Provider boundary 与 completed response 也被混同 | 按 [I07 专题计划](../I07/00-i07-observability-trust-repair-plan.md) 先完成 TX-00；其余融入 TX-14A/B | TX-00、TX-14A/B、TX-17D | 保持 queued，直到完整 I07 验收 |
+| I10 能力身份 | exec 内部 catalog、实际 Router、缓存和报告必须认同同一工具能力版本 | 不做旧路径外围补丁；能力身份由 Runtime 从 request-local ToolSpec 维护，不要求 Agent 回显 | TX-02、TX-06A～C、TX-15、TX-17A/D | 保持 queued，生产切换后重评 |
+| I06 统一 admission | 超级工具内部调用如果直接复用当前 Code Mode dispatch，可能绕过顶层 sequence preflight | 不独立修旧 sibling；作为 structured plan、canonical admission 和 nested dispatch 的核心验收 | TX-04、TX-08～10、TX-17B | 保持 queued，生产切换后重评 |
+| I01 唯一最终 revision | W0～W8 已形成确定性基础，但旧协议 E3 会在切换后失效 | 保留当前实现和测试，不继续旧 W9/W10；新外层结果重新验证 | TX-13、TX-17D、TX-18B | 保持 verifying |
+| I05 拒绝反馈 | 旧 pairing output、developer message 和状态事实重复会被 outer exec result 替换 | 不修旧 carrier；在新结果中一次区分 preflight、Tool、Provider 和 Map 事实 | TX-13、TX-17D | 保持 queued |
+| I02 上下文重复 | 旧独立高优先级副本会随旧反馈路径删除 | 不单独优化旧上下文；用新 final wire 和缓存门禁验收 | TX-13、TX-15、TX-17A/D、TX-18B | 保持 queued |
+| I03 动作组合 | 主要证据来自旧 control manifest + sibling 生成失败 | 不在旧协议上增强 prompt 或拒绝；新 ToolSpec 接入后真实观测 | TX-06B/D、TX-15、TX-18B | 保持 queued |
+| I04 节点选择 | 需要先排除协议、反馈和上下文失真 | 不增加 Runtime 语义约束；新协议正确后重测 | TX-17B/C、TX-18B、TX-19 | 保持 queued |
+| I08 成本 | 依赖能力身份、计数、反馈和 Agent 行为全部可信 | 最后评价，不反向删减语义或硬规则 | TX-00、TX-15、TX-18A/B、TX-19 | 保持 queued |
 
 ## 3. 唯一独立前置：I07 的已确认计数子问题
 
@@ -53,7 +53,7 @@ TX-00 的最小修复边界是消费语义，不预设删除 Runtime 的 rate-li
 5. provider boundary、final wire 与 rollout 聚合对同一请求集合逐 ID 对账。
 
 I07 的另一部分“本地 attempt 被当成 boundary-accepted request，并将 preflight/local failure 判成 upstream mismatch”
-不在 TX-00 修旧语义。其通用对账口径按 I07-W4～W8 收敛；TaskSpace Exec 的 item/node 关联在 TX-14（I07-W9～W11）
+不在 TX-00 修旧语义。其通用对账口径按 I07-W4～W8 收敛；TaskSpace Exec 的 item/node 关联在 TX-14A/B（I07-W9～W11）
 接入，不能让新协议另造一套 Provider 请求计数。
 
 ## 4. 两个必须融入主方案的硬问题
@@ -63,10 +63,10 @@ I07 的另一部分“本地 attempt 被当成 boundary-accepted request，并�
 当前 `trace_taskspace_provider_tool_schema_profile()` 计算的 `tool_set_sha256` 只写日志；`provider_wire_trace` 又对最终
 `tools` 独立计算 `tools_hash`。两者没有成为 Tool declaration、内部 Router、缓存和观测共用的权威身份。
 
-TaskSpace Exec 不能在外围再加第三个 hash。TX-02/TX-06 必须定义并实现一个从 canonical effective ToolDefinitions
-机械派生的 capability identity，并满足：
+TaskSpace Exec 不能在外围再加第三个 hash。TX-02/TX-06A～C 必须定义并实现一个从 canonical effective
+ToolDefinitions 机械派生、由 Runtime 维护的 capability identity，并满足：
 
-- 外层 exec description 中声明的内部 Tool 集合与 nested Router 实际可执行集合来自同一快照；
+- outer declaration 中的内部 Tool 集合与 nested Router 实际可执行集合来自同一快照；
 - Tool 名、kind、input/output schema、namespace/deferred 状态变化才改变身份；
 - description 或 schema 实际变化必须可观测，不能用固定版本号掩盖；
 - provider wire、cache gate、dispatch trace 和 benchmark 都引用同一身份；
@@ -80,7 +80,7 @@ TaskSpace Exec 不能在外围再加第三个 hash。TX-02/TX-06 必须定义并
 
 因此 I06 不是建设前的旧路径补丁，而是 TX-03/TX-04/TX-09/TX-10 的设计成败条件：
 
-- Agent source 必须先产生完整 typed plan，而不是执行过程中逐个发现调用；
+- Agent 必须先提交完整 structured plan，而不是执行过程中逐个发现调用；
 - preflight 对计划中的 Map 边界、node binding、Tool 身份、revision 和单 Patch 做机械检查；
 - preflight 通过后才把 client/map item 还原为原生 ToolCall；
 - 原 Tool 参数、权限、sandbox、hook 和 handler 不感知 TaskSpace；
@@ -102,17 +102,17 @@ TX-00  修复 I07 已确认的 usage/request 聚合错误
        TX-02 冻结 I10 capability identity 合同
        TX-03/TX-04 冻结 I06 typed plan 与 preflight
        TX-05 完成逐项多节点 Hosted 绑定与整批拒绝验证；当前阻断
-  -> Phase B1 TX-06～TX-08
-       TX-06 接通 I10 单一 catalog identity
-       TX-07/08 接通 response-local envelope 和 outer executor
-  -> Phase B2 TX-09～TX-12
-       TX-09/10 接通 I06 canonical admission/dispatch
-       TX-11/12 结算并持久化 Hosted facts
-  -> Phase B3 TX-13～TX-14
+  -> Phase B1 TX-06A～TX-08
+       TX-06A～E 接通共享 catalog、结构化 schema、有界 Provider 验证和候选清理
+       TX-07A/B、TX-08 接通 response-local envelope 和 outer executor
+  -> Phase B2 TX-09A～TX-12C
+       TX-09A～C、TX-10 接通 I06 canonical admission/dispatch
+       TX-11、TX-12A～C 结算并持久化 Hosted facts
+  -> Phase B3 TX-13～TX-14B
        TX-13 承接 I01/I02/I05 结果合同
-       TX-14 承接 I07 新协议 trace 口径
-  -> Phase C  TX-15～TX-16 原子切换并删除旧路径
-  -> Phase D  TX-17～TX-19 重验 I01～I08 并更新唯一问题账本
+       TX-14A/B 承接 I07 新协议 trace 口径
+  -> Phase C  TX-15、TX-16A～C 切换 projection 并分步删除旧路径
+  -> Phase D  TX-17A～TX-19 重验 I01～I08 并更新唯一问题账本
 ```
 
 该顺序不自动关闭任何 open 问题。它只保证每个问题在不会产生废代码、不会污染新架构的最早阶段获得处理。

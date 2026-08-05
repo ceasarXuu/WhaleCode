@@ -10,9 +10,10 @@
 > 配对路线已降级并封存在 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。主方案实施并验证后重新盘点
 > 本表；现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
 
-TaskSpace Exec Phase A 的 A1 已通过，A2 于 2026-08-06 回撤为未完成。既有证据只确认 Runtime 可直接读取 Provider
-output 的 `id/item_id`，未证明同一响应中的多项 Hosted 动作可由 Agent 分别绑定到多个节点。此前整响应单节点和
-Root/unbound 降级合同不符合产品约束；Phase B 入口重新阻断，但本表 I01～I10 的状态不变。
+TaskSpace Exec Phase A 已完成方向验证：Runtime 可直接读取 Provider output 的 `id/item_id`，同一响应中的多项 Hosted
+动作可由 Agent 逐项绑定到一个或多个节点，整响应单节点和 Root/unbound 降级合同已被否定。该证据只支持继续投资，
+不代表生产集成完成。2026-08-06 的计划复审进一步确认，当前 Event Store 只有单 owner，多节点持久化必须在 Phase B2
+先完成有界发现再实施；本表 I01～I10 的状态不变。
 
 TaskSpace Exec 与全局问题的处理边界统一记录在
 [`taskspace-exec/03-global-issue-prerequisite-review.md`](taskspace-exec/03-global-issue-prerequisite-review.md)：I07 已确认的
@@ -157,7 +158,7 @@ I07 不作为所有问题的整体前置。每个底层问题先建设自身所�
 
 例外仅限 I07 中已经由同一真实 trace 和当前源码同时证明的 request/usage 双计：它作为 TaskSpace Exec TX-00 在
 Phase A 前修复。I07 的 local attempt/boundary 对账由 [专题计划](I07/00-i07-observability-trust-repair-plan.md) 收敛，
-新协议 item/node 关联再进入 TX-14；TX-00 通过不关闭完整 I07。
+新协议 item/node 关联再进入 TX-14A/B；TX-00 通过不关闭完整 I07。
 
 ## 5. 已知但不作为独立问题迁移
 

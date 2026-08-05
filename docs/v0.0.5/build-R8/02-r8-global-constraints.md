@@ -25,8 +25,10 @@
 5. Provider-hosted Tool 保持 provider 原生能力和执行路径；Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作
    分别声明节点归属，Runtime 逐项核对声明与事实的结构错配、漏项、重复和未知引用，但不判断节点的业务语义是否合适，
    也不重执行或猜配。同一响应可归属多个节点。
-6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个 client/provider 动作显式声明 `node_id`；Runtime 只
-   解析和校验，不推断或选择归属，`node_id` 不得进入普通 Tool 原生参数。
+6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个普通 client call 显式声明单个 `node_id`，为每项
+   Provider-hosted fact 显式声明非空 `node_ids[]`。Map call 不声明外层 owner，其节点引用只来自
+   `taskspace_control` 原生参数。Runtime 只解析和校验，不推断或选择归属，TaskSpace metadata 不得进入普通 Tool
+   原生参数。
 7. `taskspace_exec` 只负责承载合法序列和节点绑定；`taskspace_control` 只提供 Map 操作和读取能力，在内部执行路径中
    地位不高于普通 Tool。
 8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感；内部 Tool 合同必须
@@ -41,9 +43,11 @@
     canonical Store，严禁写入 Tool schema/description。相同能力集合和协议版本必须生成逐字稳定的 Tool declaration。
 12. 静态 schema 只定义 `calls[]`、`hosted_bindings[]` 及各 Tool 参数的合法结构。每次调用中实际使用的 Tool、数量、参数、
     数组顺序和节点归属全部由 Agent 构造；Runtime 在收到调用前不预设这些实例数据，收到后只解析、验证硬规则并机械执行。
-13. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
+13. 协议版本、能力快照身份和内部调用传输身份由 Runtime 从本次 request、outer `call_id` 与数组位置机械维护，不要求
+    Agent 回显。它们可以进入内部 envelope、日志和结果关联字段，但不得成为 Agent-visible 必填参数。
+14. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
    只有主方案被证据否定且用户重新决策后才能恢复评估。
-14. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
+15. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
     保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Agent 若
     显式声明 Root 节点，是否合法仍只由 canonical Map 规则判断。
 

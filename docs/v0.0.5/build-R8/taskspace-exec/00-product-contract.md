@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase A evidence-complete / implementation verification assigned to Phase B/D
+- Status: Phase A direction-supported / production implementation assigned to Phase B-D
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -58,11 +58,15 @@ model-visible tools
 Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这些实例数据。收到 Function Call 后，Runtime 才解析 Agent
 声明，对结构化 schema 之外的 TaskSpace 硬规则执行 preflight，并将通过的 client/map call 机械交给原生 Router。
 
+协议版本、能力快照身份和内部调用传输身份不是 Agent 的工作内容。Runtime 已经持有本次 request 使用的协议和 ToolSpec
+快照，并可用 outer `call_id + calls[] index` 生成稳定的内部调用身份，因此最终 Agent-visible 参数不得要求 Agent 回显
+`version`、`capability_id` 或 `item_id`。这些机械身份只进入 response-local envelope、日志、持久化关联和 outer result。
+
 结构化 Function Call 必须包含三类事实：
 
 | 类别 | Agent 声明 | Runtime 权限 | 权威执行事实 |
 |---|---|---|---|
-| Map call | `taskspace_control` 原生参数和序列位置 | 预检后调用原 handler | canonical Map transaction |
+| Map call | `taskspace_control` 原生参数和序列位置；不声明外层 owner | 预检后调用原 handler | canonical Map transaction |
 | Client call | 原生 Tool 名、原生输入、`node_id` | 预检后调用原 Router 一次 | 原生 Tool result |
 | Hosted binding | 每项 Hosted 动作的非空 `node_ids[]` 与可机械核对的逐项声明 | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
 
@@ -162,9 +166,11 @@ Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validato
 | Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
 | client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果返回并按原 reservation 结算 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
 
-合法计划的 Map prelude、Hosted fact-node references 和 client reservation 必须通过现有 canonical Map transaction 接缝
-一次准备；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落下引用关系。Runtime 不增加独立 binding
-database，继续复用 `TaskSpaceEventStore` 的 `provider_item_id + node_ids[]` 和现有 Map 持久化路径完成幂等恢复与冲突检查。
+合法计划的 Map prelude、Hosted fact-node references 和 client reservation 必须通过 canonical Map transaction 接缝
+一次准备；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落下引用关系。当前 `TaskSpaceEventStore` 只有
+单一 event owner，尚不能直接表达“一份 Provider fact 对多个节点的引用集合”。正式实施前必须先确认现有 canonical
+Map/Event Store 中是否有可复用关系结构；若没有，只允许在同一 canonical persistence 内扩展“单事实 + 节点引用集合”，
+不得复制事实、增加旁路 binding database、默认 Root owner 或未绑定池。
 
 ### 5.4 Tool 与节点状态正交
 
@@ -199,10 +205,11 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
 | 合法序列 + node binding | 已确认 | `taskspace_exec` 仅有的 TaskSpace 新职责 |
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| 静态 schema + Agent 动态实例 | 已确认 / TX-06 实施 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
+| 静态 schema + Agent 动态实例 | 已确认 / TX-06A～C 实施 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | Phase A 证据完成 / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；结构化 carrier、完整链路和集成行为验收分配到 TX-06/11/17/18 |
+| Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；结构化 carrier、完整链路和集成行为验收分配到 TX-06B/11/17C/18B |
+| Hosted 多节点持久化 | 待发现与设计 | 当前 Event Store 只有单 owner；必须先确定 canonical 单事实多引用表示，再实施幂等存储与恢复 |
 
 ## 9. 验收标准
 

@@ -77,7 +77,7 @@ TaskSpace 序列或 hosted 双写协议。
 - Codex 不负责把 provider-hosted 输出登记到 Map；Whale 从真实 provider response 建立可复算 reconciliation，节点归属
   仍由 Agent 在 `hosted_bindings[]` 中声明。
 - 最新上游已经把 Tool 规划从本地仍在使用的 `spec.rs` 拆到 `spec_plan.rs`、`hosted_spec.rs` 等模块，并新增统一
-  `ToolExposure`；Phase B 的 TX-06 同步或中性抽取该 seam 后接共享 catalog，不覆盖 Whale 改造，也不在旧 `spec.rs`
+  `ToolExposure`；Phase B 的 TX-06A～C 同步或中性抽取该 seam 后接共享 catalog，不覆盖 Whale 改造，也不在旧 `spec.rs`
   新增长期平行 catalog。
 
 ## 5. 外部依据
