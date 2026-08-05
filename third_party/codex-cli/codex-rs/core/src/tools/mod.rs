@@ -1,7 +1,6 @@
 pub(crate) mod code_mode;
 pub(crate) mod context;
 pub(crate) mod events;
-pub(crate) mod failure_provenance;
 pub(crate) mod handlers;
 pub(crate) mod hook_names;
 pub(crate) mod nested_call;
@@ -9,28 +8,13 @@ pub(crate) mod network_approval;
 pub(crate) mod orchestrator;
 pub(crate) mod output_reference;
 pub(crate) mod parallel;
-pub(crate) mod provider_tool_declaration;
 pub(crate) mod registry;
 pub(crate) mod router;
 pub(crate) mod runtimes;
 pub(crate) mod sandboxing;
-pub(crate) mod sequence;
-pub(crate) mod sequence_manifest;
-pub(crate) mod sequence_preflight;
 pub(crate) mod spec;
-#[allow(dead_code)]
-pub(crate) mod taskspace_sequence_context;
 pub(crate) mod tool_dispatch_trace;
 pub(crate) mod tool_search_entry;
-
-#[cfg(test)]
-mod taskspace_sequence_context_tests;
-
-#[cfg(test)]
-mod taskspace_sequence_result_contract_tests;
-
-#[cfg(test)]
-mod taskspace_sequence_schema_contract_tests;
 
 use codex_protocol::exec_output::ExecOutputMetadata;
 use codex_protocol::exec_output::ExecToolCallOutput;

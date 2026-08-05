@@ -171,46 +171,34 @@ mod tests {
     use codex_protocol::ThreadId;
 
     use super::projection_input;
-    use crate::action_map::ActionMapDeclaredCall;
-    use crate::action_map::ActionMapResponseOperation;
     use crate::action_map::MapEdge;
     use crate::action_map::rooted_dag::map_node;
+    use crate::action_map::rooted_dag::new_map;
     use crate::action_map::runtime::ActionMapRuntimeState;
 
     #[test]
     fn active_frontier_contains_executable_work_but_not_root() {
         let owner = ThreadId::new();
         let mut runtime = ActionMapRuntimeState::default();
-        runtime
-            .restore_store_map("projection-map", owner, None)
-            .expect("restore map identity");
-        runtime
-            .prepare_response_for_main(
-                owner,
-                "control",
-                ActionMapResponseOperation::Initialize {
-                    root: map_node("root", "Complete the task", Vec::new()),
-                    work_nodes: vec![map_node("inspect", "Inspect", Vec::new())],
-                    finish: map_node("finish", "Finish", Vec::new()),
-                    edges: vec![
-                        MapEdge {
-                            from: "root".into(),
-                            to: "inspect".into(),
-                        },
-                        MapEdge {
-                            from: "inspect".into(),
-                            to: "finish".into(),
-                        },
-                    ],
+        let map = new_map(
+            "projection-map".into(),
+            map_node("root", "Complete the task", Vec::new()),
+            vec![map_node("inspect", "Inspect", Vec::new())],
+            map_node("finish", "Finish", Vec::new()),
+            vec![
+                MapEdge {
+                    from: "root".into(),
+                    to: "inspect".into(),
                 },
-                vec![ActionMapDeclaredCall {
-                    call_id: "inspect-call".into(),
-                    call_index: 0,
-                    node_id: "inspect".into(),
-                    tool_name: "read_file".into(),
-                }],
-            )
-            .expect("initialize map");
+                MapEdge {
+                    from: "inspect".into(),
+                    to: "finish".into(),
+                },
+            ],
+        );
+        runtime
+            .restore_store_map("projection-map", owner, Some(map))
+            .expect("restore canonical map");
 
         let input =
             projection_input(runtime.active_map().expect("active map")).expect("projection input");

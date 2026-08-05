@@ -6,7 +6,6 @@ use crate::tools::TELEMETRY_PREVIEW_MAX_BYTES;
 use crate::tools::TELEMETRY_PREVIEW_MAX_LINES;
 use crate::tools::TELEMETRY_PREVIEW_TRUNCATION_NOTICE;
 use crate::tools::output_reference::reference_text_for_raw_output;
-use crate::tools::taskspace_sequence_context::TaskSpaceSequenceInvocation;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::unified_exec::resolve_max_tokens;
 use codex_protocol::mcp::CallToolResult;
@@ -39,20 +38,8 @@ const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES: usize = 64 * 1024;
 const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES: usize = 320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TaskSpaceTerminalCarrier {
-    pub(crate) map_id: String,
-    pub(crate) revision: u64,
-    pub(crate) summary: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
-    #[allow(
-        dead_code,
-        reason = "TS-04 proves the seam before production sequence ingress is connected"
-    )]
-    TaskSpaceSequence(TaskSpaceSequenceInvocation),
     CodeMode {
         /// Runtime cell that issued the nested tool request.
         cell_id: String,
@@ -107,21 +94,7 @@ impl ToolPayload {
         }
     }
 
-    pub fn log_payload_for_tool(&self, tool_name: &ToolName) -> Cow<'_, str> {
-        if tool_name.namespace.is_none()
-            && tool_name.name == "taskspace_control"
-            && let Self::Function { arguments } = self
-            && let Ok(mut value) = serde_json::from_str::<JsonValue>(arguments)
-            && let Some(object) = value.as_object_mut()
-            && let Some(candidate) = object.get_mut("exact_summary")
-            && let Some(text) = candidate.as_str()
-        {
-            *candidate = serde_json::json!({
-                "redacted": true,
-                "bytes": text.len(),
-            });
-            return Cow::Owned(value.to_string());
-        }
+    pub fn log_payload_for_tool(&self, _tool_name: &ToolName) -> Cow<'_, str> {
         self.log_payload()
     }
 }
@@ -132,10 +105,6 @@ pub trait ToolOutput: Send {
     fn success_for_logging(&self) -> bool;
 
     fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem;
-
-    fn taskspace_terminal_carrier(&self) -> Option<&TaskSpaceTerminalCarrier> {
-        None
-    }
 
     /// Returns the stable value exposed to `PostToolUse` hooks for this tool output.
     ///

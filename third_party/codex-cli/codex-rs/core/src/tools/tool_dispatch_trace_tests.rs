@@ -24,7 +24,6 @@ use crate::tools::context::ToolPayload;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::tools::registry::ToolRegistry;
-use crate::tools::taskspace_sequence_context::TaskSpaceSequenceInvocation;
 use crate::turn_diff_tracker::TurnDiffTracker;
 
 #[derive(Default)]
@@ -84,21 +83,7 @@ async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> a
             "{}",
         ))
         .await?;
-    registry
-        .dispatch_any(test_invocation(
-            session,
-            turn,
-            "outer-1/work-1",
-            "test_tool",
-            ToolCallSource::TaskSpaceSequence(TaskSpaceSequenceInvocation {
-                outer_call_id: "outer-1".to_string(),
-                item_id: "work-1".to_string(),
-                node_id: Some("inspect".to_string()),
-                work_bindings: Arc::from([]),
-            }),
-            "{}",
-        ))
-        .await?;
+    drop((session, turn));
 
     let replayed = codex_rollout_trace::replay_bundle(single_bundle_dir(temp.path())?)?;
     assert_eq!(
@@ -141,21 +126,6 @@ async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> a
             .is_some(),
         "code-mode calls should keep the result returned to JavaScript",
     );
-    assert_eq!(
-        replayed.tool_calls["outer-1/work-1"].model_visible_call_id,
-        Some("outer-1".to_string()),
-    );
-    assert_eq!(
-        replayed.tool_calls["outer-1/work-1"].requester,
-        ToolCallRequester::Model,
-    );
-    assert!(
-        replayed.tool_calls["outer-1/work-1"]
-            .raw_result_payload_id
-            .is_some(),
-        "TaskSpace sequence items should keep their dispatch-level result payload",
-    );
-
     Ok(())
 }
 

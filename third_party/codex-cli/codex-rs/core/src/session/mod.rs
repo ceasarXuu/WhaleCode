@@ -13,7 +13,6 @@ use std::time::UNIX_EPOCH;
 use crate::action_map::ActionMapExactPayloadScanEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
-use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::TaskSpaceEvent;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
@@ -201,12 +200,10 @@ mod review;
 mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
 pub(crate) mod session;
-mod taskspace_response;
 mod taskspace_store;
 mod taskspace_store_read;
 #[cfg(test)]
 mod taskspace_store_tests;
-mod taskspace_terminal;
 pub(crate) mod turn;
 pub(crate) mod turn_context;
 #[cfg(test)]
@@ -217,7 +214,6 @@ use self::session::AppServerClientMetadata;
 use self::session::Session;
 use self::session::SessionConfiguration;
 pub(crate) use self::session::SessionSettingsUpdate;
-pub(crate) use self::taskspace_terminal::FinishActionMapError;
 #[cfg(test)]
 use self::turn::AssistantMessageStreamParsers;
 #[cfg(test)]
@@ -1048,59 +1044,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn record_action_map_provider_response_actionability(
-        &self,
-        turn_context: &TurnContext,
-        snapshot: ActionMapProviderRequestBudgetSnapshot,
-        input: ActionMapProviderResponseActionabilityInput,
-    ) {
-        if Self::should_emit_provider_response_actionability_warning(&snapshot, &input) {
-            self.send_event(
-                turn_context,
-                EventMsg::Warning(WarningEvent {
-                    message: format!(
-                        "TaskSpaceProviderResponseActionabilityV1 actionability={} recovery_action={} request_count={}/{} phase={} node_role={} assistant_message_present={} saw_actionable_output={} end_turn={} preview={}",
-                        input.response_actionability,
-                        input.recovery_action,
-                        snapshot.request_count,
-                        snapshot.max_requests,
-                        snapshot.request_phase.as_deref().unwrap_or("unknown"),
-                        snapshot.node_role.as_deref().unwrap_or("unknown"),
-                        input.assistant_message_present,
-                        input.saw_actionable_output,
-                        input.end_turn
-                            .map(|value| value.to_string())
-                            .unwrap_or_else(|| "unknown".to_string()),
-                        input.last_agent_message_preview.as_deref().unwrap_or(""),
-                    ),
-                }),
-            )
-            .await;
-        }
-        let result =
-            self.mutate_canonical_action_map("record_provider_actionability", |runtime, _| {
-                match runtime.record_provider_response_actionability(&snapshot, input) {
-                    Some(events) => (true, events),
-                    None => (false, Vec::new()),
-                }
-            })
-            .await;
-        if let Ok((true, runtime_events)) = result {
-            self.emit_action_map_events_for_turn(turn_context, runtime_events)
-                .await;
-        } else if let Err(error) = result {
-            warn!(%error, "failed to persist TaskSpace provider response actionability");
-        }
-    }
-
-    pub(crate) async fn action_map_control_state(
-        &self,
-        map_id_hint: Option<&str>,
-    ) -> Option<crate::action_map::ActionMapControlState> {
-        let state = self.state.lock().await;
-        state.action_map_runtime.control_state(map_id_hint)
-    }
-
     #[cfg(test)]
     pub(crate) async fn set_action_map_mode_for_test(
         &self,
@@ -1137,15 +1080,6 @@ impl Session {
         ) || event.budget_state_before != "normal"
             || event.budget_state_after != "normal"
             || event.request_count_after.saturating_mul(2) >= event.max_requests
-    }
-
-    fn should_emit_provider_response_actionability_warning(
-        snapshot: &ActionMapProviderRequestBudgetSnapshot,
-        input: &ActionMapProviderResponseActionabilityInput,
-    ) -> bool {
-        input.recovery_action != "none"
-            || input.response_actionability != "turn_complete"
-            || snapshot.request_count.saturating_mul(2) >= snapshot.max_requests
     }
 
     fn managed_network_proxy_active_for_sandbox_policy(sandbox_policy: &SandboxPolicy) -> bool {

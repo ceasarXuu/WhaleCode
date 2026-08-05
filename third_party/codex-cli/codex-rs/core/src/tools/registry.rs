@@ -112,12 +112,6 @@ pub(crate) struct AnyToolResult {
 }
 
 impl AnyToolResult {
-    pub(crate) fn taskspace_terminal_carrier(
-        &self,
-    ) -> Option<&crate::tools::context::TaskSpaceTerminalCarrier> {
-        self.result.taskspace_terminal_carrier()
-    }
-
     pub(crate) fn into_response(self) -> ResponseInputItem {
         let Self {
             call_id,

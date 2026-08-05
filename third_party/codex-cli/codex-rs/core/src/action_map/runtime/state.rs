@@ -10,7 +10,6 @@ use crate::action_map::map::ActionMapId;
 use crate::action_map::map::ActionMapInstance;
 use crate::action_map::rooted_dag;
 
-use super::types::ActionMapControlState;
 use super::types::SetTaskSpaceModeOutcome;
 use super::types::TaskSpaceModeTransition;
 
@@ -221,23 +220,6 @@ impl ActionMapRuntimeState {
     pub(crate) fn active_map_mut(&mut self) -> Option<&mut ActionMapInstance> {
         let map_id = self.active_map_id.clone()?;
         self.maps.get_mut(&map_id)
-    }
-
-    pub(crate) fn control_state(&self, map_id_hint: Option<&str>) -> Option<ActionMapControlState> {
-        let map = match map_id_hint {
-            Some(map_id) => self.maps.get(map_id)?,
-            None => self.active_map()?,
-        };
-        Some(ActionMapControlState {
-            map_id: map.map_id.clone(),
-            owner_session_id: map.owner_session_id,
-            revision: map.canonical_map().revision,
-            complete: map.is_complete(),
-            ready_work_node_count: map.ready_work_node_count(),
-            inflight_work_node_count: map.inflight_work_node_count(),
-            completed_work_node_count: map.completed_work_node_count(),
-            finish_ready: map.finish_ready(),
-        })
     }
 
     pub(crate) fn export_canonical_map(&self) -> Option<TaskSpaceCanonicalMap> {

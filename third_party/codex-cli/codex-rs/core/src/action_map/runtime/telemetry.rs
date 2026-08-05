@@ -101,16 +101,6 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) failure_reasons: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct ActionMapProviderResponseActionabilityInput {
-    pub(crate) response_actionability: String,
-    pub(crate) end_turn: Option<bool>,
-    pub(crate) saw_actionable_output: bool,
-    pub(crate) assistant_message_present: bool,
-    pub(crate) recovery_action: String,
-    pub(crate) last_agent_message_preview: Option<String>,
-}
-
 impl ActionMapRuntimeState {
     pub(crate) fn provider_request_budget_snapshot(
         &self,
@@ -143,11 +133,4 @@ impl ActionMapRuntimeState {
         (!inputs.is_empty()).then(Vec::new)
     }
 
-    pub(crate) fn record_provider_response_actionability(
-        &mut self,
-        _snapshot: &ActionMapProviderRequestBudgetSnapshot,
-        _input: ActionMapProviderResponseActionabilityInput,
-    ) -> Option<Vec<MapRuntimeEvent>> {
-        Some(Vec::new())
-    }
 }
