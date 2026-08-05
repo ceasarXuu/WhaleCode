@@ -95,7 +95,6 @@ use codex_protocol::protocol::CreditsSnapshot;
 use codex_protocol::protocol::GranularApprovalConfig;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
-use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::NetworkApprovalProtocol;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::RateLimitWindow;
@@ -127,13 +126,10 @@ use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_completed_with_tokens;
 use core_test_support::responses::ev_function_call;
-use core_test_support::responses::ev_reasoning_item;
 use core_test_support::responses::ev_response_created;
-use core_test_support::responses::mount_response_once;
 use core_test_support::responses::mount_sse_once;
 use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
-use core_test_support::responses::sse_response;
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_codex::test_codex;
 use core_test_support::test_path_buf;
@@ -7487,7 +7483,6 @@ async fn malformed_tool_arguments_are_recorded_as_standard_tool_feedback() {
         state
             .action_map_runtime
             .set_mode_for_session(MapRuntimeMode::Experiment, sess.conversation_id);
-        state.activate_taskspace_context();
     }
     let item = ResponseItem::FunctionCall {
         id: None,
@@ -7561,7 +7556,6 @@ async fn provider_native_outputs_follow_standard_processing() {
         state
             .action_map_runtime
             .set_mode_for_session(MapRuntimeMode::Experiment, sess.conversation_id);
-        state.activate_taskspace_context();
     }
     let image_id = "hidden-native-image";
     let image_path = crate::stream_events_utils::image_generation_artifact_path(

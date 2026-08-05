@@ -813,7 +813,7 @@ pub async fn thread_rollback(sess: &Arc<Session>, sub_id: String, num_turns: u32
         .chain(std::iter::once(RolloutItem::EventMsg(rollback_msg.clone())))
         .collect::<Vec<_>>();
     if let Err(error) = sess
-        .apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice(), false)
+        .apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice())
         .await
     {
         sess.send_event_raw(Event {
@@ -993,25 +993,6 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
             return;
         }
     };
-    let ownership_event = {
-        let mut state = sess.state.lock().await;
-        outcome.mode.changed.then(|| {
-            let events = if outcome.mode.current_mode == MapRuntimeMode::Experiment {
-                state.activate_taskspace_context()
-            } else {
-                state.deactivate_taskspace_context();
-                Vec::new()
-            };
-            codex_protocol::protocol::MapRuntimeTaskContextOwnershipChangedEvent {
-                active: outcome.mode.current_mode == MapRuntimeMode::Experiment,
-                events: events
-                    .into_iter()
-                    .map(|event| event.to_protocol())
-                    .collect(),
-            }
-        })
-    };
-
     sess.send_event(
         &turn_context,
         EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(MapRuntimeModeChangedEvent {
@@ -1023,13 +1004,6 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
     for event in bootstrap_events {
         sess.send_event(&turn_context, EventMsg::MapRuntime(event))
             .await;
-    }
-    if let Some(event) = ownership_event {
-        sess.send_event(
-            &turn_context,
-            EventMsg::MapRuntime(MapRuntimeEvent::TaskContextOwnershipChanged(event)),
-        )
-        .await;
     }
     if outcome.mode.changed {
         if let Some(startup_prewarm) = sess.take_session_startup_prewarm().await {

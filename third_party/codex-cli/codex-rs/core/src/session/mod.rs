@@ -13,7 +13,6 @@ use std::time::UNIX_EPOCH;
 use crate::action_map::ActionMapExactPayloadScanEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
-use crate::action_map::TaskSpaceEvent;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
 use crate::agent::Mailbox;
@@ -1393,7 +1392,7 @@ impl Session {
             InitialHistory::Resumed(resumed_history) => {
                 let rollout_items = resumed_history.history;
                 let previous_turn_settings = self
-                    .apply_rollout_reconstruction(&turn_context, &rollout_items, false)
+                    .apply_rollout_reconstruction(&turn_context, &rollout_items)
                     .await?;
 
                 // If resuming, warn when the last recorded model differs from the current one.
@@ -1429,7 +1428,7 @@ impl Session {
                 }
             }
             InitialHistory::Forked(rollout_items) => {
-                self.apply_rollout_reconstruction(&turn_context, &rollout_items, is_subagent)
+                self.apply_rollout_reconstruction(&turn_context, &rollout_items)
                     .await?;
 
                 // Seed usage info from the recorded rollout so UIs can show token counts
@@ -1463,7 +1462,6 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         rollout_items: &[RolloutItem],
-        linearize_taskspace_for_subagent: bool,
     ) -> Result<Option<PreviousTurnSettings>, rollout_reconstruction::RolloutReconstructionError>
     {
         let reconstructed_rollout = self
@@ -1472,19 +1470,10 @@ impl Session {
         let previous_turn_settings = reconstructed_rollout.previous_turn_settings.clone();
         {
             let mut state = self.state.lock().await;
-            if linearize_taskspace_for_subagent {
-                state.restore_subagent_fork_context(
-                    reconstructed_rollout.history,
-                    reconstructed_rollout.taskspace_events,
-                    reconstructed_rollout.reference_context_item,
-                );
-            } else {
-                state.restore_context(
-                    reconstructed_rollout.history,
-                    reconstructed_rollout.taskspace_events,
-                    reconstructed_rollout.reference_context_item,
-                );
-            }
+            state.restore_context(
+                reconstructed_rollout.history,
+                reconstructed_rollout.reference_context_item,
+            );
         }
         self.set_previous_turn_settings(previous_turn_settings.clone())
             .await;
@@ -2607,26 +2596,14 @@ impl Session {
         }
     }
 
-    /// Records provider items in the active canonical context backend and persists them once.
+    /// Records provider items in the standard context backend and persists them once.
     pub(crate) async fn record_conversation_items(
         &self,
         turn_context: &TurnContext,
         items: &[ResponseItem],
     ) {
-        let taskspace_events = self.record_into_context(items, turn_context).await;
-        if taskspace_events.is_empty() {
-            self.persist_rollout_response_items(items).await;
-        } else {
-            let rollout_items = taskspace_events
-                .into_iter()
-                .map(|event| {
-                    RolloutItem::EventMsg(EventMsg::MapRuntime(
-                        MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
-                    ))
-                })
-                .collect::<Vec<_>>();
-            self.persist_rollout_items(&rollout_items).await;
-        }
+        self.record_into_context(items, turn_context).await;
+        self.persist_rollout_response_items(items).await;
         self.send_raw_response_items(turn_context, items).await;
     }
 
@@ -2636,14 +2613,10 @@ impl Session {
         items: &[ResponseItem],
         turn_context: &TurnContext,
     ) {
-        let _ = self.record_into_context(items, turn_context).await;
+        self.record_into_context(items, turn_context).await;
     }
 
-    async fn record_into_context(
-        &self,
-        items: &[ResponseItem],
-        turn_context: &TurnContext,
-    ) -> Vec<TaskSpaceEvent> {
+    async fn record_into_context(&self, items: &[ResponseItem], turn_context: &TurnContext) {
         let mut state = self.state.lock().await;
         state.record_items(items.iter(), turn_context.truncation_policy)
     }
@@ -2734,28 +2707,10 @@ impl Session {
         reference_context_item: Option<TurnContextItem>,
         compacted_item: CompactedItem,
     ) {
-        let checkpoint_events = {
-            let mut state = self.state.lock().await;
-            state.replace_compacted_history(items, reference_context_item.clone())
-        };
-
-        let taskspace_compacted = !checkpoint_events.is_empty();
-        if taskspace_compacted {
-            let rollout_items = checkpoint_events
-                .into_iter()
-                .map(|event| {
-                    RolloutItem::EventMsg(EventMsg::MapRuntime(
-                        MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
-                    ))
-                })
-                .collect::<Vec<_>>();
-            self.persist_rollout_items(&rollout_items).await;
-        }
-
-        if !taskspace_compacted {
-            self.persist_rollout_items(&[RolloutItem::Compacted(compacted_item)])
-                .await;
-        }
+        self.replace_history(items, reference_context_item.clone())
+            .await;
+        self.persist_rollout_items(&[RolloutItem::Compacted(compacted_item)])
+            .await;
         if let Some(turn_context_item) = reference_context_item {
             self.persist_rollout_items(&[RolloutItem::TurnContext(turn_context_item)])
                 .await;

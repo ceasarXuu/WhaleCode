@@ -1,7 +1,4 @@
-mod checkpoint_refs;
 mod detail_fold;
-mod event_codec;
-mod event_store;
 mod map;
 mod projection;
 mod projection_policy;
@@ -9,8 +6,6 @@ mod rooted_dag;
 mod runtime;
 mod store_handle;
 
-pub(crate) use event_store::TaskSpaceEvent;
-pub(crate) use event_store::TaskSpaceEventStore;
 #[cfg(test)]
 pub(crate) use map::ActionClass;
 #[cfg(test)]

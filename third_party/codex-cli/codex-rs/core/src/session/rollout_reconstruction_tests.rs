@@ -1,7 +1,6 @@
 use super::*;
 
 use super::tests::make_session_and_context;
-use crate::action_map::TaskSpaceEventStore;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ContentItem;
@@ -9,7 +8,6 @@ use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::CompactedItem;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
-use codex_protocol::protocol::MapRuntimeTaskContextOwnershipChangedEvent;
 use codex_protocol::protocol::ResumedHistory;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -55,134 +53,6 @@ fn inter_agent_assistant_message(text: &str) -> ResponseItem {
         end_turn: None,
         phase: None,
     }
-}
-
-#[tokio::test]
-async fn reconstruct_history_replays_taskspace_compaction_checkpoint_from_raw_events() {
-    let (session, turn_context) = make_session_and_context().await;
-    let mut store = TaskSpaceEventStore::new();
-    let original = user_message("raw task body");
-    let initial_event = store.record_item(&original, None, None, 1).unwrap();
-    let summary = assistant_message("checkpoint summary");
-    let checkpoint_event = store
-        .install_compaction_checkpoint(vec![summary.clone()], 2)
-        .unwrap();
-    let rollout_items = vec![
-        RolloutItem::EventMsg(EventMsg::MapRuntime(
-            MapRuntimeEvent::TaskContextOwnershipChanged(
-                MapRuntimeTaskContextOwnershipChangedEvent {
-                    active: true,
-                    events: vec![initial_event.to_protocol()],
-                },
-            ),
-        )),
-        RolloutItem::EventMsg(EventMsg::MapRuntime(
-            MapRuntimeEvent::TaskContextEventRecorded(checkpoint_event.to_protocol()),
-        )),
-    ];
-
-    let reconstructed = session
-        .reconstruct_history_from_rollout(&turn_context, &rollout_items)
-        .await;
-
-    assert!(reconstructed.history.is_empty());
-    assert_eq!(reconstructed.taskspace_events.len(), 2);
-    let restored = TaskSpaceEventStore::restore(reconstructed.taskspace_events).unwrap();
-    let visible = restored.linearize();
-    assert_eq!(visible.len(), 2);
-    assert!(
-        serde_json::to_string(&visible[0])
-            .unwrap()
-            .contains("covered_sequence_range: 1-1")
-    );
-    assert_eq!(visible[1], summary);
-    assert!(
-        !serde_json::to_string(&visible)
-            .unwrap()
-            .contains("raw task body")
-    );
-}
-
-#[tokio::test]
-async fn resumed_history_rejects_invalid_taskspace_ownership_sequence() {
-    let (session, _turn_context) = make_session_and_context().await;
-    let state_before = session.cached_action_map_snapshot_for_test().await;
-    let history_before = session.clone_history().await.raw_items().to_vec();
-    let mut store = TaskSpaceEventStore::new();
-    let mut event = store
-        .record_item(&user_message("owned task"), None, None, 1)
-        .expect("record canonical event")
-        .to_protocol();
-    event.sequence = 2;
-
-    let error = session
-        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
-            conversation_id: ThreadId::default(),
-            history: vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
-                MapRuntimeEvent::TaskContextOwnershipChanged(
-                    MapRuntimeTaskContextOwnershipChangedEvent {
-                        active: true,
-                        events: vec![event],
-                    },
-                ),
-            ))],
-            rollout_path: Some(PathBuf::from("/tmp/resume-invalid-ownership.jsonl")),
-        }))
-        .await
-        .expect_err("invalid ownership sequence must fail");
-
-    assert_eq!(error.phase, "taskspace_ownership_checkpoint");
-    assert!(error.message.contains("sequence"));
-    assert_eq!(
-        session.cached_action_map_snapshot_for_test().await,
-        state_before
-    );
-    assert_eq!(session.clone_history().await.raw_items(), history_before);
-}
-
-#[tokio::test]
-async fn resumed_history_rejects_invalid_taskspace_event_sequence() {
-    let (session, _turn_context) = make_session_and_context().await;
-    let state_before = session.cached_action_map_snapshot_for_test().await;
-    let history_before = session.clone_history().await.raw_items().to_vec();
-    let mut store = TaskSpaceEventStore::new();
-    let first = store
-        .record_item(&user_message("first"), None, None, 1)
-        .expect("record first event");
-    let mut second = store
-        .record_item(&assistant_message("second"), None, None, 2)
-        .expect("record second event")
-        .to_protocol();
-    second.sequence = 3;
-
-    let error = session
-        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
-            conversation_id: ThreadId::default(),
-            history: vec![
-                RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::TaskContextOwnershipChanged(
-                        MapRuntimeTaskContextOwnershipChangedEvent {
-                            active: true,
-                            events: vec![first.to_protocol()],
-                        },
-                    ),
-                )),
-                RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::TaskContextEventRecorded(second),
-                )),
-            ],
-            rollout_path: Some(PathBuf::from("/tmp/resume-invalid-event.jsonl")),
-        }))
-        .await
-        .expect_err("invalid event sequence must fail");
-
-    assert_eq!(error.phase, "taskspace_event_sequence");
-    assert!(error.message.contains("sequence"));
-    assert_eq!(
-        session.cached_action_map_snapshot_for_test().await,
-        state_before
-    );
-    assert_eq!(session.clone_history().await.raw_items(), history_before);
 }
 
 #[tokio::test]
