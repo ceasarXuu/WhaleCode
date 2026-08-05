@@ -26,7 +26,8 @@ def request_body(model: str) -> dict[str, Any]:
         "instructions": (
             "Work through TaskSpace. The map already has two ready research nodes: "
             "`deepseek-research` and `openai-research`. Use provider-hosted web search "
-            "for each node as needed. After all hosted work in this response, call "
+            "for each node, with no more than four hosted web search items in total. "
+            "After all hosted work in this response, call "
             "taskspace_exec exactly once. Its source is a complete "
             f"{PLAN_VERSION} plan. Keep calls empty. Declare every hosted output item "
             "in hosted_bindings, in provider output order, using only its hosted Tool "
@@ -79,6 +80,7 @@ def request_body(model: str) -> dict[str, Any]:
         "tool_choice": "auto",
         "parallel_tool_calls": True,
         "reasoning": {"effort": "high", "summary": "auto"},
+        "max_output_tokens": 6000,
         "store": False,
         "stream": True,
         "include": [],

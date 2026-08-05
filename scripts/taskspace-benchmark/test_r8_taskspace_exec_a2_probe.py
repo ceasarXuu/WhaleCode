@@ -158,6 +158,8 @@ class TaskspaceExecA2ProbeTest(unittest.TestCase):
         )
         self.assertNotIn("hosted_bindings\":", json.dumps(body))
         self.assertEqual(body["tools"][1]["parameters"]["required"], ["source"])
+        self.assertEqual(body["max_output_tokens"], 6000)
+        self.assertIn("no more than four", body["instructions"])
 
 
 if __name__ == "__main__":
