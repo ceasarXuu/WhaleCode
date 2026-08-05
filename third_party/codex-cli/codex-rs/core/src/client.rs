@@ -1053,8 +1053,8 @@ fn scan_provider_payload_text(
     text: &str,
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
-    let projection_required = provider_payload_has_tool(value, "taskspace_control");
     let projection_blocks = provider_projection_blocks(value);
+    let projection_required = !projection_blocks.is_empty();
     let active_projection_count = projection_blocks.len();
     let active_projection_present = active_projection_count > 0;
     let projection_is_message_tail = provider_projection_is_message_tail(value);
@@ -1450,26 +1450,6 @@ fn projection_block_is_valid(block: &str) -> bool {
                 == Some("last_projection_only");
     }
     true
-}
-
-fn provider_payload_has_tool(value: &serde_json::Value, expected: &str) -> bool {
-    value
-        .get("tools")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|tools| {
-            tools
-                .iter()
-                .any(|tool| provider_tool_name(tool) == Some(expected))
-        })
-}
-
-fn provider_tool_name(tool: &serde_json::Value) -> Option<&str> {
-    tool.get("name")
-        .or_else(|| {
-            tool.get("function")
-                .and_then(|function| function.get("name"))
-        })
-        .and_then(serde_json::Value::as_str)
 }
 
 fn projection_block_contains_required_sections(block: &str) -> bool {

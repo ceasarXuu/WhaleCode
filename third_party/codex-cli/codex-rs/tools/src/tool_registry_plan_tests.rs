@@ -187,7 +187,6 @@ fn test_build_specs_collab_tools_enabled() {
     );
     assert_lacks_tool_name(&tools, "spawn_agents_on_csv");
     assert_lacks_tool_name(&tools, "list_agents");
-    assert_lacks_tool_name(&tools, "taskspace_control");
 
     let spawn_agent = find_tool(&tools, "spawn_agent");
     let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = &spawn_agent.spec else {
@@ -385,43 +384,6 @@ fn test_build_specs_multi_agent_v2_uses_task_names_and_hides_resume() {
     );
     assert_lacks_tool_name(&tools, "send_input");
     assert_lacks_tool_name(&tools, "resume_agent");
-}
-
-#[test]
-fn ordinary_tool_specs_do_not_expose_taskspace_control_contracts() {
-    let model_info = model_info();
-    let mut features = Features::with_defaults();
-    features.enable(Feature::Collab);
-    features.enable(Feature::MultiAgentV2);
-    let available_models = Vec::new();
-    let config = ToolsConfig::new(&ToolsConfigParams {
-        model_info: &model_info,
-        available_models: &available_models,
-        features: &features,
-        image_generation_tool_auth_allowed: false,
-        web_search_mode: None,
-        session_source: SessionSource::Cli,
-        sandbox_policy: &SandboxPolicy::DangerFullAccess,
-        windows_sandbox_level: WindowsSandboxLevel::Disabled,
-    });
-    let (tools, _) = build_specs(&config, None, None, &[]);
-    let forbidden_markers = [
-        "taskspace_binding",
-        "current main-held node",
-        "TaskSpace node id",
-        "bind the new agent to the intended node",
-    ];
-
-    for tool in &tools {
-        let encoded = serde_json::to_string(&tool.spec).expect("serialize tool spec");
-        for marker in forbidden_markers {
-            assert!(
-                !encoded.contains(marker),
-                "ordinary tool `{}` exposes TaskSpace control marker `{marker}`",
-                tool.name()
-            );
-        }
-    }
 }
 
 #[test]

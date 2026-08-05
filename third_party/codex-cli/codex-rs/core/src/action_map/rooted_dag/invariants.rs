@@ -32,7 +32,7 @@ pub(crate) enum ViolationCode {
     RecordNodeInvalid,
     FactConflict,
     FactReferenceInvalid,
-    ReservationInvalid,
+    ActionRecordInvalid,
     NodeStateInvalid,
     TransitionInvalid,
     ExecutionCausalityConflict,
@@ -63,7 +63,7 @@ impl ViolationCode {
             Self::RecordNodeInvalid => "record_node_invalid",
             Self::FactConflict => "fact_conflict",
             Self::FactReferenceInvalid => "fact_reference_invalid",
-            Self::ReservationInvalid => "reservation_invalid",
+            Self::ActionRecordInvalid => "action_record_invalid",
             Self::NodeStateInvalid => "node_state_invalid",
             Self::TransitionInvalid => "transition_invalid",
             Self::ExecutionCausalityConflict => "execution_causality_conflict",
@@ -272,12 +272,7 @@ fn validate_facts(map: &TaskSpaceMap, found: &mut Violations) {
         }
     }
     for node_id in map.completion_records.keys() {
-        if map.block_records.contains_key(node_id)
-            || map
-                .action_reservations
-                .values()
-                .any(|reservation| reservation.node_id == *node_id)
-        {
+        if map.block_records.contains_key(node_id) {
             add(found, ViolationCode::FactConflict, node_id.clone());
         }
     }
@@ -286,32 +281,17 @@ fn validate_facts(map: &TaskSpaceMap, found: &mut Violations) {
             add(found, ViolationCode::RecordNodeInvalid, node_id.clone());
         }
     }
-    validate_reservations(map, found);
+    validate_actions(map, found);
     validate_references(map, found);
 }
 
-fn validate_reservations(map: &TaskSpaceMap, found: &mut Violations) {
-    let mut action_ids = BTreeSet::new();
-    for (reservation_id, reservation) in &map.action_reservations {
-        if reservation_id.trim().is_empty()
-            || reservation.action_id.trim().is_empty()
-            || reservation.tool_name.trim().is_empty()
-            || node_role(map, &reservation.node_id) != Some(NodeRole::Work)
-            || map.completion_records.contains_key(&reservation.node_id)
-            || map.block_records.contains_key(&reservation.node_id)
+fn validate_actions(map: &TaskSpaceMap, found: &mut Violations) {
+    for (action_id, action) in &map.action_records {
+        if action_id.trim().is_empty()
+            || action.action_id != *action_id
+            || node_role(map, &action.node_id) != Some(NodeRole::Work)
         {
-            add(
-                found,
-                ViolationCode::ReservationInvalid,
-                reservation_id.clone(),
-            );
-        }
-        if !action_ids.insert(reservation.action_id.as_str()) {
-            add(
-                found,
-                ViolationCode::ReservationInvalid,
-                reservation.action_id.clone(),
-            );
+            add(found, ViolationCode::ActionRecordInvalid, action_id.clone());
         }
     }
 }
@@ -320,8 +300,10 @@ fn validate_references(map: &TaskSpaceMap, found: &mut Violations) {
     for (ref_id, result) in &map.result_refs {
         if ref_id.trim().is_empty()
             || node_role(map, &result.node_id) != Some(NodeRole::Work)
-            || result.action_id.trim().is_empty()
-            || result.reservation_id.trim().is_empty()
+            || map
+                .action_records
+                .get(&result.action_id)
+                .is_none_or(|action| action.node_id != result.node_id)
         {
             add(found, ViolationCode::FactReferenceInvalid, ref_id.clone());
         }
@@ -329,8 +311,10 @@ fn validate_references(map: &TaskSpaceMap, found: &mut Violations) {
     for (ref_id, evidence) in &map.evidence_refs {
         if ref_id.trim().is_empty()
             || node_role(map, &evidence.node_id) != Some(NodeRole::Work)
-            || evidence.action_id.trim().is_empty()
-            || evidence.reservation_id.trim().is_empty()
+            || map
+                .action_records
+                .get(&evidence.action_id)
+                .is_none_or(|action| action.node_id != evidence.node_id)
             || evidence.kind.trim().is_empty()
         {
             add(found, ViolationCode::FactReferenceInvalid, ref_id.clone());
@@ -369,7 +353,7 @@ fn validate_terminal(map: &TaskSpaceMap, found: &mut Violations) {
         }
     }
     if map.terminal_record.is_some() {
-        if !map.action_reservations.is_empty() || !map.block_records.is_empty() {
+        if !map.block_records.is_empty() {
             add_empty(found, ViolationCode::TerminalRecordInvalid);
         }
         for work_node in &map.work_nodes {

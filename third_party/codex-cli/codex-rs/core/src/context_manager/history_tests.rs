@@ -1432,7 +1432,7 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
         },
         ResponseItem::FunctionCall {
             id: None,
-            name: "taskspace_control".to_string(),
+            name: "example_tool".to_string(),
             namespace: None,
             arguments: r#"{"action":"mutate_graph"}"#.to_string(),
             call_id: "call-taskspace".to_string(),
@@ -1456,7 +1456,7 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
             },
             ResponseItem::FunctionCall {
                 id: None,
-                name: "taskspace_control".to_string(),
+                name: "example_tool".to_string(),
                 namespace: None,
                 arguments: r#"{"action":"mutate_graph"}"#.to_string(),
                 call_id: "call-taskspace".to_string(),

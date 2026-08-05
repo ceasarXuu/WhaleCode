@@ -77,7 +77,7 @@ fn multi_parent_map(map_id: &str) -> TaskSpaceCanonicalMap {
         ],
         completion_records: Default::default(),
         block_records: Default::default(),
-        action_reservations: Default::default(),
+        action_records: Default::default(),
         result_refs: Default::default(),
         evidence_refs: Default::default(),
         terminal_record: None,

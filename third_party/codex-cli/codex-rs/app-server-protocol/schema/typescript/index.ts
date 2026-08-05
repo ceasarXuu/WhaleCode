@@ -2,13 +2,13 @@
 
 export type { AbsolutePathBuf } from "./AbsolutePathBuf";
 export type { ActionMapSnapshot } from "./ActionMapSnapshot";
+export type { ActionMapSnapshotAction } from "./ActionMapSnapshotAction";
 export type { ActionMapSnapshotEdge } from "./ActionMapSnapshotEdge";
 export type { ActionMapSnapshotEvidenceRef } from "./ActionMapSnapshotEvidenceRef";
 export type { ActionMapSnapshotMaintenanceBarrier } from "./ActionMapSnapshotMaintenanceBarrier";
 export type { ActionMapSnapshotMap } from "./ActionMapSnapshotMap";
 export type { ActionMapSnapshotNode } from "./ActionMapSnapshotNode";
 export type { ActionMapSnapshotNodeEvent } from "./ActionMapSnapshotNodeEvent";
-export type { ActionMapSnapshotReservation } from "./ActionMapSnapshotReservation";
 export type { ActionMapSnapshotResult } from "./ActionMapSnapshotResult";
 export type { ActionMapSnapshotSentinelSummary } from "./ActionMapSnapshotSentinelSummary";
 export type { ActionMapSnapshotSentinelWarningRef } from "./ActionMapSnapshotSentinelWarningRef";

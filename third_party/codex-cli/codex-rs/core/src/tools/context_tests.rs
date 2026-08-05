@@ -16,7 +16,7 @@ fn exact_summary_is_redacted_only_from_tool_logs() {
         .to_string(),
     };
     let logged = payload
-        .log_payload_for_tool(&ToolName::plain("taskspace_control"))
+        .log_payload_for_tool(&ToolName::plain("exec_command"))
         .into_owned();
 
     assert!(!logged.contains("private final text"));

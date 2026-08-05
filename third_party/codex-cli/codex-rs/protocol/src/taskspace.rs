@@ -2,13 +2,12 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const TASKSPACE_CANONICAL_SCHEMA_VERSION: &str = "taskspace-canonical-map-v2";
+pub const TASKSPACE_CANONICAL_SCHEMA_VERSION: &str = "taskspace-canonical-map-v3";
 
 pub type TaskSpaceActionId = String;
 pub type TaskSpaceEvidenceRefId = String;
 pub type TaskSpaceMapId = String;
 pub type TaskSpaceNodeId = String;
-pub type TaskSpaceReservationId = String;
 pub type TaskSpaceResultRefId = String;
 pub type TaskSpaceRevision = u64;
 
@@ -44,11 +43,9 @@ pub struct TaskSpaceBlockRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TaskSpaceActionReservation {
+pub struct TaskSpaceActionRecord {
     pub action_id: TaskSpaceActionId,
     pub node_id: TaskSpaceNodeId,
-    pub tool_name: String,
-    pub response_call_index: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,7 +53,6 @@ pub struct TaskSpaceActionReservation {
 pub struct TaskSpaceResultRef {
     pub node_id: TaskSpaceNodeId,
     pub action_id: TaskSpaceActionId,
-    pub reservation_id: TaskSpaceReservationId,
     pub is_error: bool,
 }
 
@@ -65,7 +61,6 @@ pub struct TaskSpaceResultRef {
 pub struct TaskSpaceEvidenceRef {
     pub node_id: TaskSpaceNodeId,
     pub action_id: TaskSpaceActionId,
-    pub reservation_id: TaskSpaceReservationId,
     pub kind: String,
 }
 
@@ -87,7 +82,7 @@ pub struct TaskSpaceCanonicalMap {
     pub edges: Vec<TaskSpaceMapEdge>,
     pub completion_records: BTreeMap<TaskSpaceNodeId, TaskSpaceCompletionRecord>,
     pub block_records: BTreeMap<TaskSpaceNodeId, TaskSpaceBlockRecord>,
-    pub action_reservations: BTreeMap<TaskSpaceReservationId, TaskSpaceActionReservation>,
+    pub action_records: BTreeMap<TaskSpaceActionId, TaskSpaceActionRecord>,
     pub result_refs: BTreeMap<TaskSpaceResultRefId, TaskSpaceResultRef>,
     pub evidence_refs: BTreeMap<TaskSpaceEvidenceRefId, TaskSpaceEvidenceRef>,
     pub terminal_record: Option<TaskSpaceTerminalRecord>,
@@ -147,7 +142,7 @@ mod tests {
             ],
             completion_records: BTreeMap::new(),
             block_records: BTreeMap::new(),
-            action_reservations: BTreeMap::new(),
+            action_records: BTreeMap::new(),
             result_refs: BTreeMap::new(),
             evidence_refs: BTreeMap::new(),
             terminal_record: None,

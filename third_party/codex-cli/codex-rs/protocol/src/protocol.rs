@@ -1836,7 +1836,7 @@ pub struct ActionMapSnapshotMap {
     pub finish_ready: bool,
     pub nodes: Vec<ActionMapSnapshotNode>,
     pub edges: Vec<ActionMapSnapshotEdge>,
-    pub reservations: Vec<ActionMapSnapshotReservation>,
+    pub actions: Vec<ActionMapSnapshotAction>,
     pub results: Vec<ActionMapSnapshotResult>,
     pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
     #[serde(default)]
@@ -1869,12 +1869,9 @@ pub struct ActionMapSnapshotEdge {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotReservation {
-    pub id: String,
+pub struct ActionMapSnapshotAction {
     pub action_id: String,
     pub node_id: String,
-    pub tool_name: String,
-    pub response_call_index: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1884,7 +1881,6 @@ pub struct ActionMapSnapshotResult {
     pub id: String,
     pub node_id: String,
     pub action_id: String,
-    pub reservation_id: String,
     pub is_error: bool,
 }
 
@@ -1895,7 +1891,6 @@ pub struct ActionMapSnapshotEvidenceRef {
     pub id: String,
     pub node_id: String,
     pub action_id: String,
-    pub reservation_id: String,
     pub kind: String,
 }
 
@@ -3022,26 +3017,6 @@ impl InitialHistory {
             }),
         }
     }
-
-    pub fn taskspace_skill_snapshot(&self) -> Option<TaskSpaceSkillSnapshotIdentity> {
-        match self {
-            InitialHistory::New | InitialHistory::Cleared => None,
-            InitialHistory::Resumed(resumed) => {
-                resumed.history.iter().find_map(|item| match item {
-                    RolloutItem::SessionMeta(meta_line) => {
-                        meta_line.meta.taskspace_skill_snapshot.clone()
-                    }
-                    _ => None,
-                })
-            }
-            InitialHistory::Forked(items) => items.iter().find_map(|item| match item {
-                RolloutItem::SessionMeta(meta_line) => {
-                    meta_line.meta.taskspace_skill_snapshot.clone()
-                }
-                _ => None,
-            }),
-        }
-    }
 }
 
 fn session_cwd_from_items(items: &[RolloutItem]) -> Option<PathBuf> {
@@ -3237,16 +3212,6 @@ pub struct SessionMeta {
     pub memory_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema, TS)]
-pub struct TaskSpaceSkillSnapshotIdentity {
-    pub name: String,
-    pub skill_version: String,
-    pub body_sha256: String,
-    pub immutable_snapshot_path: PathBuf,
 }
 
 impl Default for SessionMeta {
@@ -3267,7 +3232,6 @@ impl Default for SessionMeta {
             dynamic_tools: None,
             memory_mode: None,
             taskspace_projection_policy: None,
-            taskspace_skill_snapshot: None,
         }
     }
 }
@@ -5650,7 +5614,6 @@ mod tests {
             id: "result-1".to_string(),
             node_id: "node-1".to_string(),
             action_id: "action-1".to_string(),
-            reservation_id: "reservation-1".to_string(),
             is_error: false,
         };
 
@@ -5659,7 +5622,6 @@ mod tests {
         assert_eq!(value["id"], "result-1");
         assert_eq!(value["nodeId"], "node-1");
         assert_eq!(value["actionId"], "action-1");
-        assert_eq!(value["reservationId"], "reservation-1");
         assert_eq!(value["isError"], false);
         for forbidden in [
             "assignmentId",
@@ -5677,7 +5639,7 @@ mod tests {
     }
 
     #[test]
-    fn action_map_snapshot_node_and_reservation_are_derived_fact_views() -> Result<()> {
+    fn action_map_snapshot_node_and_action_are_derived_fact_views() -> Result<()> {
         let node = ActionMapSnapshotNode {
             id: "work-1".to_string(),
             role: "work".to_string(),
@@ -5688,19 +5650,16 @@ mod tests {
             evidence_ref_ids: vec!["evidence-1".to_string()],
             node_event_ids: vec!["event-1".to_string()],
         };
-        let reservation = ActionMapSnapshotReservation {
-            id: "reservation-1".to_string(),
+        let action = ActionMapSnapshotAction {
             action_id: "action-1".to_string(),
             node_id: "work-1".to_string(),
-            tool_name: "exec_command".to_string(),
-            response_call_index: 2,
         };
 
         let node_value = serde_json::to_value(node)?;
-        let reservation_value = serde_json::to_value(reservation)?;
+        let action_value = serde_json::to_value(action)?;
 
         assert_eq!(node_value["state"], "in_flight");
-        assert_eq!(reservation_value["responseCallIndex"], 2);
+        assert_eq!(action_value["actionId"], "action-1");
         for forbidden in [
             "currentNodeId",
             "status",
@@ -5709,7 +5668,7 @@ mod tests {
             "previousNodeStatus",
         ] {
             assert!(
-                node_value.get(forbidden).is_none() && reservation_value.get(forbidden).is_none(),
+                node_value.get(forbidden).is_none() && action_value.get(forbidden).is_none(),
                 "{forbidden} leaked into the derived snapshot view"
             );
         }

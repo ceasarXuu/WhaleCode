@@ -328,7 +328,7 @@ mod tests {
             &[
                 ResponseItem::FunctionCall {
                     id: None,
-                    name: "taskspace_control".to_string(),
+                    name: "example_tool".to_string(),
                     namespace: None,
                     arguments: r#"{"action":"initialize_map"}"#.to_string(),
                     call_id: "call_init".to_string(),

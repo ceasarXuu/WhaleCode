@@ -8,14 +8,6 @@ use sha2::Sha256;
 
 const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
 const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
-const TASKSPACE_FEEDBACK_SCHEMAS: [&str; 5] = [
-    "TaskSpaceControlResultV2",
-    "TaskSpaceResponseResultV2",
-    "TaskSpaceResponseCommitFailureV3",
-    "ToolSequencePreflightResultV3",
-    "ProviderToolResponsePreflightV2",
-];
-
 #[derive(Debug, Serialize)]
 pub(super) struct ProviderWireSectionCost {
     schema_version: &'static str,
@@ -52,7 +44,6 @@ enum SectionKind {
     SystemMessages,
     NaturalHistory,
     ActiveProjection,
-    TaskspaceControlFeedback,
     OrdinaryToolFeedback,
     Tools,
     ToolChoice,
@@ -60,11 +51,10 @@ enum SectionKind {
 }
 
 impl SectionKind {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 7] = [
         Self::SystemMessages,
         Self::NaturalHistory,
         Self::ActiveProjection,
-        Self::TaskspaceControlFeedback,
         Self::OrdinaryToolFeedback,
         Self::Tools,
         Self::ToolChoice,
@@ -76,11 +66,10 @@ impl SectionKind {
             Self::SystemMessages => 0,
             Self::NaturalHistory => 1,
             Self::ActiveProjection => 2,
-            Self::TaskspaceControlFeedback => 3,
-            Self::OrdinaryToolFeedback => 4,
-            Self::Tools => 5,
-            Self::ToolChoice => 6,
-            Self::OtherPayload => 7,
+            Self::OrdinaryToolFeedback => 3,
+            Self::Tools => 4,
+            Self::ToolChoice => 5,
+            Self::OtherPayload => 6,
         }
     }
 }
@@ -92,8 +81,8 @@ struct SectionMeasure {
 }
 
 struct SectionBuild {
-    measures: [SectionMeasure; 8],
-    message_values: [Vec<Value>; 5],
+    measures: [SectionMeasure; 7],
+    message_values: [Vec<Value>; 4],
     tools_value: Value,
     tool_choice_value: Value,
     other_value: Map<String, Value>,
@@ -215,8 +204,8 @@ fn measure_object(
 
 fn measure_messages(
     messages: &[Value],
-    measures: &mut [SectionMeasure; 8],
-    message_values: &mut [Vec<Value>; 5],
+    measures: &mut [SectionMeasure; 7],
+    message_values: &mut [Vec<Value>; 4],
 ) {
     for message in messages {
         let serialized = json_bytes(message);
@@ -235,22 +224,10 @@ fn classify_message(message: &Value) -> SectionKind {
         {
             SectionKind::ActiveProjection
         }
-        Some("system" | "developer" | "tool") if is_taskspace_control_feedback(message) => {
-            SectionKind::TaskspaceControlFeedback
-        }
         Some("system" | "developer") => SectionKind::SystemMessages,
         Some("tool") => SectionKind::OrdinaryToolFeedback,
         Some(_) | None => SectionKind::NaturalHistory,
     }
-}
-
-fn is_taskspace_control_feedback(message: &Value) -> bool {
-    let Some(content) = message.get("content") else {
-        return false;
-    };
-    TASKSPACE_FEEDBACK_SCHEMAS
-        .iter()
-        .any(|schema| super::exact_schema_payload(content, schema).is_some())
 }
 
 fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
@@ -449,17 +426,16 @@ fn mechanical_field<'a>(projection: &'a str, field: &str) -> Option<&'a str> {
 }
 
 fn section_hashes(
-    message_values: [Vec<Value>; 5],
+    message_values: [Vec<Value>; 4],
     tools_value: Value,
     tool_choice_value: Value,
     other_value: Map<String, Value>,
-) -> [String; 8] {
-    let [system, natural, projection, control, ordinary] = message_values;
+) -> [String; 7] {
+    let [system, natural, projection, ordinary] = message_values;
     [
         json_hash(&Value::Array(system)),
         json_hash(&Value::Array(natural)),
         json_hash(&Value::Array(projection)),
-        json_hash(&Value::Array(control)),
         json_hash(&Value::Array(ordinary)),
         json_hash(&tools_value),
         json_hash(&tool_choice_value),

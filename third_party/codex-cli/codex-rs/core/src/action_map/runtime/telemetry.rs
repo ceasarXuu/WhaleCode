@@ -132,5 +132,4 @@ impl ActionMapRuntimeState {
     ) -> Option<Vec<MapRuntimeEvent>> {
         (!inputs.is_empty()).then(Vec::new)
     }
-
 }

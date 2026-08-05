@@ -4,14 +4,13 @@ use super::events::ReplayError;
 use super::events::apply_batch;
 use super::invariants::Violation;
 use super::invariants::ViolationCode;
-use super::model::ActionReservation;
+use super::model::ActionRecord;
 use super::model::BlockRecord;
 use super::model::CompletionRecord;
 use super::model::EvidenceRef;
 use super::model::MapEdge;
 use super::model::MapId;
 use super::model::MapNode;
-use super::model::ReservationId;
 use super::model::ResultRef;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
@@ -21,9 +20,8 @@ use super::transitions::derive_node_state;
 use super::transitions::predecessors;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReservationInput {
-    pub(crate) reservation_id: ReservationId,
-    pub(crate) reservation: ActionReservation,
+pub(crate) struct ActionInput {
+    pub(crate) action: ActionRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +31,7 @@ pub(crate) struct InitializeMap {
     pub(crate) work_nodes: Vec<MapNode>,
     pub(crate) finish: MapNode,
     pub(crate) edges: Vec<MapEdge>,
-    pub(crate) reservations: Vec<ReservationInput>,
+    pub(crate) actions: Vec<ActionInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -63,7 +61,7 @@ pub(crate) struct ExecuteTransaction {
     pub(crate) expected_revision: Revision,
     pub(crate) graph: GraphMutation,
     pub(crate) node_mutations: Vec<NodeMutation>,
-    pub(crate) reservations: Vec<ReservationInput>,
+    pub(crate) actions: Vec<ActionInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,9 +77,9 @@ pub(crate) struct EvidenceRefInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReservationRelease {
+pub(crate) struct AttachActionFacts {
     pub(crate) expected_revision: Revision,
-    pub(crate) reservation_id: ReservationId,
+    pub(crate) action_id: String,
     pub(crate) result_refs: Vec<ResultRefInput>,
     pub(crate) evidence_refs: Vec<EvidenceRefInput>,
 }
@@ -99,7 +97,7 @@ pub(crate) struct ReopenMap {
     pub(crate) expected_revision: Revision,
     pub(crate) add_work_nodes: Vec<MapNode>,
     pub(crate) add_edges: Vec<MapEdge>,
-    pub(crate) reservations: Vec<ReservationInput>,
+    pub(crate) actions: Vec<ActionInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,13 +175,6 @@ impl Rejection {
 }
 
 pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
-    if input.reservations.is_empty() {
-        return Err(Rejection::one(
-            0,
-            ViolationCode::ReservationInvalid,
-            "initialization_requires_action",
-        ));
-    }
     let mut facts = vec![MapFact::MapInitialized {
         map_id: input.map_id.clone(),
         root: input.root,
@@ -193,11 +184,10 @@ pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
     }];
     facts.extend(
         input
-            .reservations
+            .actions
             .into_iter()
-            .map(|input| MapFact::ActionReserved {
-                reservation_id: input.reservation_id,
-                reservation: input.reservation,
+            .map(|input| MapFact::ActionRecorded {
+                action: input.action,
             }),
     );
     commit(None, input.map_id, 1, facts)
@@ -208,13 +198,6 @@ pub(crate) fn execute(
     input: ExecuteTransaction,
 ) -> Result<Commit, Rejection> {
     require_revision(current, input.expected_revision)?;
-    if input.reservations.is_empty() {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::ReservationInvalid,
-            "execute_requires_action",
-        ));
-    }
     let mut facts = Vec::new();
     facts.extend(
         input
@@ -240,11 +223,10 @@ pub(crate) fn execute(
     facts.extend(input.node_mutations.into_iter().map(node_fact));
     facts.extend(
         input
-            .reservations
+            .actions
             .into_iter()
-            .map(|input| MapFact::ActionReserved {
-                reservation_id: input.reservation_id,
-                reservation: input.reservation,
+            .map(|input| MapFact::ActionRecorded {
+                action: input.action,
             }),
     );
     commit(
@@ -255,19 +237,19 @@ pub(crate) fn execute(
     )
 }
 
-pub(crate) fn release_reservation(
+pub(crate) fn attach_action_facts(
     current: &TaskSpaceMap,
-    input: ReservationRelease,
+    input: AttachActionFacts,
 ) -> Result<Commit, Rejection> {
     require_revision(current, input.expected_revision)?;
-    let reservation = current
-        .action_reservations
-        .get(&input.reservation_id)
+    let action = current
+        .action_records
+        .get(&input.action_id)
         .ok_or_else(|| {
             Rejection::one(
                 current.revision,
-                ViolationCode::ReservationInvalid,
-                input.reservation_id.clone(),
+                ViolationCode::ActionRecordInvalid,
+                input.action_id.clone(),
             )
         })?;
     let mut facts = Vec::new();
@@ -278,9 +260,8 @@ pub(crate) fn release_reservation(
             .map(|result| MapFact::ResultAttributed {
                 result_ref_id: result.result_ref_id,
                 result: ResultRef {
-                    node_id: reservation.node_id.clone(),
-                    action_id: reservation.action_id.clone(),
-                    reservation_id: input.reservation_id.clone(),
+                    node_id: action.node_id.clone(),
+                    action_id: action.action_id.clone(),
                     is_error: result.is_error,
                 },
             }),
@@ -292,16 +273,12 @@ pub(crate) fn release_reservation(
             .map(|evidence| MapFact::EvidenceAttributed {
                 evidence_ref_id: evidence.evidence_ref_id,
                 evidence: EvidenceRef {
-                    node_id: reservation.node_id.clone(),
-                    action_id: reservation.action_id.clone(),
-                    reservation_id: input.reservation_id.clone(),
+                    node_id: action.node_id.clone(),
+                    action_id: action.action_id.clone(),
                     kind: evidence.kind,
                 },
             }),
     );
-    facts.push(MapFact::ActionReleased {
-        reservation_id: input.reservation_id,
-    });
     commit(
         Some(current),
         current.map_id.clone(),
@@ -317,13 +294,6 @@ pub(crate) fn finish_map(current: &TaskSpaceMap, input: FinishMap) -> Result<Com
             current.revision,
             ViolationCode::ExactSummaryEmpty,
             input.finish_node_id,
-        ));
-    }
-    if input.final_completions.is_empty() {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::UnfinishedRequiredWork,
-            "finish_requires_final_work",
         ));
     }
     let mut facts = input
@@ -348,14 +318,11 @@ pub(crate) fn finish_map(current: &TaskSpaceMap, input: FinishMap) -> Result<Com
 
 pub(crate) fn reopen_map(current: &TaskSpaceMap, input: ReopenMap) -> Result<Commit, Rejection> {
     require_revision(current, input.expected_revision)?;
-    if input.add_work_nodes.is_empty()
-        || input.add_edges.is_empty()
-        || input.reservations.is_empty()
-    {
+    if input.add_work_nodes.is_empty() || input.add_edges.is_empty() {
         return Err(Rejection::one(
             current.revision,
             ViolationCode::TransitionInvalid,
-            "reopen_requires_work_edges_and_actions",
+            "reopen_requires_work_and_edges",
         ));
     }
     let terminal = current.terminal_record.clone().ok_or_else(|| {
@@ -380,11 +347,10 @@ pub(crate) fn reopen_map(current: &TaskSpaceMap, input: ReopenMap) -> Result<Com
     );
     facts.extend(
         input
-            .reservations
+            .actions
             .into_iter()
-            .map(|input| MapFact::ActionReserved {
-                reservation_id: input.reservation_id,
-                reservation: input.reservation,
+            .map(|input| MapFact::ActionRecorded {
+                action: input.action,
             }),
     );
     commit(

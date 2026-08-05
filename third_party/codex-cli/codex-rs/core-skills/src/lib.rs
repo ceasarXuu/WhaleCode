@@ -10,10 +10,6 @@ pub mod remote;
 pub mod render;
 pub mod system;
 
-pub use codex_skills::TASKSPACE_ADVANCED_SKILL_NAME;
-pub use codex_skills::TASKSPACE_ADVANCED_SKILL_VERSION;
-pub use codex_skills::TaskSpaceSkillSnapshot;
-pub use codex_skills::create_taskspace_advanced_snapshot;
 pub use env_var_dependencies::SkillDependencyInfo;
 pub use env_var_dependencies::collect_env_var_dependencies;
 pub(crate) use invocation_utils::build_implicit_skill_path_indexes;

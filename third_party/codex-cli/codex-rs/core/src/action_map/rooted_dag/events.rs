@@ -1,7 +1,7 @@
 use super::invariants::Violation;
 use super::invariants::ViolationCode;
 use super::invariants::validate;
-use super::model::ActionReservation;
+use super::model::ActionRecord;
 use super::model::BlockRecord;
 use super::model::CompletionRecord;
 use super::model::EvidenceRef;
@@ -10,7 +10,6 @@ use super::model::MapId;
 use super::model::MapNode;
 use super::model::NodeRole;
 use super::model::NodeState;
-use super::model::ReservationId;
 use super::model::ResultRef;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
@@ -54,9 +53,8 @@ pub(crate) enum MapFact {
     NodeUnblocked {
         node_id: String,
     },
-    ActionReserved {
-        reservation_id: ReservationId,
-        reservation: ActionReservation,
+    ActionRecorded {
+        action: ActionRecord,
     },
     ResultAttributed {
         result_ref_id: String,
@@ -65,9 +63,6 @@ pub(crate) enum MapFact {
     EvidenceAttributed {
         evidence_ref_id: String,
         evidence: EvidenceRef,
-    },
-    ActionReleased {
-        reservation_id: ReservationId,
     },
     TerminalRecorded {
         finish_node_id: String,
@@ -244,7 +239,7 @@ fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), Rep
             Ok(())
         }
         MapFact::NodeCompleted { node_id, record } => {
-            require_work_state(map, node_id, NodeState::Ready)?;
+            require_work_state_in(map, node_id, &[NodeState::Ready, NodeState::InFlight])?;
             if map
                 .completion_records
                 .insert(node_id.clone(), record.clone())
@@ -258,7 +253,7 @@ fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), Rep
             Ok(())
         }
         MapFact::NodeBlocked { node_id, record } => {
-            require_work_state(map, node_id, NodeState::Ready)?;
+            require_work_state_in(map, node_id, &[NodeState::Ready, NodeState::InFlight])?;
             if map
                 .block_records
                 .insert(node_id.clone(), record.clone())
@@ -280,20 +275,12 @@ fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), Rep
             }
             Ok(())
         }
-        MapFact::ActionReserved {
-            reservation_id,
-            reservation,
-        } => reserve_action(map, reservation_id, reservation),
+        MapFact::ActionRecorded { action } => record_action(map, action),
         MapFact::ResultAttributed {
             result_ref_id,
             result,
         } => {
-            require_matching_reservation(
-                map,
-                &result.reservation_id,
-                &result.action_id,
-                &result.node_id,
-            )?;
+            require_matching_action(map, &result.action_id, &result.node_id)?;
             if map
                 .result_refs
                 .insert(result_ref_id.clone(), result.clone())
@@ -310,12 +297,7 @@ fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), Rep
             evidence_ref_id,
             evidence,
         } => {
-            require_matching_reservation(
-                map,
-                &evidence.reservation_id,
-                &evidence.action_id,
-                &evidence.node_id,
-            )?;
+            require_matching_action(map, &evidence.action_id, &evidence.node_id)?;
             if map
                 .evidence_refs
                 .insert(evidence_ref_id.clone(), evidence.clone())
@@ -324,15 +306,6 @@ fn apply_existing_fact(map: &mut TaskSpaceMap, fact: &MapFact) -> Result<(), Rep
                 return Err(ReplayError::invalid(
                     ViolationCode::FactReferenceInvalid,
                     evidence_ref_id.clone(),
-                ));
-            }
-            Ok(())
-        }
-        MapFact::ActionReleased { reservation_id } => {
-            if map.action_reservations.remove(reservation_id).is_none() {
-                return Err(ReplayError::invalid(
-                    ViolationCode::ReservationInvalid,
-                    reservation_id.clone(),
                 ));
             }
             Ok(())
@@ -355,13 +328,13 @@ fn require_unstarted_target(map: &TaskSpaceMap, edge: &MapEdge) -> Result<(), Re
     Ok(())
 }
 
-fn require_work_state(
+fn require_work_state_in(
     map: &TaskSpaceMap,
     node_id: &str,
-    expected: NodeState,
+    expected: &[NodeState],
 ) -> Result<(), ReplayError> {
     if node_role(map, node_id) != Some(NodeRole::Work)
-        || derive_node_state(map, node_id) != Some(expected)
+        || !derive_node_state(map, node_id).is_some_and(|state| expected.contains(&state))
     {
         return Err(ReplayError::invalid(
             ViolationCode::TransitionInvalid,
@@ -371,60 +344,48 @@ fn require_work_state(
     Ok(())
 }
 
-fn reserve_action(
-    map: &mut TaskSpaceMap,
-    reservation_id: &str,
-    reservation: &ActionReservation,
-) -> Result<(), ReplayError> {
-    let state = derive_node_state(map, &reservation.node_id);
-    if node_role(map, &reservation.node_id) != Some(NodeRole::Work) {
+fn record_action(map: &mut TaskSpaceMap, action: &ActionRecord) -> Result<(), ReplayError> {
+    let state = derive_node_state(map, &action.node_id);
+    if node_role(map, &action.node_id) != Some(NodeRole::Work) {
         return Err(ReplayError::invalid(
             ViolationCode::TransitionInvalid,
-            &reservation.node_id,
+            &action.node_id,
         ));
     }
     if !matches!(state, Some(NodeState::Ready | NodeState::InFlight)) {
         return Err(ReplayError::invalid_node_state(
             map,
-            &reservation.node_id,
+            &action.node_id,
             state,
             vec![NodeState::Ready, NodeState::InFlight],
         ));
     }
-    if map.action_reservations.contains_key(reservation_id)
-        || map
-            .action_reservations
-            .values()
-            .any(|current| current.action_id == reservation.action_id)
-    {
+    if map.action_records.contains_key(&action.action_id) {
         return Err(ReplayError::invalid(
-            ViolationCode::ReservationInvalid,
-            reservation_id,
+            ViolationCode::ActionRecordInvalid,
+            &action.action_id,
         ));
     }
-    map.action_reservations
-        .insert(reservation_id.to_string(), reservation.clone());
+    map.action_records
+        .insert(action.action_id.clone(), action.clone());
     Ok(())
 }
 
-fn require_matching_reservation(
+fn require_matching_action(
     map: &TaskSpaceMap,
-    reservation_id: &str,
     action_id: &str,
     node_id: &str,
 ) -> Result<(), ReplayError> {
     let matches = map
-        .action_reservations
-        .get(reservation_id)
-        .is_some_and(|reservation| {
-            reservation.action_id == action_id && reservation.node_id == node_id
-        });
+        .action_records
+        .get(action_id)
+        .is_some_and(|action| action.node_id == node_id);
     if matches {
         Ok(())
     } else {
         Err(ReplayError::invalid(
-            ViolationCode::ReservationInvalid,
-            reservation_id,
+            ViolationCode::ActionRecordInvalid,
+            action_id,
         ))
     }
 }
@@ -436,7 +397,6 @@ fn finish(
 ) -> Result<(), ReplayError> {
     if finish_node_id != map.finish.node_id
         || derive_node_state(map, finish_node_id) != Some(NodeState::Ready)
-        || !map.action_reservations.is_empty()
         || terminal.summary_ref.trim().is_empty()
     {
         return Err(ReplayError::invalid(

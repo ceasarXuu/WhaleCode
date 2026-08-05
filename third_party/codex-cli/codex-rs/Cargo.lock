@@ -2530,7 +2530,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sha2",
  "shlex",
  "tempfile",
  "tokio",
@@ -3344,7 +3343,6 @@ version = "0.1.0"
 dependencies = [
  "codex-utils-absolute-path",
  "include_dir",
- "sha2",
  "tempfile",
  "thiserror 2.0.18",
 ]

@@ -43,7 +43,6 @@ pub(crate) struct SessionConfiguration {
     pub(super) model_reasoning_summary: Option<ReasoningSummaryConfig>,
     pub(super) service_tier: Option<ServiceTier>,
     pub(super) taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
-    pub(super) taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>,
 
     /// Developer instructions that supplement the base instructions.
     pub(super) developer_instructions: Option<String>,
@@ -328,9 +327,6 @@ impl Session {
                                 dynamic_tools: session_configuration.dynamic_tools.clone(),
                                 taskspace_projection_policy: session_configuration
                                     .taskspace_projection_policy,
-                                taskspace_skill_snapshot: session_configuration
-                                    .taskspace_skill_snapshot
-                                    .clone(),
                                 event_persistence_mode,
                             },
                         )

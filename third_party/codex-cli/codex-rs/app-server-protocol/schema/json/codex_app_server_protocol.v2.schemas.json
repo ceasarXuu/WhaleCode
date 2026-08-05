@@ -211,6 +211,21 @@
       ],
       "type": "object"
     },
+    "ActionMapSnapshotAction": {
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "actionId",
+        "nodeId"
+      ],
+      "type": "object"
+    },
     "ActionMapSnapshotEdge": {
       "properties": {
         "from": {
@@ -239,17 +254,13 @@
         },
         "nodeId": {
           "type": "string"
-        },
-        "reservationId": {
-          "type": "string"
         }
       },
       "required": [
         "actionId",
         "id",
         "kind",
-        "nodeId",
-        "reservationId"
+        "nodeId"
       ],
       "type": "object"
     },
@@ -286,6 +297,12 @@
     },
     "ActionMapSnapshotMap": {
       "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotAction"
+          },
+          "type": "array"
+        },
         "complete": {
           "type": "boolean"
         },
@@ -348,12 +365,6 @@
           "minimum": 0.0,
           "type": "integer"
         },
-        "reservations": {
-          "items": {
-            "$ref": "#/definitions/ActionMapSnapshotReservation"
-          },
-          "type": "array"
-        },
         "results": {
           "items": {
             "$ref": "#/definitions/ActionMapSnapshotResult"
@@ -389,6 +400,7 @@
         }
       },
       "required": [
+        "actions",
         "complete",
         "completedWorkNodeCount",
         "edges",
@@ -399,7 +411,6 @@
         "inflightWorkNodeCount",
         "nodes",
         "readyWorkNodeCount",
-        "reservations",
         "results",
         "revision",
         "rootNodeId"
@@ -538,35 +549,6 @@
       ],
       "type": "object"
     },
-    "ActionMapSnapshotReservation": {
-      "properties": {
-        "actionId": {
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
-        },
-        "nodeId": {
-          "type": "string"
-        },
-        "responseCallIndex": {
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": "integer"
-        },
-        "toolName": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "actionId",
-        "id",
-        "nodeId",
-        "responseCallIndex",
-        "toolName"
-      ],
-      "type": "object"
-    },
     "ActionMapSnapshotResult": {
       "properties": {
         "actionId": {
@@ -580,17 +562,13 @@
         },
         "nodeId": {
           "type": "string"
-        },
-        "reservationId": {
-          "type": "string"
         }
       },
       "required": [
         "actionId",
         "id",
         "isError",
-        "nodeId",
-        "reservationId"
+        "nodeId"
       ],
       "type": "object"
     },

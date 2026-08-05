@@ -1,6 +1,5 @@
 #[cfg(test)]
 use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD;
-use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::protocol::MapRuntimeMode;
 use sha2::Digest;
@@ -9,9 +8,6 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "2.0.1";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -30,19 +26,15 @@ impl WhaleCodeBaseInstructionsProfile {
     pub(crate) fn version(self) -> &'static str {
         match self {
             Self::Standard => WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
-            Self::TaskSpace => WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
+            Self::TaskSpace => WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
         }
     }
 
     pub(crate) fn expected_sha256(self) -> &'static str {
         match self {
             Self::Standard => WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
-            Self::TaskSpace => WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
+            Self::TaskSpace => WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
         }
-    }
-
-    pub(crate) fn is_taskspace(self) -> bool {
-        self == Self::TaskSpace
     }
 }
 
@@ -66,7 +58,7 @@ pub(crate) fn resolve_base_instructions(
     };
     let text = match profile {
         WhaleCodeBaseInstructionsProfile::Standard => standard_instructions,
-        WhaleCodeBaseInstructionsProfile::TaskSpace => BASE_INSTRUCTIONS_WHALECODE_TASKSPACE,
+        WhaleCodeBaseInstructionsProfile::TaskSpace => standard_instructions,
     };
     let sha256 = sha256(text);
     let matches_current_contract = sha256 == profile.expected_sha256();
@@ -102,10 +94,6 @@ mod tests {
             sha256(BASE_INSTRUCTIONS_WHALECODE_STANDARD),
             WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256
         );
-        assert_eq!(
-            sha256(BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256
-        );
     }
 
     #[test]
@@ -118,10 +106,7 @@ mod tests {
             "\"arguments\"",
         ];
 
-        for (profile, prompt) in [
-            ("standard", BASE_INSTRUCTIONS_WHALECODE_STANDARD),
-            ("taskspace", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-        ] {
+        for (profile, prompt) in [("standard", BASE_INSTRUCTIONS_WHALECODE_STANDARD)] {
             for fragment in FORBIDDEN_TOOL_WIRE_FRAGMENTS {
                 assert!(
                     !prompt.contains(fragment),
@@ -154,7 +139,7 @@ mod tests {
         );
         assert_eq!(
             taskspace.instructions.text,
-            BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
+            BASE_INSTRUCTIONS_WHALECODE_STANDARD
         );
         assert!(taskspace.matches_current_contract);
     }

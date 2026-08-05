@@ -297,7 +297,7 @@ impl Deref for ActionMapInstance {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action_map::rooted_dag::ActionReservation;
+    use crate::action_map::rooted_dag::ActionRecord;
     use crate::action_map::rooted_dag::CompletionRecord;
     use crate::action_map::rooted_dag::MapEdge;
     use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
@@ -349,7 +349,7 @@ mod tests {
             ],
             completion_records: BTreeMap::new(),
             block_records: BTreeMap::new(),
-            action_reservations: BTreeMap::new(),
+            action_records: BTreeMap::new(),
             result_refs: BTreeMap::new(),
             evidence_refs: BTreeMap::new(),
             terminal_record: None,
@@ -369,13 +369,11 @@ mod tests {
                 evidence_ref_ids: vec![],
             },
         );
-        graph.action_reservations.insert(
-            "reservation-right".into(),
-            ActionReservation {
+        graph.action_records.insert(
+            "action-right".into(),
+            ActionRecord {
                 action_id: "action-right".into(),
                 node_id: "right".into(),
-                tool_name: "exec_command".into(),
-                response_call_index: 1,
             },
         );
         let map = ActionMapInstance::from_graph(graph, vec![], None);

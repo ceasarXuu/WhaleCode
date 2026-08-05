@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0 in progress / ZB-04A complete / ZB-04B next
+- Status: Active / Phase B0 in progress / ZB-06B verified / ZB-06C next
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -43,6 +43,7 @@ TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议�
 | Runtime context | sibling call 的 node metadata、terminal carrier、额外 pairing receipt |
 | Provider response | named control/tool-choice gate、隐藏 Tool 后置拒绝、terminal follow-up 控制 |
 | Feedback | developer factual duplicate、supplemental carrier、状态与 Tool 失败重复包装 |
+| Conversation backend | 专用 `TaskSpaceEventStore`、单 call owner、outer-control parent 和区别于 Standard 的历史替换路径 |
 | Phase A prototype | `source:string` exec、Agent 回显 version/capability/item ID 的 decoder/preflight |
 | Tests / prompts | 以旧合法序列、旧字段或旧反馈为正确答案的 active fixture 与说明 |
 
@@ -57,11 +58,13 @@ TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议�
 | ZB-03G | 切换清零期缓存门禁 | cache final-wire fixtures、cache surface contract | 删除依赖旧 TaskSpace wire 的主动夹具；清零期只比较 Standard 两请求 final wire | 旧协议删除不会因夹具崩溃变成 `uncomparable`，同时 Standard 缓存回归仍阻断 | Complexity: 控制面净删除；Reach: 新 TaskSpace 发布保持阻断 | policy-only commit；Standard final-wire 与 cache gate PASS | verified |
 | ZB-03A | 断开旧 control Tool 暴露 | `codex-tools taskspace_tool*`、registry plan、handler kind | 删除旧 declaration、ToolSpec 插入和 Router handler 注册 | Agent 和 Provider 不再看到旧 Map/sibling wire | Complexity: 净删除 Tool 声明；Reach: TaskSpace 暂不可运行，Standard Tool 不变 | registry/spec tests、Standard Tool snapshot；不得保留 adapter | verified |
 | ZB-04A | 恢复 Standard 流式 Tool 调度 | `stream_events_utils.rs`、`session/turn.rs` | Tool item 到达时直接构造原生执行 future；恢复 `FuturesOrdered` 收集与统一落账；删除 response-completed 批处理入口和 provider declaration 中间态 | 普通 Tool 重新沿 Standard 原生 ToolCallRuntime 执行，不再等待旧 TaskSpace response sequence | Complexity: 一个原子执行链切换；Reach: response stream 与 Tool result 入历史 | core build；Standard Tool stream tests；不得同时保留 declaration 与 future 双轨 | verified |
-| ZB-04B | 删除 sequence 执行抽象及附属状态 | `sequence*`、`provider_tool_declaration.rs`、`parallel.rs`、`context.rs` | 删除 manifest/preflight/prepared-sibling、sequence-only runtime 方法、node metadata context 与 active tests | 共享工具层不再携带旧 TaskSpace 序列、归属或 barrier 概念 | Complexity: 大量净删除；Reach: Tool runtime 与 tests | `rg` 无 active sequence/provider declaration/sibling 调用；parallel/router tests | planned |
+| ZB-04B | 删除 sequence 执行抽象及附属状态 | `sequence*`、`provider_tool_declaration.rs`、`parallel.rs`、`context.rs` | 删除 manifest/preflight/prepared-sibling、sequence-only runtime 方法、node metadata context 与 active tests | 共享工具层不再携带旧 TaskSpace 序列、归属或 barrier 概念 | Complexity: 大量净删除；Reach: Tool runtime 与 tests | `rg` 无 active sequence/provider declaration/sibling 调用；parallel/router tests | verified |
 | ZB-04C | 证明 Standard 执行基线 | Standard Tool/response/cache fixtures | 验证并行能力仍由 Tool 原生 parallel-safety 决定，串行 Tool 仍由原生锁保证；增加旧执行层 forbidden audit | 删除旧层没有改变 Standard Tool 行为或 provider 前缀 | Complexity: 低成本门禁；Reach: Phase B 后续全部单元 | Standard response/tool tests、cache gate PASS、forbidden set 为零 | planned |
-| ZB-03B | 删除旧 control parser/handler | core control handler/args/output files | 删除已无调用的旧 wire parser、actions 校验、handler 和 sibling 输出 | 新 Map Tool 必须从 canonical Map operation 重新设计 | Complexity: 净删除实现；Reach: canonical Action Map 不变 | `rg` 无旧 control 类型或 actions wire；core build | planned |
-| ZB-05 | 删除旧 Provider response 控制 | `session/turn.rs`、provider declaration/context helpers | 删除 named-control gate、terminal carrier、后置 follow-up/reject 和重复事实注入 | 新 response envelope 从原生完成事件零基础建立 | Complexity: 净删除分支；Reach: turn lifecycle 与 snapshots | Standard response tests、cache gate；不得新增临时 fallback | planned |
-| ZB-06 | 删除旧协议说明与 active fixtures | TaskSpace base instructions/skill、旧 active tests | 移除要求旧 control/sibling/actions 的加载内容和测试 | Agent 不再接收已失效协议，测试不再奖励旧行为 | Complexity: 净删除内容；Reach: TaskSpace 暂无工作协议 | prompt/context snapshots；历史 docs 不计 active residual | planned |
+| ZB-03B | 删除旧 control parser/handler | core control handler/args/output files | 删除已无调用的旧 wire parser、actions 校验、handler 和 sibling 输出 | 新 Map Tool 必须从 canonical Map operation 重新设计 | Complexity: 净删除实现；Reach: canonical Action Map 不变 | `rg` 无旧 control 类型或 actions wire；core build | verified |
+| ZB-05 | 删除旧 Provider response 控制 | `session/turn.rs`、provider declaration/context helpers | 删除 named-control gate、terminal carrier、后置 follow-up/reject 和重复事实注入 | 新 response envelope 从原生完成事件零基础建立 | Complexity: 净删除分支；Reach: turn lifecycle 与 snapshots | Standard response tests、cache gate；不得新增临时 fallback | verified |
+| ZB-06A | 删除旧协议说明与 active fixtures | TaskSpace base instructions/skill、旧 active tests | 移除要求旧 control/sibling/actions 的加载内容和测试 | Agent 不再接收已失效协议，测试不再奖励旧行为 | Complexity: 净删除内容；Reach: TaskSpace 暂无工作协议 | prompt/context snapshots；历史 docs 不计 active residual | verified |
+| ZB-06B | 从 Map 删除工具执行状态 | rooted DAG、protocol、snapshot、Viewer | 删除 reservation/tool name/call index/release；只保留 Agent 声明的 `action_id -> node_id` 事实，结果引用不驱动节点生命周期 | Map 不再替 Tool 执行管理节点；Agent 可在动作尚无结果时完成节点 | Complexity: canonical schema 直接升级且不迁移；Reach: Map Store 新数据、API 和 Viewer | replay/invariant/schema/Viewer tests；旧字段静态为零 | verified |
+| ZB-06C | 恢复 Standard 原生对话历史 | `TaskSpaceEventStore`、session state、rollout reconstruction | 删除 TaskSpace 专用历史替换、单 call owner、outer-control parent 和专用 compaction checkpoint；所有模式复用 Standard `ContextManager` | 新 Exec 从相同自然上下文基线建设，旧绑定模型不再预设 Hosted/client 归属 | Complexity: 删除第二历史后端；Reach: session/resume/compaction | Standard history/resume/compaction tests；canonical SQLite Map Store 保持不变 | planned |
 | ZB-07 | 证明零基线 | 全仓 active source/test/config | 建立 forbidden-symbol audit 和 Standard regression | 新建设从可证明的干净基线开始 | Complexity: 一个静态审计；Reach: CI 增加低成本检查 | forbidden set 为零、Standard exact wire、cache gate PASS | planned |
 | NX-01 | 建立纯 Map operation contract | canonical Action Map 邻接模块 + 新 ToolSpec | 从 Map transaction 原语定义 initialize/execute/reopen/read/finish，不含 Tool manifest | Map Tool 只管理 Map，节点工作归属只在 Exec 外层 | Complexity: 一个新合同；Reach: Map fixtures | schema/parser/transaction fixtures；出现 sibling 字段立即停止 | planned |
 | NX-02 | 建立结构化 TaskSpace Exec schema | 新 `taskspace_exec` 模块 | 从 TX-06A 与 NX-01 生成 calls/hosted_bindings Tool-specific variants | Agent 只声明动作、原生输入和节点归属 | Complexity: 一个静态 Function schema；Reach: declaration size | 1/N client、hosted-only、empty reject、确定性字节 | planned |
@@ -79,6 +82,7 @@ NX-04 通过后再重新设计 response-local envelope、Map admission、Router 
 - Units: ZB-01～ZB-07。
 - Exit: active code/config/prompt/test 不再包含旧 sibling/control 协议；Standard 构建、Tool wire、sequence、response 与缓存门禁成立。
 - Stop: 删除触及 canonical Action Map 数据事实、Store、projection 三模式或 Standard 原生 Tool 行为时立即停下重新划界。
+- Clarification: 上述 Store 指 SQLite canonical Action Map Store；ZB-06C 删除的是旧方案的对话 Event Store，不是 Map 事实源。
 
 ### Phase B1：Clean Contract And Provider Gate
 
@@ -97,3 +101,5 @@ NX-04 通过后再重新设计 response-local envelope、Map admission、Router 
 | ZB-03G | 2026-08-06 | `4472c2afa`；cache gate policy-only PASS；Standard 两请求 final-wire tests PASS | 清零期缓存门禁已删除旧 TaskSpace wire 夹具，只验证 Standard；发布保持阻断，NX-03 后重建 TaskSpace 合同 | ZB-03A |
 | ZB-03A | 2026-08-06 | `cd327d938`；`codex-tools` 145 passed / 1 ignored；core build、ToolSpec 与 provider visibility unit tests PASS | 旧 control declaration、schema、registry handler 和 active schema fixtures 已删除；未增加替代或兼容入口 | ZB-04A |
 | ZB-04A | 2026-08-06 | core build PASS；stream events 15 passed；mailbox、malformed arguments、missing client identity Standard tests 各 1 passed | Tool item 恢复为原生 future；turn 恢复 `FuturesOrdered` 落账；response completion 不再调用旧 sequence | ZB-04B |
+| ZB-04B / ZB-03B / ZB-05 | 2026-08-06 | `5228efd80`；旧 sequence、control parser/handler、Provider response gate 静态为零；core build 与 Standard stream tests PASS | Tool response 已回到 Standard 原生调度与反馈路径，无兼容 adapter | ZB-06A |
+| ZB-06A / ZB-06B | 2026-08-06 | core build；rooted DAG 19 tests；protocol 3 tests；schema fixtures 4 tests；Viewer 3 tests；core-skills 95 tests；skills 1 test | 旧 Prompt/Skill/fixture 已删除；Map 只保存 action-node 归属，不再保存或等待工具 reservation | ZB-06C |

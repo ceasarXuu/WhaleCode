@@ -24,34 +24,18 @@ impl ActionMapRuntimeState {
 
     pub(crate) fn build_map_handle_context(&self) -> Option<String> {
         let map_id = self.active_map_id.as_deref()?;
-        let (revision, bootstrap_required, complete, initialization_action) =
-            self.active_map().map_or(
-                (
-                    "none".to_string(),
-                    true,
-                    false,
-                    Some("taskspace_control.initialize_and_execute"),
-                ),
-                |map| {
+        let (revision, bootstrap_required, complete) =
+            self.active_map()
+                .map_or(("none".to_string(), true, false), |map| {
                     (
                         map.canonical_map().revision.to_string(),
                         false,
                         map.is_complete(),
-                        None,
                     )
-                },
-            );
+                });
         let mut context = format!(
-            "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- map_id: {map_id}\n- revision: {revision}\n- bootstrap_required: {bootstrap_required}\n- complete: {complete}\n- available_read_action: taskspace_control.read_map\n"
+            "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- map_id: {map_id}\n- revision: {revision}\n- bootstrap_required: {bootstrap_required}\n- complete: {complete}\n"
         );
-        if let Some(action) = initialization_action {
-            context.push_str("- required_initialization_action: ");
-            context.push_str(action);
-            context.push('\n');
-        }
-        if complete {
-            context.push_str("- available_reopen_action: taskspace_control.reopen_map\n");
-        }
         context.push_str("TaskSpaceMapHandleR7V1 end.\n");
         Some(context)
     }

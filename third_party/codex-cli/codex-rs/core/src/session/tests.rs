@@ -1348,9 +1348,7 @@ async fn provider_composer_injects_one_blank_map_projection() {
         );
         assert!(developer_text.contains("- map: none"));
         assert!(developer_text.contains("- bootstrap_required: true"));
-        assert!(developer_text.contains(
-            "- required_initialization_action: taskspace_control.initialize_and_execute"
-        ));
+        assert!(!developer_text.contains("required_initialization_action"));
         let projection = latest_taskspace_projection_context(&context)
             .expect("provider request must contain the current projection");
         assert!(!projection.contains("binding"));
@@ -1432,11 +1430,8 @@ async fn provider_map_request_exposes_current_request_tail_handle_until_explicit
     assert!(handle.contains(&format!("- map_id: map-{}", session.conversation_id)));
     assert!(handle.contains("- revision: none"));
     assert!(handle.contains("- bootstrap_required: true"));
-    assert!(handle.contains("- available_read_action: taskspace_control.read_map"));
-    assert!(
-        handle
-            .contains("- required_initialization_action: taskspace_control.initialize_and_execute")
-    );
+    assert!(!handle.contains("available_read_action"));
+    assert!(!handle.contains("required_initialization_action"));
     assert!(!handle.contains("map_nodes"));
     assert!(!handle.contains("map_edges"));
     assert!(!handle.contains("active_frontier"));
@@ -1712,51 +1707,7 @@ async fn runtime_mode_selects_the_matching_complete_base_instructions() {
     assert_eq!(taskspace.profile.as_str(), "taskspace");
     assert_eq!(
         taskspace.instructions.text,
-        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
-    );
-}
-
-#[tokio::test]
-async fn taskspace_core_protocol_is_first_in_the_stable_developer_bundle() {
-    let (standard_session, standard_context) = make_session_and_context().await;
-    let standard_initial = standard_session
-        .build_initial_context(&standard_context)
-        .await;
-    assert!(
-        developer_input_texts(&standard_initial)
-            .iter()
-            .all(|text| !text.contains("<taskspace_core_protocol"))
-    );
-
-    let (taskspace_session, taskspace_context) = make_session_and_context().await;
-    {
-        let mut state = taskspace_session.state.lock().await;
-        state.action_map_runtime.set_mode_for_session(
-            MapRuntimeMode::Experiment,
-            taskspace_session.conversation_id,
-        );
-    }
-    let taskspace_initial = taskspace_session
-        .build_initial_context(&taskspace_context)
-        .await;
-    let developer_texts = developer_input_texts(&taskspace_initial);
-
-    assert_eq!(
-        developer_texts.first().copied(),
-        Some(crate::context::TASKSPACE_CORE_PROTOCOL)
-    );
-    assert_eq!(
-        developer_texts
-            .iter()
-            .filter(|text| text.contains("<taskspace_core_protocol"))
-            .count(),
-        1
-    );
-    assert!(
-        developer_texts
-            .iter()
-            .skip(1)
-            .all(|text| !text.contains("<taskspace_core_protocol"))
+        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD
     );
 }
 
@@ -2621,7 +2572,6 @@ async fn set_rate_limits_retains_previous_credits() {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
-        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -2727,7 +2677,6 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
-        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3005,7 +2954,6 @@ async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
             base_instructions: BaseInstructions::default(),
             dynamic_tools: Vec::new(),
             taskspace_projection_policy: None,
-            taskspace_skill_snapshot: None,
             event_persistence_mode: ThreadEventPersistenceMode::Limited,
         },
     )
@@ -3182,7 +3130,6 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
-        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3499,7 +3446,6 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: None,
-        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3607,7 +3553,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
-        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3825,7 +3770,6 @@ async fn make_session_with_config_and_rx(
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: None,
-        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -4976,7 +4920,6 @@ where
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
         taskspace_projection_policy: None,
-        taskspace_skill_snapshot: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -7534,377 +7477,6 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
         sess.get_pending_input().await,
         vec![communication.to_response_input_item()],
     );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mailbox_preemption_never_executes_an_uncompleted_tool_prefix() -> anyhow::Result<()> {
-    let server = start_mock_server().await;
-    let test = test_codex().build(&server).await?;
-    let response = mount_response_once(
-        &server,
-        sse_response(sse(vec![
-            ev_response_created("mailbox-prefix-response"),
-            ev_function_call(
-                "prefix-side-effect",
-                "shell_command",
-                r#"{"command":"printf executed > mailbox-prefix.txt"}"#,
-            ),
-            ev_reasoning_item("reasoning-after-tool", &["continue"], &[]),
-            ev_function_call(
-                "invalid-patch-1",
-                "apply_patch",
-                r#"{"input":"first patch"}"#,
-            ),
-            ev_function_call(
-                "invalid-patch-2",
-                "apply_patch",
-                r#"{"input":"second patch"}"#,
-            ),
-            ev_completed("mailbox-prefix-response"),
-        ]))
-        .set_delay(Duration::from_millis(200)),
-    )
-    .await;
-
-    test.codex
-        .submit(Op::UserInput {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "exercise complete-response ownership".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-        })
-        .await?;
-
-    timeout(Duration::from_secs(2), async {
-        while response.requests().is_empty() {
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await?;
-    test.codex
-        .submit(Op::InterAgentCommunication {
-            communication: InterAgentCommunication::new(
-                AgentPath::try_from("/root/worker").expect("worker path"),
-                AgentPath::root(),
-                Vec::new(),
-                "mail arrived after provider request started".into(),
-                /*trigger_turn*/ true,
-            ),
-        })
-        .await?;
-
-    let rollout_path = test
-        .session_configured
-        .rollout_path
-        .clone()
-        .expect("rollout path");
-    timeout(Duration::from_secs(3), async {
-        loop {
-            test.codex.flush_rollout().await.expect("flush rollout");
-            if std::fs::read_to_string(&rollout_path)
-                .unwrap_or_default()
-                .contains("ToolSequencePreflightResultV3")
-            {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await?;
-
-    assert!(
-        !test.workspace_path("mailbox-prefix.txt").exists(),
-        "a provider-response prefix executed before response.completed preflight"
-    );
-    test.codex.submit(Op::Interrupt).await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn malformed_suffix_rejects_the_complete_provider_tool_response() -> anyhow::Result<()> {
-    let server = start_mock_server().await;
-    let test = test_codex().build(&server).await?;
-    mount_response_once(
-        &server,
-        sse_response(sse(vec![
-            ev_response_created("build-failure-response"),
-            ev_function_call(
-                "prefix-side-effect",
-                "exec_command",
-                r#"{"cmd":"printf executed > build-failure-prefix.txt"}"#,
-            ),
-            ev_function_call("malformed-suffix", "exec_command", "{"),
-            ev_completed("build-failure-response"),
-        ])),
-    )
-    .await;
-
-    test.codex
-        .submit(Op::UserInput {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "exercise response-level build failure preflight".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-        })
-        .await?;
-
-    let rollout_path = test
-        .session_configured
-        .rollout_path
-        .clone()
-        .expect("rollout path");
-    timeout(Duration::from_secs(3), async {
-        loop {
-            test.codex.flush_rollout().await.expect("flush rollout");
-            if std::fs::read_to_string(&rollout_path)
-                .unwrap_or_default()
-                .contains("ProviderToolResponsePreflightV2")
-            {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await?;
-
-    assert!(
-        !test.workspace_path("build-failure-prefix.txt").exists(),
-        "a valid prefix executed despite a malformed suffix in the same provider response"
-    );
-    let rollout = std::fs::read_to_string(rollout_path)?;
-    assert!(rollout.contains("provider_tool_declaration_invalid"));
-    assert!(rollout.contains("failed to parse exec_command arguments"));
-    test.codex.submit(Op::Interrupt).await?;
-    Ok(())
-}
-
-async fn assert_missing_client_tool_search_call_id_zero_dispatch(
-    provider_item_id: Option<&str>,
-) -> anyhow::Result<()> {
-    let server = start_mock_server().await;
-    let test = test_codex()
-        .with_config(|config| {
-            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
-        })
-        .build(&server)
-        .await?;
-    let side_effect_file = provider_item_id
-        .map(|id| format!("missing-tool-search-call-id-{id}.txt"))
-        .unwrap_or_else(|| "missing-tool-search-call-id-none.txt".to_string());
-    let mut missing_call_id_item = json!({
-        "type": "tool_search_call",
-        "status": "completed",
-        "execution": "client",
-        "arguments": {
-            "query": "must fail before dispatch"
-        }
-    });
-    if let Some(provider_item_id) = provider_item_id {
-        missing_call_id_item["id"] = json!(provider_item_id);
-    }
-    mount_sse_sequence(
-        &server,
-        vec![
-            sse(vec![
-                ev_response_created("initialize-before-missing-search-id"),
-                ev_function_call(
-                    "initialize-control",
-                    "taskspace_control",
-                    &json!({
-                        "action": "initialize_and_execute",
-                        "root": {"node_id": "root", "goal": "Exercise response preflight"},
-                        "work_nodes": [{"node_id": "work", "goal": "Run the work"}],
-                        "finish": {"node_id": "finish", "goal": "Close the task"},
-                        "edges": [
-                            {"from": "root", "to": "work"},
-                            {"from": "work", "to": "finish"}
-                        ],
-                        "actions": [{"node_id": "work", "tool": "exec_command"}]
-                    })
-                    .to_string(),
-                ),
-                ev_function_call(
-                    "initialize-action",
-                    "exec_command",
-                    &json!({"cmd": "pwd"}).to_string(),
-                ),
-                ev_completed("initialize-before-missing-search-id"),
-            ]),
-            sse(vec![
-                ev_response_created("missing-search-id-response"),
-                ev_function_call(
-                    "execute-control",
-                    "taskspace_control",
-                    &json!({
-                        "action": "execute",
-                        "expected_revision": 2,
-                        "mutations": [],
-                        "actions": [
-                            {"node_id": "work", "tool": "exec_command"},
-                            {"node_id": "work", "tool": "tool_search"}
-                        ]
-                    })
-                    .to_string(),
-                ),
-                ev_function_call(
-                    "side-effect-prefix",
-                    "exec_command",
-                    &json!({"cmd": format!("printf executed > {side_effect_file}")}).to_string(),
-                ),
-                json!({
-                    "type": "response.output_item.done",
-                    "item": missing_call_id_item,
-                }),
-                ev_completed("missing-search-id-response"),
-            ]),
-        ],
-    )
-    .await;
-    test.codex
-        .submit(Op::SetMapRuntimeMode {
-            mode: MapRuntimeMode::Experiment,
-        })
-        .await?;
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
-    })
-    .await;
-    test.codex
-        .submit(Op::UserInput {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "exercise missing client ToolSearch call id".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-        })
-        .await?;
-
-    let rollout_path = test
-        .session_configured
-        .rollout_path
-        .clone()
-        .expect("rollout path");
-    timeout(Duration::from_secs(3), async {
-        loop {
-            test.codex.flush_rollout().await.expect("flush rollout");
-            let rollout = std::fs::read_to_string(&rollout_path).unwrap_or_default();
-            if rollout.contains("client tool_search call is missing call_id") {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await?;
-
-    assert!(
-        !test.workspace_path(&side_effect_file).exists(),
-        "a valid prefix executed despite a client ToolSearch call missing call_id"
-    );
-    let rollout = std::fs::read_to_string(rollout_path)?;
-    assert!(rollout.contains("provider_tool_declaration_invalid"));
-    assert!(rollout.contains("build_failed_unpaired"));
-    assert!(rollout.contains("tool_search"));
-    if let Some(provider_item_id) = provider_item_id {
-        assert!(rollout.contains(provider_item_id));
-    }
-    test.codex.submit(Op::Interrupt).await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn missing_client_tool_search_call_id_rejects_the_complete_response() -> anyhow::Result<()> {
-    assert_missing_client_tool_search_call_id_zero_dispatch(Some("provider-search-id")).await?;
-    assert_missing_client_tool_search_call_id_zero_dispatch(None).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn taskspace_rejects_hidden_image_added_event_before_artifact_write() -> anyhow::Result<()> {
-    let server = start_mock_server().await;
-    let test = test_codex()
-        .with_config(|config| {
-            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
-        })
-        .build(&server)
-        .await?;
-    let image_id = "hidden-added-image";
-    mount_response_once(
-        &server,
-        sse_response(sse(vec![
-            ev_response_created("hidden-added-response"),
-            json!({
-                "type": "response.output_item.added",
-                "item": {
-                    "type": "image_generation_call",
-                    "id": image_id,
-                    "status": "completed",
-                    "revised_prompt": "must not be persisted",
-                    "result": "aGlkZGVuLWFkZGVkLWJ5dGVz",
-                }
-            }),
-            ev_completed("hidden-added-response"),
-        ])),
-    )
-    .await;
-    test.codex
-        .submit(Op::SetMapRuntimeMode {
-            mode: MapRuntimeMode::Experiment,
-        })
-        .await?;
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
-    })
-    .await;
-
-    test.codex
-        .submit(Op::UserInput {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "exercise hidden native added event".into(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-        })
-        .await?;
-
-    let rollout_path = test
-        .session_configured
-        .rollout_path
-        .clone()
-        .expect("rollout path");
-    timeout(Duration::from_secs(3), async {
-        loop {
-            test.codex.flush_rollout().await.expect("flush rollout");
-            if std::fs::read_to_string(&rollout_path)
-                .unwrap_or_default()
-                .contains("ProviderToolResponsePreflightV2")
-            {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await?;
-
-    let image_path = crate::stream_events_utils::image_generation_artifact_path(
-        &test.config.codex_home,
-        &test.session_configured.session_id.to_string(),
-        image_id,
-    );
-    assert!(
-        !image_path.exists(),
-        "TaskSpace hidden image added event wrote an artifact"
-    );
-    test.codex.submit(Op::Interrupt).await?;
-    Ok(())
 }
 
 #[tokio::test]

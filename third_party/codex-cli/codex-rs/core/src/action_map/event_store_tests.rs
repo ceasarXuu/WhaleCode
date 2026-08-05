@@ -209,7 +209,7 @@ fn store_preserves_order_and_call_pair_owner() {
     let mut store = TaskSpaceEventStore::new();
     let call = ResponseItem::FunctionCall {
         id: None,
-        name: "taskspace_control".into(),
+        name: "example_tool".into(),
         namespace: None,
         arguments: "{}".into(),
         call_id: "control-call".into(),
@@ -303,7 +303,7 @@ fn initialization_sources_reference_user_and_control_events() {
     };
     let call = ResponseItem::FunctionCall {
         id: None,
-        name: "taskspace_control".into(),
+        name: "example_tool".into(),
         namespace: None,
         arguments: r#"{"action":"initialize_and_execute"}"#.into(),
         call_id: "control-call".into(),
@@ -504,7 +504,7 @@ fn restore_rejects_checkpoint_when_covered_raw_event_changed() {
 fn terminal_control_call(exact_summary: &str, call_id: &str) -> ResponseItem {
     ResponseItem::FunctionCall {
         id: None,
-        name: "taskspace_control".into(),
+        name: "example_tool".into(),
         namespace: None,
         arguments: serde_json::json!({
             "action": "finish_map",
@@ -518,7 +518,7 @@ fn terminal_control_call(exact_summary: &str, call_id: &str) -> ResponseItem {
     }
 }
 
-fn taskspace_control_output(call_id: &str, status: &str) -> ResponseItem {
+fn example_tool_output(call_id: &str, status: &str) -> ResponseItem {
     ResponseItem::FunctionCallOutput {
         call_id: call_id.into(),
         output: FunctionCallOutputPayload::from_text(
@@ -541,7 +541,7 @@ fn assistant_final_answer(text: &str) -> ResponseItem {
 fn terminal_success_keeps_control_feedback_visible() {
     let mut store = TaskSpaceEventStore::new();
     let call = terminal_control_call("done", "terminal-control");
-    let output = taskspace_control_output("terminal-control", "committed");
+    let output = example_tool_output("terminal-control", "committed");
     let final_answer = assistant_final_answer("done");
     store.record_item(&call, None, None, 1).unwrap();
     store.record_item(&output, None, None, 2).unwrap();
@@ -564,7 +564,7 @@ fn terminal_control_pair_stays_visible_without_matching_successful_final() {
     ] {
         let mut store = TaskSpaceEventStore::new();
         let call = terminal_control_call("done", "terminal-control");
-        let output = taskspace_control_output("terminal-control", output_status);
+        let output = example_tool_output("terminal-control", output_status);
         store.record_item(&call, None, None, 1).unwrap();
         store.record_item(&output, None, None, 2).unwrap();
         if let Some(text) = final_text {

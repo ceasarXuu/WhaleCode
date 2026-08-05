@@ -27,7 +27,7 @@ fn json_schema_fixtures_match_generated() -> Result<()> {
 }
 
 #[test]
-fn action_map_result_schema_is_mechanical_and_reservation_linked() -> Result<()> {
+fn action_map_result_schema_is_mechanical_and_action_linked() -> Result<()> {
     let schema_root = schema_root()?;
     let typescript_tree = read_tree(&schema_root, "typescript")?;
     let result_ts = fixture_utf8(
@@ -36,8 +36,9 @@ fn action_map_result_schema_is_mechanical_and_reservation_linked() -> Result<()>
         "typescript",
     )?;
     assert!(result_ts.contains("actionId: string"));
-    assert!(result_ts.contains("reservationId: string"));
+    assert!(result_ts.contains("nodeId: string"));
     assert!(result_ts.contains("isError: boolean"));
+    assert!(!result_ts.contains("reservationId"));
     assert!(!result_ts.contains("evidencePackage"));
     assert!(!result_ts.contains("assignmentId"));
 
@@ -45,7 +46,7 @@ fn action_map_result_schema_is_mechanical_and_reservation_linked() -> Result<()>
         let result = schema(&value, "ActionMapSnapshotResult")
             .with_context(|| format!("locate ActionMapSnapshotResult in {bundle_path}"))?;
         let properties = properties(result, "ActionMapSnapshotResult")?;
-        for field in ["actionId", "reservationId", "nodeId", "isError"] {
+        for field in ["actionId", "nodeId", "isError"] {
             anyhow::ensure!(
                 properties.contains_key(field),
                 "{bundle_path} must expose result {field}"
@@ -54,7 +55,8 @@ fn action_map_result_schema_is_mechanical_and_reservation_linked() -> Result<()>
         anyhow::ensure!(
             !properties.contains_key("evidencePackage")
                 && !properties.contains_key("assignmentId")
-                && !properties.contains_key("sourceEventRef"),
+                && !properties.contains_key("sourceEventRef")
+                && !properties.contains_key("reservationId"),
             "{bundle_path} must not expose retired result ownership or semantic evidence"
         );
         assert_eq!(
@@ -96,7 +98,7 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
         "complete: boolean",
         "nodes: Array<ActionMapSnapshotNode>",
         "edges: Array<ActionMapSnapshotEdge>",
-        "reservations: Array<ActionMapSnapshotReservation>",
+        "actions: Array<ActionMapSnapshotAction>",
         "terminalHistorySummaryRefs: Array<string>",
     ] {
         assert!(map_ts.contains(field), "map fixture must expose {field}");
@@ -134,7 +136,7 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
             "complete",
             "nodes",
             "edges",
-            "reservations",
+            "actions",
             "terminalHistorySummaryRefs",
             "nodeEvents",
         ] {

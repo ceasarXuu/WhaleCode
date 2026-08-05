@@ -3,7 +3,7 @@ use super::events::MapFact;
 use super::events::ReplayError;
 use super::events::apply_batch;
 use super::events::replay_batches;
-use super::model::ActionReservation;
+use super::model::ActionRecord;
 use super::model::CompletionRecord;
 use super::model::EvidenceRef;
 use super::model::MapEdge;
@@ -12,6 +12,8 @@ use super::model::TerminalRecord;
 use super::model::is_complete;
 use super::model::map_node;
 use super::model::state_sha256;
+use super::transactions::ActionInput;
+use super::transactions::AttachActionFacts;
 use super::transactions::EvidenceRefInput;
 use super::transactions::ExecuteTransaction;
 use super::transactions::FinalCompletion;
@@ -20,13 +22,11 @@ use super::transactions::GraphMutation;
 use super::transactions::InitializeMap;
 use super::transactions::NodeMutation;
 use super::transactions::ReopenMap;
-use super::transactions::ReservationInput;
-use super::transactions::ReservationRelease;
 use super::transactions::ResultRefInput;
+use super::transactions::attach_action_facts;
 use super::transactions::execute;
 use super::transactions::finish_map;
 use super::transactions::initialize;
-use super::transactions::release_reservation;
 use super::transactions::reopen_map;
 use super::transitions::derive_node_state;
 use pretty_assertions::assert_eq;
@@ -38,14 +38,11 @@ fn edge(from: &str, to: &str) -> MapEdge {
     }
 }
 
-fn reservation(id: &str, node_id: &str) -> ReservationInput {
-    ReservationInput {
-        reservation_id: format!("reservation-{id}"),
-        reservation: ActionReservation {
+fn action(id: &str, node_id: &str) -> ActionInput {
+    ActionInput {
+        action: ActionRecord {
             action_id: format!("action-{id}"),
             node_id: node_id.into(),
-            tool_name: "exec_command".into(),
-            response_call_index: 0,
         },
     }
 }
@@ -66,7 +63,7 @@ fn initialize_chain() -> super::transactions::Commit {
             edge("implement", "verify"),
             edge("verify", "finish"),
         ],
-        reservations: vec![reservation("inspect", "inspect")],
+        actions: vec![action("inspect", "inspect")],
     })
     .unwrap()
 }
@@ -85,11 +82,11 @@ fn factual_journal_round_trips_to_identical_terminal_map() {
     let mut map = initialized.map;
     let mut journal = vec![initialized.events];
 
-    let released = release_reservation(
+    let released = attach_action_facts(
         &map,
-        ReservationRelease {
+        AttachActionFacts {
             expected_revision: map.revision,
-            reservation_id: "reservation-inspect".into(),
+            action_id: "action-inspect".into(),
             result_refs: vec![ResultRefInput {
                 result_ref_id: "result-inspect".into(),
                 is_error: false,
@@ -103,7 +100,10 @@ fn factual_journal_round_trips_to_identical_terminal_map() {
     .unwrap();
     map = released.map;
     journal.push(released.events);
-    assert_eq!(derive_node_state(&map, "inspect"), Some(NodeState::Ready));
+    assert_eq!(
+        derive_node_state(&map, "inspect"),
+        Some(NodeState::InFlight)
+    );
 
     let advanced = execute(
         &map,
@@ -118,18 +118,18 @@ fn factual_journal_round_trips_to_identical_terminal_map() {
                     &["evidence-inspect"],
                 ),
             }],
-            reservations: vec![reservation("implement", "implement")],
+            actions: vec![action("implement", "implement")],
         },
     )
     .unwrap();
     map = advanced.map;
     journal.push(advanced.events);
 
-    let released = release_reservation(
+    let released = attach_action_facts(
         &map,
-        ReservationRelease {
+        AttachActionFacts {
             expected_revision: map.revision,
-            reservation_id: "reservation-implement".into(),
+            action_id: "action-implement".into(),
             result_refs: vec![ResultRefInput {
                 result_ref_id: "result-implement".into(),
                 is_error: false,
@@ -150,18 +150,18 @@ fn factual_journal_round_trips_to_identical_terminal_map() {
                 node_id: "implement".into(),
                 record: completion("complete-implement", &["result-implement"], &[]),
             }],
-            reservations: vec![reservation("verify", "verify")],
+            actions: vec![action("verify", "verify")],
         },
     )
     .unwrap();
     map = advanced.map;
     journal.push(advanced.events);
 
-    let released = release_reservation(
+    let released = attach_action_facts(
         &map,
-        ReservationRelease {
+        AttachActionFacts {
             expected_revision: map.revision,
-            reservation_id: "reservation-verify".into(),
+            action_id: "action-verify".into(),
             result_refs: vec![ResultRefInput {
                 result_ref_id: "result-verify".into(),
                 is_error: false,
@@ -216,7 +216,7 @@ fn event_wire_contains_facts_but_no_derived_lifecycle() {
     let wire = serde_json::to_string(&initialized.events).unwrap();
 
     assert!(wire.contains("map_initialized"));
-    assert!(wire.contains("action_reserved"));
+    assert!(wire.contains("action_recorded"));
     for forbidden in [
         "\"status\"",
         "\"ready\"",
@@ -230,7 +230,7 @@ fn event_wire_contains_facts_but_no_derived_lifecycle() {
 }
 
 #[test]
-fn replay_rejects_result_attribution_without_its_reservation() {
+fn replay_rejects_result_attribution_without_its_action() {
     let initialized = initialize_chain();
     let invalid = EventBatch {
         map_id: initialized.map.map_id.clone(),
@@ -240,7 +240,6 @@ fn replay_rejects_result_attribution_without_its_reservation() {
             evidence: EvidenceRef {
                 node_id: "inspect".into(),
                 action_id: "action-other".into(),
-                reservation_id: "reservation-other".into(),
                 kind: "test".into(),
             },
         }],
@@ -249,7 +248,7 @@ fn replay_rejects_result_attribution_without_its_reservation() {
     assert!(matches!(
         apply_batch(Some(&initialized.map), &invalid),
         Err(ReplayError::InvalidFact(violation))
-            if violation.code == super::invariants::ViolationCode::ReservationInvalid
+            if violation.code == super::invariants::ViolationCode::ActionRecordInvalid
     ));
 }
 
@@ -259,8 +258,11 @@ fn replay_rejects_revision_gap_and_empty_batches() {
     let revision_gap = EventBatch {
         map_id: initialized.map.map_id.clone(),
         revision: initialized.map.revision + 2,
-        facts: vec![MapFact::ActionReleased {
-            reservation_id: "reservation-inspect".into(),
+        facts: vec![MapFact::ActionRecorded {
+            action: ActionRecord {
+                action_id: "action-late".into(),
+                node_id: "inspect".into(),
+            },
         }],
     };
     let empty = EventBatch {
@@ -298,9 +300,89 @@ fn explicit_finish_rejects_before_the_final_frontier_is_complete() {
 
     assert_eq!(
         rejection.violations[0].code,
-        super::invariants::ViolationCode::UnfinishedRequiredWork
+        super::invariants::ViolationCode::FinishNotReady
     );
     assert!(!is_complete(&initialized.map));
+}
+
+#[test]
+fn action_result_attachment_does_not_drive_node_lifecycle() {
+    let initialized = initialize(InitializeMap {
+        map_id: "action-facts-map".into(),
+        root: map_node("root", "deliver", vec!["source".into()]),
+        work_nodes: vec![map_node("work", "do work", vec![])],
+        finish: map_node("finish", "close task", vec![]),
+        edges: vec![edge("root", "work"), edge("work", "finish")],
+        actions: vec![action("work", "work")],
+    })
+    .unwrap();
+
+    let attached = attach_action_facts(
+        &initialized.map,
+        AttachActionFacts {
+            expected_revision: initialized.map.revision,
+            action_id: "action-work".into(),
+            result_refs: vec![ResultRefInput {
+                result_ref_id: "result-work".into(),
+                is_error: false,
+            }],
+            evidence_refs: vec![],
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        derive_node_state(&attached.map, "work"),
+        Some(NodeState::InFlight)
+    );
+}
+
+#[test]
+fn agent_can_complete_and_finish_while_an_action_has_no_result() {
+    let initialized = initialize(InitializeMap {
+        map_id: "agent-owned-lifecycle-map".into(),
+        root: map_node("root", "deliver", vec!["source".into()]),
+        work_nodes: vec![map_node("work", "do work", vec![])],
+        finish: map_node("finish", "close task", vec![]),
+        edges: vec![edge("root", "work"), edge("work", "finish")],
+        actions: vec![action("work", "work")],
+    })
+    .unwrap();
+
+    let completed = execute(
+        &initialized.map,
+        ExecuteTransaction {
+            expected_revision: initialized.map.revision,
+            graph: GraphMutation::default(),
+            node_mutations: vec![NodeMutation::Complete {
+                node_id: "work".into(),
+                record: completion("complete-work", &[], &[]),
+            }],
+            actions: vec![],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        derive_node_state(&completed.map, "work"),
+        Some(NodeState::Completed)
+    );
+
+    let terminal = finish_map(
+        &completed.map,
+        FinishMap {
+            expected_revision: completed.map.revision,
+            finish_node_id: "finish".into(),
+            final_completions: vec![],
+            terminal: TerminalRecord {
+                action_id: "finish-action".into(),
+                summary_ref: "summary-ref".into(),
+            },
+        },
+    )
+    .unwrap();
+
+    assert!(is_complete(&terminal.map));
+    assert!(!terminal.map.result_refs.contains_key("result-work"));
 }
 
 #[test]
@@ -311,14 +393,14 @@ fn close_reopen_and_close_again_preserves_terminal_and_work_history() {
         work_nodes: vec![map_node("initial", "initial work", vec![])],
         finish: map_node("finish", "close task", vec![]),
         edges: vec![edge("root", "initial"), edge("initial", "finish")],
-        reservations: vec![reservation("initial", "initial")],
+        actions: vec![action("initial", "initial")],
     })
     .unwrap();
-    let released = release_reservation(
+    let released = attach_action_facts(
         &initialized.map,
-        ReservationRelease {
+        AttachActionFacts {
             expected_revision: initialized.map.revision,
-            reservation_id: "reservation-initial".into(),
+            action_id: "action-initial".into(),
             result_refs: vec![ResultRefInput {
                 result_ref_id: "result-initial".into(),
                 is_error: false,
@@ -351,7 +433,7 @@ fn close_reopen_and_close_again_preserves_terminal_and_work_history() {
             expected_revision: closed.map.revision,
             add_work_nodes: vec![map_node("follow-up", "address feedback", vec![])],
             add_edges: vec![edge("root", "follow-up"), edge("follow-up", "finish")],
-            reservations: vec![reservation("follow-up", "follow-up")],
+            actions: vec![action("follow-up", "follow-up")],
         },
     )
     .unwrap();
@@ -369,11 +451,11 @@ fn close_reopen_and_close_again_preserves_terminal_and_work_history() {
         Some(NodeState::Waiting)
     );
 
-    let released_follow_up = release_reservation(
+    let released_follow_up = attach_action_facts(
         &reopened.map,
-        ReservationRelease {
+        AttachActionFacts {
             expected_revision: reopened.map.revision,
-            reservation_id: "reservation-follow-up".into(),
+            action_id: "action-follow-up".into(),
             result_refs: vec![ResultRefInput {
                 result_ref_id: "result-follow-up".into(),
                 is_error: false,
@@ -424,7 +506,7 @@ fn reopen_rejects_an_active_map_without_mutating_it() {
             expected_revision: initialized.map.revision,
             add_work_nodes: vec![map_node("follow-up", "address feedback", vec![])],
             add_edges: vec![edge("root", "follow-up"), edge("follow-up", "finish")],
-            reservations: vec![reservation("follow-up", "follow-up")],
+            actions: vec![action("follow-up", "follow-up")],
         },
     )
     .unwrap_err();

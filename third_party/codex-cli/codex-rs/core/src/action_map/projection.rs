@@ -210,11 +210,6 @@ pub(super) fn render_empty_projection(map_id: &str, envelope: ProjectionEnvelope
     }
     push_field(&mut body, "map", "none");
     push_field(&mut body, "bootstrap_required", "true");
-    push_field(
-        &mut body,
-        "required_initialization_action",
-        "taskspace_control.initialize_and_execute",
-    );
     append_list(&mut body, "active_frontier", &[]);
     append_list(&mut body, "map_nodes", &[]);
     append_list(&mut body, "map_edges", &[]);

@@ -4,7 +4,7 @@ use codex_protocol::models::FunctionCallOutputPayload;
 fn bootstrap_call(call_id: &str) -> ResponseItem {
     ResponseItem::FunctionCall {
         id: None,
-        name: "taskspace_control".into(),
+        name: "example_tool".into(),
         namespace: None,
         arguments: serde_json::json!({
             "action": "initialize_map",
@@ -24,7 +24,7 @@ fn committed_control_output(call_id: &str) -> ResponseItem {
         call_id: call_id.into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV2",
+                "schema_version": "example-result-v1",
                 "action": "initialize_map",
                 "status": "committed",
                 "success": true,
@@ -80,7 +80,7 @@ fn nested_call_and_output_are_independent_events_linked_to_outer_control() {
         .record_item(
             &ResponseItem::FunctionCall {
                 id: None,
-                name: "taskspace_control".into(),
+                name: "example_tool".into(),
                 namespace: None,
                 arguments: r#"{"action":"initialize_map"}"#.into(),
                 call_id: outer_id.into(),

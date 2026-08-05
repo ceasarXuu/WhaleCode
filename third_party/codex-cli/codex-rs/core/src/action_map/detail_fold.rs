@@ -115,7 +115,7 @@ mod tests {
     use super::*;
     use crate::action_map::map::MapNode;
     use crate::action_map::map::NodeEvent;
-    use crate::action_map::rooted_dag::ActionReservation;
+    use crate::action_map::rooted_dag::ActionRecord;
     use crate::action_map::rooted_dag::CompletionRecord;
     use crate::action_map::rooted_dag::MapEdge;
     use crate::action_map::rooted_dag::TaskSpaceMap;
@@ -162,7 +162,7 @@ mod tests {
             edges,
             completion_records: BTreeMap::new(),
             block_records: BTreeMap::new(),
-            action_reservations: BTreeMap::new(),
+            action_records: BTreeMap::new(),
             result_refs: BTreeMap::new(),
             evidence_refs: BTreeMap::new(),
             terminal_record: None,
@@ -209,13 +209,11 @@ mod tests {
         let mut map = chain(3);
         complete(&mut map, "node-1");
         complete(&mut map, "node-2");
-        map.action_reservations.insert(
-            "reservation-3".into(),
-            ActionReservation {
+        map.action_records.insert(
+            "action-3".into(),
+            ActionRecord {
                 action_id: "action-3".into(),
                 node_id: "node-3".into(),
-                tool_name: "exec_command".into(),
-                response_call_index: 1,
             },
         );
         let map = ActionMapInstance::from_graph(map, vec![], None);
@@ -259,7 +257,7 @@ mod tests {
                 map_id: map.map_id.clone(),
                 node_id: "node-1".into(),
                 event_kind: NODE_DETAIL_EXPANDED_EVENT_KIND.into(),
-                source: "agent_taskspace_control".into(),
+                source: "agent_map_operation".into(),
                 action_class: None,
                 tool_success: None,
                 content_sha256: "hash".into(),

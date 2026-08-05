@@ -261,7 +261,7 @@ fn named_tool_choice_preserves_requested_chat_reasoning() {
     );
     let session = client.new_session();
     let prompt = Prompt {
-        tool_choice: ToolChoice::function("taskspace_control"),
+        tool_choice: ToolChoice::function("exec_command"),
         ..Prompt::default()
     };
 
@@ -280,10 +280,7 @@ fn named_tool_choice_preserves_requested_chat_reasoning() {
         request.reasoning.and_then(|reasoning| reasoning.effort),
         Some(ReasoningEffort::Max)
     );
-    assert_eq!(
-        request.tool_choice,
-        ToolChoice::function("taskspace_control")
-    );
+    assert_eq!(request.tool_choice, ToolChoice::function("exec_command"));
 }
 
 #[test]
@@ -493,7 +490,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
         "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
         "tools": [{
             "type": "function",
-            "function": { "name": "taskspace_control" }
+            "function": { "name": "exec_command" }
         }]
     }))
     .expect("payload digest");
@@ -615,7 +612,7 @@ fn provider_request_budget_confirms_projection_identity_on_final_payload() {
         "input": projection,
         "tools": [{
             "type": "function",
-            "function": { "name": "taskspace_control" }
+            "function": { "name": "exec_command" }
         }]
     }))
     .expect("payload digest");
@@ -641,10 +638,10 @@ fn provider_request_budget_confirms_projection_identity_on_final_payload() {
 #[test]
 fn provider_request_budget_accepts_map_request_without_automatic_projection() {
     let payload = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- available_read_action: taskspace_control.read_map\nTaskSpaceMapHandleR7V1 end.",
+        "input": "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\nTaskSpaceMapHandleR7V1 end.",
         "tools": [{
             "type": "function",
-            "function": { "name": "taskspace_control" }
+            "function": { "name": "exec_command" }
         }]
     }))
     .expect("map-request payload digest");
@@ -679,7 +676,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
         "tools": [{
             "type": "function",
-            "function": { "name": "taskspace_control" }
+            "function": { "name": "exec_command" }
         }]
     }))
     .expect("blank bootstrap payload digest");
@@ -688,27 +685,18 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(blank_bootstrap.scan.passed);
     assert!(blank_bootstrap.scan.replacement_confirmed);
 
-    let fresh_active_without_projection = provider_payload_digest(&json!({
-        "input": "canonical initialize/control history",
+    let payload_without_projection = provider_payload_digest(&json!({
+        "input": "ordinary history",
         "tools": [
-            { "type": "function", "function": { "name": "taskspace_control" } },
+            { "type": "function", "function": { "name": "exec_command" } },
             { "type": "function", "function": { "name": "shell_command" } }
         ]
     }))
-    .expect("fresh active payload digest");
-    assert!(fresh_active_without_projection.scan.projection_required);
-    assert_eq!(
-        fresh_active_without_projection.scan.active_projection_count,
-        0
-    );
-    assert!(!fresh_active_without_projection.scan.passed);
-    assert!(!fresh_active_without_projection.scan.replacement_confirmed);
-    assert!(
-        fresh_active_without_projection
-            .scan
-            .failure_reasons
-            .contains(&"current_projection_missing".to_string())
-    );
+    .expect("ordinary payload digest");
+    assert!(!payload_without_projection.scan.projection_required);
+    assert_eq!(payload_without_projection.scan.active_projection_count, 0);
+    assert!(payload_without_projection.scan.passed);
+    assert!(payload_without_projection.scan.replacement_confirmed);
 
     let active_projection = concat!(
         "TaskSpaceMapProjectionR7V1:\n",
@@ -739,7 +727,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         "TaskSpaceMapProjectionR7V1 end.\n",
     );
     let active_tools = json!([
-        { "type": "function", "function": { "name": "taskspace_control" } },
+        { "type": "function", "function": { "name": "exec_command" } },
         { "type": "function", "function": { "name": "shell_command" } }
     ]);
     let active = provider_payload_digest(&json!({

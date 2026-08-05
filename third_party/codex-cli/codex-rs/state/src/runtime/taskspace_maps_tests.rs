@@ -50,7 +50,7 @@ fn initialized_map(map_id: &str, revision: u64) -> Option<TaskSpaceCanonicalMap>
         ],
         completion_records: BTreeMap::new(),
         block_records: BTreeMap::new(),
-        action_reservations: BTreeMap::new(),
+        action_records: BTreeMap::new(),
         result_refs: BTreeMap::new(),
         evidence_refs: BTreeMap::new(),
         terminal_record: None,

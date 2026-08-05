@@ -55,7 +55,7 @@ fn canonical_map(map_id: &str) -> TaskSpaceCanonicalMap {
         ],
         completion_records: BTreeMap::new(),
         block_records: BTreeMap::new(),
-        action_reservations: BTreeMap::new(),
+        action_records: BTreeMap::new(),
         result_refs: BTreeMap::new(),
         evidence_refs: BTreeMap::new(),
         terminal_record: None,

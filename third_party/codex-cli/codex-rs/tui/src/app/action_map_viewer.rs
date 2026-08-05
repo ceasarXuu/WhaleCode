@@ -318,7 +318,6 @@ function renderResultDetail(r){
   const box=el('div');
   box.appendChild(table(['field','value'],[
     ['action',r.actionId],
-    ['reservation',r.reservationId],
     ['error',String(r.isError)],
   ]));
   return box;
@@ -348,14 +347,14 @@ function render(data){
     next.appendChild(renderGraph(m));
     next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','role','state','goal','source refs','results','evidence','events'],m.nodes.map(n=>[n.id,n.role,n.state,n.goal,list(n.sourceRefs),list(n.resultIds),list(n.evidenceRefIds),list(n.nodeEventIds)]))));
     if(m.edges.length){next.appendChild(detail('edges:'+m.id,'edges',table(['from','to'],m.edges.map(e=>[e.from,e.to]))))}
-    if(m.reservations.length){next.appendChild(detail('reservations:'+m.id,'reservations',table(['id','action','node','tool','call index'],m.reservations.map(r=>[r.id,r.actionId,r.nodeId,r.toolName,String(r.responseCallIndex)])))}
+    if(m.actions.length){next.appendChild(detail('actions:'+m.id,'actions',table(['action','node'],m.actions.map(a=>[a.actionId,a.nodeId])))}
     if(m.results.length){
       next.appendChild(el('h3','results'));
       m.results.forEach(r=>{
         next.appendChild(detail('result:'+r.id,`${r.id} | node ${r.nodeId} | action ${r.actionId}`,renderResultDetail(r)));
       });
     }
-    if(m.evidenceRefs.length){next.appendChild(detail('evidence:'+m.id,'evidence',table(['id','node','action','reservation','kind'],m.evidenceRefs.map(e=>[e.id,e.nodeId,e.actionId,e.reservationId,e.kind])))}
+    if(m.evidenceRefs.length){next.appendChild(detail('evidence:'+m.id,'evidence',table(['id','node','action','kind'],m.evidenceRefs.map(e=>[e.id,e.nodeId,e.actionId,e.kind])))}
     if(m.nodeEvents.length){next.appendChild(detail('events:'+m.id,'node events',table(['id','node','kind','source','action','success','source event','raw ref','artifacts'],m.nodeEvents.map(e=>[e.id,e.nodeId,e.eventKind,e.source,e.actionClass||'',e.toolSuccess===null?'':String(e.toolSuccess),e.sourceEventId||'',e.rawRef||'',list(e.artifactRefs)]))))}
   }
   root.replaceChildren(next);
@@ -413,7 +412,7 @@ mod tests {
         assert!(ACTION_MAP_VIEWER_HTML.contains("n.role"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("n.goal"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("m.nodeEvents"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("m.reservations"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("m.actions"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("m.evidenceRefs"));
         assert!(!ACTION_MAP_VIEWER_HTML.contains("m.currentNodeId"));
         assert!(!ACTION_MAP_VIEWER_HTML.contains("m.leases"));

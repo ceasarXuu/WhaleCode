@@ -20,19 +20,19 @@ fn every_message_is_classified_exactly_once() {
             {"role": "observer", "content": "other non-tool"},
             {
                 "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceControlResultV2\",\"ok\":true}"
+                "content": "structured result"
             },
             {"role": "tool", "content": "ordinary result"}
         ]
     });
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
-    let message_counts = SectionKind::ALL[..5]
+    let message_counts = SectionKind::ALL[..4]
         .iter()
         .map(|kind| section(&cost, *kind).count)
         .collect::<Vec<_>>();
 
-    assert_eq!(message_counts, vec![1, 3, 1, 1, 1]);
+    assert_eq!(message_counts, vec![1, 3, 1, 2]);
     assert_eq!(message_counts.iter().sum::<usize>(), 7);
 }
 
@@ -51,44 +51,13 @@ fn standard_payload_has_zero_taskspace_section_cost() {
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
 
-    for kind in [
-        SectionKind::ActiveProjection,
-        SectionKind::TaskspaceControlFeedback,
-    ] {
-        assert_eq!(
-            (section(&cost, kind).count, section(&cost, kind).bytes),
-            (0, 0)
-        );
-    }
-}
-
-#[test]
-fn current_taskspace_feedback_family_and_final_control_result_share_one_section() {
-    let wire = json!({
-        "messages": [
-            {
-                "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceControlResultV2\",\"success\":true}"
-            },
-            {
-                "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceResponseCommitFailureV3\",\"success\":false}"
-            },
-            {
-                "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceResponseResultV2\",\"success\":true}"
-            }
-        ]
-    });
-
-    let cost = ProviderWireSectionCost::measure(&wire, "messages");
-
     assert_eq!(
-        section(&cost, SectionKind::TaskspaceControlFeedback).count,
-        3
+        (
+            section(&cost, SectionKind::ActiveProjection).count,
+            section(&cost, SectionKind::ActiveProjection).bytes,
+        ),
+        (0, 0)
     );
-    assert_eq!(section(&cost, SectionKind::SystemMessages).count, 0);
-    assert_eq!(section(&cost, SectionKind::OrdinaryToolFeedback).count, 0);
 }
 
 #[test]
@@ -108,20 +77,16 @@ fn tool_output_containing_projection_block_remains_ordinary_feedback() {
 }
 
 #[test]
-fn tool_output_containing_control_marker_remains_ordinary_feedback() {
+fn structured_tool_output_remains_ordinary_feedback() {
     let wire = json!({
         "messages": [{
             "role": "tool",
-                "content": "source text: {\"schema_version\":\"TaskSpaceControlResultV2\"}"
+                "content": "source text: {\"schema_version\":\"example-v1\"}"
         }]
     });
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
 
-    assert_eq!(
-        section(&cost, SectionKind::TaskspaceControlFeedback).count,
-        0
-    );
     assert_eq!(section(&cost, SectionKind::OrdinaryToolFeedback).count, 1);
 }
 
@@ -133,10 +98,10 @@ fn section_bytes_reconcile_with_provider_payload_bytes() {
         "messages": [
             {"role": "developer", "content": "stable"},
             {"role": "developer", "content": "TaskSpaceMapProjectionR7V1"},
-            {"role": "tool", "content": "TaskSpaceControlResultV2"}
+            {"role": "tool", "content": "structured result"}
         ],
-        "tools": [{"type": "function", "function": {"name": "taskspace_control"}}],
-        "tool_choice": {"type": "function", "function": {"name": "taskspace_control"}}
+        "tools": [{"type": "function", "function": {"name": "exec_command"}}],
+        "tool_choice": "auto"
     });
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
@@ -302,6 +267,6 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
         serde_json::from_str::<Value>(&serialized).expect("valid JSON")["sections"]
             .as_array()
             .map(Vec::len),
-        Some(8)
+        Some(7)
     );
 }

@@ -5,7 +5,7 @@ use sha2::Digest;
 use sha2::Sha256;
 use std::collections::BTreeSet;
 
-pub(crate) use codex_protocol::taskspace::TaskSpaceActionReservation as ActionReservation;
+pub(crate) use codex_protocol::taskspace::TaskSpaceActionRecord as ActionRecord;
 pub(crate) use codex_protocol::taskspace::TaskSpaceBlockRecord as BlockRecord;
 pub(crate) use codex_protocol::taskspace::TaskSpaceCompletionRecord as CompletionRecord;
 pub(crate) use codex_protocol::taskspace::TaskSpaceEvidenceRef as EvidenceRef;
@@ -15,7 +15,6 @@ pub(crate) use codex_protocol::taskspace::TaskSpaceMapNode as MapNode;
 pub(crate) use codex_protocol::taskspace::TaskSpaceNodeId as NodeId;
 pub(crate) use codex_protocol::taskspace::TaskSpaceNodeState as NodeState;
 pub(crate) use codex_protocol::taskspace::TaskSpaceNodeView as NodeView;
-pub(crate) use codex_protocol::taskspace::TaskSpaceReservationId as ReservationId;
 pub(crate) use codex_protocol::taskspace::TaskSpaceResultRef as ResultRef;
 pub(crate) use codex_protocol::taskspace::TaskSpaceRevision as Revision;
 pub(crate) use codex_protocol::taskspace::TaskSpaceTerminalRecord as TerminalRecord;
@@ -55,7 +54,7 @@ pub(crate) fn new_map(
         edges,
         completion_records: Default::default(),
         block_records: Default::default(),
-        action_reservations: Default::default(),
+        action_records: Default::default(),
         result_refs: Default::default(),
         evidence_refs: Default::default(),
         terminal_record: None,
@@ -122,9 +121,9 @@ pub(crate) fn started_node_ids(map: &TaskSpaceMap) -> BTreeSet<&str> {
     started.extend(map.completion_records.keys().map(String::as_str));
     started.extend(map.block_records.keys().map(String::as_str));
     started.extend(
-        map.action_reservations
+        map.action_records
             .values()
-            .map(|reservation| reservation.node_id.as_str()),
+            .map(|action| action.node_id.as_str()),
     );
     started.extend(
         map.result_refs

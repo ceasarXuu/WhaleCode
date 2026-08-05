@@ -19,9 +19,9 @@ pub(crate) fn derive_node_state(map: &TaskSpaceMap, node_id: &str) -> Option<Nod
         return Some(NodeState::Blocked);
     }
     if map
-        .action_reservations
+        .action_records
         .values()
-        .any(|reservation| reservation.node_id == node_id)
+        .any(|action| action.node_id == node_id)
     {
         return Some(NodeState::InFlight);
     }

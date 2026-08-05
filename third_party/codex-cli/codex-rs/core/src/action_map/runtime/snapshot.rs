@@ -1,10 +1,10 @@
 use codex_protocol::protocol::ActionMapSnapshot;
+use codex_protocol::protocol::ActionMapSnapshotAction;
 use codex_protocol::protocol::ActionMapSnapshotEdge;
 use codex_protocol::protocol::ActionMapSnapshotEvidenceRef;
 use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
 use codex_protocol::protocol::ActionMapSnapshotNodeEvent;
-use codex_protocol::protocol::ActionMapSnapshotReservation;
 use codex_protocol::protocol::ActionMapSnapshotResult;
 use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
 use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
@@ -18,7 +18,7 @@ use super::state::ActionMapRuntimeState;
 impl ActionMapRuntimeState {
     pub(crate) fn snapshot(&self) -> ActionMapSnapshot {
         ActionMapSnapshot {
-            schema_version: "taskspace-snapshot-v1".to_string(),
+            schema_version: "taskspace-snapshot-v2".to_string(),
             mode: self.mode,
             routing_required: false,
             bootstrap_required: self.active_map().is_none(),
@@ -82,15 +82,12 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
                 to: edge.to.clone(),
             })
             .collect(),
-        reservations: graph
-            .action_reservations
+        actions: graph
+            .action_records
             .iter()
-            .map(|(id, reservation)| ActionMapSnapshotReservation {
-                id: id.clone(),
-                action_id: reservation.action_id.clone(),
-                node_id: reservation.node_id.clone(),
-                tool_name: reservation.tool_name.clone(),
-                response_call_index: reservation.response_call_index,
+            .map(|(action_id, action)| ActionMapSnapshotAction {
+                action_id: action_id.clone(),
+                node_id: action.node_id.clone(),
             })
             .collect(),
         results: graph
@@ -100,7 +97,6 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
                 id: id.clone(),
                 node_id: result.node_id.clone(),
                 action_id: result.action_id.clone(),
-                reservation_id: result.reservation_id.clone(),
                 is_error: result.is_error,
             })
             .collect(),
@@ -111,7 +107,6 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
                 id: id.clone(),
                 node_id: evidence.node_id.clone(),
                 action_id: evidence.action_id.clone(),
-                reservation_id: evidence.reservation_id.clone(),
                 kind: evidence.kind.clone(),
             })
             .collect(),

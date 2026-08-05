@@ -256,7 +256,7 @@ pub(crate) async fn run_turn(
     let SkillInjections {
         items: skill_injections,
         warnings: skill_warnings,
-        failures: skill_failures,
+        failures: _,
     } = build_skill_injections(
         &mentioned_skills,
         skills_outcome,
@@ -269,81 +269,6 @@ pub(crate) async fn run_turn(
     for message in skill_warnings {
         sess.send_event(&turn_context, EventMsg::Warning(WarningEvent { message }))
             .await;
-    }
-
-    let mut taskspace_skill_failure_items = Vec::new();
-    for failure in &skill_failures {
-        if failure.name != crate::skills::TASKSPACE_ADVANCED_SKILL_NAME {
-            continue;
-        }
-        let Some(skill) = mentioned_skills
-            .iter()
-            .find(|skill| skill.path_to_skills_md.to_string_lossy() == failure.path)
-        else {
-            continue;
-        };
-        let Some(body_sha256) =
-            skills_outcome.and_then(|outcome| outcome.expected_body_sha256(skill))
-        else {
-            continue;
-        };
-        let fact = crate::taskspace_skill::explicit_load_failure_fact(
-            &failure.name,
-            &failure.path,
-            body_sha256,
-            &failure.message,
-        );
-        tracing::info!(
-            target: "codex_core::taskspace",
-            event_name = "taskspace.skill_load_completed",
-            load_trigger = "explicit_mention",
-            carrier = "host_skill_injection",
-            name = failure.name,
-            skill_version = crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
-            body_sha256,
-            immutable_snapshot_path = failure.path,
-            body_bytes = 0,
-            skill_load_status = fact.status,
-            reason_code = fact.reason_code,
-            "TaskSpace advanced skill load failed"
-        );
-        taskspace_skill_failure_items.push(ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText { text: fact.text }],
-            end_turn: None,
-            phase: None,
-        });
-    }
-    for injection in &skill_injections {
-        if injection.name != crate::skills::TASKSPACE_ADVANCED_SKILL_NAME {
-            continue;
-        }
-        let Some(skill) = mentioned_skills
-            .iter()
-            .find(|skill| skill.path_to_skills_md.to_string_lossy() == injection.path)
-        else {
-            continue;
-        };
-        let Some(body_sha256) =
-            skills_outcome.and_then(|outcome| outcome.expected_body_sha256(skill))
-        else {
-            continue;
-        };
-        tracing::info!(
-            target: "codex_core::taskspace",
-            event_name = "taskspace.skill_load_completed",
-            load_trigger = "explicit_mention",
-            carrier = "host_skill_injection",
-            name = injection.name,
-            skill_version = crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
-            body_sha256,
-            immutable_snapshot_path = injection.path,
-            body_bytes = injection.contents.len(),
-            skill_load_status = "loaded",
-            reason_code = "",
-            "TaskSpace advanced skill loaded"
-        );
     }
 
     let skill_items: Vec<ResponseItem> = skill_injections
@@ -429,10 +354,6 @@ pub(crate) async fn run_turn(
     }
     if !skill_items.is_empty() {
         sess.record_conversation_items(&turn_context, &skill_items)
-            .await;
-    }
-    if !taskspace_skill_failure_items.is_empty() {
-        sess.record_conversation_items(&turn_context, &taskspace_skill_failure_items)
             .await;
     }
     if !plugin_items.is_empty() {
@@ -1418,7 +1339,6 @@ mod active_context_replacement_tests {
         assert!(!should_preempt_response_for_mailbox(true, false, 0));
         assert!(!should_preempt_response_for_mailbox(false, true, 0));
     }
-
 }
 
 #[derive(Debug)]

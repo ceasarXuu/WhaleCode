@@ -375,7 +375,6 @@ use codex_protocol::protocol::SkillToolDependency as ProtocolSkillToolDependency
 use codex_protocol::protocol::StreamErrorEvent;
 use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
-use codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity;
 use codex_protocol::protocol::TokenCountEvent;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
@@ -513,12 +512,6 @@ impl Codex {
                 conversation_history.taskspace_projection_policy()
             }
         };
-        let taskspace_skill_snapshot = crate::taskspace_skill::resolve_session_snapshot(
-            taskspace_projection_policy,
-            &conversation_history,
-            &config.codex_home,
-        )
-        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
         let loaded_skills = skills_manager.skills_for_config(&skills_input, fs).await;
         for err in &loaded_skills.errors {
             error!(
@@ -655,7 +648,6 @@ impl Codex {
             model_reasoning_summary: config.model_reasoning_summary,
             service_tier,
             taskspace_projection_policy,
-            taskspace_skill_snapshot,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions,
             personality: config.personality,
@@ -2820,24 +2812,16 @@ impl Session {
             collaboration_mode,
             base_instructions,
             session_source,
-            map_runtime_mode,
-            taskspace_skill_snapshot,
         ) = {
             let state = self.state.lock().await;
-            let map_runtime_mode = state.action_map_runtime.mode();
             (
                 state.reference_context_item(),
                 state.previous_turn_settings(),
                 state.session_configuration.collaboration_mode.clone(),
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
-                map_runtime_mode,
-                state.session_configuration.taskspace_skill_snapshot.clone(),
             )
         };
-        if let Some(core_protocol) = crate::context::taskspace_core_protocol(map_runtime_mode) {
-            developer_sections.push(core_protocol.to_string());
-        }
         if let Some(model_switch_message) =
             crate::context_manager::updates::build_model_instructions_update_item(
                 previous_turn_settings.as_ref(),
@@ -2936,18 +2920,6 @@ impl Session {
             );
             if let Some(available_skills) = available_skills {
                 let warning_message = available_skills.warning_message.clone();
-                if map_runtime_mode == MapRuntimeMode::Experiment
-                    && let Some(identity) = taskspace_skill_snapshot.as_ref()
-                {
-                    let rendered_catalog =
-                        AvailableSkillsInstructions::from(available_skills.clone()).render();
-                    crate::taskspace_skill::log_catalog_render(
-                        identity,
-                        &turn_context.turn_skills.outcome,
-                        Some(&available_skills),
-                        Some(&rendered_catalog),
-                    );
-                }
                 let skills_instructions = AvailableSkillsInstructions::from(available_skills);
                 if let Some(warning_message) = warning_message {
                     self.send_event_raw(Event {
@@ -2959,25 +2931,7 @@ impl Session {
                     .await;
                 }
                 developer_sections.push(skills_instructions.render());
-            } else if map_runtime_mode == MapRuntimeMode::Experiment
-                && let Some(identity) = taskspace_skill_snapshot.as_ref()
-            {
-                crate::taskspace_skill::log_catalog_render(
-                    identity,
-                    &turn_context.turn_skills.outcome,
-                    None,
-                    None,
-                );
             }
-        } else if map_runtime_mode == MapRuntimeMode::Experiment
-            && let Some(identity) = taskspace_skill_snapshot.as_ref()
-        {
-            crate::taskspace_skill::log_catalog_render(
-                identity,
-                &turn_context.turn_skills.outcome,
-                None,
-                None,
-            );
         }
         let loaded_plugins = self
             .services
