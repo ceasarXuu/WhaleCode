@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -80,9 +81,11 @@ def _usage(value: Any) -> dict[str, int]:
 
 
 def _source(path: Path | None) -> dict[str, Any]:
+    available = path is not None and path.is_file()
     return {
         "path": str(path) if path is not None else None,
-        "status": "read" if path is not None and path.is_file() else "unavailable",
+        "status": "read" if available else "unavailable",
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest() if available else None,
     }
 
 

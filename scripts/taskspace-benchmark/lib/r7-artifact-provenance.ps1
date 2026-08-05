@@ -13,6 +13,7 @@ if (-not (Get-Command Get-TaskspaceGitBuildIdentity -ErrorAction SilentlyContinu
 . (Join-Path $PSScriptRoot "r7-evaluation-authority.ps1")
 . (Join-Path $PSScriptRoot "r7-final-status-provenance.ps1")
 . (Join-Path $PSScriptRoot "r7-resolved-manifest-identity.ps1")
+. (Join-Path $PSScriptRoot "r7-request-facts-provenance.ps1")
 
 function Get-R7ProvenanceFileFact {
     param(
@@ -123,6 +124,7 @@ function Write-R7RunArtifactEvidenceManifest {
         rollout = Join-Path $artifactDir "rollout.jsonl"
         provider_wire_trace = Join-Path $artifactDir "provider-wire-trace.jsonl"
         request_summary = Join-Path $artifactDir "request-summary.json"
+        request_facts = Join-Path $artifactDir "request-facts.json"
         binary_attestation = [string]$health.build_attestation_path
     }
     $facts = @(
@@ -131,13 +133,18 @@ function Write-R7RunArtifactEvidenceManifest {
         }
     )
     $manifestPath = Join-Path $RunDir "r7-artifact-evidence-manifest.json"
+    $requestFactsIdentity = Get-R7RequestFactsIdentity $artifactPaths.request_facts $artifactDir
+    if ([string]$requestFactsIdentity.sources.boundary.status -eq "read") {
+        $facts += New-R7ProvenanceFileFact ([string]$requestFactsIdentity.sources.boundary.path) "provider_boundary_events"
+    }
     $manifest = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         status = "sealed"
         run_dir = [IO.Path]::GetFullPath($RunDir)
         logical_mode = $LogicalMode
         artifact_dir = [IO.Path]::GetFullPath($artifactDir)
         artifacts = $facts
+        request_facts_identity = $requestFactsIdentity
         sealed_at = (Get-Date).ToString("o")
     }
     [IO.File]::WriteAllText(
@@ -370,20 +377,11 @@ function Get-R7MatrixArtifactProvenance {
         $rawFacts = @()
         if ($evidence) {
             $rawFacts = @(Get-R7ProvenanceProperty $evidence "artifacts" @())
-            $requiredRoles = @(
-                "run_status",
-                "binary_health",
-                "performance_observation",
-                "resolved_manifest",
-                "rollout",
-                "provider_wire_trace",
-                "request_summary",
-                "binary_attestation"
-            )
+            $requiredRoles = @(Get-R7RequestFactsManifestRoles $evidence)
             $actualRoles = @($rawFacts | ForEach-Object { [string]$_.role })
             $evidenceRunDir = try { [IO.Path]::GetFullPath([string]$evidence.run_dir) } catch { "" }
             $evidenceArtifactDir = try { [IO.Path]::GetFullPath([string]$evidence.artifact_dir) } catch { "" }
-            if ([int]$evidence.schema_version -ne 1 -or
+            if ([int]$evidence.schema_version -ne 2 -or
                 [string]$evidence.status -ne "sealed" -or
                 [string]$evidence.logical_mode -ne [string]$run.logical_mode -or
                 -not [string]::Equals($evidenceRunDir, [IO.Path]::GetFullPath($runDir), [StringComparison]::OrdinalIgnoreCase) -or
@@ -391,6 +389,7 @@ function Get-R7MatrixArtifactProvenance {
                 (Compare-Object $requiredRoles $actualRoles)) {
                 Add-R7ProvenanceFinding $findings "run_evidence_manifest_identity_mismatch" $evidencePath $runDir
             }
+            Test-R7RequestFactsManifestIdentity $evidence $artifactDir $findings $evidencePath $runDir
             foreach ($fact in $rawFacts) {
                 if (-not (Test-R7ProvenanceFileFact $fact)) {
                     Add-R7ProvenanceFinding $findings "run_evidence_artifact_hash_mismatch" ([string]$fact.path) $runDir

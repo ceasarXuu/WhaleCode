@@ -5,7 +5,6 @@ $runRoot = Join-Path ([IO.Path]::GetTempPath()) "r7-request-observer-$([guid]::N
 . (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
 . (Join-Path $PSScriptRoot "lib/r7-five-layer-trace-analysis.ps1")
 $evaluationAuthority = Get-R7EvaluationAuthority $repoRoot "initial"
-
 function Write-Json([string]$Path, $Value) {
     $parent = Split-Path -Parent $Path
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -15,7 +14,6 @@ function Write-Json([string]$Path, $Value) {
         [Text.UTF8Encoding]::new($false)
     )
 }
-
 function Write-JsonLines([string]$Path, [object[]]$Values) {
     $parent = Split-Path -Parent $Path
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -424,7 +422,7 @@ try {
     if ([int]$finalProvenance.schema_version -ne 2 -or
         [string]$finalProvenance.phase -ne "final" -or
         [string]$finalProvenance.status -ne "valid" -or
-        [int]$finalProvenance.raw_artifact_count -ne 192 -or
+        [int]$finalProvenance.raw_artifact_count -ne 216 -or
         -not [bool]$matrixStatus.final_aggregate_ready) {
         throw "Matrix report did not publish sealed final aggregate provenance"
     }

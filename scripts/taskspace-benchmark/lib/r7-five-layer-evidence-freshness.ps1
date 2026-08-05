@@ -6,6 +6,9 @@ function Resolve-R7EvidencePath {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
 }
 
+. (Join-Path $PSScriptRoot "request-facts.ps1")
+. (Join-Path $PSScriptRoot "r7-request-facts-provenance.ps1")
+
 function Get-R7EvidenceSha256 {
     param([string]$Path)
     (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
@@ -270,7 +273,8 @@ function Test-R7FiveLayerEvidenceFreshness {
             if (-not $modeMap) { continue }
             foreach ($side in @("left", "right")) {
                 $mode = [string]$modeMap.$side
-                $tracePath = Join-Path $pairDir.FullName "$side/artifacts/provider-wire-trace.jsonl"
+                $artifactDir = Join-Path $pairDir.FullName "$side/artifacts"
+                $tracePath = Join-Path $artifactDir "provider-wire-trace.jsonl"
                 $traces = @(Read-R7EvidenceJsonLines $tracePath $findings)
                 $payloadTraces = @($traces | Where-Object { [string]$_.status -eq "payload_captured" })
                 if ($payloadTraces.Count -eq 0) {
@@ -278,14 +282,25 @@ function Test-R7FiveLayerEvidenceFreshness {
                 }
                 foreach ($trace in $payloadTraces) {
                     if ($mode -eq "standard") {
-                        $standardRequests++
                         Test-R7StandardTraceIdentity $trace $baseContract.profiles.standard $tracePath $findings
                     } elseif ($mode -eq "taskspace") {
-                        $taskspaceRequests++
                         Test-R7TaskspaceTraceIdentity $trace $baseContract.profiles.taskspace $baseContract.taskspace_core_protocol ([string]$manifest.manifest_version) $manifestSha $tracePath $findings
                     } else {
                         Add-R7EvidenceFinding $findings "logical_mode_unknown" "Unsupported logical mode: $mode" $modePath
                     }
+                }
+                $requestFacts = Test-R7RequestFactsFreshness $artifactDir $findings
+                if ($requestFacts) {
+                    $requestCount = if ([string]$requestFacts.availability.boundary -eq "measured") {
+                        [int64]$requestFacts.summary.boundary_request_count
+                    } elseif ([string]$requestFacts.availability.completion -eq "measured") {
+                        [int64]$requestFacts.summary.completed_response_count
+                    } else {
+                        Add-R7EvidenceFinding $findings "request_facts_count_unavailable" "Canonical Provider request count is unavailable." (Join-Path $artifactDir "request-facts.json")
+                        [int64]0
+                    }
+                    if ($mode -eq "standard") { $standardRequests += $requestCount }
+                    elseif ($mode -eq "taskspace") { $taskspaceRequests += $requestCount }
                 }
             }
             $taskspaceSide = if ([string]$modeMap.left -eq "taskspace") { "left" } elseif ([string]$modeMap.right -eq "taskspace") { "right" } else { "" }
@@ -310,10 +325,10 @@ function Test-R7FiveLayerEvidenceFreshness {
         } else {
             $resultRun = $matchingResultRuns[0]
             if ([int]$resultRun.standard.provider_requests -ne $standardRequests) {
-                Add-R7EvidenceFinding $findings "result_standard_request_count_mismatch" "Result Standard request count differs from raw provider trace." $resultFullPath
+                Add-R7EvidenceFinding $findings "result_standard_request_count_mismatch" "Result Standard request count differs from canonical request facts." $resultFullPath
             }
             if ([int]$resultRun.taskspace.provider_requests -ne $taskspaceRequests) {
-                Add-R7EvidenceFinding $findings "result_taskspace_request_count_mismatch" "Result TaskSpace request count differs from raw provider trace." $resultFullPath
+                Add-R7EvidenceFinding $findings "result_taskspace_request_count_mismatch" "Result TaskSpace request count differs from canonical request facts." $resultFullPath
             }
             foreach ($field in @("control_calls", "control_failures", "preflight_failures", "ordinary_gate_failures", "committed_controls", "state_commit_count")) {
                 if ($null -eq $resultRun.taskspace.PSObject.Properties[$field] -or [int]$resultRun.taskspace.$field -ne [int]$control.$field) {

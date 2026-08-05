@@ -47,7 +47,10 @@ Write-FixtureJson (Join-Path $runDir "whale-binary-preflight-health.json") ([ord
 Write-FixtureJson (Join-Path $pairDir "logical-mode-map.json") ([ordered]@{ repeat = 1; left = "standard"; right = "taskspace" })
 
 $standardTrace = [ordered]@{
+    schema_version = "provider-chat-wire-trace-v10"
     status = "payload_captured"
+    request_id = "standard-request-1"; logical_request_id = "standard-logical-1"; attempt_seq = 1
+    request_index = 1; provider_payload_sha256 = ("1" * 64) -join ""
     base_instructions_identity = [ordered]@{
         count = 1; profile = "standard"; version = $baseContract.profiles.standard.version
         sha256 = $baseContract.profiles.standard.sha256; matches_current_contract = $true
@@ -57,7 +60,10 @@ $standardTrace = [ordered]@{
     taskspace_wire_contract_identity = @{ map_handle_count = 0 }
 }
 $taskspaceTrace = [ordered]@{
+    schema_version = "provider-chat-wire-trace-v10"
     status = "payload_captured"
+    request_id = "taskspace-request-1"; logical_request_id = "taskspace-logical-1"; attempt_seq = 1
+    request_index = 1; provider_payload_sha256 = ("2" * 64) -join ""
     base_instructions_identity = [ordered]@{
         count = 1; profile = "taskspace"; version = $baseContract.profiles.taskspace.version
         sha256 = $baseContract.profiles.taskspace.sha256; matches_current_contract = $true
@@ -74,9 +80,18 @@ $taskspaceTrace = [ordered]@{
         map_handle_wire_role = "user"; map_handle_is_request_tail = $true; matches_current_contract = $true
     }
 }
-$responseCompleted = @{ status = "response_completed" } | ConvertTo-Json -Compress
-@(($standardTrace | ConvertTo-Json -Compress -Depth 100), $responseCompleted) | Set-Content -LiteralPath (Join-Path $pairDir "left/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
-@(($taskspaceTrace | ConvertTo-Json -Compress -Depth 100), $responseCompleted) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
+function New-Terminal([string]$RequestId, [string]$LogicalId) {
+    [ordered]@{
+        schema_version = "provider-chat-wire-trace-v10"; status = "response_completed"
+        request_id = $RequestId; logical_request_id = $LogicalId; attempt_seq = 1
+        input_tokens = 100; cached_input_tokens = 20; output_tokens = 10
+        reasoning_output_tokens = 2; total_tokens = 110
+    } | ConvertTo-Json -Compress
+}
+$standardTerminal = New-Terminal "standard-request-1" "standard-logical-1"
+$taskspaceTerminal = New-Terminal "taskspace-request-1" "taskspace-logical-1"
+@(($standardTrace | ConvertTo-Json -Compress -Depth 100), $standardTerminal) | Set-Content -LiteralPath (Join-Path $pairDir "left/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
+@(($taskspaceTrace | ConvertTo-Json -Compress -Depth 100), $taskspaceTerminal) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
 
 $controlArguments = @{ action = "initialize_map" } | ConvertTo-Json -Compress
 $controlOutput = [ordered]@{
@@ -101,6 +116,13 @@ $rolloutEvents = @(
     }
 )
 @($rolloutEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 100 }) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") -Encoding UTF8
+Invoke-TaskspaceRequestFactsGenerator `
+    -WireTracePath (Join-Path $pairDir "left/artifacts/provider-wire-trace.jsonl") `
+    -OutputPath (Join-Path $pairDir "left/artifacts/request-facts.json") | Out-Null
+Invoke-TaskspaceRequestFactsGenerator `
+    -RolloutJsonlPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") `
+    -WireTracePath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") `
+    -OutputPath (Join-Path $pairDir "right/artifacts/request-facts.json") | Out-Null
 
 $resultPath = Join-Path $fixtureRoot "result.json"
 $result = [ordered]@{
@@ -164,9 +186,10 @@ Assert-ResultMutationFails { param($value) $value.runs[0].taskspace.PSObject.Pro
 Write-FixtureJson $resultPath $result
 $staleTrace = (Get-Content -Encoding UTF8 -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") | Select-Object -First 1) | ConvertFrom-Json -Depth 100
 $staleTrace.base_instructions_identity.version = "stale"
-@(($staleTrace | ConvertTo-Json -Compress -Depth 100), $responseCompleted) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
+@(($staleTrace | ConvertTo-Json -Compress -Depth 100), $taskspaceTerminal) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
 $staleWire = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
 Assert-True ([string]$staleWire.status -eq "fail") "Stale provider trace unexpectedly passed"
 Assert-True (@($staleWire.findings | Where-Object stable_code -eq "taskspace_base_identity_mismatch").Count -eq 1) "Stale provider trace did not emit the stable finding"
+Assert-True (@($staleWire.findings | Where-Object stable_code -eq "request_facts_stale").Count -eq 1) "Changed request source did not invalidate sealed facts"
 
 Write-Output "R7 five-layer evidence freshness self-test passed."

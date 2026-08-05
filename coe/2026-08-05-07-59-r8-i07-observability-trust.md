@@ -369,3 +369,31 @@ request fact consumer gate: PASS
   ```
 - Interpretation: 缓存分母与 shape 观察已拆开但共用一份请求事实；W6 未修改 Provider payload、Agent 上下文或 Runtime 行为
 - Time: 2026-08-05 08:43
+
+## Evidence E-011: W7 来源封存与新鲜度门禁
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/test-r7-request-facts-provenance.ps1`
+- Prediction or plan link:
+  - I07-W7 请求事实、原始来源和 analyzer 必须属于同一次可复算证据
+- Matched signal:
+  - `request-facts.json` 记录 rollout、wire、boundary 的读取状态与 SHA-256
+  - run evidence manifest v2 封存 request facts、来源文件、analyzer 版本和四个 analyzer 文件的组合哈希
+  - freshness 从 canonical boundary/completion facts 取得请求数，raw wire 只保留形状与协议身份检查
+  - 修改原始 trace 但不改变规范化计数时，旧 facts 仍以 `request_facts_stale` 阻断
+- Correlation keys:
+  - `r7-artifact-evidence-manifest` v2
+  - `request_facts_stale`
+  - analyzer `i07-w2-v1`
+- Raw content:
+  ```text
+R7 request facts provenance self-test passed.
+R7 five-layer evidence freshness self-test passed.
+Ran 10 tests ... OK
+request fact consumer gate: PASS
+  ```
+- Interpretation: 当前报告不能再把旧 raw source、新 analyzer 和新汇总拼成一次新鲜运行；没有 boundary 时保持 unavailable，不复制 attempt count
+- Time: 2026-08-05 08:52
