@@ -25,7 +25,7 @@
     {
       "path": "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1",
       "role": "consumer",
-      "observed_sources": ["rollout_token", "terminal"],
+      "observed_sources": ["terminal"],
       "required_facts": ["attempt", "completed_usage"],
       "migration": "I07-W3"
     },

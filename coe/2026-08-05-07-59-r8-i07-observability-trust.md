@@ -262,3 +262,29 @@ cmp request-facts-a.json request-facts-b.json: equal
   ```
 - Interpretation: W3-W7 可从一份规范化 artifact 派生各自视图，不再复制事件语义判断
 - Time: 2026-08-05 08:25
+
+## Evidence E-007: W3 request/usage 双计修复
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/test-i07-characterization.ps1`
+- Prediction or plan link:
+  - I07-W3 只统计完整请求身份的 completed usage
+- Matched signal:
+  - 历史形态 fixture 从 15 修正为 8
+  - 7 个 no-ID 状态快照仍被保留并单独计数
+  - malformed rollout 的请求数 fail closed，不从剩余行估算
+  - cost、metrics 和 benchmark harness 均通过
+- Correlation keys:
+  - `taskspace-rollout-request-trace-v2`
+  - `request_facts_completed_usage`
+- Raw content:
+  ```text
+I07 characterization: PASS (usage 8/15 fixed; legacy boundary 10/11 reproduced)
+cost instrumentation selftest passed
+TaskSpace metrics extractor harness self-test: PASS
+TaskSpace benchmark harness self-test: PASS
+  ```
+- Interpretation: H-001 根因已在唯一 classifier 层修复；Runtime 状态广播和 Agent 上下文均未改变
+- Time: 2026-08-05 08:30

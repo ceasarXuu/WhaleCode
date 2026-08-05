@@ -1,6 +1,7 @@
 if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
 }
+. (Join-Path $PSScriptRoot "request-facts.ps1")
 
 function Add-TaskspaceCostCount {
     param([hashtable]$Table, [string]$Key)
@@ -1166,59 +1167,56 @@ function New-TaskspaceTokenSummary {
 }
 
 function New-TaskspaceRolloutRequestTraceSummary {
-    param([AllowEmptyString()][string]$RolloutJsonlPath = "")
-    $sourceStatus = if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath -PathType Leaf)) { "read" } else { "missing" }
-    $parseErrors = 0
-    $inputValues = New-Object System.Collections.Generic.List[Int64]
-    $outputValues = New-Object System.Collections.Generic.List[Int64]
-    $cachedValues = New-Object System.Collections.Generic.List[Int64]
-    if ($sourceStatus -eq "read") {
-        foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
-            if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            try { $row = $line | ConvertFrom-Json } catch { $parseErrors++; continue }
-            if (-not ($row.PSObject.Properties.Name -contains "type" -and [string]$row.type -eq "event_msg")) { continue }
-            if (-not ($row.PSObject.Properties.Name -contains "payload" -and $null -ne $row.payload)) { continue }
-            if (-not ($row.payload.PSObject.Properties.Name -contains "type" -and [string]$row.payload.type -eq "token_count")) { continue }
-            $info = Get-TaskspaceCostProperty $row.payload @("info")
-            if (-not $info) { continue }
-            $last = Get-TaskspaceCostProperty $info @("last_token_usage")
-            if (-not $last) { continue }
-            $input = Get-TaskspaceUsageNumber $last @("input_tokens", "prompt_tokens")
-            $output = Get-TaskspaceUsageNumber $last @("output_tokens", "completion_tokens")
-            $cached = Get-TaskspaceCachedInputTokens $last
-            if ($null -ne $input) { $inputValues.Add([int64]$input) }
-            if ($null -ne $output) { $outputValues.Add([int64]$output) }
-            if ($null -ne $cached) { $cachedValues.Add([int64]$cached) }
-        }
+    param(
+        [AllowEmptyString()][string]$RolloutJsonlPath = "",
+        $RequestFacts = $null
+    )
+    $facts = if ($null -ne $RequestFacts) {
+        $RequestFacts
+    } else {
+        Invoke-TaskspaceRequestFactsGenerator -RolloutJsonlPath $RolloutJsonlPath
     }
-    $inputArray = @($inputValues.ToArray())
-    $outputArray = @($outputValues.ToArray())
-    $cachedArray = @($cachedValues.ToArray())
+    $usage = $facts.summary.usage
+    $distribution = $usage.distribution
+    $sourceStatus = if ([string]$facts.sources.rollout.status -eq "read") { "read" } else { "missing" }
+    $parseErrors = @($facts.findings | Where-Object {
+            [string]$_.source -eq "rollout" -and
+            [string]$_.code -in @("json_invalid", "json_object_required")
+        }).Count
+    $availability = [string]$facts.availability.usage
+    $requestCount = if ($availability -in @("measured", "partial")) {
+        [int64]$facts.summary.usage_record_count
+    } else {
+        $null
+    }
     [pscustomobject]@{
+        schema_version = "taskspace-rollout-request-trace-v2"
         source_path = $RolloutJsonlPath
         source_status = $sourceStatus
         parse_errors = [int]$parseErrors
-        availability = if ($sourceStatus -ne "read") { "source_missing" } elseif ($inputArray.Count -eq 0 -and $outputArray.Count -eq 0) { "usage_unavailable" } else { "measured" }
-        model_request_count = if ($inputArray.Count -gt 0 -or $outputArray.Count -gt 0) { [Math]::Max($inputArray.Count, $outputArray.Count) } else { $null }
-        input_tokens = if ($inputArray.Count -gt 0) { ($inputArray | Measure-Object -Sum).Sum } else { $null }
-        output_tokens = if ($outputArray.Count -gt 0) { ($outputArray | Measure-Object -Sum).Sum } else { $null }
-        cached_input_tokens = if ($cachedArray.Count -gt 0) { ($cachedArray | Measure-Object -Sum).Sum } else { $null }
-        max_input_tokens_per_request = if ($inputArray.Count -gt 0) { [int64]($inputArray | Measure-Object -Maximum).Maximum } else { $null }
-        p95_input_tokens_per_request = Get-TaskspacePercentile $inputArray 95
-        first_input_tokens_per_request = if ($inputArray.Count -gt 0) { [int64]$inputArray[0] } else { $null }
-        last_input_tokens_per_request = if ($inputArray.Count -gt 0) { [int64]$inputArray[$inputArray.Count - 1] } else { $null }
-        max_output_tokens_per_request = if ($outputArray.Count -gt 0) { [int64]($outputArray | Measure-Object -Maximum).Maximum } else { $null }
-        p95_output_tokens_per_request = Get-TaskspacePercentile $outputArray 95
-        first_output_tokens_per_request = if ($outputArray.Count -gt 0) { [int64]$outputArray[0] } else { $null }
-        last_output_tokens_per_request = if ($outputArray.Count -gt 0) { [int64]$outputArray[$outputArray.Count - 1] } else { $null }
-        max_cached_input_tokens_per_request = if ($cachedArray.Count -gt 0) { [int64]($cachedArray | Measure-Object -Maximum).Maximum } else { $null }
-        p95_cached_input_tokens_per_request = Get-TaskspacePercentile $cachedArray 95
+        availability = if ($sourceStatus -ne "read") { "source_missing" } else { $availability }
+        model_request_count = $requestCount
+        input_tokens = if ($null -ne $requestCount) { [int64]$usage.input_tokens } else { $null }
+        output_tokens = if ($null -ne $requestCount) { [int64]$usage.output_tokens } else { $null }
+        cached_input_tokens = if ($null -ne $requestCount) { [int64]$usage.cached_input_tokens } else { $null }
+        max_input_tokens_per_request = $distribution.max_input_tokens
+        p95_input_tokens_per_request = $distribution.p95_input_tokens
+        first_input_tokens_per_request = $distribution.first_input_tokens
+        last_input_tokens_per_request = $distribution.last_input_tokens
+        max_output_tokens_per_request = $distribution.max_output_tokens
+        p95_output_tokens_per_request = $distribution.p95_output_tokens
+        first_output_tokens_per_request = $distribution.first_output_tokens
+        last_output_tokens_per_request = $distribution.last_output_tokens
+        max_cached_input_tokens_per_request = $distribution.max_cached_input_tokens
+        p95_cached_input_tokens_per_request = $distribution.p95_cached_input_tokens
+        state_snapshot_count = [int64]$facts.summary.state_snapshot_count
+        request_facts_analyzer_version = [string]$facts.analyzer_version
     }
 }
 
 function New-TaskspaceRequestSummary {
-    param([string]$JsonlPath, $TokenSummary, [AllowEmptyString()][string]$RolloutJsonlPath = "")
-    $rolloutTrace = New-TaskspaceRolloutRequestTraceSummary $RolloutJsonlPath
+    param([string]$JsonlPath, $TokenSummary, [AllowEmptyString()][string]$RolloutJsonlPath = "", $RequestFacts = $null)
+    $rolloutTrace = New-TaskspaceRolloutRequestTraceSummary $RolloutJsonlPath $RequestFacts
     $requestTraceMeasured = [string]$rolloutTrace.availability -eq "measured" -and
         $null -ne $rolloutTrace.model_request_count -and
         [int]$rolloutTrace.model_request_count -gt 0
@@ -1228,7 +1226,7 @@ function New-TaskspaceRequestSummary {
         source_path = $JsonlPath
         rollout_source_path = $RolloutJsonlPath
         availability = if ($requestTraceMeasured) { "measured" } else { "request_trace_unavailable" }
-        model_request_count_source = if ($requestTraceMeasured) { "rollout_trace" } else { "unavailable" }
+        model_request_count_source = if ($requestTraceMeasured) { "request_facts_completed_usage" } else { "unavailable" }
         model_request_count = $requestCount
         token_usage_record_count = $TokenSummary.model_request_count
         avg_input_tokens_per_request = if ($requestTraceMeasured -and $null -ne $rolloutTrace.input_tokens) { [Math]::Round([double]$rolloutTrace.input_tokens / [double]$requestCount, 4) } else { $null }
@@ -2078,7 +2076,11 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $scanPolicy = Get-TaskspaceCostRolloutScanPolicy $rolloutJsonlPath
     $rolloutScanPath = [string]$scanPolicy.rollout_effective_scan_path
     $token = New-TaskspaceTokenSummary $JsonlPath
-    $request = New-TaskspaceRequestSummary $JsonlPath $token $rolloutScanPath
+    $requestFactsPath = Join-Path $ArtifactDir "request-facts.json"
+    $requestFacts = Invoke-TaskspaceRequestFactsGenerator `
+        -RolloutJsonlPath $rolloutScanPath `
+        -OutputPath $requestFactsPath
+    $request = New-TaskspaceRequestSummary $JsonlPath $token $rolloutScanPath $requestFacts
     $request | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
     $visibility = New-TaskspaceProviderInputVisibilitySummary $JsonlPath $token
     $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath $rolloutScanPath
@@ -2181,6 +2183,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         token_summary_path = $tokenPath
         cost_scan_policy_path = $scanPolicyPath
         request_summary_path = $requestPath
+        request_facts_path = $requestFactsPath
         provider_input_visibility_path = $visibilityPath
         taskspace_control_usage_path = $controlPath
         context_projection_summary_path = $projectionPath
@@ -2203,6 +2206,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         token_summary = $token
         cost_scan_policy = $scanPolicy
         request_summary = $request
+        request_facts = $requestFacts
         provider_input_visibility = $visibility
         taskspace_control_usage = $control
         replay_summary = $replay

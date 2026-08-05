@@ -19,7 +19,8 @@ $fixtures = Join-Path $PSScriptRoot "fixtures/i07"
 $usage = New-TaskspaceRolloutRequestTraceSummary (
     Join-Path $fixtures "usage-double-count-rollout.jsonl"
 )
-Assert-I07Equal $usage.model_request_count 15 "legacy rollout aggregator no longer reproduces 8/15"
+Assert-I07Equal $usage.model_request_count 8 "request facts did not collapse 8/15 usage snapshots"
+Assert-I07Equal $usage.state_snapshot_count 7 "request facts lost no-ID state snapshots"
 
 New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
 $boundaryOutput = Join-Path $RunRoot "provider-boundary-evidence.json"
@@ -37,4 +38,4 @@ if (-not (@($boundary.errors) -contains "provider_dispatch_trace_mismatch")) {
     throw "legacy boundary verifier did not report provider_dispatch_trace_mismatch"
 }
 
-Write-Host "I07 characterization: PASS (legacy 8/15 and 10/11 defects reproduced)"
+Write-Host "I07 characterization: PASS (usage 8/15 fixed; legacy boundary 10/11 reproduced)"

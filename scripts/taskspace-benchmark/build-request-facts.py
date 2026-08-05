@@ -16,14 +16,15 @@ def main() -> int:
     parser.add_argument("--wire", type=Path)
     parser.add_argument("--boundary", type=Path)
     parser.add_argument("--model")
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     result = build_request_facts(args.rollout, args.wire, args.boundary, args.model)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    rendered = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8")
     return 0 if all(value != "incomparable" for value in result["availability"].values()) else 3
 
 

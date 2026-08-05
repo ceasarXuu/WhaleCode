@@ -481,8 +481,8 @@ $costObs = Join-Path $costDir "observability.json"
     (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
 @(
-    (@{ type = "event_msg"; payload = @{ type = "token_count"; info = @{ last_token_usage = @{ input_tokens = 100; cached_input_tokens = 10; output_tokens = 11 } } } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ type = "event_msg"; payload = @{ type = "token_count"; info = @{ last_token_usage = @{ input_tokens = 300; cached_input_tokens = 240; output_tokens = 21 } } } } | ConvertTo-Json -Compress -Depth 8)
+    (@{ type = "event_msg"; payload = @{ type = "token_count"; provider_request_id = "fixture-logical-1:attempt-1"; provider_logical_request_id = "fixture-logical-1"; provider_attempt_seq = 1; info = @{ last_token_usage = @{ input_tokens = 100; cached_input_tokens = 10; output_tokens = 11; reasoning_output_tokens = 1; total_tokens = 111 } } } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "event_msg"; payload = @{ type = "token_count"; provider_request_id = "fixture-logical-2:attempt-1"; provider_logical_request_id = "fixture-logical-2"; provider_attempt_seq = 1; info = @{ last_token_usage = @{ input_tokens = 300; cached_input_tokens = 240; output_tokens = 21; reasoning_output_tokens = 2; total_tokens = 321 } } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath (Join-Path $costDir "rollout.jsonl") -Encoding UTF8
 [pscustomobject]@{
     timeline = @(
@@ -497,6 +497,7 @@ $costObs = Join-Path $costDir "observability.json"
 $costArtifacts = Write-TaskspaceCostInstrumentationArtifacts $costDir $costJsonl $costObs
 Assert-True (Test-Path -LiteralPath $costArtifacts.token_summary_path) "token-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.request_summary_path) "request-summary.json was not written"
+Assert-True (Test-Path -LiteralPath $costArtifacts.request_facts_path) "request-facts.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.taskspace_control_usage_path) "taskspace-control-usage.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.context_projection_summary_path) "context-projection-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.projection_events_path) "projection-events.jsonl was not written"
@@ -506,7 +507,7 @@ Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.crea
 Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.slice_read"')) "output-ref-events.jsonl omitted output_ref.slice_read"
 Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
 Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from rollout request events"
-Assert-True ([string]$costArtifacts.request_summary.model_request_count_source -eq "rollout_trace") "model request source was not recorded"
+Assert-True ([string]$costArtifacts.request_summary.model_request_count_source -eq "request_facts_completed_usage") "model request source was not recorded"
 Assert-True ([int]$costArtifacts.request_summary.token_usage_record_count -eq 2) "turn usage record count was not preserved separately"
 Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 300) "max input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.request_summary.p95_input_tokens_per_request -eq 300) "p95 input tokens per request was not reported"
@@ -517,6 +518,7 @@ Assert-True ([int]$costArtifacts.request_summary.last_output_tokens_per_request 
 Assert-True ([string]$costArtifacts.request_summary.rollout_trace.availability -eq "measured") "rollout request trace was not measured"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.model_request_count -eq 2) "rollout request trace count was not parsed"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.input_tokens -eq 400) "rollout request trace input tokens were not summed"
+Assert-True ([int]$costArtifacts.request_facts.summary.usage_record_count -eq 2) "canonical request facts usage count drifted"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.max_input_tokens_per_request -eq 300) "rollout max input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.last_input_tokens_per_request -eq 300) "rollout last input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 4) "taskspace_control count was not parsed"

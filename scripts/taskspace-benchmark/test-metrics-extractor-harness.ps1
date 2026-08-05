@@ -61,7 +61,7 @@ New-TestFile $jsonlPath ""
 $rolloutPath = Join-Path $artifactDir "rollout.jsonl"
 $rolloutWriter = [System.IO.StreamWriter]::new($rolloutPath, $false, [System.Text.UTF8Encoding]::new($false))
 try {
-    $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":80}}}}')
+    $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"token_count","provider_request_id":"fixture-logical-1:attempt-1","provider_logical_request_id":"fixture-logical-1","provider_attempt_seq":1,"info":{"last_token_usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":80,"reasoning_output_tokens":5,"total_tokens":120}}}}')
     $rolloutWriter.WriteLine('{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"control-1","arguments":"{\"action\":\"initialize_then_actions\"}"}}')
     $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"task_context_event_recorded","id":"task-event-1","sequence":1,"eventType":"function_call","rawPayload":{"type":"function_call","name":"taskspace_control","call_id":"control-2","arguments":"{\"action\":\"finish_then_end\",\"finish_node_ids\":[\"verify\"],\"final_candidate\":\"done\"}"}}}')
     $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"task_context_event_recorded","id":"task-event-2","sequence":2,"eventType":"message","originalRole":"assistant","rawPayload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}}}')
@@ -79,7 +79,9 @@ try {
 }
 Assert-True ([string]$cost.cost_scan_policy.rollout_scan_mode -eq "streaming_large_rollout") "large rollout did not use streaming scan policy"
 Assert-True ([string]$cost.cost_scan_policy.rollout_effective_scan_path -eq [string]$rolloutPath) "large rollout was removed from the effective scan path"
-Assert-True ([int]$cost.request_summary.model_request_count -eq 1) "streaming request extractor lost a valid token event"
+Assert-True ($null -eq $cost.request_summary.model_request_count) "malformed rollout was reported as measured request facts"
+Assert-True ([string]$cost.request_summary.rollout_trace.availability -eq "incomparable") "malformed rollout did not fail closed"
+Assert-True ([int]$cost.request_summary.rollout_trace.parse_errors -eq 1) "malformed rollout parse error was not exposed"
 Assert-True ([int]$cost.taskspace_control_usage.taskspace_control_count -eq 2) "streaming control extractor lost a canonical tool call"
 Assert-True ((Get-TaskspaceAgentCompletionEvidence "" "taskspace" $rolloutPath).agent_final_observed) "canonical final Agent message was not detected"
 Assert-True (Test-Path -LiteralPath $cost.cost_scan_policy_path) "cost scan policy artifact was not written"
