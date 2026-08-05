@@ -2,13 +2,6 @@
   "schema_version": "whalecode-request-fact-consumers-v1",
   "consumers": [
     {
-      "path": "scripts/cache-regression/cache_usage_contract.py",
-      "role": "consumer",
-      "observed_sources": ["local_attempt", "terminal"],
-      "required_facts": ["attempt", "completed_usage"],
-      "migration": "I07-W6"
-    },
-    {
       "path": "scripts/taskspace-benchmark/docker/provider_boundary_proxy.py",
       "role": "producer",
       "observed_sources": ["boundary"],
@@ -25,7 +18,7 @@
     {
       "path": "scripts/taskspace-benchmark/lib/provider-section-cost.ps1",
       "role": "consumer",
-      "observed_sources": ["local_attempt", "terminal"],
+      "observed_sources": ["local_attempt"],
       "required_facts": ["attempt_shape", "completed_usage"],
       "migration": "I07-W6"
     },

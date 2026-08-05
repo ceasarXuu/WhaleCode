@@ -4,6 +4,9 @@ if (-not (Get-Command ConvertTo-TaskspaceProjectionIdentity -ErrorAction Silentl
 if (-not (Get-Command ConvertTo-WhaleCodeBaseInstructionsIdentity -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "base-instructions-observation.ps1")
 }
+if (-not (Get-Command Invoke-TaskspaceRequestFactsGenerator -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "request-facts.ps1")
+}
 
 function Get-TaskspaceProviderSectionKinds {
     @(
@@ -324,9 +327,8 @@ function Merge-TaskspaceProviderSectionCostSummaries {
 }
 
 function New-TaskspaceProviderWireCacheTraceArtifacts {
-    param([Parameter(Mandatory = $true)][string]$TracePath)
+    param([Parameter(Mandatory = $true)][string]$TracePath, $RequestFacts = $null)
     $shapes = @{}
-    $terminals = @{}
     foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $TracePath -ErrorAction SilentlyContinue)) {
         if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
         try { $event = $line | ConvertFrom-Json } catch { continue }
@@ -335,10 +337,15 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
         if ([string]::IsNullOrWhiteSpace($requestId)) { continue }
         if ([string]$event.status -eq "payload_captured") {
             $shapes[$requestId] = $event
-        } elseif ([string]$event.event_name -eq "provider.chat_wire_request_terminal") {
-            $terminals[$requestId] = $event
         }
     }
+    $facts = if ($null -ne $RequestFacts) {
+        $RequestFacts
+    } else {
+        Invoke-TaskspaceRequestFactsGenerator -WireTracePath $TracePath
+    }
+    $factsById = @{}
+    foreach ($row in @($facts.rows)) { $factsById[[string]$row.request_id] = $row }
     $events = New-Object System.Collections.Generic.List[object]
     $sectionCosts = New-Object System.Collections.Generic.List[object]
     $baseInstructionsIdentities = New-Object System.Collections.Generic.List[object]
@@ -359,14 +366,15 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     $previousCacheShapeHash = ""
     foreach ($shape in @($shapes.Values | Sort-Object -Property request_index)) {
         $requestId = [string]$shape.request_id
-        $terminal = if ($terminals.ContainsKey($requestId)) { $terminals[$requestId] } else { $null }
-        $inputTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("input_tokens") } else { $null }
-        $cachedTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("cached_input_tokens") } else { $null }
+        $fact = if ($factsById.ContainsKey($requestId)) { $factsById[$requestId] } else { $null }
+        $usage = if ($null -ne $fact) { Get-TaskspaceCostProperty $fact @("usage") } else { $null }
+        $inputTokens = if ($null -ne $usage) { Get-TaskspaceCostProperty $usage @("input_tokens") } else { $null }
+        $cachedTokens = if ($null -ne $usage) { Get-TaskspaceCostProperty $usage @("cached_input_tokens") } else { $null }
         $uncachedTokens = $null
-        $terminalStatus = if ($null -ne $terminal) { [string]$terminal.status } else { "terminal_missing" }
+        $terminalStatus = if ($null -ne $fact) { [string]$fact.terminal_status } else { "unavailable" }
         if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
             $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
-        } elseif ($terminalStatus -eq "response_completed") {
+        } elseif ($null -ne $fact -and $null -eq $usage) {
             $missingUsage++
         }
         $hitRate = if ($null -ne $cachedTokens -and $null -ne $uncachedTokens -and ([double]$cachedTokens + [double]$uncachedTokens) -gt 0) {
@@ -455,14 +463,10 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
         provider_cache_trace_summary = [pscustomobject]@{
             schema_version = "TaskSpaceProviderCacheTraceSummaryV4"; source = "provider_final_wire_trace"
             provider_request_count = $count
-            completed_response_count = @(
-                $events.ToArray() | Where-Object status -eq "response_completed"
-            ).Count
-            failed_or_cancelled_attempt_count = @(
-                $events.ToArray() | Where-Object {
-                    [string]$_.status -notin @("response_completed", "terminal_missing")
-                }
-            ).Count
+            provider_attempt_count = $count
+            completed_response_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.completed_response_count } else { $null }
+            failed_or_cancelled_attempt_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.failed_or_cancelled_attempt_count } else { $null }
+            request_facts_analyzer_version = [string]$facts.analyzer_version
             trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
             cache_usage_missing_count = [int]$missingUsage
             request_shape_counts = Convert-TaskspaceCostTable $shapeCounts

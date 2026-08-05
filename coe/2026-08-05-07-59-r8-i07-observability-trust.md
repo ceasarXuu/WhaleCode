@@ -340,3 +340,32 @@ request fact consumer gate: PASS
   ```
 - Interpretation: 横向报告的请求分母已统一；保留的 wire/lifecycle reader 只提供独特详情，并受 canonical count 对账约束
 - Time: 2026-08-05 08:55
+
+## Evidence E-010: W6 缓存与 section-cost 消费者迁移
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/cache-regression/cache_usage_contract.py`
+- Prediction or plan link:
+  - I07-W6 缓存分母只使用 completed measured usage，shape 仍按 local attempt 观测
+- Matched signal:
+  - cache usage strict contract 改由 canonical facts 判断全部 attempt 是否完成且有 usage
+  - provider cache trace 的 shape 继续来自 final-wire attempt，status/usage 只从 canonical rows 取得
+  - 缺少 wire identity 时不再从 budget event 合成缓存请求，明确输出 unavailable source
+  - failed、missing terminal 和 retry 的通用 facts 保真，严格缓存基线仍按原合同阻断
+- Correlation keys:
+  - `request_facts_completed_usage`
+  - `TaskSpaceProviderCacheTraceSummaryV4`
+  - analyzer `i07-w2-v1`
+- Raw content:
+  ```text
+Ran 219 tests ... OK
+cost instrumentation selftest passed
+TaskSpace benchmark harness self-test: PASS
+performance observation self-test passed
+request fact consumer gate: PASS
+  ```
+- Interpretation: 缓存分母与 shape 观察已拆开但共用一份请求事实；W6 未修改 Provider payload、Agent 上下文或 Runtime 行为
+- Time: 2026-08-05 08:43

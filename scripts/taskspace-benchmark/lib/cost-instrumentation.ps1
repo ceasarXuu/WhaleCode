@@ -703,24 +703,30 @@ if (-not (Get-Command New-TaskspaceProviderWireCacheTraceArtifacts -ErrorAction 
 }
 
 function New-TaskspaceProviderCacheTraceArtifacts {
-    param([object[]]$BudgetEvents, [AllowEmptyString()][string]$ProviderWireTracePath = "")
+    param([object[]]$BudgetEvents, [AllowEmptyString()][string]$ProviderWireTracePath = "", $RequestFacts = $null)
     if (-not [string]::IsNullOrWhiteSpace($ProviderWireTracePath) -and
         (Test-Path -LiteralPath $ProviderWireTracePath) -and
         (Get-Item -LiteralPath $ProviderWireTracePath).Length -gt 0) {
-        return New-TaskspaceProviderWireCacheTraceArtifacts $ProviderWireTracePath
+        return New-TaskspaceProviderWireCacheTraceArtifacts $ProviderWireTracePath $RequestFacts
     }
-    $terminalStatuses = @("response_completed", "response_failed", "cancelled")
     $events = New-Object System.Collections.Generic.List[object]
     $shapeCounts = @{}
     $missingUsage = 0
     $request2PlusHit = [int64]0
     $request2PlusMiss = [int64]0
     $request2PlusCount = 0
-    foreach ($event in @($BudgetEvents)) {
-        if ([string]$event.status -notin $terminalStatuses) { continue }
-        if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
-        $inputTokens = Get-TaskspaceCostProperty $event @("input_tokens")
-        $cachedTokens = Get-TaskspaceCostProperty $event @("cached_input_tokens")
+    $facts = if ($null -ne $RequestFacts) { $RequestFacts } else { Invoke-TaskspaceRequestFactsGenerator }
+    $budgetById = @{}
+    foreach ($budgetEvent in @($BudgetEvents)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$budgetEvent.request_id)) {
+            $budgetById[[string]$budgetEvent.request_id] = $budgetEvent
+        }
+    }
+    foreach ($fact in @($facts.rows)) {
+        $event = if ($budgetById.ContainsKey([string]$fact.request_id)) { $budgetById[[string]$fact.request_id] } else { $null }
+        $usage = Get-TaskspaceCostProperty $fact @("usage")
+        $inputTokens = Get-TaskspaceCostProperty $usage @("input_tokens")
+        $cachedTokens = Get-TaskspaceCostProperty $usage @("cached_input_tokens")
         $uncachedTokens = $null
         if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
             $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
@@ -737,8 +743,8 @@ function New-TaskspaceProviderCacheTraceArtifacts {
             $shape = if ([bool]$event.tools_present -or [int]$event.tools_count -gt 0) { "native_tools_schema_hot_path" } else { "unknown_or_unclassified" }
         }
         Add-TaskspaceCostCount $shapeCounts $shape
-        $attemptSeq = Convert-TaskspaceTraceInt $event.attempt_seq
-        $modelRequestIndex = Convert-TaskspaceTraceInt $event.request_count_after
+        $attemptSeq = Convert-TaskspaceTraceInt $fact.attempt_seq
+        $modelRequestIndex = Convert-TaskspaceTraceInt $fact.observation_index
         if ($modelRequestIndex -ge 2 -and $null -ne $cachedTokens -and $null -ne $uncachedTokens) {
             $request2PlusHit += [int64]$cachedTokens
             $request2PlusMiss += [int64]$uncachedTokens
@@ -746,8 +752,8 @@ function New-TaskspaceProviderCacheTraceArtifacts {
         }
         $events.Add([pscustomobject]@{
             schema_version = "TaskSpaceProviderCacheTraceV1"
-            request_id = [string]$event.request_id
-            logical_request_id = [string]$event.logical_request_id
+            request_id = [string]$fact.request_id
+            logical_request_id = [string]$fact.logical_request_id
             model_request_index = $modelRequestIndex
             attempt_seq = $attemptSeq
             request_phase = [string]$event.request_phase
@@ -767,7 +773,7 @@ function New-TaskspaceProviderCacheTraceArtifacts {
             cached_input_tokens = $cachedTokens
             uncached_input_tokens = $uncachedTokens
             hit_rate = $hitRate
-            status = [string]$event.status
+            status = [string]$fact.terminal_status
         })
     }
     $count = [int]$events.Count
@@ -781,6 +787,10 @@ function New-TaskspaceProviderCacheTraceArtifacts {
         provider_cache_trace_summary = [pscustomobject]@{
             schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
             provider_request_count = $count
+            provider_attempt_count = if ([string]$facts.availability.attempt -eq "measured") { [int64]$facts.summary.local_attempt_count } else { $null }
+            completed_response_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.completed_response_count } else { $null }
+            failed_or_cancelled_attempt_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.failed_or_cancelled_attempt_count } else { $null }
+            source = "request_facts_without_wire_shape"
             trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
             cache_usage_missing_count = [int]$missingUsage
             request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
@@ -2096,7 +2106,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $exactPayloadScanEvents = @(New-TaskspaceExactPayloadScanEvents $ObservabilityJsonPath $rolloutScanPath)
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events $exactPayloadScanEvents
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
-    $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events $providerWireTracePath
+    $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events $providerWireTracePath $requestFacts
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
     $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutScanPath
     $spawnNodeBudget | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force

@@ -71,6 +71,8 @@ def write_provider_wire_trace(
                     "schema_version": "provider-chat-wire-trace-v10",
                     "status": "payload_captured",
                     "request_id": request_id,
+                    "logical_request_id": request_id,
+                    "attempt_seq": 1,
                     "request_index": index,
                     "provider_payload_sha256": digest,
                 },
@@ -78,6 +80,8 @@ def write_provider_wire_trace(
                     "schema_version": "provider-chat-wire-trace-v10",
                     "status": "response_completed",
                     "request_id": request_id,
+                    "logical_request_id": request_id,
+                    "attempt_seq": 1,
                     **completed_usage,
                 },
             )

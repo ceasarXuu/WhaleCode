@@ -5,14 +5,18 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
 from cache_json import strict_json_loads
 
+TASKSPACE_BENCHMARK = Path(__file__).resolve().parents[1] / "taskspace-benchmark"
+sys.path.insert(0, str(TASKSPACE_BENCHMARK))
+from request_facts import build_request_facts_from_events  # noqa: E402
+
 
 SCHEMA_VERSION = "whalecode-provider-usage-v1"
-PROVIDER_WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v10"
 TOKEN_FIELDS = (
     "input_tokens",
     "cached_input_tokens",
@@ -90,77 +94,35 @@ def aggregate_usage_records(records: list[dict[str, int] | None]) -> dict[str, A
 
 
 def parse_provider_wire_usage(text: str) -> dict[str, Any]:
-    attempts: dict[str, dict[str, Any]] = {}
-    request_order: list[str] = []
+    events = []
     for line_number, raw_line in enumerate(text.splitlines(), 1):
         if not raw_line.strip():
             continue
         event = strict_json_loads(raw_line)
         if not isinstance(event, dict):
             raise ValueError(f"provider wire event {line_number} must be an object")
-        if event.get("schema_version") != PROVIDER_WIRE_SCHEMA_VERSION:
-            raise ValueError("provider wire usage schema is unsupported")
-        request_id = event.get("request_id")
-        if not isinstance(request_id, str) or not request_id:
-            raise ValueError("provider wire request id is missing")
-        attempt = attempts.setdefault(request_id, {})
-        status = event.get("status")
-        if status == "payload_captured":
-            if "payload" in attempt:
-                raise ValueError("provider wire request has duplicate payload evidence")
-            request_index = _nonnegative_integer(
-                event.get("request_index"), "request_index"
-            )
-            digest = event.get("provider_payload_sha256")
-            if (
-                request_index < 1
-                or not isinstance(digest, str)
-                or len(digest) != 64
-                or any(character not in "0123456789abcdef" for character in digest)
-            ):
-                raise ValueError("provider wire payload evidence is invalid")
-            attempt["payload"] = {
-                "request_index": request_index,
-                "provider_payload_sha256": digest,
-            }
-            request_order.append(request_id)
-        elif status in {"response_completed", "response_failed", "cancelled"}:
-            if "terminal" in attempt:
-                raise ValueError(
-                    "provider wire request has duplicate terminal evidence"
-                )
-            attempt["terminal"] = event
-
-    if not request_order:
+        events.append(event)
+    facts = build_request_facts_from_events(wire_events=events)
+    if not events:
         raise ValueError("provider wire usage requires at least one request")
-    if len(request_order) != len(set(request_order)):
-        raise ValueError("provider wire request order contains duplicates")
-
-    usage_records: list[dict[str, int] | None] = []
-    payload_hashes: list[str] = []
-    for expected_index, request_id in enumerate(request_order, 1):
-        attempt = attempts[request_id]
-        payload = attempt.get("payload")
-        terminal = attempt.get("terminal")
-        if not isinstance(payload, dict) or not isinstance(terminal, dict):
-            raise ValueError("provider wire request evidence is incomplete")
-        if payload["request_index"] != expected_index:
-            raise ValueError("provider wire request order is invalid")
-        if terminal.get("status") != "response_completed":
-            raise ValueError("provider wire request did not complete successfully")
-        usage_records.append(
-            {
-                field: _nonnegative_integer(terminal.get(field), field)
-                for field in TOKEN_FIELDS
-            }
-        )
-        payload_hashes.append(payload["provider_payload_sha256"])
-
+    if any(facts["availability"][name] != "measured" for name in ("attempt", "completion", "usage")):
+        codes = ",".join(sorted({finding["code"] for finding in facts["findings"]}))
+        raise ValueError(f"provider wire request facts are not comparable: {codes}")
+    rows = facts["rows"]
+    attempt_count = facts["summary"]["local_attempt_count"]
+    if (
+        attempt_count < 1
+        or facts["summary"]["completed_response_count"] != attempt_count
+        or facts["summary"]["usage_record_count"] != attempt_count
+    ):
+        raise ValueError("provider wire request did not complete successfully")
+    usage_records = [row["usage"] for row in rows]
     aggregate = aggregate_usage_records(usage_records)
     return {
         **aggregate,
-        "request_ids": request_order,
-        "provider_payload_sha256": payload_hashes,
+        "request_ids": [row["request_id"] for row in rows],
+        "provider_payload_sha256": [row["provider_payload_sha256"] for row in rows],
+        "request_facts_analyzer_version": facts["analyzer_version"],
     }
 
 

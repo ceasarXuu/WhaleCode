@@ -8,6 +8,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from request_fact_availability import classify_availability
+from request_fact_summary import usage_summary
+from request_fact_validation import validate_attempt_sequences
+
 
 SCHEMA_VERSION = "whalecode-request-facts-v1"
 ANALYZER_VERSION = "i07-w2-v1"
@@ -299,7 +303,9 @@ def _reconcile(
             findings.append(_finding("usage_source_conflict", "reconcile", request_id=row["request_id"]))
 
 
-def _normalized_rows(rows: dict[str, dict[str, Any]], boundary_available: bool) -> list[dict[str, Any]]:
+def _normalized_rows(
+    rows: dict[str, dict[str, Any]], boundary_available: bool
+) -> list[dict[str, Any]]:
     normalized = []
     for row in rows.values():
         logical_id, attempt_seq = row.get("identity", [None, None])
@@ -335,147 +341,70 @@ def _normalized_rows(rows: dict[str, dict[str, Any]], boundary_available: bool) 
                 ),
             }
         )
-    key = lambda row: (row["observation_index"] is None, row["observation_index"] or 0, row["request_id"])
+    key = lambda row: (
+        row["observation_index"] is None,
+        row["observation_index"] or 0,
+        row["request_id"],
+    )
     return sorted(normalized, key=key)
 
-def _percentile(values: list[int], percentile: int) -> int | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    rank = (percentile * len(ordered) + 99) // 100
-    return ordered[max(0, min(len(ordered) - 1, rank - 1))]
-
-
-def _usage_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    usage = [row["usage"] for row in rows if row["usage"] is not None]
-    inputs = [value["input_tokens"] for value in usage]
-    cached = [value["cached_input_tokens"] for value in usage]
-    outputs = [value["output_tokens"] for value in usage]
-    return {
-        "input_tokens": sum(inputs),
-        "cached_input_tokens": sum(cached),
-        "uncached_input_tokens": sum(inputs) - sum(cached),
-        "output_tokens": sum(outputs),
-        "reasoning_output_tokens": sum(value["reasoning_output_tokens"] for value in usage),
-        "total_tokens": sum(value["total_tokens"] for value in usage),
-        "distribution": {
-            "first_input_tokens": inputs[0] if inputs else None,
-            "last_input_tokens": inputs[-1] if inputs else None,
-            "max_input_tokens": max(inputs) if inputs else None,
-            "p95_input_tokens": _percentile(inputs, 95),
-            "first_output_tokens": outputs[0] if outputs else None,
-            "last_output_tokens": outputs[-1] if outputs else None,
-            "max_output_tokens": max(outputs) if outputs else None,
-            "p95_output_tokens": _percentile(outputs, 95),
-            "max_cached_input_tokens": max(cached) if cached else None,
-            "p95_cached_input_tokens": _percentile(cached, 95),
-        },
-    }
-
-
-def build_request_facts(
-    rollout_path: Path | None = None,
-    wire_path: Path | None = None,
-    boundary_path: Path | None = None,
+def build_request_facts_from_events(
+    rollout_events: list[dict[str, Any]] | None = None,
+    wire_events: list[dict[str, Any]] | None = None,
+    boundary_events: list[dict[str, Any]] | None = None,
     expected_model: str | None = None,
+    sources: dict[str, dict[str, Any]] | None = None,
+    initial_findings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    findings: list[dict[str, Any]] = []
+    findings = list(initial_findings or [])
     counters: Counter[str] = Counter()
     rows: dict[str, dict[str, Any]] = {}
-    rollout_events = _read_jsonl(rollout_path, "rollout", findings)
-    wire_events = _read_jsonl(wire_path, "wire", findings)
-    boundary_events = _read_jsonl(boundary_path, "boundary", findings)
+    rollout_available = rollout_events is not None
+    wire_available = wire_events is not None
+    boundary_available = boundary_events is not None
+    rollout_events = rollout_events or []
+    wire_events = wire_events or []
+    boundary_events = boundary_events or []
+    for events in (rollout_events, wire_events, boundary_events):
+        for line_number, event in enumerate(events, 1):
+            event.setdefault("_request_facts_line_number", line_number)
     _parse_rollout(rollout_events, rows, findings, counters)
     _parse_wire(wire_events, rows, findings, counters)
     claims = _parse_boundary(boundary_events, findings, expected_model)
-    boundary_available = boundary_path is not None and boundary_path.is_file()
     _reconcile(rows, claims, boundary_available, findings)
+    validate_attempt_sequences(rows, findings, "response_completed")
     normalized = _normalized_rows(rows, boundary_available)
-    codes = {finding["code"] for finding in findings}
-    wire_source_errors = any(
-        finding["source"] == "wire"
-        and finding["code"] in {
-            "json_invalid",
-            "json_object_required",
-            "identity_incomplete",
-            "identity_conflict",
-            "wire_schema_unsupported",
-            "attempt_evidence_invalid",
-            "attempt_digest_ambiguous",
-        }
-        for finding in findings
-    )
-    rollout_source_errors = any(
-        finding["source"] == "rollout"
-        and finding["code"] in {
-            "json_invalid",
-            "json_object_required",
-            "identity_incomplete",
-            "identity_conflict",
-            "usage_missing",
-            "usage_invalid",
-        }
-        for finding in findings
-    )
-    boundary_conflict = bool(
-        codes
-        & {
-            "boundary_claim_invalid",
-            "boundary_digest_ambiguous",
-            "boundary_unattributed",
-            "completed_without_boundary",
-            "boundary_status_unknown",
-            "attempt_digest_ambiguous",
-        }
-    ) or any(
-        finding["source"] == "boundary"
-        and finding["code"] in {"json_invalid", "json_object_required"}
-        for finding in findings
-    )
-    completion_conflict = wire_source_errors or rollout_source_errors or bool(
-        codes & {"terminal_without_attempt", "usage_source_conflict"}
-    )
-    usage_conflict = rollout_source_errors or wire_source_errors or bool(
-        codes & {"usage_source_conflict"}
+    availability = classify_availability(
+        findings,
+        normalized,
+        rollout_available=rollout_available,
+        wire_available=wire_available,
+        boundary_available=boundary_available,
     )
     completed = [row for row in normalized if row["terminal_status"] == "response_completed"]
     usage_rows = [row for row in normalized if row["usage"] is not None]
     attempts = [row for row in normalized if row["attempt_status"] == "observed"]
-    boundary_rows = [row for row in normalized if row["boundary_status"] == "observed"]
     failed_rows = [
         row
         for row in normalized
         if row["terminal_status"]
         in {"response_failed", "cancelled", "retry_unauthorized"}
     ]
-    logical_ids = {row["logical_request_id"] for row in normalized if row["logical_request_id"]}
-    logical_attempts = Counter(row["logical_request_id"] for row in attempts if row["logical_request_id"])
+    logical_ids = {
+        row["logical_request_id"] for row in normalized if row["logical_request_id"]
+    }
+    logical_attempts = Counter(
+        row["logical_request_id"] for row in attempts if row["logical_request_id"]
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "analyzer_version": ANALYZER_VERSION,
-        "sources": {
-            "rollout": _source(rollout_path),
-            "wire": _source(wire_path),
-            "boundary": _source(boundary_path),
+        "sources": sources or {
+            "rollout": {"path": None, "status": "provided" if rollout_available else "unavailable"},
+            "wire": {"path": None, "status": "provided" if wire_available else "unavailable"},
+            "boundary": {"path": None, "status": "provided" if boundary_available else "unavailable"},
         },
-        "availability": {
-            "attempt": "incomparable" if wire_source_errors else "measured" if wire_events else "unavailable",
-            "boundary": "incomparable" if boundary_conflict else "measured" if boundary_available else "unavailable",
-            "completion": (
-                "incomparable"
-                if completion_conflict
-                else "partial" if "terminal_missing" in codes
-                else "measured" if wire_events or rollout_events
-                else "unavailable"
-            ),
-            "usage": (
-                "incomparable"
-                if usage_conflict
-                else "partial" if "terminal_missing" in codes and usage_rows
-                else "measured" if usage_rows
-                else "unavailable"
-            ),
-        },
+        "availability": availability,
         "summary": {
             "logical_request_count": len(logical_ids),
             "retried_logical_request_count": sum(count > 1 for count in logical_attempts.values()),
@@ -492,9 +421,33 @@ def build_request_facts(
             "boundary_unattributed_count": sum(
                 finding["code"] == "boundary_unattributed" for finding in findings
             ),
-            "usage": _usage_summary(normalized),
+            "usage": usage_summary(normalized),
         },
         "boundary_claims": claims,
         "rows": normalized,
         "findings": findings,
     }
+
+
+def build_request_facts(
+    rollout_path: Path | None = None,
+    wire_path: Path | None = None,
+    boundary_path: Path | None = None,
+    expected_model: str | None = None,
+) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+    rollout_available = rollout_path is not None and rollout_path.is_file()
+    wire_available = wire_path is not None and wire_path.is_file()
+    boundary_available = boundary_path is not None and boundary_path.is_file()
+    return build_request_facts_from_events(
+        _read_jsonl(rollout_path, "rollout", findings) if rollout_available else None,
+        _read_jsonl(wire_path, "wire", findings) if wire_available else None,
+        _read_jsonl(boundary_path, "boundary", findings) if boundary_available else None,
+        expected_model,
+        {
+            "rollout": _source(rollout_path),
+            "wire": _source(wire_path),
+            "boundary": _source(boundary_path),
+        },
+        findings,
+    )
