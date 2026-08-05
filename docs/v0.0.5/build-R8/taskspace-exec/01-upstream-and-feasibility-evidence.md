@@ -2,14 +2,15 @@
 
 - Created: 2026-08-05
 - Status: Verified discovery evidence
-- Latest upstream inspected: `openai/codex` main `44cb66e4edc061d39ae38de949b47f6f94416553`
+- Latest upstream inspected: `openai/codex` main `5c44f110649f8811546745bb1635ba0b44a1639e`
 - Local evidence cutoff: `17526e59f`
 
 ## 1. 最新 Codex 主线事实
 
 截至上述主线提交，Codex `exec/code-mode` 的关键结构是：
 
-1. `core/src/tools/code_mode/execute_spec.rs` 只向模型暴露一个名为 `exec` 的 Freeform Tool。
+1. `core/src/tools/spec_plan.rs` 统一组装 registry、hosted specs、model-visible specs 和 code-mode exposure；
+   `core/src/tools/code_mode/execute_spec.rs` 负责 `exec` ToolSpec。
 2. `tools/src/code_mode.rs` 从现有 Function、Freeform 和 Namespace ToolSpec 机械生成内部 ToolDefinition；WebSearch 和
    ToolSearch 等 provider 特殊 Tool 不被伪装为普通嵌套 client Tool。
 3. `code-mode-protocol/src/description.rs` 把内部工具名称、描述、输入 JSON Schema 和输出 Schema 转换成模型可读的
@@ -17,7 +18,8 @@
 4. `core/src/tools/code_mode/mod.rs` 将内部调用重新构造成原生 ToolPayload，并通过同一 Tool runtime dispatch；`exec`
    显式禁止调用自身。
 5. `core/src/tools/code_mode/execute_handler.rs` 负责启动隔离执行单元、收集内部调用结果和返回外层 Tool output；最新主线
-   已把 ToolSpec、dispatch worker、telemetry 和 response adapter 分开，但没有建立第二套业务 Tool handler。
+   又把原 `spec.rs` 拆为 `spec_plan.rs`、`hosted_spec.rs` 等职责文件，并以 `ToolExposure` 统一 direct/deferred/code-mode
+   暴露，但没有建立第二套业务 Tool handler。
 
 这些事实支持 Whale 复用“单入口、内部派生、原 Router、禁止递归”四个机制。它们不直接证明 TaskSpace 的 Map
 合法序列、节点归属和 hosted 双写合同。
@@ -73,15 +75,17 @@ TaskSpace 序列或 hosted 双写协议。
 - Codex 不要求每个嵌套 Tool 绑定 Map 节点；Whale 必须增加外层 invocation metadata，不能把 `node_id` 写进 Tool args。
 - Codex 不负责把 provider-hosted 输出双写回 Map；Whale 必须从真实 provider response 建立可复算 reconciliation。
 - Codex 的 Freeform wire 不能作为 DeepSeek 兼容前提；Whale 的生产入口必须是 Function Call。
-- 最新上游已经重构 code-mode host/session；正式开发前要先决定同步最小上游 seam 还是基于当前 vendor 抽取中性组件，
-  不能直接复制最新文件覆盖本地改造。
+- 最新上游已经把 Tool 规划从本地仍在使用的 `spec.rs` 拆到 `spec_plan.rs`、`hosted_spec.rs` 等模块，并新增统一
+  `ToolExposure`；Phase A 基于当前 vendor 冻结合同，Phase B 的 TX-06 应在同步该上游 seam 后再接共享 catalog，不能复制
+  最新文件覆盖 Whale 改造，也不能在旧 `spec.rs` 上新增长期平行 catalog。
 
 ## 5. 外部依据
 
-1. [OpenAI Codex code-mode 主线目录](https://github.com/openai/codex/tree/44cb66e4edc061d39ae38de949b47f6f94416553/codex-rs/code-mode)和
-   [execute ToolSpec](https://github.com/openai/codex/blob/44cb66e4edc061d39ae38de949b47f6f94416553/codex-rs/core/src/tools/code_mode/execute_spec.rs)：单一
+1. [OpenAI Codex code-mode 主线目录](https://github.com/openai/codex/tree/5c44f110649f8811546745bb1635ba0b44a1639e/codex-rs/code-mode)和
+   [execute ToolSpec](https://github.com/openai/codex/blob/5c44f110649f8811546745bb1635ba0b44a1639e/codex-rs/core/src/tools/code_mode/execute_spec.rs)：单一
    `exec` Tool 与主线执行入口。
-2. [OpenAI Codex ToolSpec 到内部定义转换](https://github.com/openai/codex/blob/44cb66e4edc061d39ae38de949b47f6f94416553/codex-rs/tools/src/code_mode.rs)：
+2. [OpenAI Codex ToolSpec 到内部定义转换](https://github.com/openai/codex/blob/5c44f110649f8811546745bb1635ba0b44a1639e/codex-rs/tools/src/code_mode.rs)和
+   [统一 Tool 规划](https://github.com/openai/codex/blob/5c44f110649f8811546745bb1635ba0b44a1639e/codex-rs/core/src/tools/spec_plan.rs)：
    Function、Freeform、Namespace 的机械派生及特殊 Tool 排除边界。
 3. [OpenAI Function Calling](https://developers.openai.com/api/docs/guides/function-calling)：Function Tool 使用 JSON
    Schema 声明参数，Tool call 与 Tool output 通过调用身份配对。
