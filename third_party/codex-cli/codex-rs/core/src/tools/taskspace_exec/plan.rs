@@ -8,7 +8,7 @@ pub(crate) struct TaskspaceExecPlan {
     pub(crate) capability_id: String,
     pub(crate) calls: Vec<TaskspaceExecCall>,
     #[serde(default)]
-    pub(crate) hosted_records: Vec<TaskspaceExecHostedRecord>,
+    pub(crate) hosted_node_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -19,13 +19,4 @@ pub(crate) struct TaskspaceExecCall {
     pub(crate) input: Value,
     #[serde(default)]
     pub(crate) node_id: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct TaskspaceExecHostedRecord {
-    pub(crate) response_id: String,
-    pub(crate) provider_item_type: String,
-    pub(crate) provider_item_id: String,
-    pub(crate) node_id: String,
 }

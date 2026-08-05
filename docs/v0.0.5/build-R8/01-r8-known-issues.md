@@ -1,7 +1,7 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-05
+- Updated: 2026-08-06
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
@@ -9,6 +9,10 @@
 > 先完成 [`taskspace-exec/`](taskspace-exec/README.md) 主方案。此前的 Tool schema 入侵、顶层结构化容器和 sibling
 > 配对路线已降级并封存在 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。主方案实施并验证后重新盘点
 > 本表；现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
+
+TaskSpace Exec Phase A 的 A1、A2 已通过。A2 复验确认 Provider output 自带的 `id/item_id` 是唯一执行身份，Agent 只声明
+响应级 `hosted_node_id`，Runtime 直接登记真实事实；此前要求 Agent 回显 Provider 传输身份的原型已删除。该结果解除
+Phase B 入口阻塞，但尚未改变本表 I01～I10 的状态。
 
 TaskSpace Exec 与全局问题的处理边界统一记录在
 [`taskspace-exec/03-global-issue-prerequisite-review.md`](taskspace-exec/03-global-issue-prerequisite-review.md)：I07 已确认的

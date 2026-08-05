@@ -28,9 +28,6 @@ pub(crate) mod tool_search_entry;
 mod taskspace_sequence_context_tests;
 
 #[cfg(test)]
-mod taskspace_hosted_binding_contract_tests;
-
-#[cfg(test)]
 mod taskspace_sequence_result_contract_tests;
 
 #[cfg(test)]

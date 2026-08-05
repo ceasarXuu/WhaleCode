@@ -89,12 +89,7 @@ mod tests {
                     {{"item_id":"work-1","tool":"read_file","node_id":"inspect","input":{{"path":"README.md"}}}},
                     {{"item_id":"patch-1","tool":"apply_patch","node_id":"fix","input":"*** Begin Patch"}}
                 ],
-                "hosted_records":[{{
-                    "response_id":"resp-1",
-                    "provider_item_type":"web_search_call",
-                    "provider_item_id":"ws-1",
-                    "node_id":"research"
-                }}]
+                "hosted_node_id":"research"
             }});"#
         )
     }
@@ -107,7 +102,7 @@ mod tests {
         assert_eq!(plan.calls.len(), 3);
         assert_eq!(plan.calls[1].node_id.as_deref(), Some("inspect"));
         assert_eq!(plan.calls[1].input, json!({"path": "README.md"}));
-        assert_eq!(plan.hosted_records.len(), 1);
+        assert_eq!(plan.hosted_node_id.as_deref(), Some("research"));
     }
 
     #[test]
@@ -141,6 +136,26 @@ mod tests {
                 .expect_err("trailing statement")
                 .reason_code,
             "source_trailing_content"
+        );
+    }
+
+    #[test]
+    fn agent_cannot_redeclare_provider_transport_identity() {
+        let source = valid_source().replace(
+            "\"hosted_node_id\":\"research\"",
+            r#""hosted_records":[{
+                "response_id":"resp-1",
+                "provider_item_type":"web_search_call",
+                "provider_item_id":"call-1",
+                "node_id":"research"
+            }]"#,
+        );
+
+        assert_eq!(
+            decode_taskspace_exec_source(&source)
+                .expect_err("provider identity belongs to the runtime")
+                .reason_code,
+            "source_plan_invalid"
         );
     }
 
