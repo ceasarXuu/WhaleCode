@@ -86,7 +86,7 @@
 1. 用户通过任意方式创建 branch，并把它检出到一个本机 workspace。
 2. 用户或 Agent 执行 `workspace bootstrap plan`。
 3. 系统只读检查 canonical repo root、Git common-dir、当前 branch、已有登记、运行时目录、binary slot、共享资源冲突和 legacy 状态，输出拟执行动作及警告。
-4. 用户确认计划后执行 `workspace bootstrap apply`。
+4. 用户确认计划后，携带 plan 输出的 fingerprint 执行 `workspace bootstrap apply`。
 5. 系统验证计划仍对应当前 workspace/branch，创建或更新身份标记、隔离目录和本地环境配置，然后自动执行 doctor。
 6. doctor 成功后，项目统一入口允许构建、测试、运行和本地安装。
 7. 若 worktree 切换 branch，登记状态失效；用户重新执行 plan/apply。系统复用 workspace 隔离目录，只更新 branch 绑定和验证证据。
@@ -103,7 +103,7 @@
 - 当前是否已登记、是否发生 branch 切换、是否与其他 workspace 冲突；
 - apply 将创建或更新的对象；
 - 不会触碰的 legacy 路径和数据；
-- 稳定的 plan fingerprint 或等价绑定信息。
+- 稳定的 plan fingerprint；plan 不落盘，fingerprint 由用户或调用入口显式传给 apply。
 
 ### Apply 输出
 
@@ -119,7 +119,6 @@
 | 状态 | 含义 | 统一入口行为 |
 | --- | --- | --- |
 | Unbootstrapped | workspace 没有有效登记 | 阻断并提示先执行 plan |
-| Planned | 已生成只读计划，但未 apply | 阻断并提示确认/apply |
 | Ready | workspace、branch 与 doctor 证据一致 | 允许继续 |
 | Stale | branch、root、common-dir 或关键配置与登记不一致 | 阻断并要求重新 plan/apply |
 | Conflict | identity 或资源已绑定到其他 workspace | 阻断；不得自动覆盖 |
@@ -128,6 +127,7 @@
 ### 规则
 
 - workspace identity 以 canonical repo root 为主，不以 branch 名作为唯一身份。
+- workspace id 必须由目录可读名称和 canonical root 摘要自动生成，同名目录不要求人工改名。
 - marker 必须记录当前 branch；普通 commit 前进不导致状态失效，branch 名变化导致失效。
 - detached HEAD 默认不能成为 Ready，doctor 应给出明确诊断；只读 plan 仍可运行。
 - apply 必须验证 plan 所依据的 workspace 和 branch 未变化，避免确认后作用于另一上下文。
@@ -139,7 +139,7 @@
 ## 8. 边界、错误与恢复
 
 - **目录移动或重命名**：登记变为 Stale；重新 plan，不能静默接管旧 identity。
-- **同名目录冲突**：报告两边 canonical root；用户需显式选择新的 workspace id 或调整目录，不自动覆盖。
+- **同名目录**：通过 canonical root 摘要生成不同 workspace id；任何摘要碰撞或已绑定不同 root 的情况仍 fail closed，不自动覆盖。
 - **工作树已有未提交修改**：plan 显示警告但保持只读；apply 不修改源码或 index，因此可继续，最终 doctor 必须通过。
 - **branch 在 plan/apply 间变化**：apply 拒绝使用过期计划，要求重新 plan。
 - **遗留共享 home 存在**：只报告，不复制、不删除、不修改。
@@ -158,6 +158,7 @@
 
 - [ ] 全新 clone 和 linked worktree 均可执行 plan/apply 并进入 Ready。
 - [ ] plan 的文件系统与 Git 状态前后无变化。
+- [ ] apply 必须携带并验证 plan fingerprint；plan/apply 之间发生 branch、root 或 common-dir 变化时拒绝执行。
 - [ ] apply 幂等，且不改变源码、index、Git refs、用户 profile 或 legacy `~/.whale`。
 - [ ] 两个并行 workspace 的 runtime、SQLite、logs、sessions、tmp 和 binary slot 无路径交集。
 - [ ] 同一 workspace 切换 branch 后为 Stale，重新 apply 后 Ready 且复用原隔离目录。
