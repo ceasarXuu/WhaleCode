@@ -153,6 +153,10 @@ class RequestFactsTests(unittest.TestCase):
                 "unknown-schema",
                 [{**self._boundary_started(), "schema_version": 2}, self._boundary_stopped(0)],
             ),
+            (
+                "boolean-schema",
+                [{**self._boundary_started(), "schema_version": True}, self._boundary_stopped(0)],
+            ),
         ):
             facts = build_request_facts(boundary_path=self._write(f"{suffix}.jsonl", events))
             self.assertEqual(facts["availability"]["boundary"], "incomparable")

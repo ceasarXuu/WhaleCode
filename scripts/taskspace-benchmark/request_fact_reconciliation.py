@@ -40,7 +40,9 @@ def parse_boundary(
             )
         )
     elif (
-        starts[0].get("schema_version") != 1
+        not _integer(starts[0].get("schema_version"), 1)
+        or starts[0].get("schema_version") != 1
+        or not _integer(stops[0].get("schema_version"), 1)
         or stops[0].get("schema_version") != 1
         or not _integer(starts[0].get("limit"), 1)
         or not _integer(stops[0].get("request_count"))
@@ -66,7 +68,8 @@ def parse_boundary(
         index = len(claims) + 1
         digest = event.get("body_sha256")
         valid = (
-            event.get("schema_version") == 1
+            _integer(event.get("schema_version"), 1)
+            and event.get("schema_version") == 1
             and _integer(event.get("count"), 1)
             and event.get("count") == index
             and event.get("method") == "POST"
