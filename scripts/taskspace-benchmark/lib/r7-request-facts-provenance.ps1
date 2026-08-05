@@ -3,6 +3,7 @@ function Get-R7RequestFactsAnalyzerIdentity {
     $relativePaths = @(
         "request_facts.py",
         "request_fact_availability.py",
+        "request_fact_diagnostics.py",
         "request_fact_summary.py",
         "request_fact_validation.py"
     )
