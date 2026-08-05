@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase A A1+A2 passed / production integration pending
+- Status: Phase A A1 passed / A2 reopened / production integration blocked
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -61,7 +61,7 @@ Runtime 计划必须包含以下三类事实：
 |---|---|---|---|
 | Map call | `taskspace_control` 原生参数和序列位置 | 预检后调用原 handler | canonical Map transaction |
 | Client call | 原生 Tool 名、原生输入、`node_id` | 预检后调用原 Router 一次 | 原生 Tool result |
-| Hosted scope | 本响应 Hosted 事实所属的 `hosted_node_id` | 从原始 output item 读取真实身份并登记，不执行 | provider 原始 output item |
+| Hosted binding | 每项 Hosted 动作的 `node_id` 与可机械核对的逐项声明 | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
 
 内部语法不是第二份业务 Tool schema：Tool 名、描述、输入和输出合同都从原 ToolSpec 派生；`node_id` 和序列位置属于
 外层 TaskSpace invocation metadata，不能写回普通 Tool 参数。
@@ -80,7 +80,7 @@ Runtime 计划必须包含以下三类事实：
 | `work + map-epilogue + next work` | 完成节点并继续独立后续工作 | epilogue 与后续 prelude 的边界必须可机械判定 |
 | `work + terminal map` | 完成最后工作并显式关闭 Map | `finish_map` 只能位于终态边界 |
 | `read-only work` | 读取事实，等待结果后再决定下一步 | 允许单个读取或多个无结果依赖读取 |
-| `hosted_node_id + 其他合法形状` | 登记同一 provider response 已完成的 hosted 动作 | 作用域不改变 client/map 的先后关系 |
+| `hosted_bindings[] + 其他合法形状` | 逐项登记同一 provider response 已完成的 hosted 动作 | 每项可绑定不同节点；声明不改变 client/map 的先后关系 |
 
 以下行为非法：
 
@@ -131,25 +131,28 @@ Runtime 不负责决定应调用什么、选择哪个节点、补调用、改参
 Provider-hosted Tool 由 provider 在响应生成过程中原生执行。它的原始输出是唯一执行事实，不能被
 `taskspace_exec` 回滚、重执行或替换。
 
-Agent 在同一响应的 `taskspace_exec` 中声明一个 `hosted_node_id`。Runtime 使用 provider 原始输出逐项登记：
+Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作分别声明 `node_id`。Runtime 使用 provider 原始输出逐项核对：
 
+- 绑定最小单位是一个带独立 Provider 身份的原始 hosted output item，不是整个响应或 Runtime 推断的语义任务组；
 - 从每个真实 hosted output item 直接读取唯一 `id/item_id` 和 Tool 类型；
-- 将同一响应中的全部 Hosted 事实绑定到 Agent 声明的节点；
-- 检查节点是否存在、Provider ID 是否缺失或重复；
+- 将每项 Hosted 事实绑定到该项 Agent 声明的节点；
+- 允许同一响应中的不同 Hosted 事实归属不同节点，也允许多项事实归属同一节点；
+- 检查声明与事实是否一一对应、节点是否存在、Provider ID 是否缺失或重复；
 - 保留 Provider 状态，但不以成功或失败改变节点状态。
 
-Agent 不得回显、复制或另造 Provider 传输身份。缺少节点声明时保留 provider 原始事实并明确标记未绑定；不得吞掉
-结果、猜节点或再次执行 hosted Tool。同一响应需要把 Hosted 工作归属多个节点时，应拆为多个响应；当前合同不使用
-顺序、URL 或内容匹配扩展该能力。
+Agent 不得回显、复制或另造 Provider 传输身份。Agent 声明与 Provider 事实之间采用何种非语义、可唯一核验的关联键，
+仍是 A2 必须验证并冻结的工程合同；不得用 URL、结果内容或语义相似度猜配。缺少声明、无法唯一对应、节点非法、
+Provider ID 缺失或冲突时，该响应不被 TaskSpace 接受，不能把事实标记为已结算的 `unbound`，也不能默认写到 Root。
+Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validator 判断；A2 不新增节点业务语义。
 
 ### 5.3 失败与结算矩阵
 
 | 响应事实 | Hosted 事实 | 尚未发生的 client/map | 原因 |
 |---|---|---|---|
-| 缺少 outer exec 或 source 无法解码 | 原样保存为 Root/unbound | 零执行 | 没有可信的 Agent 节点与动作声明 |
-| plan 可解码但违反 Agent 合同或 canonical Map 硬规则 | 原样保存为 Root/unbound | 零执行、Map 零提交 | 不从被拒绝的计划中选择性接受状态声明 |
-| plan 合法，Hosted 节点存在或由合法 prelude 创建 | 用真实 Provider ID 记录为该节点事件 | 按预检计划执行 | Agent 决定节点，Runtime 机械落账 |
-| Provider fact 缺 ID 或同一 ID 重复 | 受影响事实保持 unbound 并报告机械错误 | 其他合法 client/map 不因 Provider 缺陷被取消 | Provider 动作已经发生，阻断后续动作不能恢复它 |
+| 缺少 outer exec 或 source 无法解码 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 没有可信的 Agent 节点与动作声明 |
+| plan 可解码但违反 Agent 合同或 canonical Map 硬规则 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 不从被拒绝的计划中选择性接受状态或归属声明 |
+| plan 合法，全部 Hosted 声明一一对应，节点存在或由合法 prelude 创建 | 用真实 Provider ID 逐项记录为各自节点事件 | 按预检计划执行 | Agent 逐项决定节点，Runtime 机械核验落账 |
+| 声明漏项、多项、歧义、节点非法，或 Provider fact 缺失/重复 ID | 保留在 provider 原始响应和诊断日志中，不默认写 Root 或未绑定池 | 整批拒绝，零执行、Map 零提交 | 未完整归属的响应不是可接受的 TaskSpace 事务 |
 | Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
 | client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果返回并按原 reservation 结算 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
 
@@ -192,7 +195,8 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
 | 内部 source 语法 | A1 离线通过 | `taskspace.plan(<strict JSON>);` 在副作用前生成唯一 typed plan；Agent 生成稳定性仍待获批真实验证 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
-| Hosted 稳定引用与节点归属 | A2 通过 | Agent 只声明 `hosted_node_id`；Runtime 直接复用 Provider `id/item_id`，不要求 Agent 回显传输身份 |
+| Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
+| Hosted 逐项多节点归属 | A2 未完成 | 必须证明同响应 0～N 项 Hosted 事实可由 Agent 逐项声明并唯一核对；任何不完整归属整批拒绝 |
 
 ## 9. 验收标准
 
@@ -200,7 +204,8 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 2. Agent 可在一个 `taskspace_exec` 中提交初始化并工作、多个独立 work、完成并继续、完成并结束。
 3. 每个 client call 的 `node_id` 由 Agent 声明，但原 Tool schema 和 handler 完全不知道 TaskSpace。
 4. 非法 client/map 序列在明确边界内零执行、Map 零提交；边界由 TX-04 的可证伪结果冻结。
-5. provider 原始 output 的真实 ID 逐项绑定到 Agent 声明节点；缺声明、缺 ID 和重复 ID 可稳定发现且不重执行。
+5. provider 原始 output 的真实 ID 与 Agent 逐项节点声明一一核对；同响应可绑定多个节点，任何缺失、歧义、错配、
+   非法节点或身份冲突均整批拒绝且不使用默认 Root/未绑定池降级。
 6. Tool 结果完整进入 Agent context 一次；失败语义、节点状态和 provider reconciliation 不互相伪装。
 7. 旧入侵、旧容器和 sibling 生产路径在原子切换后删除，当前源码不保留兼容分支。
 8. 确定性测试、日志、缓存门禁和获批真实样本共同证明正确性；真实样本不以一次成功宣称稳定。

@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase A completed / Phase B1 plan refined / 生产代码尚未接入
+- Status: Phase A reopened at A2 / Phase B blocked / 生产代码尚未接入
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -14,9 +14,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 和 `taskspace_control` 的能力说明由
    `taskspace_exec` 从原生 `ToolSpec` 派生并在内部暴露。
 3. Agent 在 `taskspace_exec` 内声明待执行的 client Tool、每次调用的 `node_id`、TaskSpace Map 操作，以及本响应
-   已完成 provider-hosted Tool 的节点归属。
-4. Runtime 对 client 部分执行机械预检、解析和原生 Tool dispatch；对 provider 部分不重执行。Agent 只声明本响应
-   Hosted 事实所属的 `hosted_node_id`，Runtime 直接复用 provider 原始结果中的 `id/item_id` 逐项登记。
+   每项已完成 provider-hosted Tool 的节点归属。
+4. Runtime 对 client 部分执行机械预检、解析和原生 Tool dispatch；对 provider 部分不重执行。Runtime 直接复用
+   provider 原始结果中的 `id/item_id`，但节点归属必须由 Agent 逐项声明并完整核对。
 5. `taskspace_exec` 只增加两个 TaskSpace 职责：合法序列和节点绑定。它不规划任务、不选择节点、不解释 Tool 结果，
    也不根据 Tool 成败推进节点状态。
 
@@ -34,9 +34,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   provider-hosted 逐项双写身份在所有 provider 输出上的稳定性。
 - 当前生产代码仍运行旧 sibling 协议。文档主方案切换不等于生产切换；正式切换必须是一次可验证的原子迁移，随后
   删除旧路径，不保留兼容双轨。
-- Phase A 已证明严格声明式 source、完整 typed plan、零副作用 preflight，以及“Agent 声明节点、Runtime 复用真实
-  Provider ID”的 Hosted reconciliation。此前要求 Agent 回显 `response_id/type/item_id` 是错误重复合同，已在 A2
-  复验中删除；A1、A2 均通过，可以进入 Phase B。
+- Phase A 已证明严格声明式 source、完整 typed plan、零副作用 preflight，以及 Runtime 可直接读取 Provider
+  `id/item_id`。A2 先前只验证了整响应单节点原型，未覆盖同响应多 Hosted 动作分别绑定多个节点，也错误接受了
+  Root/unbound 降级；A2 已回撤为未完成，Phase B 暂停。
 
 ## 3. 文档
 
@@ -49,7 +49,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    唯一映射，以及 I07 计数子问题的 TX-00 边界。
 5. [`04-phase-a-discovery.md`](04-phase-a-discovery.md)：当前生产、Codex 上游 seam 和旧协议删除清单。
 6. [`05-phase-a-result.md`](05-phase-a-result.md)：TX-01～TX-05 实施结果和 A2 纠偏结论。
-7. [`06-a2-revalidation-result.md`](06-a2-revalidation-result.md)：A2 验收合同、证据重放、代码修正和回归结果。
+7. [`06-a2-revalidation-result.md`](06-a2-revalidation-result.md)：A2 既有证据、失效结论和重新打开原因。
+8. [`07-a2-multi-node-binding-validation-plan.md`](07-a2-multi-node-binding-validation-plan.md)：逐项多节点绑定、整批拒绝与
+   Provider 可行性验证计划。
 
 ## 4. 推进规则
 

@@ -1,6 +1,9 @@
 # TS-06 Hosted 响应级归属合同验证
 
-> **已封存证据（2026-08-05）**：响应级单节点归属不是现行方案；fixture 保留用于验证 TaskSpace Exec 的逐项双写核对。
+> **已封存证据（2026-08-05）**：响应级单节点归属不是现行方案；fixture 只保留为反例。
+>
+> **结论回撤（2026-08-06）**：单 `hosted_node_id` 自洽不等于产品合同成立，Root/unbound 降级也不被接受。当前逐项
+> 多节点计划见 [`../taskspace-exec/07-a2-multi-node-binding-validation-plan.md`](../taskspace-exec/07-a2-multi-node-binding-validation-plan.md)。
 
 - Date: 2026-08-05
 - Status: Hosted 归属片段 verified / production 未接线

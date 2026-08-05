@@ -2,6 +2,9 @@
 
 > **已封存 / 禁止继续执行（2026-08-05）**：独立顶层容器已降级为候选。现行生产计划见
 > [`../taskspace-exec/02-engineering-plan.md`](../taskspace-exec/02-engineering-plan.md)。本文中的 planned 单元全部失效。
+>
+> **Hosted 结论失效（2026-08-06）**：响应级单 `hosted_node_id`、同响应单节点和 Root/unbound 降级合同不得继续使用。
+> 当前验证见 [`../taskspace-exec/07-a2-multi-node-binding-validation-plan.md`](../taskspace-exec/07-a2-multi-node-binding-validation-plan.md)。
 
 - Created: 2026-08-02
 - Updated: 2026-08-05

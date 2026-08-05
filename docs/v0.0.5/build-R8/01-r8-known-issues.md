@@ -10,9 +10,9 @@
 > 配对路线已降级并封存在 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。主方案实施并验证后重新盘点
 > 本表；现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
 
-TaskSpace Exec Phase A 的 A1、A2 已通过。A2 复验确认 Provider output 自带的 `id/item_id` 是唯一执行身份，Agent 只声明
-响应级 `hosted_node_id`，Runtime 直接登记真实事实；此前要求 Agent 回显 Provider 传输身份的原型已删除。该结果解除
-Phase B 入口阻塞，但尚未改变本表 I01～I10 的状态。
+TaskSpace Exec Phase A 的 A1 已通过，A2 于 2026-08-06 回撤为未完成。既有证据只确认 Runtime 可直接读取 Provider
+output 的 `id/item_id`，未证明同一响应中的多项 Hosted 动作可由 Agent 分别绑定到多个节点。此前整响应单节点和
+Root/unbound 降级合同不符合产品约束；Phase B 入口重新阻断，但本表 I01～I10 的状态不变。
 
 TaskSpace Exec 与全局问题的处理边界统一记录在
 [`taskspace-exec/03-global-issue-prerequisite-review.md`](taskspace-exec/03-global-issue-prerequisite-review.md)：I07 已确认的

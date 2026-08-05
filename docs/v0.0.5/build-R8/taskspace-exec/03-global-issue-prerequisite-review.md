@@ -101,6 +101,7 @@ TX-00  修复 I07 已确认的 usage/request 聚合错误
   -> Phase A  TX-01～TX-05
        TX-02 冻结 I10 capability identity 合同
        TX-03/TX-04 冻结 I06 typed plan 与 preflight
+       TX-05 完成逐项多节点 Hosted 绑定与整批拒绝验证；当前阻断
   -> Phase B1 TX-06～TX-08
        TX-06 接通 I10 单一 catalog identity
        TX-07/08 接通 response-local envelope 和 outer executor

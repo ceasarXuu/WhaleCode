@@ -1,7 +1,7 @@
 # R8 TaskSpace 全局约束
 
 - Created: 2026-07-31
-- Updated: 2026-08-05
+- Updated: 2026-08-06
 - Status: Active
 - Scope: 产品、设计、实现、测试和评测
 
@@ -22,8 +22,9 @@
 3. Runtime 不自动初始化、不代选节点、不补动作、不修改参数、不解释任务语义，也不因 Agent 可能犯错增加语义约束。
 4. TaskSpace 下 Agent 只通过 Function Call 形态的 `taskspace_exec` 提交 client/map 动作；普通 client Tool 和
    `taskspace_control` 都由该工具内部声明，不再作为 TaskSpace 顶层 sibling Tool 暴露。
-5. Provider-hosted Tool 保持 provider 原生能力和执行路径；Agent 在同一响应的 `taskspace_exec` 中双写其节点归属，
-   Runtime 逐项核对错绑、漏绑、重复和未知引用，但不重执行或猜配。
+5. Provider-hosted Tool 保持 provider 原生能力和执行路径；Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作
+   分别声明节点归属，Runtime 逐项核对声明与事实的结构错配、漏项、重复和未知引用，但不判断节点的业务语义是否合适，
+   也不重执行或猜配。同一响应可归属多个节点。
 6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个 client/provider 动作显式声明 `node_id`；Runtime 只
    解析和校验，不推断或选择归属，`node_id` 不得进入普通 Tool 原生参数。
 7. `taskspace_exec` 只负责承载合法序列和节点绑定；`taskspace_control` 只提供 Map 操作和读取能力，在内部执行路径中
@@ -32,6 +33,9 @@
    从同一原生 ToolSpec 机械派生，不手写第二套协议。
 9. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
    只有主方案被证据否定且用户重新决策后才能恢复评估。
+10. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
+    保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Agent 若
+    显式声明 Root 节点，是否合法仍只由 canonical Map 规则判断。
 
 ## 3. 动作与状态硬约束
 

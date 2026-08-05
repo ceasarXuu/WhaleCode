@@ -67,7 +67,8 @@ code-mode 可见性。当前 Whale vendor 尚未同步这组 seam。
 - `sequence_manifest.rs` 的旧 TaskSpace manifest 事实；
 - `taskspace_sequence_context.rs` 中依赖 sibling `call_id/call_index` 的旧载体形状；
 - `provider_tool_declaration.rs` 中“隐藏 hosted Tool 后拒绝 output”的旧声明逻辑；
-- `taskspace_hosted_binding_contract_tests.rs` 的单 `hosted_node_id` 整批绑定原型；
+- `taskspace_hosted_binding_contract_tests.rs` 的单 `hosted_node_id` 整批绑定原型；该原型已被 A2 回撤结论否定，只保留为
+  迁移反例，不得进入生产合同；
 - 旧 pairing receipt、supplemental factual message 和相关 prompt/schema 合同。
 
 普通 Tool handler、Router、permission、sandbox、hook、Map store、provider 原始 output item 不在删除范围。
@@ -77,5 +78,5 @@ code-mode 可见性。当前 Whale vendor 尚未同步这组 seam。
 - Function 超级 Tool、内部 ToolSpec 派生和原 Router dispatch 均有现成 seam；
 - 任意 JavaScript 实时执行不能提供 TaskSpace 所需的“完整计划先于副作用”保证；
 - Web Search 和 Image Generation 的 output item 均有 provider item identity 字段，但 Web Search ID 可缺失，必须在
-  TX-05 fail closed，不能按顺序或内容猜配；
+  TX-05 fail closed，不能按内容或语义猜配，也不能写 Root/unbound 后继续；
 - Phase A 可以在不接生产入口的条件下继续；Phase B 的共享 catalog 接线需调整为“先对齐上游 ToolExposure seam”。

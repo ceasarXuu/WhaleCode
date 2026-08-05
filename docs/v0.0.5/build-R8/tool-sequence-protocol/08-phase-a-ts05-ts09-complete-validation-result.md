@@ -1,6 +1,9 @@
 # Phase A TS-05～TS-09 完整验证结果
 
 > **已封存证据（2026-08-05）**：旧容器 Phase B 不再启动；本文的生产 blocker 需按 TaskSpace Exec 新合同重新盘点。
+>
+> **Hosted 结论回撤（2026-08-06）**：本文的响应级单节点和 unbound 处理只属于已否定原型，不能证明当前 A2 完成。
+> 当前计划见 [`../taskspace-exec/07-a2-multi-node-binding-validation-plan.md`](../taskspace-exec/07-a2-multi-node-binding-validation-plan.md)。
 
 - Date: 2026-08-05
 - Status: Phase A directional feasibility completed

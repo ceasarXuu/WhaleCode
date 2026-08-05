@@ -2,6 +2,10 @@
 
 > **已封存证据（2026-08-05）**：旧容器方案不再实施；Hosted 原始响应与身份观测仍有效，需由 TaskSpace Exec 的
 > 双写 reconciliation 重新解释。
+>
+> **结论回撤（2026-08-06）**：第 5 节的响应级单节点候选与 unbound 恢复方向不再有效。探针只证明 Runtime 可取得
+> Provider ID、Hosted 与 Function 可同响应共存；它没有证明逐项多节点绑定。当前计划见
+> [`../taskspace-exec/07-a2-multi-node-binding-validation-plan.md`](../taskspace-exec/07-a2-multi-node-binding-validation-plan.md)。
 
 - Date: 2026-08-05
 - Record: `WAR-20260805-005841-R8-HOSTED-PROBE-DCF750E2`

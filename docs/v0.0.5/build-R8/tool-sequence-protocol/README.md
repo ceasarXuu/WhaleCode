@@ -3,6 +3,10 @@
 > **已封存 / 非主方案（2026-08-05）**：本专题中的 Tool schema 入侵、独立顶层结构化容器和 control manifest +
 > sibling calls 路线均已降级为候选，不得继续按本文档实施生产代码。当前主方案见
 > [`../taskspace-exec/`](../taskspace-exec/README.md)。本文只保留历史实验、反例和可复用的 Router/Hosted/状态边界证据。
+>
+> **Hosted 结论失效（2026-08-06）**：本文及子文档中的“同一响应 Hosted 事实只归属一个节点”和“异常写为
+> Root/unbound 后继续”均已撤销，不得作为当前产品合同或实施依据。替代验证见
+> [`../taskspace-exec/07-a2-multi-node-binding-validation-plan.md`](../taskspace-exec/07-a2-multi-node-binding-validation-plan.md)。
 
 - Created: 2026-08-01
 - Updated: 2026-08-05
