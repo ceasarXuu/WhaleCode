@@ -50,6 +50,13 @@
 15. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
     保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Agent 若
     显式声明 Root 节点，是否合法仍只由 canonical Map 规则判断。
+16. TaskSpace Exec 从 Standard 的原生 ToolSpec、ToolRouter、Provider response lifecycle 和 canonical Action Map
+    原语零基础建设。旧 `taskspace_control.actions[] + sibling calls` 的 schema、parser、handler glue、sequence、context、
+    response gate、feedback carrier 和测试不得作为过渡层、adapter 或兼容路径保留。
+17. 旧 `taskspace_control` 不是新协议的原生合同。新 Map Tool 合同必须从 canonical Action Map 操作重新建立，Map 操作中
+    不得包含普通 Tool manifest、sibling 位置、普通 Tool 名复述或外层节点归属；这些只属于 `taskspace_exec`。
+18. 重建期间不维持旧 TaskSpace 可运行性，也不以 Standard fallback 冒充 TaskSpace。每个提交只需保持代码库构建与
+    Standard 回归成立；TaskSpace 只有在新入口达到对应阶段门禁后才恢复可运行状态。
 
 ## 3. 动作与状态硬约束
 
@@ -121,3 +128,4 @@
 - 一个改动同时改变反馈、Tool schema、projection 和状态机，无法单独归因；
 - 缓存改善伴随语义缺失、业务回归或连续动作退化；
 - 为通过测试加入针对 sample 内容的特殊规则。
+- 为维持旧 TaskSpace 可运行而新增 adapter、fallback、双 schema、双 parser 或条件兼容分支。

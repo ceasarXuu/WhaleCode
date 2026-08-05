@@ -2,14 +2,18 @@
 
 - Created: 2026-08-05
 - Revised: 2026-08-06 after `se-good-plan` review
-- Status: Phase A direction-supported / Phase B1 in progress / TX-06A complete
-- Plan validity: valid-with-qualifications
+- Status: Superseded after TX-06A by zero-base Phase B decision
+- Plan validity: invalidated after TX-06A; retained as historical evidence
 - Risk depth: Full
 - Product contract: [`00-product-contract.md`](00-product-contract.md)
 - Upstream evidence: [`01-upstream-and-feasibility-evidence.md`](01-upstream-and-feasibility-evidence.md)
 - Issue dependency review: [`03-global-issue-prerequisite-review.md`](03-global-issue-prerequisite-review.md)
 - Integrates: I10 能力身份、I06 统一 admission、I01/I02/I05 结果合同、I07 新协议观测
 - Excludes: projection 三模式重构、Map 压缩、旧数据兼容、Provider Tool proxy
+
+> **Superseded on 2026-08-06:** 本计划中“保留旧 sibling 生产路径直到 TX-15/16 原子切换”的实施顺序已失效。
+> TX-06A 的中立 ToolSpec projection 实现和 Phase A 证据继续有效；TX-06B 之后的 active 执行统一以
+> [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md) 为准。不得从本文件恢复 adapter、双 schema 或旧协议兼容。
 
 ## 1. 问题与最小建设方向
 
