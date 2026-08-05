@@ -157,7 +157,7 @@ I07 不作为所有问题的整体前置。每个底层问题先建设自身所�
 
 例外仅限 I07 中已经由同一真实 trace 和当前源码同时证明的 request/usage 双计：它作为 TaskSpace Exec TX-00 在
 Phase A 前修复。I07 的 local attempt/boundary 对账由 [专题计划](I07/00-i07-observability-trust-repair-plan.md) 收敛，
-新协议 item/node 关联再进入 TX-11；TX-00 通过不关闭完整 I07。
+新协议 item/node 关联再进入 TX-14；TX-00 通过不关闭完整 I07。
 
 ## 5. 已知但不作为独立问题迁移
 

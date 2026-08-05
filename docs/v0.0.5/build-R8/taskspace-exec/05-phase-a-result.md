@@ -74,10 +74,10 @@ Runtime 从同一响应中的 `web_search_call`、`image_generation_call` 等原
 ## 5. 后续计划
 
 1. TX-06 将 Phase A catalog 接到唯一 effective ToolSpec snapshot，不在旧 `spec.rs` 建长期平行 catalog。
-2. TX-07/08 建立未接线 handler，并让 client/map 调用继续经过原 Router 和 canonical Map validator。
-3. TX-09 把响应级 Hosted collector 接入真实 response lifecycle，使用 `hosted_node_id + Provider item ID` 结算。
-4. TX-10/11 建立唯一结果和可复算日志；不新增 developer factual carrier。
-5. TX-12/13 才执行生产投影原子切换和旧协议删除。
+2. TX-07/08 在现有 response lifecycle 建立临时 envelope 和唯一 outer executor，不使用 Session 全局暂存。
+3. TX-09～TX-12 分别接入 canonical Map admission、原 Router、Hosted 结算和 Event Store 幂等持久化。
+4. TX-13/14 建立唯一结果和可复算日志；不新增 developer factual carrier。
+5. TX-15/16 才执行生产投影原子切换和旧协议删除。
 
 ## 6. 验证
 

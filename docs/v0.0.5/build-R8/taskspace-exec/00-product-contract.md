@@ -94,6 +94,26 @@ Runtime 计划必须包含以下三类事实：
 
 ## 5. 执行与状态边界
 
+### 5.0 响应级执行边界
+
+`taskspace_exec` 在 Provider 请求中是标准 Function Tool；Provider 返回的 outer Function Call 仍使用原生 `call_id` 与
+FunctionCallOutput 配对。它与普通业务 Tool 的差异只发生在 Runtime 接收响应之后：它需要同时看到同一响应内已经完成的
+Hosted facts，才能完成 TaskSpace 归属结算。
+
+Runtime 复用现有 `session/turn` 生命周期建立一个仅在当前响应存活的 envelope：
+
+```text
+OutputItemDone(Web/Image)       -> 收集原始 Hosted ResponseItem
+OutputItemDone(taskspace_exec)  -> 收集唯一 outer Function Call
+response.completed(response_id) -> 冻结 envelope 并开始 TaskSpace Exec 处理
+```
+
+该 envelope 不是 Map、Session 全局状态或第二份事件存储。它不跨响应、不写入 Agent context、不通过重放重建；完成事件后
+直接消费并释放。`response_id` 只作为 Runtime 日志关联字段，不进入 Agent 输入和 Provider fact 的权威身份。
+
+TaskSpace response 只允许一个 outer `taskspace_exec`。Hosted facts 可以是 0～N 项；顶层普通 client Tool 和顶层
+`taskspace_control` 仍非法。Provider 返回完成前不执行任何尚未发生的 client/map 调用。
+
 ### 5.1 Client Tool
 
 Runtime 负责：
@@ -122,7 +142,22 @@ Agent 不得回显、复制或另造 Provider 传输身份。缺少节点声明�
 结果、猜节点或再次执行 hosted Tool。同一响应需要把 Hosted 工作归属多个节点时，应拆为多个响应；当前合同不使用
 顺序、URL 或内容匹配扩展该能力。
 
-### 5.3 Tool 与节点状态正交
+### 5.3 失败与结算矩阵
+
+| 响应事实 | Hosted 事实 | 尚未发生的 client/map | 原因 |
+|---|---|---|---|
+| 缺少 outer exec 或 source 无法解码 | 原样保存为 Root/unbound | 零执行 | 没有可信的 Agent 节点与动作声明 |
+| plan 可解码但违反 Agent 合同或 canonical Map 硬规则 | 原样保存为 Root/unbound | 零执行、Map 零提交 | 不从被拒绝的计划中选择性接受状态声明 |
+| plan 合法，Hosted 节点存在或由合法 prelude 创建 | 用真实 Provider ID 记录为该节点事件 | 按预检计划执行 | Agent 决定节点，Runtime 机械落账 |
+| Provider fact 缺 ID 或同一 ID 重复 | 受影响事实保持 unbound 并报告机械错误 | 其他合法 client/map 不因 Provider 缺陷被取消 | Provider 动作已经发生，阻断后续动作不能恢复它 |
+| Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
+| client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果返回并按原 reservation 结算 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
+
+合法计划的 Map prelude、Hosted 事件 owner 和 client reservation 必须通过现有 canonical Map transaction 接缝一次准备；
+Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落为 Node owner。Runtime 不增加独立 binding database，继续
+复用 `TaskSpaceEventStore` 的 `provider_item_id + owner` 和现有 Map 持久化路径完成幂等恢复与冲突检查。
+
+### 5.4 Tool 与节点状态正交
 
 Tool 的成功、失败、进行中或完成不自动改变节点状态。节点完成、阻塞、Map 关闭和 reopen 均只能来自 Agent 的显式
 `taskspace_control` 操作，并受 canonical Map 规则验证。

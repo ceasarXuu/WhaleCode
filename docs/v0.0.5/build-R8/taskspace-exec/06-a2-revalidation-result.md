@@ -64,5 +64,5 @@ python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 A2 通过。Provider Tool 的真实结果有可直接复用的唯一身份；Agent 负责声明节点，Runtime 负责读取和登记，不需要延迟到
 下一请求，也不需要生成 opaque 引用。
 
-尚未完成的是 Phase B 生产接线、canonical 节点存在性检查、真实 response collector 和持久 binding ledger。这些是
-TX-06～TX-11 的实施工作，不再是 A2 产品决策阻塞。
+尚未完成的是 Phase B 生产接线、canonical 节点存在性检查、真实 response collector 和 Event Store 幂等归属。这些已
+拆入 TX-06～TX-14，不再是 A2 产品决策阻塞。

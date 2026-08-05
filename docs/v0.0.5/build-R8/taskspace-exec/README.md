@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase A completed / A1+A2 passed / 生产代码尚未接入
+- Status: Phase A completed / Phase B1 plan refined / 生产代码尚未接入
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -43,7 +43,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 1. [`00-product-contract.md`](00-product-contract.md)：已确认的产品语义、Agent/Runtime/Provider 边界和非目标。
 2. [`01-upstream-and-feasibility-evidence.md`](01-upstream-and-feasibility-evidence.md)：最新 Codex 主线事实、本地 Function
    exec 证据和可复用边界。
-3. [`02-engineering-plan.md`](02-engineering-plan.md)：按最小闭环单元拆分的发现、实现、切换、清理和验证计划。
+3. [`02-engineering-plan.md`](02-engineering-plan.md)：根据 Phase A 结果重排后的 response envelope、Map/dispatch、Hosted
+   持久化、反馈、切换和验证计划。
 4. [`03-global-issue-prerequisite-review.md`](03-global-issue-prerequisite-review.md)：I01～I10 哪些前置、融入或后置的
    唯一映射，以及 I07 计数子问题的 TX-00 边界。
 5. [`04-phase-a-discovery.md`](04-phase-a-discovery.md)：当前生产、Codex 上游 seam 和旧协议删除清单。

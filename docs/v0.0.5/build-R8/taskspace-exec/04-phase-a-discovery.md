@@ -40,7 +40,7 @@ TurnContext
 |---|---|---|
 | 原生 Tool 合同 | `codex-tools::ToolSpec` | 能力快照和内部说明的唯一来源 |
 | Function/Freeform/Namespace 派生 | `codex-tools::collect_code_mode_exec_prompt_tool_definitions` | TX-02 先冻结快照身份，TX-06 再抽成中性共享接口 |
-| 原生 Tool 执行 | `core/src/tools/registry.rs`、`router.rs` | TX-08 机械还原后复用，不新建 executor |
+| 原生 Tool 执行 | `core/src/tools/registry.rs`、`router.rs` | TX-10 机械还原后复用，不新建业务 Tool executor |
 | nested payload 转换 | `core/src/tools/code_mode/mod.rs` | 只复用原生 payload/结果转换，不复用边执行边求值语义 |
 | Map 参数解析 | `handlers/taskspace_control_args.rs` | TX-04/Phase B 复用，不复制 Map 业务规则 |
 | hosted 原始事实 | `codex_protocol::models::ResponseItem` | TX-05 从 Web/Image output item 提取稳定身份 |
@@ -61,7 +61,7 @@ code-mode 可见性。当前 Whale vendor 尚未同步这组 seam。
 
 ## 4. 旧入口删除清单
 
-以下对象在 TX-12 原子切换验证前保留，在 TX-13 一次删除，不做兼容：
+以下对象在 TX-15 原子切换验证前保留，在 TX-16 一次删除，不做兼容：
 
 - `sequence_preflight.rs` 中 TaskSpace control-first、actions/sibling 数量与位置配对；
 - `sequence_manifest.rs` 的旧 TaskSpace manifest 事实；
