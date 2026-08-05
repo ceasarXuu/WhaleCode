@@ -1,7 +1,7 @@
 # Problem P-001: I07 请求、用量和 Provider 边界事实被混同
 - Status: open
 - Created: 2026-08-05 07:59
-- Updated: 2026-08-05 07:59
+- Updated: 2026-08-05 08:58
 - Objective: 让性能观察从唯一身份忠实还原 logical request、local attempt、boundary request、completed response 和 usage
 - Symptoms:
   - 8 个 completed Provider responses 被 rollout summary 统计为 15 个请求并近似双计 token
@@ -31,7 +31,7 @@
   - 10/11 fixture报告 10 boundary、11 attempts、1 local-only failed attempt
   - 所有请求数消费者使用同一规范化事实，身份冲突 fail closed
   - TaskSpace Exec 接入前完成 I07-W0～W8，不运行真实 Whale Agent
-- Current conclusion: 两个根因均已由源码和真实 trace 交叉确认，进入已授权修复
+- Current conclusion: 当前协议的 W0～W8 独立修复与 W10 离线结算完成；完整 I07 等待 TaskSpace Exec W9/W11
 - Related hypotheses:
   - H-001
   - H-002
@@ -429,3 +429,28 @@ I07 characterization: PASS (usage 8/15 and boundary 10/11 fixed)
   ```
 - Interpretation: observer 数字变化现在可以定位到输入、排除、对账或 finding 分类；诊断产物不进入 Agent context，也不记录敏感业务语义
 - Time: 2026-08-05 08:55
+
+## Evidence E-013: W10 独立修复离线结算
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/test-r7-request-observability-report.ps1`
+- Prediction or plan link:
+  - I07-W10 在零 API 成本下结算当前协议的观测基础
+- Matched signal:
+  - 两个历史反例与所有负例保持预期
+  - 24-run 本地确定性矩阵逐 run 封存 request facts、sources、analyzer 和 commit provenance
+  - 完整 report 可在 clean worktree 从 sealed artifacts 重建并通过
+- Correlation keys:
+  - commit `63b0336d3`
+  - `r7-artifact-evidence-manifest` v2
+- Raw content:
+  ```text
+R7 request observability report passed.
+git status --short: empty
+real Whale Agent runs: 0
+  ```
+- Interpretation: 当前协议下可独立修复的 I07 缺陷已完成；W9/W11 仍依赖 TaskSpace Exec，不因本结果自动关闭
+- Time: 2026-08-05 08:58
