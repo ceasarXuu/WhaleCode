@@ -973,6 +973,8 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
 ([pscustomobject]@{
     schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
     provider_request_count = 1
+    provider_attempt_count = 1
+    comparison_eligible = $true
     trace_coverage = 1.0
     cache_usage_missing_count = 0
     request_shape_counts = [pscustomobject]@{ native_tools_schema_hot_path = 1 }
@@ -987,6 +989,8 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
 ([pscustomobject]@{
     schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
     provider_request_count = 2
+    provider_attempt_count = 2
+    comparison_eligible = $true
     trace_coverage = 1.0
     cache_usage_missing_count = 0
     request_shape_counts = [pscustomobject]@{ tool_free_action_contract = 2 }
@@ -1046,6 +1050,16 @@ Assert-True ([int64]$aggregateCacheSummary.section_cost_summary.section_bytes_to
 Assert-True ([int]$aggregateActiveProjection.request_sample_count -eq 2 -and [double]$aggregateActiveProjection.bytes_per_request_mean -eq 20 -and [double]$aggregateActiveProjection.bytes_per_request_median -eq 20) "aggregate provider section request statistics are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.bootstrap_count -eq 1 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.active_count -eq 1) "aggregate provider projection identity counts are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 2 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_revision_count -eq 1) "aggregate provider projection freshness evidence is incorrect"
+
+$rightSummaryPath = Join-Path $rightArtifacts "provider-cache-trace-summary.json"
+$rightIncomparable = Get-Content -Raw -Encoding UTF8 -LiteralPath $rightSummaryPath | ConvertFrom-Json -Depth 20
+$rightIncomparable.comparison_eligible = $false
+$rightIncomparable.request_2_plus_cached_input_tokens = $null
+$rightIncomparable.request_2_plus_uncached_input_tokens = $null
+$rightIncomparable | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
+$incomparableAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True (-not [bool]$incomparableAggregate.comparison_eligible -and $null -eq $incomparableAggregate.request_2_plus_hit_rate) "aggregate restored a cache rate from an incomparable side"
+Assert-True ($null -eq $incomparableAggregate.request_2_plus_cached_input_tokens -and $null -eq $incomparableAggregate.cache_usage_missing_count) "aggregate coerced incomparable cache totals to zero"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

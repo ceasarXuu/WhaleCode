@@ -716,6 +716,8 @@ function New-TaskspaceProviderCacheTraceArtifacts {
     $request2PlusMiss = [int64]0
     $request2PlusCount = 0
     $facts = if ($null -ne $RequestFacts) { $RequestFacts } else { Invoke-TaskspaceRequestFactsGenerator }
+    $usageMeasured = [string]$facts.availability.usage -eq "measured"
+    $boundaryMeasured = [string]$facts.availability.boundary -eq "measured"
     $budgetById = @{}
     foreach ($budgetEvent in @($BudgetEvents)) {
         if (-not [string]::IsNullOrWhiteSpace([string]$budgetEvent.request_id)) {
@@ -724,13 +726,13 @@ function New-TaskspaceProviderCacheTraceArtifacts {
     }
     foreach ($fact in @($facts.rows)) {
         $event = if ($budgetById.ContainsKey([string]$fact.request_id)) { $budgetById[[string]$fact.request_id] } else { $null }
-        $usage = Get-TaskspaceCostProperty $fact @("usage")
+        $usage = if ($usageMeasured) { Get-TaskspaceCostProperty $fact @("usage") } else { $null }
         $inputTokens = Get-TaskspaceCostProperty $usage @("input_tokens")
         $cachedTokens = Get-TaskspaceCostProperty $usage @("cached_input_tokens")
         $uncachedTokens = $null
         if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
             $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
-        } else {
+        } elseif ($usageMeasured) {
             $missingUsage++
         }
         $hitRate = if ($null -ne $cachedTokens -and $null -ne $uncachedTokens -and ([double]$cachedTokens + [double]$uncachedTokens) -gt 0) {
@@ -786,21 +788,26 @@ function New-TaskspaceProviderCacheTraceArtifacts {
         provider_cache_trace_events = @($events.ToArray())
         provider_cache_trace_summary = [pscustomobject]@{
             schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
-            provider_request_count = $count
+            provider_request_count = if ($boundaryMeasured) { [int64]$facts.summary.boundary_request_count } else { $null }
+            provider_request_source = if ($boundaryMeasured) { "request_facts_boundary" } else { "request_facts_unavailable" }
             provider_attempt_count = if ([string]$facts.availability.attempt -eq "measured") { [int64]$facts.summary.local_attempt_count } else { $null }
             completed_response_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.completed_response_count } else { $null }
             failed_or_cancelled_attempt_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.failed_or_cancelled_attempt_count } else { $null }
             source = "request_facts_without_wire_shape"
+            shape_observation_count = $count
+            request_facts_availability = $facts.availability
+            request_facts_findings = @($facts.findings | ForEach-Object { [string]$_.code } | Sort-Object -Unique)
+            comparison_eligible = $usageMeasured
             trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
-            cache_usage_missing_count = [int]$missingUsage
+            cache_usage_missing_count = if ($usageMeasured) { [int]$missingUsage } else { $null }
             request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
             native_tools_schema_hot_path_count = if ($shapeCounts.ContainsKey("native_tools_schema_hot_path")) { [int]$shapeCounts["native_tools_schema_hot_path"] } else { 0 }
             tool_free_action_contract_count = if ($shapeCounts.ContainsKey("tool_free_action_contract")) { [int]$shapeCounts["tool_free_action_contract"] } else { 0 }
             unknown_or_unclassified_count = if ($shapeCounts.ContainsKey("unknown_or_unclassified")) { [int]$shapeCounts["unknown_or_unclassified"] } else { 0 }
-            request_2_plus_count = [int]$request2PlusCount
-            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
-            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
-            request_2_plus_hit_rate = if ($request2PlusDenominator -gt 0) { [Math]::Round([double]$request2PlusHit / $request2PlusDenominator, 6) } else { $null }
+            request_2_plus_count = if ($usageMeasured) { [int]$request2PlusCount } else { $null }
+            request_2_plus_cached_input_tokens = if ($usageMeasured) { [int64]$request2PlusHit } else { $null }
+            request_2_plus_uncached_input_tokens = if ($usageMeasured) { [int64]$request2PlusMiss } else { $null }
+            request_2_plus_hit_rate = if ($usageMeasured -and $request2PlusDenominator -gt 0) { [Math]::Round([double]$request2PlusHit / $request2PlusDenominator, 6) } else { $null }
         }
     }
 }
@@ -842,6 +849,10 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
         Sort-Object FullName)
     $shapeCounts = @{}
     $providerRequestCount = 0
+    $providerRequestCountsMeasured = $true
+    $providerAttemptCount = 0
+    $providerAttemptCountsMeasured = $true
+    $cacheComparisonEligible = $true
     $coveredCount = 0
     $missingUsage = 0
     $request2PlusCount = 0
@@ -860,14 +871,24 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
     foreach ($file in $summaryFiles) {
         try { $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json } catch { continue }
         $cacheSummaries.Add($summary)
-        $count = if ($summary.PSObject.Properties.Name -contains "provider_request_count") { [int]$summary.provider_request_count } else { 0 }
-        $providerRequestCount += $count
+        $requestCountProperty = $summary.PSObject.Properties["provider_request_count"]
+        if ($null -eq $requestCountProperty -or $null -eq $requestCountProperty.Value) {
+            $providerRequestCountsMeasured = $false
+        } else { $providerRequestCount += [int]$requestCountProperty.Value }
+        $attemptCountProperty = $summary.PSObject.Properties["provider_attempt_count"]
+        if ($null -eq $attemptCountProperty -or $null -eq $attemptCountProperty.Value) {
+            $providerAttemptCountsMeasured = $false
+        } else { $providerAttemptCount += [int]$attemptCountProperty.Value }
+        $summaryCacheEligible = $summary.PSObject.Properties.Name -contains "comparison_eligible" -and [bool]$summary.comparison_eligible
+        if (-not $summaryCacheEligible) { $cacheComparisonEligible = $false }
         $coverage = if ($summary.PSObject.Properties.Name -contains "trace_coverage") { [double]$summary.trace_coverage } else { 0.0 }
-        $coveredCount += [int][Math]::Round($coverage * [double]$count)
-        if ($summary.PSObject.Properties.Name -contains "cache_usage_missing_count") { $missingUsage += [int]$summary.cache_usage_missing_count }
-        if ($summary.PSObject.Properties.Name -contains "request_2_plus_count") { $request2PlusCount += [int]$summary.request_2_plus_count }
-        if ($summary.PSObject.Properties.Name -contains "request_2_plus_cached_input_tokens") { $request2PlusHit += [int64]$summary.request_2_plus_cached_input_tokens }
-        if ($summary.PSObject.Properties.Name -contains "request_2_plus_uncached_input_tokens") { $request2PlusMiss += [int64]$summary.request_2_plus_uncached_input_tokens }
+        if ($null -ne $attemptCountProperty -and $null -ne $attemptCountProperty.Value) { $coveredCount += [int][Math]::Round($coverage * [double]$attemptCountProperty.Value) }
+        if ($summaryCacheEligible) {
+            if ($summary.PSObject.Properties.Name -contains "cache_usage_missing_count") { $missingUsage += [int]$summary.cache_usage_missing_count }
+            if ($summary.PSObject.Properties.Name -contains "request_2_plus_count") { $request2PlusCount += [int]$summary.request_2_plus_count }
+            if ($summary.PSObject.Properties.Name -contains "request_2_plus_cached_input_tokens") { $request2PlusHit += [int64]$summary.request_2_plus_cached_input_tokens }
+            if ($summary.PSObject.Properties.Name -contains "request_2_plus_uncached_input_tokens") { $request2PlusMiss += [int64]$summary.request_2_plus_uncached_input_tokens }
+        }
         if ($summary.PSObject.Properties.Name -contains "native_tools_schema_hot_path_count") { $nativeToolsCount += [int]$summary.native_tools_schema_hot_path_count }
         if ($summary.PSObject.Properties.Name -contains "tool_free_action_contract_count") { $toolFreeCount += [int]$summary.tool_free_action_contract_count }
         if ($summary.PSObject.Properties.Name -contains "unknown_or_unclassified_count") { $unknownCount += [int]$summary.unknown_or_unclassified_count }
@@ -891,20 +912,22 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
         provider_cache_trace_events = @($eventLines.ToArray())
         provider_cache_trace_summary = [pscustomobject]@{
             schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
-            provider_request_count = [int]$providerRequestCount
-            trace_coverage = if ($providerRequestCount -gt 0) { [Math]::Round([double]$coveredCount / [double]$providerRequestCount, 6) } else { 0.0 }
-            cache_usage_missing_count = [int]$missingUsage
+            provider_request_count = if ($providerRequestCountsMeasured) { [int]$providerRequestCount } else { $null }
+            provider_attempt_count = if ($providerAttemptCountsMeasured) { [int]$providerAttemptCount } else { $null }
+            comparison_eligible = $cacheComparisonEligible
+            trace_coverage = if ($providerAttemptCountsMeasured -and $providerAttemptCount -gt 0) { [Math]::Round([double]$coveredCount / [double]$providerAttemptCount, 6) } elseif ($providerAttemptCountsMeasured) { 0.0 } else { $null }
+            cache_usage_missing_count = if ($cacheComparisonEligible) { [int]$missingUsage } else { $null }
             request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
             native_tools_schema_hot_path_count = [int]$nativeToolsCount
             tool_free_action_contract_count = [int]$toolFreeCount
             unknown_or_unclassified_count = [int]$unknownCount
-            request_2_plus_count = [int]$request2PlusCount
-            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
-            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
-            request_2_plus_hit_rate = if ($denominator -gt 0) { [Math]::Round([double]$request2PlusHit / $denominator, 6) } else { $null }
-            zero_cache_hit_count = [int]$zeroCacheHitCount
-            cache_warmup_candidate_count = [int]$cacheWarmupCandidateCount
-            same_shape_zero_hit_count = [int]$sameShapeZeroHitCount
+            request_2_plus_count = if ($cacheComparisonEligible) { [int]$request2PlusCount } else { $null }
+            request_2_plus_cached_input_tokens = if ($cacheComparisonEligible) { [int64]$request2PlusHit } else { $null }
+            request_2_plus_uncached_input_tokens = if ($cacheComparisonEligible) { [int64]$request2PlusMiss } else { $null }
+            request_2_plus_hit_rate = if ($cacheComparisonEligible -and $denominator -gt 0) { [Math]::Round([double]$request2PlusHit / $denominator, 6) } else { $null }
+            zero_cache_hit_count = if ($cacheComparisonEligible) { [int]$zeroCacheHitCount } else { $null }
+            cache_warmup_candidate_count = if ($cacheComparisonEligible) { [int]$cacheWarmupCandidateCount } else { $null }
+            same_shape_zero_hit_count = if ($cacheComparisonEligible) { [int]$sameShapeZeroHitCount } else { $null }
             tool_choice_transition_count = [int]$toolChoiceTransitionCount
             cache_shape_transition_count = [int]$cacheShapeTransitionCount
             section_cost_summary = Merge-TaskspaceProviderSectionCostSummaries @($cacheSummaries.ToArray())

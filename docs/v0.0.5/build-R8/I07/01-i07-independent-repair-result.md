@@ -2,7 +2,7 @@
 
 - Date: 2026-08-05
 - Scope: `I07-W0`～`I07-W8`、`I07-W10`
-- Status: 独立修复完成；完整 I07 保持 queued，等待 TaskSpace Exec 身份接入和经授权生产验收
+- Status: 独立修复与首轮对抗性修复完成；closure review 进行中；完整 I07 保持 queued
 - API usage: 0；全部验证均为本地确定性 fixture
 
 ## 1. 产品结果
@@ -26,15 +26,20 @@ attempt 观察，但 token/cache 分母只使用完成且有 measured usage 的�
 | W7 | 封存 source SHA、analyzer 组合哈希并接通 freshness | `4870f44c0` |
 | W8 | 增加 payload-free observer diagnostics | `825f6fdd1`、`63b0336d3` |
 
-当前规范化 artifact 为 `whalecode-request-facts-v1`，analyzer 为 `i07-w8-v1`，诊断合同为
+当前规范化 artifact 为 `whalecode-request-facts-v1`，analyzer 为 `i07-review-fixes-v2`，诊断合同为
 `whalecode-request-facts-diagnostics-v1`，run evidence manifest 升级为 v2。
+
+首轮对抗性审查发现的 6 个阻断缺口已由 `9dc661aa0` 修复：failed terminal 不再继承 rollout usage；boundary
+要求完整 start/stop 生命周期；相同 payload retry 只让逐 attempt 关联不可比较；cache/performance/freshness 不再用
+shape 或 completion 冒充 boundary request；canonical consumer 也进入 inventory 门禁。完整审查轨迹见
+[`vs_review/2026-08-05-i07-independent-repair-review.md`](../../../../vs_review/2026-08-05-i07-independent-repair-review.md)。
 
 ## 3. 验证结果
 
 | 验证 | 结果 |
 |---|---|
 | I07 历史反例 | 8 completed/usage + 7 snapshots；11 attempts + 10 boundary + 1 local-only failure |
-| request facts + inventory | 11 tests passed；consumer gate passed |
+| request facts + inventory + boundary proxy | 20 tests passed；consumer gate passed |
 | cache regression | 219 tests passed |
 | cost / harness / performance | 全部 self-test passed |
 | provenance / freshness | source 变更、analyzer 变更和旧 facts 均 fail closed |
@@ -43,6 +48,32 @@ attempt 观察，但 token/cache 分母只使用完成且有 measured usage 的�
 
 所有测试只使用本地 fixture，没有启动 Whale Agent，没有产生 DeepSeek 请求，也没有修改 Provider payload、Agent prompt、
 Tool schema、Map 状态机或工具执行顺序。
+
+### 3.1 可复现命令
+
+```bash
+python3 -m unittest scripts/taskspace-benchmark/test_request_facts.py scripts/taskspace-benchmark/test_request_fact_consumers.py scripts/taskspace-benchmark/docker/test_provider_boundary_proxy.py
+python3 -m unittest discover -s scripts/cache-regression -p 'test_*.py'
+python3 scripts/taskspace-benchmark/check-request-fact-consumers.py
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-i07-characterization.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-harness.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-provider-boundary.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-performance-observation.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-r7-five-layer-trace-analysis.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-r7-request-facts-provenance.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-r7-five-layer-evidence-freshness.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-r7-request-observability-report.ps1
+python3 scripts/cache-regression/check_cache_regression_gate.py --source index
+```
+
+### 3.2 Fixture 身份
+
+| Fixture | SHA-256 |
+|---|---|
+| `attempt-boundary-events.jsonl` | `7ae6af39b685544ea9c6e27568808821cb2adf540d2b077cdeb67e4f941022a7` |
+| `attempt-boundary-wire.jsonl` | `cde1c1591c5bfc38112547b66a3bb1ca09a990c5ce750f70ebeb0f4e3404e16e` |
+| `usage-double-count-rollout.jsonl` | `eee6797144db27dd84b74b5ca654d643a99eb3a2787f4885c57547eee454f991` |
 
 ## 4. 已知副作用
 
