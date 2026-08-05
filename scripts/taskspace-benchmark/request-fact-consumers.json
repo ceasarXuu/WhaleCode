@@ -49,6 +49,13 @@
       "observed_sources": ["boundary", "local_attempt", "rollout_token", "terminal"],
       "required_facts": ["attempt", "boundary", "completion", "completed_usage"],
       "migration": "none"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/request_fact_diagnostics.py",
+      "role": "canonical_derived",
+      "observed_sources": ["terminal"],
+      "required_facts": ["completion", "diagnostics"],
+      "migration": "I07-W8"
     }
   ]
 }

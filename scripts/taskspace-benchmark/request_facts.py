@@ -10,12 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from request_fact_availability import classify_availability
+from request_fact_diagnostics import build_diagnostics
 from request_fact_summary import usage_summary
 from request_fact_validation import validate_attempt_sequences
 
 
 SCHEMA_VERSION = "whalecode-request-facts-v1"
-ANALYZER_VERSION = "i07-w2-v1"
+ANALYZER_VERSION = "i07-w8-v1"
 WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v10"
 TERMINAL_STATUSES = {"response_completed", "response_failed", "cancelled", "response_cancelled", "retry_unauthorized"}
 TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens")
@@ -384,6 +385,17 @@ def build_request_facts_from_events(
         wire_available=wire_available,
         boundary_available=boundary_available,
     )
+    diagnostics = build_diagnostics(
+        normalized,
+        claims,
+        findings,
+        counters,
+        {
+            "rollout": len(rollout_events),
+            "wire": len(wire_events),
+            "boundary": len(boundary_events),
+        },
+    )
     completed = [row for row in normalized if row["terminal_status"] == "response_completed"]
     usage_rows = [row for row in normalized if row["usage"] is not None]
     attempts = [row for row in normalized if row["attempt_status"] == "observed"]
@@ -429,6 +441,7 @@ def build_request_facts_from_events(
         "boundary_claims": claims,
         "rows": normalized,
         "findings": findings,
+        "diagnostics": diagnostics,
     }
 
 

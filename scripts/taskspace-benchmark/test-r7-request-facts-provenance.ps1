@@ -26,7 +26,7 @@ $digest = ("a" * 64) -join ""
 Invoke-TaskspaceRequestFactsGenerator -WireTracePath $wirePath -OutputPath $factsPath | Out-Null
 
 $identity = Get-R7RequestFactsIdentity $factsPath $artifactDir
-if ([string]$identity.analyzer.version -ne "i07-w2-v1" -or
+if ([string]$identity.analyzer.version -ne "i07-w8-v1" -or
     [string]$identity.sources.wire.status -ne "read" -or
     [string]$identity.sources.boundary.status -ne "unavailable") {
     throw "Request facts provenance identity was not sealed"

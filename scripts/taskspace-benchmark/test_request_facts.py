@@ -102,6 +102,23 @@ class RequestFactsTests(unittest.TestCase):
         self.assertEqual(facts["availability"]["completion"], "partial")
         self.assertEqual(facts["summary"]["failed_or_cancelled_attempt_count"], 0)
 
+    def test_diagnostics_are_recomputable_and_payload_free(self) -> None:
+        facts = build_request_facts(
+            rollout_path=self.fixtures / "usage-double-count-rollout.jsonl"
+        )
+        diagnostics = facts["diagnostics"]
+        rows = facts["rows"]
+        self.assertEqual(diagnostics["normalized_counts"]["row_count"], len(rows))
+        self.assertEqual(
+            diagnostics["normalized_counts"]["completed_count"],
+            sum(row["terminal_status"] == "response_completed" for row in rows),
+        )
+        self.assertEqual(diagnostics["exclusions"]["state_snapshot_count"], 7)
+        self.assertEqual(diagnostics["findings"]["total_count"], len(facts["findings"]))
+        serialized = json.dumps(diagnostics, sort_keys=True).lower()
+        for forbidden in ("prompt", "command", "arguments", "tool_output", "content"):
+            self.assertNotIn(forbidden, serialized)
+
     def _write(self, name: str, events: list[dict]) -> Path:
         if not hasattr(self, "temporary"):
             self.temporary = tempfile.TemporaryDirectory()

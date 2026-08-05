@@ -397,3 +397,35 @@ request fact consumer gate: PASS
   ```
 - Interpretation: 当前报告不能再把旧 raw source、新 analyzer 和新汇总拼成一次新鲜运行；没有 boundary 时保持 unavailable，不复制 attempt count
 - Time: 2026-08-05 08:52
+
+## Evidence E-012: W8 observer 自观测合同
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/test_request_facts.py`
+- Prediction or plan link:
+  - I07-W8 汇总变化必须可由 observer 自身诊断，不记录业务正文
+- Matched signal:
+  - diagnostics 记录三个来源的原始事件数和 normalized row/attempt/boundary/completion/usage 数
+  - snapshot 排除、幂等去重、boundary matched/unattributed/local-only 均有独立守恒计数
+  - findings 按稳定 code/source 聚合，汇总可由 normalized rows 重算
+  - 负向扫描确认 diagnostics 不包含 prompt、command、arguments、Tool output 或 content
+- Correlation keys:
+  - `whalecode-request-facts-diagnostics-v1`
+  - analyzer `i07-w8-v1`
+- Raw content:
+  ```text
+Ran 11 tests ... OK
+request fact consumer gate: PASS
+Ran 219 tests ... OK
+cost instrumentation selftest passed
+TaskSpace benchmark harness self-test: PASS
+performance observation self-test passed
+R7 request facts provenance self-test passed.
+R7 five-layer evidence freshness self-test passed.
+I07 characterization: PASS (usage 8/15 and boundary 10/11 fixed)
+  ```
+- Interpretation: observer 数字变化现在可以定位到输入、排除、对账或 finding 分类；诊断产物不进入 Agent context，也不记录敏感业务语义
+- Time: 2026-08-05 08:55
