@@ -3,7 +3,10 @@
   "consumers": [
     {"path":"scripts/taskspace-benchmark/request_fact_reconciliation.py","role":"canonical_derived","observed_sources":["boundary","canonical","terminal"]},
     {"path":"scripts/taskspace-benchmark/request_facts.py","role":"canonical_consumer","observed_sources":["canonical","local_attempt","rollout_token","terminal"]},
-    {"path":"scripts/taskspace-benchmark/request_fact_diagnostics.py","role":"canonical_derived","observed_sources":["terminal"]},
+    {"path":"scripts/taskspace-benchmark/request_fact_diagnostics.py","role":"canonical_derived","observed_sources":["canonical","terminal"]},
+    {"path":"scripts/taskspace-benchmark/request_fact_availability.py","role":"canonical_derived","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/request_fact_summary.py","role":"canonical_derived","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/request_fact_validation.py","role":"canonical_derived","observed_sources":["canonical"]},
     {"path":"scripts/taskspace-benchmark/build-request-facts.py","role":"canonical_entrypoint","observed_sources":["canonical"]},
     {"path":"scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1","role":"consumer","observed_sources":["canonical"]},

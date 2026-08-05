@@ -139,6 +139,25 @@ class RequestFactsTests(unittest.TestCase):
         self.assertEqual(facts["availability"]["boundary"], "measured")
         self.assertEqual(facts["summary"]["boundary_request_count"], 0)
 
+    def test_boundary_rejects_boolean_counts_and_unknown_schema(self) -> None:
+        for suffix, events in (
+            (
+                "boolean-stop",
+                [self._boundary_started(), {**self._boundary_stopped(0), "request_count": False}],
+            ),
+            (
+                "boolean-claim",
+                [self._boundary_started(), {**self._claim(1, "a" * 64), "count": True}, self._boundary_stopped(1)],
+            ),
+            (
+                "unknown-schema",
+                [{**self._boundary_started(), "schema_version": 2}, self._boundary_stopped(0)],
+            ),
+        ):
+            facts = build_request_facts(boundary_path=self._write(f"{suffix}.jsonl", events))
+            self.assertEqual(facts["availability"]["boundary"], "incomparable")
+            self.assertIsNone(facts["summary"]["boundary_request_count"])
+
     def test_identical_retry_payload_only_blocks_boundary_correlation(self) -> None:
         digest = "a" * 64
         wire = self._write(
@@ -206,15 +225,15 @@ class RequestFactsTests(unittest.TestCase):
 
     @staticmethod
     def _claim(index: int, digest: str) -> dict:
-        return {"event": "provider_request_claimed", "count": index, "method": "POST", "path": "/responses", "model": "deepseek-v4-flash", "body_sha256": digest}
+        return {"schema_version": 1, "event": "provider_request_claimed", "count": index, "method": "POST", "path": "/responses", "model": "deepseek-v4-flash", "body_sha256": digest}
 
     @staticmethod
     def _boundary_started() -> dict:
-        return {"event": "provider_boundary_started", "limit": 10, "allowed_method": "POST", "allowed_path": "/responses", "allowed_model": "deepseek-v4-flash"}
+        return {"schema_version": 1, "event": "provider_boundary_started", "limit": 10, "allowed_method": "POST", "allowed_path": "/responses", "allowed_model": "deepseek-v4-flash"}
 
     @staticmethod
     def _boundary_stopped(count: int) -> dict:
-        return {"event": "provider_boundary_stopped", "request_count": count}
+        return {"schema_version": 1, "event": "provider_boundary_stopped", "request_count": count}
 
     @staticmethod
     def _codes(facts: dict) -> set[str]:

@@ -26,7 +26,7 @@ $digest = ("a" * 64) -join ""
 Invoke-TaskspaceRequestFactsGenerator -WireTracePath $wirePath -OutputPath $factsPath | Out-Null
 
 $identity = Get-R7RequestFactsIdentity $factsPath $artifactDir
-if ([string]$identity.analyzer.version -ne "i07-review-fixes-v2" -or
+if ([string]$identity.analyzer.version -ne "i07-review-fixes-v3" -or
     [string]$identity.sources.wire.status -ne "read" -or
     [string]$identity.sources.boundary.status -ne "unavailable" -or
     [string]$identity.boundary_identity.lifecycle_status -ne "unavailable") {

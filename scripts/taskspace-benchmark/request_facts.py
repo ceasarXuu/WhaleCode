@@ -17,7 +17,7 @@ from request_fact_validation import validate_attempt_sequences
 
 
 SCHEMA_VERSION = "whalecode-request-facts-v1"
-ANALYZER_VERSION = "i07-review-fixes-v2"
+ANALYZER_VERSION = "i07-review-fixes-v3"
 WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v10"
 TERMINAL_STATUSES = {"response_completed", "response_failed", "cancelled", "response_cancelled", "retry_unauthorized"}
 TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens")
@@ -100,6 +100,7 @@ def _put_once(
     request_id: str,
     counters: Counter[str],
     count_equal: bool = True,
+    line_number: int | None = None,
 ) -> None:
     if key not in target:
         target[key] = value
@@ -107,7 +108,7 @@ def _put_once(
         if count_equal:
             counters["duplicate_event_count"] += 1
     else:
-        findings.append(_finding("identity_conflict", source, request_id=request_id))
+        findings.append(_finding("identity_conflict", source, request_id=request_id, line_number=line_number))
 
 
 def _parse_rollout(
@@ -152,8 +153,9 @@ def _parse_rollout(
             request_id,
             counters,
             count_equal=False,
+            line_number=event.get("_request_facts_line_number"),
         )
-        _put_once(row, "rollout_usage", usage, findings, "rollout", request_id, counters)
+        _put_once(row, "rollout_usage", usage, findings, "rollout", request_id, counters, line_number=event.get("_request_facts_line_number"))
 
 
 def _parse_wire(
@@ -189,6 +191,7 @@ def _parse_wire(
             request_id,
             counters,
             count_equal=False,
+            line_number=event.get("_request_facts_line_number"),
         )
         if status == "payload_captured":
             digest = event.get("provider_payload_sha256")
@@ -203,30 +206,31 @@ def _parse_wire(
             ):
                 findings.append(_finding("attempt_evidence_invalid", "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
                 continue
+            row.setdefault("attempt_line_number", event.get("_request_facts_line_number"))
             _put_once(
                 row,
                 "attempt",
                 {
                     "request_index": index,
                     "provider_payload_sha256": digest,
-                    "wire_line_number": event.get("_request_facts_line_number"),
                 },
                 findings,
                 "wire",
                 request_id,
                 counters,
+                line_number=event.get("_request_facts_line_number"),
             )
             continue
         terminal = {
             "status": "cancelled" if status == "response_cancelled" else status,
-            "wire_line_number": event.get("_request_facts_line_number"),
         }
+        row.setdefault("terminal_line_number", event.get("_request_facts_line_number"))
         if status == "response_completed":
             try:
                 terminal["usage"] = _usage(event)
             except ValueError as error:
                 findings.append(_finding(str(error), "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
-        _put_once(row, "terminal", terminal, findings, "wire", request_id, counters)
+        _put_once(row, "terminal", terminal, findings, "wire", request_id, counters, line_number=event.get("_request_facts_line_number"))
 
 
 def _normalized_rows(
@@ -246,8 +250,8 @@ def _normalized_rows(
                 "observation_index": row.get("attempt", {}).get("request_index")
                 or row.get("rollout_index"),
                 "rollout_line_number": row.get("rollout_line_number"),
-                "wire_attempt_line_number": row.get("attempt", {}).get("wire_line_number"),
-                "wire_terminal_line_number": terminal.get("wire_line_number"),
+                "wire_attempt_line_number": row.get("attempt_line_number"),
+                "wire_terminal_line_number": row.get("terminal_line_number"),
                 "provider_payload_sha256": row.get("attempt", {}).get("provider_payload_sha256"),
                 "attempt_status": "observed" if "attempt" in row else "unavailable",
                 "boundary_status": (

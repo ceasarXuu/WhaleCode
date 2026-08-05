@@ -47,7 +47,7 @@ def reconcile(events_path: Path, wire_path: Path, expected_model: str) -> dict[s
         "allowed_method": "POST",
         "allowed_path": "/responses",
         "boundary_request_count": facts["summary"]["boundary_request_count"],
-        "wire_request_count": len(crossed),
+        "wire_request_count": len(crossed) if correlation_measured else None,
         "local_attempt_count": len(attempts),
         "local_only_attempt_count": facts["summary"]["local_only_attempt_count"],
         "boundary_requests": boundary,

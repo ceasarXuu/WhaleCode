@@ -842,28 +842,32 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
     $rootSummaryPath = Join-Path $RootDir "provider-cache-trace-summary.json"
     $rootTracePath = Join-Path $RootDir "provider-cache-trace.jsonl"
     $artifactDirPaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($file in @(Get-ChildItem -LiteralPath $RootDir -Filter "provider-cache-trace-summary.json" -Recurse -ErrorAction SilentlyContinue)) {
-        if ([System.IO.Path]::GetFullPath($file.FullName) -ne [System.IO.Path]::GetFullPath($rootSummaryPath) -and
-            (Test-TaskspaceProviderCacheTraceTaskspaceArtifact $file.FullName)) {
-            [void]$artifactDirPaths.Add($file.Directory.FullName)
+    $aggregateFindings = [System.Collections.Generic.List[string]]::new()
+    $scopeComplete = $true
+    $pairDirs = @(Get-ChildItem -LiteralPath $RootDir -Directory -Filter "pair-*" -Recurse -ErrorAction SilentlyContinue)
+    foreach ($pairDir in $pairDirs) {
+        $modePath = Join-Path $pairDir.FullName "logical-mode-map.json"
+        if (-not (Test-Path -LiteralPath $modePath -PathType Leaf)) {
+            $scopeComplete = $false; $aggregateFindings.Add("logical_mode_map_missing"); continue
         }
-    }
-    foreach ($metricsFile in @(Get-ChildItem -LiteralPath $RootDir -Filter "metrics.json" -Recurse -ErrorAction SilentlyContinue)) {
-        try { $metric = Get-Content -Raw -Encoding UTF8 -LiteralPath $metricsFile.FullName | ConvertFrom-Json } catch { continue }
-        if ([string]$metric.logical_mode -eq "taskspace") { [void]$artifactDirPaths.Add($metricsFile.Directory.FullName) }
-    }
-    foreach ($directory in @(Get-ChildItem -LiteralPath $RootDir -Directory -Recurse -ErrorAction SilentlyContinue)) {
-        if ($directory.FullName -match '(?i)[\\/]+right[\\/]+artifacts$') { [void]$artifactDirPaths.Add($directory.FullName) }
+        try { $modeMap = Get-Content -Raw -Encoding UTF8 -LiteralPath $modePath | ConvertFrom-Json } catch {
+            $scopeComplete = $false; $aggregateFindings.Add("logical_mode_map_invalid"); continue
+        }
+        $taskspaceSides = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" })
+        $standardSides = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" })
+        if ($taskspaceSides.Count -ne 1 -or $standardSides.Count -ne 1) {
+            $scopeComplete = $false; $aggregateFindings.Add("logical_mode_map_invalid"); continue
+        }
+        [void]$artifactDirPaths.Add((Join-Path $pairDir.FullName "$($taskspaceSides[0])/artifacts"))
     }
     $artifactDirs = @($artifactDirPaths | Sort-Object)
     $shapeCounts = @{}
     $providerRequestCount = 0
-    $providerRequestCountsMeasured = $artifactDirs.Count -gt 0
+    $providerRequestCountsMeasured = $scopeComplete -and $artifactDirs.Count -gt 0
     $providerAttemptCount = 0
-    $providerAttemptCountsMeasured = $artifactDirs.Count -gt 0
-    $cacheComparisonEligible = $artifactDirs.Count -gt 0
-    $aggregateFindings = [System.Collections.Generic.List[string]]::new()
-    if ($artifactDirs.Count -eq 0) { $aggregateFindings.Add("cache_summary_scope_empty") }
+    $providerAttemptCountsMeasured = $scopeComplete -and $artifactDirs.Count -gt 0
+    $cacheComparisonEligible = $scopeComplete -and $artifactDirs.Count -gt 0
+    if ($pairDirs.Count -eq 0 -or $artifactDirs.Count -eq 0) { $aggregateFindings.Add("cache_summary_scope_empty") }
     $coveredCount = 0
     $missingUsage = 0
     $request2PlusCount = 0

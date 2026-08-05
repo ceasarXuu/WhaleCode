@@ -273,10 +273,15 @@ function Test-R7FiveLayerEvidenceFreshness {
         $standardSideCount = 0
         $taskspaceSideCount = 0
         $control = $null
-        foreach ($pairDir in @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter "pair-*" -ErrorAction SilentlyContinue)) {
+        $pairDirs = @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter "pair-*" -ErrorAction SilentlyContinue)
+        if ($pairDirs.Count -eq 0) { $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false }
+        foreach ($pairDir in $pairDirs) {
             $modePath = Join-Path $pairDir.FullName "logical-mode-map.json"
             $modeMap = Read-R7EvidenceJson $modePath $findings "logical_mode_map_missing" "logical_mode_map_invalid"
-            if (-not $modeMap) { continue }
+            if (-not $modeMap) {
+                $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
+                continue
+            }
             foreach ($side in @("left", "right")) {
                 $mode = [string]$modeMap.$side
                 if ($mode -eq "standard") { $standardSideCount++ }
@@ -295,6 +300,7 @@ function Test-R7FiveLayerEvidenceFreshness {
                         Test-R7TaskspaceTraceIdentity $trace $baseContract.profiles.taskspace $baseContract.taskspace_core_protocol ([string]$manifest.manifest_version) $manifestSha $tracePath $findings
                     } else {
                         Add-R7EvidenceFinding $findings "logical_mode_unknown" "Unsupported logical mode: $mode" $modePath
+                        $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
                     }
                 }
                 $requestFacts = Test-R7RequestFactsFreshness $artifactDir $findings
@@ -327,6 +333,8 @@ function Test-R7FiveLayerEvidenceFreshness {
                 }
             }
         }
+        if ($standardSideCount -eq 0) { $standardRequestsMeasured = $false }
+        if ($taskspaceSideCount -eq 0) { $taskspaceRequestsMeasured = $false }
         if ($standardSideCount -eq 0 -or $taskspaceSideCount -eq 0) {
             Add-R7EvidenceFinding $findings "paired_trace_coverage_missing" "Run does not contain both Standard and TaskSpace provider traces." $runRoot
         }

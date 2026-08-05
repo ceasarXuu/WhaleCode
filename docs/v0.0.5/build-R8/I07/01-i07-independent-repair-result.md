@@ -26,7 +26,7 @@ attempt 观察，但 token/cache 分母只使用完成且有 measured usage 的�
 | W7 | 封存 source SHA、analyzer 组合哈希并接通 freshness | `4870f44c0` |
 | W8 | 增加 payload-free observer diagnostics | `825f6fdd1`、`63b0336d3` |
 
-当前规范化 artifact 为 `whalecode-request-facts-v1`，analyzer 为 `i07-review-fixes-v2`，诊断合同为
+当前规范化 artifact 为 `whalecode-request-facts-v1`，analyzer 为 `i07-review-fixes-v3`，诊断合同为
 `whalecode-request-facts-diagnostics-v1`，run evidence manifest 升级为 v2。
 
 首轮对抗性审查发现的 6 个阻断缺口已由 `9dc661aa0` 修复：failed terminal 不再继承 rollout usage；boundary
@@ -39,7 +39,7 @@ shape 或 completion 冒充 boundary request；canonical consumer 也进入 inve
 | 验证 | 结果 |
 |---|---|
 | I07 历史反例 | 8 completed/usage + 7 snapshots；11 attempts + 10 boundary + 1 local-only failure |
-| request facts + inventory + boundary proxy | 21 tests passed；consumer gate passed |
+| request facts + inventory + boundary proxy | 23 tests passed；consumer gate passed |
 | cache regression | 219 tests passed |
 | cost / harness / performance | 全部 self-test passed |
 | provenance / freshness | source 变更、analyzer 变更和旧 facts 均 fail closed |
@@ -71,7 +71,7 @@ python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 
 | Fixture | SHA-256 |
 |---|---|
-| `attempt-boundary-events.jsonl` | `7ae6af39b685544ea9c6e27568808821cb2adf540d2b077cdeb67e4f941022a7` |
+| `attempt-boundary-events.jsonl` | `41231806f39c862ef8ea4dc4d26e823bfeb8bb859e50125172f1e740c9eed665` |
 | `attempt-boundary-wire.jsonl` | `cde1c1591c5bfc38112547b66a3bb1ca09a990c5ce750f70ebeb0f4e3404e16e` |
 | `usage-double-count-rollout.jsonl` | `eee6797144db27dd84b74b5ca654d643a99eb3a2787f4885c57547eee454f991` |
 

@@ -969,7 +969,8 @@ $leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"
 $rightArtifacts = Join-Path $aggregateCacheRoot "pair-001\right\artifacts"
 New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-Null
 ([pscustomobject]@{ logical_mode = "standard"; model_request_count = 1 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $leftArtifacts "metrics.json") -Encoding UTF8
-([pscustomobject]@{ logical_mode = "taskspace"; model_request_count = 2 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rightArtifacts "metrics.json") -Encoding UTF8
+'{' | Set-Content -LiteralPath (Join-Path $rightArtifacts "metrics.json") -Encoding UTF8
+([pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $aggregateCacheRoot "pair-001/logical-mode-map.json") -Encoding UTF8
 ([pscustomobject]@{
     schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
     provider_request_count = 1
@@ -1050,6 +1051,15 @@ Assert-True ([int64]$aggregateCacheSummary.section_cost_summary.section_bytes_to
 Assert-True ([int]$aggregateActiveProjection.request_sample_count -eq 2 -and [double]$aggregateActiveProjection.bytes_per_request_mean -eq 20 -and [double]$aggregateActiveProjection.bytes_per_request_median -eq 20) "aggregate provider section request statistics are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.bootstrap_count -eq 1 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.active_count -eq 1) "aggregate provider projection identity counts are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 2 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_revision_count -eq 1) "aggregate provider projection freshness evidence is incorrect"
+
+$pair2Left = Join-Path $aggregateCacheRoot "pair-002/left/artifacts"
+New-Item -ItemType Directory -Path $pair2Left -Force | Out-Null
+([pscustomobject]@{ repeat = 2; left = "taskspace"; right = "standard" }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $aggregateCacheRoot "pair-002/logical-mode-map.json") -Encoding UTF8
+'{' | Set-Content -LiteralPath (Join-Path $pair2Left "metrics.json") -Encoding UTF8
+Copy-Item -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Destination (Join-Path $pair2Left "provider-cache-trace-summary.json")
+$alternatingAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True ([int]$alternatingAggregate.provider_request_count -eq 4 -and [int]$alternatingAggregate.expected_summary_count -eq 2) "logical mode map did not discover a left-side TaskSpace artifact"
+Assert-True ([bool]$alternatingAggregate.comparison_eligible -and @($alternatingAggregate.aggregate_findings).Count -eq 0) "malformed side metrics overrode the authoritative logical mode map"
 
 $rightSummaryPath = Join-Path $rightArtifacts "provider-cache-trace-summary.json"
 $rightIncomparable = Get-Content -Raw -Encoding UTF8 -LiteralPath $rightSummaryPath | ConvertFrom-Json -Depth 20

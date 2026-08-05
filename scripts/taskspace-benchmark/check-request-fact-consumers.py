@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 from pathlib import Path
@@ -39,6 +40,29 @@ def _is_production_script(path: Path) -> bool:
     )
 
 
+def _canonical_dependencies(repo_root: Path) -> set[Path]:
+    root = repo_root / "scripts/taskspace-benchmark"
+    pending = [root / "request_facts.py"]
+    discovered: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in discovered or not path.is_file():
+            continue
+        discovered.add(path)
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+            elif isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+        for module in modules:
+            candidate = root / f"{module.replace('.', '/')}.py"
+            if candidate.is_file() and _is_production_script(candidate):
+                pending.append(candidate)
+    return discovered
+
+
 def discover(repo_root: Path) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     for relative_root in SCAN_ROOTS:
@@ -52,6 +76,8 @@ def discover(repo_root: Path) -> dict[str, set[str]]:
             }
             if sources:
                 found[path.relative_to(repo_root).as_posix()] = sources
+    for path in _canonical_dependencies(repo_root):
+        found.setdefault(path.relative_to(repo_root).as_posix(), set()).add("canonical")
     return found
 
 

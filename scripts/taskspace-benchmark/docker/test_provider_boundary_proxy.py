@@ -153,6 +153,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         events = Path(self.temp.name, "reconcile-events.jsonl")
         wire = Path(self.temp.name, "wire.jsonl")
         start_event = {
+            "schema_version": 1,
             "event": "provider_boundary_started",
             "limit": 2,
             "allowed_method": "POST",
@@ -160,6 +161,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
             "allowed_model": "deepseek-v4-flash",
         }
         first_claim = {
+                    "schema_version": 1,
                     "event": "provider_request_claimed",
                     "count": 1,
                     "method": "POST",
@@ -170,7 +172,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         events.write_text(
             "".join(
                 json.dumps(event) + "\n"
-                for event in (start_event, first_claim, {"event": "provider_boundary_stopped", "request_count": 1})
+                for event in (start_event, first_claim, {"schema_version": 1, "event": "provider_boundary_stopped", "request_count": 1})
             ),
             encoding="utf-8",
         )
@@ -206,6 +208,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         self.assertEqual(result["boundary_request_count"], 1)
 
         second_claim = {
+                    "schema_version": 1,
                     "event": "provider_request_claimed",
                     "count": 2,
                     "method": "POST",
@@ -216,7 +219,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         events.write_text(
             "".join(
                 json.dumps(event) + "\n"
-                for event in (start_event, first_claim, second_claim, {"event": "provider_boundary_stopped", "request_count": 2})
+                for event in (start_event, first_claim, second_claim, {"schema_version": 1, "event": "provider_boundary_stopped", "request_count": 2})
             ),
             encoding="utf-8",
         )
@@ -271,12 +274,12 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         events = Path(self.temp.name, "duplicate-events.jsonl")
         wire = Path(self.temp.name, "duplicate-wire.jsonl")
         boundary = [
-            {"event": "provider_boundary_started", "limit": 2, "allowed_method": "POST", "allowed_path": "/responses", "allowed_model": "deepseek-v4-flash"},
+            {"schema_version": 1, "event": "provider_boundary_started", "limit": 2, "allowed_method": "POST", "allowed_path": "/responses", "allowed_model": "deepseek-v4-flash"},
             *[
-                {"event": "provider_request_claimed", "count": index, "method": "POST", "path": "/responses", "model": "deepseek-v4-flash", "body_sha256": digest}
+                {"schema_version": 1, "event": "provider_request_claimed", "count": index, "method": "POST", "path": "/responses", "model": "deepseek-v4-flash", "body_sha256": digest}
                 for index in (1, 2)
             ],
-            {"event": "provider_boundary_stopped", "request_count": 2},
+            {"schema_version": 1, "event": "provider_boundary_stopped", "request_count": 2},
         ]
         wire_events = []
         for index, terminal in ((1, "response_failed"), (2, "response_completed")):
@@ -292,6 +295,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         self.assertEqual(result["status"], "reconciled_correlation_incomparable")
         self.assertEqual(result["boundary_request_count"], 2)
         self.assertEqual(result["boundary_correlation_availability"], "incomparable")
+        self.assertIsNone(result["wire_request_count"])
 
 
 if __name__ == "__main__":

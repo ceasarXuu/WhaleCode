@@ -93,14 +93,14 @@ $taskspaceTerminal = New-Terminal "taskspace-request-1" "taskspace-logical-1"
 @(($standardTrace | ConvertTo-Json -Compress -Depth 100), $standardTerminal) | Set-Content -LiteralPath (Join-Path $pairDir "left/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
 @(($taskspaceTrace | ConvertTo-Json -Compress -Depth 100), $taskspaceTerminal) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
 $boundaryStart = [ordered]@{
-    event = "provider_boundary_started"; limit = 3; allowed_method = "POST"
+    schema_version = 1; event = "provider_boundary_started"; limit = 3; allowed_method = "POST"
     allowed_path = "/responses"; allowed_model = "deepseek-v4-flash"
 }
 function Write-BoundaryFixture([string]$Path, [string]$Digest) {
     @(
         $boundaryStart,
-        [ordered]@{ event = "provider_request_claimed"; count = 1; method = "POST"; path = "/responses"; model = "deepseek-v4-flash"; body_sha256 = $Digest },
-        [ordered]@{ event = "provider_boundary_stopped"; request_count = 1 }
+        [ordered]@{ schema_version = 1; event = "provider_request_claimed"; count = 1; method = "POST"; path = "/responses"; model = "deepseek-v4-flash"; body_sha256 = $Digest },
+        [ordered]@{ schema_version = 1; event = "provider_boundary_stopped"; request_count = 1 }
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 $standardBoundaryPath = Join-Path $pairDir "left/artifacts/provider-boundary-events.jsonl"
@@ -186,13 +186,20 @@ $unavailableBoundary = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -Wh
 Assert-True ($null -eq $unavailableBoundary.runs[0].taskspace_provider_requests) "Unavailable boundary lifecycle was serialized as zero"
 Assert-True (@($unavailableBoundary.findings | Where-Object stable_code -eq "request_facts_count_unavailable").Count -eq 1) "Unavailable boundary lifecycle did not emit a stable finding"
 
-@($boundaryStart, [ordered]@{ event = "provider_boundary_stopped"; request_count = 0 }) | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $taskspaceBoundaryPath -Encoding UTF8
+@($boundaryStart, [ordered]@{ schema_version = 1; event = "provider_boundary_stopped"; request_count = 0 }) | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $taskspaceBoundaryPath -Encoding UTF8
 Invoke-TaskspaceRequestFactsGenerator -RolloutJsonlPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") -WireTracePath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -BoundaryEventsPath $taskspaceBoundaryPath -OutputPath $taskspaceFactsPath | Out-Null
 $healthyZeroBoundary = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
 Assert-True ([int64]$healthyZeroBoundary.runs[0].taskspace_provider_requests -eq 0) "Healthy zero boundary was not preserved"
 Assert-True (@($healthyZeroBoundary.findings | Where-Object { $_.stable_code -in @("request_facts_count_unavailable", "paired_trace_coverage_missing") }).Count -eq 0) "Healthy zero boundary was treated as missing coverage"
 [IO.File]::WriteAllText($taskspaceBoundaryPath, $originalTaskspaceBoundary, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText($taskspaceFactsPath, $originalTaskspaceFacts, [Text.UTF8Encoding]::new($false))
+$modeMapPath = Join-Path $pairDir "logical-mode-map.json"
+$originalModeMap = Get-Content -Raw -Encoding UTF8 -LiteralPath $modeMapPath
+'{' | Set-Content -LiteralPath $modeMapPath -Encoding UTF8
+$invalidModeMap = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
+Assert-True ($null -eq $invalidModeMap.runs[0].standard_provider_requests -and $null -eq $invalidModeMap.runs[0].taskspace_provider_requests) "Invalid mode map produced exact provider totals"
+Assert-True (@($invalidModeMap.findings | Where-Object stable_code -eq "logical_mode_map_invalid").Count -eq 1) "Invalid mode map did not emit a stable finding"
+[IO.File]::WriteAllText($modeMapPath, $originalModeMap, [Text.UTF8Encoding]::new($false))
 
 $staleResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json -Depth 100
 $staleResult.contracts.taskspace_base.version = "stale"

@@ -296,6 +296,37 @@ Reviewer 判定 W0-W8/W10 完成声明暂不成立。两个历史 fixture 已通
 | remaining line locations | non-blocking | accept | 补齐可机械获得的 rollout/wire/reconciliation 行号 |
 | durable command output | non-blocking | accept | 最终 closure 中记录命令结果、提交与证据路径 |
 
+## Round 3: Latest-HEAD Closure Review
+
+### Reviewer Launch Record
+
+| Reviewer | Internal Mechanism | Session / Job ID | Context Forked | Input | Read-only |
+|---|---|---|---|---|---|
+| final-closure-adversary | `multi_agent_v1.spawn_agent` | `019fd191-e0ea-7b81-9b98-e47f71bc3764` (Bernoulli) | `fork_context=false` | clean HEAD `d5b768a22`、7 项 blocking invariant | yes |
+
+### Reviewer Output
+
+Reviewer 在本地临时 fixture 中复现 4 个 blocking：
+
+1. aggregate 依赖可损坏的 `metrics.json`/right-path 推断 TaskSpace side，可能漏掉 left-side TaskSpace 后输出 partial exact total；
+2. Python 将 JSON boolean 视为 integer，boundary `request_count:false` 或 `count:true` 可成为 measured count；
+3. freshness 遇到 missing/invalid `logical-mode-map.json` 时仍保留初始 measured flag，输出 0/partial total；
+4. lexical consumer gate 未发现 `request_fact_availability.py`、`request_fact_summary.py`、`request_fact_validation.py`。
+
+Reviewer 确认 invariant 1、4、6 已通过；未运行 Whale Agent/API。完整 evidence 基于 clean HEAD
+`d5b768a2209b5109fbf5169964c7031fc099c50c`、23 项前的 focused tests、219 cache tests 和静态 cache gate。
+
+### Main Agent Response
+
+| Finding | Severity | Decision | Action |
+|---|---|---|---|
+| alternating-side scope omission | blocking | accept | aggregate 只按每个 pair 的 `logical-mode-map.json` 选择 TaskSpace artifact；map 缺失/非法即整体不可比较 |
+| boolean/schema boundary count | blocking | accept | boundary lifecycle/claim 强校验 schema v1 与 non-boolean integer；增加 boolean/schema 负例 |
+| invalid mode map exact totals | blocking | accept | mode map 缺失/非法或 mode coverage 缺口同时使 Standard/TaskSpace totals 为 null |
+| canonical-derived modules omitted | blocking | accept | 解析 `request_facts.py` 本地 import closure，并强制所有依赖进入 inventory |
+| duplicate verifier wire count looks measured | non-blocking | accept | correlation incomparable 时 `wire_request_count=null` |
+| `_put_once` location missing | non-blocking | accept | conflict finding 携带当前 source line，并将 location 与 semantic value 分离以保持幂等 |
+
 ### Closure Status
 
 - Blocking findings found: pending

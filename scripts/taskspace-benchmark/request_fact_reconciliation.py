@@ -10,6 +10,10 @@ def _finding(code: str, source: str, **identity: Any) -> dict[str, Any]:
     return {"code": code, "source": source, **identity}
 
 
+def _integer(value: Any, minimum: int = 0) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= minimum
+
+
 def parse_boundary(
     events: list[dict[str, Any]],
     findings: list[dict[str, Any]],
@@ -18,14 +22,15 @@ def parse_boundary(
     starts = [event for event in events if event.get("event") == "provider_boundary_started"]
     stops = [event for event in events if event.get("event") == "provider_boundary_stopped"]
     lifecycle_model = starts[0].get("allowed_model") if len(starts) == 1 else None
-    lifecycle_valid = (
+    lifecycle_present = (
         len(starts) == 1
         and len(stops) == 1
         and events
         and events[0].get("event") == "provider_boundary_started"
         and events[-1].get("event") == "provider_boundary_stopped"
     )
-    if not lifecycle_valid:
+    lifecycle_valid = lifecycle_present
+    if not lifecycle_present:
         findings.append(
             _finding(
                 "boundary_lifecycle_missing",
@@ -35,7 +40,11 @@ def parse_boundary(
             )
         )
     elif (
-        starts[0].get("allowed_method") != "POST"
+        starts[0].get("schema_version") != 1
+        or stops[0].get("schema_version") != 1
+        or not _integer(starts[0].get("limit"), 1)
+        or not _integer(stops[0].get("request_count"))
+        or starts[0].get("allowed_method") != "POST"
         or starts[0].get("allowed_path") != "/responses"
         or not isinstance(lifecycle_model, str)
         or not lifecycle_model
@@ -57,7 +66,9 @@ def parse_boundary(
         index = len(claims) + 1
         digest = event.get("body_sha256")
         valid = (
-            event.get("count") == index
+            event.get("schema_version") == 1
+            and _integer(event.get("count"), 1)
+            and event.get("count") == index
             and event.get("method") == "POST"
             and event.get("path") == "/responses"
             and isinstance(lifecycle_model, str)
@@ -150,15 +161,15 @@ def reconcile(
                         "completed_without_boundary",
                         "reconcile",
                         request_id=row["request_id"],
-                        wire_line_number=terminal.get("wire_line_number"),
+                        wire_line_number=row.get("terminal_line_number"),
                     )
                 )
             elif terminal.get("status") not in {"response_failed", "cancelled", "retry_unauthorized"}:
-                findings.append(_finding("boundary_status_unknown", "reconcile", request_id=row["request_id"], wire_line_number=row.get("attempt", {}).get("wire_line_number")))
+                findings.append(_finding("boundary_status_unknown", "reconcile", request_id=row["request_id"], wire_line_number=row.get("attempt_line_number")))
         if "terminal" in row and "attempt" not in row:
-            findings.append(_finding("terminal_without_attempt", "reconcile", request_id=row["request_id"], wire_line_number=terminal.get("wire_line_number")))
+            findings.append(_finding("terminal_without_attempt", "reconcile", request_id=row["request_id"], wire_line_number=row.get("terminal_line_number")))
         if "attempt" in row and "terminal" not in row:
-            findings.append(_finding("terminal_missing", "reconcile", request_id=row["request_id"], wire_line_number=row.get("attempt", {}).get("wire_line_number")))
+            findings.append(_finding("terminal_missing", "reconcile", request_id=row["request_id"], wire_line_number=row.get("attempt_line_number")))
         rollout_usage = row.get("rollout_usage")
         wire_usage = terminal.get("usage")
         if rollout_usage is not None and wire_usage is not None and rollout_usage != wire_usage:
@@ -169,7 +180,7 @@ def reconcile(
                     "reconcile",
                     request_id=row["request_id"],
                     rollout_line_number=row.get("rollout_line_number"),
-                    wire_line_number=terminal.get("wire_line_number"),
+                    wire_line_number=row.get("terminal_line_number"),
                 )
             )
         if rollout_usage is not None and terminal.get("status") not in {None, "response_completed"}:
@@ -180,6 +191,6 @@ def reconcile(
                     "reconcile",
                     request_id=row["request_id"],
                     rollout_line_number=row.get("rollout_line_number"),
-                    wire_line_number=terminal.get("wire_line_number"),
+                    wire_line_number=row.get("terminal_line_number"),
                 )
             )

@@ -65,6 +65,20 @@ class ConsumerInventoryTests(unittest.TestCase):
             target.write_text('STATUS = "payload_captured"\n', encoding="utf-8")
             self.assertEqual(GATE.discover(repo), {})
 
+    def test_canonical_import_dependency_is_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            root = repo / "scripts/taskspace-benchmark"
+            root.mkdir(parents=True)
+            (root / "request_facts.py").write_text(
+                "from usage_helper import summarize\n", encoding="utf-8"
+            )
+            (root / "usage_helper.py").write_text(
+                "def summarize(rows):\n    return len(rows)\n", encoding="utf-8"
+            )
+            discovered = GATE.discover(repo)
+        self.assertEqual(discovered["scripts/taskspace-benchmark/usage_helper.py"], {"canonical"})
+
 
 if __name__ == "__main__":
     unittest.main()
