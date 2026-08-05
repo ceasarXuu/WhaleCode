@@ -85,9 +85,14 @@ impl TaskspaceExecCatalog {
     }
 
     pub(crate) fn contains(&self, public_name: &str) -> bool {
+        self.capability(public_name).is_some()
+    }
+
+    pub(crate) fn capability(&self, public_name: &str) -> Option<&TaskspaceExecCapability> {
         self.capabilities
             .binary_search_by_key(&public_name, |capability| capability.public_name.as_str())
-            .is_ok()
+            .ok()
+            .map(|index| &self.capabilities[index])
     }
 }
 
