@@ -1,7 +1,7 @@
 # A2 Hosted 逐项多节点绑定验证计划
 
 - Created: 2026-08-06
-- Status: V1～V3 verified-isolated / V4 first probe failed and corrected / re-probe budget pending / Phase A blocking
+- Status: V1～V3 verified-isolated / V4 two probes failed / contract-carrier decision required / Phase A blocking
 - Scope: TaskSpace Exec TX-05
 - Production behavior change: 无，候选模块尚未注册
 
@@ -42,7 +42,7 @@ Provider-hosted 事实绑定到该节点。该结论只覆盖了单响应单节�
 | A2-V1 | 盘点逐项关联能力 | discovery | Responses decoder、Web/Image `ResponseItem`、历史 probe artifact | Runtime/Agent 双方可用的 Hosted 结构字段 | 确认 Provider `output_index` 是顺序权威，Agent 只需按该顺序声明，不复制 Provider ID | 得到非语义、可唯一核验的关联键，并发现当前通用 SSE decoder 丢 index 的 TX-07 接线前置 | Complexity: 一份证据矩阵；Reach/Cost: 零生产影响、零 API 费用 | 同类多项与乱序 done fixture 按 index 恢复 | TX-07 必须保留 index | verified |
 | A2-V2 | 实现逐项声明候选 | API/internal | `core/src/tools/taskspace_exec/plan.rs`、`decoder.rs`、`preflight.rs` | `hosted_bindings[]` | 使用有序 `{tool,node_ids[]}`，节点集合非空且无重复，计划升级 v3 并拒绝旧单 node 字段 | typed plan 可表达同一事实服务多个节点 | Complexity: 重写未接生产候选 schema，不增加第二 registry；Reach/Cost: Phase A tests/snapshots 更新 | 多 owner、旧字段、空/重复节点和严格 decode 单测 | 需要修改 provider/普通 Tool schema 或语义匹配时停止 | verified-isolated |
 | A2-V3 | 建立原子核对门禁 | internal | `provider_reconcile.rs` | complete Hosted binding set | 按 output index、数量、Tool 类型和节点集合完整核对；任一 finding 返回空 bindings | 不完整归属不能产生部分成功、重复事实、默认 Root owner 或未绑定 settlement | Complexity: 扩大候选 reconciler 和 finding；Reach/Cost: 零生产接线、零 Provider 费用 | 缺/多/乱序/重复 ID/index/node、类型错配均整批拒绝 | Map/Store/Router 接线副作用在 TX-09/11/12/17 复验 | verified-isolated |
-| A2-V4 | 验证目标模型生成能力 | provider validation | `r8_taskspace_exec_a2_probe.py`、Docker、run ledger | same-response multi-node Hosted declaration | 用真实双子任务需求验证全部 Hosted facts 的有序多 owner 声明；协议必须明确字段和 canonical Tool 映射，但不得预设事实数量 | 避免只证明 Runtime parser，或由测试提示制造固定数量答案 | Complexity: 首次真实响应已失败并停止；Reach/Cost: 1 request、¥0.0116388，复验需新预算 | 原始 wire中全部 facts 都有非空 `node_ids[]`，节点并集覆盖两个目标节点；禁止自动扩大 repeat | 首次 7 facts/4 bindings，字段/Tool 名错误，并证明旧单 owner 合同不足；v3 已离线修正，未获新预算不复验 | blocked-pending-reprobe |
+| A2-V4 | 验证目标模型生成能力 | provider validation | `r8_taskspace_exec_a2_probe.py`、Docker、run ledger | same-response multi-node Hosted declaration | 用真实双子任务需求验证全部 Hosted facts 的有序多 owner 声明；通过原始 output 序列核对 Agent 对每项子动作的可见性 | 避免只证明 Runtime parser，或由测试提示制造固定数量答案 | Complexity: 两次真实响应均首败即停；Reach/Cost: 第二次 1 request、¥0.01053496 | 原始 wire 全部 facts 均有非空 `node_ids[]`，节点并集覆盖两个目标节点 | 第二次 Agent 看到 6 项动作但只声明 2 项，且把 Provider 动作写入 `calls`；停止提示词试错，转入 Function 合同承载层决策 | blocked-contract-carrier |
 
 ## 4. 确定性矩阵
 
@@ -68,9 +68,10 @@ A2 只有同时满足以下条件才能恢复为 `verified-isolated`：
 
 1. A2-V1 找到并用源码/fixture 证明可唯一核验的逐项关联方式；已完成；
 2. A2-V2/V3 的 v3 正反矩阵全部通过，且候选代码中不存在单 owner Hosted 字段、Root fallback 或 unbound settlement；已完成；
-3. A2-V4 获得单独预算并证明 DeepSeek 能为同一响应全部 Hosted facts 声明非空节点集合，且节点并集覆盖至少两个节点；
-4. 缓存敏感面若发生变化，先通过缓存门禁并按规则申请真实缓存回归；
-5. 主合同、工程计划、日志字段和测试断言对失败语义一致。
+3. A2-V4 的完整计划结构必须先由 Provider Function Schema 机械承载，不能只藏在 `source` 字符串和 Tool description 中；
+4. 在上述合同完成后，重新获得单独预算，证明 DeepSeek 能为同一响应全部 Hosted facts 声明非空节点集合，且节点并集覆盖至少两个节点；
+5. 缓存敏感面若发生变化，先通过缓存门禁并按规则申请真实缓存回归；
+6. 主合同、工程计划、日志字段和测试断言对失败语义一致。
 
 任一条件失败时，Phase B 保持阻断。不得以整响应单节点、拆请求、语义猜配、默认 Root 或“先记 unbound 后继续”作为
 自动降级方案。

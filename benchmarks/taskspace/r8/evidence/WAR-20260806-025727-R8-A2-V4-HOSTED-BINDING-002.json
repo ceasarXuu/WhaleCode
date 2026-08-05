@@ -1,0 +1,147 @@
+{
+  "schema_version": "r8-taskspace-exec-a2-probe-v1",
+  "record_id": "WAR-20260806-025727-R8-A2-V4-HOSTED-BINDING-002",
+  "generated_at": "2026-08-05T18:58:46+00:00",
+  "model": "deepseek-v4-flash",
+  "endpoint": "https://api.deepseek.com/responses",
+  "repeat_limit": 2,
+  "automatic_retries": 0,
+  "observations": [
+    {
+      "http_status": 200,
+      "event_count": 2207,
+      "hosted_facts": [
+        {
+          "output_index": 2,
+          "provider_item_id": "call_00_rQNuJ7zJn0P3WvT6VIvi2686",
+          "status": "completed",
+          "action": {
+            "type": "search",
+            "queries": [
+              "DeepSeek API pricing official site deepseek.com",
+              "OpenAI API pricing official site openai.com",
+              "ws_call_id=call_00_rQNuJ7zJn0P3WvT6VIvi2686"
+            ]
+          }
+        },
+        {
+          "output_index": 5,
+          "provider_item_id": "call_01_idWwscOyq3fIs13DL0AY7207",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://api-docs.deepseek.com/quick_start/pricing/#ws_call_id=call_01_idWwscOyq3fIs13DL0AY7207"
+          }
+        },
+        {
+          "output_index": 6,
+          "provider_item_id": "call_02_od3WMXIT0K5fdFtMzeBy6215",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://developers.openai.com/api/docs/pricing#ws_call_id=call_02_od3WMXIT0K5fdFtMzeBy6215"
+          }
+        },
+        {
+          "output_index": 9,
+          "provider_item_id": "call_03_JBVeKL3eTj0zNXY0kxWu8752",
+          "status": "completed",
+          "action": {
+            "type": "search",
+            "queries": [
+              "api-docs.deepseek.com pricing \"per 1M tokens\" cache hit cache miss",
+              "site:api-docs.deepseek.com pricing DeepSeek API per 1M tokens",
+              "site:openai.com API pricing \"per 1M tokens\" OpenAI API pricing",
+              "OpenAI API pricing \"per 1M tokens\" input output cached input official",
+              "ws_call_id=call_03_JBVeKL3eTj0zNXY0kxWu8752"
+            ]
+          }
+        },
+        {
+          "output_index": 12,
+          "provider_item_id": "call_04_gF02BTK0dYhbKPWGmmLB1050",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://api-docs.deepseek.com/quick_start/pricing/?push_animated=1&show_loading=0&theme=light&webview_progress_bar=1#ws_call_id=call_04_gF02BTK0dYhbKPWGmmLB1050"
+          }
+        },
+        {
+          "output_index": 13,
+          "provider_item_id": "call_05_5DPfGvC9tY4Yac6YrqQI4291",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://developers.openai.com/api/docs/models/compare#ws_call_id=call_05_5DPfGvC9tY4Yac6YrqQI4291"
+          }
+        }
+      ],
+      "outer_call_count": 1,
+      "outer_output_index": 16,
+      "plan": {
+        "version": "taskspace_exec_plan_v3",
+        "capability_id": "r8-a2-hosted-only-v1",
+        "calls": [
+          {
+            "action": "web_search_call",
+            "node_ids": [
+              "deepseek-research",
+              "openai-research"
+            ],
+            "queries": [
+              "DeepSeek API pricing official site deepseek.com",
+              "OpenAI API pricing official site openai.com"
+            ]
+          },
+          {
+            "action": "web_search_call",
+            "node_ids": [
+              "deepseek-research",
+              "openai-research"
+            ],
+            "queries": [
+              "api-docs.deepseek.com pricing \"per 1M tokens\" cache hit cache miss",
+              "site:api-docs.deepseek.com pricing DeepSeek API per 1M tokens",
+              "site:openai.com API pricing \"per 1M tokens\" OpenAI API pricing",
+              "OpenAI API pricing \"per 1M tokens\" input output cached input official"
+            ]
+          }
+        ],
+        "hosted_bindings": [
+          {
+            "tool": "web_search",
+            "node_ids": [
+              "deepseek-research",
+              "openai-research"
+            ]
+          },
+          {
+            "tool": "web_search",
+            "node_ids": [
+              "deepseek-research",
+              "openai-research"
+            ]
+          }
+        ]
+      },
+      "checks": {
+        "provider_identity_valid": true,
+        "plan_shape_valid": false,
+        "binding_count_exact": false,
+        "binding_shape_valid": true,
+        "both_nodes_declared": true,
+        "outer_after_hosted": true
+      },
+      "a2_v4_exact": false,
+      "usage": {
+        "input_tokens": 16838,
+        "cached_input_tokens": 11648,
+        "uncached_input_tokens": 5190,
+        "output_tokens": 2556
+      },
+      "repeat": 1,
+      "elapsed_seconds": 20.962
+    }
+  ],
+  "a2_v4_passed": false
+}

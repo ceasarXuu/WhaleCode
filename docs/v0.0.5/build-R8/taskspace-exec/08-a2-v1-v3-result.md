@@ -68,9 +68,10 @@ cargo test -p codex-core taskspace_exec --lib --quiet
 
 ## 6. 剩余门禁
 
-A2-V4 首次真实 probe 已执行一次并按失败停止。它没有通过逐项绑定门禁，同时暴露了合同字段说明不足和固定数量提示造成的
-测试混杂；详见 `09-a2-v4-first-probe-result.md`。必须在修正后获得新预算复验，失败不得靠自动重试或退回单响应单节点
-掩盖。在 V4 通过前，A2 与 Phase A 都保持未完成。
+A2-V4 已执行两轮独立真实 probe，均按首败停止。首轮见 `09-a2-v4-first-probe-result.md`；修正后复验见
+`10-a2-v4-v3-reprobe-result.md`。第二轮已排除 Hosted 动作不可见，但证明 `{source:string}` Function Schema 无法机械
+承载 source 内层硬合同。在合同承载层重新设计并验证前，不再通过追加提示词或付费重试掩盖；A2 与 Phase A
+都保持未完成。
 
 专用探针 `scripts/taskspace-benchmark/r8_taskspace_exec_a2_probe.py` 已完成，并在现有 benchmark Docker 镜像中通过 7/7
 离线自检。它从原始 SSE 读取 `output_index` 和 Provider ID，检查唯一 outer call、完整 v3 plan、逐项数量和形状、两个

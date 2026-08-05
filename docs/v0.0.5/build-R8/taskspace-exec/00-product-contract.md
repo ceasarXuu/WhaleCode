@@ -199,7 +199,7 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | 内部 source 语法 | A1 离线通过 | `taskspace.plan(<strict JSON>);` 在副作用前生成唯一 typed plan；Agent 生成稳定性仍待获批真实验证 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | A2 v3 离线通过 / 首次真实验证未通过 | 每项事实支持非空 `node_ids[]`；首次 V4 暴露旧单 owner 合同、字段说明和固定数量提示问题，修正后待独立预算复验 |
+| Hosted 逐项多节点归属 | A2 v3 离线通过 / 两次真实验证未通过 | 修正后的 Agent 已生成正确版本、能力、Tool 名和 `node_ids[]`，但 Function Schema 只约束 `{source:string}`，无法机械约束 source 内的完整计划；A2 阻塞在合同承载层 |
 
 ## 9. 验收标准
 
