@@ -236,3 +236,29 @@ Ran 3 tests ... OK
   ```
 - Interpretation: 后续 W2-W7 的迁移范围可由机器清单约束，不再依赖手工记忆
 - Time: 2026-08-05 08:15
+
+## Evidence E-006: W2 单一 request facts 合同
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/test_request_facts.py`
+- Prediction or plan link:
+  - I07-W2 规范化事实生成器
+- Matched signal:
+  - 8/15 fixture 归一为 8 completed、8 usage、7 snapshots
+  - 10/11 fixture 归一为 11 attempts、10 boundary、10 completed、1 local-only failure
+  - partial identity、冲突重复、completed-without-boundary 和未知 boundary 均 fail closed
+  - 相同输入重复生成 byte-identical artifact
+- Correlation keys:
+  - `whalecode-request-facts-v1`
+  - analyzer `i07-w2-v1`
+- Raw content:
+  ```text
+Ran 10 tests ... OK
+request fact consumer gate: PASS
+cmp request-facts-a.json request-facts-b.json: equal
+  ```
+- Interpretation: W3-W7 可从一份规范化 artifact 派生各自视图，不再复制事件语义判断
+- Time: 2026-08-05 08:25
