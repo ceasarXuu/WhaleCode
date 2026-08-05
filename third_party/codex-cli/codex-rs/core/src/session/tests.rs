@@ -63,6 +63,7 @@ use crate::tools::context::ToolPayload;
 use crate::tools::handlers::GoalHandler;
 use crate::tools::handlers::ShellHandler;
 use crate::tools::handlers::UnifiedExecHandler;
+use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::registry::ToolHandler;
 use crate::tools::router::ToolCallSource;
 use crate::turn_diff_tracker::TurnDiffTracker;
@@ -459,6 +460,22 @@ async fn preview_session_start_hooks(
             source: codex_hooks::SessionStartSource::Startup,
         }),
     )
+}
+
+fn test_tool_runtime(session: Arc<Session>, turn_context: Arc<TurnContext>) -> ToolCallRuntime {
+    let router = Arc::new(ToolRouter::from_config(
+        &turn_context.tools_config,
+        crate::tools::router::ToolRouterParams {
+            mcp_tools: None,
+            deferred_mcp_tools: None,
+            unavailable_called_tools: Vec::new(),
+            parallel_mcp_server_names: HashSet::new(),
+            discoverable_tools: None,
+            dynamic_tools: turn_context.dynamic_tools.as_slice(),
+        },
+    ));
+    let tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
+    ToolCallRuntime::new(router, session, turn_context, tracker)
 }
 
 fn make_connector(id: &str, name: &str) -> AppInfo {
@@ -5791,6 +5808,8 @@ async fn handle_output_item_done_records_image_save_history_message() {
     let mut ctx = HandleOutputCtx {
         sess: Arc::clone(&session),
         turn_context: Arc::clone(&turn_context),
+        tool_runtime: test_tool_runtime(Arc::clone(&session), Arc::clone(&turn_context)),
+        cancellation_token: CancellationToken::new(),
     };
     handle_output_item_done(&mut ctx, item.clone(), /*previously_active_item*/ None)
         .await
@@ -5841,6 +5860,8 @@ async fn handle_output_item_done_skips_image_save_message_when_save_fails() {
     let mut ctx = HandleOutputCtx {
         sess: Arc::clone(&session),
         turn_context: Arc::clone(&turn_context),
+        tool_runtime: test_tool_runtime(Arc::clone(&session), Arc::clone(&turn_context)),
+        cancellation_token: CancellationToken::new(),
     };
     handle_output_item_done(&mut ctx, item.clone(), /*previously_active_item*/ None)
         .await
@@ -7499,6 +7520,8 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
     let mut ctx = HandleOutputCtx {
         sess: Arc::clone(&sess),
         turn_context: Arc::clone(&tc),
+        tool_runtime: test_tool_runtime(Arc::clone(&sess), Arc::clone(&tc)),
+        cancellation_token: CancellationToken::new(),
     };
 
     let output = handle_output_item_done(&mut ctx, item, /*previously_active_item*/ None)
@@ -7506,10 +7529,7 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
         .expect("tool call should be handled");
 
     assert!(output.needs_follow_up);
-    assert!(matches!(
-        output.tool_declaration,
-        Some(crate::tools::provider_tool_declaration::ProviderToolDeclaration::Ready(_))
-    ));
+    assert!(output.tool_future.is_some());
     assert_eq!(
         sess.get_pending_input().await,
         vec![communication.to_response_input_item()],
@@ -7888,7 +7908,7 @@ async fn taskspace_rejects_hidden_image_added_event_before_artifact_write() -> a
 }
 
 #[tokio::test]
-async fn malformed_tool_arguments_are_deferred_to_response_preflight() {
+async fn malformed_tool_arguments_are_recorded_as_standard_tool_feedback() {
     let (sess, tc, _rx) = make_session_and_context_with_rx().await;
     {
         let mut state = sess.state.lock().await;
@@ -7907,6 +7927,8 @@ async fn malformed_tool_arguments_are_deferred_to_response_preflight() {
     let mut ctx = HandleOutputCtx {
         sess: Arc::clone(&sess),
         turn_context: Arc::clone(&tc),
+        tool_runtime: test_tool_runtime(Arc::clone(&sess), Arc::clone(&tc)),
+        cancellation_token: CancellationToken::new(),
     };
 
     let output = handle_output_item_done(&mut ctx, item, None)
@@ -7914,16 +7936,15 @@ async fn malformed_tool_arguments_are_deferred_to_response_preflight() {
         .expect("malformed arguments should return typed feedback");
 
     assert!(output.needs_follow_up);
-    assert!(matches!(
-        output.tool_declaration,
-        Some(crate::tools::provider_tool_declaration::ProviderToolDeclaration::BuildFailed(_))
-    ));
+    assert!(output.tool_future.is_none());
     let history = sess.clone_history().await;
     assert!(history.raw_items().iter().any(|item| {
         matches!(item, ResponseItem::FunctionCall { call_id, .. } if call_id == "malformed-exec")
     }));
-    assert!(!history.raw_items().iter().any(|item| {
-        matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "malformed-exec")
+    assert!(history.raw_items().iter().any(|item| {
+        matches!(item, ResponseItem::FunctionCallOutput { output, .. }
+            if matches!(&output.body, FunctionCallOutputBody::Text(text)
+                if text.contains("failed to parse exec_command arguments")))
     }));
 }
 
@@ -7941,37 +7962,27 @@ async fn standard_missing_client_tool_search_call_id_is_a_mechanical_build_failu
         let mut ctx = HandleOutputCtx {
             sess: Arc::clone(&sess),
             turn_context: Arc::clone(&tc),
+            tool_runtime: test_tool_runtime(Arc::clone(&sess), Arc::clone(&tc)),
+            cancellation_token: CancellationToken::new(),
         };
 
         let output = handle_output_item_done(&mut ctx, item, None)
             .await
-            .expect("missing client call identity should enter response preflight");
+            .expect("missing client call identity should return standard tool feedback");
 
         assert!(output.needs_follow_up);
-        assert!(matches!(
-            &output.tool_declaration,
-            Some(
-                crate::tools::provider_tool_declaration::ProviderToolDeclaration::UnpairedBuildFailed(
-                    _
-                )
-            )
-        ));
-        let descriptor = output
-            .tool_declaration
-            .as_ref()
-            .expect("unpaired declaration")
-            .descriptor();
-        assert_eq!(
-            descriptor
-                .get("call_id")
-                .and_then(serde_json::Value::as_str),
-            provider_item_id
-        );
+        assert!(output.tool_future.is_none());
+        let history = sess.clone_history().await;
+        assert!(history.raw_items().iter().any(|item| {
+            matches!(item, ResponseItem::FunctionCallOutput { output, .. }
+                if matches!(&output.body, FunctionCallOutputBody::Text(text)
+                    if text.contains("client tool_search call is missing call_id")))
+        }));
     }
 }
 
 #[tokio::test]
-async fn taskspace_hidden_native_tools_are_rejected_before_local_side_effects() {
+async fn provider_native_outputs_follow_standard_processing() {
     let (sess, tc, _rx) = make_session_and_context_with_rx().await;
     {
         let mut state = sess.state.lock().await;
@@ -8004,23 +8015,21 @@ async fn taskspace_hidden_native_tools_are_rejected_before_local_side_effects() 
         let mut ctx = HandleOutputCtx {
             sess: Arc::clone(&sess),
             turn_context: Arc::clone(&tc),
+            tool_runtime: test_tool_runtime(Arc::clone(&sess), Arc::clone(&tc)),
+            cancellation_token: CancellationToken::new(),
         };
         let output = handle_output_item_done(&mut ctx, item, None)
             .await
-            .expect("hidden native call should become a response preflight declaration");
-        assert!(output.needs_follow_up);
-        assert!(matches!(
-            output.tool_declaration,
-            Some(
-                crate::tools::provider_tool_declaration::ProviderToolDeclaration::RejectedNative(_)
-            )
-        ));
+            .expect("provider-native output should follow standard processing");
+        assert!(!output.needs_follow_up);
+        assert!(output.tool_future.is_none());
     }
 
     assert!(
-        !image_path.exists(),
-        "TaskSpace hidden image generation wrote an artifact before response preflight"
+        image_path.exists(),
+        "standard provider-native image output was not persisted"
     );
+    let _ = std::fs::remove_file(image_path);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

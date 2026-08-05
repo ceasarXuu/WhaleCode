@@ -58,10 +58,8 @@ use crate::stream_events_utils::record_completed_response_item;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::parallel::ToolCallRuntime;
-use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolRouterParams;
-use crate::tools::sequence::execute_provider_response_tool_sequence;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
 use crate::unavailable_tool::collect_unavailable_called_tools;
@@ -113,7 +111,9 @@ use codex_utils_stream_parser::AssistantTextStreamParser;
 use codex_utils_stream_parser::ProposedPlanSegment;
 use codex_utils_stream_parser::extract_proposed_plan_text;
 use codex_utils_stream_parser::strip_citations;
+use futures::future::BoxFuture;
 use futures::prelude::*;
+use futures::stream::FuturesOrdered;
 use sha2::Digest;
 use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
@@ -2429,6 +2429,27 @@ async fn handle_assistant_item_done_in_plan_mode(
     false
 }
 
+async fn drain_in_flight(
+    in_flight: &mut FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>>,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+) -> CodexResult<()> {
+    while let Some(result) = in_flight.next().await {
+        match result {
+            Ok(response_input) => {
+                record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input)
+                    .await;
+            }
+            Err(error) => {
+                error_or_panic(format!(
+                    "in-flight tool future failed during drain: {error}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn record_response_input_item(
     sess: &Session,
     turn_context: &TurnContext,
@@ -2580,7 +2601,8 @@ async fn try_run_sampling_request(
         .await;
     }
     let mut stream = stream_result??;
-    let mut pending_tool_declarations: Vec<ProviderToolDeclaration> = Vec::new();
+    let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
+        FuturesOrdered::new();
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
     let mut saw_actionable_output = false;
@@ -2590,9 +2612,6 @@ async fn try_run_sampling_request(
         Box<dyn ToolArgumentDiffConsumer>,
     )> = None;
     let mut should_emit_turn_diff = false;
-    let mut taskspace_assistant_item_active = false;
-    let mut provider_assistant_message_present = false;
-    let mut deferred_taskspace_assistant_messages = Vec::new();
     let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
@@ -2678,18 +2697,6 @@ async fn try_run_sampling_request(
                     sess.send_event(&turn_context, event).await;
                 }
                 let previously_active_item = active_item.take();
-                if taskspace_response_contract.is_some()
-                    && taskspace_nonterminal_assistant_message(&item).is_some()
-                {
-                    taskspace_assistant_item_active = false;
-                    provider_assistant_message_present |=
-                        raw_assistant_output_text_from_item(&item)
-                            .is_some_and(|text| !text.trim().is_empty());
-                    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &item)
-                        .await;
-                    deferred_taskspace_assistant_messages.push(item);
-                    continue;
-                }
                 if let Some(previous) = previously_active_item.as_ref()
                     && matches!(previous, TurnItem::AgentMessage(_))
                 {
@@ -2720,6 +2727,8 @@ async fn try_run_sampling_request(
                 let mut ctx = HandleOutputCtx {
                     sess: sess.clone(),
                     turn_context: turn_context.clone(),
+                    tool_runtime: tool_runtime.clone(),
+                    cancellation_token: cancellation_token.clone(),
                 };
 
                 let preempt_for_mailbox_mail = match &item {
@@ -2750,16 +2759,9 @@ async fn try_run_sampling_request(
                         Ok(output_result) => output_result,
                         Err(err) => break Err(err),
                     };
-                if let Some(tool_declaration) = output_result.tool_declaration {
+                if let Some(tool_future) = output_result.tool_future {
                     saw_actionable_output = true;
-                    let identity = tool_declaration.identity_key();
-                    if !tool_declaration.deduplicates_stream_events()
-                        || !pending_tool_declarations
-                            .iter()
-                            .any(|pending| pending.identity_key() == identity)
-                    {
-                        pending_tool_declarations.push(tool_declaration);
-                    }
+                    in_flight.push_back(tool_future);
                 }
                 if let Some(agent_message) = output_result.last_agent_message {
                     last_agent_message = Some(agent_message);
@@ -2775,52 +2777,16 @@ async fn try_run_sampling_request(
                     if should_preempt_response_for_mailbox(
                         preempt_for_mailbox_mail,
                         mailbox_has_pending,
-                        pending_tool_declarations.len(),
+                        in_flight.len(),
                     ) {
                         break Ok(SamplingRequestResult {
                             needs_follow_up: true,
                             last_agent_message,
                         });
                     }
-                    if mailbox_has_pending && !pending_tool_declarations.is_empty() {
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            pending_tool_call_count = pending_tool_declarations.len(),
-                            zero_dispatch = true,
-                            state_commit = false,
-                            "taskspace.response_mailbox_preemption_deferred_until_completed"
-                        );
-                    }
                 }
             }
             ResponseEvent::OutputItemAdded(item) => {
-                if taskspace_response_contract.is_some()
-                    && let Some(declaration) =
-                        ProviderToolDeclaration::rejected_taskspace_native(&item)
-                {
-                    saw_actionable_output = true;
-                    let identity = declaration.identity_key();
-                    if !pending_tool_declarations
-                        .iter()
-                        .any(|pending| pending.identity_key() == identity)
-                    {
-                        pending_tool_declarations.push(declaration);
-                    }
-                    tracing::warn!(
-                        target: "codex_core::taskspace",
-                        event_name = "taskspace.provider_native_tool_added_rejected",
-                        zero_dispatch = true,
-                        state_commit = false,
-                        "TaskSpace rejected a hidden provider-native tool before item processing"
-                    );
-                    continue;
-                }
-                if taskspace_response_contract.is_some()
-                    && taskspace_nonterminal_assistant_message(&item).is_some()
-                {
-                    taskspace_assistant_item_active = true;
-                    continue;
-                }
                 if let ResponseItem::CustomToolCall { call_id, name, .. } = &item {
                     let tool_name = ToolName::plain(name.as_str());
                     active_tool_argument_diff_consumer = tool_runtime
@@ -2959,84 +2925,31 @@ async fn try_run_sampling_request(
                     .await;
                 }
                 should_emit_turn_diff = true;
-                let tool_outcome = execute_provider_response_tool_sequence(
-                    tool_runtime.clone(),
-                    std::mem::take(&mut pending_tool_declarations),
-                    cancellation_token.child_token(),
-                )
-                .await?;
-                for output in tool_outcome.outputs {
-                    record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
-                }
-                let terminal_candidate_released =
-                    if let Some(terminal) = tool_outcome.terminal_completion {
-                        publish_taskspace_terminal_agent_message(
-                            sess.as_ref(),
-                            turn_context.as_ref(),
-                            &terminal.call_id,
-                            &terminal.carrier,
-                        )
-                        .await;
-                        last_agent_message = Some(terminal.carrier.summary);
-                        needs_follow_up = false;
-                        true
-                    } else {
-                        false
-                    };
-                if terminal_candidate_released {
-                    if !deferred_taskspace_assistant_messages.is_empty() {
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            suppressed_count = deferred_taskspace_assistant_messages.len(),
-                            "taskspace_provider_assistant_text_suppressed_by_terminal_carrier"
-                        );
-                        deferred_taskspace_assistant_messages.clear();
-                    }
-                } else {
-                    publish_taskspace_nonterminal_provider_messages(
-                        sess.as_ref(),
-                        turn_context.as_ref(),
-                        std::mem::take(&mut deferred_taskspace_assistant_messages),
-                    )
-                    .await;
-                }
-                if !terminal_candidate_released && let Some(false) = end_turn {
+                if let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
-                let assistant_message_present = provider_assistant_message_present
-                    || last_agent_message
-                        .as_deref()
-                        .is_some_and(|message| !message.trim().is_empty());
+                let assistant_message_present = last_agent_message
+                    .as_deref()
+                    .is_some_and(|message| !message.trim().is_empty());
                 let current_budget_snapshot =
                     sess.action_map_provider_request_budget_snapshot().await;
-                let terminal_protocol_violation = taskspace_terminal_protocol_violation(
-                    taskspace_response_contract,
-                    terminal_candidate_released,
-                    needs_follow_up,
-                );
-                if !terminal_protocol_violation
-                    && taskspace_bound_node_empty_response_requires_follow_up(
-                        current_budget_snapshot
-                            .as_ref()
-                            .and_then(|snapshot| snapshot.node_role.as_deref()),
-                        saw_actionable_output,
-                        assistant_message_present,
-                    )
-                {
+                if taskspace_bound_node_empty_response_requires_follow_up(
+                    current_budget_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.node_role.as_deref()),
+                    saw_actionable_output,
+                    assistant_message_present,
+                ) {
                     needs_follow_up = true;
                 }
-                let response_actionability = if terminal_protocol_violation {
-                    TaskspaceProviderResponseActionability::ProtocolViolation
-                } else {
-                    classify_taskspace_provider_response_actionability(
-                        needs_follow_up,
-                        saw_actionable_output,
-                        assistant_message_present,
-                        taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
-                        false,
-                        false,
-                    )
-                };
+                let response_actionability = classify_taskspace_provider_response_actionability(
+                    needs_follow_up,
+                    saw_actionable_output,
+                    assistant_message_present,
+                    taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
+                    false,
+                    false,
+                );
                 if let Some(snapshot) = current_budget_snapshot.as_ref() {
                     sess.record_action_map_provider_response_actionability(
                         &turn_context,
@@ -3054,36 +2967,12 @@ async fn try_run_sampling_request(
                     )
                     .await;
                 }
-                if terminal_protocol_violation {
-                    let Some(contract) = taskspace_response_contract else {
-                        break Err(CodexErr::Fatal(
-                            TASKSPACE_TERMINAL_PROTOCOL_VIOLATION.to_string(),
-                        ));
-                    };
-                    tracing::error!(
-                        target: "codex_core::taskspace",
-                        reason_code = TASKSPACE_TERMINAL_PROTOCOL_VIOLATION,
-                        control_mode = contract.control_mode.as_str(),
-                        map_id = contract.map_id.as_deref(),
-                        revision = ?contract.revision,
-                        provider_assistant_message_present,
-                        saw_actionable_output,
-                        end_turn = ?end_turn,
-                        "taskspace_terminal_protocol_violation"
-                    );
-                    break Err(CodexErr::Fatal(
-                        TASKSPACE_TERMINAL_PROTOCOL_VIOLATION.to_string(),
-                    ));
-                }
                 break Ok(SamplingRequestResult {
                     needs_follow_up,
                     last_agent_message,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {
-                if taskspace_assistant_item_active {
-                    continue;
-                }
                 // In review child threads, suppress assistant text deltas; the
                 // UI will show a selection popup from the final ReviewOutput.
                 if let Some(active) = active_item.as_ref() {
@@ -3189,19 +3078,7 @@ async fn try_run_sampling_request(
     )
     .await;
 
-    if outcome.is_ok() && !pending_tool_declarations.is_empty() {
-        tracing::error!(
-            target: "codex_core::taskspace",
-            pending_tool_call_count = pending_tool_declarations.len(),
-            zero_dispatch = true,
-            state_commit = false,
-            "taskspace.response_ended_without_completion_with_pending_tools"
-        );
-        return Err(CodexErr::Fatal(
-            "provider response ended without response.completed while tool calls were pending"
-                .to_string(),
-        ));
-    }
+    drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
 
     if cancellation_token.is_cancelled() {
         return Err(CodexErr::TurnAborted);

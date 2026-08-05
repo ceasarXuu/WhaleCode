@@ -75,6 +75,25 @@ impl ToolCallRuntime {
         self.router.create_diff_consumer(tool_name)
     }
 
+    #[instrument(level = "trace", skip_all)]
+    pub(crate) fn handle_tool_call(
+        self,
+        call: ToolCall,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = Result<ResponseInputItem, CodexErr>> {
+        let error_call = call.clone();
+        let future =
+            self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
+        async move {
+            match future.await {
+                Ok(response) => Ok(response.into_response()),
+                Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
+                Err(other) => Ok(Self::failure_response(error_call, other)),
+            }
+        }
+        .in_current_span()
+    }
+
     pub(crate) async fn taskspace_canonical_revision(&self) -> Option<u64> {
         self.session
             .action_map_control_state(None)
