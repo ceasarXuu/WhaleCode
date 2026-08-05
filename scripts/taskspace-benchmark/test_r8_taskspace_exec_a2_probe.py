@@ -6,6 +6,7 @@ import importlib.util
 import json
 import pathlib
 import sys
+import tempfile
 import unittest
 
 
@@ -22,7 +23,7 @@ def event(value: dict[str, object]) -> str:
     return "data: " + json.dumps(value, separators=(",", ":"))
 
 
-def plan_source(bindings: list[dict[str, str]]) -> str:
+def plan_source(bindings: list[dict[str, object]]) -> str:
     plan = {
         "version": PROBE.PLAN_VERSION,
         "capability_id": PROBE.CAPABILITY_ID,
@@ -32,7 +33,7 @@ def plan_source(bindings: list[dict[str, str]]) -> str:
     return f"taskspace.plan({json.dumps(plan, separators=(',', ':'))});"
 
 
-def fixture(bindings: list[dict[str, str]]) -> str:
+def fixture(bindings: list[dict[str, object]]) -> str:
     return "\n".join(
         [
             event(
@@ -94,8 +95,11 @@ class TaskspaceExecA2ProbeTest(unittest.TestCase):
             200,
             fixture(
                 [
-                    {"tool": "web_search", "node_id": "deepseek-research"},
-                    {"tool": "web_search", "node_id": "openai-research"},
+                    {
+                        "tool": "web_search",
+                        "node_ids": ["deepseek-research", "openai-research"],
+                    },
+                    {"tool": "web_search", "node_ids": ["openai-research"]},
                 ]
             ),
         )
@@ -110,7 +114,7 @@ class TaskspaceExecA2ProbeTest(unittest.TestCase):
         result = PROBE.analyze(
             200,
             fixture(
-                [{"tool": "web_search", "node_id": "deepseek-research"}]
+                [{"tool": "web_search", "node_ids": ["deepseek-research"]}]
             ),
         )
 
@@ -122,14 +126,42 @@ class TaskspaceExecA2ProbeTest(unittest.TestCase):
             200,
             fixture(
                 [
-                    {"tool": "web_search", "node_id": "deepseek-research"},
-                    {"tool": "web_search", "node_id": "deepseek-research"},
+                    {"tool": "web_search", "node_ids": ["deepseek-research"]},
+                    {"tool": "web_search", "node_ids": ["deepseek-research"]},
                 ]
             ),
         )
 
         self.assertFalse(result["a2_v4_exact"])
         self.assertFalse(result["checks"]["both_nodes_declared"])
+
+    def test_rejects_obsolete_or_invalid_node_sets(self) -> None:
+        obsolete = PROBE.analyze(
+            200,
+            fixture(
+                [
+                    {"tool": "web_search", "node_id": "deepseek-research"},
+                    {"tool": "web_search", "node_ids": ["openai-research"]},
+                ]
+            ),
+        )
+        self.assertFalse(obsolete["a2_v4_exact"])
+        self.assertFalse(obsolete["checks"]["binding_shape_valid"])
+
+        duplicate = PROBE.analyze(
+            200,
+            fixture(
+                [
+                    {
+                        "tool": "web_search",
+                        "node_ids": ["deepseek-research", "deepseek-research"],
+                    },
+                    {"tool": "web_search", "node_ids": ["openai-research"]},
+                ]
+            ),
+        )
+        self.assertFalse(duplicate["a2_v4_exact"])
+        self.assertFalse(duplicate["checks"]["binding_shape_valid"])
 
     def test_rejects_provider_id_copied_into_binding(self) -> None:
         result = PROBE.analyze(
@@ -138,10 +170,10 @@ class TaskspaceExecA2ProbeTest(unittest.TestCase):
                 [
                     {
                         "tool": "web_search",
-                        "node_id": "deepseek-research",
+                        "node_ids": ["deepseek-research"],
                         "provider_item_id": "ws_deepseek",
                     },
-                    {"tool": "web_search", "node_id": "openai-research"},
+                    {"tool": "web_search", "node_ids": ["openai-research"]},
                 ]
             ),
         )
@@ -159,7 +191,18 @@ class TaskspaceExecA2ProbeTest(unittest.TestCase):
         self.assertNotIn("hosted_bindings\":", json.dumps(body))
         self.assertEqual(body["tools"][1]["parameters"]["required"], ["source"])
         self.assertEqual(body["max_output_tokens"], 6000)
-        self.assertIn("no more than four", body["instructions"])
+        self.assertNotIn("no more than", body["instructions"])
+        self.assertNotIn("capability_id", body["instructions"])
+        self.assertNotIn("including failed items", body["instructions"])
+        self.assertIn("including failed items", body["tools"][1]["description"])
+        self.assertIn("non-empty Agent-selected node_ids", body["tools"][1]["description"])
+
+    def test_repo_owner_guard_rejects_root_owned_container_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = pathlib.Path(directory)
+            PROBE.ensure_repo_owner(repo, process_uid=repo.stat().st_uid)
+            with self.assertRaisesRegex(RuntimeError, "--user"):
+                PROBE.ensure_repo_owner(repo, process_uid=repo.stat().st_uid + 1)
 
 
 if __name__ == "__main__":

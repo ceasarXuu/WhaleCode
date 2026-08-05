@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import time
 from typing import Any
@@ -14,7 +15,7 @@ from urllib import request as urllib_request
 import r8_hosted_container_probe as probe_support
 
 
-PLAN_VERSION = "taskspace_exec_plan_v2"
+PLAN_VERSION = "taskspace_exec_plan_v3"
 CAPABILITY_ID = "r8-a2-hosted-only-v1"
 HOSTED_TOOL = "web_search"
 EXPECTED_NODES = frozenset({"deepseek-research", "openai-research"})
@@ -26,12 +27,9 @@ def request_body(model: str) -> dict[str, Any]:
         "instructions": (
             "Work through TaskSpace. The map already has two ready research nodes: "
             "`deepseek-research` and `openai-research`. Use provider-hosted web search "
-            "for each node, with no more than four hosted web search items in total. "
-            "After all hosted work in this response, call "
-            "taskspace_exec exactly once. Its source is a complete "
-            f"{PLAN_VERSION} plan. Keep calls empty. Declare every hosted output item "
-            "in hosted_bindings, in provider output order, using only its hosted Tool "
-            "name and the node_id chosen for that work. Do not copy provider item IDs."
+            "for each node. After all hosted work in this response, call "
+            "taskspace_exec exactly once to submit the complete plan and hosted node "
+            "bindings required by that Tool's contract."
         ),
         "input": [
             {
@@ -55,11 +53,14 @@ def request_body(model: str) -> dict[str, Any]:
                 "name": "taskspace_exec",
                 "description": (
                     "Submit one complete TaskSpace action plan. The source must call "
-                    f"taskspace.plan with strict JSON using version {PLAN_VERSION}, "
-                    f"capability identity `{CAPABILITY_ID}`, calls, and hosted_bindings. "
-                    "For every provider-hosted output item, hosted_bindings contains one "
-                    "entry in provider output order with only tool and Agent-selected "
-                    "node_id. Do not copy provider item IDs."
+                    "taskspace.plan once with strict JSON whose only fields are version, "
+                    f"capability_id, calls, and hosted_bindings. Use version {PLAN_VERSION} "
+                    f"and capability_id `{CAPABILITY_ID}`. For every actual "
+                    "web_search_call output item, including failed items and all action "
+                    "subtypes, hosted_bindings contains one entry in provider output "
+                    "order with exactly tool `web_search` and a non-empty Agent-selected "
+                    "node_ids array. One hosted item may serve multiple nodes. Do not "
+                    "copy provider item IDs."
                 ),
                 "parameters": {
                     "type": "object",
@@ -138,10 +139,16 @@ def analyze(http_status: int, raw: str) -> dict[str, Any]:
 
     bindings = plan.get("hosted_bindings") if isinstance(plan, dict) else None
     bindings = bindings if isinstance(bindings, list) else []
-    binding_nodes = [
-        binding.get("node_id")
+    binding_node_sets = [
+        binding.get("node_ids")
         for binding in bindings
-        if isinstance(binding, dict) and isinstance(binding.get("node_id"), str)
+        if isinstance(binding, dict) and isinstance(binding.get("node_ids"), list)
+    ]
+    binding_nodes = [
+        node_id
+        for node_ids in binding_node_sets
+        for node_id in node_ids
+        if isinstance(node_id, str)
     ]
     hosted_indexes = [row["output_index"] for row in hosted]
     hosted_ids = [row["id"] for row in hosted]
@@ -153,9 +160,13 @@ def analyze(http_status: int, raw: str) -> dict[str, Any]:
     )
     binding_shape_valid = all(
         isinstance(binding, dict)
-        and set(binding) == {"tool", "node_id"}
+        and set(binding) == {"tool", "node_ids"}
         and binding.get("tool") == HOSTED_TOOL
-        and binding.get("node_id") in EXPECTED_NODES
+        and isinstance(binding.get("node_ids"), list)
+        and bool(binding["node_ids"])
+        and all(isinstance(node_id, str) for node_id in binding["node_ids"])
+        and len(binding["node_ids"]) == len(set(binding["node_ids"]))
+        and all(node_id in EXPECTED_NODES for node_id in binding["node_ids"])
         for binding in bindings
     )
     plan_shape_valid = (
@@ -265,6 +276,16 @@ def update_ledger(path: pathlib.Path, record_id: str, update: Any) -> None:
     probe_support.atomic_write_json(path, ledger)
 
 
+def ensure_repo_owner(repo: pathlib.Path, process_uid: int | None = None) -> None:
+    actual_uid = os.geteuid() if process_uid is None else process_uid
+    repo_uid = repo.stat().st_uid
+    if actual_uid != repo_uid:
+        raise RuntimeError(
+            "probe process UID must match the mounted repository owner; run Docker with "
+            f"--user {repo_uid}:{repo.stat().st_gid}"
+        )
+
+
 def settle_ledger(
     path: pathlib.Path,
     record_id: str,
@@ -336,6 +357,7 @@ def settle_ledger(
 
 def run(args: argparse.Namespace) -> int:
     repo = pathlib.Path(args.repo).resolve()
+    ensure_repo_owner(repo)
     ledger_path = repo / "benchmarks/whale-agent-run-ledger.json"
     run_root = repo / "target/provider-probes" / args.record_id
     result_path = repo / "benchmarks/taskspace/r8/evidence" / f"{args.record_id}.json"

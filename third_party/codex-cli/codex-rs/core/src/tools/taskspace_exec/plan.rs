@@ -25,5 +25,5 @@ pub(crate) struct TaskspaceExecCall {
 #[serde(deny_unknown_fields)]
 pub(crate) struct TaskspaceExecHostedBinding {
     pub(crate) tool: String,
-    pub(crate) node_id: String,
+    pub(crate) node_ids: Vec<String>,
 }

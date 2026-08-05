@@ -1,6 +1,12 @@
+use std::collections::BTreeSet;
+
 use serde_json::Value;
 
+use super::TASKSPACE_EXEC_PLAN_VERSION;
+use super::catalog::TaskspaceExecCatalog;
 use super::plan::TaskspaceExecCall;
+use super::plan::TaskspaceExecHostedBinding;
+use super::plan::TaskspaceExecPlan;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct TaskspaceExecPreflightError {
@@ -36,6 +42,85 @@ pub(super) fn validate_map_call(
             index,
             call,
             format!("taskspace_control `{action}` requires an unsigned expected_revision"),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_hosted_bindings(
+    bindings: &[TaskspaceExecHostedBinding],
+) -> Result<(), TaskspaceExecPreflightError> {
+    for (index, binding) in bindings.iter().enumerate() {
+        if binding.tool.trim().is_empty() {
+            return Err(plan_error(
+                "hosted_binding_tool_empty",
+                format!("TaskSpace Exec hosted_bindings[{index}].tool must be non-empty"),
+            ));
+        }
+        if binding.node_ids.is_empty() {
+            return Err(plan_error(
+                "hosted_binding_node_ids_empty",
+                format!("TaskSpace Exec hosted_bindings[{index}].node_ids must be non-empty"),
+            ));
+        }
+        let mut node_ids = BTreeSet::new();
+        for (node_index, node_id) in binding.node_ids.iter().enumerate() {
+            let node_id = node_id.trim();
+            if node_id.is_empty() {
+                return Err(plan_error(
+                    "hosted_binding_node_id_empty",
+                    format!(
+                        "TaskSpace Exec hosted_bindings[{index}].node_ids[{node_index}] must be non-empty"
+                    ),
+                ));
+            }
+            if !node_ids.insert(node_id) {
+                return Err(plan_error(
+                    "hosted_binding_node_id_duplicate",
+                    format!("TaskSpace Exec hosted_bindings[{index}].node_ids repeats `{node_id}`"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_plan_identity(
+    plan: &TaskspaceExecPlan,
+    catalog: &TaskspaceExecCatalog,
+) -> Result<(), TaskspaceExecPreflightError> {
+    if plan.version != TASKSPACE_EXEC_PLAN_VERSION {
+        return Err(plan_error(
+            "plan_version_mismatch",
+            format!(
+                "TaskSpace Exec plan version `{}` does not match `{TASKSPACE_EXEC_PLAN_VERSION}`",
+                plan.version
+            ),
+        ));
+    }
+    if plan.capability_id != catalog.identity {
+        return Err(plan_error(
+            "capability_identity_mismatch",
+            "TaskSpace Exec plan capability identity does not match the admitted catalog",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_work_binding(
+    call: &TaskspaceExecCall,
+    index: usize,
+) -> Result<(), TaskspaceExecPreflightError> {
+    if call
+        .node_id
+        .as_deref()
+        .is_none_or(|node_id| node_id.trim().is_empty())
+    {
+        return Err(call_error(
+            "work_node_binding_missing",
+            index,
+            call,
+            "Every non-map client call requires an Agent-declared node_id",
         ));
     }
     Ok(())

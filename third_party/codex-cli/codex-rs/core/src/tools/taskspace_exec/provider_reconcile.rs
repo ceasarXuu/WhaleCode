@@ -29,7 +29,7 @@ pub(crate) struct ProviderBinding {
     pub(crate) output_index: usize,
     pub(crate) hosted_index: usize,
     pub(crate) fact_ref: ProviderFactRef,
-    pub(crate) node_id: String,
+    pub(crate) node_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -166,17 +166,44 @@ pub(crate) fn reconcile_provider_bindings(
                 ),
             ));
         }
-        if declaration.node_id.trim().is_empty() {
+        if declaration.node_ids.is_empty() {
             findings.push(finding(
-                "provider_binding_node_missing",
+                "provider_binding_nodes_missing",
                 Some(fact.output_index),
                 Some(fact.hosted_index),
                 Some(fact.fact_ref.clone()),
                 format!(
-                    "Hosted item at index {} has no Agent-declared node",
+                    "Hosted item at index {} has no Agent-declared nodes",
                     fact.hosted_index
                 ),
             ));
+        }
+        let mut node_ids = BTreeSet::new();
+        for node_id in &declaration.node_ids {
+            let node_id = node_id.trim();
+            if node_id.is_empty() {
+                findings.push(finding(
+                    "provider_binding_node_missing",
+                    Some(fact.output_index),
+                    Some(fact.hosted_index),
+                    Some(fact.fact_ref.clone()),
+                    format!(
+                        "Hosted item at index {} has an empty Agent-declared node",
+                        fact.hosted_index
+                    ),
+                ));
+            } else if !node_ids.insert(node_id) {
+                findings.push(finding(
+                    "provider_binding_node_duplicate",
+                    Some(fact.output_index),
+                    Some(fact.hosted_index),
+                    Some(fact.fact_ref.clone()),
+                    format!(
+                        "Hosted item at index {} repeats Agent-declared node `{node_id}`",
+                        fact.hosted_index
+                    ),
+                ));
+            }
         }
     }
 
@@ -190,7 +217,11 @@ pub(crate) fn reconcile_provider_bindings(
                 output_index: fact.output_index,
                 hosted_index: fact.hosted_index,
                 fact_ref: fact.fact_ref,
-                node_id: declaration.node_id.trim().to_string(),
+                node_ids: declaration
+                    .node_ids
+                    .iter()
+                    .map(|node_id| node_id.trim().to_string())
+                    .collect(),
             })
             .collect()
     } else {
@@ -228,10 +259,13 @@ mod tests {
         collect_provider_facts(items.iter().enumerate())
     }
 
-    fn binding(tool: &str, node_id: &str) -> TaskspaceExecHostedBinding {
+    fn binding(tool: &str, node_ids: &[&str]) -> TaskspaceExecHostedBinding {
         TaskspaceExecHostedBinding {
             tool: tool.to_string(),
-            node_id: node_id.to_string(),
+            node_ids: node_ids
+                .iter()
+                .map(|node_id| (*node_id).to_string())
+                .collect(),
         }
     }
 
@@ -252,6 +286,17 @@ mod tests {
         }
     }
 
+    fn assert_rejected(report: &ProviderReconciliationReport, reason_code: &str) {
+        assert!(!report.exact);
+        assert!(report.bindings.is_empty());
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.reason_code == reason_code)
+        );
+    }
+
     #[test]
     fn ordered_declarations_bind_same_response_items_to_different_nodes() {
         let facts = collect(&[
@@ -262,9 +307,9 @@ mod tests {
         let report = reconcile_provider_bindings(
             facts,
             &[
-                binding(WEB_SEARCH_TOOL_NAME, "research-a"),
-                binding(WEB_SEARCH_TOOL_NAME, "research-b"),
-                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
+                binding(WEB_SEARCH_TOOL_NAME, &["research-a", "compare"]),
+                binding(WEB_SEARCH_TOOL_NAME, &["research-b"]),
+                binding(IMAGE_GENERATION_TOOL_NAME, &["design"]),
             ],
         );
 
@@ -278,13 +323,17 @@ mod tests {
                     binding.output_index,
                     binding.hosted_index,
                     binding.fact_ref.provider_item_id.as_str(),
-                    binding.node_id.as_str(),
+                    binding
+                        .node_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
                 ))
                 .collect::<Vec<_>>(),
             vec![
-                (0, 0, "call-1", "research-a"),
-                (1, 1, "call-2", "research-b"),
-                (2, 2, "image-1", "design"),
+                (0, 0, "call-1", vec!["research-a", "compare"]),
+                (1, 1, "call-2", vec!["research-b"]),
+                (2, 2, "image-1", vec!["design"]),
             ]
         );
     }
@@ -326,26 +375,18 @@ mod tests {
     fn missing_or_extra_declarations_reject_the_whole_set() {
         let facts = collect(&[web(Some("call-1"), "completed"), image("image-1", "failed")]);
         let report =
-            reconcile_provider_bindings(facts, &[binding(WEB_SEARCH_TOOL_NAME, "research")]);
+            reconcile_provider_bindings(facts, &[binding(WEB_SEARCH_TOOL_NAME, &["research"])]);
 
-        assert!(!report.exact);
-        assert!(report.bindings.is_empty());
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|finding| { finding.reason_code == "provider_binding_count_mismatch" })
-        );
+        assert_rejected(&report, "provider_binding_count_mismatch");
 
         let report = reconcile_provider_bindings(
             collect(&[web(Some("call-1"), "completed")]),
             &[
-                binding(WEB_SEARCH_TOOL_NAME, "research"),
-                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
+                binding(WEB_SEARCH_TOOL_NAME, &["research"]),
+                binding(IMAGE_GENERATION_TOOL_NAME, &["design"]),
             ],
         );
-        assert!(!report.exact);
-        assert!(report.bindings.is_empty());
+        assert_rejected(&report, "provider_binding_count_mismatch");
     }
 
     #[test]
@@ -358,39 +399,24 @@ mod tests {
         let report = reconcile_provider_bindings(
             facts,
             &[
-                binding(WEB_SEARCH_TOOL_NAME, "research-a"),
-                binding(WEB_SEARCH_TOOL_NAME, "research-b"),
-                binding(WEB_SEARCH_TOOL_NAME, "research-c"),
+                binding(WEB_SEARCH_TOOL_NAME, &["research-a"]),
+                binding(WEB_SEARCH_TOOL_NAME, &["research-b"]),
+                binding(WEB_SEARCH_TOOL_NAME, &["research-c"]),
             ],
         );
 
-        assert!(!report.exact);
-        assert!(report.bindings.is_empty());
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|finding| finding.reason_code == "provider_fact_duplicate")
-        );
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|finding| finding.reason_code == "provider_item_identity_missing")
-        );
+        assert_rejected(&report, "provider_fact_duplicate");
+        assert_rejected(&report, "provider_item_identity_missing");
     }
 
     #[test]
     fn declaration_without_provider_fact_is_rejected() {
-        let report =
-            reconcile_provider_bindings(collect(&[]), &[binding(WEB_SEARCH_TOOL_NAME, "research")]);
-
-        assert!(!report.exact);
-        assert!(report.bindings.is_empty());
-        assert_eq!(
-            report.findings[0].reason_code,
-            "provider_binding_count_mismatch"
+        let report = reconcile_provider_bindings(
+            collect(&[]),
+            &[binding(WEB_SEARCH_TOOL_NAME, &["research"])],
         );
+
+        assert_rejected(&report, "provider_binding_count_mismatch");
     }
 
     #[test]
@@ -402,8 +428,8 @@ mod tests {
         let report = reconcile_provider_bindings(
             facts,
             &[
-                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
-                binding(WEB_SEARCH_TOOL_NAME, "research"),
+                binding(IMAGE_GENERATION_TOOL_NAME, &["design"]),
+                binding(WEB_SEARCH_TOOL_NAME, &["research"]),
             ],
         );
 
@@ -435,18 +461,26 @@ mod tests {
         let report = reconcile_provider_bindings(
             collect_provider_facts([(0, &web), (0, &image)]),
             &[
-                binding(WEB_SEARCH_TOOL_NAME, "research"),
-                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
+                binding(WEB_SEARCH_TOOL_NAME, &["research"]),
+                binding(IMAGE_GENERATION_TOOL_NAME, &["design"]),
             ],
         );
 
-        assert!(!report.exact);
-        assert!(report.bindings.is_empty());
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|finding| { finding.reason_code == "provider_output_index_duplicate" })
-        );
+        assert_rejected(&report, "provider_output_index_duplicate");
+    }
+
+    #[test]
+    fn empty_or_duplicate_node_sets_reject_without_partial_bindings() {
+        let cases: [(&[&str], &str); 2] = [
+            (&[], "provider_binding_nodes_missing"),
+            (&["research", "research"], "provider_binding_node_duplicate"),
+        ];
+        for (node_ids, reason_code) in cases {
+            let report = reconcile_provider_bindings(
+                collect(&[web(Some("call-1"), "completed")]),
+                &[binding(WEB_SEARCH_TOOL_NAME, node_ids)],
+            );
+            assert_rejected(&report, reason_code);
+        }
     }
 }

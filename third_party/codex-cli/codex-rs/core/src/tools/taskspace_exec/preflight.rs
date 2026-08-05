@@ -11,7 +11,10 @@ use super::preflight_support::TaskspaceExecPreflightError;
 use super::preflight_support::call_error;
 use super::preflight_support::map_action;
 use super::preflight_support::plan_error;
+use super::preflight_support::validate_hosted_bindings;
 use super::preflight_support::validate_map_call;
+use super::preflight_support::validate_plan_identity;
+use super::preflight_support::validate_work_binding;
 
 const TASKSPACE_CONTROL_TOOL_NAME: &str = "taskspace_control";
 const APPLY_PATCH_TOOL_NAME: &str = "apply_patch";
@@ -36,20 +39,7 @@ pub(crate) fn preflight_taskspace_exec_plan(
             "TaskSpace Exec plan has no client calls or hosted binding declarations",
         ));
     }
-    for (index, binding) in plan.hosted_bindings.iter().enumerate() {
-        if binding.tool.trim().is_empty() {
-            return Err(plan_error(
-                "hosted_binding_tool_empty",
-                format!("TaskSpace Exec hosted_bindings[{index}].tool must be non-empty"),
-            ));
-        }
-        if binding.node_id.trim().is_empty() {
-            return Err(plan_error(
-                "hosted_binding_node_id_empty",
-                format!("TaskSpace Exec hosted_bindings[{index}].node_id must be non-empty"),
-            ));
-        }
-    }
+    validate_hosted_bindings(&plan.hosted_bindings)?;
 
     let mut item_ids = BTreeSet::new();
     let mut patch_count = 0;
@@ -120,28 +110,6 @@ pub(crate) fn preflight_taskspace_exec_plan(
     }
 
     Ok(ValidatedTaskspaceExecPlan(plan))
-}
-
-fn validate_plan_identity(
-    plan: &TaskspaceExecPlan,
-    catalog: &TaskspaceExecCatalog,
-) -> Result<(), TaskspaceExecPreflightError> {
-    if plan.version != TASKSPACE_EXEC_PLAN_VERSION {
-        return Err(plan_error(
-            "plan_version_mismatch",
-            format!(
-                "TaskSpace Exec plan version `{}` does not match `{TASKSPACE_EXEC_PLAN_VERSION}`",
-                plan.version
-            ),
-        ));
-    }
-    if plan.capability_id != catalog.identity {
-        return Err(plan_error(
-            "capability_identity_mismatch",
-            "TaskSpace Exec plan capability identity does not match the admitted catalog",
-        ));
-    }
-    Ok(())
 }
 
 fn validate_call_identity(
@@ -216,25 +184,6 @@ fn validate_call_contract(
                 "Tool `{}` input does not match its {:?} contract",
                 call.tool, capability.kind
             ),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_work_binding(
-    call: &TaskspaceExecCall,
-    index: usize,
-) -> Result<(), TaskspaceExecPreflightError> {
-    if call
-        .node_id
-        .as_deref()
-        .is_none_or(|node_id| node_id.trim().is_empty())
-    {
-        return Err(call_error(
-            "work_node_binding_missing",
-            index,
-            call,
-            "Every non-map client call requires an Agent-declared node_id",
         ));
     }
     Ok(())
@@ -477,7 +426,7 @@ mod tests {
         let mut hosted = plan(&catalog, Vec::new());
         hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
             tool: "web_search".to_string(),
-            node_id: "research".to_string(),
+            node_ids: vec!["research".to_string(), "compare".to_string()],
         }];
 
         assert!(preflight_taskspace_exec_plan(hosted, &catalog).is_ok());
@@ -489,7 +438,7 @@ mod tests {
         let mut hosted = plan(&catalog, Vec::new());
         hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
             tool: "web_search".to_string(),
-            node_id: "  ".to_string(),
+            node_ids: vec!["  ".to_string()],
         }];
 
         assert_eq!(
@@ -502,13 +451,37 @@ mod tests {
         let mut hosted = plan(&catalog, Vec::new());
         hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
             tool: " ".to_string(),
-            node_id: "research".to_string(),
+            node_ids: vec!["research".to_string()],
         }];
         assert_eq!(
             preflight_taskspace_exec_plan(hosted, &catalog)
                 .expect_err("empty hosted tool")
                 .reason_code,
             "hosted_binding_tool_empty"
+        );
+
+        let mut hosted = plan(&catalog, Vec::new());
+        hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
+            tool: "web_search".to_string(),
+            node_ids: Vec::new(),
+        }];
+        assert_eq!(
+            preflight_taskspace_exec_plan(hosted, &catalog)
+                .expect_err("empty hosted node set")
+                .reason_code,
+            "hosted_binding_node_ids_empty"
+        );
+
+        let mut hosted = plan(&catalog, Vec::new());
+        hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
+            tool: "web_search".to_string(),
+            node_ids: vec!["research".to_string(), "research".to_string()],
+        }];
+        assert_eq!(
+            preflight_taskspace_exec_plan(hosted, &catalog)
+                .expect_err("duplicate hosted node")
+                .reason_code,
+            "hosted_binding_node_id_duplicate"
         );
     }
 }

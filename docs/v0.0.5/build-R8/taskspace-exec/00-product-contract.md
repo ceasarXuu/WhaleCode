@@ -61,7 +61,7 @@ Runtime 计划必须包含以下三类事实：
 |---|---|---|---|
 | Map call | `taskspace_control` 原生参数和序列位置 | 预检后调用原 handler | canonical Map transaction |
 | Client call | 原生 Tool 名、原生输入、`node_id` | 预检后调用原 Router 一次 | 原生 Tool result |
-| Hosted binding | 每项 Hosted 动作的 `node_id` 与可机械核对的逐项声明 | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
+| Hosted binding | 每项 Hosted 动作的非空 `node_ids[]` 与可机械核对的逐项声明 | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
 
 内部语法不是第二份业务 Tool schema：Tool 名、描述、输入和输出合同都从原 ToolSpec 派生；`node_id` 和序列位置属于
 外层 TaskSpace invocation metadata，不能写回普通 Tool 参数。
@@ -80,7 +80,7 @@ Runtime 计划必须包含以下三类事实：
 | `work + map-epilogue + next work` | 完成节点并继续独立后续工作 | epilogue 与后续 prelude 的边界必须可机械判定 |
 | `work + terminal map` | 完成最后工作并显式关闭 Map | `finish_map` 只能位于终态边界 |
 | `read-only work` | 读取事实，等待结果后再决定下一步 | 允许单个读取或多个无结果依赖读取 |
-| `hosted_bindings[] + 其他合法形状` | 逐项登记同一 provider response 已完成的 hosted 动作 | 每项可绑定不同节点；声明不改变 client/map 的先后关系 |
+| `hosted_bindings[] + 其他合法形状` | 逐项登记同一 provider response 已完成的 hosted 动作 | 每项可供一个或多个节点使用；声明不改变 client/map 的先后关系 |
 
 以下行为非法：
 
@@ -131,7 +131,8 @@ Runtime 不负责决定应调用什么、选择哪个节点、补调用、改参
 Provider-hosted Tool 由 provider 在响应生成过程中原生执行。它的原始输出是唯一执行事实，不能被
 `taskspace_exec` 回滚、重执行或替换。
 
-Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作分别声明 `node_id`。Runtime 使用 provider 原始输出逐项核对：
+Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作分别声明非空 `node_ids[]`。同一个 Provider 事实可以同时供多个
+节点使用，多个事实也可以指向同一节点；事实本身仍只保存一份。Runtime 使用 provider 原始输出逐项核对：
 
 - 绑定最小单位是一个带独立 Provider 身份的原始 hosted output item，不是整个响应或 Runtime 推断的语义任务组；
 - 从每个真实 hosted output item 直接读取唯一 `id/item_id` 和 Tool 类型；
@@ -141,7 +142,7 @@ Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作分别声明
 - 保留 Provider 状态，但不以成功或失败改变节点状态。
 
 Agent 不得回显、复制或另造 Provider 传输身份。`hosted_bindings[]` 按 Provider 原始 `output_index` 排序后的 Hosted item
-顺序逐项声明；每项只包含模型可见的 Hosted Tool 名和 Agent 选择的 `node_id`。Runtime 使用 `output_index` 恢复顺序，
+顺序逐项声明；每项只包含模型可见的 Hosted Tool 名和 Agent 选择的非空 `node_ids[]`。Runtime 使用 `output_index` 恢复顺序，
 再核对数量和 Tool 类型，不得用事件完成顺序、URL、结果内容或语义相似度猜配。缺少声明、无法唯一对应、节点非法、
 Provider ID/`output_index` 缺失或冲突时，该响应不被 TaskSpace 接受，不能把事实标记为已结算的 `unbound`，也不能
 默认写到 Root。
@@ -158,9 +159,9 @@ Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validato
 | Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
 | client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果返回并按原 reservation 结算 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
 
-合法计划的 Map prelude、Hosted 事件 owner 和 client reservation 必须通过现有 canonical Map transaction 接缝一次准备；
-Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落为 Node owner。Runtime 不增加独立 binding database，继续
-复用 `TaskSpaceEventStore` 的 `provider_item_id + owner` 和现有 Map 持久化路径完成幂等恢复与冲突检查。
+合法计划的 Map prelude、Hosted fact-node references 和 client reservation 必须通过现有 canonical Map transaction 接缝
+一次准备；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落下引用关系。Runtime 不增加独立 binding
+database，继续复用 `TaskSpaceEventStore` 的 `provider_item_id + node_ids[]` 和现有 Map 持久化路径完成幂等恢复与冲突检查。
 
 ### 5.4 Tool 与节点状态正交
 
@@ -198,7 +199,7 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | 内部 source 语法 | A1 离线通过 | `taskspace.plan(<strict JSON>);` 在副作用前生成唯一 typed plan；Agent 生成稳定性仍待获批真实验证 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | A2 离线通过 / 真实验证待执行 | `hosted_bindings[]` 按 Provider `output_index` 排序逐项声明；V1～V3 已通过，V4 待预算 |
+| Hosted 逐项多节点归属 | A2 v3 离线通过 / 首次真实验证未通过 | 每项事实支持非空 `node_ids[]`；首次 V4 暴露旧单 owner 合同、字段说明和固定数量提示问题，修正后待独立预算复验 |
 
 ## 9. 验收标准
 

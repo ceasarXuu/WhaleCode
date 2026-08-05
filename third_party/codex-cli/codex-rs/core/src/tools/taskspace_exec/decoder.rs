@@ -90,8 +90,8 @@ mod tests {
                     {{"item_id":"patch-1","tool":"apply_patch","node_id":"fix","input":"*** Begin Patch"}}
                 ],
                 "hosted_bindings":[
-                    {{"tool":"web_search","node_id":"research"}},
-                    {{"tool":"image_generation","node_id":"design"}}
+                    {{"tool":"web_search","node_ids":["research","compare"]}},
+                    {{"tool":"image_generation","node_ids":["design"]}}
                 ]
             }});"#
         )
@@ -107,8 +107,8 @@ mod tests {
         assert_eq!(plan.calls[1].input, json!({"path": "README.md"}));
         assert_eq!(plan.hosted_bindings.len(), 2);
         assert_eq!(plan.hosted_bindings[0].tool, "web_search");
-        assert_eq!(plan.hosted_bindings[0].node_id, "research");
-        assert_eq!(plan.hosted_bindings[1].node_id, "design");
+        assert_eq!(plan.hosted_bindings[0].node_ids, ["research", "compare"]);
+        assert_eq!(plan.hosted_bindings[1].node_ids, ["design"]);
     }
 
     #[test]
@@ -149,8 +149,8 @@ mod tests {
     fn agent_cannot_redeclare_provider_transport_identity() {
         let source = valid_source().replace(
             r#""hosted_bindings":[
-                    {"tool":"web_search","node_id":"research"},
-                    {"tool":"image_generation","node_id":"design"}
+                    {"tool":"web_search","node_ids":["research","compare"]},
+                    {"tool":"image_generation","node_ids":["design"]}
                 ]"#,
             r#""hosted_records":[{
                 "response_id":"resp-1",
@@ -172,8 +172,8 @@ mod tests {
     fn response_level_hosted_node_scope_is_not_accepted() {
         let source = valid_source().replace(
             r#""hosted_bindings":[
-                    {"tool":"web_search","node_id":"research"},
-                    {"tool":"image_generation","node_id":"design"}
+                    {"tool":"web_search","node_ids":["research","compare"]},
+                    {"tool":"image_generation","node_ids":["design"]}
                 ]"#,
             r#""hosted_node_id":"research""#,
         );
@@ -181,6 +181,21 @@ mod tests {
         assert_eq!(
             decode_taskspace_exec_source(&source)
                 .expect_err("single response scope is obsolete")
+                .reason_code,
+            "source_plan_invalid"
+        );
+    }
+
+    #[test]
+    fn obsolete_single_node_binding_is_rejected() {
+        let source = valid_source().replace(
+            r#"{"tool":"web_search","node_ids":["research","compare"]}"#,
+            r#"{"tool":"web_search","node_id":"research"}"#,
+        );
+
+        assert_eq!(
+            decode_taskspace_exec_source(&source)
+                .expect_err("single-node hosted binding is obsolete")
                 .reason_code,
             "source_plan_invalid"
         );

@@ -1,0 +1,131 @@
+{
+  "schema_version": "r8-taskspace-exec-a2-probe-v1",
+  "record_id": "WAR-20260806-021153-R8-A2-V4-HOSTED-BINDING-001",
+  "generated_at": "2026-08-05T18:14:17+00:00",
+  "model": "deepseek-v4-flash",
+  "endpoint": "https://api.deepseek.com/responses",
+  "repeat_limit": 2,
+  "automatic_retries": 0,
+  "observations": [
+    {
+      "http_status": 200,
+      "event_count": 3238,
+      "hosted_facts": [
+        {
+          "output_index": 1,
+          "provider_item_id": "call_00_kY6RLhSupmi06mer2bVY3021",
+          "status": "completed",
+          "action": {
+            "type": "search",
+            "queries": [
+              "DeepSeek API pricing official site",
+              "OpenAI API pricing official site",
+              "ws_call_id=call_00_kY6RLhSupmi06mer2bVY3021"
+            ]
+          }
+        },
+        {
+          "output_index": 4,
+          "provider_item_id": "call_01_CJI7bPTsXemSg8XitcoX6607",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://api-docs.deepseek.com/quick_start/pricing/#ws_call_id=call_01_CJI7bPTsXemSg8XitcoX6607"
+          }
+        },
+        {
+          "output_index": 5,
+          "provider_item_id": "call_02_agOEzYmUx8Hlyy2A8eDU3734",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://developers.openai.com/api/docs/pricing#ws_call_id=call_02_agOEzYmUx8Hlyy2A8eDU3734"
+          }
+        },
+        {
+          "output_index": 8,
+          "provider_item_id": "call_03_vVOLAsSYqUu7zKN1vcDe2055",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://api-docs.deepseek.com/quick_start/pricing#ws_call_id=call_03_vVOLAsSYqUu7zKN1vcDe2055"
+          }
+        },
+        {
+          "output_index": 9,
+          "provider_item_id": "call_04_rEBxbhnU6SR5b2LBBbFa1499",
+          "status": "completed",
+          "action": {
+            "type": "open_page",
+            "url": "https://openai.com/api/pricing/#ws_call_id=call_04_rEBxbhnU6SR5b2LBBbFa1499"
+          }
+        },
+        {
+          "output_index": 12,
+          "provider_item_id": "call_05_gWIAOkj0Aw8dNjZuw9705389",
+          "status": "failed",
+          "action": {
+            "type": "open_page",
+            "url": "https://platform.openai.com/docs/pricing#ws_call_id=call_05_gWIAOkj0Aw8dNjZuw9705389"
+          }
+        },
+        {
+          "output_index": 15,
+          "provider_item_id": "call_06_a29ZJOwnQ1ie5fZ1fBJV3678",
+          "status": "completed",
+          "action": {
+            "type": "search",
+            "queries": [
+              "DeepSeek API docs pricing page \"per 1M tokens\" cache hit cache miss output",
+              "OpenAI developer pricing page \"Per 1M tokens\" input output cached",
+              "ws_call_id=call_06_a29ZJOwnQ1ie5fZ1fBJV3678"
+            ]
+          }
+        }
+      ],
+      "outer_call_count": 1,
+      "outer_output_index": 18,
+      "plan": {
+        "version": "taskspace_exec_plan_v2",
+        "capability": "r8-a2-hosted-only-v1",
+        "calls": [],
+        "hosted_bindings": [
+          {
+            "tool": "search",
+            "node_id": "deepseek-research"
+          },
+          {
+            "tool": "search",
+            "node_id": "openai-research"
+          },
+          {
+            "tool": "search",
+            "node_id": "deepseek-research"
+          },
+          {
+            "tool": "search",
+            "node_id": "openai-research"
+          }
+        ]
+      },
+      "checks": {
+        "provider_identity_valid": true,
+        "plan_shape_valid": false,
+        "binding_count_exact": false,
+        "binding_shape_valid": false,
+        "both_nodes_declared": true,
+        "outer_after_hosted": true
+      },
+      "a2_v4_exact": false,
+      "usage": {
+        "input_tokens": 20832,
+        "cached_input_tokens": 16640,
+        "uncached_input_tokens": 4192,
+        "output_tokens": 3557
+      },
+      "repeat": 1,
+      "elapsed_seconds": 36.35
+    }
+  ],
+  "a2_v4_passed": false
+}

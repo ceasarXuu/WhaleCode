@@ -104,7 +104,7 @@ pub(crate) fn create_taskspace_exec_tool(catalog: &TaskspaceExecCatalog) -> Tool
         .collect::<Vec<_>>()
         .join(", ");
     let description = format!(
-        "Submit one complete TaskSpace action plan before any client Tool runs. The source must use {version}, capability identity `{identity}`, and may call only these mechanically derived client Tools: {names}. Declare each provider-hosted result in `hosted_bindings` using provider output order; every entry contains only the hosted Tool name and Agent-selected `node_id`. Do not copy provider item IDs.",
+        "Submit one complete TaskSpace action plan before any client Tool runs. The source calls taskspace.plan once with a strict JSON object whose only fields are `version`, `capability_id`, `calls`, and `hosted_bindings`. Use version `{version}`, capability_id `{identity}`, and only these mechanically derived client Tools: {names}. `hosted_bindings` contains exactly one object with only `tool` and non-empty Agent-selected `node_ids` for every actual provider-hosted output item, in provider output order, including failed items and every action subtype. One hosted item may serve multiple nodes. Use canonical Tool name `web_search` for every `web_search_call` and `image_generation` for every `image_generation_call`; never use an action subtype. Do not copy provider item IDs.",
         version = TASKSPACE_EXEC_PLAN_VERSION,
         identity = catalog.identity,
     );
@@ -271,7 +271,14 @@ mod tests {
         assert_eq!(tool.name, TASKSPACE_EXEC_TOOL_NAME);
         assert!(tool.description.contains(&catalog.identity));
         assert!(tool.description.contains("provider output order"));
-        assert!(tool.description.contains("Agent-selected `node_id`"));
+        assert!(tool.description.contains("Agent-selected `node_ids`"));
+        assert!(tool.description.contains("may serve multiple nodes"));
+        assert!(tool.description.contains("`capability_id`"));
+        assert!(
+            tool.description
+                .contains("canonical Tool name `web_search` for every `web_search_call`")
+        );
+        assert!(tool.description.contains("including failed items"));
         assert!(tool.description.contains("Do not copy provider item IDs"));
         assert_eq!(
             serde_json::to_value(tool.parameters).expect("schema"),
