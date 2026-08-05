@@ -34,9 +34,14 @@
 9. Client Tool 能力合同在一次请求中只能向 Agent 暴露一次：Standard 在顶层暴露原生 Tool schema；TaskSpace
    必须移除顶层普通 client Tool 和 `taskspace_control`，改由 `taskspace_exec` 从同一 ToolSpec 快照在内部暴露。禁止
    顶层与内部双重暴露，也禁止在 L1/L2、Tool description 或其他消息中重复完整 Tool 合同。
-10. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
+10. 内部 Tool catalog、Function/Freeform/Namespace 转换、嵌套调用和原 Router dispatch 必须直接复用或中性抽取 Codex
+    `exec/code-mode` 已有基建；这些能力不作为 TaskSpace 的第二套协议、额外架构复杂度或模型能力风险重新设计。
+11. `taskspace_exec` schema 必须是静态能力合同，只能由确定排序的 ToolSpec 能力快照和协议版本机械生成。Map revision、
+    node、调用计划、Provider output、Session 状态及其他运行时数据只能进入 Function Call 参数、Tool result、自然上下文或
+    canonical Store，严禁写入 Tool schema/description。相同能力集合和协议版本必须生成逐字稳定的 Tool declaration。
+12. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
    只有主方案被证据否定且用户重新决策后才能恢复评估。
-11. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
+13. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
     保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Agent 若
     显式声明 Root 节点，是否合法仍只由 canonical Map 规则判断。
 
@@ -80,9 +85,12 @@
    Standard 顶层迁移到 `taskspace_exec` 内部是替换暴露，不得把整份内部 Tool 合同误计为 TaskSpace 新增 input；只有
    `node_id`、合法序列、Hosted binding 和必要容器字段属于协议增量。Provider-hosted Tool 的完整 schema 只保留在
    provider 原生顶层，Exec 内仅表达逐项绑定，不得复制其完整合同。
-10. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
-11. Prompt、context、projection、provider payload 或 Tool declaration 的缓存敏感变更必须先被免费指纹门禁阻断；
-    Agent 说明变更原因并获得专项预算后，才能运行真实缓存回归。失败结果不得晋升或绕过。
+10. 单一 `taskspace_exec` 入口是 Codex `exec/code-mode` 已验证的 Tool 暴露与嵌套执行形态，不得预设它会降低 Agent
+    对原生 Tool 的理解或多 Tool 能力。行为测试用于发现具体实现缺陷，不得把未发生的模型退化列为方案固有坏处。
+11. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
+12. Prompt、context、projection、provider payload 或 Tool declaration 的缓存敏感变更必须先被免费指纹门禁阻断；
+    Agent 说明变更原因并获得专项预算后，才能运行真实缓存回归。该门禁审计的是发布时静态前缀的一次性变化，不得
+    据此推导 schema 会随运行时状态变化或形成持续缓存劣化。失败结果不得晋升或绕过。
 
 ## 6. R8 不预设的设计
 
