@@ -2076,9 +2076,13 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $scanPolicy = Get-TaskspaceCostRolloutScanPolicy $rolloutJsonlPath
     $rolloutScanPath = [string]$scanPolicy.rollout_effective_scan_path
     $token = New-TaskspaceTokenSummary $JsonlPath
+    $providerWireTracePath = Join-Path $ArtifactDir "provider-wire-trace.jsonl"
+    $providerBoundaryEventsPath = Join-Path $ArtifactDir "provider-boundary-events.jsonl"
     $requestFactsPath = Join-Path $ArtifactDir "request-facts.json"
     $requestFacts = Invoke-TaskspaceRequestFactsGenerator `
         -RolloutJsonlPath $rolloutScanPath `
+        -WireTracePath $providerWireTracePath `
+        -BoundaryEventsPath $providerBoundaryEventsPath `
         -OutputPath $requestFactsPath
     $request = New-TaskspaceRequestSummary $JsonlPath $token $rolloutScanPath $requestFacts
     $request | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
@@ -2092,7 +2096,6 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $exactPayloadScanEvents = @(New-TaskspaceExactPayloadScanEvents $ObservabilityJsonPath $rolloutScanPath)
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events $exactPayloadScanEvents
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
-    $providerWireTracePath = Join-Path $ArtifactDir "provider-wire-trace.jsonl"
     $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events $providerWireTracePath
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
     $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutScanPath

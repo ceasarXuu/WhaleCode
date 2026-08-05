@@ -161,9 +161,21 @@ foreach ($run in @($manifest.runs)) {
     $wireTracePath = Join-Path ([string]$row.artifact_dir) "provider-wire-trace.jsonl"
     $rolloutPath = Join-Path ([string]$row.artifact_dir) "rollout.jsonl"
     $requestSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-summary.json") | ConvertFrom-Json -Depth 50
+    $requestFacts = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-facts.json") | ConvertFrom-Json -Depth 100
     $sectionSummary = Get-R7WireSectionSummary $wireTracePath
     $wireInventory = @(Get-R7WireRequestInventory $wireTracePath)
-    $wireAttemptSummary = Get-R7WireAttemptSummary $wireInventory
+    if ([string]$requestFacts.schema_version -ne "whalecode-request-facts-v1" -or
+        [string]$requestFacts.availability.attempt -ne "measured" -or
+        [string]$requestFacts.availability.completion -ne "measured") {
+        throw "Canonical request facts are unavailable for $($run.sample) repeat $($run.repeat) $($run.arm)"
+    }
+    $wireAttemptSummary = [pscustomobject]@{
+        physical_attempt_count = [int64]$requestFacts.summary.local_attempt_count
+        logical_request_count = [int64]$requestFacts.summary.logical_request_count
+        completed_response_count = [int64]$requestFacts.summary.completed_response_count
+        failed_or_cancelled_attempt_count = [int64]$requestFacts.summary.failed_or_cancelled_attempt_count
+        retried_logical_request_count = [int64]$requestFacts.summary.retried_logical_request_count
+    }
     $completedProviderResponses = Get-R7RequiredNonnegativeInt64Fact `
         $requestSummary "model_request_count" "request summary"
     if ($completedProviderResponses -lt 1) {
@@ -180,6 +192,8 @@ foreach ($run in @($manifest.runs)) {
         business_success = [bool]$row.result.business_success
         agent_completion_status = [string]$row.result.agent_completion_status
         provider_requests = Get-R7RequiredNonnegativeInt64Fact $row.actions "provider_requests" "performance observation"
+        provider_local_attempts = [int64]$wireAttemptSummary.physical_attempt_count
+        provider_logical_requests = [int64]$wireAttemptSummary.logical_request_count
         completed_provider_responses = $completedProviderResponses
         failed_or_cancelled_provider_attempts = Get-R7RequiredNonnegativeInt64Fact $wireAttemptSummary "failed_or_cancelled_attempt_count" "wire attempt summary"
         retried_logical_requests = Get-R7RequiredNonnegativeInt64Fact $wireAttemptSummary "retried_logical_request_count" "wire attempt summary"
@@ -231,7 +245,7 @@ foreach ($run in @($manifest.runs)) {
         Add-R7WireFactsToRequestPath `
             @($requestPath) `
             $wireTracePath `
-            ([int]$flat.provider_requests)
+            ([int]$flat.provider_local_attempts)
     )
     $requestObservability = Get-R7RequestObservabilitySummary @($requestPath)
     if (-not [bool]$requestObservability.classification_reconciled) {

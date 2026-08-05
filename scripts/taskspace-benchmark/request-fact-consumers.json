@@ -23,13 +23,6 @@
       "migration": "I07-W3"
     },
     {
-      "path": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
-      "role": "consumer",
-      "observed_sources": ["local_attempt"],
-      "required_facts": ["attempt", "boundary", "completion"],
-      "migration": "I07-W5"
-    },
-    {
       "path": "scripts/taskspace-benchmark/lib/provider-section-cost.ps1",
       "role": "consumer",
       "observed_sources": ["local_attempt", "terminal"],
@@ -44,25 +37,18 @@
       "migration": "I07-W7"
     },
     {
-      "path": "scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1",
-      "role": "consumer",
-      "observed_sources": ["rollout_token"],
-      "required_facts": ["completion", "request_identity"],
-      "migration": "I07-W5"
-    },
-    {
       "path": "scripts/taskspace-benchmark/lib/r7-request-observability.ps1",
       "role": "consumer",
       "observed_sources": ["terminal"],
       "required_facts": ["attempt", "completion", "completed_usage"],
-      "migration": "I07-W5"
+      "migration": "I07-W5-counts; retained-wire-details"
     },
     {
       "path": "scripts/taskspace-benchmark/lib/timing.ps1",
       "role": "consumer",
       "observed_sources": ["terminal"],
       "required_facts": ["attempt", "completion", "latency"],
-      "migration": "I07-W5"
+      "migration": "retained-lifecycle-latency"
     },
     {
       "path": "scripts/taskspace-benchmark/request_facts.py",

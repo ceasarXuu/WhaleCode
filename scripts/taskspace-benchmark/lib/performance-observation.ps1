@@ -42,34 +42,29 @@ function Get-PerformanceRatio {
     [Math]::Round($num / $den, 4)
 }
 function Get-PerformanceWireRequestCount {
-    param([string]$ArtifactDir, $CacheSummary)
-    $summaryRaw = Get-PerformanceProperty $CacheSummary "provider_request_count"
-    if ($null -ne $summaryRaw) {
-        $summaryCount = Get-PerformanceNonnegativeInt64 $summaryRaw
-        $source = if ($null -ne $summaryCount) {
-            "provider_cache_trace_summary"
+    param([string]$ArtifactDir)
+    $facts = Read-PerformanceJson (Join-Path $ArtifactDir "request-facts.json")
+    if ($facts -and [string]$facts.schema_version -eq "whalecode-request-facts-v1") {
+        $boundaryMeasured = [string]$facts.availability.boundary -eq "measured"
+        $completionMeasured = [string]$facts.availability.completion -eq "measured"
+        $value = if ($boundaryMeasured) {
+            Get-PerformanceCount $facts.summary.boundary_request_count
+        } elseif ($completionMeasured) {
+            Get-PerformanceCount $facts.summary.completed_response_count
         } else {
-            "provider_cache_trace_summary_invalid"
+            $null
         }
-        return [pscustomobject]@{ value = $summaryCount; source = $source }
-    }
-    $wirePath = Join-Path $ArtifactDir "provider-wire-trace.jsonl"
-    if (Test-Path -LiteralPath $wirePath) {
-        $count = 0
-        foreach ($line in [System.IO.File]::ReadLines($wirePath)) {
-            if ($line -match '"schema_version"\s*:\s*"provider-chat-wire-trace-v10"' -and
-                $line -match '"status"\s*:\s*"payload_captured"') {
-                $count++
-            }
-        }
-        if ($count -gt 0) {
-            return [pscustomobject]@{
-                value = [int64]$count
-                source = "provider_wire_trace"
-            }
+        return [pscustomobject]@{
+            value = $value
+            source = if ($boundaryMeasured) { "request_facts_boundary" } elseif ($completionMeasured) { "request_facts_completion" } else { "request_facts_unavailable" }
+            logical = Get-PerformanceCount $facts.summary.logical_request_count
+            attempts = Get-PerformanceCount $facts.summary.local_attempt_count
+            boundary = if ($boundaryMeasured) { Get-PerformanceCount $facts.summary.boundary_request_count } else { $null }
+            completed = if ($completionMeasured) { Get-PerformanceCount $facts.summary.completed_response_count } else { $null }
+            failed_or_cancelled = Get-PerformanceCount $facts.summary.failed_or_cancelled_attempt_count
         }
     }
-    [pscustomobject]@{ value = $null; source = "unavailable" }
+    [pscustomobject]@{ value = $null; source = "unavailable"; logical = $null; attempts = $null; boundary = $null; completed = $null; failed_or_cancelled = $null }
 }
 function Get-PerformanceActionCounts {
     param([string]$ArtifactDir, [System.Collections.Generic.List[object]]$Events)
@@ -244,7 +239,7 @@ function Get-PerformanceSideObservation {
     $mode = if ($modeMap -and $modeMap.PSObject.Properties.Name -contains $side) { [string]$modeMap.$side } else { [string](Get-PerformanceProperty $metrics "logical_mode" "unknown") }
     $repeat = if ($modeMap) { Get-PerformanceNumber (Get-PerformanceProperty $modeMap "repeat") } elseif ($pair -match '(\d+)$') { [double]$Matches[1] } else { $null }
     $cache = Read-PerformanceJson (Join-Path $artifactDir "provider-cache-trace-summary.json") $Events
-    $requests = Get-PerformanceWireRequestCount $artifactDir $cache
+    $requests = Get-PerformanceWireRequestCount $artifactDir
     $actions = Get-PerformanceActionCounts $artifactDir $Events
     $cadence = Get-TaskspaceNativeCadenceFacts $artifactDir $Events
     $patchObservation = Get-TaskspacePatchObservability $artifactDir $Events
@@ -329,6 +324,11 @@ function Get-PerformanceSideObservation {
         }
         actions = [pscustomobject]@{
             provider_requests = $requests.value; provider_request_source = $requests.source
+            provider_logical_requests = $requests.logical
+            provider_local_attempts = $requests.attempts
+            provider_boundary_requests = $requests.boundary
+            provider_completed_responses = $requests.completed
+            provider_failed_or_cancelled_attempts = $requests.failed_or_cancelled
             ordinary_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "tool_call_count")
             failed_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "failed_tool_call_count")
             provider_outer_tool_calls = $actions.provider_outer_tool_calls
@@ -414,7 +414,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
+    foreach ($field in @("provider_requests", "provider_logical_requests", "provider_local_attempts", "provider_boundary_requests", "provider_completed_responses", "provider_failed_or_cancelled_attempts", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
         $values = @($selected | ForEach-Object { $_.actions.$field })
         $sum[$field] = Get-PerformanceOptionalExactInt64Sum $values $field
     }

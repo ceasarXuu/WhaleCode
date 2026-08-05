@@ -17,6 +17,7 @@ function New-TokenBoundary([string]$RequestId) {
             provider_request_id = $RequestId
             provider_logical_request_id = "$RequestId-logical"
             provider_attempt_seq = 1
+            info = @{ last_token_usage = @{ input_tokens = 10; cached_input_tokens = 0; output_tokens = 2; reasoning_output_tokens = 1; total_tokens = 12 } }
         }
     }
 }
@@ -85,7 +86,7 @@ try {
     )
     $standardBoundaryRejected = $false
     try { Get-R7StandardRequestPath $missingStandardBoundary 1 | Out-Null }
-    catch { $standardBoundaryRejected = $_.Exception.Message -like "Standard rollout request boundary mismatch:*" }
+    catch { $standardBoundaryRejected = $_.Exception.Message -like "Rollout request boundary mismatch:*" }
     if (-not $standardBoundaryRejected) { throw "Missing Standard request boundaries did not fail closed" }
     $nonBoundaryTokenPath = Join-Path $tempRoot "standard-non-boundary-token.jsonl"
     Write-Lines $nonBoundaryTokenPath @(
@@ -101,7 +102,7 @@ try {
     )
     $partialBoundaryRejected = $false
     try { Get-R7StandardRequestPath $partialBoundaryPath 1 | Out-Null }
-    catch { $partialBoundaryRejected = $_.Exception.Message -like "*incomplete provider request identity" }
+    catch { $partialBoundaryRejected = $_.Exception.Message -like "Rollout request facts are not comparable:*identity_incomplete*" }
     if (-not $partialBoundaryRejected) {
         throw "Partially identified token boundary did not fail closed"
     }
@@ -291,7 +292,8 @@ try {
         [string]$stateFailure.violation_contexts[0].rejected_candidate_at_violation.state -ne "completed") {
         throw "TaskSpace structured state violation was not preserved"
     }
-    $copiedRequests = New-R7RequestRows 1
+    $copiedRequests = New-R7RequestRows
+    Add-R7RequestRowIfMissing $copiedRequests 1
     $copiedRequests[0].rollout_provider_request_id = "copy-request"
     $copiedRequests[0].rollout_provider_logical_request_id = "copy-request-logical"
     $copiedRequests[0].rollout_provider_attempt_seq = 1
@@ -315,7 +317,8 @@ try {
         $copied[0].sibling_failure_copy_count -ne 1) {
         throw "Sibling failure copies were not collapsed into one request-level primary class"
     }
-    $independentRequests = New-R7RequestRows 1
+    $independentRequests = New-R7RequestRows
+    Add-R7RequestRowIfMissing $independentRequests 1
     $independentRequests[0].rollout_provider_request_id = "independent-request"
     $independentRequests[0].rollout_provider_logical_request_id =
         "independent-request-logical"
@@ -360,7 +363,7 @@ try {
     )
     $missingBoundaryRejected = $false
     try { Get-R7TaskspaceRequestPath $missingBoundaryPath 1 | Out-Null }
-    catch { $missingBoundaryRejected = $_.Exception.Message -like "TaskSpace rollout request boundary mismatch:*" }
+    catch { $missingBoundaryRejected = $_.Exception.Message -like "Rollout request boundary mismatch:*" }
     if (-not $missingBoundaryRejected) { throw "Missing TaskSpace request boundaries did not fail closed" }
 
     $taskspaceShapesPath = Join-Path $tempRoot "taskspace-shapes.jsonl"
@@ -422,7 +425,8 @@ try {
         @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_prefix_preserved"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; request_index = 2; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(); taskspace_final_control_result_identity = @{ count = 0; results = @() } },
         @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; status = "response_completed"; input_tokens = 120; cached_input_tokens = 100; output_tokens = 8; reasoning_output_tokens = 2; total_tokens = 128 }
     )
-    $retryRequests = New-R7RequestRows 1
+    $retryRequests = New-R7RequestRows
+    Add-R7RequestRowIfMissing $retryRequests 1
     $retryRequests[0].rollout_provider_request_id = "retry-logical:attempt-2"
     $retryRequests[0].rollout_provider_logical_request_id = "retry-logical"
     $retryRequests[0].rollout_provider_attempt_seq = 2

@@ -112,6 +112,16 @@ function New-SideFixture {
             cache_shape_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
             section_cost_summary = $sectionCostSummary
         }) (Join-Path $artifactDir "provider-cache-trace-summary.json")
+    Write-Json ([pscustomobject]@{
+            schema_version = "whalecode-request-facts-v1"
+            analyzer_version = "fixture"
+            availability = [pscustomobject]@{ attempt = "measured"; boundary = "measured"; completion = "measured"; usage = "measured" }
+            summary = [pscustomobject]@{
+                logical_request_count = $Requests; local_attempt_count = $Requests
+                boundary_request_count = $Requests; completed_response_count = $Requests
+                failed_or_cancelled_attempt_count = 0
+            }
+        }) (Join-Path $artifactDir "request-facts.json")
     Write-JsonLines @(
         [pscustomobject]@{ event_name = "provider.chat_wire_shape_recorded"; request_index = 1; message_shapes = @(
                 [pscustomobject]@{ content_sha256 = "same"; bytes = 11 },
@@ -334,6 +344,8 @@ $taskspace = @($report.aggregates | Where-Object { $_.logical_mode -eq "taskspac
 Assert-True ($report.rows.Count -eq 5) "report did not include measured and skipped sides"
 Assert-True ($standard.totals.provider_requests -eq 10) "standard request aggregate ignored alternating side mapping"
 Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggregate ignored alternating side mapping"
+Assert-True ($taskspace.totals.provider_local_attempts -eq 18) "taskspace attempt facts were not aggregated"
+Assert-True ($taskspace.totals.provider_completed_responses -eq 18) "taskspace completion facts were not aggregated"
 Assert-True ($taskspace.totals.nested_actions -eq 0) "taskspace action declarations were misclassified as nested tool executions"
 Assert-True (@(Get-Content -Encoding UTF8 -LiteralPath $result.event_log_path | Where-Object { $_ -match '"event":"control_arguments_parse_failed"' }).Count -eq 0) "performance observer used a second control argument parser"
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"

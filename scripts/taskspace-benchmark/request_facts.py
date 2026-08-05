@@ -31,14 +31,11 @@ def _read_jsonl(path: Path | None, source: str, findings: list[dict[str, Any]]) 
         if not isinstance(value, dict):
             findings.append(_finding("json_object_required", source, line_number=line_number))
             continue
+        value["_request_facts_line_number"] = line_number
         values.append(value)
     return values
-
-
 def _finding(code: str, source: str, **identity: Any) -> dict[str, Any]:
     return {"code": code, "source": source, **identity}
-
-
 def _identity(event: dict[str, Any], prefix: str = "") -> tuple[str, str, int] | None:
     request_id = event.get(f"{prefix}request_id")
     logical_id = event.get(f"{prefix}logical_request_id")
@@ -136,6 +133,7 @@ def _parse_rollout(
         if "rollout_index" not in row:
             counters["rollout_request_index"] += 1
             row["rollout_index"] = counters["rollout_request_index"]
+            row["rollout_line_number"] = event["_request_facts_line_number"]
         _put_once(
             row,
             "identity",
@@ -315,6 +313,7 @@ def _normalized_rows(rows: dict[str, dict[str, Any]], boundary_available: bool) 
                 "request_index": row.get("attempt", {}).get("request_index"),
                 "observation_index": row.get("attempt", {}).get("request_index")
                 or row.get("rollout_index"),
+                "rollout_line_number": row.get("rollout_line_number"),
                 "provider_payload_sha256": row.get("attempt", {}).get("provider_payload_sha256"),
                 "attempt_status": "observed" if "attempt" in row else "unavailable",
                 "boundary_status": (
@@ -338,7 +337,6 @@ def _normalized_rows(rows: dict[str, dict[str, Any]], boundary_available: bool) 
         )
     key = lambda row: (row["observation_index"] is None, row["observation_index"] or 0, row["request_id"])
     return sorted(normalized, key=key)
-
 
 def _percentile(values: list[int], percentile: int) -> int | None:
     if not values:
@@ -451,6 +449,7 @@ def build_request_facts(
         in {"response_failed", "cancelled", "retry_unauthorized"}
     ]
     logical_ids = {row["logical_request_id"] for row in normalized if row["logical_request_id"]}
+    logical_attempts = Counter(row["logical_request_id"] for row in attempts if row["logical_request_id"])
     return {
         "schema_version": SCHEMA_VERSION,
         "analyzer_version": ANALYZER_VERSION,
@@ -479,6 +478,7 @@ def build_request_facts(
         },
         "summary": {
             "logical_request_count": len(logical_ids),
+            "retried_logical_request_count": sum(count > 1 for count in logical_attempts.values()),
             "local_attempt_count": len(attempts),
             "boundary_request_count": len(claims) if boundary_available else None,
             "completed_response_count": len(completed),

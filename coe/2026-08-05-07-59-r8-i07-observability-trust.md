@@ -312,3 +312,31 @@ Ran 219 tests ... OK
   ```
 - Interpretation: H-002 的错误来自 observer 阶段混淆；现在本地失败和上游不一致具有不同、可复算的事实表达
 - Time: 2026-08-05 08:40
+
+## Evidence E-009: W5 性能请求计数迁移
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/test-performance-observation.ps1`
+- Prediction or plan link:
+  - I07-W5 主报表统一读取 canonical facts
+- Matched signal:
+  - performance observation 不再读取 `payload_captured`
+  - logical、local attempt、boundary、completed 和 failed/cancelled 并列暴露
+  - 五层 trace 动态创建请求行，由 canonical rollout line identity 结算，不按预期数量预分配
+  - request consumer gate 不再登记这两个旧 raw reader
+- Correlation keys:
+  - `request_facts_boundary`
+  - `rollout_line_number`
+- Raw content:
+  ```text
+R7 five-layer trace analysis passed.
+R7 supplemental failure evidence passed.
+performance observation self-test passed
+TaskSpace benchmark harness self-test: PASS
+request fact consumer gate: PASS
+  ```
+- Interpretation: 横向报告的请求分母已统一；保留的 wire/lifecycle reader 只提供独特详情，并受 canonical count 对账约束
+- Time: 2026-08-05 08:55
