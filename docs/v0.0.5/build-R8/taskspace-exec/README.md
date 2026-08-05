@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase A direction-supported / Phase B0 zero-base reset in progress
+- Status: Phase B0 zero-base verified / Phase B1 clean contract in progress
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -11,8 +11,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 
 1. `taskspace_exec` 是一个 Function Call 形态的单一外层 Tool，复用 Codex `exec/code-mode` 的内部 Tool 暴露、嵌套
    调用和原 Router 复用方式，但不照搬其 Freeform Tool wire。
-2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 和 `taskspace_control` 的能力说明由
-   `taskspace_exec` 从原生 `ToolSpec` 派生并在内部暴露。
+2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 的能力说明由 `taskspace_exec` 从原生
+   `ToolSpec` 派生；Map 操作从 canonical Action Map transaction 原语直接定义并作为平级内部 variant 暴露。
 3. Agent 在 `taskspace_exec` 内声明待执行的 client Tool、每次调用的 `node_id`、TaskSpace Map 操作，以及本响应
    每项已完成 provider-hosted Tool 的节点归属。
 4. Runtime 对 client 部分执行机械预检、解析和原生 Tool dispatch；对 provider 部分不重执行。Runtime 直接复用
@@ -43,8 +43,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - Phase A 已证明完整 typed plan、零副作用 preflight、Runtime 可直接读取 Provider `id/item_id`，以及逐项多节点
   Hosted 归属可机械核对。`source:string` 只保留为被淘汰候选的历史证据；Phase A 已完成，Phase B1 从结构化 Function
   schema 开始实施。
-- Phase A 没有证明现有 Event Store 已支持一份 Hosted fact 的多节点引用。该数据模型事实已经从“可直接复用”纠正为
-  Phase B2 的有界发现与实施单元。
+- Phase A 没有证明 canonical Action Map Store 已支持一份 Hosted fact 的多节点引用。该数据模型事实已经从“可直接复用”
+  纠正为后续阶段必须先发现并冻结唯一 canonical 表示。
 
 ## 3. 文档
 
@@ -52,8 +52,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 2. [`01-upstream-and-feasibility-evidence.md`](01-upstream-and-feasibility-evidence.md)：最新 Codex 主线事实、本地 Function
    exec 证据和可复用边界。
 3. [`02-engineering-plan.md`](02-engineering-plan.md)：Phase A 后的历史计划；其兼容迁移顺序已被零基线决策取代。
-4. [`03-global-issue-prerequisite-review.md`](03-global-issue-prerequisite-review.md)：I01～I10 哪些前置、融入或后置的
-   唯一映射，以及 I07 计数子问题的 TX-00 边界。
+4. [`03-global-issue-prerequisite-review.md`](03-global-issue-prerequisite-review.md)：Phase A 时 I01～I10 的历史依赖证据；
+   旧 TX 顺序已失效。
 5. [`04-phase-a-discovery.md`](04-phase-a-discovery.md)：当前生产、Codex 上游 seam 和旧协议删除清单。
 6. [`05-phase-a-result.md`](05-phase-a-result.md)：TX-01～TX-05 实施结果和 A2 纠偏结论。
 7. [`06-a2-revalidation-result.md`](06-a2-revalidation-result.md)：A2 既有证据、失效结论和重新打开原因。

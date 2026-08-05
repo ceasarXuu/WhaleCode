@@ -1,9 +1,12 @@
 # TaskSpace Exec 与 R8 全局问题前置关系审查
 
 - Created: 2026-08-05
-- Status: Reviewed planning decision
-- Authority: TaskSpace Exec 实施顺序与 R8-I01～I10 的唯一映射
+- Status: Superseded planning evidence after Phase B zero-base reset
+- Authority: Historical issue dependency evidence only; active sequencing is in `12-phase-b-zero-base-plan.md`
 - Changes issue states: No
+
+> 本文保留 Phase A 时的问题依赖证据，但 TX 编号和旧路径处置顺序不再指导实现。Phase B0 已直接删除旧协议；后续只按
+> [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md) 的 NX 单元从 Standard 基线建设。
 
 ## 1. 审查问题
 

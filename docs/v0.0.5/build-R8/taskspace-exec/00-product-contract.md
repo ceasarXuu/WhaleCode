@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase A direction-supported / production implementation assigned to Phase B-D
+- Status: Phase B0 zero-base verified / Phase B1 clean contract in progress
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -37,12 +37,12 @@ model-visible tools
 - 普通 Function Tool；
 - Freeform Tool，例如 `apply_patch`；
 - Namespace/MCP Tool；
-- `taskspace_control`；
+- canonical Map 操作：`initialize_map`、`update_map`、`read_map`、`reopen_map`、`finish_map`；
 - 延迟加载后实际可用的 client Tool；
 - provider-hosted Tool 的结果登记与节点绑定语法，但不伪装为本地可执行 Tool。
 
-普通 client Tool 在 TaskSpace 顶层不再重复暴露。`taskspace_control` 在内部仍是普通 Tool，只因其业务能力是读写 Map
-而产生不同结果，不拥有超级 Tool 或 Runtime 控制器地位。
+普通 client Tool 在 TaskSpace 顶层不再重复暴露。Map 操作从 canonical Action Map transaction 原语直接生成，与 client call
+同为 `calls[]` 中的平级 variant；它们不注册旧控制 Tool、不复用旧 handler，也不拥有 Runtime 控制器地位。
 
 ## 3. 一次调用表达什么
 
@@ -66,7 +66,7 @@ Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这�
 
 | 类别 | Agent 声明 | Runtime 权限 | 权威执行事实 |
 |---|---|---|---|
-| Map call | `taskspace_control` 原生参数和序列位置；不声明外层 owner | 预检后调用原 handler | canonical Map transaction |
+| Map call | Map operation variant、canonical 参数和序列位置；不声明外层 owner | 调用 canonical transaction validator/commit | canonical Map transaction |
 | Client call | 原生 Tool 名、原生输入、`node_id` | 预检后调用原 Router 一次 | 原生 Tool result |
 | Hosted binding | 每项 Hosted 动作的非空 `node_ids[]` 与可机械核对的逐项声明 | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
 
@@ -118,8 +118,8 @@ response.completed(response_id) -> 冻结 envelope 并开始 TaskSpace Exec 处�
 该 envelope 不是 Map、Session 全局状态或第二份事件存储。它不跨响应、不写入 Agent context、不通过重放重建；完成事件后
 直接消费并释放。`response_id` 只作为 Runtime 日志关联字段，不进入 Agent 输入和 Provider fact 的权威身份。
 
-TaskSpace response 只允许一个 outer `taskspace_exec`。Hosted facts 可以是 0～N 项；顶层普通 client Tool 和顶层
-`taskspace_control` 仍非法。Provider 返回完成前不执行任何尚未发生的 client/map 调用。
+TaskSpace response 只允许一个 outer `taskspace_exec`。Hosted facts 可以是 0～N 项；顶层普通 client Tool 和顶层 Map
+operation 均非法。Provider 返回完成前不执行任何尚未发生的 client/map 调用。
 
 ### 5.1 Client Tool
 
@@ -164,18 +164,18 @@ Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validato
 | plan 合法，全部 Hosted 声明一一对应，节点存在或由合法 prelude 创建 | 用真实 Provider ID 逐项记录为各自节点事件 | 按预检计划执行 | Agent 逐项决定节点，Runtime 机械核验落账 |
 | 声明漏项、多项、歧义、节点非法，或 Provider fact 缺失/重复 ID | 保留在 provider 原始响应和诊断日志中，不默认写 Root 或未绑定池 | 整批拒绝，零执行、Map 零提交 | 未完整归属的响应不是可接受的 TaskSpace 事务 |
 | Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
-| client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果返回并按原 reservation 结算 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
+| client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果按内部调用身份返回，Map 节点状态不自动改变 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
 
-合法计划的 Map prelude、Hosted fact-node references 和 client reservation 必须通过 canonical Map transaction 接缝
-一次准备；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落下引用关系。当前 `TaskSpaceEventStore` 只有
-单一 event owner，尚不能直接表达“一份 Provider fact 对多个节点的引用集合”。正式实施前必须先确认现有 canonical
-Map/Event Store 中是否有可复用关系结构；若没有，只允许在同一 canonical persistence 内扩展“单事实 + 节点引用集合”，
-不得复制事实、增加旁路 binding database、默认 Root owner 或未绑定池。
+合法计划的 Map prelude、Hosted fact-node references 和 client action-node declarations 必须先通过 canonical Map
+transaction 接缝验证；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落下引用关系。当前 canonical Action
+Map schema 尚未证明可表达“一份 Provider fact 对多个节点的引用集合”。正式实施前必须盘点并冻结唯一 canonical 表示；
+若现有结构不足，只允许扩展同一个 Action Map Store 的事实模型，不得复制事实、增加旁路 binding database、默认 Root
+owner 或未绑定池。
 
 ### 5.4 Tool 与节点状态正交
 
 Tool 的成功、失败、进行中或完成不自动改变节点状态。节点完成、阻塞、Map 关闭和 reopen 均只能来自 Agent 的显式
-`taskspace_control` 操作，并受 canonical Map 规则验证。
+Map operation，并受 canonical Map 规则验证。
 
 ## 6. 反馈合同
 
@@ -209,7 +209,7 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
 | Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；结构化 carrier、完整链路和集成行为验收分配到 TX-06B/11/17C/18B |
-| Hosted 多节点持久化 | 待发现与设计 | 当前 Event Store 只有单 owner；必须先确定 canonical 单事实多引用表示，再实施幂等存储与恢复 |
+| Hosted 多节点持久化 | 待发现与设计 | 必须先确定 canonical Action Map Store 的单事实多引用表示，再实施幂等存储与恢复 |
 
 ## 9. 验收标准
 
@@ -221,5 +221,5 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 5. provider 原始 output 的真实 ID 与 Agent 逐项节点声明一一核对；同响应可绑定多个节点，任何缺失、歧义、错配、
    非法节点或身份冲突均整批拒绝且不使用默认 Root/未绑定池降级。
 6. Tool 结果完整进入 Agent context 一次；失败语义、节点状态和 provider reconciliation 不互相伪装。
-7. 旧入侵、旧容器和 sibling 生产路径在原子切换后删除，当前源码不保留兼容分支。
+7. 旧入侵、旧容器和 sibling 生产路径已在 Phase B0 删除，后续源码不得恢复兼容分支。
 8. 确定性测试、日志、缓存门禁和获批真实样本共同证明正确性；真实样本不以一次成功宣称稳定。
