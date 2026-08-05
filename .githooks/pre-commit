@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 repo_root="$(git rev-parse --show-toplevel)"
+python3 "$repo_root/scripts/taskspace-exec/check_zero_base.py" \
+  --root "$repo_root"
 exec python3 "$repo_root/scripts/cache-regression/check_cache_regression_gate.py" \
   --repo-root "$repo_root" \
   --source index
