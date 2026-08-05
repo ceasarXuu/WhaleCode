@@ -985,6 +985,20 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
 ([pscustomobject]@{ logical_mode = "standard"; model_request_count = 1 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $leftArtifacts "metrics.json") -Encoding UTF8
 '{' | Set-Content -LiteralPath (Join-Path $rightArtifacts "metrics.json") -Encoding UTF8
 ([pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $aggregateCacheRoot "pair-001/logical-mode-map.json") -Encoding UTF8
+function New-AggregateContractSection {
+    param([string]$Kind, [int64]$Count, [int64[]]$RequestBytes, [int64[]]$RequestTokens)
+    $bytes = [int64](($RequestBytes | Measure-Object -Sum).Sum)
+    $tokens = [int64](($RequestTokens | Measure-Object -Sum).Sum)
+    [pscustomobject]@{
+        kind = $Kind; count = $Count; bytes = $bytes; estimated_tokens = $tokens
+        request_sample_count = $RequestBytes.Count
+        bytes_per_request_mean = [Math]::Round([double]$bytes / $RequestBytes.Count, 6)
+        bytes_per_request_median = Get-TaskspaceProviderSectionMedian $RequestBytes
+        estimated_tokens_per_request_mean = [Math]::Round([double]$tokens / $RequestTokens.Count, 6)
+        estimated_tokens_per_request_median = Get-TaskspaceProviderSectionMedian $RequestTokens
+        request_bytes = $RequestBytes; request_estimated_tokens = $RequestTokens
+    }
+}
 ([pscustomobject]@{
     schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
     provider_request_count = 1
@@ -1049,23 +1063,32 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
             unique_projection_sha256_count = 2; unique_revision_count = 1
         }
         sections = @(
-            [pscustomobject]@{ kind = "system_messages"; count = 2; bytes = 100; estimated_tokens = 25; request_bytes = @(50, 50); request_estimated_tokens = @(12, 13) },
-            [pscustomobject]@{ kind = "natural_history"; count = 2; bytes = 50; estimated_tokens = 12; request_bytes = @(25, 25); request_estimated_tokens = @(6, 6) },
-            [pscustomobject]@{ kind = "active_projection"; count = 2; bytes = 40; estimated_tokens = 10; request_bytes = @(20, 20); request_estimated_tokens = @(5, 5) },
-            [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 2; bytes = 30; estimated_tokens = 8; request_bytes = @(15, 15); request_estimated_tokens = @(4, 4) },
-            [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 20; estimated_tokens = 5; request_bytes = @(10, 10); request_estimated_tokens = @(2, 3) },
-            [pscustomobject]@{ kind = "tools"; count = 2; bytes = 30; estimated_tokens = 8; request_bytes = @(15, 15); request_estimated_tokens = @(4, 4) },
-            [pscustomobject]@{ kind = "tool_choice"; count = 2; bytes = 10; estimated_tokens = 2; request_bytes = @(5, 5); request_estimated_tokens = @(1, 1) },
-            [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 20; estimated_tokens = 5; request_bytes = @(10, 10); request_estimated_tokens = @(2, 3) }
+            New-AggregateContractSection "system_messages" 2 @(50, 50) @(12, 13)
+            New-AggregateContractSection "natural_history" 2 @(25, 25) @(6, 6)
+            New-AggregateContractSection "active_projection" 2 @(20, 20) @(5, 5)
+            New-AggregateContractSection "taskspace_control_feedback" 2 @(15, 15) @(4, 4)
+            New-AggregateContractSection "ordinary_tool_feedback" 2 @(10, 10) @(2, 3)
+            New-AggregateContractSection "tools" 2 @(15, 15) @(4, 4)
+            New-AggregateContractSection "tool_choice" 2 @(5, 5) @(1, 1)
+            New-AggregateContractSection "other_payload" 2 @(10, 10) @(2, 3)
         )
     }
     base_instructions_identity_summary = [pscustomobject]@{
         schema_version = "WhaleCodeBaseInstructionsIdentitySummaryV1"
-        request_count = 2
+        request_count = 2; present_count = 0; absent_count = 0; invalid_count = 0; unavailable_count = 2
+        current_contract_match_count = 0; current_contract_match_rate = $null
+        message_bytes_total = 0; message_bytes_per_present_request_mean = $null
+        estimated_tokens_total = 0; estimated_tokens_per_present_request_mean = $null
+        profile_counts = [pscustomobject]@{}; version_counts = [pscustomobject]@{}
+        sha256_counts = [pscustomobject]@{}; message_index_counts = [pscustomobject]@{}
+        wire_role_counts = [pscustomobject]@{}
+        unavailable_reason_counts = [pscustomobject]@{ trace_without_base_instructions_identity = 2 }
     }
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "left-1"; request_shape_classifier = "native_tools_schema_hot_path" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "right-1"; request_shape_classifier = "tool_free_action_contract" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
+$validSideContract = Test-TaskspaceProviderCacheSummaryContract (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") | ConvertFrom-Json)
+Assert-True ([bool]$validSideContract.valid) "valid provider cache fixture failed contract: $(@($validSideContract.invalid_fields) -join ', ')"
 $aggregateCache = Write-TaskspaceCostAggregateArtifacts -RootDir $aggregateCacheRoot -Scope "sample"
 $aggregateCacheSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $aggregateCacheRoot "provider-cache-trace-summary.json") | ConvertFrom-Json
 $aggregateCacheEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $aggregateCacheRoot "provider-cache-trace.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
@@ -1082,6 +1105,30 @@ Assert-True ([int]$aggregateActiveProjection.request_sample_count -eq 2 -and [do
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.bootstrap_count -eq 1 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.active_count -eq 1) "aggregate provider projection identity counts are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 2 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_revision_count -eq 1) "aggregate provider projection freshness evidence is incorrect"
 
+$rightSummaryPath = Join-Path $rightArtifacts "provider-cache-trace-summary.json"
+$validRightSummaryJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $rightSummaryPath
+$contradictorySummary = $validRightSummaryJson | ConvertFrom-Json -Depth 20
+$contradictorySummary.base_instructions_identity_summary.present_count = $true
+$contradictorySummary.base_instructions_identity_summary.absent_count = -99
+$contradictorySummary.base_instructions_identity_summary.current_contract_match_rate = 2.5
+$contradictorySection = @($contradictorySummary.section_cost_summary.sections | Where-Object kind -eq "system_messages")[0]
+$contradictorySection.request_bytes = @(0, 0)
+$contradictorySection.request_estimated_tokens = @(999, 999)
+$contradictorySummary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
+$contradictoryAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True ($null -eq $contradictoryAggregate.provider_request_count -and -not [bool]$contradictoryAggregate.comparison_eligible) "contradictory V4 side summary produced exact aggregate facts"
+Assert-True (@($contradictoryAggregate.aggregate_findings) -contains "cache_summary_contract_invalid:base_instructions_identity_summary.present_count" -and @($contradictoryAggregate.aggregate_findings) -contains "cache_summary_contract_invalid:section_cost_summary.sections.system_messages.request_bytes.total") "contradictory V4 side summary did not expose precise contract findings"
+[IO.File]::WriteAllText($rightSummaryPath, $validRightSummaryJson, [Text.UTF8Encoding]::new($false))
+
+$modeMapPath = Join-Path $aggregateCacheRoot "pair-001/logical-mode-map.json"
+$validModeMapJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $modeMapPath
+[IO.File]::WriteAllText($modeMapPath, '{"repeat":1,"left":"taskspace","left":"standard","right":"taskspace"}', [Text.UTF8Encoding]::new($false))
+$duplicateModeCacheAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+$duplicateModeCostAggregate = Write-TaskspaceCostAggregateArtifacts -RootDir $aggregateCacheRoot -Scope "sample"
+Assert-True ($null -eq $duplicateModeCacheAggregate.provider_request_count -and @($duplicateModeCacheAggregate.aggregate_findings) -contains "logical_mode_map_invalid") "duplicate logical mode key remained cache-comparison eligible"
+Assert-True ([string]$duplicateModeCostAggregate.gate.status -eq "FAIL" -and [string]$duplicateModeCostAggregate.gate.reason -eq "logical_mode_map_invalid") "duplicate logical mode key passed the cost gate"
+[IO.File]::WriteAllText($modeMapPath, $validModeMapJson, [Text.UTF8Encoding]::new($false))
+
 $pair2Left = Join-Path $aggregateCacheRoot "pair-002/left/artifacts"
 New-Item -ItemType Directory -Path $pair2Left -Force | Out-Null
 ([pscustomobject]@{ repeat = 2; left = "taskspace"; right = "standard" }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $aggregateCacheRoot "pair-002/logical-mode-map.json") -Encoding UTF8
@@ -1091,7 +1138,6 @@ $alternatingAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggr
 Assert-True ([int]$alternatingAggregate.provider_request_count -eq 4 -and [int]$alternatingAggregate.expected_summary_count -eq 2) "logical mode map did not discover a left-side TaskSpace artifact"
 Assert-True ([bool]$alternatingAggregate.comparison_eligible -and @($alternatingAggregate.aggregate_findings).Count -eq 0) "malformed side metrics overrode the authoritative logical mode map"
 
-$rightSummaryPath = Join-Path $rightArtifacts "provider-cache-trace-summary.json"
 $rightIncomparable = Get-Content -Raw -Encoding UTF8 -LiteralPath $rightSummaryPath | ConvertFrom-Json -Depth 20
 $rightIncomparable.comparison_eligible = $false
 foreach ($field in @("cache_usage_missing_count", "request_2_plus_count", "request_2_plus_cached_input_tokens", "request_2_plus_uncached_input_tokens", "request_2_plus_hit_rate", "zero_cache_hit_count", "cache_warmup_candidate_count", "same_shape_zero_hit_count")) {

@@ -8,6 +8,7 @@ function Resolve-R7EvidencePath {
 
 . (Join-Path $PSScriptRoot "request-facts.ps1")
 . (Join-Path $PSScriptRoot "r7-request-facts-provenance.ps1")
+. (Join-Path $PSScriptRoot "logical-mode-map.ps1")
 
 function Get-R7EvidenceSha256 {
     param([string]$Path)
@@ -277,11 +278,17 @@ function Test-R7FiveLayerEvidenceFreshness {
         if ($pairDirs.Count -eq 0) { $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false }
         foreach ($pairDir in $pairDirs) {
             $modePath = Join-Path $pairDir.FullName "logical-mode-map.json"
-            $modeMap = Read-R7EvidenceJson $modePath $findings "logical_mode_map_missing" "logical_mode_map_invalid"
-            if (-not $modeMap) {
+            $modeResult = Read-TaskspaceLogicalModeMap $modePath
+            if (-not $modeResult.valid) {
+                if ($modeResult.status -eq "missing") {
+                    Add-R7EvidenceFinding $findings "logical_mode_map_missing" "Logical mode map is missing." $modePath
+                } else {
+                    Add-R7EvidenceFinding $findings "logical_mode_map_invalid" "Logical mode map does not satisfy the strict comparison contract." $modePath
+                }
                 $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
                 continue
             }
+            $modeMap = $modeResult.map
             $standardSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" }).Count
             $taskspaceSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" }).Count
             if ($standardSideCount -ne 1 -or $taskspaceSideCount -ne 1) {

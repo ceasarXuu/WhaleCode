@@ -2,6 +2,7 @@ if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyCo
     . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
 }
 . (Join-Path $PSScriptRoot "request-facts.ps1")
+. (Join-Path $PSScriptRoot "logical-mode-map.ps1")
 
 function Add-TaskspaceCostCount {
     param([hashtable]$Table, [string]$Key)
@@ -850,169 +851,12 @@ function Test-TaskspaceProviderCacheRatio {
 function Test-TaskspaceProviderCacheCountTable {
     param($Value)
     if ($null -eq $Value) { return $false }
-    foreach ($entry in @($Value.PSObject.Properties)) {
+    foreach ($entry in @($Value.PSObject.Properties | ForEach-Object { $_ })) {
         if (-not (Test-TaskspaceProviderCacheInt64 $entry.Value)) { return $false }
     }
     $true
 }
-
-function Test-TaskspaceProviderCacheSummaryContract {
-    param($Summary)
-    $invalid = [System.Collections.Generic.List[string]]::new()
-    $property = { param($Value, [string]$Name) Get-TaskspaceCostProperty $Value @($Name) }
-    if ([string](& $property $Summary "schema_version") -ne "TaskSpaceProviderCacheTraceSummaryV4") { $invalid.Add("schema_version") }
-    if ([string](& $property $Summary "source") -ne "provider_final_wire_trace") { $invalid.Add("source") }
-    $availability = & $property $Summary "request_facts_availability"
-    $availabilityValues = @{}
-    foreach ($name in @("attempt", "boundary", "completion", "usage")) {
-        $value = [string](& $property $availability $name)
-        $availabilityValues[$name] = $value
-        if ($value -notin @("measured", "unavailable", "incomparable")) { $invalid.Add("request_facts_availability.$name") }
-    }
-    $comparison = & $property $Summary "comparison_eligible"
-    if ($comparison -isnot [bool]) { $invalid.Add("comparison_eligible") }
-    $comparisonEligible = $comparison -is [bool] -and [bool]$comparison
-    if ($comparisonEligible -and $availabilityValues.usage -ne "measured") { $invalid.Add("comparison_eligible.usage") }
-
-    $requestCount = & $property $Summary "provider_request_count"
-    $requestSource = [string](& $property $Summary "provider_request_source")
-    if ($availabilityValues.boundary -eq "measured") {
-        if ($requestSource -ne "request_facts_boundary") { $invalid.Add("provider_request_source") }
-        if (-not (Test-TaskspaceProviderCacheInt64 $requestCount)) { $invalid.Add("provider_request_count") }
-    } elseif ($requestSource -ne "request_facts_unavailable" -or $null -ne $requestCount) {
-        $invalid.Add("provider_request_count")
-    }
-    $attemptCount = & $property $Summary "provider_attempt_count"
-    if ($availabilityValues.attempt -eq "measured") {
-        if (-not (Test-TaskspaceProviderCacheInt64 $attemptCount)) { $invalid.Add("provider_attempt_count") }
-    } elseif ($null -ne $attemptCount) { $invalid.Add("provider_attempt_count") }
-    foreach ($field in @("completed_response_count", "failed_or_cancelled_attempt_count")) {
-        $value = & $property $Summary $field
-        if ($availabilityValues.completion -eq "measured") {
-            if (-not (Test-TaskspaceProviderCacheInt64 $value)) { $invalid.Add($field) }
-        } elseif ($null -ne $value) { $invalid.Add($field) }
-    }
-
-    $shapeCount = & $property $Summary "shape_observation_count"
-    if (-not (Test-TaskspaceProviderCacheInt64 $shapeCount)) { $invalid.Add("shape_observation_count") }
-    $shapeCounts = & $property $Summary "request_shape_counts"
-    $shapeTotal = [int64]0
-    if ($null -eq $shapeCounts) {
-        $invalid.Add("request_shape_counts")
-    } else {
-        foreach ($entry in @($shapeCounts.PSObject.Properties)) {
-            if (-not (Test-TaskspaceProviderCacheInt64 $entry.Value)) { $invalid.Add("request_shape_counts.$($entry.Name)") }
-            else { $shapeTotal += [int64]$entry.Value }
-        }
-    }
-    foreach ($field in @("first_diff_path_counts")) {
-        if (-not (Test-TaskspaceProviderCacheCountTable (& $property $Summary $field))) { $invalid.Add($field) }
-    }
-    if ([string]::IsNullOrWhiteSpace([string](& $property $Summary "request_facts_analyzer_version"))) { $invalid.Add("request_facts_analyzer_version") }
-    if ($Summary.PSObject.Properties.Name -notcontains "request_facts_findings") { $invalid.Add("request_facts_findings") }
-    foreach ($field in @("native_tools_schema_hot_path_count", "tool_free_action_contract_count", "unknown_or_unclassified_count", "prefix_comparison_count", "prefix_preserved_count", "tool_choice_transition_count", "cache_shape_transition_count")) {
-        if (-not (Test-TaskspaceProviderCacheInt64 (& $property $Summary $field))) { $invalid.Add($field) }
-    }
-    if ((Test-TaskspaceProviderCacheInt64 $shapeCount) -and $shapeTotal -ne [int64]$shapeCount) { $invalid.Add("request_shape_counts.total") }
-    $namedShapeTotal = [int64]0
-    $namedShapeCountsValid = $true
-    foreach ($field in @("native_tools_schema_hot_path_count", "tool_free_action_contract_count", "unknown_or_unclassified_count")) {
-        $value = & $property $Summary $field
-        if (-not (Test-TaskspaceProviderCacheInt64 $value)) { $namedShapeCountsValid = $false }
-        else { $namedShapeTotal += [int64]$value }
-    }
-    if ($namedShapeCountsValid -and (Test-TaskspaceProviderCacheInt64 $shapeCount) -and $namedShapeTotal -ne [int64]$shapeCount) { $invalid.Add("shape_classifier_count.total") }
-
-    $traceCoverage = & $property $Summary "trace_coverage"
-    if ($availabilityValues.attempt -eq "measured") {
-        if (-not (Test-TaskspaceProviderCacheRatio $traceCoverage)) { $invalid.Add("trace_coverage") }
-    } elseif ($null -ne $traceCoverage) { $invalid.Add("trace_coverage") }
-    $prefixCount = & $property $Summary "prefix_comparison_count"
-    $prefixKept = & $property $Summary "prefix_preserved_count"
-    $prefixRate = & $property $Summary "prefix_preserved_rate"
-    if ((Test-TaskspaceProviderCacheInt64 $prefixCount) -and (Test-TaskspaceProviderCacheInt64 $prefixKept)) {
-        if ([int64]$prefixKept -gt [int64]$prefixCount) { $invalid.Add("prefix_preserved_count") }
-        elseif ([int64]$prefixCount -eq 0 -and $null -ne $prefixRate) { $invalid.Add("prefix_preserved_rate") }
-        elseif ([int64]$prefixCount -gt 0 -and (-not (Test-TaskspaceProviderCacheRatio $prefixRate) -or [Math]::Abs([double]$prefixRate - ([double]$prefixKept / [double]$prefixCount)) -gt 0.000001)) { $invalid.Add("prefix_preserved_rate") }
-    }
-
-    $cacheFields = @("cache_usage_missing_count", "request_2_plus_count", "request_2_plus_cached_input_tokens", "request_2_plus_uncached_input_tokens", "zero_cache_hit_count", "cache_warmup_candidate_count", "same_shape_zero_hit_count")
-    if ($comparisonEligible) {
-        foreach ($field in $cacheFields) {
-            if (-not (Test-TaskspaceProviderCacheInt64 (& $property $Summary $field))) { $invalid.Add($field) }
-        }
-        if ((Test-TaskspaceProviderCacheInt64 (& $property $Summary "cache_usage_missing_count")) -and [int64](& $property $Summary "cache_usage_missing_count") -ne 0) { $invalid.Add("cache_usage_missing_count") }
-        $hit = & $property $Summary "request_2_plus_cached_input_tokens"
-        $miss = & $property $Summary "request_2_plus_uncached_input_tokens"
-        $rate = & $property $Summary "request_2_plus_hit_rate"
-        if ((Test-TaskspaceProviderCacheInt64 $hit) -and (Test-TaskspaceProviderCacheInt64 $miss)) {
-            $denominator = [double]$hit + [double]$miss
-            if ($denominator -eq 0 -and $null -ne $rate) { $invalid.Add("request_2_plus_hit_rate") }
-            elseif ($denominator -gt 0 -and (-not (Test-TaskspaceProviderCacheRatio $rate) -or [Math]::Abs([double]$rate - ([double]$hit / $denominator)) -gt 0.000001)) { $invalid.Add("request_2_plus_hit_rate") }
-        }
-    } else {
-        foreach ($field in $cacheFields + @("request_2_plus_hit_rate")) {
-            if ($null -ne (& $property $Summary $field)) { $invalid.Add($field) }
-        }
-    }
-    $sectionSummary = & $property $Summary "section_cost_summary"
-    if ([string](& $property $sectionSummary "schema_version") -ne "provider-wire-section-cost-summary-v1") { $invalid.Add("section_cost_summary.schema_version") }
-    $sectionAvailability = [string](& $property $sectionSummary "availability")
-    if ($sectionAvailability -notin @("measured", "partial", "unavailable")) { $invalid.Add("section_cost_summary.availability") }
-    $sectionRequestCount = & $property $sectionSummary "request_count"
-    $sectionMeasured = & $property $sectionSummary "measured_request_count"
-    $sectionUnavailable = & $property $sectionSummary "unavailable_request_count"
-    foreach ($entry in @(
-            @{ name = "request_count"; value = $sectionRequestCount },
-            @{ name = "measured_request_count"; value = $sectionMeasured },
-            @{ name = "unavailable_request_count"; value = $sectionUnavailable }
-        )) {
-        if (-not (Test-TaskspaceProviderCacheInt64 $entry.value)) { $invalid.Add("section_cost_summary.$($entry.name)") }
-    }
-    if ((Test-TaskspaceProviderCacheInt64 $sectionRequestCount) -and (Test-TaskspaceProviderCacheInt64 $sectionMeasured) -and
-        (Test-TaskspaceProviderCacheInt64 $sectionUnavailable) -and
-        ([int64]$sectionMeasured + [int64]$sectionUnavailable -ne [int64]$sectionRequestCount -or [int64]$sectionRequestCount -ne [int64]$shapeCount)) {
-        $invalid.Add("section_cost_summary.request_count_identity")
-    }
-    if (-not (Test-TaskspaceProviderCacheCountTable (& $property $sectionSummary "unavailable_reason_counts"))) { $invalid.Add("section_cost_summary.unavailable_reason_counts") }
-    $sectionBytes = & $property $sectionSummary "section_bytes_total"
-    $sectionTokens = & $property $sectionSummary "estimated_tokens_total"
-    if ((Test-TaskspaceProviderCacheInt64 $sectionMeasured) -and [int64]$sectionMeasured -gt 0) {
-        if (-not (Test-TaskspaceProviderCacheInt64 $sectionBytes)) { $invalid.Add("section_cost_summary.section_bytes_total") }
-        if (-not (Test-TaskspaceProviderCacheInt64 $sectionTokens)) { $invalid.Add("section_cost_summary.estimated_tokens_total") }
-        $sections = @((& $property $sectionSummary "sections"))
-        $seenSectionKinds = @{}
-        $computedSectionBytes = [int64]0
-        foreach ($section in $sections) {
-            $kind = [string](& $property $section "kind")
-            if ($kind -notin @(Get-TaskspaceProviderSectionKinds) -or $seenSectionKinds.ContainsKey($kind)) { $invalid.Add("section_cost_summary.sections.kind"); continue }
-            $seenSectionKinds[$kind] = $true
-            foreach ($field in @("count", "bytes", "estimated_tokens")) {
-                if (-not (Test-TaskspaceProviderCacheInt64 (& $property $section $field))) { $invalid.Add("section_cost_summary.sections.$kind.$field") }
-            }
-            if (Test-TaskspaceProviderCacheInt64 (& $property $section "bytes")) { $computedSectionBytes += [int64](& $property $section "bytes") }
-            foreach ($field in @("request_bytes", "request_estimated_tokens")) {
-                $values = @((& $property $section $field))
-                if ($values.Count -ne [int64]$sectionMeasured -or @($values | Where-Object { -not (Test-TaskspaceProviderCacheInt64 $_) }).Count -gt 0) {
-                    $invalid.Add("section_cost_summary.sections.$kind.$field")
-                }
-            }
-        }
-        if ($seenSectionKinds.Count -ne @(Get-TaskspaceProviderSectionKinds).Count -or
-            ((Test-TaskspaceProviderCacheInt64 $sectionBytes) -and $computedSectionBytes -ne [int64]$sectionBytes)) {
-            $invalid.Add("section_cost_summary.sections.total")
-        }
-    } elseif ($null -ne $sectionBytes -or $null -ne $sectionTokens -or @((& $property $sectionSummary "sections")).Count -gt 0) {
-        $invalid.Add("section_cost_summary.unavailable_values")
-    }
-    $baseSummary = & $property $Summary "base_instructions_identity_summary"
-    if ([string](& $property $baseSummary "schema_version") -ne "WhaleCodeBaseInstructionsIdentitySummaryV1" -or
-        -not (Test-TaskspaceProviderCacheInt64 (& $property $baseSummary "request_count")) -or
-        [int64](& $property $baseSummary "request_count") -ne [int64]$shapeCount) {
-        $invalid.Add("base_instructions_identity_summary")
-    }
-    [pscustomobject]@{ valid = $invalid.Count -eq 0; invalid_fields = @($invalid.ToArray() | Sort-Object -Unique) }
-}
+. (Join-Path $PSScriptRoot "provider-cache-summary-contract.ps1")
 
 function Add-TaskspaceProviderCacheShapeCounts {
     param($ShapeCounts, $RequestShapeCounts)
@@ -1038,9 +882,11 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
         if (-not (Test-Path -LiteralPath $modePath -PathType Leaf)) {
             $scopeComplete = $false; $aggregateFindings.Add("logical_mode_map_missing"); continue
         }
-        try { $modeMap = Get-Content -Raw -Encoding UTF8 -LiteralPath $modePath | ConvertFrom-Json } catch {
+        $modeResult = Read-TaskspaceLogicalModeMap $modePath
+        if (-not $modeResult.valid) {
             $scopeComplete = $false; $aggregateFindings.Add("logical_mode_map_invalid"); continue
         }
+        $modeMap = $modeResult.map
         $taskspaceSides = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" })
         $standardSides = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" })
         if ($taskspaceSides.Count -ne 1 -or $standardSides.Count -ne 1) {
@@ -2656,10 +2502,12 @@ function Write-TaskspaceCostAggregateArtifacts {
             $scopeFindings.Add("logical_mode_map_missing:$($pairDir.FullName)")
             continue
         }
-        try { $modeMap = Get-Content -Raw -Encoding UTF8 -LiteralPath $modePath | ConvertFrom-Json } catch {
+        $modeResult = Read-TaskspaceLogicalModeMap $modePath
+        if (-not $modeResult.valid) {
             $scopeFindings.Add("logical_mode_map_invalid:$modePath")
             continue
         }
+        $modeMap = $modeResult.map
         $standardSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" }).Count
         $taskspaceSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" }).Count
         if ($standardSideCount -ne 1 -or $taskspaceSideCount -ne 1) {

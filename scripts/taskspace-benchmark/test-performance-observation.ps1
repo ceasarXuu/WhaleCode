@@ -525,6 +525,30 @@ Assert-True (
         '"event":"performance_logical_mode_map_invalid"'
 ) "invalid logical mode map did not emit its stable event"
 
+Write-Json ([pscustomobject]@{ left = "standard"; right = "taskspace" }) (
+    Join-Path $invalidPair "logical-mode-map.json"
+)
+$missingRepeatResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot -ReportBaseName "performance-missing-repeat"
+$missingRepeatReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingRepeatResult.json_path | ConvertFrom-Json
+$missingRepeatRow = @($missingRepeatReport.rows)[0]
+Assert-True ([string]$missingRepeatReport.comparison_scope_status -eq "unavailable" -and @($missingRepeatReport.aggregates).Count -eq 0 -and @($missingRepeatReport.ratios.PSObject.Properties).Count -eq 0) "missing repeat retained measured performance comparisons"
+Assert-True ($missingRepeatRow.observation_status -eq "invalid" -and $null -eq $missingRepeatRow.repeat -and $null -eq $missingRepeatRow.actions.provider_requests) "missing repeat retained exact row facts"
+
+$invalidMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @("side_selection_skipped:fixture")
+Write-Json $invalidMetrics $invalidMetricPath
+Write-Json ([pscustomobject]@{ repeat = 1; left = "taskspace"; right = "taskspace" }) (
+    Join-Path $invalidPair "logical-mode-map.json"
+)
+$skippedInvalidResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot -ReportBaseName "performance-skipped-invalid-map"
+$skippedInvalidReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $skippedInvalidResult.json_path | ConvertFrom-Json
+$skippedInvalidRow = @($skippedInvalidReport.rows)[0]
+$skippedInvalidMarkdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $skippedInvalidResult.markdown_path
+Assert-True ([string]$skippedInvalidReport.comparison_scope_status -eq "unavailable" -and @($skippedInvalidReport.aggregates).Count -eq 0 -and @($skippedInvalidReport.ratios.PSObject.Properties).Count -eq 0) "skipped side swallowed invalid logical mode scope"
+Assert-True ($skippedInvalidRow.observation_status -eq "invalid" -and $null -eq $skippedInvalidRow.actions.provider_requests -and $null -eq $skippedInvalidRow.cost.input_tokens) "skipped invalid-map row leaked exact facts"
+Assert-True ($skippedInvalidMarkdown -notmatch '\| unknown \| skipped \|' -and $skippedInvalidMarkdown -notmatch '\| unknown \| invalid \|.*\| 6 \|') "skipped invalid-map markdown leaked exact values"
+$invalidMetrics.PSObject.Properties.Remove("metrics_taints")
+Write-Json $invalidMetrics $invalidMetricPath
+
 $pair1ModePath = Join-Path $pair1 "logical-mode-map.json"
 $pair1ModeOriginal = Get-Content -Raw -Encoding UTF8 -LiteralPath $pair1ModePath
 Write-Json ([pscustomobject]@{ repeat = 1; left = "taskspace"; right = "taskspace" }) $pair1ModePath

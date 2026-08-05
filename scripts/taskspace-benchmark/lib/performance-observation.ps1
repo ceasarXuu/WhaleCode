@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "r7-integer-facts.ps1")
 . (Join-Path $PSScriptRoot "performance-token-identity.ps1")
 . (Join-Path $PSScriptRoot "performance-count-identity.ps1")
+. (Join-Path $PSScriptRoot "logical-mode-map.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
     if ($null -ne $Object) {
@@ -229,14 +230,11 @@ function Get-PerformanceSideObservation {
     $caseId = [System.IO.Path]::GetRelativePath($ObservationRoot, $pairDir).Replace("\", "/")
     $metrics = Read-PerformanceJson $MetricPath $Events
     if (-not $metrics) { return $null }
-    $modeMap = Read-PerformanceJson (Join-Path $pairDir "logical-mode-map.json") $Events
-    $standardSideCount = if ($modeMap) { @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" }).Count } else { 0 }
-    $taskspaceSideCount = if ($modeMap) { @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" }).Count } else { 0 }
-    $modeMapValid = $null -ne $modeMap -and
-        $modeMap.PSObject.Properties.Name -contains $side -and
-        $standardSideCount -eq 1 -and $taskspaceSideCount -eq 1
+    $modeMapResult = Read-TaskspaceLogicalModeMap (Join-Path $pairDir "logical-mode-map.json")
+    $modeMap = $modeMapResult.map
+    $modeMapValid = [bool]$modeMapResult.valid
     $mode = if ($modeMapValid) { [string]$modeMap.$side } else { "unknown" }
-    $repeat = if ($modeMapValid) { Get-PerformanceNumber (Get-PerformanceProperty $modeMap "repeat") } else { $null }
+    $repeat = if ($modeMapValid) { [int64]$modeMap.repeat } else { $null }
     $cache = Read-PerformanceJson (Join-Path $artifactDir "provider-cache-trace-summary.json") $Events
     $requests = Get-PerformanceWireRequestCount $artifactDir
     $actions = Get-PerformanceActionCounts $artifactDir $Events
@@ -245,10 +243,11 @@ function Get-PerformanceSideObservation {
     $warnings = New-Object System.Collections.Generic.List[string]
     $taints = @((Get-PerformanceProperty $metrics "metrics_taints" @()))
     $skipped = @($taints | Where-Object { [string]$_ -match '^side_selection_skipped:' }).Count -gt 0
-    if ($skipped) {
+    if (-not $modeMapValid) {
+        $warnings.Add("logical_mode_map_invalid")
+    } elseif ($skipped) {
         $warnings.Add("side_not_run")
     } else {
-        if (-not $modeMapValid) { $warnings.Add("logical_mode_map_invalid") }
         if ($null -eq $requests.value) { $warnings.Add("provider_request_count_unavailable") }
         if (-not $cache) { $warnings.Add("provider_cache_trace_unavailable") }
         if ([string](Get-PerformanceProperty $metrics "external_validation_status") -eq "failed") { $warnings.Add("external_validation_failed") }
@@ -310,10 +309,10 @@ function Get-PerformanceSideObservation {
         }
     }
     $agentStatus = [string](Get-PerformanceProperty $metrics "agent_completion_status")
-    $observationStatus = if ($skipped) {
-        "skipped"
-    } elseif (-not $modeMapValid -or -not $tokenIdentity.valid -or -not $countIdentity.valid) {
+    $observationStatus = if (-not $modeMapValid -or -not $tokenIdentity.valid -or -not $countIdentity.valid) {
         "invalid"
+    } elseif ($skipped) {
+        "skipped"
     } elseif ($agentStatus -eq "complete") {
         "complete"
     } else {
