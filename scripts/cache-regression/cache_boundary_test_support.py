@@ -21,7 +21,7 @@ def write_provider_boundary_evidence(
     write_json(
         path,
         {
-            "schema_version": "whalecode-provider-boundary-evidence-v1",
+            "schema_version": "whalecode-provider-boundary-evidence-v2",
             "status": "reconciled",
             "expected_model": model,
             "allowed_method": "POST",

@@ -30,12 +30,12 @@ $boundaryOutput = Join-Path $RunRoot "provider-boundary-evidence.json"
     --model "deepseek-v4-flash" `
     --output $boundaryOutput
 $verifierExit = $LASTEXITCODE
-Assert-I07Equal $verifierExit 3 "legacy boundary verifier no longer reproduces 10/11 mismatch"
+Assert-I07Equal $verifierExit 0 "boundary verifier did not reconcile a local-only failed attempt"
 $boundary = Get-Content -Raw -Encoding UTF8 -LiteralPath $boundaryOutput | ConvertFrom-Json
 Assert-I07Equal $boundary.boundary_request_count 10 "boundary fixture request count drifted"
-Assert-I07Equal $boundary.wire_request_count 11 "wire fixture attempt count drifted"
-if (-not (@($boundary.errors) -contains "provider_dispatch_trace_mismatch")) {
-    throw "legacy boundary verifier did not report provider_dispatch_trace_mismatch"
-}
+Assert-I07Equal $boundary.wire_request_count 10 "boundary-observed wire request count drifted"
+Assert-I07Equal $boundary.local_attempt_count 11 "local attempt count drifted"
+Assert-I07Equal $boundary.local_only_attempt_count 1 "local-only failed attempt was lost"
+Assert-I07Equal @($boundary.errors).Count 0 "valid local-only failure produced a mismatch"
 
-Write-Host "I07 characterization: PASS (usage 8/15 fixed; legacy boundary 10/11 reproduced)"
+Write-Host "I07 characterization: PASS (usage 8/15 and boundary 10/11 fixed)"

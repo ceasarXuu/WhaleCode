@@ -16,13 +16,6 @@
       "migration": "none"
     },
     {
-      "path": "scripts/taskspace-benchmark/docker/verify_provider_boundary.py",
-      "role": "consumer",
-      "observed_sources": ["boundary", "local_attempt"],
-      "required_facts": ["attempt", "boundary"],
-      "migration": "I07-W4"
-    },
-    {
       "path": "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1",
       "role": "consumer",
       "observed_sources": ["terminal"],

@@ -13,7 +13,7 @@ from cache_usage_contract import SCHEMA_VERSION as PROVIDER_USAGE_CONTRACT_VERSI
 from cache_usage_contract import load_provider_wire_usage
 from cache_usage_contract import validate_cache_artifacts
 
-PROVIDER_BOUNDARY_SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v1"
+PROVIDER_BOUNDARY_SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v2"
 CACHE_OBSERVATION_KEYS = (
     "arm",
     "provider_usage_contract_version",

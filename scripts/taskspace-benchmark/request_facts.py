@@ -12,20 +12,8 @@ from typing import Any
 SCHEMA_VERSION = "whalecode-request-facts-v1"
 ANALYZER_VERSION = "i07-w2-v1"
 WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v10"
-TERMINAL_STATUSES = {
-    "response_completed",
-    "response_failed",
-    "cancelled",
-    "response_cancelled",
-    "retry_unauthorized",
-}
-TOKEN_FIELDS = (
-    "input_tokens",
-    "cached_input_tokens",
-    "output_tokens",
-    "reasoning_output_tokens",
-    "total_tokens",
-)
+TERMINAL_STATUSES = {"response_completed", "response_failed", "cancelled", "response_cancelled", "retry_unauthorized"}
+TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens")
 
 
 def _read_jsonl(path: Path | None, source: str, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -250,7 +238,17 @@ def _parse_boundary(
         if not valid:
             findings.append(_finding("boundary_claim_invalid", "boundary", boundary_index=index))
             continue
-        claims.append({"boundary_index": index, "provider_payload_sha256": digest})
+        claims.append(
+            {
+                "boundary_index": index,
+                "count": event["count"],
+                "method": event["method"],
+                "path": event["path"],
+                "model": event.get("model"),
+                "body_sha256": digest,
+                "provider_payload_sha256": digest,
+            }
+        )
     digests = [claim["provider_payload_sha256"] for claim in claims]
     if len(digests) != len(set(digests)):
         findings.append(_finding("boundary_digest_ambiguous", "boundary"))
@@ -324,6 +322,7 @@ def _normalized_rows(rows: dict[str, dict[str, Any]], boundary_available: bool) 
                     if "boundary" in row
                     else "not_observed" if boundary_available and "attempt" in row else "unavailable"
                 ),
+                "boundary_index": row.get("boundary", {}).get("boundary_index"),
                 "terminal_status": terminal.get("status") or (
                     "response_completed" if "rollout_usage" in row else "missing"
                 ),
@@ -495,6 +494,7 @@ def build_request_facts(
             ),
             "usage": _usage_summary(normalized),
         },
+        "boundary_claims": claims,
         "rows": normalized,
         "findings": findings,
     }

@@ -166,16 +166,31 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        wire_events = [
+            {
+                "schema_version": "provider-chat-wire-trace-v10",
+                "status": "payload_captured",
+                "request_id": "request-1",
+                "logical_request_id": "logical-1",
+                "attempt_seq": 1,
+                "request_index": 1,
+                "provider_payload_sha256": digest,
+            },
+            {
+                "schema_version": "provider-chat-wire-trace-v10",
+                "status": "response_completed",
+                "request_id": "request-1",
+                "logical_request_id": "logical-1",
+                "attempt_seq": 1,
+                "input_tokens": 10,
+                "cached_input_tokens": 0,
+                "output_tokens": 2,
+                "reasoning_output_tokens": 1,
+                "total_tokens": 12,
+            },
+        ]
         wire.write_text(
-            json.dumps(
-                {
-                    "status": "payload_captured",
-                    "request_id": "request-1",
-                    "request_count_after": 1,
-                    "provider_payload_sha256": digest,
-                }
-            )
-            + "\n",
+            "".join(json.dumps(event) + "\n" for event in wire_events),
             encoding="utf-8",
         )
         result = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")
@@ -199,7 +214,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         )
         mismatch = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")
         self.assertEqual(mismatch["status"], "mismatch")
-        self.assertIn("provider_dispatch_trace_mismatch", mismatch["errors"])
+        self.assertIn("boundary_unattributed", mismatch["errors"])
 
     def test_parallel_claim_events_remain_in_authoritative_count_order(self) -> None:
         state = self.proxy.boundary_state

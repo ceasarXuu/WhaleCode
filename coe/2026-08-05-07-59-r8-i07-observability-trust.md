@@ -288,3 +288,27 @@ TaskSpace benchmark harness self-test: PASS
   ```
 - Interpretation: H-001 根因已在唯一 classifier 层修复；Runtime 状态广播和 Agent 上下文均未改变
 - Time: 2026-08-05 08:30
+
+## Evidence E-008: W4 attempt/boundary 分层对账
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/test-i07-characterization.ps1`
+- Prediction or plan link:
+  - I07-W4 按阶段关系核对，不要求 local attempt 与 boundary 列表无条件相等
+- Matched signal:
+  - 11 local attempts、10 boundary requests、10 completed、1 local-only failure 被判 reconciled
+  - completed-without-boundary 与未知 boundary digest 仍阻断
+  - 219 个 cache regression tests 在 boundary evidence v2 下通过
+- Correlation keys:
+  - `whalecode-provider-boundary-evidence-v2`
+  - analyzer `i07-w2-v1`
+- Raw content:
+  ```text
+I07 characterization: PASS (usage 8/15 and boundary 10/11 fixed)
+Ran 12 tests ... OK
+Ran 219 tests ... OK
+  ```
+- Interpretation: H-002 的错误来自 observer 阶段混淆；现在本地失败和上游不一致具有不同、可复算的事实表达
+- Time: 2026-08-05 08:40
