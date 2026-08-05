@@ -213,3 +213,26 @@ client.stream_request(request, options).await
   ```
 - Interpretation: 脱敏最小输入独立复现 attempt/boundary 阶段混淆，H-002 证据门保持 satisfied
 - Time: 2026-08-05 07:59
+
+## Evidence E-005: W1 消费面 inventory 门禁
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: test
+- Source: `scripts/taskspace-benchmark/check-request-fact-consumers.py`
+- Prediction or plan link:
+  - I07-W1 全量消费面分类
+- Matched signal:
+  - 10 个生产 reader/producer 均登记其原始来源和目标事实
+  - 新增未登记 reader 的负例被拒绝
+  - 测试 support 不触发误报
+- Correlation keys:
+  - `whalecode-request-fact-consumers-v1`
+- Raw content:
+  ```text
+request fact consumer gate: PASS
+Ran 3 tests ... OK
+  ```
+- Interpretation: 后续 W2-W7 的迁移范围可由机器清单约束，不再依赖手工记忆
+- Time: 2026-08-05 08:15

@@ -1,0 +1,75 @@
+{
+  "schema_version": "whalecode-request-fact-consumers-v1",
+  "consumers": [
+    {
+      "path": "scripts/cache-regression/cache_usage_contract.py",
+      "role": "consumer",
+      "observed_sources": ["local_attempt", "terminal"],
+      "required_facts": ["attempt", "completed_usage"],
+      "migration": "I07-W6"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/docker/provider_boundary_proxy.py",
+      "role": "producer",
+      "observed_sources": ["boundary"],
+      "required_facts": ["boundary"],
+      "migration": "none"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/docker/verify_provider_boundary.py",
+      "role": "consumer",
+      "observed_sources": ["boundary", "local_attempt"],
+      "required_facts": ["attempt", "boundary"],
+      "migration": "I07-W4"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1",
+      "role": "consumer",
+      "observed_sources": ["rollout_token", "terminal"],
+      "required_facts": ["attempt", "completed_usage"],
+      "migration": "I07-W3"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
+      "role": "consumer",
+      "observed_sources": ["local_attempt"],
+      "required_facts": ["attempt", "boundary", "completion"],
+      "migration": "I07-W5"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/lib/provider-section-cost.ps1",
+      "role": "consumer",
+      "observed_sources": ["local_attempt", "terminal"],
+      "required_facts": ["attempt_shape", "completed_usage"],
+      "migration": "I07-W6"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/lib/r7-five-layer-evidence-freshness.ps1",
+      "role": "consumer",
+      "observed_sources": ["local_attempt"],
+      "required_facts": ["attempt", "provenance"],
+      "migration": "I07-W7"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1",
+      "role": "consumer",
+      "observed_sources": ["rollout_token"],
+      "required_facts": ["completion", "request_identity"],
+      "migration": "I07-W5"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/lib/r7-request-observability.ps1",
+      "role": "consumer",
+      "observed_sources": ["terminal"],
+      "required_facts": ["attempt", "completion", "completed_usage"],
+      "migration": "I07-W5"
+    },
+    {
+      "path": "scripts/taskspace-benchmark/lib/timing.ps1",
+      "role": "consumer",
+      "observed_sources": ["terminal"],
+      "required_facts": ["attempt", "completion", "latency"],
+      "migration": "I07-W5"
+    }
+  ]
+}
