@@ -37,11 +37,13 @@ function New-WireShape(
     [pscustomobject]@{
         schema_version = "provider-chat-wire-trace-v10"
         event_name = if ($Index -eq 1) { "provider.chat_wire_shape_recorded" } else { "provider.chat_wire_prefix_broken" }
+        status = "payload_captured"
         request_id = $RequestId
         logical_request_id = "$RequestId-logical"
         attempt_seq = 1
         transport = "responses_http"
         request_index = $Index
+        provider_payload_sha256 = $Index.ToString("x64")
         provider_wire_api = $evaluationAuthority.provider_wire_api
         tools_hash = $evaluationAuthority.tool_capability_profiles.$LogicalMode.tools_hash
         tools_count = [int64]$evaluationAuthority.tool_capability_profiles.$LogicalMode.tools_count
