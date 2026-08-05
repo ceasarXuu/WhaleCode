@@ -27,15 +27,22 @@ def reconcile(events_path: Path, wire_path: Path, expected_model: str) -> dict[s
     attempts = [row for row in facts["rows"] if row["attempt_status"] == "observed"]
     crossed = [row for row in attempts if row["boundary_status"] == "observed"]
     errors = sorted({finding["code"] for finding in facts["findings"]})
+    boundary_measured = facts["availability"]["boundary"] == "measured"
+    correlation_measured = facts["availability"]["boundary_correlation"] == "measured"
+    ambiguity_only = boundary_measured and set(errors) <= {"boundary_correlation_ambiguous"}
+    status = (
+        "reconciled"
+        if boundary_measured and correlation_measured
+        else "reconciled_correlation_incomparable"
+        if ambiguity_only
+        else "mismatch"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "request_facts_analyzer_version": ANALYZER_VERSION,
-        "status": (
-            "reconciled"
-            if facts["availability"]["boundary"] == "measured"
-            and facts["availability"]["boundary_correlation"] == "measured"
-            else "mismatch"
-        ),
+        "status": status,
+        "boundary_availability": facts["availability"]["boundary"],
+        "boundary_correlation_availability": facts["availability"]["boundary_correlation"],
         "expected_model": expected_model,
         "allowed_method": "POST",
         "allowed_path": "/responses",
@@ -79,7 +86,7 @@ def main() -> int:
     args.output.write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    return 0 if result["status"] == "reconciled" else 3
+    return 0 if str(result["status"]).startswith("reconciled") else 3
 
 
 if __name__ == "__main__":

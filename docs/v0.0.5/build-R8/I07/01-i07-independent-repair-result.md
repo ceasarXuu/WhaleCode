@@ -39,7 +39,7 @@ shape 或 completion 冒充 boundary request；canonical consumer 也进入 inve
 | 验证 | 结果 |
 |---|---|
 | I07 历史反例 | 8 completed/usage + 7 snapshots；11 attempts + 10 boundary + 1 local-only failure |
-| request facts + inventory + boundary proxy | 20 tests passed；consumer gate passed |
+| request facts + inventory + boundary proxy | 21 tests passed；consumer gate passed |
 | cache regression | 219 tests passed |
 | cost / harness / performance | 全部 self-test passed |
 | provenance / freshness | source 变更、analyzer 变更和旧 facts 均 fail closed |

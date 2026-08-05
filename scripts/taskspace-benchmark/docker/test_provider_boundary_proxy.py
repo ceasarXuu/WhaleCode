@@ -266,6 +266,33 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         ]
         self.assertEqual(counts, [1, 2])
 
+    def test_duplicate_payload_retry_preserves_boundary_count(self) -> None:
+        digest = "d" * 64
+        events = Path(self.temp.name, "duplicate-events.jsonl")
+        wire = Path(self.temp.name, "duplicate-wire.jsonl")
+        boundary = [
+            {"event": "provider_boundary_started", "limit": 2, "allowed_method": "POST", "allowed_path": "/responses", "allowed_model": "deepseek-v4-flash"},
+            *[
+                {"event": "provider_request_claimed", "count": index, "method": "POST", "path": "/responses", "model": "deepseek-v4-flash", "body_sha256": digest}
+                for index in (1, 2)
+            ],
+            {"event": "provider_boundary_stopped", "request_count": 2},
+        ]
+        wire_events = []
+        for index, terminal in ((1, "response_failed"), (2, "response_completed")):
+            request_id = f"retry-{index}"
+            wire_events.append({"schema_version": "provider-chat-wire-trace-v10", "status": "payload_captured", "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index, "request_index": index, "provider_payload_sha256": digest})
+            event = {"schema_version": "provider-chat-wire-trace-v10", "status": terminal, "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index}
+            if terminal == "response_completed":
+                event.update({"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 2, "reasoning_output_tokens": 1, "total_tokens": 12})
+            wire_events.append(event)
+        events.write_text("".join(json.dumps(event) + "\n" for event in boundary), encoding="utf-8")
+        wire.write_text("".join(json.dumps(event) + "\n" for event in wire_events), encoding="utf-8")
+        result = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")
+        self.assertEqual(result["status"], "reconciled_correlation_incomparable")
+        self.assertEqual(result["boundary_request_count"], 2)
+        self.assertEqual(result["boundary_correlation_availability"], "incomparable")
+
 
 if __name__ == "__main__":
     unittest.main()

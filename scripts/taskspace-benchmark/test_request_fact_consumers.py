@@ -45,6 +45,7 @@ class ConsumerInventoryTests(unittest.TestCase):
             "import.py": "from request_facts import build_request_facts\n",
             "wrapper.ps1": "Invoke-TaskspaceRequestFactsGenerator -WireTracePath $Path\n",
             "summary.py": 'count = summary["boundary_request_count"]\n',
+            "usage-helper.ps1": "$value = $Facts.summary.usage\n",
         }
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

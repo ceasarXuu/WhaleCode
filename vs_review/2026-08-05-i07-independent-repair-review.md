@@ -258,16 +258,43 @@ Reviewer 判定 W0-W8/W10 完成声明暂不成立。两个历史 fixture 已通
 
 | Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
 |---|---|---|---|---|---|---|
-| implementation-completeness | B1 failed terminal usage | blocking | accept | 本地主源码复核确认 `_normalized_rows` 无条件回退 rollout usage | pending | Round 2 closure review |
-| implementation-completeness | B2 cache ignores availability | blocking | accept | cache loop 直接读取 rows，summary 未以 canonical availability gate rates | pending | Round 2 closure review |
-| implementation-completeness | B3 missing boundary becomes zero | blocking | accept | `provider-boundary.ps1` 明确创建空文件；parser 只看 path exists | pending | Round 2 closure review |
-| implementation-completeness | B4 completion fallback | blocking | accept | performance/freshness 两处源码存在明确 fallback | pending | Round 2 closure review |
-| implementation-completeness | B5 inventory misses canonical readers | blocking | accept | discovery pattern 只覆盖 raw literals | pending | Round 2 closure review |
-| implementation-completeness | B6 duplicate digest coupling | blocking | accept | 当前将 digest ambiguity 放入 wire errors；选择分离 boundary count 与 correlation，不侵入 Provider payload/header | pending | Round 2 closure review |
-| implementation-completeness | N1 producer files not sealed | non-blocking | accept | analyzer 调用链包含 builder/wrapper | pending | full regression |
-| implementation-completeness | N2 expected model not sealed | non-blocking | accept | 由 boundary lifecycle sentinel 提供并封存 expected model，不新增外部平行配置 | pending | full regression |
-| implementation-completeness | N3 source location incomplete | non-blocking | accept | 原始 event 已有 line index，可机械保留 | pending | focused diagnostics test |
-| implementation-completeness | N4 durable result evidence weak | non-blocking | accept | 可记录命令、fixture SHA、review report 和 commit | pending | W10 result update |
+| implementation-completeness | B1 failed terminal usage | blocking | accept | 本地主源码复核确认 `_normalized_rows` 无条件回退 rollout usage | `9dc661aa0` 排除 usage 并新增矛盾 finding | Round 2 closure closed |
+| implementation-completeness | B2 cache ignores availability | blocking | accept | cache loop 直接读取 rows，summary 未以 canonical availability gate rates | `9dc661aa0`、`9e7536425` 让 side/fallback/aggregate fail closed | Round 3 closure review |
+| implementation-completeness | B3 missing boundary becomes zero | blocking | accept | `provider-boundary.ps1` 明确创建空文件；parser 只看 path exists | `9dc661aa0` 增加完整 lifecycle；后续修复 aggregate/freshness null 传播 | Round 3 closure review |
+| implementation-completeness | B4 completion fallback | blocking | accept | performance/freshness 两处源码存在明确 fallback | `9dc661aa0` 删除 completion fallback；后续修复 freshness aggregate | Round 3 closure review |
+| implementation-completeness | B5 inventory misses canonical readers | blocking | accept | discovery pattern 只覆盖 raw literals | `9dc661aa0` 扩展 canonical consumer；后续补 usage alias 检测 | Round 3 closure review |
+| implementation-completeness | B6 duplicate digest coupling | blocking | accept | 当前将 digest ambiguity 放入 wire errors；选择分离 boundary count 与 correlation，不侵入 Provider payload/header | `9dc661aa0` 分离 count/correlation；verifier 继续区分 correlation incomparable | Round 3 closure review |
+| implementation-completeness | N1 producer files not sealed | non-blocking | accept | analyzer 调用链包含 builder/wrapper | `9dc661aa0` 纳入 builder/wrapper/reconciliation 组合哈希 | full regression passed |
+| implementation-completeness | N2 expected model not sealed | non-blocking | accept | 由 boundary lifecycle sentinel 提供并封存 expected model，不新增外部平行配置 | `9dc661aa0` 封存 supervisor lifecycle model | architecture decision retained |
+| implementation-completeness | N3 source location incomplete | non-blocking | accept | 原始 event 已有 line index，可机械保留 | 增加 rollout/wire/boundary/reconciliation line locations | focused diagnostics test |
+| implementation-completeness | N4 durable result evidence weak | non-blocking | accept | 可记录命令、fixture SHA、review report 和 commit | result doc 已记录命令、fixture SHA 与 review path | final evidence update |
+
+## Round 2: Blocking Closure Review
+
+### Reviewer Launch Record
+
+| Reviewer | Internal Mechanism | Session / Job ID | Context Forked | Input | Read-only |
+|---|---|---|---|---|---|
+| closure-adversary | `multi_agent_v1.spawn_agent` | `019fd185-443e-7151-b3ba-457ed1ace67b` (Newton) | `fork_context=false` | 最新 HEAD、B1～B6 closure packet | yes |
+
+### Reviewer Output
+
+- Summary: B1、B5、B6 已关闭；B2/B3 在 aggregate cache 仍会把空或 malformed side 写成 measured zero；B3/B4
+  在 freshness 仍会把 unavailable side 省略后输出 0 或 partial exact total。
+- Blocking findings: 2，均接受。
+- Non-blocking risks: alias consumer 检测、expected model 独立来源、剩余 line location、durable command output。
+- Evidence: reviewer 直接检查 clean HEAD `9e7536425`；未执行真实 Whale Agent/API run。
+
+### Main Agent Response
+
+| Finding | Severity | Decision | Action |
+|---|---|---|---|
+| aggregate empty/malformed -> measured zero | blocking | accept | aggregate 先发现预期 TaskSpace artifact scope；missing/invalid side 使 request/attempt/cache 为 null，并输出 stable finding |
+| freshness unavailable -> zero/partial total | blocking | accept | 为每个 mode/run/aggregate 传播 count availability；healthy zero 由 side coverage 与 count 值分开判断 |
+| alias consumer bypass | non-blocking | accept | 增加 canonical usage alias pattern 与 inventory role validation |
+| independent ExpectedModel | non-blocking | reject | supervisor lifecycle 的 `allowed_model` 来自独立 boundary 配置并已封存；不再新增平行 expected-model 配置源 |
+| remaining line locations | non-blocking | accept | 补齐可机械获得的 rollout/wire/reconciliation 行号 |
+| durable command output | non-blocking | accept | 最终 closure 中记录命令结果、提交与证据路径 |
 
 ### Closure Status
 

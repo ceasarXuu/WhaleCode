@@ -51,6 +51,7 @@ class RequestFactsTests(unittest.TestCase):
         )
         facts = build_request_facts(rollout_path=partial)
         self.assertIn("identity_incomplete", self._codes(facts))
+        self.assertEqual(facts["findings"][0]["line_number"], 1)
         duplicate = self._write(
             "duplicate.jsonl",
             [self._rollout("r1", "l1", 1, 1), self._rollout("r1", "l1", 1, 2)],
@@ -103,6 +104,10 @@ class RequestFactsTests(unittest.TestCase):
         )
         facts = build_request_facts(wire_path=wire)
         self.assertIn("terminal_missing", self._codes(facts))
+        self.assertEqual(
+            next(item for item in facts["findings"] if item["code"] == "terminal_missing")["wire_line_number"],
+            1,
+        )
         self.assertEqual(facts["availability"]["completion"], "partial")
         self.assertEqual(facts["summary"]["failed_or_cancelled_attempt_count"], 0)
 

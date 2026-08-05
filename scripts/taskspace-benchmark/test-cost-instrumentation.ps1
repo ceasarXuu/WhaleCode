@@ -1060,6 +1060,15 @@ $rightIncomparable | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightS
 $incomparableAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
 Assert-True (-not [bool]$incomparableAggregate.comparison_eligible -and $null -eq $incomparableAggregate.request_2_plus_hit_rate) "aggregate restored a cache rate from an incomparable side"
 Assert-True ($null -eq $incomparableAggregate.request_2_plus_cached_input_tokens -and $null -eq $incomparableAggregate.cache_usage_missing_count) "aggregate coerced incomparable cache totals to zero"
+'{' | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
+$invalidAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True ($null -eq $invalidAggregate.provider_request_count -and $null -eq $invalidAggregate.provider_attempt_count -and -not [bool]$invalidAggregate.comparison_eligible) "malformed side summary produced a partial exact aggregate"
+Assert-True (@($invalidAggregate.aggregate_findings) -contains "cache_summary_invalid") "malformed side summary did not emit an aggregate finding"
+$emptyAggregateRoot = Join-Path $RunRoot "empty-cache-aggregate"
+New-Item -ItemType Directory -Path $emptyAggregateRoot -Force | Out-Null
+$emptyAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $emptyAggregateRoot).provider_cache_trace_summary
+Assert-True ($null -eq $emptyAggregate.provider_request_count -and $null -eq $emptyAggregate.provider_attempt_count -and -not [bool]$emptyAggregate.comparison_eligible) "empty cache aggregate was reported as measured zero"
+Assert-True (@($emptyAggregate.aggregate_findings) -contains "cache_summary_scope_empty") "empty cache aggregate did not expose missing scope"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

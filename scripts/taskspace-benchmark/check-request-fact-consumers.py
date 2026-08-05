@@ -15,7 +15,8 @@ SOURCE_PATTERNS = {
         r"(?:request-facts\.json|request_facts|RequestFacts|"
         r"Invoke-TaskspaceRequestFactsGenerator|logical_request_count|"
         r"local_attempt_count|boundary_request_count|completed_response_count|"
-        r"usage_record_count)"
+        r"usage_record_count|\.summary\.usage\b|"
+        r"[\"']summary[\"']\]\s*\[\s*[\"']usage[\"'])"
     ),
     "boundary": re.compile(r"provider_request_claimed"),
     "local_attempt": re.compile(r"payload_captured"),
@@ -62,7 +63,19 @@ def load_inventory(path: Path) -> dict[str, set[str]]:
     for item in raw.get("consumers", []):
         item_path = item.get("path")
         sources = item.get("observed_sources")
-        if not isinstance(item_path, str) or not isinstance(sources, list):
+        role = item.get("role")
+        if (
+            not isinstance(item_path, str)
+            or not isinstance(sources, list)
+            or role not in {
+                "producer",
+                "consumer",
+                "canonical_consumer",
+                "canonical_derived",
+                "canonical_entrypoint",
+                "canonical_wrapper",
+            }
+        ):
             raise ValueError("invalid request fact consumer entry")
         if item_path in entries:
             raise ValueError(f"duplicate request fact consumer: {item_path}")

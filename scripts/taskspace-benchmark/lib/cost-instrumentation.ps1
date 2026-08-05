@@ -841,18 +841,29 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
     param([Parameter(Mandatory = $true)][string]$RootDir)
     $rootSummaryPath = Join-Path $RootDir "provider-cache-trace-summary.json"
     $rootTracePath = Join-Path $RootDir "provider-cache-trace.jsonl"
-    $summaryFiles = @(Get-ChildItem -LiteralPath $RootDir -Filter "provider-cache-trace-summary.json" -Recurse -ErrorAction SilentlyContinue |
-        Where-Object {
-            [System.IO.Path]::GetFullPath($_.FullName) -ne [System.IO.Path]::GetFullPath($rootSummaryPath) -and
-            (Test-TaskspaceProviderCacheTraceTaskspaceArtifact $_.FullName)
-        } |
-        Sort-Object FullName)
+    $artifactDirPaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($file in @(Get-ChildItem -LiteralPath $RootDir -Filter "provider-cache-trace-summary.json" -Recurse -ErrorAction SilentlyContinue)) {
+        if ([System.IO.Path]::GetFullPath($file.FullName) -ne [System.IO.Path]::GetFullPath($rootSummaryPath) -and
+            (Test-TaskspaceProviderCacheTraceTaskspaceArtifact $file.FullName)) {
+            [void]$artifactDirPaths.Add($file.Directory.FullName)
+        }
+    }
+    foreach ($metricsFile in @(Get-ChildItem -LiteralPath $RootDir -Filter "metrics.json" -Recurse -ErrorAction SilentlyContinue)) {
+        try { $metric = Get-Content -Raw -Encoding UTF8 -LiteralPath $metricsFile.FullName | ConvertFrom-Json } catch { continue }
+        if ([string]$metric.logical_mode -eq "taskspace") { [void]$artifactDirPaths.Add($metricsFile.Directory.FullName) }
+    }
+    foreach ($directory in @(Get-ChildItem -LiteralPath $RootDir -Directory -Recurse -ErrorAction SilentlyContinue)) {
+        if ($directory.FullName -match '(?i)[\\/]+right[\\/]+artifacts$') { [void]$artifactDirPaths.Add($directory.FullName) }
+    }
+    $artifactDirs = @($artifactDirPaths | Sort-Object)
     $shapeCounts = @{}
     $providerRequestCount = 0
-    $providerRequestCountsMeasured = $true
+    $providerRequestCountsMeasured = $artifactDirs.Count -gt 0
     $providerAttemptCount = 0
-    $providerAttemptCountsMeasured = $true
-    $cacheComparisonEligible = $true
+    $providerAttemptCountsMeasured = $artifactDirs.Count -gt 0
+    $cacheComparisonEligible = $artifactDirs.Count -gt 0
+    $aggregateFindings = [System.Collections.Generic.List[string]]::new()
+    if ($artifactDirs.Count -eq 0) { $aggregateFindings.Add("cache_summary_scope_empty") }
     $coveredCount = 0
     $missingUsage = 0
     $request2PlusCount = 0
@@ -868,8 +879,18 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
     $cacheShapeTransitionCount = 0
     $eventLines = New-Object System.Collections.Generic.List[string]
     $cacheSummaries = New-Object System.Collections.Generic.List[object]
-    foreach ($file in $summaryFiles) {
-        try { $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json } catch { continue }
+    foreach ($artifactDir in $artifactDirs) {
+        $summaryPath = Join-Path $artifactDir "provider-cache-trace-summary.json"
+        if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
+            $providerRequestCountsMeasured = $false; $providerAttemptCountsMeasured = $false; $cacheComparisonEligible = $false
+            $aggregateFindings.Add("cache_summary_missing")
+            continue
+        }
+        try { $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath $summaryPath | ConvertFrom-Json } catch {
+            $providerRequestCountsMeasured = $false; $providerAttemptCountsMeasured = $false; $cacheComparisonEligible = $false
+            $aggregateFindings.Add("cache_summary_invalid")
+            continue
+        }
         $cacheSummaries.Add($summary)
         $requestCountProperty = $summary.PSObject.Properties["provider_request_count"]
         if ($null -eq $requestCountProperty -or $null -eq $requestCountProperty.Value) {
@@ -900,7 +921,7 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
         if ($summary.PSObject.Properties.Name -contains "request_shape_counts") {
             Add-TaskspaceProviderCacheShapeCounts $shapeCounts $summary.request_shape_counts
         }
-        $tracePath = Join-Path (Split-Path -Parent $file.FullName) "provider-cache-trace.jsonl"
+        $tracePath = Join-Path $artifactDir "provider-cache-trace.jsonl"
         if (Test-Path -LiteralPath $tracePath) {
             foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $tracePath)) {
                 if (-not [string]::IsNullOrWhiteSpace($line)) { [void]$eventLines.Add($line) }
@@ -915,6 +936,9 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
             provider_request_count = if ($providerRequestCountsMeasured) { [int]$providerRequestCount } else { $null }
             provider_attempt_count = if ($providerAttemptCountsMeasured) { [int]$providerAttemptCount } else { $null }
             comparison_eligible = $cacheComparisonEligible
+            expected_summary_count = [int]$artifactDirs.Count
+            observed_summary_count = [int]$cacheSummaries.Count
+            aggregate_findings = @($aggregateFindings | Sort-Object -Unique)
             trace_coverage = if ($providerAttemptCountsMeasured -and $providerAttemptCount -gt 0) { [Math]::Round([double]$coveredCount / [double]$providerAttemptCount, 6) } elseif ($providerAttemptCountsMeasured) { 0.0 } else { $null }
             cache_usage_missing_count = if ($cacheComparisonEligible) { [int]$missingUsage } else { $null }
             request_shape_counts = Convert-TaskspaceCostTable $shapeCounts

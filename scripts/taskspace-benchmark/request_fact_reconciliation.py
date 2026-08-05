@@ -154,11 +154,11 @@ def reconcile(
                     )
                 )
             elif terminal.get("status") not in {"response_failed", "cancelled", "retry_unauthorized"}:
-                findings.append(_finding("boundary_status_unknown", "reconcile", request_id=row["request_id"]))
+                findings.append(_finding("boundary_status_unknown", "reconcile", request_id=row["request_id"], wire_line_number=row.get("attempt", {}).get("wire_line_number")))
         if "terminal" in row and "attempt" not in row:
-            findings.append(_finding("terminal_without_attempt", "reconcile", request_id=row["request_id"]))
+            findings.append(_finding("terminal_without_attempt", "reconcile", request_id=row["request_id"], wire_line_number=terminal.get("wire_line_number")))
         if "attempt" in row and "terminal" not in row:
-            findings.append(_finding("terminal_missing", "reconcile", request_id=row["request_id"]))
+            findings.append(_finding("terminal_missing", "reconcile", request_id=row["request_id"], wire_line_number=row.get("attempt", {}).get("wire_line_number")))
         rollout_usage = row.get("rollout_usage")
         wire_usage = terminal.get("usage")
         if rollout_usage is not None and wire_usage is not None and rollout_usage != wire_usage:

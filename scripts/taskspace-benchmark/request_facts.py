@@ -126,7 +126,7 @@ def _parse_rollout(
         try:
             identity = _identity(payload, "provider_")
         except ValueError:
-            findings.append(_finding("identity_incomplete", "rollout"))
+            findings.append(_finding("identity_incomplete", "rollout", line_number=event.get("_request_facts_line_number")))
             continue
         if identity is None:
             if usage_value is not None:
@@ -136,7 +136,7 @@ def _parse_rollout(
         try:
             usage = _usage(usage_value)
         except ValueError as error:
-            findings.append(_finding(str(error), "rollout", request_id=request_id))
+            findings.append(_finding(str(error), "rollout", request_id=request_id, line_number=event.get("_request_facts_line_number")))
             continue
         row = rows.setdefault(request_id, {"request_id": request_id})
         if "rollout_index" not in row:
@@ -170,13 +170,13 @@ def _parse_wire(
         try:
             identity = _identity(event)
         except ValueError:
-            findings.append(_finding("identity_incomplete", "wire", request_id=request_id))
+            findings.append(_finding("identity_incomplete", "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
             continue
         if event.get("schema_version") != WIRE_SCHEMA_VERSION:
-            findings.append(_finding("wire_schema_unsupported", "wire", request_id=request_id))
+            findings.append(_finding("wire_schema_unsupported", "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
             continue
         if identity is None:
-            findings.append(_finding("identity_incomplete", "wire"))
+            findings.append(_finding("identity_incomplete", "wire", line_number=event.get("_request_facts_line_number")))
             continue
         request_id, logical_id, attempt = identity
         row = rows.setdefault(request_id, {"request_id": request_id})
@@ -201,7 +201,7 @@ def _parse_wire(
                 or not isinstance(index, int)
                 or index < 1
             ):
-                findings.append(_finding("attempt_evidence_invalid", "wire", request_id=request_id))
+                findings.append(_finding("attempt_evidence_invalid", "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
                 continue
             _put_once(
                 row,
@@ -225,7 +225,7 @@ def _parse_wire(
             try:
                 terminal["usage"] = _usage(event)
             except ValueError as error:
-                findings.append(_finding(str(error), "wire", request_id=request_id))
+                findings.append(_finding(str(error), "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
         _put_once(row, "terminal", terminal, findings, "wire", request_id, counters)
 
 

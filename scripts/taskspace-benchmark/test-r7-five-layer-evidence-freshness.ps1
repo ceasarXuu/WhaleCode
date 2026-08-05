@@ -177,6 +177,23 @@ Write-FixtureJson $resultPath $result
 $pass = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
 Assert-True ([string]$pass.status -eq "pass") "Fresh evidence fixture did not pass: $(@($pass.findings.stable_code) -join ',')"
 
+$taskspaceFactsPath = Join-Path $pairDir "right/artifacts/request-facts.json"
+$originalTaskspaceBoundary = Get-Content -Raw -Encoding UTF8 -LiteralPath $taskspaceBoundaryPath
+$originalTaskspaceFacts = Get-Content -Raw -Encoding UTF8 -LiteralPath $taskspaceFactsPath
+$boundaryStart | ConvertTo-Json -Compress | Set-Content -LiteralPath $taskspaceBoundaryPath -Encoding UTF8
+Invoke-TaskspaceRequestFactsGenerator -RolloutJsonlPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") -WireTracePath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -BoundaryEventsPath $taskspaceBoundaryPath -OutputPath $taskspaceFactsPath | Out-Null
+$unavailableBoundary = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
+Assert-True ($null -eq $unavailableBoundary.runs[0].taskspace_provider_requests) "Unavailable boundary lifecycle was serialized as zero"
+Assert-True (@($unavailableBoundary.findings | Where-Object stable_code -eq "request_facts_count_unavailable").Count -eq 1) "Unavailable boundary lifecycle did not emit a stable finding"
+
+@($boundaryStart, [ordered]@{ event = "provider_boundary_stopped"; request_count = 0 }) | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $taskspaceBoundaryPath -Encoding UTF8
+Invoke-TaskspaceRequestFactsGenerator -RolloutJsonlPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") -WireTracePath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -BoundaryEventsPath $taskspaceBoundaryPath -OutputPath $taskspaceFactsPath | Out-Null
+$healthyZeroBoundary = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
+Assert-True ([int64]$healthyZeroBoundary.runs[0].taskspace_provider_requests -eq 0) "Healthy zero boundary was not preserved"
+Assert-True (@($healthyZeroBoundary.findings | Where-Object { $_.stable_code -in @("request_facts_count_unavailable", "paired_trace_coverage_missing") }).Count -eq 0) "Healthy zero boundary was treated as missing coverage"
+[IO.File]::WriteAllText($taskspaceBoundaryPath, $originalTaskspaceBoundary, [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($taskspaceFactsPath, $originalTaskspaceFacts, [Text.UTF8Encoding]::new($false))
+
 $staleResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json -Depth 100
 $staleResult.contracts.taskspace_base.version = "stale"
 Write-FixtureJson $resultPath $staleResult
