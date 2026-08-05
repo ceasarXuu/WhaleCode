@@ -1,9 +1,13 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use codex_protocol::models::ResponseItem;
 
+use super::plan::TaskspaceExecHostedBinding;
+
 const WEB_SEARCH_CALL_TYPE: &str = "web_search_call";
+const WEB_SEARCH_TOOL_NAME: &str = "web_search";
 const IMAGE_GENERATION_CALL_TYPE: &str = "image_generation_call";
+const IMAGE_GENERATION_TOOL_NAME: &str = "image_generation";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ProviderFactRef {
@@ -13,12 +17,17 @@ pub(crate) struct ProviderFactRef {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProviderFact {
+    pub(crate) output_index: usize,
+    pub(crate) hosted_index: usize,
+    pub(crate) tool: String,
     pub(crate) fact_ref: ProviderFactRef,
     pub(crate) provider_status: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProviderBinding {
+    pub(crate) output_index: usize,
+    pub(crate) hosted_index: usize,
     pub(crate) fact_ref: ProviderFactRef,
     pub(crate) node_id: String,
 }
@@ -26,6 +35,8 @@ pub(crate) struct ProviderBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProviderReconciliationFinding {
     pub(crate) reason_code: &'static str,
+    pub(crate) output_index: Option<usize>,
+    pub(crate) hosted_index: Option<usize>,
     pub(crate) fact_ref: Option<ProviderFactRef>,
     pub(crate) message: String,
 }
@@ -43,29 +54,50 @@ pub(crate) struct ProviderReconciliationReport {
     pub(crate) findings: Vec<ProviderReconciliationFinding>,
 }
 
-pub(crate) fn collect_provider_facts(items: &[ResponseItem]) -> ProviderFactCollection {
-    let mut fact_by_ref = BTreeMap::new();
+pub(crate) fn collect_provider_facts<'a>(
+    items: impl IntoIterator<Item = (usize, &'a ResponseItem)>,
+) -> ProviderFactCollection {
+    let mut facts = Vec::new();
+    let mut seen_refs = BTreeSet::new();
+    let mut seen_output_indexes = BTreeSet::new();
     let mut findings = Vec::new();
-    for item in items {
+    for (output_index, item) in items {
         let extracted = match item {
-            ResponseItem::WebSearchCall { id, status, .. } => {
-                Some((WEB_SEARCH_CALL_TYPE, id.as_deref(), status.as_deref()))
-            }
+            ResponseItem::WebSearchCall { id, status, .. } => Some((
+                WEB_SEARCH_CALL_TYPE,
+                WEB_SEARCH_TOOL_NAME,
+                id.as_deref(),
+                status.as_deref(),
+            )),
             ResponseItem::ImageGenerationCall { id, status, .. } => Some((
                 IMAGE_GENERATION_CALL_TYPE,
+                IMAGE_GENERATION_TOOL_NAME,
                 Some(id.as_str()),
                 Some(status.as_str()),
             )),
             _ => None,
         };
-        let Some((provider_item_type, provider_item_id, status)) = extracted else {
+        let Some((provider_item_type, tool, provider_item_id, status)) = extracted else {
             continue;
         };
+        if !seen_output_indexes.insert(output_index) {
+            findings.push(finding(
+                "provider_output_index_duplicate",
+                Some(output_index),
+                None,
+                None,
+                format!("Provider response repeats output_index {output_index}"),
+            ));
+        }
         let Some(provider_item_id) = provider_item_id.filter(|id| !id.trim().is_empty()) else {
             findings.push(finding(
                 "provider_item_identity_missing",
+                Some(output_index),
                 None,
-                format!("Hosted `{provider_item_type}` fact has no provider item ID"),
+                None,
+                format!(
+                    "Hosted output_index {output_index} (`{provider_item_type}`) has no provider item ID"
+                ),
             ));
             continue;
         };
@@ -74,71 +106,99 @@ pub(crate) fn collect_provider_facts(items: &[ResponseItem]) -> ProviderFactColl
             provider_item_id: provider_item_id.to_string(),
         };
         let fact = ProviderFact {
+            output_index,
+            hosted_index: 0,
+            tool: tool.to_string(),
             fact_ref: fact_ref.clone(),
             provider_status: status.map(str::to_string),
         };
-        if fact_by_ref.insert(fact_ref.clone(), fact).is_some() {
+        if !seen_refs.insert(fact_ref.clone()) {
             findings.push(finding(
                 "provider_fact_duplicate",
-                Some(fact_ref),
-                "Provider response contains a duplicate hosted fact identity",
+                Some(output_index),
+                None,
+                Some(fact_ref.clone()),
+                format!("Hosted output_index {output_index} duplicates a provider fact identity"),
             ));
         }
+        facts.push(fact);
     }
 
-    ProviderFactCollection {
-        facts: fact_by_ref.into_values().collect(),
-        findings,
+    facts.sort_by_key(|fact| fact.output_index);
+    for (hosted_index, fact) in facts.iter_mut().enumerate() {
+        fact.hosted_index = hosted_index;
     }
+
+    ProviderFactCollection { facts, findings }
 }
 
-pub(crate) fn reconcile_provider_scope(
+pub(crate) fn reconcile_provider_bindings(
     collection: ProviderFactCollection,
-    hosted_node_id: Option<&str>,
+    declarations: &[TaskspaceExecHostedBinding],
 ) -> ProviderReconciliationReport {
     let mut findings = collection.findings;
-    let hosted_node_id = hosted_node_id
-        .map(str::trim)
-        .filter(|node_id| !node_id.is_empty());
-
-    if collection.facts.is_empty() {
-        if hosted_node_id.is_some() {
-            findings.push(finding(
-                "provider_scope_without_fact",
-                None,
-                "TaskSpace declares a hosted node but this response has no hosted fact",
-            ));
-        }
-        return ProviderReconciliationReport {
-            exact: findings.is_empty(),
-            bindings: Vec::new(),
-            findings,
-        };
+    if collection.facts.len() != declarations.len() {
+        findings.push(finding(
+            "provider_binding_count_mismatch",
+            None,
+            None,
+            None,
+            format!(
+                "Provider response has {} hosted items but TaskSpace declares {} bindings",
+                collection.facts.len(),
+                declarations.len()
+            ),
+        ));
     }
 
-    let bindings = match hosted_node_id {
-        Some(node_id) => collection
+    for (fact, declaration) in collection.facts.iter().zip(declarations) {
+        if fact.tool != declaration.tool.trim() {
+            findings.push(finding(
+                "provider_binding_tool_mismatch",
+                Some(fact.output_index),
+                Some(fact.hosted_index),
+                Some(fact.fact_ref.clone()),
+                format!(
+                    "Hosted item at index {} is `{}` but TaskSpace declares `{}`",
+                    fact.hosted_index,
+                    fact.tool,
+                    declaration.tool.trim()
+                ),
+            ));
+        }
+        if declaration.node_id.trim().is_empty() {
+            findings.push(finding(
+                "provider_binding_node_missing",
+                Some(fact.output_index),
+                Some(fact.hosted_index),
+                Some(fact.fact_ref.clone()),
+                format!(
+                    "Hosted item at index {} has no Agent-declared node",
+                    fact.hosted_index
+                ),
+            ));
+        }
+    }
+
+    let exact = findings.is_empty();
+    let bindings = if exact {
+        collection
             .facts
             .into_iter()
-            .map(|fact| ProviderBinding {
+            .zip(declarations)
+            .map(|(fact, declaration)| ProviderBinding {
+                output_index: fact.output_index,
+                hosted_index: fact.hosted_index,
                 fact_ref: fact.fact_ref,
-                node_id: node_id.to_string(),
+                node_id: declaration.node_id.trim().to_string(),
             })
-            .collect(),
-        None => {
-            findings.extend(collection.facts.into_iter().map(|fact| {
-                finding(
-                    "provider_fact_unbound",
-                    Some(fact.fact_ref),
-                    "Provider hosted fact has no Agent-declared TaskSpace node",
-                )
-            }));
-            Vec::new()
-        }
+            .collect()
+    } else {
+        Vec::new()
     };
 
     ProviderReconciliationReport {
-        exact: findings.is_empty(),
+        exact,
         bindings,
         findings,
     }
@@ -146,11 +206,15 @@ pub(crate) fn reconcile_provider_scope(
 
 fn finding(
     reason_code: &'static str,
+    output_index: Option<usize>,
+    hosted_index: Option<usize>,
     fact_ref: Option<ProviderFactRef>,
     message: impl Into<String>,
 ) -> ProviderReconciliationFinding {
     ProviderReconciliationFinding {
         reason_code,
+        output_index,
+        hosted_index,
         fact_ref,
         message: message.into(),
     }
@@ -159,6 +223,17 @@ fn finding(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn collect(items: &[ResponseItem]) -> ProviderFactCollection {
+        collect_provider_facts(items.iter().enumerate())
+    }
+
+    fn binding(tool: &str, node_id: &str) -> TaskspaceExecHostedBinding {
+        TaskspaceExecHostedBinding {
+            tool: tool.to_string(),
+            node_id: node_id.to_string(),
+        }
+    }
 
     fn web(id: Option<&str>, status: &str) -> ResponseItem {
         ResponseItem::WebSearchCall {
@@ -178,36 +253,67 @@ mod tests {
     }
 
     #[test]
-    fn agent_declares_one_node_while_runtime_reuses_every_provider_identity() {
-        let facts = collect_provider_facts(&[
+    fn ordered_declarations_bind_same_response_items_to_different_nodes() {
+        let facts = collect(&[
             web(Some("call-1"), "completed"),
             web(Some("call-2"), "failed"),
             image("image-1", "completed"),
         ]);
-        let report = reconcile_provider_scope(facts, Some("research"));
+        let report = reconcile_provider_bindings(
+            facts,
+            &[
+                binding(WEB_SEARCH_TOOL_NAME, "research-a"),
+                binding(WEB_SEARCH_TOOL_NAME, "research-b"),
+                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
+            ],
+        );
 
         assert!(report.exact);
         assert_eq!(report.bindings.len(), 3);
-        assert!(
-            report
-                .bindings
-                .iter()
-                .all(|binding| binding.node_id == "research")
-        );
         assert_eq!(
             report
                 .bindings
                 .iter()
-                .map(|binding| binding.fact_ref.provider_item_id.as_str())
+                .map(|binding| (
+                    binding.output_index,
+                    binding.hosted_index,
+                    binding.fact_ref.provider_item_id.as_str(),
+                    binding.node_id.as_str(),
+                ))
                 .collect::<Vec<_>>(),
-            vec!["image-1", "call-1", "call-2"]
+            vec![
+                (0, 0, "call-1", "research-a"),
+                (1, 1, "call-2", "research-b"),
+                (2, 2, "image-1", "design"),
+            ]
+        );
+    }
+
+    #[test]
+    fn provider_output_index_restores_order_when_done_events_arrive_out_of_order() {
+        let web_a = web(Some("call-z"), "completed");
+        let web_b = web(Some("call-a"), "completed");
+        let image = image("image-m", "completed");
+        let facts = collect_provider_facts([(2, &image), (0, &web_a), (1, &web_b)]);
+
+        assert_eq!(
+            facts
+                .facts
+                .iter()
+                .map(|fact| (
+                    fact.output_index,
+                    fact.hosted_index,
+                    fact.fact_ref.provider_item_id.as_str(),
+                ))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, "call-z"), (1, 1, "call-a"), (2, 2, "image-m")]
         );
     }
 
     #[test]
     fn provider_status_does_not_change_identity_or_node_lifecycle() {
-        let completed = collect_provider_facts(&[web(Some("call-1"), "completed")]);
-        let failed = collect_provider_facts(&[web(Some("call-1"), "failed")]);
+        let completed = collect(&[web(Some("call-1"), "completed")]);
+        let failed = collect(&[web(Some("call-1"), "failed")]);
 
         assert_eq!(completed.facts[0].fact_ref, failed.facts[0].fact_ref);
         assert_ne!(
@@ -217,35 +323,49 @@ mod tests {
     }
 
     #[test]
-    fn missing_agent_scope_preserves_provider_facts_as_unbound() {
-        let facts =
-            collect_provider_facts(&[web(Some("call-1"), "completed"), image("image-1", "failed")]);
-        let report = reconcile_provider_scope(facts, None);
+    fn missing_or_extra_declarations_reject_the_whole_set() {
+        let facts = collect(&[web(Some("call-1"), "completed"), image("image-1", "failed")]);
+        let report =
+            reconcile_provider_bindings(facts, &[binding(WEB_SEARCH_TOOL_NAME, "research")]);
 
         assert!(!report.exact);
         assert!(report.bindings.is_empty());
-        assert_eq!(
+        assert!(
             report
                 .findings
                 .iter()
-                .filter(|finding| finding.reason_code == "provider_fact_unbound")
-                .count(),
-            2
+                .any(|finding| { finding.reason_code == "provider_binding_count_mismatch" })
         );
+
+        let report = reconcile_provider_bindings(
+            collect(&[web(Some("call-1"), "completed")]),
+            &[
+                binding(WEB_SEARCH_TOOL_NAME, "research"),
+                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
+            ],
+        );
+        assert!(!report.exact);
+        assert!(report.bindings.is_empty());
     }
 
     #[test]
-    fn duplicate_and_missing_provider_ids_are_not_guessed() {
-        let facts = collect_provider_facts(&[
+    fn duplicate_and_missing_provider_ids_reject_without_partial_bindings() {
+        let facts = collect(&[
             web(Some("call-1"), "completed"),
             web(Some("call-1"), "failed"),
             web(None, "completed"),
         ]);
-        let report = reconcile_provider_scope(facts, Some("research"));
+        let report = reconcile_provider_bindings(
+            facts,
+            &[
+                binding(WEB_SEARCH_TOOL_NAME, "research-a"),
+                binding(WEB_SEARCH_TOOL_NAME, "research-b"),
+                binding(WEB_SEARCH_TOOL_NAME, "research-c"),
+            ],
+        );
 
         assert!(!report.exact);
-        assert_eq!(report.bindings.len(), 1);
-        assert_eq!(report.bindings[0].fact_ref.provider_item_id, "call-1");
+        assert!(report.bindings.is_empty());
         assert!(
             report
                 .findings
@@ -261,14 +381,72 @@ mod tests {
     }
 
     #[test]
-    fn node_declaration_without_provider_fact_is_detected() {
-        let report = reconcile_provider_scope(collect_provider_facts(&[]), Some("research"));
+    fn declaration_without_provider_fact_is_rejected() {
+        let report =
+            reconcile_provider_bindings(collect(&[]), &[binding(WEB_SEARCH_TOOL_NAME, "research")]);
 
         assert!(!report.exact);
         assert!(report.bindings.is_empty());
         assert_eq!(
             report.findings[0].reason_code,
-            "provider_scope_without_fact"
+            "provider_binding_count_mismatch"
+        );
+    }
+
+    #[test]
+    fn tool_order_mismatch_rejects_without_guessing() {
+        let facts = collect(&[
+            web(Some("call-1"), "completed"),
+            image("image-1", "completed"),
+        ]);
+        let report = reconcile_provider_bindings(
+            facts,
+            &[
+                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
+                binding(WEB_SEARCH_TOOL_NAME, "research"),
+            ],
+        );
+
+        assert!(!report.exact);
+        assert!(report.bindings.is_empty());
+        assert_eq!(
+            report
+                .findings
+                .iter()
+                .filter(|finding| finding.reason_code == "provider_binding_tool_mismatch")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn no_provider_facts_and_no_declarations_is_exact() {
+        let report = reconcile_provider_bindings(collect(&[]), &[]);
+
+        assert!(report.exact);
+        assert!(report.bindings.is_empty());
+        assert!(report.findings.is_empty());
+    }
+
+    #[test]
+    fn duplicate_output_index_rejects_without_partial_bindings() {
+        let web = web(Some("call-1"), "completed");
+        let image = image("image-1", "completed");
+        let report = reconcile_provider_bindings(
+            collect_provider_facts([(0, &web), (0, &image)]),
+            &[
+                binding(WEB_SEARCH_TOOL_NAME, "research"),
+                binding(IMAGE_GENERATION_TOOL_NAME, "design"),
+            ],
+        );
+
+        assert!(!report.exact);
+        assert!(report.bindings.is_empty());
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| { finding.reason_code == "provider_output_index_duplicate" })
         );
     }
 }

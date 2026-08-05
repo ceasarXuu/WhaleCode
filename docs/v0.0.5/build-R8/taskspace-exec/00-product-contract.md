@@ -140,9 +140,11 @@ Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作分别声明
 - 检查声明与事实是否一一对应、节点是否存在、Provider ID 是否缺失或重复；
 - 保留 Provider 状态，但不以成功或失败改变节点状态。
 
-Agent 不得回显、复制或另造 Provider 传输身份。Agent 声明与 Provider 事实之间采用何种非语义、可唯一核验的关联键，
-仍是 A2 必须验证并冻结的工程合同；不得用 URL、结果内容或语义相似度猜配。缺少声明、无法唯一对应、节点非法、
-Provider ID 缺失或冲突时，该响应不被 TaskSpace 接受，不能把事实标记为已结算的 `unbound`，也不能默认写到 Root。
+Agent 不得回显、复制或另造 Provider 传输身份。`hosted_bindings[]` 按 Provider 原始 `output_index` 排序后的 Hosted item
+顺序逐项声明；每项只包含模型可见的 Hosted Tool 名和 Agent 选择的 `node_id`。Runtime 使用 `output_index` 恢复顺序，
+再核对数量和 Tool 类型，不得用事件完成顺序、URL、结果内容或语义相似度猜配。缺少声明、无法唯一对应、节点非法、
+Provider ID/`output_index` 缺失或冲突时，该响应不被 TaskSpace 接受，不能把事实标记为已结算的 `unbound`，也不能
+默认写到 Root。
 Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validator 判断；A2 不新增节点业务语义。
 
 ### 5.3 失败与结算矩阵
@@ -196,7 +198,7 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | 内部 source 语法 | A1 离线通过 | `taskspace.plan(<strict JSON>);` 在副作用前生成唯一 typed plan；Agent 生成稳定性仍待获批真实验证 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | A2 未完成 | 必须证明同响应 0～N 项 Hosted 事实可由 Agent 逐项声明并唯一核对；任何不完整归属整批拒绝 |
+| Hosted 逐项多节点归属 | A2 离线通过 / 真实验证待执行 | `hosted_bindings[]` 按 Provider `output_index` 排序逐项声明；V1～V3 已通过，V4 待预算 |
 
 ## 9. 验收标准
 

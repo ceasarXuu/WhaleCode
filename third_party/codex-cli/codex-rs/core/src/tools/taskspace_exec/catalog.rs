@@ -104,7 +104,7 @@ pub(crate) fn create_taskspace_exec_tool(catalog: &TaskspaceExecCatalog) -> Tool
         .collect::<Vec<_>>()
         .join(", ");
     let description = format!(
-        "Submit one complete TaskSpace action plan before any client Tool runs. The source must use {version}, capability identity `{identity}`, and may call only these mechanically derived client Tools: {names}. Provider-hosted results are declarations for reconciliation, not client executions.",
+        "Submit one complete TaskSpace action plan before any client Tool runs. The source must use {version}, capability identity `{identity}`, and may call only these mechanically derived client Tools: {names}. Declare each provider-hosted result in `hosted_bindings` using provider output order; every entry contains only the hosted Tool name and Agent-selected `node_id`. Do not copy provider item IDs.",
         version = TASKSPACE_EXEC_PLAN_VERSION,
         identity = catalog.identity,
     );
@@ -270,6 +270,9 @@ mod tests {
 
         assert_eq!(tool.name, TASKSPACE_EXEC_TOOL_NAME);
         assert!(tool.description.contains(&catalog.identity));
+        assert!(tool.description.contains("provider output order"));
+        assert!(tool.description.contains("Agent-selected `node_id`"));
+        assert!(tool.description.contains("Do not copy provider item IDs"));
         assert_eq!(
             serde_json::to_value(tool.parameters).expect("schema"),
             serde_json::json!({

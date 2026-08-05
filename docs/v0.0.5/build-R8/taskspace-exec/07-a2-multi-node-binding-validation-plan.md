@@ -1,7 +1,7 @@
 # A2 Hosted 逐项多节点绑定验证计划
 
 - Created: 2026-08-06
-- Status: Planned / Phase A blocking
+- Status: V1～V3 verified-isolated / V4 pending budget / Phase A blocking
 - Scope: TaskSpace Exec TX-05
 - Production behavior change: 无，候选模块尚未注册
 
@@ -39,10 +39,10 @@ Provider-hosted 事实绑定到该节点。该结论只覆盖了单响应单节�
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| A2-V1 | 盘点逐项关联能力 | discovery | Responses decoder、Web/Image `ResponseItem`、历史 probe artifact | Runtime/Agent 双方可用的 Hosted 结构字段 | 列出真实 ID、类型、结构位置、原始参数及模型可见性的证据，淘汰需要内容或语义猜配的候选 | 明确是否存在可唯一核验且不要求 Agent 伪造 Provider ID 的关联键 | Complexity: 一份证据矩阵；Reach/Cost: 零运行时影响、零 API 费用 | 0/1/N、同类重复和混合 Web/Image fixture 均能确定解释 | 无唯一候选则停止，不进入代码改造 | planned |
-| A2-V2 | 实现逐项声明候选 | API/internal | `core/src/tools/taskspace_exec/plan.rs`、`decoder.rs`、`preflight.rs` | `hosted_bindings[]` | 删除单值 `hosted_node_id`；每项声明携带关联字段与 Agent `node_id`，严格拒绝额外、缺失和重复成员 | typed plan 可以表达同响应多个 Hosted 节点 | Complexity: 重写未接生产的候选 schema，不增加第二 registry；Reach/Cost: Phase A tests/snapshots 更新 | 双节点、多项同节点、同类多项、空集合和非法声明单测 | 需要修改 provider Tool 原生 schema 或普通 Tool schema 时回退 | planned |
-| A2-V3 | 建立原子核对门禁 | state/data | `provider_reconcile.rs`、fake Router、Event Store fixtures | complete Hosted binding set | 在任何 client/map dispatch 和 Map commit 前，对声明集合与真实事实集合做完整核对 | 不完整归属不能产生部分执行、默认 Root owner 或未绑定持久状态 | Complexity: 扩大候选 preflight 和失败结果；Reach/Cost: 增加确定性矩阵，零 Provider 费用 | 每个失败例断言 Router=0、Map revision 不变、Store 无新增；成功例逐项 owner 正确 | 任一错误只能在副作用后发现时停止 | planned |
-| A2-V4 | 验证目标模型生成能力 | provider validation | 专用 Docker probe、run ledger | same-response multi-node Hosted declaration | 申请预算后运行有真实双子任务需求的最简样本；只提供标准 TaskSpace 协议，不在任务正文中喂预期绑定答案 | 避免只证明 Runtime parser，或用迎合样本伪造 DeepSeek 可用性 | Complexity: 不增加生产结构；Reach/Cost: 有明确 token、费用和耗时 | 原始 wire中至少两项 Hosted 事实分别归属两个节点；逐项核对且禁止自动扩大 repeat | 未获预算不执行；失败保持 A2 blocked | planned |
+| A2-V1 | 盘点逐项关联能力 | discovery | Responses decoder、Web/Image `ResponseItem`、历史 probe artifact | Runtime/Agent 双方可用的 Hosted 结构字段 | 确认 Provider `output_index` 是顺序权威，Agent 只需按该顺序声明，不复制 Provider ID | 得到非语义、可唯一核验的关联键，并发现当前通用 SSE decoder 丢 index 的 TX-07 接线前置 | Complexity: 一份证据矩阵；Reach/Cost: 零生产影响、零 API 费用 | 同类多项与乱序 done fixture 按 index 恢复 | TX-07 必须保留 index | verified |
+| A2-V2 | 实现逐项声明候选 | API/internal | `core/src/tools/taskspace_exec/plan.rs`、`decoder.rs`、`preflight.rs` | `hosted_bindings[]` | 删除单值 `hosted_node_id`；使用有序 `{tool,node_id}` 数组并升级计划 v2 | typed plan 可以表达同响应多个 Hosted 节点 | Complexity: 重写未接生产候选 schema，不增加第二 registry；Reach/Cost: Phase A tests/snapshots 更新 | 双节点、旧字段、空字段和严格 decode 单测 | 需要修改 provider/普通 Tool schema 时回退 | verified-isolated |
+| A2-V3 | 建立原子核对门禁 | internal | `provider_reconcile.rs` | complete Hosted binding set | 按 output index、数量和 Tool 类型完整核对；任一 finding 返回空 bindings | 不完整归属不能产生部分成功、默认 Root owner 或未绑定 settlement | Complexity: 扩大候选 reconciler 和 finding；Reach/Cost: 零生产接线、零 Provider 费用 | 缺/多/乱序/重复 ID/index、类型错配均整批拒绝 | Map/Store/Router 接线副作用在 TX-09/11/12/17 复验 | verified-isolated |
+| A2-V4 | 验证目标模型生成能力 | provider validation | `r8_taskspace_exec_a2_probe.py`、Docker、run ledger | same-response multi-node Hosted declaration | 申请预算后运行有真实双子任务需求的最简样本；只提供标准 TaskSpace 协议，不在任务正文中喂预期绑定答案 | 避免只证明 Runtime parser，或用迎合样本伪造 DeepSeek 可用性 | Complexity: 专用探针已完成 5 项离线自检；Reach/Cost: 真实执行有明确 token、费用和耗时 | 原始 wire中至少两项 Hosted 事实分别归属两个节点；逐项核对且禁止自动扩大 repeat | 未获预算不执行；失败保持 A2 blocked | probe-ready / budget-pending |
 
 ## 4. 确定性矩阵
 
@@ -65,8 +65,8 @@ Provider-hosted 事实绑定到该节点。该结论只覆盖了单响应单节�
 
 A2 只有同时满足以下条件才能恢复为 `verified-isolated`：
 
-1. A2-V1 找到并用源码/fixture 证明可唯一核验的逐项关联方式；
-2. A2-V2/V3 的正反矩阵全部通过，且代码中不存在单值 `hosted_node_id`、Root fallback 或 unbound settlement；
+1. A2-V1 找到并用源码/fixture 证明可唯一核验的逐项关联方式；已完成；
+2. A2-V2/V3 的正反矩阵全部通过，且候选代码中不存在单值 `hosted_node_id`、Root fallback 或 unbound settlement；已完成；
 3. A2-V4 获得单独预算并证明 DeepSeek 能在同一响应中为至少两个 Hosted 动作声明不同节点；
 4. 缓存敏感面若发生变化，先通过缓存门禁并按规则申请真实缓存回归；
 5. 主合同、工程计划、日志字段和测试断言对失败语义一致。

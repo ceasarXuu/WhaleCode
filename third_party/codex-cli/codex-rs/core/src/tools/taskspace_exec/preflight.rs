@@ -30,21 +30,25 @@ pub(crate) fn preflight_taskspace_exec_plan(
     catalog: &TaskspaceExecCatalog,
 ) -> Result<ValidatedTaskspaceExecPlan, TaskspaceExecPreflightError> {
     validate_plan_identity(&plan, catalog)?;
-    if plan.calls.is_empty() && plan.hosted_node_id.is_none() {
+    if plan.calls.is_empty() && plan.hosted_bindings.is_empty() {
         return Err(plan_error(
             "plan_empty",
-            "TaskSpace Exec plan has no client calls or hosted node declaration",
+            "TaskSpace Exec plan has no client calls or hosted binding declarations",
         ));
     }
-    if plan
-        .hosted_node_id
-        .as_deref()
-        .is_some_and(|node_id| node_id.trim().is_empty())
-    {
-        return Err(plan_error(
-            "hosted_node_id_empty",
-            "TaskSpace Exec hosted_node_id must be non-empty when declared",
-        ));
+    for (index, binding) in plan.hosted_bindings.iter().enumerate() {
+        if binding.tool.trim().is_empty() {
+            return Err(plan_error(
+                "hosted_binding_tool_empty",
+                format!("TaskSpace Exec hosted_bindings[{index}].tool must be non-empty"),
+            ));
+        }
+        if binding.node_id.trim().is_empty() {
+            return Err(plan_error(
+                "hosted_binding_node_id_empty",
+                format!("TaskSpace Exec hosted_bindings[{index}].node_id must be non-empty"),
+            ));
+        }
     }
 
     let mut item_ids = BTreeSet::new();
@@ -294,7 +298,7 @@ mod tests {
             version: TASKSPACE_EXEC_PLAN_VERSION.to_string(),
             capability_id: catalog.identity.clone(),
             calls,
-            hosted_node_id: None,
+            hosted_bindings: Vec::new(),
         }
     }
 
@@ -471,22 +475,40 @@ mod tests {
     fn hosted_only_plan_remains_structurally_admissible_for_reconciliation() {
         let catalog = catalog();
         let mut hosted = plan(&catalog, Vec::new());
-        hosted.hosted_node_id = Some("research".to_string());
+        hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
+            tool: "web_search".to_string(),
+            node_id: "research".to_string(),
+        }];
 
         assert!(preflight_taskspace_exec_plan(hosted, &catalog).is_ok());
     }
 
     #[test]
-    fn hosted_node_declaration_cannot_be_empty() {
+    fn hosted_binding_fields_cannot_be_empty() {
         let catalog = catalog();
         let mut hosted = plan(&catalog, Vec::new());
-        hosted.hosted_node_id = Some("  ".to_string());
+        hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
+            tool: "web_search".to_string(),
+            node_id: "  ".to_string(),
+        }];
 
         assert_eq!(
             preflight_taskspace_exec_plan(hosted, &catalog)
                 .expect_err("empty hosted node")
                 .reason_code,
-            "hosted_node_id_empty"
+            "hosted_binding_node_id_empty"
+        );
+
+        let mut hosted = plan(&catalog, Vec::new());
+        hosted.hosted_bindings = vec![super::super::plan::TaskspaceExecHostedBinding {
+            tool: " ".to_string(),
+            node_id: "research".to_string(),
+        }];
+        assert_eq!(
+            preflight_taskspace_exec_plan(hosted, &catalog)
+                .expect_err("empty hosted tool")
+                .reason_code,
+            "hosted_binding_tool_empty"
         );
     }
 }
