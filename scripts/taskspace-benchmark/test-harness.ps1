@@ -628,6 +628,7 @@ Assert-True ($null -eq $missingCostArtifacts.request_summary.model_request_count
 $costAggregateRoot = Join-Path $runDir "cost-aggregate"
 New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\left\artifacts") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\right\artifacts") -Force | Out-Null
+[pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $costAggregateRoot "pair-001\logical-mode-map.json") -Encoding UTF8
 [pscustomobject]@{
     logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
     input_tokens = 1000; output_tokens = 200; cached_input_tokens = 100; uncached_input_tokens = 900
@@ -657,6 +658,16 @@ $aggregateProjection = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateCo
 Assert-True ([int]$aggregateProjection.taskspace_projection_count -eq 3) "aggregate projection count was not summed"
 Assert-True ([int]$aggregateProjection.taskspace_projection_tokens -eq 240) "aggregate projection tokens were not summed"
 Assert-True ([int]$aggregateProjection.taskspace_projection_protected_miss_count -eq 0) "aggregate projection protected miss count was not summed"
+$missingMapCostRoot = Join-Path $runDir "cost-aggregate-missing-mode-map"
+New-Item -ItemType Directory -Path (Join-Path $missingMapCostRoot "pair-001\left\artifacts") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $missingMapCostRoot "pair-001\right\artifacts") -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $costAggregateRoot "pair-001\left\artifacts\metrics.json") -Destination (Join-Path $missingMapCostRoot "pair-001\left\artifacts\metrics.json")
+Copy-Item -LiteralPath (Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json") -Destination (Join-Path $missingMapCostRoot "pair-001\right\artifacts\metrics.json")
+$missingMapAggregate = Write-TaskspaceCostAggregateArtifacts -RootDir $missingMapCostRoot -Scope "sample"
+$missingMapToken = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingMapAggregate.token_summary_path | ConvertFrom-Json
+Assert-True ([string]$missingMapAggregate.gate.status -eq "FAIL" -and [string]$missingMapAggregate.gate.reason -eq "logical_mode_map_invalid") "cost aggregate passed without an authoritative logical mode map"
+Assert-True ($null -eq $missingMapToken.modes.standard.input_tokens -and $null -eq $missingMapToken.modes.taskspace.input_tokens) "cost aggregate emitted partial exact mode totals without a logical mode map"
+Assert-True ([string]$missingMapToken.comparison_scope_status -eq "unavailable") "cost aggregate did not expose unavailable comparison scope"
 $partialMetricPath = Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json"
 [pscustomobject]@{
     logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 24
@@ -676,6 +687,7 @@ Assert-True ([string]$missingGate.status -eq "FAIL" -and [string]$missingGate.re
 $fallbackCostRoot = Join-Path $runDir "cost-aggregate-rollout-fallback"
 New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\left\artifacts") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\right\artifacts") -Force | Out-Null
+[pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fallbackCostRoot "pair-001\logical-mode-map.json") -Encoding UTF8
 [pscustomobject]@{
     logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
     input_tokens = 1000; output_tokens = 200; wall_time_ms = 1000

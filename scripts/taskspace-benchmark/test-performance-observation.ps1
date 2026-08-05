@@ -513,13 +513,26 @@ $invalidReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $invalidResult.jso
 $invalidModeRow = @($invalidReport.rows)[0]
 Assert-True (
     $invalidModeRow.logical_mode -eq "unknown" -and
+    $null -eq $invalidModeRow.repeat -and
+    $null -eq $invalidModeRow.actions.provider_requests -and
+    $null -eq $invalidModeRow.cost.input_tokens -and
     $invalidModeRow.observation_status -eq "invalid" -and
     -not [bool]$invalidModeRow.comparison_eligible
 ) "invalid logical mode map remained attributable or comparison eligible"
+Assert-True ([string]$invalidReport.comparison_scope_status -eq "unavailable" -and @($invalidReport.aggregates).Count -eq 0) "invalid logical mode map retained exact comparison aggregates"
 Assert-True (
     (Get-Content -Raw $invalidResult.event_log_path) -match
         '"event":"performance_logical_mode_map_invalid"'
 ) "invalid logical mode map did not emit its stable event"
+
+$pair1ModePath = Join-Path $pair1 "logical-mode-map.json"
+$pair1ModeOriginal = Get-Content -Raw -Encoding UTF8 -LiteralPath $pair1ModePath
+Write-Json ([pscustomobject]@{ repeat = 1; left = "taskspace"; right = "taskspace" }) $pair1ModePath
+$partialScopeResult = Write-TaskspacePerformanceObservation -RunRoot $RunRoot -ReportBaseName "performance-invalid-scope"
+$partialScopeReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $partialScopeResult.json_path | ConvertFrom-Json
+Assert-True ([string]$partialScopeReport.comparison_scope_status -eq "unavailable" -and @($partialScopeReport.aggregates).Count -eq 0) "one invalid pair left partial aggregates from otherwise valid pairs"
+Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath $partialScopeResult.event_log_path) -match '"event":"performance_comparison_scope_invalid"') "invalid comparison scope did not emit its stable event"
+[IO.File]::WriteAllText($pair1ModePath, $pair1ModeOriginal, [Text.UTF8Encoding]::new($false))
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

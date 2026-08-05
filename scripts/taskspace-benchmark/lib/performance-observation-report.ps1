@@ -15,7 +15,19 @@ function Write-TaskspacePerformanceObservation {
         } | Sort-Object FullName)
     if ($metricFiles.Count -eq 0) { throw "No pair side metrics.json found under RunRoot: $root" }
     $rows = @($metricFiles | ForEach-Object { Get-PerformanceSideObservation $_.FullName $root $events } | Where-Object { $null -ne $_ } | Sort-Object case_id, logical_mode)
-    $aggregates = @("standard", "taskspace", "r4" | ForEach-Object { Get-PerformanceModeAggregate $rows $_ } | Where-Object { $null -ne $_ })
+    $invalidModeMapRows = @($rows | Where-Object { @($_.warnings) -contains "logical_mode_map_invalid" })
+    $comparisonScopeValid = $invalidModeMapRows.Count -eq 0
+    if (-not $comparisonScopeValid) {
+        $events.Add([pscustomobject]@{
+                event = "performance_comparison_scope_invalid"
+                code = "logical_mode_map_invalid"
+                invalid_side_count = $invalidModeMapRows.Count
+            })
+    }
+    $aggregates = @()
+    if ($comparisonScopeValid) {
+        $aggregates = @("standard", "taskspace", "r4" | ForEach-Object { Get-PerformanceModeAggregate $rows $_ } | Where-Object { $null -ne $_ })
+    }
     $standard = @($aggregates | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1)
     $taskspace = @($aggregates | Where-Object { $_.logical_mode -eq "taskspace" } | Select-Object -First 1)
     $ratios = [ordered]@{}
@@ -32,11 +44,20 @@ function Write-TaskspacePerformanceObservation {
             $events.Add([pscustomobject]@{ event = "observation_warning"; case_id = $row.case_id; pair = $row.pair; side = $row.side; logical_mode = $row.logical_mode; code = $warning })
         }
     }
+    foreach ($row in $invalidModeMapRows) {
+        foreach ($sectionName in @("result", "actions", "cost", "cache", "section_cost", "map", "patch", "duplication")) {
+            $section = $row.$sectionName
+            if ($null -eq $section) { continue }
+            foreach ($property in @($section.PSObject.Properties)) { $property.Value = $null }
+        }
+    }
     $report = [pscustomobject]@{
         schema_version = "taskspace-performance-observation-v1"
         generated_at = (Get-Date).ToString("o")
         run_root = $root
         monetary_cost_status = "unavailable_no_unit_price_artifact"
+        comparison_scope_status = if ($comparisonScopeValid) { "measured" } else { "unavailable" }
+        comparison_scope_findings = if ($comparisonScopeValid) { @() } else { @("logical_mode_map_invalid") }
         rows = $rows
         aggregates = $aggregates
         ratios = [pscustomobject]$ratios
@@ -56,10 +77,10 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("| Case | Mode | Run | Result | Agent | External | Public | Hidden | Changed | Requests | Runtime tools | Provider calls | Nested actions | Failed | Shell | Patch | Controls | Wall |")
     $lines.Add("|---|---|---|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $rows) {
-        $result = if ($row.observation_status -eq "skipped") { "N/A" } elseif ($row.result.business_success -eq $true) { "solved" } elseif ($row.result.business_success -eq $false) { "not-solved" } else { "N/A" }
+        $result = if ($row.observation_status -in @("skipped", "invalid")) { "N/A" } elseif ($row.result.business_success -eq $true) { "solved" } elseif ($row.result.business_success -eq $false) { "not-solved" } else { "N/A" }
         $changed = if (@($row.result.changed_paths).Count) { @($row.result.changed_paths) -join ", " } else { "none" }
-        if ($row.observation_status -eq "skipped") {
-            $lines.Add("| $(Format-PerformanceValue $row.case_id) | $($row.logical_mode) | skipped | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+        if ($row.observation_status -in @("skipped", "invalid")) {
+            $lines.Add("| $(Format-PerformanceValue $row.case_id) | $($row.logical_mode) | $($row.observation_status) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $lines.Add("| $(Format-PerformanceValue $row.case_id) | $($row.logical_mode) | $($row.observation_status) | $result | $(Format-PerformanceValue $row.result.agent_completion_status) | $(Format-PerformanceValue $row.result.external_validation_status) | $(Format-PerformanceValue $row.result.public_validation_exit_code) | $(Format-PerformanceValue $row.result.hidden_oracle_exit_code) | $(Format-PerformanceValue $changed) | $(Format-PerformanceValue $row.actions.provider_requests) | $(Format-PerformanceValue $row.actions.ordinary_tools) | $(Format-PerformanceValue $row.actions.provider_outer_tool_calls) | $(Format-PerformanceValue $row.actions.nested_actions) | $(Format-PerformanceValue $row.actions.failed_tools) | $(Format-PerformanceValue $row.actions.shell) | $(Format-PerformanceValue $row.actions.patch) | $(Format-PerformanceValue $row.actions.taskspace_control) | $(Format-PerformanceValue $row.cost.wall_time_ms seconds) |")
         }
@@ -70,35 +91,36 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("| Repeat | Mode | Tool responses | Control responses | Mixed responses | Multi-control | Manifests | Paired | Violations | Orphan siblings | Declared actions | Owned siblings | Init pairs | Execute pairs | Reopen pairs | Finish Map | Final Work close | Standalone control | Protocol failures | State failures | Parse errors | Source |")
     $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     foreach ($row in $rows) {
-        if ($row.observation_status -eq "skipped") {
+        if ($row.observation_status -in @("skipped", "invalid")) {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.provider_tool_responses) | $(Format-PerformanceValue $row.actions.control_responses) | $(Format-PerformanceValue $row.actions.mixed_control_action_responses) | $(Format-PerformanceValue $row.actions.multi_control_responses) | $(Format-PerformanceValue $row.actions.action_manifest_count) | $(Format-PerformanceValue $row.actions.action_manifest_pairs) | $(Format-PerformanceValue $row.actions.action_manifest_violations) | $(Format-PerformanceValue $row.actions.orphan_siblings) | $(Format-PerformanceValue $row.actions.cadence_declared_actions) | $(Format-PerformanceValue $row.actions.cadence_owned_siblings) | $(Format-PerformanceValue $row.actions.initialize_and_execute_pairs) | $(Format-PerformanceValue $row.actions.execute_pairs) | $(Format-PerformanceValue $row.actions.reopen_pairs) | $(Format-PerformanceValue $row.actions.finish_maps) | $(Format-PerformanceValue $row.actions.finish_map_final_work) | $(Format-PerformanceValue $row.actions.standalone_control_responses) | $(Format-PerformanceValue $row.actions.control_protocol_failures) | $(Format-PerformanceValue $row.actions.control_state_failures) | $(Format-PerformanceValue $row.actions.cadence_parse_errors) | $(Format-PerformanceValue $row.actions.cadence_source) |")
         }
     }
     $lines.Add("")
-    Add-TaskspacePatchObservationMarkdown $lines $rows
+    $validDisplayRows = @($rows | Where-Object { $_.observation_status -ne "invalid" })
+    Add-TaskspacePatchObservationMarkdown $lines $validDisplayRows
     $lines.Add("## 成本与缓存")
     $lines.Add("")
     $lines.Add("| Repeat | Mode | Input | Cached | Uncached | Output | Full hit | Request 2+ hit | Prefix | Zero hit | Warmup | Same-shape zero | Choice changes | Shape changes | Coverage |")
     $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $rows) {
-        if ($row.observation_status -eq "skipped") {
+        if ($row.observation_status -in @("skipped", "invalid")) {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $prefix = if ($null -ne $row.cache.prefix_comparison_count) { "$(Format-PerformanceValue $row.cache.prefix_preserved_count)/$(Format-PerformanceValue $row.cache.prefix_comparison_count)" } else { "N/A" }
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.cost.input_tokens) | $(Format-PerformanceValue $row.cost.cached_input_tokens) | $(Format-PerformanceValue $row.cost.uncached_input_tokens) | $(Format-PerformanceValue $row.cost.output_tokens) | $(Format-PerformanceValue $row.cost.full_cache_hit_rate percent) | $(Format-PerformanceValue $row.cache.request_2_plus_hit_rate percent) | $prefix | $(Format-PerformanceValue $row.cache.zero_cache_hit_count) | $(Format-PerformanceValue $row.cache.cache_warmup_candidate_count) | $(Format-PerformanceValue $row.cache.same_shape_zero_hit_count) | $(Format-PerformanceValue $row.cache.tool_choice_transition_count) | $(Format-PerformanceValue $row.cache.cache_shape_transition_count) | $(Format-PerformanceValue $row.cache.trace_coverage percent) |")
         }
     }
-    Add-PerformanceSectionCostMarkdown $lines $rows $aggregates
-    Add-PerformanceDuplicationMarkdown $lines $rows
+    Add-PerformanceSectionCostMarkdown $lines $validDisplayRows $aggregates
+    Add-PerformanceDuplicationMarkdown $lines $validDisplayRows
     $lines.Add("")
     $lines.Add("## Map")
     $lines.Add("")
     $lines.Add("| Repeat | Mode | Maps | Nodes | Edges | Results | Open | Task | Accepted | Unreviewed | Req/node | Tools/node | Controls | Control actions |")
     $lines.Add("|---:|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|")
     foreach ($row in $rows) {
-        if ($row.observation_status -eq "skipped") {
+        if ($row.observation_status -in @("skipped", "invalid")) {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $reqPerNode = Get-PerformanceRatio $row.actions.provider_requests $row.map.node_count
@@ -112,7 +134,7 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("| Repeat | Mode | Requests | Completed | Failed | Repeated revision | Lag samples | Lag mean | Lag max | Stale errors |")
     $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $rows) {
-        if ($row.observation_status -eq "skipped") {
+        if ($row.observation_status -in @("skipped", "invalid")) {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.map.read_map_request_count) | $(Format-PerformanceValue $row.map.read_map_completion_count) | $(Format-PerformanceValue $row.map.read_map_failure_count) | $(Format-PerformanceValue $row.map.read_map_repeated_revision_count) | $(Format-PerformanceValue $row.map.read_map_revision_lag_sample_count) | $(Format-PerformanceValue $row.map.read_map_revision_lag_mean) | $(Format-PerformanceValue $row.map.read_map_revision_lag_max) | $(Format-PerformanceValue $row.map.read_map_stale_revision_error_count) |")
@@ -124,7 +146,7 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("| Repeat | Mode | Retention | Salience | Semantic replace | Protected miss | Compaction | Runtime events | Snapshot updates |")
     $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $rows) {
-        if ($row.observation_status -eq "skipped") {
+        if ($row.observation_status -in @("skipped", "invalid")) {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.map.retention_coverage_ratio percent) | $(Format-PerformanceValue $row.map.salience_coverage_ratio percent) | $(Format-PerformanceValue $row.map.semantic_replacement_rate percent) | $(Format-PerformanceValue $row.map.protected_miss_count) | $(Format-PerformanceValue $row.map.compaction_event_count) | $(Format-PerformanceValue $row.map.runtime_event_count) | $(Format-PerformanceValue $row.map.snapshot_update_count) |")
@@ -135,7 +157,7 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("")
     $lines.Add("| Repeat | Mode | Node | Kind | Status | Results | Dependencies |")
     $lines.Add("|---:|---|---|---|---|---:|---|")
-    foreach ($row in $rows) {
+    foreach ($row in @($rows | Where-Object { $_.observation_status -ne "invalid" })) {
         foreach ($node in @($row.map.nodes)) {
             $incoming = @($row.map.edges | Where-Object { $_.to -eq $node.id } | ForEach-Object { $_.from }) -join ", "
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $node.title) | $($node.kind) | $($node.status) | $(Format-PerformanceValue $node.result_count) | $(if ($incoming) { $incoming } else { "none" }) |")

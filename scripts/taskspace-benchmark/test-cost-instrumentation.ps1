@@ -884,6 +884,15 @@ $conflictSummary = (New-TaskspaceProviderWireCacheTraceArtifacts `
 Assert-True (-not [bool]$conflictSummary.comparison_eligible -and $null -eq $conflictSummary.request_2_plus_hit_rate) "incomparable canonical usage still produced a cache rate"
 Assert-True ($null -eq $conflictSummary.request_2_plus_cached_input_tokens -and $null -eq $conflictSummary.zero_cache_hit_count) "incomparable canonical usage still produced precise cache totals"
 Assert-True (@($conflictSummary.request_facts_findings) -contains "usage_source_conflict") "cache summary omitted canonical conflict findings"
+$rolloutOnlyFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath (Join-Path $wireTraceDir "provider-wire-trace.jsonl")
+$rolloutOnlyFacts.sources.wire.status = "unavailable"
+$rolloutOnlyFacts.sources.wire.path = $null
+$rolloutOnlyFacts.sources.wire.sha256 = $null
+foreach ($row in @($rolloutOnlyFacts.rows)) { $row.usage_source = "rollout" }
+$rolloutOnlySummary = (New-TaskspaceProviderWireCacheTraceArtifacts `
+        (Join-Path $wireTraceDir "provider-wire-trace.jsonl") $rolloutOnlyFacts).provider_cache_trace_summary
+Assert-True (-not [bool]$rolloutOnlySummary.comparison_eligible -and $null -eq $rolloutOnlySummary.request_2_plus_hit_rate) "rollout-only usage became provider final-wire cache evidence"
+Assert-True ($null -eq $rolloutOnlySummary.request_2_plus_cached_input_tokens -and $null -eq $rolloutOnlySummary.zero_cache_hit_count) "rollout-only usage produced exact provider cache totals"
 $noWireFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath (Join-Path $wireTraceDir "provider-wire-trace.jsonl")
 $noWireFacts.sources.wire.status = "missing"
 $noWireSummary = (New-TaskspaceProviderCacheTraceArtifacts @() "" $noWireFacts).provider_cache_trace_summary
@@ -994,10 +1003,16 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{
     schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
+    source = "provider_final_wire_trace"
     provider_request_source = "request_facts_boundary"
-    request_facts_availability = [pscustomobject]@{ boundary = "measured"; attempt = "measured"; usage = "measured" }
+    request_facts_availability = [pscustomobject]@{ boundary = "measured"; attempt = "measured"; completion = "measured"; usage = "measured" }
     provider_request_count = 2
     provider_attempt_count = 2
+    completed_response_count = 2
+    failed_or_cancelled_attempt_count = 0
+    shape_observation_count = 2
+    request_facts_analyzer_version = "fixture"
+    request_facts_findings = @()
     comparison_eligible = $true
     trace_coverage = 1.0
     cache_usage_missing_count = 0
@@ -1009,6 +1024,10 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
     request_2_plus_cached_input_tokens = 950
     request_2_plus_uncached_input_tokens = 50
     request_2_plus_hit_rate = 0.95
+    prefix_comparison_count = 1
+    prefix_preserved_count = 1
+    prefix_preserved_rate = 1.0
+    first_diff_path_counts = [pscustomobject]@{}
     zero_cache_hit_count = 1
     cache_warmup_candidate_count = 1
     same_shape_zero_hit_count = 0
@@ -1039,6 +1058,10 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
             [pscustomobject]@{ kind = "tool_choice"; count = 2; bytes = 10; estimated_tokens = 2; request_bytes = @(5, 5); request_estimated_tokens = @(1, 1) },
             [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 20; estimated_tokens = 5; request_bytes = @(10, 10); request_estimated_tokens = @(2, 3) }
         )
+    }
+    base_instructions_identity_summary = [pscustomobject]@{
+        schema_version = "WhaleCodeBaseInstructionsIdentitySummaryV1"
+        request_count = 2
     }
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "left-1"; request_shape_classifier = "native_tools_schema_hot_path" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
@@ -1071,19 +1094,23 @@ Assert-True ([bool]$alternatingAggregate.comparison_eligible -and @($alternating
 $rightSummaryPath = Join-Path $rightArtifacts "provider-cache-trace-summary.json"
 $rightIncomparable = Get-Content -Raw -Encoding UTF8 -LiteralPath $rightSummaryPath | ConvertFrom-Json -Depth 20
 $rightIncomparable.comparison_eligible = $false
-$rightIncomparable.request_2_plus_cached_input_tokens = $null
-$rightIncomparable.request_2_plus_uncached_input_tokens = $null
+foreach ($field in @("cache_usage_missing_count", "request_2_plus_count", "request_2_plus_cached_input_tokens", "request_2_plus_uncached_input_tokens", "request_2_plus_hit_rate", "zero_cache_hit_count", "cache_warmup_candidate_count", "same_shape_zero_hit_count")) {
+    $rightIncomparable.$field = $null
+}
 $rightIncomparable | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
 $incomparableAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
 Assert-True (-not [bool]$incomparableAggregate.comparison_eligible -and $null -eq $incomparableAggregate.request_2_plus_hit_rate) "aggregate restored a cache rate from an incomparable side"
 Assert-True ($null -eq $incomparableAggregate.request_2_plus_cached_input_tokens -and $null -eq $incomparableAggregate.cache_usage_missing_count) "aggregate coerced incomparable cache totals to zero"
 $rightInvalidContract = $rightIncomparable.PSObject.Copy()
-$rightInvalidContract.schema_version = "unsupported"
-$rightInvalidContract.provider_request_count = $true
+$rightInvalidContract.PSObject.Properties.Remove("source")
+$rightInvalidContract.PSObject.Properties.Remove("request_facts_availability")
+$rightInvalidContract.native_tools_schema_hot_path_count = $true
+$rightInvalidContract.tool_choice_transition_count = -1
 $rightInvalidContract.comparison_eligible = $true
 $rightInvalidContract | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
 $contractInvalidAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
 Assert-True ($null -eq $contractInvalidAggregate.provider_request_count -and $null -eq $contractInvalidAggregate.provider_attempt_count -and -not [bool]$contractInvalidAggregate.comparison_eligible) "invalid side summary contract produced exact aggregate facts"
+Assert-True ($null -eq $contractInvalidAggregate.native_tools_schema_hot_path_count -and $null -eq $contractInvalidAggregate.tool_choice_transition_count -and $null -eq $contractInvalidAggregate.request_shape_counts) "invalid side summary contract retained partial exact diagnostics"
 Assert-True (@($contractInvalidAggregate.aggregate_findings) -contains "cache_summary_contract_invalid") "invalid side summary contract did not emit an aggregate finding"
 '{' | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
 $invalidAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary

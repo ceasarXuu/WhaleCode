@@ -68,6 +68,15 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                     boundary, 1, "deepseek-v4-flash"
                 )
 
+            for invalid_ordinal in (True, 1.5, -1):
+                boundary = json.loads(json.dumps(original))
+                boundary["wire_requests"][0]["request_count_after"] = invalid_ordinal
+                with self.subTest(invalid_ordinal=invalid_ordinal):
+                    with self.assertRaisesRegex(ValueError, "wire request ordinal"):
+                        validate_provider_boundary_evidence(
+                            boundary, 1, "deepseek-v4-flash"
+                        )
+
     def test_loads_only_deepseek_key_from_env_local(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             repo = Path(root)

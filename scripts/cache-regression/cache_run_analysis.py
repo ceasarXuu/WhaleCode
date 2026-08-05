@@ -182,6 +182,13 @@ def validate_provider_boundary_evidence(
         wire_requests
     ):
         raise ValueError("provider boundary wire request count is invalid")
+    for index, request in enumerate(wire_requests, 1):
+        request_count_after = request.get("request_count_after")
+        if (
+            not _is_nonnegative_int(request_count_after)
+            or request_count_after != index
+        ):
+            raise ValueError("provider boundary wire request ordinal is invalid")
     boundary_requests = boundary["boundary_requests"]
     boundary_hashes = [request.get("body_sha256") for request in boundary_requests]
     wire_hashes = [request.get("provider_payload_sha256") for request in wire_requests]

@@ -236,7 +236,7 @@ function Get-PerformanceSideObservation {
         $modeMap.PSObject.Properties.Name -contains $side -and
         $standardSideCount -eq 1 -and $taskspaceSideCount -eq 1
     $mode = if ($modeMapValid) { [string]$modeMap.$side } else { "unknown" }
-    $repeat = if ($modeMapValid) { Get-PerformanceNumber (Get-PerformanceProperty $modeMap "repeat") } elseif ($pair -match '(\d+)$') { [double]$Matches[1] } else { $null }
+    $repeat = if ($modeMapValid) { Get-PerformanceNumber (Get-PerformanceProperty $modeMap "repeat") } else { $null }
     $cache = Read-PerformanceJson (Join-Path $artifactDir "provider-cache-trace-summary.json") $Events
     $requests = Get-PerformanceWireRequestCount $artifactDir
     $actions = Get-PerformanceActionCounts $artifactDir $Events
