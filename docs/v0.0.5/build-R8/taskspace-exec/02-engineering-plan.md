@@ -2,7 +2,7 @@
 
 - Created: 2026-08-05
 - Revised: 2026-08-06 after `se-good-plan` review
-- Status: Phase A direction-supported / downstream plan revised / Phase B1 plan-ready
+- Status: Phase A direction-supported / Phase B1 in progress / TX-06A complete
 - Plan validity: valid-with-qualifications
 - Risk depth: Full
 - Product contract: [`00-product-contract.md`](00-product-contract.md)
@@ -81,6 +81,7 @@ existing response coordinator
 | TX-03 | source-only typed plan decoder | direction-rejected for production | prototype-verified | not-started | 只保留历史证据，TX-06E 删除候选代码 |
 | TX-04 | 结构、序列、单 Patch 纯预检 | direction-supported | prototype-verified | not-started | 迁移到结构化参数，不复制 Map 规则 |
 | TX-05 | Hosted 逐项多节点声明与机械核对 | direction-supported | prototype-verified | not-started | Provider identity 由 Runtime 读取；持久化表示仍待 TX-12A |
+| TX-06A | 唯一中性 ToolSpec capability projection | direction-supported | implemented and deterministic-verified | TaskSpace production projection not-started | Code Mode 与 TaskSpace catalog 已共用中立转换；各容器显式维护自身排除规则 |
 
 Phase A 证明的是“存在值得正式投资且不违反产品约束的路径”，没有证明结构化 carrier、response lifecycle、Map、Store、
 Router、反馈或生产行为已经集成。
@@ -132,6 +133,12 @@ DeepSeek 官方 strict tool schema 当前要求 beta endpoint，而 Whale 当前
 | TX-18A | 形成真实运行专项预算 | validation planning | run ledger、Docker benchmark plan | 基于 TX-17A～D trace 预估并向用户申请 `2 samples × 2 arms × repeat 1 = 4` 个 arm-runs 的模型、请求、token、费用、耗时、停止与重试预算 | 满足全局成本授权，不用模糊“各跑一次”绕过计数 | Complexity: 只写预算；Reach/Cost: 零 API | 用户明确批准前保持 planned；默认模型 `deepseek-v4-flash`、不允许自动重试 | planned |
 | TX-18B | 验证真实行为、缓存和成本 | validation | Docker benchmark、run ledger | 仅按 TX-18A 获批矩阵执行 Standard/TaskSpace 简单和复杂样本 | 判断正确实现是否形成真实产品收益 | Complexity: 不增加生产代码；Reach/Cost: 产生获批 API 成本和时间 | 逐 request trace、Map、token/cache/time/cost；异常先归因，不扩大 repeat | planned |
 | TX-19 | 重评 R8 问题全集 | planning | `01-r8-known-issues.md` | 只依据新生产 trace 更新 I01～I10 的关闭、改方案或优先级 | R8 回到唯一证据化问题队列 | Complexity: 文档状态变化；Reach/Cost: 改变后续顺序 | 每项有新协议证据；无 E2/E3 证据保持 open | planned |
+
+### 6.1 执行记录
+
+| Unit | Date | Implementation State | Verification | Production Boundary | Evidence |
+|---|---|---|---|---|---|
+| TX-06A | 2026-08-06 | implemented | `codex-tools` 154 passed / 1 ignored；`codex-core taskspace_exec` 33 passed；cache gate PASS | Standard final-wire 不变；TaskSpace 正式 Tool projection 尚未切换 | [`11-phase-b1-tx06a-result.md`](11-phase-b1-tx06a-result.md) |
 
 ## 7. 阶段与停点
 

@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
-use codex_code_mode::CodeModeToolKind;
 use codex_tools::JsonSchema;
-use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
-use codex_tools::collect_code_mode_exec_prompt_tool_definitions;
+use codex_tools::ToolSpecCapabilityInput;
+use codex_tools::project_tool_spec_capabilities;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::Digest;
@@ -21,8 +20,7 @@ pub(crate) struct TaskspaceExecCapability {
     pub(crate) public_name: String,
     pub(crate) tool_name: ToolName,
     pub(crate) description: String,
-    pub(crate) kind: CodeModeToolKind,
-    pub(crate) input_schema: Option<Value>,
+    pub(crate) input: ToolSpecCapabilityInput,
     pub(crate) output_schema: Option<Value>,
     pub(crate) deferred: bool,
     pub(crate) canonical_source_spec: Value,
@@ -46,20 +44,24 @@ impl TaskspaceExecCatalog {
         for spec in specs {
             let canonical_source_spec = serde_json::to_value(spec)
                 .map_err(|error| TaskspaceExecCatalogError::InvalidToolSpec(error.to_string()))?;
-            for definition in collect_code_mode_exec_prompt_tool_definitions([spec]) {
-                if definition.name == TASKSPACE_EXEC_TOOL_NAME {
+            for definition in project_tool_spec_capabilities(spec) {
+                if matches!(
+                    definition.public_name.as_str(),
+                    TASKSPACE_EXEC_TOOL_NAME
+                        | codex_code_mode::PUBLIC_TOOL_NAME
+                        | codex_code_mode::WAIT_TOOL_NAME
+                ) {
                     continue;
                 }
-                let public_name = definition.name.clone();
+                let public_name = definition.public_name.clone();
                 let capability = TaskspaceExecCapability {
-                    deferred: is_deferred(spec, &definition.tool_name),
                     canonical_source_spec: canonical_source_spec.clone(),
-                    public_name: definition.name,
+                    public_name: definition.public_name,
                     tool_name: definition.tool_name,
                     description: definition.description,
-                    kind: definition.kind,
-                    input_schema: definition.input_schema,
+                    input: definition.input,
                     output_schema: definition.output_schema,
+                    deferred: definition.deferred,
                 };
                 match by_public_name.entry(public_name) {
                     Entry::Vacant(entry) => {
@@ -127,29 +129,6 @@ pub(crate) fn create_taskspace_exec_tool(catalog: &TaskspaceExecCatalog) -> Tool
         output_schema: None,
         defer_loading: None,
     })
-}
-
-fn is_deferred(spec: &ToolSpec, tool_name: &ToolName) -> bool {
-    match spec {
-        ToolSpec::Function(tool) => {
-            tool_name.namespace.is_none()
-                && tool.name == tool_name.name
-                && tool.defer_loading.unwrap_or(false)
-        }
-        ToolSpec::Namespace(namespace) => {
-            tool_name.namespace.as_deref() == Some(namespace.name.as_str())
-                && namespace.tools.iter().any(|tool| match tool {
-                    ResponsesApiNamespaceTool::Function(tool) => {
-                        tool.name == tool_name.name && tool.defer_loading.unwrap_or(false)
-                    }
-                })
-        }
-        ToolSpec::ToolSearch { .. }
-        | ToolSpec::LocalShell {}
-        | ToolSpec::ImageGeneration { .. }
-        | ToolSpec::WebSearch { .. }
-        | ToolSpec::Freeform(_) => false,
-    }
 }
 
 #[cfg(test)]
@@ -222,6 +201,27 @@ mod tests {
         assert!(catalog.contains("mcp_search"));
         assert!(!catalog.contains("web_search"));
         assert!(catalog.capabilities[1].deferred);
+    }
+
+    #[test]
+    fn catalog_applies_taskspace_container_policy() {
+        let specs = vec![
+            function(TASKSPACE_EXEC_TOOL_NAME, "Recursive TaskSpace.", false),
+            function(codex_code_mode::PUBLIC_TOOL_NAME, "Recursive exec.", false),
+            function(codex_code_mode::WAIT_TOOL_NAME, "Wait for exec.", false),
+            function("read_file", "Read a file.", false),
+        ];
+
+        let catalog = TaskspaceExecCatalog::from_tool_specs(&specs).expect("valid catalog");
+
+        assert_eq!(
+            catalog
+                .capabilities
+                .iter()
+                .map(|capability| capability.public_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["read_file"]
+        );
     }
 
     #[test]

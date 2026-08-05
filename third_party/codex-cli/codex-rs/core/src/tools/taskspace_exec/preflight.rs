@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use codex_code_mode::CodeModeToolKind;
+use codex_tools::ToolSpecCapabilityInput;
 
 use super::TASKSPACE_EXEC_PLAN_VERSION;
 use super::TASKSPACE_EXEC_TOOL_NAME;
@@ -171,9 +171,9 @@ fn validate_call_contract(
             ),
         ));
     };
-    let input_matches = match capability.kind {
-        CodeModeToolKind::Function => call.input.is_object(),
-        CodeModeToolKind::Freeform => call.input.is_string(),
+    let input_matches = match capability.input {
+        ToolSpecCapabilityInput::Function(_) => call.input.is_object(),
+        ToolSpecCapabilityInput::Freeform(_) => call.input.is_string(),
     };
     if !input_matches {
         return Err(call_error(
@@ -182,7 +182,7 @@ fn validate_call_contract(
             call,
             format!(
                 "Tool `{}` input does not match its {:?} contract",
-                call.tool, capability.kind
+                call.tool, capability.input
             ),
         ));
     }

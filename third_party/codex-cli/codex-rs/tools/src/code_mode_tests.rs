@@ -1,4 +1,5 @@
 use super::augment_tool_spec_for_code_mode;
+use super::collect_code_mode_exec_prompt_tool_definitions;
 use super::create_code_mode_tool;
 use super::create_wait_tool;
 use super::tool_spec_to_code_mode_tool_definition;
@@ -140,6 +141,44 @@ fn tool_spec_to_code_mode_tool_definition_skips_unsupported_variants() {
             ),
         }),
         None
+    );
+}
+
+#[test]
+fn exec_prompt_projection_applies_code_mode_container_policy() {
+    let specs = [
+        ToolSpec::Function(ResponsesApiTool {
+            name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
+            description: "Recursive exec.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::object(BTreeMap::new(), None, Some(false.into())),
+            output_schema: None,
+        }),
+        ToolSpec::Function(ResponsesApiTool {
+            name: codex_code_mode::WAIT_TOOL_NAME.to_string(),
+            description: "Wait for exec.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::object(BTreeMap::new(), None, Some(false.into())),
+            output_schema: None,
+        }),
+        ToolSpec::Function(ResponsesApiTool {
+            name: "read_file".to_string(),
+            description: "Read a file.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::object(BTreeMap::new(), None, Some(false.into())),
+            output_schema: None,
+        }),
+    ];
+
+    assert_eq!(
+        collect_code_mode_exec_prompt_tool_definitions(&specs)
+            .into_iter()
+            .map(|definition| definition.name)
+            .collect::<Vec<_>>(),
+        vec!["read_file"]
     );
 }
 

@@ -5,6 +5,9 @@ use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use crate::ToolName;
 use crate::ToolSpec;
+use crate::ToolSpecCapabilityInput;
+use crate::nested_tool_public_name;
+use crate::project_tool_spec_capabilities;
 use codex_code_mode::CodeModeToolKind;
 use codex_code_mode::ToolDefinition as CodeModeToolDefinition;
 use std::collections::BTreeMap;
@@ -210,72 +213,45 @@ fn code_mode_tool_definition_for_spec(spec: &ToolSpec) -> Option<CodeModeToolDef
 }
 
 fn code_mode_tool_definitions_for_spec(spec: &ToolSpec) -> Vec<CodeModeToolDefinition> {
-    match spec {
-        ToolSpec::Function(tool) => {
-            let name = tool.name.clone();
-            vec![CodeModeToolDefinition {
-                tool_name: ToolName::plain(name.clone()),
-                name,
-                description: tool.description.clone(),
+    project_tool_spec_capabilities(spec)
+        .into_iter()
+        .map(|capability| match capability.input.clone() {
+            ToolSpecCapabilityInput::Function(parameters) => CodeModeToolDefinition {
+                name: capability.public_name,
+                tool_name: capability.tool_name,
+                description: capability.description,
                 kind: CodeModeToolKind::Function,
-                input_schema: serde_json::to_value(&tool.parameters).ok(),
-                output_schema: tool.output_schema.clone(),
-            }]
-        }
-        ToolSpec::Freeform(tool) => {
-            let name = tool.name.clone();
-            let description = if codex_code_mode::is_code_mode_nested_tool(&name) {
-                format!(
-                    "{}\n\nNested exec input must match this {} grammar:\n```{}\n{}\n```",
-                    tool.description.trim_end(),
-                    tool.format.syntax,
-                    tool.format.syntax,
-                    tool.format.definition.trim()
-                )
-            } else {
-                tool.description.clone()
-            };
-            vec![CodeModeToolDefinition {
-                tool_name: ToolName::plain(name.clone()),
-                name,
-                description,
-                kind: CodeModeToolKind::Freeform,
-                input_schema: None,
-                output_schema: None,
-            }]
-        }
-        ToolSpec::Namespace(namespace) => namespace
-            .tools
-            .iter()
-            .map(|tool| match tool {
-                ResponsesApiNamespaceTool::Function(tool) => {
-                    let tool_name = ToolName::namespaced(namespace.name.clone(), tool.name.clone());
-                    CodeModeToolDefinition {
-                        name: code_mode_name_for_tool_name(&tool_name),
-                        tool_name,
-                        description: tool.description.clone(),
-                        kind: CodeModeToolKind::Function,
-                        input_schema: serde_json::to_value(&tool.parameters).ok(),
-                        output_schema: tool.output_schema.clone(),
-                    }
+                input_schema: serde_json::to_value(parameters).ok(),
+                output_schema: capability.output_schema,
+            },
+            ToolSpecCapabilityInput::Freeform(format) => {
+                let description =
+                    if codex_code_mode::is_code_mode_nested_tool(&capability.public_name) {
+                        format!(
+                            "{}\n\nNested exec input must match this {} grammar:\n```{}\n{}\n```",
+                            capability.description.trim_end(),
+                            format.syntax,
+                            format.syntax,
+                            format.definition.trim()
+                        )
+                    } else {
+                        capability.description
+                    };
+                CodeModeToolDefinition {
+                    name: capability.public_name,
+                    tool_name: capability.tool_name,
+                    description,
+                    kind: CodeModeToolKind::Freeform,
+                    input_schema: None,
+                    output_schema: None,
                 }
-            })
-            .collect(),
-        ToolSpec::LocalShell {}
-        | ToolSpec::ImageGeneration { .. }
-        | ToolSpec::ToolSearch { .. }
-        | ToolSpec::WebSearch { .. } => Vec::new(),
-    }
+            }
+        })
+        .collect()
 }
 
 pub fn code_mode_name_for_tool_name(tool_name: &ToolName) -> String {
-    match tool_name.namespace.as_deref() {
-        Some(namespace) if namespace.ends_with('_') || tool_name.name.starts_with('_') => {
-            format!("{namespace}{}", tool_name.name)
-        }
-        Some(namespace) => format!("{namespace}_{}", tool_name.name),
-        None => tool_name.name.clone(),
-    }
+    nested_tool_public_name(tool_name)
 }
 
 #[cfg(test)]
