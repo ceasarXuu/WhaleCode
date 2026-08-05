@@ -1,6 +1,6 @@
 # R8-I07：性能观测可信性
 
-- Status: Planned
+- Status: In progress (`I07-W0` completed)
 - Authority: [`00-i07-observability-trust-repair-plan.md`](00-i07-observability-trust-repair-plan.md)
 - Global issue: [`../01-r8-known-issues.md`](../01-r8-known-issues.md) 中的 `R8-I07`
 - TaskSpace Exec integration: [`../taskspace-exec/02-engineering-plan.md`](../taskspace-exec/02-engineering-plan.md) 的 `TX-00`、`TX-11`
