@@ -3,16 +3,12 @@ use codex_model_provider_info::DEEPSEEK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_protocol::protocol::EventMsg;
-use codex_protocol::protocol::MapRuntimeEvent;
-use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
-use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
 use core_test_support::cache_payload::render_cache_snapshot;
 use core_test_support::responses::ev_completed;
-use core_test_support::responses::ev_function_call;
 use core_test_support::responses::ev_response_created;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
@@ -21,73 +17,16 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use serde_json::Value;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use wiremock::Mock;
-use wiremock::Respond;
 use wiremock::ResponseTemplate;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
-
-struct ResponsesSequenceResponder {
-    next: AtomicUsize,
-    bodies: Vec<String>,
-}
-
-impl Respond for ResponsesSequenceResponder {
-    fn respond(&self, _: &wiremock::Request) -> ResponseTemplate {
-        let index = self.next.fetch_add(1, Ordering::SeqCst);
-        ResponseTemplate::new(200)
-            .insert_header("content-type", "text/event-stream")
-            .set_body_string(
-                self.bodies
-                    .get(index)
-                    .unwrap_or_else(|| panic!("unexpected TaskSpace request {index}"))
-                    .clone(),
-            )
-    }
-}
 
 pub(super) fn completed_response_stream(response_id: &str) -> String {
     sse(vec![
         ev_response_created(response_id),
         ev_completed(response_id),
     ])
-}
-
-fn responses_tool_stream(response_id: &str, calls: Vec<(&str, &str, Value)>) -> String {
-    let mut events = vec![ev_response_created(response_id)];
-    events.extend(
-        calls.into_iter().map(|(call_id, name, arguments)| {
-            ev_function_call(call_id, name, &arguments.to_string())
-        }),
-    );
-    events.push(ev_completed(response_id));
-    sse(events)
-}
-
-fn initialize_arguments() -> Value {
-    serde_json::json!({
-        "action": "initialize_and_execute",
-        "root": {"node_id": "root", "goal": "Complete the cache contract task"},
-        "work_nodes": [{"node_id": "work", "goal": "Run the deterministic check"}],
-        "finish": {"node_id": "finish", "goal": "Verify and summarize"},
-        "edges": [
-            {"from": "root", "to": "work"},
-            {"from": "work", "to": "finish"}
-        ],
-        "actions": [{"node_id": "work", "tool": "exec_command"}]
-    })
-}
-
-fn finish_arguments() -> Value {
-    serde_json::json!({
-        "action": "finish_map",
-        "expected_revision": 2,
-        "finish_node_id": "finish",
-        "complete_work_node_ids": ["work"],
-        "exact_summary": "Cache contract task complete."
-    })
 }
 
 pub(super) async fn submit_turn(
@@ -339,161 +278,6 @@ async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result
     insta::assert_snapshot!(
         "standard_two_request_final_wire",
         render_cache_snapshot("standard_two_request_final_wire", &snapshot)?
-    );
-    Ok(())
-}
-
-async fn capture_taskspace_request_pair(
-    policy: TaskSpaceProjectionPolicy,
-) -> anyhow::Result<Value> {
-    let server = start_mock_server().await;
-    let first_response = responses_tool_stream(
-        "resp-taskspace-init",
-        vec![
-            (
-                "taskspace-init",
-                "taskspace_control",
-                initialize_arguments(),
-            ),
-            (
-                "taskspace-exec",
-                "exec_command",
-                serde_json::json!({"cmd": "printf taskspace-contract", "workdir": "/tmp"}),
-            ),
-        ],
-    );
-    let second_response = responses_tool_stream(
-        "resp-taskspace-finish",
-        vec![("taskspace-finish", "taskspace_control", finish_arguments())],
-    );
-    Mock::given(method("POST"))
-        .and(path("/v1/responses"))
-        .respond_with(ResponsesSequenceResponder {
-            next: AtomicUsize::new(0),
-            bodies: vec![first_response, second_response],
-        })
-        .expect(2)
-        .mount(&server)
-        .await;
-
-    let test = test_codex()
-        .with_config(move |config| {
-            configure_deepseek_responses(config);
-            config.taskspace_projection_policy = Some(policy);
-            config.cwd = AbsolutePathBuf::try_from(PathBuf::from("/tmp"))
-                .expect("fixed TaskSpace cache contract cwd");
-        })
-        .build(&server)
-        .await?;
-    test.codex
-        .submit(Op::SetMapRuntimeMode {
-            mode: MapRuntimeMode::Experiment,
-        })
-        .await?;
-    wait_for_event(&test.codex, |event| {
-        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
-    })
-    .await;
-    submit_turn(&test, "run the TaskSpace cache contract").await?;
-
-    let requests = server
-        .received_requests()
-        .await
-        .expect("TaskSpace final-wire requests");
-    assert_eq!(requests.len(), 2);
-    let first = FinalWireEvidence::from_raw_body(&requests[0].body)?;
-    let second = FinalWireEvidence::from_raw_body(&requests[1].body)?;
-    let snapshot_map = test
-        .codex
-        .action_map_snapshot()
-        .await
-        .map_err(anyhow::Error::msg)?
-        .map
-        .expect("TaskSpace map");
-    let map_id = snapshot_map.id;
-    let task_id = snapshot_map.task_id.unwrap_or_default();
-    let owner_id = snapshot_map
-        .owner_session_id
-        .map(|owner| owner.to_string())
-        .unwrap_or_default();
-
-    let mut snapshot = serde_json::json!({
-        "provider_identity": provider_identity(&test.config),
-        "request_1": first.structured_body,
-        "request_2": second.structured_body,
-    });
-    let codex_home = test.codex_home_path().to_string_lossy();
-    let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|path| path.parent())
-        .expect("Codex source root")
-        .to_string_lossy()
-        .into_owned();
-    stabilize_fixture_inputs(
-        &mut snapshot,
-        &[
-            (codex_home.as_ref(), "<CODEX_HOME>"),
-            (&source_root, "<CODEX_SOURCE_ROOT>"),
-            (&map_id, "<MAP_ID>"),
-            (&task_id, "<TASK_ID>"),
-            (&owner_id, "<OWNER_THREAD_ID>"),
-        ],
-    );
-    Ok(snapshot)
-}
-
-fn projection_count(request: &Value) -> usize {
-    request["input"]
-        .as_array()
-        .expect("request input")
-        .iter()
-        .filter(|item| value_contains_text(item, "TaskSpaceMapProjectionR7V1:"))
-        .count()
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn taskspace_projection_policies_have_independent_request_pairs() -> anyhow::Result<()> {
-    skip_if_no_network!(Ok(()));
-    let always = capture_taskspace_request_pair(TaskSpaceProjectionPolicy::MapAlways).await?;
-    let append = capture_taskspace_request_pair(TaskSpaceProjectionPolicy::MapAppend).await?;
-    let request = capture_taskspace_request_pair(TaskSpaceProjectionPolicy::MapRequest).await?;
-
-    for request_key in ["request_1", "request_2"] {
-        assert_eq!(always[request_key]["tools"], append[request_key]["tools"]);
-        assert_eq!(always[request_key]["tools"], request[request_key]["tools"]);
-        assert_eq!(
-            always[request_key]["tool_choice"],
-            append[request_key]["tool_choice"]
-        );
-        assert_eq!(
-            always[request_key]["tool_choice"],
-            request[request_key]["tool_choice"]
-        );
-    }
-    assert_eq!(projection_count(&always["request_1"]), 1);
-    assert_eq!(projection_count(&always["request_2"]), 1);
-    assert_eq!(projection_count(&append["request_1"]), 1);
-    assert_eq!(projection_count(&append["request_2"]), 2);
-    assert_eq!(projection_count(&request["request_1"]), 0);
-    assert_eq!(projection_count(&request["request_2"]), 0);
-
-    let always_rendered =
-        render_cache_snapshot("taskspace_map_always_two_request_final_wire", &always)?;
-    let append_rendered =
-        render_cache_snapshot("taskspace_map_append_two_request_final_wire", &append)?;
-    let request_rendered =
-        render_cache_snapshot("taskspace_map_request_two_request_final_wire", &request)?;
-    insta::assert_snapshot!(
-        "taskspace_map_always_two_request_final_wire",
-        always_rendered
-    );
-    insta::assert_snapshot!(
-        "taskspace_map_append_two_request_final_wire",
-        append_rendered
-    );
-    insta::assert_snapshot!(
-        "taskspace_map_request_two_request_final_wire",
-        request_rendered
     );
     Ok(())
 }

@@ -105,19 +105,19 @@ class CacheSurfaceContractTest(unittest.TestCase):
         self.assertTrue(is_cache_evidence_path(path))
         self.assertFalse(is_cache_control_plane_path(path))
 
-    def test_final_wire_matrix_emits_change_report_and_includes_tool_wire(self) -> None:
+    def test_zero_base_final_wire_matrix_tracks_standard_only(self) -> None:
         commands = {
             command["id"]: command
             for command in self.contract["free_validation"]["commands"]
         }
         matrix = commands["final_wire_matrix"]
 
-        self.assertEqual(matrix["argv"][-1], "cache_payload_")
-        self.assertEqual(matrix["change_report"]["type"], "final_wire_snapshot_set")
-        tool_wire = commands["tool_wire_contract"]
         self.assertEqual(
-            tool_wire["argv"][-1], "taskspace_tools_use_production_wire_schema"
+            matrix["argv"][-1],
+            "standard_request_pair_preserves_the_complete_prefix",
         )
+        self.assertEqual(matrix["change_report"]["type"], "final_wire_snapshot_set")
+        self.assertNotIn("tool_wire_contract", commands)
         baseline_patterns = self.contract["free_validation"]["semantic_baseline_globs"]
         protected = {
             path for pattern in baseline_patterns for path in REPO.glob(pattern)

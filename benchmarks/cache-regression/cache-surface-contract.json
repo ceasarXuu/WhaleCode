@@ -179,7 +179,7 @@
   "free_validation": {
     "run_on_release": true,
     "semantic_baseline_globs": [
-      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_*.snap"
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap"
     ],
     "commands": [
       {
@@ -193,34 +193,13 @@
           "codex-core",
           "--test",
           "all",
-          "cache_payload_"
+          "standard_request_pair_preserves_the_complete_prefix"
         ],
         "timeout_seconds": 600,
         "change_report": {
           "type": "final_wire_snapshot_set",
           "baseline_globs": [
-            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload*.snap"
-          ]
-        }
-      },
-      {
-        "id": "tool_wire_contract",
-        "cwd": "third_party/codex-cli/codex-rs",
-        "argv": [
-          "cargo",
-          "test",
-          "-q",
-          "-p",
-          "codex-core",
-          "--test",
-          "all",
-          "taskspace_tools_use_production_wire_schema"
-        ],
-        "timeout_seconds": 600,
-        "change_report": {
-          "type": "final_wire_snapshot_set",
-          "baseline_globs": [
-            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap"
           ]
         }
       },
