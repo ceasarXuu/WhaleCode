@@ -1681,20 +1681,6 @@ mod active_context_replacement_tests {
     use super::*;
 
     #[test]
-    fn taskspace_native_tools_hide_linear_plan_but_keep_map_control() {
-        let tools = vec![
-            codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(),
-        ];
-
-        let filtered =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
-        let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
-
-        assert_eq!(names, vec!["taskspace_control"]);
-    }
-
-    #[test]
     fn mailbox_preemption_never_takes_ownership_of_pending_tool_calls() {
         assert!(should_preempt_response_for_mailbox(true, true, 0));
         assert!(!should_preempt_response_for_mailbox(true, true, 1));
@@ -1723,67 +1709,6 @@ mod active_context_replacement_tests {
         );
     }
 
-    #[test]
-    fn taskspace_visibility_preserves_native_tool_shapes() {
-        let tools = vec![
-            ToolSpec::LocalShell {},
-            ToolSpec::ImageGeneration {
-                output_format: "png".into(),
-            },
-            codex_tools::create_taskspace_control_tool(),
-        ];
-
-        let visible =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
-
-        assert_eq!(
-            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["local_shell", "image_generation", "taskspace_control"]
-        );
-    }
-
-    #[test]
-    fn taskspace_hides_linear_plan_but_keeps_control() {
-        let visible = apply_provider_tool_visibility(
-            vec![
-                codex_tools::create_update_plan_tool(),
-                codex_tools::create_taskspace_control_tool(),
-            ],
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-        );
-        assert_eq!(
-            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["taskspace_control"]
-        );
-    }
-
-    #[test]
-    fn standard_native_tools_hide_map_control_but_keep_linear_plan() {
-        let tools = vec![
-            codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(),
-        ];
-
-        let visible =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::Standard);
-        let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
-
-        assert_eq!(names, vec!["update_plan"]);
-    }
-
-    fn terminal_control_state() -> ActionMapControlState {
-        ActionMapControlState {
-            map_id: "map-1".into(),
-            owner_session_id: None,
-            revision: 7,
-            complete: false,
-            ready_work_node_count: 0,
-            inflight_work_node_count: 0,
-            finish_ready: true,
-            completed_work_node_count: 3,
-        }
-    }
-
     fn terminal_response_contract() -> TaskspaceProviderResponseContract {
         TaskspaceProviderResponseContract {
             control_mode: TaskspaceProviderControlMode::TerminalControlRequired,
@@ -1791,50 +1716,6 @@ mod active_context_replacement_tests {
             revision: Some(7),
             projection_identity: None,
         }
-    }
-
-    #[test]
-    fn taskspace_control_modes_preserve_state_with_one_stable_central_contract() {
-        let visible = vec![
-            codex_tools::create_list_dir_tool(),
-            codex_tools::create_taskspace_control_tool(),
-        ];
-        let tool_contract = serde_json::to_string(&visible).expect("serialize lifecycle tools");
-        assert_eq!(
-            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["list_dir", "taskspace_control"]
-        );
-        assert!(tool_contract.contains("initialize_and_execute"));
-        assert!(tool_contract.contains("\"execute\""));
-        assert!(tool_contract.contains("read_map"));
-        assert!(tool_contract.contains("read_output_ref"));
-        assert!(tool_contract.contains("finish_map"));
-        assert!(!tool_contract.contains("bind_node"));
-        assert!(!tool_contract.contains("complete_then_continue"));
-        assert!(!tool_contract.contains("current_node"));
-
-        let bootstrap_mode = taskspace_provider_control_mode(true, None);
-        assert_eq!(
-            bootstrap_mode,
-            TaskspaceProviderControlMode::BootstrapRequired
-        );
-
-        let mut work_state = terminal_control_state();
-        work_state.finish_ready = false;
-        work_state.ready_work_node_count = 1;
-        let work_mode = taskspace_provider_control_mode(false, Some(&work_state));
-        assert_eq!(work_mode, TaskspaceProviderControlMode::WorkActive);
-
-        let terminal_state = terminal_control_state();
-        let terminal_mode = taskspace_provider_control_mode(false, Some(&terminal_state));
-        assert_eq!(
-            terminal_mode,
-            TaskspaceProviderControlMode::TerminalControlRequired
-        );
-        assert_eq!(
-            serde_json::to_string(&visible).expect("serialize lifecycle tools"),
-            tool_contract
-        );
     }
 
     #[test]

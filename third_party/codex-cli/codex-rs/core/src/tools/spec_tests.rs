@@ -361,14 +361,6 @@ async fn assert_model_tools(
         .iter()
         .map(ToolSpec::name)
         .collect::<Vec<_>>();
-    let mut expected_tools = expected_tools.to_vec();
-    if let Some(index) = expected_tools
-        .iter()
-        .position(|name| *name == "taskspace_control")
-    {
-        let taskspace = expected_tools.remove(index);
-        expected_tools.insert(0, taskspace);
-    }
     assert_eq!(tool_names, expected_tools);
 }
 
@@ -404,7 +396,6 @@ async fn test_build_specs_gpt5_codex_default() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -431,7 +422,6 @@ async fn test_build_specs_gpt51_codex_default() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -460,7 +450,6 @@ async fn test_build_specs_gpt5_codex_unified_exec_web_search() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -489,7 +478,6 @@ async fn test_build_specs_gpt51_codex_unified_exec_web_search() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -516,7 +504,6 @@ async fn test_gpt_5_1_codex_max_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -543,7 +530,6 @@ async fn test_codex_5_1_mini_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -570,7 +556,6 @@ async fn test_gpt_5_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -597,7 +582,6 @@ async fn test_gpt_5_1_defaults() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",
@@ -626,7 +610,6 @@ async fn test_gpt_5_1_codex_max_unified_exec_web_search() {
             "web_fetch",
             "image_generation",
             "view_image",
-            "taskspace_control",
             "spawn_agent",
             "send_input",
             "resume_agent",

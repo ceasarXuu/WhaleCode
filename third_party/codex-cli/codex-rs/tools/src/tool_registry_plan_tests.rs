@@ -143,11 +143,6 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
         let spec = create_request_permissions_tool(request_permissions_tool_description());
         expected.insert(spec.name().to_string(), spec);
     }
-    if config.collab_tools {
-        let spec = create_taskspace_control_tool();
-        expected.insert(spec.name().to_string(), spec);
-    }
-
     assert_eq!(
         actual.keys().collect::<Vec<_>>(),
         expected.keys().collect::<Vec<_>>(),
@@ -192,6 +187,7 @@ fn test_build_specs_collab_tools_enabled() {
     );
     assert_lacks_tool_name(&tools, "spawn_agents_on_csv");
     assert_lacks_tool_name(&tools, "list_agents");
+    assert_lacks_tool_name(&tools, "taskspace_control");
 
     let spawn_agent = find_tool(&tools, "spawn_agent");
     let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = &spawn_agent.spec else {
@@ -200,83 +196,6 @@ fn test_build_specs_collab_tools_enabled() {
     let (properties, _) = expect_object_schema(parameters);
     assert!(properties.contains_key("fork_context"));
     assert!(!properties.contains_key("fork_turns"));
-}
-
-#[test]
-fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
-    let model_info = model_info();
-    let mut features = Features::with_defaults();
-    features.enable(Feature::Collab);
-    let available_models = Vec::new();
-    let tools_config = ToolsConfig::new(&ToolsConfigParams {
-        model_info: &model_info,
-        available_models: &available_models,
-        features: &features,
-        image_generation_tool_auth_allowed: true,
-        web_search_mode: Some(WebSearchMode::Cached),
-        session_source: SessionSource::Cli,
-        sandbox_policy: &SandboxPolicy::DangerFullAccess,
-        windows_sandbox_level: WindowsSandboxLevel::Disabled,
-    });
-    let (tools, _) = build_specs(
-        &tools_config,
-        /*mcp_tools*/ None,
-        /*deferred_mcp_tools*/ None,
-        &[],
-    );
-
-    assert_eq!(
-        tools.first().map(ConfiguredToolSpec::name),
-        Some("taskspace_control"),
-        "the mandatory TaskSpace lifecycle tool must keep the first stable tool position"
-    );
-    let taskspace = find_tool(&tools, "taskspace_control");
-    let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = &taskspace.spec else {
-        panic!("taskspace_control should be a function tool");
-    };
-    let actions = parameters
-        .any_of
-        .as_ref()
-        .expect("action variants")
-        .iter()
-        .map(|variant| {
-            let (properties, _) = expect_object_schema(variant);
-            properties["action"]
-                .enum_values
-                .as_ref()
-                .expect("action enum")[0]
-                .as_str()
-                .expect("action string")
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        actions,
-        vec![
-            "initialize_and_execute",
-            "execute",
-            "reopen_map",
-            "read_map",
-            "read_output_ref",
-            "read_output_ref",
-            "read_output_ref",
-            "read_output_ref",
-            "finish_map"
-        ]
-    );
-    let serialized = serde_json::to_string(parameters).expect("serialize parameters");
-    assert!(serialized.contains("finish_map"));
-    assert!(!serialized.contains("initialize_map"));
-    assert!(serialized.contains("initialize_and_execute"));
-    assert!(serialized.contains("\"work_nodes\""));
-    assert!(serialized.contains("\"actions\""));
-    assert!(!serialized.contains("complete_then_continue"));
-    assert!(!serialized.contains("bind_node"));
-    assert!(!serialized.contains("current_node"));
-    assert!(!serialized.contains("\"current_work_node\""));
-    assert!(serialized.contains("edges"));
-    assert!(!serialized.contains("initialize_then_actions"));
-    assert!(!serialized.contains("output_contracts"));
-    assert!(!serialized.contains("output_contract_id"));
 }
 
 #[test]
@@ -493,10 +412,7 @@ fn ordinary_tool_specs_do_not_expose_taskspace_control_contracts() {
         "bind the new agent to the intended node",
     ];
 
-    for tool in tools
-        .iter()
-        .filter(|tool| tool.name() != "taskspace_control")
-    {
+    for tool in &tools {
         let encoded = serde_json::to_string(&tool.spec).expect("serialize tool spec");
         for marker in forbidden_markers {
             assert!(
