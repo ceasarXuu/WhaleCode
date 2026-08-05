@@ -2,7 +2,7 @@
 
 - Date: 2026-08-06
 - Record: `WAR-20260806-021153-R8-A2-V4-HOSTED-BINDING-001`
-- Status: failed as specified / result confounded and exposed single-owner contract defect / A2 remains blocked
+- Status: historical first-probe failure / evidence retained in completed Phase A
 - Requests: 1 of 2 approved; automatic retries 0
 
 ## 1. 事实结论

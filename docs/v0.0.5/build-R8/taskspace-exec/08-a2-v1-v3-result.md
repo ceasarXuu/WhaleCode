@@ -69,9 +69,9 @@ cargo test -p codex-core taskspace_exec --lib --quiet
 ## 6. 剩余门禁
 
 A2-V4 已执行两轮独立真实 probe，均按首败停止。首轮见 `09-a2-v4-first-probe-result.md`；修正后复验见
-`10-a2-v4-v3-reprobe-result.md`。第二轮已排除 Hosted 动作不可见，但证明 `{source:string}` Function Schema 无法机械
-承载 source 内层硬合同。在合同承载层重新设计并验证前，不再通过追加提示词或付费重试掩盖；A2 与 Phase A
-都保持未完成。
+`10-a2-v4-v3-reprobe-result.md`。第二轮已排除 Hosted 动作不可见，并证明 `{source:string}` Function Schema 无法机械
+承载 source 内层硬合同。这已满足 Phase A 的候选风险识别目标；结构化 carrier、完整 Hosted 链路和模型稳定性分别随
+TX-06、TX-11、TX-17/18 实施验证，不在 Phase A 继续追加提示词、重型候选建设或付费 repeat。
 
 专用探针 `scripts/taskspace-benchmark/r8_taskspace_exec_a2_probe.py` 已完成，并在现有 benchmark Docker 镜像中通过 7/7
 离线自检。它从原始 SSE 读取 `output_index` 和 Provider ID，检查唯一 outer call、完整 v3 plan、逐项数量和形状、两个

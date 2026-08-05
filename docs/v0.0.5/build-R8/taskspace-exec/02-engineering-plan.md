@@ -2,7 +2,7 @@
 
 - Created: 2026-08-05
 - Refined: 2026-08-06 after A2 reopening
-- Status: Phase A A1 verified / A2 in progress / Phase B blocked
+- Status: Phase A evidence-complete / Phase B1 ready
 - Risk depth: Full
 - Product contract: [`00-product-contract.md`](00-product-contract.md)
 - Upstream evidence: [`01-upstream-and-feasibility-evidence.md`](01-upstream-and-feasibility-evidence.md)
@@ -50,6 +50,19 @@ database、reasoning 解析或旧协议兼容分支。
 9. 漏绑、结构错配、歧义、非法节点或 Provider 身份缺失/重复使整个 TaskSpace 响应不被接受；不得默认写 Root 或未绑定池后继续。
 10. 每个 Tool 结果只进入 Agent context 一次，不新增 developer/system factual carrier。
 
+### 2.1 Phase A 边界
+
+Phase A 只负责用理论分析、上游/官方资料、源码静态盘点、历史 trace、fixture 和隔离小型候选代码回答：
+
+1. 产品合同是否自洽，是否与全局边界冲突；
+2. Provider wire 和 Codex 上游 seam 是否提供继续实施所需的基础事实；
+3. 是否已发现足以否定某个候选的轻量证据；
+4. 是否存在至少一条不违反产品约束、值得进入实施的路径。
+
+以下工作不得作为 Phase A 全局门禁：需要跨 response lifecycle、Router、Map transaction、Event Store、生产
+projection 或缓存链路才能得出结论的工作；需要大量候选代码、完整集成矩阵或多轮付费样本的工作。这些结论应分配到
+最早能以真实实施证据验证它们的后续 TX 单元。“尚需较重实施才能确认”是后续风险，不等于 Phase A 失败。
+
 ## 3. 工作单元
 
 `Execution Status` 使用 `verified-isolated` 表示实现和定向测试已通过、但尚未接入生产路径；它不等于 integrated。
@@ -61,8 +74,8 @@ database、reasoning 解析或旧协议兼容分支。
 | TX-02 | 冻结 Function Tool 与能力身份 | API | `taskspace_exec/catalog.rs` | ToolSpec snapshot/capability ID | 从同一 ToolSpec 快照派生 outer 描述、内部 catalog 和身份 | 声明、执行、缓存、观测共享能力版本 | 关闭 I10 的根源入口 | Complexity: 候选 catalog；Reach/Cost: 未接生产 | 5 个 catalog tests | 不注册 ToolSpec | verified-isolated |
 | TX-03 | 形成唯一 typed plan | API/internal | `taskspace_exec/decoder.rs` | `TaskspaceExecPlan` | 只接受 `taskspace.plan(<strict JSON>)` | 副作用前获得完整计划 | 不解析 reasoning，不边执行边发现非法 | Complexity: 一个严格 decoder；Reach/Cost: Agent 生成合同增加 | 正反 decoder fixtures | 动态表达需求出现时回到产品决策 | verified-isolated |
 | TX-04 | 冻结纯输入预检 | internal | `taskspace_exec/preflight.rs` | structural preflight | 校验版本、能力、调用身份、边界、递归和单 Patch | 明确错误在 client dispatch 前发生 | 建立 I06 零执行底线 | Complexity: 候选 validator；Reach/Cost: canonical Map 尚未接入 | 结构矩阵 tests | 不复制 Map 状态机 | verified-isolated |
-| TX-05 | 验证 Hosted 逐项多节点绑定 | provider/API | `taskspace_exec/plan.rs`、`provider_reconcile.rs`、outer Function Schema、provider response fixtures | per-item Hosted binding contract | 保留 Runtime 读取真实 Provider ID，按 Provider `output_index` 核对每项非空 Agent `node_ids[]`；必须让完整合同进入 Provider 可机械约束的 Function 参数层 | 同一 Hosted 事实可服务多个节点，且非法计划不依赖提示词事后纠正 | Complexity: 需重审 outer Function 合同承载方式；Reach/Cost: 两次真实 probe 证明 source-only schema 不足 | A2-V1～V4；0/1/N、多 owner、同类多调用、漏项/错配/歧义/身份冲突、零默认 Root/unbound 写入 | 先停在产品/协议决策；不通过增加 source 提示规则继续试错 | blocked-contract-carrier |
-| TX-06 | 接通唯一内部 Tool catalog | internal/cache | 上游 `spec_plan/ToolExposure` seam、code-mode helper | neutral ToolSpec conversion | 对齐最新上游 seam，让 code-mode 与 taskspace_exec 共用转换和 capability ID | 两个超级工具不复制 Tool 合同 | 防止 schema 三重暴露和能力漂移 | Complexity: 移动一个共享 helper，无新 registry；Reach/Cost: code-mode snapshot、缓存指纹受影响 | code-mode 0-diff；catalog/Router 一一对应；缓存门禁 | 需要第二 registry 时停止 | not-started |
+| TX-05 | 验证 Hosted 逐项多节点合同是否值得实施 | provider/API | `taskspace_exec/plan.rs`、`provider_reconcile.rs`、provider response fixtures、小预算 probe | per-item Hosted binding contract | 确认真实 Provider ID/顺序存在、多节点语义可表达、Runtime 可无语义核对，并用真实 trace 识别 source-only 候选的局限 | Phase A 得到“合同自洽、基础事实存在、source-only 不应直接落地”的足够证据 | Complexity: 不再扩建生产 carrier 或继续付费试错；Reach/Cost: 实施稳定性后移 | V1～V3 静态/离线矩阵；V4 两次有界 probe 和原始 trace | 不在 Phase A 设计/实施结构化 carrier 或 receipt 链路 | phase-a-evidence-complete |
+| TX-06 | 实施并验证结构化 outer contract 与唯一内部 Tool catalog | API/internal/cache | 上游 `spec_plan/ToolExposure` seam、code-mode helper、TaskSpace Tool projection | structured Function carrier + neutral ToolSpec conversion | 对齐上游 seam，从同一 ToolSpec 快照机械派生 outer contract、内部 catalog 和 capability ID；边实施边验证 DeepSeek 的结构化承载能力 | 不保留 source-only 与结构化两套生产协议，不复制 Tool 合同 | 将必须依赖真实 schema 和上游转换的结论放回实施环境验证 | Complexity: B1 承担 carrier 与共享 catalog 的完整小主题；Reach/Cost: provider payload、code-mode snapshot、缓存指纹受影响 | schema 派生 fixtures、code-mode 0-diff、catalog/Router 一一对应、缓存门禁；真实模型只做获批的小预算验证 | 需要第二 registry、修改普通 Tool schema 或两套 carrier 时停止 | not-started |
 | TX-07 | 收集响应级事实而不建全局状态 | response lifecycle | Responses SSE decoder、`session/turn.rs` | response-local `TaskspaceExecEnvelope` | 保留每个 Hosted item 的原始 `output_index`，收集唯一 outer call，在 `response.completed` 冻结并消费 | executor 按 Provider 顺序获得真实 facts 和 Agent plan，不受并行完成顺序影响 | 解决 Hosted/Function sibling 数据归属，不重放重建 | Complexity: +1 局部 envelope 和 output-index 元数据；Reach/Cost: response loop、stream fixtures 受影响，零持久状态 | 0/1/N Hosted、乱序 done、重复/缺失 index、缺/多 outer call、stream abort；Standard 0-diff | 无法保留原始 `output_index` 或 envelope 需跨响应时停止 | not-started |
 | TX-08 | 建立 outer response executor | internal | `taskspace_exec/response_executor.rs`、现有 response sequence入口 | outer call decode/output pairing | 消费 TX-07 envelope，解码一次、拒绝多个 outer call、保留原 outer `call_id`，禁止递归 | `taskspace_exec` 有单一 Runtime 入口且能返回原生配对 output | 把特殊性限制在必要的响应边界 | Complexity: +1 response executor，不注册第二业务 Router；Reach/Cost: tool sequence入口和取消路径受影响 | outer call pairing、decode failure、cancel/timeout、零内部 dispatch | 需要普通 Tool handler读取全局 envelope 时回退 | not-started |
 | TX-09 | 接入 canonical Map admission | state | `taskspace_exec/map_admission.rs`、现有 Action Map validator/transaction | prepared Map transaction | 将 typed plan 的 Map calls、node bindings、revision 和 client reservations一次交给现有 validator 准备 | Agent 合同和 DAG/状态硬规则在任何 client dispatch 前确定 | 不复制状态机并关闭 I06 绕过 | Complexity: +1 adapter，净复用 canonical transaction；Reach/Cost: Map revision、reservation tests 扩大 | init/reopen/complete/finish、stale、unknown/not-ready node、零提交拒绝 | 任一规则需复制到 exec 时停止 | not-started |
@@ -84,7 +97,7 @@ database、reasoning 解析或旧协议兼容分支。
 | A2-V1 | 找到逐项关联的真实 wire 能力 | discovery | provider response fixtures、Responses decoder、既有 Hosted probe artifact | Hosted output identity/order/model-visible facts | 盘点 Agent 可声明字段与 Runtime 可见字段的交集，排除内容和语义猜配 | 冻结 `output_index` 排序 + Agent 有序声明，不要求 Agent 回显 Provider ID | Complexity: 仅证据矩阵；Reach/Cost: 零生产影响、零 API 费用 | Web/Image、同类多项、乱序 done fixture 可恢复唯一顺序 | TX-07 无法保留原始 index 时停止 | verified |
 | A2-V2 | 冻结逐项多节点 Agent 合同 | API/internal | `taskspace_exec/plan.rs`、`decoder.rs`、`preflight.rs` | `hosted_bindings[]` typed plan | 使用有序 `{tool,node_ids[]}`，每项节点集合非空且无重复，计划直接升级 v3、不兼容 v2 | 一个 Hosted 事实可由 Agent 绑定给一个或多个节点，且不修改 provider Tool schema | Complexity: 修改未接生产候选 schema；Reach/Cost: Phase A snapshots/tests 更新，缓存生产面不变 | strict decode、旧单 node 字段拒绝、空/重复节点拒绝、多 owner fixtures | 需要第二业务 schema或语义匹配时停止 | verified-isolated |
 | A2-V3 | 证明错误整批拒绝 | internal | `provider_reconcile.rs` | atomic Hosted reconciliation report | 按 output index、数量、Tool 类型和非空节点集合完整核对；任一 finding 返回空绑定集合 | 下游没有部分成功、重复事实、unbound settlement 或默认 owner | Complexity: 扩大候选 reconciler 和结构化 finding；Reach/Cost: 零生产接线、零 Provider 费用 | 多 owner 成功；缺/多/乱序/重复 ID/index/node、类型错配均整批空 bindings | 完整 Map/Store/Router 零副作用在 TX-09/11/12/17 接线时复验 | verified-isolated |
-| A2-V4 | 验证 DeepSeek 能稳定生成逐项声明 | provider validation | 专用 Hosted probe、全局 run ledger | same-response multi-node declaration | 用不预设 Hosted 数量的 v3 协议验证同响应多节点绑定，并通过原始 trace 分离可见性、合同暴露和模型执行 | 确认离线合同能被目标模型实际使用 | Complexity: 两次真实 probe 均首败即停；Reach/Cost: 第二次证明 Agent 可见全部子动作，但 source-only Function Schema 未承载内层硬合同 | 逐响应 trace、每项非空 `node_ids[]`、声明/事实一一对应、无漏绑错位 | 不再追加提示词或付费重试；先重设可机械约束的合同承载层 | blocked-contract-carrier |
+| A2-V4 | 用有界真实样本识别候选风险 | provider validation | 专用 Hosted probe、全局 run ledger | same-response multi-node declaration | 用不预设 Hosted 数量的 v3 协议验证同响应多节点绑定，通过 trace 分离可见性、合同暴露和模型执行 | 证明 Agent 可见全部动作，同时 source-only 候选不足以直接进入生产落地 | Complexity: 两次 probe 均首败即停，不扩大 repeat；Reach/Cost: 稳定性结论移交 TX-06/17/18 | 原始 trace 和费用可复算 | Phase A 不再重试；结构化 carrier 随 TX-06 实施验证 | evidence-complete-risk-deferred |
 | TX-18 | 小预算真实行为与成本验证 | validation | Docker benchmark、run ledger | Standard + TaskSpace policies | 获批后先跑简单/复杂各一次；异常先归因，不自动扩大 repeat | 验证 Agent 能生成 exec、任务完成、缓存和成本可观测 | 判断可行实现是否形成真实产品收益 | Complexity: 不增加生产代码；Reach/Cost: 产生 DeepSeek token、费用和时间 | 逐 request trace、Map、request/token/cache/time/cost 表 | 未获预算不运行；失败不以重试覆盖 | not-started |
 | TX-19 | 重评 R8 问题全集 | planning | `01-r8-known-issues.md` | I01～I10 | 只依据新生产 trace 更新关闭、改方案或新增状态 | R8 回到唯一证据化问题队列 | 防止旧根因继续污染路线 | Complexity: 文档状态变更；Reach/Cost: 改变后续优先级 | 每项有新协议证据链接 | 无 E2/E3 证据保持 open | not-started |
 
@@ -99,14 +112,14 @@ database、reasoning 解析或旧协议兼容分支。
 
 - Units: TX-01～TX-05。
 - A1: typed plan 能在副作用前完整形成，已通过。
-- A2: V1～V3 的 v3 多 owner 合同离线通过；两次 V4 真实响应均按首败停止。第二次已排除 Hosted 子动作不可见，并将阻塞点收敛为 source-only Function Schema 不能机械承载内层计划合同。
-- Exit: A2-V1～V4 全部通过，且产品合同不包含单响应单节点、Root owner 或 unbound settlement。
+- A2: V1～V3 证明多节点产品合同和无语义核对在离线成立；V4 排除 Hosted 子动作不可见，并否定 source-only 作为可直接落地的承载方式。
+- Exit: 已完成。产品合同自洽、Provider/上游基础事实存在、明确排除默认 Root/unbound 和 source-only 直接落地；结构化 carrier、完整 Hosted 链路和模型稳定性按责任移交后续阶段。
 
-### Phase B1：共享能力与响应入口
+### Phase B1：结构化承载、共享能力与响应入口
 
-- Entry: Phase A 完成；当前因 A2 reopened 不满足。
+- Entry: Phase A 轻量证据已完成。
 - Units: TX-06～TX-08。
-- Exit: 单一 catalog、response-local envelope 和 outer executor 均有确定性测试；没有 Session 全局临时状态。
+- Exit: 结构化 outer contract、单一 catalog、response-local envelope 和 outer executor 均有确定性测试；没有 source-only 生产平行协议或 Session 全局临时状态。
 - Cross-unit side effects: code-mode helper 和 response loop 受影响，但 Standard wire 不变。
 
 ### Phase B2：Map、执行与 Hosted 持久化
@@ -145,7 +158,8 @@ database、reasoning 解析或旧协议兼容分支。
 | B1-S2 | response envelope 必须写 Session 全局状态或跨响应恢复 | 停止 TX-07，不接受隐式生命周期 |
 | B2-S1 | exec 需要复制 Map 状态规则 | 停止 TX-09，只允许 canonical validator adapter |
 | B2-S2 | 某类 client Tool 必须修改原生参数才能携带 node | 停止 TX-10，不做 Tool schema 入侵 |
-| A2-S1 | 找不到 Agent 声明与 Provider fact 之间非语义、可唯一核验的逐项关联 | 停止 Phase A；不得退回单响应单节点、内容猜配或 Root/unbound 降级 |
+| A-S1 | 轻量证据已证明产品合同自相矛盾、Provider 缺少根本能力，或所有候选都必然违反全局约束 | 才停止 Phase A；仅因需要后续实施才能确认的未知不得阻断 |
+| B1-S3 | 结构化 carrier 实施后仍无法表达完整 Tool/Hosted 合同，或必须回到 source-only 平行协议 | 停止 TX-06，基于实施证据回到产品决策 |
 | B2-S3 | Provider fact 没有真实稳定 ID，或任一绑定无法唯一核对 | 整个 TaskSpace 响应拒绝，零 client/map 执行、零 Map/Store 写入 |
 | B2-S4 | Event Store 不能表达一份 fact 对多个节点的幂等引用集合 | 停止 TX-12，不增加旁路 binding database |
 | B3-S1 | outer result 无法保留某个原生 Tool 结果 | 停止 TX-13，不以摘要或引用替代事实 |

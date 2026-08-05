@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase A reopened at A2 / Phase B blocked / 生产代码尚未接入
+- Status: Phase A evidence-complete / Phase B1 ready / 生产代码尚未接入
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 

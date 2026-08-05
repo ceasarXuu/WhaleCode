@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase A A1 passed / A2 reopened / production integration blocked
+- Status: Phase A evidence-complete / implementation verification assigned to Phase B/D
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -46,7 +46,7 @@ model-visible tools
 
 ## 3. 一次调用表达什么
 
-`taskspace_exec` 的外层是 Function Call。已确认的首个候选参数是：
+`taskspace_exec` 的外层是 Function Call。Phase A 验证过的首个隔离候选是：
 
 ```json
 {
@@ -54,8 +54,8 @@ model-visible tools
 }
 ```
 
-`source` 的最终内部语法在工程阶段 TX-03 冻结。无论采用受限 JavaScript 还是等价的声明式子集，它编译出的唯一
-Runtime 计划必须包含以下三类事实：
+两次有界真实 probe 已证明 source-only 不足以作为可直接落地的硬合同承载层。因此产品合同只在此冻结 Runtime 计划
+必须包含的三类事实，不冻结 `source` 为最终 wire；结构化 Function carrier 随 TX-06/B1 实施验证：
 
 | 类别 | Agent 声明 | Runtime 权限 | 权威执行事实 |
 |---|---|---|---|
@@ -152,7 +152,7 @@ Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validato
 
 | 响应事实 | Hosted 事实 | 尚未发生的 client/map | 原因 |
 |---|---|---|---|
-| 缺少 outer exec 或 source 无法解码 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 没有可信的 Agent 节点与动作声明 |
+| 缺少 outer exec 或 outer plan 无法解码 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 没有可信的 Agent 节点与动作声明 |
 | plan 可解码但违反 Agent 合同或 canonical Map 硬规则 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 不从被拒绝的计划中选择性接受状态或归属声明 |
 | plan 合法，全部 Hosted 声明一一对应，节点存在或由合法 prelude 创建 | 用真实 Provider ID 逐项记录为各自节点事件 | 按预检计划执行 | Agent 逐项决定节点，Runtime 机械核验落账 |
 | 声明漏项、多项、歧义、节点非法，或 Provider fact 缺失/重复 ID | 保留在 provider 原始响应和诊断日志中，不默认写 Root 或未绑定池 | 整批拒绝，零执行、Map 零提交 | 未完整归属的响应不是可接受的 TaskSpace 事务 |
@@ -191,15 +191,15 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
-| Function Call 外层 | 已确认 | DeepSeek 不使用 Codex Freeform wire，采用 Function 参数承载 source |
+| Function Call 外层 | 已确认 | DeepSeek 不使用 Codex Freeform wire，TaskSpace 采用 Function Call 外层 |
 | 内部 ToolSpec 派生 | 已确认 | 复用 Codex 主线机制，不手写第二份 Tool 合同 |
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
 | 合法序列 + node binding | 已确认 | `taskspace_exec` 仅有的 TaskSpace 新职责 |
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| 内部 source 语法 | A1 离线通过 | `taskspace.plan(<strict JSON>);` 在副作用前生成唯一 typed plan；Agent 生成稳定性仍待获批真实验证 |
+| source-only 候选 | 离线成立 / 真实直接落地被排除 | `taskspace.plan(<strict JSON>);` 可在副作用前生成 typed plan，但 Provider Schema 只能校验字符串外壳；结构化 carrier 移交 TX-06 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | A2 v3 离线通过 / 两次真实验证未通过 | 修正后的 Agent 已生成正确版本、能力、Tool 名和 `node_ids[]`，但 Function Schema 只约束 `{source:string}`，无法机械约束 source 内的完整计划；A2 阻塞在合同承载层 |
+| Hosted 逐项多节点归属 | Phase A 证据完成 / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；source-only 风险已识别，carrier、完整链路和真实稳定性分配到 TX-06/11/17/18 |
 
 ## 9. 验收标准
 
