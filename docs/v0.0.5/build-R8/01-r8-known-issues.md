@@ -105,11 +105,13 @@ I07 最新确定性根因证据（2026-08-05）：
 
 I07 独立修复状态（2026-08-05）：
 
-- `I07-W0`～`W8`、`W10` 已完成，主要提交为 `6ad058e10`～`63b0336d3`，结果见
+- `I07-W0`～`W8`、`W10` 已完成，基础提交为 `6ad058e10`～`63b0336d3`，对抗性收敛提交截至
+  `8acd79b76`，结果见
   [`I07/01-i07-independent-repair-result.md`](I07/01-i07-independent-repair-result.md)；
 - 8/15 双计已修正为 8 completed/usage + 7 snapshots，10/11 阶段误判已修正为 11 local attempts +
   10 boundary requests + 1 local-only failure；
-- 性能、成本、缓存、freshness 和 provenance 已共用 canonical request facts，24-run 离线报表通过；
+- 性能、成本、缓存、freshness 和 provenance 已共用 canonical request facts，严格 mode-map 合同在四条路径一致生效，
+  24-run 离线报表通过，最终空白复审无 blocking finding；
 - 全局 I07 不关闭，仍等待 TaskSpace Exec item/node 身份接入（W9）和经授权生产验收（W11）。
 
 已关闭问题：

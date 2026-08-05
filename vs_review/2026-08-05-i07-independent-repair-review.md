@@ -1,13 +1,13 @@
 # Subagent VS Review: R8-I07 独立修复
 
 - Created: 2026-08-05T09:00:00+08:00
-- Updated: 2026-08-05T09:00:00+08:00
+- Updated: 2026-08-05T20:39:25+08:00
 - Report schema: adversarial-v1
 - Task: 审查 I07-W0～W8、W10 是否真正修复请求/usage/边界观测问题，且没有形成新平行口径或虚假证据闭环
 - Report path: `vs_review/2026-08-05-i07-independent-repair-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context
-- Status: open
+- Status: closed
 
 ## Round 1: 独立修复完整性与事实可信性
 
@@ -327,19 +327,83 @@ Reviewer 确认 invariant 1、4、6 已通过；未运行 Whale Agent/API。完�
 | duplicate verifier wire count looks measured | non-blocking | accept | correlation incomparable 时 `wire_request_count=null` |
 | `_put_once` location missing | non-blocking | accept | conflict finding 携带当前 source line，并将 location 与 semantic value 分离以保持幂等 |
 
+## Round 4: Fail-Closed Scope Review
+
+### Reviewer Launch Record
+
+| Reviewer | Session / Job ID | Context Forked | Read-only |
+|---|---|---|---|
+| scope-contract-adversary (Copernicus) | `019fd1a3-cbe7-7953-a34a-d9c228a1fbc4` | `fork_context=false` | yes |
+
+### Reviewer Output And Response
+
+Reviewer 复现 4 个阻断项：无 wire 来源时 fallback 仍可能给出缓存结论；V4 aggregate 接受部分合同；performance/freshness
+未完全以 mode map 为权威；durable cache validator 接受布尔计数。全部接受，并由 `b2c05ad5e`、`53d08313f`、
+`15896eead` 修复。相关负例进入本地测试，精确事实在来源或合同不完整时统一为 null。
+
+## Round 5: Evidence Contract Review
+
+### Reviewer Launch Record
+
+| Reviewer | Session / Job ID | Context Forked | Read-only |
+|---|---|---|---|
+| evidence-contract-adversary (Aristotle) | `019fd1b4-17ed-7331-8754-67a05b222390` | `fork_context=false` | yes |
+
+### Reviewer Output And Response
+
+Reviewer 在 clean HEAD `15896eead` 复现 5 个阻断项：rollout-only usage 可借 payload trace 通过；V4 source/availability/
+计数合同不完整；suite cost 未强制 mode map；一个非法 pair 后仍保留其他 pair 的 partial aggregate；durable validator
+未校验 wire request ordinal。全部接受，由 `4675f1a66` 修复并补负例。
+
+## Round 6: Strict Identity Review
+
+### Reviewer Launch Record
+
+| Reviewer | Session / Job ID | Context Forked | Read-only |
+|---|---|---|---|
+| strict-identity-adversary (Mill) | `019fd1d1-214c-7532-aad8-806f95325484` | `fork_context=false` | yes |
+
+### Reviewer Output And Response
+
+Reviewer 在 clean HEAD `4675f1a66` 复现 4 个阻断项：V4 base/section 内部矛盾仍可通过；mode map 重复 JSON key
+被 PowerShell 静默覆盖；缺失 `repeat` 仍形成 measured comparison；非法 mode map 与 `side_selection_skipped` 组合会
+吞掉作用域错误并泄露精确值。全部接受，由 `8acd79b76` 修复。修复引入共享 strict mode-map reader，并将完整 V4
+恒等式验证拆为独立合同模块。
+
+## Round 7: Bounded Final Closure
+
+### Reviewer Launch Record
+
+| Reviewer | Session / Job ID | Context Forked | Input Scope | Read-only |
+|---|---|---|---|---|
+| bounded-final-adversary (Socrates) | `019fd1eb-fd67-7d92-b642-f527a38ab4e1` | `fork_context=false` | 仅 Round 6 四个反例与四条消费路径 | yes |
+
+### Reviewer Output
+
+`NO BLOCKING FINDINGS`。Reviewer 确认：
+
+1. V4 base identity、section arrays/totals/means/medians 矛盾时 aggregate exact facts 为 null；
+2. 重复 JSON key 同时阻断 cache aggregate 和 cost gate；
+3. 缺失、布尔、小数或负数 `repeat` 均使 performance comparison unavailable；
+4. invalid mode map 与 skipped 组合不会吞 warning，aggregates、ratios、row 和 Markdown 精确值均被抑制；
+5. strict reader 已用于 cost、cache、performance、freshness 四条路径。
+
+本轮未运行 Whale Agent 或 DeepSeek API。
+
 ### Closure Status
 
-- Blocking findings found: pending
-- Accepted blocking findings fixed: pending
-- Blocking re-review completed: pending
-- Blocking re-review passed: pending
-- Rejected findings backed by evidence: pending
-- Deferred findings documented: pending
-- Implementation completeness gaps resolved or accepted by user: pending
-- Target benefit warnings recorded: pending
-- Blocked reason: pending
-- Allowed to proceed: pending
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Rejected findings backed by evidence: yes
+- Deferred findings documented: yes；I07-W9/W11 仍按专题计划等待 TaskSpace Exec 与授权生产验收
+- Implementation completeness gaps resolved or accepted by user: yes（当前协议独立修复范围）
+- Target benefit warnings recorded: yes；真实缓存收益仍未测
+- Blocked reason: none for I07-W0～W8/W10
+- Allowed to proceed: yes
 
 ## Final Conclusion
 
-Pending adversarial review.
+I07 当前协议下的独立修复通过对抗性闭环。该结论只关闭 W0～W8/W10 的确定性观测基础，不关闭全局 I07；W9/W11
+继续等待 TaskSpace Exec 身份接入和用户授权的最小生产验收。

@@ -1,6 +1,6 @@
 # R8-I07：性能观测可信性
 
-- Status: Independent repair complete (`I07-W0`～`W8`、`W10`); TaskSpace Exec integration pending
+- Status: Independent repair and adversarial closure complete (`I07-W0`～`W8`、`W10`); TaskSpace Exec integration pending
 - Authority: [`00-i07-observability-trust-repair-plan.md`](00-i07-observability-trust-repair-plan.md)
 - Result: [`01-i07-independent-repair-result.md`](01-i07-independent-repair-result.md)
 - Global issue: [`../01-r8-known-issues.md`](../01-r8-known-issues.md) 中的 `R8-I07`

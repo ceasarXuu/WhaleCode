@@ -2,7 +2,7 @@
 
 - Date: 2026-08-05
 - Scope: `I07-W0`～`I07-W8`、`I07-W10`
-- Status: 独立修复与首轮对抗性修复完成；closure review 进行中；完整 I07 保持 queued
+- Status: 独立修复与对抗性闭环完成；完整 I07 保持 queued
 - API usage: 0；全部验证均为本地确定性 fixture
 
 ## 1. 产品结果
@@ -34,17 +34,22 @@ attempt 观察，但 token/cache 分母只使用完成且有 measured usage 的�
 shape 或 completion 冒充 boundary request；canonical consumer 也进入 inventory 门禁。完整审查轨迹见
 [`vs_review/2026-08-05-i07-independent-repair-review.md`](../../../../vs_review/2026-08-05-i07-independent-repair-review.md)。
 
+后续 closure review 继续发现并修复 aggregate 空值传播、布尔计数、mode-map 权威性、V4 摘要合同和报告作用域问题。
+最终提交链为 `9e7536425`、`d5b768a22`、`b2c05ad5e`、`53d08313f`、`15896eead`、`4675f1a66`、
+`8acd79b76`。最终空白复审只重放最后四个反例，结论为 `NO BLOCKING FINDINGS`。
+
 ## 3. 验证结果
 
 | 验证 | 结果 |
 |---|---|
 | I07 历史反例 | 8 completed/usage + 7 snapshots；11 attempts + 10 boundary + 1 local-only failure |
 | request facts + inventory + boundary proxy | 23 tests passed；consumer gate passed |
-| cache regression | 219 tests passed |
+| cache regression | 220 tests passed |
 | cost / harness / performance | 全部 self-test passed |
 | provenance / freshness | source 变更、analyzer 变更和旧 facts 均 fail closed |
 | 24-run 离线报表矩阵 | `R7 request observability report passed.` |
 | 缓存敏感面静态门禁 | PASS；观测政策变化仍保持发布阻断，未以静态结果替代真实缓存回归 |
+| 最终 closure review | 4 类最新反例全部 fail closed；无 blocking finding |
 
 所有测试只使用本地 fixture，没有启动 Whale Agent，没有产生 DeepSeek 请求，也没有修改 Provider payload、Agent prompt、
 Tool schema、Map 状态机或工具执行顺序。
