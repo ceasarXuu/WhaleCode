@@ -31,9 +31,12 @@
    地位不高于普通 Tool。
 8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感；内部 Tool 合同必须
    从同一原生 ToolSpec 机械派生，不手写第二套协议。
-9. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
+9. Client Tool 能力合同在一次请求中只能向 Agent 暴露一次：Standard 在顶层暴露原生 Tool schema；TaskSpace
+   必须移除顶层普通 client Tool 和 `taskspace_control`，改由 `taskspace_exec` 从同一 ToolSpec 快照在内部暴露。禁止
+   顶层与内部双重暴露，也禁止在 L1/L2、Tool description 或其他消息中重复完整 Tool 合同。
+10. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
    只有主方案被证据否定且用户重新决策后才能恢复评估。
-10. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
+11. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
     保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Agent 若
     显式声明 Root 节点，是否合法仍只由 canonical Map 规则判断。
 
@@ -73,8 +76,12 @@
 6. 未经用户明确授权，单次计划不得执行超过 3 个真实 Whale Agent sample；需要大规模运行时先申请预算。
 7. 每次真实运行必须写入 `benchmarks/whale-agent-run-ledger.json`，失败和重试也不得覆盖历史。
 8. 成本报告至少包含 request、input、cached/uncached input、output、wall time 和费用。
-9. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
-10. Prompt、context、projection、provider payload 或 Tool declaration 的缓存敏感变更必须先被免费指纹门禁阻断；
+9. Tool 成本比较必须使用同一能力集合并区分“原有 Tool 合同”和“TaskSpace 新增 metadata”。Client Tool schema 从
+   Standard 顶层迁移到 `taskspace_exec` 内部是替换暴露，不得把整份内部 Tool 合同误计为 TaskSpace 新增 input；只有
+   `node_id`、合法序列、Hosted binding 和必要容器字段属于协议增量。Provider-hosted Tool 的完整 schema 只保留在
+   provider 原生顶层，Exec 内仅表达逐项绑定，不得复制其完整合同。
+10. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
+11. Prompt、context、projection、provider payload 或 Tool declaration 的缓存敏感变更必须先被免费指纹门禁阻断；
     Agent 说明变更原因并获得专项预算后，才能运行真实缓存回归。失败结果不得晋升或绕过。
 
 ## 6. R8 不预设的设计
@@ -94,6 +101,7 @@
 
 - 为解决 Agent 行为问题增加 Runtime 语义判断；
 - 普通 Tool schema 或执行结果被 TaskSpace 装饰；
+- 同一 Client Tool 合同同时出现在 TaskSpace 顶层和 `taskspace_exec` 内部，或被多个 Prompt/Tool 层完整复述；
 - 同一事实出现第二个权威来源；
 - Standard 路径发生非必要变化；
 - Map Store 与 Session/rollout 形成双事实源；
