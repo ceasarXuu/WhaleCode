@@ -2,7 +2,7 @@
 
 - Created: 2026-08-05
 - Corrected: 2026-08-06 / bounded A2 evidence completed
-- Status: Complete within lightweight Phase A scope / implementation risks deferred
+- Status: Complete within lightweight Phase A scope / production implementation assigned to B1-D
 - Runtime activation: None
 - Paid Whale Agent runs in revalidation: 2 requests across 2 bounded probes
 
@@ -72,13 +72,14 @@ Runtime 从同一响应中的 `web_search_call`、`image_generation_call` 等原
 | A2 V4 两次有界 probe | FAIL as specified | 排除 Hosted 动作不可见，并证明 source-only 候选不足以直接落地 |
 
 因此，Provider 身份可由 Runtime 读取、多节点必须由 Agent 声明、Runtime 只做机械核对这些产品结论成立；“整响应单节点足够”和
-“异常可作为 unbound/Root 结算”不成立。Phase A 也已经得到足够证据排除 source-only 直接落地；无需为了在 Phase A 提前证明生产稳定性而继续扩建。
+“异常可作为 unbound/Root 结算”不成立。Phase A 也已经得到足够证据排除 source-only 直接落地；结构化 Function
+carrier 的生产接入和集成验收由 B1-D 承担。
 
 ## 5. 后续责任分配
 
 1. TX-06/B1 实施并验证结构化 carrier 和唯一 ToolSpec 派生，不保留 source-only 生产平行协议。
 2. TX-11/B2 在真实 response envelope 和 canonical Map admission 上验证 Hosted 完整核对。
-3. TX-17/D 完成集成矩阵，TX-18/D 才使用获批预算验证目标模型稳定性、请求、Token、缓存和成本。
+3. TX-17/D 完成集成矩阵，TX-18/D 才使用获批预算验证目标模型下的任务结果、请求、Token、缓存和成本。
 
 ## 6. 验证
 

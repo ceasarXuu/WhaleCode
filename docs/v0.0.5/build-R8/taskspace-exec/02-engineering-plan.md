@@ -51,27 +51,20 @@ database、reasoning 解析或旧协议兼容分支。
 10. 每个 Tool 结果只进入 Agent context 一次，不新增 developer/system factual carrier。
 11. Client Tool 合同只暴露一次：Standard 使用原生顶层 Tool schema；TaskSpace 移除这些顶层 schema，并从同一
     ToolSpec 快照在 `taskspace_exec` 内机械暴露。Provider-hosted Tool 完整合同仍只在 provider 原生顶层，Exec 内不复制。
-12. 成本比较不得把迁移后的内部 Client Tool 合同整体算作新增 input；必须分别报告原有 Tool 合同、TaskSpace
-    metadata 和序列化形式差值。协议固有增量仅包括 `node_id`、合法序列、Hosted binding 和必要容器字段。
+12. 成本比较分别报告原有 Tool 合同、TaskSpace metadata 和序列化形式差值。协议增量包括 `node_id`、合法序列、
+    Hosted binding 和必要容器字段。
 13. ToolSpec 到内部 catalog 的转换、嵌套 Tool dispatch 和原生结果适配直接复用或中性抽取 Codex `exec/code-mode`
-    基建；不建立第二套 converter、registry、handler 或结果协议，也不把这项复用工作列为方案固有复杂度。
-14. 顶层只暴露一个 `taskspace_exec` 不被视为模型能力风险。它保留原 Tool 名称、描述、参数和多 Tool 组合能力；正常
-    行为验收只用于发现具体实现或 Provider 兼容问题，不以“超级工具天然难以理解”为预设根因。
+    基建，继续使用唯一 converter、registry、handler 和结果协议。
+14. 顶层 `taskspace_exec` 完整保留原 Tool 名称、描述、参数、结果和多 Tool 组合能力；行为验收验证具体实现和 Provider
+    兼容性。
 15. `taskspace_exec` Tool declaration 是静态、确定的能力合同，不包含任何 Map、node、plan、Provider output 或 Session
     运行时数据。相同 ToolSpec 快照和协议版本必须产生逐字一致的 schema/description；运行时数据只进入调用参数、结果、
     自然上下文或 canonical Store。
+16. Schema 固定每个数组元素和 Tool 参数的合法形状，不固定一次调用的实例。Agent 独立构造本次 `calls[]` 和
+    `hosted_bindings[]`，决定 Tool 选择、调用数量、原生参数、数组顺序和节点归属；Runtime 在响应到达前不生成、不补全、
+    不排序这些内容，响应到达后只执行结构解析、TaskSpace 硬规则预检、Hosted 事实核对和原生 Router dispatch。
 
-### 2.1 已撤回的伪风险
-
-以下内容不得继续出现在方案缺点、根因假设或成本归因中：
-
-1. 把迁移到 Exec 内部的整份 Client Tool 合同计算为新增 input；
-2. 把 Codex 已有的 ToolSpec 转换和原 Router 复用描述为 TaskSpace 必须维护的第二套复杂协议；
-3. 在没有具体 trace 证据时，预设单一 Exec 入口会降低 Agent 对 Tool 的理解或多 Tool 执行能力；
-4. 假设运行时 Map 数据会进入 Tool schema 并持续破坏缓存。Tool declaration 只有能力集合或协议版本改变时才变化，
-   与 Standard 顶层 Tool 集合变化属于同类静态变更。
-
-### 2.2 Phase A 边界
+### 2.1 Phase A 边界
 
 Phase A 只负责用理论分析、上游/官方资料、源码静态盘点、历史 trace、fixture 和隔离小型候选代码回答：
 
@@ -96,7 +89,7 @@ projection 或缓存链路才能得出结论的工作；需要大量候选代码
 | TX-03 | 形成唯一 typed plan | API/internal | `taskspace_exec/decoder.rs` | `TaskspaceExecPlan` | 只接受 `taskspace.plan(<strict JSON>)` | 副作用前获得完整计划 | 不解析 reasoning，不边执行边发现非法 | Complexity: 一个严格 decoder；Reach/Cost: Agent 生成合同增加 | 正反 decoder fixtures | 动态表达需求出现时回到产品决策 | verified-isolated |
 | TX-04 | 冻结纯输入预检 | internal | `taskspace_exec/preflight.rs` | structural preflight | 校验版本、能力、调用身份、边界、递归和单 Patch | 明确错误在 client dispatch 前发生 | 建立 I06 零执行底线 | Complexity: 候选 validator；Reach/Cost: canonical Map 尚未接入 | 结构矩阵 tests | 不复制 Map 状态机 | verified-isolated |
 | TX-05 | 验证 Hosted 逐项多节点合同是否值得实施 | provider/API | `taskspace_exec/plan.rs`、`provider_reconcile.rs`、provider response fixtures、小预算 probe | per-item Hosted binding contract | 确认真实 Provider ID/顺序存在、多节点语义可表达、Runtime 可无语义核对，并用真实 trace 识别 source-only 候选的局限 | Phase A 得到“合同自洽、基础事实存在、source-only 不应直接落地”的足够证据 | Complexity: 不再扩建生产 carrier 或继续付费试错；Reach/Cost: 实施稳定性后移 | V1～V3 静态/离线矩阵；V4 两次有界 probe 和原始 trace | 不在 Phase A 设计/实施结构化 carrier 或 receipt 链路 | phase-a-evidence-complete |
-| TX-06 | 实施并验证结构化 outer contract 与唯一内部 Tool catalog | API/internal/cache | 上游 `spec_plan/ToolExposure` seam、code-mode helper、TaskSpace Tool projection | structured Function carrier + neutral ToolSpec conversion | 直接复用或中性抽取 Codex ToolSpec 转换与 nested Router seam，从同一静态 ToolSpec 快照机械派生 outer contract、内部 catalog 和 capability ID；TaskSpace 删除顶层 client schema，只在 outer contract 内暴露一次 | 不保留 source-only 与结构化两套生产协议，不复制 Tool 合同；工具迁移本身不形成新增 input；相同能力快照生成稳定 declaration | 完成 TaskSpace metadata 的薄层适配，不重做 Codex 已解决的 Tool 暴露与执行能力 | Complexity: 仅新增 TaskSpace carrier metadata 和静态 projection；Reach/Cost: 发布时 provider payload 与缓存指纹一次变化，运行期 schema 不随状态变化 | schema 派生 fixtures、code-mode 0-diff、catalog/Router 一一对应、顶层 client 零泄漏、运行时数据零 schema 引用、重复构建逐字一致、Standard/TaskSpace 静态 Tool payload 体积拆分、缓存门禁 | 需要第二 registry/converter、修改普通 Tool schema、双重暴露、动态 schema 或两套 carrier 时停止 | not-started |
+| TX-06 | 实施并验证结构化 outer contract 与唯一内部 Tool catalog | API/internal/cache | 上游 `spec_plan/ToolExposure` seam、code-mode helper、TaskSpace Tool projection | structured Function carrier + neutral ToolSpec conversion | 直接复用或中性抽取 Codex ToolSpec 转换与 nested Router seam，从同一静态 ToolSpec 快照机械派生 outer contract、内部 catalog 和 capability ID；TaskSpace 删除顶层 client schema，只在 outer contract 内暴露一次；schema 定义可变长 `calls[]`/`hosted_bindings[]` 的元素形状，由 Agent 构造每次实例 | 生产协议只有结构化 carrier；相同能力快照生成稳定 declaration；Agent 可自由选择合法 Tool、数量、参数、顺序和节点归属 | 只增加 TaskSpace metadata 薄层并复用 Codex Tool 暴露与执行能力 | Complexity: 仅新增 TaskSpace carrier metadata 和静态 projection；Reach/Cost: 发布时 provider payload 与缓存指纹一次变化 | schema 派生 fixtures、code-mode 0-diff、catalog/Router 一一对应、顶层 client 零泄漏、运行时数据零 schema 引用、重复构建逐字一致、0/1/N 与不同顺序实例、Standard/TaskSpace 静态 Tool payload 体积拆分、缓存门禁 | 需要第二 registry/converter、修改普通 Tool schema、双重暴露、运行时 schema 或两套 carrier 时停止 | not-started |
 | TX-07 | 收集响应级事实而不建全局状态 | response lifecycle | Responses SSE decoder、`session/turn.rs` | response-local `TaskspaceExecEnvelope` | 保留每个 Hosted item 的原始 `output_index`，收集唯一 outer call，在 `response.completed` 冻结并消费 | executor 按 Provider 顺序获得真实 facts 和 Agent plan，不受并行完成顺序影响 | 解决 Hosted/Function sibling 数据归属，不重放重建 | Complexity: +1 局部 envelope 和 output-index 元数据；Reach/Cost: response loop、stream fixtures 受影响，零持久状态 | 0/1/N Hosted、乱序 done、重复/缺失 index、缺/多 outer call、stream abort；Standard 0-diff | 无法保留原始 `output_index` 或 envelope 需跨响应时停止 | not-started |
 | TX-08 | 建立 outer response executor | internal | `taskspace_exec/response_executor.rs`、现有 response sequence入口 | outer call decode/output pairing | 消费 TX-07 envelope，解码一次、拒绝多个 outer call、保留原 outer `call_id`，禁止递归 | `taskspace_exec` 有单一 Runtime 入口且能返回原生配对 output | 把特殊性限制在必要的响应边界 | Complexity: +1 response executor，不注册第二业务 Router；Reach/Cost: tool sequence入口和取消路径受影响 | outer call pairing、decode failure、cancel/timeout、零内部 dispatch | 需要普通 Tool handler读取全局 envelope 时回退 | not-started |
 | TX-09 | 接入 canonical Map admission | state | `taskspace_exec/map_admission.rs`、现有 Action Map validator/transaction | prepared Map transaction | 将 typed plan 的 Map calls、node bindings、revision 和 client reservations一次交给现有 validator 准备 | Agent 合同和 DAG/状态硬规则在任何 client dispatch 前确定 | 不复制状态机并关闭 I06 绕过 | Complexity: +1 adapter，净复用 canonical transaction；Reach/Cost: Map revision、reservation tests 扩大 | init/reopen/complete/finish、stale、unknown/not-ready node、零提交拒绝 | 任一规则需复制到 exec 时停止 | not-started |
@@ -118,8 +111,8 @@ projection 或缓存链路才能得出结论的工作；需要大量候选代码
 | A2-V1 | 找到逐项关联的真实 wire 能力 | discovery | provider response fixtures、Responses decoder、既有 Hosted probe artifact | Hosted output identity/order/model-visible facts | 盘点 Agent 可声明字段与 Runtime 可见字段的交集，排除内容和语义猜配 | 冻结 `output_index` 排序 + Agent 有序声明，不要求 Agent 回显 Provider ID | Complexity: 仅证据矩阵；Reach/Cost: 零生产影响、零 API 费用 | Web/Image、同类多项、乱序 done fixture 可恢复唯一顺序 | TX-07 无法保留原始 index 时停止 | verified |
 | A2-V2 | 冻结逐项多节点 Agent 合同 | API/internal | `taskspace_exec/plan.rs`、`decoder.rs`、`preflight.rs` | `hosted_bindings[]` typed plan | 使用有序 `{tool,node_ids[]}`，每项节点集合非空且无重复，计划直接升级 v3、不兼容 v2 | 一个 Hosted 事实可由 Agent 绑定给一个或多个节点，且不修改 provider Tool schema | Complexity: 修改未接生产候选 schema；Reach/Cost: Phase A snapshots/tests 更新，缓存生产面不变 | strict decode、旧单 node 字段拒绝、空/重复节点拒绝、多 owner fixtures | 需要第二业务 schema或语义匹配时停止 | verified-isolated |
 | A2-V3 | 证明错误整批拒绝 | internal | `provider_reconcile.rs` | atomic Hosted reconciliation report | 按 output index、数量、Tool 类型和非空节点集合完整核对；任一 finding 返回空绑定集合 | 下游没有部分成功、重复事实、unbound settlement 或默认 owner | Complexity: 扩大候选 reconciler 和结构化 finding；Reach/Cost: 零生产接线、零 Provider 费用 | 多 owner 成功；缺/多/乱序/重复 ID/index/node、类型错配均整批空 bindings | 完整 Map/Store/Router 零副作用在 TX-09/11/12/17 接线时复验 | verified-isolated |
-| A2-V4 | 用有界真实样本识别候选风险 | provider validation | 专用 Hosted probe、全局 run ledger | same-response multi-node declaration | 用不预设 Hosted 数量的 v3 协议验证同响应多节点绑定，通过 trace 分离可见性、合同暴露和模型执行 | 证明 Agent 可见全部动作，同时 source-only 候选不足以直接进入生产落地 | Complexity: 两次 probe 均首败即停，不扩大 repeat；Reach/Cost: 稳定性结论移交 TX-06/17/18 | 原始 trace 和费用可复算 | Phase A 不再重试；结构化 carrier 随 TX-06 实施验证 | evidence-complete-risk-deferred |
-| TX-18 | 小预算真实行为与成本验证 | validation | Docker benchmark、run ledger | Standard + TaskSpace policies | 获批后先跑简单/复杂各一次；异常先归因，不自动扩大 repeat；成本按原有 Tool 合同、TaskSpace metadata、自然上下文和动态结果拆分 | 验证 Agent 能生成 exec、任务完成、缓存和成本可观测，并避免把 Tool 迁移误报为新增成本 | 判断可行实现是否形成真实产品收益 | Complexity: 不增加生产代码；Reach/Cost: 产生 DeepSeek token、费用和时间 | 逐 request trace、Map、request/token/cache/time/cost 表；静态 payload 拆分与 Provider usage 可相互解释 | 未获预算不运行；失败不以重试覆盖 | not-started |
+| A2-V4 | 用有界真实样本识别 source-only 候选边界 | provider validation | 专用 Hosted probe、全局 run ledger | same-response multi-node declaration | 用不预设 Hosted 数量的 v3 协议验证同响应多节点绑定，通过 trace 分离可见性、合同暴露和模型执行 | 证明 Agent 可见全部动作，同时排除 source-only 候选进入生产 | Complexity: 两次 probe 均首败即停，不扩大 repeat；Reach/Cost: 结构化实现和集成行为验收移交 TX-06/17/18 | 原始 trace 和费用可复算 | Phase A 不再重试；结构化 carrier 随 TX-06 实施验证 | evidence-complete |
+| TX-18 | 小预算真实行为与成本验证 | validation | Docker benchmark、run ledger | Standard + TaskSpace policies | 获批后先跑简单/复杂各一次；异常先归因，不自动扩大 repeat；成本按原有 Tool 合同、TaskSpace metadata、自然上下文和动态结果拆分 | 验证 Agent 能生成 exec、任务完成、缓存和成本可观测 | 判断可行实现是否形成真实产品收益 | Complexity: 不增加生产代码；Reach/Cost: 产生 DeepSeek token、费用和时间 | 逐 request trace、Map、request/token/cache/time/cost 表；静态 payload 拆分与 Provider usage 可相互解释 | 未获预算不运行；失败不以重试覆盖 | not-started |
 | TX-19 | 重评 R8 问题全集 | planning | `01-r8-known-issues.md` | I01～I10 | 只依据新生产 trace 更新关闭、改方案或新增状态 | R8 回到唯一证据化问题队列 | 防止旧根因继续污染路线 | Complexity: 文档状态变更；Reach/Cost: 改变后续优先级 | 每项有新协议证据链接 | 无 E2/E3 证据保持 open | not-started |
 
 ## 4. 阶段与停点
@@ -134,7 +127,7 @@ projection 或缓存链路才能得出结论的工作；需要大量候选代码
 - Units: TX-01～TX-05。
 - A1: typed plan 能在副作用前完整形成，已通过。
 - A2: V1～V3 证明多节点产品合同和无语义核对在离线成立；V4 排除 Hosted 子动作不可见，并否定 source-only 作为可直接落地的承载方式。
-- Exit: 已完成。产品合同自洽、Provider/上游基础事实存在、明确排除默认 Root/unbound 和 source-only 直接落地；结构化 carrier、完整 Hosted 链路和模型稳定性按责任移交后续阶段。
+- Exit: 已完成。产品合同自洽、Provider/上游基础事实存在、明确排除默认 Root/unbound 和 source-only 直接落地；结构化 carrier、完整 Hosted 链路和集成行为验收按责任移交后续阶段。
 
 ### Phase B1：结构化承载、共享能力与响应入口
 
@@ -195,7 +188,7 @@ projection 或缓存链路才能得出结论的工作；需要大量候选代码
 
 - 每个 TX 单元单独实现、测试、提交和推送；不得把相邻单元提前混入。
 - TX-06、TX-15 是一次性静态 Tool wire 变更面；TX-07、TX-09、TX-12、TX-13 是状态/反馈高风险面。各自完成后按
-  实际影响执行定向审计，不把 TX-06 误记为运行期动态 schema 风险。
+  实际影响执行定向审计。
 - 任何 Tool declaration、base instruction 或 provider payload 变化都先执行缓存门禁。
 - TX-14 前不宣称新协议可观测；TX-17 前不申请真实样本预算。
 - 真实 Whale Agent run 严格遵循全局账本和预算规则；阶段授权不替代付费运行授权。

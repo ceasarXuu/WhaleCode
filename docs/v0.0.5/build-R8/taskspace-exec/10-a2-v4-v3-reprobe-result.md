@@ -2,7 +2,7 @@
 
 - Date: 2026-08-06
 - Record: `WAR-20260806-025727-R8-A2-V4-HOSTED-BINDING-002`
-- Status: failed as specified / source-only risk confirmed / implementation validation deferred
+- Status: failed as specified / source-only carrier excluded / implementation assigned to B1-D
 - Requests: 1 of 2 approved; automatic retries 0
 
 ## 1. 结果
@@ -58,8 +58,9 @@ Provider 真正机械校验的 Function 参数只有：
 ## 4. 影响与停点
 
 1. v3 typed plan 和 Runtime 原子拒绝逻辑的离线正确性仍成立；
-2. 当前 outer Function 合同承载方式不能稳定让 Agent 生成该 plan，足以排除 source-only 直接落地；但不要求 Phase A 提前完成结构化 carrier 和生产稳定性证明；
-3. 不再启动第三次提示词式 probe；结构化 carrier 随 TX-06/B1 实施和定向验证，Hosted 完整链路随 TX-11/B2 验证，稳定性与成本随 TX-17/18 验证；
+2. 当前 source-only outer Function 无法通过 Provider schema 约束内层 plan，足以排除 source-only 直接落地；结构化
+   Function carrier 由 TX-06/B1 实施；
+3. 不再启动第三次提示词式 probe；Hosted 完整链路随 TX-11/B2 验证，集成行为与成本随 TX-17/18 验证；
 4. 后续候选不得修改普通 Tool 原生 schema，不得让 Runtime 替 Agent 选节点，不得建立第二套 Tool 合同或语义匹配层。
 
 ## 5. 成本与证据

@@ -46,16 +46,19 @@ model-visible tools
 
 ## 3. 一次调用表达什么
 
-`taskspace_exec` 的外层是 Function Call。Phase A 验证过的首个隔离候选是：
+`taskspace_exec` 的外层是一个结构化 Function Call。静态 schema 固定顶层字段、数组元素、可用 Tool 及各 Tool 原生参数
+的合法形状；它不固定一次响应实际调用哪些 Tool、调用数量、数组顺序或节点归属。
 
-```json
-{
-  "source": "<TaskSpace exec source>"
-}
-```
+每个调用实例完全由 Agent 构造：
 
-两次有界真实 probe 已证明 source-only 不足以作为可直接落地的硬合同承载层。因此产品合同只在此冻结 Runtime 计划
-必须包含的三类事实，不冻结 `source` 为最终 wire；结构化 Function carrier 随 TX-06/B1 实施验证：
+- `calls[]` 中实际出现的 Tool、数量、原生参数和数组顺序；
+- 每个 client/map call 的节点归属；
+- `hosted_bindings[]` 中本响应每项 Provider-hosted 事实的节点归属。
+
+Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这些实例数据。收到 Function Call 后，Runtime 才解析 Agent
+声明，对结构化 schema 之外的 TaskSpace 硬规则执行 preflight，并将通过的 client/map call 机械交给原生 Router。
+
+结构化 Function Call 必须包含三类事实：
 
 | 类别 | Agent 声明 | Runtime 权限 | 权威执行事实 |
 |---|---|---|---|
@@ -196,15 +199,16 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
 | 合法序列 + node binding | 已确认 | `taskspace_exec` 仅有的 TaskSpace 新职责 |
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| source-only 候选 | 离线成立 / 真实直接落地被排除 | `taskspace.plan(<strict JSON>);` 可在副作用前生成 typed plan，但 Provider Schema 只能校验字符串外壳；结构化 carrier 移交 TX-06 |
+| 静态 schema + Agent 动态实例 | 已确认 / TX-06 实施 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | Phase A 证据完成 / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；source-only 风险已识别，carrier、完整链路和真实稳定性分配到 TX-06/11/17/18 |
+| Hosted 逐项多节点归属 | Phase A 证据完成 / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；结构化 carrier、完整链路和集成行为验收分配到 TX-06/11/17/18 |
 
 ## 9. 验收标准
 
 1. TaskSpace 请求只顶层暴露 `taskspace_exec` 和 provider 必需的 hosted capability；Standard payload 无变化。
-2. Agent 可在一个 `taskspace_exec` 中提交初始化并工作、多个独立 work、完成并继续、完成并结束。
+2. 同一静态 schema 支持 Agent 构造可变数量和顺序的调用；Agent 可在一个 `taskspace_exec` 中提交初始化并工作、多个
+   独立 work、完成并继续、完成并结束。
 3. 每个 client call 的 `node_id` 由 Agent 声明，但原 Tool schema 和 handler 完全不知道 TaskSpace。
 4. 非法 client/map 序列在明确边界内零执行、Map 零提交；边界由 TX-04 的可证伪结果冻结。
 5. provider 原始 output 的真实 ID 与 Agent 逐项节点声明一一核对；同响应可绑定多个节点，任何缺失、歧义、错配、

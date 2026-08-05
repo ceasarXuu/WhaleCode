@@ -42,7 +42,7 @@ Provider-hosted 事实绑定到该节点。该结论只覆盖了单响应单节�
 | A2-V1 | 盘点逐项关联能力 | discovery | Responses decoder、Web/Image `ResponseItem`、历史 probe artifact | Runtime/Agent 双方可用的 Hosted 结构字段 | 确认 Provider `output_index` 是顺序权威，Agent 只需按该顺序声明，不复制 Provider ID | 得到非语义、可唯一核验的关联键，并发现当前通用 SSE decoder 丢 index 的 TX-07 接线前置 | Complexity: 一份证据矩阵；Reach/Cost: 零生产影响、零 API 费用 | 同类多项与乱序 done fixture 按 index 恢复 | TX-07 必须保留 index | verified |
 | A2-V2 | 实现逐项声明候选 | API/internal | `core/src/tools/taskspace_exec/plan.rs`、`decoder.rs`、`preflight.rs` | `hosted_bindings[]` | 使用有序 `{tool,node_ids[]}`，节点集合非空且无重复，计划升级 v3 并拒绝旧单 node 字段 | typed plan 可表达同一事实服务多个节点 | Complexity: 重写未接生产候选 schema，不增加第二 registry；Reach/Cost: Phase A tests/snapshots 更新 | 多 owner、旧字段、空/重复节点和严格 decode 单测 | 需要修改 provider/普通 Tool schema 或语义匹配时停止 | verified-isolated |
 | A2-V3 | 建立原子核对门禁 | internal | `provider_reconcile.rs` | complete Hosted binding set | 按 output index、数量、Tool 类型和节点集合完整核对；任一 finding 返回空 bindings | 不完整归属不能产生部分成功、重复事实、默认 Root owner 或未绑定 settlement | Complexity: 扩大候选 reconciler 和 finding；Reach/Cost: 零生产接线、零 Provider 费用 | 缺/多/乱序/重复 ID/index/node、类型错配均整批拒绝 | Map/Store/Router 接线副作用在 TX-09/11/12/17 复验 | verified-isolated |
-| A2-V4 | 用有界真实样本识别候选风险 | provider validation | `r8_taskspace_exec_a2_probe.py`、Docker、run ledger | same-response multi-node Hosted declaration | 用真实双子任务验证可见性和 source-only 候选，在证据足够后停止扩大 | 排除反馈丢失，证明 source-only 不应直接落地，但不提前承担结构化 carrier 和生产稳定性验证 | Complexity: 两次真实响应均首败即停；Reach/Cost: 后续结论移交 TX-06/11/17/18 | trace 可分离可见性、合同暴露和模型执行 | 不在 Phase A 追加提示词、receipt 实现或继续付费 repeat | evidence-complete-risk-deferred |
+| A2-V4 | 用有界真实样本识别 source-only 候选边界 | provider validation | `r8_taskspace_exec_a2_probe.py`、Docker、run ledger | same-response multi-node Hosted declaration | 用真实双子任务验证可见性和 source-only 候选，在证据足够后停止扩大 | 排除反馈丢失并证明 source-only 不应直接落地；结构化 carrier 和生产集成由后续单元实施 | Complexity: 两次真实响应均首败即停；Reach/Cost: 后续结论移交 TX-06/11/17/18 | trace 可分离可见性、合同暴露和模型执行 | 不在 Phase A 追加提示词、receipt 实现或继续付费 repeat | evidence-complete |
 
 ## 4. 确定性矩阵
 
@@ -68,8 +68,8 @@ Phase A 的 A2 证据收集已完成：
 
 1. A2-V1 找到并用源码/fixture 证明可唯一核验的逐项关联方式；已完成；
 2. A2-V2/V3 的 v3 正反矩阵全部通过，且候选代码中不存在单 owner Hosted 字段、Root fallback 或 unbound settlement；已完成；
-3. A2-V4 已证明 Agent 可见 Hosted 子动作，并将 source-only 直接落地识别为明确风险；已完成。
+3. A2-V4 已证明 Agent 可见 Hosted 子动作，并排除 source-only 作为生产 carrier；已完成。
 
 剩余验收按实施责任分配：TX-06 验证结构化 carrier 与唯一 ToolSpec 派生；TX-11 验证真实 response envelope 上的 Hosted
-原子核对；TX-17 验证完整确定性矩阵；TX-18 在获批预算下验证目标模型稳定性、成本和缓存。后续仍不得以整响应单节点、
+原子核对；TX-17 验证完整确定性矩阵；TX-18 在获批预算下验证目标模型任务结果、成本和缓存。后续仍不得以整响应单节点、
 语义猜配、默认 Root 或“先记 unbound 后继续”降级。

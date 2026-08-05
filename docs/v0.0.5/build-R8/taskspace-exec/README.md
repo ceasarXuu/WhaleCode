@@ -9,7 +9,7 @@
 
 R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯一主方案：
 
-1. `taskspace_exec` 是一个 Function Call 形态的超级工具，参考 Codex `exec/code-mode` 的内部 Tool 暴露、嵌套
+1. `taskspace_exec` 是一个 Function Call 形态的单一外层 Tool，复用 Codex `exec/code-mode` 的内部 Tool 暴露、嵌套
    调用和原 Router 复用方式，但不照搬其 Freeform Tool wire。
 2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 和 `taskspace_control` 的能力说明由
    `taskspace_exec` 从原生 `ToolSpec` 派生并在内部暴露。
@@ -19,6 +19,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    provider 原始结果中的 `id/item_id`，但节点归属必须由 Agent 逐项声明并完整核对。
 5. `taskspace_exec` 只增加两个 TaskSpace 职责：合法序列和节点绑定。它不规划任务、不选择节点、不解释 Tool 结果，
    也不根据 Tool 成败推进节点状态。
+6. `taskspace_exec` schema 是静态能力合同，只定义 `calls[]`、`hosted_bindings[]` 和各 Tool 参数的合法形状。每次实际
+   使用的 Tool、数量、参数、数组顺序和节点归属全部由 Agent 构造；Runtime 收到调用后才执行硬规则预检和机械路由。
+7. 普通 Client Tool 合同从 Standard 顶层迁移到 Exec 内部，只暴露一次；运行时 Map、node、plan、Provider output 和
+   Session 状态不进入 Tool declaration。
 
 旧的普通 Tool schema 入侵、顶层结构化序列容器和 `taskspace_control.actions[] + sibling calls` 三条路线降级为候选，
 统一封存在 [`../tool-sequence-protocol/`](../tool-sequence-protocol/README.md)。它们不再拥有生产实施状态；只有主方案
@@ -30,13 +34,13 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。
 - Codex 主线 `exec` 是 Freeform JavaScript Tool；Whale 已通过本地改造和一次 DeepSeek V4 Flash 真实编码闭环证明
   `{source: string}` Function Call 形态能够进入相同嵌套 Tool 路径。
-- 现有证据证明“Function 超级工具 + 原 Router”可行，但尚未证明 TaskSpace 完整合法序列的副作用前批次预检，以及
-  provider-hosted 逐项双写身份在所有 provider 输出上的稳定性。
+- 现有证据证明“Function 外层 Tool + 原 Router”可行；TaskSpace 完整合法序列的副作用前批次预检和
+  provider-hosted 逐项双写核对由 B1/B2 接入生产路径并执行确定性验收。
 - 当前生产代码仍运行旧 sibling 协议。文档主方案切换不等于生产切换；正式切换必须是一次可验证的原子迁移，随后
   删除旧路径，不保留兼容双轨。
-- Phase A 已证明严格声明式 source、完整 typed plan、零副作用 preflight，以及 Runtime 可直接读取 Provider
-  `id/item_id`。A2 先前只验证了整响应单节点原型，未覆盖同响应多 Hosted 动作分别绑定多个节点，也错误接受了
-  Root/unbound 降级；A2 已回撤为未完成，Phase B 暂停。
+- Phase A 已证明完整 typed plan、零副作用 preflight、Runtime 可直接读取 Provider `id/item_id`，以及逐项多节点
+  Hosted 归属可机械核对。`source:string` 只保留为被淘汰候选的历史证据；Phase A 已完成，Phase B1 从结构化 Function
+  schema 开始实施。
 
 ## 3. 文档
 

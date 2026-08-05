@@ -68,16 +68,17 @@ TaskSpace 序列或 hosted 双写协议。
 | 递归保护 | `is_exec_tool_name` / nested Tool filter | `taskspace_exec` 和原 `exec` 均不得成为自身内部成员 |
 | deferred Tool | `ALL_TOOLS` / ToolSearch 现有能力 | 需证明加载后 catalog identity 与缓存指纹一致 |
 
-## 4. 不能直接复用的假设
+## 4. TaskSpace 增量边界
 
-- Codex exec 是实时 JavaScript orchestration，内部 Tool 可能在 source 运行期间立即发生；TaskSpace 的批次合法性要求可能
-  需要更窄的声明式 source 子集或独立 capture/preflight 边界。
-- Codex 不要求每个嵌套 Tool 绑定 Map 节点；Whale 必须增加外层 invocation metadata，不能把 `node_id` 写进 Tool args。
-- Codex 不负责把 provider-hosted 输出双写回 Map；Whale 必须从真实 provider response 建立可复算 reconciliation。
-- Codex 的 Freeform wire 不能作为 DeepSeek 兼容前提；Whale 的生产入口必须是 Function Call。
+- 生产入口使用结构化 Function Call。静态 schema 定义可变长 `calls[]`、`hosted_bindings[]` 和各 Tool 参数形状；Agent
+  构造每次实际 Tool、数量、参数、顺序和节点归属。
+- Codex 不要求每个嵌套 Tool 绑定 Map 节点；Whale 在外层 invocation metadata 增加 Agent 声明的 `node_id`，不修改
+  原生 Tool args。
+- Codex 不负责把 provider-hosted 输出登记到 Map；Whale 从真实 provider response 建立可复算 reconciliation，节点归属
+  仍由 Agent 在 `hosted_bindings[]` 中声明。
 - 最新上游已经把 Tool 规划从本地仍在使用的 `spec.rs` 拆到 `spec_plan.rs`、`hosted_spec.rs` 等模块，并新增统一
-  `ToolExposure`；Phase A 基于当前 vendor 冻结合同，Phase B 的 TX-06 应在同步该上游 seam 后再接共享 catalog，不能复制
-  最新文件覆盖 Whale 改造，也不能在旧 `spec.rs` 上新增长期平行 catalog。
+  `ToolExposure`；Phase B 的 TX-06 同步或中性抽取该 seam 后接共享 catalog，不覆盖 Whale 改造，也不在旧 `spec.rs`
+  新增长期平行 catalog。
 
 ## 5. 外部依据
 
