@@ -864,7 +864,8 @@ $wireTraceInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -Artifac
 $wireTraceSummary = $wireTraceInstrumentation.provider_cache_trace_summary
 $wireTraceEvents = @($wireTraceInstrumentation.provider_cache_trace_events)
 Assert-True ([string]$wireTraceSummary.schema_version -eq "TaskSpaceProviderCacheTraceSummaryV4" -and [string]$wireTraceSummary.source -eq "provider_final_wire_trace") "provider final-wire trace was not selected as cache source"
-Assert-True ([int]$wireTraceSummary.provider_request_count -eq 2 -and [double]$wireTraceSummary.trace_coverage -eq 1.0) "provider final-wire trace coverage was not complete"
+Assert-True ($null -eq $wireTraceSummary.provider_request_count -and [string]$wireTraceSummary.provider_request_source -eq "request_facts_unavailable") "provider request count was inferred without boundary evidence"
+Assert-True ([int]$wireTraceSummary.provider_attempt_count -eq 2 -and [int]$wireTraceSummary.shape_observation_count -eq 2 -and [double]$wireTraceSummary.trace_coverage -eq 1.0) "provider attempt trace coverage was not complete"
 Assert-True ([double]$wireTraceSummary.request_2_plus_hit_rate -eq 0.9) "provider final-wire request-2+ cache usage was not aggregated"
 Assert-True ([int]$wireTraceSummary.prefix_preserved_count -eq 0 -and [double]$wireTraceSummary.prefix_preserved_rate -eq 0.0) "tool-choice transition was incorrectly reported as full prefix preservation"
 Assert-True ([int]$wireTraceSummary.zero_cache_hit_count -eq 1 -and [int]$wireTraceSummary.cache_warmup_candidate_count -eq 1 -and [int]$wireTraceSummary.same_shape_zero_hit_count -eq 0) "cache warmup classification was not aggregated"
@@ -874,6 +875,15 @@ Assert-True ([string]$wireTraceSummary.section_cost_summary.availability -eq "un
 Assert-True ([int]$wireTraceSummary.section_cost_summary.unavailable_reason_counts.provider_wire_v3_section_cost_missing -eq 2 -and $null -eq $wireTraceSummary.section_cost_summary.section_bytes_total) "provider wire without section cost section cost was reported as zero"
 Assert-True (@($wireTraceEvents | Where-Object { $_.section_cost.availability -eq "unavailable" -and $_.section_cost.unavailable_reason -eq "provider_wire_v3_section_cost_missing" }).Count -eq 2) "provider wire without section cost cache events omitted section-cost provenance"
 Assert-True ([int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unavailable_count -eq 2 -and [int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 0) "provider wire without section cost projection identity should be explicitly unavailable"
+
+$conflictFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath (Join-Path $wireTraceDir "provider-wire-trace.jsonl")
+$conflictFacts.availability.usage = "incomparable"
+$conflictFacts.findings = @([pscustomobject]@{ code = "usage_source_conflict"; source = "reconcile" })
+$conflictSummary = (New-TaskspaceProviderWireCacheTraceArtifacts `
+        (Join-Path $wireTraceDir "provider-wire-trace.jsonl") $conflictFacts).provider_cache_trace_summary
+Assert-True (-not [bool]$conflictSummary.comparison_eligible -and $null -eq $conflictSummary.request_2_plus_hit_rate) "incomparable canonical usage still produced a cache rate"
+Assert-True ($null -eq $conflictSummary.request_2_plus_cached_input_tokens -and $null -eq $conflictSummary.zero_cache_hit_count) "incomparable canonical usage still produced precise cache totals"
+Assert-True (@($conflictSummary.request_facts_findings) -contains "usage_source_conflict") "cache summary omitted canonical conflict findings"
 
 $v3WireTraceDir = Join-Path $RunRoot "provider-wire-trace-v3-artifacts"
 New-Item -ItemType Directory -Path $v3WireTraceDir -Force | Out-Null

@@ -2,10 +2,13 @@ function Get-R7RequestFactsAnalyzerIdentity {
     $benchmarkRoot = Split-Path -Parent $PSScriptRoot
     $relativePaths = @(
         "request_facts.py",
+        "request_fact_reconciliation.py",
         "request_fact_availability.py",
         "request_fact_diagnostics.py",
         "request_fact_summary.py",
-        "request_fact_validation.py"
+        "request_fact_validation.py",
+        "build-request-facts.py",
+        "lib/request-facts.ps1"
     )
     $files = @($relativePaths | ForEach-Object {
             $path = Join-Path $benchmarkRoot $_
@@ -83,6 +86,7 @@ function Get-R7RequestFactsIdentity {
         analyzer = $analyzer
         sources = [pscustomobject]$sources
         availability = $facts.availability
+        boundary_identity = $facts.boundary_identity
     }
 }
 

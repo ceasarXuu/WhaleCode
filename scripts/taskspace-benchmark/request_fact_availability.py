@@ -21,7 +21,6 @@ def classify_availability(
         "identity_conflict",
         "wire_schema_unsupported",
         "attempt_evidence_invalid",
-        "attempt_digest_ambiguous",
         "attempt_index_sequence_invalid",
         "logical_attempt_sequence_invalid",
         "logical_completion_sequence_invalid",
@@ -43,26 +42,38 @@ def classify_availability(
         for finding in findings
     )
     boundary_codes = {
+        "boundary_lifecycle_missing",
+        "boundary_lifecycle_invalid",
+        "boundary_lifecycle_count_mismatch",
         "boundary_claim_invalid",
-        "boundary_digest_ambiguous",
+    }
+    boundary_correlation_codes = boundary_codes | {
         "boundary_unattributed",
         "completed_without_boundary",
         "boundary_status_unknown",
-        "attempt_digest_ambiguous",
+        "boundary_correlation_ambiguous",
     }
     boundary_invalid = bool(codes & boundary_codes) or any(
         finding["source"] == "boundary"
         and finding["code"] in {"json_invalid", "json_object_required"}
         for finding in findings
     )
+    boundary_correlation_invalid = bool(codes & boundary_correlation_codes) or boundary_invalid
     completion_invalid = wire_invalid or rollout_invalid or bool(
         codes & {"terminal_without_attempt", "usage_source_conflict"}
     )
-    usage_invalid = rollout_invalid or wire_invalid or "usage_source_conflict" in codes
+    usage_invalid = rollout_invalid or wire_invalid or bool(
+        codes & {"usage_source_conflict", "usage_terminal_conflict"}
+    )
     has_usage = any(row["usage"] is not None for row in normalized)
     return {
         "attempt": "incomparable" if wire_invalid else "measured" if wire_available else "unavailable",
         "boundary": "incomparable" if boundary_invalid else "measured" if boundary_available else "unavailable",
+        "boundary_correlation": (
+            "incomparable"
+            if boundary_correlation_invalid
+            else "measured" if boundary_available else "unavailable"
+        ),
         "completion": (
             "incomparable"
             if completion_invalid

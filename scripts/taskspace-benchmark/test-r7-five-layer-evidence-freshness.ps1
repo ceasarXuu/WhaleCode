@@ -92,6 +92,21 @@ $standardTerminal = New-Terminal "standard-request-1" "standard-logical-1"
 $taskspaceTerminal = New-Terminal "taskspace-request-1" "taskspace-logical-1"
 @(($standardTrace | ConvertTo-Json -Compress -Depth 100), $standardTerminal) | Set-Content -LiteralPath (Join-Path $pairDir "left/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
 @(($taskspaceTrace | ConvertTo-Json -Compress -Depth 100), $taskspaceTerminal) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") -Encoding UTF8
+$boundaryStart = [ordered]@{
+    event = "provider_boundary_started"; limit = 3; allowed_method = "POST"
+    allowed_path = "/responses"; allowed_model = "deepseek-v4-flash"
+}
+function Write-BoundaryFixture([string]$Path, [string]$Digest) {
+    @(
+        $boundaryStart,
+        [ordered]@{ event = "provider_request_claimed"; count = 1; method = "POST"; path = "/responses"; model = "deepseek-v4-flash"; body_sha256 = $Digest },
+        [ordered]@{ event = "provider_boundary_stopped"; request_count = 1 }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+$standardBoundaryPath = Join-Path $pairDir "left/artifacts/provider-boundary-events.jsonl"
+$taskspaceBoundaryPath = Join-Path $pairDir "right/artifacts/provider-boundary-events.jsonl"
+Write-BoundaryFixture $standardBoundaryPath ([string]$standardTrace.provider_payload_sha256)
+Write-BoundaryFixture $taskspaceBoundaryPath ([string]$taskspaceTrace.provider_payload_sha256)
 
 $controlArguments = @{ action = "initialize_map" } | ConvertTo-Json -Compress
 $controlOutput = [ordered]@{
@@ -118,10 +133,12 @@ $rolloutEvents = @(
 @($rolloutEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 100 }) | Set-Content -LiteralPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") -Encoding UTF8
 Invoke-TaskspaceRequestFactsGenerator `
     -WireTracePath (Join-Path $pairDir "left/artifacts/provider-wire-trace.jsonl") `
+    -BoundaryEventsPath $standardBoundaryPath `
     -OutputPath (Join-Path $pairDir "left/artifacts/request-facts.json") | Out-Null
 Invoke-TaskspaceRequestFactsGenerator `
     -RolloutJsonlPath (Join-Path $pairDir "right/artifacts/rollout.jsonl") `
     -WireTracePath (Join-Path $pairDir "right/artifacts/provider-wire-trace.jsonl") `
+    -BoundaryEventsPath $taskspaceBoundaryPath `
     -OutputPath (Join-Path $pairDir "right/artifacts/request-facts.json") | Out-Null
 
 $resultPath = Join-Path $fixtureRoot "result.json"

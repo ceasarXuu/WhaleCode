@@ -152,9 +152,14 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         digest = hashlib.sha256(body).hexdigest()
         events = Path(self.temp.name, "reconcile-events.jsonl")
         wire = Path(self.temp.name, "wire.jsonl")
-        events.write_text(
-            json.dumps(
-                {
+        start_event = {
+            "event": "provider_boundary_started",
+            "limit": 2,
+            "allowed_method": "POST",
+            "allowed_path": "/responses",
+            "allowed_model": "deepseek-v4-flash",
+        }
+        first_claim = {
                     "event": "provider_request_claimed",
                     "count": 1,
                     "method": "POST",
@@ -162,8 +167,11 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
                     "model": "deepseek-v4-flash",
                     "body_sha256": digest,
                 }
-            )
-            + "\n",
+        events.write_text(
+            "".join(
+                json.dumps(event) + "\n"
+                for event in (start_event, first_claim, {"event": "provider_boundary_stopped", "request_count": 1})
+            ),
             encoding="utf-8",
         )
         wire_events = [
@@ -197,10 +205,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         self.assertEqual(result["status"], "reconciled")
         self.assertEqual(result["boundary_request_count"], 1)
 
-        events.write_text(
-            events.read_text(encoding="utf-8")
-            + json.dumps(
-                {
+        second_claim = {
                     "event": "provider_request_claimed",
                     "count": 2,
                     "method": "POST",
@@ -208,8 +213,11 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
                     "model": "deepseek-v4-flash",
                     "body_sha256": "f" * 64,
                 }
-            )
-            + "\n",
+        events.write_text(
+            "".join(
+                json.dumps(event) + "\n"
+                for event in (start_event, first_claim, second_claim, {"event": "provider_boundary_stopped", "request_count": 2})
+            ),
             encoding="utf-8",
         )
         mismatch = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")

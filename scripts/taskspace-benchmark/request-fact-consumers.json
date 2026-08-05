@@ -1,61 +1,32 @@
 {
   "schema_version": "whalecode-request-fact-consumers-v1",
   "consumers": [
-    {
-      "path": "scripts/taskspace-benchmark/docker/provider_boundary_proxy.py",
-      "role": "producer",
-      "observed_sources": ["boundary"],
-      "required_facts": ["boundary"],
-      "migration": "none"
-    },
-    {
-      "path": "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1",
-      "role": "consumer",
-      "observed_sources": ["terminal"],
-      "required_facts": ["attempt", "completed_usage"],
-      "migration": "I07-W3"
-    },
-    {
-      "path": "scripts/taskspace-benchmark/lib/provider-section-cost.ps1",
-      "role": "consumer",
-      "observed_sources": ["local_attempt"],
-      "required_facts": ["attempt_shape", "completed_usage"],
-      "migration": "I07-W6"
-    },
-    {
-      "path": "scripts/taskspace-benchmark/lib/r7-five-layer-evidence-freshness.ps1",
-      "role": "consumer",
-      "observed_sources": ["local_attempt"],
-      "required_facts": ["attempt", "provenance"],
-      "migration": "I07-W7"
-    },
-    {
-      "path": "scripts/taskspace-benchmark/lib/r7-request-observability.ps1",
-      "role": "consumer",
-      "observed_sources": ["terminal"],
-      "required_facts": ["attempt", "completion", "completed_usage"],
-      "migration": "I07-W5-counts; retained-wire-details"
-    },
-    {
-      "path": "scripts/taskspace-benchmark/lib/timing.ps1",
-      "role": "consumer",
-      "observed_sources": ["terminal"],
-      "required_facts": ["attempt", "completion", "latency"],
-      "migration": "retained-lifecycle-latency"
-    },
-    {
-      "path": "scripts/taskspace-benchmark/request_facts.py",
-      "role": "canonical_consumer",
-      "observed_sources": ["boundary", "local_attempt", "rollout_token", "terminal"],
-      "required_facts": ["attempt", "boundary", "completion", "completed_usage"],
-      "migration": "none"
-    },
-    {
-      "path": "scripts/taskspace-benchmark/request_fact_diagnostics.py",
-      "role": "canonical_derived",
-      "observed_sources": ["terminal"],
-      "required_facts": ["completion", "diagnostics"],
-      "migration": "I07-W8"
-    }
+    {"path":"scripts/taskspace-benchmark/request_fact_reconciliation.py","role":"canonical_derived","observed_sources":["boundary","canonical","terminal"]},
+    {"path":"scripts/taskspace-benchmark/request_facts.py","role":"canonical_consumer","observed_sources":["canonical","local_attempt","rollout_token","terminal"]},
+    {"path":"scripts/taskspace-benchmark/request_fact_diagnostics.py","role":"canonical_derived","observed_sources":["terminal"]},
+    {"path":"scripts/taskspace-benchmark/build-request-facts.py","role":"canonical_entrypoint","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/provider-section-cost.ps1","role":"consumer","observed_sources":["canonical","local_attempt"]},
+    {"path":"scripts/taskspace-benchmark/lib/metrics-extractor.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/timing.ps1","role":"consumer","observed_sources":["terminal"]},
+    {"path":"scripts/taskspace-benchmark/lib/r7-request-observability.ps1","role":"consumer","observed_sources":["canonical","terminal"]},
+    {"path":"scripts/taskspace-benchmark/lib/pair-report.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/r7-request-facts-provenance.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/r7-artifact-provenance.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/r7-five-layer-evidence-freshness.ps1","role":"consumer","observed_sources":["canonical","local_attempt"]},
+    {"path":"scripts/taskspace-benchmark/lib/request-facts.ps1","role":"canonical_wrapper","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/cost-instrumentation.ps1","role":"consumer","observed_sources":["canonical","terminal"]},
+    {"path":"scripts/taskspace-benchmark/lib/performance-observation.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/docker/provider_boundary_proxy.py","role":"producer","observed_sources":["boundary"]},
+    {"path":"scripts/taskspace-benchmark/docker/verify_provider_boundary.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/recover_cache_run_ledger.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/cache_request_accounting.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/cache_provider_boundary_evidence.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/accepted_cache_baseline.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/cache_result_integrity.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/cache_run_analysis.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/run_cache_hit_regression.py","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/cache-regression/cache_usage_contract.py","role":"consumer","observed_sources":["canonical"]}
   ]
 }

@@ -30,11 +30,16 @@ def reconcile(events_path: Path, wire_path: Path, expected_model: str) -> dict[s
     return {
         "schema_version": SCHEMA_VERSION,
         "request_facts_analyzer_version": ANALYZER_VERSION,
-        "status": "reconciled" if facts["availability"]["boundary"] == "measured" else "mismatch",
+        "status": (
+            "reconciled"
+            if facts["availability"]["boundary"] == "measured"
+            and facts["availability"]["boundary_correlation"] == "measured"
+            else "mismatch"
+        ),
         "expected_model": expected_model,
         "allowed_method": "POST",
         "allowed_path": "/responses",
-        "boundary_request_count": len(boundary),
+        "boundary_request_count": facts["summary"]["boundary_request_count"],
         "wire_request_count": len(crossed),
         "local_attempt_count": len(attempts),
         "local_only_attempt_count": facts["summary"]["local_only_attempt_count"],

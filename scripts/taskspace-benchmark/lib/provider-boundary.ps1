@@ -90,8 +90,10 @@ function Stop-TaskspaceProviderBoundary {
     if ($null -eq $Boundary) { return $null }
     $stdoutPath = Join-Path $Boundary.supervisor_dir 'container.stdout.log'
     $stderrPath = Join-Path $Boundary.supervisor_dir 'container.stderr.log'
+    $stop = Invoke-TaskspaceDocker @('stop', '--time', '10', $Boundary.container_id)
     [void](Invoke-TaskspaceDocker @('logs', $Boundary.container_id) -StdoutPath $stdoutPath -StderrPath $stderrPath)
-    $remove = Invoke-TaskspaceDocker @('rm', '--force', $Boundary.container_id)
+    $removeArgs = if ($stop.exit_code -eq 0) { @('rm', $Boundary.container_id) } else { @('rm', '--force', $Boundary.container_id) }
+    $remove = Invoke-TaskspaceDocker $removeArgs
     $networkResults = @()
     foreach ($network in @($Boundary.internal_network, $Boundary.egress_network)) {
         $networkResults += Invoke-TaskspaceDocker @('network', 'rm', $network)
@@ -101,8 +103,6 @@ function Stop-TaskspaceProviderBoundary {
     $supervisorEventsPath = Join-Path $Boundary.supervisor_dir 'events.jsonl'
     if (Test-Path -LiteralPath $supervisorEventsPath) {
         Copy-Item -LiteralPath $supervisorEventsPath -Destination $eventsPath -Force
-    } else {
-        [System.IO.File]::WriteAllText($eventsPath, '', [System.Text.UTF8Encoding]::new($false))
     }
     $evidencePath = Join-Path $ArtifactDir 'provider-boundary-evidence.json'
     $wirePath = Join-Path $ArtifactDir 'provider-wire-trace.jsonl'
@@ -110,10 +110,13 @@ function Stop-TaskspaceProviderBoundary {
     $reconcileExit = $LASTEXITCODE
     $result = [pscustomobject]@{
         schema_version = 1
-        status = if ($remove.exit_code -eq 0 -and @($networkResults | Where-Object { $_.exit_code -ne 0 }).Count -eq 0) { 'removed' } else { 'cleanup_failed' }
+        status = if ($stop.exit_code -eq 0 -and $remove.exit_code -eq 0 -and @($networkResults | Where-Object { $_.exit_code -ne 0 }).Count -eq 0) { 'removed' } else { 'cleanup_failed' }
         container_id = [string]$Boundary.container_id
         request_hard_limit = [int]$Boundary.request_hard_limit
+        stop_exit_code = [int]$stop.exit_code
         events_path = [string]$eventsPath
+        events_copied = [bool](Test-Path -LiteralPath $eventsPath -PathType Leaf)
+        events_bytes = if (Test-Path -LiteralPath $eventsPath -PathType Leaf) { [int64](Get-Item -LiteralPath $eventsPath).Length } else { $null }
         evidence_path = [string]$evidencePath
         evidence_status = if ($reconcileExit -eq 0) { 'reconciled' } else { 'mismatch' }
         stdout_path = [string]$stdoutPath

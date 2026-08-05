@@ -11,6 +11,12 @@ from typing import Any
 
 
 SOURCE_PATTERNS = {
+    "canonical": re.compile(
+        r"(?:request-facts\.json|request_facts|RequestFacts|"
+        r"Invoke-TaskspaceRequestFactsGenerator|logical_request_count|"
+        r"local_attempt_count|boundary_request_count|completed_response_count|"
+        r"usage_record_count)"
+    ),
     "boundary": re.compile(r"provider_request_claimed"),
     "local_attempt": re.compile(r"payload_captured"),
     "rollout_token": re.compile(r"(?:last_token_usage|token_count|TokenCount)"),

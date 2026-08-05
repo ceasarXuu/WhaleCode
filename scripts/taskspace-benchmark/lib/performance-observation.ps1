@@ -47,16 +47,10 @@ function Get-PerformanceWireRequestCount {
     if ($facts -and [string]$facts.schema_version -eq "whalecode-request-facts-v1") {
         $boundaryMeasured = [string]$facts.availability.boundary -eq "measured"
         $completionMeasured = [string]$facts.availability.completion -eq "measured"
-        $value = if ($boundaryMeasured) {
-            Get-PerformanceCount $facts.summary.boundary_request_count
-        } elseif ($completionMeasured) {
-            Get-PerformanceCount $facts.summary.completed_response_count
-        } else {
-            $null
-        }
+        $value = if ($boundaryMeasured) { Get-PerformanceCount $facts.summary.boundary_request_count } else { $null }
         return [pscustomobject]@{
             value = $value
-            source = if ($boundaryMeasured) { "request_facts_boundary" } elseif ($completionMeasured) { "request_facts_completion" } else { "request_facts_unavailable" }
+            source = if ($boundaryMeasured) { "request_facts_boundary" } else { "request_facts_unavailable" }
             logical = Get-PerformanceCount $facts.summary.logical_request_count
             attempts = Get-PerformanceCount $facts.summary.local_attempt_count
             boundary = if ($boundaryMeasured) { Get-PerformanceCount $facts.summary.boundary_request_count } else { $null }

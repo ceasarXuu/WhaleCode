@@ -293,14 +293,12 @@ function Test-R7FiveLayerEvidenceFreshness {
                 if ($requestFacts) {
                     $requestCount = if ([string]$requestFacts.availability.boundary -eq "measured") {
                         [int64]$requestFacts.summary.boundary_request_count
-                    } elseif ([string]$requestFacts.availability.completion -eq "measured") {
-                        [int64]$requestFacts.summary.completed_response_count
                     } else {
                         Add-R7EvidenceFinding $findings "request_facts_count_unavailable" "Canonical Provider request count is unavailable." (Join-Path $artifactDir "request-facts.json")
-                        [int64]0
+                        $null
                     }
-                    if ($mode -eq "standard") { $standardRequests += $requestCount }
-                    elseif ($mode -eq "taskspace") { $taskspaceRequests += $requestCount }
+                    if ($null -ne $requestCount -and $mode -eq "standard") { $standardRequests += $requestCount }
+                    elseif ($null -ne $requestCount -and $mode -eq "taskspace") { $taskspaceRequests += $requestCount }
                 }
             }
             $taskspaceSide = if ([string]$modeMap.left -eq "taskspace") { "left" } elseif ([string]$modeMap.right -eq "taskspace") { "right" } else { "" }

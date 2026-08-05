@@ -39,6 +39,23 @@ class ConsumerInventoryTests(unittest.TestCase):
             ],
         )
 
+    def test_canonical_consumers_are_discovered(self) -> None:
+        samples = {
+            "artifact.py": 'PATH = "request-facts.json"\n',
+            "import.py": "from request_facts import build_request_facts\n",
+            "wrapper.ps1": "Invoke-TaskspaceRequestFactsGenerator -WireTracePath $Path\n",
+            "summary.py": 'count = summary["boundary_request_count"]\n',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            root = repo / "scripts/taskspace-benchmark/lib"
+            root.mkdir(parents=True)
+            for name, content in samples.items():
+                (root / name).write_text(content, encoding="utf-8")
+            discovered = GATE.discover(repo)
+        self.assertEqual(len(discovered), len(samples))
+        self.assertTrue(all(sources == {"canonical"} for sources in discovered.values()))
+
     def test_test_support_does_not_trigger_gate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

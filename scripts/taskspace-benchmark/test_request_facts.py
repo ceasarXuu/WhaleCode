@@ -71,11 +71,15 @@ class RequestFactsTests(unittest.TestCase):
             "wire.jsonl",
             [self._shape("r1", "l1", 1, 1, "a" * 64), self._terminal("r1", "l1", 1, "response_completed")],
         )
-        boundary = self._write("boundary.jsonl", [self._claim(1, "b" * 64)])
+        boundary = self._write(
+            "boundary.jsonl",
+            [self._boundary_started(), self._claim(1, "b" * 64), self._boundary_stopped(1)],
+        )
         facts = build_request_facts(wire_path=wire, boundary_path=boundary)
         self.assertIn("completed_without_boundary", self._codes(facts))
         self.assertIn("boundary_unattributed", self._codes(facts))
-        self.assertEqual(facts["availability"]["boundary"], "incomparable")
+        self.assertEqual(facts["availability"]["boundary"], "measured")
+        self.assertEqual(facts["availability"]["boundary_correlation"], "incomparable")
 
     def test_retry_preserves_logical_and_attempt_counts(self) -> None:
         wire = self._write(
@@ -101,6 +105,57 @@ class RequestFactsTests(unittest.TestCase):
         self.assertIn("terminal_missing", self._codes(facts))
         self.assertEqual(facts["availability"]["completion"], "partial")
         self.assertEqual(facts["summary"]["failed_or_cancelled_attempt_count"], 0)
+
+    def test_failed_terminal_rejects_rollout_usage(self) -> None:
+        rollout = self._write("failed-rollout.jsonl", [self._rollout("r1", "l1", 1, 10)])
+        wire = self._write(
+            "failed-wire.jsonl",
+            [
+                self._shape("r1", "l1", 1, 1, "a" * 64),
+                self._terminal("r1", "l1", 1, "response_failed"),
+            ],
+        )
+        facts = build_request_facts(rollout_path=rollout, wire_path=wire)
+        self.assertIn("usage_terminal_conflict", self._codes(facts))
+        self.assertEqual(facts["summary"]["usage_record_count"], 0)
+        self.assertEqual(facts["rows"][0]["usage"], None)
+        self.assertEqual(facts["availability"]["usage"], "incomparable")
+
+    def test_boundary_lifecycle_distinguishes_missing_from_healthy_zero(self) -> None:
+        missing = self._write("missing-boundary.jsonl", [])
+        facts = build_request_facts(boundary_path=missing)
+        self.assertIn("boundary_lifecycle_missing", self._codes(facts))
+        self.assertEqual(facts["availability"]["boundary"], "incomparable")
+        self.assertEqual(facts["summary"]["boundary_request_count"], None)
+        healthy = self._write(
+            "healthy-zero-boundary.jsonl", [self._boundary_started(), self._boundary_stopped(0)]
+        )
+        facts = build_request_facts(boundary_path=healthy)
+        self.assertEqual(facts["availability"]["boundary"], "measured")
+        self.assertEqual(facts["summary"]["boundary_request_count"], 0)
+
+    def test_identical_retry_payload_only_blocks_boundary_correlation(self) -> None:
+        digest = "a" * 64
+        wire = self._write(
+            "same-retry-wire.jsonl",
+            [
+                self._shape("r1", "logical", 1, 1, digest),
+                self._terminal("r1", "logical", 1, "response_failed"),
+                self._shape("r2", "logical", 2, 2, digest),
+                self._terminal("r2", "logical", 2, "response_completed"),
+            ],
+        )
+        boundary = self._write(
+            "same-retry-boundary.jsonl",
+            [self._boundary_started(), self._claim(1, digest), self._claim(2, digest), self._boundary_stopped(2)],
+        )
+        facts = build_request_facts(wire_path=wire, boundary_path=boundary)
+        self.assertEqual(facts["availability"]["attempt"], "measured")
+        self.assertEqual(facts["availability"]["boundary"], "measured")
+        self.assertEqual(facts["availability"]["boundary_correlation"], "incomparable")
+        self.assertEqual(facts["availability"]["completion"], "measured")
+        self.assertEqual(facts["availability"]["usage"], "measured")
+        self.assertEqual(facts["summary"]["boundary_request_count"], 2)
 
     def test_diagnostics_are_recomputable_and_payload_free(self) -> None:
         facts = build_request_facts(
@@ -147,6 +202,14 @@ class RequestFactsTests(unittest.TestCase):
     @staticmethod
     def _claim(index: int, digest: str) -> dict:
         return {"event": "provider_request_claimed", "count": index, "method": "POST", "path": "/responses", "model": "deepseek-v4-flash", "body_sha256": digest}
+
+    @staticmethod
+    def _boundary_started() -> dict:
+        return {"event": "provider_boundary_started", "limit": 10, "allowed_method": "POST", "allowed_path": "/responses", "allowed_model": "deepseek-v4-flash"}
+
+    @staticmethod
+    def _boundary_stopped(count: int) -> dict:
+        return {"event": "provider_boundary_stopped", "request_count": count}
 
     @staticmethod
     def _codes(facts: dict) -> set[str]:

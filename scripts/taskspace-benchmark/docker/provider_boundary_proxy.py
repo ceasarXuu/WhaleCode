@@ -7,6 +7,7 @@ import hashlib
 import http.client
 import json
 import os
+import signal
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +34,10 @@ class RequestBudget:
         self.limit = limit
         self.count = 0
         self.lock = threading.Lock()
+
+    def snapshot(self) -> int:
+        with self.lock:
+            return self.count
 
 
 class BoundaryState:
@@ -235,6 +240,14 @@ def main() -> None:
     state = BoundaryState()
     server = ThreadingHTTPServer(("0.0.0.0", 8080), ProviderBoundaryHandler)
     server.boundary_state = state  # type: ignore[attr-defined]
+    stopping = threading.Event()
+
+    def request_stop(signum: int, frame: object) -> None:
+        del signum, frame
+        stopping.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
     state.record(
         "provider_boundary_started",
         limit=state.budget.limit,
@@ -242,7 +255,16 @@ def main() -> None:
         allowed_path="/responses",
         allowed_model=state.allowed_model,
     )
-    server.serve_forever()
+    server.timeout = 0.2
+    try:
+        while not stopping.is_set():
+            server.handle_request()
+    finally:
+        server.server_close()
+        state.record(
+            "provider_boundary_stopped",
+            request_count=state.budget.snapshot(),
+        )
 
 
 if __name__ == "__main__":

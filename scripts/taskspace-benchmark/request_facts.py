@@ -11,12 +11,13 @@ from typing import Any
 
 from request_fact_availability import classify_availability
 from request_fact_diagnostics import build_diagnostics
+from request_fact_reconciliation import parse_boundary, reconcile
 from request_fact_summary import usage_summary
 from request_fact_validation import validate_attempt_sequences
 
 
 SCHEMA_VERSION = "whalecode-request-facts-v1"
-ANALYZER_VERSION = "i07-w8-v1"
+ANALYZER_VERSION = "i07-review-fixes-v2"
 WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v10"
 TERMINAL_STATUSES = {"response_completed", "response_failed", "cancelled", "response_cancelled", "retry_unauthorized"}
 TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens")
@@ -205,14 +206,21 @@ def _parse_wire(
             _put_once(
                 row,
                 "attempt",
-                {"request_index": index, "provider_payload_sha256": digest},
+                {
+                    "request_index": index,
+                    "provider_payload_sha256": digest,
+                    "wire_line_number": event.get("_request_facts_line_number"),
+                },
                 findings,
                 "wire",
                 request_id,
                 counters,
             )
             continue
-        terminal = {"status": "cancelled" if status == "response_cancelled" else status}
+        terminal = {
+            "status": "cancelled" if status == "response_cancelled" else status,
+            "wire_line_number": event.get("_request_facts_line_number"),
+        }
         if status == "response_completed":
             try:
                 terminal["usage"] = _usage(event)
@@ -221,100 +229,14 @@ def _parse_wire(
         _put_once(row, "terminal", terminal, findings, "wire", request_id, counters)
 
 
-def _parse_boundary(
-    events: list[dict[str, Any]],
-    findings: list[dict[str, Any]],
-    expected_model: str | None,
-) -> list[dict[str, Any]]:
-    claims = []
-    for event in events:
-        if event.get("event") != "provider_request_claimed":
-            continue
-        index = len(claims) + 1
-        digest = event.get("body_sha256")
-        valid = (
-            event.get("count") == index
-            and event.get("method") == "POST"
-            and event.get("path") == "/responses"
-            and (expected_model is None or event.get("model") == expected_model)
-            and isinstance(digest, str)
-            and len(digest) == 64
-            and not any(character not in "0123456789abcdef" for character in digest)
-        )
-        if not valid:
-            findings.append(_finding("boundary_claim_invalid", "boundary", boundary_index=index))
-            continue
-        claims.append(
-            {
-                "boundary_index": index,
-                "count": event["count"],
-                "method": event["method"],
-                "path": event["path"],
-                "model": event.get("model"),
-                "body_sha256": digest,
-                "provider_payload_sha256": digest,
-            }
-        )
-    digests = [claim["provider_payload_sha256"] for claim in claims]
-    if len(digests) != len(set(digests)):
-        findings.append(_finding("boundary_digest_ambiguous", "boundary"))
-    return claims
-
-
-def _reconcile(
-    rows: dict[str, dict[str, Any]],
-    claims: list[dict[str, Any]],
-    boundary_available: bool,
-    findings: list[dict[str, Any]],
-) -> None:
-    attempt_rows = [row for row in rows.values() if "attempt" in row]
-    digest_counts = Counter(
-        row["attempt"]["provider_payload_sha256"] for row in attempt_rows
-    )
-    for digest, count in digest_counts.items():
-        if count > 1:
-            findings.append(_finding("attempt_digest_ambiguous", "wire", digest=digest))
-    attempts_by_digest = {
-        row["attempt"]["provider_payload_sha256"]: row
-        for row in attempt_rows
-        if digest_counts[row["attempt"]["provider_payload_sha256"]] == 1
-    }
-    for claim in claims:
-        digest = claim["provider_payload_sha256"]
-        row = attempts_by_digest.get(digest)
-        if row is None:
-            findings.append(_finding("boundary_unattributed", "boundary", boundary_index=claim["boundary_index"]))
-            continue
-        row["boundary"] = claim
-    for row in rows.values():
-        terminal = row.get("terminal", {})
-        if boundary_available and "attempt" in row and "boundary" not in row:
-            if terminal.get("status") == "response_completed":
-                findings.append(_finding("completed_without_boundary", "reconcile", request_id=row["request_id"]))
-            elif terminal.get("status") not in {
-                "response_failed",
-                "cancelled",
-                "retry_unauthorized",
-            }:
-                findings.append(_finding("boundary_status_unknown", "reconcile", request_id=row["request_id"]))
-        if "terminal" in row and "attempt" not in row:
-            findings.append(_finding("terminal_without_attempt", "reconcile", request_id=row["request_id"]))
-        if "attempt" in row and "terminal" not in row:
-            findings.append(_finding("terminal_missing", "reconcile", request_id=row["request_id"]))
-        rollout_usage = row.get("rollout_usage")
-        wire_usage = terminal.get("usage")
-        if rollout_usage is not None and wire_usage is not None and rollout_usage != wire_usage:
-            findings.append(_finding("usage_source_conflict", "reconcile", request_id=row["request_id"]))
-
-
 def _normalized_rows(
-    rows: dict[str, dict[str, Any]], boundary_available: bool
+    rows: dict[str, dict[str, Any]], boundary_count_available: bool
 ) -> list[dict[str, Any]]:
     normalized = []
     for row in rows.values():
         logical_id, attempt_seq = row.get("identity", [None, None])
         terminal = row.get("terminal", {})
-        usage = terminal.get("usage") or row.get("rollout_usage")
+        usage = None if row.get("usage_invalid") else terminal.get("usage") or row.get("rollout_usage")
         normalized.append(
             {
                 "request_id": row["request_id"],
@@ -324,12 +246,15 @@ def _normalized_rows(
                 "observation_index": row.get("attempt", {}).get("request_index")
                 or row.get("rollout_index"),
                 "rollout_line_number": row.get("rollout_line_number"),
+                "wire_attempt_line_number": row.get("attempt", {}).get("wire_line_number"),
+                "wire_terminal_line_number": terminal.get("wire_line_number"),
                 "provider_payload_sha256": row.get("attempt", {}).get("provider_payload_sha256"),
                 "attempt_status": "observed" if "attempt" in row else "unavailable",
                 "boundary_status": (
                     "observed"
                     if "boundary" in row
-                    else "not_observed" if boundary_available and "attempt" in row else "unavailable"
+                    else "unavailable" if row.get("boundary_correlation_ambiguous")
+                    else "not_observed" if boundary_count_available and "attempt" in row else "unavailable"
                 ),
                 "boundary_index": row.get("boundary", {}).get("boundary_index"),
                 "terminal_status": terminal.get("status") or (
@@ -365,7 +290,7 @@ def build_request_facts_from_events(
     rows: dict[str, dict[str, Any]] = {}
     rollout_available = rollout_events is not None
     wire_available = wire_events is not None
-    boundary_available = boundary_events is not None
+    boundary_source_available = boundary_events is not None
     rollout_events = rollout_events or []
     wire_events = wire_events or []
     boundary_events = boundary_events or []
@@ -374,16 +299,18 @@ def build_request_facts_from_events(
             event.setdefault("_request_facts_line_number", line_number)
     _parse_rollout(rollout_events, rows, findings, counters)
     _parse_wire(wire_events, rows, findings, counters)
-    claims = _parse_boundary(boundary_events, findings, expected_model)
-    _reconcile(rows, claims, boundary_available, findings)
+    claims, boundary_count_available, boundary_model = parse_boundary(
+        boundary_events, findings, expected_model
+    ) if boundary_source_available else ([], False, None)
+    reconcile(rows, claims, boundary_count_available, findings)
     validate_attempt_sequences(rows, findings, "response_completed")
-    normalized = _normalized_rows(rows, boundary_available)
+    normalized = _normalized_rows(rows, boundary_count_available)
     availability = classify_availability(
         findings,
         normalized,
         rollout_available=rollout_available,
         wire_available=wire_available,
-        boundary_available=boundary_available,
+        boundary_available=boundary_count_available,
     )
     diagnostics = build_diagnostics(
         normalized,
@@ -417,14 +344,18 @@ def build_request_facts_from_events(
         "sources": sources or {
             "rollout": {"path": None, "status": "provided" if rollout_available else "unavailable"},
             "wire": {"path": None, "status": "provided" if wire_available else "unavailable"},
-            "boundary": {"path": None, "status": "provided" if boundary_available else "unavailable"},
+            "boundary": {"path": None, "status": "provided" if boundary_source_available else "unavailable"},
         },
         "availability": availability,
+        "boundary_identity": {
+            "expected_model": boundary_model,
+            "lifecycle_status": "complete" if boundary_count_available else "unavailable",
+        },
         "summary": {
             "logical_request_count": len(logical_ids),
             "retried_logical_request_count": sum(count > 1 for count in logical_attempts.values()),
             "local_attempt_count": len(attempts),
-            "boundary_request_count": len(claims) if boundary_available else None,
+            "boundary_request_count": len(claims) if boundary_count_available else None,
             "completed_response_count": len(completed),
             "failed_or_cancelled_attempt_count": len(failed_rows),
             "usage_record_count": len(usage_rows),
