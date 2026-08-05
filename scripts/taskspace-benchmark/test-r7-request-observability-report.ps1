@@ -77,7 +77,11 @@ function New-WireTerminal([string]$RequestId, [int]$InputTokens, [int]$CachedInp
     }
 }
 
-function New-TokenBoundary([string]$RequestId) {
+function New-TokenBoundary(
+    [string]$RequestId,
+    [int]$InputTokens = 100,
+    [int]$CachedInputTokens = 0
+) {
     [pscustomobject]@{
         type = "event_msg"
         payload = @{
@@ -85,6 +89,13 @@ function New-TokenBoundary([string]$RequestId) {
             provider_request_id = $RequestId
             provider_logical_request_id = "$RequestId-logical"
             provider_attempt_seq = 1
+            info = @{ last_token_usage = @{
+                    input_tokens = $InputTokens
+                    cached_input_tokens = $CachedInputTokens
+                    output_tokens = 10
+                    reasoning_output_tokens = 4
+                    total_tokens = $InputTokens + 10
+                } }
         }
     }
 }
@@ -282,7 +293,7 @@ try {
                 (New-TokenBoundary "$sample-$repeat-$arm-1"),
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-control"; toolSuccess = $true; rawPayload = @{ type = "function_call_output"; call_id = "$arm-control"; output = $controlOutput } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-tool"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
-                (New-TokenBoundary "$sample-$repeat-$arm-2")
+                (New-TokenBoundary "$sample-$repeat-$arm-2" 200 20)
             )
             $resultHash = ("a" * 64) -join ""
             Write-JsonLines (Join-Path $artifactDir "provider-wire-trace.jsonl") @(
@@ -294,6 +305,10 @@ try {
                 (New-WireTerminal "$sample-$repeat-$arm-2" 200 20)
             )
         }
+        Invoke-TaskspaceRequestFactsGenerator `
+            -RolloutJsonlPath (Join-Path $artifactDir "rollout.jsonl") `
+            -WireTracePath (Join-Path $artifactDir "provider-wire-trace.jsonl") `
+            -OutputPath (Join-Path $artifactDir "request-facts.json") | Out-Null
         $evidenceFact = Write-R7RunArtifactEvidenceManifest $runDir $logicalMode
         $runs.Add([pscustomobject]@{
                 sample = $sample
