@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Ready for engineering discovery
+- Status: Phase A evidence available / hosted binding amendment pending
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -155,9 +155,9 @@ Tool 的成功、失败、进行中或完成不自动改变节点状态。节点
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
 | 合法序列 + node binding | 已确认 | `taskspace_exec` 仅有的 TaskSpace 新职责 |
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| 内部 source 语法 | 待 TX-03 证明 | 必须既适合模型生成，又能支持副作用前预检，不得依赖 reasoning 解析 |
-| 完整批次预检边界 | 待 TX-04 证明 | 需明确结果依赖调用如何拆批，避免半执行后才发现序列非法 |
-| Hosted 稳定引用 | 待 TX-05 证明 | 需确认模型可见且 Runtime 可复算的逐项身份，不能让 Runtime 猜配 |
+| 内部 source 语法 | A1 离线通过 | `taskspace.plan(<strict JSON>);` 在副作用前生成唯一 typed plan；Agent 生成稳定性仍待获批真实验证 |
+| 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
+| Hosted 稳定引用 | A2 未通过 | Runtime 可复算 `(response_id,type,item_id)`，但 Agent 同响应不可稳定声明且当前 restart replay 不完整 |
 
 ## 9. 验收标准
 

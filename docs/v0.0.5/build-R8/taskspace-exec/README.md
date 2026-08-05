@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Main route / 产品合同已确认 / 生产代码尚未接入
+- Status: Phase A completed / A2 hosted identity decision required / 生产代码尚未接入
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -34,6 +34,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   provider-hosted 逐项双写身份在所有 provider 输出上的稳定性。
 - 当前生产代码仍运行旧 sibling 协议。文档主方案切换不等于生产切换；正式切换必须是一次可验证的原子迁移，随后
   删除旧路径，不保留兼容双轨。
+- Phase A 已证明严格声明式 source、完整 typed plan、零副作用 preflight 和 Runtime exact-set reconciliation 可行；但
+  当前 provider item identity 没有稳定、完整地进入 Agent 可声明与 restart replay 的链路，因此 Hosted 同响应双写未通过
+  A2 停点，Phase B 暂不进入。
 
 ## 3. 文档
 
@@ -43,6 +46,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 3. [`02-engineering-plan.md`](02-engineering-plan.md)：按最小闭环单元拆分的发现、实现、切换、清理和验证计划。
 4. [`03-global-issue-prerequisite-review.md`](03-global-issue-prerequisite-review.md)：I01～I10 哪些前置、融入或后置的
    唯一映射，以及 I07 计数子问题的 TX-00 边界。
+5. [`04-phase-a-discovery.md`](04-phase-a-discovery.md)：当前生产、Codex 上游 seam 和旧协议删除清单。
+6. [`05-phase-a-result.md`](05-phase-a-result.md)：TX-01～TX-05 实施、验证、A2 停点和 Phase B 调整建议。
 
 ## 4. 推进规则
 
