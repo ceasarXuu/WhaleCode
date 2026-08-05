@@ -200,6 +200,11 @@ $invalidModeMap = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBi
 Assert-True ($null -eq $invalidModeMap.runs[0].standard_provider_requests -and $null -eq $invalidModeMap.runs[0].taskspace_provider_requests) "Invalid mode map produced exact provider totals"
 Assert-True (@($invalidModeMap.findings | Where-Object stable_code -eq "logical_mode_map_invalid").Count -eq 1) "Invalid mode map did not emit a stable finding"
 [IO.File]::WriteAllText($modeMapPath, $originalModeMap, [Text.UTF8Encoding]::new($false))
+Write-FixtureJson $modeMapPath ([ordered]@{ repeat = 1; left = "taskspace"; right = "taskspace" })
+$duplicateModeMap = Test-R7FiveLayerEvidenceFreshness -RepoRoot $repoRoot -WhaleBin $binaryPath -ResultPath $resultPath -RunRoots @($runDir)
+Assert-True ($null -eq $duplicateModeMap.runs[0].standard_provider_requests -and $null -eq $duplicateModeMap.runs[0].taskspace_provider_requests) "Duplicate logical modes produced exact provider totals"
+Assert-True (@($duplicateModeMap.findings | Where-Object stable_code -eq "logical_mode_map_invalid").Count -eq 1) "Duplicate logical modes did not emit a stable finding"
+[IO.File]::WriteAllText($modeMapPath, $originalModeMap, [Text.UTF8Encoding]::new($false))
 
 $staleResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json -Depth 100
 $staleResult.contracts.taskspace_base.version = "stale"

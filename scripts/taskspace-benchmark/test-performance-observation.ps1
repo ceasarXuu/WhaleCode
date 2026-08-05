@@ -502,6 +502,24 @@ Assert-True (
     (Get-Content -Raw $invalidResult.event_log_path) -match
         '"event":"performance_count_identity_invalid"'
 ) "invalid count identity did not emit its stable event"
+$invalidMetrics.tool_call_count = 1
+Write-Json $invalidMetrics $invalidMetricPath
+Write-Json ([pscustomobject]@{ repeat = 1; left = "taskspace"; right = "taskspace" }) (
+    Join-Path $invalidPair "logical-mode-map.json"
+)
+$invalidResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot
+$invalidReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $invalidResult.json_path |
+    ConvertFrom-Json
+$invalidModeRow = @($invalidReport.rows)[0]
+Assert-True (
+    $invalidModeRow.logical_mode -eq "unknown" -and
+    $invalidModeRow.observation_status -eq "invalid" -and
+    -not [bool]$invalidModeRow.comparison_eligible
+) "invalid logical mode map remained attributable or comparison eligible"
+Assert-True (
+    (Get-Content -Raw $invalidResult.event_log_path) -match
+        '"event":"performance_logical_mode_map_invalid"'
+) "invalid logical mode map did not emit its stable event"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

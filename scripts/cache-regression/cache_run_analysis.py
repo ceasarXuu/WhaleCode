@@ -37,6 +37,10 @@ CACHE_OBSERVATION_KEYS = (
 )
 
 
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def read_json(path: Path) -> dict[str, Any]:
     value = strict_json_loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(value, dict):
@@ -173,7 +177,10 @@ def validate_provider_boundary_evidence(
     wire_requests = boundary.get("wire_requests")
     if not isinstance(wire_requests, list):
         raise ValueError("provider boundary wire evidence is invalid")
-    if boundary.get("wire_request_count") != len(wire_requests):
+    wire_request_count = boundary.get("wire_request_count")
+    if not _is_nonnegative_int(wire_request_count) or wire_request_count != len(
+        wire_requests
+    ):
         raise ValueError("provider boundary wire request count is invalid")
     boundary_requests = boundary["boundary_requests"]
     boundary_hashes = [request.get("body_sha256") for request in boundary_requests]
@@ -208,11 +215,15 @@ def validate_provider_boundary_accounting(
     boundary_requests = boundary.get("boundary_requests")
     if not isinstance(boundary_requests, list):
         raise ValueError("provider boundary request evidence is invalid")
-    if boundary.get("boundary_request_count") != len(boundary_requests):
+    boundary_request_count = boundary.get("boundary_request_count")
+    if not _is_nonnegative_int(
+        boundary_request_count
+    ) or boundary_request_count != len(boundary_requests):
         raise ValueError("provider boundary request count is invalid")
     for index, request in enumerate(boundary_requests, 1):
         if (
-            request.get("count") != index
+            not _is_nonnegative_int(request.get("count"))
+            or request.get("count") != index
             or request.get("method") != "POST"
             or request.get("path") != "/responses"
             or request.get("model") != expected_model

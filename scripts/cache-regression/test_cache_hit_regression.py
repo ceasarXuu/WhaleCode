@@ -24,6 +24,7 @@ from cache_run_analysis import (
     analyze_artifacts,
     budget_observation_exceeded,
     validate_provider_boundary_accounting,
+    validate_provider_boundary_evidence,
 )
 from run_cache_hit_regression import (
     ensure_deepseek_api_key,
@@ -40,6 +41,33 @@ PROVIDER_USAGE_FIXTURE = (
 
 
 class CacheHitRegressionAnalysisTest(unittest.TestCase):
+    def test_rejects_boolean_provider_boundary_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            boundary_path = Path(root) / "provider-boundary-evidence.json"
+            write_provider_boundary_evidence(boundary_path, 1)
+            original = json.loads(boundary_path.read_text(encoding="utf-8"))
+
+            boundary = json.loads(json.dumps(original))
+            boundary["boundary_request_count"] = True
+            with self.assertRaisesRegex(ValueError, "request count"):
+                validate_provider_boundary_accounting(
+                    boundary, "deepseek-v4-flash"
+                )
+
+            boundary = json.loads(json.dumps(original))
+            boundary["boundary_requests"][0]["count"] = True
+            with self.assertRaisesRegex(ValueError, "request contract"):
+                validate_provider_boundary_accounting(
+                    boundary, "deepseek-v4-flash"
+                )
+
+            boundary = json.loads(json.dumps(original))
+            boundary["wire_request_count"] = True
+            with self.assertRaisesRegex(ValueError, "wire request count"):
+                validate_provider_boundary_evidence(
+                    boundary, 1, "deepseek-v4-flash"
+                )
+
     def test_loads_only_deepseek_key_from_env_local(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             repo = Path(root)

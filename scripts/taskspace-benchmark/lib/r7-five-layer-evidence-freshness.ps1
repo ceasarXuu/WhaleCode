@@ -282,6 +282,13 @@ function Test-R7FiveLayerEvidenceFreshness {
                 $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
                 continue
             }
+            $standardSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" }).Count
+            $taskspaceSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" }).Count
+            if ($standardSideCount -ne 1 -or $taskspaceSideCount -ne 1) {
+                Add-R7EvidenceFinding $findings "logical_mode_map_invalid" "Logical mode map must identify exactly one Standard side and one TaskSpace side." $modePath
+                $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
+                continue
+            }
             foreach ($side in @("left", "right")) {
                 $mode = [string]$modeMap.$side
                 if ($mode -eq "standard") { $standardSideCount++ }

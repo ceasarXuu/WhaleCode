@@ -230,8 +230,13 @@ function Get-PerformanceSideObservation {
     $metrics = Read-PerformanceJson $MetricPath $Events
     if (-not $metrics) { return $null }
     $modeMap = Read-PerformanceJson (Join-Path $pairDir "logical-mode-map.json") $Events
-    $mode = if ($modeMap -and $modeMap.PSObject.Properties.Name -contains $side) { [string]$modeMap.$side } else { [string](Get-PerformanceProperty $metrics "logical_mode" "unknown") }
-    $repeat = if ($modeMap) { Get-PerformanceNumber (Get-PerformanceProperty $modeMap "repeat") } elseif ($pair -match '(\d+)$') { [double]$Matches[1] } else { $null }
+    $standardSideCount = if ($modeMap) { @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" }).Count } else { 0 }
+    $taskspaceSideCount = if ($modeMap) { @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" }).Count } else { 0 }
+    $modeMapValid = $null -ne $modeMap -and
+        $modeMap.PSObject.Properties.Name -contains $side -and
+        $standardSideCount -eq 1 -and $taskspaceSideCount -eq 1
+    $mode = if ($modeMapValid) { [string]$modeMap.$side } else { "unknown" }
+    $repeat = if ($modeMapValid) { Get-PerformanceNumber (Get-PerformanceProperty $modeMap "repeat") } elseif ($pair -match '(\d+)$') { [double]$Matches[1] } else { $null }
     $cache = Read-PerformanceJson (Join-Path $artifactDir "provider-cache-trace-summary.json") $Events
     $requests = Get-PerformanceWireRequestCount $artifactDir
     $actions = Get-PerformanceActionCounts $artifactDir $Events
@@ -243,9 +248,23 @@ function Get-PerformanceSideObservation {
     if ($skipped) {
         $warnings.Add("side_not_run")
     } else {
+        if (-not $modeMapValid) { $warnings.Add("logical_mode_map_invalid") }
         if ($null -eq $requests.value) { $warnings.Add("provider_request_count_unavailable") }
         if (-not $cache) { $warnings.Add("provider_cache_trace_unavailable") }
         if ([string](Get-PerformanceProperty $metrics "external_validation_status") -eq "failed") { $warnings.Add("external_validation_failed") }
+    }
+    if (-not $modeMapValid -and $null -ne $Events) {
+        $Events.Add([pscustomobject]@{
+                event = "performance_logical_mode_map_invalid"
+                code = "logical_mode_map_invalid"
+                case_id = $caseId
+                pair = $pair
+                repeat = $repeat
+                side = $side
+                logical_mode = "unknown"
+                metric_path = $MetricPath
+                artifact_dir = $artifactDir
+            })
     }
     $map = Get-PerformanceMapFacts $artifactDir $metrics $warnings
     $duplication = Get-PerformanceDuplicationFacts $artifactDir $Events
@@ -293,14 +312,14 @@ function Get-PerformanceSideObservation {
     $agentStatus = [string](Get-PerformanceProperty $metrics "agent_completion_status")
     $observationStatus = if ($skipped) {
         "skipped"
-    } elseif (-not $tokenIdentity.valid -or -not $countIdentity.valid) {
+    } elseif (-not $modeMapValid -or -not $tokenIdentity.valid -or -not $countIdentity.valid) {
         "invalid"
     } elseif ($agentStatus -eq "complete") {
         "complete"
     } else {
         "incomplete"
     }
-    $comparisonEligible = -not $skipped -and $tokenIdentity.valid -and
+    $comparisonEligible = -not $skipped -and $modeMapValid -and $tokenIdentity.valid -and
         $countIdentity.valid -and
         $agentStatus -eq "complete"
     [pscustomobject]@{
