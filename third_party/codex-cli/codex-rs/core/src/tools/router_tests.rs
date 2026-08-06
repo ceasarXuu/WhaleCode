@@ -304,6 +304,49 @@ async fn ordinary_tool_payload_is_forwarded_without_taskspace_parsing() -> anyho
 }
 
 #[tokio::test]
+async fn current_session_config_builds_a_single_taskspace_entrypoint() -> anyhow::Result<()> {
+    let (_, turn) = make_session_and_context().await;
+    let standard = ToolRouter::from_config(
+        &turn.tools_config,
+        ToolRouterParams {
+            deferred_mcp_tools: None,
+            mcp_tools: None,
+            unavailable_called_tools: Vec::new(),
+            parallel_mcp_server_names: HashSet::new(),
+            discoverable_tools: None,
+            dynamic_tools: turn.dynamic_tools.as_slice(),
+        },
+    );
+    assert!(
+        standard
+            .model_visible_specs()
+            .iter()
+            .any(|spec| !matches!(spec.name(), "web_search" | "image_generation"))
+    );
+
+    let taskspace = standard
+        .into_taskspace()
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    let visible = taskspace
+        .model_visible_specs()
+        .into_iter()
+        .map(|spec| spec.name().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        visible
+            .iter()
+            .filter(|name| name.as_str() == "taskspace_exec")
+            .count(),
+        1
+    );
+    assert!(visible.iter().all(|name| matches!(
+        name.as_str(),
+        "taskspace_exec" | "web_search" | "image_generation"
+    )));
+    Ok(())
+}
+
+#[tokio::test]
 async fn nested_native_calls_reuse_original_router_in_declared_order() -> anyhow::Result<()> {
     let function_name = ToolName::plain("inspect");
     let freeform_name = ToolName::plain("patch");
@@ -336,6 +379,7 @@ async fn nested_native_calls_reuse_original_router_in_declared_order() -> anyhow
         model_visible_specs: specs.iter().map(|item| item.spec.clone()).collect(),
         specs,
         parallel_mcp_server_names: HashSet::new(),
+        taskspace_response_scope: None,
     };
     let (session, turn) = make_session_and_context().await;
     let session = Arc::new(session);

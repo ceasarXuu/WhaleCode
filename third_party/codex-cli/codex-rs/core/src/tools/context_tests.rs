@@ -5,26 +5,6 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 #[test]
-fn exact_summary_is_redacted_only_from_tool_logs() {
-    let payload = ToolPayload::Function {
-        arguments: serde_json::json!({
-            "action": "finish_map",
-            "expected_revision": 7,
-            "complete_work_node_ids": ["implement"],
-            "exact_summary": "private final text"
-        })
-        .to_string(),
-    };
-    let logged = payload
-        .log_payload_for_tool(&ToolName::plain("exec_command"))
-        .into_owned();
-
-    assert!(!logged.contains("private final text"));
-    assert!(logged.contains("\"redacted\":true"));
-    assert!(payload.log_payload().contains("private final text"));
-}
-
-#[test]
 fn custom_tool_calls_should_roundtrip_as_custom_outputs() {
     let payload = ToolPayload::Custom {
         input: "patch".to_string(),

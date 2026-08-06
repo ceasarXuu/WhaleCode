@@ -25,6 +25,7 @@ pub(crate) struct HostedOutputFact {
     pub(crate) output_index: usize,
     pub(crate) provider_id: String,
     pub(crate) tool: String,
+    pub(crate) outcome: rooted_dag::ActionOutcome,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +39,7 @@ pub(crate) struct PreparedHostedBinding {
     pub(crate) output_index: usize,
     pub(crate) provider_id: String,
     pub(crate) tool: String,
+    pub(crate) outcome: rooted_dag::ActionOutcome,
     pub(crate) node_ids: Vec<String>,
 }
 
@@ -381,6 +383,7 @@ fn validate_hosted_bindings(
                 output_index: fact.output_index,
                 provider_id: fact.provider_id,
                 tool: fact.tool,
+                outcome: fact.outcome,
                 node_ids: binding.node_ids.clone(),
             })
         })

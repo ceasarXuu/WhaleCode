@@ -20,6 +20,7 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
+use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
 use codex_tools::ToolSpec;
@@ -31,6 +32,16 @@ pub(crate) struct ToolCallRuntime {
     turn_context: Arc<TurnContext>,
     tracker: SharedTurnDiffTracker,
     parallel_execution: Arc<RwLock<()>>,
+}
+
+pub(crate) struct ToolCallResponse {
+    pub(crate) response: Result<ResponseInputItem, CodexErr>,
+    pub(crate) cancelled: bool,
+}
+
+struct RoutedToolResult {
+    result: AnyToolResult,
+    cancelled: bool,
 }
 
 impl ToolCallRuntime {
@@ -60,20 +71,49 @@ impl ToolCallRuntime {
         self.router.create_diff_consumer(tool_name)
     }
 
+    pub(crate) fn taskspace_response_scope(&self) -> Option<Arc<TaskSpaceExecResponseScope>> {
+        self.router.taskspace_response_scope()
+    }
+
     #[instrument(level = "trace", skip_all)]
     pub(crate) fn handle_tool_call(
         self,
         call: ToolCall,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ResponseInputItem, CodexErr>> {
+        async move {
+            self.handle_tool_call_with_status(call, cancellation_token)
+                .await
+                .response
+        }
+        .in_current_span()
+    }
+
+    pub(crate) fn handle_tool_call_with_status(
+        self,
+        call: ToolCall,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = ToolCallResponse> {
         let error_call = call.clone();
-        let future =
-            self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
+        let future = self.handle_tool_call_with_source_and_status(
+            call,
+            ToolCallSource::Direct,
+            cancellation_token,
+        );
         async move {
             match future.await {
-                Ok(response) => Ok(response.into_response()),
-                Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
-                Err(other) => Ok(Self::failure_response(error_call, other)),
+                Ok(response) => ToolCallResponse {
+                    response: Ok(response.result.into_response()),
+                    cancelled: response.cancelled,
+                },
+                Err(FunctionCallError::Fatal(message)) => ToolCallResponse {
+                    response: Err(CodexErr::Fatal(message)),
+                    cancelled: false,
+                },
+                Err(other) => ToolCallResponse {
+                    response: Ok(Self::failure_response(error_call, other)),
+                    cancelled: false,
+                },
             }
         }
         .in_current_span()
@@ -86,6 +126,20 @@ impl ToolCallRuntime {
         source: ToolCallSource,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<AnyToolResult, FunctionCallError>> {
+        async move {
+            self.handle_tool_call_with_source_and_status(call, source, cancellation_token)
+                .await
+                .map(|response| response.result)
+        }
+        .in_current_span()
+    }
+
+    fn handle_tool_call_with_source_and_status(
+        self,
+        call: ToolCall,
+        source: ToolCallSource,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = Result<RoutedToolResult, FunctionCallError>> {
         let supports_parallel = self.router.tool_supports_parallel(&call);
         let router = Arc::clone(&self.router);
         let session = Arc::clone(&self.session);
@@ -106,13 +160,16 @@ impl ToolCallRuntime {
             aborted = false,
         );
 
-        let handle: AbortOnDropHandle<Result<AnyToolResult, FunctionCallError>> =
+        let handle: AbortOnDropHandle<Result<RoutedToolResult, FunctionCallError>> =
             AbortOnDropHandle::new(tokio::spawn(async move {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
                         dispatch_span.record("aborted", true);
-                        Ok(Self::aborted_response(&call, secs))
+                        Ok(RoutedToolResult {
+                            result: Self::aborted_response(&call, secs),
+                            cancelled: true,
+                        })
                     },
                     result = async {
                         let _guard = if supports_parallel {
@@ -132,6 +189,10 @@ impl ToolCallRuntime {
                             )
                             .instrument(dispatch_span.clone())
                             .await
+                            .map(|result| RoutedToolResult {
+                                result,
+                                cancelled: false,
+                            })
                     } => result,
                 }
             }));

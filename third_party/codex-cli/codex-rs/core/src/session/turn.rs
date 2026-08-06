@@ -1315,7 +1315,7 @@ pub(crate) async fn built_tools(
         })
         .collect::<HashSet<_>>();
 
-    Ok(Arc::new(ToolRouter::from_config(
+    let router = ToolRouter::from_config(
         &turn_context.tools_config,
         ToolRouterParams {
             mcp_tools,
@@ -1325,7 +1325,15 @@ pub(crate) async fn built_tools(
             discoverable_tools,
             dynamic_tools: turn_context.dynamic_tools.as_slice(),
         },
-    )))
+    );
+    if sess.taskspace_active().await {
+        router
+            .into_taskspace()
+            .map(Arc::new)
+            .map_err(|error| CodexErr::Fatal(format!("TaskSpace Tool catalog failed: {error:?}")))
+    } else {
+        Ok(Arc::new(router))
+    }
 }
 
 #[cfg(test)]
@@ -1925,6 +1933,9 @@ async fn try_run_sampling_request(
     projection_identity: Option<&crate::client::ProviderProjectionIdentityExpectation>,
     cancellation_token: CancellationToken,
 ) -> CodexResult<SamplingRequestResult> {
+    if let Some(scope) = tool_runtime.taskspace_response_scope() {
+        scope.reset();
+    }
     feedback_tags!(
         model = turn_context.model_info.slug.clone(),
         approval_policy = turn_context.approval_policy.value(),
@@ -1990,6 +2001,8 @@ async fn try_run_sampling_request(
         Box<dyn ToolArgumentDiffConsumer>,
     )> = None;
     let mut should_emit_turn_diff = false;
+    let taskspace_response_scope = tool_runtime.taskspace_response_scope();
+    let mut response_completed = false;
     let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
@@ -2068,7 +2081,10 @@ async fn try_run_sampling_request(
 
         match event {
             ResponseEvent::Created => {}
-            ResponseEvent::OutputItemDone(item) => {
+            ResponseEvent::OutputItemDone(item, output_index) => {
+                if let Some(scope) = taskspace_response_scope.as_ref() {
+                    scope.record_completed_item(output_index, &item);
+                }
                 if let Some((_, mut consumer)) = active_tool_argument_diff_consumer.take()
                     && let Ok(Some(event)) = consumer.finish()
                 {
@@ -2268,6 +2284,7 @@ async fn try_run_sampling_request(
                 token_usage,
                 end_turn,
             } => {
+                response_completed = true;
                 flush_assistant_text_segments_all(
                     &sess,
                     &turn_context,
@@ -2416,7 +2433,19 @@ async fn try_run_sampling_request(
     )
     .await;
 
+    if let Some(scope) = taskspace_response_scope.as_ref() {
+        scope
+            .finalize(response_completed)
+            .map_err(taskspace_response_reconciliation_error)?;
+    }
+
     drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
+
+    if let Some(scope) = taskspace_response_scope.as_ref() {
+        scope
+            .ensure_reconciled()
+            .map_err(taskspace_response_reconciliation_error)?;
+    }
 
     if cancellation_token.is_cancelled() {
         return Err(CodexErr::TurnAborted);
@@ -2434,6 +2463,17 @@ async fn try_run_sampling_request(
     }
 
     outcome
+}
+
+fn taskspace_response_reconciliation_error(message: String) -> CodexErr {
+    warn!(
+        event_name = "taskspace.exec.response_rejected",
+        reason = %message,
+        "TaskSpace response reconciliation failed"
+    );
+    CodexErr::Fatal(format!(
+        "TaskSpace response reconciliation failed: {message}"
+    ))
 }
 
 pub(crate) fn get_last_assistant_message_from_turn(responses: &[ResponseItem]) -> Option<String> {

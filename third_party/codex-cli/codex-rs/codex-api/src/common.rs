@@ -68,7 +68,7 @@ pub struct MemorySummarizeOutput {
 #[derive(Debug)]
 pub enum ResponseEvent {
     Created,
-    OutputItemDone(ResponseItem),
+    OutputItemDone(ResponseItem, Option<usize>),
     OutputItemAdded(ResponseItem),
     /// Emitted when the server includes `OpenAI-Model` on the stream response.
     /// This can differ from the requested model when backend safety routing applies.

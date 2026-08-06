@@ -8,9 +8,13 @@ use crate::tools::context::ToolPayload;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::registry::ToolRegistry;
-#[cfg(test)]
 use crate::tools::registry::ToolRegistryBuilder;
 use crate::tools::spec::build_specs_with_discoverable_tools;
+use crate::tools::taskspace_exec::TASKSPACE_EXEC_TOOL_NAME;
+use crate::tools::taskspace_exec::TaskSpaceExecCatalog;
+use crate::tools::taskspace_exec::TaskSpaceExecCatalogError;
+use crate::tools::taskspace_exec::TaskSpaceExecHandler;
+use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
 use codex_mcp::ToolInfo;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::LocalShellAction;
@@ -57,6 +61,7 @@ pub struct ToolRouter {
     specs: Vec<ConfiguredToolSpec>,
     model_visible_specs: Vec<ToolSpec>,
     parallel_mcp_server_names: HashSet<String>,
+    taskspace_response_scope: Option<Arc<TaskSpaceExecResponseScope>>,
 }
 
 pub(crate) struct ToolRouterParams<'a> {
@@ -72,12 +77,14 @@ impl ToolRouter {
     #[cfg(test)]
     pub(crate) fn from_builder_for_test(builder: ToolRegistryBuilder) -> Self {
         let (specs, registry) = builder.build();
-        let model_visible_specs = specs.iter().map(|item| item.spec.clone()).collect();
+        let model_visible_specs: Vec<ToolSpec> =
+            specs.iter().map(|item| item.spec.clone()).collect();
         Self {
             registry,
             specs,
             model_visible_specs,
             parallel_mcp_server_names: HashSet::new(),
+            taskspace_response_scope: None,
         }
     }
 
@@ -122,7 +129,49 @@ impl ToolRouter {
             specs,
             model_visible_specs,
             parallel_mcp_server_names,
+            taskspace_response_scope: None,
         }
+    }
+
+    pub(crate) fn into_taskspace(self) -> Result<Self, TaskSpaceExecCatalogError> {
+        let client_router = Arc::new(self);
+        let catalog = Arc::new(TaskSpaceExecCatalog::build(&client_router.specs())?);
+        let response_scope = Arc::new(TaskSpaceExecResponseScope::default());
+        let mut builder = ToolRegistryBuilder::new();
+        builder.push_spec(ToolSpec::Function(catalog.declaration().clone()));
+        for spec in client_router
+            .model_visible_specs()
+            .into_iter()
+            .filter(|spec| {
+                matches!(
+                    spec,
+                    ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. }
+                )
+            })
+        {
+            builder.push_spec_with_parallel_support(spec, true);
+        }
+        builder.register_handler(
+            TASKSPACE_EXEC_TOOL_NAME,
+            Arc::new(TaskSpaceExecHandler::new(
+                catalog,
+                client_router,
+                Arc::clone(&response_scope),
+            )),
+        );
+        let (specs, registry) = builder.build();
+        let model_visible_specs = specs.iter().map(|item| item.spec.clone()).collect();
+        Ok(Self {
+            registry,
+            specs,
+            model_visible_specs,
+            parallel_mcp_server_names: HashSet::new(),
+            taskspace_response_scope: Some(response_scope),
+        })
+    }
+
+    pub(crate) fn taskspace_response_scope(&self) -> Option<Arc<TaskSpaceExecResponseScope>> {
+        self.taskspace_response_scope.clone()
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {

@@ -30,6 +30,7 @@ pub(crate) struct DispatchedClientCall {
     pub(crate) node_id: String,
     pub(crate) public_name: String,
     pub(crate) response: Result<ResponseInputItem, CodexErr>,
+    pub(crate) cancelled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,8 +100,8 @@ pub(crate) fn dispatch_client_calls(
                     node_id = item.node_id,
                     tool = item.public_name,
                 );
-                let response = runtime
-                    .handle_tool_call(item.call, cancellation_token)
+                let handled = runtime
+                    .handle_tool_call_with_status(item.call, cancellation_token)
                     .await;
                 tracing::debug!(
                     event = "taskspace_exec_client_dispatch_finished",
@@ -108,13 +109,15 @@ pub(crate) fn dispatch_client_calls(
                     call_index = item.identity.index,
                     node_id = item.node_id,
                     tool = item.public_name,
-                    fatal = response.is_err(),
+                    fatal = handled.response.is_err(),
+                    cancelled = handled.cancelled,
                 );
                 DispatchedClientCall {
                     identity: item.identity,
                     node_id: item.node_id,
                     public_name: item.public_name,
-                    response,
+                    response: handled.response,
+                    cancelled: handled.cancelled,
                 }
             }) as BoxFuture<'static, DispatchedClientCall>
         })

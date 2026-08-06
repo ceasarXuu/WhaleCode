@@ -1,3 +1,4 @@
+mod actions;
 mod invariants;
 mod model;
 mod transactions;
@@ -39,3 +40,6 @@ pub(crate) use transitions::ready_node_ids;
 
 #[cfg(test)]
 mod tests;
+pub(crate) use actions::ActionBinding;
+pub(crate) use actions::attach_actions;
+pub(crate) use actions::settle_action;

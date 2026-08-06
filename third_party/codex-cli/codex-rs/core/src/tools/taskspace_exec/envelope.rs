@@ -78,10 +78,6 @@ impl TaskSpaceExecRequestContext {
         self.request_revision
     }
 
-    pub(crate) fn catalog_identity_sha256(&self) -> &str {
-        self.catalog.identity_sha256()
-    }
-
     pub(super) fn catalog(&self) -> &TaskSpaceExecCatalog {
         &self.catalog
     }
@@ -134,16 +130,13 @@ impl TaskSpaceExecEnvelope {
         &self.request
     }
 
+    #[cfg(test)]
     pub(crate) fn outer_call_id(&self) -> &str {
         &self.outer_call_id
     }
 
     pub(crate) fn plan(&self) -> &TaskSpaceExecPlan {
         &self.plan
-    }
-
-    pub(crate) fn into_plan(self) -> TaskSpaceExecPlan {
-        self.plan
     }
 
     pub(crate) fn internal_call_id(

@@ -66,7 +66,12 @@ fn request_context_captures_revision_and_catalog_without_agent_fields() {
 
     assert_eq!(context.map_id(), "map-1");
     assert_eq!(context.request_revision(), Some(7));
-    assert_eq!(context.catalog_identity_sha256(), catalog.identity_sha256());
+    assert!(
+        context
+            .clone()
+            .decode_outer_call("outer", arguments())
+            .is_ok()
+    );
     let declaration = serde_json::to_string(catalog.declaration()).unwrap();
     for forbidden in ["expected_revision", "capability_id", "outer_call_id"] {
         assert!(!declaration.contains(forbidden));
@@ -115,10 +120,7 @@ fn retry_reuses_request_snapshot_but_outer_call_identity_stays_response_local() 
     let second = retry.decode_outer_call("call-retry", arguments()).unwrap();
 
     assert_eq!(first.request().request_revision(), Some(5));
-    assert_eq!(
-        first.request().catalog_identity_sha256(),
-        second.request().catalog_identity_sha256()
-    );
+    assert_eq!(first.plan(), second.plan());
     assert_eq!(
         first.internal_call_id(0).unwrap().transport_id(),
         "call-first/taskspace/call/0"

@@ -705,7 +705,7 @@ async fn drain_to_completed(
             ));
         };
         match event {
-            Ok(ResponseEvent::OutputItemDone(item)) => {
+            Ok(ResponseEvent::OutputItemDone(item, _)) => {
                 output_items.push(item);
             }
             Ok(ResponseEvent::ServerReasoningIncluded(included)) => {

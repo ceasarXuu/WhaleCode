@@ -3400,10 +3400,10 @@ where
         let mut api_stream = api_stream;
         while let Some(event) = api_stream.next().await {
             match event {
-                Ok(ResponseEvent::OutputItemDone(item)) => {
+                Ok(ResponseEvent::OutputItemDone(item, output_index)) => {
                     items_added.push(item.clone());
                     if tx_event
-                        .send(Ok(ResponseEvent::OutputItemDone(item)))
+                        .send(Ok(ResponseEvent::OutputItemDone(item, output_index)))
                         .await
                         .is_err()
                     {

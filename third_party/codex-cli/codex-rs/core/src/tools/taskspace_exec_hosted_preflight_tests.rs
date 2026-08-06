@@ -4,6 +4,7 @@ use codex_tools::ToolSpec;
 use serde_json::json;
 
 use super::*;
+use crate::action_map::rooted_dag::ActionOutcome;
 use crate::action_map::rooted_dag::NodeState;
 use crate::action_map::rooted_dag::TaskSpaceMap;
 use crate::action_map::rooted_dag::map_node;
@@ -98,11 +99,13 @@ fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
             output_index: 9,
             provider_id: "image-1".into(),
             tool: "image_generation".into(),
+            outcome: ActionOutcome::Succeeded,
         },
         HostedOutputFact {
             output_index: 2,
             provider_id: "search-1".into(),
             tool: "web_search".into(),
+            outcome: ActionOutcome::Succeeded,
         },
     ];
 
@@ -128,6 +131,7 @@ fn initialization_can_bind_already_completed_hosted_work_to_new_nodes() {
         output_index: 4,
         provider_id: "search-new-map".into(),
         tool: "web_search".into(),
+        outcome: ActionOutcome::Succeeded,
     }];
 
     let prepared = preflight_taskspace_exec(&envelope, None, &facts).unwrap();
@@ -149,6 +153,7 @@ fn read_map_cannot_share_a_response_with_hosted_work() {
         output_index: 1,
         provider_id: "search-1".into(),
         tool: "web_search".into(),
+        outcome: ActionOutcome::Succeeded,
     }];
 
     assert_eq!(
@@ -181,6 +186,7 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
         output_index: 1,
         provider_id: "image-1".into(),
         tool: "image_generation".into(),
+        outcome: ActionOutcome::Succeeded,
     }];
     assert!(matches!(
         preflight_taskspace_exec(&one_binding, Some(&current), &wrong_tool),
@@ -191,6 +197,7 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
         output_index: 1,
         provider_id: "search-1".into(),
         tool: "web_search".into(),
+        outcome: ActionOutcome::Succeeded,
     }];
     for (nodes, reason) in [
         (json!(["work", "work"]), "empty_or_duplicate_node"),
@@ -229,11 +236,13 @@ fn duplicate_hosted_provider_facts_are_rejected() {
             output_index: 1,
             provider_id: "search-1".into(),
             tool: "web_search".into(),
+            outcome: ActionOutcome::Succeeded,
         },
         HostedOutputFact {
             output_index: 1,
             provider_id: "search-2".into(),
             tool: "web_search".into(),
+            outcome: ActionOutcome::Succeeded,
         },
     ];
     assert!(matches!(

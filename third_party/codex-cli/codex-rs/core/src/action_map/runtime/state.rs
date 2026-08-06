@@ -66,7 +66,6 @@ impl ActionMapRuntimeState {
         self.mode
     }
 
-    #[cfg(test)]
     pub(crate) fn active_map_id(&self) -> Option<&str> {
         self.active_map_id.as_deref()
     }
