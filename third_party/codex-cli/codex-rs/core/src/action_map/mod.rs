@@ -8,6 +8,8 @@ mod store_handle;
 pub(crate) use projection::ProjectionEnvelope;
 pub(crate) use projection::TASKSPACE_MAP_HANDLE_MARKER;
 pub(crate) use projection::TASKSPACE_MAP_PROJECTION_MARKER;
+pub(crate) use projection::TaskSpaceMapView;
+pub(crate) use projection::taskspace_map_view;
 pub(crate) use projection_policy::ProjectionCursor;
 pub(crate) use projection_policy::ProjectionEmission;
 pub(crate) use projection_policy::ProjectionTrigger;

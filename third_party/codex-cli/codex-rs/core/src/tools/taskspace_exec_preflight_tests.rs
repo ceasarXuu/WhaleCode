@@ -114,7 +114,6 @@ fn initialize_call() -> serde_json::Value {
             "work_nodes": [{
                 "node_id": "work",
                 "goal": "implement",
-                "state": "ready",
                 "content": "",
                 "parents": ["root"]
             }],
@@ -175,7 +174,7 @@ fn initialize_and_work_are_admitted_in_one_plan() {
 }
 
 #[test]
-fn read_only_plan_returns_map_without_a_candidate_change() {
+fn read_only_plan_returns_the_complete_agent_visible_map() {
     let current = open_map();
     let envelope = envelope(
         json!({
@@ -187,7 +186,17 @@ fn read_only_plan_returns_map_without_a_candidate_change() {
 
     let prepared = preflight_taskspace_exec(&envelope, Some(&current), &[]).unwrap();
     assert_eq!(prepared.candidate_map, Some(current.clone()));
-    assert_eq!(prepared.read_maps, vec![(0, current)]);
+    assert_eq!(prepared.read_maps.len(), 1);
+    let (index, view) = &prepared.read_maps[0];
+    assert_eq!(*index, 0);
+    assert_eq!(view.map_id, current.map_id);
+    let work = view
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "work")
+        .unwrap();
+    assert_eq!(work.parents, vec!["root"]);
+    assert_eq!(work.children, vec!["finish"]);
 }
 
 #[test]
@@ -217,6 +226,21 @@ fn stale_request_and_invalid_map_boundaries_are_rejected() {
         preflight_taskspace_exec(&invalid, Some(&requested), &[]),
         Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
             index: 1,
+            operation: "read_map"
+        })
+    );
+
+    let read_then_work = envelope(
+        json!({
+            "calls": [{"tool": "read_map", "arguments": {}}, read_call("work")],
+            "hosted_bindings": []
+        }),
+        Some(&requested),
+    );
+    assert_eq!(
+        preflight_taskspace_exec(&read_then_work, Some(&requested), &[]),
+        Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
+            index: 0,
             operation: "read_map"
         })
     );
@@ -290,7 +314,19 @@ fn reopen_requires_and_accepts_real_followup_work() {
         json!({
             "calls": [
                 {"tool": "reopen_map", "arguments": {}},
-                read_call("root")
+                {
+                    "tool": "update_map",
+                    "arguments": {
+                        "add_work_nodes": [{
+                            "node_id": "followup",
+                            "goal": "handle user follow-up",
+                            "content": "",
+                            "parents": ["work", "blocked"]
+                        }],
+                        "node_patches": [{"node_id": "finish", "parents": ["followup"]}]
+                    }
+                },
+                read_call("followup")
             ],
             "hosted_bindings": []
         }),
@@ -346,11 +382,11 @@ fn client_node_state_and_function_schema_are_checked_before_dispatch() {
             },
         ),
         (
-            read_call("blocked"),
-            TaskSpaceExecPreflightError::ClientNodeNotExecutable {
+            read_call("root"),
+            TaskSpaceExecPreflightError::ClientNodeNotWork {
                 index: 0,
-                node_id: "blocked".into(),
-                state: NodeState::Blocked,
+                node_id: "root".into(),
+                role: crate::action_map::rooted_dag::NodeRole::TaskRoot,
             },
         ),
     ] {
@@ -363,6 +399,34 @@ fn client_node_state_and_function_schema_are_checked_before_dispatch() {
             Err(expected)
         );
     }
+
+    let blocked = envelope(
+        json!({"calls": [read_call("blocked")], "hosted_bindings": []}),
+        Some(&current),
+    );
+    assert!(preflight_taskspace_exec(&blocked, Some(&current), &[]).is_ok());
+
+    let mut waiting_map = current.clone();
+    waiting_map.work_nodes.push(map_node(
+        "waiting",
+        "dependent work",
+        NodeState::Waiting,
+        "",
+        vec!["work".into()],
+    ));
+    waiting_map.finish.parents = vec!["waiting".into(), "blocked".into()];
+    let waiting = envelope(
+        json!({"calls": [read_call("waiting")], "hosted_bindings": []}),
+        Some(&waiting_map),
+    );
+    assert_eq!(
+        preflight_taskspace_exec(&waiting, Some(&waiting_map), &[]),
+        Err(TaskSpaceExecPreflightError::ClientNodeNotExecutable {
+            index: 0,
+            node_id: "waiting".into(),
+            state: NodeState::Waiting,
+        })
+    );
 
     for arguments in [json!({}), json!({"path": "a", "extra": true})] {
         let envelope = envelope(

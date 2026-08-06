@@ -101,7 +101,6 @@ pub(crate) struct BoundaryNodeArgs {
 pub(crate) struct WorkNodeArgs {
     pub(crate) node_id: String,
     pub(crate) goal: String,
-    pub(crate) state: NodeState,
     pub(crate) content: String,
     pub(crate) parents: Vec<String>,
 }
@@ -243,7 +242,7 @@ impl WorkNodeArgs {
         MapNode {
             node_id: self.node_id,
             goal: self.goal,
-            state: self.state,
+            state: NodeState::Waiting,
             content: self.content,
             parents: self.parents,
             actions: Vec::new(),
@@ -341,7 +340,8 @@ fn initialize_schema() -> JsonSchema {
             ),
             (
                 "work_nodes",
-                JsonSchema::array(work_node_schema(), Some("Initial work nodes.".into())),
+                JsonSchema::array(work_node_schema(), Some("Initial work nodes.".into()))
+                    .with_min_items(1),
             ),
             (
                 "finish",
@@ -357,7 +357,6 @@ fn update_schema() -> JsonSchema {
         [
             ("node_id", JsonSchema::string(None)),
             ("goal", JsonSchema::string(None)),
-            ("state", node_state_schema()),
             ("content", JsonSchema::string(None)),
             ("parents", JsonSchema::array(JsonSchema::string(None), None)),
         ],
@@ -404,7 +403,7 @@ fn work_node_schema() -> JsonSchema {
                 JsonSchema::array(JsonSchema::string(None), None).with_min_items(1),
             ),
         ],
-        &["node_id", "goal", "state", "content", "parents"],
+        &["node_id", "goal", "content", "parents"],
     )
 }
 

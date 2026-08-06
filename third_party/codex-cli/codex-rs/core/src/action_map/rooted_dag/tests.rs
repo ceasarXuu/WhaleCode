@@ -150,3 +150,67 @@ fn one_action_can_belong_to_multiple_nodes_without_conflict() {
 
     assert!(validate(&map).is_empty());
 }
+
+#[test]
+fn map_requires_work_and_boundary_nodes_cannot_own_actions() {
+    let mut without_work = fork_join_map();
+    without_work.work_nodes.clear();
+    without_work.finish.parents = vec!["root".into()];
+    assert!(
+        validate(&without_work)
+            .iter()
+            .any(|violation| violation.code == ViolationCode::WorkNodeRequired)
+    );
+
+    let mut boundary_action = fork_join_map();
+    boundary_action.root.actions.push(NodeAction {
+        action_id: "root-call".into(),
+        tool_name: "read_file".into(),
+        outcome: ActionOutcome::Succeeded,
+    });
+    assert!(validate(&boundary_action).iter().any(|violation| {
+        violation.code == ViolationCode::ActionInvalid
+            && violation.subjects == vec!["root".to_string()]
+    }));
+}
+
+#[test]
+fn canonical_transactions_derive_new_work_state_from_the_complete_graph() {
+    let initialized = initialize(InitializeMap {
+        map_id: "map-derived".into(),
+        root: node("root", NodeState::Completed, &[]),
+        work_nodes: vec![
+            node("tail", NodeState::Completed, &["head"]),
+            node("head", NodeState::Blocked, &["root"]),
+        ],
+        finish: node("finish", NodeState::Completed, &["tail"]),
+    })
+    .unwrap()
+    .map;
+    assert_eq!(
+        super::node(&initialized, "head").unwrap().state,
+        NodeState::Ready
+    );
+    assert_eq!(
+        super::node(&initialized, "tail").unwrap().state,
+        NodeState::Waiting
+    );
+
+    let rejected = execute(
+        &initialized,
+        ExecuteTransaction {
+            request_revision: initialized.revision,
+            add_work_nodes: vec![node("new", NodeState::Completed, &["head"])],
+            patches: vec![NodePatch {
+                node_id: "new".into(),
+                state: Some(NodeState::Completed),
+                ..Default::default()
+            }],
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        rejected.violations[0].code,
+        ViolationCode::TransitionInvalid
+    );
+}

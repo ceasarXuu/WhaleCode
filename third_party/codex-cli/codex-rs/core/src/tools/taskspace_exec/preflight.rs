@@ -2,9 +2,12 @@ use std::collections::BTreeSet;
 
 use codex_tools::ToolSpecCapabilityInput;
 
+use crate::action_map::TaskSpaceMapView;
 use crate::action_map::rooted_dag;
+use crate::action_map::rooted_dag::NodeRole;
 use crate::action_map::rooted_dag::NodeState;
 use crate::action_map::rooted_dag::TaskSpaceMap;
+use crate::action_map::taskspace_map_view;
 
 use super::ClientCall;
 use super::ClientCallInput;
@@ -41,7 +44,7 @@ pub(crate) struct PreparedHostedBinding {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecPreflightResult {
     pub(crate) candidate_map: Option<TaskSpaceMap>,
-    pub(crate) read_maps: Vec<(usize, TaskSpaceMap)>,
+    pub(crate) read_maps: Vec<(usize, TaskSpaceMapView)>,
     pub(crate) client_calls: Vec<PreparedClientCall>,
     pub(crate) hosted_bindings: Vec<PreparedHostedBinding>,
 }
@@ -60,6 +63,10 @@ pub(crate) enum TaskSpaceExecPreflightError {
         index: usize,
         error: MapOperationApplyError,
     },
+    ReadMapViewFailed {
+        index: usize,
+        reason: String,
+    },
     LifecycleRequiresWork {
         index: usize,
         operation: &'static str,
@@ -72,6 +79,11 @@ pub(crate) enum TaskSpaceExecPreflightError {
         index: usize,
         node_id: String,
         state: NodeState,
+    },
+    ClientNodeNotWork {
+        index: usize,
+        node_id: String,
+        role: NodeRole,
     },
     ClientArgumentsInvalid {
         index: usize,
@@ -138,7 +150,15 @@ pub(crate) fn preflight_taskspace_exec(
                     TaskSpaceExecPreflightError::MapOperationRejected { index, error }
                 })?;
                 match effect {
-                    MapOperationEffect::Read(map) => read_maps.push((index, map)),
+                    MapOperationEffect::Read(map) => {
+                        let view = taskspace_map_view(&map).map_err(|error| {
+                            TaskSpaceExecPreflightError::ReadMapViewFailed {
+                                index,
+                                reason: error.to_string(),
+                            }
+                        })?;
+                        read_maps.push((index, view));
+                    }
                     MapOperationEffect::Candidate(map) => candidate_map = Some(map),
                 }
             }
@@ -182,11 +202,7 @@ fn validate_map_boundary(
             operation: operation.name(),
         });
     }
-    if operation.is_read()
-        && calls[..index]
-            .iter()
-            .any(|call| matches!(call, ExecCall::Client(_)))
-    {
+    if operation.is_read() && (calls.len() != 1 || has_hosted_work) {
         return Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
             index,
             operation: operation.name(),
@@ -229,13 +245,33 @@ fn validate_client_call(
     candidate_map: Option<&TaskSpaceMap>,
     envelope: &TaskSpaceExecEnvelope,
 ) -> Result<(), TaskSpaceExecPreflightError> {
-    let node = candidate_map
-        .and_then(|map| rooted_dag::node(map, &call.node_id))
-        .ok_or_else(|| TaskSpaceExecPreflightError::ClientNodeMissing {
+    let map = candidate_map.ok_or_else(|| TaskSpaceExecPreflightError::ClientNodeMissing {
+        index,
+        node_id: call.node_id.clone(),
+    })?;
+    let node = rooted_dag::node(map, &call.node_id).ok_or_else(|| {
+        TaskSpaceExecPreflightError::ClientNodeMissing {
             index,
             node_id: call.node_id.clone(),
-        })?;
-    if !matches!(node.state, NodeState::Ready | NodeState::InFlight) {
+        }
+    })?;
+    let role = rooted_dag::node_role(map, &call.node_id).ok_or_else(|| {
+        TaskSpaceExecPreflightError::ClientNodeMissing {
+            index,
+            node_id: call.node_id.clone(),
+        }
+    })?;
+    if role != NodeRole::Work {
+        return Err(TaskSpaceExecPreflightError::ClientNodeNotWork {
+            index,
+            node_id: node.node_id.clone(),
+            role,
+        });
+    }
+    if !matches!(
+        node.state,
+        NodeState::Ready | NodeState::InFlight | NodeState::Blocked
+    ) {
         return Err(TaskSpaceExecPreflightError::ClientNodeNotExecutable {
             index,
             node_id: node.node_id.clone(),
@@ -329,6 +365,15 @@ fn validate_hosted_bindings(
                         binding_index,
                         node_id: node_id.clone(),
                         reason: "unknown_node",
+                    });
+                }
+                if candidate_map.and_then(|map| rooted_dag::node_role(map, node_id))
+                    != Some(NodeRole::Work)
+                {
+                    return Err(TaskSpaceExecPreflightError::HostedNodeInvalid {
+                        binding_index,
+                        node_id: node_id.clone(),
+                        reason: "boundary_node",
                     });
                 }
             }

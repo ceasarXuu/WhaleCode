@@ -1,11 +1,9 @@
 use super::state::ActionMapRuntimeState;
-use crate::action_map::map::ActionMapInstance;
 use crate::action_map::projection::ProjectionEnvelope;
-use crate::action_map::projection::ProjectionInput;
 use crate::action_map::projection::TASKSPACE_MAP_HANDLE_MARKER;
 use crate::action_map::projection::render_empty_projection;
 use crate::action_map::projection::render_projection;
-use crate::action_map::rooted_dag::state_sha256;
+use crate::action_map::projection::taskspace_map_view;
 
 impl ActionMapRuntimeState {
     pub(crate) fn build_developer_context(&self, envelope: ProjectionEnvelope) -> Option<String> {
@@ -38,20 +36,7 @@ impl ActionMapRuntimeState {
         envelope: ProjectionEnvelope,
     ) -> Option<String> {
         let map = self.maps.get(map_id)?;
-        let input = projection_input(map).ok()?;
+        let input = taskspace_map_view(map.canonical_map()).ok()?;
         Some(render_projection(input, envelope).body)
     }
-}
-
-fn projection_input(map: &ActionMapInstance) -> Result<ProjectionInput, serde_json::Error> {
-    let graph = map.canonical_map();
-    Ok(ProjectionInput {
-        map_id: graph.map_id.clone(),
-        revision: graph.revision,
-        canonical_sha256: state_sha256(graph)?,
-        root_node_id: graph.root.node_id.clone(),
-        finish_node_id: graph.finish.node_id.clone(),
-        complete: map.is_complete(),
-        nodes: map.node_views(),
-    })
 }

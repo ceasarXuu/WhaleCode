@@ -72,7 +72,6 @@ fn initialize_call() -> serde_json::Value {
             "work_nodes": [{
                 "node_id": "work",
                 "goal": "implement",
-                "state": "ready",
                 "content": "",
                 "parents": ["root"]
             }],
@@ -137,6 +136,31 @@ fn initialization_can_bind_already_completed_hosted_work_to_new_nodes() {
 }
 
 #[test]
+fn read_map_cannot_share_a_response_with_hosted_work() {
+    let current = open_map();
+    let envelope = envelope(
+        json!({
+            "calls": [{"tool": "read_map", "arguments": {}}],
+            "hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]
+        }),
+        Some(&current),
+    );
+    let facts = [HostedOutputFact {
+        output_index: 1,
+        provider_id: "search-1".into(),
+        tool: "web_search".into(),
+    }];
+
+    assert_eq!(
+        preflight_taskspace_exec(&envelope, Some(&current), &facts),
+        Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
+            index: 0,
+            operation: "read_map",
+        })
+    );
+}
+
+#[test]
 fn hosted_count_tool_and_node_mismatches_are_rejected() {
     let current = open_map();
     let one_binding = envelope(
@@ -171,6 +195,7 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
     for (nodes, reason) in [
         (json!(["work", "work"]), "empty_or_duplicate_node"),
         (json!(["missing"]), "unknown_node"),
+        (json!(["root"]), "boundary_node"),
     ] {
         let binding = envelope(
             json!({

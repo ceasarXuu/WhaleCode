@@ -20,6 +20,7 @@ pub(crate) enum ViolationCode {
     MapIdentityInvalid,
     RevisionInvalid,
     NodeIdentityInvalid,
+    WorkNodeRequired,
     DuplicateNode,
     NodeGoalEmpty,
     RootHasParent,
@@ -49,6 +50,7 @@ impl ViolationCode {
             Self::MapIdentityInvalid => "map_identity_invalid",
             Self::RevisionInvalid => "revision_invalid",
             Self::NodeIdentityInvalid => "node_identity_invalid",
+            Self::WorkNodeRequired => "work_node_required",
             Self::DuplicateNode => "duplicate_node",
             Self::NodeGoalEmpty => "node_goal_empty",
             Self::RootHasParent => "root_has_parent",
@@ -128,6 +130,9 @@ fn validate_identity(map: &TaskSpaceMap, found: &mut Violations) {
     }
     if map.revision == 0 {
         add_empty(found, ViolationCode::RevisionInvalid);
+    }
+    if map.work_nodes.is_empty() {
+        add_empty(found, ViolationCode::WorkNodeRequired);
     }
     let mut seen = BTreeSet::new();
     for (_, node) in nodes(map) {
@@ -250,7 +255,10 @@ fn validate_states(map: &TaskSpaceMap, found: &mut Violations) {
 
 fn validate_actions(map: &TaskSpaceMap, found: &mut Violations) {
     let mut identities = BTreeMap::new();
-    for (_, node) in nodes(map) {
+    for (role, node) in nodes(map) {
+        if role != super::model::NodeRole::Work && !node.actions.is_empty() {
+            add(found, ViolationCode::ActionInvalid, node.node_id.clone());
+        }
         let mut local = BTreeSet::new();
         for action in &node.actions {
             if action.action_id.trim().is_empty() || action.tool_name.trim().is_empty() {

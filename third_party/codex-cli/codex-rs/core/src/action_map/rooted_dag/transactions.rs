@@ -13,6 +13,7 @@ use super::model::new_map;
 use super::model::node;
 use super::model::node_mut;
 use super::transitions::normalize_readiness;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InitializeMap {
@@ -78,13 +79,18 @@ impl Rejection {
 
 pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
     let mut map = new_map(input.map_id, input.root, input.work_nodes, input.finish);
+    map.root.state = NodeState::InFlight;
+    for node in &mut map.work_nodes {
+        node.state = NodeState::Waiting;
+    }
+    map.finish.state = NodeState::Waiting;
     normalize_readiness(&mut map);
     validate_candidate(map)
 }
 
 pub(crate) fn execute(
     current: &TaskSpaceMap,
-    input: ExecuteTransaction,
+    mut input: ExecuteTransaction,
 ) -> Result<Commit, Rejection> {
     require_revision(current, input.request_revision)?;
     if is_complete(current) {
@@ -94,7 +100,26 @@ pub(crate) fn execute(
             current.map_id.clone(),
         ));
     }
+    let added_node_ids = input
+        .add_work_nodes
+        .iter()
+        .map(|node| node.node_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if let Some(patch) = input
+        .patches
+        .iter()
+        .find(|patch| patch.state.is_some() && added_node_ids.contains(patch.node_id.as_str()))
+    {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::TransitionInvalid,
+            patch.node_id.clone(),
+        ));
+    }
     let mut candidate = current.clone();
+    for node in &mut input.add_work_nodes {
+        node.state = NodeState::Waiting;
+    }
     candidate.work_nodes.extend(input.add_work_nodes);
     for patch in input.patches {
         apply_patch(&mut candidate, patch)?;

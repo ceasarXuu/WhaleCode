@@ -1,6 +1,11 @@
 use codex_protocol::taskspace::TaskSpaceNodeView;
 use serde::Serialize;
 
+use super::rooted_dag::TaskSpaceMap;
+use super::rooted_dag::derive_node_views;
+use super::rooted_dag::is_complete;
+use super::rooted_dag::state_sha256;
+
 pub(crate) const TASKSPACE_MAP_HANDLE_MARKER: &str = "TaskSpaceMapHandleR8V1:";
 pub(crate) const TASKSPACE_MAP_PROJECTION_END: &str = "TaskSpaceMapProjectionR8V1 end.";
 pub(crate) const TASKSPACE_MAP_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR8V1:";
@@ -20,15 +25,15 @@ impl ProjectionEnvelope {
     }
 }
 
-#[derive(Clone, Serialize)]
-pub(super) struct ProjectionInput {
-    pub(super) map_id: String,
-    pub(super) revision: u64,
-    pub(super) canonical_sha256: String,
-    pub(super) root_node_id: String,
-    pub(super) finish_node_id: String,
-    pub(super) complete: bool,
-    pub(super) nodes: Vec<TaskSpaceNodeView>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct TaskSpaceMapView {
+    pub(crate) map_id: String,
+    pub(crate) revision: u64,
+    pub(crate) canonical_sha256: String,
+    pub(crate) root_node_id: String,
+    pub(crate) finish_node_id: String,
+    pub(crate) complete: bool,
+    pub(crate) nodes: Vec<TaskSpaceNodeView>,
 }
 
 pub(super) struct RenderedProjection {
@@ -36,7 +41,7 @@ pub(super) struct RenderedProjection {
 }
 
 pub(super) fn render_projection(
-    input: ProjectionInput,
+    input: TaskSpaceMapView,
     envelope: ProjectionEnvelope,
 ) -> RenderedProjection {
     let map_json = serde_json::to_string_pretty(&input)
@@ -50,6 +55,20 @@ pub(super) fn render_projection(
         indent(&map_json, 2),
     );
     RenderedProjection { body }
+}
+
+pub(crate) fn taskspace_map_view(
+    map: &TaskSpaceMap,
+) -> Result<TaskSpaceMapView, serde_json::Error> {
+    Ok(TaskSpaceMapView {
+        map_id: map.map_id.clone(),
+        revision: map.revision,
+        canonical_sha256: state_sha256(map)?,
+        root_node_id: map.root.node_id.clone(),
+        finish_node_id: map.finish.node_id.clone(),
+        complete: is_complete(map),
+        nodes: derive_node_views(map),
+    })
 }
 
 pub(super) fn render_empty_projection(map_id: &str, envelope: ProjectionEnvelope) -> String {
@@ -76,7 +95,7 @@ mod tests {
     #[test]
     fn projection_contains_full_node_view_without_old_map_layers() {
         let body = render_projection(
-            ProjectionInput {
+            TaskSpaceMapView {
                 map_id: "map-1".into(),
                 revision: 2,
                 canonical_sha256: "abc".into(),

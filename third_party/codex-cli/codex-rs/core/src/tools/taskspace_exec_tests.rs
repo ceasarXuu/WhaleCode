@@ -18,7 +18,6 @@ fn initialize_value() -> serde_json::Value {
             "work_nodes": [{
                 "node_id": "work",
                 "goal": "Implement",
-                "state": "ready",
                 "content": "",
                 "parents": ["root"]
             }],
@@ -57,6 +56,64 @@ fn initialize_contract_omits_runtime_owned_fields_and_builds_canonical_map() {
 }
 
 #[test]
+fn initialization_derives_a_multi_node_frontier_from_the_complete_dependency_graph() {
+    let operation: MapOperation = serde_json::from_value(json!({
+        "tool": "initialize_map",
+        "arguments": {
+            "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+            "work_nodes": [
+                {"node_id": "join", "goal": "join", "content": "", "parents": ["left_tail", "right"]},
+                {"node_id": "left_tail", "goal": "left tail", "content": "", "parents": ["left"]},
+                {"node_id": "right", "goal": "right", "content": "", "parents": ["root"]},
+                {"node_id": "left", "goal": "left", "content": "", "parents": ["root"]}
+            ],
+            "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["join"]}
+        }
+    }))
+    .unwrap();
+    let MapOperationEffect::Candidate(map) =
+        apply_map_operation(None, "map-session", operation).unwrap()
+    else {
+        panic!("initialize must produce a candidate")
+    };
+
+    for (node_id, expected) in [
+        ("left", NodeState::Ready),
+        ("right", NodeState::Ready),
+        ("left_tail", NodeState::Waiting),
+        ("join", NodeState::Waiting),
+    ] {
+        assert_eq!(
+            map.work_nodes
+                .iter()
+                .find(|node| node.node_id == node_id)
+                .unwrap()
+                .state,
+            expected,
+            "wrong state for {node_id}"
+        );
+    }
+}
+
+#[test]
+fn new_work_nodes_reject_agent_declared_state_and_empty_initial_work() {
+    let mut with_state = initialize_value();
+    with_state["arguments"]["work_nodes"][0]["state"] = json!("completed");
+    assert!(serde_json::from_value::<MapOperation>(with_state).is_err());
+
+    let mut empty = initialize_value();
+    empty["arguments"]["work_nodes"] = json!([]);
+    empty["arguments"]["finish"]["parents"] = json!(["root"]);
+    let operation = serde_json::from_value::<MapOperation>(empty).unwrap();
+    let error = apply_map_operation(None, "map-session", operation).unwrap_err();
+    let MapOperationApplyError::Rejected(rejection) = error else {
+        panic!("empty initial work must be rejected by the canonical Map")
+    };
+    assert!(rejection.violations.iter().any(|violation| violation.code
+        == crate::action_map::rooted_dag::ViolationCode::WorkNodeRequired));
+}
+
+#[test]
 fn update_changes_parents_and_state_through_canonical_transaction() {
     let initial: MapOperation = serde_json::from_value(initialize_value()).unwrap();
     let MapOperationEffect::Candidate(map) =
@@ -70,7 +127,6 @@ fn update_changes_parents_and_state_through_canonical_transaction() {
             "add_work_nodes": [{
                 "node_id": "verify",
                 "goal": "Verify",
-                "state": "waiting",
                 "content": "",
                 "parents": ["work"]
             }],
