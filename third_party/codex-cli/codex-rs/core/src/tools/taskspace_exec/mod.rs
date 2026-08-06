@@ -1,4 +1,5 @@
 mod catalog;
+mod dispatch;
 mod envelope;
 mod map_operations;
 mod plan;
@@ -7,6 +8,11 @@ mod schema_validation;
 
 pub(crate) use catalog::TaskSpaceExecCatalog;
 pub(crate) use catalog::TaskSpaceExecCatalogError;
+pub(crate) use dispatch::DispatchedClientCall;
+pub(crate) use dispatch::NativeClientCall;
+pub(crate) use dispatch::TaskSpaceExecDispatchPrepareError;
+pub(crate) use dispatch::dispatch_client_calls;
+pub(crate) use dispatch::prepare_client_calls;
 pub(crate) use envelope::TaskSpaceExecEnvelope;
 pub(crate) use envelope::TaskSpaceExecEnvelopeError;
 pub(crate) use envelope::TaskSpaceExecInternalCallId;
@@ -48,3 +54,7 @@ mod preflight_tests;
 #[cfg(test)]
 #[path = "../taskspace_exec_hosted_preflight_tests.rs"]
 mod hosted_preflight_tests;
+
+#[cfg(test)]
+#[path = "../taskspace_exec_dispatch_tests.rs"]
+mod dispatch_tests;

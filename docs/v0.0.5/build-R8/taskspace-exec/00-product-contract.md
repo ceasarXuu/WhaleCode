@@ -134,6 +134,15 @@ Runtime 负责：
 
 Runtime 不负责决定应调用什么、选择哪个节点、补调用、改参数、重试或解释结果。
 
+整个 Exec 的结构、Map、DAG、节点、Tool 参数和 Hosted 声明必须在任何未发生的 client/Map
+副作用前一次性完成预检。预检通过后，Runtime 先将候选 Map 与 client action 的 `Pending` 归属持久化；
+持久化成功后立即按原生 Tool 并行能力 dispatch，不为 Work 调用额外推导依赖。每个 Tool 结果一旦返回，
+立即独立结算该 action outcome，不等待同批其他 Tool。持久化只串行化短事务，不用数据库锁串行化 Tool 执行。
+
+Canonical Map 在存储中按 Map head、Node、Node parents 和归属 Node 的 Action 细粒度持久化。这些表只是
+同一 Map 产品模型的物理展开，不是平行事实源；读取时直接组装为同一 canonical Map，不依赖 rollout
+或 delta replay 重建。高频 Action outcome 只更新对应行和 Map head revision，不重写整份 Map JSON。
+
 Client Tool 只能归属于 Work node。Ready、InFlight 和 Blocked Work node 可执行；Waiting 与 Completed Work node 不可执行。
 Blocked 是 Agent 声明的工作阻碍，不是 Tool 权限冻结，Agent 可以继续调用 Tool 收集事实或解除阻碍。Root 和 Finish 只表达
 任务边界，不能承载实际 Tool action。

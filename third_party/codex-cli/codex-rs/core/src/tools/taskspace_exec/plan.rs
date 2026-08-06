@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use super::MapOperation;
 use super::TaskSpaceExecCatalog;
+use super::catalog::TaskSpaceClientTransport;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecPlan {
@@ -25,6 +26,7 @@ pub(crate) struct ClientCall {
     pub(crate) tool_name: ToolName,
     pub(crate) node_id: String,
     pub(crate) input: ClientCallInput,
+    pub(crate) transport: TaskSpaceClientTransport,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +134,8 @@ fn decode_call(
             tool: discriminator.tool,
         });
     };
-    let (public_name, node_id, input) = match &capability.input {
+    let projected = &capability.capability;
+    let (public_name, node_id, input) = match &projected.input {
         ToolSpecCapabilityInput::Function(_) => {
             let raw = serde_json::from_value::<RawFunctionCall>(value).map_err(|error| {
                 TaskSpaceExecPlanDecodeError::InvalidCall {
@@ -158,9 +161,10 @@ fn decode_call(
     };
     Ok(ExecCall::Client(ClientCall {
         public_name,
-        tool_name: capability.tool_name.clone(),
+        tool_name: projected.tool_name.clone(),
         node_id,
         input,
+        transport: capability.transport,
     }))
 }
 

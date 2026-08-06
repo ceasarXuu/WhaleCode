@@ -286,7 +286,7 @@ fn validate_client_call(
             index,
             tool: call.public_name.clone(),
         })?;
-    match (&call.input, &capability.input) {
+    match (&call.input, &capability.capability.input) {
         (ClientCallInput::Function(value), ToolSpecCapabilityInput::Function(schema)) => {
             validate_json_schema(value, schema).map_err(|violation| {
                 TaskSpaceExecPreflightError::ClientArgumentsInvalid {

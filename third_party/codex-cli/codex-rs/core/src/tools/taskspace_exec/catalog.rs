@@ -22,10 +22,23 @@ const RECURSIVE_TOOL_NAMES: [&str; 3] = [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecCatalog {
     declaration: ResponsesApiTool,
-    client_capabilities: BTreeMap<String, ToolSpecCapability>,
+    client_capabilities: BTreeMap<String, TaskSpaceClientCapability>,
     map_capabilities: BTreeMap<String, ToolSpecCapability>,
     hosted_tools: BTreeSet<String>,
     identity_sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSpaceClientTransport {
+    Function,
+    Freeform,
+    ToolSearch,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct TaskSpaceClientCapability {
+    pub(super) capability: ToolSpecCapability,
+    pub(super) transport: TaskSpaceClientTransport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,13 +62,27 @@ impl TaskSpaceExecCatalog {
                 | ToolSpec::Freeform(_)
                 | ToolSpec::Namespace(_)
                 | ToolSpec::ToolSearch { .. } => {
+                    let transport = match spec {
+                        ToolSpec::Freeform(_) => TaskSpaceClientTransport::Freeform,
+                        ToolSpec::ToolSearch { .. } => TaskSpaceClientTransport::ToolSearch,
+                        ToolSpec::Function(_) | ToolSpec::Namespace(_) => {
+                            TaskSpaceClientTransport::Function
+                        }
+                        _ => unreachable!("matched client ToolSpec"),
+                    };
                     for capability in project_tool_spec_capabilities(spec) {
                         if RECURSIVE_TOOL_NAMES.contains(&capability.public_name.as_str()) {
                             continue;
                         }
                         let public_name = capability.public_name.clone();
                         if client_capabilities
-                            .insert(public_name.clone(), capability)
+                            .insert(
+                                public_name.clone(),
+                                TaskSpaceClientCapability {
+                                    capability,
+                                    transport,
+                                },
+                            )
                             .is_some()
                         {
                             return Err(TaskSpaceExecCatalogError::DuplicateCapability {
@@ -86,7 +113,9 @@ impl TaskSpaceExecCatalog {
         }
 
         let declaration = build_declaration(
-            client_capabilities.values(),
+            client_capabilities
+                .values()
+                .map(|client| &client.capability),
             map_capabilities.values(),
             &hosted_tools,
         );
@@ -121,7 +150,7 @@ impl TaskSpaceExecCatalog {
         TaskSpaceExecPlan::decode(arguments, self)
     }
 
-    pub(super) fn client_capability(&self, name: &str) -> Option<&ToolSpecCapability> {
+    pub(super) fn client_capability(&self, name: &str) -> Option<&TaskSpaceClientCapability> {
         self.client_capabilities.get(name)
     }
 
