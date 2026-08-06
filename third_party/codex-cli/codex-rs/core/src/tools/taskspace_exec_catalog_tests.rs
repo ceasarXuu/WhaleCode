@@ -45,6 +45,15 @@ fn specs() -> Vec<ToolSpec> {
             description: "Sample namespace.".into(),
             tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
         }),
+        ToolSpec::ToolSearch {
+            execution: "client".into(),
+            description: "Search deferred tools.".into(),
+            parameters: JsonSchema::object(
+                BTreeMap::from([("query".into(), JsonSchema::string(None))]),
+                Some(vec!["query".into()]),
+                Some(AdditionalProperties::Boolean(false)),
+            ),
+        },
         ToolSpec::WebSearch {
             external_web_access: Some(true),
             filters: None,
@@ -80,6 +89,7 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
         "read_file",
         "apply_patch",
         "mcp__sample__lookup",
+        "tool_search",
     ] {
         assert!(rendered.contains(name), "missing {name} from {rendered}");
     }
@@ -137,6 +147,25 @@ fn decoder_preserves_mixed_map_function_freeform_and_namespace_calls() {
     );
     assert_eq!(namespace.tool_name.name, "lookup");
     assert_eq!(plan.hosted_bindings[0].node_ids, vec!["inspect", "fix"]);
+}
+
+#[test]
+fn decoder_preserves_client_tool_search_as_a_native_identity() {
+    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    let plan = catalog
+        .decode_plan(
+            r#"{"calls":[{"tool":"tool_search","node_id":"inspect","arguments":{"query":"calendar"}}],"hosted_bindings":[]}"#,
+        )
+        .unwrap();
+
+    let ExecCall::Client(call) = &plan.calls[0] else {
+        panic!("expected client Tool Search call")
+    };
+    assert_eq!(call.tool_name, codex_tools::ToolName::plain("tool_search"));
+    assert_eq!(
+        call.input,
+        ClientCallInput::Function(json!({"query": "calendar"}))
+    );
 }
 
 #[test]

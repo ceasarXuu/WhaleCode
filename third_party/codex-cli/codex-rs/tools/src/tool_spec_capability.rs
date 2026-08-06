@@ -28,7 +28,7 @@ pub enum ToolSpecCapabilityInput {
 }
 
 /// Project one provider-facing ToolSpec into zero or more schema-backed client
-/// capabilities. Other ToolSpec variants produce no entries.
+/// capabilities. Transport-specific container policy belongs to each caller.
 pub fn project_tool_spec_capabilities(spec: &ToolSpec) -> Vec<ToolSpecCapability> {
     match spec {
         ToolSpec::Function(tool) => vec![ToolSpecCapability {
@@ -64,10 +64,21 @@ pub fn project_tool_spec_capabilities(spec: &ToolSpec) -> Vec<ToolSpecCapability
                 }
             })
             .collect(),
-        ToolSpec::ToolSearch { .. }
-        | ToolSpec::LocalShell {}
-        | ToolSpec::ImageGeneration { .. }
-        | ToolSpec::WebSearch { .. } => Vec::new(),
+        ToolSpec::ToolSearch {
+            description,
+            parameters,
+            ..
+        } => vec![ToolSpecCapability {
+            public_name: "tool_search".to_string(),
+            tool_name: ToolName::plain("tool_search"),
+            description: description.clone(),
+            input: ToolSpecCapabilityInput::Function(parameters.clone()),
+            output_schema: None,
+            deferred: false,
+        }],
+        ToolSpec::LocalShell {} | ToolSpec::ImageGeneration { .. } | ToolSpec::WebSearch { .. } => {
+            Vec::new()
+        }
     }
 }
 

@@ -75,6 +75,32 @@ fn expands_namespace_and_preserves_native_identity() {
 }
 
 #[test]
+fn projects_schema_backed_client_tool_search() {
+    let parameters = JsonSchema::object(
+        BTreeMap::from([("query".to_string(), JsonSchema::string(None))]),
+        Some(vec!["query".to_string()]),
+        Some(false.into()),
+    );
+    let capabilities = project_tool_spec_capabilities(&ToolSpec::ToolSearch {
+        execution: "client".to_string(),
+        description: "Search deferred tools.".to_string(),
+        parameters: parameters.clone(),
+    });
+
+    assert_eq!(
+        capabilities,
+        vec![ToolSpecCapability {
+            public_name: "tool_search".to_string(),
+            tool_name: ToolName::plain("tool_search"),
+            description: "Search deferred tools.".to_string(),
+            input: ToolSpecCapabilityInput::Function(parameters),
+            output_schema: None,
+            deferred: false,
+        }]
+    );
+}
+
+#[test]
 fn excludes_provider_hosted_specs() {
     let capabilities = project_tool_spec_capabilities(&ToolSpec::WebSearch {
         external_web_access: Some(true),

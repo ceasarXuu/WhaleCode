@@ -45,7 +45,10 @@ impl TaskSpaceExecCatalog {
                 ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. } => {
                     hosted_tools.insert(spec.name().to_string());
                 }
-                ToolSpec::Function(_) | ToolSpec::Freeform(_) | ToolSpec::Namespace(_) => {
+                ToolSpec::Function(_)
+                | ToolSpec::Freeform(_)
+                | ToolSpec::Namespace(_)
+                | ToolSpec::ToolSearch { .. } => {
                     for capability in project_tool_spec_capabilities(spec) {
                         if RECURSIVE_TOOL_NAMES.contains(&capability.public_name.as_str()) {
                             continue;
@@ -61,7 +64,7 @@ impl TaskSpaceExecCatalog {
                         }
                     }
                 }
-                ToolSpec::ToolSearch { .. } | ToolSpec::LocalShell {} => {
+                ToolSpec::LocalShell {} => {
                     return Err(TaskSpaceExecCatalogError::UnsupportedToolSpec {
                         tool_name: spec.name().to_string(),
                     });

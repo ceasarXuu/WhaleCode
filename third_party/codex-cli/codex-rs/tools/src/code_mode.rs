@@ -213,6 +213,15 @@ fn code_mode_tool_definition_for_spec(spec: &ToolSpec) -> Option<CodeModeToolDef
 }
 
 fn code_mode_tool_definitions_for_spec(spec: &ToolSpec) -> Vec<CodeModeToolDefinition> {
+    if matches!(
+        spec,
+        ToolSpec::ToolSearch { .. }
+            | ToolSpec::LocalShell {}
+            | ToolSpec::ImageGeneration { .. }
+            | ToolSpec::WebSearch { .. }
+    ) {
+        return Vec::new();
+    }
     project_tool_spec_capabilities(spec)
         .into_iter()
         .map(|capability| match capability.input.clone() {
