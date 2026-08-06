@@ -78,7 +78,10 @@ impl Session {
             owner_thread_id = %record.owner_thread_id,
             relation = binding.relation.as_str(),
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
+            map_revision = record
+                .canonical_map
+                .as_ref()
+                .map_or(0, |map| map.revision),
             cache_refreshed = !cache_is_current,
             canonical_sha256 = record.canonical_sha256,
             operation,

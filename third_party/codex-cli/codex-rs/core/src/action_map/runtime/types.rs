@@ -21,7 +21,6 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
     json!({
         "schema_version": snapshot.schema_version,
         "mode": snapshot.mode,
-        "routing_required": snapshot.routing_required,
         "bootstrap_required": snapshot.bootstrap_required,
         "active_map_id": snapshot.map.as_ref().map(|map| map.id.clone()),
         "revision": snapshot.map.as_ref().map(|map| map.revision),

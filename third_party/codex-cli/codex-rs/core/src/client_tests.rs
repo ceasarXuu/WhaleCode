@@ -487,7 +487,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
     let payload = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
+        "input": "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "exec_command" }
@@ -588,7 +588,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
 
 #[test]
 fn provider_request_budget_confirms_projection_identity_on_final_payload() {
-    let projection = "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.";
+    let projection = "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end.";
     let expectation = ProviderProjectionIdentityExpectation::from_projection_context(
         TaskSpaceProjectionPolicy::MapAlways,
         projection,
@@ -638,7 +638,7 @@ fn provider_request_budget_confirms_projection_identity_on_final_payload() {
 #[test]
 fn provider_request_budget_accepts_map_request_without_automatic_projection() {
     let payload = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\nTaskSpaceMapHandleR7V1 end.",
+        "input": "TaskSpaceMapHandleR8V1:\n- taskspace_active: true\nTaskSpaceMapHandleR8V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "exec_command" }
@@ -673,7 +673,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(standard.scan.passed);
 
     let blank_bootstrap = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
+        "input": "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "exec_command" }
@@ -699,32 +699,15 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(payload_without_projection.scan.replacement_confirmed);
 
     let active_projection = concat!(
-        "TaskSpaceMapProjectionR7V1:\n",
-        "- schema_version: taskspace-map-projection-r7-v1\n",
+        "TaskSpaceMapProjectionR8V1:\n",
+        "- schema_version: taskspace-map-projection-r8-v1\n",
         "- projection_kind: current_projection\n",
         "- map_id: map-1\n",
         "- revision: 2\n",
         "- canonical_sha256: canonical-map-2\n",
-        "- root_node_id: root\n",
-        "- finish_node_id: finish\n",
-        "- complete: false\n",
-        "- current_terminal: none\n",
-        "- terminal_history:\n",
-        "  - none\n",
-        "- root_source_event_ids:\n",
-        "  - task-event-1\n",
-        "  active_frontier:\n",
-        "    - node-1\n",
-        "  map_nodes:\n",
-        "    - root role=task_root status=open\n",
-        "    - node-1 role=work status=running\n",
-        "    - finish role=finish status=pending\n",
-        "  map_edges:\n",
-        "    - root->node-1\n",
-        "    - node-1->finish\n",
-        "  node_details:\n",
-        "    - none\n",
-        "TaskSpaceMapProjectionR7V1 end.\n",
+        "- map:\n",
+        "  {\"root_node_id\":\"root\",\"finish_node_id\":\"finish\",\"complete\":false,\"nodes\":[]}\n",
+        "TaskSpaceMapProjectionR8V1 end.\n",
     );
     let active_tools = json!([
         { "type": "function", "function": { "name": "exec_command" } },
@@ -764,9 +747,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
             .replace("- revision: 2", &format!("- revision: {revision}"))
             .replace(
                 "- canonical_sha256: canonical-map-2",
-                &format!(
-                    "- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-map-{revision}"
-                ),
+                &format!("- canonical_sha256: canonical-map-{revision}"),
             )
     };
     let append_revision_2 = request_snapshot(2);
@@ -915,7 +896,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     );
 
     let missing_protected = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapProjectionR7V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapProjectionR7V1 end.",
+        "input": "TaskSpaceMapProjectionR8V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapProjectionR8V1 end.",
         "tools": active_tools
     }))
     .expect("missing protected payload digest");

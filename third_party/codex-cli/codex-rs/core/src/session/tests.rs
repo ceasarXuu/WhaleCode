@@ -1325,7 +1325,7 @@ async fn provider_composer_injects_one_blank_map_projection() {
     assert!(
         !developer_input_texts(&initial_context)
             .join("\n")
-            .contains("TaskSpaceMapProjectionR7V1:")
+            .contains("TaskSpaceMapProjectionR8V1:")
     );
     let mut previous_context = None;
     for _ in 0..2 {
@@ -1338,7 +1338,7 @@ async fn provider_composer_injects_one_blank_map_projection() {
         assert!(!developer_text.contains("TaskSpace mode is now active"));
         assert_eq!(
             developer_text
-                .matches("TaskSpaceMapProjectionR7V1:")
+                .matches("TaskSpaceMapProjectionR8V1:")
                 .count(),
             1
         );
@@ -1382,9 +1382,9 @@ async fn provider_map_append_persists_bootstrap_at_request_tail() {
     assert_eq!(taskspace_projection_context(Some(last)).is_some(), true);
     assert!(matches!(last, ResponseItem::Message { role, .. } if role == "user"));
     let user_text = user_input_texts(&provider.items).join("\n");
-    assert!(user_text.contains("TaskSpaceMapProjectionR7V1:"));
+    assert!(user_text.contains("TaskSpaceMapProjectionR8V1:"));
     assert!(user_text.contains("- map: none"));
-    assert!(user_text.contains("- current_state_rule: last_projection_only"));
+    assert!(!user_text.contains("current_state_rule"));
     let history = session.clone_history().await;
     assert!(
         history
@@ -1410,8 +1410,8 @@ async fn provider_map_request_exposes_current_request_tail_handle_until_explicit
 
     let initial_context = session.build_initial_context(&turn_context).await;
     let initial_text = developer_input_texts(&initial_context).join("\n");
-    assert!(!initial_text.contains("TaskSpaceMapHandleR7V1:"));
-    assert!(!initial_text.contains("TaskSpaceMapProjectionR7V1:"));
+    assert!(!initial_text.contains("TaskSpaceMapHandleR8V1:"));
+    assert!(!initial_text.contains("TaskSpaceMapProjectionR8V1:"));
 
     let provider = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
@@ -1479,11 +1479,11 @@ async fn provider_composer_keeps_projection_separate_from_skills() {
         !stable_developer_text.contains("TaskSpace mode is now active"),
         "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
     );
-    assert!(!stable_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
+    assert!(!stable_developer_text.contains("TaskSpaceMapProjectionR8V1:"));
     assert!(
         !developer_texts
             .iter()
-            .any(|text| text.contains("TaskSpaceMapProjectionR7V1:"))
+            .any(|text| text.contains("TaskSpaceMapProjectionR8V1:"))
     );
     let provider_context = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
@@ -1494,7 +1494,7 @@ async fn provider_composer_keeps_projection_separate_from_skills() {
     assert_eq!(
         provider_developer_texts
             .iter()
-            .filter(|text| text.contains("TaskSpaceMapProjectionR7V1:"))
+            .filter(|text| text.contains("TaskSpaceMapProjectionR8V1:"))
             .count(),
         1
     );
@@ -1503,7 +1503,7 @@ async fn provider_composer_keeps_projection_separate_from_skills() {
             .iter()
             .find(|text| text.contains("<skills_instructions>"))
             .expect("stable skills developer item")
-            .contains("TaskSpaceMapProjectionR7V1:")
+            .contains("TaskSpaceMapProjectionR8V1:")
     );
 }
 

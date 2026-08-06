@@ -5351,12 +5351,6 @@
             "default": false,
             "type": "boolean"
           },
-          "maintenanceBarriers": {
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotMaintenanceBarrier"
-            },
-            "type": "array"
-          },
           "map": {
             "anyOf": [
               {
@@ -5370,57 +5364,11 @@
           "mode": {
             "$ref": "#/definitions/v2/MapRuntimeMode"
           },
-          "routingRequired": {
-            "default": false,
-            "type": "boolean"
-          },
           "schemaVersion": {
             "type": "string"
-          },
-          "sentinelSummary": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/v2/ActionMapSnapshotSentinelSummary"
-              }
-            ],
-            "default": {
-              "activeWarningCount": 0,
-              "totalWarningCount": 0,
-              "unclassifiedShellWarningCount": 0,
-              "validatorFailureWarningCount": 0
-            }
-          },
-          "sentinelWarnings": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotSentinelWarningRef"
-            },
-            "type": "array"
-          },
-          "traceEvents": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotTraceEventRef"
-            },
-            "type": "array"
-          },
-          "traceSummary": {
-            "allOf": [
-              {
-                "$ref": "#/definitions/v2/ActionMapSnapshotTraceSummary"
-              }
-            ],
-            "default": {
-              "failedToolCallCount": 0,
-              "toolCallCount": 0,
-              "totalEventCount": 0,
-              "unclassifiedShellActionCount": 0,
-              "validatorFailureCount": 0
-            }
           }
         },
         "required": [
-          "maintenanceBarriers",
           "mode",
           "schemaVersion"
         ],
@@ -5431,93 +5379,22 @@
           "actionId": {
             "type": "string"
           },
-          "nodeId": {
+          "outcome": {
+            "type": "string"
+          },
+          "toolName": {
             "type": "string"
           }
         },
         "required": [
           "actionId",
-          "nodeId"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotEdge": {
-        "properties": {
-          "from": {
-            "type": "string"
-          },
-          "to": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "from",
-          "to"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotEvidenceRef": {
-        "properties": {
-          "actionId": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "nodeId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "actionId",
-          "id",
-          "kind",
-          "nodeId"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotMaintenanceBarrier": {
-        "properties": {
-          "budget": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "mapId": {
-            "type": "string"
-          },
-          "nodeId": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "resultCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "budget",
-          "mapId",
-          "nodeId",
-          "reason",
-          "resultCount"
+          "outcome",
+          "toolName"
         ],
         "type": "object"
       },
       "ActionMapSnapshotMap": {
         "properties": {
-          "actions": {
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotAction"
-            },
-            "type": "array"
-          },
           "complete": {
             "type": "boolean"
           },
@@ -5525,18 +5402,6 @@
             "format": "uint",
             "minimum": 0.0,
             "type": "integer"
-          },
-          "edges": {
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEdge"
-            },
-            "type": "array"
-          },
-          "evidenceRefs": {
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
-            },
-            "type": "array"
           },
           "finishNodeId": {
             "type": "string"
@@ -5552,39 +5417,16 @@
             "minimum": 0.0,
             "type": "integer"
           },
-          "nodeEvents": {
-            "default": [],
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotNodeEvent"
-            },
-            "type": "array"
-          },
           "nodes": {
             "items": {
               "$ref": "#/definitions/v2/ActionMapSnapshotNode"
             },
             "type": "array"
           },
-          "ownerSessionId": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/ThreadId"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "readyWorkNodeCount": {
             "format": "uint",
             "minimum": 0.0,
             "type": "integer"
-          },
-          "results": {
-            "items": {
-              "$ref": "#/definitions/v2/ActionMapSnapshotResult"
-            },
-            "type": "array"
           },
           "revision": {
             "format": "uint64",
@@ -5593,40 +5435,17 @@
           },
           "rootNodeId": {
             "type": "string"
-          },
-          "taskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "terminalHistorySummaryRefs": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "terminalSummaryRef": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         },
         "required": [
-          "actions",
           "complete",
           "completedWorkNodeCount",
-          "edges",
-          "evidenceRefs",
           "finishNodeId",
           "finishReady",
           "id",
           "inflightWorkNodeCount",
           "nodes",
           "readyWorkNodeCount",
-          "results",
           "revision",
           "rootNodeId"
         ],
@@ -5634,11 +5453,20 @@
       },
       "ActionMapSnapshotNode": {
         "properties": {
-          "evidenceRefIds": {
+          "actions": {
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotAction"
+            },
+            "type": "array"
+          },
+          "children": {
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "content": {
+            "type": "string"
           },
           "goal": {
             "type": "string"
@@ -5646,14 +5474,7 @@
           "id": {
             "type": "string"
           },
-          "nodeEventIds": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "resultIds": {
+          "parents": {
             "items": {
               "type": "string"
             },
@@ -5662,345 +5483,19 @@
           "role": {
             "type": "string"
           },
-          "sourceRefs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "state": {
             "type": "string"
           }
         },
         "required": [
-          "evidenceRefIds",
+          "actions",
+          "children",
+          "content",
           "goal",
           "id",
-          "resultIds",
+          "parents",
           "role",
-          "sourceRefs",
           "state"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotNodeEvent": {
-        "properties": {
-          "actionClass": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "artifactRefs": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "callId": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "contentSha256": {
-            "type": "string"
-          },
-          "createdAtMs": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "eventKind": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "mapId": {
-            "type": "string"
-          },
-          "nodeId": {
-            "type": "string"
-          },
-          "rawRef": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "source": {
-            "type": "string"
-          },
-          "sourceEventId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sourceThreadId": {
-            "$ref": "#/definitions/v2/ThreadId"
-          },
-          "toolSuccess": {
-            "default": null,
-            "type": [
-              "boolean",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "contentSha256",
-          "createdAtMs",
-          "eventKind",
-          "id",
-          "mapId",
-          "nodeId",
-          "source",
-          "sourceThreadId"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotResult": {
-        "properties": {
-          "actionId": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "isError": {
-            "type": "boolean"
-          },
-          "nodeId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "actionId",
-          "id",
-          "isError",
-          "nodeId"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotSentinelSummary": {
-        "properties": {
-          "activeWarningCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "totalWarningCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "unclassifiedShellWarningCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "validatorFailureWarningCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "activeWarningCount",
-          "totalWarningCount",
-          "unclassifiedShellWarningCount",
-          "validatorFailureWarningCount"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotSentinelWarningRef": {
-        "properties": {
-          "clearAction": {
-            "default": null,
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "clearanceAction": {
-            "type": "string"
-          },
-          "clearedAtMs": {
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "createdAtMs": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "id": {
-            "type": "string"
-          },
-          "mapId": {
-            "type": "string"
-          },
-          "nodeId": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "resultId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sentinelType": {
-            "type": "string"
-          },
-          "severity": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "taskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "traceEventIds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "clearanceAction",
-          "createdAtMs",
-          "id",
-          "mapId",
-          "nodeId",
-          "reason",
-          "sentinelType",
-          "severity",
-          "status",
-          "traceEventIds"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotTraceEventRef": {
-        "properties": {
-          "actionClass": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "artifactRefs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "callId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "createdAtMs": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "mapId": {
-            "type": "string"
-          },
-          "nodeId": {
-            "type": "string"
-          },
-          "resultId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "tags": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "taskId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "toolSuccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "artifactRefs",
-          "createdAtMs",
-          "id",
-          "kind",
-          "mapId",
-          "nodeId",
-          "tags"
-        ],
-        "type": "object"
-      },
-      "ActionMapSnapshotTraceSummary": {
-        "properties": {
-          "failedToolCallCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "toolCallCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "totalEventCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "unclassifiedShellActionCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          },
-          "validatorFailureCount": {
-            "format": "uint",
-            "minimum": 0.0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "failedToolCallCount",
-          "toolCallCount",
-          "totalEventCount",
-          "unclassifiedShellActionCount",
-          "validatorFailureCount"
         ],
         "type": "object"
       },

@@ -314,14 +314,6 @@ function renderGraph(m){
   g.addEventListener('pointerup',endDrag);g.addEventListener('pointercancel',endDrag);
   return g;
 }
-function renderResultDetail(r){
-  const box=el('div');
-  box.appendChild(table(['field','value'],[
-    ['action',r.actionId],
-    ['error',String(r.isError)],
-  ]));
-  return box;
-}
 function renderIfChanged(data, force){
   const payload=JSON.stringify(data);
   if(!force&&payload===ui.lastPayload)return;
@@ -336,6 +328,7 @@ function render(data){
   const m=s.map;
   meta.textContent=`thread ${data.threadId} | schema ${s.schemaVersion} | mode ${s.mode} | bootstrap ${s.bootstrapRequired?'required':'ok'} | map ${m?m.id:'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
   if(!m){next.appendChild(el('p','Map: none'));root.replaceChildren(next);restoreUi();return}
+  const edges=m.nodes.flatMap(n=>(n.parents||[]).map(from=>({from,to:n.id})));
   const activeGraphKeys=new Set(['graph:'+m.id]);
   Array.from(ui.graph.keys()).forEach(k=>{if(!activeGraphKeys.has(k))ui.graph.delete(k)});
   {
@@ -344,18 +337,9 @@ function render(data){
     const line=el('div');
     ['revision '+m.revision,'complete '+m.complete,'root '+m.rootNodeId,'finish '+m.finishNodeId,'ready work '+m.readyWorkNodeCount,'inflight work '+m.inflightWorkNodeCount,'completed work '+m.completedWorkNodeCount,'finish ready '+m.finishReady].forEach(x=>line.appendChild(el('span',x,'pill')));
     next.appendChild(line);
-    next.appendChild(renderGraph(m));
-    next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','role','state','goal','source refs','results','evidence','events'],m.nodes.map(n=>[n.id,n.role,n.state,n.goal,list(n.sourceRefs),list(n.resultIds),list(n.evidenceRefIds),list(n.nodeEventIds)]))));
-    if(m.edges.length){next.appendChild(detail('edges:'+m.id,'edges',table(['from','to'],m.edges.map(e=>[e.from,e.to]))))}
-    if(m.actions.length){next.appendChild(detail('actions:'+m.id,'actions',table(['action','node'],m.actions.map(a=>[a.actionId,a.nodeId])))}
-    if(m.results.length){
-      next.appendChild(el('h3','results'));
-      m.results.forEach(r=>{
-        next.appendChild(detail('result:'+r.id,`${r.id} | node ${r.nodeId} | action ${r.actionId}`,renderResultDetail(r)));
-      });
-    }
-    if(m.evidenceRefs.length){next.appendChild(detail('evidence:'+m.id,'evidence',table(['id','node','action','kind'],m.evidenceRefs.map(e=>[e.id,e.nodeId,e.actionId,e.kind])))}
-    if(m.nodeEvents.length){next.appendChild(detail('events:'+m.id,'node events',table(['id','node','kind','source','action','success','source event','raw ref','artifacts'],m.nodeEvents.map(e=>[e.id,e.nodeId,e.eventKind,e.source,e.actionClass||'',e.toolSuccess===null?'':String(e.toolSuccess),e.sourceEventId||'',e.rawRef||'',list(e.artifactRefs)]))))}
+    next.appendChild(renderGraph({...m,edges}));
+    next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','role','state','goal','content','parents','children','actions'],m.nodes.map(n=>[n.id,n.role,n.state,n.goal,n.content,list(n.parents),list(n.children),(n.actions||[]).map(a=>`${a.actionId}:${a.toolName}:${a.outcome}`).join(', ')]))));
+    if(edges.length){next.appendChild(detail('edges:'+m.id,'derived edges',table(['from','to'],edges.map(e=>[e.from,e.to]))))}
   }
   root.replaceChildren(next);
   restoreUi();
@@ -411,9 +395,13 @@ mod tests {
         assert!(ACTION_MAP_VIEWER_HTML.contains("outgoing.get(n.id)"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("n.role"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("n.goal"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("m.nodeEvents"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("m.actions"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("m.evidenceRefs"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("n.content"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("n.parents"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("n.children"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("n.actions"));
+        assert!(!ACTION_MAP_VIEWER_HTML.contains("m.nodeEvents"));
+        assert!(!ACTION_MAP_VIEWER_HTML.contains("m.evidenceRefs"));
+        assert!(!ACTION_MAP_VIEWER_HTML.contains("m.results"));
         assert!(!ACTION_MAP_VIEWER_HTML.contains("m.currentNodeId"));
         assert!(!ACTION_MAP_VIEWER_HTML.contains("m.leases"));
         assert!(!ACTION_MAP_VIEWER_HTML.contains("n.activeLease"));

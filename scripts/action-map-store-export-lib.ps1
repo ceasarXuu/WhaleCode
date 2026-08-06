@@ -9,20 +9,6 @@ function Get-ActionMapStoreProperty {
     return $Default
 }
 
-function Get-TaskSpaceRecordValues {
-    param([object]$Records)
-    if ($null -eq $Records) { return @() }
-    if ($Records -is [System.Collections.IDictionary]) { return @($Records.Values) }
-    @($Records.PSObject.Properties | ForEach-Object { $_.Value })
-}
-
-function Test-TaskSpaceRecord {
-    param([object]$Records, [string]$Id)
-    if ($null -eq $Records) { return $false }
-    if ($Records -is [System.Collections.IDictionary]) { return $Records.Contains($Id) }
-    $Records.PSObject.Properties.Name -contains $Id
-}
-
 function Move-PreviousActionMapStoreExport {
     param([Parameter(Mandatory = $true)][string]$ExportPath)
     if (-not (Test-Path -LiteralPath $ExportPath -PathType Leaf)) { return }
@@ -108,7 +94,7 @@ function Invoke-ActionMapStoreExport {
         $errorCode = "map_store_export_failed"
         $errorMessage = (@($commandOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
     }
-    elseif ($schema -ne "TaskSpaceMapExportR7V2") {
+    elseif ($schema -ne "TaskSpaceMapExportR8V1") {
         $status = "error"
         $errorCode = "invalid_map_store_envelope"
         $errorMessage = "Unsupported Map Store export schema '$schema'."
@@ -124,7 +110,7 @@ function Invoke-ActionMapStoreExport {
     $canonicalMap = Get-ActionMapStoreProperty $map "canonical_map"
     if ($status -eq "ok" -and $canonicalMap) {
         $canonicalSchema = [string](Get-ActionMapStoreProperty $canonicalMap "schema_version" "")
-        if ($canonicalSchema -ne "taskspace-canonical-map-v2") {
+        if ($canonicalSchema -ne "taskspace-canonical-map-v4") {
             $status = "error"
             $errorCode = "invalid_canonical_map"
             $errorMessage = "Unsupported canonical Map schema '$canonicalSchema'."
@@ -132,7 +118,7 @@ function Invoke-ActionMapStoreExport {
     }
     $availability = if ($status -eq "ok") { "measured" } else { "map_store_failed" }
     [pscustomobject]@{
-        schema_version = "taskspace-observer-map-store-source-r7-v2"
+        schema_version = "taskspace-observer-map-store-source-r8-v1"
         availability = $availability
         error_code = $errorCode
         error_message = $errorMessage
@@ -147,41 +133,12 @@ function Invoke-ActionMapStoreExport {
         owner_thread_id = [string](Get-ActionMapStoreProperty $map "owner_thread_id" "")
         canonical_sha256 = [string](Get-ActionMapStoreProperty $map "canonical_sha256" "")
         store_revision = [uint64](Get-ActionMapStoreProperty $map "store_revision" 0)
-        map_revision = [uint64](Get-ActionMapStoreProperty $map "map_revision" 0)
-        terminal = [bool](Get-ActionMapStoreProperty $map "terminal" $false)
+        canonical_revision = [uint64](Get-ActionMapStoreProperty $canonicalMap "revision" 0)
         binding_thread_id = [string](Get-ActionMapStoreProperty $binding "thread_id" "")
         binding_relation = [string](Get-ActionMapStoreProperty $binding "relation" "")
         parent_thread_id = [string](Get-ActionMapStoreProperty $binding "parent_thread_id" "")
         canonical_map = $canonicalMap
     }
-}
-
-function Get-TaskSpaceCanonicalNodeState {
-    param(
-        [Parameter(Mandatory = $true)][object]$Map,
-        [Parameter(Mandatory = $true)][string]$NodeId,
-        [Parameter(Mandatory = $true)][string]$Role
-    )
-    if ($Map.terminal_record -and $Role -in @("task_root", "finish")) { return "completed" }
-    if (Test-TaskSpaceRecord $Map.completion_records $NodeId) { return "completed" }
-    if (Test-TaskSpaceRecord $Map.block_records $NodeId) { return "blocked" }
-    if (@(Get-TaskSpaceRecordValues $Map.action_reservations | Where-Object {
-        [string]$_.node_id -eq $NodeId
-    }).Count -gt 0) {
-        return "in_flight"
-    }
-    if ($Role -eq "task_root") { return "ready" }
-    $predecessors = @($Map.edges | Where-Object { [string]$_.to -eq $NodeId } | ForEach-Object {
-        [string]$_.from
-    })
-    if ($predecessors.Count -eq 0) { return "waiting" }
-    foreach ($predecessor in $predecessors) {
-        if ($predecessor -ne [string]$Map.root.node_id -and
-            -not (Test-TaskSpaceRecord $Map.completion_records $predecessor)) {
-            return "waiting"
-        }
-    }
-    "ready"
 }
 
 function Add-TaskSpaceCanonicalNode {
@@ -192,39 +149,23 @@ function Add-TaskSpaceCanonicalNode {
         [string]$Role
     )
     $nodeId = [string]$CanonicalNode.node_id
-    $node = Ensure-Node $Nodes $nodeId ([string]$CanonicalNode.goal) $Role
-    $node.status = Get-TaskSpaceCanonicalNodeState $CanonicalMap $nodeId $Role
-    $node.mapId = [string]$CanonicalMap.map_id
-    $node.taskId = [string]$CanonicalMap.map_id
-    foreach ($reservation in @(Get-TaskSpaceRecordValues $CanonicalMap.action_reservations | Where-Object {
-        [string]$_.node_id -eq $nodeId
-    })) {
-        $node.reservations.Add([ordered]@{
-            actionId = [string]$reservation.action_id
-            toolName = [string]$reservation.tool_name
-            responseCallIndex = [int]$reservation.response_call_index
-        })
-    }
-    foreach ($property in @($CanonicalMap.result_refs.PSObject.Properties | Where-Object {
-        [string]$_.Value.node_id -eq $nodeId
-    })) {
-        $result = $property.Value
-        $node.results.Add([ordered]@{
-            resultId = [string]$property.Name
-            mapId = [string]$CanonicalMap.map_id
-            taskId = [string]$CanonicalMap.map_id
-            actionId = [string]$result.action_id
-            reservationId = [string]$result.reservation_id
-            success = -not [bool]$result.is_error
-            validity = "unreviewed"
-            artifactRefs = @()
-        })
-    }
-    $block = Get-ActionMapStoreProperty $CanonicalMap.block_records $nodeId
-    if ($block) {
-        $node.blockedActions.Add([ordered]@{
-            actionId = [string]$block.action_id
-            reasonRef = [string]$block.reason_ref
+    $Nodes[$nodeId] = [ordered]@{
+        id = $nodeId
+        title = [string]$CanonicalNode.goal
+        goal = [string]$CanonicalNode.goal
+        role = $Role
+        status = [string]$CanonicalNode.state
+        content = [string]$CanonicalNode.content
+        mapId = [string]$CanonicalMap.map_id
+        taskId = [string]$CanonicalMap.map_id
+        parents = @($CanonicalNode.parents | ForEach-Object { [string]$_ })
+        children = @()
+        actions = @($CanonicalNode.actions | ForEach-Object {
+            [ordered]@{
+                actionId = [string]$_.action_id
+                toolName = [string]$_.tool_name
+                outcome = [string]$_.outcome
+            }
         })
     }
 }
@@ -242,9 +183,21 @@ function ConvertFrom-TaskSpaceCanonicalMap {
     Add-TaskSpaceCanonicalNode $nodes $CanonicalMap $CanonicalMap.finish "finish"
 
     $mapId = [string]$CanonicalMap.map_id
-    $terminal = $null -ne $CanonicalMap.terminal_record
-    $terminalSummary = if ($terminal) { [string]$CanonicalMap.terminal_record.summary_ref } else { "" }
-    $history = @(Get-ObjectArray $CanonicalMap.terminal_history | ForEach-Object { [string]$_.summary_ref })
+    $complete = [string]$CanonicalMap.root.state -eq "completed" -and
+        [string]$CanonicalMap.finish.state -eq "completed"
+    $edges = New-Object System.Collections.Generic.List[object]
+    foreach ($node in @($nodes.Values)) {
+        foreach ($parent in @($node.parents)) {
+            $edges.Add([ordered]@{ mapId = $mapId; from = [string]$parent; to = [string]$node.id })
+            if ($nodes.ContainsKey([string]$parent)) {
+                $nodes[[string]$parent].children += [string]$node.id
+            }
+        }
+    }
+    $sortedNodes = [System.Collections.ArrayList]::new()
+    foreach ($nodeId in @($nodes.Keys | Sort-Object)) {
+        [void]$sortedNodes.Add([pscustomobject]$nodes[[string]$nodeId])
+    }
     $map = [ordered]@{
         id = $mapId
         taskId = $mapId
@@ -253,16 +206,13 @@ function ConvertFrom-TaskSpaceCanonicalMap {
         rootNodeId = [string]$CanonicalMap.root.node_id
         finishNodeId = [string]$CanonicalMap.finish.node_id
         revision = [uint64]$CanonicalMap.revision
-        complete = $terminal
-        terminalSummaryRef = $terminalSummary
-        terminalHistorySummaryRefs = $history
-        subagentPlans = @()
+        complete = $complete
     }
     $task = [ordered]@{
         id = $mapId
         title = [string]$CanonicalMap.root.goal
         objective = [string]$CanonicalMap.root.goal
-        status = if ($terminal) { "completed" } else { "active" }
+        status = if ($complete) { "completed" } else { "active" }
         ownerSessionId = $OwnerThreadId
         activeMapId = $mapId
         mapIds = @($mapId)
@@ -272,10 +222,8 @@ function ConvertFrom-TaskSpaceCanonicalMap {
     [pscustomobject]@{
         tasks = @($task)
         maps = @($map)
-        nodes = @($nodes.Values | Sort-Object { [string](Get-ObjectField $_ "id") })
-        edges = @($CanonicalMap.edges | ForEach-Object {
-            [ordered]@{ mapId = $mapId; from = [string]$_.from; to = [string]$_.to }
-        })
+        nodes = $sortedNodes.ToArray()
+        edges = $edges.ToArray()
         sentinelWarnings = @()
         agents = @()
     }

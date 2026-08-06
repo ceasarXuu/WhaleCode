@@ -13,7 +13,7 @@ fn every_message_is_classified_exactly_once() {
             {"role": "system", "content": "stable"},
             {
                 "role": "developer",
-                "content": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end."
+                "content": "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end."
             },
             {"role": "user", "content": "request"},
             {"role": "assistant", "content": "response"},
@@ -65,7 +65,7 @@ fn tool_output_containing_projection_block_remains_ordinary_feedback() {
     let wire = json!({
         "messages": [{
             "role": "tool",
-            "content": "source text:\nTaskSpaceMapProjectionR7V1:\n- map_id: copied-map\n- revision: 41\nTaskSpaceMapProjectionR7V1 end."
+            "content": "source text:\nTaskSpaceMapProjectionR8V1:\n- map_id: copied-map\n- revision: 41\nTaskSpaceMapProjectionR8V1 end."
         }]
     });
 
@@ -97,7 +97,7 @@ fn section_bytes_reconcile_with_provider_payload_bytes() {
         "stream": true,
         "messages": [
             {"role": "developer", "content": "stable"},
-            {"role": "developer", "content": "TaskSpaceMapProjectionR7V1"},
+            {"role": "developer", "content": "TaskSpaceMapProjectionR8V1"},
             {"role": "tool", "content": "structured result"}
         ],
         "tools": [{"type": "function", "function": {"name": "exec_command"}}],
@@ -146,7 +146,7 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
             "messages": [{
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: map-1\n- revision: {revision}\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR7V1 end."
+                    "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: current_projection\n- map_id: map-1\n- revision: {revision}\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR8V1 end."
                 )
             }]
         })
@@ -173,7 +173,7 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
 fn append_projection_identity_uses_last_nondecreasing_request_snapshot() {
     let projection = |revision: u64| {
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR7V1 end."
+            "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR8V1 end."
         )
     };
     let wire = json!({
@@ -194,7 +194,7 @@ fn append_projection_identity_uses_last_nondecreasing_request_snapshot() {
 
 #[test]
 fn append_projection_identity_allows_duplicate_revision_across_requests() {
-    let projection = "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 2\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-2\nTaskSpaceMapProjectionR7V1 end.";
+    let projection = "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 2\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-2\nTaskSpaceMapProjectionR8V1 end.";
     let wire = json!({
         "messages": [
             {"role": "user", "content": projection},
@@ -213,7 +213,7 @@ fn append_projection_identity_allows_duplicate_revision_across_requests() {
 fn append_projection_identity_allows_revision_reset_for_a_new_map() {
     let projection = |map_id: &str, revision: u64| {
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: {map_id}\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{map_id}-{revision}\nTaskSpaceMapProjectionR7V1 end."
+            "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: request_snapshot\n- map_id: {map_id}\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{map_id}-{revision}\nTaskSpaceMapProjectionR8V1 end."
         )
     };
     let wire = json!({
@@ -247,7 +247,7 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
             {
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: {}\n- revision: 9\n- canonical_sha256: canonical-9\nTaskSpaceMapProjectionR7V1 end.",
+                    "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: current_projection\n- map_id: {}\n- revision: 9\n- canonical_sha256: canonical-9\nTaskSpaceMapProjectionR8V1 end.",
                     secrets[5]
                 )
             },

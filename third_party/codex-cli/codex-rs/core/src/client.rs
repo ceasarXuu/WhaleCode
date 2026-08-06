@@ -163,24 +163,15 @@ const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=20
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
 const REALTIME_CALLS_ENDPOINT: &str = "/realtime/calls";
-const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR7V1:";
-const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR7V1 end.";
+const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR8V1:";
+const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR8V1 end.";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
     "schema_version",
     "projection_kind",
     "map_id",
     "revision",
     "canonical_sha256",
-    "root_node_id",
-    "finish_node_id",
-    "complete",
-    "current_terminal",
-    "terminal_history",
-    "root_source_event_ids",
-    "active_frontier",
-    "map_nodes",
-    "map_edges",
-    "node_details",
+    "map",
 ];
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
 // period between stream events.
@@ -1121,8 +1112,8 @@ fn scan_provider_payload_text(
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "r7-exact-scan-1".to_string(),
-        matcher_version: "r7-projection-checks-1".to_string(),
+        scanner_version: "r8-exact-scan-1".to_string(),
+        matcher_version: "r8-projection-checks-1".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
             "current_projection_uniqueness".to_string(),
@@ -1421,7 +1412,7 @@ fn projection_block_is_valid(block: &str) -> bool {
     let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
     if !normalized
         .lines()
-        .any(|line| line.trim() == "- schema_version: taskspace-map-projection-r7-v1")
+        .any(|line| line.trim() == "- schema_version: taskspace-map-projection-r8-v1")
     {
         return false;
     }
@@ -1442,12 +1433,6 @@ fn projection_block_is_valid(block: &str) -> bool {
     }
     if !projection_block_contains_required_sections(&normalized) {
         return false;
-    }
-    if projection_mechanical_field(&normalized, "projection_kind") == Some("request_snapshot") {
-        return projection_mechanical_field(&normalized, "supersedes_all_prior_projections")
-            == Some("true")
-            && projection_mechanical_field(&normalized, "current_state_rule")
-                == Some("last_projection_only");
     }
     true
 }

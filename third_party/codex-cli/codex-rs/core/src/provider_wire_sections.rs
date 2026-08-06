@@ -6,8 +6,8 @@ use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
-const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
-const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
+const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR8V1:";
+const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR8V1 end.";
 #[derive(Debug, Serialize)]
 pub(super) struct ProviderWireSectionCost {
     schema_version: &'static str,

@@ -78,7 +78,7 @@ function Write-ActionMapObservabilityReport {
         $md.Add("- canonical Map Store: $($Reduced.source.mapStore.availability)")
         $md.Add("- Map Store error code: $($Reduced.source.mapStore.error_code)")
         $md.Add("- canonical Map SHA256: $($Reduced.source.mapStore.canonical_sha256)")
-        $md.Add("- store/map revision: $($Reduced.source.mapStore.store_revision) / $($Reduced.source.mapStore.map_revision)")
+        $md.Add("- store/canonical revision: $($Reduced.source.mapStore.store_revision) / $($Reduced.source.mapStore.canonical_revision)")
     }
     $md.Add("")
     $md.Add("## Summary")

@@ -8,8 +8,6 @@ pub struct TaskSpaceMapRecord {
     pub canonical_map: Option<TaskSpaceCanonicalMap>,
     pub canonical_sha256: String,
     pub store_revision: u64,
-    pub map_revision: u64,
-    pub terminal: bool,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }

@@ -1,7 +1,6 @@
 use super::taskspace_store::canonical_map_for_store;
 use super::taskspace_store::hydrate_action_map_store;
 use crate::action_map::ActionMapRuntimeState;
-use crate::action_map::MapEdge;
 use crate::action_map::ProjectionEnvelope;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
@@ -15,9 +14,8 @@ use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
-use codex_protocol::taskspace::TaskSpaceCompletionRecord;
 use codex_protocol::taskspace::TaskSpaceMapNode;
-use codex_protocol::taskspace::TaskSpaceTerminalRecord;
+use codex_protocol::taskspace::TaskSpaceNodeState;
 use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::TaskSpaceMapRelation;
 use codex_state::TaskSpaceMapWriteOutcome;
@@ -34,11 +32,19 @@ fn child_source(parent_thread_id: ThreadId) -> SessionSource {
     })
 }
 
-fn map_node(node_id: &str, goal: &str) -> TaskSpaceMapNode {
+fn map_node(
+    node_id: &str,
+    goal: &str,
+    state: TaskSpaceNodeState,
+    parents: &[&str],
+) -> TaskSpaceMapNode {
     TaskSpaceMapNode {
         node_id: node_id.into(),
         goal: goal.into(),
-        source_refs: Vec::new(),
+        state,
+        content: String::new(),
+        parents: parents.iter().map(|id| (*id).to_string()).collect(),
+        actions: Vec::new(),
     }
 }
 
@@ -46,67 +52,39 @@ fn multi_parent_map(map_id: &str) -> TaskSpaceCanonicalMap {
     TaskSpaceCanonicalMap {
         schema_version: TASKSPACE_CANONICAL_SCHEMA_VERSION.into(),
         map_id: map_id.into(),
-        root: map_node("root", "deliver"),
+        root: map_node("root", "deliver", TaskSpaceNodeState::InFlight, &[]),
         work_nodes: vec![
-            map_node("inspect", "inspect"),
-            map_node("research", "research"),
-            map_node("implement", "implement"),
+            map_node("inspect", "inspect", TaskSpaceNodeState::Ready, &["root"]),
+            map_node("research", "research", TaskSpaceNodeState::Ready, &["root"]),
+            map_node(
+                "implement",
+                "implement",
+                TaskSpaceNodeState::Waiting,
+                &["inspect", "research"],
+            ),
         ],
-        finish: map_node("finish", "finish"),
-        edges: vec![
-            MapEdge {
-                from: "root".into(),
-                to: "inspect".into(),
-            },
-            MapEdge {
-                from: "root".into(),
-                to: "research".into(),
-            },
-            MapEdge {
-                from: "inspect".into(),
-                to: "implement".into(),
-            },
-            MapEdge {
-                from: "research".into(),
-                to: "implement".into(),
-            },
-            MapEdge {
-                from: "implement".into(),
-                to: "finish".into(),
-            },
-        ],
-        completion_records: Default::default(),
-        block_records: Default::default(),
-        action_records: Default::default(),
-        result_refs: Default::default(),
-        evidence_refs: Default::default(),
-        terminal_record: None,
-        terminal_history: Vec::new(),
+        finish: map_node(
+            "finish",
+            "finish",
+            TaskSpaceNodeState::Waiting,
+            &["implement"],
+        ),
         revision: 1,
     }
 }
 
 fn completed_multi_parent_map(map_id: &str, reopened: bool) -> TaskSpaceCanonicalMap {
     let mut map = multi_parent_map(map_id);
-    for node_id in ["inspect", "research", "implement"] {
-        map.completion_records.insert(
-            node_id.into(),
-            TaskSpaceCompletionRecord {
-                action_id: format!("complete-{node_id}"),
-                result_ref_ids: Vec::new(),
-                evidence_ref_ids: Vec::new(),
-            },
-        );
+    for node in &mut map.work_nodes {
+        node.state = TaskSpaceNodeState::Completed;
     }
-    let terminal = TaskSpaceTerminalRecord {
-        action_id: "finish-map".into(),
-        summary_ref: "summary://final".into(),
-    };
     if reopened {
-        map.terminal_history.push(terminal);
+        map.finish.state = TaskSpaceNodeState::Ready;
         map.revision = 3;
     } else {
-        map.terminal_record = Some(terminal);
+        map.root.state = TaskSpaceNodeState::Completed;
+        map.finish.state = TaskSpaceNodeState::Completed;
+        map.finish.content = "final summary".into();
         map.revision = 2;
     }
     map
@@ -240,10 +218,7 @@ async fn invalid_parent_map_is_rejected_before_child_and_fork_binding() {
     let owner = ThreadId::new();
     let map_id = format!("map-{owner}");
     let mut invalid = multi_parent_map(&map_id);
-    invalid.edges.push(MapEdge {
-        from: "finish".into(),
-        to: "root".into(),
-    });
+    invalid.root.parents.push("finish".into());
     state_db
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id,

@@ -2,8 +2,6 @@ use super::StateRuntime;
 use super::taskspace_map_codec::decode_binding_row;
 use super::taskspace_map_codec::decode_map_row;
 use super::taskspace_map_codec::from_i64;
-use super::taskspace_map_codec::map_revision;
-use super::taskspace_map_codec::map_terminal;
 use super::taskspace_map_codec::request_sha256;
 use super::taskspace_map_codec::require_nonempty;
 use super::taskspace_map_codec::sha256;
@@ -17,7 +15,6 @@ use crate::TaskSpaceMapRecord;
 use crate::TaskSpaceMapRelation;
 use crate::TaskSpaceMapWriteOutcome;
 use codex_protocol::ThreadId;
-use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use sqlx::Row;
 use sqlx::Sqlite;
 use sqlx::Transaction;
@@ -40,8 +37,6 @@ impl StateRuntime {
             request.owner_thread_id,
             None,
         )?;
-        let map_revision = map_revision(request.canonical_map.as_ref());
-        let terminal = map_terminal(request.canonical_map.as_ref());
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
 
@@ -60,19 +55,16 @@ impl StateRuntime {
         let inserted = sqlx::query(
             r#"
 INSERT INTO taskspace_maps (
-    map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
-    store_revision, map_revision, terminal, created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+    map_id, owner_thread_id, canonical_json, canonical_sha256,
+    store_revision, created_at_ms, updated_at_ms
+) VALUES (?, ?, ?, ?, 1, ?, ?)
 ON CONFLICT(map_id) DO NOTHING
             "#,
         )
         .bind(&request.map_id)
         .bind(request.owner_thread_id.to_string())
-        .bind(TASKSPACE_CANONICAL_SCHEMA_VERSION)
         .bind(canonical_json)
         .bind(&canonical_sha256)
-        .bind(to_i64(map_revision, "map_revision")?)
-        .bind(i64::from(terminal))
         .bind(now)
         .bind(now)
         .execute(&mut *tx)
@@ -121,8 +113,8 @@ ON CONFLICT(map_id) DO NOTHING
     ) -> anyhow::Result<Option<TaskSpaceMapRecord>> {
         let row = sqlx::query(
             r#"
-SELECT map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
-       store_revision, map_revision, terminal, created_at_ms, updated_at_ms
+SELECT map_id, owner_thread_id, canonical_json, canonical_sha256,
+       store_revision, created_at_ms, updated_at_ms
 FROM taskspace_maps
 WHERE map_id = ?
             "#,
@@ -140,8 +132,8 @@ WHERE map_id = ?
         let row = sqlx::query(
             r#"
 SELECT
-    m.map_id, m.owner_thread_id, m.canonical_schema_version, m.canonical_json,
-    m.canonical_sha256, m.store_revision, m.map_revision, m.terminal,
+    m.map_id, m.owner_thread_id, m.canonical_json,
+    m.canonical_sha256, m.store_revision,
     m.created_at_ms, m.updated_at_ms,
     b.thread_id AS binding_thread_id, b.relation, b.parent_thread_id,
     b.created_at_ms AS binding_created_at_ms, b.updated_at_ms AS binding_updated_at_ms
@@ -195,8 +187,6 @@ WHERE b.thread_id = ?
             request.actor_thread_id,
             request.binding.as_ref(),
         )?;
-        let map_revision = map_revision(request.canonical_map.as_ref());
-        let terminal = map_terminal(request.canonical_map.as_ref());
         let next_revision = request
             .expected_store_revision
             .checked_add(1)
@@ -219,22 +209,16 @@ WHERE b.thread_id = ?
         let updated = sqlx::query(
             r#"
 UPDATE taskspace_maps
-SET canonical_schema_version = ?,
-    canonical_json = ?,
+SET canonical_json = ?,
     canonical_sha256 = ?,
     store_revision = ?,
-    map_revision = ?,
-    terminal = ?,
     updated_at_ms = ?
 WHERE map_id = ? AND store_revision = ?
             "#,
         )
-        .bind(TASKSPACE_CANONICAL_SCHEMA_VERSION)
         .bind(canonical_json)
         .bind(&canonical_sha256)
         .bind(to_i64(next_revision, "store_revision")?)
-        .bind(to_i64(map_revision, "map_revision")?)
-        .bind(i64::from(terminal))
         .bind(now)
         .bind(&request.map_id)
         .bind(to_i64(
@@ -398,8 +382,8 @@ async fn load_map_in_tx(
 ) -> anyhow::Result<Option<TaskSpaceMapRecord>> {
     let row = sqlx::query(
         r#"
-SELECT map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
-       store_revision, map_revision, terminal, created_at_ms, updated_at_ms
+SELECT map_id, owner_thread_id, canonical_json, canonical_sha256,
+       store_revision, created_at_ms, updated_at_ms
 FROM taskspace_maps
 WHERE map_id = ?
         "#,

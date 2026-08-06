@@ -1513,9 +1513,10 @@ async fn run_debug_taskspace_map_command(
         );
         anyhow::bail!("thread {thread_id} has no TaskSpace map binding");
     };
+    let canonical_revision = record.canonical_map.as_ref().map(|map| map.revision);
 
     let envelope = serde_json::json!({
-        "schema_version": "TaskSpaceMapExportR7V2",
+        "schema_version": "TaskSpaceMapExportR8V1",
         "status": "ok",
         "map": {
             "map_id": &record.map_id,
@@ -1523,8 +1524,6 @@ async fn run_debug_taskspace_map_command(
             "canonical_map": &record.canonical_map,
             "canonical_sha256": &record.canonical_sha256,
             "store_revision": record.store_revision,
-            "map_revision": record.map_revision,
-            "terminal": record.terminal,
             "created_at_ms": record.created_at_ms,
             "updated_at_ms": record.updated_at_ms,
         },
@@ -1547,7 +1546,7 @@ async fn run_debug_taskspace_map_command(
         actor_thread_id = %thread_id,
         map_id = record.map_id,
         store_revision = record.store_revision,
-        map_revision = record.map_revision,
+        canonical_revision,
         output_path = %cmd.output.display(),
         "exported canonical TaskSpace Map Store record"
     );

@@ -283,6 +283,8 @@ use crate::SkillsManager;
 use crate::action_map::ProjectionEmission;
 use crate::action_map::ProjectionEnvelope;
 use crate::action_map::ProjectionTrigger;
+use crate::action_map::TASKSPACE_MAP_HANDLE_MARKER;
+use crate::action_map::TASKSPACE_MAP_PROJECTION_MARKER;
 use crate::action_map::decide_projection_emission;
 use crate::action_map::projection_identity_from_context;
 use crate::agents_md::AgentsMdManager;
@@ -4002,7 +4004,7 @@ fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
         matches!(
             entry,
             ContentItem::InputText { text }
-                if text.contains("TaskSpaceMapProjectionR7V1:")
+                if text.contains(TASKSPACE_MAP_PROJECTION_MARKER)
         )
     })
 }
@@ -4037,7 +4039,7 @@ fn taskspace_projection_context(item: Option<&ResponseItem>) -> Option<&str> {
     }
     content.iter().rev().find_map(|entry| match entry {
         ContentItem::InputText { text } | ContentItem::OutputText { text }
-            if text.contains("TaskSpaceMapProjectionR7V1:") =>
+            if text.contains(TASKSPACE_MAP_PROJECTION_MARKER) =>
         {
             Some(text.as_str())
         }
@@ -4054,7 +4056,7 @@ fn taskspace_map_handle_context(item: Option<&ResponseItem>) -> Option<&str> {
     }
     content.iter().rev().find_map(|entry| match entry {
         ContentItem::InputText { text } | ContentItem::OutputText { text }
-            if text.contains("TaskSpaceMapHandleR7V1:") =>
+            if text.contains(TASKSPACE_MAP_HANDLE_MARKER) =>
         {
             Some(text.as_str())
         }

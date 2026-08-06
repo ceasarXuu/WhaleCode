@@ -1,16 +1,14 @@
 use codex_protocol::protocol::MapRuntimeEvent;
 
 use crate::action_map::map::ActionMapId;
-use crate::action_map::map::MapNodeId;
-use crate::action_map::map::TaskId;
 
 use super::state::ActionMapRuntimeState;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
-    pub(crate) task_id: Option<TaskId>,
+    pub(crate) task_id: Option<String>,
     pub(crate) map_id: ActionMapId,
-    pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) node_id: Option<String>,
     pub(crate) node_role: Option<String>,
     pub(crate) route_mode: Option<String>,
     pub(crate) profile_name: Option<String>,
@@ -108,7 +106,7 @@ impl ActionMapRuntimeState {
         let map_id = self.active_map_id.clone()?;
         let map = self.maps.get(&map_id);
         Some(ActionMapProviderRequestBudgetSnapshot {
-            task_id: map.and_then(|map| map.task_id.clone()),
+            task_id: None,
             map_id,
             node_id: None,
             node_role: None,

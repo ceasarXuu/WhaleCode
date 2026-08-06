@@ -1,12 +1,11 @@
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Result;
 use codex_protocol::ThreadId;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
-use codex_protocol::taskspace::TaskSpaceMapEdge;
 use codex_protocol::taskspace::TaskSpaceMapNode;
+use codex_protocol::taskspace::TaskSpaceNodeState;
 use codex_state::BindTaskSpaceMapRequest;
 use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::StateRuntime;
@@ -31,35 +30,27 @@ fn canonical_map(map_id: &str) -> TaskSpaceCanonicalMap {
         root: TaskSpaceMapNode {
             node_id: "root".to_string(),
             goal: "deliver the task".to_string(),
-            source_refs: vec!["user-turn-1".to_string()],
+            state: TaskSpaceNodeState::InFlight,
+            content: "The user requested this task.".to_string(),
+            parents: Vec::new(),
+            actions: Vec::new(),
         },
         work_nodes: vec![TaskSpaceMapNode {
             node_id: "work".to_string(),
             goal: "implement the change".to_string(),
-            source_refs: Vec::new(),
+            state: TaskSpaceNodeState::Ready,
+            content: String::new(),
+            parents: vec!["root".to_string()],
+            actions: Vec::new(),
         }],
         finish: TaskSpaceMapNode {
             node_id: "finish".to_string(),
             goal: "verify and summarize".to_string(),
-            source_refs: Vec::new(),
+            state: TaskSpaceNodeState::Waiting,
+            content: String::new(),
+            parents: vec!["work".to_string()],
+            actions: Vec::new(),
         },
-        edges: vec![
-            TaskSpaceMapEdge {
-                from: "root".to_string(),
-                to: "work".to_string(),
-            },
-            TaskSpaceMapEdge {
-                from: "work".to_string(),
-                to: "finish".to_string(),
-            },
-        ],
-        completion_records: BTreeMap::new(),
-        block_records: BTreeMap::new(),
-        action_records: BTreeMap::new(),
-        result_refs: BTreeMap::new(),
-        evidence_refs: BTreeMap::new(),
-        terminal_record: None,
-        terminal_history: Vec::new(),
         revision: 1,
     }
 }
@@ -108,13 +99,13 @@ async fn debug_taskspace_map_exports_the_store_record_and_binding() -> Result<()
     .success();
 
     let envelope: serde_json::Value = serde_json::from_slice(&std::fs::read(output)?)?;
-    assert_eq!(envelope["schema_version"], "TaskSpaceMapExportR7V2");
+    assert_eq!(envelope["schema_version"], "TaskSpaceMapExportR8V1");
     assert_eq!(envelope["status"], "ok");
     assert_eq!(envelope["map"]["map_id"], map_id);
     assert_eq!(envelope["map"]["owner_thread_id"], thread_id.to_string());
     assert_eq!(envelope["map"]["store_revision"], 1);
-    assert_eq!(envelope["map"]["map_revision"], 1);
-    assert_eq!(envelope["map"]["terminal"], false);
+    assert!(envelope["map"].get("map_revision").is_none());
+    assert!(envelope["map"].get("terminal").is_none());
     assert_eq!(envelope["binding"]["thread_id"], thread_id.to_string());
     assert_eq!(envelope["binding"]["relation"], "owner");
     assert_eq!(

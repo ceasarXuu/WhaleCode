@@ -74,7 +74,7 @@ pub(super) async fn hydrate_action_map_store(
             parent_thread_id = %parent_thread_id,
             relation = relation.as_str(),
             store_revision = parent_map.store_revision,
-            map_revision = parent_map.map_revision,
+            map_revision = record_map_revision(&parent_map),
             "bound thread to canonical TaskSpace Map"
         );
         loaded = state_db.load_taskspace_map_for_thread(thread_id).await?;
@@ -105,8 +105,7 @@ pub(super) async fn hydrate_action_map_store(
         owner_thread_id = %record.owner_thread_id,
         relation = binding.relation.as_str(),
         store_revision = record.store_revision,
-        map_revision = record.map_revision,
-        terminal = record.terminal,
+        map_revision = record_map_revision(&record),
         "loaded canonical TaskSpace Map"
     );
     Ok(Some(HydratedActionMapStore {
@@ -137,8 +136,7 @@ fn runtime_from_record_for_hydrate(
             owner_thread_id = %record.owner_thread_id,
             relation = relation.as_str(),
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
-            terminal = record.terminal,
+            map_revision = record_map_revision(record),
             "rejected canonical TaskSpace Map before Runtime installation"
         );
     })
@@ -177,6 +175,10 @@ pub(super) fn canonical_map_for_store(
     runtime: &ActionMapRuntimeState,
 ) -> Option<TaskSpaceCanonicalMap> {
     runtime.canonical_map_for_store()
+}
+
+fn record_map_revision(record: &TaskSpaceMapRecord) -> u64 {
+    record.canonical_map.as_ref().map_or(0, |map| map.revision)
 }
 
 pub(super) fn canonical_map_sha256(
@@ -246,7 +248,7 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                map_revision: record.map_revision,
+                map_revision: record_map_revision(&record),
                 operation: "activate_taskspace".to_string(),
                 actor_thread_id: self.conversation_id,
                 canonical_sha256: record.canonical_sha256.clone(),
@@ -259,7 +261,7 @@ impl Session {
             actor_thread_id = %self.conversation_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
+            map_revision = record_map_revision(&record),
             operation = "activate_taskspace",
             "created canonical TaskSpace Map"
         );
@@ -397,7 +399,7 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                map_revision: record.map_revision,
+                map_revision: record_map_revision(&record),
                 operation: operation.to_string(),
                 actor_thread_id: self.conversation_id,
                 canonical_sha256: record.canonical_sha256.clone(),
@@ -410,7 +412,7 @@ impl Session {
             actor_thread_id = %self.conversation_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
+            map_revision = record_map_revision(&record),
             operation,
             commit_id,
             "committed canonical TaskSpace Map"
