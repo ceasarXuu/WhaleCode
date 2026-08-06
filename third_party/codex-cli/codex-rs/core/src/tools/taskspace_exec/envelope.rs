@@ -82,6 +82,10 @@ impl TaskSpaceExecRequestContext {
         self.catalog.identity_sha256()
     }
 
+    pub(super) fn catalog(&self) -> &TaskSpaceExecCatalog {
+        &self.catalog
+    }
+
     pub(crate) fn validate_current_map(
         &self,
         current_map: Option<&TaskSpaceMap>,

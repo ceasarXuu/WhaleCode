@@ -2,6 +2,8 @@ mod catalog;
 mod envelope;
 mod map_operations;
 mod plan;
+mod preflight;
+mod schema_validation;
 
 pub(crate) use catalog::TaskSpaceExecCatalog;
 pub(crate) use catalog::TaskSpaceExecCatalogError;
@@ -20,6 +22,12 @@ pub(crate) use plan::ExecCall;
 pub(crate) use plan::HostedBinding;
 pub(crate) use plan::TaskSpaceExecPlan;
 pub(crate) use plan::TaskSpaceExecPlanDecodeError;
+pub(crate) use preflight::HostedOutputFact;
+pub(crate) use preflight::PreparedClientCall;
+pub(crate) use preflight::PreparedHostedBinding;
+pub(crate) use preflight::TaskSpaceExecPreflightError;
+pub(crate) use preflight::TaskSpaceExecPreflightResult;
+pub(crate) use preflight::preflight_taskspace_exec;
 
 #[cfg(test)]
 #[path = "../taskspace_exec_tests.rs"]
@@ -32,3 +40,11 @@ mod catalog_tests;
 #[cfg(test)]
 #[path = "../taskspace_exec_envelope_tests.rs"]
 mod envelope_tests;
+
+#[cfg(test)]
+#[path = "../taskspace_exec_preflight_tests.rs"]
+mod preflight_tests;
+
+#[cfg(test)]
+#[path = "../taskspace_exec_hosted_preflight_tests.rs"]
+mod hosted_preflight_tests;
