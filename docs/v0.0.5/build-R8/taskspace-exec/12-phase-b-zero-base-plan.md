@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0-B1 verified offline / Phase B2 EX-01 next
+- Status: Active / Phase B0-B2 verified offline / Phase B3 EX-05 next
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -103,10 +103,10 @@ Agent 只声明 parents，Runtime 机械反算 children；Map 不再拥有顶层
 | MM-08 | 重建 projection 与 snapshot | `core/action_map/runtime/projection.rs`、snapshot/protocol | 从 canonical Node 直接输出 goal/state/content/parents/actions，并为每个 Node 补全 children；删除旧 result/evidence/event/sentinel/maintenance 空字段 | 三种 projection policy 共享同一完整 Map 语义，只改变进入 context 的方式 | Complexity: 删除旧 projection shape；Reach: context/snapshot/cache fingerprint | always/append/request deterministic fixtures；每个 Node 含 parents+children；无重复权威 | verified |
 | MM-09 | 更新所有生产消费面 | CLI debug、Viewer、export/benchmark parser、skills/tests | 直接改读新 Node shape并删除旧 alias、拼装器和无消费者 UI 字段；不提供 v3 adapter | 调试、可视化和评测不会复活旧模型 | Complexity: 消费端破坏性更新；Reach: CLI/TS/scripts | build/typecheck/snapshot/report fixture；全仓 active consumer 无旧字段 | verified |
 | MM-10 | 建立最简 Map 零残留门禁 | `scripts/taskspace-exec/check_zero_base.py`、schema fixtures、pre-commit | 对结构化 schema/AST 与消费者建立门禁，阻止 edges、Map `*_ref`、旧 ledger、parent/child 双写输入和 MM-01 删除符号回流 | 后续 Exec 只能依赖新模型 | Complexity: 扩展一个静态门禁；Reach: Map 变更提交 | 正反 fixture、targeted suites、cache gate；避免把 Standard output-ref 误报为 Map ref | verified |
-| EX-01 | 建立最小 Map 操作合同 | canonical transaction 邻接模块、新内部 Map ToolSpec | 定义 initialize/update/read/reopen/finish；关系变化随普通 Node parents 更新，不增加 connect/disconnect Tool；Agent 不填 revision | Agent 用少量操作维护同一 Map，无额外关系协议 | Complexity: 一个新合同；Reach: Exec schema | schema/parser/transaction fixtures；出现独立 edge/ref/binding Tool 即停 | planned |
-| EX-02 | 建立结构化 TaskSpace Exec schema | 新 `taskspace_exec` declaration/catalog | 从 Standard ToolSpec 与 EX-01 生成结构化 calls/hosted_bindings variants，普通 Tool 只暴露一次 | Agent 在一个 Function Call 中声明合法序列和节点归属 | Complexity: 一个静态 Function schema；Reach: declaration/cache | 1/N client、map+work、hosted-only、empty reject、确定性字节 | planned |
-| EX-03 | 建立 request-local revision 与身份 | provider request context、outer call envelope | Runtime 记录请求所见 revision、ToolSpec identity 和 outer call identity；Agent schema 不暴露 expected_revision/version/capability ID | 并发安全不转化为 Agent 填表成本 | Complexity: 一个短生命周期 envelope；Reach: request lifecycle | stale concurrent response、retry、same-revision fixtures；不跨 response 持久化 | planned |
-| EX-04 | 建立零副作用 preflight | Exec parser、Map candidate transaction、Tool batch validator | 在 client/map 副作用前完成结构、能力、节点、DAG、状态、单 Patch 和 Hosted 声明完整性检查 | 非法计划明确拒绝且普通 Tool/Map 零执行 | Complexity: 一个预检入口；Reach: all TaskSpace calls | failure matrix 逐项 fixture；不得加入语义判断或修复建议 | planned |
+| EX-01 | 建立最小 Map 操作合同 | canonical transaction 邻接模块、新内部 Map ToolSpec | 定义 initialize/update/read/reopen/finish；关系变化随普通 Node parents 更新，不增加 connect/disconnect Tool；Agent 不填 revision | Agent 用少量操作维护同一 Map，无额外关系协议 | Complexity: 一个新合同；Reach: Exec schema | schema/parser/transaction fixtures；出现独立 edge/ref/binding Tool 即停 | verified |
+| EX-02 | 建立结构化 TaskSpace Exec schema | 新 `taskspace_exec` declaration/catalog | 从 Standard ToolSpec 与 EX-01 生成结构化 calls/hosted_bindings variants，普通 Tool 只暴露一次 | Agent 在一个 Function Call 中声明合法序列和节点归属 | Complexity: 一个静态 Function schema；Reach: declaration/cache | 1/N client、map+work、hosted-only、empty reject、确定性字节 | verified |
+| EX-03 | 建立 request-local revision 与身份 | provider request context、outer call envelope | Runtime 记录请求所见 revision、ToolSpec identity 和 outer call identity；Agent schema 不暴露 expected_revision/version/capability ID | 并发安全不转化为 Agent 填表成本 | Complexity: 一个短生命周期 envelope；Reach: request lifecycle | stale concurrent response、retry、same-revision fixtures；不跨 response 持久化 | verified |
+| EX-04 | 建立零副作用 preflight | Exec parser、Map candidate transaction、Tool batch validator | 在 client/map 副作用前完成结构、能力、节点、DAG、状态、单 Patch 和 Hosted 声明完整性检查 | 非法计划明确拒绝且普通 Tool/Map 零执行 | Complexity: 一个预检入口；Reach: all TaskSpace calls | failure matrix 逐项 fixture；不得加入语义判断或修复建议 | verified |
 | EX-05 | 接入 client 原生 dispatch | Exec executor、ToolRouter | 将通过预检的内部 client calls 还原为原生 ToolCall 并走现有权限/sandbox/hook/handler；结果原样返回 | TaskSpace 复用 Standard Tool 能力且不侵入 Tool | Complexity: 一个 dispatch adapter；Reach: client tools | Function/Freeform/Namespace、并行/串行、失败 tests；Standard exact wire 0-diff | planned |
 | EX-06 | 接入 Hosted 逐项核对 | response envelope、provider reconciliation、Node actions | 按真实 output index/ID/Tool 类型核对 Agent node_ids 并写入 Node actions；不重执行、不默认绑定、不复制结果 | Hosted action 获得可靠节点归属 | Complexity: 一个 response-local reconciler；Reach: Web/Image/provider route | 0/1/N、多节点、漏绑/错绑/重复/failed fixtures；不增加 provider result store | planned |
 | EX-07 | 收敛唯一反馈 | outer FunctionCallOutput、context history | 返回一次机械的 Map commit、各内部 Tool 原生结果和失败范围；删除重复 developer carrier 或 TaskSpace 结果重写 | Agent 获得忠实、无污染反馈 | Complexity: 一个 outer output formatter；Reach: context/token | pairing、failure semantics、large output 与 Standard 一致性 tests | planned |
@@ -185,6 +185,10 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 | MM-01 | 2026-08-07 | [`13-mm01-old-map-deletion-inventory.md`](13-mm01-old-map-deletion-inventory.md)；protocol/core/state/CLI/TUI 逐符号调用链审计；zero-base/cache gate PASS | Store CAS/线程绑定/projection policy 保留职责并重建；v3 ledger/edges/events/replay/detail-fold/Map refs 及旧 fixtures 全部绑定到 MM-02～MM-10 净删除 | MM-02 |
 | MM-02～MM-09 | 2026-08-07 | `f8dc23612`；[`14-phase-b1-minimal-map-result.md`](14-phase-b1-minimal-map-result.md)；Rust/CLI/TUI/App Server/PowerShell targeted suites PASS | canonical Map、Store、projection、snapshot 和生产消费者统一为最简 Node 模型；旧 v3 与过渡 migration 净删除 | MM-10 |
 | MM-10 | 2026-08-07 | `67a7e7a1b`；zero-base 6 tests + repository PASS；cache gate PASS，Standard final wire unchanged | 旧 Map 专属类型/schema/ledger/marker 回流被阻断，Standard output refs 不误报；Phase B1 离线验收完成 | EX-01 |
+| EX-01 | 2026-08-07 | `0bd813e7a`；TaskSpace Exec 6 tests；Action Map 15 tests；cache gate PASS | 五项 Map 操作直接调用 canonical transaction；Agent 不填写 revision，不引入 edge/ref/binding Tool | EX-02 |
+| EX-02 | 2026-08-07 | `e6887ab8f`、`671a213c8`；TaskSpace Exec 33 tests；ToolSpec capability 5 tests；code-mode 15 tests；cache gate PASS | 结构化 Exec catalog 从原生 ToolSpec 确定性派生；`tool_search` 复用原生参数合同，code-mode 保持原有过滤；Hosted 仅声明归属 | EX-03 |
+| EX-03 | 2026-08-07 | `a513acfd2`；TaskSpace Exec 19 tests；cache gate PASS | revision、catalog snapshot 和内部调用身份由请求级 envelope 机械维护，不进入 Agent 参数 | EX-04 |
+| EX-04 | 2026-08-07 | `2440a1446`；TaskSpace Exec 32 tests；Action Map 15 tests；core/state/CLI test-target check；zero-base/cache gate PASS | 整批结构、Map、节点、参数、单 Patch 与 Hosted 归属在副作用前机械判定；Phase B2 离线完成 | EX-05 |
 
 ## 6. 证据校准
 

@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0/B1 verified offline / Phase B2 EX-01 next
+- Status: Phase B0/B1/B2 verified offline / Phase B3 EX-05 next
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -36,8 +36,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。
 - Codex 主线 `exec` 是 Freeform JavaScript Tool；Whale 已通过本地改造和一次 DeepSeek V4 Flash 真实编码闭环证明
   `{source: string}` Function Call 形态能够进入相同嵌套 Tool 路径。
-- 现有证据证明“Function 外层 Tool + 原 Router”可行；TaskSpace 完整合法序列的副作用前批次预检和
-  provider-hosted 逐项双写核对由 B1/B2 接入生产路径并执行确定性验收。
+- 现有证据证明“Function 外层 Tool + 原 Router”可行；Phase B2 已建立结构化 Function 合同、request-local envelope
+  和零副作用预检，但尚未接入原 Router 或生产 Provider response lifecycle。
 - 2026-08-06 决策取消“旧协议保持运行直到原子切换”的迁移方案。Phase B 先删除旧 sibling/control/response-gate
   影响，再从 Standard 与 canonical Action Map 原语零基础建设新入口。
 - Phase A 已证明完整 typed plan、零副作用 preflight、Runtime 可直接读取 Provider `id/item_id`，以及逐项多节点
@@ -47,8 +47,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   间接状态推导和 Map 专属 ref 均不属于目标模型。最简 Map 已冻结为 Node goal/state/content/parents/children/actions；Agent
   只声明 parents，Runtime 机械反算并始终展示 children，Tool 过程完全复用 Standard。
 - Phase B1 `MM-00～MM-10` 已完成。canonical schema、Store、projection、snapshot、CLI/TUI/App Server 和观测消费者
-  已统一到最简 Node 模型；旧 v3、edges/ref/ledger/event-replay/detail-fold 和无消费者代码已归零。下一入口为 Phase B2
-  `EX-01`。
+  已统一到最简 Node 模型；旧 v3、edges/ref/ledger/event-replay/detail-fold 和无消费者代码已归零。
+- Phase B2 `EX-01～EX-04` 已完成。Map 五项操作、静态 Exec catalog、请求级 revision/identity 和整批预检均有离线证据；
+  生产入口仍未注册，下一入口为 Phase B3 `EX-05` 原生 client dispatch。
 
 ## 3. 文档
 
@@ -69,6 +70,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     旧协议/旧 Map 净删除边界。
 13. [`13-mm01-old-map-deletion-inventory.md`](13-mm01-old-map-deletion-inventory.md)：旧 Map 生产调用链、保留职责和逐文件净删除清单。
 14. [`14-phase-b1-minimal-map-result.md`](14-phase-b1-minimal-map-result.md)：MM-02～MM-10 实施、测试、缓存门禁和工程收益证据。
+15. [`15-phase-b2-exec-contract-result.md`](15-phase-b2-exec-contract-result.md)：EX-01～EX-04 的合同、预检、离线验收和剩余边界。
 
 ## 4. 推进规则
 
