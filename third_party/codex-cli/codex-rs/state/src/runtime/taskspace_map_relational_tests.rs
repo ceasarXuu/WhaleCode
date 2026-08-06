@@ -202,3 +202,38 @@ async fn action_outcome_commit_does_not_rewrite_nodes_or_parents() {
     );
     let _ = tokio::fs::remove_dir_all(home).await;
 }
+
+#[tokio::test]
+async fn one_hosted_action_round_trips_under_multiple_nodes() {
+    let (home, runtime) = runtime().await;
+    let owner = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    let mut canonical = canonical_map(&map_id, 1);
+    canonical.work_nodes[0].actions[0] = TaskSpaceNodeAction {
+        action_id: "hosted-1".to_string(),
+        tool_name: "web_search".to_string(),
+        outcome: TaskSpaceActionOutcome::Succeeded,
+    };
+    canonical.work_nodes[1].actions = canonical.work_nodes[0].actions.clone();
+    runtime
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            owner_thread_id: owner,
+            canonical_map: Some(canonical.clone()),
+            commit_id: "create-shared-action".to_string(),
+            operation: "activate_taskspace".to_string(),
+        })
+        .await
+        .expect("create shared action map");
+
+    let loaded = runtime
+        .load_taskspace_map(&map_id)
+        .await
+        .expect("load map")
+        .expect("map")
+        .canonical_map
+        .expect("canonical");
+    assert_eq!(loaded, canonical);
+    assert_eq!(loaded.work_nodes[0].actions, loaded.work_nodes[1].actions);
+    let _ = tokio::fs::remove_dir_all(home).await;
+}

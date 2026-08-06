@@ -49,7 +49,7 @@ CREATE TABLE taskspace_map_node_actions (
     position INTEGER NOT NULL CHECK(position >= 0),
     tool_name TEXT NOT NULL,
     outcome TEXT NOT NULL CHECK(outcome IN ('pending', 'succeeded', 'failed', 'cancelled')),
-    PRIMARY KEY(map_id, action_id),
+    PRIMARY KEY(map_id, node_id, action_id),
     UNIQUE(map_id, node_id, position),
     FOREIGN KEY(map_id, node_id)
         REFERENCES taskspace_map_nodes(map_id, node_id) ON DELETE CASCADE
@@ -60,6 +60,9 @@ CREATE INDEX taskspace_map_node_parents_parent_idx
 
 CREATE INDEX taskspace_map_node_actions_node_idx
     ON taskspace_map_node_actions(map_id, node_id);
+
+CREATE INDEX taskspace_map_node_actions_identity_idx
+    ON taskspace_map_node_actions(map_id, action_id);
 
 CREATE TABLE taskspace_map_bindings (
     thread_id TEXT PRIMARY KEY NOT NULL,
