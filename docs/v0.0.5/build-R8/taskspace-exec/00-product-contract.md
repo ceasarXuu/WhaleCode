@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase B0 zero-base verified / Phase B1 clean contract in progress
+- Status: Phase B0 zero-base verified / Phase B1A node-owned Map reset planned
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -177,6 +177,40 @@ owner 或未绑定池。
 Tool 的成功、失败、进行中或完成不自动改变节点状态。节点完成、阻塞、Map 关闭和 reopen 均只能来自 Agent 的显式
 Map operation，并受 canonical Map 规则验证。
 
+### 5.5 Canonical Map 的节点所有权
+
+Canonical Map 不是一组需要 Runtime 在顶层相互 join 的平行账本。节点是工作事实的唯一归属边界，目标结构为：
+
+```text
+map
+  root
+    actions[]
+  work_nodes[]
+    actions[]
+      action_id
+      result_refs[]
+      evidence_refs[]
+    completion?
+    block?
+  finish
+    terminal_record?
+    terminal_history[]
+  edges[]
+  revision
+```
+
+具体节点类型可限制哪些字段合法，但 canonical 顶层不得另存 `action_records`、`result_refs`、`evidence_refs`、
+`completion_records` 或 `block_records`。动作不再重复保存 `node_id` 来反向寻找 owner；它所在的节点就是归属事实。
+Runtime 可以从节点内容临时构建 ID 查找索引来执行唯一性和 DAG 硬校验，但该索引不可持久化、不可投影给 Agent，也不可成为
+第二权威状态。
+
+Provider 原始 output 仍是唯一执行事实。一个 Hosted 事实供多个节点使用时，各节点动作只保存对同一 Provider 事实的引用，
+不复制结果内容，也不为此恢复顶层 binding ledger。completion、block 和 terminal 是 Agent 显式 Map operation 形成的生命周期
+事实，不使用 Tool action ID 充当状态来源；Tool 成败与节点生命周期继续正交。
+
+本项目没有需要保留的旧 TaskSpace 数据。该结构直接升级 canonical schema 并拒绝旧 shape，不建设 migration、dual-write、
+fallback 或兼容读取。
+
 ## 6. 反馈合同
 
 - 每个内部 client call 返回其原生结果，不做 TaskSpace 语义重写。
@@ -205,11 +239,12 @@ Map operation，并受 canonical Map 规则验证。
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
 | 合法序列 + node binding | 已确认 | `taskspace_exec` 仅有的 TaskSpace 新职责 |
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| 静态 schema + Agent 动态实例 | 已确认 / TX-06A～C 实施 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
+| 静态 schema + Agent 动态实例 | 产品合同已确认 / NX-02 待实施 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；结构化 carrier、完整链路和集成行为验收分配到 TX-06B/11/17C/18B |
-| Hosted 多节点持久化 | 待发现与设计 | 必须先确定 canonical Action Map Store 的单事实多引用表示，再实施幂等存储与恢复 |
+| Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；node-owned carrier、完整链路和集成行为由 NX-00A～NX-00D、NX-02 及后续生产单元验收 |
+| Hosted 多节点持久化 | Phase B1A 待实施 | NX-00A 冻结单事实多引用表示，NX-00B～NX-00D 实施并验证幂等存储与恢复 |
+| 节点所有权 canonical shape | 方向已冻结 / Phase B1A 待实施 | action 与引用归属节点，生命周期事实归属对应节点或 Finish；禁止顶层平行账本和持久化派生索引 |
 
 ## 9. 验收标准
 

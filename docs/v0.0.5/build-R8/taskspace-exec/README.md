@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0 zero-base verified / Phase B1 clean contract in progress
+- Status: Phase B0 zero-base verified / Phase B1A node-owned Map reset planned
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -45,6 +45,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   schema 开始实施。
 - Phase A 没有证明 canonical Action Map Store 已支持一份 Hosted fact 的多节点引用。该数据模型事实已经从“可直接复用”
   纠正为后续阶段必须先发现并冻结唯一 canonical 表示。
+- Phase B0 后进一步确认 `taskspace-canonical-map-v3` 仍把 action、result/evidence reference、completion 和 block 保存为
+  Map 顶层平行账本。该 shape 与“节点直接拥有工作事实”的目标冲突，因此 Phase B1 先执行 NX-00A～NX-00G 的节点
+  所有权重置，再进入 NX-01 的纯 Map operation 和 Exec schema；不提供 v3 迁移或兼容读取。
 
 ## 3. 文档
 
