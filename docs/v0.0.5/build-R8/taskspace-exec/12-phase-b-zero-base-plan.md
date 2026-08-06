@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0-B2 verified offline / Phase B3 EX-05 next
+- Status: Active / Phase B0-B2 and Phase B3 EX-05 verified offline / MS-01 next
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -107,7 +107,7 @@ Agent 只声明 parents，Runtime 机械反算 children；Map 不再拥有顶层
 | EX-02 | 建立结构化 TaskSpace Exec schema | 新 `taskspace_exec` declaration/catalog | 从 Standard ToolSpec 与 EX-01 生成结构化 calls/hosted_bindings variants，普通 Tool 只暴露一次 | Agent 在一个 Function Call 中声明合法序列和节点归属 | Complexity: 一个静态 Function schema；Reach: declaration/cache | 1/N client、map+work、hosted-only、empty reject、确定性字节 | verified |
 | EX-03 | 建立 request-local revision 与身份 | provider request context、outer call envelope | Runtime 记录请求所见 revision、ToolSpec identity 和 outer call identity；Agent schema 不暴露 expected_revision/version/capability ID | 并发安全不转化为 Agent 填表成本 | Complexity: 一个短生命周期 envelope；Reach: request lifecycle | stale concurrent response、retry、same-revision fixtures；不跨 response 持久化 | verified |
 | EX-04 | 建立零副作用 preflight | Exec parser、Map candidate transaction、Tool batch validator | 在 client/map 副作用前完成结构、能力、节点、DAG、状态、单 Patch 和 Hosted 声明完整性检查 | 非法计划明确拒绝且普通 Tool/Map 零执行 | Complexity: 一个预检入口；Reach: all TaskSpace calls | failure matrix 逐项 fixture；不得加入语义判断或修复建议 | verified |
-| EX-05 | 接入 client 原生 dispatch | Exec executor、`ResponseItem`、ToolRouter | 将通过预检的内部 client calls 机械还原为原生 `ResponseItem`，再走现有 `ToolRouter::build_tool_call` 与 `ToolCallRuntime`；不复制 alias/MCP/Tool Search 分支，结果原样返回 | TaskSpace 复用 Standard Tool 能力且不侵入 Tool | Complexity: 一个 dispatch adapter；Reach: client tools，不接 Map Store | Function/Freeform/Namespace/Tool Search、并行/串行、失败 tests；Standard exact wire 0-diff | planned |
+| EX-05 | 接入 client 原生 dispatch | Exec executor、`ResponseItem`、ToolRouter | 将通过预检的内部 client calls 机械还原为原生 `ResponseItem`，再走现有 `ToolRouter::build_tool_call` 与 `ToolCallRuntime`；不复制 alias/MCP/Tool Search 分支，结果原样返回 | TaskSpace 复用 Standard Tool 能力且不侵入 Tool | Complexity: 一个 dispatch adapter；Reach: client tools，不接 Map Store | Function/Freeform/Namespace/Tool Search、并行/串行、失败 tests；Standard exact wire 0-diff | verified |
 | MS-01 | 将 canonical Map 分解为关系化唯一事实 | `state` migration、`taskspace_maps/nodes/node_parents/node_actions` | 以 Map head、Node、parent relation 和归属 Node 的 Action 表直接持久化当前 Map；删除整图 `canonical_json` 作为生产写模型，不迁移实验数据 | 工具结果只改变所属 Action 行，Map 仍是一份固化事实 | Complexity: 四类天然实体表，无 Event Store/双写；Reach: state schema 与 Store | schema/FK/index tests；出现整图镜像、delta replay 或兼容 reader 即停止 | planned |
 | MS-02 | 建立细粒度 canonical Store transaction | `state/runtime/taskspace_maps*`、`core/session/taskspace_store*` | 用 Map head revision CAS 保护整个 DAG，同一短事务内只 insert/update/delete 变更的 Node/parent/Action 行；读取时组装回同一 canonical domain Map | 高频 outcome 结算不再重写整图，并发仍有全图硬约束 | Complexity: 一个 repository，删除整图 hash 热路径；Reach: hydrate/CAS/restart | create/update/delete/restart、fork/join、stale CAS、无孤立 Action tests | planned |
 | MS-03 | 接入低延迟 Action 结算 | Exec coordinator、canonical Store | 整个 Exec 先完成一次零副作用预检；候选 Map 与 client `Pending` 归属持久化成功后立即 dispatch，各 Tool 一旦完成就独立结算 outcome，不等待同批其他 Tool | 不人为增加 Tool 依赖或反馈延迟，Map 以最低可行延迟反映已发生事实 | Complexity: 每 Map 仅短提交串行化，Tool 执行不串行化；Reach: revision/WAL/commit metadata | 独立快慢工具、部分失败、取消、崩溃遗留 Pending、CAS rebase tests；不允许自动重试 Tool | planned |
@@ -193,6 +193,7 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 | EX-02 | 2026-08-07 | `e6887ab8f`、`671a213c8`；TaskSpace Exec 33 tests；ToolSpec capability 5 tests；code-mode 15 tests；cache gate PASS | 结构化 Exec catalog 从原生 ToolSpec 确定性派生；`tool_search` 复用原生参数合同，code-mode 保持原有过滤；Hosted 仅声明归属 | EX-03 |
 | EX-03 | 2026-08-07 | `a513acfd2`；TaskSpace Exec 19 tests；cache gate PASS | revision、catalog snapshot 和内部调用身份由请求级 envelope 机械维护，不进入 Agent 参数 | EX-04 |
 | EX-04 | 2026-08-07 | `2440a1446`、产品复核 `4a155c12b`；TaskSpace Exec 36 tests、Action Map 17 tests | 整批结构、Map、节点、参数、单 Patch 与 Hosted 归属在副作用前机械判定；仅 Work 承载 action，新节点状态按完整候选 DAG 推导，`read_map` 独立返回完整视图 | EX-05 |
+| EX-05 | 2026-08-07 | `3b578b08d`；[`16-phase-b3-ex05-native-dispatch-result.md`](16-phase-b3-ex05-native-dispatch-result.md)；TaskSpace Exec 39 tests、Tool Router 7 tests、Action Map 17 tests；跨 crate check、zero-base/cache gate PASS | 整批 client calls 在执行前全部还原为原生调用；执行复用 Standard Router、alias/MCP/Tool Search 解析及并行策略，结果按完成顺序返回；未接 Store、Hosted、最终反馈或生产入口 | MS-01 |
 
 ## 6. 证据校准
 
