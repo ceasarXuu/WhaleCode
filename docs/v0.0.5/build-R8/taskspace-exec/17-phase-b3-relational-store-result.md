@@ -33,7 +33,8 @@ SQLite 中的 canonical Map 已由以下关系化事实直接组成：
 | `cargo test -p codex-state --lib` | 127 passed |
 | `cargo test -p codex-core taskspace_store --lib` | 8 passed |
 
-## 3. 后续边界
+## 3. 后续结果
 
-本单元只提供低成本、可并发保护的固化事实层。MS-03 才会把 Exec 预检候选、client Action `Pending` 以及每个
-Tool 的完成结果按最低延迟接入该 Store；Store 本身不根据 Tool 结果推导 Node 状态，也不替 Agent 做 Map 决策。
+MS-03 已把 Exec 预检候选、client Action `pending` 和每个 Tool 的完成结果按最低延迟接入该 Store；Store 仍不根据
+Tool 结果推导 Node 状态，也不替 Agent 做 Map 决策。结果与完整验收见
+[`18-phase-b3-execution-feedback-result.md`](18-phase-b3-execution-feedback-result.md)。

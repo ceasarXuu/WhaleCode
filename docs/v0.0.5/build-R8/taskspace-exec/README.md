@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0/B1/B2 verified offline / Phase B3 EX-05 next
+- Status: Phase B0～B3 verified offline / Phase B4 next
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -48,8 +48,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   只声明 parents，Runtime 机械反算并始终展示 children，Tool 过程完全复用 Standard。
 - Phase B1 `MM-00～MM-10` 已完成。canonical schema、Store、projection、snapshot、CLI/TUI/App Server 和观测消费者
   已统一到最简 Node 模型；旧 v3、edges/ref/ledger/event-replay/detail-fold 和无消费者代码已归零。
-- Phase B2 `EX-01～EX-04` 已完成。Map 五项操作、静态 Exec catalog、请求级 revision/identity 和整批预检均有离线证据；
-  生产入口仍未注册，下一入口为 Phase B3 `EX-05` 原生 client dispatch。
+- Phase B2 `EX-01～EX-04` 已完成。Map 五项操作、静态 Exec catalog、请求级 revision/identity 和整批预检均有离线证据。
+- Phase B3 `EX-05`、`MS-01～MS-03`、`EX-06～EX-08` 已完成。client 原生 dispatch、关系化 canonical Store、逐项
+  Action 结算、Hosted response 对账、唯一 outer 反馈和正式 Router 入口已形成一条生产链；下一阶段为 Phase B4
+  观测与离线门禁。
 
 ## 3. 文档
 
@@ -71,6 +73,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 13. [`13-mm01-old-map-deletion-inventory.md`](13-mm01-old-map-deletion-inventory.md)：旧 Map 生产调用链、保留职责和逐文件净删除清单。
 14. [`14-phase-b1-minimal-map-result.md`](14-phase-b1-minimal-map-result.md)：MM-02～MM-10 实施、测试、缓存门禁和工程收益证据。
 15. [`15-phase-b2-exec-contract-result.md`](15-phase-b2-exec-contract-result.md)：EX-01～EX-04 的合同、预检、离线验收和剩余边界。
+16. [`16-phase-b3-ex05-native-dispatch-result.md`](16-phase-b3-ex05-native-dispatch-result.md)：EX-05 原生 client dispatch 证据。
+17. [`17-phase-b3-relational-store-result.md`](17-phase-b3-relational-store-result.md)：MS-01～MS-02 关系化 Store 证据。
+18. [`18-phase-b3-execution-feedback-result.md`](18-phase-b3-execution-feedback-result.md)：MS-03、EX-06～EX-08 的生产执行、
+    Hosted 对账、唯一反馈和 B3 总验收。
 
 ## 4. 推进规则
 
