@@ -13,13 +13,25 @@ ACTIVE_ROOTS = (
     "third_party/codex-cli/codex-rs/core/tests",
     "third_party/codex-cli/codex-rs/protocol/src",
     "third_party/codex-cli/codex-rs/tools/src",
+    "third_party/codex-cli/codex-rs/state/src",
+    "third_party/codex-cli/codex-rs/state/migrations",
+    "third_party/codex-cli/codex-rs/cli/src",
+    "third_party/codex-cli/codex-rs/cli/tests",
+    "third_party/codex-cli/codex-rs/tui/src",
     "third_party/codex-cli/codex-rs/app-server-protocol/src",
+    "third_party/codex-cli/codex-rs/app-server-protocol/schema",
     "apps",
+)
+
+ACTIVE_FILES = (
+    "scripts/action-map-store-export-lib.ps1",
+    "scripts/action-map-observability-report-lib.ps1",
 )
 
 SCANNED_SUFFIXES = {
     ".json",
     ".md",
+    ".ps1",
     ".rs",
     ".toml",
     ".ts",
@@ -49,6 +61,34 @@ RETIRED_SYMBOLS = (
     "TaskContextEventRecorded",
     "TaskContextOwnershipChanged",
     "TaskSpaceCompactionCheckpoint",
+    "TaskSpaceMapEdge",
+    "TaskSpaceCompletionRecord",
+    "TaskSpaceBlockRecord",
+    "TaskSpaceResultRef",
+    "TaskSpaceEvidenceRef",
+    "TaskSpaceTerminalRecord",
+    "ActionMapSnapshotEdge",
+    "ActionMapSnapshotResult",
+    "ActionMapSnapshotEvidenceRef",
+    "ActionMapSnapshotMaintenanceBarrier",
+    "ActionMapSnapshotNodeEvent",
+    "ActionMapSnapshotSentinel",
+    "ActionMapSnapshotTrace",
+    "taskspace-canonical-map-v2",
+    "taskspace-canonical-map-v3",
+    "TaskSpaceMapProjectionR7V1",
+    "TaskSpaceMapHandleR7V1",
+    "TaskSpaceMapExportR7V2",
+    "source_refs",
+    "completion_records",
+    "block_records",
+    "action_records",
+    "result_refs",
+    "terminal_record",
+    "terminal_history",
+    "graph_events",
+    "node_events",
+    "detail_fold",
 )
 
 
@@ -61,6 +101,7 @@ class Finding:
 
 def scan_zero_base(root: Path) -> list[Finding]:
     findings: list[Finding] = []
+    paths: set[Path] = set()
     for relative_root in ACTIVE_ROOTS:
         active_root = root / relative_root
         if not active_root.exists():
@@ -68,20 +109,28 @@ def scan_zero_base(root: Path) -> list[Finding]:
         for path in sorted(active_root.rglob("*")):
             if not path.is_file() or path.suffix not in SCANNED_SUFFIXES:
                 continue
-            try:
-                lines = path.read_text(encoding="utf-8").splitlines()
-            except UnicodeDecodeError:
-                continue
-            for line_number, line in enumerate(lines, start=1):
-                for symbol in RETIRED_SYMBOLS:
-                    if symbol in line:
-                        findings.append(
-                            Finding(
-                                path=path.relative_to(root),
-                                line=line_number,
-                                symbol=symbol,
-                            )
+            paths.add(path)
+    paths.update(root / relative_path for relative_path in ACTIVE_FILES)
+
+    for path in sorted(paths):
+        if not path.is_file() or path.suffix not in SCANNED_SUFFIXES:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            continue
+        if path.suffix == ".rs":
+            lines = lines[: next((index for index, line in enumerate(lines) if line.strip() == "#[cfg(test)]"), len(lines))]
+        for line_number, line in enumerate(lines, start=1):
+            for symbol in RETIRED_SYMBOLS:
+                if symbol in line:
+                    findings.append(
+                        Finding(
+                            path=path.relative_to(root),
+                            line=line_number,
+                            symbol=symbol,
                         )
+                    )
     return findings
 
 

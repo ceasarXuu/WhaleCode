@@ -72,7 +72,7 @@ fn replace_tag_value(text: &str, tag: &str, replacement: &str) -> String {
 
 fn stabilize_projection_canonical_sha256(text: &str) -> String {
     const PREFIX: &str = "- canonical_sha256: ";
-    if !text.contains("TaskSpaceMapProjectionR7V1:") {
+    if !text.contains("TaskSpaceMapProjectionR8V1:") {
         return text.to_string();
     }
 
@@ -179,13 +179,13 @@ fn fixture_stabilization_ignores_empty_prefixes() {
 fn fixture_stabilization_replaces_only_valid_projection_canonical_hash() {
     let hash = "a".repeat(64);
     let mut value = Value::String(format!(
-        "TaskSpaceMapProjectionR7V1:\n- canonical_sha256: {hash}\n- goal: keep"
+        "TaskSpaceMapProjectionR8V1:\n- canonical_sha256: {hash}\n- goal: keep"
     ));
     stabilize_fixture_inputs(&mut value, &[]);
     assert_eq!(
         value,
         Value::String(
-            "TaskSpaceMapProjectionR7V1:\n- canonical_sha256: <PROJECTION_CANONICAL_SHA256>\n- goal: keep"
+            "TaskSpaceMapProjectionR8V1:\n- canonical_sha256: <PROJECTION_CANONICAL_SHA256>\n- goal: keep"
                 .to_string()
         )
     );

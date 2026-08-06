@@ -38,6 +38,41 @@ class ZeroBaseGateTests(unittest.TestCase):
 
             self.assertEqual(MODULE.scan_zero_base(root), [])
 
+    def test_detects_retired_map_schema_in_active_consumer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "third_party/codex-cli/codex-rs/tui/src/viewer.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text("const FIELD: &str = \"terminal_history\";\n", encoding="utf-8")
+
+            findings = MODULE.scan_zero_base(root)
+
+            self.assertEqual([finding.symbol for finding in findings], ["terminal_history"])
+
+    def test_ignores_rust_inline_rejection_fixtures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "third_party/codex-cli/codex-rs/protocol/src/taskspace.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "pub struct CurrentMap;\n#[cfg(test)]\nmod tests { const OLD: &str = \"TaskSpaceMapEdge\"; }\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(MODULE.scan_zero_base(root), [])
+
+    def test_does_not_flag_standard_output_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "third_party/codex-cli/codex-rs/core/src/standard_tool.rs"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "struct FunctionCallOutput { output_ref: String, raw_output: String }\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(MODULE.scan_zero_base(root), [])
+
     def test_accepts_clean_active_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
