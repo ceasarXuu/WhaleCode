@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0 zero-base verified / Phase B1A node-owned Map reset planned
+- Status: Phase B0 zero-base verified / Phase B1 minimal Map rebuild planned
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -43,11 +43,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - Phase A 已证明完整 typed plan、零副作用 preflight、Runtime 可直接读取 Provider `id/item_id`，以及逐项多节点
   Hosted 归属可机械核对。`source:string` 只保留为被淘汰候选的历史证据；Phase A 已完成，Phase B1 从结构化 Function
   schema 开始实施。
-- Phase A 没有证明 canonical Action Map Store 已支持一份 Hosted fact 的多节点引用。该数据模型事实已经从“可直接复用”
-  纠正为后续阶段必须先发现并冻结唯一 canonical 表示。
-- Phase B0 后进一步确认 `taskspace-canonical-map-v3` 仍把 action、result/evidence reference、completion 和 block 保存为
-  Map 顶层平行账本。该 shape 与“节点直接拥有工作事实”的目标冲突，因此 Phase B1 先执行 NX-00A～NX-00G 的节点
-  所有权重置，再进入 NX-01 的纯 Map operation 和 Exec schema；不提供 v3 迁移或兼容读取。
+- Phase B0 后确认 `taskspace-canonical-map-v3` 的顶层 edges、action/result/evidence/completion/block/terminal ledger、
+  间接状态推导和 Map 专属 ref 均不属于目标模型。最简 Map 已冻结为 Node goal/state/content/parents/children/actions；Agent
+  只声明 parents，Runtime 机械反算并始终展示 children，Tool 过程完全复用 Standard。
+- Phase B1 按 `MM-00～MM-10` 从 canonical schema 到 Store/projection/消费者逐层重建并同步净删除旧 Map 代码。旧 NX
+  计划和无生产消费者代码不改名继承、不暂留、不兼容；MM-10 零残留门禁通过后才进入新的 Exec 实施。
 
 ## 3. 文档
 
@@ -64,7 +64,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 9. [`08-a2-v1-v3-result.md`](08-a2-v1-v3-result.md)：V1～V3 的 wire、候选合同和原子拒绝离线证据。
 10. [`09-a2-v4-first-probe-result.md`](09-a2-v4-first-probe-result.md)：首次真实 V4 probe 的失败事实、测试混杂因素和复验前置修正。
 11. [`10-a2-v4-v3-reprobe-result.md`](10-a2-v4-v3-reprobe-result.md)：v3 修正后复验、Agent 可见性证据与 source-only 合同承载阻塞。
-12. [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md)：当前唯一有效的 Phase B 工程计划和旧协议删除边界。
+12. [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md)：当前唯一有效的 Phase B 工程计划、最简 Map 重建顺序和
+    旧协议/旧 Map 净删除边界。
 
 ## 4. 推进规则
 

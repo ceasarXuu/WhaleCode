@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase B0 zero-base verified / Phase B1A node-owned Map reset planned
+- Status: Phase B0 zero-base verified / Phase B1 minimal Map reset planned
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -126,7 +126,7 @@ operation 均非法。Provider 返回完成前不执行任何尚未发生的 cli
 Runtime 负责：
 
 1. 解码 Agent 声明；
-2. 在副作用发生前检查可判定的结构、Tool 身份、节点、Map revision、序列边界和单 Patch 规则；
+2. 在副作用发生前检查可判定的结构、Tool 身份、节点、请求关联的 Map revision、序列边界和单 Patch 规则；
 3. 将内部调用机械还原为原生 ToolCall；
 4. 交给现有 ToolRouter、权限、sandbox、hook 和 handler；
 5. 原样收集结果并以对应内部调用身份返回。
@@ -166,47 +166,54 @@ Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validato
 | Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
 | client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果按内部调用身份返回，Map 节点状态不自动改变 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
 
-合法计划的 Map prelude、Hosted fact-node references 和 client action-node declarations 必须先通过 canonical Map
-transaction 接缝验证；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能落下引用关系。当前 canonical Action
-Map schema 尚未证明可表达“一份 Provider fact 对多个节点的引用集合”。正式实施前必须盘点并冻结唯一 canonical 表示；
-若现有结构不足，只允许扩展同一个 Action Map Store 的事实模型，不得复制事实、增加旁路 binding database、默认 Root
-owner 或未绑定池。
+合法计划的 Map prelude、Hosted action-node attribution 和 client action-node declarations 必须先通过 canonical Map
+transaction 接缝验证；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能把必要 action 事实写入所选节点的
+`actions[]`。Provider 原始结果继续只存在于原生 response、Standard history 和通用持久化路径，Map 不复制结果，也不创建
+result/evidence ref。一个 Hosted action 被 Agent 归属到多个节点时，各节点只保存同一真实 action identity 的必要归属事实；
+不得为此增加旁路 binding database、默认 Root owner 或未绑定池。
 
 ### 5.4 Tool 与节点状态正交
 
 Tool 的成功、失败、进行中或完成不自动改变节点状态。节点完成、阻塞、Map 关闭和 reopen 均只能来自 Agent 的显式
 Map operation，并受 canonical Map 规则验证。
 
-### 5.5 Canonical Map 的节点所有权
+### 5.5 Canonical Map 最简模型
 
-Canonical Map 不是一组需要 Runtime 在顶层相互 join 的平行账本。节点是工作事实的唯一归属边界，目标结构为：
+Canonical Map 是节点中心的当前工作状态，不是 Tool 历史、结果仓库或需要 Runtime 在顶层 join 的平行账本。产品模型为：
 
 ```text
 map
+  map_id
   root
-    actions[]
   work_nodes[]
-    actions[]
-      action_id
-      result_refs[]
-      evidence_refs[]
-    completion?
-    block?
   finish
-    terminal_record?
-    terminal_history[]
-  edges[]
-  revision
+  revision                 # Runtime 管理
+
+node
+  node_id
+  goal
+  state
+  content
+  parents[]                # Agent 直接声明的 node_id
+  children[]               # Runtime 机械反算，Agent 始终可见
+  actions[]
 ```
 
-具体节点类型可限制哪些字段合法，但 canonical 顶层不得另存 `action_records`、`result_refs`、`evidence_refs`、
-`completion_records` 或 `block_records`。动作不再重复保存 `node_id` 来反向寻找 owner；它所在的节点就是归属事实。
-Runtime 可以从节点内容临时构建 ID 查找索引来执行唯一性和 DAG 硬校验，但该索引不可持久化、不可投影给 Agent，也不可成为
-第二权威状态。
+Canonical 写入只保存 `parents[]`；Agent 可见 projection、snapshot、CLI debug 和 Viewer 必须在同一个 Node 中同时展示
+`parents[]` 与机械派生的 `children[]`。这不是两份关系：Agent 通过目标节点的 `parents[]` 创建、修改和删除全部依赖，Runtime
+只做反向索引，不要求 Agent 把 `A.children=B` 和 `B.parents=A` 重复声明。Map 不再持久化顶层 `edges[]`。
 
-Provider 原始 output 仍是唯一执行事实。一个 Hosted 事实供多个节点使用时，各节点动作只保存对同一 Provider 事实的引用，
-不复制结果内容，也不为此恢复顶层 binding ledger。completion、block 和 terminal 是 Agent 显式 Map operation 形成的生命周期
-事实，不使用 Tool action ID 充当状态来源；Tool 成败与节点生命周期继续正交。
+`goal` 说明节点要完成什么，`content` 保存 Agent 认为当前应长期保留的直接语义。Map 不预设 summary、result、evidence、
+reason、source 或 handoff condition；这些信息若重要，由 Agent 直接写入 `content`，若只是 Tool 过程则继续留在 Standard
+历史。`actions[]` 只承载必要的 action identity、Tool 名、机械 outcome 和节点归属；不得保存完整 Tool 参数或输出，也不得
+增加任何 `*_ref`。
+
+节点状态直接表达 waiting、ready、in-flight、blocked 和 completed 等生命周期事实，不再用 completion/block/terminal
+子账本间接推导。Tool outcome 不推进节点状态；Root 与 Finish 只能由 Agent 的显式终态操作原子完成，最终说明直接写入
+Finish 的 `content`。Runtime 只根据 `parents[]` 检查 DAG 硬规则，并在父节点全部 completed 后机械更新 readiness。
+
+`revision` 只用于乐观并发。Runtime 把 Provider 请求所见 revision 与返回的 `taskspace_exec` 机械关联，成功提交后递增；
+Agent 不填写、修改或回显 revision。
 
 本项目没有需要保留的旧 TaskSpace 数据。该结构直接升级 canonical schema 并拒绝旧 shape，不建设 migration、dual-write、
 fallback 或兼容读取。
@@ -214,7 +221,7 @@ fallback 或兼容读取。
 ## 6. 反馈合同
 
 - 每个内部 client call 返回其原生结果，不做 TaskSpace 语义重写。
-- `taskspace_exec` 只汇总调用身份、节点归属、机械校验状态和原始结果引用。
+- `taskspace_exec` 只汇总调用身份、节点归属、机械校验状态和原生 Tool 结果。
 - 同一事实只出现一个 Agent-visible 权威表达；不得再注入 developer factual carrier。
 - preflight 拒绝必须指出具体条目、违反的硬规则和零执行范围，不加入下一步建议。
 - provider reconciliation 失败必须区分“provider 动作已发生”和“TaskSpace 绑定未成立”。
@@ -225,6 +232,7 @@ fallback 或兼容读取。
 - 不修改普通 Tool 的原生 schema、参数或 handler；
 - 不保留单独 node bind Tool、current node、Runtime 自动绑定或控制 manifest；
 - 不把 exec 内调用顺序当作 Work DAG；
+- 不增加顶层 `edges[]`、Map 专属 ref、节点语义分类账本或 parent/child 双写合同；
 - 不解析 reasoning 或自然语言来恢复动作；
 - 不为旧 wire、旧 parser 或实验数据做兼容；
 - 不让旧候选方案与主方案长期双轨运行；
@@ -239,12 +247,12 @@ fallback 或兼容读取。
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
 | 合法序列 + node binding | 已确认 | `taskspace_exec` 仅有的 TaskSpace 新职责 |
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| 静态 schema + Agent 动态实例 | 产品合同已确认 / NX-02 待实施 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
+| 静态 schema + Agent 动态实例 | 产品合同已确认 / EX-02 待实施 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
 | 完整批次预检边界 | A1 离线通过 | 结构、能力、node 声明、Map 边界和单 Patch 在 dispatch 前判定；canonical Map 合法性由后续原 validator 接入 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；node-owned carrier、完整链路和集成行为由 NX-00A～NX-00D、NX-02 及后续生产单元验收 |
-| Hosted 多节点持久化 | Phase B1A 待实施 | NX-00A 冻结单事实多引用表示，NX-00B～NX-00D 实施并验证幂等存储与恢复 |
-| 节点所有权 canonical shape | 方向已冻结 / Phase B1A 待实施 | action 与引用归属节点，生命周期事实归属对应节点或 Finish；禁止顶层平行账本和持久化派生索引 |
+| Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；节点 `actions[]`、完整链路和集成行为由新 Phase B 单元验收 |
+| Hosted 多节点持久化 | Phase B 待实施 | 同一真实 action identity 可出现在 Agent 声明的多个节点 `actions[]`；Provider 原始结果不进入 Map，也不创建 ref |
+| 最简 canonical Map | 产品模型已冻结 / Phase B 待实施 | Node 直接包含 goal/state/content/parents/actions；children 始终可见但机械派生；无顶层 edges、平行 ledger 或 Map 自建 ref |
 
 ## 9. 验收标准
 
@@ -258,3 +266,5 @@ fallback 或兼容读取。
 6. Tool 结果完整进入 Agent context 一次；失败语义、节点状态和 provider reconciliation 不互相伪装。
 7. 旧入侵、旧容器和 sibling 生产路径已在 Phase B0 删除，后续源码不得恢复兼容分支。
 8. 确定性测试、日志、缓存门禁和获批真实样本共同证明正确性；真实样本不以一次成功宣称稳定。
+9. 每个 Agent 可见 Node 同时展示 `parents[]` 和 `children[]`；Agent 只声明 parents，Runtime 不推断新关系，只机械生成
+   children。Map 序列化和所有消费面不存在顶层 `edges[]`、任何 `*_ref` 或旧生命周期 ledger。

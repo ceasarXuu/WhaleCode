@@ -9,16 +9,32 @@
 
 1. TaskSpace 是自然工作上下文的图化、状态机化再组织，不是替 Agent 工作的编排器。
 2. Map 是独立持久化、全局唯一的 canonical 有向依赖图。
-3. Root 是唯一起点，Finish 是唯一终点；除 Root 外节点至少一个入边，允许多个前置节点。
+3. Root 是唯一起点，Finish 是唯一终点；除 Root 外节点至少声明一个 `parent`，允许多个前置节点。
 4. Root 始终保持进行中，直到 Agent 显式 `finish_map`；Finish 是 Agent 手动闭合并总结的明确最终节点。
 5. 多个未闭合节点可以同时 Ready 或 InFlight，不存在 current node、next node 或 singleton main node。
 6. 状态机是 Agent 必须使用、不可绕过的 Tool。它只维护事实和硬规则，不拥有更高的语义地位。
 7. 用户在 Map 关闭后反馈任务未完成时，Agent 通过 `reopen_map` 继续同一个 Map；历史完成事实不倒退。
+8. Canonical Map 的最简结构只包含 `map_id`、Root、Work nodes、Finish 和 Runtime 管理的 `revision`；不得另建顶层
+   `edges[]`、action/result/evidence/completion/block/terminal ledger 或其他平行事实表。
+9. 每个 Agent 可见 Node 必须同时包含 `node_id`、`goal`、`state`、`content`、`parents[]`、`children[]` 和
+   `actions[]`。不得在 Tool、projection、snapshot 或 Viewer 中省略 `children[]`。
+10. Agent 直接声明每个节点的 `parents[]`，每个元素只有父节点 `node_id`；`children[]` 由 Runtime 对全图
+    `parents[]` 做无语义的反向计算，并作为同一 Node 的一等可见字段展示。Agent 决定全部关系，Runtime 不增加、删除或
+    猜测关系。
+11. Root 的 `parents[]` 必须为空；除 Root 外每个节点至少一个 parent。Finish 的派生 `children[]` 必须为空；除 Finish
+    外每个节点至少一个 child。允许多 parent join 和多 child fork，禁止缺失端点、重复关系、自环、环、Root 不可达节点和
+    无法到达 Finish 的节点。
+12. `goal` 直接表达节点要完成的工作；`content` 由 Agent 直接维护当前应长期保留的节点语义。Map 不预设
+    summary、result、evidence、reason、source 或 handoff condition 等语义模块，也不由 Runtime 摘要、分类或解释内容。
+13. `actions[]` 只保存节点与真实 Tool action 的必要归属和机械执行事实；完整 Tool 参数、原始输出、长日志、裁剪、压缩和
+    大输出保存完全复用 Standard 路径。Map 不建设任何 `*_ref`、冷存储、渐进读取或结果复制机制。
+14. `revision` 是 Runtime 管理的乐观并发版本，不是 Agent 工作语义。Runtime 将请求所见 revision 与提交机械关联、成功后
+    递增；Agent 不创建、修改或回显 `expected_revision`。
 
 ## 2. Agent 与 Runtime 边界
 
 1. Agent 负责目标、拆解、依赖、节点选择、动作归属、完成判断、重规划和总结。
-2. Runtime 只验证图结构、revision、节点可执行状态、Agent 声明的动作对应、原子性和底线安全规则。
+2. Runtime 只验证图结构、请求关联的 revision、节点可执行状态、Agent 声明的动作对应、原子性和底线安全规则。
 3. Runtime 不自动初始化、不代选节点、不补动作、不修改参数、不解释任务语义，也不因 Agent 可能犯错增加语义约束。
 4. TaskSpace 下 Agent 只通过 Function Call 形态的 `taskspace_exec` 提交 client/map 动作；普通 client Tool 和
    `taskspace_control` 都由该工具内部声明，不再作为 TaskSpace 顶层 sibling Tool 暴露。
@@ -82,25 +98,31 @@
    Map、Tool、状态机或反馈实现。
 6. projection 必须保留全局路径；局部细节可以按距离和证据效用调整，但不能把旧节点直接变成不可见。
 7. 不得为了缓存或 token 指标删除 Agent 完成正确工作所需的事实。
+8. Standard 如何保留、裁剪、压缩和持久化 Tool 过程，TaskSpace 就如何处理；Map 只额外保存 Agent 明确写入的节点
+   `content` 和必要 action 归属，不增加 TaskSpace 专属 ref 或渐进暴露协议。
 
 ## 5. 工程与评测
 
 1. Standard 与 TaskSpace 共用唯一原生 Tool 定义和执行能力；Standard 保持原生顶层多 Tool 调用，TaskSpace 的
    序列入口不得污染 Standard，也不得修改序列内部 Tool 的原生业务合同。
 2. 不保留旧 wire、旧 parser、旧状态或旧 Map 数据兼容；错误抽象直接删除。
-3. 每次只改变一个主要策略，简单和复杂样本都要检查，不能用聚合均值掩盖异常 run。
-4. 统一使用 Docker benchmark，Standard 与 TaskSpace 使用相同模型、Skills、二进制、环境和验证器。
-5. 所有功能和修复必须补充可定位成功、失败与原因的日志，并执行相关测试。
-6. 未经用户明确授权，单次计划不得执行超过 3 个真实 Whale Agent sample；需要大规模运行时先申请预算。
-7. 每次真实运行必须写入 `benchmarks/whale-agent-run-ledger.json`，失败和重试也不得覆盖历史。
-8. 成本报告至少包含 request、input、cached/uncached input、output、wall time 和费用。
-9. Tool 成本比较必须使用同一能力集合并拆分原有 Tool 合同、TaskSpace metadata 和序列化形式差值。Standard 在顶层
+3. 旧 Map 设计中任何不符合最简模型、已经失去作用或没有生产消费者的 schema、字段、类型、transaction、event/replay、
+   projection/detail-fold、snapshot、Store 列、Viewer 字段、测试 fixture 和辅助函数必须连同调用链与测试一起删除。禁止用
+   rename、deprecated、legacy 模块、dormant 分支、adapter、fallback、双写或“暂时保留”掩盖残留；未来可能需要不构成
+   保留理由。
+4. 每次只改变一个主要策略，简单和复杂样本都要检查，不能用聚合均值掩盖异常 run。
+5. 统一使用 Docker benchmark，Standard 与 TaskSpace 使用相同模型、Skills、二进制、环境和验证器。
+6. 所有功能和修复必须补充可定位成功、失败与原因的日志，并执行相关测试。
+7. 未经用户明确授权，单次计划不得执行超过 3 个真实 Whale Agent sample；需要大规模运行时先申请预算。
+8. 每次真实运行必须写入 `benchmarks/whale-agent-run-ledger.json`，失败和重试也不得覆盖历史。
+9. 成本报告至少包含 request、input、cached/uncached input、output、wall time 和费用。
+10. Tool 成本比较必须使用同一能力集合并拆分原有 Tool 合同、TaskSpace metadata 和序列化形式差值。Standard 在顶层
    暴露 Client Tool；TaskSpace 将同一合同迁移到 `taskspace_exec` 内部，并只增加 `node_id`、合法序列、Hosted binding
    和必要容器字段。Provider-hosted Tool 的完整 schema 只保留在 provider 原生顶层，Exec 内仅表达逐项绑定。
-10. 单一 `taskspace_exec` 入口沿用 Codex `exec/code-mode` 的 Tool 暴露和嵌套执行形态，并完整保留原生 Tool 名称、
+11. 单一 `taskspace_exec` 入口沿用 Codex `exec/code-mode` 的 Tool 暴露和嵌套执行形态，并完整保留原生 Tool 名称、
     描述、参数、结果及多 Tool 组合能力。行为测试用于验证具体实现和 Provider 兼容性。
-11. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
-12. Prompt、context、projection、provider payload 或 Tool declaration 的缓存敏感变更必须先被免费指纹门禁阻断；
+12. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
+13. Prompt、context、projection、provider payload 或 Tool declaration 的缓存敏感变更必须先被免费指纹门禁阻断；
     Agent 说明变更原因并获得专项预算后，才能运行真实缓存回归。Tool declaration 在能力集合或协议版本发布变更时更新，
     相同版本的运行请求保持逐字稳定。失败结果不得晋升或绕过。
 
@@ -123,6 +145,8 @@
 - 普通 Tool schema 或执行结果被 TaskSpace 装饰；
 - 同一 Client Tool 合同同时出现在 TaskSpace 顶层和 `taskspace_exec` 内部，或被多个 Prompt/Tool 层完整复述；
 - 同一事实出现第二个权威来源；
+- Map 重新出现顶层 `edges[]`、任何 `*_ref`、独立语义分类账本，或要求 Agent 同时双写 parent/child；
+- 为旧 Map 代码增加改名、兼容、转接、保留注释或 dormant 分支，而不是删除无效设计及其消费者；
 - Standard 路径发生非必要变化；
 - Map Store 与 Session/rollout 形成双事实源；
 - 一个改动同时改变反馈、Tool schema、projection 和状态机，无法单独归因；

@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0 verified / Phase B1A next
+- Status: Active / Phase B0 verified / Phase B1 minimal Map rebuild next
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -11,6 +11,11 @@
 TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议对 schema、parser、handler、sequence、context、response
 和 feedback 的影响，再从 Standard 原生链与 canonical Action Map 原语建设新协议。
 
+Phase B0 完成后，用户进一步冻结最简 Map：节点直接包含 goal、state、content、parents、Agent 可见 children 和 actions；
+Agent 只声明 parents，Runtime 机械反算 children；Map 不再拥有顶层 edges、任何 `*_ref`、语义分类模块或生命周期子账本。
+这不是对 v3 字段搬家或改名，而是从新产品模型重建 canonical Map。旧 Map 代码只要不符合新模型、已经失效或没有生产
+消费者，就连同类型、调用链、测试和文档入口彻底删除。
+
 不做：
 
 1. 旧 `taskspace_control.actions[]` 到新 calls 的 adapter；
@@ -18,6 +23,8 @@ TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议�
 3. 为保持旧 TaskSpace 可运行而增加 feature branch、fallback 或补字段逻辑；
 4. 把旧 sibling tests 改名后继续作为新合同；
 5. 从旧 handler 参数反推新的 Map Tool 合同。
+6. 将 `result_ref` 改名为 `result`、将顶层 edge 搬成另一种平行关系，或保留 event/replay/detail-fold 等无生产价值的旧层；
+7. 用 deprecated、legacy、dormant、adapter、fallback、双写或“暂时保留”延续旧 Map 设计。
 
 旧 TaskSpace rollout、专用对话事件和未发布数据不提供迁移、读取或 fallback；零基线只接受 Standard
 原生历史格式与独立 canonical Action Map Store。
@@ -31,7 +38,7 @@ TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议�
 | Standard ToolSpec / Tool registry plan | Tool 事实、静态 schema、能力排序；TaskSpace 不修改普通 Tool |
 | Standard ToolRouter / ToolCall | 原生权限、sandbox、hook、handler 和结果执行 |
 | Provider response lifecycle | 原始 Function Call、Hosted output item、call ID 和完成边界 |
-| Canonical Action Map | 只复用 DAG、revision、状态转换、Store、restore/replay 机制；现有顶层 action/result/evidence/lifecycle 平行账本不能原样复用，须先完成节点所有权重置 |
+| Canonical Action Map | 只复用经重新证明仍符合最简模型的 SQLite 持久化、revision/CAS 和图硬校验基础；v3 schema、顶层 edges/ledger、间接状态推导、event/replay、detail-fold 与无消费者代码不在白名单 |
 | Projection 三模式 | 只保留 Map 如何进入 context 的既有产品差异，不参与动作协议 |
 | TX-06A neutral capability projection | Function/Freeform/Namespace 的单一机械 ToolSpec 投影 |
 | Cache gate / request usage evidence | Standard 0-diff、静态 Tool declaration 和成本验证 |
@@ -47,6 +54,8 @@ TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议�
 | Provider response | named control/tool-choice gate、隐藏 Tool 后置拒绝、terminal follow-up 控制 |
 | Feedback | developer factual duplicate、supplemental carrier、状态与 Tool 失败重复包装 |
 | Conversation backend | 专用 `TaskSpaceEventStore`、单 call owner、outer-control parent 和区别于 Standard 的历史替换路径 |
+| Canonical Map v3 | 顶层 `edges[]`、action/result/evidence/completion/block/terminal ledger、`source_refs`、`reason_ref`、`summary_ref`、结果/evidence ref 和 Agent 手填 expected revision |
+| Map runtime leftovers | 无生产消费者的 `graph_events`、`node_events`、MapFact replay、detail-fold/archive、旧 projection/snapshot 字段和仅验证旧 shape 的 fixture；实施前逐调用链坐实，坐实后直接删除 |
 | Phase A prototype | `source:string` exec、Agent 回显 version/capability/item ID 的 decoder/preflight |
 | Tests / prompts | 以旧合法序列、旧字段或旧反馈为正确答案的 active fixture 与说明 |
 
@@ -54,15 +63,17 @@ TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议�
 
 ### 2.3 参考依据
 
-以下资料只用于校验所有权和实现边界，不意味着引入新的 DDD 框架、CQRS 服务或 Event Store：
+以下资料只用于校验当前状态、历史和 schema 边界，不意味着引入新的工作流框架、CQRS 服务或 Event Store：
 
-1. [Microsoft：Design a microservice domain model](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/microservice-domain-model)
-   将 aggregate root 定义为一致性入口。对应本计划：Map transaction 是唯一写入口，节点子事实不能被旁路 ledger 独立修改。
-2. [Microsoft：Event Sourcing pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing)
-   区分权威事实流与可再生成的 projection/snapshot。对应本计划：projection 和临时索引只从 canonical Map 派生，不成为
-   第二事实源；本项目不因此新增 Event Store。
-3. [Serde：Container attributes](https://serde.rs/container-attrs.html)
-   明确 `deny_unknown_fields` 会拒绝未知字段。对应本计划：schema v4 直接拒绝 v3 顶层 ledger，不以忽略字段实现静默兼容。
+1. [LangGraph：Persistence](https://docs.langchain.com/oss/javascript/langgraph/persistence)
+   将当前 graph state 保存为 checkpoint。对应本计划：Map 保存当前有效状态，不复制 Standard 的完整 Tool 历史。
+2. [Temporal：History service architecture](https://github.com/temporalio/temporal/blob/main/docs/architecture/history-service.md)
+   区分 current mutable state 与 event history。对应本计划：Map 是当前工作状态，Standard rollout/log 负责执行历史；不把旧
+   event/replay 层当作 Map 必需结构。
+3. [Stately/XState：Events and transitions](https://stately.ai/docs/transitions)
+   transition 与状态节点直接关联。对应本计划：依赖关系在 Node 中直接可见，但 TaskSpace 不引入 Runtime 可执行的自然语言 guard。
+4. [Serde：Container attributes](https://serde.rs/container-attrs.html)
+   `deny_unknown_fields` 可明确拒绝未知字段。对应本计划：新 schema 直接拒绝旧字段，不以忽略字段实现静默兼容。
 
 ## 3. 工作单元
 
@@ -81,21 +92,34 @@ TaskSpace Exec 不再从当前 sibling 协议渐进迁移。先删除旧协议�
 | ZB-06B | 从 Map 删除工具执行状态 | rooted DAG、protocol、snapshot、Viewer | 删除 reservation/tool name/call index/release；只保留 Agent 声明的 `action_id -> node_id` 事实，结果引用不驱动节点生命周期 | Map 不再替 Tool 执行管理节点；Agent 可在动作尚无结果时完成节点 | Complexity: canonical schema 直接升级且不迁移；Reach: Map Store 新数据、API 和 Viewer | replay/invariant/schema/Viewer tests；旧字段静态为零 | verified |
 | ZB-06C | 恢复 Standard 原生对话历史 | `TaskSpaceEventStore`、session state、rollout reconstruction | 删除 TaskSpace 专用历史替换、单 call owner、outer-control parent 和专用 compaction checkpoint；所有模式复用 Standard `ContextManager` | 新 Exec 从相同自然上下文基线建设，旧绑定模型不再预设 Hosted/client 归属 | Complexity: 删除第二历史后端；Reach: session/resume/compaction | Standard history/resume/compaction tests；canonical SQLite Map Store 保持不变 | verified |
 | ZB-07 | 证明零基线 | 全仓 active source/test/config | 建立 forbidden-symbol audit 和 Standard regression | 新建设从可证明的干净基线开始 | Complexity: 一个静态审计；Reach: pre-commit 增加低成本检查 | forbidden set 为零、Standard exact wire、cache gate PASS | verified |
-| NX-00A | 冻结节点所有权合同 | `00-product-contract.md`、canonical Map schema design | 明确 action、result/evidence reference、completion/block 和 terminal 的唯一物理归属，禁止 canonical 顶层平行账本 | Map 结构直接表达“哪个节点拥有哪次工作”；Exec 不再依赖 Map 外 binding store | Complexity: 收窄一个既有数据模型；Reach: NX-00B～NX-03 | 合同覆盖普通 client、Hosted 多节点引用、生命周期正交与唯一性；仍有双重权威即停止 | planned |
-| NX-00B | 重塑 protocol canonical schema | `protocol/src/taskspace.rs` / `TaskSpaceCanonicalMap`、node/action records | 将 action 及其 result/evidence refs 嵌入 owner node，将 completion/block 嵌入对应节点，将终态记录归入 Finish；删除顶层五类平行 ledger 并升级 schema version | 序列化 Map 自身即可恢复节点完整事实，不再依靠跨表 join 解释归属 | Complexity: 一次破坏性 schema 简化；Reach: protocol callers 与 fixtures；不增加迁移 | protocol round-trip、unknown-field rejection、旧 v3 fixture 明确拒绝 | planned |
-| NX-00C | 改造 transaction 与硬规则 | `core/src/action_map/rooted_dag/` / events、transactions、transitions、invariants | 所有动作和引用只经 owner node 修改；用临时派生索引检查全局 ID、DAG 和状态规则；移除顶层 ledger 读写 | Agent 声明的节点归属直接落到节点；Tool 结果仍不自动推进节点状态 | Complexity: 重写单一事实写路径、删除平行 mutation；Reach: replay/property tests | transaction、invariant、replay tests；同输入重放得到同一 canonical bytes | planned |
-| NX-00D | 改造持久化与恢复 | `state/src/runtime/taskspace_map_codec.rs`、`core/src/session/taskspace_store.rs` | SQLite 只保存和恢复新 canonical Map；删除 v3 读取、迁移、兼容和 fallback；schema mismatch 输出机械诊断 | Map 继续是全局唯一持久事实，不靠聊天重放重建，也不保留旧实验数据债务 | Complexity: 删除兼容面、升级存储合同；Reach: 新 Map 数据与 restore | store round-trip、restart/hydration、revision/hash tests；旧 schema 输入失败且不静默降级 | planned |
-| NX-00E | 改造 projection 与 snapshot | `core/src/action_map/runtime/` / projection、snapshot、state | projection 从节点聚合读取，保持完整 DAG 全局视图；禁止再投影一份顶层 action/result/evidence 权威副本 | Agent 看到的 Map 与持久事实同构，不因 projection 再制造平行语义 | Complexity: 删除旧字段遍历；Reach: always/append/request 三种模式 | 三模式 deterministic snapshot、全局骨架与近端详情 fixtures；同一事实只出现一次 | planned |
-| NX-00F | 改造外部读取面 | protocol session snapshot、CLI debug、Viewer、导出脚本 | 所有消费方改读 node-owned shape，删除兼容 alias 和旧字段拼装 | 调试、可视化和导出不会把已删除的顶层账本重新塑造成产品事实 | Complexity: 调整消费者、不加 adapter；Reach: CLI/API/Viewer/scripts | protocol/schema、CLI、Viewer 与 export fixtures；仓库 active consumer 无旧 shape | planned |
-| NX-00G | 建立结构零残留门禁 | canonical schema tests、`scripts/taskspace-exec/` static audit | 增加结构化 fixture 检查，阻止顶层 ledger、生命周期 action_id 和双写路径回流 | 后续 Exec 实施只能依赖节点所有权模型 | Complexity: 一项静态/确定性门禁；Reach: pre-commit 与后续 Map 改动 | targeted suites、zero-base gate、cache gate；不得只靠字段名 grep 误报节点内合法字段 | planned |
-| NX-01 | 建立纯 Map operation contract | 完成 NX-00A～NX-00G 后的 canonical Map transaction 邻接模块 + 新 ToolSpec | 从 node-owned transaction 原语定义 initialize/execute/reopen/read/finish，不含 Tool manifest 或 binding store | Map Tool 只管理同一份 Map；Exec 的节点声明直接提交到 owner node | Complexity: 一个新合同；Reach: Map fixtures | schema/parser/transaction fixtures；出现 sibling、平行 ledger 或兼容字段立即停止 | planned |
-| NX-02 | 建立结构化 TaskSpace Exec schema | 新 `taskspace_exec` 模块 | 从 TX-06A 与 NX-01 生成 calls/hosted_bindings Tool-specific variants | Agent 只声明动作、原生输入和节点归属 | Complexity: 一个静态 Function schema；Reach: declaration size | 1/N client、hosted-only、empty reject、确定性字节 | planned |
-| NX-03 | 建立 request-local identity 与唯一暴露 | Standard request Tool projection 的 TaskSpace 分支 | 从同一快照生成 Runtime identity、Exec declaration 和 nested catalog | TaskSpace 顶层只有 Exec + Hosted；Standard 0-diff | Complexity: 一个模式投影；Reach: provider payload/cache | payload snapshot、Router 一一对应、cache gate | planned |
-| NX-04 | 验证 DeepSeek 最终 schema | disposable shape probe + ledger | 获批后运行 1 sample × 1 arm × repeat 1，最多 2 requests | 在 response/Map 大建设前验证最终 Function schema | Complexity: 零生产逻辑；Reach: 付费 API | 首个结构失败即停；启动前另行申请预算 | planned |
+| MM-00 | 冻结最简 Map 合同 | R8 global constraints、`00-product-contract.md`、本计划 | 写明 Node 全字段、parents 单一写入、children 必显、Standard 结果复用和旧设计净删除原则 | 后续代码只能实现已确认模型，不能从 v3 字段反推新模块 | Complexity: 切换活动设计权威；Reach: 全部未开始单元 | 三份活动文档无 edges/ref/ledger 目标冲突；用户确认记录可追溯 | verified |
+| MM-01 | 生成旧 Map 删除清单 | `protocol/taskspace.rs`、`core/action_map/**`、state Store、snapshot/Viewer、scripts/tests | 逐类型和生产调用链标记 keep/delete；无消费者、只由测试引用或与新模型冲突的一律列入当前阶段删除，不建立候选保留区 | 清理基于可复核证据，又不把 discovery 变成旧代码保留理由 | Complexity: 一份短清单；Reach: 决定 MM-02～MM-10 删除面 | `rg`、callers、Store/schema 证据；每个非 keep 项有删除单元；出现重大产品语义缺口才停 | planned |
+| MM-02 | 替换 canonical protocol schema | `protocol/src/taskspace.rs` / canonical Map、Node、Action | 建立 map_id/root/work_nodes/finish/revision 与 Node goal/state/content/parents/actions；删除 edges、所有 `*_ref`、source、completion/block/terminal ledger 和旧 v3 类型，不做 migration | Map 序列化只包含最简当前状态；旧数据明确失败 | Complexity: 破坏性 schema 替换且总体删减；Reach: 所有 Map caller/fixture | round-trip、unknown-field rejection、旧 shape reject；新 schema 出现语义分类模块即停 | planned |
+| MM-03 | 建立 parent 图硬规则与 children 视图 | `core/action_map` graph validator、Node view | 只从 Agent 声明的 parents 构图；校验唯一 Root/Finish、多 parent、多 child、端点、重复、自环、环、双向可达；机械反算 children | Agent 在每个 Node 直接看到父子关系且无需双写 | Complexity: 以 parent adjacency 替换 edge table；Reach: readiness/projection | fork/join/cycle/reachability fixtures；canonical bytes 无 children，所有 Agent-visible Node 有 children | planned |
+| MM-04 | 建立直接节点状态与内容事务 | `core/action_map` transaction/state | 用 Node.state 和 Node.content 的原子更新替换 completion/block/terminal 间接记录；finish 原子完成 Finish/Root，reopen 继续同一 Map | 状态和重要语义直接可读，不再跨账本推导 | Complexity: 删除旧 transition facts，保留一套状态表；Reach: finish/reopen | 状态转换表、finish/reopen、stale request tests；Tool outcome 不改变 state | planned |
+| MM-05 | 建立最小 node actions | canonical Action、TaskSpace Exec binding seam | 只保存真实 action identity、Tool 名和机械 outcome；client 单节点及 Hosted 多节点归属均写入目标 Node actions；不保存参数、输出或 ref | Map 记录必要归属而不复制 Standard Tool 历史 | Complexity: 一个小 action record；Reach: provider/client reconciliation | 0/1/N action、Hosted 多节点、冲突身份、Tool failure fixtures；Map 中无原始输出 | planned |
+| MM-06 | 删除旧 Map 执行与压缩层 | `rooted_dag/events.rs`、replay、`graph_events`、`node_events`、detail-fold/archive 及 MM-01 坐实的同类代码 | 在新 transaction 可工作后直接删除无生产价值的事件重放、旧折叠和辅助状态及其专属测试，不改名搬家 | Map 始终从 SQLite canonical state 读取，不靠聊天或旧事件重建，也无 dormant 旧模型 | Complexity: 净删除模块/字段/tests；Reach: action_map runtime | active caller/static audit 为零；Store restart 从 canonical JSON 恢复；发现真实生产责任则拆出明确 keep 证据 | planned |
+| MM-07 | 替换 canonical Store 合同 | `state/runtime/taskspace_maps*`、`core/session/taskspace_store*` | SQLite 只保存新 canonical Map 与必要 CAS 元数据；删除旧 shape 解码、重复 terminal/revision 列、migration、fallback 和旧 fixture | 独立 Map 持久存在且只有一个事实源 | Complexity: 破坏性表/codec 简化；Reach: restart/debug | create/update/restart/hash/CAS tests；旧 schema 失败；不得加 dual-read/write | planned |
+| MM-08 | 重建 projection 与 snapshot | `core/action_map/runtime/projection.rs`、snapshot/protocol | 从 canonical Node 直接输出 goal/state/content/parents/actions，并为每个 Node 补全 children；删除旧 result/evidence/event/sentinel/maintenance 空字段 | 三种 projection policy 共享同一完整 Map 语义，只改变进入 context 的方式 | Complexity: 删除旧 projection shape；Reach: context/snapshot/cache fingerprint | always/append/request deterministic fixtures；每个 Node 含 parents+children；无重复权威 | planned |
+| MM-09 | 更新所有生产消费面 | CLI debug、Viewer、export/benchmark parser、skills/tests | 直接改读新 Node shape并删除旧 alias、拼装器和无消费者 UI 字段；不提供 v3 adapter | 调试、可视化和评测不会复活旧模型 | Complexity: 消费端破坏性更新；Reach: CLI/TS/scripts | build/typecheck/snapshot/report fixture；全仓 active consumer 无旧字段 | planned |
+| MM-10 | 建立最简 Map 零残留门禁 | `scripts/taskspace-exec/check_zero_base.py`、schema fixtures、pre-commit | 对结构化 schema/AST 与消费者建立门禁，阻止 edges、Map `*_ref`、旧 ledger、parent/child 双写输入和 MM-01 删除符号回流 | 后续 Exec 只能依赖新模型 | Complexity: 扩展一个静态门禁；Reach: Map 变更提交 | 正反 fixture、targeted suites、cache gate；避免把 Standard output-ref 误报为 Map ref | planned |
+| EX-01 | 建立最小 Map 操作合同 | canonical transaction 邻接模块、新内部 Map ToolSpec | 定义 initialize/update/read/reopen/finish；关系变化随普通 Node parents 更新，不增加 connect/disconnect Tool；Agent 不填 revision | Agent 用少量操作维护同一 Map，无额外关系协议 | Complexity: 一个新合同；Reach: Exec schema | schema/parser/transaction fixtures；出现独立 edge/ref/binding Tool 即停 | planned |
+| EX-02 | 建立结构化 TaskSpace Exec schema | 新 `taskspace_exec` declaration/catalog | 从 Standard ToolSpec 与 EX-01 生成结构化 calls/hosted_bindings variants，普通 Tool 只暴露一次 | Agent 在一个 Function Call 中声明合法序列和节点归属 | Complexity: 一个静态 Function schema；Reach: declaration/cache | 1/N client、map+work、hosted-only、empty reject、确定性字节 | planned |
+| EX-03 | 建立 request-local revision 与身份 | provider request context、outer call envelope | Runtime 记录请求所见 revision、ToolSpec identity 和 outer call identity；Agent schema 不暴露 expected_revision/version/capability ID | 并发安全不转化为 Agent 填表成本 | Complexity: 一个短生命周期 envelope；Reach: request lifecycle | stale concurrent response、retry、same-revision fixtures；不跨 response 持久化 | planned |
+| EX-04 | 建立零副作用 preflight | Exec parser、Map candidate transaction、Tool batch validator | 在 client/map 副作用前完成结构、能力、节点、DAG、状态、单 Patch 和 Hosted 声明完整性检查 | 非法计划明确拒绝且普通 Tool/Map 零执行 | Complexity: 一个预检入口；Reach: all TaskSpace calls | failure matrix 逐项 fixture；不得加入语义判断或修复建议 | planned |
+| EX-05 | 接入 client 原生 dispatch | Exec executor、ToolRouter | 将通过预检的内部 client calls 还原为原生 ToolCall 并走现有权限/sandbox/hook/handler；结果原样返回 | TaskSpace 复用 Standard Tool 能力且不侵入 Tool | Complexity: 一个 dispatch adapter；Reach: client tools | Function/Freeform/Namespace、并行/串行、失败 tests；Standard exact wire 0-diff | planned |
+| EX-06 | 接入 Hosted 逐项核对 | response envelope、provider reconciliation、Node actions | 按真实 output index/ID/Tool 类型核对 Agent node_ids 并写入 Node actions；不重执行、不默认绑定、不复制结果 | Hosted action 获得可靠节点归属 | Complexity: 一个 response-local reconciler；Reach: Web/Image/provider route | 0/1/N、多节点、漏绑/错绑/重复/failed fixtures；不增加 provider result store | planned |
+| EX-07 | 收敛唯一反馈 | outer FunctionCallOutput、context history | 返回一次机械的 Map commit、各内部 Tool 原生结果和失败范围；删除重复 developer carrier 或 TaskSpace 结果重写 | Agent 获得忠实、无污染反馈 | Complexity: 一个 outer output formatter；Reach: context/token | pairing、failure semantics、large output 与 Standard 一致性 tests | planned |
+| EX-08 | 注册生产入口并清理临时接缝 | Tool registry/provider request builder、所有 prototype/fixture | 只注册正式 Exec 路径，删除实施期 spike、未使用 helper 和候选 schema；TaskSpace 顶层仅 Exec+Hosted | 生产只有一条协议路径 | Complexity: 净删除后单入口；Reach: payload/cache | registry/payload snapshots、zero-base gate、cache source gate | planned |
+| OB-01 | 建立可追踪日志 | Exec/Map/Hosted transaction trace | 记录 request revision、preflight verdict、内部 action identity、node attribution、commit revision 和失败码，不记录敏感 Tool body | 新链路可诊断且不靠猜测 | Complexity: 增加结构化事件；Reach: logs/report | fixture 逐 ID 对账、敏感字段审计 | planned |
+| OB-02 | 更新缓存与性能观测 | cache regression gate、benchmark parser、performance skill fixture | 让新稳定 Tool declaration 进入敏感面，报告 Map/Exec 动作而不解析旧字段 | Prompt/schema 变化可阻断，成本数据可复算 | Complexity: 更新既有工具；Reach: CI/benchmark | policy-only cache gate、fixture report；不运行真实 Agent | planned |
+| VA-01 | 完成离线集成验收 | Docker build、core/protocol/state/CLI/Viewer suites | 执行新 Map、Exec、Standard 回归、零残留和缓存门禁，逐项修复后再进入真实验证 | 先消除确定性缺陷，避免付费调试 | Complexity: 测试执行；Reach: build time | 全套指定测试通过；任一旧符号或 Standard diff 阻断 | planned |
+| VA-02 | 申请并执行最小 Provider shape 验证 | disposable probe、run ledger | 另行申请 1 sample × 1 arm × repeat 1、最多 2 requests 的预算，验证最终结构化 Function schema | 在完整 benchmark 前验证 Provider/Agent 可生成合同 | Complexity: 零新生产代码；Reach: 付费 API | 首个结构失败即停；未批准不得运行 | planned |
+| VA-03 | 申请并执行产品对比 | Docker benchmark、run ledger、performance report | 根据 VA-02 结果单独申请 Standard + 三种 projection policy 的 sample/arm/repeat 预算，比较正确性、路径、Map、request/token/cache/time/cost | 判断新 Map/Exec 是否产生真实收益 | Complexity: 零协议变化；Reach: 付费与耗时 | 逐 run/逐 request trace；异常先归因，不自动扩大 repeat | planned |
+| VA-04 | 重排 R8 已知问题 | `01-r8-known-issues.md`、各主题计划 | 用新架构证据重新判定 I01～I10：已消失则关闭，仍存在则重写根因和依赖，新问题只在证据成立时新增 | 已暂停的问题队列不再继承旧架构假设 | Complexity: 文档状态更新；Reach: R8 后续 | 唯一问题全集与 commit/evidence 对应；用户确认后继续 | planned |
 
-NX-00G 通过前不得开始 NX-01；NX-04 通过后再重新设计 response-local envelope、Map admission、Router dispatch、Hosted
-persistence、一次反馈和生产验收；
-旧计划中的 TX-07～TX-19 不自动继承，必须基于零基线代码重新盘点。
+MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实运行。旧 NX-00A～NX-04 以及
+`02-engineering-plan.md` 中 TX-07～TX-19 的未执行部分全部 invalidated，不改名继承；只有已完成 B0 证据继续有效。
 
 ## 4. 阶段门禁
 
@@ -107,20 +131,41 @@ persistence、一次反馈和生产验收；
 - Stop: 删除触及 canonical Action Map 数据事实、Store、projection 三模式或 Standard 原生 Tool 行为时立即停下重新划界。
 - Clarification: 上述 Store 指 SQLite canonical Action Map Store；ZB-06C 删除的是旧方案的对话 Event Store，不是 Map 事实源。
 
-### Phase B1A：Node-Owned Canonical Map Reset
+### Phase B1：Minimal Canonical Map Rebuild
 
 - Entry: B0 forbidden-symbol audit 和 Standard 回归通过。
-- Units: NX-00A～NX-00G。
-- Exit: canonical Map 的 action、引用和生命周期事实均只有节点内唯一权威表示；Store、replay、projection 和所有 active consumer
-  使用同一结构，旧 v3 数据被明确拒绝且没有兼容路径。
-- Stop: 需要增加旁路 binding database、顶层事实 ledger、聊天重放重建 Map、迁移旧实验数据，或无法保持 Tool 结果与节点生命周期正交。
+- Units: MM-00～MM-10。
+- Exit: canonical Map、Store、projection、snapshot 和所有生产消费者只存在最简 Node 模型；Agent 可见 Node 同时展示
+  parents/children；旧 v3、edges/ref/ledger/event-replay/detail-fold 及无消费者代码归零且没有兼容路径。
+- Stop: 需要保留旧代码、增加旁路事实源、聊天重放重建 Map、迁移旧实验数据，或无法保持 Tool 结果与节点生命周期正交。
 
-### Phase B1B：Clean Exec Contract And Provider Gate
+### Phase B2：Clean Map And Exec Contract
 
-- Entry: B1A 全部通过，节点所有权结构零残留门禁生效。
-- Units: NX-01～NX-04。
-- Exit: 纯 Map operation、结构化 Exec、唯一能力暴露均有离线证据，且获批 Provider shape probe 支持继续。
-- Stop: 需要恢复旧字段、复制普通 Tool schema、增加兼容 adapter、修改普通 Tool 参数或由 Runtime 推断 Agent 动作。
+- Entry: MM-10 通过，最简 Map 零残留门禁生效。
+- Units: EX-01～EX-04。
+- Exit: Map operation、结构化 Exec、request-local revision 和零副作用 preflight 均有确定性证据。
+- Stop: 需要独立 edge/ref/binding Tool、Agent 回显 revision、复制普通 Tool schema、兼容 adapter 或 Runtime 推断 Agent 动作。
+
+### Phase B3：Native Tool Execution And Feedback
+
+- Entry: EX-04 完整失败矩阵通过。
+- Units: EX-05～EX-08。
+- Exit: client、Hosted、Map 和反馈走唯一生产链；Standard 路径无变化；实施期 spike 与旧候选代码归零。
+- Stop: 必须修改普通 Tool 合同、复制 Provider 原始结果、引入未绑定池或重复反馈才能继续。
+
+### Phase B4：Observability And Offline Gate
+
+- Entry: EX-08 正式入口通过静态和单元验收。
+- Units: OB-01～OB-02、VA-01。
+- Exit: 新链路日志可逐动作对账，缓存/性能工具识别新合同，Docker 离线回归和零残留门禁全部通过。
+- Stop: 日志需要记录敏感 Tool body、观测依赖旧字段，或缓存门禁无法区分 Standard output-ref 与禁止的 Map ref。
+
+### Phase B5：Authorized Provider And Product Validation
+
+- Entry: VA-01 通过；每次真实运行另有明确预算和 planned ledger。
+- Units: VA-02～VA-04。
+- Exit: Provider shape、产品效果和成本有逐 run 证据，R8 唯一问题全集按新架构重新排序。
+- Stop: 未获预算、首个结构性失败、usage 不可信，或异常需要扩大 repeat 才能解释。
 
 ## 5. 执行记录
 
@@ -129,16 +174,19 @@ persistence、一次反馈和生产验收；
 | TX-06A | 2026-08-06 | `54fc781fc`；tools 154 passed / 1 ignored；TaskSpace Exec 33 passed；cache gate PASS | 中立 ToolSpec projection 保留；旧 TaskSpace prototype integration 不保留 | ZB-01 |
 | ZB-01 | 2026-08-06 | `1143706a1`；全局约束、README、active plan 交叉引用 | 旧兼容迁移计划 invalidated；零基线计划成为唯一 active Phase B 计划 | ZB-02 |
 | ZB-02 | 2026-08-06 | `2960ea03a`；`cargo check -p codex-core --lib` PASS；`codex-tools` 154 passed / 1 ignored | Phase A source-only prototype 无生产依赖并已从 active code 全部删除 | ZB-03A |
-| ZB-03G | 2026-08-06 | `4472c2afa`；cache gate policy-only PASS；Standard 两请求 final-wire tests PASS | 清零期缓存门禁已删除旧 TaskSpace wire 夹具，只验证 Standard；发布保持阻断，NX-03 后重建 TaskSpace 合同 | ZB-03A |
+| ZB-03G | 2026-08-06 | `4472c2afa`；cache gate policy-only PASS；Standard 两请求 final-wire tests PASS | 清零期缓存门禁已删除旧 TaskSpace wire 夹具，只验证 Standard；发布保持阻断，原 NX-03 后续已由 EX-08/OB-02 取代 | ZB-03A |
 | ZB-03A | 2026-08-06 | `cd327d938`；`codex-tools` 145 passed / 1 ignored；core build、ToolSpec 与 provider visibility unit tests PASS | 旧 control declaration、schema、registry handler 和 active schema fixtures 已删除；未增加替代或兼容入口 | ZB-04A |
 | ZB-04A | 2026-08-06 | core build PASS；stream events 15 passed；mailbox、malformed arguments、missing client identity Standard tests 各 1 passed | Tool item 恢复为原生 future；turn 恢复 `FuturesOrdered` 落账；response completion 不再调用旧 sequence | ZB-04B |
 | ZB-04B / ZB-03B / ZB-05 | 2026-08-06 | `5228efd80`；旧 sequence、control parser/handler、Provider response gate 静态为零；core build 与 Standard stream tests PASS | Tool response 已回到 Standard 原生调度与反馈路径，无兼容 adapter | ZB-06A |
 | ZB-06A / ZB-06B | 2026-08-06 | core build；rooted DAG 19 tests；protocol 3 tests；schema fixtures 4 tests；Viewer 3 tests；core-skills 95 tests；skills 1 test | 旧 Prompt/Skill/fixture 已删除；Map 只保存 action-node 归属，不再保存或等待工具 reservation | ZB-06C |
 | ZB-06C | 2026-08-06 | 删除约 2200 行旧 Event Store/codec/checkpoint/test；core/protocol build；历史后端目标测试 2 条；Standard rollout reconstruction 19 条；普通 Tool 错误反馈与 Hosted output 各 1 条；schema fixtures 4 条；Standard final-wire 1 条 | 所有模式只使用 Standard `ContextManager` 与 Standard rollout；模式切换不再搬运聊天历史；canonical SQLite Action Map Store 未改动；不兼容旧专用事件 | ZB-07 |
-| ZB-04C / ZB-07 | 2026-08-06 | `scripts/taskspace-exec/check_zero_base.py`；门禁单测 3 条；全仓 active surface PASS；Standard final-wire PASS；cache gate PASS | 旧 control/sibling/sequence/Event Store/reservation 符号在活动表面为零；pre-commit 自动阻止回流；历史 docs 与 benchmark evidence 不误报 | NX-00A |
+| ZB-04C / ZB-07 | 2026-08-06 | `scripts/taskspace-exec/check_zero_base.py`；门禁单测 3 条；全仓 active surface PASS；Standard final-wire PASS；cache gate PASS | 旧 control/sibling/sequence/Event Store/reservation 符号在活动表面为零；pre-commit 自动阻止回流；历史 docs 与 benchmark evidence 不误报 | MM-00 |
+| MM-00 | 2026-08-06 | R8 全局约束、产品合同、活动计划与 README 交叉检查；`git diff --check`、TaskSpace zero-base gate、cache regression gate 均 PASS | 最简 Map 和旧设计净删除原则成为唯一活动设计权威；旧 NX 未执行方案只保留为失效历史证据 | MM-01 |
 
 ## 6. 证据校准
 
 | Date / Evidence | New Fact | Prior Conclusion | Validity Change | Downstream Change | Plan Validity / Next |
 |---|---|---|---|---|---|
-| 2026-08-06 / `protocol/src/taskspace.rs` 静态检查 | `taskspace-canonical-map-v3` 仍在 Map 顶层分别保存 `action_records`、`result_refs`、`evidence_refs`、`completion_records`、`block_records`；action 再用 `node_id` 反向关联节点 | “B0 后 canonical Action Map 可原样作为 NX-01 的事实底座” | invalidated：DAG/Store/replay 机制可复用，但 canonical 数据所有权不可原样复用 | 在 NX-01 前插入 NX-00A～NX-00G；NX-01 改为只依赖 node-owned transaction | valid-with-qualifications / 先执行 NX-00A |
+| 2026-08-06 / `protocol/src/taskspace.rs` 静态检查 | `taskspace-canonical-map-v3` 仍在 Map 顶层分别保存 `action_records`、`result_refs`、`evidence_refs`、`completion_records`、`block_records`；action 再用 `node_id` 反向关联节点 | “B0 后 canonical Action Map 可原样作为 NX-01 的事实底座” | 当时 qualified；已被下一条最简 Map 决策进一步 invalidated | 原 NX-00A～NX-00G 不再执行，后续以 MM-00～MM-10 为准 | invalidated / 读取下一条 |
+| 2026-08-06 / 用户确认最简 Map | Node 必须直接展示 goal/state/content/parents/children/actions；Agent 只声明 parents，Runtime 机械反算 children；无 edges、Map ref、语义分类模块或 handoff condition | “把 v3 ledger 搬入节点并保留 result/evidence refs” | invalidated：旧 NX-00A～NX-04 未执行部分不再代表目标模型 | 以 MM-00～MM-10 重建 Map，再执行 EX/OB/VA；旧代码失效或无消费者即删除 | valid / 先完成 MM-00 后执行 MM-01 |
+| 2026-08-06 / 用户确认净删除原则 | 旧设计不得改名、残留、暂留或以 dormant/compatibility 形式保留；无生产消费者代码也必须删除 | “可先保留 replay/detail-fold 等基础，后续再判断” | invalidated：keep 必须由新模型的当前生产责任证明，未来可能需要不是理由 | MM-01 建删除清单；MM-02～MM-10 每单元同步净删除并以零残留门禁收口 | valid / MM-01 |
