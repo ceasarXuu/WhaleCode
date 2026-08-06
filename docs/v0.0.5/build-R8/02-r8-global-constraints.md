@@ -1,7 +1,7 @@
 # R8 TaskSpace 全局约束
 
 - Created: 2026-07-31
-- Updated: 2026-08-06
+- Updated: 2026-08-07
 - Status: Active
 - Scope: 产品、设计、实现、测试和评测
 
@@ -30,6 +30,10 @@
     大输出保存完全复用 Standard 路径。Map 不建设任何 `*_ref`、冷存储、渐进读取或结果复制机制。
 14. `revision` 是 Runtime 管理的乐观并发版本，不是 Agent 工作语义。Runtime 将请求所见 revision 与提交机械关联、成功后
     递增；Agent 不创建、修改或回显 `expected_revision`。
+15. Map 至少包含一个 Work node。只有 Work node 可以拥有 `actions[]` 或作为 Tool action 的归属节点；Root 与 Finish
+    只表达任务边界和最终闭合，不承载实际 Tool action。
+16. Agent 创建 Work node 时不声明初始状态。Runtime 先把同批新节点纳入完整候选 DAG，再基于全部 `parents[]` 一次性
+    机械推导 Waiting/Ready；推导结果不得依赖节点在请求数组中的声明顺序，并必须正确处理同批 fork、chain 和 join。
 
 ## 2. Agent 与 Runtime 边界
 
@@ -37,20 +41,19 @@
 2. Runtime 只验证图结构、请求关联的 revision、节点可执行状态、Agent 声明的动作对应、原子性和底线安全规则。
 3. Runtime 不自动初始化、不代选节点、不补动作、不修改参数、不解释任务语义，也不因 Agent 可能犯错增加语义约束。
 4. TaskSpace 下 Agent 只通过 Function Call 形态的 `taskspace_exec` 提交 client/map 动作；普通 client Tool 和
-   `taskspace_control` 都由该工具内部声明，不再作为 TaskSpace 顶层 sibling Tool 暴露。
+   canonical Map operations 都由该工具内部声明，不再作为 TaskSpace 顶层 sibling Tool 暴露。
 5. Provider-hosted Tool 保持 provider 原生能力和执行路径；Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作
    分别声明节点归属，Runtime 逐项核对声明与事实的结构错配、漏项、重复和未知引用，但不判断节点的业务语义是否合适，
    也不重执行或猜配。同一响应可归属多个节点。
 6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个普通 client call 显式声明单个 `node_id`，为每项
-   Provider-hosted fact 显式声明非空 `node_ids[]`。Map call 不声明外层 owner，其节点引用只来自
-   `taskspace_control` 原生参数。Runtime 只解析和校验，不推断或选择归属，TaskSpace metadata 不得进入普通 Tool
-   原生参数。
-7. `taskspace_exec` 只负责承载合法序列和节点绑定；`taskspace_control` 只提供 Map 操作和读取能力，在内部执行路径中
+   Provider-hosted fact 显式声明非空 `node_ids[]`。Map call 不声明外层 owner，其节点引用只来自对应 canonical Map
+   operation 参数。Runtime 只解析和校验，不推断或选择归属，TaskSpace metadata 不得进入普通 Tool 原生参数。
+7. `taskspace_exec` 只负责承载合法序列和节点绑定；canonical Map operations 只提供 Map 操作和读取能力，在内部执行路径中
    地位不高于普通 Tool。
 8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感；内部 Tool 合同必须
    从同一原生 ToolSpec 机械派生，不手写第二套协议。
 9. Client Tool 能力合同在一次请求中只能向 Agent 暴露一次：Standard 在顶层暴露原生 Tool schema；TaskSpace
-   必须移除顶层普通 client Tool 和 `taskspace_control`，改由 `taskspace_exec` 从同一 ToolSpec 快照在内部暴露。禁止
+   必须移除顶层普通 client Tool 和独立 Map Tool，改由 `taskspace_exec` 从同一 ToolSpec 快照在内部暴露。禁止
    顶层与内部双重暴露，也禁止在 L1/L2、Tool description 或其他消息中重复完整 Tool 合同。
 10. 内部 Tool catalog、Function/Freeform/Namespace 转换、嵌套调用和原 Router dispatch 必须直接复用或中性抽取 Codex
     `exec/code-mode` 已有基建，TaskSpace 只增加合法序列和节点绑定 metadata。
@@ -64,8 +67,8 @@
 14. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
    只有主方案被证据否定且用户重新决策后才能恢复评估。
 15. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
-    保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Agent 若
-    显式声明 Root 节点，是否合法仍只由 canonical Map 规则判断。
+    保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Root 与
+    Finish 不是合法 action owner。
 16. TaskSpace Exec 从 Standard 的原生 ToolSpec、ToolRouter、Provider response lifecycle 和 canonical Action Map
     原语零基础建设。旧 `taskspace_control.actions[] + sibling calls` 的 schema、parser、handler glue、sequence、context、
     response gate、feedback carrier 和测试不得作为过渡层、adapter 或兼容路径保留。
@@ -87,6 +90,10 @@
 7. `finish_map` 是 Agent 显式终态事务；它必须能够同时完成最后 Work、Finish、Root 和总结。
 8. client 事实读取也必须通过 `taskspace_exec` 提交；存在结果依赖时允许只包含一个读取 Tool 的单项调用，但不存在
    TaskSpace client Tool 的序列外入口。
+9. Ready、InFlight 和 Blocked Work node 可以承载 client Tool action；Waiting 与 Completed node 不可执行。Blocked
+   表示工作遇到阻碍，不剥夺 Agent 调用 Tool 调查或解除阻碍的能力。
+10. `read_map` 必须作为独立 `taskspace_exec` 调用出现，不得与 client Tool、Hosted binding 或其他 Map operation 混合；
+    返回值必须是完整 Agent-visible Map，包含全局节点路径、状态、内容、动作以及机械派生的 `children[]`。
 
 ## 4. 上下文与反馈
 

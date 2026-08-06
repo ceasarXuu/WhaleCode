@@ -188,7 +188,7 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 | EX-01 | 2026-08-07 | `0bd813e7a`；TaskSpace Exec 6 tests；Action Map 15 tests；cache gate PASS | 五项 Map 操作直接调用 canonical transaction；Agent 不填写 revision，不引入 edge/ref/binding Tool | EX-02 |
 | EX-02 | 2026-08-07 | `e6887ab8f`、`671a213c8`；TaskSpace Exec 33 tests；ToolSpec capability 5 tests；code-mode 15 tests；cache gate PASS | 结构化 Exec catalog 从原生 ToolSpec 确定性派生；`tool_search` 复用原生参数合同，code-mode 保持原有过滤；Hosted 仅声明归属 | EX-03 |
 | EX-03 | 2026-08-07 | `a513acfd2`；TaskSpace Exec 19 tests；cache gate PASS | revision、catalog snapshot 和内部调用身份由请求级 envelope 机械维护，不进入 Agent 参数 | EX-04 |
-| EX-04 | 2026-08-07 | `2440a1446`；TaskSpace Exec 32 tests；Action Map 15 tests；core/state/CLI test-target check；zero-base/cache gate PASS | 整批结构、Map、节点、参数、单 Patch 与 Hosted 归属在副作用前机械判定；Phase B2 离线完成 | EX-05 |
+| EX-04 | 2026-08-07 | `2440a1446`、产品复核 `4a155c12b`；TaskSpace Exec 36 tests、Action Map 17 tests | 整批结构、Map、节点、参数、单 Patch 与 Hosted 归属在副作用前机械判定；仅 Work 承载 action，新节点状态按完整候选 DAG 推导，`read_map` 独立返回完整视图 | EX-05 |
 
 ## 6. 证据校准
 

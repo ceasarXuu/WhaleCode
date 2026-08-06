@@ -16,6 +16,11 @@ Tool、不调用 Router、不写 Map Store，也不改变 Standard payload；生
 | EX-02 | 从 Function/Freeform/Namespace/ToolSearch 原生 ToolSpec 确定性生成唯一结构化 Exec schema；Map 操作与 client call 是平级 variant | `e6887ab8f`、`671a213c8` |
 | EX-03 | 请求级 envelope 固化 Map revision、catalog snapshot、outer call identity 和内部调用 identity；这些字段不要求 Agent 回显 | `a513acfd2` |
 | EX-04 | 在任何 client/map 副作用前完成结构、Map、DAG、节点状态、原生参数、单 Patch 和 Hosted 逐项归属检查 | `2440a1446` |
+| B2 产品复核 | 收紧 Work action owner、Blocked 执行边界、完整 DAG 状态推导和独立 `read_map` 完整视图 | `4a155c12b` |
+
+产品复核后，B2 合同进一步收敛为四条明确边界：Map 至少有一个 Work node，且只有 Work node 承载 action；Blocked Work
+仍可调用 Tool，Waiting/Completed 不可执行；新节点状态由 Runtime 基于完整候选 DAG 机械推导而非 Agent 声明；`read_map`
+只能独立调用并返回包含派生 `children[]` 的完整 Agent-visible Map。这些规则仍属于 B2 合同校正，不提前接入 B3 生产执行。
 
 ## 2. 已证明边界
 
@@ -30,8 +35,8 @@ Tool、不调用 Router、不写 Map Store，也不改变 Standard payload；生
 
 | 检查 | 结果 |
 |---|---|
-| `cargo test -p codex-core taskspace_exec --lib --quiet` | PASS，33 tests |
-| `cargo test -p codex-core action_map --lib --quiet` | PASS，15 tests |
+| `cargo test -p codex-core taskspace_exec --lib --quiet` | PASS，36 tests |
+| `cargo test -p codex-core action_map --lib --quiet` | PASS，17 tests |
 | `cargo test -p codex-tools tool_spec_capability --lib --quiet` | PASS，5 tests |
 | `cargo test -p codex-tools code_mode --lib --quiet` | PASS，15 tests |
 | `cargo check -p codex-core -p codex-state -p codex-cli --tests` | PASS |

@@ -93,9 +93,10 @@ Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这�
 
 - `taskspace_exec` 调用自身或递归嵌套；
 - client Tool 绕过 `taskspace_exec` 顶层调用；
-- client call 缺少 `node_id`、绑定未知节点或把节点写入原生 Tool 参数；
+- client call 缺少 `node_id`、绑定未知节点、绑定 Root/Finish，或把节点写入原生 Tool 参数；
 - Hosted 事实缺少节点声明、Provider ID 缺失或同一真实 ID 重复；
 - Map 操作出现在不合法边界；
+- `read_map` 与任何其他 client/map call 或 Hosted binding 混合；
 - 一个 exec 实际提交多个 `apply_patch`；
 - Runtime 根据 Tool 内容、结果或自然语言推断节点归属。
 
@@ -133,6 +134,10 @@ Runtime 负责：
 
 Runtime 不负责决定应调用什么、选择哪个节点、补调用、改参数、重试或解释结果。
 
+Client Tool 只能归属于 Work node。Ready、InFlight 和 Blocked Work node 可执行；Waiting 与 Completed Work node 不可执行。
+Blocked 是 Agent 声明的工作阻碍，不是 Tool 权限冻结，Agent 可以继续调用 Tool 收集事实或解除阻碍。Root 和 Finish 只表达
+任务边界，不能承载实际 Tool action。
+
 ### 5.2 Provider-hosted Tool
 
 Provider-hosted Tool 由 provider 在响应生成过程中原生执行。它的原始输出是唯一执行事实，不能被
@@ -153,7 +158,8 @@ Agent 不得回显、复制或另造 Provider 传输身份。`hosted_bindings[]`
 再核对数量和 Tool 类型，不得用事件完成顺序、URL、结果内容或语义相似度猜配。缺少声明、无法唯一对应、节点非法、
 Provider ID/`output_index` 缺失或冲突时，该响应不被 TaskSpace 接受，不能把事实标记为已结算的 `unbound`，也不能
 默认写到 Root。
-Agent 显式声明 Root 节点时是否合法，仍只由 canonical Map validator 判断；A2 不新增节点业务语义。
+Hosted action 也只能归属于 Work node。其执行已经发生，因此 Tool outcome 不决定节点生命周期；Runtime 仍必须拒绝将
+Hosted action 记到 Root、Finish、未知节点或空归属中。
 
 ### 5.3 失败与结算矩阵
 
@@ -208,6 +214,10 @@ reason、source 或 handoff condition；这些信息若重要，由 Agent 直接
 历史。`actions[]` 只承载必要的 action identity、Tool 名、机械 outcome 和节点归属；不得保存完整 Tool 参数或输出，也不得
 增加任何 `*_ref`。
 
+Map 必须至少包含一个 Work node。Agent 创建 Work node 时只声明 `node_id`、`goal`、`content` 和 `parents[]`，不声明
+初始状态。Runtime 将同批全部新节点放入完整候选 DAG 后，一次性机械推导 Waiting/Ready；推导与数组顺序无关，并覆盖同批
+fork、chain 和 join。Root 与 Finish 的生命周期只由明确 Map operation 改变。
+
 节点状态直接表达 waiting、ready、in-flight、blocked 和 completed 等生命周期事实，不再用 completion/block/terminal
 子账本间接推导。Tool outcome 不推进节点状态；Root 与 Finish 只能由 Agent 的显式终态操作原子完成，最终说明直接写入
 Finish 的 `content`。Runtime 只根据 `parents[]` 检查 DAG 硬规则，并在父节点全部 completed 后机械更新 readiness。
@@ -220,6 +230,8 @@ fallback 或兼容读取。
 
 ## 6. 反馈合同
 
+- `read_map` 只能作为一次独立 `taskspace_exec` 出现；其结果是完整 Agent-visible Map，并与 projection 共用同一构造器，
+  包含所有节点、全局路径、状态、内容、动作及派生 `children[]`。
 - 每个内部 client call 返回其原生结果，不做 TaskSpace 语义重写。
 - `taskspace_exec` 只汇总调用身份、节点归属、机械校验状态和原生 Tool 结果。
 - 同一事实只出现一个 Agent-visible 权威表达；不得再注入 developer factual carrier。
