@@ -1,7 +1,7 @@
 mod map;
 mod projection;
 mod projection_policy;
-mod rooted_dag;
+pub(crate) mod rooted_dag;
 mod runtime;
 mod store_handle;
 
