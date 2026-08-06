@@ -1,35 +1,14 @@
 use crate::BindTaskSpaceMapRequest;
 use crate::TaskSpaceMapBindingRecord;
-use crate::TaskSpaceMapRecord;
 use crate::TaskSpaceMapRelation;
 use codex_protocol::ThreadId;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
+use codex_protocol::taskspace::TaskSpaceActionOutcome;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
+use codex_protocol::taskspace::TaskSpaceNodeState;
 use sha2::Digest;
 use sha2::Sha256;
 use sqlx::Row;
-
-pub(super) fn decode_map_row(row: &sqlx::sqlite::SqliteRow) -> anyhow::Result<TaskSpaceMapRecord> {
-    let map_id: String = row.try_get("map_id")?;
-    let owner_thread_id = parse_thread_id(row.try_get("owner_thread_id")?, "owner_thread_id")?;
-    let canonical_json: String = row.try_get("canonical_json")?;
-    let expected_sha256: String = row.try_get("canonical_sha256")?;
-    let actual_sha256 = sha256(canonical_json.as_bytes());
-    if actual_sha256 != expected_sha256 {
-        anyhow::bail!("TaskSpace map `{map_id}` canonical hash mismatch");
-    }
-    let canonical_map: Option<TaskSpaceCanonicalMap> = serde_json::from_str(&canonical_json)?;
-    validate_map_identity(&map_id, canonical_map.as_ref())?;
-    Ok(TaskSpaceMapRecord {
-        map_id,
-        owner_thread_id,
-        canonical_map,
-        canonical_sha256: expected_sha256,
-        store_revision: from_i64(row.try_get("store_revision")?, "store_revision")?,
-        created_at_ms: row.try_get("created_at_ms")?,
-        updated_at_ms: row.try_get("updated_at_ms")?,
-    })
-}
 
 pub(super) fn decode_binding_row(
     row: &sqlx::sqlite::SqliteRow,
@@ -45,6 +24,12 @@ pub(super) fn decode_binding_row(
         created_at_ms: row.try_get("binding_created_at_ms")?,
         updated_at_ms: row.try_get("binding_updated_at_ms")?,
     })
+}
+
+pub(super) fn canonical_sha256(
+    canonical_map: &Option<TaskSpaceCanonicalMap>,
+) -> anyhow::Result<String> {
+    Ok(sha256(&serde_json::to_vec(canonical_map)?))
 }
 
 pub(super) fn request_sha256(
@@ -96,6 +81,46 @@ pub(super) fn validate_map_identity(
     Ok(())
 }
 
+pub(super) fn node_state_name(state: TaskSpaceNodeState) -> &'static str {
+    match state {
+        TaskSpaceNodeState::Waiting => "waiting",
+        TaskSpaceNodeState::Ready => "ready",
+        TaskSpaceNodeState::InFlight => "in_flight",
+        TaskSpaceNodeState::Blocked => "blocked",
+        TaskSpaceNodeState::Completed => "completed",
+    }
+}
+
+pub(super) fn parse_node_state(value: &str) -> anyhow::Result<TaskSpaceNodeState> {
+    match value {
+        "waiting" => Ok(TaskSpaceNodeState::Waiting),
+        "ready" => Ok(TaskSpaceNodeState::Ready),
+        "in_flight" => Ok(TaskSpaceNodeState::InFlight),
+        "blocked" => Ok(TaskSpaceNodeState::Blocked),
+        "completed" => Ok(TaskSpaceNodeState::Completed),
+        _ => anyhow::bail!("invalid TaskSpace node state `{value}`"),
+    }
+}
+
+pub(super) fn action_outcome_name(outcome: TaskSpaceActionOutcome) -> &'static str {
+    match outcome {
+        TaskSpaceActionOutcome::Pending => "pending",
+        TaskSpaceActionOutcome::Succeeded => "succeeded",
+        TaskSpaceActionOutcome::Failed => "failed",
+        TaskSpaceActionOutcome::Cancelled => "cancelled",
+    }
+}
+
+pub(super) fn parse_action_outcome(value: &str) -> anyhow::Result<TaskSpaceActionOutcome> {
+    match value {
+        "pending" => Ok(TaskSpaceActionOutcome::Pending),
+        "succeeded" => Ok(TaskSpaceActionOutcome::Succeeded),
+        "failed" => Ok(TaskSpaceActionOutcome::Failed),
+        "cancelled" => Ok(TaskSpaceActionOutcome::Cancelled),
+        _ => anyhow::bail!("invalid TaskSpace action outcome `{value}`"),
+    }
+}
+
 pub(super) fn require_nonempty(field: &str, value: &str) -> anyhow::Result<()> {
     if value.trim().is_empty() {
         anyhow::bail!("TaskSpace {field} must not be empty");
@@ -115,6 +140,6 @@ pub(super) fn from_i64(value: i64, field: &str) -> anyhow::Result<u64> {
     u64::try_from(value).map_err(|_| anyhow::anyhow!("TaskSpace {field} is negative"))
 }
 
-fn parse_thread_id(value: String, field: &str) -> anyhow::Result<ThreadId> {
+pub(super) fn parse_thread_id(value: String, field: &str) -> anyhow::Result<ThreadId> {
     ThreadId::from_string(&value).map_err(|error| anyhow::anyhow!("invalid {field}: {error}"))
 }

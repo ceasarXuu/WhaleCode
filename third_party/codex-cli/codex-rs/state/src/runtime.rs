@@ -64,6 +64,9 @@ mod logs;
 mod memories;
 mod remote_control;
 mod taskspace_map_codec;
+#[cfg(test)]
+mod taskspace_map_relational_tests;
+mod taskspace_map_repository;
 mod taskspace_maps;
 #[cfg(test)]
 mod taskspace_maps_tests;

@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0-B2 and Phase B3 EX-05 verified offline / MS-01 next
+- Status: Active / Phase B0-B2 and Phase B3 EX-05, MS-01～MS-02 verified offline / MS-03 next
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -108,8 +108,8 @@ Agent 只声明 parents，Runtime 机械反算 children；Map 不再拥有顶层
 | EX-03 | 建立 request-local revision 与身份 | provider request context、outer call envelope | Runtime 记录请求所见 revision、ToolSpec identity 和 outer call identity；Agent schema 不暴露 expected_revision/version/capability ID | 并发安全不转化为 Agent 填表成本 | Complexity: 一个短生命周期 envelope；Reach: request lifecycle | stale concurrent response、retry、same-revision fixtures；不跨 response 持久化 | verified |
 | EX-04 | 建立零副作用 preflight | Exec parser、Map candidate transaction、Tool batch validator | 在 client/map 副作用前完成结构、能力、节点、DAG、状态、单 Patch 和 Hosted 声明完整性检查 | 非法计划明确拒绝且普通 Tool/Map 零执行 | Complexity: 一个预检入口；Reach: all TaskSpace calls | failure matrix 逐项 fixture；不得加入语义判断或修复建议 | verified |
 | EX-05 | 接入 client 原生 dispatch | Exec executor、`ResponseItem`、ToolRouter | 将通过预检的内部 client calls 机械还原为原生 `ResponseItem`，再走现有 `ToolRouter::build_tool_call` 与 `ToolCallRuntime`；不复制 alias/MCP/Tool Search 分支，结果原样返回 | TaskSpace 复用 Standard Tool 能力且不侵入 Tool | Complexity: 一个 dispatch adapter；Reach: client tools，不接 Map Store | Function/Freeform/Namespace/Tool Search、并行/串行、失败 tests；Standard exact wire 0-diff | verified |
-| MS-01 | 将 canonical Map 分解为关系化唯一事实 | `state` migration、`taskspace_maps/nodes/node_parents/node_actions` | 以 Map head、Node、parent relation 和归属 Node 的 Action 表直接持久化当前 Map；删除整图 `canonical_json` 作为生产写模型，不迁移实验数据 | 工具结果只改变所属 Action 行，Map 仍是一份固化事实 | Complexity: 四类天然实体表，无 Event Store/双写；Reach: state schema 与 Store | schema/FK/index tests；出现整图镜像、delta replay 或兼容 reader 即停止 | planned |
-| MS-02 | 建立细粒度 canonical Store transaction | `state/runtime/taskspace_maps*`、`core/session/taskspace_store*` | 用 Map head revision CAS 保护整个 DAG，同一短事务内只 insert/update/delete 变更的 Node/parent/Action 行；读取时组装回同一 canonical domain Map | 高频 outcome 结算不再重写整图，并发仍有全图硬约束 | Complexity: 一个 repository，删除整图 hash 热路径；Reach: hydrate/CAS/restart | create/update/delete/restart、fork/join、stale CAS、无孤立 Action tests | planned |
+| MS-01 | 将 canonical Map 分解为关系化唯一事实 | `state` migration、`taskspace_maps/nodes/node_parents/node_actions` | 以 Map head、Node、parent relation 和归属 Node 的 Action 表直接持久化当前 Map；删除整图 `canonical_json` 作为生产写模型，不迁移实验数据 | 工具结果只改变所属 Action 行，Map 仍是一份固化事实 | Complexity: 四类天然实体表，无 Event Store/双写；Reach: state schema 与 Store | schema/FK/index tests；出现整图镜像、delta replay 或兼容 reader 即停止 | verified |
+| MS-02 | 建立细粒度 canonical Store transaction | `state/runtime/taskspace_maps*`、`core/session/taskspace_store*` | 用 Map head revision CAS 保护整个 DAG，同一短事务内只 insert/update/delete 变更的 Node/parent/Action 行；读取时组装回同一 canonical domain Map | 高频 outcome 结算不再重写整图，并发仍有全图硬约束 | Complexity: 一个 repository，删除整图 hash 热路径；Reach: hydrate/CAS/restart | create/update/delete/restart、fork/join、stale CAS、无孤立 Action tests | verified |
 | MS-03 | 接入低延迟 Action 结算 | Exec coordinator、canonical Store | 整个 Exec 先完成一次零副作用预检；候选 Map 与 client `Pending` 归属持久化成功后立即 dispatch，各 Tool 一旦完成就独立结算 outcome，不等待同批其他 Tool | 不人为增加 Tool 依赖或反馈延迟，Map 以最低可行延迟反映已发生事实 | Complexity: 每 Map 仅短提交串行化，Tool 执行不串行化；Reach: revision/WAL/commit metadata | 独立快慢工具、部分失败、取消、崩溃遗留 Pending、CAS rebase tests；不允许自动重试 Tool | planned |
 | EX-06 | 接入 Hosted 逐项核对 | response envelope、provider reconciliation、Node actions | 按真实 output index/ID/Tool 类型核对 Agent node_ids 并写入 Node actions；不重执行、不默认绑定、不复制结果 | Hosted action 获得可靠节点归属 | Complexity: 一个 response-local reconciler；Reach: Web/Image/provider route | 0/1/N、多节点、漏绑/错绑/重复/failed fixtures；不增加 provider result store | planned |
 | EX-07 | 收敛唯一反馈 | outer FunctionCallOutput、context history | 返回一次机械的 Map commit、各内部 Tool 原生结果和失败范围；删除重复 developer carrier 或 TaskSpace 结果重写 | Agent 获得忠实、无污染反馈 | Complexity: 一个 outer output formatter；Reach: context/token | pairing、failure semantics、large output 与 Standard 一致性 tests | planned |
@@ -194,6 +194,7 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 | EX-03 | 2026-08-07 | `a513acfd2`；TaskSpace Exec 19 tests；cache gate PASS | revision、catalog snapshot 和内部调用身份由请求级 envelope 机械维护，不进入 Agent 参数 | EX-04 |
 | EX-04 | 2026-08-07 | `2440a1446`、产品复核 `4a155c12b`；TaskSpace Exec 36 tests、Action Map 17 tests | 整批结构、Map、节点、参数、单 Patch 与 Hosted 归属在副作用前机械判定；仅 Work 承载 action，新节点状态按完整候选 DAG 推导，`read_map` 独立返回完整视图 | EX-05 |
 | EX-05 | 2026-08-07 | `3b578b08d`；[`16-phase-b3-ex05-native-dispatch-result.md`](16-phase-b3-ex05-native-dispatch-result.md)；TaskSpace Exec 39 tests、Tool Router 7 tests、Action Map 17 tests；跨 crate check、zero-base/cache gate PASS | 整批 client calls 在执行前全部还原为原生调用；执行复用 Standard Router、alias/MCP/Tool Search 解析及并行策略，结果按完成顺序返回；未接 Store、Hosted、最终反馈或生产入口 | MS-01 |
+| MS-01～MS-02 | 2026-08-07 | [`17-phase-b3-relational-store-result.md`](17-phase-b3-relational-store-result.md)；state 127 tests、core Store 8 tests | canonical Map 由关系表直接持久化并重新组装；Map revision CAS 保留，单 Action 变化不重写 Node/parent；无整图 JSON、Event Store、双写或旧数据兼容 | MS-03 |
 
 ## 6. 证据校准
 
