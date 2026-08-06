@@ -1,9 +1,14 @@
 mod catalog;
+mod envelope;
 mod map_operations;
 mod plan;
 
 pub(crate) use catalog::TaskSpaceExecCatalog;
 pub(crate) use catalog::TaskSpaceExecCatalogError;
+pub(crate) use envelope::TaskSpaceExecEnvelope;
+pub(crate) use envelope::TaskSpaceExecEnvelopeError;
+pub(crate) use envelope::TaskSpaceExecInternalCallId;
+pub(crate) use envelope::TaskSpaceExecRequestContext;
 pub(crate) use map_operations::MapOperation;
 pub(crate) use map_operations::MapOperationApplyError;
 pub(crate) use map_operations::MapOperationEffect;
@@ -23,3 +28,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../taskspace_exec_catalog_tests.rs"]
 mod catalog_tests;
+
+#[cfg(test)]
+#[path = "../taskspace_exec_envelope_tests.rs"]
+mod envelope_tests;

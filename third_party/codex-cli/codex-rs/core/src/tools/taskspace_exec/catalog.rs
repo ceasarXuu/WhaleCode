@@ -9,6 +9,8 @@ use codex_tools::ToolSpecCapability;
 use codex_tools::ToolSpecCapabilityInput;
 use codex_tools::project_tool_spec_capabilities;
 use serde_json::json;
+use sha2::Digest;
+use sha2::Sha256;
 
 use super::TaskSpaceExecPlan;
 use super::TaskSpaceExecPlanDecodeError;
@@ -23,6 +25,7 @@ pub(crate) struct TaskSpaceExecCatalog {
     client_capabilities: BTreeMap<String, ToolSpecCapability>,
     map_capabilities: BTreeMap<String, ToolSpecCapability>,
     hosted_tools: BTreeSet<String>,
+    identity_sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +33,7 @@ pub(crate) enum TaskSpaceExecCatalogError {
     DuplicateCapability { public_name: String },
     MapCapabilityCollision { public_name: String },
     UnsupportedToolSpec { tool_name: String },
+    DeclarationSerialization { reason: String },
 }
 
 impl TaskSpaceExecCatalog {
@@ -83,16 +87,28 @@ impl TaskSpaceExecCatalog {
             map_capabilities.values(),
             &hosted_tools,
         );
+        let identity_sha256 = serde_json::to_vec(&declaration)
+            .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+            .map_err(
+                |error| TaskSpaceExecCatalogError::DeclarationSerialization {
+                    reason: error.to_string(),
+                },
+            )?;
         Ok(Self {
             declaration,
             client_capabilities,
             map_capabilities,
             hosted_tools,
+            identity_sha256,
         })
     }
 
     pub(crate) fn declaration(&self) -> &ResponsesApiTool {
         &self.declaration
+    }
+
+    pub(crate) fn identity_sha256(&self) -> &str {
+        &self.identity_sha256
     }
 
     pub(crate) fn decode_plan(
