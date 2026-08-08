@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import argparse
 import json
 import os
 import re
@@ -20,6 +19,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from workspace_persistence import ApplyError, atomic_write_json, ensure_resource_directories
 import workspace_doctor
+import workspace_runtime
+
+ExecError = workspace_runtime.ExecError
 
 MARKER_SCHEMA_VERSION = 1
 PLAN_SCHEMA_VERSION = 1
@@ -368,6 +370,33 @@ def apply_plan(
     }
 
 
+def exec_ready(
+    start: Path | str,
+    command: list[str],
+    environment: Mapping[str, str] | None = None,
+    executor: Any = subprocess.run,
+) -> int:
+    supplied_environment = environment if environment is not None else os.environ
+    diagnosis = run_doctor(
+        start, supplied_environment, require_binary=True, record_event=True
+    )
+    context = resolve_context(start, supplied_environment)
+    if diagnosis["status"] != "passed":
+        workspace_doctor.append_event(
+            Path(context["resources"]["state_root"]),
+            workspace_doctor.audit_event("exec", diagnosis),
+        )
+        raise ExecError("workspace_not_ready", ",".join(diagnosis["diagnostic_codes"]))
+    exit_code = workspace_runtime.launch(
+        command, context, supplied_environment, executor=executor
+    )
+    workspace_doctor.append_event(
+        Path(context["resources"]["state_root"]),
+        workspace_doctor.audit_event("exec", diagnosis, exit_code=exit_code),
+    )
+    return exit_code
+
+
 def render_json(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
@@ -407,46 +436,9 @@ def render_doctor_human(result: Mapping[str, Any]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Manage WhaleCode workspace isolation.")
-    commands = parser.add_subparsers(dest="command", required=True)
-    bootstrap = commands.add_parser("bootstrap")
-    bootstrap_commands = bootstrap.add_subparsers(dest="bootstrap_command", required=True)
-    plan_parser = bootstrap_commands.add_parser("plan")
-    plan_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    plan_parser.add_argument("--json", action="store_true")
-    apply_parser = bootstrap_commands.add_parser("apply")
-    apply_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    apply_parser.add_argument("--expect", required=True)
-    apply_parser.add_argument("--json", action="store_true")
-    doctor_parser = commands.add_parser("doctor")
-    doctor_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    doctor_parser.add_argument("--require-binary", action="store_true")
-    doctor_parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
-    try:
-        if args.command == "doctor":
-            result = run_doctor(args.repo_root, require_binary=args.require_binary)
-            sys.stdout.write(render_json(result) if args.json else render_doctor_human(result))
-            return 0 if result["status"] == "passed" else 5
-        if args.bootstrap_command == "plan":
-            plan = build_plan(args.repo_root)
-            sys.stdout.write(render_json(plan) if args.json else render_human(plan))
-            return 0 if plan["can_apply"] else 3
-        result = apply_plan(args.repo_root, args.expect)
-    except ApplyError as error:
-        print(f"workspace apply failed [{error.code}]: {error}", file=sys.stderr)
-        return 4
-    except (ContextError, OSError, ValueError) as error:
-        print(f"workspace context failed: {error}", file=sys.stderr)
-        return 2
-    if args.json:
-        sys.stdout.write(render_json(result))
-    else:
-        print(
-            f"Workspace bootstrap applied: {result['workspace_id']} "
-            f"({result['state']['code']})"
-        )
-    return 0
+    from workspace_cli import main as cli_main
+
+    return cli_main(sys.modules[__name__])
 
 
 if __name__ == "__main__":
