@@ -220,17 +220,33 @@ future 被 abort 后，已经登记的 producer 继续完成一次原生调用�
 canonical Map、Standard rollout/output-ref 和 provider 请求准备入口；另以错误归属事实证明 settlement 永久错误在
 provider preparation 阶段阻断，transport 尚未开始。
 
+提交 `24c54333b` 根据 focused review 补齐 shutdown 的两个相邻缺口：producer admission 在 abort 前关闭，防止
+abort restart 注册新 producer；settlement failure 返回值现在明确驱动 submission loop 退出，而不是让已半关闭 Session
+继续接收操作。shutdown 中 pending work 也不得启动新 turn。
+
 | 闭合项 | 证据 | 当前结论 |
 |---|---|---|
-| B01 post-Tool cancellation window | 确定性 abort outer collector；原生 Tool 仅执行一次，Action 最终 `Succeeded` | fixed / review pending |
-| B02 graceful shutdown drain | producer latch、FIFO barrier、永久错误不发送 `ShutdownComplete` | fixed / review pending |
-| B03 组合生产链缺口 | persisted handler → SQLite → rollout/output-ref → provider preparation；错误路径阻断请求 | fixed / review pending |
+| B01 post-Tool cancellation window | 确定性 abort outer collector；原生 Tool 仅执行一次，Action 最终 `Succeeded` | fixed / focused review PASS |
+| B02 graceful shutdown drain | admission-before-abort、producer latch、FIFO barrier、永久错误退出 submission loop 且不发送 `ShutdownComplete` | fixed / focused review PASS |
+| B03 组合生产链缺口 | production Router 持久化链、真实 output-ref/SHA 恢复链、preparation 永久错误阻断链 | qualified closure；拒绝为单体 mega-test 新增生产 hook |
 | TaskSpace Exec | 57 passed | PASS |
-| Session settlement | 9 passed | PASS |
+| Session settlement / recovery | 11 passed | PASS |
 | `cargo check --workspace --all-targets` | 无新增错误；既有 warning 不变 | PASS |
-| zero-base / cache final-wire gate | fingerprint `9757f261...ac0c4`；provider wire 未变化 | PASS |
+| zero-base / cache final-wire gate | fingerprint `ad6d9976...4d2bf1`；provider wire 未变化 | PASS |
 | 真实 Whale Agent / Provider 请求 | 0 | 未消耗预算 |
 
 该结果只关闭已知工程缺口，不扩大产品承诺：极端进程级崩溃仍可能让已执行但尚未进入 rollout 的 Action 保持
-`Pending`，Runtime 继续忠实呈现未知状态，不猜测、不补写、不重跑。Phase B3 是否正式关闭留给剩余 focused closure
-review 决定。
+`Pending`，Runtime 继续忠实呈现未知状态，不猜测、不补写、不重跑。
+
+### 11.3 问题来源与边界结论
+
+- B01 不是 Standard 的既有产品缺陷：`AbortOnDropHandle` 是 Codex 原生 Tool 调度边界；只有 TaskSpace 新增“Tool 终态必须
+  结算到 Map”的不变量后，子任务完成与父 future 收集之间的窗口才成为缺口。修复只让 TaskSpace producer 持有该窄化
+  生命周期，普通 Tool 合同和 Standard 行为不变。
+- B02 不是 Codex 原有 shutdown 缺陷：Codex 原先没有 TaskSpace settlement worker/FIFO，自然也没有 drain 它的责任。
+  缺口由 TaskSpace 后台结算接入 Session 后产生，按 Tokio 官方顺序补齐即可。
+- B03 是 TaskSpace 测试证据缺口，不是运行时产品行为。最终采用分层确定性测试，不增加 fake transport、worker pause、
+  持久化队列或第二套 resume harness。
+
+Focused review 结果为 0 个未解决 production blocker；B03 因拒绝单体 mega-test 标为 qualified closure。Phase B3 的
+MS-03 离线工程闭环完成，但不会自动启动 Phase B4。

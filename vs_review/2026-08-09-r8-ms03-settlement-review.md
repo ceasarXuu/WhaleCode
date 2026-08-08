@@ -1,17 +1,17 @@
 # Subagent VS Review: R8 MS-03 Action 结算闭环
 
 - Created: 2026-08-09T05:09:58+08:00
-- Updated: 2026-08-09T07:05:00+08:00
+- Updated: 2026-08-09T08:35:00+08:00
 - Report schema: adversarial-v2
 - Task: 对已完成的 MS-03 Action 结算方案执行独立对抗性审查
 - Report path: `vs_review/2026-08-09-r8-ms03-settlement-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context
-- Status: blocked
-- Control outcome: user-decision-required
+- Status: completed-qualified
+- Control outcome: engineering-closure
 - Automatic round budget: 2
-- Completed rounds: 1
-- Last known-good checkpoint: `e5925b45d`
+- Completed rounds: 2
+- Last known-good checkpoint: `24c54333b`
 
 ## Review Control Contract
 
@@ -338,6 +338,36 @@ settlement 4、TaskSpace handler 8、output-reference 10 条定向测试，全�
 - shutdown drain 应记录 start/result；busy 应记录 raw/primary code、累计等待；barrier/recovery 应记录耗时。
 - queue depth/age 属于延迟与容量观测，不是本轮正确性 blocker。
 
+## Round 2: B01～B03 聚焦闭环复核
+
+### Review Input
+
+- Reviewer：`019fe386-a8d5-7e03-8a36-01b14ab875c3`（`fork_context=false` 的 fresh reviewer；首次审查后仅接收
+  `24c54333b` 的聚焦 closure packet）。
+- 范围：只复核 shutdown 错误返回、shutdown admission/restart 和 B03 生产链证据；不扩大到新产品语义，不运行真实
+  Provider。
+
+### Reviewer Output
+
+| 项目 | Reviewer 结论 | 代码证据 |
+|---|---|---|
+| settlement failure 后 submission loop 是否退出 | PASS | shutdown 错误事件后返回 `true`；submission loop 以该值退出，不发送 `ShutdownComplete` |
+| shutdown 是否先关 producer admission 且禁止 pending turn restart | PASS | shutdown flag → close admission → abort → producer wait → FIFO barrier；spawn/close 共用 mutex；pending restart 检查 shutdown flag |
+| B03 是否由一条测试贯穿全部接缝 | FAIL | persisted Router 链、output-ref 恢复链和永久错误 preparation 链已各自成立，但不是单个 mega-test；reviewer 建议增加暂停结算和 fake transport 断言 |
+
+### Main-Agent Disposition
+
+- B01、B02：接受 PASS，生产 blocker 关闭。
+- B03：接受原始问题“缺少生产入口与持久化组合证据”，但不接受必须建设单个 mega-test 的实现限定。当前测试金字塔已经
+  分别覆盖：真实 outer production Router → native Tool → FIFO → SQLite → Standard rollout/output-ref → provider
+  preparation；真实 `OutputReferenceV1` artifact/SHA → Pending Map recovery；永久 settlement error → preparation 在
+  `try_run_sampling_request` 之前通过 `?` 返回。将三者强行合成一条测试需要暂停生产 worker、回滚已提交 mutation 或新增
+  fake transport seam，都会让测试架构侵入生产生命周期，收益不足。
+- 复核期间曾尝试用同一 Session 把已结算 Action 人工回滚为 Pending；State 的 mutation-id 幂等机制正确拒绝重复应用旧
+  事实，证明该模拟不代表真实恢复边界，相关试验代码未保留。
+- 因此 B03 按“分层确定性证据充分、无单体 mega-test”关闭为 qualified；若未来引入可复用的 upstream session-resume
+  harness，可自然补一条跨重启测试，但它不是本轮生产 blocker。
+
 ## Main-Agent Triage
 
 | Finding | Decision | Authority | Main-Agent Response | Scope / Side Effect | Approval |
@@ -354,25 +384,28 @@ settlement 4、TaskSpace handler 8、output-reference 10 条定向测试，全�
 map/outer/action/node/tool/outcome identity。State 定向 4、Session settlement 6、TaskSpace Exec 56、workspace check、
 zero-base 与 cache gate 均通过；没有真实 Whale Agent/Provider run。
 
-B01 与 B02 仍共同改变 execution producer 和 shutdown 所有权，属于项目规则要求用户复核的重大技术路线点；B03 必须随
-该设计补组合生产链测试。`2aa968348` 已用 5 条 cache 安装测试和实际 Session 反例闭合 N04；Round 2 尚未启动。
+B01 与 B02 当时仍共同改变 execution producer 和 shutdown 所有权，属于项目规则要求用户复核的重大技术路线点；B03
+必须随该设计补组合生产链测试。`2aa968348` 已用 5 条 cache 安装测试和实际 Session 反例闭合 N04。该历史停点已被
+Round 2 与最终 disposition 取代。
 
 ## Review Governor
 
-- Decision: user-decision-required
-- Rationale: Round 1 有 3 个 accepted blocker，未解决数为 3。B01/B02 需要共同定义 TaskSpace-owned producer 与 graceful
-  shutdown drain 的生命周期，不能靠另一个后置补丁或孤立 barrier 解决；这会改变跨模块执行/取消边界，必须先由用户确认
-  修复方向。自动预算尚余 1 轮，只能在修复完成后用于聚焦 B01～B03 的 closure review。
+- Decision: engineering-closure
+- Rationale: 用户确认 B01/B02 属于不改变产品语义的工程鲁棒性问题并授权直接修复。`aba41ff04`、`4d7387a86`、
+  `24c54333b` 采用 Tokio 标准 shutdown/task tracking 模式关闭生产缺口；Round 2 确认 B01/B02 PASS。B03 的严格
+  单体测试要求会引入专用生命周期 hook，主流程依据分层确定性证据和避免过度设计原则将其 qualified closure。
 
 ## Convergence And Closure
 
-- Unresolved blockers: 3（B01、B02、B03）；accepted non-blocking 项 N01、N02、N04 已闭合
-- Scope growth: 审查报告 1 个；生产代码无变化；未增加依赖、API、schema 或真实运行。
-- Side effects: MS-03 与 Phase B3 的 verified 结论必须重新打开。
+- Unresolved production blockers: 0；B01、B02 已由 focused reviewer 复核 PASS，B03 以分层证据 qualified closure；
+  accepted non-blocking 项 N01、N02、N04 已闭合。
+- Scope growth: 无新依赖、公开 API、持久化 schema、产品状态或真实运行；只增加 Session producer tracker、shutdown
+  admission 顺序和确定性测试。
+- Side effects: Standard 路径、Agent 协议、Map 状态语义与 Tool 结果语义均不变。
 - Evidence inventory: E0 产品边界；E1 MS-03 合同；E2 production code/tests/SQLx dependency；E4 精确交错待确定性复现。
-- Risk direction: 原修复关闭了 Store timeout/generic API，但 cancellation 风险只从“enqueue 后”缩小到“子任务完成到 enqueue 前”，
-  尚未收敛；graceful shutdown 增加了相邻 lifecycle 缺口。
-- Last known-good checkpoint: `e5925b45d`；回滚 `702f885a0` 会恢复已知同步 settlement 缺口，不建议在无替代方案时回滚。
-- Closure status: blocked pending user decision
-- Bounded next decision: 确认把 Tool execution + settlement publication 作为 TaskSpace-owned producer，并在 shutdown 先 join
-  producers、再 drain FIFO；确认后实施 B01/B02/B03 与 accepted 相邻硬缺口，再使用剩余 1 轮做 focused closure review。
+- Risk direction: producer 现在持有 Tool completion 到 settlement enqueue 的完整边界；graceful shutdown 先关 admission、
+  等 producer、再过 FIFO barrier。极端进程崩溃仍可能留下 Pending，这是已声明的非目标，不由 Runtime 猜测。
+- Last known-good checkpoint: `24c54333b`。
+- Closure status: completed-qualified
+- Bounded next step: MS-03 可作为 Phase B3 离线工程闭环；后续若已有通用 upstream resume harness，再补跨重启
+  mega-test，不单独为该测试建设生产 seam。
