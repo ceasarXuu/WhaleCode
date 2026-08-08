@@ -59,6 +59,7 @@ class InventoryError(RuntimeError):
 def _git(repo: Path, *args: str, allow_failure: bool = False) -> str | None:
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
     completed = subprocess.run(
         ["git", "-C", str(repo), *args],
         check=False,
