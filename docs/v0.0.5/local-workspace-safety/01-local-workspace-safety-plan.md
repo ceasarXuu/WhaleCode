@@ -1,9 +1,9 @@
 # 通用 Branch/Workspace Bootstrap 安全管理工程计划
 
-- 文档状态：执行中，D0 已验证；其余工作单元待授权
+- 文档状态：Phase 1 已验证；Phase 2 及后续工作单元待授权
 - 计划模式：Plan Authoring + 独立 Execution Tracking
 - 创建日期：2026-08-06
-- 更新日期：2026-08-06
+- 更新日期：2026-08-08
 - 适用版本：WhaleCode v0.0.5
 - 产品基线：`prd/2026-08-06-workspace-bootstrap.md`
 - 首批验证对象：`$HOME/whalecode-codex`、`$HOME/whalecode-alpha`
@@ -86,6 +86,7 @@ marker 记录 schema version、workspace id、canonical root、Git common-dir、
 - branch 名变化使当前检查为 Stale；同 branch 内 commit 前进不失效。
 - detached HEAD 可运行 plan，但不能进入 Ready。
 - 重复 apply 必须幂等；摘要碰撞或 marker 绑定其他 root 时 fail closed。
+- canonical root 移动或重命名后生成新 workspace id并表现为Unbootstrapped；旧状态保留，不自动迁移。只有同一id位置出现绑定其他root的marker时才是Conflict。
 - branch 切换后复用 workspace runtime home 与 binary slot；并行 branch 应使用不同 worktree。
 - 轻量门禁只能识别“检查时的当前 branch 是否匹配”。A→B→A 且全程绕过统一入口的历史切换不追踪，这是不引入 Git hook/reflog 状态机的明确边界。
 
@@ -107,9 +108,9 @@ marker 记录 schema version、workspace id、canonical root、Git common-dir、
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| D0 | 固化实际入口与构建根 | discovery | `scripts/`、`.vscode/`、`README.md`、`docs/runbooks/`、根及vendor构建清单 | Linux入口清单、build-root清单、共享资源引用清单 | 用 `rg`、manifest检测和只读解析生成规范化JSON到临时目录；标明每个入口的平台、副作用、binary/home解析和模型风险 | 后续单元只修改已证实的入口，未知PowerShell范围保持阻塞 | 防止通用计划依赖不存在的根Cargo/Bazel命令或漏掉付费入口 | Complexity: +1只读inventory命令/schema；Reach/Cost: 扫描仓库metadata，无运行时/模型成本，需维护schema | fixture覆盖clone/worktree/无Cargo/嵌套Cargo/Bazel可选；本机输出人工比对；隐私扫描 | 输出含秘密或分类不确定即停止；证据留临时目录，不提交本机绝对路径 | planned |
-| W1 | 实现纯context resolver与plan | internal | `scripts/workspace-safety/workspace_context.py`、`scripts/workspace-safety/tests/test_plan.py` | `resolve_context()`、`build_plan()`、canonical JSON、fingerprint | 解析root/id/common-dir/branch/resource paths/marker摘要并只输出计划 | 任意workspace能在零写入下获得可确认计划 | 为人和Agent提供一致的开工检查，并关闭plan阶段副作用 | Complexity: +1 Python CLI和plan schema，无新依赖；Reach/Cost: 每次开工多一次本地解析 | fake repos正反例；文件/Git/environment快照不变；JSON确定性、脱敏与fingerprint测试 | 解析不确定或发现冲突时非零退出，不写任何状态 | planned |
-| W2 | 实现纯identity与状态判断 | internal | `workspace_context.py`、`scripts/workspace-safety/tests/test_state.py` | `derive_workspace_id()`、`evaluate_state()`、marker schema | 实现basename+root摘要identity及五态纯函数，不执行文件写入 | 同名目录自动隔离，branch/root/common-dir变化得到稳定状态 | 消除人工命名死路，并让状态机可独立审查测试 | Complexity: +2纯函数和1schema；Reach/Cost: marker升级需兼容测试，无运行IO路径 | 同名root、摘要碰撞、branch切换/切回、commit前进、root移动、detached HEAD fixtures | 任何碰撞返回Conflict；无文件可回滚 | planned |
+| D0 | 固化实际入口与构建根 | discovery | `scripts/`、`.vscode/`、`README.md`、`docs/runbooks/`、根及vendor构建清单 | Linux入口清单、build-root清单、共享资源引用清单 | 用 `rg`、manifest检测和只读解析生成规范化JSON到临时目录；标明每个入口的平台、副作用、binary/home解析和模型风险 | 后续单元只修改已证实的入口，未知PowerShell范围保持阻塞 | 防止通用计划依赖不存在的根Cargo/Bazel命令或漏掉付费入口 | Complexity: +1只读inventory命令/schema；Reach/Cost: 扫描仓库metadata，无运行时/模型成本，需维护schema | fixture覆盖clone/worktree/无Cargo/嵌套Cargo/Bazel可选；本机输出人工比对；隐私扫描 | 输出含秘密或分类不确定即停止；证据留临时目录，不提交本机绝对路径 | verified |
+| W1 | 实现纯context resolver与plan | internal | `scripts/workspace-safety/workspace_context.py`、`scripts/workspace-safety/tests/test_plan.py` | `resolve_context()`、`build_plan()`、canonical JSON、fingerprint | 解析root/id/common-dir/branch/resource paths/marker摘要并只输出计划 | 任意workspace能在零写入下获得可确认计划 | 为人和Agent提供一致的开工检查，并关闭plan阶段副作用 | Complexity: +1 Python CLI和plan schema，无新依赖；Reach/Cost: 每次开工多一次本地解析 | fake repos正反例；文件/Git/environment快照不变；JSON确定性、脱敏与fingerprint测试 | 解析不确定或发现冲突时非零退出，不写任何状态 | verified |
+| W2 | 实现纯identity与状态判断 | internal | `workspace_context.py`、`scripts/workspace-safety/tests/test_state.py` | `derive_workspace_id()`、`evaluate_state()`、marker schema | 实现basename+root摘要identity及五态纯函数，不执行文件写入 | 同名目录自动隔离，branch/common-dir/resource变化得到稳定状态；root移动形成新identity | 消除人工命名死路，并让状态机可独立审查测试 | Complexity: +2纯函数和1schema；Reach/Cost: marker升级需兼容测试，无运行IO路径 | 同名root、摘要碰撞、branch切换/切回、commit前进、root移动形成新id、detached HEAD fixtures | 任何碰撞返回Conflict；无文件可回滚 | verified |
 | W3 | 实现幂等apply落盘 | data | `workspace_context.py`、`scripts/workspace-safety/tests/test_apply.py` | `apply_plan()`、atomic marker writer、XDG目录 | 校验`--expect`后原子创建权限受限目录和marker，再调用doctor；不写repo/Git/profile/legacy | 用户确认的上下文与实际写入严格一致，重复执行不产生第二套资源 | 关闭plan/apply竞态和半初始化风险 | Complexity: +1写路径和原子替换逻辑；Reach/Cost: 每workspace增加小型state/data目录和磁盘占用 | 临时XDG下测试过期fingerprint、幂等、权限、部分失败恢复、legacy hash/mtime不变 | fingerprint不符零写入；失败保留可诊断状态，新目录只能移入备份/回收站 | planned |
 | W4 | 建立doctor与审计日志 | observability | `workspace_context.py`、`scripts/workspace-safety/tests/test_doctor.py` | `run_doctor()`、diagnostic codes、`workspace-events.jsonl` | 深查marker/root/branch/home/bin/attestation/build override；仅在apply已开始后及独立doctor/exec中追加脱敏机械事件，plan不落日志 | 成功、失败和失败阶段均可定位，Agent可按稳定码恢复 | 满足日志驱动要求并降低环境问题诊断成本，同时保持plan零写入 | Complexity: +1检查矩阵、诊断码表和JSONL；Reach/Cost: apply/doctor/exec增加少量本地IO，日志需轮转上限 | 每个诊断码正反例；证明plan不创建日志；字段allowlist、`0600`、单行损坏容忍和大小上限测试 | doctor只读除审计追加；日志失败不掩盖主诊断，禁止记录环境值 | planned |
 | W5 | 隔离子进程环境 | runtime | `workspace_context.py`、`scripts/workspace-safety/tests/test_exec.py` | `exec_ready()`、child env allowlist | 从Ready marker设置`WHALE_HOME`、`CODEX_SQLITE_HOME`和当前bin PATH后启动子进程 | SQLite、sessions、logs、skills、tmp和binary解析按workspace隔离 | 避免不同开发版本互相污染并提高测试归因 | Complexity: +1子进程入口；Reach/Cost: workspace状态独立占用磁盘，配置不自动同步 | 双workspace并发无模型writer；inode/WAL/log无交叉；父环境不变；Stale零启动 | 非Ready或binary不符时不启动，不fallback到PATH | planned |
@@ -245,7 +246,9 @@ cache index gate只在触及既有敏感面时执行；不得用workspace smoke�
 
 | Work Unit | Execution Status | Evidence | Missing Evidence | Decision |
 | --- | --- | --- | --- | --- |
-| D0 | verified | `scripts/workspace-safety/workspace_inventory.py`、schema、4项fixture、2026-08-08当前workspace脱敏盘点；详见`02-d0-entrypoint-inventory-report.md` | 无；运行时行为只做静态归类，不声称真实模型路径已验证 | D0收口，下一候选为W1 |
-| W1-W14 | not-started | 无 | 各单元计划中的实现与验证证据 | 未获本轮执行授权 |
+| D0 | verified | `workspace_inventory.py`、schema、4项fixture、当前workspace脱敏盘点；详见`02-d0-entrypoint-inventory-report.md` | 运行时行为只做静态归类，不声称真实模型路径已验证 | 收口 |
+| W1 | verified | `workspace_context.py` resolver/plan、plan schema、8项专用fixture、clean HEAD真实零写入smoke；提交`e48a9da68` | apply尚未实现，fingerprint只验证生成侧 | 收口 |
+| W2 | verified | identity/state纯函数、marker schema、5项专用fixture；提交`5b27de45b` | marker尚未由生产apply写入 | 收口 |
+| W3-W14 | not-started | 无生产实现证据 | 各单元计划中的实现与验证证据 | 未获本轮执行授权 |
 
-本轮仅授权并完成D0，不自动授权W1及后续工作。后续每个代码主题独立验证、commit并push，完成后按项目规则询问是否需要对抗性审查。
+Phase 1实施结果见`03-phase1-implementation-report.md`。本轮授权止于Phase 1，不自动授权W3及后续工作。后续每个代码主题独立验证、commit并push，完成后按项目规则询问是否需要对抗性审查。

@@ -120,7 +120,7 @@
 | --- | --- | --- |
 | Unbootstrapped | workspace 没有有效登记 | 阻断并提示先执行 plan |
 | Ready | workspace、branch 与 doctor 证据一致 | 允许继续 |
-| Stale | branch、root、common-dir 或关键配置与登记不一致 | 阻断并要求重新 plan/apply |
+| Stale | branch、common-dir 或关键资源配置与当前登记不一致 | 阻断并要求重新 plan/apply |
 | Conflict | identity 或资源已绑定到其他 workspace | 阻断；不得自动覆盖 |
 | DoctorFailed | apply 已尝试但验证未通过 | 阻断并输出恢复建议 |
 
@@ -138,7 +138,7 @@
 
 ## 8. 边界、错误与恢复
 
-- **目录移动或重命名**：登记变为 Stale；重新 plan，不能静默接管旧 identity。
+- **目录移动或重命名**：canonical root 改变会生成新的 workspace id，表现为 Unbootstrapped；旧 identity 和状态保持原样，不自动迁移或接管。
 - **同名目录**：通过 canonical root 摘要生成不同 workspace id；任何摘要碰撞或已绑定不同 root 的情况仍 fail closed，不自动覆盖。
 - **工作树已有未提交修改**：plan 显示警告但保持只读；apply 不修改源码或 index，因此可继续，最终 doctor 必须通过。
 - **branch 在 plan/apply 间变化**：apply 拒绝使用过期计划，要求重新 plan。
