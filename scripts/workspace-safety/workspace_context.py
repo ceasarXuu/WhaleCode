@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from workspace_persistence import ApplyError, atomic_write_json, ensure_resource_directories
+import workspace_doctor
 
 MARKER_SCHEMA_VERSION = 1
 PLAN_SCHEMA_VERSION = 1
@@ -300,6 +301,27 @@ def _marker_for_context(context: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def run_doctor(
+    start: Path | str,
+    environment: Mapping[str, str] | None = None,
+    require_binary: bool = False,
+    record_event: bool = True,
+) -> dict[str, Any]:
+    supplied_environment = environment if environment is not None else os.environ
+    context = resolve_context(start, supplied_environment)
+    marker, _ = _load_marker(Path(context["marker_path"]))
+    result = workspace_doctor.diagnose(
+        context, marker, supplied_environment, require_binary=require_binary
+    )
+    audit = {"written": False, "reason_code": "audit_disabled"}
+    if record_event:
+        audit = workspace_doctor.append_event(
+            Path(context["resources"]["state_root"]),
+            workspace_doctor.audit_event("doctor", result),
+        )
+    return {**result, "audit": audit}
+
+
 def apply_plan(
     start: Path | str,
     expected_fingerprint: str,
@@ -318,12 +340,25 @@ def apply_plan(
         raise ApplyError("plan_not_applicable", reasons or "plan is blocked")
     context = plan["context"]
     resources = ensure_resource_directories(context["resources"])
-    marker = _marker_for_context(context)
     marker_path = Path(context["marker_path"])
+    marker = _marker_for_context(context)
+    existing, _ = _load_marker(marker_path)
+    if existing != marker:
+        pending = {**marker, "last_doctor": {"status": "failed", "diagnostic_codes": ["apply_pending_doctor"]}}
+        atomic_write_json(marker_path, pending)
+    diagnosis = run_doctor(start, environment, record_event=True)
+    marker["last_doctor"] = {
+        "status": diagnosis["status"],
+        "diagnostic_codes": diagnosis["diagnostic_codes"],
+    }
     marker_disposition = atomic_write_json(marker_path, marker)
+    workspace_doctor.append_event(
+        Path(context["resources"]["state_root"]),
+        workspace_doctor.audit_event("apply", diagnosis),
+    )
     applied_state = evaluate_state(marker, context)
-    if applied_state["code"] != READY:
-        raise ApplyError("post_apply_doctor_failed", applied_state["reason_code"])
+    if diagnosis["status"] != "passed" or applied_state["code"] != READY:
+        raise ApplyError("post_apply_doctor_failed", ",".join(diagnosis["diagnostic_codes"]))
     return {
         "workspace_id": context["workspace_id"],
         "state": applied_state,
@@ -361,6 +396,16 @@ def render_human(plan: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_doctor_human(result: Mapping[str, Any]) -> str:
+    codes = ", ".join(result["diagnostic_codes"]) or "none"
+    return (
+        f"Workspace doctor: {result['status']}\n"
+        f"Workspace: {result['workspace_id']}\n"
+        f"Diagnostic codes: {codes}\n"
+        f"Audit: {result['audit']['reason_code']}\n"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Manage WhaleCode workspace isolation.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -373,8 +418,16 @@ def main() -> int:
     apply_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     apply_parser.add_argument("--expect", required=True)
     apply_parser.add_argument("--json", action="store_true")
+    doctor_parser = commands.add_parser("doctor")
+    doctor_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    doctor_parser.add_argument("--require-binary", action="store_true")
+    doctor_parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     try:
+        if args.command == "doctor":
+            result = run_doctor(args.repo_root, require_binary=args.require_binary)
+            sys.stdout.write(render_json(result) if args.json else render_doctor_human(result))
+            return 0 if result["status"] == "passed" else 5
         if args.bootstrap_command == "plan":
             plan = build_plan(args.repo_root)
             sys.stdout.write(render_json(plan) if args.json else render_human(plan))

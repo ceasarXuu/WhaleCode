@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/workspace-doctor-v1.json",
+  "title": "WhaleCode workspace doctor result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workspace_id",
+    "status",
+    "diagnostic_codes",
+    "require_binary",
+    "audit"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "workspace_id": { "type": "string" },
+    "status": { "enum": ["passed", "failed"] },
+    "diagnostic_codes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "require_binary": { "type": "boolean" },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["written", "reason_code"],
+      "properties": {
+        "written": { "type": "boolean" },
+        "reason_code": { "type": "string" }
+      }
+    }
+  }
+}
