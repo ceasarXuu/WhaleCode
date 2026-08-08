@@ -12,6 +12,7 @@ use codex_protocol::taskspace::TaskSpaceActionOutcome;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 use std::collections::BTreeSet;
 use std::time::Duration;
+use std::time::Instant;
 
 const INITIAL_BUSY_RETRY_DELAY: Duration = Duration::from_millis(10);
 const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -24,16 +25,25 @@ impl StateRuntime {
     ) -> anyhow::Result<TaskSpaceMapWriteOutcome> {
         validate_request(&request)?;
         let mut delay = INITIAL_BUSY_RETRY_DELAY;
+        let started = Instant::now();
+        let mut attempt = 0_u64;
         loop {
             match self.settle_taskspace_action_once(&request).await {
                 Ok(outcome) => return Ok(outcome),
-                Err(error) if is_sqlite_busy(&error) => {
+                Err(error) if sqlite_busy_codes(&error).is_some() => {
+                    attempt = attempt.saturating_add(1);
+                    let (raw_code, primary_code) = sqlite_busy_codes(&error)
+                        .expect("busy guard must provide SQLite result codes");
                     tracing::warn!(
                         target: "codex_state::taskspace",
                         event_name = "taskspace.action_settlement_store_busy",
                         map_id = request.map_id,
                         action_id = request.action_id,
+                        attempt,
                         retry_delay_ms = delay.as_millis(),
+                        elapsed_ms = started.elapsed().as_millis(),
+                        sqlite_raw_code = raw_code,
+                        sqlite_primary_code = primary_code,
                         "waiting to persist an observed TaskSpace Action outcome"
                     );
                     tokio::time::sleep(delay).await;
@@ -195,14 +205,20 @@ fn settle_action(
     Ok(changed)
 }
 
-fn is_sqlite_busy(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        cause
+fn sqlite_busy_codes(error: &anyhow::Error) -> Option<(String, i32)> {
+    error.chain().find_map(|cause| {
+        let raw = cause
             .downcast_ref::<sqlx::Error>()
             .and_then(|error| match error {
                 sqlx::Error::Database(database) => database.code(),
                 _ => None,
-            })
-            .is_some_and(|code| code == "5" || code == "6")
+            })?
+            .into_owned();
+        let primary = sqlite_primary_result_code(&raw)?;
+        matches!(primary, 5 | 6).then_some((raw, primary))
     })
+}
+
+pub(super) fn sqlite_primary_result_code(raw: &str) -> Option<i32> {
+    raw.parse::<i32>().ok().map(|code| code & 0xff)
 }

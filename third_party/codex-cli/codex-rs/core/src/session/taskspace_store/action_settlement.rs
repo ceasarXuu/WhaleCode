@@ -10,7 +10,6 @@ use codex_state::SettleTaskSpaceActionRequest;
 use codex_state::TaskSpaceMapWriteOutcome;
 use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
@@ -94,17 +93,20 @@ impl Session {
     ) -> Result<(), String> {
         self.taskspace_action_settlements
             .start(Arc::downgrade(self));
+        let log_fact = fact.clone();
+        self.taskspace_action_settlements.enqueue(fact)?;
         tracing::debug!(
             target: "codex_core::taskspace",
             event_name = "taskspace.action_settlement_queued",
-            map_id = fact.map_id,
-            outer_call_id = fact.outer_call_id,
-            action_id = fact.action_id,
-            tool = fact.tool_name,
-            outcome = ?fact.outcome,
+            map_id = log_fact.map_id,
+            outer_call_id = log_fact.outer_call_id,
+            action_id = log_fact.action_id,
+            node_ids = ?log_fact.node_ids,
+            tool = log_fact.tool_name,
+            outcome = ?log_fact.outcome,
             "queued observed Tool outcome for canonical Map settlement"
         );
-        self.taskspace_action_settlements.enqueue(fact)
+        Ok(())
     }
 
     pub(crate) async fn await_taskspace_action_settlements(&self) -> Result<(), String> {
@@ -138,7 +140,7 @@ impl Session {
             .current_rollout_path()
             .await
             .map_err(|error| format!("TaskSpace settlement recovery path failed: {error}"))?;
-        let mut recovered = BTreeSet::new();
+        let mut recovered = BTreeMap::<String, TaskSpaceActionSettlementFact>::new();
         for item in history.raw_items().iter().rev() {
             let ResponseItem::FunctionCallOutput { output, .. } = item else {
                 continue;
@@ -156,10 +158,17 @@ impl Session {
                 let Some(expected) = pending.get(&result.action_id) else {
                     continue;
                 };
-                if recovered.contains(&result.action_id) {
-                    continue;
-                }
                 let outcome = parse_terminal_outcome(&result.outcome)?;
+                let expected_action_id = format!(
+                    "{}/taskspace/call/{}",
+                    envelope.outer_call_id, result.call_index
+                );
+                if result.action_id != expected_action_id {
+                    return Err(format!(
+                        "TaskSpace recovery identity mismatch for Action `{}`.",
+                        result.action_id
+                    ));
+                }
                 if expected.tool_name != result.tool
                     || expected.node_ids.len() != 1
                     || expected.node_ids[0] != result.node_id
@@ -169,17 +178,28 @@ impl Session {
                         result.action_id
                     ));
                 }
-                self.taskspace_action_settlements
-                    .enqueue(TaskSpaceActionSettlementFact {
-                        map_id: map_id.clone(),
-                        outer_call_id: envelope.outer_call_id.clone(),
-                        action_id: result.action_id.clone(),
-                        node_ids: expected.node_ids.clone(),
-                        tool_name: expected.tool_name.clone(),
-                        outcome,
-                    })?;
-                recovered.insert(result.action_id);
+                let fact = TaskSpaceActionSettlementFact {
+                    map_id: map_id.clone(),
+                    outer_call_id: envelope.outer_call_id.clone(),
+                    action_id: result.action_id.clone(),
+                    node_ids: expected.node_ids.clone(),
+                    tool_name: expected.tool_name.clone(),
+                    outcome,
+                };
+                if let Some(existing) = recovered.get(&result.action_id) {
+                    if existing != &fact {
+                        return Err(format!(
+                            "TaskSpace recovery has conflicting facts for Action `{}`.",
+                            result.action_id
+                        ));
+                    }
+                    continue;
+                }
+                recovered.insert(result.action_id, fact);
             }
+        }
+        for fact in recovered.values().cloned() {
+            self.taskspace_action_settlements.enqueue(fact)?;
         }
         tracing::info!(
             target: "codex_core::taskspace",
@@ -323,6 +343,7 @@ struct RecoveryEnvelope {
 
 #[derive(Deserialize)]
 struct RecoveryClientResult {
+    call_index: usize,
     action_id: String,
     node_id: String,
     tool: String,
@@ -387,10 +408,17 @@ async fn run_settlement_worker(
                 let Some(session) = session.upgrade() else {
                     break;
                 };
+                let log_fact = fact.clone();
                 if let Err(error) = session.persist_taskspace_action_settlement(fact).await {
                     tracing::error!(
                         target: "codex_core::taskspace",
                         event_name = "taskspace.action_settlement_failed",
+                        map_id = log_fact.map_id,
+                        outer_call_id = log_fact.outer_call_id,
+                        action_id = log_fact.action_id,
+                        node_ids = ?log_fact.node_ids,
+                        tool = log_fact.tool_name,
+                        outcome = ?log_fact.outcome,
                         error = %error,
                         "failed to settle observed Tool outcome"
                     );

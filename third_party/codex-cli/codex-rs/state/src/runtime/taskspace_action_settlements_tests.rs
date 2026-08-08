@@ -1,4 +1,5 @@
 use super::StateRuntime;
+use super::taskspace_action_settlements::sqlite_primary_result_code;
 use crate::CreateTaskSpaceMapRequest;
 use crate::SettleTaskSpaceActionRequest;
 use crate::TaskSpaceMapWriteOutcome;
@@ -160,4 +161,15 @@ async fn outcome_only_settlement_waits_past_configured_busy_timeout() {
         .expect("settlement should succeed");
     assert!(matches!(outcome, TaskSpaceMapWriteOutcome::Applied(_)));
     let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[test]
+fn sqlite_extended_busy_and_locked_codes_reduce_to_primary_codes() {
+    assert_eq!(sqlite_primary_result_code("5"), Some(5));
+    assert_eq!(sqlite_primary_result_code("6"), Some(6));
+    assert_eq!(sqlite_primary_result_code("261"), Some(5));
+    assert_eq!(sqlite_primary_result_code("262"), Some(6));
+    assert_eq!(sqlite_primary_result_code("517"), Some(5));
+    assert_eq!(sqlite_primary_result_code("19"), Some(19));
+    assert_eq!(sqlite_primary_result_code("not-a-code"), None);
 }

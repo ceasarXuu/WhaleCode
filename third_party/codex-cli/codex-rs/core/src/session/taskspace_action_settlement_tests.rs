@@ -88,22 +88,38 @@ async fn persisted_session() -> (std::path::PathBuf, Arc<Session>, Arc<TurnConte
 }
 
 fn persisted_feedback(map_id: &str, node_id: &str) -> ResponseItem {
+    persisted_feedback_with_identity(
+        map_id,
+        node_id,
+        "outer",
+        "outer/taskspace/call/0",
+        "succeeded",
+    )
+}
+
+fn persisted_feedback_with_identity(
+    map_id: &str,
+    node_id: &str,
+    outer_call_id: &str,
+    action_id: &str,
+    outcome: &str,
+) -> ResponseItem {
     ResponseItem::FunctionCallOutput {
         call_id: "outer".into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
                 "kind": "taskspace_exec_result",
                 "status": "completed",
-                "outer_call_id": "outer",
+                "outer_call_id": outer_call_id,
                 "map_id": map_id,
                 "map_revision_at_dispatch": 2,
                 "reads": [],
                 "client_results": [{
                     "call_index": 0,
-                    "action_id": "outer/taskspace/call/0",
+                    "action_id": action_id,
                     "node_id": node_id,
                     "tool": "inspect",
-                    "outcome": "succeeded"
+                    "outcome": outcome
                 }],
                 "hosted_results": []
             })
@@ -177,6 +193,81 @@ async fn recovery_rejects_mismatched_attribution_before_map_mutation() {
             .taskspace_action_recovery_scanned
             .load(Ordering::SeqCst)
     );
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn recovery_rejects_outer_and_action_identity_mismatch_before_map_mutation() {
+    let (home, session, turn, map_id) = persisted_session().await;
+    session
+        .record_conversation_items(
+            &turn,
+            &[persisted_feedback_with_identity(
+                &map_id,
+                "work",
+                "different-outer",
+                "outer/taskspace/call/0",
+                "succeeded",
+            )],
+        )
+        .await;
+
+    let error = session
+        .recover_taskspace_action_settlements()
+        .await
+        .expect_err("outer/action mismatch must fail recovery");
+    assert!(error.contains("identity mismatch"));
+    let map = session
+        .canonical_action_map_snapshot()
+        .await
+        .expect("Map snapshot")
+        .map
+        .expect("canonical Map");
+    assert_eq!(action_outcome(&map, "work"), "pending");
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn recovery_rejects_conflicting_terminal_facts_before_enqueue() {
+    let (home, session, turn, map_id) = persisted_session().await;
+    session
+        .record_conversation_items(
+            &turn,
+            &[
+                persisted_feedback_with_identity(
+                    &map_id,
+                    "work",
+                    "outer",
+                    "outer/taskspace/call/0",
+                    "succeeded",
+                ),
+                persisted_feedback_with_identity(
+                    &map_id,
+                    "work",
+                    "outer",
+                    "outer/taskspace/call/0",
+                    "failed",
+                ),
+            ],
+        )
+        .await;
+
+    let error = session
+        .recover_taskspace_action_settlements()
+        .await
+        .expect_err("conflicting terminal facts must fail recovery");
+    assert!(error.contains("conflicting facts"));
+    session
+        .await_taskspace_action_settlements()
+        .await
+        .expect("validation must happen before enqueue");
+    let map = session
+        .canonical_action_map_snapshot()
+        .await
+        .expect("Map snapshot")
+        .map
+        .expect("canonical Map");
+    assert_eq!(action_outcome(&map, "work"), "pending");
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
