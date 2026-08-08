@@ -1,16 +1,16 @@
 # Subagent VS Review: R8 TaskSpace Phase B3 内部审查
 
 - Created: 2026-08-08T14:50:03+08:00
-- Updated: 2026-08-08T15:07:04+08:00
+- Updated: 2026-08-08T16:23:00+08:00
 - Report schema: adversarial-v2
 - Task: 对抗性审查 R8 TaskSpace Exec Phase B3 的生产实现与离线完成声明
 - Report path: `vs_review/2026-08-08-taskspace-b3-internal-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context
 - Status: blocked
-- Control outcome: user-decision-required
+- Control outcome: round-budget-exhausted
 - Automatic round budget: 2
-- Completed rounds: 1
+- Completed rounds: 2
 - Last known-good checkpoint: `68e8d9dd1`
 
 ## Review Control Contract
@@ -211,3 +211,83 @@ B3 happy path 已真实接入生产链，关系化 Map 事实源也成立，但�
 而是 7 个可由源码直接证明的合同问题：其中 F1/F2/F3/F4 会造成 stale 执行、已发生结果丢失、非法 response 部分生效或
 Agent 收不到反馈；F6/F7 会直接扭曲失败语义或诱导 Agent 生成 decoder 必拒的合法 schema 输入；F5 则未兑现已经确认的
 细粒度持久化收益。修复前不应进入 B4。
+
+## Round 2: Blocking Closure
+
+### Round Control
+
+- Round type: closure
+- Round number: 2
+- Completed automatic rounds before launch: 1
+- Closure finding IDs: R1-F1～R1-F7
+- Permitted closure relation: 原 blocker 是否仍存在、修复直接引入的回归、直接破坏冻结目标的紧邻故障
+- Scope exclusions: I01～I10、B4/B5、真实性能收益、真实 Provider、Round 1 deferred 非阻塞项
+- Baseline revision: `c7168a5a8`
+- Review target revision: `60fd7e0a8`
+
+### Repair Evidence Before Launch
+
+- request-visible Map identity 已在 provider prompt 构造后冻结，并由 response scope 传给 Exec handler。
+- response scope 已分类普通顶层 client item；finalize 位于 in-flight Tool futures drain 之前。
+- factual Action settlement 使用带 correlation ID 的 CAS rebase；确定性冲突测试证明只重放状态结算并保留并发 Map 内容。
+- 内部 Fatal、ToolSearch execution failure、schema parity、Action/Node 行级同步均有定向回归。
+- 本地通过：TaskSpace Exec 56、Store 9、Router 8、codex-state 130、codex-api 134、workspace all-targets check、zero-base 和 cache gate。
+- 完整证据链：`coe/2026-08-08-15-10-r8-b3-closure.md`。
+
+### Reviewer Launch Record
+
+| Reviewer | Internal Mechanism | Session / Job ID | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|
+| implementation-adversary | `multi_agent_v1__spawn_agent` | `019fe06a-8cfd-7993-b362-5278c34b7a1c` | `fork_context=false` | Round 2 neutral closure packet | main-agent history、reasoning、Round 1 reviewer结论性措辞 | yes |
+
+### Round 2 Status
+
+- Status: completed
+- Reviewer output: R1-F1、R1-F3～R1-F7 closed；R1-F2 open；无新 critical/high/medium 相邻回归。
+- Main-agent triage: completed
+- Closure verdict: blocked
+
+### Reviewer Output
+
+| Finding | Verdict | 主要 E2 证据 |
+|---|---|---|
+| R1-F1 | closed | provider-visible projection/handle 生成 request snapshot，stream 前写入 scope，handler 使用该快照校验 stale response |
+| R1-F2 | open | rebase 最多 8 次；连续第 9 次冲突返回错误，outer feedback 仅携带 `settlement_error`，canonical Action 可继续为 Pending |
+| R1-F3 | closed | scope 分类所有顶层 client item；response finalize 位于惰性 Tool futures drain 之前 |
+| R1-F4 | closed | 内部 Fatal 成为 per-call failed result，成功 sibling 与失败结果通过唯一 outer output 返回 |
+| R1-F5 | closed | Action 按 `action_id` 行级 diff；单 outcome 只触发对应行 UPDATE |
+| R1-F6 | closed | native pairing 与 `execution_failed` 分离；TaskSpace 结算真实 failed，Standard 返回合同不变 |
+| R1-F7 | closed | 新 Work Node schema 与 decoder 均不接受 runtime-owned `state`；patch 入口仍保留合法 state 更新 |
+
+Reviewer 同时复验两条 Standard 原生路径测试通过，未发现修复直接引入的 critical/high/medium 相邻回归。Reviewer 全程只读，
+未运行真实 Whale Agent 或付费 Provider。
+
+### Main Agent Triage
+
+| Finding | Decision | Blocking | Rationale |
+|---|---|---:|---|
+| R1-F1 | accept closed | no | 请求快照与响应时当前 Map 已是两份独立事实，stale 反例通过 |
+| R1-F2 | accept open | yes | 有限重试耗尽后确实没有持久化补偿入口；“工具不重跑”成立，但“已发生 outcome 不丢失”仍不成立 |
+| R1-F3 | accept closed | no | admission error 在 `drain_in_flight` 前终止，Exec future 尚未执行 |
+| R1-F4 | accept closed | no | outer feedback 保留所有 sibling 及 Fatal 失败范围 |
+| R1-F5 | accept closed | no | 触发器审计证明物理写入粒度符合 MS-02 |
+| R1-F6 | accept closed | no | 执行失败标志不改变 Standard model-visible pairing 合同 |
+| R1-F7 | accept closed | no | 公开 schema 与严格 decoder 已一致 |
+
+### Review Governor
+
+- 两轮自动审查预算已全部使用，不能自动启动第 3 轮。
+- blocker 数从 7 收敛为 1，没有净增长，也没有 scope drift。
+- 剩余问题需要在“无限期阻塞重试”“共享 Map 写入串行化”“持久化 outcome 补偿/原子结算”之间做工程选择；简单提高常量只改变概率，不闭合合同。
+- 根据 round-budget exhaustion 规则，自动修改在此停止；后续修复和第 3 轮独立 closure 需要用户明确授权。
+
+### Closure Status
+
+- Blocking findings found: yes（R1-F2）
+- Accepted blocking findings fixed: 6/7
+- Blocking re-review completed: yes
+- Automatic round budget respected: yes（2/2）
+- Scope drift detected: no
+- Allowed to proceed to B4: no
+- Blocked reason: factual Action settlement 的有限 CAS rebase 仍存在耗尽后遗留 Pending 的路径
+- Next control point: 用户决定是否授权剩余修复设计与第 3 轮 closure 审查
