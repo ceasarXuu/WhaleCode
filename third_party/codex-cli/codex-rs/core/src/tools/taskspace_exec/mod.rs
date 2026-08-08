@@ -11,7 +11,6 @@ mod schema_validation;
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;
 pub(crate) use catalog::TaskSpaceExecCatalog;
 pub(crate) use catalog::TaskSpaceExecCatalogError;
-pub(crate) use dispatch::DispatchedClientCall;
 pub(crate) use dispatch::dispatch_client_calls;
 pub(crate) use dispatch::prepare_client_calls;
 pub(crate) use envelope::TaskSpaceExecEnvelope;

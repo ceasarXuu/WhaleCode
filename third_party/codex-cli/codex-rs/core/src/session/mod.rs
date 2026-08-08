@@ -199,6 +199,8 @@ mod review;
 mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
 pub(crate) mod session;
+#[cfg(test)]
+mod taskspace_action_settlement_tests;
 mod taskspace_store;
 mod taskspace_store_read;
 #[cfg(test)]
@@ -213,6 +215,8 @@ use self::session::AppServerClientMetadata;
 use self::session::Session;
 use self::session::SessionConfiguration;
 pub(crate) use self::session::SessionSettingsUpdate;
+pub(crate) use self::taskspace_store::TaskSpaceActionSettlementFact;
+use self::taskspace_store::TaskSpaceActionSettlementQueue;
 #[cfg(test)]
 use self::turn::AssistantMessageStreamParsers;
 #[cfg(test)]
@@ -3207,6 +3211,10 @@ impl Session {
                     "TaskSpace mode requires an immutable projection policy.".to_string()
                 })?
         };
+        self.recover_taskspace_action_settlements().await?;
+        self.await_taskspace_action_settlements()
+            .await
+            .map_err(|error| format!("TaskSpace settlement barrier failed: {error}"))?;
         let context = match policy {
             TaskSpaceProjectionPolicy::MapRequest => None,
             TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {

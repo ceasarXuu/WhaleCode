@@ -20,7 +20,10 @@ use codex_state::TaskSpaceMapWriteOutcome;
 use sha2::Digest;
 use uuid::Uuid;
 
-mod latest_mutation;
+mod action_settlement;
+
+pub(crate) use action_settlement::TaskSpaceActionSettlementFact;
+pub(crate) use action_settlement::TaskSpaceActionSettlementQueue;
 
 pub(super) struct HydratedActionMapStore {
     pub(super) runtime: ActionMapRuntimeState,
@@ -179,7 +182,7 @@ pub(super) fn canonical_map_for_store(
     runtime.canonical_map_for_store()
 }
 
-fn record_map_revision(record: &TaskSpaceMapRecord) -> u64 {
+pub(super) fn record_map_revision(record: &TaskSpaceMapRecord) -> u64 {
     record.canonical_map.as_ref().map_or(0, |map| map.revision)
 }
 

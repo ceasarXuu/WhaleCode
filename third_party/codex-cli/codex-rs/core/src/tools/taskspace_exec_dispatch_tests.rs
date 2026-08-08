@@ -197,7 +197,13 @@ async fn dispatch_preserves_native_parallel_policy_and_completion_order() {
         prepared_function(1, ToolName::plain("inspect"), json!({"delay_ms": 5})),
     ];
     let native = prepare_client_calls(&session, &calls).await.unwrap();
-    let mut results = dispatch_client_calls(runtime, native, CancellationToken::new());
+    let mut results = dispatch_client_calls(
+        runtime,
+        Arc::clone(&session),
+        "map-test".into(),
+        native,
+        CancellationToken::new(),
+    );
     let first = results.next().await.unwrap();
     let second = results.next().await.unwrap();
 
@@ -218,9 +224,15 @@ async fn dispatch_preserves_native_serial_policy_and_failure_payload() {
         prepared_function(1, ToolName::plain("inspect"), json!({"delay_ms": 10})),
     ];
     let native = prepare_client_calls(&session, &calls).await.unwrap();
-    let results = dispatch_client_calls(runtime, native, CancellationToken::new())
-        .collect::<Vec<_>>()
-        .await;
+    let results = dispatch_client_calls(
+        runtime,
+        Arc::clone(&session),
+        "map-test".into(),
+        native,
+        CancellationToken::new(),
+    )
+    .collect::<Vec<_>>()
+    .await;
 
     assert_eq!(handler.max_active.load(Ordering::SeqCst), 1);
     let failed = results
@@ -277,10 +289,16 @@ async fn tool_search_pairing_completion_preserves_execution_failure_status() {
     let native = prepare_client_calls(session.as_ref(), &calls)
         .await
         .unwrap();
-    let result = dispatch_client_calls(runtime, native, CancellationToken::new())
-        .next()
-        .await
-        .unwrap();
+    let result = dispatch_client_calls(
+        runtime,
+        Arc::clone(&session),
+        "map-test".into(),
+        native,
+        CancellationToken::new(),
+    )
+    .next()
+    .await
+    .unwrap();
 
     assert!(result.execution_failed);
     assert!(!result.cancelled);

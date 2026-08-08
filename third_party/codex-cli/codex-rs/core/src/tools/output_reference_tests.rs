@@ -134,6 +134,23 @@ async fn output_artifact_is_portable_across_rollout_paths() {
 }
 
 #[tokio::test]
+async fn recovery_reads_and_verifies_the_complete_output_artifact() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let rollout_path = temp.path().join("sessions/2026/07/12/rollout-source.jsonl");
+    let raw_output = b"{\"kind\":\"taskspace_exec_result\",\"payload\":\"complete\"}".repeat(2000);
+    let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
+        .await
+        .expect("write artifact")
+        .expect("artifact ref");
+
+    let recovered = read_output_artifact_for_recovery(Some(&rollout_path), &artifact_ref)
+        .await
+        .expect("read complete recovery artifact");
+
+    assert_eq!(recovered, raw_output);
+}
+
+#[tokio::test]
 async fn read_output_artifact_slice_rejects_corrupt_content() {
     let temp = tempfile::tempdir().expect("create temp dir");
     let rollout_path = temp.path().join("rollout-test.jsonl");

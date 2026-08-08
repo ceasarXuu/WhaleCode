@@ -256,6 +256,11 @@ async fn cancelled_native_call_is_settled_without_changing_node_state() {
     assert_eq!(output.success, Some(false));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
     assert_eq!(feedback["client_results"][0]["outcome"], "cancelled");
+    harness
+        .session
+        .await_taskspace_action_settlements()
+        .await
+        .unwrap();
     let map = harness
         .session
         .canonical_action_map_snapshot()
@@ -354,6 +359,12 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
 
     assert_eq!(output.success, Some(false));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
+    assert_eq!(feedback["kind"], "taskspace_exec_result");
+    assert_eq!(feedback["outer_call_id"], "outer");
+    assert_eq!(
+        feedback["client_results"][0]["action_id"],
+        "outer/taskspace/call/1"
+    );
     assert_eq!(
         feedback["client_results"][0]["response"]["call_id"],
         "outer/taskspace/call/1"
@@ -371,6 +382,11 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
             .slow_saw_fast_settled
             .load(Ordering::SeqCst)
     );
+    harness
+        .session
+        .await_taskspace_action_settlements()
+        .await
+        .unwrap();
 
     let map = harness
         .session
@@ -419,6 +435,11 @@ async fn internal_fatal_is_returned_once_with_successful_sibling_feedback() {
         feedback["client_results"][1]["error"],
         "Fatal error: expected fatal"
     );
+    harness
+        .session
+        .await_taskspace_action_settlements()
+        .await
+        .unwrap();
 
     let map = harness
         .session

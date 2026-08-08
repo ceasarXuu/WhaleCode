@@ -6,6 +6,7 @@ use futures::stream::FuturesUnordered;
 use tokio_util::sync::CancellationToken;
 
 use crate::function_tool::FunctionCallError;
+use crate::session::TaskSpaceActionSettlementFact;
 use crate::session::session::Session;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
@@ -32,6 +33,7 @@ pub(crate) struct DispatchedClientCall {
     pub(crate) response: Result<ResponseInputItem, CodexErr>,
     pub(crate) cancelled: bool,
     pub(crate) execution_failed: bool,
+    pub(crate) settlement_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +87,8 @@ pub(crate) async fn prepare_client_calls(
 
 pub(crate) fn dispatch_client_calls(
     runtime: ToolCallRuntime,
+    session: std::sync::Arc<Session>,
+    map_id: String,
     calls: Vec<NativeClientCall>,
     cancellation_token: CancellationToken,
 ) -> FuturesUnordered<BoxFuture<'static, DispatchedClientCall>> {
@@ -92,6 +96,8 @@ pub(crate) fn dispatch_client_calls(
         .into_iter()
         .map(|item| {
             let runtime = runtime.clone();
+            let session = std::sync::Arc::clone(&session);
+            let map_id = map_id.clone();
             let cancellation_token = cancellation_token.clone();
             Box::pin(async move {
                 tracing::debug!(
@@ -104,27 +110,64 @@ pub(crate) fn dispatch_client_calls(
                 let handled = runtime
                     .handle_tool_call_with_status(item.call, cancellation_token)
                     .await;
-                tracing::debug!(
-                    event = "taskspace_exec_client_dispatch_finished",
-                    outer_call_id = item.identity.outer_call_id,
-                    call_index = item.identity.index,
-                    node_id = item.node_id,
-                    tool = item.public_name,
-                    fatal = handled.response.is_err(),
-                    cancelled = handled.cancelled,
-                    execution_failed = handled.execution_failed,
-                );
-                DispatchedClientCall {
+                let mut result = DispatchedClientCall {
                     identity: item.identity,
                     node_id: item.node_id,
                     public_name: item.public_name,
                     response: handled.response,
                     cancelled: handled.cancelled,
                     execution_failed: handled.execution_failed,
-                }
+                    settlement_error: None,
+                };
+                let outcome = dispatched_outcome(&result);
+                result.settlement_error = session
+                    .enqueue_taskspace_action_settlement(TaskSpaceActionSettlementFact {
+                        map_id,
+                        outer_call_id: result.identity.outer_call_id.clone(),
+                        action_id: result.identity.transport_id(),
+                        node_ids: vec![result.node_id.clone()],
+                        tool_name: result.public_name.clone(),
+                        outcome,
+                    })
+                    .err();
+                tracing::debug!(
+                    event = "taskspace_exec_client_dispatch_finished",
+                    outer_call_id = result.identity.outer_call_id,
+                    call_index = result.identity.index,
+                    node_id = result.node_id,
+                    tool = result.public_name,
+                    fatal = result.response.is_err(),
+                    cancelled = result.cancelled,
+                    execution_failed = result.execution_failed,
+                    settlement_queued = result.settlement_error.is_none(),
+                );
+                result
             }) as BoxFuture<'static, DispatchedClientCall>
         })
         .collect()
+}
+
+pub(crate) fn dispatched_outcome(
+    result: &DispatchedClientCall,
+) -> codex_protocol::taskspace::TaskSpaceActionOutcome {
+    use codex_protocol::taskspace::TaskSpaceActionOutcome as Outcome;
+
+    if result.cancelled {
+        return Outcome::Cancelled;
+    }
+    if result.execution_failed {
+        return Outcome::Failed;
+    }
+    match &result.response {
+        Err(_) => Outcome::Failed,
+        Ok(ResponseInputItem::FunctionCallOutput { output, .. })
+        | Ok(ResponseInputItem::CustomToolCallOutput { output, .. })
+            if output.success == Some(false) =>
+        {
+            Outcome::Failed
+        }
+        Ok(_) => Outcome::Succeeded,
+    }
 }
 
 fn native_response_item(

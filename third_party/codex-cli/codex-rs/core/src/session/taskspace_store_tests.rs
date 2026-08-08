@@ -2,7 +2,7 @@ use super::taskspace_store::canonical_map_for_store;
 use super::taskspace_store::hydrate_action_map_store;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::ProjectionEnvelope;
-use crate::action_map::rooted_dag;
+use crate::session::TaskSpaceActionSettlementFact;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::InitialHistory;
@@ -24,8 +24,6 @@ use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::TaskSpaceMapRelation;
 use codex_state::TaskSpaceMapWriteOutcome;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use tracing_test::traced_test;
 use uuid::Uuid;
 
@@ -106,6 +104,7 @@ async fn factual_action_settlement_commits_once_on_latest_head_without_losing_ot
         .expect("initialize state runtime");
     let (mut session, _) = super::tests::make_session_and_context().await;
     session.services.state_db = Some(Arc::clone(&state_db));
+    let session = Arc::new(session);
 
     let (activation, _) = session
         .set_persisted_action_map_mode(MapRuntimeMode::Experiment)
@@ -151,35 +150,21 @@ async fn factual_action_settlement_commits_once_on_latest_head_without_losing_ot
         .expect("commit concurrent Map change");
     assert!(matches!(concurrent, TaskSpaceMapWriteOutcome::Applied(_)));
 
-    let applications = Arc::new(AtomicUsize::new(0));
-    let application_counter = Arc::clone(&applications);
-    let settle_map_id = map_id.clone();
     session
-        .commit_latest_canonical_action_fact(
-            "settle_taskspace_exec_action",
-            "outer-1/taskspace/call/0",
-            "outer-1/taskspace/call/0/succeeded",
-            move |runtime, owner| {
-                application_counter.fetch_add(1, Ordering::SeqCst);
-                let current = runtime
-                    .canonical_map_for_store()
-                    .expect("settlement requires canonical Map");
-                let commit = rooted_dag::settle_action(
-                    &current,
-                    "client-1",
-                    "inspect",
-                    rooted_dag::ActionOutcome::Succeeded,
-                )
-                .expect("settle pending action");
-                runtime
-                    .restore_store_map(&settle_map_id, owner, Some(commit.map))
-                    .map_err(|error| format!("restore settled Map: {error}"))
-            },
-        )
+        .enqueue_taskspace_action_settlement(TaskSpaceActionSettlementFact {
+            map_id: map_id.clone(),
+            outer_call_id: "outer-1".into(),
+            action_id: "client-1".into(),
+            node_ids: vec!["inspect".into()],
+            tool_name: "inspect".into(),
+            outcome: TaskSpaceActionOutcome::Succeeded,
+        })
+        .expect("enqueue factual Action settlement");
+    session
+        .await_taskspace_action_settlements()
         .await
-        .expect("commit factual action settlement on latest head");
+        .expect("commit factual Action settlement on latest head");
 
-    assert_eq!(applications.load(Ordering::SeqCst), 1);
     let final_record = state_db
         .load_taskspace_map(&map_id)
         .await
@@ -205,8 +190,8 @@ async fn factual_action_settlement_commits_once_on_latest_head_without_losing_ot
         lines
             .iter()
             .find(|line| {
-                line.contains("taskspace.map_store_latest_committed")
-                    && line.contains("correlation_id=\"outer-1/taskspace/call/0\"")
+                line.contains("taskspace.action_settlement_committed")
+                    && line.contains("outer_call_id=\"outer-1\"")
             })
             .map(|_| Ok(()))
             .unwrap_or_else(|| Err("expected latest-head settlement event".to_string()))

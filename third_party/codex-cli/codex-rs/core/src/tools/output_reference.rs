@@ -152,6 +152,31 @@ pub(crate) async fn write_output_artifact_for_rollout(
     Ok(Some(format!("output-ref://sha256/{}", output_ref.sha256)))
 }
 
+pub(crate) async fn read_output_artifact_for_recovery(
+    rollout_path: Option<&Path>,
+    output_ref: &str,
+) -> std::io::Result<Vec<u8>> {
+    let Some(rollout_path) = rollout_path else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "output artifact rollout path is unavailable",
+        ));
+    };
+    let sha = parse_output_ref_sha(output_ref)?;
+    let artifact_path = output_artifact_dir(rollout_path).join(format!("{sha}.stdout"));
+    let raw_output = tokio::fs::read(&artifact_path).await?;
+    let actual_sha = format!("{:x}", Sha256::digest(&raw_output));
+    if actual_sha != sha {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "output artifact sha256 mismatch for {output_ref}: expected {sha}, got {actual_sha}"
+            ),
+        ));
+    }
+    Ok(raw_output)
+}
+
 fn output_artifact_dir(rollout_path: &Path) -> PathBuf {
     session_store_root(rollout_path)
         .join("session-store")

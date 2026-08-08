@@ -15,6 +15,10 @@ pub(crate) struct Session {
     /// Serializes canonical TaskSpace Store compare-and-swap transactions.
     /// Native Tool execution remains parallel; only factual commits are ordered.
     pub(super) taskspace_store_write_lock: Semaphore,
+    /// Owns the FIFO bridge from completed Tool calls to canonical Map facts.
+    pub(super) taskspace_action_settlements: TaskSpaceActionSettlementQueue,
+    /// Recovery scans the persisted Tool feedback at most once per Session.
+    pub(super) taskspace_action_recovery_scanned: AtomicBool,
     /// Serializes rebuild/apply cycles for the running proxy; each cycle
     /// rebuilds from the current SessionState while holding this lock.
     pub(super) managed_network_proxy_refresh_lock: Semaphore,
@@ -803,6 +807,8 @@ impl Session {
                 out_of_band_elicitation_paused,
                 state: Mutex::new(state),
                 taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
+                taskspace_action_settlements: TaskSpaceActionSettlementQueue::default(),
+                taskspace_action_recovery_scanned: AtomicBool::new(false),
                 managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
                 features: config.features.clone(),
                 pending_mcp_server_refresh_config: Mutex::new(None),
@@ -817,6 +823,8 @@ impl Session {
                 next_internal_sub_id: AtomicU64::new(0),
                 shutting_down: AtomicBool::new(false),
             });
+            sess.taskspace_action_settlements
+                .start(Arc::downgrade(&sess));
             if let Some(network_policy_decider_session) = network_policy_decider_session {
                 let mut guard = network_policy_decider_session.write().await;
                 *guard = Arc::downgrade(&sess);
