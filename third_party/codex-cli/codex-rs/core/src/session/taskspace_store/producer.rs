@@ -36,16 +36,17 @@ impl TaskSpaceActionProducerTracker {
         Ok(self.tasks.spawn(future))
     }
 
-    async fn close_and_wait(&self) {
-        let producer_count = {
-            let mut accepting = self
-                .accepting
-                .lock()
-                .expect("TaskSpace Action producer gate poisoned");
-            *accepting = false;
-            self.tasks.close();
-            self.tasks.len()
-        };
+    fn close_admission(&self) {
+        let mut accepting = self
+            .accepting
+            .lock()
+            .expect("TaskSpace Action producer gate poisoned");
+        *accepting = false;
+        self.tasks.close();
+    }
+
+    async fn wait(&self) {
+        let producer_count = self.tasks.len();
         if producer_count > 0 {
             tracing::debug!(
                 target: "codex_core::taskspace",
@@ -78,10 +79,14 @@ impl Session {
         self.taskspace_action_settlements.producers.spawn(future)
     }
 
-    pub(crate) async fn finish_taskspace_action_producers(&self) {
+    pub(crate) fn close_taskspace_action_producer_admission(&self) {
         self.taskspace_action_settlements
             .producers
-            .close_and_wait()
-            .await;
+            .close_admission();
+    }
+
+    pub(crate) async fn finish_taskspace_action_producers(&self) {
+        self.close_taskspace_action_producer_admission();
+        self.taskspace_action_settlements.producers.wait().await;
     }
 }

@@ -1072,6 +1072,7 @@ pub async fn show_action_map(sess: &Arc<Session>, sub_id: String) {
 pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
     sess.shutting_down
         .store(true, std::sync::atomic::Ordering::SeqCst);
+    sess.close_taskspace_action_producer_admission();
     sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
     sess.finish_taskspace_action_producers().await;
     let taskspace_settlement_error = sess.await_taskspace_action_settlements().await.err();
@@ -1133,7 +1134,8 @@ pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
         sess.services
             .rollout_thread_trace
             .record_ended(codex_rollout_trace::RolloutStatus::Failed);
-        return false;
+        // The return value controls the submission loop, not shutdown success.
+        return true;
     }
 
     sess.send_event_raw(Event {

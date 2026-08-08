@@ -432,6 +432,9 @@ impl Session {
         self: &Arc<Self>,
         sub_id: String,
     ) {
+        if self.is_shutting_down() {
+            return;
+        }
         if !self.has_queued_response_items_for_next_turn().await
             && !self.has_trigger_turn_mailbox_items().await
         {
@@ -484,7 +487,7 @@ impl Session {
             // in-flight approval wait can surface as a model-visible rejection before TurnAborted.
             active_turn.clear_pending().await;
         }
-        if reason == TurnAbortReason::Interrupted && aborted_turn {
+        if reason == TurnAbortReason::Interrupted && aborted_turn && !self.is_shutting_down() {
             self.maybe_start_turn_for_pending_work().await;
         }
     }

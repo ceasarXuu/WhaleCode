@@ -200,6 +200,8 @@ mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
 pub(crate) mod session;
 #[cfg(test)]
+mod taskspace_action_settlement_output_ref_tests;
+#[cfg(test)]
 mod taskspace_action_settlement_tests;
 mod taskspace_store;
 mod taskspace_store_read;

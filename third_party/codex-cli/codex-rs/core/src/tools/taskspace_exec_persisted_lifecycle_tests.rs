@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::taskspace::TaskSpaceActionOutcome;
@@ -28,6 +27,7 @@ use crate::tools::context::ToolPayload;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::tools::registry::ToolRegistryBuilder;
+use crate::tools::router::ToolCall;
 use crate::tools::router::ToolRouter;
 use crate::turn_diff_tracker::TurnDiffTracker;
 
@@ -94,9 +94,12 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
     let mut builder = ToolRegistryBuilder::new();
     builder.push_spec_with_parallel_support(inspect_spec(), true);
     builder.register_handler("inspect", Arc::clone(&native_handler));
-    let client_router = Arc::new(ToolRouter::from_builder_for_test(builder));
-    let catalog = Arc::new(TaskSpaceExecCatalog::build(&client_router.specs()).unwrap());
-    let response_scope = Arc::new(TaskSpaceExecResponseScope::default());
+    let router = Arc::new(
+        ToolRouter::from_builder_for_test(builder)
+            .into_taskspace()
+            .expect("build production TaskSpace router"),
+    );
+    let response_scope = router.taskspace_response_scope().expect("response scope");
     response_scope.begin_request(map_id.clone(), None).unwrap();
     response_scope.record_completed_item(
         Some(0),
@@ -109,49 +112,55 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
         },
     );
     response_scope.finalize(true).unwrap();
-    let handler = TaskSpaceExecHandler::new(catalog, client_router, response_scope);
-
-    let output = handler
-        .handle(ToolInvocation {
-            session: Arc::clone(&session),
-            turn: Arc::clone(&turn),
-            cancellation_token: CancellationToken::new(),
-            tracker: Arc::new(Mutex::new(TurnDiffTracker::new())),
-            call_id: "outer".into(),
-            tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: json!({
-                    "calls": [
-                        {
-                            "tool": "initialize_map",
-                            "arguments": {
-                                "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-                                "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
-                                "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
-                            }
-                        },
-                        {"tool": "inspect", "node_id": "work", "arguments": {}}
-                    ],
-                    "hosted_bindings": []
-                })
-                .to_string(),
+    let output = router
+        .dispatch_tool_call_with_code_mode_result(
+            Arc::clone(&session),
+            Arc::clone(&turn),
+            CancellationToken::new(),
+            Arc::new(Mutex::new(TurnDiffTracker::new())),
+            ToolCall {
+                provider_tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
+                dispatch_tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
+                call_id: "outer".into(),
+                payload: ToolPayload::Function {
+                    arguments: json!({
+                        "calls": [
+                            {
+                                "tool": "initialize_map",
+                                "arguments": {
+                                    "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+                                    "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
+                                    "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+                                }
+                            },
+                            {"tool": "inspect", "node_id": "work", "arguments": {}}
+                        ],
+                        "hosted_bindings": []
+                    })
+                    .to_string(),
+                },
             },
-        })
+            ToolCallSource::Direct,
+        )
         .await
-        .expect("execute persisted TaskSpace batch");
+        .expect("execute persisted TaskSpace batch")
+        .into_response();
     assert_eq!(native_handler.calls.load(Ordering::SeqCst), 1);
     session
         .await_taskspace_action_settlements()
         .await
         .expect("settle persisted Tool result");
-    let output_text = output.into_text();
+    let Some(ResponseItem::FunctionCallOutput { output, .. }) =
+        crate::stream_events_utils::response_input_to_response_item(&output)
+    else {
+        panic!("TaskSpace router must return FunctionCallOutput")
+    };
     session
         .record_conversation_items(
             turn.as_ref(),
             &[ResponseItem::FunctionCallOutput {
                 call_id: "outer".into(),
-                output: FunctionCallOutputPayload::from_text(output_text),
+                output,
             }],
         )
         .await;

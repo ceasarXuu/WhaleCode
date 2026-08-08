@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
+use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
@@ -32,7 +34,7 @@ fn node(
     }
 }
 
-fn pending_map(map_id: &str) -> TaskSpaceCanonicalMap {
+pub(super) fn pending_map(map_id: &str) -> TaskSpaceCanonicalMap {
     TaskSpaceCanonicalMap {
         schema_version: TASKSPACE_CANONICAL_SCHEMA_VERSION.into(),
         map_id: map_id.into(),
@@ -128,7 +130,7 @@ fn persisted_feedback_with_identity(
     }
 }
 
-fn action_outcome<'a>(
+pub(super) fn action_outcome<'a>(
     map: &'a codex_protocol::protocol::ActionMapSnapshotMap,
     node_id: &str,
 ) -> &'a str {
@@ -392,6 +394,17 @@ async fn graceful_shutdown_waits_for_producer_then_settlement() {
     });
     tokio::task::yield_now().await;
     assert!(!shutdown.is_finished());
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            match session.spawn_taskspace_action_producer(async {}) {
+                Ok(producer) => producer.await.expect("temporary producer"),
+                Err(_) => break,
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("shutdown must close producer admission");
     release_tx.send(()).expect("release producer");
     assert!(
         tokio::time::timeout(std::time::Duration::from_secs(2), shutdown)
@@ -411,7 +424,29 @@ async fn graceful_shutdown_waits_for_producer_then_settlement() {
 }
 
 #[tokio::test]
-async fn graceful_shutdown_does_not_report_complete_after_settlement_failure() {
+async fn shutdown_flag_prevents_pending_work_from_starting_a_new_turn() {
+    let (home, session, _turn, _map_id) = persisted_session().await;
+    session
+        .queue_response_items_for_next_turn(vec![ResponseInputItem::Message {
+            role: "assistant".into(),
+            content: vec![ContentItem::InputText {
+                text: "queued before shutdown".into(),
+            }],
+        }])
+        .await;
+    session
+        .shutting_down
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    session.maybe_start_turn_for_pending_work().await;
+
+    assert!(session.active_turn.lock().await.is_none());
+    assert!(session.has_queued_response_items_for_next_turn().await);
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn graceful_shutdown_exits_after_reporting_settlement_failure() {
     let (home, session, _turn, map_id) = persisted_session().await;
     session
         .enqueue_taskspace_action_settlement(TaskSpaceActionSettlementFact {
@@ -424,7 +459,7 @@ async fn graceful_shutdown_does_not_report_complete_after_settlement_failure() {
         })
         .expect("enqueue invalid settlement");
 
-    assert!(!super::handlers::shutdown(&session, "shutdown".into()).await);
+    assert!(super::handlers::shutdown(&session, "shutdown".into()).await);
     let map = session
         .canonical_action_map_snapshot()
         .await

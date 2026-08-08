@@ -253,6 +253,10 @@ pub(crate) struct AppServerClientMetadata {
 }
 
 impl Session {
+    pub(crate) fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     #[instrument(name = "session_init", level = "info", skip_all)]
     #[allow(clippy::too_many_arguments)]
     #[expect(
