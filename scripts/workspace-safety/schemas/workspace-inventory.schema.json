@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/workspace-inventory-v1.json",
+  "title": "WhaleCode workspace inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "repository",
+    "build_roots",
+    "entrypoints",
+    "shared_resource_references",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source": { "const": "working-tree-read-only" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "git_dir",
+        "git_common_dir",
+        "linked_worktree",
+        "branch",
+        "detached_head",
+        "head",
+        "remotes"
+      ],
+      "properties": {
+        "root": { "type": "string" },
+        "git_dir": { "type": "string" },
+        "git_common_dir": { "type": "string" },
+        "linked_worktree": { "type": "boolean" },
+        "branch": { "type": ["string", "null"] },
+        "detached_head": { "type": "boolean" },
+        "head": { "type": ["string", "null"] },
+        "remotes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "endpoints"],
+            "properties": {
+              "name": { "type": "string" },
+              "endpoints": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "endpoint"],
+                  "properties": {
+                    "kind": { "enum": ["url", "ssh", "local"] },
+                    "endpoint": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "build_roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "root", "manifest", "scope"],
+        "properties": {
+          "kind": { "enum": ["cargo", "bazel"] },
+          "root": { "type": "string" },
+          "manifest": { "type": "string" },
+          "scope": { "enum": ["repository", "vendored", "archived"] }
+        }
+      }
+    },
+    "entrypoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "platform",
+          "matched_rule_ids",
+          "side_effects",
+          "binary_resolution",
+          "runtime_home_resolution",
+          "model_request_risk"
+        ],
+        "properties": {
+          "path": { "type": "string" },
+          "platform": {
+            "enum": [
+              "powershell",
+              "linux-posix",
+              "cross-platform-python",
+              "editor-config"
+            ]
+          },
+          "matched_rule_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "uniqueItems": true
+          },
+          "side_effects": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "binary_resolution": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "runtime_home_resolution": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "model_request_risk": { "enum": ["possible", "none-detected"] }
+        }
+      }
+    },
+    "shared_resource_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "line", "rule_id"],
+        "properties": {
+          "path": { "type": "string" },
+          "line": { "type": "integer", "minimum": 1 },
+          "rule_id": { "type": "string" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "build_root_count",
+        "entrypoint_count",
+        "entrypoints_by_platform",
+        "references_by_rule"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "build_root_count": { "type": "integer", "minimum": 0 },
+        "entrypoint_count": { "type": "integer", "minimum": 0 },
+        "entrypoints_by_platform": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "references_by_rule": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

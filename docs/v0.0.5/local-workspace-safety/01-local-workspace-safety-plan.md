@@ -1,7 +1,7 @@
 # 通用 Branch/Workspace Bootstrap 安全管理工程计划
 
-- 文档状态：已按工程审查修订，待执行授权
-- 计划模式：Plan Authoring
+- 文档状态：执行中，D0 已验证；其余工作单元待授权
+- 计划模式：Plan Authoring + 独立 Execution Tracking
 - 创建日期：2026-08-06
 - 更新日期：2026-08-06
 - 适用版本：WhaleCode v0.0.5
@@ -116,7 +116,8 @@ marker 记录 schema version、workspace id、canonical root、Git common-dir、
 | W6 | 提供可复用快速门禁 | security | `scripts/workspace-safety/workspace_context.py`、`scripts/workspace-safety/tests/test_require_ready.py` | `require-ready`子命令/函数 | 只校验marker、canonical root和current branch，返回稳定码与恢复命令 | 既有入口能用毫秒级检查阻断明显错workspace | 用窄机制支撑基础管控，不复制doctor全量逻辑 | Complexity: +1快速子命令；Reach/Cost: 每个接入入口多一次本地文件/Git读取 | Ready/Unbootstrapped/Stale/Conflict fixtures与耗时记录；证明副作用前退出 | 误报先修复统一函数，不给调用方增加bypass | planned |
 | W7 | 隔离Linux开发安装 | deployment | `scripts/install-whale-local.sh`、`scripts/test-install-whale-local.sh` | `--scope workspace`、`--scope user`、destination、attestation | 安装前调用require-ready；workspace scope写当前XDG slot，user scope才允许legacy路径 | Linux workspace安装互不覆盖，全局promotion保持显式 | 关闭当前codex误跑alpha binary的直接风险 | Complexity: +1scope分支，复用attestation；Reach/Cost: 无scope调用失败，installer测试面扩大 | fakeHOME/XDG双workspace安装；hash/attestation归属、原子替换、跨slot不变 | legacy不动；新slot移入备份；逐提交revert | planned |
 | W8 | 迁移Linux cache runner | internal | `scripts/cache-regression/run_cache_hit_regression.py`、对应Python tests | `--whale-bin`解析与preflight | 删除`~/.whale/bin/whale`默认，默认从Ready workspace slot解析并验证attestation | cache run不会在错误binary上启动 | 保护付费与缓存证据主体身份，失败发生在零请求前 | Complexity: 修改1个Python入口和tests；Reach/Cost: 调用前需bootstrap，触及cache敏感面需执行index gate | parser/fixture；codex传alpha attestation零请求失败；cache index gate | preflight不稳定则暂停该runner迁移，不恢复global fallback | planned |
-| W9 | 逐类迁移其余Linux高风险入口 | internal | `Unknown，待D0输出具体路径清单` | 每个benchmark/E2E入口的binary/home preflight | 按D0清单一入口一提交接入require-ready/exec，PowerShell/Windows项留给W14 | 已确认的Linux高风险入口在副作用或请求前阻断 | 避免用一个大改动混合不同runner和成本边界 | Complexity: 取决于D0识别的入口数，不新增runner；Reach/Cost: 各入口回归范围与调用契约分别变化 | 每个入口独立无模型fixture与零请求负例；完成项逐项记录 | D0未确认前不执行；任一入口契约不清晰只阻塞该项 | blocked-on-discovery |
+| W9a | 接入active-prefix宿主门禁 | internal | `scripts/taskspace-benchmark/run-active-prefix-matrix.py`、对应tests | `main()`在创建run root前的workspace与预算preflight | 在任何目录写入、Docker启动或模型请求前调用require-ready并验证现有运行授权合同 | active-prefix矩阵不会从错误workspace启动 | 确保付费证据可归属，并把环境错误提前到零请求阶段 | Complexity: 修改1个Python入口及tests；Reach/Cost: 旧直调需先bootstrap，真实运行仍受账本/预算约束 | plan-only与无模型fixtures；Stale时零目录/零Docker/零请求；预算合同回归 | 现有授权链不清晰则暂停，不以workspace门禁替代预算门禁 | planned |
+| W9b | 接入provider-wire宿主门禁 | internal | `scripts/taskspace-benchmark/r7_a2_b0_provider_wire_probe.py`、对应tests | `main()`在创建raw/output和HTTP请求前的workspace与预算preflight | 在任何文件写入或provider请求前调用require-ready并验证现有运行授权合同 | provider-wire探针不能绕过workspace身份启动 | 防止高请求量探针生成主体不明、无法采信的provider证据 | Complexity: 修改1个Python入口及tests；Reach/Cost: 直接调用契约收紧，PowerShell封装需在W14另验 | 无模型HTTP stub；Stale时零文件/零请求；repeat×scenario预算负例 | 授权主体无法从现有wrapper证明时暂停，不自动发起真实probe | planned |
 | W10 | 接入VS Code便利任务 | client | `.vscode/tasks.json`或D0确认的既有配置 | Bootstrap Plan/Apply、Doctor、Rust Check任务 | 仅调用权威CLI；Rust Check在`third_party/codex-cli/codex-rs`执行或传manifest-path | VS Code用户无需手工拼接环境即可走同一合同 | 降低日常使用摩擦，但不成为正确性唯一入口 | Complexity: +1编辑器配置文件/若已存在则增任务；Reach/Cost: VS Code用户受益，CLI用户不受影响，需维护变量展开 | task命令dry-run；临时worktree执行plan/doctor；Rust check路径解析正确 | VS Code变量不稳定时单独revert，CLI不受影响 | planned |
 | W11 | 固化Agent和开发规范 | documentation | `AGENTS.md`、`README.md`、`docs/runbooks/development-workflow.md`、`docs/runbooks/local-workspace-safety.md` | 开工前置规则、命令、边界和恢复 | CLI达到W6后同步写入强制AGENTS声明与人类runbook，明确直接底层命令的责任边界 | 新Agent会话和开发者能重复执行正确流程 | 把基础门禁升级为仓库长期惯例，减少口头知识 | Complexity: 更新4类文档，不新增运行路径；Reach/Cost: 命令变更需同步维护，开工增加一次检查 | 链接与命令smoke；术语扫描；按文档在临时worktree完成plan/apply/doctor | 文档命令未通过smoke不合入；不提前声明未实现命令可用 | planned |
 | W12 | 防止共享资源回归 | developer-tooling | `scripts/workspace-safety/check_workspace_references.py`、`scripts/workspace-safety/tests/test_reference_gate.py` | forbidden defaults与窄allowlist | 扫描新的legacy whale默认、共享target/outputBase和D0确认的未门禁入口 | 后续改动不能重新引入已关闭串扰 | 让隔离合同持续生效而非一次性配置 | Complexity: +1静态规则和小allowlist；Reach/Cost: 脚本文档调整可能触发规则，需维护精确匹配 | 正反fixtures；当前repo零未解释违规；allowlist每项写理由 | 误报修正规则，不扩大allowlist掩盖执行入口 | planned |
@@ -131,7 +132,7 @@ marker 记录 schema version、workspace id、canonical root、Git common-dir、
 - Work units：D0、W1、W2。
 - Phase-local evidence：实际入口清单、plan零写入、identity/state纯函数fixtures。
 - Cross-unit side effects：只增加脚本与测试，不创建真实workspace marker。
-- Next-phase condition：clone和linked worktree均能稳定输出确定性plan及五态判断；D0解除或明确W9阻塞项。
+- Next-phase condition：clone和linked worktree均能稳定输出确定性plan及五态判断；D0已把其余Linux宿主入口收敛为W9a/W9b。
 
 ### Phase 2：Apply、诊断与运行隔离
 
@@ -144,7 +145,7 @@ marker 记录 schema version、workspace id、canonical root、Git common-dir、
 ### Phase 3：逐入口接入
 
 - Entry condition：Phase 2 CLI与诊断码稳定。
-- Work units：W7、W8、W9、W12。
+- Work units：W7、W8、W9a、W9b、W12。
 - Phase-local evidence：双slot安装、cache runner错误主体零请求失败、D0确认入口逐项证据、静态回归门禁。
 - Cross-unit side effects：旧Linux无scope安装和global whale默认会失败；调用方需先bootstrap。
 - Next-phase condition：已确认Linux高风险入口均不再默认解析legacy binary/home；cache-sensitive index gate通过。
@@ -206,7 +207,7 @@ cache index gate只在触及既有敏感面时执行；不得用workspace smoke�
 | 轻量门禁被绕过 | 直接cargo/git未检查 | AGENTS/README约束，统一入口兜底 | 接受明确边界，不扩张为hook/reflog状态机 |
 | 错binary被调用 | attestation主体/hash不符 | doctor和runner preflight，不fallback到PATH | 零请求前失败，暂停对应入口 |
 | build cache交叉 | 两workspace target/outputBase realpath相同 | 保持官方默认，不设置共享override | 移除override，不自动删除缓存 |
-| D0发现入口过多 | W9范围无法形成小提交 | 一入口一提交，按模型风险排序 | 未确认入口保持blocked-on-discovery |
+| inventory启发式漂移 | 新脚本未被识别或测试/库误报为入口 | 只把可执行入口纳入entrypoints，引用仍全量保留；W12固化规则fixtures | 发现错分先修inventory，不据此自动执行任何入口 |
 | 磁盘增长 | workspace独立home/bin/log | 状态日志设上限，只共享registry/toolchain | 报告路径/大小；清理由用户另行授权 |
 
 ## 8. 不采用的方案
@@ -232,7 +233,7 @@ cache index gate只在触及既有敏感面时执行；不得用workspace smoke�
 - [ ] 新clone、linked worktree和两套独立common-dir均可bootstrap；
 - [ ] branch变化使状态Stale，重新apply复用workspace目录；历史切换盲区被明确接受；
 - [ ] Cargo验证使用实际manifest，Bazel仅在适用且可用时执行；
-- [ ] installer、cache runner和D0确认的Linux高风险入口分别接入基础门禁；
+- [ ] installer、cache runner、active-prefix和provider-wire宿主入口分别接入基础门禁；容器内部组件由宿主入口负责；
 - [ ] AGENTS、README、runbook与VS Code task使用一致命令；
 - [ ] legacy数据与凭据未迁移、未删除、未进入Git或日志；
 - [ ] 当前codex/alpha只作为首批样本，不成为实现特例；
@@ -240,4 +241,11 @@ cache index gate只在触及既有敏感面时执行；不得用workspace smoke�
 - [ ] 无真实模型请求，未来真实运行仍遵守run ledger与预算门禁；
 - [ ] 代码和文档按小主题提交、push，工作树最终clean。
 
-本文件仅完成工程计划修订，不授权开始实现。执行从D0开始；每个代码主题独立验证、commit并push，完成后按项目规则询问是否需要对抗性审查。
+## 10. Execution Tracking
+
+| Work Unit | Execution Status | Evidence | Missing Evidence | Decision |
+| --- | --- | --- | --- | --- |
+| D0 | verified | `scripts/workspace-safety/workspace_inventory.py`、schema、4项fixture、2026-08-08当前workspace脱敏盘点；详见`02-d0-entrypoint-inventory-report.md` | 无；运行时行为只做静态归类，不声称真实模型路径已验证 | D0收口，下一候选为W1 |
+| W1-W14 | not-started | 无 | 各单元计划中的实现与验证证据 | 未获本轮执行授权 |
+
+本轮仅授权并完成D0，不自动授权W1及后续工作。后续每个代码主题独立验证、commit并push，完成后按项目规则询问是否需要对抗性审查。
