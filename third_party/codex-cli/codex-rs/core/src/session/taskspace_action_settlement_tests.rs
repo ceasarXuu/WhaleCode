@@ -335,6 +335,33 @@ async fn settlement_failure_remains_visible_at_every_request_barrier() {
 }
 
 #[tokio::test]
+async fn provider_preparation_stops_on_permanent_settlement_failure() {
+    let (home, session, turn, map_id) = persisted_session().await;
+    session
+        .enqueue_taskspace_action_settlement(TaskSpaceActionSettlementFact {
+            map_id,
+            outer_call_id: "outer".into(),
+            action_id: "outer/taskspace/call/0".into(),
+            node_ids: vec!["wrong".into()],
+            tool_name: "inspect".into(),
+            outcome: TaskSpaceActionOutcome::Succeeded,
+        })
+        .expect("enqueue invalid settlement fact");
+
+    let initial_context = session.build_initial_context(&turn).await;
+    let error = match session
+        .prepare_provider_visible_prompt_items(&turn, initial_context)
+        .await
+    {
+        Ok(_) => panic!("provider preparation must stop before transport"),
+        Err(error) => error,
+    };
+    assert!(error.contains("TaskSpace settlement barrier failed"));
+    assert!(error.contains("attribution mismatch"));
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
 async fn graceful_shutdown_waits_for_producer_then_settlement() {
     let (home, session, _turn, map_id) = persisted_session().await;
     let (started_tx, started_rx) = tokio::sync::oneshot::channel();

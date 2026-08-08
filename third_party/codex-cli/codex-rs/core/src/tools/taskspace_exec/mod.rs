@@ -63,3 +63,7 @@ mod dispatch_tests;
 #[cfg(test)]
 #[path = "../taskspace_exec_handler_tests.rs"]
 mod handler_tests;
+
+#[cfg(test)]
+#[path = "../taskspace_exec_persisted_lifecycle_tests.rs"]
+mod persisted_lifecycle_tests;

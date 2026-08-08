@@ -2976,7 +2976,7 @@ async fn wait_for_thread_rollback_failed(rx: &async_channel::Receiver<Event>) ->
     }
 }
 
-async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
+pub(crate) async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
     let live_thread = LiveThread::create(
         Arc::clone(&session.services.thread_store),
         CreateThreadParams {
@@ -3002,6 +3002,13 @@ async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
         .await
         .expect("load rollout path")
         .expect("thread should have rollout path")
+}
+
+impl Session {
+    pub(crate) fn start_taskspace_action_settlements_for_test(self: &Arc<Self>) {
+        self.taskspace_action_settlements
+            .start(Arc::downgrade(self));
+    }
 }
 
 fn text_block(s: &str) -> serde_json::Value {
