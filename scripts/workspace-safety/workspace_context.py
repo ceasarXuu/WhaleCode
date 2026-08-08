@@ -14,6 +14,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from workspace_persistence import ApplyError, atomic_write_json, ensure_resource_directories
+
 MARKER_SCHEMA_VERSION = 1
 PLAN_SCHEMA_VERSION = 1
 
@@ -282,6 +288,51 @@ def build_plan(
     }
 
 
+def _marker_for_context(context: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": MARKER_SCHEMA_VERSION,
+        "workspace_id": context["workspace_id"],
+        "canonical_root": context["canonical_root"],
+        "git_common_dir": context["git_common_dir"],
+        "branch": context["branch"],
+        "resources": context["resources"],
+        "last_doctor": {"status": "passed", "diagnostic_codes": []},
+    }
+
+
+def apply_plan(
+    start: Path | str,
+    expected_fingerprint: str,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Apply a freshly recomputed plan to derived XDG paths only."""
+
+    plan = build_plan(start, environment)
+    if plan["fingerprint"] != expected_fingerprint:
+        raise ApplyError(
+            "plan_fingerprint_mismatch",
+            "confirmed fingerprint does not match the current workspace plan",
+        )
+    if not plan["can_apply"]:
+        reasons = ",".join(plan["blocking_reason_codes"])
+        raise ApplyError("plan_not_applicable", reasons or "plan is blocked")
+    context = plan["context"]
+    resources = ensure_resource_directories(context["resources"])
+    marker = _marker_for_context(context)
+    marker_path = Path(context["marker_path"])
+    marker_disposition = atomic_write_json(marker_path, marker)
+    applied_state = evaluate_state(marker, context)
+    if applied_state["code"] != READY:
+        raise ApplyError("post_apply_doctor_failed", applied_state["reason_code"])
+    return {
+        "workspace_id": context["workspace_id"],
+        "state": applied_state,
+        "resources": resources,
+        "marker_path": str(marker_path),
+        "marker_disposition": marker_disposition,
+    }
+
+
 def render_json(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
@@ -318,14 +369,31 @@ def main() -> int:
     plan_parser = bootstrap_commands.add_parser("plan")
     plan_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     plan_parser.add_argument("--json", action="store_true")
+    apply_parser = bootstrap_commands.add_parser("apply")
+    apply_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    apply_parser.add_argument("--expect", required=True)
+    apply_parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     try:
-        plan = build_plan(args.repo_root)
+        if args.bootstrap_command == "plan":
+            plan = build_plan(args.repo_root)
+            sys.stdout.write(render_json(plan) if args.json else render_human(plan))
+            return 0 if plan["can_apply"] else 3
+        result = apply_plan(args.repo_root, args.expect)
+    except ApplyError as error:
+        print(f"workspace apply failed [{error.code}]: {error}", file=sys.stderr)
+        return 4
     except (ContextError, OSError, ValueError) as error:
         print(f"workspace context failed: {error}", file=sys.stderr)
         return 2
-    sys.stdout.write(render_json(plan) if args.json else render_human(plan))
-    return 0 if plan["can_apply"] else 3
+    if args.json:
+        sys.stdout.write(render_json(result))
+    else:
+        print(
+            f"Workspace bootstrap applied: {result['workspace_id']} "
+            f"({result['state']['code']})"
+        )
+    return 0
 
 
 if __name__ == "__main__":
