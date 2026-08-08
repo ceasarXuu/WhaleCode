@@ -101,6 +101,32 @@ class WorkspaceApplyTest(unittest.TestCase):
         self.assertEqual("plan_fingerprint_mismatch", raised.exception.code)
         self.assertFalse(self.home.exists())
 
+    def test_branch_reapply_reuses_resources_and_returns_ready(self) -> None:
+        initial = self.plan()
+        workspace_context.apply_plan(
+            self.root, initial["fingerprint"], self.environment
+        )
+        resource_inodes = {
+            name: Path(path).stat().st_ino
+            for name, path in initial["context"]["resources"].items()
+        }
+        git(self.root, "checkout", "-q", "-b", "other")
+
+        stale = workspace_context.build_plan(self.root, self.environment)
+        result = workspace_context.apply_plan(
+            self.root, stale["fingerprint"], self.environment
+        )
+
+        self.assertEqual("Stale", stale["state"]["code"])
+        self.assertEqual("Ready", result["state"]["code"])
+        self.assertEqual(
+            resource_inodes,
+            {
+                name: Path(path).stat().st_ino
+                for name, path in stale["context"]["resources"].items()
+            },
+        )
+
     def test_legacy_home_and_git_are_untouched(self) -> None:
         legacy = self.home / ".whale"
         legacy.mkdir(parents=True)

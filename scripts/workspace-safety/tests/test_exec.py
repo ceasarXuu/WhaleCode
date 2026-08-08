@@ -125,7 +125,16 @@ class WorkspaceExecTest(unittest.TestCase):
         other = self.make_repo("other", "feature")
         other_context = self.bootstrap_with_binary(other)
         first_context = workspace_context.resolve_context(self.root, self.environment)
-        script = "from pathlib import Path; import os; Path(os.environ['WHALE_HOME'],'probe').write_text(os.getcwd())"
+        script = (
+            "from pathlib import Path; import os,sqlite3; "
+            "h=Path(os.environ['WHALE_HOME']); "
+            "db=sqlite3.connect(h/'state.sqlite'); "
+            "db.execute('pragma journal_mode=wal'); "
+            "db.execute('create table evidence(value text)'); "
+            "db.execute('insert into evidence values (?)',(os.getcwd(),)); db.commit(); db.close(); "
+            "(h/'state.sqlite-wal.fixture').write_text(os.getcwd()); "
+            "(h/'log').mkdir(exist_ok=True); (h/'log'/'events.log').write_text(os.getcwd())"
+        )
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(
@@ -137,13 +146,16 @@ class WorkspaceExecTest(unittest.TestCase):
                 )
             )
 
-        first_probe = Path(first_context["resources"]["runtime_home"]) / "probe"
-        other_probe = Path(other_context["resources"]["runtime_home"]) / "probe"
+        first_home = Path(first_context["resources"]["runtime_home"])
+        other_home = Path(other_context["resources"]["runtime_home"])
         self.assertEqual([0, 0], results)
-        self.assertNotEqual(first_probe, other_probe)
-        self.assertNotEqual(first_probe.stat().st_ino, other_probe.stat().st_ino)
-        self.assertEqual(str(self.root.resolve()), first_probe.read_text())
-        self.assertEqual(str(other.resolve()), other_probe.read_text())
+        for relative in ("state.sqlite", "state.sqlite-wal.fixture", "log/events.log"):
+            first_artifact = first_home / relative
+            other_artifact = other_home / relative
+            self.assertNotEqual(first_artifact, other_artifact)
+            self.assertNotEqual(first_artifact.stat().st_ino, other_artifact.stat().st_ino)
+        self.assertEqual(str(self.root.resolve()), (first_home / "log/events.log").read_text())
+        self.assertEqual(str(other.resolve()), (other_home / "log/events.log").read_text())
 
     def test_audit_log_never_records_command_or_environment_values(self) -> None:
         workspace_context.exec_ready(
