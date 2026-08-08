@@ -1,7 +1,7 @@
 # Subagent VS Review: R8 MS-03 Action 结算闭环
 
 - Created: 2026-08-09T05:09:58+08:00
-- Updated: 2026-08-09T06:20:00+08:00
+- Updated: 2026-08-09T07:05:00+08:00
 - Report schema: adversarial-v2
 - Task: 对已完成的 MS-03 Action 结算方案执行独立对抗性审查
 - Report path: `vs_review/2026-08-09-r8-ms03-settlement-review.md`
@@ -348,14 +348,14 @@ settlement 4、TaskSpace handler 8、output-reference 10 条定向测试，全�
 | N01 | fixed | E2 | `4be93ba31` 按 extended code 的低字节识别 primary `BUSY/LOCKED`，日志同时记录 raw/primary code，并覆盖 `261/262/517` | 局部 classifier 与测试；不改变重试策略 | 已闭合 |
 | N02 | fixed | E2+E4 | `4be93ba31` 在任何 enqueue 前完成 outer/call-index/action identity 与同 Action 冲突历史的整批校验 | 恢复硬校验与负例，不引入语义判断 | 已闭合 |
 | N03 | reject | E4 | barrier、单 active turn 和单 response 有限 calls 不支持“随 busy 持续无限生产”；仅接受 queue depth/age 观测建议 | 不引入 backpressure/持久化队列 | n/a |
-| N04 | accept | E2 | read-load 与 install 之间没有 revision 单调检查或 serializer，存在旧 cache 覆盖新 cache 的合法交错 | 单调 cache install 或复用现有 serializer | 可纳入 closure |
+| N04 | fixed | E2 | `2aa968348` 将 Store read、settlement 和 conflict refresh 收敛到同一原子安装门禁；旧 revision 跳过、同 revision 异 hash 与 Map 绑定变化拒绝 | 不给读取增加全局写锁，不改变 canonical Store | 已闭合 |
 
 `4be93ba31` 还把 `taskspace.action_settlement_queued` 移到 channel send 成功之后，并补齐 worker failure 的
 map/outer/action/node/tool/outcome identity。State 定向 4、Session settlement 6、TaskSpace Exec 56、workspace check、
 zero-base 与 cache gate 均通过；没有真实 Whale Agent/Provider run。
 
 B01 与 B02 仍共同改变 execution producer 和 shutdown 所有权，属于项目规则要求用户复核的重大技术路线点；B03 必须随
-该设计补组合生产链测试。N04 的本地 cache revision 单调合同同样涉及核心读取语义，尚未修改。Round 2 尚未启动。
+该设计补组合生产链测试。`2aa968348` 已用 5 条 cache 安装测试和实际 Session 反例闭合 N04；Round 2 尚未启动。
 
 ## Review Governor
 
@@ -366,7 +366,7 @@ B01 与 B02 仍共同改变 execution producer 和 shutdown 所有权，属于�
 
 ## Convergence And Closure
 
-- Unresolved blockers: 3（B01、B02、B03）
+- Unresolved blockers: 3（B01、B02、B03）；accepted non-blocking 项 N01、N02、N04 已闭合
 - Scope growth: 审查报告 1 个；生产代码无变化；未增加依赖、API、schema 或真实运行。
 - Side effects: MS-03 与 Phase B3 的 verified 结论必须重新打开。
 - Evidence inventory: E0 产品边界；E1 MS-03 合同；E2 production code/tests/SQLx dependency；E4 精确交错待确定性复现。

@@ -185,5 +185,8 @@ drain 顺序，先以确定性交错测试复现，再修复并补组合生产�
 channel send 成功后记录，worker failure 补齐完整机械身份。State 定向 4、Session settlement 6、TaskSpace Exec 56、
 workspace check、zero-base 和 cache gate 均通过，真实 Whale Agent/Provider 请求为 0。
 
-该提交没有调整 Tool producer、Session shutdown 或本地 cache 安装语义，因此 B01、B02、B03 与 cache revision 单调性
-仍保持 open；MS-03 和 Phase B3 状态不变。
+提交 `2aa968348` 随后把 Store read、settlement 和 conflict refresh 收敛到同一 Session cache 安装门禁：旧
+`store_revision` 不得覆盖新 revision，同 revision 异 hash 和 Map 绑定变化作为一致性错误拒绝。5 条 cache 安装测试包含
+实际 Session 的旧读取晚到反例；Store 9、settlement 6、Exec 56、workspace、zero-base 与 cache gate 均通过。
+
+N04 已闭合；B01、B02、B03 仍保持 open，MS-03 和 Phase B3 状态不变。
