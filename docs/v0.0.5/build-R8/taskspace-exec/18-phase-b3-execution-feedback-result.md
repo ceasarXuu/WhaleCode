@@ -1,8 +1,8 @@
 # Phase B3 MS-03、EX-06～EX-08 执行与反馈结果
 
 - 日期：2026-08-07；2026-08-09 更新
-- 状态：blocked；首轮 fresh adversarial review 重新打开 cancellation/shutdown/组合验收缺口
-- 核心提交：`1347606e0`、`60fd7e0a8`、`03acb2db6`、`e5925b45d`、`702f885a0`
+- 状态：B01～B03 已完成工程修复与离线验证；等待 focused closure review 后决定 Phase B3 是否关闭
+- 核心提交：`1347606e0`、`60fd7e0a8`、`03acb2db6`、`e5925b45d`、`702f885a0`、`aba41ff04`、`4d7387a86`
 - 真实 Whale Agent run：0
 
 ## 1. 产品结果
@@ -14,8 +14,8 @@ TaskSpace 已接入唯一生产执行链：
    `ToolRouter` 并行或串行执行原生 Tool。
 3. 每个 Tool 完成后立即独立结算为 `succeeded`、`failed` 或 `cancelled`，不等待同批慢 Tool。Tool outcome 不改变
    Node 生命周期；节点推进仍由 Agent 显式 Map 操作决定。
-4. 若 Exec future 在 Tool 完成前中断，已落账 Action 保持可恢复读取的 `pending`；Runtime 不自动重试 Tool，也不把
-   未发生的结果补写为成功或失败。
+4. outer Exec collector 中断不会撤销已经登记的 Action producer；producer 持有单次原生 Tool 执行直到终态事实进入
+   settlement FIFO。Tool 自身真实取消仍按 `cancelled` 结算；Runtime 不自动重试 Tool，也不猜测未发生的结果。
 5. Provider-hosted 结果使用 Responses wire 的真实 `output_index`、Provider ID、Tool 类型和终态 outcome，与 Agent
    声明的 `node_ids[]` 逐项核对。一个 Hosted Action 可归属多个 Work Node；漏绑、错绑、重复、无 Exec、多个 Exec
    或缺少 wire index 均在 client/Map 副作用前拒绝。
@@ -189,4 +189,48 @@ workspace check、zero-base 和 cache gate 均通过，真实 Whale Agent/Provid
 `store_revision` 不得覆盖新 revision，同 revision 异 hash 和 Map 绑定变化作为一致性错误拒绝。5 条 cache 安装测试包含
 实际 Session 的旧读取晚到反例；Store 9、settlement 6、Exec 56、workspace、zero-base 与 cache gate 均通过。
 
-N04 已闭合；B01、B02、B03 仍保持 open，MS-03 和 Phase B3 状态不变。
+N04 已闭合；本节是 `aba41ff04`、`4d7387a86` 之前的历史停点。
+
+## 11. B01～B03 最小生命周期修复
+
+### 11.1 成熟方案依据
+
+本轮按 Tokio 官方的 graceful shutdown 分工收敛，而不是增加 TaskSpace 专属可靠性架构：
+
+1. [Tokio Graceful Shutdown](https://tokio.rs/tokio/topics/shutdown) 将关闭拆为通知任务停止与等待任务完成两个独立步骤；
+2. [`TaskTracker`](https://docs.rs/tokio-util/latest/tokio_util/task/struct.TaskTracker.html) 提供任务登记、`close` 与
+   `wait`，适合 Session 在退出前等待已接收的 producer；其 `close` 本身不禁止后续 spawn，因此实现只增加一个短临界区
+   admission gate，使“登记新 producer”和“关闭登记入口”机械互斥；
+3. [Tokio `mpsc` clean shutdown](https://docs.rs/tokio/latest/tokio/sync/mpsc/index.html#clean-shutdown)
+   的核心是停止新输入后排空既有消息。项目已有 Session-owned settlement FIFO 和 barrier，因此复用现有队列，不再增加
+   channel、持久化消息队列、ack 状态机或第二份 Tool 结果。
+
+最终只有三层机械责任：Action producer 持有原生 Tool 到 settlement enqueue；settlement FIFO 顺序写入 outcome-only
+Store；graceful shutdown 依次关闭 producer admission、等待 producer、等待 FIFO barrier。任何一层都不解释 Tool 结果，
+不推进 Node，不改变 Agent 协议，也不自动重试 Tool。
+
+### 11.2 实施结果
+
+提交 `aba41ff04` 让 producer 而非 outer collector 持有“原生 Tool 执行 → 终态事实 enqueue”的完整生命周期。outer
+future 被 abort 后，已经登记的 producer 继续完成一次原生调用并投递事实；Session shutdown 在发送
+`ShutdownComplete` 前先停止接收 producer、等待 producer 归零，再等待 settlement barrier。永久结算错误会返回明确错误，
+不会同时报告 shutdown 成功。
+
+提交 `4d7387a86` 增加独立的持久化组合测试，穿过生产 `taskspace_exec` handler、原生 ToolRouter、FIFO、SQLite
+canonical Map、Standard rollout/output-ref 和 provider 请求准备入口；另以错误归属事实证明 settlement 永久错误在
+provider preparation 阶段阻断，transport 尚未开始。
+
+| 闭合项 | 证据 | 当前结论 |
+|---|---|---|
+| B01 post-Tool cancellation window | 确定性 abort outer collector；原生 Tool 仅执行一次，Action 最终 `Succeeded` | fixed / review pending |
+| B02 graceful shutdown drain | producer latch、FIFO barrier、永久错误不发送 `ShutdownComplete` | fixed / review pending |
+| B03 组合生产链缺口 | persisted handler → SQLite → rollout/output-ref → provider preparation；错误路径阻断请求 | fixed / review pending |
+| TaskSpace Exec | 57 passed | PASS |
+| Session settlement | 9 passed | PASS |
+| `cargo check --workspace --all-targets` | 无新增错误；既有 warning 不变 | PASS |
+| zero-base / cache final-wire gate | fingerprint `9757f261...ac0c4`；provider wire 未变化 | PASS |
+| 真实 Whale Agent / Provider 请求 | 0 | 未消耗预算 |
+
+该结果只关闭已知工程缺口，不扩大产品承诺：极端进程级崩溃仍可能让已执行但尚未进入 rollout 的 Action 保持
+`Pending`，Runtime 继续忠实呈现未知状态，不猜测、不补写、不重跑。Phase B3 是否正式关闭留给剩余 focused closure
+review 决定。

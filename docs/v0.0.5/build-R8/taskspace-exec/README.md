@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B2 verified offline / Phase B3 reopened at MS-03
+- Status: Phase B0～B2 verified offline / Phase B3 MS-03 engineering closure implemented, focused review pending
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -50,8 +50,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   已统一到最简 Node 模型；旧 v3、edges/ref/ledger/event-replay/detail-fold 和无消费者代码已归零。
 - Phase B2 `EX-01～EX-04` 已完成。Map 五项操作、静态 Exec catalog、请求级 revision/identity 和整批预检均有离线证据。
 - Phase B3 的 client 原生 dispatch、关系化 canonical Store、Hosted response 对账、唯一 outer 反馈和正式 Router
-  入口已经落地，但 MS-03 在 fresh adversarial review 中重新打开：Tool 子任务完成到 settlement enqueue 之间仍有
-  cancellation 窗口，graceful shutdown 未 drain producer/FIFO，组合持久化生产链测试缺失。Phase B4 暂停。
+  入口已经落地。提交 `aba41ff04`、`4d7387a86` 已按 Session producer tracking + 现有 FIFO barrier 修复首轮审查发现的
+  cancellation、graceful shutdown 和组合持久化生产链缺口；未新增持久化队列或产品语义。当前等待剩余 focused
+  closure review，Phase B4 继续暂停。
 
 ## 3. 文档
 
