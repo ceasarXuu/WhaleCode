@@ -1,7 +1,7 @@
 # Phase B3 MS-03、EX-06～EX-08 执行与反馈结果
 
 - 日期：2026-08-07；2026-08-09 更新
-- 状态：verified；MS-03 收敛修复通过离线故障合同，Phase B3 关闭
+- 状态：blocked；首轮 fresh adversarial review 重新打开 cancellation/shutdown/组合验收缺口
 - 核心提交：`1347606e0`、`60fd7e0a8`、`03acb2db6`、`e5925b45d`、`702f885a0`
 - 真实 Whale Agent run：0
 
@@ -155,6 +155,25 @@ preflight -> persist Pending -> native Tool dispatch
 | cache regression gate，source=index | PASS，fingerprint `61da3cc3...6712b9c` |
 | 真实 Whale Agent / Provider 请求 | 0 |
 
-结论：MS-03 的已知三项缺口已经闭合，Phase B3 恢复为 verified，可进入 Phase B4。该结论不声称任意外部 Tool 副作用
+以下是 `702f885a0` 实施后的初始结论，已被第 9 节 fresh adversarial review 推翻：当时认为 MS-03 的已知三项缺口已经
+闭合、Phase B3 可进入 Phase B4。该结论不声称任意外部 Tool 副作用
 与 Map 事务具备进程级原子性；在 Tool 结果尚未进入 rollout 的极端进程崩溃窗口，Map 会忠实保留 Pending，而不是由
 Runtime 猜测终态或自动重试 Tool。
+
+## 9. Fresh adversarial review 重新打开
+
+2026-08-09 的 fresh、`fork_context=false`、只读 reviewer 发现三个 blocker，主流程按生产代码逐项复核后全部接受：
+
+1. 原生 Tool 在 `AbortOnDropHandle` 子任务中完成，但 settlement 只在父 TaskSpace future poll 到 JoinHandle 结果后 enqueue。
+   子任务完成到父 future 下一次 poll 之间被 abort 时，Tool 已执行，结果、queue fact 和 rollout feedback 都不存在。
+2. graceful Session shutdown 在 abort tasks 后没有等待 TaskSpace producer 或 FIFO barrier，就继续关闭 persistence 并发送
+   `ShutdownComplete`；worker 只持有 `Weak<Session>`，Session drop 后可放弃剩余命令。
+3. 现有 handler 使用 test-only in-memory Map，持久化测试直接注入 fact/feedback；没有一条测试穿过 persisted handler
+   dispatch、SQLite settlement、rollout/output-ref、recovery/barrier 和 provider transport blocking 的组合生产链。
+
+审查还确认三项相邻非 blocker：SQLx 返回 extended SQLite result code 而 classifier 只匹配 `5/6`；recovery 未交叉核对
+outer/action identity 或拒绝冲突历史；并发 Store read 可把旧 revision 安装回本地 cache。完整证据、逐项 triage 和治理停点见
+[`2026-08-09-r8-ms03-settlement-review.md`](../../../../vs_review/2026-08-09-r8-ms03-settlement-review.md)。
+
+当前结论：MS-03 与 Phase B3 重新 blocked。下一步必须共同设计 TaskSpace-owned execution producer 与 graceful shutdown
+drain 顺序，先以确定性交错测试复现，再修复并补组合生产链验收；不得用后置 retry、持久化队列或自动 Tool 重试替代。
