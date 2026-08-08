@@ -264,6 +264,32 @@ async fn sync_map_rows(
             .execute(&mut **tx)
             .await?;
     }
+
+    let temporary_position_base = current
+        .len()
+        .checked_add(candidate.len())
+        .ok_or_else(|| anyhow::anyhow!("TaskSpace node positions overflow"))?;
+    for (temporary_offset, stored) in candidate.values().enumerate() {
+        let Some(old) = current.get(&stored.node.node_id) else {
+            continue;
+        };
+        if old.role == stored.role && old.position == stored.position {
+            continue;
+        }
+        let temporary_position = temporary_position_base
+            .checked_add(temporary_offset)
+            .ok_or_else(|| anyhow::anyhow!("TaskSpace node positions overflow"))?;
+        sqlx::query(
+            "UPDATE taskspace_map_nodes SET role = ?, position = ? WHERE map_id = ? AND node_id = ?",
+        )
+        .bind(stored.role)
+        .bind(i64::try_from(temporary_position)?)
+        .bind(map_id)
+        .bind(&stored.node.node_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     for stored in candidate.values() {
         let old = current.get(&stored.node.node_id);
         if old.is_none_or(|old| !same_node_fields(old, stored)) {
@@ -294,23 +320,17 @@ ON CONFLICT(map_id, node_id) DO UPDATE SET
             replace_parents(tx, map_id, &stored.node).await?;
         }
     }
-    let changed_actions = candidate
-        .values()
-        .filter(|stored| {
+    for stored in candidate.values() {
+        sync_actions(
+            tx,
+            map_id,
             current
                 .get(&stored.node.node_id)
-                .is_none_or(|old| old.node.actions != stored.node.actions)
-        })
-        .collect::<Vec<_>>();
-    for stored in &changed_actions {
-        sqlx::query("DELETE FROM taskspace_map_node_actions WHERE map_id = ? AND node_id = ?")
-            .bind(map_id)
-            .bind(&stored.node.node_id)
-            .execute(&mut **tx)
-            .await?;
-    }
-    for stored in changed_actions {
-        insert_actions(tx, map_id, &stored.node).await?;
+                .map(|old| old.node.actions.as_slice())
+                .unwrap_or_default(),
+            &stored.node,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -373,12 +393,67 @@ async fn replace_parents(
     Ok(())
 }
 
-async fn insert_actions(
+async fn sync_actions(
     tx: &mut Transaction<'_, Sqlite>,
     map_id: &str,
+    current: &[TaskSpaceNodeAction],
     node: &TaskSpaceMapNode,
 ) -> anyhow::Result<()> {
+    let current_by_id = current
+        .iter()
+        .enumerate()
+        .map(|(position, action)| (action.action_id.as_str(), (position, action)))
+        .collect::<BTreeMap<_, _>>();
+    let candidate_by_id = node
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(position, action)| (action.action_id.as_str(), (position, action)))
+        .collect::<BTreeMap<_, _>>();
+
+    for action_id in current_by_id
+        .keys()
+        .filter(|action_id| !candidate_by_id.contains_key(**action_id))
+    {
+        sqlx::query(
+            "DELETE FROM taskspace_map_node_actions WHERE map_id = ? AND node_id = ? AND action_id = ?",
+        )
+        .bind(map_id)
+        .bind(&node.node_id)
+        .bind(action_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    let temporary_position_base = current
+        .len()
+        .checked_add(node.actions.len())
+        .ok_or_else(|| anyhow::anyhow!("TaskSpace action positions overflow"))?;
+    for (action_id, (position, _)) in &candidate_by_id {
+        let Some((current_position, _)) = current_by_id.get(action_id) else {
+            continue;
+        };
+        if current_position == position {
+            continue;
+        }
+        let temporary_position = temporary_position_base
+            .checked_add(*position)
+            .ok_or_else(|| anyhow::anyhow!("TaskSpace action positions overflow"))?;
+        sqlx::query(
+            "UPDATE taskspace_map_node_actions SET position = ? WHERE map_id = ? AND node_id = ? AND action_id = ?",
+        )
+        .bind(i64::try_from(temporary_position)?)
+        .bind(map_id)
+        .bind(&node.node_id)
+        .bind(action_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     for (position, action) in node.actions.iter().enumerate() {
+        if current_by_id.contains_key(action.action_id.as_str()) {
+            continue;
+        }
         sqlx::query(
             "INSERT INTO taskspace_map_node_actions (map_id, node_id, action_id, position, tool_name, outcome) VALUES (?, ?, ?, ?, ?, ?)",
         )
@@ -388,6 +463,27 @@ async fn insert_actions(
         .bind(i64::try_from(position)?)
         .bind(&action.tool_name)
         .bind(action_outcome_name(action.outcome))
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for (position, action) in node.actions.iter().enumerate() {
+        let Some((current_position, current_action)) = current_by_id.get(action.action_id.as_str())
+        else {
+            continue;
+        };
+        if current_position == &position && current_action == &action {
+            continue;
+        }
+        sqlx::query(
+            "UPDATE taskspace_map_node_actions SET position = ?, tool_name = ?, outcome = ? WHERE map_id = ? AND node_id = ? AND action_id = ?",
+        )
+        .bind(i64::try_from(position)?)
+        .bind(&action.tool_name)
+        .bind(action_outcome_name(action.outcome))
+        .bind(map_id)
+        .bind(&node.node_id)
+        .bind(&action.action_id)
         .execute(&mut **tx)
         .await?;
     }

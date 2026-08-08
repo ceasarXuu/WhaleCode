@@ -1092,6 +1092,7 @@ async fn run_sampling_request(
             .await
             .map_err(CodexErr::Fatal)?;
         let projection_identity = prepared_prompt.projection_identity;
+        let taskspace_request_map = prepared_prompt.taskspace_request_map;
         let prompt_input = prepared_prompt.items;
         let prompt = build_prompt(
             prompt_input,
@@ -1108,6 +1109,7 @@ async fn run_sampling_request(
             Arc::clone(&turn_diff_tracker),
             &prompt,
             projection_identity.as_ref(),
+            taskspace_request_map.as_ref(),
             cancellation_token.child_token(),
         )
         .await
@@ -1931,10 +1933,24 @@ async fn try_run_sampling_request(
     turn_diff_tracker: SharedTurnDiffTracker,
     prompt: &Prompt,
     projection_identity: Option<&crate::client::ProviderProjectionIdentityExpectation>,
+    taskspace_request_map: Option<&crate::session::ProviderTaskSpaceRequestMap>,
     cancellation_token: CancellationToken,
 ) -> CodexResult<SamplingRequestResult> {
     if let Some(scope) = tool_runtime.taskspace_response_scope() {
-        scope.reset();
+        let snapshot = taskspace_request_map.ok_or_else(|| {
+            CodexErr::Fatal(
+                "TaskSpace provider request is missing its visible Map snapshot".to_string(),
+            )
+        })?;
+        scope
+            .begin_request(snapshot.map_id.clone(), snapshot.revision)
+            .map_err(CodexErr::Fatal)?;
+        tracing::info!(
+            target: "codex_core::taskspace_exec",
+            event_name = "taskspace.exec.request_started",
+            map_id = %snapshot.map_id,
+            request_revision = ?snapshot.revision,
+        );
     }
     feedback_tags!(
         model = turn_context.model_info.slug.clone(),

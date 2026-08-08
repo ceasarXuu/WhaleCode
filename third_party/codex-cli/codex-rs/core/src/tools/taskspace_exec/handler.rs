@@ -39,7 +39,12 @@ struct ClientResult {
     node_id: String,
     tool: String,
     outcome: &'static str,
-    response: ResponseInputItem,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response: Option<ResponseInputItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settlement_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -82,22 +87,23 @@ impl ToolHandler for TaskSpaceExecHandler {
                 "taskspace_exec received a non-function payload".to_string(),
             ));
         };
-        let hosted_facts = self
+        let claim = self
             .response_scope
-            .claim_hosted_facts(&invocation.call_id)
+            .claim_response(&invocation.call_id)
             .map_err(taskspace_rejection)?;
         let (map_id, current_map) = read_current_map(invocation.session.as_ref()).await?;
-        let request = TaskSpaceExecRequestContext::capture(
-            map_id.clone(),
-            current_map.as_ref(),
+        let request = TaskSpaceExecRequestContext::from_request_snapshot(
+            claim.request.map_id,
+            claim.request.revision,
             Arc::clone(&self.catalog),
         )
         .map_err(|error| taskspace_rejection(format!("request context: {error:?}")))?;
         let envelope = request
             .decode_outer_call(invocation.call_id.clone(), arguments)
             .map_err(|error| taskspace_rejection(format!("invalid envelope: {error:?}")))?;
-        let prepared = preflight_taskspace_exec(&envelope, current_map.as_ref(), &hosted_facts)
-            .map_err(|error| taskspace_rejection(format!("preflight: {error:?}")))?;
+        let prepared =
+            preflight_taskspace_exec(&envelope, current_map.as_ref(), &claim.hosted_facts)
+                .map_err(|error| taskspace_rejection(format!("preflight: {error:?}")))?;
         tracing::info!(
             target: "codex_core::taskspace_exec",
             event_name = "taskspace.exec.preflight_accepted",
@@ -148,25 +154,42 @@ impl ToolHandler for TaskSpaceExecHandler {
             invocation.cancellation_token.clone(),
         );
         let mut client_results = Vec::new();
-        let mut fatal_error = None;
         while let Some(result) = dispatched.next().await {
             let outcome = dispatched_outcome(&result);
-            settle_client_action(invocation.session.as_ref(), &result, outcome).await?;
-            match result.response {
-                Ok(response) => client_results.push(ClientResult {
-                    call_index: result.identity.index,
-                    node_id: result.node_id,
-                    tool: result.public_name,
-                    outcome: outcome_name(outcome),
-                    response,
-                }),
-                Err(error) => {
-                    fatal_error.get_or_insert(error);
-                }
+            let settlement_error = settle_client_action(
+                invocation.session.as_ref(),
+                &result,
+                outcome,
+                &invocation.call_id,
+            )
+            .await
+            .err()
+            .map(|error| error.to_string());
+            if let Some(error) = settlement_error.as_ref() {
+                tracing::error!(
+                    target: "codex_core::taskspace_exec",
+                    event_name = "taskspace.exec.action_settlement_failed",
+                    outer_call_id = %invocation.call_id,
+                    action_id = %result.identity.transport_id(),
+                    node_id = %result.node_id,
+                    tool = %result.public_name,
+                    outcome = outcome_name(outcome),
+                    error = %error,
+                );
             }
-        }
-        if let Some(error) = fatal_error {
-            return Err(FunctionCallError::Fatal(error.to_string()));
+            let (response, error) = match result.response {
+                Ok(response) => (Some(response), None),
+                Err(error) => (None, Some(error.to_string())),
+            };
+            client_results.push(ClientResult {
+                call_index: result.identity.index,
+                node_id: result.node_id,
+                tool: result.public_name,
+                outcome: outcome_name(outcome),
+                response,
+                error,
+                settlement_error,
+            });
         }
         client_results.sort_by_key(|result| result.call_index);
         let hosted_results = prepared
@@ -187,7 +210,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             .collect::<Vec<_>>();
         let all_succeeded = client_results
             .iter()
-            .all(|result| result.outcome == "succeeded")
+            .all(|result| result.outcome == "succeeded" && result.settlement_error.is_none())
             && hosted_results
                 .iter()
                 .all(|result| result.outcome == "succeeded");
@@ -221,7 +244,7 @@ impl ToolHandler for TaskSpaceExecHandler {
     }
 }
 
-async fn read_current_map(
+pub(super) async fn read_current_map(
     session: &Session,
 ) -> Result<(String, Option<TaskSpaceMap>), FunctionCallError> {
     session
@@ -296,7 +319,7 @@ async fn persist_candidate(
             let result = request
                 .validate_current_map(current.as_ref())
                 .map_err(|error| format!("stale request context: {error:?}"))
-                .and_then(|()| runtime.restore_store_map(&map_id, owner, candidate));
+                .and_then(|()| runtime.restore_store_map(&map_id, owner, candidate.clone()));
             (result, Vec::new())
         })
         .await
@@ -308,28 +331,34 @@ async fn settle_client_action(
     session: &Session,
     result: &DispatchedClientCall,
     outcome: ActionOutcome,
+    outer_call_id: &str,
 ) -> Result<(), FunctionCallError> {
     let action_id = result.identity.transport_id();
     let tool_name = result.public_name.clone();
     let log_action_id = action_id.clone();
     let log_tool_name = tool_name.clone();
+    let correlation_id = format!("{outer_call_id}/{action_id}");
     let (settled, _) = session
-        .mutate_canonical_action_map("taskspace_exec_settle", move |runtime, owner| {
-            let current = runtime.canonical_map_for_store();
-            let settled = current
-                .as_ref()
-                .ok_or_else(|| "canonical Map disappeared during Tool settlement".to_string())
-                .and_then(|map| {
-                    rooted_dag::settle_action(map, &action_id, &tool_name, outcome)
-                        .map(|commit| commit.map)
-                        .map_err(|error| format!("action settlement rejected: {error:?}"))
-                })
-                .and_then(|candidate| {
-                    let map_id = candidate.map_id.clone();
-                    runtime.restore_store_map(&map_id, owner, Some(candidate))
-                });
-            (settled, Vec::new())
-        })
+        .mutate_canonical_action_map_rebased(
+            "taskspace_exec_settle",
+            &correlation_id,
+            move |runtime, owner| {
+                let current = runtime.canonical_map_for_store();
+                let settled = current
+                    .as_ref()
+                    .ok_or_else(|| "canonical Map disappeared during Tool settlement".to_string())
+                    .and_then(|map| {
+                        rooted_dag::settle_action(map, &action_id, &tool_name, outcome)
+                            .map(|commit| commit.map)
+                            .map_err(|error| format!("action settlement rejected: {error:?}"))
+                    })
+                    .and_then(|candidate| {
+                        let map_id = candidate.map_id.clone();
+                        runtime.restore_store_map(&map_id, owner, Some(candidate))
+                    });
+                (settled, Vec::new())
+            },
+        )
         .await
         .map_err(taskspace_fatal)?;
     settled.map_err(taskspace_fatal)?;
@@ -346,6 +375,9 @@ async fn settle_client_action(
 fn dispatched_outcome(result: &DispatchedClientCall) -> ActionOutcome {
     if result.cancelled {
         return ActionOutcome::Cancelled;
+    }
+    if result.execution_failed {
+        return ActionOutcome::Failed;
     }
     match &result.response {
         Err(_) => ActionOutcome::Failed,

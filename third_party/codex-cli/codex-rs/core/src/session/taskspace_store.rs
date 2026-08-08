@@ -271,9 +271,19 @@ impl Session {
     pub(crate) async fn mutate_canonical_action_map<T>(
         &self,
         operation: &'static str,
-        mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
+        mutate: impl FnMut(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
     ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
         self.mutate_canonical_action_map_with_binding(operation, None, mutate)
+            .await
+    }
+
+    pub(crate) async fn mutate_canonical_action_map_rebased<T>(
+        &self,
+        operation: &'static str,
+        correlation_id: &str,
+        mutate: impl FnMut(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
+    ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
+        self.mutate_canonical_action_map_inner(operation, None, Some(correlation_id), mutate)
             .await
     }
 
@@ -281,8 +291,20 @@ impl Session {
         &self,
         operation: &'static str,
         binding: Option<BindTaskSpaceMapRequest>,
-        mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
+        mutate: impl FnMut(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
     ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
+        self.mutate_canonical_action_map_inner(operation, binding, None, mutate)
+            .await
+    }
+
+    async fn mutate_canonical_action_map_inner<T>(
+        &self,
+        operation: &'static str,
+        binding: Option<BindTaskSpaceMapRequest>,
+        rebase_correlation_id: Option<&str>,
+        mut mutate: impl FnMut(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
+    ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
+        const MAX_REBASE_ATTEMPTS: usize = 8;
         let _write_permit = self
             .taskspace_store_write_lock
             .acquire()
@@ -307,117 +329,139 @@ impl Session {
             }
         }
 
-        let (candidate, handle, result, mut events, before_canonical_map) = {
-            let state = self.state.lock().await;
-            let handle = state.action_map_store_handle.clone().ok_or_else(|| {
-                "TaskSpace operation requires a canonical Map Store handle.".to_string()
-            })?;
-            let before_canonical_map = canonical_map_for_store(&state.action_map_runtime);
-            let before_canonical_sha256 = canonical_map_sha256(&before_canonical_map)
-                .map_err(|error| format!("TaskSpace cache hash failed: {error}"))?;
-            if before_canonical_sha256 != handle.canonical_sha256 {
-                return Err(format!(
-                    "TaskSpace Runtime cache is stale for `{}`: handle hash mismatch.",
-                    handle.map_id
-                ));
+        let mut rebase_attempt = 0usize;
+        loop {
+            let (candidate, handle, result, mut events, before_canonical_map) = {
+                let state = self.state.lock().await;
+                let handle = state.action_map_store_handle.clone().ok_or_else(|| {
+                    "TaskSpace operation requires a canonical Map Store handle.".to_string()
+                })?;
+                let before_canonical_map = canonical_map_for_store(&state.action_map_runtime);
+                let before_canonical_sha256 = canonical_map_sha256(&before_canonical_map)
+                    .map_err(|error| format!("TaskSpace cache hash failed: {error}"))?;
+                if before_canonical_sha256 != handle.canonical_sha256 {
+                    return Err(format!(
+                        "TaskSpace Runtime cache is stale for `{}`: handle hash mismatch.",
+                        handle.map_id
+                    ));
+                }
+                let mut candidate = state.action_map_runtime.clone();
+                let (result, events) = mutate(&mut candidate, handle.owner_thread_id);
+                (candidate, handle, result, events, before_canonical_map)
+            };
+            let after_canonical_map = canonical_map_for_store(&candidate);
+            if after_canonical_map == before_canonical_map && binding.is_none() {
+                let mut state = self.state.lock().await;
+                state.action_map_runtime = candidate;
+                return Ok((result, events));
             }
-            let mut candidate = state.action_map_runtime.clone();
-            let (result, events) = mutate(&mut candidate, handle.owner_thread_id);
-            (candidate, handle, result, events, before_canonical_map)
-        };
-        let after_canonical_map = canonical_map_for_store(&candidate);
-        if after_canonical_map == before_canonical_map && binding.is_none() {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime = candidate;
+
+            let state_db = self.require_taskspace_state_db()?;
+            let commit_id = Uuid::new_v4().to_string();
+            let outcome = state_db
+                .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+                    map_id: handle.map_id.clone(),
+                    expected_store_revision: handle.store_revision,
+                    canonical_map: after_canonical_map,
+                    commit_id: commit_id.clone(),
+                    operation: operation.to_string(),
+                    actor_thread_id: self.conversation_id,
+                    binding: binding.clone(),
+                })
+                .await;
+            let (record, installed_runtime) = match outcome {
+                Ok(TaskSpaceMapWriteOutcome::Applied(record)) => (record, candidate),
+                Ok(TaskSpaceMapWriteOutcome::IdempotentReplay(record)) => {
+                    let runtime =
+                        runtime_from_record(&record).map_err(|error| error.to_string())?;
+                    (record, runtime)
+                }
+                Ok(TaskSpaceMapWriteOutcome::Conflict { current }) => {
+                    self.refresh_after_store_failure(current.as_ref()).await?;
+                    let current_revision = current
+                        .as_ref()
+                        .map(|record| record.store_revision)
+                        .unwrap_or_default();
+                    tracing::warn!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.map_store_conflict",
+                        map_id = handle.map_id,
+                        actor_thread_id = %self.conversation_id,
+                        owner_thread_id = %handle.owner_thread_id,
+                        expected_store_revision = handle.store_revision,
+                        current_store_revision = current_revision,
+                        operation,
+                        commit_id,
+                        reason_code = "store_revision_conflict",
+                        "rejected stale TaskSpace Map commit"
+                    );
+                    if let Some(correlation_id) = rebase_correlation_id
+                        && rebase_attempt < MAX_REBASE_ATTEMPTS
+                    {
+                        rebase_attempt += 1;
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            event_name = "taskspace.map_store_rebase_retry",
+                            map_id = handle.map_id,
+                            actor_thread_id = %self.conversation_id,
+                            expected_store_revision = handle.store_revision,
+                            current_store_revision = current_revision,
+                            operation,
+                            correlation_id,
+                            rebase_attempt,
+                            "reapplying factual TaskSpace mutation on the latest Map head"
+                        );
+                        continue;
+                    }
+                    return Err(format!(
+                        "TaskSpace Map Store revision conflict for `{}`: expected {}, current {}.",
+                        handle.map_id, handle.store_revision, current_revision
+                    ));
+                }
+                Err(error) => {
+                    self.refresh_after_store_failure(None).await?;
+                    tracing::error!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.map_store_integrity_failed",
+                        map_id = handle.map_id,
+                        actor_thread_id = %self.conversation_id,
+                        owner_thread_id = %handle.owner_thread_id,
+                        expected_store_revision = handle.store_revision,
+                        operation,
+                        commit_id,
+                        reason_code = "store_commit_failed",
+                        %error,
+                        "TaskSpace Map Store commit failed"
+                    );
+                    return Err(format!("TaskSpace Map Store commit failed: {error}"));
+                }
+            };
+            self.install_store_record(&record, installed_runtime)
+                .await?;
+            events.push(MapRuntimeEvent::StoreCommitted(
+                MapRuntimeStoreCommittedEvent {
+                    map_id: record.map_id.clone(),
+                    store_revision: record.store_revision,
+                    map_revision: record_map_revision(&record),
+                    operation: operation.to_string(),
+                    actor_thread_id: self.conversation_id,
+                    canonical_sha256: record.canonical_sha256.clone(),
+                },
+            ));
+            tracing::info!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.map_store_committed",
+                map_id = record.map_id,
+                actor_thread_id = %self.conversation_id,
+                owner_thread_id = %record.owner_thread_id,
+                store_revision = record.store_revision,
+                map_revision = record_map_revision(&record),
+                operation,
+                commit_id,
+                "committed canonical TaskSpace Map"
+            );
             return Ok((result, events));
         }
-
-        let state_db = self.require_taskspace_state_db()?;
-        let commit_id = Uuid::new_v4().to_string();
-        let outcome = state_db
-            .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
-                map_id: handle.map_id.clone(),
-                expected_store_revision: handle.store_revision,
-                canonical_map: after_canonical_map,
-                commit_id: commit_id.clone(),
-                operation: operation.to_string(),
-                actor_thread_id: self.conversation_id,
-                binding,
-            })
-            .await;
-        let (record, installed_runtime) = match outcome {
-            Ok(TaskSpaceMapWriteOutcome::Applied(record)) => (record, candidate),
-            Ok(TaskSpaceMapWriteOutcome::IdempotentReplay(record)) => {
-                let runtime = runtime_from_record(&record).map_err(|error| error.to_string())?;
-                (record, runtime)
-            }
-            Ok(TaskSpaceMapWriteOutcome::Conflict { current }) => {
-                self.refresh_after_store_failure(current.as_ref()).await?;
-                let current_revision = current
-                    .as_ref()
-                    .map(|record| record.store_revision)
-                    .unwrap_or_default();
-                tracing::warn!(
-                    target: "codex_core::taskspace",
-                    event_name = "taskspace.map_store_conflict",
-                    map_id = handle.map_id,
-                    actor_thread_id = %self.conversation_id,
-                    owner_thread_id = %handle.owner_thread_id,
-                    expected_store_revision = handle.store_revision,
-                    current_store_revision = current_revision,
-                    operation,
-                    commit_id,
-                    reason_code = "store_revision_conflict",
-                    "rejected stale TaskSpace Map commit"
-                );
-                return Err(format!(
-                    "TaskSpace Map Store revision conflict for `{}`: expected {}, current {}.",
-                    handle.map_id, handle.store_revision, current_revision
-                ));
-            }
-            Err(error) => {
-                self.refresh_after_store_failure(None).await?;
-                tracing::error!(
-                    target: "codex_core::taskspace",
-                    event_name = "taskspace.map_store_integrity_failed",
-                    map_id = handle.map_id,
-                    actor_thread_id = %self.conversation_id,
-                    owner_thread_id = %handle.owner_thread_id,
-                    expected_store_revision = handle.store_revision,
-                    operation,
-                    commit_id,
-                    reason_code = "store_commit_failed",
-                    %error,
-                    "TaskSpace Map Store commit failed"
-                );
-                return Err(format!("TaskSpace Map Store commit failed: {error}"));
-            }
-        };
-        self.install_store_record(&record, installed_runtime)
-            .await?;
-        events.push(MapRuntimeEvent::StoreCommitted(
-            MapRuntimeStoreCommittedEvent {
-                map_id: record.map_id.clone(),
-                store_revision: record.store_revision,
-                map_revision: record_map_revision(&record),
-                operation: operation.to_string(),
-                actor_thread_id: self.conversation_id,
-                canonical_sha256: record.canonical_sha256.clone(),
-            },
-        ));
-        tracing::info!(
-            target: "codex_core::taskspace",
-            event_name = "taskspace.map_store_committed",
-            map_id = record.map_id,
-            actor_thread_id = %self.conversation_id,
-            owner_thread_id = %record.owner_thread_id,
-            store_revision = record.store_revision,
-            map_revision = record_map_revision(&record),
-            operation,
-            commit_id,
-            "committed canonical TaskSpace Map"
-        );
-        Ok((result, events))
     }
 
     pub(super) fn require_taskspace_state_db(&self) -> Result<StateDbHandle, String> {

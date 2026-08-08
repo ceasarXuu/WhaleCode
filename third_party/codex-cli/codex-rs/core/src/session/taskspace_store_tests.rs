@@ -2,6 +2,7 @@ use super::taskspace_store::canonical_map_for_store;
 use super::taskspace_store::hydrate_action_map_store;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::ProjectionEnvelope;
+use crate::action_map::rooted_dag;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::InitialHistory;
@@ -13,12 +14,18 @@ use codex_protocol::protocol::SessionMetaLine;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
+use codex_protocol::taskspace::TaskSpaceActionOutcome;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 use codex_protocol::taskspace::TaskSpaceMapNode;
+use codex_protocol::taskspace::TaskSpaceNodeAction;
 use codex_protocol::taskspace::TaskSpaceNodeState;
+use codex_state::CommitTaskSpaceMapRequest;
 use codex_state::CreateTaskSpaceMapRequest;
 use codex_state::TaskSpaceMapRelation;
 use codex_state::TaskSpaceMapWriteOutcome;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use tracing_test::traced_test;
 use uuid::Uuid;
 
@@ -88,6 +95,124 @@ fn completed_multi_parent_map(map_id: &str, reopened: bool) -> TaskSpaceCanonica
         map.revision = 2;
     }
     map
+}
+
+#[tokio::test]
+#[traced_test]
+async fn factual_action_settlement_rebases_on_latest_store_head_without_losing_other_changes() {
+    let home = std::env::temp_dir().join(format!("codex-taskspace-rebase-test-{}", Uuid::new_v4()));
+    let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".to_string())
+        .await
+        .expect("initialize state runtime");
+    let (mut session, _) = super::tests::make_session_and_context().await;
+    session.services.state_db = Some(Arc::clone(&state_db));
+
+    let (activation, _) = session
+        .set_persisted_action_map_mode(MapRuntimeMode::Experiment)
+        .await
+        .expect("activate persisted TaskSpace Map");
+    let map_id = activation.active_map_id.expect("mechanical Map identity");
+    let mut initial = multi_parent_map(&map_id);
+    initial.work_nodes[0].actions.push(TaskSpaceNodeAction {
+        action_id: "client-1".into(),
+        tool_name: "inspect".into(),
+        outcome: TaskSpaceActionOutcome::Pending,
+    });
+    let install_map_id = map_id.clone();
+    session
+        .mutate_canonical_action_map("test_install_action", move |runtime, owner| {
+            runtime
+                .restore_store_map(&install_map_id, owner, Some(initial.clone()))
+                .expect("install test Map");
+            ((), Vec::new())
+        })
+        .await
+        .expect("persist initial action");
+
+    let current = state_db
+        .load_taskspace_map(&map_id)
+        .await
+        .expect("load current Map")
+        .expect("current Map record");
+    let mut concurrent_map = current.canonical_map.clone().expect("canonical Map");
+    concurrent_map.work_nodes[1].content = "concurrent research evidence".into();
+    concurrent_map.revision += 1;
+    let concurrent = state_db
+        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            expected_store_revision: current.store_revision,
+            canonical_map: Some(concurrent_map),
+            commit_id: "concurrent-map-update".into(),
+            operation: "test_concurrent_update".into(),
+            actor_thread_id: session.conversation_id,
+            binding: None,
+        })
+        .await
+        .expect("commit concurrent Map change");
+    assert!(matches!(concurrent, TaskSpaceMapWriteOutcome::Applied(_)));
+
+    let applications = Arc::new(AtomicUsize::new(0));
+    let application_counter = Arc::clone(&applications);
+    let settle_map_id = map_id.clone();
+    session
+        .mutate_canonical_action_map_rebased(
+            "settle_taskspace_exec_action",
+            "outer-1/taskspace/call/0",
+            move |runtime, owner| {
+                application_counter.fetch_add(1, Ordering::SeqCst);
+                let current = runtime
+                    .canonical_map_for_store()
+                    .expect("settlement requires canonical Map");
+                let commit = rooted_dag::settle_action(
+                    &current,
+                    "client-1",
+                    "inspect",
+                    rooted_dag::ActionOutcome::Succeeded,
+                )
+                .expect("settle pending action");
+                runtime
+                    .restore_store_map(&settle_map_id, owner, Some(commit.map))
+                    .expect("restore settled Map");
+                ((), Vec::new())
+            },
+        )
+        .await
+        .expect("rebase factual action settlement");
+
+    assert_eq!(applications.load(Ordering::SeqCst), 2);
+    let final_record = state_db
+        .load_taskspace_map(&map_id)
+        .await
+        .expect("load final Map")
+        .expect("final Map record");
+    let final_map = final_record.canonical_map.expect("final canonical Map");
+    let research = final_map
+        .work_nodes
+        .iter()
+        .find(|node| node.node_id == "research")
+        .expect("research node");
+    assert_eq!(research.content, "concurrent research evidence");
+    let inspect = final_map
+        .work_nodes
+        .iter()
+        .find(|node| node.node_id == "inspect")
+        .expect("inspect node");
+    assert_eq!(
+        inspect.actions[0].outcome,
+        TaskSpaceActionOutcome::Succeeded
+    );
+    logs_assert(|lines: &[&str]| {
+        lines
+            .iter()
+            .find(|line| {
+                line.contains("taskspace.map_store_rebase_retry")
+                    && line.contains("correlation_id=\"outer-1/taskspace/call/0\"")
+                    && line.contains("rebase_attempt=1")
+            })
+            .map(|_| Ok(()))
+            .unwrap_or_else(|| Err("expected factual settlement rebase event".to_string()))
+    });
+    let _ = tokio::fs::remove_dir_all(home).await;
 }
 
 fn forked_history(parent_thread_id: ThreadId) -> InitialHistory {

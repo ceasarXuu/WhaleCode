@@ -37,6 +37,7 @@ pub(crate) struct ToolCallRuntime {
 pub(crate) struct ToolCallResponse {
     pub(crate) response: Result<ResponseInputItem, CodexErr>,
     pub(crate) cancelled: bool,
+    pub(crate) execution_failed: bool,
 }
 
 struct RoutedToolResult {
@@ -105,14 +106,17 @@ impl ToolCallRuntime {
                 Ok(response) => ToolCallResponse {
                     response: Ok(response.result.into_response()),
                     cancelled: response.cancelled,
+                    execution_failed: false,
                 },
                 Err(FunctionCallError::Fatal(message)) => ToolCallResponse {
                     response: Err(CodexErr::Fatal(message)),
                     cancelled: false,
+                    execution_failed: true,
                 },
                 Err(other) => ToolCallResponse {
                     response: Ok(Self::failure_response(error_call, other)),
                     cancelled: false,
+                    execution_failed: true,
                 },
             }
         }

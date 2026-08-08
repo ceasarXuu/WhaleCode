@@ -357,6 +357,7 @@ fn update_schema() -> JsonSchema {
         [
             ("node_id", JsonSchema::string(None)),
             ("goal", JsonSchema::string(None)),
+            ("state", node_state_schema()),
             ("content", JsonSchema::string(None)),
             ("parents", JsonSchema::array(JsonSchema::string(None), None)),
         ],
@@ -396,7 +397,6 @@ fn work_node_schema() -> JsonSchema {
         [
             ("node_id", JsonSchema::string(None)),
             ("goal", JsonSchema::string(None)),
-            ("state", node_state_schema()),
             ("content", JsonSchema::string(None)),
             (
                 "parents",
@@ -433,4 +433,22 @@ fn object_schema<const N: usize>(
         Some(required.iter().map(|name| (*name).to_string()).collect()),
         Some(AdditionalProperties::Boolean(false)),
     )
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+
+    #[test]
+    fn new_work_nodes_hide_runtime_state_while_node_patches_expose_it() {
+        let work = serde_json::to_value(work_node_schema()).unwrap();
+        assert!(work["properties"].get("state").is_none());
+
+        let update = serde_json::to_value(update_schema()).unwrap();
+        assert!(
+            update["properties"]["node_patches"]["items"]["properties"]
+                .get("state")
+                .is_some()
+        );
+    }
 }

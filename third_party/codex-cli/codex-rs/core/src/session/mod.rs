@@ -890,6 +890,13 @@ async fn thread_title_from_state_db(
 pub(crate) struct PreparedProviderPromptItems {
     pub(crate) items: Vec<ResponseItem>,
     pub(crate) projection_identity: Option<ProviderProjectionIdentityExpectation>,
+    pub(crate) taskspace_request_map: Option<ProviderTaskSpaceRequestMap>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderTaskSpaceRequestMap {
+    pub(crate) map_id: String,
+    pub(crate) revision: Option<u64>,
 }
 
 impl Session {
@@ -1023,7 +1030,7 @@ impl Session {
             .collect::<Vec<_>>();
         let result = self
             .mutate_canonical_action_map("record_provider_request_budget", |runtime, _| {
-                match runtime.record_provider_request_budget_events(&snapshot, inputs) {
+                match runtime.record_provider_request_budget_events(&snapshot, inputs.clone()) {
                     Some(events) => (true, events),
                     None => (false, Vec::new()),
                 }
@@ -3190,6 +3197,7 @@ impl Session {
                 return Ok(PreparedProviderPromptItems {
                     items,
                     projection_identity: None,
+                    taskspace_request_map: None,
                 });
             }
             state
@@ -3334,9 +3342,11 @@ impl Session {
                 })
             }
         };
+        let taskspace_request_map = provider_visible_taskspace_map(policy, &items)?;
         Ok(PreparedProviderPromptItems {
             items,
             projection_identity,
+            taskspace_request_map: Some(taskspace_request_map),
         })
     }
 
@@ -4062,6 +4072,60 @@ fn taskspace_map_handle_context(item: Option<&ResponseItem>) -> Option<&str> {
         }
         _ => None,
     })
+}
+
+fn provider_visible_taskspace_map(
+    policy: TaskSpaceProjectionPolicy,
+    items: &[ResponseItem],
+) -> Result<ProviderTaskSpaceRequestMap, String> {
+    match policy {
+        TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {
+            let context = latest_taskspace_projection_context(items).ok_or_else(|| {
+                "TaskSpace provider request has no visible Map projection.".to_string()
+            })?;
+            let identity = projection_identity_from_context(context).ok_or_else(|| {
+                "TaskSpace provider request has an invalid Map projection identity.".to_string()
+            })?;
+            Ok(ProviderTaskSpaceRequestMap {
+                map_id: identity.map_id.ok_or_else(|| {
+                    "TaskSpace provider projection has no Map identity.".to_string()
+                })?,
+                revision: identity.revision,
+            })
+        }
+        TaskSpaceProjectionPolicy::MapRequest => {
+            let context = items
+                .iter()
+                .rev()
+                .find_map(|item| taskspace_map_handle_context(Some(item)))
+                .ok_or_else(|| {
+                    "TaskSpace provider request has no visible Map handle.".to_string()
+                })?;
+            let map_id = taskspace_context_field(context, "map_id")
+                .ok_or_else(|| "TaskSpace provider Map handle has no Map identity.".to_string())?;
+            let revision = match taskspace_context_field(context, "revision") {
+                Some("none") => None,
+                Some(value) => Some(value.parse::<u64>().map_err(|_| {
+                    "TaskSpace provider Map handle has an invalid revision.".to_string()
+                })?),
+                None => {
+                    return Err("TaskSpace provider Map handle has no revision field.".to_string());
+                }
+            };
+            Ok(ProviderTaskSpaceRequestMap {
+                map_id: map_id.to_string(),
+                revision,
+            })
+        }
+    }
+}
+
+fn taskspace_context_field<'a>(context: &'a str, field: &str) -> Option<&'a str> {
+    let prefix = format!("- {field}: ");
+    context
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .filter(|value| !value.is_empty())
 }
 
 fn rewrite_taskspace_projection_items_for_append(items: &mut [ResponseItem]) {

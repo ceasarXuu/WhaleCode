@@ -31,6 +31,7 @@ pub(crate) struct DispatchedClientCall {
     pub(crate) public_name: String,
     pub(crate) response: Result<ResponseInputItem, CodexErr>,
     pub(crate) cancelled: bool,
+    pub(crate) execution_failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +112,7 @@ pub(crate) fn dispatch_client_calls(
                     tool = item.public_name,
                     fatal = handled.response.is_err(),
                     cancelled = handled.cancelled,
+                    execution_failed = handled.execution_failed,
                 );
                 DispatchedClientCall {
                     identity: item.identity,
@@ -118,6 +120,7 @@ pub(crate) fn dispatch_client_calls(
                     public_name: item.public_name,
                     response: handled.response,
                     cancelled: handled.cancelled,
+                    execution_failed: handled.execution_failed,
                 }
             }) as BoxFuture<'static, DispatchedClientCall>
         })

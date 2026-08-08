@@ -14,6 +14,7 @@ pub(crate) struct TaskSpaceExecResponseScope {
 
 #[derive(Debug, Default)]
 struct ResponseScopeState {
+    request: Option<TaskSpaceExecRequestSnapshot>,
     facts: Vec<HostedOutputFact>,
     complete: bool,
     terminal: bool,
@@ -23,12 +24,36 @@ struct ResponseScopeState {
     exec_claimed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceExecRequestSnapshot {
+    pub(crate) map_id: String,
+    pub(crate) revision: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TaskSpaceExecResponseClaim {
+    pub(crate) request: TaskSpaceExecRequestSnapshot,
+    pub(crate) hosted_facts: Vec<HostedOutputFact>,
+}
+
 impl TaskSpaceExecResponseScope {
-    pub(crate) fn reset(&self) {
+    pub(crate) fn begin_request(
+        &self,
+        map_id: impl Into<String>,
+        revision: Option<u64>,
+    ) -> Result<(), String> {
+        let map_id = map_id.into();
+        if map_id.trim().is_empty() {
+            return Err("TaskSpace provider request has an empty Map identity".to_string());
+        }
         *self
             .state
             .lock()
-            .expect("TaskSpace response scope poisoned") = ResponseScopeState::default();
+            .expect("TaskSpace response scope poisoned") = ResponseScopeState {
+            request: Some(TaskSpaceExecRequestSnapshot { map_id, revision }),
+            ..ResponseScopeState::default()
+        };
+        Ok(())
     }
 
     pub(crate) fn record_completed_item(&self, output_index: Option<usize>, item: &ResponseItem) {
@@ -53,6 +78,18 @@ impl TaskSpaceExecResponseScope {
             state.exec_call_count = state.exec_call_count.saturating_add(1);
             if state.exec_call_id.is_none() {
                 state.exec_call_id = Some(call_id.clone());
+            }
+            return;
+        }
+        if let Some(tool) = unexpected_client_tool(item) {
+            let mut state = self
+                .state
+                .lock()
+                .expect("TaskSpace response scope poisoned");
+            if state.error.is_none() {
+                state.error = Some(format!(
+                    "TaskSpace response contains forbidden top-level client Tool `{tool}`"
+                ));
             }
             return;
         }
@@ -130,10 +167,10 @@ impl TaskSpaceExecResponseScope {
         result
     }
 
-    pub(crate) fn claim_hosted_facts(
+    pub(crate) fn claim_response(
         &self,
         outer_call_id: &str,
-    ) -> Result<Vec<HostedOutputFact>, String> {
+    ) -> Result<TaskSpaceExecResponseClaim, String> {
         let mut state = self
             .state
             .lock()
@@ -146,7 +183,13 @@ impl TaskSpaceExecResponseScope {
             return Err("TaskSpace response was already claimed by another Exec call".to_string());
         }
         state.exec_claimed = true;
-        Ok(state.facts.clone())
+        Ok(TaskSpaceExecResponseClaim {
+            request: state
+                .request
+                .clone()
+                .ok_or_else(|| "TaskSpace response has no request Map snapshot".to_string())?,
+            hosted_facts: state.facts.clone(),
+        })
     }
 
     pub(crate) fn ensure_reconciled(&self) -> Result<(), String> {
@@ -178,10 +221,29 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     if state.exec_call_count > 1 {
         return Err("TaskSpace response contains more than one Exec call".to_string());
     }
+    if state.exec_call_count == 1 && state.request.is_none() {
+        return Err("TaskSpace response has no request Map snapshot".to_string());
+    }
     if !state.facts.is_empty() && state.exec_call_count != 1 {
         return Err("provider-hosted outputs require exactly one TaskSpace Exec call".to_string());
     }
     Ok(())
+}
+
+fn unexpected_client_tool(item: &ResponseItem) -> Option<String> {
+    match item {
+        ResponseItem::FunctionCall {
+            name, namespace, ..
+        } if namespace.is_some() || name != TASKSPACE_EXEC_TOOL_NAME => Some(
+            namespace
+                .as_ref()
+                .map_or_else(|| name.clone(), |namespace| format!("{namespace}.{name}")),
+        ),
+        ResponseItem::LocalShellCall { .. } => Some("local_shell".to_string()),
+        ResponseItem::CustomToolCall { name, .. } => Some(name.clone()),
+        ResponseItem::ToolSearchCall { .. } => Some("tool_search".to_string()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -192,6 +254,7 @@ mod tests {
     #[test]
     fn scope_preserves_provider_identity_order_and_terminal_outcome() {
         let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(
             Some(3),
             &ResponseItem::WebSearchCall {
@@ -214,15 +277,18 @@ mod tests {
             },
         );
         scope.finalize(true).unwrap();
-        let facts = scope.claim_hosted_facts("outer").unwrap();
-        assert_eq!(facts[0].output_index, 3);
-        assert_eq!(facts[0].provider_id, "ws-1");
-        assert_eq!(facts[0].outcome, ActionOutcome::Succeeded);
+        let claim = scope.claim_response("outer").unwrap();
+        assert_eq!(claim.request.map_id, "map-1");
+        assert_eq!(claim.request.revision, Some(7));
+        assert_eq!(claim.hosted_facts[0].output_index, 3);
+        assert_eq!(claim.hosted_facts[0].provider_id, "ws-1");
+        assert_eq!(claim.hosted_facts[0].outcome, ActionOutcome::Succeeded);
     }
 
     #[test]
     fn incomplete_response_is_not_accepted() {
         let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(
             Some(1),
             &ResponseItem::FunctionCall {
@@ -236,7 +302,7 @@ mod tests {
         assert!(scope.finalize(false).is_err());
         assert!(
             scope
-                .claim_hosted_facts("outer")
+                .claim_response("outer")
                 .unwrap_err()
                 .contains("did not complete")
         );
@@ -277,6 +343,7 @@ mod tests {
     #[test]
     fn response_rejects_multiple_exec_calls_and_requires_one_claim() {
         let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
         for call_id in ["outer-1", "outer-2"] {
             scope.record_completed_item(
                 Some(1),
@@ -292,6 +359,7 @@ mod tests {
         assert!(scope.finalize(true).unwrap_err().contains("more than one"));
 
         let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(
             Some(1),
             &ResponseItem::FunctionCall {
@@ -304,7 +372,59 @@ mod tests {
         );
         scope.finalize(true).unwrap();
         assert!(scope.ensure_reconciled().is_err());
-        scope.claim_hosted_facts("outer").unwrap();
+        scope.claim_response("outer").unwrap();
         scope.ensure_reconciled().unwrap();
+    }
+
+    #[test]
+    fn response_rejects_forbidden_top_level_client_call_before_exec_claim() {
+        let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
+        scope.record_completed_item(
+            Some(0),
+            &ResponseItem::FunctionCall {
+                id: None,
+                name: "inspect".into(),
+                namespace: None,
+                arguments: "{}".into(),
+                call_id: "bypass".into(),
+            },
+        );
+        scope.record_completed_item(
+            Some(1),
+            &ResponseItem::FunctionCall {
+                id: None,
+                name: TASKSPACE_EXEC_TOOL_NAME.into(),
+                namespace: None,
+                arguments: "{}".into(),
+                call_id: "outer".into(),
+            },
+        );
+
+        let error = scope.finalize(true).unwrap_err();
+        assert!(error.contains("forbidden top-level client Tool `inspect`"));
+        assert!(scope.claim_response("outer").is_err());
+    }
+
+    #[test]
+    fn exec_response_requires_request_time_map_snapshot() {
+        let scope = TaskSpaceExecResponseScope::default();
+        scope.record_completed_item(
+            Some(0),
+            &ResponseItem::FunctionCall {
+                id: None,
+                name: TASKSPACE_EXEC_TOOL_NAME.into(),
+                namespace: None,
+                arguments: "{}".into(),
+                call_id: "outer".into(),
+            },
+        );
+
+        assert!(
+            scope
+                .finalize(true)
+                .unwrap_err()
+                .contains("no request Map snapshot")
+        );
     }
 }

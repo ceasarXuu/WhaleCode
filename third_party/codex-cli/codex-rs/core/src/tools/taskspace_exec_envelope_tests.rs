@@ -153,8 +153,10 @@ fn call_identity_is_bounded_by_the_decoded_outer_plan() {
 #[test]
 fn map_identity_and_outer_identity_are_mechanical_hard_errors() {
     let current = map(1);
+    let mismatched =
+        TaskSpaceExecRequestContext::capture("other", Some(&current), catalog()).unwrap();
     assert_eq!(
-        TaskSpaceExecRequestContext::capture("other", Some(&current), catalog()).unwrap_err(),
+        mismatched.validate_current_map(Some(&current)).unwrap_err(),
         TaskSpaceExecEnvelopeError::MapIdentityChanged {
             expected: "other".into(),
             current: "map-1".into()

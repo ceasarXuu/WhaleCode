@@ -43,6 +43,7 @@ fn inspect_spec() -> ToolSpec {
             BTreeMap::from([
                 ("delay_ms".into(), JsonSchema::integer(None)),
                 ("fail".into(), JsonSchema::boolean(None)),
+                ("fatal".into(), JsonSchema::boolean(None)),
             ]),
             None,
             Some(AdditionalProperties::Boolean(false)),
@@ -139,6 +140,9 @@ impl ToolHandler for LedgerAwareHandler {
         if arguments["fail"].as_bool().unwrap_or(false) {
             return Err(FunctionCallError::RespondToModel("expected failure".into()));
         }
+        if arguments["fatal"].as_bool().unwrap_or(false) {
+            return Err(FunctionCallError::Fatal("expected fatal".into()));
+        }
         Ok(FunctionToolOutput::from_text(
             "native-result".into(),
             Some(true),
@@ -193,6 +197,16 @@ fn finalize_scope(harness: &Harness) {
     harness.response_scope.finalize(true).unwrap();
 }
 
+async fn begin_scope(harness: &Harness) {
+    let (map_id, map) = super::handler::read_current_map(harness.session.as_ref())
+        .await
+        .unwrap();
+    harness
+        .response_scope
+        .begin_request(map_id, map.as_ref().map(|map| map.revision))
+        .unwrap();
+}
+
 fn invocation(harness: &Harness, arguments: Value) -> ToolInvocation {
     invocation_with_token(harness, arguments, CancellationToken::new())
 }
@@ -219,6 +233,7 @@ fn invocation_with_token(
 #[tokio::test]
 async fn cancelled_native_call_is_settled_without_changing_node_state() {
     let harness = harness(false).await;
+    begin_scope(&harness).await;
     finalize_scope(&harness);
     let cancellation_token = CancellationToken::new();
     cancellation_token.cancel();
@@ -256,6 +271,7 @@ async fn cancelled_native_call_is_settled_without_changing_node_state() {
 #[tokio::test]
 async fn interrupted_exec_leaves_recoverable_pending_without_retrying_tool() {
     let harness = harness(false).await;
+    begin_scope(&harness).await;
     finalize_scope(&harness);
     let session = Arc::clone(&harness.session);
     let handler = harness.handler;
@@ -318,6 +334,7 @@ async fn interrupted_exec_leaves_recoverable_pending_without_retrying_tool() {
 #[tokio::test]
 async fn handler_persists_pending_then_settles_each_native_result_without_node_transition() {
     let harness = harness(false).await;
+    begin_scope(&harness).await;
     finalize_scope(&harness);
     let output = harness
         .handler
@@ -369,8 +386,56 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
 }
 
 #[tokio::test]
+async fn internal_fatal_is_returned_once_with_successful_sibling_feedback() {
+    let harness = harness(false).await;
+    begin_scope(&harness).await;
+    finalize_scope(&harness);
+    let output = harness
+        .handler
+        .handle(invocation(
+            &harness,
+            json!({
+                "calls": [
+                    initialize_call(),
+                    {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 5}},
+                    {"tool": "inspect", "node_id": "work", "arguments": {"fatal": true}}
+                ],
+                "hosted_bindings": []
+            }),
+        ))
+        .await
+        .expect("internal fatal must remain an outer Tool result");
+
+    assert_eq!(output.success, Some(false));
+    let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
+    assert_eq!(feedback["client_results"].as_array().unwrap().len(), 2);
+    assert_eq!(feedback["client_results"][0]["outcome"], "succeeded");
+    assert_eq!(
+        feedback["client_results"][0]["response"]["call_id"],
+        "outer/taskspace/call/1"
+    );
+    assert_eq!(feedback["client_results"][1]["outcome"], "failed");
+    assert_eq!(
+        feedback["client_results"][1]["error"],
+        "Fatal error: expected fatal"
+    );
+
+    let map = harness
+        .session
+        .canonical_action_map_snapshot()
+        .await
+        .unwrap()
+        .map
+        .unwrap();
+    let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
+    assert_eq!(work.actions[0].outcome, "succeeded");
+    assert_eq!(work.actions[1].outcome, "failed");
+}
+
+#[tokio::test]
 async fn failed_preflight_has_no_map_or_client_tool_side_effect() {
     let harness = harness(false).await;
+    begin_scope(&harness).await;
     finalize_scope(&harness);
     let result = harness
         .handler
@@ -404,8 +469,62 @@ async fn failed_preflight_has_no_map_or_client_tool_side_effect() {
 }
 
 #[tokio::test]
+async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
+    let harness = harness(false).await;
+    begin_scope(&harness).await;
+    let (map_id, current) = super::handler::read_current_map(harness.session.as_ref())
+        .await
+        .unwrap();
+    assert!(current.is_none());
+    let operation: MapOperation = serde_json::from_value(initialize_call()).unwrap();
+    let MapOperationEffect::Candidate(candidate) =
+        apply_map_operation(None, &map_id, operation).unwrap()
+    else {
+        panic!("initialize must produce a candidate")
+    };
+    let map_id_for_commit = map_id.clone();
+    let (restored, _) = harness
+        .session
+        .mutate_canonical_action_map("test_concurrent_initialize", move |runtime, owner| {
+            let restored =
+                runtime.restore_store_map(&map_id_for_commit, owner, Some(candidate.clone()));
+            (restored, Vec::new())
+        })
+        .await
+        .unwrap();
+    restored.unwrap();
+    finalize_scope(&harness);
+
+    let result = harness
+        .handler
+        .handle(invocation(
+            &harness,
+            json!({
+                "calls": [
+                    initialize_call(),
+                    {"tool": "inspect", "node_id": "work", "arguments": {}}
+                ],
+                "hosted_bindings": []
+            }),
+        ))
+        .await;
+
+    let error = match result {
+        Ok(_) => panic!("stale response must be rejected"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("MapRevisionChanged"));
+    assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
+    let (_, current) = super::handler::read_current_map(harness.session.as_ref())
+        .await
+        .unwrap();
+    assert_eq!(current.unwrap().revision, 1);
+}
+
+#[tokio::test]
 async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state() {
     let harness = harness(true).await;
+    begin_scope(&harness).await;
     harness.response_scope.record_completed_item(
         Some(2),
         &ResponseItem::WebSearchCall {

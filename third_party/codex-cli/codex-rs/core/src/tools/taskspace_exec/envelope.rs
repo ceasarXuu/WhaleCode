@@ -46,26 +46,28 @@ pub(crate) enum TaskSpaceExecEnvelopeError {
 }
 
 impl TaskSpaceExecRequestContext {
+    #[cfg(test)]
     pub(crate) fn capture(
         map_id: impl Into<String>,
         current_map: Option<&TaskSpaceMap>,
+        catalog: Arc<TaskSpaceExecCatalog>,
+    ) -> Result<Self, TaskSpaceExecEnvelopeError> {
+        let request_revision = current_map.map(|map| map.revision);
+        Self::from_request_snapshot(map_id, request_revision, catalog)
+    }
+
+    pub(crate) fn from_request_snapshot(
+        map_id: impl Into<String>,
+        request_revision: Option<u64>,
         catalog: Arc<TaskSpaceExecCatalog>,
     ) -> Result<Self, TaskSpaceExecEnvelopeError> {
         let map_id = map_id.into();
         if map_id.trim().is_empty() {
             return Err(TaskSpaceExecEnvelopeError::EmptyMapIdentity);
         }
-        if let Some(current) = current_map
-            && current.map_id != map_id
-        {
-            return Err(TaskSpaceExecEnvelopeError::MapIdentityChanged {
-                expected: map_id,
-                current: current.map_id.clone(),
-            });
-        }
         Ok(Self {
             map_id,
-            request_revision: current_map.map(|map| map.revision),
+            request_revision,
             catalog,
         })
     }

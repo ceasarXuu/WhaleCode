@@ -1311,6 +1311,21 @@ async fn record_initial_history_new_defers_initial_context_until_first_turn() {
 }
 
 #[tokio::test]
+async fn provider_composer_leaves_standard_requests_without_taskspace_identity() {
+    let (session, turn_context) = make_session_and_context().await;
+
+    let initial_context = session.build_initial_context(&turn_context).await;
+    let provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
+        .await
+        .expect("prepare Standard provider prompt");
+
+    assert_eq!(provider.items, initial_context);
+    assert!(provider.projection_identity.is_none());
+    assert!(provider.taskspace_request_map.is_none());
+}
+
+#[tokio::test]
 async fn provider_composer_injects_one_blank_map_projection() {
     let (session, turn_context) = make_session_and_context().await;
     {
@@ -1329,11 +1344,18 @@ async fn provider_composer_injects_one_blank_map_projection() {
     );
     let mut previous_context = None;
     for _ in 0..2 {
-        let context = session
+        let provider = session
             .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
             .await
-            .expect("prepare provider prompt")
-            .items;
+            .expect("prepare provider prompt");
+        assert_eq!(
+            provider.taskspace_request_map,
+            Some(ProviderTaskSpaceRequestMap {
+                map_id: format!("map-{}", session.conversation_id),
+                revision: None,
+            })
+        );
+        let context = provider.items;
         let developer_text = developer_input_texts(&context).join("\n");
         assert!(!developer_text.contains("TaskSpace mode is now active"));
         assert_eq!(
@@ -1393,6 +1415,13 @@ async fn provider_map_append_persists_bootstrap_at_request_tail() {
             .is_some_and(is_action_map_projection_developer_item)
     );
     assert!(provider.projection_identity.is_some());
+    assert_eq!(
+        provider.taskspace_request_map,
+        Some(ProviderTaskSpaceRequestMap {
+            map_id: format!("map-{}", session.conversation_id),
+            revision: None,
+        })
+    );
 }
 
 #[tokio::test]
@@ -1438,6 +1467,13 @@ async fn provider_map_request_exposes_current_request_tail_handle_until_explicit
             .all(|item| taskspace_projection_context(Some(item)).is_none())
     );
     assert!(provider.projection_identity.is_some());
+    assert_eq!(
+        provider.taskspace_request_map,
+        Some(ProviderTaskSpaceRequestMap {
+            map_id: format!("map-{}", session.conversation_id),
+            revision: None,
+        })
+    );
 }
 
 #[tokio::test]

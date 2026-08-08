@@ -236,3 +236,57 @@ async fn dispatch_preserves_native_serial_policy_and_failure_payload() {
         matches!(output.body, FunctionCallOutputBody::Text(ref text) if text == "expected failure")
     );
 }
+
+#[tokio::test]
+async fn tool_search_pairing_completion_preserves_execution_failure_status() {
+    let handler = Arc::new(TimingHandler::default());
+    let mut builder = ToolRegistryBuilder::new();
+    builder.push_spec(ToolSpec::ToolSearch {
+        execution: "client".into(),
+        description: "Search deferred tools.".into(),
+        parameters: JsonSchema::object(
+            BTreeMap::from([("query".into(), JsonSchema::string(None))]),
+            Some(vec!["query".into()]),
+            Some(AdditionalProperties::Boolean(false)),
+        ),
+    });
+    builder.register_handler("tool_search", handler);
+    let router = Arc::new(ToolRouter::from_builder_for_test(builder));
+    let (session, turn) = make_session_and_context().await;
+    let session = Arc::new(session);
+    let runtime = ToolCallRuntime::new(
+        router,
+        Arc::clone(&session),
+        Arc::new(turn),
+        Arc::new(Mutex::new(TurnDiffTracker::new())),
+    );
+    let calls = vec![PreparedClientCall {
+        identity: TaskSpaceExecInternalCallId {
+            outer_call_id: "outer".into(),
+            index: 0,
+        },
+        call: ClientCall {
+            public_name: "tool_search".into(),
+            tool_name: ToolName::plain("tool_search"),
+            node_id: "work".into(),
+            input: ClientCallInput::Function(json!({"query": "calendar"})),
+            transport: TaskSpaceClientTransport::ToolSearch,
+        },
+    }];
+
+    let native = prepare_client_calls(session.as_ref(), &calls)
+        .await
+        .unwrap();
+    let result = dispatch_client_calls(runtime, native, CancellationToken::new())
+        .next()
+        .await
+        .unwrap();
+
+    assert!(result.execution_failed);
+    assert!(!result.cancelled);
+    let ResponseInputItem::ToolSearchOutput { status, tools, .. } = result.response.unwrap() else {
+        panic!("ToolSearch failure must preserve its native pairing output")
+    };
+    assert_eq!(status, "completed");
+    assert!(tools.is_empty());
+}
