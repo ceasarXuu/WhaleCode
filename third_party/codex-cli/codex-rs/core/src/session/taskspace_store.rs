@@ -21,6 +21,7 @@ use sha2::Digest;
 use uuid::Uuid;
 
 mod action_settlement;
+mod cache_install;
 
 pub(crate) use action_settlement::TaskSpaceActionSettlementFact;
 pub(crate) use action_settlement::TaskSpaceActionSettlementQueue;
@@ -441,22 +442,6 @@ impl Session {
         })
     }
 
-    pub(super) async fn install_store_record(
-        &self,
-        record: &TaskSpaceMapRecord,
-        candidate: ActionMapRuntimeState,
-    ) -> Result<(), String> {
-        let candidate_map = canonical_map_for_store(&candidate);
-        let candidate_sha256 = canonical_map_sha256(&candidate_map)
-            .map_err(|error| format!("TaskSpace candidate hash failed: {error}"))?;
-        if candidate_sha256 != record.canonical_sha256 {
-            return Err("TaskSpace Store record does not match Runtime candidate.".to_string());
-        }
-        let mut state = self.state.lock().await;
-        state.install_action_map_store_record(record, candidate);
-        Ok(())
-    }
-
     async fn refresh_after_store_failure(
         &self,
         current: Option<&TaskSpaceMapRecord>,
@@ -482,10 +467,7 @@ impl Session {
             &owned
         };
         let runtime = runtime_from_record(record).map_err(|error| error.to_string())?;
-        self.state
-            .lock()
-            .await
-            .install_action_map_store_record(record, runtime);
+        let _ = self.install_store_record(record, runtime).await?;
         Ok(())
     }
 }

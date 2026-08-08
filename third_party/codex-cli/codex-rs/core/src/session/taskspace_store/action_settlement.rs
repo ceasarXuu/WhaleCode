@@ -308,7 +308,7 @@ impl Session {
             }
         };
         let runtime = runtime_from_record(&record).map_err(|error| error.to_string())?;
-        self.install_store_record(&record, runtime).await?;
+        let _ = self.install_store_record(&record, runtime).await?;
         tracing::info!(
             target: "codex_core::taskspace",
             event_name = "taskspace.action_settlement_committed",
