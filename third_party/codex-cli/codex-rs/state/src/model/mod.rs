@@ -28,6 +28,7 @@ pub use memories::Stage1Output;
 pub use memories::Stage1OutputRef;
 pub use memories::Stage1StartupClaimParams;
 pub use taskspace_map::BindTaskSpaceMapRequest;
+pub use taskspace_map::CommitLatestTaskSpaceFactRequest;
 pub use taskspace_map::CommitTaskSpaceMapRequest;
 pub use taskspace_map::CreateTaskSpaceMapRequest;
 pub use taskspace_map::TaskSpaceMapBindingRecord;

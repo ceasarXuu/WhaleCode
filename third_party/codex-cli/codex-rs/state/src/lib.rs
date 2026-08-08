@@ -36,6 +36,7 @@ pub use model::BackfillState;
 pub use model::BackfillStats;
 pub use model::BackfillStatus;
 pub use model::BindTaskSpaceMapRequest;
+pub use model::CommitLatestTaskSpaceFactRequest;
 pub use model::CommitTaskSpaceMapRequest;
 pub use model::CreateTaskSpaceMapRequest;
 pub use model::DirectionalThreadSpawnEdgeStatus;

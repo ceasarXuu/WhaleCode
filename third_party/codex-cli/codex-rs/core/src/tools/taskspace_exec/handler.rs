@@ -338,10 +338,12 @@ async fn settle_client_action(
     let log_action_id = action_id.clone();
     let log_tool_name = tool_name.clone();
     let correlation_id = format!("{outer_call_id}/{action_id}");
-    let (settled, _) = session
-        .mutate_canonical_action_map_rebased(
+    let fact_id = format!("{correlation_id}/{}", outcome_name(outcome));
+    session
+        .commit_latest_canonical_action_fact(
             "taskspace_exec_settle",
             &correlation_id,
+            &fact_id,
             move |runtime, owner| {
                 let current = runtime.canonical_map_for_store();
                 let settled = current
@@ -356,12 +358,11 @@ async fn settle_client_action(
                         let map_id = candidate.map_id.clone();
                         runtime.restore_store_map(&map_id, owner, Some(candidate))
                     });
-                (settled, Vec::new())
+                settled
             },
         )
         .await
         .map_err(taskspace_fatal)?;
-    settled.map_err(taskspace_fatal)?;
     tracing::info!(
         target: "codex_core::taskspace_exec",
         event_name = "taskspace.exec.action_settled",

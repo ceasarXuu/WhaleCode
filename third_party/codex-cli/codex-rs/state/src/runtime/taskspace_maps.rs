@@ -2,6 +2,7 @@ use super::StateRuntime;
 use super::taskspace_map_codec::canonical_sha256;
 use super::taskspace_map_codec::decode_binding_row;
 use super::taskspace_map_codec::from_i64;
+use super::taskspace_map_codec::latest_mutation_sha256;
 use super::taskspace_map_codec::request_sha256;
 use super::taskspace_map_codec::require_nonempty;
 use super::taskspace_map_codec::to_i64;
@@ -10,6 +11,7 @@ use super::taskspace_map_repository::compare_and_swap_map;
 use super::taskspace_map_repository::insert_map_head;
 use super::taskspace_map_repository::load_map_in_tx;
 use crate::BindTaskSpaceMapRequest;
+use crate::CommitLatestTaskSpaceFactRequest;
 use crate::CommitTaskSpaceMapRequest;
 use crate::CreateTaskSpaceMapRequest;
 use crate::TaskSpaceMapBindingRecord;
@@ -235,6 +237,96 @@ WHERE b.thread_id = ?
             .ok_or_else(|| anyhow::anyhow!("committed TaskSpace map disappeared before commit"))?;
         tx.commit().await?;
         Ok(TaskSpaceMapWriteOutcome::Applied(record))
+    }
+
+    /// Commits an already-observed external fact against the latest Map head.
+    /// Agent-authored semantic Map changes must continue to use revision CAS.
+    pub async fn commit_latest_taskspace_fact(
+        &self,
+        request: CommitLatestTaskSpaceFactRequest,
+        mutate: impl FnOnce(
+            &TaskSpaceMapRecord,
+        )
+            -> anyhow::Result<Option<codex_protocol::taskspace::TaskSpaceCanonicalMap>>,
+    ) -> anyhow::Result<TaskSpaceMapWriteOutcome> {
+        require_nonempty("map_id", &request.map_id)?;
+        require_nonempty("commit_id", &request.commit_id)?;
+        require_nonempty("mutation_id", &request.mutation_id)?;
+        require_nonempty("operation", &request.operation)?;
+        let request_sha256 = latest_mutation_sha256(
+            &request.map_id,
+            &request.mutation_id,
+            &request.operation,
+            request.actor_thread_id,
+        )?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+
+        if let Some(outcome) = replay_commit(
+            &mut tx,
+            &request.commit_id,
+            &request.map_id,
+            &request_sha256,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(outcome);
+        }
+
+        let current = load_map_in_tx(&mut tx, &request.map_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("TaskSpace map `{}` does not exist", request.map_id))?;
+        let canonical_map = mutate(&current)?;
+        validate_map_identity(&request.map_id, canonical_map.as_ref())?;
+        let canonical_sha256 = canonical_sha256(&canonical_map)?;
+        let changed = canonical_map != current.canonical_map;
+        let result_store_revision = if changed {
+            let next_revision = current
+                .store_revision
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("TaskSpace store revision overflow"))?;
+            if !compare_and_swap_map(
+                &mut tx,
+                &current,
+                &canonical_map,
+                next_revision,
+                &canonical_sha256,
+                now,
+            )
+            .await?
+            {
+                anyhow::bail!(
+                    "latest-head TaskSpace mutation lost its write transaction for `{}`",
+                    request.map_id
+                );
+            }
+            next_revision
+        } else {
+            current.store_revision
+        };
+        insert_commit(
+            &mut tx,
+            &request.commit_id,
+            &request.map_id,
+            current.store_revision,
+            result_store_revision,
+            &canonical_sha256,
+            &request_sha256,
+            &request.operation,
+            request.actor_thread_id,
+            now,
+        )
+        .await?;
+        let record = load_map_in_tx(&mut tx, &request.map_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("mutated TaskSpace map disappeared before commit"))?;
+        tx.commit().await?;
+        if changed {
+            Ok(TaskSpaceMapWriteOutcome::Applied(record))
+        } else {
+            Ok(TaskSpaceMapWriteOutcome::IdempotentReplay(record))
+        }
     }
 }
 

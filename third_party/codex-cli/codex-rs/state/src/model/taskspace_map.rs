@@ -80,6 +80,15 @@ pub struct CommitTaskSpaceMapRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitLatestTaskSpaceFactRequest {
+    pub map_id: String,
+    pub commit_id: String,
+    pub mutation_id: String,
+    pub operation: String,
+    pub actor_thread_id: ThreadId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskSpaceMapWriteOutcome {
     Applied(TaskSpaceMapRecord),
     IdempotentReplay(TaskSpaceMapRecord),

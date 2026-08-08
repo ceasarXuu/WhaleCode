@@ -99,7 +99,7 @@ fn completed_multi_parent_map(map_id: &str, reopened: bool) -> TaskSpaceCanonica
 
 #[tokio::test]
 #[traced_test]
-async fn factual_action_settlement_rebases_on_latest_store_head_without_losing_other_changes() {
+async fn factual_action_settlement_commits_once_on_latest_head_without_losing_other_changes() {
     let home = std::env::temp_dir().join(format!("codex-taskspace-rebase-test-{}", Uuid::new_v4()));
     let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".to_string())
         .await
@@ -155,9 +155,10 @@ async fn factual_action_settlement_rebases_on_latest_store_head_without_losing_o
     let application_counter = Arc::clone(&applications);
     let settle_map_id = map_id.clone();
     session
-        .mutate_canonical_action_map_rebased(
+        .commit_latest_canonical_action_fact(
             "settle_taskspace_exec_action",
             "outer-1/taskspace/call/0",
+            "outer-1/taskspace/call/0/succeeded",
             move |runtime, owner| {
                 application_counter.fetch_add(1, Ordering::SeqCst);
                 let current = runtime
@@ -172,14 +173,13 @@ async fn factual_action_settlement_rebases_on_latest_store_head_without_losing_o
                 .expect("settle pending action");
                 runtime
                     .restore_store_map(&settle_map_id, owner, Some(commit.map))
-                    .expect("restore settled Map");
-                ((), Vec::new())
+                    .map_err(|error| format!("restore settled Map: {error}"))
             },
         )
         .await
-        .expect("rebase factual action settlement");
+        .expect("commit factual action settlement on latest head");
 
-    assert_eq!(applications.load(Ordering::SeqCst), 2);
+    assert_eq!(applications.load(Ordering::SeqCst), 1);
     let final_record = state_db
         .load_taskspace_map(&map_id)
         .await
@@ -205,12 +205,11 @@ async fn factual_action_settlement_rebases_on_latest_store_head_without_losing_o
         lines
             .iter()
             .find(|line| {
-                line.contains("taskspace.map_store_rebase_retry")
+                line.contains("taskspace.map_store_latest_committed")
                     && line.contains("correlation_id=\"outer-1/taskspace/call/0\"")
-                    && line.contains("rebase_attempt=1")
             })
             .map(|_| Ok(()))
-            .unwrap_or_else(|| Err("expected factual settlement rebase event".to_string()))
+            .unwrap_or_else(|| Err("expected latest-head settlement event".to_string()))
     });
     let _ = tokio::fs::remove_dir_all(home).await;
 }

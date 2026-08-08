@@ -59,6 +59,16 @@ pub(super) fn request_sha256(
     Ok(sha256(&bytes))
 }
 
+pub(super) fn latest_mutation_sha256(
+    map_id: &str,
+    mutation_id: &str,
+    operation: &str,
+    actor_thread_id: ThreadId,
+) -> anyhow::Result<String> {
+    let bytes = serde_json::to_vec(&(map_id, mutation_id, operation, actor_thread_id.to_string()))?;
+    Ok(sha256(&bytes))
+}
+
 pub(super) fn validate_map_identity(
     map_id: &str,
     canonical_map: Option<&TaskSpaceCanonicalMap>,
