@@ -1,7 +1,7 @@
 # Subagent VS Review: R8 TaskSpace Phase B3 内部审查
 
 - Created: 2026-08-08T14:50:03+08:00
-- Updated: 2026-08-08T16:23:00+08:00
+- Updated: 2026-08-09
 - Report schema: adversarial-v2
 - Task: 对抗性审查 R8 TaskSpace Exec Phase B3 的生产实现与离线完成声明
 - Report path: `vs_review/2026-08-08-taskspace-b3-internal-review.md`
@@ -291,3 +291,11 @@ Reviewer 同时复验两条 Standard 原生路径测试通过，未发现修复�
 - Allowed to proceed to B4: no
 - Blocked reason: factual Action settlement 的有限 CAS rebase 仍存在耗尽后遗留 Pending 的路径
 - Next control point: 用户决定是否授权剩余修复设计与第 3 轮 closure 审查
+
+## Post-Review Engineering Repair
+
+- Repair commit: `03acb2db6`
+- Scope: 只修复 Round 2 保持 open 的 R1-F2，不改变其他 finding 裁决。
+- Mechanism: 删除最多 8 次的 CAS rebase；已发生 Action outcome 改为在 latest-head SQLite 写事务中读取、应用一次并提交。Agent Map 语义变更继续走普通 revision CAS，Tool 不重跑，Node 状态不由 outcome 推导。
+- Local evidence: Store 并发 latest-head test、陈旧 Session cache settlement test、TaskSpace Exec 56、State 131、Router 8、API 134、Standard 2、workspace check、zero-base 与 cache gate 全通过。
+- Review status: 这是审查后的工程修复记录，不是第 3 轮独立审查。Round 2 的历史 verdict 保持 blocked；自动审查预算仍为 2/2。

@@ -1,8 +1,8 @@
 # Phase B3 MS-03、EX-06～EX-08 执行与反馈结果
 
-- 日期：2026-08-07
-- 状态：离线验证完成
-- 核心提交：`1347606e0`
+- 日期：2026-08-07；2026-08-09 更新
+- 状态：离线工程修复完成；修复后的追加独立 closure 待授权
+- 核心提交：`1347606e0`、`60fd7e0a8`、`03acb2db6`
 - 真实 Whale Agent run：0
 
 ## 1. 产品结果
@@ -45,6 +45,7 @@ TaskSpace 已接入唯一生产执行链：
 | `taskspace.exec.preflight_accepted` | 记录 request revision 与各类动作数量 |
 | `taskspace.exec.candidate_persisted` | 记录副作用前已固化的 revision 与 Action 数量 |
 | `taskspace.exec.action_settled` | 逐 Action 记录机械终态 |
+| `taskspace.map_store_latest_committed` | 记录已发生 Action 事实在 latest Map head 的原子提交 |
 | `taskspace.exec.completed` | 记录唯一 outer 反馈的结果数量和成功标志 |
 | `taskspace.exec.rejected` / `taskspace.exec.fatal` | 区分合同拒绝与事实层故障 |
 
@@ -71,7 +72,17 @@ TaskSpace 已接入唯一生产执行链：
 Provider。另清理了一条已删除 `finish_map/exact_summary` 旧协议的残留日志测试，并同步早期
 `code_mode_exec_function` 配置 schema fixture。
 
-## 5. 阶段结论
+## 5. 第二轮审查后的并发闭合
 
-MS-03、EX-06、EX-07、EX-08 均达到离线验收，Phase B3 完成。下一阶段是 Phase B4：建设可逐动作对账的完整观测、
-更新缓存/性能工具并执行 Docker 离线门禁。真实 Provider shape 与产品对比仍属于 Phase B5，必须另行申请预算。
+第二轮独立 closure 发现旧实现最多只重放 8 次 Action outcome；持续竞争耗尽后，已执行 Tool 仍可能在 Map 中保持
+`pending`。提交 `03acb2db6` 已删除该概率性路径：事实结算取得 SQLite latest-head 写事务后才读取 Map，在同一事务中
+一次应用和提交 outcome。普通 Agent Map 变更仍使用 revision CAS；Tool 不重跑，Node 生命周期不受 outcome 驱动。
+
+确定性测试证明：两个并发事实提交都被保留；Session 本地缓存落后时结算闭包只执行一次，同时保留其他 Session 的 Map
+内容。TaskSpace Exec 56、State 131、Router 8、API 134、两条 Standard 原生反馈测试、workspace check、zero-base 和
+cache gate 全通过。自动独立审查预算已使用 2/2，因此这项最后修复尚未执行第 3 轮独立 closure。
+
+## 6. 阶段结论
+
+MS-03、EX-06、EX-07、EX-08 的工程实现与本地离线验收已完成。进入 Phase B4 前是否追加第 3 轮独立 closure 仍是单独
+控制点；不得把本节本地证据表述为独立审查通过。真实 Provider shape 与产品对比仍属于 Phase B5，必须另行申请预算。
