@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/workspace-identity-v1.json",
+  "title": "WhaleCode workspace identity marker",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workspace_id",
+    "canonical_root",
+    "git_common_dir",
+    "branch",
+    "resources",
+    "last_doctor"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "workspace_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*-[a-f0-9]{10}$"
+    },
+    "canonical_root": { "type": "string" },
+    "git_common_dir": { "type": "string" },
+    "branch": { "type": "string", "minLength": 1 },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state_root", "runtime_home", "data_root", "binary_dir"],
+      "properties": {
+        "state_root": { "type": "string" },
+        "runtime_home": { "type": "string" },
+        "data_root": { "type": "string" },
+        "binary_dir": { "type": "string" }
+      }
+    },
+    "last_doctor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "diagnostic_codes"],
+      "properties": {
+        "status": { "enum": ["passed", "failed"] },
+        "diagnostic_codes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}
