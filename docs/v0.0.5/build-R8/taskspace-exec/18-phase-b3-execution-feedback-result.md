@@ -1,8 +1,8 @@
 # Phase B3 MS-03、EX-06～EX-08 执行与反馈结果
 
 - 日期：2026-08-07；2026-08-09 更新
-- 状态：blocked；第三轮独立 closure 确认 Action 事实持久化与 Store 边界仍未闭合
-- 核心提交：`1347606e0`、`60fd7e0a8`、`03acb2db6`
+- 状态：verified；MS-03 收敛修复通过离线故障合同，Phase B3 关闭
+- 核心提交：`1347606e0`、`60fd7e0a8`、`03acb2db6`、`e5925b45d`、`702f885a0`
 - 真实 Whale Agent run：0
 
 ## 1. 产品结果
@@ -19,7 +19,7 @@ TaskSpace 已接入唯一生产执行链：
 5. Provider-hosted 结果使用 Responses wire 的真实 `output_index`、Provider ID、Tool 类型和终态 outcome，与 Agent
    声明的 `node_ids[]` 逐项核对。一个 Hosted Action 可归属多个 Work Node；漏绑、错绑、重复、无 Exec、多个 Exec
    或缺少 wire index 均在 client/Map 副作用前拒绝。
-6. Agent 只收到一个 outer Function Tool output。它包含最新 Map identity/revision、显式读取结果、每个 client Tool
+6. Agent 只收到一个 outer Function Tool output。它包含稳定的 Map identity、dispatch 时 revision、显式读取结果、每个 client Tool
    的原生 `ResponseInputItem` 和 Hosted 机械归属，不复制 Hosted 原始结果，不注入 developer carrier，也不再解释
    Tool 语义。
 7. TaskSpace 请求顶层只暴露 `taskspace_exec` 和 Provider-hosted Tool；普通 client Tool 只能经 Exec 内部进入原生
@@ -44,8 +44,12 @@ TaskSpace 已接入唯一生产执行链：
 | `taskspace.exec.hosted_fact_observed` | 记录真实 index、Provider ID、Tool 和 outcome |
 | `taskspace.exec.preflight_accepted` | 记录 request revision 与各类动作数量 |
 | `taskspace.exec.candidate_persisted` | 记录副作用前已固化的 revision 与 Action 数量 |
-| `taskspace.exec.action_settled` | 逐 Action 记录机械终态 |
-| `taskspace.map_store_latest_committed` | 记录已发生 Action 事实在 latest Map head 的原子提交 |
+| `taskspace.action_settlement_queued` | 记录 Tool 返回后已同步投递的窄化终态事实 |
+| `taskspace.action_settlement_committed` | 记录 outcome-only 事务在 latest Map head 的提交 |
+| `taskspace.action_settlement_failed` | 记录会持续阻断后续 TaskSpace 请求的永久结算故障 |
+| `taskspace.action_settlement_barrier_completed` | 记录请求前 FIFO 屏障结果 |
+| `taskspace.action_settlement_recovery_completed` | 记录从既有 rollout 对 Pending Action 的机械对账数量 |
+| `taskspace.action_settlement_store_busy` | 记录 SQLite writer busy 的有界指数退避轮次 |
 | `taskspace.exec.completed` | 记录唯一 outer 反馈的结果数量和成功标志 |
 | `taskspace.exec.rejected` / `taskspace.exec.fatal` | 区分合同拒绝与事实层故障 |
 
@@ -84,9 +88,9 @@ cache gate 全通过。但第三轮用户授权 closure 进一步确认：State 
 失败；Tool 完成后的 outer cancellation 也可丢弃正在等待的结算 future，两者都没有 durable 补偿入口。此外，公开
 latest-head API 可提交任意 canonical Map，outcome-only 边界只靠调用方约定。上述绿色测试未覆盖这些路径。
 
-## 6. 阶段结论
+## 6. 历史重开结论
 
-EX-06～EX-08 的既有局部验收不受本轮推翻；MS-03 保持 blocked，B3 不得进入 B4。下一控制点是设计 durable、可恢复且
+以下是 2026-08-09 第三轮 closure 后、`702f885a0` 修复前的历史结论：EX-06～EX-08 的既有局部验收不受本轮推翻；MS-03 当时保持 blocked，B3 不得进入 B4。下一控制点是设计 durable、可恢复且
 outcome-only 的 Action 事实结算方案；不得用提高 timeout 或另一组有限 retry 代替根因闭合。真实 Provider shape 与产品
 对比仍属于 Phase B5，必须另行申请预算。
 
@@ -125,4 +129,32 @@ preflight -> persist Pending -> native Tool dispatch
 - 如果 rollout 没有终态结果，Action 忠实保持 Pending/未知；Runtime 不推测、不默认失败、不自动重跑。
 
 验收必须覆盖超过既有 5 秒 busy timeout 的 writer、Tool 完成后的 outer cancellation、跨 Session latest-head 写入、
-恢复对账和 outcome-only 负例。完成前 MS-03 与 Phase B3 保持 blocked。
+恢复对账和 outcome-only 负例。
+
+## 8. MS-03 修复与验收结果
+
+提交 `e5925b45d` 先删除通用整图 mutation Store API，增加只允许核对
+`map_id/action_id/node_ids/tool_name/outcome` 的 outcome-only 事务。提交 `702f885a0` 将结算生命周期从 outer Tool future
+移到 Session 自有 FIFO 执行器：内部 Tool 返回后在同一次 poll 内同步投递窄化事实，完整结果仍只进入唯一 outer feedback
+和 Standard rollout。下一次 TaskSpace Provider 请求在 projection 构造前执行 Pending-only rollout 对账并等待 FIFO
+屏障；Standard 模式在此前直接返回，不进入该链路。
+
+执行器对 SQLite writer busy 持续有界指数退避，不再沿用固定 5 秒失败边界；相同终态重放幂等，异终态、错节点、错 Tool
+或不存在 Action 会成为持续可见的硬错误并阻断后续请求。恢复只使用带稳定
+`kind=taskspace_exec_result`、`outer_call_id`、`map_id` 和 `action_id` 的既有反馈；大结果复用 Standard content-addressed
+`output-ref` 并校验 SHA，不重建 Map、不重跑 Tool、不复制完整结果。
+
+| 闭合证据 | 结果 |
+|---|---|
+| `codex-state --lib`，含同终态幂等、异终态/错归属拒绝、SQLite writer busy 超过 5 秒 | 133 passed |
+| `codex-core taskspace_exec --lib` | 56 passed |
+| Session 结算取消、永久错误屏障、Pending-only 恢复与错归属拒绝 | 4 passed |
+| Standard output-reference 与完整恢复读取/SHA 校验 | 11 passed |
+| `cargo check --workspace --all-targets` | PASS |
+| TaskSpace zero-base gate | PASS |
+| cache regression gate，source=index | PASS，fingerprint `61da3cc3...6712b9c` |
+| 真实 Whale Agent / Provider 请求 | 0 |
+
+结论：MS-03 的已知三项缺口已经闭合，Phase B3 恢复为 verified，可进入 Phase B4。该结论不声称任意外部 Tool 副作用
+与 Map 事务具备进程级原子性；在 Tool 结果尚未进入 rollout 的极端进程崩溃窗口，Map 会忠实保留 Pending，而不是由
+Runtime 猜测终态或自动重试 Tool。
