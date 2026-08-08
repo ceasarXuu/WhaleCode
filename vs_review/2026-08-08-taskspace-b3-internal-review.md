@@ -1,0 +1,213 @@
+# Subagent VS Review: R8 TaskSpace Phase B3 内部审查
+
+- Created: 2026-08-08T14:50:03+08:00
+- Updated: 2026-08-08T15:07:04+08:00
+- Report schema: adversarial-v2
+- Task: 对抗性审查 R8 TaskSpace Exec Phase B3 的生产实现与离线完成声明
+- Report path: `vs_review/2026-08-08-taskspace-b3-internal-review.md`
+- Review mode: fresh internal subagents
+- Source session policy: no inherited main-agent context
+- Status: blocked
+- Control outcome: user-decision-required
+- Automatic round budget: 2
+- Completed rounds: 1
+- Last known-good checkpoint: `68e8d9dd1`
+
+## Review Control Contract
+
+### Frozen Objective
+
+验证 Phase B3 是否达到活动计划定义的完成条件：client、Hosted、Map 和反馈走唯一生产链，Standard 路径保持原生，
+实施期候选和旧逻辑不再影响生产行为。
+
+### Acceptance Criteria
+
+- EX-05、MS-01～MS-03、EX-06～EX-08 均有真实生产入口，不是 fixture 或 test-only wiring。
+- 非法计划在 client/Map 副作用前拒绝；合法计划先持久化候选 Map 和 Pending，再执行原生 client Tool。
+- 每个 Tool outcome、Hosted 事实和 outer feedback 忠实、完整、无重复，不改变 Node 生命周期。
+- 并发、部分失败、取消、中断和 response lifecycle 不造成错误结算、事实丢失或不可解释的永久状态。
+- TaskSpace 顶层普通 client Tool 不可绕过；Standard 外部 Tool 合同不变。
+
+### Explicit Non-goals
+
+- 不评审暂停中的 I01～I10 队列和 Phase B4/B5 未实施工作。
+- 不运行真实 Whale Agent 或付费 Provider。
+- reviewer 不修改产品代码。
+
+### Frozen Target Locations
+
+- `third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/`
+- `third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec_*tests.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/router.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+- `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- `third_party/codex-cli/codex-rs/core/src/session/taskspace_store.rs`
+- `third_party/codex-cli/codex-rs/core/src/action_map/rooted_dag/`
+- `third_party/codex-cli/codex-rs/state/src/runtime/taskspace_map*.rs`
+- `docs/v0.0.5/build-R8/taskspace-exec/00-product-contract.md`
+- `docs/v0.0.5/build-R8/taskspace-exec/12-phase-b-zero-base-plan.md`
+- `docs/v0.0.5/build-R8/taskspace-exec/16-phase-b3-ex05-native-dispatch-result.md`
+- `docs/v0.0.5/build-R8/taskspace-exec/17-phase-b3-relational-store-result.md`
+- `docs/v0.0.5/build-R8/taskspace-exec/18-phase-b3-execution-feedback-result.md`
+
+### Allowed Change Categories
+
+- 本轮只允许审查报告变更；任何产品修复另行取得用户授权。
+
+### Approval-required Changes
+
+- 产品代码、公开 API、持久化 schema、依赖或跨模块抽象变更。
+
+### Authoritative Sources
+
+| Authority | Source | What It Controls |
+|---|---|---|
+| E0 | 用户要求执行对抗性审查 | 审查授权与范围 |
+| E1 | R8 全局约束、产品合同、Phase B 活动计划 | 产品意图和完成门禁 |
+| E2 | 当前生产源码、确定性测试和门禁结果 | 实际系统行为 |
+| E3 | Provider/Codex 官方协议资料 | 外部 wire 事实 |
+| E4 | reviewer 或主 Agent 推理 | 只作为待验证假设 |
+
+### Baseline And Rollback
+
+- Baseline revision: `68e8d9dd1`
+- Rollback checkpoint: `68e8d9dd1`
+- Expected benefit: 在进入 B4 前发现 B3 的正确性、完整性与边界回归。
+- Acceptable side effects: 只新增/更新审查报告。
+- Automatic round budget: 2
+
+## Round 1: 生产实现与失败路径审查
+
+### Round Control
+
+- Round type: initial
+- Round number: 1
+- Completed automatic rounds before launch: 0
+- User approval for this round: n/a
+- Closure finding IDs: n/a
+- Permitted closure relation: n/a
+- Target scope delta allowed: none
+
+### Review Input
+
+- Objective、Acceptance Criteria、Non-goals 和 Target Locations 与冻结合同一致。
+- Change introduction: B3 将结构化 Exec 接入原生 client dispatch、关系化 Map Store、逐 Action 结算、Hosted
+  response 对账、唯一 outer feedback 和正式 TaskSpace Router。
+- Risk focus: feedback fidelity、并发 CAS、partial failure、取消/中断、response scope、顶层绕过与 Standard 回归。
+- User perspective: Agent 是否收到忠实、唯一且可恢复的反馈。
+- Implementation completeness: 逐项核对 EX-05、MS-01～MS-03、EX-06～EX-08 的生产路径与测试证据。
+- Target benefit: “最低延迟结算”和“唯一反馈”只有在代码路径与确定性证据成立时才算实现；产品收益实测属于 B5。
+- Known evidence gap: 未执行真实 Provider/Agent；该缺口不在 B3 离线完成门禁内。
+- Adversarial lenses: state、concurrency、failure、data、input、implementation-completeness、testing、observability。
+
+### Reviewer Instructions
+
+- Fresh internal subagent session，`fork_context=false`。
+- 不读取 2026-08-07 外部 reviewer 草稿，不继承其结论。
+- 直接读取目标文件；只读，不改文件。
+- finding 尽量引用精确 `path:line`，blocking/scope claim 标记 E0～E4。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 15 min | +10 min | 2 | reviewer 不可用时不得判定通过 |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| implementation-adversary | B3 是状态、并发、失败语义和生产接线敏感的执行链 | correctness / state / concurrency / failure |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| implementation-adversary | `multi_agent_v1__spawn_agent` | `019fe022-8be9-7800-8aa3-0584429b8c3b` | spawn/wait transcript | `fork_context=false` | Round 1 neutral navigation packet | main-agent history、reasoning、旧 reviewer 草稿与结论 | yes |
+
+### Reviewer Outputs
+
+内部 reviewer 在首个 15 分钟等待窗口内完成，只读审查，未修改产品代码，也未运行真实 Whale Agent 或付费 Provider。
+
+| ID | 严重度 | Finding | 主要证据 |
+|---|---|---|---|
+| R1-F1 | critical | request revision 在 Provider 响应后才捕获；请求生成期间其他 Session 更新 Map 时，旧响应会被当作基于新 revision 生成 | `handler.rs:89-99`、`envelope.rs:48-69` |
+| R1-F2 | critical | Tool 已执行完成后若结算遭遇跨 Session CAS 冲突，Store 只 refresh 并返回错误，不在新 head 上重放纯 outcome；Action 可永久停留 Pending，outer feedback 丢失 | `handler.rs:152-169,307-335`、`taskspace_store.rs:348-377` |
+| R1-F3 | critical | response scope 只识别 Exec 与 Hosted item，忽略同一 response 中的顶层普通 client FunctionCall；非法响应仍可执行其中合法 Exec 的副作用 | `response_scope.rs:34-73,165-184`、`turn.rs:2436-2447` |
+| R1-F4 | high | 任一内部 Tool 返回 Fatal 时，handler 最终返回 outer Fatal；drain 只记日志，不写配对的 outer FunctionCallOutput，成功 sibling 的结果也无法反馈给 Agent | `handler.rs:150-170`、`parallel.rs:103-117`、`turn.rs:1884-1900` |
+| R1-F5 | medium | 单个 Action outcome 变化会删除并重插同节点全部 Action 行，不符合 MS-02 的逐变更行写入合同 | `taskspace_map_repository.rs:297-313` |
+
+Reviewer 还记录了四项非阻塞风险：缺少本 revision 的完整 Standard exact-wire 对比；拒绝反馈未显式声明副作用为零；
+response scope 未保存 `response_id`；catalog 按名称无条件排除 `exec`、`wait`，可能误伤同名动态能力。
+
+Reviewer 报告其本地离线验证通过：TaskSpace Exec 50 tests、关系化 Store 3 tests、core Store 8 tests、Router 8 tests、
+API SSE 31 tests。现有绿色测试没有覆盖上述反例。
+
+### Main Agent Response
+
+主 Agent 直接读取 E1 合同和 E2 源码后逐项复核，没有把 reviewer 判断直接升级为事实。
+
+| ID | 裁决 | 阻塞 | 复核结论 |
+|---|---|---:|---|
+| R1-F1 | accept | yes | E1 明确要求 request-local revision；当前唯一 `capture()` 生产调用确实位于 response tool handler 内，无法代表发出 Provider 请求时 Agent 所见 revision |
+| R1-F2 | accept | yes | outcome settlement 是已发生事实，不能因 head 竞争而丢弃；当前 conflict 分支明确只 refresh 后返回 `Err`，而 settle loop 以 `?` 退出 |
+| R1-F3 | accept | yes | E1 明确规定同一 TaskSpace response 顶层普通 client Tool 非法；scope 对该 item 无记录，因此无法在任何 Exec/Map/client 副作用前拒绝整份非法 response |
+| R1-F4 | accept | yes | EX-07 要求恰好一次 outer feedback，包含各结果和失败范围；Fatal 路径当前没有 model-visible outer output |
+| R1-F5 | accept | yes | 虽不立即破坏逻辑正确性，但直接违反 MS-02 和产品合同的“只更新对应 Action 行”，B3 不能据此声明完成 |
+
+主 Agent 额外发现两项 reviewer 未覆盖的合同缺口：
+
+| ID | 严重度 | 裁决 | 阻塞 | Finding 与证据 |
+|---|---|---|---:|---|
+| R1-F6 | high | accept | yes | nested `ToolSearch` 的非 Fatal 错误被 Standard wrapper 转成 `status=completed, tools=[]`；`dispatched_outcome()` 只识别 `success=false`，因此将真实失败记为 `Succeeded`。证据：`parallel.rs:208-232`、`handler.rs:346-359` |
+| R1-F7 | high | accept | yes | `work_node_schema()` 向 Agent 暴露可选 `state`，但 `WorkNodeArgs` 使用 `deny_unknown_fields` 且没有该字段；Agent 按 schema 填写即被 decoder 拒绝。现有测试甚至明确验证该拒绝。证据：`map_operations.rs:99-106,394-407`、`taskspace_exec_tests.rs:99-112` |
+
+非阻塞项裁决：
+
+| 项目 | 裁决 | 说明 |
+|---|---|---|
+| Standard exact-wire 全量对比缺口 | defer | 当前未找到具体回归；在 B3 修复 closure 中补确定性对比，不为此运行真实 Agent |
+| rejection 未显式写“零副作用” | defer | 可观测性质量问题，纳入 OB-01；不改变拒绝本身的机械语义 |
+| response scope 未保留 `response_id` | defer | 当前事实配对使用 output index/provider ID；先作为日志关联缺口，不凭推理扩成协议字段 |
+| catalog 名称过滤 `exec`/`wait` | defer | 尚无当前配置下误伤的 E2 反例；在能力 catalog 审计中验证后再决定，不增加兼容分支 |
+
+当前 implementation completeness：
+
+| Unit | 结论 | 原因 |
+|---|---|---|
+| EX-05 | blocked | Fatal 结果和 ToolSearch 失败语义不保真 |
+| MS-01 | pass | 关系化表是当前唯一生产事实源，未发现整图 JSON 平行镜像 |
+| MS-02 | blocked | 单 outcome 重写同节点全部 Action 行 |
+| MS-03 | blocked | 跨 Session CAS conflict 可丢失已发生 outcome |
+| EX-06 | blocked | request-time revision 未真实捕获，Hosted attribution 可落到 Agent 未见的 Map revision |
+| EX-07 | blocked | Fatal 无唯一 outer feedback，ToolSearch outcome 失真 |
+| EX-08 | blocked | response scope 未整批识别顶层普通 client Tool；schema/decoder 还存在自相矛盾的正式入口 |
+
+### Review Governor
+
+- Round 1 已完成，使用 1/2 个自动轮次。
+- 已确认 7 个 blocking finding；现有 B3 “离线验收完成”声明暂停生效。
+- 本轮授权只允许审查报告，未修改产品代码。
+- Round 2 只能作为 blocking closure：先修复已接受 finding，再用新鲜 reviewer 逐项复核；不得借 closure 扩大产品范围。
+- 缺失的关键反证测试：request-time revision race、双 Session settlement rebase、ordinary+Exec response、Fatal+sibling
+  outer pairing、ToolSearch failure outcome、schema/decode parity、单 Action 物理写审计。
+- 缺失的关键日志：request-time revision、settle 的 map/node/store revision、CAS conflict 的 outer/action identity，以及
+  outer Fatal 的统一事件。日志不能替代正确性修复。
+
+### Closure Status
+
+- Blocking findings found: yes（R1-F1～R1-F7）
+- Accepted blocking findings fixed: no
+- Blocking re-review completed: no
+- Automatic round budget respected: yes
+- Scope drift detected: no
+- Allowed to proceed to B4: no
+- Blocked reason: B3 的 revision、并发结算、response admission、失败反馈、物理写入和 schema 合同存在已确认缺口
+- Next control point: 等待用户授权修复；修复后执行第 2 轮 closure 审查
+
+## Final Conclusion
+
+B3 happy path 已真实接入生产链，关系化 Map 事实源也成立，但“B3 已完成”结论经本轮审查被推翻。当前不是单一测试缺口，
+而是 7 个可由源码直接证明的合同问题：其中 F1/F2/F3/F4 会造成 stale 执行、已发生结果丢失、非法 response 部分生效或
+Agent 收不到反馈；F6/F7 会直接扭曲失败语义或诱导 Agent 生成 decoder 必拒的合法 schema 输入；F5 则未兑现已经确认的
+细粒度持久化收益。修复前不应进入 B4。
