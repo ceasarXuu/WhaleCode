@@ -1,16 +1,16 @@
 # Subagent VS Review: R8 TaskSpace Phase B3 内部审查
 
 - Created: 2026-08-08T14:50:03+08:00
-- Updated: 2026-08-09
+- Updated: 2026-08-09 Round 3
 - Report schema: adversarial-v2
 - Task: 对抗性审查 R8 TaskSpace Exec Phase B3 的生产实现与离线完成声明
 - Report path: `vs_review/2026-08-08-taskspace-b3-internal-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context
 - Status: blocked
-- Control outcome: round-budget-exhausted
+- Control outcome: user-approved-extra-closure-blocked
 - Automatic round budget: 2
-- Completed rounds: 2
+- Completed rounds: 3（2 automatic + 1 user-approved extra）
 - Last known-good checkpoint: `68e8d9dd1`
 
 ## Review Control Contract
@@ -299,3 +299,79 @@ Reviewer 同时复验两条 Standard 原生路径测试通过，未发现修复�
 - Mechanism: 删除最多 8 次的 CAS rebase；已发生 Action outcome 改为在 latest-head SQLite 写事务中读取、应用一次并提交。Agent Map 语义变更继续走普通 revision CAS，Tool 不重跑，Node 状态不由 outcome 推导。
 - Local evidence: Store 并发 latest-head test、陈旧 Session cache settlement test、TaskSpace Exec 56、State 131、Router 8、API 134、Standard 2、workspace check、zero-base 与 cache gate 全通过。
 - Review status: 这是审查后的工程修复记录，不是第 3 轮独立审查。Round 2 的历史 verdict 保持 blocked；自动审查预算仍为 2/2。
+
+## Round 3: User-Approved R1-F2 Closure
+
+### Round Control
+
+- Round type: user-approved-extra closure
+- Round number: 3
+- User approval: 2026-08-09，用户明确要求“审查一轮”
+- Closure finding IDs: R1-F2
+- Permitted closure relation: R1-F2 是否仍存在、`03acb2db6` 直接引入的相邻正确性/数据/并发/Runtime 边界回归
+- Scope exclusions: B4/B5、I01～I10、性能收益、真实 Provider、一般重构和风格建议
+- Baseline and rollback checkpoint: `935feb7e4`
+- Review target revisions: `03acb2db6`、`10c162b68`
+- Timeout policy: high-risk，初始 20 分钟；仅在 reviewer 明确存活时允许一次有界延长
+
+### Frozen Acceptance Criteria
+
+- 已发生的 client Tool outcome 不因共享 Map 并发或有限 retry 耗尽而丢失。
+- Tool 不重跑；outcome 不推进 Node，不替 Agent 做 Map 决策。
+- Agent-authored Map 语义变更继续受 revision CAS 保护；Standard Tool 行为不变。
+- Store、Session cache、outer feedback 和持久化 Action 对同一执行事实保持一致。
+
+### Reviewer Launch Record
+
+| Reviewer | Internal Mechanism | Session / Job ID | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|
+| implementation-adversary | `multi_agent_v1__spawn_agent` | `019fe287-9c0c-7043-94ac-7eeb1fd8424a` | `fork_context=false` | Round 3 neutral R1-F2 closure packet | main-agent history、reasoning、结论性措辞 | yes |
+
+### Round 3 Status
+
+- Status: completed
+- Reviewer output: R1-F2 open；发现一个直接相邻 high Runtime 边界回归和一个 medium 证据过度声明
+- Main-agent triage: completed
+- Closure verdict: blocked
+
+### Reviewer Output
+
+| ID | 严重度 | Finding | 主要证据 |
+|---|---|---|---|
+| R3-F1 | critical | `BEGIN IMMEDIATE` 受 5 秒 busy timeout 限制；writer 超时或 Tool 完成后的 outer cancellation 仍可中断事实结算并遗留 Pending | `state/runtime.rs:171-185`、`taskspace_maps.rs:263`、`latest_mutation.rs:50-65`、`handler.rs:157-167`、`parallel.rs:167-190`、SQLite transaction/busy-timeout 官方文档 |
+| R3-F2 | high | 公开 latest-head API 接受返回任意 canonical Map 的 closure，只校验身份，不机械限制为对应 Action outcome 变化，可绕开 Agent revision CAS 边界 | `state/lib.rs:38-41`、`taskspace_maps.rs:242-329`、`taskspace_maps_tests.rs:282-303` |
+| R3-F3 | medium | COE 和 B3 结果把短事务测试外推为任意竞争闭合；未覆盖长 writer、post-Tool cancellation、Store 成功后 cache 安装失败和 mutation identity 重复 | `coe/...b3-closure.md:E-017`、`18-phase-b3-execution-feedback-result.md:75+` |
+
+外部事实来源：[SQLite Transaction](https://www.sqlite.org/lang_transaction.html)、
+[SQLite busy timeout](https://www.sqlite.org/c3ref/busy_timeout.html)。
+
+Reviewer 判定 R1-F2 为 `open`：Tool 不重跑、短事务 latest-head 合并和 outcome 不推进 Node 均成立，但锁超时与
+post-Tool cancellation 仍能使 canonical Action 保持 `Pending`。未发现 Standard 顶层路径变化或其他直接相邻 blocker。
+
+Reviewer 离线复验：TaskSpace Exec 56、Store 9、State 131+3+1、Router 8、API 134、Standard 2、workspace check、
+zero-base/cache gate 全通过；未运行真实 Whale Agent 或 Provider，未修改文件。
+
+### Main-Agent Triage
+
+| Finding | Decision | Blocking | Rationale |
+|---|---|---:|---|
+| R3-F1 | accept | yes | E2 生产路径明确把 Store error 降为 `settlement_error`，且 outer Tool future 可被 cancellation 分支丢弃；E3 明确 `BEGIN IMMEDIATE` 在其他 writer 存在时可失败，busy timeout 达阈值后返回 `SQLITE_BUSY` |
+| R3-F2 | accept | yes | E2 测试直接用该 API 修改 Root/Work content，证明“fact”只是命名约定而非机械边界；这违反冻结的 Agent Map CAS 约束 |
+| R3-F3 | accept | yes | 绿色测试只覆盖两个短事务与先并发提交后结算，不能支持任意 writer 等待和取消恢复性质 |
+
+### Review Governor
+
+- 这是用户明确授权的第 3 轮，只读审查已完成；没有自动启动第 4 轮或产品修复。
+- blocker 从一个未闭合事实丢失路径扩展为同一根因下的持久化保证缺口，以及修复直接引入的 generic whole-map 边界缺口；属于允许的紧邻范围，不是 B4/B5 扩张。
+- 后续必须先设计同时处理 durable settlement、取消边界和 outcome-only Store contract 的方案；仅提高 busy timeout、无限同步等待或再次增加有限 retry 都不能闭合冻结目标。
+- 方案会影响 TaskSpace 的故障恢复与 Store API 边界，属于重大技术路线控制点，实施前需与用户讨论。
+
+### Round 3 Closure Status
+
+- R1-F2: open
+- Direct adjacent blockers: R3-F2、R3-F3
+- Standard regression found: no
+- Real Whale Agent runs: 0
+- Closure verdict: blocked
+- Allowed to proceed to B4: no
+- Next control point: 与用户讨论 durable Action fact settlement 与 outcome-only Store contract 的修复设计

@@ -1,7 +1,7 @@
 # Phase B3 MS-03、EX-06～EX-08 执行与反馈结果
 
 - 日期：2026-08-07；2026-08-09 更新
-- 状态：离线工程修复完成；修复后的追加独立 closure 待授权
+- 状态：blocked；第三轮独立 closure 确认 Action 事实持久化与 Store 边界仍未闭合
 - 核心提交：`1347606e0`、`60fd7e0a8`、`03acb2db6`
 - 真实 Whale Agent run：0
 
@@ -75,14 +75,17 @@ Provider。另清理了一条已删除 `finish_map/exact_summary` 旧协议的�
 ## 5. 第二轮审查后的并发闭合
 
 第二轮独立 closure 发现旧实现最多只重放 8 次 Action outcome；持续竞争耗尽后，已执行 Tool 仍可能在 Map 中保持
-`pending`。提交 `03acb2db6` 已删除该概率性路径：事实结算取得 SQLite latest-head 写事务后才读取 Map，在同一事务中
-一次应用和提交 outcome。普通 Agent Map 变更仍使用 revision CAS；Tool 不重跑，Node 生命周期不受 outcome 驱动。
+`pending`。提交 `03acb2db6` 删除了该 CAS retry 路径：事实结算取得 SQLite latest-head 写事务后才读取 Map，在同一
+事务中一次应用和提交 outcome。Tool 不重跑，当前生产调用也不驱动 Node 生命周期。
 
 确定性测试证明：两个并发事实提交都被保留；Session 本地缓存落后时结算闭包只执行一次，同时保留其他 Session 的 Map
 内容。TaskSpace Exec 56、State 131、Router 8、API 134、两条 Standard 原生反馈测试、workspace check、zero-base 和
-cache gate 全通过。自动独立审查预算已使用 2/2，因此这项最后修复尚未执行第 3 轮独立 closure。
+cache gate 全通过。但第三轮用户授权 closure 进一步确认：State 的 5 秒 busy timeout 到期后 `BEGIN IMMEDIATE` 仍可
+失败；Tool 完成后的 outer cancellation 也可丢弃正在等待的结算 future，两者都没有 durable 补偿入口。此外，公开
+latest-head API 可提交任意 canonical Map，outcome-only 边界只靠调用方约定。上述绿色测试未覆盖这些路径。
 
 ## 6. 阶段结论
 
-MS-03、EX-06、EX-07、EX-08 的工程实现与本地离线验收已完成。进入 Phase B4 前是否追加第 3 轮独立 closure 仍是单独
-控制点；不得把本节本地证据表述为独立审查通过。真实 Provider shape 与产品对比仍属于 Phase B5，必须另行申请预算。
+EX-06～EX-08 的既有局部验收不受本轮推翻；MS-03 保持 blocked，B3 不得进入 B4。下一控制点是设计 durable、可恢复且
+outcome-only 的 Action 事实结算方案；不得用提高 timeout 或另一组有限 retry 代替根因闭合。真实 Provider shape 与产品
+对比仍属于 Phase B5，必须另行申请预算。
