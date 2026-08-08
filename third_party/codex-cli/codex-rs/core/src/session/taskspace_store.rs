@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 mod action_settlement;
 mod cache_install;
+mod producer;
 
 pub(crate) use action_settlement::TaskSpaceActionSettlementFact;
 pub(crate) use action_settlement::TaskSpaceActionSettlementQueue;

@@ -274,7 +274,7 @@ async fn cancelled_native_call_is_settled_without_changing_node_state() {
 }
 
 #[tokio::test]
-async fn interrupted_exec_leaves_recoverable_pending_without_retrying_tool() {
+async fn interrupted_outer_exec_does_not_cancel_registered_action_producer() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
     finalize_scope(&harness);
@@ -296,7 +296,7 @@ async fn interrupted_exec_leaves_recoverable_pending_without_retrying_tool() {
                     arguments: json!({
                         "calls": [
                             initialize_call(),
-                            {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 5_000}}
+                            {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 60}}
                         ],
                         "hosted_bindings": []
                     })
@@ -323,6 +323,12 @@ async fn interrupted_exec_leaves_recoverable_pending_without_retrying_tool() {
     };
     assert!(join_error.is_cancelled());
 
+    harness.session.finish_taskspace_action_producers().await;
+    harness
+        .session
+        .await_taskspace_action_settlements()
+        .await
+        .expect("registered producer must publish its settlement");
     let map = harness
         .session
         .canonical_action_map_snapshot()
@@ -331,8 +337,7 @@ async fn interrupted_exec_leaves_recoverable_pending_without_retrying_tool() {
         .map
         .unwrap();
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
-    assert_eq!(work.actions[0].outcome, "pending");
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(work.actions[0].outcome, "succeeded");
     assert_eq!(client_handler.calls.load(Ordering::SeqCst), 1);
 }
 

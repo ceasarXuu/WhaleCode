@@ -1073,6 +1073,8 @@ pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
     sess.shutting_down
         .store(true, std::sync::atomic::Ordering::SeqCst);
     sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
+    sess.finish_taskspace_action_producers().await;
+    let taskspace_settlement_error = sess.await_taskspace_action_settlements().await.err();
     let _ = sess.conversation.shutdown().await;
     sess.services
         .unified_exec_manager
@@ -1113,11 +1115,32 @@ pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
         sess.send_event_raw(event).await;
     }
 
-    let event = Event {
+    if let Some(error) = taskspace_settlement_error {
+        tracing::error!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.shutdown_settlement_failed",
+            error = %error,
+            "TaskSpace settlement failed during graceful shutdown"
+        );
+        let event = Event {
+            id: sub_id,
+            msg: EventMsg::Error(ErrorEvent {
+                message: format!("TaskSpace shutdown settlement failed: {error}"),
+                codex_error_info: Some(CodexErrorInfo::Other),
+            }),
+        };
+        sess.send_event_raw(event).await;
+        sess.services
+            .rollout_thread_trace
+            .record_ended(codex_rollout_trace::RolloutStatus::Failed);
+        return false;
+    }
+
+    sess.send_event_raw(Event {
         id: sub_id,
         msg: EventMsg::ShutdownComplete,
-    };
-    sess.send_event_raw(event).await;
+    })
+    .await;
     sess.services
         .rollout_thread_trace
         .record_ended(codex_rollout_trace::RolloutStatus::Completed);

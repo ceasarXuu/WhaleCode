@@ -333,3 +333,77 @@ async fn settlement_failure_remains_visible_at_every_request_barrier() {
     assert_eq!(second, first);
     let _ = tokio::fs::remove_dir_all(home).await;
 }
+
+#[tokio::test]
+async fn graceful_shutdown_waits_for_producer_then_settlement() {
+    let (home, session, _turn, map_id) = persisted_session().await;
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let producer_session = Arc::clone(&session);
+    let producer = session
+        .spawn_taskspace_action_producer(async move {
+            let _ = started_tx.send(());
+            let _ = release_rx.await;
+            producer_session
+                .enqueue_taskspace_action_settlement(TaskSpaceActionSettlementFact {
+                    map_id,
+                    outer_call_id: "outer".into(),
+                    action_id: "outer/taskspace/call/0".into(),
+                    node_ids: vec!["work".into()],
+                    tool_name: "inspect".into(),
+                    outcome: TaskSpaceActionOutcome::Succeeded,
+                })
+                .expect("enqueue settlement before producer exit");
+        })
+        .expect("register producer");
+    drop(producer);
+    started_rx.await.expect("producer started");
+
+    let shutdown_session = Arc::clone(&session);
+    let shutdown = tokio::spawn(async move {
+        super::handlers::shutdown(&shutdown_session, "shutdown".into()).await
+    });
+    tokio::task::yield_now().await;
+    assert!(!shutdown.is_finished());
+    release_tx.send(()).expect("release producer");
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), shutdown)
+            .await
+            .expect("shutdown timeout")
+            .expect("shutdown task")
+    );
+
+    let map = session
+        .canonical_action_map_snapshot()
+        .await
+        .expect("Map snapshot")
+        .map
+        .expect("canonical Map");
+    assert_eq!(action_outcome(&map, "work"), "succeeded");
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn graceful_shutdown_does_not_report_complete_after_settlement_failure() {
+    let (home, session, _turn, map_id) = persisted_session().await;
+    session
+        .enqueue_taskspace_action_settlement(TaskSpaceActionSettlementFact {
+            map_id,
+            outer_call_id: "outer".into(),
+            action_id: "outer/taskspace/call/0".into(),
+            node_ids: vec!["wrong".into()],
+            tool_name: "inspect".into(),
+            outcome: TaskSpaceActionOutcome::Succeeded,
+        })
+        .expect("enqueue invalid settlement");
+
+    assert!(!super::handlers::shutdown(&session, "shutdown".into()).await);
+    let map = session
+        .canonical_action_map_snapshot()
+        .await
+        .expect("Map snapshot")
+        .map
+        .expect("canonical Map");
+    assert_eq!(action_outcome(&map, "work"), "pending");
+    let _ = tokio::fs::remove_dir_all(home).await;
+}

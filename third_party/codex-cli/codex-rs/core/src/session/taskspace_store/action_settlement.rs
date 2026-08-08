@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
+use super::producer::TaskSpaceActionProducerTracker;
 use super::record_map_revision;
 use super::runtime_from_record;
 use crate::action_map::rooted_dag;
@@ -36,6 +37,7 @@ enum SettlementCommand {
 pub(crate) struct TaskSpaceActionSettlementQueue {
     sender: mpsc::UnboundedSender<SettlementCommand>,
     receiver: StdMutex<Option<mpsc::UnboundedReceiver<SettlementCommand>>>,
+    pub(super) producers: TaskSpaceActionProducerTracker,
 }
 
 impl Default for TaskSpaceActionSettlementQueue {
@@ -44,6 +46,7 @@ impl Default for TaskSpaceActionSettlementQueue {
         Self {
             sender,
             receiver: StdMutex::new(Some(receiver)),
+            producers: TaskSpaceActionProducerTracker::default(),
         }
     }
 }

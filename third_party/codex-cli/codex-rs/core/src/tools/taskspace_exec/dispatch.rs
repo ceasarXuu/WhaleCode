@@ -96,10 +96,13 @@ pub(crate) fn dispatch_client_calls(
         .into_iter()
         .map(|item| {
             let runtime = runtime.clone();
-            let session = std::sync::Arc::clone(&session);
+            let producer_session = std::sync::Arc::clone(&session);
             let map_id = map_id.clone();
             let cancellation_token = cancellation_token.clone();
-            Box::pin(async move {
+            let identity = item.identity.clone();
+            let node_id = item.node_id.clone();
+            let public_name = item.public_name.clone();
+            let producer = async move {
                 tracing::debug!(
                     event = "taskspace_exec_client_dispatch_started",
                     outer_call_id = item.identity.outer_call_id,
@@ -120,7 +123,7 @@ pub(crate) fn dispatch_client_calls(
                     settlement_error: None,
                 };
                 let outcome = dispatched_outcome(&result);
-                result.settlement_error = session
+                result.settlement_error = producer_session
                     .enqueue_taskspace_action_settlement(TaskSpaceActionSettlementFact {
                         map_id,
                         outer_call_id: result.identity.outer_call_id.clone(),
@@ -142,6 +145,33 @@ pub(crate) fn dispatch_client_calls(
                     settlement_queued = result.settlement_error.is_none(),
                 );
                 result
+            };
+            let handle = session.spawn_taskspace_action_producer(producer);
+            Box::pin(async move {
+                match handle {
+                    Ok(handle) => handle.await.unwrap_or_else(|error| DispatchedClientCall {
+                        identity,
+                        node_id,
+                        public_name,
+                        response: Err(CodexErr::Fatal(format!(
+                            "TaskSpace Action producer failed: {error}"
+                        ))),
+                        cancelled: false,
+                        execution_failed: true,
+                        settlement_error: Some(
+                            "TaskSpace Action producer stopped before settlement.".to_string(),
+                        ),
+                    }),
+                    Err(error) => DispatchedClientCall {
+                        identity,
+                        node_id,
+                        public_name,
+                        response: Err(CodexErr::Fatal(error.clone())),
+                        cancelled: false,
+                        execution_failed: true,
+                        settlement_error: Some(error),
+                    },
+                }
             }) as BoxFuture<'static, DispatchedClientCall>
         })
         .collect()
