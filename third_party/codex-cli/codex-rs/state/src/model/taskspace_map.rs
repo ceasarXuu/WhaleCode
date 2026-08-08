@@ -1,4 +1,5 @@
 use codex_protocol::ThreadId;
+use codex_protocol::taskspace::TaskSpaceActionOutcome;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,10 +81,14 @@ pub struct CommitTaskSpaceMapRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommitLatestTaskSpaceFactRequest {
+pub struct SettleTaskSpaceActionRequest {
     pub map_id: String,
     pub commit_id: String,
     pub mutation_id: String,
+    pub action_id: String,
+    pub node_ids: Vec<String>,
+    pub tool_name: String,
+    pub outcome: TaskSpaceActionOutcome,
     pub operation: String,
     pub actor_thread_id: ThreadId,
 }

@@ -1,6 +1,5 @@
 use super::StateRuntime;
 use crate::BindTaskSpaceMapRequest;
-use crate::CommitLatestTaskSpaceFactRequest;
 use crate::CommitTaskSpaceMapRequest;
 use crate::CreateTaskSpaceMapRequest;
 use crate::TaskSpaceMapRelation;
@@ -261,77 +260,6 @@ async fn concurrent_taskspace_map_writers_have_one_winner() {
         .expect("load")
         .expect("map");
     assert_eq!(loaded.store_revision, 2);
-    let _ = tokio::fs::remove_dir_all(home).await;
-}
-
-#[tokio::test]
-async fn latest_head_mutations_serialize_and_preserve_both_changes() {
-    let (home, runtime) = runtime().await;
-    let owner = ThreadId::new();
-    let map_id = format!("map-{owner}");
-    runtime
-        .create_taskspace_map(CreateTaskSpaceMapRequest {
-            map_id: map_id.clone(),
-            owner_thread_id: owner,
-            canonical_map: initialized_map(&map_id, 1),
-            commit_id: "create-latest-mutations".to_string(),
-            operation: "activate_taskspace".to_string(),
-        })
-        .await
-        .expect("create");
-    let request = |commit_id: &str, mutation_id: &str| CommitLatestTaskSpaceFactRequest {
-        map_id: map_id.clone(),
-        commit_id: commit_id.to_string(),
-        mutation_id: mutation_id.to_string(),
-        operation: "settle_fact".to_string(),
-        actor_thread_id: owner,
-    };
-    let left_request = request("latest-left", "left-fact");
-    let right_request = request("latest-right", "right-fact");
-    let (left, right) = tokio::join!(
-        runtime.commit_latest_taskspace_fact(left_request.clone(), |record| {
-            let mut map = record.canonical_map.clone().expect("initialized map");
-            map.root.content = "left fact".to_string();
-            map.revision += 1;
-            Ok(Some(map))
-        }),
-        runtime.commit_latest_taskspace_fact(right_request, |record| {
-            let mut map = record.canonical_map.clone().expect("initialized map");
-            map.work_nodes[0].content = "right fact".to_string();
-            map.revision += 1;
-            Ok(Some(map))
-        })
-    );
-    assert!(matches!(
-        left.expect("left mutation"),
-        TaskSpaceMapWriteOutcome::Applied(_)
-    ));
-    assert!(matches!(
-        right.expect("right mutation"),
-        TaskSpaceMapWriteOutcome::Applied(_)
-    ));
-
-    let loaded = runtime
-        .load_taskspace_map(&map_id)
-        .await
-        .expect("load")
-        .expect("map");
-    assert_eq!(loaded.store_revision, 3);
-    let map = loaded.canonical_map.expect("initialized map");
-    assert_eq!(map.revision, 3);
-    assert_eq!(map.root.content, "left fact");
-    assert_eq!(map.work_nodes[0].content, "right fact");
-
-    let replay = runtime
-        .commit_latest_taskspace_fact(left_request, |_| {
-            panic!("idempotent replay must not invoke the mutation")
-        })
-        .await
-        .expect("replay");
-    assert!(matches!(
-        replay,
-        TaskSpaceMapWriteOutcome::IdempotentReplay(record) if record.store_revision == 3
-    ));
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 

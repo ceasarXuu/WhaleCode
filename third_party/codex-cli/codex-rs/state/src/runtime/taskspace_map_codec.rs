@@ -59,13 +59,21 @@ pub(super) fn request_sha256(
     Ok(sha256(&bytes))
 }
 
-pub(super) fn latest_mutation_sha256(
-    map_id: &str,
-    mutation_id: &str,
-    operation: &str,
-    actor_thread_id: ThreadId,
+pub(super) fn action_settlement_sha256(
+    request: &crate::SettleTaskSpaceActionRequest,
 ) -> anyhow::Result<String> {
-    let bytes = serde_json::to_vec(&(map_id, mutation_id, operation, actor_thread_id.to_string()))?;
+    let mut node_ids = request.node_ids.clone();
+    node_ids.sort();
+    let bytes = serde_json::to_vec(&(
+        request.map_id.as_str(),
+        request.mutation_id.as_str(),
+        request.action_id.as_str(),
+        node_ids,
+        request.tool_name.as_str(),
+        action_outcome_name(request.outcome),
+        request.operation.as_str(),
+        request.actor_thread_id.to_string(),
+    ))?;
     Ok(sha256(&bytes))
 }
 
