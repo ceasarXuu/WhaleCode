@@ -89,3 +89,40 @@ latest-head API 可提交任意 canonical Map，outcome-only 边界只靠调用�
 EX-06～EX-08 的既有局部验收不受本轮推翻；MS-03 保持 blocked，B3 不得进入 B4。下一控制点是设计 durable、可恢复且
 outcome-only 的 Action 事实结算方案；不得用提高 timeout 或另一组有限 retry 代替根因闭合。真实 Provider shape 与产品
 对比仍属于 Phase B5，必须另行申请预算。
+
+## 7. MS-03 收敛修复合同
+
+重新核对 Standard、TaskSpace Exec、rollout 与 Map Store 的实际数据链后，否决新增独立持久化消息队列：
+
+1. Standard client Tool 的 `FunctionCallOutput`、Provider-hosted `ResponseItem` 和 TaskSpace Exec 的唯一 outer
+   `FunctionCallOutput` 已由 `ContextManager + rollout` 保存；大输出继续复用 Standard `output-ref`，不得把完整 Tool
+   结果复制进 Map 或另一套队列。
+2. Map 在 Tool 执行前已经持久化 `Pending Action`。Tool 完成后只缺
+   `map_id/action_id/node_ids/tool_name/outcome/mutation_id` 这一窄化终态事实，不缺第二份执行历史。
+3. 独立持久化队列无法与文件修改、进程、MCP 等外部 Tool 副作用组成同一事务，仍存在“Tool 已执行、队列尚未写入”
+   的崩溃窗口；因此它增加事实副本和 ack/recovery 状态，却不提供声称的原子保证。
+
+MS-03 改为以下唯一生产链：
+
+```text
+preflight -> persist Pending -> native Tool dispatch
+          -> native result enters outer feedback / Standard rollout
+          -> Session-owned settlement executor
+          -> outcome-only latest-head Store transaction
+          -> pre-provider settlement barrier
+```
+
+硬边界：
+
+- 内部 Tool future 产出结果后，必须在同一次 poll 内同步投递结算命令；outer turn 取消不得撤回已经投递的命令。
+- 结算执行器是 Session 的机械基础设施，不接收 Tool 正文，不解释语义，不修改 Node goal/content/state，不重试 Tool。
+- Store API 只允许核对指定 `node_ids/action_id/tool_name` 并执行 `Pending -> succeeded|failed|cancelled`；相同终态幂等，
+  不同终态、错节点、错 Tool 或不存在的 Action 是永久冲突。
+- SQLite writer busy 属于可恢复存储竞争，执行器持续退避而不是在固定次数或固定 5 秒后丢弃事实。
+- 下一次 TaskSpace Provider 请求构造 projection 前必须等待此前已投递事实结算；永久冲突明确阻断请求。
+- 恢复对账只处理既有 rollout 中带稳定 TaskSpace Exec 结果标识、且当前 Map 仍为 Pending 的 Action；它不重建 Map、
+  不扫描推断普通 Tool、不覆盖 terminal outcome，也不生成新的 Agent 决策。
+- 如果 rollout 没有终态结果，Action 忠实保持 Pending/未知；Runtime 不推测、不默认失败、不自动重跑。
+
+验收必须覆盖超过既有 5 秒 busy timeout 的 writer、Tool 完成后的 outer cancellation、跨 Session latest-head 写入、
+恢复对账和 outcome-only 负例。完成前 MS-03 与 Phase B3 保持 blocked。
