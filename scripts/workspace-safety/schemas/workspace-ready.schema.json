@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/workspace-ready-v1.json",
+  "title": "WhaleCode workspace quick Ready gate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workspace_id",
+    "ready",
+    "state",
+    "reason_code",
+    "recovery_command"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "workspace_id": { "type": "string" },
+    "ready": { "type": "boolean" },
+    "state": {
+      "enum": ["Unbootstrapped", "Ready", "Stale", "Conflict", "DoctorFailed"]
+    },
+    "reason_code": { "type": "string" },
+    "recovery_command": { "type": "string" }
+  }
+}

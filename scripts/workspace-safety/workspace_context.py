@@ -20,6 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from workspace_persistence import ApplyError, atomic_write_json, ensure_resource_directories
 import workspace_doctor
 import workspace_runtime
+import workspace_gate
 
 ExecError = workspace_runtime.ExecError
 
@@ -188,6 +189,36 @@ def resolve_context(
         "resources": resources,
         "marker_path": str(state_root / "workspace-identity.json"),
         "legacy_home": str(home / ".whale"),
+    }
+
+
+def resolve_gate_context(
+    start: Path | str,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Resolve only the root, branch, identity, and marker needed by the fast gate."""
+
+    supplied_environment = environment if environment is not None else os.environ
+    start_path = Path(start).expanduser().resolve(strict=True)
+    if start_path.is_file():
+        start_path = start_path.parent
+    root_raw = _git(start_path, "rev-parse", "--show-toplevel")
+    if not root_raw:
+        raise ContextError("Git did not return a workspace root")
+    root = Path(root_raw).resolve(strict=True)
+    branch = _git(root, "symbolic-ref", "--quiet", "--short", "HEAD", allow_failure=True)
+    home = _environment_root(supplied_environment, "HOME", Path.home())
+    xdg_state = _environment_root(
+        supplied_environment, "XDG_STATE_HOME", home / ".local/state"
+    )
+    workspace_id = derive_workspace_id(root)
+    marker_path = xdg_state / "whalecode/workspaces" / workspace_id / "workspace-identity.json"
+    return {
+        "workspace_id": workspace_id,
+        "canonical_root": str(root),
+        "branch": branch,
+        "detached_head": branch is None,
+        "marker_path": str(marker_path),
     }
 
 
@@ -395,6 +426,17 @@ def exec_ready(
         workspace_doctor.audit_event("exec", diagnosis, exit_code=exit_code),
     )
     return exit_code
+
+
+def require_ready(
+    start: Path | str,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Run the narrow marker/root/branch gate without logs or deep checks."""
+
+    context = resolve_gate_context(start, environment)
+    marker, _ = _load_marker(Path(context["marker_path"]))
+    return workspace_gate.gate_result(marker, context)
 
 
 def render_json(document: Mapping[str, Any]) -> str:

@@ -27,6 +27,9 @@ def _parser() -> argparse.ArgumentParser:
     exec_parser = commands.add_parser("exec")
     exec_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     exec_parser.add_argument("exec_command", nargs=argparse.REMAINDER)
+    ready_parser = commands.add_parser("require-ready")
+    ready_parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    ready_parser.add_argument("--json", action="store_true")
     return parser
 
 
@@ -40,6 +43,15 @@ def main(api: ModuleType) -> int:
         if args.command == "exec":
             command = args.exec_command[1:] if args.exec_command[:1] == ["--"] else args.exec_command
             return api.exec_ready(args.repo_root, command)
+        if args.command == "require-ready":
+            result = api.require_ready(args.repo_root)
+            if args.json:
+                sys.stdout.write(api.render_json(result))
+            else:
+                print(f"Workspace gate: {result['state']} ({result['reason_code']})")
+                if not result["ready"]:
+                    print(f"Recovery: {result['recovery_command']}")
+            return 0 if result["ready"] else 7
         if args.bootstrap_command == "plan":
             plan = api.build_plan(args.repo_root)
             sys.stdout.write(api.render_json(plan) if args.json else api.render_human(plan))
