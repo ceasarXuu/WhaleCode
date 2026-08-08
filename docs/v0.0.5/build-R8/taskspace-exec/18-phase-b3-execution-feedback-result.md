@@ -177,3 +177,13 @@ outer/action identity 或拒绝冲突历史；并发 Store read 可把旧 revisi
 
 当前结论：MS-03 与 Phase B3 重新 blocked。下一步必须共同设计 TaskSpace-owned execution producer 与 graceful shutdown
 drain 顺序，先以确定性交错测试复现，再修复并补组合生产链验收；不得用后置 retry、持久化队列或自动 Tool 重试替代。
+
+## 10. 审查后工程硬化
+
+提交 `4be93ba31` 已关闭不依赖产品决策的相邻工程缺口：SQLite extended result code 按 primary code 识别
+`BUSY/LOCKED`；恢复在任何 enqueue 前整批核对 outer/call-index/action identity 并拒绝冲突终态；queued 日志只在
+channel send 成功后记录，worker failure 补齐完整机械身份。State 定向 4、Session settlement 6、TaskSpace Exec 56、
+workspace check、zero-base 和 cache gate 均通过，真实 Whale Agent/Provider 请求为 0。
+
+该提交没有调整 Tool producer、Session shutdown 或本地 cache 安装语义，因此 B01、B02、B03 与 cache revision 单调性
+仍保持 open；MS-03 和 Phase B3 状态不变。

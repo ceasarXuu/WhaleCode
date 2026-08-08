@@ -1,7 +1,7 @@
 # Subagent VS Review: R8 MS-03 Action 结算闭环
 
 - Created: 2026-08-09T05:09:58+08:00
-- Updated: 2026-08-09T05:22:00+08:00
+- Updated: 2026-08-09T06:20:00+08:00
 - Report schema: adversarial-v2
 - Task: 对已完成的 MS-03 Action 结算方案执行独立对抗性审查
 - Report path: `vs_review/2026-08-09-r8-ms03-settlement-review.md`
@@ -345,13 +345,17 @@ settlement 4、TaskSpace handler 8、output-reference 10 条定向测试，全�
 | B01 | accept | E2 | `AbortOnDropHandle` 的完成结果确实在父 future poll 后才进入 enqueue；当前测试只证明 enqueue 后取消安全，未覆盖 enqueue 前窗口 | 需要调整 TaskSpace execution producer 生命周期，可能触及并行/取消语义 | 重大生命周期设计，先交还用户 |
 | B02 | accept | E2 | shutdown 没有 producer join 或 FIFO barrier，worker 只持有 Weak；当前 `ShutdownComplete` 不能证明队列已 drain | 需要定义 producer -> queue -> persistence 的 shutdown 顺序 | 与 B01 一体设计，先交还用户 |
 | B03 | accept | E1+E2 | 持久化测试直接注入 fact/feedback，handler harness 使用 test-only in-memory Map；verified 证据不足 | 新增确定性生产链集成测试，不使用真实 Provider | 可随 B01/B02 修复实施 |
-| N01 | accept | E2 | SQLx 0.8.6 明确返回 extended result code，精确字符串 `5/6` 会漏判 | 局部 classifier 与测试 | 可纳入 closure |
-| N02 | accept | E2+E4 | 身份交叉校验与冲突历史拒绝确实缺失；实际损坏 history 的来源尚未复现 | 恢复硬校验与负例，不引入语义判断 | 可纳入 closure |
+| N01 | fixed | E2 | `4be93ba31` 按 extended code 的低字节识别 primary `BUSY/LOCKED`，日志同时记录 raw/primary code，并覆盖 `261/262/517` | 局部 classifier 与测试；不改变重试策略 | 已闭合 |
+| N02 | fixed | E2+E4 | `4be93ba31` 在任何 enqueue 前完成 outer/call-index/action identity 与同 Action 冲突历史的整批校验 | 恢复硬校验与负例，不引入语义判断 | 已闭合 |
 | N03 | reject | E4 | barrier、单 active turn 和单 response 有限 calls 不支持“随 busy 持续无限生产”；仅接受 queue depth/age 观测建议 | 不引入 backpressure/持久化队列 | n/a |
 | N04 | accept | E2 | read-load 与 install 之间没有 revision 单调检查或 serializer，存在旧 cache 覆盖新 cache 的合法交错 | 单调 cache install 或复用现有 serializer | 可纳入 closure |
 
-所有 accepted 项都在冻结目标内；但 B01 与 B02 共同改变执行 producer 和 shutdown 所有权，属于项目规则要求用户复核的重大
-技术路线点。主流程未修改生产代码，也未启动 Round 2。
+`4be93ba31` 还把 `taskspace.action_settlement_queued` 移到 channel send 成功之后，并补齐 worker failure 的
+map/outer/action/node/tool/outcome identity。State 定向 4、Session settlement 6、TaskSpace Exec 56、workspace check、
+zero-base 与 cache gate 均通过；没有真实 Whale Agent/Provider run。
+
+B01 与 B02 仍共同改变 execution producer 和 shutdown 所有权，属于项目规则要求用户复核的重大技术路线点；B03 必须随
+该设计补组合生产链测试。N04 的本地 cache revision 单调合同同样涉及核心读取语义，尚未修改。Round 2 尚未启动。
 
 ## Review Governor
 

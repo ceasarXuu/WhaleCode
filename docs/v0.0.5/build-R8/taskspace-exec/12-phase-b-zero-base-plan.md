@@ -200,6 +200,7 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 | MS-03 repair design | 2026-08-09 | 用户确认；[`18-phase-b3-execution-feedback-result.md`](18-phase-b3-execution-feedback-result.md) | 否决独立持久化消息队列：它无法与任意外部 Tool 副作用形成原子事务，且会复制 rollout 已保存的执行事实。收敛为 Session FIFO 结算执行器、outcome-only Store API、请求前屏障和 Pending-only rollout 对账 | 实施并完成故障注入回归后再关闭 MS-03 |
 | MS-03 repair verified | 2026-08-09 | `e5925b45d`、`702f885a0`；[`18-phase-b3-execution-feedback-result.md`](18-phase-b3-execution-feedback-result.md)；State 133、TaskSpace Exec 56、settlement 4、output-reference 11 tests；workspace check、zero-base/cache gate PASS | Store 权限已收窄为 outcome-only；Tool 返回后同步投递到 Session 执行器，outer cancellation 不撤销事实；writer busy 无固定 5 秒丢弃；下一请求前屏障和 Pending-only rollout 对账成立。未新增持久化队列或第二份 Tool 结果 | MS-03 与 Phase B3 关闭；进入 OB-01/B4 |
 | MS-03 adversarial review reopened | 2026-08-09 | [`vs_review/2026-08-09-r8-ms03-settlement-review.md`](../../../../vs_review/2026-08-09-r8-ms03-settlement-review.md)；fresh reviewer `019fe337-6475-7042-896d-4c338c40d420` | `AbortOnDropHandle` 子 Tool 完成到父 future enqueue 之间仍可丢失结果；graceful shutdown 未等待 producer/FIFO；现有测试未覆盖 persisted handler 到 provider barrier 的组合生产链。另确认 extended SQLite code、recovery identity 和 cache 单调性缺口 | 用户确认 producer/shutdown 生命周期方向后修复；不得进入 OB-01/B4 |
+| MS-03 engineering hardening | 2026-08-09 | `4be93ba31`；State 4、Session settlement 6、TaskSpace Exec 56；workspace、zero-base/cache gate PASS | extended SQLite busy、恢复 identity/冲突历史和结算日志时序已闭合；未改变 producer、shutdown 或 cache 安装语义 | B01/B02/B03 与 cache 单调性仍 open；不得进入 OB-01/B4 |
 
 ## 6. 证据校准
 
