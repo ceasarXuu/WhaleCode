@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B3 verified offline / Phase B4 next
+- Status: Active / Phase B0～B2 verified offline / Phase B3 blocked at MS-03 / Phase B4 not started
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -196,6 +196,7 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 | EX-05 | 2026-08-07 | `3b578b08d`；[`16-phase-b3-ex05-native-dispatch-result.md`](16-phase-b3-ex05-native-dispatch-result.md)；TaskSpace Exec 39 tests、Tool Router 7 tests、Action Map 17 tests；跨 crate check、zero-base/cache gate PASS | 整批 client calls 在执行前全部还原为原生调用；执行复用 Standard Router、alias/MCP/Tool Search 解析及并行策略，结果按完成顺序返回；未接 Store、Hosted、最终反馈或生产入口 | MS-01 |
 | MS-01～MS-02 | 2026-08-07 | [`17-phase-b3-relational-store-result.md`](17-phase-b3-relational-store-result.md)；state 127 tests、core Store 8 tests | canonical Map 由关系表直接持久化并重新组装；Map revision CAS 保留，单 Action 变化不重写 Node/parent；无整图 JSON、Event Store、双写或旧数据兼容 | MS-03 |
 | MS-03 / EX-06～EX-08 | 2026-08-07 | `1347606e0`；[`18-phase-b3-execution-feedback-result.md`](18-phase-b3-execution-feedback-result.md)；TaskSpace Exec 50 tests、core 1830 passed / 3 ignored、state/API/rollout suites、workspace check、zero-base/cache gate PASS | 预检候选与 Pending 先固化、原生 Tool 逐项低延迟结算；Hosted 按真实 response index/ID 对账；唯一 outer 反馈；TaskSpace 顶层仅 Exec+Hosted，Standard 路径不变；Phase B3 离线验收完成 | OB-01 |
+| MS-03 closure reopened | 2026-08-09 | `03acb2db6`、Round 3 review `df274ae97`；[`18-phase-b3-execution-feedback-result.md`](18-phase-b3-execution-feedback-result.md) | 短事务 latest-head 结算成立，但 5 秒 writer timeout、post-Tool cancellation 和 generic whole-map API 仍可破坏事实持久化或 CAS 边界；原“Phase B3 完成”结论失效 | 先确认并实施 durable、outcome-only Action 事实结算；不得进入 OB-01/B4 |
 
 ## 6. 证据校准
 
