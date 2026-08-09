@@ -119,12 +119,13 @@ VA-03 继续阻断。“已声明 outer Tool 下仍生成未声明内层 Tool �
 
 本轮只使用现有 trace、候选 final-wire 和源码静态数据流，没有追加真实 Agent 运行。根因已满足两条独立证据链：
 
-1. **实际输入合同**：TaskSpace 与 Standard 的生产 `session_meta` base 文本和 SHA-256 完全相同。该文本要求 Agent 发出终端、补丁 Function Call，并显式宣称可使用 `update_plan`；TaskSpace 顶层实际只暴露 `taskspace_exec + web_search`。与此同时 outer description、17 个 `calls[]` 分支、首次调用参数和 outer result 都反复出现 `exec_command` 等原生 Tool 名。Agent 因此同时收到“原生 Tool 是顶层 Function Call”和“原生 Tool 是 outer Exec 内层条目”两种层级模型。
-2. **历史与数据流**：四次现有 VA-02 生产 rollout 中，两次发生 `exec_command` 顶层提升，一次在完善 outer description 前，一次在合法 outer 调用成功后的下一请求。Chat Completions adapter 直接把 Provider delta 的 `function.name` 写入 `ResponseItem::FunctionCall.name`，TaskSpace response scope 直接读取该字段；不存在从 arguments 提取内层名称并覆盖 outer 名称的代码路径。
+1. **来源指纹**：两次非法顶层 `exec_command` 都把 `node_id` 与 `cmd` 并列写入 arguments。原生 `exec_command` schema 没有 `node_id`；它只存在于 `taskspace_exec.calls[]` client wrapper。这证明模型提升了 inner branch 的 Tool identity，并把 wrapper metadata 扁平化到 Provider 顶层，而不是单纯回忆 Standard 原生工具。
+2. **语法分离对照**：两次历史 Function Exec 实验使用同一个 DeepSeek、相同 Standard base SHA-256、同样的普通 Function outer 和相近 tools section 大小，但内层使用明显不同的 JavaScript `tools.exec_command(...)` 语法。两个 rollout 共 15 个调用全部保持顶层 `exec`，没有 inner-name 提升。共享 base、Function outer 和声明总大小因此都不是充分根因。
+3. **历史与数据流**：四次现有 VA-02 生产 rollout 中，两次发生 `exec_command` 顶层提升，一次在完善 outer description 前，一次在合法 outer 调用成功后的下一请求。首次提升发生在任何 outer result 之前，排除结果反馈是必要原因。Chat Completions adapter 直接把 Provider delta 的 `function.name` 写入 `ResponseItem::FunctionCall.name`，TaskSpace response scope 直接读取该字段；不存在从 arguments 提取内层名称并覆盖 outer 名称的代码路径。
 
-因此已排除：第二请求动态重新暴露普通 Tool、Provider/Runtime 改名、合法 outer feedback 丢失、Map 状态机驱动错误。确认的根因是 **Agent 可见合同在 Function Call 层级上不一致**。outer Tool description 的增强改善了首次选择，但不能抵消复用 Standard base 形成的跨层冲突。
+因此已排除：第二请求动态重新暴露普通 Tool、Provider/Runtime 改名、合法 outer feedback 丢失、结果反馈是必要诱因、Tool declaration 总长度和 Map 状态机驱动错误。确认的主根因是 **TaskSpace 内层结构化调用没有与 Provider 顶层 Function Call 形成稳健的表达边界**。Standard base 的通用直调表述会放大该歧义，但历史对照证明它不是充分根因。当前证据尚不能把微观原因继续唯一拆到 `tool` 字段名、17 分支 union 或 Map 操作复杂度中的某一个。
 
-本结论只确认根因，不预设修复。后续设计必须保持：详细 Tool wire 仍以 Tool schema/description 为唯一权威；Runtime 不自动包装、补全或接受非法顶层调用；Standard 行为不受影响。
+本结论只确认根因，不预设具体 wire。后续设计必须保持：优先从结构上区分 inner/outer，不把问题退化为只增加 prompt；详细 Tool wire 仍以 Tool schema/description 为唯一权威；Runtime 不自动包装、补全或接受非法顶层调用；Standard 行为不受影响。
 
 新增证据：
 

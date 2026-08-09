@@ -1,7 +1,7 @@
 # Problem P-001: VA-02 首轮证据链未能如实结算
 - Status: verifying
 - Created: 2026-08-10 06:00
-- Updated: 2026-08-10 07:36
+- Updated: 2026-08-10 08:18
 - Objective: 保留 VA-02 首轮的真实协议、Map 和成本证据，并在不放宽 TaskSpace 硬约束的前提下修复确定的观测缺陷。
 - Symptoms:
   - 首次 `taskspace_exec` 参数多出一个右花括号，被严格 JSON 解码拒绝。
@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过。第二响应失败的根因已确认：TaskSpace 实际复用 Standard base instructions，仍以顶层 Function Call 语义描述终端、补丁和 `update_plan`；与此同时唯一 outer `taskspace_exec` 的 description、schema、首次调用参数和执行结果又反复暴露 `exec_command` 等内层能力名。Agent 可见合同因此在调用层级上自相矛盾，DeepSeek 将内层 `exec_command` 提升为未声明的顶层 call。两次 wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`，Chat Completions 适配层和 Runtime 均原样透传 Provider Function name，Runtime 正确 fail closed；不是 Tool 重新暴露、名称改写、反馈丢失或 Map 状态机问题。VA-02 仍因 I03 当前生产表现未关闭。
+- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过。第二响应失败的主根因已确认：`taskspace_exec.calls[]` 用原生 Tool 名、`arguments` 和 TaskSpace-only `node_id` 描述内层调用，与 Provider 顶层 Function Call 的语义和结构过于同形；DeepSeek 会把整个内层分支提升并扁平化成顶层 `exec_command`。两次非法调用都携带原生 `exec_command` schema 不接受的 `node_id`，直接留下内层 wire 来源指纹。TaskSpace 复用 Standard base instructions 是放大该歧义的已确认诱因，但不是充分根因：历史 Function Exec 使用同一模型、同一 base、同样的 Function 外层，只把内层改为明显不同的 JavaScript `tools.*` 语法，连续 15 次均保持顶层 `exec`。两次 Provider wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`，适配层和 Runtime 均原样透传 Function name，Runtime 正确 fail closed；不是 Tool 重新暴露、名称改写、反馈丢失、总 schema 大小或 Map 状态机问题。VA-02 仍因 I03 当前生产表现未关闭。
 - Related hypotheses:
   - H-001
   - H-002
@@ -38,8 +38,11 @@
   - H-004
   - H-005
   - H-006
+  - H-007
+  - H-008
+  - H-009
 - Resolution basis:
-  - E-001 至 E-015；H-005 已通过两条独立证据链确认，H-004/H-006 已排除
+  - E-001 至 E-018；H-007 已通过来源指纹与历史对照两条独立证据链确认；H-005 降为促成因素，H-004/H-006/H-008/H-009 已排除
 - Close reason:
   - not closed
 
@@ -418,8 +421,8 @@
 - Status: confirmed
 - Parent: P-001
 - Claim: TaskSpace 复用了 Standard 基础指令，其中明确描述直接终端、补丁和 `update_plan` Function Call；与此同时 `taskspace_exec` schema、示例和结果又以 `tool: exec_command` 等原生名称暴露内层能力。两个高显著性合同对同一能力给出不同层级，模型在成功首轮后按熟悉的顶层 Tool prior 提升了内层名称。
-- Layer: root-cause
-- Factor relation: single
+- Layer: contributing-factor
+- Factor relation: contributing
 - Depends on:
   - H-004 refuted
 - Rationale:
@@ -453,9 +456,9 @@
   - E-013
   - E-014
   - E-015
-- Conclusion: confirmed。直接证据链证明 TaskSpace 实际输入同时包含 Standard 顶层 Function Call 工作方式和 outer Exec 内层工具目录；独立历史证据链证明同一模型在四次现有生产运行中两次把 `exec_command` 提升为顶层调用，且一次发生在完善 outer description 前、一次发生在合法 outer 调用成功后。outer description 能改善首次选择，但不能消除跨层合同冲突。
+- Conclusion: confirmed as contributing factor, not sufficient root cause。TaskSpace 实际输入同时包含 Standard 顶层 Function Call 工作方式和 outer Exec 内层工具目录，确实放大层级歧义；但历史 Function Exec 在同一模型、同一 base 和 Function 外层下连续 15 次保持正确 outer `exec`，证明共享 base 不能单独解释本故障。
 - Repair design readiness: no
-- Next step: 在用户确认后单独设计最小修复；不得把详细 Tool wire 复制进 base instructions，也不得放宽 Runtime 硬约束或自动包裹非法调用。
+- Next step: 修复设计必须优先消除内外层 wire 同形性；base 只做与实际能力一致的宏观校正，不得承载详细 Tool wire。
 - Blocker:
   - none
 - Close reason:
@@ -602,3 +605,197 @@
   ```
 - Interpretation: 这不是单次传输损坏。Tool description 增强改善了首次 outer 选择，但当前 Agent 输入仍不能稳定维持 outer/inner 层级。
 - Time: 2026-08-10 07:31
+
+## Hypothesis H-007: TaskSpace 内层调用 wire 被提升并扁平化为 Provider 顶层调用
+- Status: confirmed
+- Parent: P-001
+- Claim: `taskspace_exec.calls[]` 以 `tool` 原生名称 discriminator、`arguments` 和外层 `node_id` 表达内层调用，与 Provider 顶层 Function Call 形状过于接近；DeepSeek 因而会把内层分支提升为顶层 Function Call，并把 wrapper metadata 扁平写入原生 Tool arguments。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-004 refuted
+  - H-006 refuted
+- Rationale:
+  - 两次非法调用不仅名称等于内层 branch，还携带只存在于 TaskSpace wrapper 的 `node_id`；这比通用“模型不遵循”更能定位错误信息来源。
+- Falsifiable predictions:
+  - If true: 非法顶层调用的 name 应等于 `calls[]` branch 的 `tool` enum，arguments 应混入 wrapper-only `node_id`；明显区分内外语法的 Function Exec 在相同 base/model 下不应发生同类提升。
+  - If false: 非法调用只含原生 Tool 参数，或语法区分后的 Function Exec 同样频繁把 `tools.exec_command` 提升为顶层。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对齐两次非法调用、正式 inner branch schema，以及历史 Function Exec rollout。
+  - Signal: 顶层 name、arguments keys、outer call name、内层语法和连续调用次数。
+  - Capture method: 只读 rollout、候选 final-wire、历史获批实验 artifact。
+  - Event name or marker:
+    - `function_call`
+  - Correlation keys:
+    - `call_00_bHZUdurJshkGaum9XOPF0818`
+    - `call_00_4ssfdJl0vRuVI5nkcRfr9385`
+  - Differentiates from:
+    - Standard base 单独致错、outer Function Tool 本身不兼容、结果反馈诱导、声明总长度过大。
+  - Supports if:
+    - 两次非法调用均携带 `node_id`，且历史 Function Exec 15 次均保持 outer `exec`。
+  - Refutes if:
+    - 任一来源指纹不存在，或对照实验出现同类 inner-name 顶层提升。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-016
+  - E-017
+  - E-018
+- Conclusion: confirmed。错误输出逐字段保留了 TaskSpace inner branch 的身份和归属语义；相同模型/base/Function outer 的语法分离对照没有发生提升。当前证据能确认到“内层结构化调用表达未形成稳健层级边界”，但尚不能把微观原因进一步唯一归结为字段名 `tool`、17 分支 union 或 Map 操作复杂度中的某一个。
+- Repair design readiness: yes
+- Next step: 单独设计最小候选 wire，并用离线合同先消除同形性；真实稳定性验证需另行预算。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-008: 顶层 Tool declaration 总长度过大导致越界调用
+- Status: refuted
+- Parent: P-001
+- Claim: 模型因为 TaskSpace Tool declaration 总 token 过大而忽略 outer 层级，生成未声明顶层 Tool。
+- Layer: alternative-cause
+- Factor relation: competing
+- Depends on:
+  - none
+- Rationale:
+  - 大 schema 可能降低局部约束显著性，但必须解释为何相近或更大声明仍可稳定使用 outer Exec。
+- Falsifiable predictions:
+  - If true: 成功 Function Exec 的 tools section 应明显小于失败 TaskSpace。
+  - If false: 两者大小相近，甚至 Function Exec 不更小。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 比较现有 provider wire 首请求 tools section。
+  - Signal: bytes 与 estimated tokens。
+  - Capture method: 只读 provider-wire trace。
+  - Event name or marker:
+    - `provider.chat_wire_shape_recorded`
+  - Correlation keys:
+    - 两个历史 run identity
+  - Differentiates from:
+    - schema 内部结构和语法同形性。
+  - Supports if:
+    - TaskSpace 显著更大。
+  - Refutes if:
+    - 大小相近。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-016
+- Conclusion: refuted as primary cause。Function Exec tools section 为 28,012 bytes / 7,003 estimated tokens，TaskSpace 为 29,062 bytes / 7,266 estimated tokens，差异不足以解释 15 次正确 outer 调用与两次层级提升。
+- Repair design readiness: no
+- Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-009: 首轮 outer result 反馈诱导第二轮提升
+- Status: refuted
+- Parent: P-001
+- Claim: `taskspace_exec_result.client_results[].tool=exec_command` 是模型在下一轮改为顶层 `exec_command` 的必要诱因。
+- Layer: alternative-cause
+- Factor relation: competing
+- Depends on:
+  - none
+- Rationale:
+  - 当前零 Hosted 运行的越界发生在合法 outer result 之后，但必须解释首次 VA-02 为何在没有任何 outer result 时已同样越界。
+- Falsifiable predictions:
+  - If true: 首请求无历史 outer result 时不应发生同类提升。
+  - If false: 首次请求即可生成带 `node_id` 的顶层 `exec_command`。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查首次 VA-02 的第一响应及其前置历史。
+  - Signal: response 序号、function name 与 arguments。
+  - Capture method: 只读 rollout。
+  - Event name or marker:
+    - `function_call`
+  - Correlation keys:
+    - `WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5`
+  - Differentiates from:
+    - inner schema 自身已足以诱发提升。
+  - Supports if:
+    - 只在 result 后发生。
+  - Refutes if:
+    - 第一响应已发生。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-017
+- Conclusion: refuted as necessary cause。结构化 outer result 可能继续增强内层名称显著性，但首次请求在没有任何 TaskSpace result 时已经生成同类顶层调用。
+- Repair design readiness: no
+- Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-016: 相同模型和 base 的 Function Exec 连续保持正确 outer 层级
+- Related hypotheses:
+  - H-005
+  - H-007
+  - H-008
+- Direction: refutes H-005/H-008 as sufficient causes / supports H-007
+- Type: historical-controlled-comparison
+- Source: 两次已获批 Function Exec 真实实验及原始 rollout/provider wire
+- Prediction or plan link:
+  - H-007 的语法分离对照预测。
+- Matched signal:
+  - 两次实验的生产 session base SHA-256 均为当前 Standard hash；outer 同为普通 Function Tool。第一轮 7 个、第二轮 8 个顶层调用全部命名 `exec`，内层通过 `tools.exec_command`/`tools.apply_patch` JavaScript 表达，没有一次顶层 inner-name 提升。Function Exec tools section 28,012 bytes，与 TaskSpace 29,062 bytes 接近。
+- Correlation keys:
+  - `WAR-20260805-055746-R8-DEEPSEEK-FUNCTION-EXEC-CORRECTED-001`
+  - `WAR-20260805-061947-R8-FUNCTION-EXEC-CONTRACT-FIX-001`
+- Raw content:
+  ```text
+  function exec: 15/15 top-level name=exec
+  base sha256: 5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382
+  ```
+- Interpretation: 共享 Standard base、Function outer 和大 Tool description 都不足以产生当前故障；明显不同的内层 JS 语法能够让 DeepSeek 保持层级。
+- Time: 2026-08-10 08:04
+
+## Evidence E-017: 两次非法调用都携带 TaskSpace-only node_id
+- Related hypotheses:
+  - H-007
+  - H-009
+- Direction: supports H-007 / refutes H-009
+- Type: output-fingerprint
+- Source: 首次与零 Hosted VA-02 rollout、正式 TaskSpace Exec schema
+- Prediction or plan link:
+  - H-007 的 wrapper metadata 来源预测。
+- Matched signal:
+  - 两个原始顶层 `exec_command` arguments 分别为 `{cmd,node_id:"root"}` 和 `{cmd,node_id:"inspect"}`；原生 `exec_command` schema 不含 `node_id`，该字段只属于 `taskspace_exec.calls[]` client wrapper。
+- Correlation keys:
+  - `call_00_bHZUdurJshkGaum9XOPF0818`
+  - `call_00_4ssfdJl0vRuVI5nkcRfr9385`
+- Raw content:
+  ```text
+  top-level exec_command({cmd, node_id})
+  inner branch requires {tool, node_id, arguments}
+  ```
+- Interpretation: 模型在提升内层 Tool 名的同时扁平带出了节点归属，错误直接来源于 TaskSpace inner wire，而不是单纯回忆 Standard 原生 Tool。
+- Time: 2026-08-10 08:08
+
+## Evidence E-018: Function Exec 的旧 prior 只污染参数，没有破坏 outer 层级
+- Related hypotheses:
+  - H-005
+  - H-007
+- Direction: supports
+- Type: historical-contrast
+- Source: Function Exec 首轮真实实验 action path 与修复复验
+- Prediction or plan link:
+  - 区分通用 base prior 与层级同形性的具体表现。
+- Matched signal:
+  - Function Exec 首次曾生成正确顶层 `exec` 但错误使用 `{cmd}`，修正 carrier description 后 8 次均使用 `{source}`；整个过程没有调用顶层 `exec_command`。TaskSpace 的错误则同时改变顶层 name 并混入 `node_id`。
+- Correlation keys:
+  - `WAR-20260805-055746-R8-DEEPSEEK-FUNCTION-EXEC-CORRECTED-001`
+  - `WAR-20260805-061947-R8-FUNCTION-EXEC-CONTRACT-FIX-001`
+- Raw content:
+  ```text
+  Function Exec: exec({cmd}) -> exec({source})
+  TaskSpace: exec_command({cmd,node_id})
+  ```
+- Interpretation: Standard prior 能解释旧参数名泄漏，但不能解释 TaskSpace 的 outer name 提升；后者需要 inner wire 作为信息来源。
+- Time: 2026-08-10 08:12
