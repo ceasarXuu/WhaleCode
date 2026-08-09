@@ -1,7 +1,7 @@
 # Phase B5 VA-02 第二轮复验结果
 
 - Date: 2026-08-10
-- Status: evidence complete / first-response stability failed / VA-03 blocked
+- Status: evidence complete / zero-Hosted contract repaired offline / provider revalidation required
 - Model: `deepseek-v4-flash`
 - Scope: `single-file-fast-fix` × `map-request` × repeat 1
 - Record: `WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4`
@@ -66,18 +66,20 @@ Runtime 当前行为正确：原始错误忠实返回、候选 Map 未提交、c
 3. `taskspace_exec` request/finalize/preflight/persist/complete 事件携带同一 capability identity、provider request identity、outer call identity、Map identity 和 revision。
 4. 第二响应的 client result 原样进入唯一 outer feedback，Map action 只记录 Tool identity 和 outcome。
 
-## 6. 当前阻塞与候选收敛
+## 6. 当前阻塞与修复收敛
 
 当前唯一直接阻塞是：无 provider-hosted output 的普通编码请求仍要求 Agent 生成 `hosted_bindings: []`。该机械空字段在两轮首次响应中都成为 JSON 结构错误的相邻位置。
 
-最小候选是：
+用户已批准并完成以下最小修复：
 
 - 无 hosted output 时允许省略 `hosted_bindings`，canonical 示例也省略；
 - 存在 hosted output 时仍必须逐项声明，漏绑、错绑和少绑继续由 response-local preflight fail closed；
 - 不增加 Runtime 默认归属，不修复非法 JSON，不改变 client calls、node binding、Map 或 Standard；
 - schema 和 description 改变属于缓存敏感面，必须先过免费门禁，再申请新的最小真实复验预算。
 
-这是协议必填性调整，实施前需用户确认。现有真实预算已用完，未启动 VA-03。
+实现只使用静态 schema 必填列表与 Serde 默认空集合：未增加 Runtime 分支、兼容层或语义修复。TaskSpace Exec
+69 项单测通过；缓存门禁以候选指纹 `e49cc5ff2184b34e08872ebaccf9c7d9bb92b947072befec0e2b467005a91a56`
+识别出预期 final-wire 变化并允许候选提交，发布仍保持阻断。真实预算已用完，VA-03 在新的最小 VA-02 复验通过前继续阻断。
 
 ## 7. 证据
 

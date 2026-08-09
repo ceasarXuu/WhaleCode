@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / VA-02 first-response stability blocked
+- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / VA-02 zero-Hosted contract repaired offline
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -73,7 +73,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   免费门禁，Standard 与普通 Tool 不变。冻结的 Core、State、CLI、Viewer、App Server Protocol、workspace、zero-base 和缓存
   合同已整体通过。两轮 VA-02 都证明合法的第二响应可完成 Map 初始化和原生 client dispatch，但首个响应都在空
   `hosted_bindings` 邻近位置生成非法 JSON；第二轮在线观测与账本已正确结算，request 2+ cache hit 为 96.20%。
-  当前先决策并收敛无 Hosted output 时的空字段合同，VA-03 继续阻断，详见
+  当前已将无 Hosted output 时的 `hosted_bindings` 收敛为可省略字段，原有 Hosted 漏绑硬拒绝保持不变；离线测试通过，
+  需申请最小真实预算复验首响应稳定性，VA-03 继续阻断，详见
   [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)。
 
 ## 3. 文档

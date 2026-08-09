@@ -55,6 +55,7 @@ pub(crate) enum TaskSpaceExecPlanDecodeError {
 #[serde(deny_unknown_fields)]
 struct RawPlan {
     calls: Vec<Value>,
+    #[serde(default)]
     hosted_bindings: Vec<Value>,
 }
 

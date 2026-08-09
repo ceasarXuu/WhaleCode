@@ -305,7 +305,7 @@ fn build_declaration<'a>(
         strict: false,
         parameters: strict_object(
             [("calls", calls), ("hosted_bindings", hosted_bindings)],
-            &["calls", "hosted_bindings"],
+            &["calls"],
         ),
         output_schema: Some(output_schema),
         defer_loading: None,

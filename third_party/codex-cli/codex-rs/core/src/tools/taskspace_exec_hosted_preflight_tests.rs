@@ -168,6 +168,21 @@ fn read_map_cannot_share_a_response_with_hosted_work() {
 #[test]
 fn hosted_count_tool_and_node_mismatches_are_rejected() {
     let current = open_map();
+    let omitted_binding = envelope(json!({"calls": [initialize_call()]}), None);
+    let search = [HostedOutputFact {
+        output_index: 1,
+        provider_id: "search-1".into(),
+        tool: "web_search".into(),
+        outcome: ActionOutcome::Succeeded,
+    }];
+    assert_eq!(
+        preflight_taskspace_exec(&omitted_binding, None, &search),
+        Err(TaskSpaceExecPreflightError::HostedCountMismatch {
+            actual: 1,
+            declared: 0
+        })
+    );
+
     let one_binding = envelope(
         json!({
             "calls": [],
@@ -193,12 +208,6 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
         Err(TaskSpaceExecPreflightError::HostedToolMismatch { .. })
     ));
 
-    let search = [HostedOutputFact {
-        output_index: 1,
-        provider_id: "search-1".into(),
-        tool: "web_search".into(),
-        outcome: ActionOutcome::Succeeded,
-    }];
     for (nodes, reason) in [
         (json!(["work", "work"]), "empty_or_duplicate_node"),
         (json!(["missing"]), "unknown_node"),

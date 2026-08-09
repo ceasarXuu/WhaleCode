@@ -53,7 +53,7 @@ model-visible tools
 
 - `calls[]` 中实际出现的 Tool、数量、原生参数和数组顺序；
 - 每个 client/map call 的节点归属；
-- `hosted_bindings[]` 中本响应每项 Provider-hosted 事实的节点归属。
+- 仅当本响应存在 Provider-hosted 事实时，`hosted_bindings[]` 中逐项声明其节点归属；没有 Hosted 事实时省略该字段。
 
 Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这些实例数据。收到 Function Call 后，Runtime 才解析 Agent
 声明，对结构化 schema 之外的 TaskSpace 硬规则执行 preflight，并将通过的 client/map call 机械交给原生 Router。
@@ -87,7 +87,7 @@ Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这�
 | `work + map-epilogue + next work` | 完成节点并继续独立后续工作 | epilogue 与后续 prelude 的边界必须可机械判定 |
 | `work + terminal map` | 完成最后工作并显式关闭 Map | `finish_map` 只能位于终态边界 |
 | `read-only work` | 读取事实，等待结果后再决定下一步 | 允许单个读取或多个无结果依赖读取 |
-| `hosted_bindings[] + 其他合法形状` | 逐项登记同一 provider response 已完成的 hosted 动作 | 每项可供一个或多个节点使用；声明不改变 client/map 的先后关系 |
+| `hosted_bindings[] + 其他合法形状` | 逐项登记同一 provider response 已完成的 hosted 动作 | 有 Hosted 事实时必须逐项完整声明；没有时省略；声明不改变 client/map 的先后关系 |
 
 以下行为非法：
 

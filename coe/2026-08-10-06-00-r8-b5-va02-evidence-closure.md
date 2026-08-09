@@ -76,8 +76,8 @@
   - E-001
   - E-002
 - Conclusion: confirmed recurrent；保持 fail-closed，不加入语义容错。共同结构诱因已收敛到无 Hosted output 时的必填空数组。
-- Repair design readiness: decision required
-- Next step: 用户决定是否允许无 Hosted output 时省略 `hosted_bindings`；若批准，先离线修改同源 schema/example/decoder，再申请新的最小真实预算。
+- Repair design readiness: implemented offline
+- Next step: 缓存敏感面门禁通过后，申请新的最小真实预算复验首响应；通过前不启动 VA-03。
 - Blocker:
   - none
 - Close reason:
@@ -346,3 +346,24 @@
   ```
 - Interpretation: provider-boundary 范围修复已获在线生产证据，第三次 local-only 429 不再污染成本。
 - Time: 2026-08-10 05:22
+
+## Evidence E-010: 零 Hosted 合同已完成最小离线修复
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `taskspace_exec` schema、decoder、canonical examples 与原有 Hosted preflight
+- Prediction or plan link:
+  - H-001 的最小协议修复。
+- Matched signal:
+  - 无 Hosted 示例省略 `hosted_bindings` 后可直接解码和通过 preflight；存在 Hosted output 但省略绑定仍返回 `HostedCountMismatch`。
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  taskspace_exec unit tests: 69 passed
+  cache gate: PASS candidate_transition=true
+  candidate surface: e49cc5ff2184b34e08872ebaccf9c7d9bb92b947072befec0e2b467005a91a56
+  ```
+- Interpretation: 修复只移除无意义的空字段填写成本，没有放宽 Hosted 事实的完整绑定硬约束。
+- Time: 2026-08-10

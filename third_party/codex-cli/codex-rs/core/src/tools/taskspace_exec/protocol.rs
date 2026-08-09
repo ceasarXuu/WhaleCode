@@ -21,7 +21,7 @@ Call contract:
 - `calls` order defines Map boundaries, not a second dependency graph for ordinary work. Work dependencies come only from Map node `parents`; independent client calls may use native parallel execution, while result-dependent work waits for a later request.
 - A plain function client Tool call is `{"tool":"<name>","node_id":"<work-node>","arguments":{...}}`; a namespaced function call also has `"namespace":"<namespace>"` and keeps only the leaf Tool name in `tool`. A freeform client Tool uses `input` instead of `arguments`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
 - A Map operation is `{"tool":"<map-operation>","arguments":{...}}` and has no outer `node_id`.
-- `hosted_bindings` contains one binding for each provider-hosted output, in provider output order. One hosted output may name multiple owner work nodes. Use an empty array when there is no hosted output.
+- Include `hosted_bindings` only when the response contains provider-hosted output. It contains one binding for each hosted output, in provider output order; one output may name multiple owner work nodes.
 
 Sequence contract:
 - `initialize_map` or `reopen_map`, when present, is first and shares the batch with real client or hosted work.
@@ -93,15 +93,13 @@ pub(crate) fn canonical_first_turn_example() -> Value {
                 "node_id": "inspect",
                 "arguments": {"cmd": "pwd"}
             }
-        ],
-        "hosted_bindings": []
+        ]
     })
 }
 
 pub(crate) fn canonical_read_example() -> Value {
     json!({
-        "calls": [map_call(MapOperation::ReadMap(EmptyArgs::default()))],
-        "hosted_bindings": []
+        "calls": [map_call(MapOperation::ReadMap(EmptyArgs::default()))]
     })
 }
 
@@ -120,8 +118,7 @@ pub(crate) fn canonical_finish_example() -> Value {
         content: "Task completed and verified.".into(),
     });
     json!({
-        "calls": [map_call(complete), map_call(finish)],
-        "hosted_bindings": []
+        "calls": [map_call(complete), map_call(finish)]
     })
 }
 

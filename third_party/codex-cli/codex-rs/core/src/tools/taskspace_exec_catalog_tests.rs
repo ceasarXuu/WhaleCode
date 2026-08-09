@@ -127,6 +127,7 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(!input.contains("version"));
     assert!(!input.contains("capability_id"));
     assert!(!input.contains("revision"));
+    assert_eq!(value["parameters"]["required"], json!(["calls"]));
     assert!(value.get("output_schema").is_none());
 
     let description = value["description"].as_str().unwrap();
@@ -149,6 +150,8 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
 #[test]
 fn rendered_map_examples_use_the_same_catalog_contract() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    assert!(canonical_read_example().get("hosted_bindings").is_none());
+    assert!(canonical_finish_example().get("hosted_bindings").is_none());
     let read = catalog
         .decode_plan(&canonical_read_example().to_string())
         .unwrap();
@@ -182,9 +185,11 @@ fn rendered_map_examples_use_the_same_catalog_contract() {
 fn rendered_first_turn_example_uses_the_same_catalog_contract() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let example = canonical_first_turn_example();
+    assert!(example.get("hosted_bindings").is_none());
     let plan = catalog.decode_plan(&example.to_string()).unwrap();
 
     assert_eq!(plan.calls.len(), 2);
+    assert!(plan.hosted_bindings.is_empty());
     assert!(matches!(plan.calls[0], ExecCall::Map(_)));
     let ExecCall::Client(client) = &plan.calls[1] else {
         panic!("expected client work after map initialization")
