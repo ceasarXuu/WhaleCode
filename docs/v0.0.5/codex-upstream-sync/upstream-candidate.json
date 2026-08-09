@@ -15,16 +15,11 @@
   },
   "qualification_commands": [
     {
-      "command": [
-        "cargo",
-        "fmt",
-        "--all",
-        "--",
-        "--check"
-      ],
+      "command": ["cargo", "fmt", "--all", "--", "--check"],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
       "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/01-fmt.log",
@@ -33,36 +28,24 @@
       "result": "passed"
     },
     {
-      "command": [
-        "cargo",
-        "check",
-        "-p",
-        "codex-cli",
-        "--bin",
-        "codex",
-        "--locked"
-      ],
+      "command": ["cargo", "check", "-p", "codex-cli", "--bin", "codex", "--offline"],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
       "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/02-cli-check.log",
-      "exit_code": 101,
+      "exit_code": 0,
       "id": "02-cli-check",
-      "result": "failed"
+      "result": "passed"
     },
     {
-      "command": [
-        "cargo",
-        "nextest",
-        "run",
-        "-p",
-        "codex-core"
-      ],
+      "command": ["cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-core"],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
       "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/03-core-tests.log",
@@ -71,49 +54,52 @@
       "result": "failed"
     },
     {
-      "command": [
-        "cargo",
-        "nextest",
-        "run",
-        "-p",
-        "codex-app-server"
-      ],
+      "command": ["cargo", "build", "--offline", "-p", "codex-code-mode-host", "--bin", "codex-code-mode-host"],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/04-app-server-tests.log",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/04-code-mode-host-build.log",
+      "exit_code": 0,
+      "id": "04-code-mode-host-build",
+      "result": "passed"
+    },
+    {
+      "command": ["cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-app-server"],
+      "cwd": "codex-rs",
+      "environment": {
+        "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
+        "RUST_MIN_STACK": "8388608"
+      },
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/05-app-server-tests.log",
       "exit_code": 100,
-      "id": "04-app-server-tests",
+      "id": "05-app-server-tests",
       "result": "failed"
     },
     {
-      "command": [
-        "cargo",
-        "nextest",
-        "run",
-        "-p",
-        "codex-tui"
-      ],
+      "command": ["cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-tui"],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/05-tui-tests.log",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/06-tui-tests.log",
       "exit_code": 100,
-      "id": "05-tui-tests",
+      "id": "06-tui-tests",
       "result": "failed"
     }
   ],
   "production_vendor_unchanged": true,
   "model_request_count": 0,
   "summary": {
-    "command_count": 5,
+    "command_count": 6,
     "by_result": {
-      "failed": 4,
-      "passed": 1
+      "failed": 3,
+      "passed": 3
     }
   }
 }

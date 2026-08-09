@@ -95,6 +95,7 @@ def validate_candidate(document: dict) -> list[str]:
             errors.append(f"candidate command {command_id}: evidence must be relative")
         expected_environment = {
             "INSTA_UPDATE": "no",
+            "NEXTEST_PROFILE": "local",
             "RUST_MIN_STACK": "8388608",
         }
         if entry.get("environment") != expected_environment:

@@ -24,25 +24,70 @@ OUTPUT_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-candidate.json"
 EVIDENCE_DIR = "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0"
 QUALIFICATION_ENVIRONMENT = {
     "INSTA_UPDATE": "no",
+    "NEXTEST_PROFILE": "local",
     "RUST_MIN_STACK": "8388608",
 }
+PROXY_ENVIRONMENT_KEYS = frozenset(
+    {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+)
 COMMANDS = (
     ("01-fmt", ("cargo", "fmt", "--all", "--", "--check")),
     (
         "02-cli-check",
-        ("cargo", "check", "-p", "codex-cli", "--bin", "codex", "--locked"),
+        ("cargo", "check", "-p", "codex-cli", "--bin", "codex", "--offline"),
     ),
-    ("03-core-tests", ("cargo", "nextest", "run", "-p", "codex-core")),
     (
-        "04-app-server-tests",
-        ("cargo", "nextest", "run", "-p", "codex-app-server"),
+        "03-core-tests",
+        ("cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-core"),
     ),
-    ("05-tui-tests", ("cargo", "nextest", "run", "-p", "codex-tui")),
+    (
+        "04-code-mode-host-build",
+        (
+            "cargo",
+            "build",
+            "--offline",
+            "-p",
+            "codex-code-mode-host",
+            "--bin",
+            "codex-code-mode-host",
+        ),
+    ),
+    (
+        "05-app-server-tests",
+        (
+            "cargo",
+            "nextest",
+            "run",
+            "--no-fail-fast",
+            "-p",
+            "codex-app-server",
+        ),
+    ),
+    (
+        "06-tui-tests",
+        ("cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-tui"),
+    ),
 )
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def _qualification_environment(source: dict[str, str] | None = None) -> dict[str, str]:
+    environment = dict(os.environ if source is None else source)
+    for key in tuple(environment):
+        if key.lower() in PROXY_ENVIRONMENT_KEYS:
+            environment.pop(key)
+    environment.update(QUALIFICATION_ENVIRONMENT)
+    return environment
+
+
+def _normalize_output(output: str, repo: Path, candidate_root: Path) -> str:
+    normalized = output.replace(str(candidate_root), "<candidate>")
+    normalized = normalized.replace(str(repo), "<repo>")
+    normalized = normalized.replace(str(Path.home()), "<home>")
+    return "\n".join(line.rstrip() for line in normalized.splitlines())
 
 
 def _run_text(command: tuple[str, ...], cwd: Path) -> str:
@@ -95,8 +140,7 @@ def _run_qualification(
 ) -> list[dict]:
     results: list[dict] = []
     codex_rs = candidate_root / "codex-rs"
-    environment = os.environ.copy()
-    environment.update(QUALIFICATION_ENVIRONMENT)
+    environment = _qualification_environment()
     for command_id, command in COMMANDS:
         logging.info("running candidate qualification %s", command_id)
         completed = subprocess.run(
@@ -108,9 +152,7 @@ def _run_qualification(
             check=False,
             text=True,
         )
-        normalized = completed.stdout.replace(str(candidate_root), "<candidate>")
-        normalized = normalized.replace(str(repo), "<repo>")
-        normalized = normalized.replace(str(Path.home()), "<home>")
+        normalized = _normalize_output(completed.stdout, repo, candidate_root)
         evidence_path = evidence_dir / f"{command_id}.log"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(

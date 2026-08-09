@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，待执行
+- 文档状态：有效，Phase A 受候选 no-go 阻塞
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -8,7 +8,7 @@
 - Product Authority：[./decisions.md](decisions.md)
 - Applicable Decisions：D1、D2
 - 当前生产 vendor：保持不变，直至 U3 通过自身门禁
-- 当前候选证据：Codex CLI `rust-v0.146.0` qualification 为 no-go，须先按 U1 复核
+- 当前候选证据：Codex CLI `rust-v0.146.0` 已按 U1 增量复核，qualification 仍为 no-go
 
 ## 1. 执行合同
 
@@ -28,17 +28,17 @@
 | --- | ---: | --- | --- | --- |
 | 安全与通用 backport | 6/6 verified | 6 个独立上游修复已合入 | 当前 vendor 已包含这些补丁，后续不得重复回移 | 已完成 |
 | 同步基线与测试门禁 | 12/15 verified；3 deferred | upstream 基线、overlay inventory、测试门禁；DeepSeek Responses 兼容、Flash 默认/Pro 隐藏已经落到当前 vendor | U4–U9 迁移的是这些既有行为在新 substrate 上的重放，不是重新设计或首次实现 | 已收口；TaskSpace TUI 已知夹具问题、Windows runner、Windows 终端 smoke 保持延期 |
-| 0.146 资格与差异证据 | 9/9 completed | 候选身份、4,355 条 upstream delta、730 路径索引、qualification 日志；得出当时的 no-go | U1 只复核四个失败中的 harness/environment 因素；U2–U16 复用已有差异证据 | 证据工作已完成；候选方向为 `direction-rejected`，等待增量复核 |
+| 0.146 资格与差异证据 | 9/9 completed；U1 verified | 候选身份、4,355 条 upstream delta、730 路径索引、两轮 qualification 日志；U1 修正 3 个 runner 问题并确认候选仍 no-go | U2–U16 复用已有差异证据，但在新候选或资格策略获批前不得执行 | 候选方向保持 `direction-rejected`；Phase A 已安全停止 |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U16 的范围和停止条件 | 已完成 |
 
-因此，`U1–U16 not-started` 只表示“剩余 vendor cutover/replay 工作尚未执行”，不表示整个 Codex 主线追赶从零开始。历史工作与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
+因此，`U2–U16` 尚未执行只表示 vendor cutover/replay 尚未开始，不表示整个 Codex 主线追赶从零开始。历史工作、已完成的 U1 与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
 
 当前状态应读取为：
 
 - 选择性上游修复：已完成；
 - 同步基线、门禁和差异准备：已完成并带 3 项明确延期；
 - 0.146 候选初次资格审查：已完成，结论 no-go；
-- no-go 原因的最小增量复核：尚未开始（U1）；
+- no-go 原因的最小增量复核：已完成（U1）；
 - 生产 vendor cutover 与 DeepSeek/TaskSpace 重放：尚未开始（U3–U16）。
 
 ### 2.2 治理后的权威关系
@@ -99,7 +99,7 @@
 
 | ID | Critical Assumption | Decision Unlocked | Cheapest Credible Method | Enough Evidence / Not Proven | Budget / Isolation | Stop / Cleanup | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| V1 | 0.146 的四项失败是否主要来自错误命令、ambient proxy 或过严 `--locked` | 是否继续以 0.146 为候选 | 在临时官方树读取该 tag 自带 README/justfile/CI，清空非必要代理和 Whale 环境，执行官方入口 | Enough：CLI/core/app-server/TUI 官方无模型入口可重复完成；Not proven：修改候选源码或弱化测试才通过 | 独立临时树和 target；0 模型请求 | 保留规范化日志并删除临时树；失败则停止 U2 | planned |
+| V1 | 0.146 的四项失败是否主要来自错误命令、ambient proxy 或过严 `--locked` | 是否继续以 0.146 为候选 | 在临时官方树读取该 tag 自带 README/justfile/CI，清空非必要代理和 Whale 环境，执行官方入口 | 三个 runner 问题已证实并修正；TUI 上游 snapshot 仍失败，完整 core/app-server/TUI 入口未全部完成 | 独立临时树和 target；0 模型请求 | 日志已保留；按停止条件不执行 U2 | direction-rejected |
 | V2 | 上游 substrate 能以很薄的 identity/home overlay 支撑 Whale CLI | 是否替换生产 vendor | 一次性临时候选树只应用品牌、二进制身份、`WHALE_HOME`、auth 隔离 patch | Enough：CLI build、version、home/auth 隔离测试通过；Not proven：需要 DeepSeek/TaskSpace stub | 不提交第二份 vendor；0 模型请求 | 删除临时树；失败则回到 seam 识别 | planned |
 
 ## 5. 可执行工作单元
@@ -110,8 +110,8 @@
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 复用第三批证据执行 V1；只修 qualification runner 的环境隔离和命令解析，不改候选源码、不重做 delta/overlay inventory | 将既有 no-go 拆分为 harness、environment 或 upstream failure | 避免重复第三批，同时排除假 blocker | Complexity：只删改现有 runner 窄逻辑；Reach/Cost：更新日志、manifest、报告，无生产影响 | 官方入口逐项结果；runner 单测；vendor diff 为零；与第三批差异可解释 | 失败则确认 no-go，保持现 vendor，提交增量证据后停止 | not-started |
-| U2 | 验证最小 Whale overlay | compatibility | 一次性临时 candidate tree | brand、binary identity、`WHALE_HOME`、auth isolation | 执行 V2；提取最小 patch，不带 DeepSeek/TaskSpace/cache | 候选可构建身份与数据目录隔离正确的 Whale CLI | 生产替换前验证关键 seam | Complexity：不得新增框架/双 vendor；Reach/Cost：临时构建和少量测试 | CLI build、version、home/keyring/auth tests；patch 清单可审阅 | 任一能力需要业务 stub 即停止并删临时树 | not-started |
+| U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 已修 runner 的 offline lock 处理、代理隔离、local nextest 参数和显式 helper build；候选源码未改 | 三个初始失败归入 runner，TUI 归入不可变上游 fixture；完整矩阵仍失败 | 排除假 blocker，同时保留真实 no-go | 仅 runner、契约、日志、manifest 和报告；无生产影响 | 36 个 runner/metadata 单测；6 命令矩阵；vendor diff 为零；0 模型请求 | 已按失败停止条件收口 | verified-no-go |
+| U2 | 验证最小 Whale overlay | compatibility | 一次性临时 candidate tree | brand、binary identity、`WHALE_HOME`、auth isolation | 执行 V2；提取最小 patch，不带 DeepSeek/TaskSpace/cache | 候选可构建身份与数据目录隔离正确的 Whale CLI | 生产替换前验证关键 seam | Complexity：不得新增框架/双 vendor；Reach/Cost：临时构建和少量测试 | CLI build、version、home/keyring/auth tests；patch 清单可审阅 | 任一能力需要业务 stub 即停止并删临时树 | blocked-by-U1 |
 
 退出条件：U1、U2 均 verified；否则停在当前 vendor。结束时审计本阶段 Product Decision Delta。
 
@@ -174,7 +174,7 @@
 | 已完成：安全 backport | 无产品语义 | 独立安全/通用修复 | none | engineering-only | 已收口 |
 | 已完成：基线与门禁 | 模型默认值与 Responses | Flash 默认、Pro 隐藏；Responses 按能力处理 | D1、D2 | covered | 保留为现行为证据，不作未来授权 |
 | 已完成：资格与差异证据 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
-| Phase A | 待执行 | 待记录 | D2 | 待分类 | U1/U2 后审计 |
+| Phase A | 无产品语义 | U1 仅修资格 runner 并确认 0.146 no-go；U2 未执行 | D2 | engineering-only | 保持生产 vendor；等待用户决定新候选或资格策略 |
 | Phase B | 待执行 | 待记录 | D2 | 待分类 | U3 后审计 |
 | Phase C | 待执行 | 待记录 | D1、D2 | 待分类 | U4–U9 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U10–U15 后审计 |
