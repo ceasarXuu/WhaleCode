@@ -80,11 +80,12 @@ def validate_observation(
         "cache observation evidence digest mismatch",
     )
     cache = source_json(repo, artifacts["cache_summary"], source)
-    provider_usage = parse_provider_wire_usage(
-        source_bytes(repo, artifacts["provider_wire"], source).decode("utf-8-sig")
-    )
     metrics = source_json(repo, artifacts["metrics"], source)
     boundary = source_json(repo, artifacts["provider_boundary"], source)
+    provider_usage = parse_provider_wire_usage(
+        source_bytes(repo, artifacts["provider_wire"], source).decode("utf-8-sig"),
+        [request.get("request_id") for request in boundary.get("wire_requests", [])],
+    )
     validate_arm_identity(
         source_json(repo, artifacts["execution_argv"], source),
         source_json(repo, artifacts["logical_mode_map"], source),

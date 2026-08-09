@@ -77,9 +77,14 @@ def analyze_artifacts(
     expected_model: str,
 ) -> dict[str, Any]:
     cache = read_json(cache_path)
-    provider_usage = load_provider_wire_usage(provider_wire_path)
     metrics = read_json(metrics_path)
     boundary = read_json(boundary_path)
+    provider_request_ids = [
+        request.get("request_id") for request in boundary.get("wire_requests", [])
+    ]
+    provider_usage = load_provider_wire_usage(
+        provider_wire_path, provider_request_ids
+    )
     return analyze_artifact_values(
         cache,
         provider_usage,

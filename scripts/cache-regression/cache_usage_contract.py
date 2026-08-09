@@ -93,7 +93,9 @@ def aggregate_usage_records(records: list[dict[str, int] | None]) -> dict[str, A
     }
 
 
-def parse_provider_wire_usage(text: str) -> dict[str, Any]:
+def parse_provider_wire_usage(
+    text: str, provider_request_ids: list[str] | None = None
+) -> dict[str, Any]:
     events = []
     for line_number, raw_line in enumerate(text.splitlines(), 1):
         if not raw_line.strip():
@@ -109,11 +111,20 @@ def parse_provider_wire_usage(text: str) -> dict[str, Any]:
         codes = ",".join(sorted({finding["code"] for finding in facts["findings"]}))
         raise ValueError(f"provider wire request facts are not comparable: {codes}")
     rows = facts["rows"]
-    attempt_count = facts["summary"]["local_attempt_count"]
-    if (
-        attempt_count < 1
-        or facts["summary"]["completed_response_count"] != attempt_count
-        or facts["summary"]["usage_record_count"] != attempt_count
+    if provider_request_ids is not None:
+        if (
+            not provider_request_ids
+            or any(not isinstance(value, str) or not value for value in provider_request_ids)
+            or len(set(provider_request_ids)) != len(provider_request_ids)
+        ):
+            raise ValueError("provider request identity set is invalid")
+        rows_by_id = {row["request_id"]: row for row in rows}
+        if any(request_id not in rows_by_id for request_id in provider_request_ids):
+            raise ValueError("provider boundary request is missing from wire evidence")
+        rows = [rows_by_id[request_id] for request_id in provider_request_ids]
+    if not rows or any(
+        row["terminal_status"] != "response_completed" or row["usage"] is None
+        for row in rows
     ):
         raise ValueError("provider wire request did not complete successfully")
     usage_records = [row["usage"] for row in rows]
@@ -126,8 +137,12 @@ def parse_provider_wire_usage(text: str) -> dict[str, Any]:
     }
 
 
-def load_provider_wire_usage(path: Path) -> dict[str, Any]:
-    return parse_provider_wire_usage(path.read_text(encoding="utf-8-sig"))
+def load_provider_wire_usage(
+    path: Path, provider_request_ids: list[str] | None = None
+) -> dict[str, Any]:
+    return parse_provider_wire_usage(
+        path.read_text(encoding="utf-8-sig"), provider_request_ids
+    )
 
 
 def validate_cache_artifacts(
