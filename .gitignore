@@ -3,7 +3,8 @@ tmp/
 node_modules/
 dist/
 coverage/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 target/
 target-test/
 target-map-show/
