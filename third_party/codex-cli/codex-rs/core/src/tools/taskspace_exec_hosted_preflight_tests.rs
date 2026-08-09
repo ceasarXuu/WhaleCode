@@ -252,4 +252,48 @@ fn duplicate_hosted_provider_facts_are_rejected() {
             ..
         })
     ));
+
+    let duplicate_provider_id = [
+        HostedOutputFact {
+            output_index: 1,
+            provider_id: "search-1".into(),
+            tool: "web_search".into(),
+            outcome: ActionOutcome::Succeeded,
+        },
+        HostedOutputFact {
+            output_index: 2,
+            provider_id: "search-1".into(),
+            tool: "web_search".into(),
+            outcome: ActionOutcome::Failed,
+        },
+    ];
+    assert!(matches!(
+        preflight_taskspace_exec(&envelope, Some(&current), &duplicate_provider_id),
+        Err(TaskSpaceExecPreflightError::HostedFactInvalid {
+            reason: "missing_or_duplicate_provider_id",
+            ..
+        })
+    ));
+
+    let missing_provider_id = [
+        HostedOutputFact {
+            output_index: 1,
+            provider_id: String::new(),
+            tool: "web_search".into(),
+            outcome: ActionOutcome::Succeeded,
+        },
+        HostedOutputFact {
+            output_index: 2,
+            provider_id: "search-2".into(),
+            tool: "web_search".into(),
+            outcome: ActionOutcome::Succeeded,
+        },
+    ];
+    assert!(matches!(
+        preflight_taskspace_exec(&envelope, Some(&current), &missing_provider_id),
+        Err(TaskSpaceExecPreflightError::HostedFactInvalid {
+            reason: "missing_or_duplicate_provider_id",
+            ..
+        })
+    ));
 }

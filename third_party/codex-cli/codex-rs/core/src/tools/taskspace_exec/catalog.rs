@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use super::TaskSpaceExecPlan;
 use super::TaskSpaceExecPlanDecodeError;
+use super::hosted::HostedToolKind;
 use super::map_operation_capabilities;
 use super::protocol::build_description;
 use super::result::render_result_contract;
@@ -81,11 +82,12 @@ impl TaskSpaceExecCatalog {
         let mut hosted_tools = BTreeSet::new();
         let mut hosted_specs = Vec::new();
         for spec in specs {
+            if let Some(kind) = HostedToolKind::from_spec(spec) {
+                hosted_tools.insert(kind.name().to_string());
+                hosted_specs.push(spec.clone());
+                continue;
+            }
             match spec {
-                ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. } => {
-                    hosted_tools.insert(spec.name().to_string());
-                    hosted_specs.push(spec.clone());
-                }
                 ToolSpec::Function(_)
                 | ToolSpec::Freeform(_)
                 | ToolSpec::Namespace(_)
@@ -126,6 +128,9 @@ impl TaskSpaceExecCatalog {
                     return Err(TaskSpaceExecCatalogError::UnsupportedToolSpec {
                         tool_name: spec.name().to_string(),
                     });
+                }
+                ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. } => {
+                    unreachable!("hosted ToolSpec handled by shared classifier")
                 }
             }
         }

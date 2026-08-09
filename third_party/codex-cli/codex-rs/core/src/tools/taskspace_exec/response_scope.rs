@@ -3,10 +3,9 @@ use std::sync::Mutex;
 
 use codex_protocol::models::ResponseItem;
 
-use crate::action_map::rooted_dag::ActionOutcome;
-
 use super::HostedOutputFact;
 use super::TASKSPACE_EXEC_TOOL_NAME;
+use super::hosted::hosted_output_fact;
 
 #[derive(Debug)]
 pub(crate) struct TaskSpaceExecResponseScope {
@@ -121,22 +120,10 @@ impl TaskSpaceExecResponseScope {
             }
             return;
         }
-        let observed = match item {
-            ResponseItem::WebSearchCall { id, status, .. } => Some((
-                id.clone().unwrap_or_default(),
-                "web_search".to_string(),
-                status.as_deref(),
-            )),
-            ResponseItem::ImageGenerationCall { id, status, .. } => Some((
-                id.clone(),
-                "image_generation".to_string(),
-                Some(status.as_str()),
-            )),
-            _ => None,
-        };
-        let Some((provider_id, tool, status)) = observed else {
+        let observed = hosted_output_fact(output_index, item);
+        if matches!(observed, Ok(None)) {
             return;
-        };
+        }
         let mut state = self
             .state
             .lock()
@@ -145,27 +132,11 @@ impl TaskSpaceExecResponseScope {
             state.error = Some("hosted output arrived after response finalization".to_string());
             return;
         }
-        let Some(output_index) = output_index else {
-            state.error = Some("provider-hosted output is missing output_index".to_string());
-            return;
-        };
-        let outcome = match status {
-            Some("completed") => ActionOutcome::Succeeded,
-            Some("failed") => ActionOutcome::Failed,
-            Some("cancelled" | "canceled") => ActionOutcome::Cancelled,
-            _ => {
-                state.error = Some(format!(
-                    "provider-hosted output {output_index} has non-terminal status"
-                ));
-                return;
-            }
-        };
-        state.facts.push(HostedOutputFact {
-            output_index,
-            provider_id,
-            tool,
-            outcome,
-        });
+        match observed {
+            Ok(Some(fact)) => state.facts.push(fact),
+            Ok(None) => {}
+            Err(error) => state.error = Some(error),
+        }
     }
 
     pub(crate) fn finalize(
@@ -298,6 +269,7 @@ fn unexpected_client_tool(item: &ResponseItem) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action_map::rooted_dag::ActionOutcome;
     use codex_protocol::models::WebSearchAction;
     use tracing_test::traced_test;
 

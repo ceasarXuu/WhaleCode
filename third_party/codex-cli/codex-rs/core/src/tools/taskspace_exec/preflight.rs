@@ -12,6 +12,7 @@ use crate::action_map::taskspace_map_view;
 use super::ClientCall;
 use super::ClientCallInput;
 use super::ExecCall;
+use super::HostedOutputFact;
 use super::MapOperationApplyError;
 use super::MapOperationEffect;
 use super::TaskSpaceExecEnvelope;
@@ -19,14 +20,6 @@ use super::TaskSpaceExecEnvelopeError;
 use super::TaskSpaceExecInternalCallId;
 use super::apply_map_operation;
 use super::schema_validation::validate_json_schema;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HostedOutputFact {
-    pub(crate) output_index: usize,
-    pub(crate) provider_id: String,
-    pub(crate) tool: String,
-    pub(crate) outcome: rooted_dag::ActionOutcome,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PreparedClientCall {
