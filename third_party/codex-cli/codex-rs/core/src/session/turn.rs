@@ -1331,8 +1331,9 @@ pub(crate) async fn built_tools(
         },
     );
     if sess.taskspace_active().await {
+        let loaded_deferred_specs = crate::tools::taskspace_exec::loaded_deferred_specs(input);
         router
-            .into_taskspace()
+            .into_taskspace(&loaded_deferred_specs)
             .map(Arc::new)
             .map_err(|error| CodexErr::Fatal(format!("TaskSpace Tool catalog failed: {error:?}")))
     } else {

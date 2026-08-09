@@ -325,7 +325,7 @@ async fn current_session_config_builds_a_single_taskspace_entrypoint() -> anyhow
     );
 
     let taskspace = standard
-        .into_taskspace()
+        .into_taskspace(&[])
         .map_err(|error| anyhow::anyhow!("{error:?}"))?;
     let visible = taskspace
         .model_visible_specs()
@@ -348,6 +348,56 @@ async fn current_session_config_builds_a_single_taskspace_entrypoint() -> anyhow
         .expect("TaskSpace capability identity");
     assert_eq!(identity.len(), 64);
     Ok(())
+}
+
+#[test]
+fn taskspace_loaded_deferred_specs_require_a_current_handler() {
+    fn router(handler: Arc<RecordingHandler>) -> ToolRouter {
+        let deferred = ToolSpec::Function(ResponsesApiTool {
+            name: "deferred_current".into(),
+            description: "Current deferred Tool.".into(),
+            strict: false,
+            defer_loading: Some(true),
+            parameters: JsonSchema::default(),
+            output_schema: None,
+        });
+        let mut builder = ToolRegistryBuilder::new();
+        builder.push_spec(deferred);
+        builder.register_handler("deferred_current", handler);
+        ToolRouter::from_builder_for_test(builder)
+    }
+
+    let loaded = vec![
+        ToolSpec::Function(ResponsesApiTool {
+            name: "deferred_current".into(),
+            description: "Loaded current Tool.".into(),
+            strict: false,
+            defer_loading: Some(true),
+            parameters: JsonSchema::default(),
+            output_schema: None,
+        }),
+        ToolSpec::Function(ResponsesApiTool {
+            name: "stale_without_handler".into(),
+            description: "Stale Tool.".into(),
+            strict: false,
+            defer_loading: Some(true),
+            parameters: JsonSchema::default(),
+            output_schema: None,
+        }),
+    ];
+
+    let initial = router(Arc::new(RecordingHandler::default()))
+        .into_taskspace(&[])
+        .unwrap();
+    let initial_schema = serde_json::to_string(&initial.specs()).unwrap();
+    assert!(!initial_schema.contains("deferred_current"));
+
+    let loaded = router(Arc::new(RecordingHandler::default()))
+        .into_taskspace(&loaded)
+        .unwrap();
+    let loaded_schema = serde_json::to_string(&loaded.specs()).unwrap();
+    assert!(loaded_schema.contains("deferred_current"));
+    assert!(!loaded_schema.contains("stale_without_handler"));
 }
 
 #[tokio::test]

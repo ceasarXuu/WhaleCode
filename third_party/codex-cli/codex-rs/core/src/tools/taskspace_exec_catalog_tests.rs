@@ -29,6 +29,13 @@ fn function(name: &str) -> ResponsesApiTool {
     }
 }
 
+fn deferred_function(name: &str) -> ResponsesApiTool {
+    ResponsesApiTool {
+        defer_loading: Some(true),
+        ..function(name)
+    }
+}
+
 fn exec_command() -> ResponsesApiTool {
     ResponsesApiTool {
         name: "exec_command".into(),
@@ -177,6 +184,43 @@ fn capability_identity_changes_with_dispatch_or_hosted_semantics() {
         baseline.capability_identity(),
         changed_hosted.capability_identity()
     );
+}
+
+#[test]
+fn deferred_capabilities_are_hidden_until_loaded() {
+    let specs = vec![
+        ToolSpec::Function(function("always_visible")),
+        ToolSpec::Function(deferred_function("deferred_plain")),
+        ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "deferred_namespace".into(),
+            description: "Deferred namespace.".into(),
+            tools: vec![ResponsesApiNamespaceTool::Function(deferred_function(
+                "selected_child",
+            ))],
+        }),
+    ];
+    let initial = TaskSpaceExecCatalog::build(&specs).unwrap();
+    let initial_json = serde_json::to_string(initial.declaration()).unwrap();
+    assert!(initial_json.contains("always_visible"));
+    assert!(!initial_json.contains("deferred_plain"));
+    assert!(!initial_json.contains("selected_child"));
+
+    let loaded = TaskSpaceExecCatalog::build_with_loaded_deferred(
+        &specs,
+        &[ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "deferred_namespace".into(),
+            description: "Deferred namespace.".into(),
+            tools: vec![ResponsesApiNamespaceTool::Function(deferred_function(
+                "selected_child",
+            ))],
+        })],
+    )
+    .unwrap();
+    let loaded_json = serde_json::to_string(loaded.declaration()).unwrap();
+    assert!(loaded_json.contains("always_visible"));
+    assert!(loaded_json.contains("selected_child"));
+    assert!(!loaded_json.contains("deferred_plain"));
+    assert_ne!(initial.capability_identity(), loaded.capability_identity());
 }
 
 #[test]

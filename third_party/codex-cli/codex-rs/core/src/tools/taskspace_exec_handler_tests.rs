@@ -628,7 +628,7 @@ async fn production_router_exposes_only_exec_and_hosted_and_blocks_client_bypass
     builder.push_spec(hosted_spec());
     builder.register_handler("inspect", Arc::new(LedgerAwareHandler::default()));
     let router = ToolRouter::from_builder_for_test(builder)
-        .into_taskspace()
+        .into_taskspace(&[])
         .unwrap();
     let visible = router
         .model_visible_specs()

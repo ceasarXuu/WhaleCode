@@ -96,7 +96,7 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
     builder.register_handler("inspect", Arc::clone(&native_handler));
     let router = Arc::new(
         ToolRouter::from_builder_for_test(builder)
-            .into_taskspace()
+            .into_taskspace(&[])
             .expect("build production TaskSpace router"),
     );
     let response_scope = router.taskspace_response_scope().expect("response scope");

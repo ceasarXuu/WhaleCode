@@ -55,7 +55,26 @@ pub(crate) enum TaskSpaceExecCatalogError {
 }
 
 impl TaskSpaceExecCatalog {
+    #[cfg(test)]
     pub(crate) fn build(specs: &[ToolSpec]) -> Result<Self, TaskSpaceExecCatalogError> {
+        Self::build_with_loaded_deferred(specs, &[])
+    }
+
+    pub(crate) fn build_with_loaded_deferred(
+        specs: &[ToolSpec],
+        loaded_deferred_specs: &[ToolSpec],
+    ) -> Result<Self, TaskSpaceExecCatalogError> {
+        let loaded_deferred_names = loaded_deferred_specs
+            .iter()
+            .flat_map(project_tool_spec_capabilities)
+            .filter(|capability| capability.deferred)
+            .map(|capability| capability.tool_name)
+            .collect::<BTreeSet<_>>();
+        let registered_spec_names = specs
+            .iter()
+            .flat_map(project_tool_spec_capabilities)
+            .map(|capability| capability.tool_name)
+            .collect::<BTreeSet<_>>();
         let mut client_capabilities = BTreeMap::new();
         let mut hosted_tools = BTreeSet::new();
         let mut hosted_specs = Vec::new();
@@ -78,8 +97,9 @@ impl TaskSpaceExecCatalog {
                         _ => unreachable!("matched client ToolSpec"),
                     };
                     for capability in project_tool_spec_capabilities(spec) {
-                        if capability.tool_name.namespace.is_none()
-                            && RECURSIVE_TOOL_NAMES.contains(&capability.tool_name.name.as_str())
+                        if is_recursive_capability(&capability)
+                            || (capability.deferred
+                                && !loaded_deferred_names.contains(&capability.tool_name))
                         {
                             continue;
                         }
@@ -105,6 +125,23 @@ impl TaskSpaceExecCatalog {
                         tool_name: spec.name().to_string(),
                     });
                 }
+            }
+        }
+        for spec in loaded_deferred_specs {
+            for capability in project_tool_spec_capabilities(spec) {
+                if !capability.deferred
+                    || is_recursive_capability(&capability)
+                    || registered_spec_names.contains(&capability.tool_name)
+                {
+                    continue;
+                }
+                client_capabilities.insert(
+                    capability.tool_name.clone(),
+                    TaskSpaceClientCapability {
+                        capability,
+                        transport: TaskSpaceClientTransport::Function,
+                    },
+                );
             }
         }
 
@@ -173,6 +210,11 @@ impl TaskSpaceExecCatalog {
     pub(super) fn is_hosted_tool(&self, name: &str) -> bool {
         self.hosted_tools.contains(name)
     }
+}
+
+fn is_recursive_capability(capability: &ToolSpecCapability) -> bool {
+    capability.tool_name.namespace.is_none()
+        && RECURSIVE_TOOL_NAMES.contains(&capability.tool_name.name.as_str())
 }
 
 #[derive(Serialize)]

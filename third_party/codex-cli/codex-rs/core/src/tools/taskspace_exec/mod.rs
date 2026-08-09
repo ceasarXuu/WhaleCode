@@ -1,4 +1,5 @@
 mod catalog;
+mod deferred;
 mod dispatch;
 mod envelope;
 mod handler;
@@ -12,6 +13,8 @@ mod schema_validation;
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;
 pub(crate) use catalog::TaskSpaceExecCatalog;
 pub(crate) use catalog::TaskSpaceExecCatalogError;
+pub(crate) use deferred::loaded_deferred_specs;
+pub(crate) use deferred::retain_available_deferred_specs;
 pub(crate) use dispatch::dispatch_client_calls;
 pub(crate) use dispatch::prepare_client_calls;
 pub(crate) use envelope::TaskSpaceExecEnvelope;

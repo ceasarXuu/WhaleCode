@@ -15,6 +15,7 @@ use crate::tools::taskspace_exec::TaskSpaceExecCatalog;
 use crate::tools::taskspace_exec::TaskSpaceExecCatalogError;
 use crate::tools::taskspace_exec::TaskSpaceExecHandler;
 use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
+use crate::tools::taskspace_exec::retain_available_deferred_specs;
 use codex_mcp::ToolInfo;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::LocalShellAction;
@@ -133,10 +134,18 @@ impl ToolRouter {
         }
     }
 
-    pub(crate) fn into_taskspace(self) -> Result<Self, TaskSpaceExecCatalogError> {
+    pub(crate) fn into_taskspace(
+        self,
+        loaded_deferred_specs: &[ToolSpec],
+    ) -> Result<Self, TaskSpaceExecCatalogError> {
+        let loaded_deferred_specs =
+            retain_available_deferred_specs(loaded_deferred_specs, |name| {
+                self.registry.has_handler(name)
+            });
         let client_router = Arc::new(self);
-        let catalog = Arc::new(TaskSpaceExecCatalog::build(
+        let catalog = Arc::new(TaskSpaceExecCatalog::build_with_loaded_deferred(
             &client_router.taskspace_capability_specs(),
+            &loaded_deferred_specs,
         )?);
         let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
             catalog.capability_identity_arc(),

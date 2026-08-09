@@ -1495,7 +1495,7 @@ async fn taskspace_cp01_records_deepseek_effective_surface() {
         &tools_config,
         ToolRouterParams {
             mcp_tools: None,
-            deferred_mcp_tools: Some(deferred_mcp_tools),
+            deferred_mcp_tools: Some(deferred_mcp_tools.clone()),
             unavailable_called_tools: Vec::new(),
             parallel_mcp_server_names: HashSet::new(),
             discoverable_tools: None,
@@ -1531,7 +1531,7 @@ async fn taskspace_cp01_records_deepseek_effective_surface() {
         );
     }
 
-    let taskspace_router = router.into_taskspace().unwrap();
+    let taskspace_router = router.into_taskspace(&[]).unwrap();
     assert_eq!(
         taskspace_router
             .model_visible_specs()
@@ -1544,8 +1544,45 @@ async fn taskspace_cp01_records_deepseek_effective_surface() {
     assert!(declaration.contains("exec_command"));
     assert!(declaration.contains("write_stdin"));
     assert!(declaration.contains("tool_search"));
-    assert!(declaration.contains("codex_app_automation_update"));
+    assert!(!declaration.contains("automation_update"));
     assert!(!declaration.contains("mcp__test_server__lookup_order"));
+
+    let loaded_specs = vec![
+        ToolSpec::from(
+            codex_tools::dynamic_tool_to_loadable_tool_spec(&dynamic_tools[0])
+                .expect("convert deferred dynamic Tool"),
+        ),
+        ToolSpec::Namespace(codex_tools::ResponsesApiNamespace {
+            name: "mcp__test_server__".into(),
+            description: "Deferred MCP namespace.".into(),
+            tools: vec![codex_tools::ResponsesApiNamespaceTool::Function(
+                mcp_tool_to_deferred_responses_api_tool(
+                    &ToolName::namespaced("mcp__test_server__", "lookup_order"),
+                    &deferred_mcp_tools
+                        .get("mcp__test_server__lookup_order")
+                        .expect("deferred MCP Tool")
+                        .tool,
+                )
+                .expect("convert deferred MCP Tool"),
+            )],
+        }),
+    ];
+    let loaded_router = ToolRouter::from_config(
+        &tools_config,
+        ToolRouterParams {
+            mcp_tools: None,
+            deferred_mcp_tools: Some(deferred_mcp_tools),
+            unavailable_called_tools: Vec::new(),
+            parallel_mcp_server_names: HashSet::new(),
+            discoverable_tools: None,
+            dynamic_tools: &dynamic_tools,
+        },
+    )
+    .into_taskspace(&loaded_specs)
+    .unwrap();
+    let loaded_declaration = serde_json::to_string(&loaded_router.specs()).unwrap();
+    assert!(loaded_declaration.contains("automation_update"));
+    assert!(loaded_declaration.contains("lookup_order"));
 }
 
 #[tokio::test]
@@ -1594,7 +1631,7 @@ async fn taskspace_cp01_records_code_mode_only_surface_difference() {
     assert!(registered_names.iter().any(|name| name == "write_stdin"));
     assert_ne!(registered_names, standard_visible_names);
 
-    let taskspace_router = router.into_taskspace().unwrap();
+    let taskspace_router = router.into_taskspace(&[]).unwrap();
     assert_eq!(
         taskspace_router
             .model_visible_specs()

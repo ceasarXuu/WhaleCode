@@ -106,6 +106,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 30. [`29-phase-b5-cp04-effective-capability-result.md`](29-phase-b5-cp04-effective-capability-result.md)：同一 Registry 条目的 Provider/native ToolSpec 双视图和 TaskSpace effective Catalog 接入证据。
 31. [`30-phase-b5-cp06-tool-identity-result.md`](30-phase-b5-cp06-tool-identity-result.md)：结构化 Namespace wire、原生二元身份查找和旧扁平 alias 零兼容证据。
 32. [`31-phase-b5-cp09-nested-result.md`](31-phase-b5-cp09-nested-result.md)：公共中性 nested result、失败透传、MCP/Tool Search/Patch/output-reference 忠实反馈证据。
+33. [`32-phase-b5-cp05-deferred-lifecycle.md`](32-phase-b5-cp05-deferred-lifecycle.md)：首轮隐藏、自然历史恢复、dynamic/MCP 展开与失效能力 fail-closed 证据。
 
 ## 4. 推进规则
 
