@@ -536,6 +536,10 @@ impl ToolRegistryBuilder {
             .push(ConfiguredToolSpec::new(spec, supports_parallel_tool_calls));
     }
 
+    pub fn push_configured_spec(&mut self, spec: ConfiguredToolSpec) {
+        self.specs.push(spec);
+    }
+
     pub fn register_handler<H>(&mut self, name: impl Into<ToolName>, handler: Arc<H>)
     where
         H: ToolHandler + 'static,

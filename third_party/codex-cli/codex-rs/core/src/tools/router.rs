@@ -135,7 +135,9 @@ impl ToolRouter {
 
     pub(crate) fn into_taskspace(self) -> Result<Self, TaskSpaceExecCatalogError> {
         let client_router = Arc::new(self);
-        let catalog = Arc::new(TaskSpaceExecCatalog::build(&client_router.specs())?);
+        let catalog = Arc::new(TaskSpaceExecCatalog::build(
+            &client_router.taskspace_capability_specs(),
+        )?);
         let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
             catalog.capability_identity_arc(),
         ));
@@ -191,6 +193,13 @@ impl ToolRouter {
 
     pub fn model_visible_specs(&self) -> Vec<ToolSpec> {
         self.model_visible_specs.clone()
+    }
+
+    pub(crate) fn taskspace_capability_specs(&self) -> Vec<ToolSpec> {
+        self.specs
+            .iter()
+            .map(|configured| configured.native_spec.clone())
+            .collect()
     }
 
     pub fn find_spec(&self, tool_name: &ToolName) -> Option<ToolSpec> {

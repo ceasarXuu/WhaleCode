@@ -104,13 +104,17 @@ impl ToolRegistryPlan {
         supports_parallel_tool_calls: bool,
         code_mode_enabled: bool,
     ) {
+        let native_spec = spec;
         let spec = if code_mode_enabled {
-            augment_tool_spec_for_code_mode(spec)
+            augment_tool_spec_for_code_mode(native_spec.clone())
         } else {
-            spec
+            native_spec.clone()
         };
-        self.specs
-            .push(ConfiguredToolSpec::new(spec, supports_parallel_tool_calls));
+        self.specs.push(ConfiguredToolSpec::with_native_spec(
+            spec,
+            native_spec,
+            supports_parallel_tool_calls,
+        ));
     }
 
     pub(crate) fn register_handler(&mut self, name: impl Into<ToolName>, kind: ToolHandlerKind) {

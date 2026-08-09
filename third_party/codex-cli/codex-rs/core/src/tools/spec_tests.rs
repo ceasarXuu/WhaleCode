@@ -1605,5 +1605,6 @@ async fn taskspace_cp01_records_code_mode_only_surface_difference() {
     );
     let declaration = serde_json::to_string(&taskspace_router.specs()).unwrap();
     assert!(declaration.contains("exec_command"));
-    assert!(declaration.contains("exec tool declaration"));
+    assert!(declaration.contains("write_stdin"));
+    assert!(!declaration.contains("exec tool declaration"));
 }

@@ -179,13 +179,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
         .collect::<HashSet<_>>();
 
     for spec in plan.specs {
-        if spec.supports_parallel_tool_calls {
-            builder.push_spec_with_parallel_support(
-                spec.spec, /*supports_parallel_tool_calls*/ true,
-            );
-        } else {
-            builder.push_spec(spec.spec);
-        }
+        builder.push_configured_spec(spec);
     }
 
     for handler in plan.handlers {

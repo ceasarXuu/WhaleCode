@@ -138,13 +138,23 @@ pub fn create_web_search_tool(options: WebSearchToolOptions<'_>) -> Option<ToolS
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfiguredToolSpec {
     pub spec: ToolSpec,
+    pub native_spec: ToolSpec,
     pub supports_parallel_tool_calls: bool,
 }
 
 impl ConfiguredToolSpec {
     pub fn new(spec: ToolSpec, supports_parallel_tool_calls: bool) -> Self {
+        Self::with_native_spec(spec.clone(), spec, supports_parallel_tool_calls)
+    }
+
+    pub fn with_native_spec(
+        spec: ToolSpec,
+        native_spec: ToolSpec,
+        supports_parallel_tool_calls: bool,
+    ) -> Self {
         Self {
             spec,
+            native_spec,
             supports_parallel_tool_calls,
         }
     }
