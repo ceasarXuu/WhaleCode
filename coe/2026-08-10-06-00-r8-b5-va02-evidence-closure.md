@@ -40,16 +40,16 @@
 - Close reason:
   - not closed
 
-## Hypothesis H-001: 首次 Exec 失败来自模型生成的尾部多余字符
+## Hypothesis H-001: 首次 Exec 失败来自模型生成的非法 outer JSON
 - Status: confirmed
 - Parent: P-001
-- Claim: provider 返回的 function arguments 本身比合法 JSON 多一个 `}`，严格解析器因此在副作用前拒绝，而不是 Runtime 截断或扭曲参数。
+- Claim: provider 返回的首次 function arguments 本身不是合法 JSON，错误集中在无 Hosted output 时仍要求填写的 `hosted_bindings: []` 附近；严格解析器因此在副作用前拒绝，而不是 Runtime 截断或扭曲参数。
 - Layer: root-cause
 - Factor relation: single
 - Depends on:
   - none
 - Rationale:
-  - 相邻两次调用结构一致，只有首次尾部多出一个字符。
+  - 首轮首次调用尾部多一个字符；第二轮首次调用把 `hosted_bindings` 错放进尚未闭合的 `calls` 数组；两轮第二响应均自行修正。
 - Falsifiable predictions:
   - If true: rollout 原始 `arguments` 首次以 `]}}` 结束，第二次以 `]}` 结束。
   - If false: 两次原始字符串都应是合法 JSON，错误应发生在后续转换层。
@@ -75,9 +75,9 @@
 - Related evidence:
   - E-001
   - E-002
-- Conclusion: confirmed；保持 fail-closed，不加入语义容错。
-- Repair design readiness: no repair indicated
-- Next step: 用剩余单次授权观察是否重复。
+- Conclusion: confirmed recurrent；保持 fail-closed，不加入语义容错。共同结构诱因已收敛到无 Hosted output 时的必填空数组。
+- Repair design readiness: decision required
+- Next step: 用户决定是否允许无 Hosted output 时省略 `hosted_bindings`；若批准，先离线修改同源 schema/example/decoder，再申请新的最小真实预算。
 - Blocker:
   - none
 - Close reason:
@@ -285,3 +285,64 @@
   ```
 - Interpretation: 成本证据已恢复且没有改变业务失败结论。
 - Time: 2026-08-10 06:12
+
+## Evidence E-007: 第二轮首次响应再次生成非法 outer JSON
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: reproduction
+- Source: `WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4` 的 `rollout.jsonl`
+- Prediction or plan link:
+  - H-001 剩余授权复验。
+- Matched signal:
+  - 首次 arguments 长度 751，在 column 589 失败；`hosted_bindings` 被写入尚未闭合的 `calls` 数组。第二次 arguments 长度 736，可严格解析。
+- Correlation keys:
+  - `call_00_cS3WNAmnJy1pTSAWAiEm8551`
+  - `call_00_NJT7tJg2D59W7x39b9w39693`
+- Raw content:
+  ```text
+  first: ... "finish": {...}}}, "hosted_bindings": []}, {"tool": "exec_command", ...
+  error: expected `,` or `]` at line 1 column 589
+  second: root keys = [calls, hosted_bindings], calls = 2
+  ```
+- Interpretation: 两轮不同 JSON 错误排除固定截断，但都与机械空 Hosted 字段相邻；首次稳定性未通过。
+- Time: 2026-08-10 05:22
+
+## Evidence E-008: 第二轮合法响应完成生产执行与 Map 持久化
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: 第二轮 `taskspace_exec` events、outer result 和 canonical Map Store
+- Prediction or plan link:
+  - CP-13 后生产路径复验。
+- Matched signal:
+  - preflight accepted、candidate revision 2、client result succeeded、final revision 3；Map 为 `root -> inspect -> fix -> verify -> finish`。
+- Correlation keys:
+  - Map `map-019fe863-2bc5-7110-9ce4-4f6e260d03f1`
+- Raw content:
+  ```text
+  taskspace.exec.completed client_result_count=1 success=true map_revision=3
+  ```
+- Interpretation: outer Exec、Map 和 client dispatch 生产链可用；旧 Map management consumer 不再中断 runner。
+- Time: 2026-08-10 05:22
+
+## Evidence E-009: 第二轮在线成本结算正确区分边界与本地尝试
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: 第二轮 result、request facts 和全局 ledger
+- Prediction or plan link:
+  - H-003 新生产 run 验收。
+- Matched signal:
+  - provider requests=2、local attempts=3、usage records=2；账本直接结算 input 28131、cached 27520、output 633。
+- Correlation keys:
+  - `WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4`
+- Raw content:
+  ```text
+  request_2_plus_hit_rate=0.962 cache_usage_missing_count=0
+  ```
+- Interpretation: provider-boundary 范围修复已获在线生产证据，第三次 local-only 429 不再污染成本。
+- Time: 2026-08-10 05:22
