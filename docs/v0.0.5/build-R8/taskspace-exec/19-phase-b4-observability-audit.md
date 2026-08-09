@@ -1,7 +1,7 @@
 # Phase B4 观测身份链审计
 
 - Date: 2026-08-09
-- Unit: OB-01A
+- Unit: OB-01A～OB-01B
 - Status: verified
 - Scope: 只读审计；未运行 Whale Agent 或 Provider 请求
 
@@ -51,3 +51,14 @@ Provider 请求或 Token。
 - rejection 至少包含稳定阶段码，且失败前不存在不应发生的 Tool/Map 副作用；
 - 日志字段只来自 Runtime 已持有事实，不出现内容摘要、语义分类或新事实源；
 - TaskSpace Exec、response scope、settlement 定向测试通过，Standard 路径无修改。
+
+## 6. OB-01B 实施结果
+
+- `ResponseEvent::Completed` 已把 Provider response ID 及现有 wire request identity 传入 response-local scope；未生成新身份。
+- response、preflight、candidate、Hosted attribution、settlement failure 和 outer completion 事件可通过 response/outer call/Map revision
+  机械关联；settlement 仍以 outer call 传递关联，不复制 Provider 成本事实。
+- 删除了尚未完成 Agent 节点归属的早期 Hosted 观测点，改为 candidate 持久化后记录 canonical attribution。
+- rejection/fatal 增加稳定阶段码；原始错误保持原样，不附加语义建议。
+- 定向测试：`cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core taskspace_exec --lib`
+  通过，57 passed / 0 failed。
+- 未运行 Whale Agent 或 Provider 请求；未变更 Agent-visible Tool schema、prompt、Map 或 Standard 路径。

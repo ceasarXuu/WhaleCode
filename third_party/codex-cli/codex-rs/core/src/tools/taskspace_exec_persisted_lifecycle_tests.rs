@@ -111,7 +111,17 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
             call_id: "outer".into(),
         },
     );
-    response_scope.finalize(true).unwrap();
+    response_scope
+        .finalize(
+            true,
+            Some(TaskSpaceExecResponseIdentity {
+                provider_response_id: "response-1".into(),
+                provider_request_id: Some("request-1".into()),
+                provider_logical_request_id: Some("logical-1".into()),
+                provider_attempt_seq: Some(1),
+            }),
+        )
+        .unwrap();
     let output = router
         .dispatch_tool_call_with_code_mode_result(
             Arc::clone(&session),

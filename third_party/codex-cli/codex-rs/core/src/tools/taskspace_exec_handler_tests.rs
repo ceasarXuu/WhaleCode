@@ -17,6 +17,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+use tracing_test::traced_test;
 
 use super::*;
 use crate::function_tool::FunctionCallError;
@@ -194,11 +195,22 @@ fn finalize_scope(harness: &Harness) {
             call_id: "outer".into(),
         },
     );
-    harness.response_scope.finalize(true).unwrap();
+    harness
+        .response_scope
+        .finalize(
+            true,
+            Some(TaskSpaceExecResponseIdentity {
+                provider_response_id: "response-1".into(),
+                provider_request_id: Some("request-1".into()),
+                provider_logical_request_id: Some("logical-1".into()),
+                provider_attempt_seq: Some(1),
+            }),
+        )
+        .unwrap();
 }
 
 async fn begin_scope(harness: &Harness) {
-    let (map_id, map) = super::handler::read_current_map(harness.session.as_ref())
+    let (map_id, map) = super::handler::read_current_map(harness.session.as_ref(), "outer")
         .await
         .unwrap();
     harness
@@ -459,6 +471,7 @@ async fn internal_fatal_is_returned_once_with_successful_sibling_feedback() {
 }
 
 #[tokio::test]
+#[traced_test]
 async fn failed_preflight_has_no_map_or_client_tool_side_effect() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
@@ -492,13 +505,24 @@ async fn failed_preflight_has_no_map_or_client_tool_side_effect() {
             .map
             .is_none()
     );
+    logs_assert(|lines: &[&str]| {
+        lines
+            .iter()
+            .find(|line| {
+                line.contains("taskspace.exec.rejected")
+                    && line.contains("reason_code=\"preflight_rejected\"")
+                    && line.contains("outer_call_id=\"outer\"")
+            })
+            .map(|_| Ok(()))
+            .unwrap_or_else(|| Err("expected stable preflight rejection event".to_string()))
+    });
 }
 
 #[tokio::test]
 async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
-    let (map_id, current) = super::handler::read_current_map(harness.session.as_ref())
+    let (map_id, current) = super::handler::read_current_map(harness.session.as_ref(), "outer")
         .await
         .unwrap();
     assert!(current.is_none());
@@ -541,7 +565,7 @@ async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
     };
     assert!(error.to_string().contains("MapRevisionChanged"));
     assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
-    let (_, current) = super::handler::read_current_map(harness.session.as_ref())
+    let (_, current) = super::handler::read_current_map(harness.session.as_ref(), "outer")
         .await
         .unwrap();
     assert_eq!(current.unwrap().revision, 1);

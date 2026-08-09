@@ -58,6 +58,7 @@ use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolRouterParams;
+use crate::tools::taskspace_exec::TaskSpaceExecResponseIdentity;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
 use crate::unavailable_tool::collect_unavailable_called_tools;
@@ -2019,6 +2020,7 @@ async fn try_run_sampling_request(
     let mut should_emit_turn_diff = false;
     let taskspace_response_scope = tool_runtime.taskspace_response_scope();
     let mut response_completed = false;
+    let mut taskspace_response_identity = None;
     let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
@@ -2296,7 +2298,7 @@ async fn try_run_sampling_request(
                 sess.services.models_manager.refresh_if_new_etag(etag).await;
             }
             ResponseEvent::Completed {
-                response_id: _,
+                response_id,
                 token_usage,
                 end_turn,
             } => {
@@ -2310,6 +2312,18 @@ async fn try_run_sampling_request(
                 .await;
                 let provider_request_identity = client_session
                     .record_provider_wire_terminal("response_completed", token_usage.as_ref());
+                taskspace_response_identity = Some(TaskSpaceExecResponseIdentity {
+                    provider_response_id: response_id,
+                    provider_request_id: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.request_id.clone()),
+                    provider_logical_request_id: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.logical_request_id.clone()),
+                    provider_attempt_seq: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.attempt_seq),
+                });
                 sess.update_token_usage_info_for_provider(
                     &turn_context,
                     token_usage.as_ref(),
@@ -2451,7 +2465,7 @@ async fn try_run_sampling_request(
 
     if let Some(scope) = taskspace_response_scope.as_ref() {
         scope
-            .finalize(response_completed)
+            .finalize(response_completed, taskspace_response_identity)
             .map_err(taskspace_response_reconciliation_error)?;
     }
 
@@ -2484,6 +2498,7 @@ async fn try_run_sampling_request(
 fn taskspace_response_reconciliation_error(message: String) -> CodexErr {
     warn!(
         event_name = "taskspace.exec.response_rejected",
+        reason_code = "response_reconciliation_failed",
         reason = %message,
         "TaskSpace response reconciliation failed"
     );

@@ -15,6 +15,7 @@ pub(crate) struct TaskSpaceExecResponseScope {
 #[derive(Debug, Default)]
 struct ResponseScopeState {
     request: Option<TaskSpaceExecRequestSnapshot>,
+    response: Option<TaskSpaceExecResponseIdentity>,
     facts: Vec<HostedOutputFact>,
     complete: bool,
     terminal: bool,
@@ -33,7 +34,16 @@ pub(crate) struct TaskSpaceExecRequestSnapshot {
 #[derive(Debug, Clone)]
 pub(crate) struct TaskSpaceExecResponseClaim {
     pub(crate) request: TaskSpaceExecRequestSnapshot,
+    pub(crate) response: TaskSpaceExecResponseIdentity,
     pub(crate) hosted_facts: Vec<HostedOutputFact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceExecResponseIdentity {
+    pub(crate) provider_response_id: String,
+    pub(crate) provider_request_id: Option<String>,
+    pub(crate) provider_logical_request_id: Option<String>,
+    pub(crate) provider_attempt_seq: Option<usize>,
 }
 
 impl TaskSpaceExecResponseScope {
@@ -132,14 +142,6 @@ impl TaskSpaceExecResponseScope {
                 return;
             }
         };
-        tracing::trace!(
-            target: "codex_core::taskspace_exec",
-            event_name = "taskspace.exec.hosted_fact_observed",
-            output_index,
-            provider_id = %provider_id,
-            tool = %tool,
-            outcome = ?outcome,
-        );
         state.facts.push(HostedOutputFact {
             output_index,
             provider_id,
@@ -148,17 +150,32 @@ impl TaskSpaceExecResponseScope {
         });
     }
 
-    pub(crate) fn finalize(&self, response_completed: bool) -> Result<(), String> {
+    pub(crate) fn finalize(
+        &self,
+        response_completed: bool,
+        response: Option<TaskSpaceExecResponseIdentity>,
+    ) -> Result<(), String> {
         let mut state = self
             .state
             .lock()
             .expect("TaskSpace response scope poisoned");
+        state.response = response;
         state.terminal = true;
         state.complete = response_completed;
         let result = validate_finalized(&state);
+        let request = state.request.as_ref();
+        let response = state.response.as_ref();
         tracing::info!(
             target: "codex_core::taskspace_exec",
             event_name = "taskspace.exec.response_finalized",
+            reason_code = if result.is_ok() { "accepted" } else { "response_contract_rejected" },
+            provider_request_id = response.and_then(|value| value.provider_request_id.as_deref()).unwrap_or(""),
+            provider_logical_request_id = response.and_then(|value| value.provider_logical_request_id.as_deref()).unwrap_or(""),
+            provider_attempt_seq = ?response.and_then(|value| value.provider_attempt_seq),
+            provider_response_id = response.map(|value| value.provider_response_id.as_str()).unwrap_or(""),
+            outer_call_id = state.exec_call_id.as_deref().unwrap_or(""),
+            map_id = request.map(|value| value.map_id.as_str()).unwrap_or(""),
+            request_revision = ?request.and_then(|value| value.revision),
             response_completed,
             exec_call_count = state.exec_call_count,
             hosted_fact_count = state.facts.len(),
@@ -188,6 +205,9 @@ impl TaskSpaceExecResponseScope {
                 .request
                 .clone()
                 .ok_or_else(|| "TaskSpace response has no request Map snapshot".to_string())?,
+            response: state.response.clone().ok_or_else(|| {
+                "TaskSpace response has no provider response identity".to_string()
+            })?,
             hosted_facts: state.facts.clone(),
         })
     }
@@ -224,6 +244,9 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     if state.exec_call_count == 1 && state.request.is_none() {
         return Err("TaskSpace response has no request Map snapshot".to_string());
     }
+    if state.exec_call_count == 1 && state.response.is_none() {
+        return Err("TaskSpace response has no provider response identity".to_string());
+    }
     if !state.facts.is_empty() && state.exec_call_count != 1 {
         return Err("provider-hosted outputs require exactly one TaskSpace Exec call".to_string());
     }
@@ -250,8 +273,19 @@ fn unexpected_client_tool(item: &ResponseItem) -> Option<String> {
 mod tests {
     use super::*;
     use codex_protocol::models::WebSearchAction;
+    use tracing_test::traced_test;
+
+    fn response_identity() -> TaskSpaceExecResponseIdentity {
+        TaskSpaceExecResponseIdentity {
+            provider_response_id: "response-1".into(),
+            provider_request_id: Some("request-1".into()),
+            provider_logical_request_id: Some("logical-1".into()),
+            provider_attempt_seq: Some(1),
+        }
+    }
 
     #[test]
+    #[traced_test]
     fn scope_preserves_provider_identity_order_and_terminal_outcome() {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
@@ -276,13 +310,27 @@ mod tests {
                 call_id: "outer".into(),
             },
         );
-        scope.finalize(true).unwrap();
+        scope.finalize(true, Some(response_identity())).unwrap();
         let claim = scope.claim_response("outer").unwrap();
         assert_eq!(claim.request.map_id, "map-1");
         assert_eq!(claim.request.revision, Some(7));
         assert_eq!(claim.hosted_facts[0].output_index, 3);
         assert_eq!(claim.hosted_facts[0].provider_id, "ws-1");
         assert_eq!(claim.hosted_facts[0].outcome, ActionOutcome::Succeeded);
+        assert_eq!(claim.response, response_identity());
+        logs_assert(|lines: &[&str]| {
+            lines
+                .iter()
+                .find(|line| {
+                    line.contains("taskspace.exec.response_finalized")
+                        && line.contains("provider_request_id=\"request-1\"")
+                        && line.contains("provider_response_id=\"response-1\"")
+                        && line.contains("outer_call_id=\"outer\"")
+                        && line.contains("map_id=\"map-1\"")
+                })
+                .map(|_| Ok(()))
+                .unwrap_or_else(|| Err("expected correlated response event".to_string()))
+        });
     }
 
     #[test]
@@ -299,7 +347,7 @@ mod tests {
                 call_id: "outer".into(),
             },
         );
-        assert!(scope.finalize(false).is_err());
+        assert!(scope.finalize(false, None).is_err());
         assert!(
             scope
                 .claim_response("outer")
@@ -311,7 +359,7 @@ mod tests {
     #[test]
     fn incomplete_unrelated_response_preserves_the_native_error_path() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.finalize(false).unwrap();
+        scope.finalize(false, None).unwrap();
         scope.ensure_reconciled().unwrap();
     }
 
@@ -326,7 +374,12 @@ mod tests {
                 action: None,
             },
         );
-        assert!(scope.finalize(true).unwrap_err().contains("output_index"));
+        assert!(
+            scope
+                .finalize(true, Some(response_identity()))
+                .unwrap_err()
+                .contains("output_index")
+        );
 
         let scope = TaskSpaceExecResponseScope::default();
         scope.record_completed_item(
@@ -337,7 +390,12 @@ mod tests {
                 action: None,
             },
         );
-        assert!(scope.finalize(true).unwrap_err().contains("exactly one"));
+        assert!(
+            scope
+                .finalize(true, Some(response_identity()))
+                .unwrap_err()
+                .contains("exactly one")
+        );
     }
 
     #[test]
@@ -356,7 +414,12 @@ mod tests {
                 },
             );
         }
-        assert!(scope.finalize(true).unwrap_err().contains("more than one"));
+        assert!(
+            scope
+                .finalize(true, Some(response_identity()))
+                .unwrap_err()
+                .contains("more than one")
+        );
 
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
@@ -370,7 +433,7 @@ mod tests {
                 call_id: "outer".into(),
             },
         );
-        scope.finalize(true).unwrap();
+        scope.finalize(true, Some(response_identity())).unwrap();
         assert!(scope.ensure_reconciled().is_err());
         scope.claim_response("outer").unwrap();
         scope.ensure_reconciled().unwrap();
@@ -401,7 +464,7 @@ mod tests {
             },
         );
 
-        let error = scope.finalize(true).unwrap_err();
+        let error = scope.finalize(true, Some(response_identity())).unwrap_err();
         assert!(error.contains("forbidden top-level client Tool `inspect`"));
         assert!(scope.claim_response("outer").is_err());
     }
@@ -422,7 +485,7 @@ mod tests {
 
         assert!(
             scope
-                .finalize(true)
+                .finalize(true, Some(response_identity()))
                 .unwrap_err()
                 .contains("no request Map snapshot")
         );

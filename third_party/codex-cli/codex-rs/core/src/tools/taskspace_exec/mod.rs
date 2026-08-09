@@ -34,6 +34,7 @@ pub(crate) use preflight::PreparedHostedBinding;
 #[cfg(test)]
 pub(crate) use preflight::TaskSpaceExecPreflightError;
 pub(crate) use preflight::preflight_taskspace_exec;
+pub(crate) use response_scope::TaskSpaceExecResponseIdentity;
 pub(crate) use response_scope::TaskSpaceExecResponseScope;
 
 #[cfg(test)]

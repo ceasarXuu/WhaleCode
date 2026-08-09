@@ -91,23 +91,49 @@ impl ToolHandler for TaskSpaceExecHandler {
         let claim = self
             .response_scope
             .claim_response(&invocation.call_id)
-            .map_err(taskspace_rejection)?;
-        let (map_id, current_map) = read_current_map(invocation.session.as_ref()).await?;
+            .map_err(|error| {
+                taskspace_rejection("response_claim_rejected", Some(&invocation.call_id), error)
+            })?;
+        let response = &claim.response;
+        let (map_id, current_map) =
+            read_current_map(invocation.session.as_ref(), &invocation.call_id).await?;
         let request = TaskSpaceExecRequestContext::from_request_snapshot(
             claim.request.map_id,
             claim.request.revision,
             Arc::clone(&self.catalog),
         )
-        .map_err(|error| taskspace_rejection(format!("request context: {error:?}")))?;
+        .map_err(|error| {
+            taskspace_rejection(
+                "request_context_rejected",
+                Some(&invocation.call_id),
+                format!("request context: {error:?}"),
+            )
+        })?;
         let envelope = request
             .decode_outer_call(invocation.call_id.clone(), arguments)
-            .map_err(|error| taskspace_rejection(format!("invalid envelope: {error:?}")))?;
+            .map_err(|error| {
+                taskspace_rejection(
+                    "envelope_rejected",
+                    Some(&invocation.call_id),
+                    format!("invalid envelope: {error:?}"),
+                )
+            })?;
         let prepared =
             preflight_taskspace_exec(&envelope, current_map.as_ref(), &claim.hosted_facts)
-                .map_err(|error| taskspace_rejection(format!("preflight: {error:?}")))?;
+                .map_err(|error| {
+                    taskspace_rejection(
+                        "preflight_rejected",
+                        Some(&invocation.call_id),
+                        format!("preflight: {error:?}"),
+                    )
+                })?;
         tracing::info!(
             target: "codex_core::taskspace_exec",
             event_name = "taskspace.exec.preflight_accepted",
+            provider_request_id = response.provider_request_id.as_deref().unwrap_or(""),
+            provider_logical_request_id = response.provider_logical_request_id.as_deref().unwrap_or(""),
+            provider_attempt_seq = ?response.provider_attempt_seq,
+            provider_response_id = %response.provider_response_id,
             outer_call_id = %invocation.call_id,
             map_id = %map_id,
             request_revision = ?envelope.request().request_revision(),
@@ -118,13 +144,26 @@ impl ToolHandler for TaskSpaceExecHandler {
         let native_calls =
             prepare_client_calls(invocation.session.as_ref(), &prepared.client_calls)
                 .await
-                .map_err(|error| taskspace_rejection(format!("client preparation: {error:?}")))?;
+                .map_err(|error| {
+                    taskspace_rejection(
+                        "client_preparation_rejected",
+                        Some(&invocation.call_id),
+                        format!("client preparation: {error:?}"),
+                    )
+                })?;
 
         let action_bindings = client_action_bindings(&prepared.client_calls)
             .into_iter()
             .chain(hosted_action_bindings(&prepared.hosted_bindings))
             .collect::<Vec<_>>();
-        let candidate_map = attach_preflight_actions(prepared.candidate_map, &action_bindings)?;
+        let candidate_map = attach_preflight_actions(prepared.candidate_map, &action_bindings)
+            .map_err(|error| {
+                taskspace_rejection(
+                    "action_attribution_rejected",
+                    Some(&invocation.call_id),
+                    error,
+                )
+            })?;
         let candidate_revision = candidate_map.as_ref().map(|map| map.revision);
         persist_candidate(
             invocation.session.as_ref(),
@@ -132,16 +171,39 @@ impl ToolHandler for TaskSpaceExecHandler {
             &map_id,
             current_map.as_ref(),
             candidate_map.as_ref(),
+            &invocation.call_id,
         )
         .await?;
         tracing::info!(
             target: "codex_core::taskspace_exec",
             event_name = "taskspace.exec.candidate_persisted",
+            provider_request_id = response.provider_request_id.as_deref().unwrap_or(""),
+            provider_logical_request_id = response.provider_logical_request_id.as_deref().unwrap_or(""),
+            provider_attempt_seq = ?response.provider_attempt_seq,
+            provider_response_id = %response.provider_response_id,
             outer_call_id = %invocation.call_id,
             map_id = %map_id,
             candidate_revision = ?candidate_revision,
             action_count = action_bindings.len(),
         );
+        for binding in &prepared.hosted_bindings {
+            tracing::info!(
+                target: "codex_core::taskspace_exec",
+                event_name = "taskspace.exec.hosted_action_attributed",
+                provider_request_id = response.provider_request_id.as_deref().unwrap_or(""),
+                provider_logical_request_id = response.provider_logical_request_id.as_deref().unwrap_or(""),
+                provider_attempt_seq = ?response.provider_attempt_seq,
+                provider_response_id = %response.provider_response_id,
+                outer_call_id = %invocation.call_id,
+                map_id = %map_id,
+                map_revision = ?candidate_revision,
+                output_index = binding.output_index,
+                action_id = %binding.provider_id,
+                node_ids = ?binding.node_ids,
+                tool = %binding.tool,
+                outcome = outcome_name(binding.outcome),
+            );
+        }
 
         let client_runtime = ToolCallRuntime::new(
             Arc::clone(&self.client_router),
@@ -164,6 +226,8 @@ impl ToolHandler for TaskSpaceExecHandler {
                 tracing::error!(
                     target: "codex_core::taskspace_exec",
                     event_name = "taskspace.exec.action_settlement_failed",
+                    provider_request_id = response.provider_request_id.as_deref().unwrap_or(""),
+                    provider_response_id = %response.provider_response_id,
                     outer_call_id = %invocation.call_id,
                     action_id = %result.identity.transport_id(),
                     node_id = %result.node_id,
@@ -229,8 +293,13 @@ impl ToolHandler for TaskSpaceExecHandler {
         tracing::info!(
             target: "codex_core::taskspace_exec",
             event_name = "taskspace.exec.completed",
+            provider_request_id = response.provider_request_id.as_deref().unwrap_or(""),
+            provider_logical_request_id = response.provider_logical_request_id.as_deref().unwrap_or(""),
+            provider_attempt_seq = ?response.provider_attempt_seq,
+            provider_response_id = %response.provider_response_id,
             outer_call_id = %invocation.call_id,
             map_id = %map_id,
+            map_revision = ?candidate_revision,
             client_result_count,
             hosted_result_count,
             success = all_succeeded,
@@ -241,6 +310,7 @@ impl ToolHandler for TaskSpaceExecHandler {
 
 pub(super) async fn read_current_map(
     session: &Session,
+    outer_call_id: &str,
 ) -> Result<(String, Option<TaskSpaceMap>), FunctionCallError> {
     session
         .read_canonical_action_map("taskspace_exec_read", |runtime, _| {
@@ -250,11 +320,15 @@ pub(super) async fn read_current_map(
             )
         })
         .await
-        .map_err(taskspace_fatal)
+        .map_err(|error| taskspace_fatal("map_read_failed", Some(outer_call_id), error))
         .and_then(|(map_id, map)| {
-            map_id
-                .map(|map_id| (map_id, map))
-                .ok_or_else(|| taskspace_fatal("TaskSpace Map identity is unavailable"))
+            map_id.map(|map_id| (map_id, map)).ok_or_else(|| {
+                taskspace_fatal(
+                    "map_identity_missing",
+                    Some(outer_call_id),
+                    "TaskSpace Map identity is unavailable",
+                )
+            })
         })
 }
 
@@ -284,15 +358,14 @@ fn hosted_action_bindings(
 fn attach_preflight_actions(
     candidate: Option<TaskSpaceMap>,
     bindings: &[ActionBinding],
-) -> Result<Option<TaskSpaceMap>, FunctionCallError> {
+) -> Result<Option<TaskSpaceMap>, String> {
     if bindings.is_empty() {
         return Ok(candidate);
     }
-    let candidate =
-        candidate.ok_or_else(|| taskspace_rejection("actions require an initialized Map"))?;
+    let candidate = candidate.ok_or_else(|| "actions require an initialized Map".to_string())?;
     rooted_dag::attach_actions(&candidate, bindings)
         .map(|commit| Some(commit.map))
-        .map_err(|error| taskspace_rejection(format!("action attribution: {error:?}")))
+        .map_err(|error| format!("action attribution: {error:?}"))
 }
 
 async fn persist_candidate(
@@ -301,6 +374,7 @@ async fn persist_candidate(
     map_id: &str,
     before: Option<&TaskSpaceMap>,
     candidate: Option<&TaskSpaceMap>,
+    outer_call_id: &str,
 ) -> Result<(), FunctionCallError> {
     if before == candidate {
         return Ok(());
@@ -318,8 +392,8 @@ async fn persist_candidate(
             (result, Vec::new())
         })
         .await
-        .map_err(taskspace_fatal)?;
-    result.map_err(taskspace_rejection)
+        .map_err(|error| taskspace_fatal("map_persist_failed", Some(outer_call_id), error))?;
+    result.map_err(|error| taskspace_rejection("map_persist_rejected", Some(outer_call_id), error))
 }
 
 fn hosted_result(binding: PreparedHostedBinding) -> HostedResult {
@@ -341,21 +415,33 @@ fn outcome_name(outcome: ActionOutcome) -> &'static str {
     }
 }
 
-fn taskspace_rejection(message: impl Into<String>) -> FunctionCallError {
+fn taskspace_rejection(
+    reason_code: &'static str,
+    outer_call_id: Option<&str>,
+    message: impl Into<String>,
+) -> FunctionCallError {
     let message = message.into();
     tracing::warn!(
         target: "codex_core::taskspace_exec",
         event_name = "taskspace.exec.rejected",
+        reason_code,
+        outer_call_id = outer_call_id.unwrap_or(""),
         reason = %message,
     );
     FunctionCallError::RespondToModel(format!("taskspace_exec rejected: {message}"))
 }
 
-fn taskspace_fatal(message: impl Into<String>) -> FunctionCallError {
+fn taskspace_fatal(
+    reason_code: &'static str,
+    outer_call_id: Option<&str>,
+    message: impl Into<String>,
+) -> FunctionCallError {
     let message = message.into();
     tracing::error!(
         target: "codex_core::taskspace_exec",
         event_name = "taskspace.exec.fatal",
+        reason_code,
+        outer_call_id = outer_call_id.unwrap_or(""),
         reason = %message,
     );
     FunctionCallError::Fatal(message)
