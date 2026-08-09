@@ -81,7 +81,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 17. [`17-phase-b3-relational-store-result.md`](17-phase-b3-relational-store-result.md)：MS-01～MS-02 关系化 Store 证据。
 18. [`18-phase-b3-execution-feedback-result.md`](18-phase-b3-execution-feedback-result.md)：MS-03、EX-06～EX-08 的生产执行、
     Hosted 对账、唯一反馈和 B3 总验收。
-19. [`19-phase-b4-observability-audit.md`](19-phase-b4-observability-audit.md)：OB-01A 现有事件、身份断点和最小补齐边界。
+19. [`19-phase-b4-observability-audit.md`](19-phase-b4-observability-audit.md)：OB-01A～OB-01B 现有事件、身份断点和最小补齐结果。
+20. [`20-phase-b4-cache-surface-result.md`](20-phase-b4-cache-surface-result.md)：OB-02A 最终声明构建链、缓存敏感面和正反门禁证据。
 
 ## 4. 推进规则
 

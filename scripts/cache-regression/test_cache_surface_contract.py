@@ -25,6 +25,9 @@ KNOWN_PRODUCTION_ENTRIES = [
     "third_party/codex-cli/codex-rs/core/src/session/mcp.rs",
     "third_party/codex-cli/codex-rs/core/src/client.rs",
     "third_party/codex-cli/codex-rs/core/src/tools/spec.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/router.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/catalog.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/map_operations.rs",
     "third_party/codex-cli/codex-rs/core/src/mcp_tool_exposure.rs",
     "third_party/codex-cli/codex-rs/core/src/plugins/injection.rs",
     "third_party/codex-cli/codex-rs/core/src/skills.rs",
@@ -61,6 +64,15 @@ class CacheSurfaceContractTest(unittest.TestCase):
         self.assertEqual(
             [path for path in paths if matching_rules(path, self.contract)], []
         )
+
+    def test_taskspace_execution_internals_are_not_cache_sensitive(self) -> None:
+        paths = [
+            "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/dispatch.rs",
+            "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/handler.rs",
+            "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/preflight.rs",
+            "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/response_scope.rs",
+        ]
+        self.assertTrue(all(not matching_rules(path, self.contract) for path in paths))
 
     def test_free_validation_contract_is_well_formed(self) -> None:
         validate_free_validation(self.contract["free_validation"])

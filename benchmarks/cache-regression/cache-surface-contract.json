@@ -138,11 +138,15 @@
     {
       "id": "tool_declarations",
       "globs": [
-        "third_party/codex-cli/codex-rs/core/src/tools/**",
+        "third_party/codex-cli/codex-rs/core/src/tools/spec.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/router.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/tool_search_entry.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/catalog.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/map_operations.rs",
         "third_party/codex-cli/codex-rs/tools/src/**",
         "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_*"
       ],
-      "reason": "改变每次请求携带的 Tool schema 或 TaskSpace 固定合同"
+      "reason": "改变原生或 TaskSpace Tool schema、模型可见 Tool 集合或 TaskSpace 固定合同"
     },
     {
       "id": "capability_context",
