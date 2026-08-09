@@ -381,6 +381,60 @@ fn tool_search_payloads_roundtrip_as_tool_search_outputs() {
 }
 
 #[test]
+fn tool_search_code_mode_result_preserves_loadable_specs() {
+    let payload = ToolPayload::ToolSearch {
+        arguments: SearchToolCallParams {
+            query: "calendar".to_string(),
+            limit: None,
+        },
+    };
+    let output = ToolSearchOutput {
+        tools: vec![LoadableToolSpec::Function(codex_tools::ResponsesApiTool {
+            name: "create_event".to_string(),
+            description: "Create an event.".to_string(),
+            strict: false,
+            defer_loading: Some(true),
+            parameters: codex_tools::JsonSchema::object(
+                /*properties*/ Default::default(),
+                /*required*/ None,
+                /*additional_properties*/ None,
+            ),
+            output_schema: None,
+        })],
+    };
+
+    assert_eq!(
+        output.code_mode_result(&payload),
+        json!([{
+            "type": "function",
+            "name": "create_event",
+            "description": "Create an event.",
+            "strict": false,
+            "defer_loading": true,
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }])
+    );
+}
+
+#[test]
+fn apply_patch_code_mode_policy_drops_feedback_preserved_by_standard_output() {
+    let payload = ToolPayload::Custom {
+        input: "*** Begin Patch\n*** End Patch".to_string(),
+    };
+    let output = ApplyPatchToolOutput::from_text("Success. Updated files.".to_string());
+
+    assert_eq!(output.code_mode_result(&payload), json!({}));
+    let response = output.to_response_item("patch-1", &payload);
+    assert_eq!(
+        response_input_to_code_mode_result(response),
+        json!("Success. Updated files.")
+    );
+}
+
+#[test]
 fn log_preview_uses_content_items_when_plain_text_is_missing() {
     let output = FunctionToolOutput::from_content(
         vec![FunctionCallOutputContentItem::InputText {
