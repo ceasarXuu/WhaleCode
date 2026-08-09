@@ -55,9 +55,18 @@ def validate_gate_trigger(report: dict[str, Any]) -> list[str]:
     commands = validation.get("commands")
     require(isinstance(commands, list), "free validation commands are missing")
     if state == "revalidation_requested":
+        accepted_validation = report.get("accepted_baseline_validation", {})
+        stale_accepted = bool(
+            report.get("baseline_status") == "accepted"
+            and accepted_validation.get("valid")
+            and not accepted_validation.get("manifest_matches_current", True)
+        )
         require(
             validation.get("passed") is True
-            and report.get("baseline_status") == "live_regression_failed"
+            and (
+                report.get("baseline_status") == "live_regression_failed"
+                or stale_accepted
+            )
             and report.get("revalidation_requested") is True
             and report.get("require_live_baseline") is True
             and report.get("require_clean_subject") is True

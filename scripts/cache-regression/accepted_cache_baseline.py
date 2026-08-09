@@ -396,13 +396,15 @@ def validate_accepted_baseline(
         "accepted baseline identity mismatch",
     )
     manifest = protected_manifest(repo, contract, source)
+    accepted_manifest = baseline.get("final_wire_manifest")
     require(
-        baseline.get("final_wire_manifest") == manifest
+        isinstance(accepted_manifest, list)
+        and accepted_manifest
         and baseline.get("final_wire_manifest_sha256")
-        == canonical_json_sha256(manifest),
-        "accepted final-wire manifest mismatch",
+        == canonical_json_sha256(accepted_manifest),
+        "accepted final-wire manifest is invalid",
     )
-    manifest_by_id = {item["scenario_id"]: item for item in manifest}
+    manifest_by_id = {item["scenario_id"]: item for item in accepted_manifest}
     accepted_paths = []
     for item in acceptance["accepted_scenarios"]:
         scenario = manifest_by_id.get(item["scenario_id"])
@@ -419,6 +421,7 @@ def validate_accepted_baseline(
         "valid": True,
         "surface_matches_current": baseline.get("surface_sha256")
         == actual_surface_sha256,
+        "manifest_matches_current": accepted_manifest == manifest,
         "accepted_scenario_paths": sorted(accepted_paths),
         "evidence_paths": validated["evidence_paths"],
     }

@@ -161,6 +161,29 @@ class CacheBudgetProposalTest(unittest.TestCase):
         proposal = build_budget_proposal(**{**self._kwargs(), "gate_report": report})
         self.assertEqual(proposal["trigger"]["failed_free_commands"], [])
 
+    def test_accepts_clean_revalidation_of_stale_accepted_manifest(self) -> None:
+        report = json.loads(self.report_path.read_text(encoding="utf-8"))
+        report.update(
+            {
+                "discovery_state": "revalidation_requested",
+                "baseline_status": "accepted",
+                "accepted_baseline_validation": {
+                    "valid": True,
+                    "manifest_matches_current": False,
+                },
+                "revalidation_requested": True,
+                "require_live_baseline": True,
+                "require_clean_subject": True,
+                "sensitive_changes": [],
+            }
+        )
+        report["free_validation"]["passed"] = True
+        report["free_validation"]["commands"][0]["status"] = "pass"
+
+        proposal = build_budget_proposal(**{**self._kwargs(), "gate_report": report})
+
+        self.assertEqual(proposal["trigger"]["failed_free_commands"], [])
+
     def test_rejects_gate_report_from_another_surface(self) -> None:
         report = json.loads(self.report_path.read_text(encoding="utf-8"))
         report["actual_surface_sha256"] = "0" * 64

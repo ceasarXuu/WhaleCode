@@ -194,6 +194,36 @@ raise SystemExit(7 if value == 'fail' else 0)
         self.assertTrue(report["revalidation_requested"])
         self.assertTrue(report["free_validation"]["passed"])
 
+    def test_explicit_revalidation_accepts_valid_stale_manifest(self) -> None:
+        stage_accepted_promotion(self.repo, self.contract_path)
+        run("git", "commit", "-qm", "promote", cwd=self.repo)
+        snapshot = self.repo / "snapshots/baseline.snap"
+        snapshot.write_text(
+            '---\nsource: fixture.rs\n---\n{"wire": "other"}\n',
+            encoding="utf-8",
+        )
+        run("git", "add", "snapshots/baseline.snap", cwd=self.repo)
+        run("git", "commit", "-qm", "change protected manifest", cwd=self.repo)
+        output = self.repo / "revalidation.json"
+
+        result = self.gate_from_source(
+            "head",
+            "--require-live-baseline",
+            "--require-clean-subject",
+            "--request-revalidation",
+            "--json-output",
+            str(output),
+        )
+
+        self.assertEqual(result.returncode, 20)
+        report = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(report["discovery_state"], "revalidation_requested")
+        self.assertTrue(report["accepted_baseline_validation"]["valid"])
+        self.assertFalse(
+            report["accepted_baseline_validation"]["manifest_matches_current"]
+        )
+        self.assertTrue(report["revalidation_requested"])
+
     def test_sensitive_staged_source_must_match_worktree(self) -> None:
         (self.repo / "prompt/base.md").write_text("staged\n", encoding="utf-8")
         run("git", "add", "prompt/base.md", cwd=self.repo)

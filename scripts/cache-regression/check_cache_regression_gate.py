@@ -165,7 +165,10 @@ def main() -> int:
             )
         except (KeyError, OSError, TypeError, ValueError) as error:
             accepted_validation = {"valid": False, "reason": str(error)}
-    accepted_baseline_valid = accepted_validation["valid"]
+    accepted_baseline_valid = bool(
+        accepted_validation["valid"]
+        and accepted_validation.get("manifest_matches_current", True)
+    )
     promotion_transition = is_promotion_transition(
         baseline_changed=baseline_changed,
         semantic_baselines=semantic_baselines,
@@ -218,9 +221,16 @@ def main() -> int:
         and not baseline_changed
         and not semantic_baselines
     )
+    stale_accepted_baseline = bool(
+        baseline_status == "accepted"
+        and accepted_validation.get("valid")
+        and not accepted_validation.get("manifest_matches_current", True)
+    )
     revalidation_requested = bool(
         args.request_revalidation
-        and baseline_status == "live_regression_failed"
+        and (
+            baseline_status == "live_regression_failed" or stale_accepted_baseline
+        )
         and discovery_state == "unchanged"
         and not release_changes
     )
@@ -326,13 +336,16 @@ def main() -> int:
         for change in release_changes:
             print(f"  - {change['path']} ({change['state']})")
     if not accepted_baseline_valid:
-        print(
-            f"- 当前基线状态为 {baseline_status}，尚未形成有效的 accepted 基线："
-            f"{accepted_validation['reason']}"
-        )
+        if stale_accepted_baseline:
+            print("- 已接受基线证据有效，但当前 final-wire manifest 尚未被接受。")
+        else:
+            print(
+                f"- 当前基线状态为 {baseline_status}，尚未形成有效的 accepted 基线："
+                f"{accepted_validation['reason']}"
+            )
     if args.request_revalidation and not revalidation_requested:
         print(
-            "- 当前状态不满足显式复验条件；必须是干净 HEAD 上的失败基线且免费合同无变化。"
+            "- 当前状态不满足显式复验条件；必须是干净 HEAD 上的失败或未接受候选，且免费合同无变化。"
         )
     if changes:
         print("可能影响缓存命中的变更：")
