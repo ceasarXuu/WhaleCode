@@ -169,7 +169,9 @@ async fn harness(include_hosted: bool) -> Harness {
     builder.register_handler("inspect", Arc::clone(&client_handler));
     let client_router = Arc::new(ToolRouter::from_builder_for_test(builder));
     let catalog = Arc::new(TaskSpaceExecCatalog::build(&client_router.specs()).unwrap());
-    let response_scope = Arc::new(TaskSpaceExecResponseScope::default());
+    let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
+        catalog.capability_identity_arc(),
+    ));
     let handler = TaskSpaceExecHandler::new(catalog, client_router, Arc::clone(&response_scope));
     let (session, turn) = make_session_and_context().await;
     session

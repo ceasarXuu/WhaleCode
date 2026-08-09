@@ -82,6 +82,8 @@ struct WireShapeEvent<'a> {
     section_cost: &'a ProviderWireSectionCost,
     messages_hash: String,
     tools_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    taskspace_capability_identity: Option<&'a str>,
     cache_shape_hash: String,
     tools_count: usize,
     tool_choice_kind: &'a str,
@@ -164,6 +166,7 @@ impl ProviderWireTrace {
         provider_wire_api: WireApi,
         request: &ResponsesApiRequest,
         wire_override: Option<Value>,
+        taskspace_capability_identity: Option<&str>,
     ) -> Value {
         let pre_wire = serde_json::to_value(request).unwrap_or(Value::Null);
         let wire = wire_override.unwrap_or_else(|| match provider_wire_api {
@@ -248,6 +251,7 @@ impl ProviderWireTrace {
             section_cost: &section_cost,
             messages_hash,
             tools_hash: tools_hash.clone(),
+            taskspace_capability_identity,
             cache_shape_hash,
             tools_count,
             tool_choice_kind,
@@ -596,6 +600,7 @@ mod tests {
             WireApi::Responses,
             &request,
             None,
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
         let first = trace
             .record_terminal("retry_unauthorized", None)
@@ -608,6 +613,7 @@ mod tests {
             WireApi::Responses,
             &request,
             None,
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
         let usage = TokenUsage {
             input_tokens: 10,
@@ -629,6 +635,7 @@ mod tests {
             WireApi::Responses,
             &request,
             Some(serde_json::json!({"input": [], "tools": []})),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
         let websocket = trace
             .record_terminal("cancelled", None)
@@ -663,6 +670,14 @@ mod tests {
             rows[4].get("transport").and_then(Value::as_str),
             Some("responses_websocket")
         );
+        for index in [0, 2, 4] {
+            assert_eq!(
+                rows[index]
+                    .get("taskspace_capability_identity")
+                    .and_then(Value::as_str),
+                Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            );
+        }
         assert_eq!(
             rows[5].get("status").and_then(Value::as_str),
             Some("cancelled")

@@ -76,6 +76,8 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     let first_json = serde_json::to_vec(first.declaration()).unwrap();
     let second_json = serde_json::to_vec(second.declaration()).unwrap();
     assert_eq!(first_json, second_json);
+    assert_eq!(first.capability_identity(), second.capability_identity());
+    assert_eq!(first.capability_identity().len(), 64);
 
     let value = serde_json::to_value(first.declaration()).unwrap();
     assert_eq!(value["name"], "taskspace_exec");
@@ -98,6 +100,33 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(!rendered.contains("version"));
     assert!(!rendered.contains("capability_id"));
     assert!(!rendered.contains("revision"));
+}
+
+#[test]
+fn capability_identity_changes_with_dispatch_or_hosted_semantics() {
+    let baseline = TaskSpaceExecCatalog::build(&specs()).unwrap();
+
+    let mut changed_output = specs();
+    let ToolSpec::Function(tool) = &mut changed_output[0] else {
+        panic!("expected function")
+    };
+    tool.output_schema = Some(json!({"type": "string"}));
+    let changed_output = TaskSpaceExecCatalog::build(&changed_output).unwrap();
+    assert_ne!(
+        baseline.capability_identity(),
+        changed_output.capability_identity()
+    );
+
+    let mut changed_hosted = specs();
+    let ToolSpec::ImageGeneration { output_format } = &mut changed_hosted[5] else {
+        panic!("expected image generation")
+    };
+    *output_format = "jpeg".into();
+    let changed_hosted = TaskSpaceExecCatalog::build(&changed_hosted).unwrap();
+    assert_ne!(
+        baseline.capability_identity(),
+        changed_hosted.capability_identity()
+    );
 }
 
 #[test]

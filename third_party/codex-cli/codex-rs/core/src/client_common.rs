@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use tokio::sync::mpsc;
@@ -40,6 +41,9 @@ pub struct Prompt {
     /// Tool choice policy for transports that support model-side tool forcing.
     pub(crate) tool_choice: ToolChoice,
 
+    /// Runtime-only identity for the effective TaskSpace Tool catalog.
+    pub(crate) taskspace_capability_identity: Option<Arc<str>>,
+
     pub base_instructions: BaseInstructions,
 
     /// Optionally specify the personality of the model.
@@ -59,6 +63,7 @@ impl Default for Prompt {
             tools: Vec::new(),
             parallel_tool_calls: false,
             tool_choice: ToolChoice::Auto,
+            taskspace_capability_identity: None,
             base_instructions: BaseInstructions::default(),
             personality: None,
             output_schema: None,

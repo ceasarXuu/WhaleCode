@@ -343,6 +343,10 @@ async fn current_session_config_builds_a_single_taskspace_entrypoint() -> anyhow
         name.as_str(),
         "taskspace_exec" | "web_search" | "image_generation"
     )));
+    let identity = taskspace
+        .taskspace_capability_identity()
+        .expect("TaskSpace capability identity");
+    assert_eq!(identity.len(), 64);
     Ok(())
 }
 

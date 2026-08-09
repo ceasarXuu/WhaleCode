@@ -87,6 +87,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 21. [`21-phase-b4-performance-observer-result.md`](21-phase-b4-performance-observer-result.md)：OB-02B R8 Exec 动作、I07 成本事实和跨层身份消费证据。
 22. [`22-phase-b4-offline-acceptance.md`](22-phase-b4-offline-acceptance.md)：VA-01 Docker、Rust、CLI/Viewer、Standard 与门禁的固定离线验收证据。
 23. [`23-phase-b4-issue-remap-result.md`](23-phase-b4-issue-remap-result.md)：VA-04A 对 I01～I10 的当前源码重映射、证据边界和 B5 观察点。
+24. [`../I10/00-i10-capability-identity-repair-plan.md`](../I10/00-i10-capability-identity-repair-plan.md)：B5 前置的 Runtime-only 能力身份闭环。
 
 ## 4. 推进规则
 

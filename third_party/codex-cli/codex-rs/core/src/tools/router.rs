@@ -136,7 +136,9 @@ impl ToolRouter {
     pub(crate) fn into_taskspace(self) -> Result<Self, TaskSpaceExecCatalogError> {
         let client_router = Arc::new(self);
         let catalog = Arc::new(TaskSpaceExecCatalog::build(&client_router.specs())?);
-        let response_scope = Arc::new(TaskSpaceExecResponseScope::default());
+        let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
+            catalog.capability_identity_arc(),
+        ));
         let mut builder = ToolRegistryBuilder::new();
         builder.push_spec(ToolSpec::Function(catalog.declaration().clone()));
         for spec in client_router
@@ -172,6 +174,12 @@ impl ToolRouter {
 
     pub(crate) fn taskspace_response_scope(&self) -> Option<Arc<TaskSpaceExecResponseScope>> {
         self.taskspace_response_scope.clone()
+    }
+
+    pub(crate) fn taskspace_capability_identity(&self) -> Option<Arc<str>> {
+        self.taskspace_response_scope
+            .as_ref()
+            .map(|scope| scope.capability_identity())
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {

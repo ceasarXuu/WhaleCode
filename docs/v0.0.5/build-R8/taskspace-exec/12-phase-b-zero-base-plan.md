@@ -129,6 +129,7 @@ Agent 只声明 parents，Runtime 机械反算 children；Map 不再拥有顶层
 | OB-02B | 迁移性能观察消费 | I07 request facts、TaskSpace benchmark parser、performance skill fixture | 使用 canonical request facts 统计请求/token/cache/time/cost，使用 OB-01 事件统计 Exec/Map/action；删除 active 报告路径对旧 control/sibling 字段的依赖 | 新协议成本和动作路径可复算，旧协议解析器不再污染结论 | Complexity: 更新既有消费端，不改 Runtime；Reach: benchmark/report fixtures | 合成 trace 逐 ID 对账、缺失身份判不可比较、旧字段不参与 active 结果；不运行真实 Agent | verified |
 | VA-01 | 完成固定离线验收 | Docker build、TaskSpace Exec、Map/Store/settlement、Standard final-wire、CLI/Viewer、zero-base/cache gates | 按冻结清单执行已有测试和构建，不在该单元临时扩建测试体系；失败回到对应实现单元修复 | 在付费验证前确认生产链、消费者和 Standard 基线一致 | Complexity: 主要是测试执行和证据汇总；Reach: build time，无 Provider 请求 | 冻结清单全部 PASS，证据记录命令、结果和 commit；旧符号、Standard diff 或不可复算观测均阻断 | verified |
 | VA-04A | 离线重映射 R8 问题 | `01-r8-known-issues.md`、当前源码与确定性测试 | 识别 I01～I10 中已被新架构删除的旧根因、仍可静态复现的缺陷和必须等待真实 trace 的行为问题 | 不把已淘汰架构假设带入付费验证，也不靠静态证据误关行为问题 | Complexity: 文档证据重排；Reach: 决定 B5 观察重点 | 每项标记为静态关闭候选、仍成立或待运行验证；只在确定性证据充分时关闭 | verified |
+| ID-01 | 收敛 I10 唯一能力身份 | Exec catalog、Router、request metadata、provider/Exec trace、performance observer | 从同一最终声明序列机械派生 Runtime-only identity，沿既有请求和报告链传播；不进入 Agent schema、Provider payload、Map 或普通 Tool | 能力变化可与任务行为、缓存和成本变化分开归因 | Complexity: 一个只读身份字段和既有事件可选字段；Reach: TaskSpace Router/trace/report，Standard 为 null | 语义变化敏感性、HTTP/WS、dispatch、报告冲突 fixture；zero-base/cache gate | in-progress |
 | VA-02 | 申请并执行最终生产路径 Provider shape 验证 | Docker 中当前 Whale 二进制、最终 TaskSpace Exec declaration、run ledger | 另行申请 1 sample × 1 arm × repeat 1、最多 2 requests；通过正式生产入口验证最终结构化 Function schema，禁止复用含 `version/capability_id` 的旧 A2 source-only probe | 在四臂评测前证明目标 Provider/Agent 可生成当前真实合同 | Complexity: 零新协议代码；Reach: 有界付费 API | 原始 response、最终 schema 指纹和 ledger 可复算；首个结构失败即停，未批准不得运行 | planned |
 | VA-03 | 申请并执行首轮四臂产品测量 | Docker benchmark、run ledger、performance report | VA-02 通过后单独申请 Standard、map-always、map-append、map-request 的同版本同样本预算，比较业务结果、动作路径、Map、request/token/cache/time/cost | 获得新协议的首轮产品事实，而不是用旧 benchmark 推断收益 | Complexity: 零协议变化；Reach: 付费与耗时 | 逐 run/逐 request trace；首轮仅测量，不自动作发布判断、不自动扩大 repeat；异常先归因 | planned |
 | VA-04B | 最终重排 R8 已知问题 | `01-r8-known-issues.md`、VA-02/03 trace、各专题计划 | 将 VA-04A 候选与真实证据合并：已消失则关闭，仍存在则重写根因和依赖，新问题只在独立证据成立时新增 | R8 恢复到基于新架构证据的唯一问题队列 | Complexity: 文档状态变化；Reach: 决定 R8 后续顺序 | 每项有当前 commit 和证据路径；成本阈值未获用户确认时只报告测量结果，不自行判定发布 | planned |
@@ -176,12 +177,12 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 - Exit: 新链路日志可逐动作对账，缓存/性能工具识别新合同，Docker 离线回归和零残留门禁全部通过；旧问题已完成离线重映射。
 - Stop: 日志需要记录敏感 Tool body、观测依赖旧字段，或缓存门禁无法区分 Standard output-ref 与禁止的 Map ref。
 
-### Phase B5：Authorized Provider And Product Validation
+### Phase B5：Capability Identity And Authorized Product Validation
 
 - Entry: VA-01 通过；每次真实运行另有明确预算和 planned ledger。
-- Units: VA-02、VA-03、VA-04B。
+- Units: ID-01、VA-02、VA-03、VA-04B。
 - Exit: Provider shape、产品效果和成本有逐 run 证据，R8 唯一问题全集按新架构重新排序。
-- Stop: 未获预算、首个结构性失败、usage 不可信，或异常需要扩大 repeat 才能解释。
+- Stop: identity 必须进入 Agent/Provider payload、未获预算、首个结构性失败、usage 不可信，或异常需要扩大 repeat 才能解释。
 
 ## 5. 执行记录
 

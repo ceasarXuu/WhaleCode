@@ -2875,6 +2875,7 @@ impl ModelClientSession {
                 provider_wire_api,
                 &request,
                 None,
+                prompt.taskspace_capability_identity.as_deref(),
             );
             if let Some(payload) =
                 provider_payload_digest_for_wire_value(&wire_value, provider_wire_api)
@@ -3068,6 +3069,7 @@ impl ModelClientSession {
                         .as_ref()
                         .expect("websocket request source is retained"),
                     Some(wire_value),
+                    prompt.taskspace_capability_identity.as_deref(),
                 );
             }
             if let Some(payload) = provider_payload_digest_for_wire(&ws_request, provider_wire_api)

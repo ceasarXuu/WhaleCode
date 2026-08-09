@@ -974,6 +974,7 @@ pub(crate) fn build_prompt(
         tools,
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
         tool_choice: ToolChoice::Auto,
+        taskspace_capability_identity: router.taskspace_capability_identity(),
         base_instructions,
         personality: turn_context.personality,
         output_schema: turn_context.final_output_json_schema.clone(),
@@ -1938,6 +1939,14 @@ async fn try_run_sampling_request(
     cancellation_token: CancellationToken,
 ) -> CodexResult<SamplingRequestResult> {
     if let Some(scope) = tool_runtime.taskspace_response_scope() {
+        let capability_identity =
+            tool_runtime
+                .taskspace_capability_identity()
+                .ok_or_else(|| {
+                    CodexErr::Fatal(
+                        "TaskSpace provider request is missing its capability identity".to_string(),
+                    )
+                })?;
         let snapshot = taskspace_request_map.ok_or_else(|| {
             CodexErr::Fatal(
                 "TaskSpace provider request is missing its visible Map snapshot".to_string(),
@@ -1951,6 +1960,7 @@ async fn try_run_sampling_request(
             event_name = "taskspace.exec.request_started",
             map_id = %snapshot.map_id,
             request_revision = ?snapshot.revision,
+            capability_identity = capability_identity.as_ref(),
         );
     }
     feedback_tags!(

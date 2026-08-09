@@ -7,8 +7,13 @@ use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
 use codex_tools::ToolSpecCapability;
 use codex_tools::ToolSpecCapabilityInput;
+use codex_tools::create_tools_json_for_responses_api;
 use codex_tools::project_tool_spec_capabilities;
+use serde::Serialize;
 use serde_json::json;
+use sha2::Digest;
+use sha2::Sha256;
+use std::sync::Arc;
 
 use super::TaskSpaceExecPlan;
 use super::TaskSpaceExecPlanDecodeError;
@@ -20,19 +25,21 @@ const RECURSIVE_TOOL_NAMES: [&str; 3] = [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecCatalog {
     declaration: ResponsesApiTool,
+    capability_identity: Arc<str>,
     client_capabilities: BTreeMap<String, TaskSpaceClientCapability>,
     map_capabilities: BTreeMap<String, ToolSpecCapability>,
     hosted_tools: BTreeSet<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum TaskSpaceClientTransport {
     Function,
     Freeform,
     ToolSearch,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub(super) struct TaskSpaceClientCapability {
     pub(super) capability: ToolSpecCapability,
     pub(super) transport: TaskSpaceClientTransport,
@@ -43,16 +50,19 @@ pub(crate) enum TaskSpaceExecCatalogError {
     DuplicateCapability { public_name: String },
     MapCapabilityCollision { public_name: String },
     UnsupportedToolSpec { tool_name: String },
+    CapabilityIdentitySerialization { message: String },
 }
 
 impl TaskSpaceExecCatalog {
     pub(crate) fn build(specs: &[ToolSpec]) -> Result<Self, TaskSpaceExecCatalogError> {
         let mut client_capabilities = BTreeMap::new();
         let mut hosted_tools = BTreeSet::new();
+        let mut hosted_specs = Vec::new();
         for spec in specs {
             match spec {
                 ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. } => {
                     hosted_tools.insert(spec.name().to_string());
+                    hosted_specs.push(spec.clone());
                 }
                 ToolSpec::Function(_)
                 | ToolSpec::Freeform(_)
@@ -115,8 +125,15 @@ impl TaskSpaceExecCatalog {
             map_capabilities.values(),
             &hosted_tools,
         );
+        let capability_identity = build_capability_identity(
+            &declaration,
+            &hosted_specs,
+            &client_capabilities,
+            &map_capabilities,
+        )?;
         Ok(Self {
             declaration,
+            capability_identity,
             client_capabilities,
             map_capabilities,
             hosted_tools,
@@ -125,6 +142,14 @@ impl TaskSpaceExecCatalog {
 
     pub(crate) fn declaration(&self) -> &ResponsesApiTool {
         &self.declaration
+    }
+
+    pub(crate) fn capability_identity(&self) -> &str {
+        &self.capability_identity
+    }
+
+    pub(crate) fn capability_identity_arc(&self) -> Arc<str> {
+        Arc::clone(&self.capability_identity)
     }
 
     pub(crate) fn decode_plan(
@@ -145,6 +170,43 @@ impl TaskSpaceExecCatalog {
     pub(super) fn is_hosted_tool(&self, name: &str) -> bool {
         self.hosted_tools.contains(name)
     }
+}
+
+#[derive(Serialize)]
+struct CapabilityIdentityInput<'a> {
+    schema: &'static str,
+    provider_declarations: Vec<serde_json::Value>,
+    client_capabilities: &'a BTreeMap<String, TaskSpaceClientCapability>,
+    map_capabilities: &'a BTreeMap<String, ToolSpecCapability>,
+}
+
+fn build_capability_identity(
+    declaration: &ResponsesApiTool,
+    hosted_specs: &[ToolSpec],
+    client_capabilities: &BTreeMap<String, TaskSpaceClientCapability>,
+    map_capabilities: &BTreeMap<String, ToolSpecCapability>,
+) -> Result<Arc<str>, TaskSpaceExecCatalogError> {
+    let provider_specs = std::iter::once(ToolSpec::Function(declaration.clone()))
+        .chain(hosted_specs.iter().cloned())
+        .collect::<Vec<_>>();
+    let provider_declarations =
+        create_tools_json_for_responses_api(&provider_specs).map_err(|error| {
+            TaskSpaceExecCatalogError::CapabilityIdentitySerialization {
+                message: error.to_string(),
+            }
+        })?;
+    let bytes = serde_json::to_vec(&CapabilityIdentityInput {
+        schema: "taskspace-capability-identity-v1",
+        provider_declarations,
+        client_capabilities,
+        map_capabilities,
+    })
+    .map_err(
+        |error| TaskSpaceExecCatalogError::CapabilityIdentitySerialization {
+            message: error.to_string(),
+        },
+    )?;
+    Ok(Arc::from(format!("{:x}", Sha256::digest(bytes))))
 }
 
 fn build_declaration<'a>(

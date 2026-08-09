@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use codex_protocol::models::ResponseItem;
@@ -7,8 +8,9 @@ use crate::action_map::rooted_dag::ActionOutcome;
 use super::HostedOutputFact;
 use super::TASKSPACE_EXEC_TOOL_NAME;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct TaskSpaceExecResponseScope {
+    capability_identity: Arc<str>,
     state: Mutex<ResponseScopeState>,
 }
 
@@ -29,6 +31,7 @@ struct ResponseScopeState {
 pub(crate) struct TaskSpaceExecRequestSnapshot {
     pub(crate) map_id: String,
     pub(crate) revision: Option<u64>,
+    pub(crate) capability_identity: Arc<str>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +50,17 @@ pub(crate) struct TaskSpaceExecResponseIdentity {
 }
 
 impl TaskSpaceExecResponseScope {
+    pub(crate) fn new(capability_identity: Arc<str>) -> Self {
+        Self {
+            capability_identity,
+            state: Mutex::new(ResponseScopeState::default()),
+        }
+    }
+
+    pub(crate) fn capability_identity(&self) -> Arc<str> {
+        Arc::clone(&self.capability_identity)
+    }
+
     pub(crate) fn begin_request(
         &self,
         map_id: impl Into<String>,
@@ -60,7 +74,11 @@ impl TaskSpaceExecResponseScope {
             .state
             .lock()
             .expect("TaskSpace response scope poisoned") = ResponseScopeState {
-            request: Some(TaskSpaceExecRequestSnapshot { map_id, revision }),
+            request: Some(TaskSpaceExecRequestSnapshot {
+                map_id,
+                revision,
+                capability_identity: Arc::clone(&self.capability_identity),
+            }),
             ..ResponseScopeState::default()
         };
         Ok(())
@@ -176,6 +194,7 @@ impl TaskSpaceExecResponseScope {
             outer_call_id = state.exec_call_id.as_deref().unwrap_or(""),
             map_id = request.map(|value| value.map_id.as_str()).unwrap_or(""),
             request_revision = ?request.and_then(|value| value.revision),
+            capability_identity = request.map(|value| value.capability_identity.as_ref()).unwrap_or(""),
             response_completed,
             exec_call_count = state.exec_call_count,
             hosted_fact_count = state.facts.len(),
@@ -222,6 +241,13 @@ impl TaskSpaceExecResponseScope {
             return Err("TaskSpace Exec response was not reconciled".to_string());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+impl Default for TaskSpaceExecResponseScope {
+    fn default() -> Self {
+        Self::new(Arc::from("test-capability-identity"))
     }
 }
 

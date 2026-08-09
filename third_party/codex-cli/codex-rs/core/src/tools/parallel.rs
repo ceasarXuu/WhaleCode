@@ -76,6 +76,10 @@ impl ToolCallRuntime {
         self.router.taskspace_response_scope()
     }
 
+    pub(crate) fn taskspace_capability_identity(&self) -> Option<Arc<str>> {
+        self.router.taskspace_capability_identity()
+    }
+
     #[instrument(level = "trace", skip_all)]
     pub(crate) fn handle_tool_call(
         self,

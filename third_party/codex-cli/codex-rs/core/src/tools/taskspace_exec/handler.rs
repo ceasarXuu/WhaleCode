@@ -94,6 +94,13 @@ impl ToolHandler for TaskSpaceExecHandler {
             .map_err(|error| {
                 taskspace_rejection("response_claim_rejected", Some(&invocation.call_id), error)
             })?;
+        if claim.request.capability_identity.as_ref() != self.catalog.capability_identity() {
+            return Err(taskspace_rejection(
+                "capability_identity_mismatch",
+                Some(&invocation.call_id),
+                "TaskSpace request capability identity does not match the dispatch catalog",
+            ));
+        }
         let response = &claim.response;
         let (map_id, current_map) =
             read_current_map(invocation.session.as_ref(), &invocation.call_id).await?;
@@ -137,6 +144,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             outer_call_id = %invocation.call_id,
             map_id = %map_id,
             request_revision = ?envelope.request().request_revision(),
+            capability_identity = self.catalog.capability_identity(),
             client_call_count = prepared.client_calls.len(),
             hosted_binding_count = prepared.hosted_bindings.len(),
             read_count = prepared.read_maps.len(),
@@ -184,6 +192,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             outer_call_id = %invocation.call_id,
             map_id = %map_id,
             candidate_revision = ?candidate_revision,
+            capability_identity = self.catalog.capability_identity(),
             action_count = action_bindings.len(),
         );
         for binding in &prepared.hosted_bindings {
@@ -197,6 +206,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                 outer_call_id = %invocation.call_id,
                 map_id = %map_id,
                 map_revision = ?candidate_revision,
+                capability_identity = self.catalog.capability_identity(),
                 output_index = binding.output_index,
                 action_id = %binding.provider_id,
                 node_ids = ?binding.node_ids,
@@ -233,6 +243,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                     node_id = %result.node_id,
                     tool = %result.public_name,
                     outcome = outcome_name(outcome),
+                    capability_identity = self.catalog.capability_identity(),
                     error = %error,
                 );
             }
@@ -300,6 +311,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             outer_call_id = %invocation.call_id,
             map_id = %map_id,
             map_revision = ?candidate_revision,
+            capability_identity = self.catalog.capability_identity(),
             client_result_count,
             hosted_result_count,
             success = all_succeeded,

@@ -275,6 +275,21 @@ fn named_tool_choice_preserves_requested_chat_reasoning() {
             /*service_tier*/ None,
         )
         .expect("build named-tool request");
+    let mut taskspace_prompt = prompt.clone();
+    taskspace_prompt.taskspace_capability_identity = Some(std::sync::Arc::from(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ));
+    let taskspace_request = session
+        .build_responses_request(
+            &api_provider,
+            &taskspace_prompt,
+            &test_model_info(),
+            Some(ReasoningEffort::Max),
+            ReasoningSummary::None,
+            /*service_tier*/ None,
+        )
+        .expect("build request with Runtime-only TaskSpace identity");
+    assert_eq!(request, taskspace_request);
 
     assert_eq!(
         request.reasoning.and_then(|reasoning| reasoning.effort),
