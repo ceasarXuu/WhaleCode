@@ -2,6 +2,7 @@
 
 - 文档状态：有效，待执行
 - Plan Validity：`valid-with-qualifications`
+- 计划性质：承接第一至第三批成果的剩余执行计划，不是从零重启
 - 适用版本：WhaleCode v0.0.5
 - 工作空间：仅 `/home/zhangxu/whalecode-codex`
 - Product Authority：[./decisions.md](decisions.md)
@@ -21,12 +22,24 @@
 
 ## 2. 当前事实与治理结论
 
-### 2.1 已完成事实
+### 2.1 已完成工作与继承关系
 
-- 第一批 6 个独立安全/通用 backport 已合入并验证。
-- 第二批以 12/15 verified、3/15 deferred 收口；W9 是 TaskSpace TUI 已知失败，W12/W13 是 Windows 验证延期。
-- 第三批没有替换生产 vendor；0.146 纯上游资格矩阵为 1 passed / 4 failed。
-- 现有 overlay inventory、candidate manifest 和测试日志仍是有效查询证据。
+| 已完成范围 | 完成度 | 已交付结果 | 对剩余计划的直接输入 | 状态解释 |
+| --- | ---: | --- | --- | --- |
+| 第一批：快速 backport | 6/6 verified | 6 个独立安全/通用上游修复已合入 | 当前 vendor 已包含这些补丁，后续不得重复回移 | 已完成 |
+| 第二批：基线与门禁 | 12/15 verified；3 deferred | upstream 基线、overlay inventory、测试门禁；DeepSeek Responses 兼容、Flash 默认/Pro 隐藏已经落到当前 vendor | U4–U9 迁移的是这些既有行为在新 substrate 上的重放，不是重新设计或首次实现 | 已收口；W9、W12、W13 保持延期 |
+| 第三批：0.146 资格与差异证据 | W0–W8，9/9 completed | 候选身份、4,355 条 upstream delta、730 路径索引、qualification 日志；得出当时的 no-go | U1 只复核四个失败中的 harness/environment 因素；U2–U16 复用已有差异证据 | 证据工作已完成；候选方向为 `direction-rejected`，等待增量复核 |
+| 本轮计划治理 | 1/1 verified | 唯一产品权威、唯一有效计划、历史工件降级和闭环工作单元 | 约束后续 U1–U16 的范围和停止条件 | 已完成 |
+
+因此，`U1–U16 not-started` 只表示“剩余 vendor cutover/replay 工作尚未执行”，不表示整个 Codex 主线追赶从零开始。历史工作与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
+
+当前状态应读取为：
+
+- 选择性上游修复：已完成；
+- 同步基线、门禁和差异准备：已完成并带 3 项明确延期；
+- 0.146 候选初次资格审查：已完成，结论 no-go；
+- no-go 原因的最小增量复核：尚未开始（U1）；
+- 生产 vendor cutover 与 DeepSeek/TaskSpace 重放：尚未开始（U3–U16）。
 
 ### 2.2 治理后的权威关系
 
@@ -97,7 +110,7 @@
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U1 | 纠正候选资格判断 | compatibility | 临时 0.146 tree；candidate manifest/report | 官方 build/test entrypoints | 执行 V1；只修 qualification runner 的环境隔离和命令解析，不改候选源码 | 可区分 harness、environment、upstream failure | 避免因假 blocker 启动大迁移或错误放弃候选 | Complexity：只删改现有 runner 窄逻辑；Reach/Cost：日志、manifest、报告，无生产影响 | 官方入口逐项结果；runner 单测；vendor diff 为零；重复运行一致 | 失败即 no-go，保持现 vendor，提交证据后停止 | not-started |
+| U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 复用第三批证据执行 V1；只修 qualification runner 的环境隔离和命令解析，不改候选源码、不重做 delta/overlay inventory | 将既有 no-go 拆分为 harness、environment 或 upstream failure | 避免重复第三批，同时排除假 blocker | Complexity：只删改现有 runner 窄逻辑；Reach/Cost：更新日志、manifest、报告，无生产影响 | 官方入口逐项结果；runner 单测；vendor diff 为零；与第三批差异可解释 | 失败则确认 no-go，保持现 vendor，提交增量证据后停止 | not-started |
 | U2 | 验证最小 Whale overlay | compatibility | 一次性临时 candidate tree | brand、binary identity、`WHALE_HOME`、auth isolation | 执行 V2；提取最小 patch，不带 DeepSeek/TaskSpace/cache | 候选可构建身份与数据目录隔离正确的 Whale CLI | 生产替换前验证关键 seam | Complexity：不得新增框架/双 vendor；Reach/Cost：临时构建和少量测试 | CLI build、version、home/keyring/auth tests；patch 清单可审阅 | 任一能力需要业务 stub 即停止并删临时树 | not-started |
 
 退出条件：U1、U2 均 verified；否则停在当前 vendor。结束时审计本阶段 Product Decision Delta。
