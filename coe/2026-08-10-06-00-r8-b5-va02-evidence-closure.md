@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过；第二响应生成了 Provider 未声明的顶层 `exec_command`，而两次 wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`。Runtime 正确 fail closed。性能观测器对缺省 `hosted_bindings` 的 StrictMode 误报已修复并离线回归；VA-02 仍因 I03 当前生产表现未关闭。
+- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过；第二响应生成了 Provider 未声明的顶层 `exec_command`，而两次 wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`。Runtime 正确 fail closed。性能观测器对缺省 `hosted_bindings` 的 StrictMode 误报，以及通用报告读取 request facts 生成前空 token metrics 的断层均已按 canonical facts 收敛并离线回归；VA-02 仍因 I03 当前生产表现未关闭。
 - Related hypotheses:
   - H-001
   - H-002

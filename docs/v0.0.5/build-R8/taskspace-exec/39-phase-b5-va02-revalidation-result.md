@@ -98,7 +98,8 @@ Runtime 当前行为正确：原始错误忠实返回、候选 Map 未提交、c
 1. 零 Hosted 合同的目标已达成，首响应 arguments 是合法 JSON，省略字段没有丢失语义。
 2. 两次请求的 `tools_hash`、`tools_count=2` 和 `tool_choice=auto` 完全一致；final-wire 的两个顶层 Tool 为 `taskspace_exec` 和 `web_search`，不存在 `exec_command`。
 3. 第二响应是模型生成了未声明的顶层 Tool，不是 Runtime 动态改写 Tool schema。Runtime 拒绝属于不可绕过协议底线，没有替 Agent 做语义决定。
-4. 性能观测器曾因 StrictMode 直接读取已合法省略的 `hosted_bindings` 而误报 `exec_arguments_invalid`；现已按缺省空集合读取并增加回归测试，不改变生产合同。
+4. 性能观测器曾因 StrictMode 直接读取已合法省略的 `hosted_bindings` 而误报 `exec_arguments_invalid`；现已按缺省空集合读取并增加回归测试。通用性能报告还曾优先读取 request facts 生成前的空 token metrics，现已在 canonical usage 可用时直接复用同一 request facts；两项修复都不改变生产合同。
+5. 第二请求的缓存前缀在 `messages[3].message` 发生变化，`tools_hash` 和 `tool_choice` 未变；54.69% 不能归因于 Tool schema 动态变化。该单臂证据归入 I08，待 VA-03 四臂同版本测量后再判断影响范围。
 
 | 指标 | 数值 |
 |---|---:|

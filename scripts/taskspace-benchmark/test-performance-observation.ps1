@@ -120,6 +120,11 @@ function New-SideFixture {
                 logical_request_count = $Requests; local_attempt_count = $Requests
                 boundary_request_count = $Requests; completed_response_count = $Requests
                 failed_or_cancelled_attempt_count = 0
+                usage = [pscustomobject]@{
+                    input_tokens = $InputTokens; cached_input_tokens = $CachedTokens
+                    uncached_input_tokens = $InputTokens - $CachedTokens
+                    output_tokens = $OutputTokens
+                }
             }
         }) (Join-Path $artifactDir "request-facts.json")
     Write-JsonLines @(

@@ -49,6 +49,8 @@ function Get-PerformanceWireRequestCount {
     if ($facts -and [string]$facts.schema_version -eq "whalecode-request-facts-v1") {
         $boundaryMeasured = [string]$facts.availability.boundary -eq "measured"
         $completionMeasured = [string]$facts.availability.completion -eq "measured"
+        $usageMeasured = [string]$facts.availability.usage -eq "measured"
+        $usage = Get-PerformanceProperty (Get-PerformanceProperty $facts "summary") "usage"
         $value = if ($boundaryMeasured) { Get-PerformanceCount $facts.summary.boundary_request_count } else { $null }
         return [pscustomobject]@{
             value = $value
@@ -58,9 +60,19 @@ function Get-PerformanceWireRequestCount {
             boundary = if ($boundaryMeasured) { Get-PerformanceCount $facts.summary.boundary_request_count } else { $null }
             completed = if ($completionMeasured) { Get-PerformanceCount $facts.summary.completed_response_count } else { $null }
             failed_or_cancelled = Get-PerformanceCount $facts.summary.failed_or_cancelled_attempt_count
+            usage_measured = $usageMeasured
+            input_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "input_tokens") } else { $null }
+            cached_input_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "cached_input_tokens") } else { $null }
+            uncached_input_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "uncached_input_tokens") } else { $null }
+            output_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "output_tokens") } else { $null }
         }
     }
-    [pscustomobject]@{ value = $null; source = "unavailable"; logical = $null; attempts = $null; boundary = $null; completed = $null; failed_or_cancelled = $null }
+    [pscustomobject]@{
+        value = $null; source = "unavailable"; logical = $null; attempts = $null
+        boundary = $null; completed = $null; failed_or_cancelled = $null
+        usage_measured = $false; input_tokens = $null; cached_input_tokens = $null
+        uncached_input_tokens = $null; output_tokens = $null
+    }
 }
 function Get-PerformanceMapFacts {
     param([string]$ArtifactDir, $Metrics, [System.Collections.Generic.List[string]]$Warnings)
@@ -205,8 +217,9 @@ function Get-PerformanceSideObservation {
     }
     $map = Get-PerformanceMapFacts $artifactDir $metrics $warnings
     $duplication = Get-PerformanceDuplicationFacts $artifactDir $Events
+    $tokenSource = if ([bool]$requests.usage_measured) { $requests } else { $metrics }
     $tokenIdentity = Get-PerformanceTokenIdentity `
-        $metrics `
+        $tokenSource `
         $cache `
         $requests.value `
         $skipped
