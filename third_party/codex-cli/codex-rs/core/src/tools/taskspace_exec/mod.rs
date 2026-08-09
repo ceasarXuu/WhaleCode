@@ -8,6 +8,7 @@ mod plan;
 mod preflight;
 mod protocol;
 mod response_scope;
+mod result;
 mod schema_validation;
 
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;

@@ -72,7 +72,7 @@ fn request_context_captures_revision_and_catalog_without_agent_fields() {
             .decode_outer_call("outer", arguments())
             .is_ok()
     );
-    let declaration = serde_json::to_string(catalog.declaration()).unwrap();
+    let declaration = serde_json::to_string(&catalog.declaration().parameters).unwrap();
     for forbidden in ["expected_revision", "capability_id", "outer_call_id"] {
         assert!(!declaration.contains(forbidden));
     }

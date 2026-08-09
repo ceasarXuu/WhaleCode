@@ -19,6 +19,8 @@ use super::TaskSpaceExecPlan;
 use super::TaskSpaceExecPlanDecodeError;
 use super::map_operation_capabilities;
 use super::protocol::build_description;
+use super::result::render_result_contract;
+use super::result::result_schema;
 
 pub(crate) const TASKSPACE_EXEC_TOOL_NAME: &str = "taskspace_exec";
 const RECURSIVE_TOOL_NAMES: [&str; 3] = [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait"];
@@ -221,6 +223,7 @@ fn is_recursive_capability(capability: &ToolSpecCapability) -> bool {
 struct CapabilityIdentityInput<'a> {
     schema: &'static str,
     provider_declarations: Vec<serde_json::Value>,
+    outer_output_schema: Option<&'a serde_json::Value>,
     client_capabilities: Vec<&'a TaskSpaceClientCapability>,
     map_capabilities: &'a BTreeMap<String, ToolSpecCapability>,
 }
@@ -241,8 +244,9 @@ fn build_capability_identity(
             }
         })?;
     let bytes = serde_json::to_vec(&CapabilityIdentityInput {
-        schema: "taskspace-capability-identity-v2",
+        schema: "taskspace-capability-identity-v3",
         provider_declarations,
+        outer_output_schema: declaration.output_schema.as_ref(),
         client_capabilities: client_capabilities.values().collect(),
         map_capabilities,
     })
@@ -282,15 +286,23 @@ fn build_declaration<'a>(
         hosted_binding_schema(hosted_tools),
         Some("Bindings for provider-hosted outputs in provider output order.".into()),
     );
+    let output_schema = result_schema(clients.iter().map(|client| &client.capability));
+    let result_contract = render_result_contract(&output_schema);
+    let output_schema =
+        serde_json::to_value(output_schema).expect("TaskSpace Exec output schema must serialize");
     ResponsesApiTool {
         name: TASKSPACE_EXEC_TOOL_NAME.to_string(),
-        description: build_description(client_labels.iter().map(String::as_str), hosted_tools),
+        description: build_description(
+            client_labels.iter().map(String::as_str),
+            hosted_tools,
+            &result_contract,
+        ),
         strict: false,
         parameters: strict_object(
             [("calls", calls), ("hosted_bindings", hosted_bindings)],
             &["calls", "hosted_bindings"],
         ),
-        output_schema: None,
+        output_schema: Some(output_schema),
         defer_loading: None,
     }
 }

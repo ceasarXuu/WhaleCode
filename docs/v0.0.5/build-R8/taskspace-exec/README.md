@@ -67,6 +67,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   protocol description，并用同一首次示例反向通过 decoder 与 preflight；未修改 base instructions、普通 Tool、Router 或
   Runtime 语义。VA-03 仍未启动，VA-02 真实复验需重新申请预算。同期发现的 wire v11 consumer 漂移已由
   `cca76e921` 修复，运行 usage 已从原始 trace 完整恢复。
+- Phase B5 CP-01～CP-09 已完成当前依赖顺序中的离线建设：Catalog、原生 Tool identity、deferred 生命周期、输入合同、
+  中性 nested result 和 typed outer result 已统一到同一生产事实源。由于 Provider Function Tool 不发送 output schema，
+  返回合同按最新 Codex 做法由同一 schema 渲染进唯一 outer Tool description；Standard 与普通 Tool 不变。
 
 ## 3. 文档
 
@@ -108,6 +111,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 32. [`31-phase-b5-cp09-nested-result.md`](31-phase-b5-cp09-nested-result.md)：公共中性 nested result、失败透传、MCP/Tool Search/Patch/output-reference 忠实反馈证据。
 33. [`32-phase-b5-cp05-deferred-lifecycle.md`](32-phase-b5-cp05-deferred-lifecycle.md)：首轮隐藏、自然历史恢复、dynamic/MCP 展开与失效能力 fail-closed 证据。
 34. [`33-phase-b5-cp07-input-contract.md`](33-phase-b5-cp07-input-contract.md)：Map 边界与 Work 依赖分离、canonical 操作说明和可反解示例证据。
+35. [`34-phase-b5-cp08-output-contract.md`](34-phase-b5-cp08-output-contract.md)：typed outer result、canonical Map read、原生 nested result 与模型可见返回合同的同源证据。
 
 ## 4. 推进规则
 

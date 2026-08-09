@@ -123,9 +123,11 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(!rendered.contains("\"exec\""));
     assert!(!rendered.contains("\"wait\""));
     assert!(!rendered.contains("mcp__sample__lookup"));
-    assert!(!rendered.contains("version"));
-    assert!(!rendered.contains("capability_id"));
-    assert!(!rendered.contains("revision"));
+    let input = serde_json::to_string(&first.declaration().parameters).unwrap();
+    assert!(!input.contains("version"));
+    assert!(!input.contains("capability_id"));
+    assert!(!input.contains("revision"));
+    assert!(value.get("output_schema").is_none());
 
     let description = value["description"].as_str().unwrap();
     assert!(description.contains("single top-level entry point"));
@@ -134,8 +136,14 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(description.contains("not a second dependency graph"));
     assert!(description.contains("explicit Map finish example"));
     assert!(description.contains("The Runtime does not add, infer, reorder, or repair"));
+    assert!(description.contains("type TaskSpaceExecResult"));
+    assert!(description.contains("map_revision_at_dispatch"));
     assert_eq!(description.matches("First-turn initialization").count(), 1);
     assert!(!description.contains(r#"{\"tool\""#));
+
+    let output_schema = first.declaration().output_schema.as_ref().unwrap();
+    let decoded: JsonSchema = serde_json::from_value(output_schema.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), *output_schema);
 }
 
 #[test]
@@ -199,6 +207,16 @@ fn capability_identity_changes_with_dispatch_or_hosted_semantics() {
     };
     tool.output_schema = Some(json!({"type": "string"}));
     let changed_output = TaskSpaceExecCatalog::build(&changed_output).unwrap();
+    assert_ne!(
+        baseline.declaration().output_schema,
+        changed_output.declaration().output_schema
+    );
+    assert!(
+        changed_output
+            .declaration()
+            .description
+            .contains("`exec_command` logical output: string")
+    );
     assert_ne!(
         baseline.capability_identity(),
         changed_output.capability_identity()

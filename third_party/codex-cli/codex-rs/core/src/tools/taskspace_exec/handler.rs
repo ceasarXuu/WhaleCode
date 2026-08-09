@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-use futures::StreamExt;
-use serde::Serialize;
-
 use crate::action_map::rooted_dag;
 use crate::action_map::rooted_dag::ActionBinding;
 use crate::action_map::rooted_dag::ActionOutcome;
@@ -16,6 +13,7 @@ use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::tools::router::ToolRouter;
+use futures::StreamExt;
 
 use super::PreparedHostedBinding;
 use super::TaskSpaceExecCatalog;
@@ -25,35 +23,15 @@ use super::dispatch::dispatched_outcome;
 use super::dispatch_client_calls;
 use super::preflight_taskspace_exec;
 use super::prepare_client_calls;
+use super::result::ClientResult;
+use super::result::HostedResult;
+use super::result::MapReadResult;
+use super::result::TaskSpaceExecResult;
 
 pub(crate) struct TaskSpaceExecHandler {
     catalog: Arc<TaskSpaceExecCatalog>,
     client_router: Arc<ToolRouter>,
     response_scope: Arc<TaskSpaceExecResponseScope>,
-}
-
-#[derive(Serialize)]
-struct ClientResult {
-    call_index: usize,
-    action_id: String,
-    node_id: String,
-    tool: String,
-    outcome: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<crate::tools::context::NestedToolResult>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    settlement_error: Option<String>,
-}
-
-#[derive(Serialize)]
-struct HostedResult {
-    output_index: usize,
-    provider_id: String,
-    tool: String,
-    outcome: &'static str,
-    node_ids: Vec<String>,
 }
 
 impl TaskSpaceExecHandler {
@@ -266,12 +244,7 @@ impl ToolHandler for TaskSpaceExecHandler {
         let reads = prepared
             .read_maps
             .into_iter()
-            .map(|(call_index, map)| {
-                serde_json::json!({
-                    "call_index": call_index,
-                    "map": map,
-                })
-            })
+            .map(|(call_index, map)| MapReadResult { call_index, map })
             .collect::<Vec<_>>();
         let all_succeeded = client_results
             .iter()
@@ -281,16 +254,14 @@ impl ToolHandler for TaskSpaceExecHandler {
                 .all(|result| result.outcome == "succeeded");
         let client_result_count = client_results.len();
         let hosted_result_count = hosted_results.len();
-        let output = serde_json::json!({
-            "kind": "taskspace_exec_result",
-            "status": "completed",
-            "outer_call_id": invocation.call_id,
-            "map_id": map_id,
-            "map_revision_at_dispatch": candidate_revision,
-            "reads": reads,
-            "client_results": client_results,
-            "hosted_results": hosted_results,
-        });
+        let output = TaskSpaceExecResult::new(
+            invocation.call_id.clone(),
+            map_id.clone(),
+            candidate_revision,
+            reads,
+            client_results,
+            hosted_results,
+        );
         let text = serde_json::to_string(&output).map_err(|error| {
             FunctionCallError::Fatal(format!(
                 "taskspace_exec feedback serialization failed: {error}"

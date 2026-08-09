@@ -34,6 +34,7 @@ Sequence contract:
 pub(super) fn build_description<'a>(
     client_tool_names: impl Iterator<Item = &'a str>,
     hosted_tools: &BTreeSet<String>,
+    result_contract: &str,
 ) -> String {
     let has_exec_command = client_tool_names
         .into_iter()
@@ -59,6 +60,7 @@ pub(super) fn build_description<'a>(
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", ")
         ));
     }
+    sections.push(result_contract.to_string());
     sections.join("\n\n")
 }
 

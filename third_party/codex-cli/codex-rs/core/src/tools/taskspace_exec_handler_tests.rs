@@ -155,6 +155,7 @@ struct Harness {
     session: Arc<Session>,
     turn: Arc<TurnContext>,
     handler: TaskSpaceExecHandler,
+    catalog: Arc<TaskSpaceExecCatalog>,
     response_scope: Arc<TaskSpaceExecResponseScope>,
     client_handler: Arc<LedgerAwareHandler>,
 }
@@ -172,7 +173,11 @@ async fn harness(include_hosted: bool) -> Harness {
     let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
         catalog.capability_identity_arc(),
     ));
-    let handler = TaskSpaceExecHandler::new(catalog, client_router, Arc::clone(&response_scope));
+    let handler = TaskSpaceExecHandler::new(
+        Arc::clone(&catalog),
+        client_router,
+        Arc::clone(&response_scope),
+    );
     let (session, turn) = make_session_and_context().await;
     session
         .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
@@ -181,9 +186,21 @@ async fn harness(include_hosted: bool) -> Harness {
         session: Arc::new(session),
         turn: Arc::new(turn),
         handler,
+        catalog,
         response_scope,
         client_handler,
     }
+}
+
+fn assert_feedback_matches_declared_result(harness: &Harness, feedback: &Value) {
+    let schema = harness
+        .catalog
+        .declaration()
+        .output_schema
+        .clone()
+        .expect("TaskSpace Exec declares its result contract");
+    let schema: JsonSchema = serde_json::from_value(schema).unwrap();
+    super::schema_validation::validate_json_schema(feedback, &schema).unwrap();
 }
 
 fn finalize_scope(harness: &Harness) {
@@ -378,6 +395,7 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
 
     assert_eq!(output.success, Some(false));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
+    assert_feedback_matches_declared_result(&harness, &feedback);
     assert_eq!(feedback["kind"], "taskspace_exec_result");
     assert_eq!(feedback["outer_call_id"], "outer");
     assert_eq!(
@@ -604,6 +622,7 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
 
     assert_eq!(output.success, Some(true));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
+    assert_feedback_matches_declared_result(&harness, &feedback);
     assert_eq!(
         feedback["hosted_results"][0]["provider_id"],
         "provider-search-1"
