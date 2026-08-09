@@ -43,6 +43,8 @@ function New-TaskspaceExecObservation {
         trace_event_count = $null
         correlated_request_count = $null
         correlated_outer_call_count = $null
+        capability_identity = $null
+        wire_capability_identity = $null
         findings = @()
     }
 }
@@ -137,6 +139,7 @@ function Get-TaskspaceExecObservation {
     $traceEvents = 0
     $correlatedRequests = @{}
     $correlatedOuterCalls = @{}
+    $traceCapabilityByRequest = @{}
     $stderrPath = Join-Path $ArtifactDir 'whale-exec.stderr.log'
     if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
         foreach ($line in [IO.File]::ReadLines($stderrPath)) {
@@ -160,6 +163,17 @@ function Get-TaskspaceExecObservation {
                     $findings.Add("trace_map_revision_missing:$outerCallId")
                 }
             }
+            if ($eventName -in @('taskspace.exec.response_finalized', 'taskspace.exec.completed')) {
+                $capabilityIdentity = [string]$fields['capability_identity']
+                if ($capabilityIdentity -notmatch '^[a-fA-F0-9]{64}$') {
+                    $findings.Add("trace_capability_identity_missing_or_invalid:$requestId")
+                } elseif (-not [string]::IsNullOrWhiteSpace($requestId)) {
+                    if ($traceCapabilityByRequest.ContainsKey($requestId) -and
+                        [string]$traceCapabilityByRequest[$requestId] -ne $capabilityIdentity) {
+                        $findings.Add("trace_capability_identity_conflict:$requestId")
+                    } else { $traceCapabilityByRequest[$requestId] = $capabilityIdentity }
+                }
+            }
         }
     }
     if ($traceEvents -eq 0) { $findings.Add('taskspace_exec_trace_missing') }
@@ -167,6 +181,41 @@ function Get-TaskspaceExecObservation {
     foreach ($callId in $execCalls.Keys) {
         if (-not $correlatedOuterCalls.ContainsKey($callId)) { $findings.Add("trace_outer_call_missing:$callId") }
     }
+
+    $wireCapabilityByRequest = @{}
+    $wireTracePath = Join-Path $ArtifactDir 'provider-wire-trace.jsonl'
+    if (Test-Path -LiteralPath $wireTracePath -PathType Leaf) {
+        foreach ($line in [IO.File]::ReadLines($wireTracePath)) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $wire = $line | ConvertFrom-Json } catch { continue }
+            if ([string](Get-TaskspaceExecProperty $wire 'status') -ne 'payload_captured') { continue }
+            $requestId = [string](Get-TaskspaceExecProperty $wire 'request_id')
+            if (-not $correlatedRequests.ContainsKey($requestId)) { continue }
+            $identity = [string](Get-TaskspaceExecProperty $wire 'taskspace_capability_identity')
+            if ($identity -notmatch '^[a-fA-F0-9]{64}$') {
+                $findings.Add("wire_capability_identity_missing_or_invalid:$requestId")
+                continue
+            }
+            $wireCapabilityByRequest[$requestId] = $identity
+        }
+    } else { $findings.Add('provider_wire_trace_missing') }
+    foreach ($requestId in $correlatedRequests.Keys) {
+        if (-not $traceCapabilityByRequest.ContainsKey($requestId)) {
+            $findings.Add("trace_capability_identity_missing:$requestId")
+            continue
+        }
+        if (-not $wireCapabilityByRequest.ContainsKey($requestId)) {
+            $findings.Add("wire_capability_identity_missing:$requestId")
+            continue
+        }
+        if ([string]$traceCapabilityByRequest[$requestId] -ne [string]$wireCapabilityByRequest[$requestId]) {
+            $findings.Add("capability_identity_mismatch:$requestId")
+        }
+    }
+    $traceIdentities = @($traceCapabilityByRequest.Values | Sort-Object -Unique)
+    $wireIdentities = @($wireCapabilityByRequest.Values | Sort-Object -Unique)
+    if ($traceIdentities.Count -gt 1) { $findings.Add('trace_capability_identity_changed') }
+    if ($wireIdentities.Count -gt 1) { $findings.Add('wire_capability_identity_changed') }
 
     [pscustomobject]@{
         protocol = 'taskspace_exec'; availability = if ($findings.Count) { 'incomparable' } else { 'measured' }
@@ -180,6 +229,8 @@ function Get-TaskspaceExecObservation {
         hosted_result_count = [int]$hostedResults; failed_action_count = [int]$failedActions
         trace_event_count = [int]$traceEvents; correlated_request_count = [int]$correlatedRequests.Count
         correlated_outer_call_count = [int]$correlatedOuterCalls.Count
+        capability_identity = if ($traceIdentities.Count -eq 1) { [string]$traceIdentities[0] } else { $null }
+        wire_capability_identity = if ($wireIdentities.Count -eq 1) { [string]$wireIdentities[0] } else { $null }
         findings = @($findings | Sort-Object -Unique)
     }
 }

@@ -44,9 +44,14 @@ try {
         schema_version = 'whalecode-request-facts-v1'
         rows = @([pscustomobject]@{ request_id = 'request-1' })
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $temp 'request-facts.json') -Encoding UTF8
+    $capabilityIdentity = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    [pscustomobject]@{
+        schema_version = 'provider-chat-wire-trace-v11'; status = 'payload_captured'
+        request_id = 'request-1'; taskspace_capability_identity = $capabilityIdentity
+    } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $temp 'provider-wire-trace.jsonl') -Encoding UTF8
     @(
-        'INFO codex_core::taskspace_exec: event_name="taskspace.exec.response_finalized" provider_request_id="request-1" provider_response_id="response-1" outer_call_id="outer-1" map_id="map-1"',
-        'INFO codex_core::taskspace_exec: event_name="taskspace.exec.completed" provider_request_id="request-1" provider_response_id="response-1" outer_call_id="outer-1" map_revision=Some(2)'
+        "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.response_finalized`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_id=`"map-1`" capability_identity=`"$capabilityIdentity`"",
+        "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.completed`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_revision=Some(2) capability_identity=`"$capabilityIdentity`""
     ) | Set-Content -LiteralPath (Join-Path $temp 'whale-exec.stderr.log') -Encoding UTF8
 
     $facts = Get-TaskspaceExecObservation $temp $null
@@ -59,6 +64,8 @@ try {
     Assert-Equal $facts.failed_action_count 1 'failure count drifted'
     Assert-Equal $facts.correlated_request_count 1 'request identity was not joined'
     Assert-Equal $facts.correlated_outer_call_count 1 'outer call identity was not joined'
+    Assert-Equal $facts.capability_identity $capabilityIdentity 'Exec capability identity was not observed'
+    Assert-Equal $facts.wire_capability_identity $capabilityIdentity 'wire capability identity was not observed'
     $identity = Get-PerformanceCountIdentity `
         ([pscustomobject]@{ tool_call_count = 99; failed_tool_call_count = 99 }) `
         $facts `
@@ -70,6 +77,17 @@ try {
         $false
     Assert-Equal $identity.valid $true 'R8 count identity fell back to legacy fields'
     Assert-Equal $identity.values.tool_call_count 3 'R8 action total used outer Tool count'
+
+    $wire = Get-Content -Raw -Encoding UTF8 (Join-Path $temp 'provider-wire-trace.jsonl') | ConvertFrom-Json
+    $wire.taskspace_capability_identity = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    $wire | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $temp 'provider-wire-trace.jsonl') -Encoding UTF8
+    $capabilityMismatch = Get-TaskspaceExecObservation $temp $null
+    Assert-Equal $capabilityMismatch.availability 'incomparable' 'capability mismatch did not fail closed'
+    if (@($capabilityMismatch.findings | Where-Object { $_ -eq 'capability_identity_mismatch:request-1' }).Count -ne 1) {
+        throw 'capability mismatch finding missing'
+    }
+    $wire.taskspace_capability_identity = $capabilityIdentity
+    $wire | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $temp 'provider-wire-trace.jsonl') -Encoding UTF8
 
     (Get-Content -Raw -Encoding UTF8 (Join-Path $temp 'whale-exec.stderr.log')).Replace(
         'provider_request_id="request-1"', 'provider_request_id="unknown"'

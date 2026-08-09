@@ -306,6 +306,8 @@ function Get-PerformanceSideObservation {
             exec_trace_events = Get-PerformanceCount (Get-PerformanceProperty $actions "trace_event_count")
             correlated_requests = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_request_count")
             correlated_outer_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_outer_call_count")
+            capability_identity = Get-PerformanceProperty $actions "capability_identity"
+            wire_capability_identity = Get-PerformanceProperty $actions "wire_capability_identity"
             exec_findings = @((Get-PerformanceProperty $actions "findings" @()))
             action_manifests = $map.action_manifest_count
             declared_actions = $map.declared_action_count
