@@ -84,7 +84,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 当前 DAG/readiness 硬规则确定性通过；是否仍有错误选择只能由 E3 判断 | queued | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 零 Hosted 单臂第二请求缓存命中 54.69%，首个差异位于 `messages[3].message`，Tool shape 未变；尚无同 commit 四臂证据，不能判断是 TaskSpace 结构回归还是本次失败路径特征 | queued | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 首次参数稳定性复验**。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 顶层 client Tool 越界归因**。
 
 ## 4. VA-04A 证据边界
 

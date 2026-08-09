@@ -121,7 +121,7 @@ VA-03 继续阻断。下一步应先把“已声明 outer Tool 下仍生成未�
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0/`
 - Local trace: `target/cache-hit-regression/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0/`
 
-## 7. 证据
+## 9. 第二轮证据
 
 - Result: `benchmarks/cache-regression/results/WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4.json`
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4/`
