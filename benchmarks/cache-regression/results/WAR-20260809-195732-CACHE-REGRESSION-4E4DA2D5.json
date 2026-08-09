@@ -1,0 +1,168 @@
+{
+  "schema_version": "whalecode-cache-hit-regression-v6",
+  "record_id": "WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5",
+  "status": "partial",
+  "started_at": "2026-08-09T19:57:41+08:00",
+  "subject_commit": "9e847e626581efced23194f15d672f741d1d061a",
+  "surface_sha256": "138bd8c74b6bc2b389bb7f243793b84ccb68e99e11844aabd49a89f37c51ce08",
+  "proposal_id": "CBP-46EACBE1F82A5403",
+  "proposal_sha256": "b6c74a82174205e12bc713c5d6179cfeddd3925bf9ca779041ab968eed2120f5",
+  "authorization_reference": "用户在当前会话明确回复“批准预算”，批准 B5 VA-02：single-file-fast-fix × map-request × repeat=1，最多 2 个 provider requests，无重试；任一结构、业务、usage 或预算异常立即停止。",
+  "authorization_sha256": "e8756b98b0bca62f6156657662fb7395b635327b6ee062eda3c739e46987db89",
+  "observed_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户在当前会话明确批准 B5 VA-02 专项预算：single-file-fast-fix × map-request × repeat=1，最多 2 个 provider requests，无重试；任一结构、业务、usage 或预算异常立即停止。"
+  },
+  "unverified_scope": [],
+  "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+  "actual_sample_runs": 1,
+  "credential_source": ".env.local",
+  "provider_route_attestation": {
+    "schema_version": "whalecode-provider-route-preflight-v1",
+    "status": "passed",
+    "model": "deepseek-v4-flash",
+    "provider_routing": {
+      "route_kind": "custom_provider_transport_alias",
+      "logical_provider_id": "deepseek",
+      "transport_provider_id": "deepseek-boundary",
+      "provider_name": "DeepSeek",
+      "base_url": "http://provider-proxy:8080",
+      "env_key": "DEEPSEEK_API_KEY",
+      "wire_api": "responses",
+      "intentional_differences": [
+        "provider_id",
+        "base_url"
+      ]
+    },
+    "provider_descriptor_sha256": "4df3ce992fb7d5565852d12e163a092101d0787bf54c775b07cafd24fea26aee",
+    "whale_binary_sha256": "7677ae7b5794f436b4f92f88daa2e0119564dec9218d92b0ed1e08039586cfa0",
+    "preflight_started_at": "2026-08-09T11:57:34.0583271Z",
+    "preflight_completed_at": "2026-08-09T11:57:37.0566213Z",
+    "artifact_path": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/provider-route-preflight/provider-route-preflight.json",
+    "artifact_sha256": "e3bdfb63d6dd799898aab2a505650c62bd225e2a0dbf019437f02cc260f70bed"
+  },
+  "run_root": "target/cache-hit-regression/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5.json",
+  "attempts": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "map-request",
+      "repeat": 1,
+      "run_id": "WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001",
+      "status": "failed",
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 36.128,
+      "post_run_cleanup": {
+        "status": "verified_absent",
+        "container_ids": [],
+        "stable_empty_polls": 3,
+        "network_cleanup_status": "verified_absent",
+        "network_ids": [],
+        "secret_cleanup_status": "verified_absent",
+        "secret_paths": [],
+        "error": ""
+      },
+      "provider_boundary_request_count": 1,
+      "provider_boundary_evidence_path": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001/provider-boundary-evidence.json",
+      "provider_boundary_evidence_sha256": "1b405143242a6b0f0a81a196e3c15fa738a66cec0d8fee81702f25acb14ca4b1",
+      "evidence_error": "ValueError: provider wire request facts are not comparable: wire_schema_unsupported",
+      "stop_reason": "run_failure"
+    }
+  ],
+  "observations": [
+    {
+      "arm": "map-request",
+      "provider_usage_contract_version": "whalecode-provider-usage-v1",
+      "logical_mode": "taskspace",
+      "provider_model": "deepseek-v4-flash",
+      "provider_requests": 1,
+      "provider_payload_sha256": [
+        "8adaa1d524dd5d1da4d17005cad34573c37dd3540a7f55d01bc457f8564612fe"
+      ],
+      "request_2_plus_count": 0,
+      "request_2_plus_hit_rate": null,
+      "request_2_plus_cached_input_tokens": 0,
+      "request_2_plus_uncached_input_tokens": 0,
+      "trace_coverage": 1.0,
+      "cache_usage_missing_count": 0,
+      "input_tokens": 11715,
+      "cached_input_tokens": 0,
+      "uncached_input_tokens": 11715,
+      "output_tokens": 108,
+      "business_success": false,
+      "artifacts": {
+        "cache_summary": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/provider-cache-trace-summary.json",
+        "provider_wire": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/provider-wire-trace.jsonl",
+        "request_summary": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/request-summary.json",
+        "metrics": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/metrics.json",
+        "provider_boundary": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/provider-boundary-evidence.json",
+        "execution_argv": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/whale-argv.json",
+        "logical_mode_map": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/logical-mode-map.json"
+      },
+      "artifact_sha256": {
+        "cache_summary": "e0353bae015e99eb7de91aaf07b66309953251c059e6fdc920977bd4fca6c9d1",
+        "provider_wire": "b24558d12b0b8c99b0078a2c0ca85234e22fd597c703743f44a662d281dd07b3",
+        "request_summary": "e5bd46ba9dd05b3701b1644825e21363b04cd5ab69f47beb2f09b22f6333a040",
+        "metrics": "a7ac3bba8b8c5390eda423a0793b229fa3f54405f3a3eef210df570b86a0b2ea",
+        "provider_boundary": "65bb7bd5fef052614e53360b56c956d3c1fdb24bd78eaffe09ecb63b77cff227",
+        "execution_argv": "75826b7e8f36a574352ed4774250aaed9877a6346644254d9f55f14526236537",
+        "logical_mode_map": "dc2f8d74d92ace494db7d206ef7dc93fb4e0f1196a851b3f0e7462783d83163d"
+      },
+      "provider_routing": {
+        "route_kind": "custom_provider_transport_alias",
+        "logical_provider_id": "deepseek",
+        "transport_provider_id": "deepseek-boundary",
+        "provider_name": "DeepSeek",
+        "base_url": "http://provider-proxy:8080",
+        "env_key": "DEEPSEEK_API_KEY",
+        "wire_api": "responses",
+        "intentional_differences": [
+          "provider_id",
+          "base_url"
+        ]
+      },
+      "sample": "single-file-fast-fix",
+      "repeat": 1,
+      "run_id": "WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001",
+      "elapsed_seconds": 36.128,
+      "provider_route_profile": {
+        "profile": "taskspace",
+        "attestation_path": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/provider-route-preflight/provider-route-preflight.json",
+        "attestation_sha256": "e3bdfb63d6dd799898aab2a505650c62bd225e2a0dbf019437f02cc260f70bed",
+        "provider_descriptor_sha256": "4df3ce992fb7d5565852d12e163a092101d0787bf54c775b07cafd24fea26aee"
+      },
+      "budget_observation_exceeded": []
+    }
+  ],
+  "stop_reason": "run_failure",
+  "provider_boundary_requests_minimum": 1,
+  "provider_boundary_accounting_status": "complete",
+  "evidence_sha256": "f5463f6fd274e33fd8ce2a5540860a94159181556a8b0e13dce0076b1c128763",
+  "runner_exit_code": 3,
+  "ended_at": "2026-08-09T19:58:21+08:00",
+  "elapsed_seconds": 40.347,
+  "post_run_reanalysis": {
+    "status": "usage_recovered_business_failure_confirmed",
+    "reason": "The original analyzer rejected provider-chat-wire-trace-v11. After parser alignment at commit cca76e921, existing immutable run artifacts were deterministically reanalyzed without a provider request.",
+    "original_evidence_error": "ValueError: provider wire request facts are not comparable: wire_schema_unsupported",
+    "corrected_stop_classification": "business_failure",
+    "reanalysis_artifact_prefix": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11"
+  }
+}

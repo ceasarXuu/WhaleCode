@@ -1,7 +1,129 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-05T18:58:46+00:00",
+  "updated_at": "2026-08-09T20:10:15+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-09T19:57:41+08:00",
+      "ended_at": "2026-08-09T19:58:21+08:00",
+      "elapsed_calendar_seconds": 40.347,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户在当前会话明确批准 B5 VA-02 专项预算：single-file-fast-fix × map-request × repeat=1，最多 2 个 provider requests，无重试；任一结构、业务、usage 或预算异常立即停止。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260809-B5-VA02-46EACBE1F82A5403",
+        "reference": "用户在当前会话明确回复“批准预算”，批准 B5 VA-02：single-file-fast-fix × map-request × repeat=1，最多 2 个 provider requests，无重试；任一结构、业务、usage 或预算异常立即停止。",
+        "budget_summary": {
+          "provider_requests": 2,
+          "input_tokens": 2000000,
+          "output_tokens": 768000,
+          "elapsed_seconds": 720,
+          "estimated_cost": 0.49504,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-46EACBE1F82A5403。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "4df3ce992fb7d5565852d12e163a092101d0787bf54c775b07cafd24fea26aee",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 11715,
+        "cached_input": 0,
+        "uncached_input": 11715,
+        "output": 108
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.00167034,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0,
+          "uncached_input": 0.0016401,
+          "output": 3.0240000000000002e-05
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5",
+        "subject_commit": "9e847e626581efced23194f15d672f741d1d061a",
+        "surface_sha256": "138bd8c74b6bc2b389bb7f243793b84ccb68e99e11844aabd49a89f37c51ce08",
+        "proposal_id": "CBP-46EACBE1F82A5403",
+        "proposal_contract_sha256": "b6c74a82174205e12bc713c5d6179cfeddd3925bf9ca779041ab968eed2120f5",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-46EACBE1F82A5403.json",
+        "proposal_sha256": "8ded8f289d264aa1734cad7fa1922c14ede067113c6a1f8927f80ca796bad854",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260809-B5-VA02-46EACBE1F82A5403.json",
+        "authorization_sha256": "e8756b98b0bca62f6156657662fb7395b635327b6ee062eda3c739e46987db89",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户在当前会话明确批准 B5 VA-02 专项预算：single-file-fast-fix × map-request × repeat=1，最多 2 个 provider requests，无重试；任一结构、业务、usage 或预算异常立即停止。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "e3bdfb63d6dd799898aab2a505650c62bd225e2a0dbf019437f02cc260f70bed",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5.json",
+        "runner_exit_code": 3,
+        "outcome": "partial",
+        "post_run_reanalysis": {
+          "status": "usage_recovered_business_failure_confirmed",
+          "reason": "The original analyzer rejected provider-chat-wire-trace-v11. After parser alignment at commit cca76e921, existing immutable run artifacts were deterministically reanalyzed without a provider request.",
+          "original_evidence_error": "ValueError: provider wire request facts are not comparable: wire_schema_unsupported",
+          "corrected_stop_classification": "business_failure",
+          "reanalysis_artifact_prefix": "benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11"
+        }
+      }
+    },
     {
       "record_id": "WAR-20260806-025727-R8-A2-V4-HOSTED-BINDING-002",
       "record_type": "run_batch",

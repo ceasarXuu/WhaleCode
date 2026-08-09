@@ -1,0 +1,29 @@
+{
+  "schema_version": "whalecode-provider-boundary-evidence-v2",
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "status": "mismatch",
+  "boundary_availability": "measured",
+  "boundary_correlation_availability": "incomparable",
+  "expected_model": "deepseek-v4-flash",
+  "allowed_method": "POST",
+  "allowed_path": "/responses",
+  "boundary_request_count": 1,
+  "wire_request_count": null,
+  "local_attempt_count": 0,
+  "local_only_attempt_count": 0,
+  "boundary_requests": [
+    {
+      "count": 1,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "8adaa1d524dd5d1da4d17005cad34573c37dd3540a7f55d01bc457f8564612fe"
+    }
+  ],
+  "wire_requests": [],
+  "local_attempts": [],
+  "errors": [
+    "boundary_unattributed",
+    "wire_schema_unsupported"
+  ]
+}
