@@ -100,6 +100,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 24. [`../I10/00-i10-capability-identity-repair-plan.md`](../I10/00-i10-capability-identity-repair-plan.md)：B5 前置的 Runtime-only 能力身份闭环。
 25. [`24-phase-b5-va02-first-result.md`](24-phase-b5-va02-first-result.md)：首次正式 Provider shape 验证、实际成本、结构失败和停点。
 26. [`25-phase-b5-protocol-authority-repair.md`](25-phase-b5-protocol-authority-repair.md)：最新 Codex `exec` 对照、协议单一权威修复和离线验证。
+27. [`26-phase-b5-cp01-effective-surface-result.md`](26-phase-b5-cp01-effective-surface-result.md)：DeepSeek、deferred、Hosted、Code Mode 和 LocalShell 的 effective surface 事实矩阵。
 
 ## 4. 推进规则
 

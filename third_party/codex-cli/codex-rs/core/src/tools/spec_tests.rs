@@ -1455,3 +1455,155 @@ async fn code_mode_only_restricts_model_tools_to_exec_tools() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn taskspace_cp01_records_deepseek_effective_surface() {
+    let model_info = model_info_from_models_json("deepseek-v4-flash").await;
+    let mut features = Features::with_defaults();
+    features.enable(Feature::ToolSearch);
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    assert_eq!(tools_config.shell_type, ConfigShellToolType::UnifiedExec);
+    assert!(!tools_config.code_mode_enabled);
+    assert!(!tools_config.code_mode_only_enabled);
+
+    let deferred_mcp_tools = HashMap::from([(
+        "mcp__test_server__lookup_order".to_string(),
+        mcp_tool_info(mcp_tool(
+            "lookup_order",
+            "Look up an order",
+            serde_json::json!({"type": "object"}),
+        )),
+    )]);
+    let dynamic_tools = vec![DynamicToolSpec {
+        namespace: Some("codex_app".to_string()),
+        name: "automation_update".to_string(),
+        description: "Update an automation.".to_string(),
+        input_schema: serde_json::json!({"type": "object"}),
+        defer_loading: true,
+    }];
+    let router = ToolRouter::from_config(
+        &tools_config,
+        ToolRouterParams {
+            mcp_tools: None,
+            deferred_mcp_tools: Some(deferred_mcp_tools),
+            unavailable_called_tools: Vec::new(),
+            parallel_mcp_server_names: HashSet::new(),
+            discoverable_tools: None,
+            dynamic_tools: &dynamic_tools,
+        },
+    );
+    let registered_names = router
+        .specs()
+        .into_iter()
+        .map(|spec| spec.name().to_string())
+        .collect::<Vec<_>>();
+    let standard_visible_names = router
+        .model_visible_specs()
+        .into_iter()
+        .map(|spec| spec.name().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(registered_names, standard_visible_names);
+    for expected in [
+        "exec_command",
+        "write_stdin",
+        TOOL_SEARCH_TOOL_NAME,
+        "codex_app",
+    ] {
+        assert!(
+            registered_names.iter().any(|name| name == expected),
+            "missing {expected}"
+        );
+    }
+    for absent in ["local_shell", "shell_command", "exec", "wait"] {
+        assert!(
+            registered_names.iter().all(|name| name != absent),
+            "unexpected {absent}"
+        );
+    }
+
+    let taskspace_router = router.into_taskspace().unwrap();
+    assert_eq!(
+        taskspace_router
+            .model_visible_specs()
+            .into_iter()
+            .map(|spec| spec.name().to_string())
+            .collect::<Vec<_>>(),
+        vec!["taskspace_exec".to_string(), "web_search".to_string()]
+    );
+    let declaration = serde_json::to_string(&taskspace_router.specs()).unwrap();
+    assert!(declaration.contains("exec_command"));
+    assert!(declaration.contains("write_stdin"));
+    assert!(declaration.contains("tool_search"));
+    assert!(declaration.contains("codex_app_automation_update"));
+    assert!(!declaration.contains("mcp__test_server__lookup_order"));
+}
+
+#[tokio::test]
+async fn taskspace_cp01_records_code_mode_only_surface_difference() {
+    let model_info = model_info_from_models_json("deepseek-v4-flash").await;
+    let mut features = Features::with_defaults();
+    features.enable(Feature::CodeMode);
+    features.enable(Feature::CodeModeOnly);
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    let router = ToolRouter::from_config(
+        &tools_config,
+        ToolRouterParams {
+            mcp_tools: None,
+            deferred_mcp_tools: None,
+            unavailable_called_tools: Vec::new(),
+            parallel_mcp_server_names: HashSet::new(),
+            discoverable_tools: None,
+            dynamic_tools: &[],
+        },
+    );
+    let registered_names = router
+        .specs()
+        .into_iter()
+        .map(|spec| spec.name().to_string())
+        .collect::<Vec<_>>();
+    let standard_visible_names = router
+        .model_visible_specs()
+        .into_iter()
+        .map(|spec| spec.name().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        standard_visible_names,
+        vec!["exec".to_string(), "wait".to_string()]
+    );
+    assert!(registered_names.iter().any(|name| name == "exec_command"));
+    assert!(registered_names.iter().any(|name| name == "write_stdin"));
+    assert_ne!(registered_names, standard_visible_names);
+
+    let taskspace_router = router.into_taskspace().unwrap();
+    assert_eq!(
+        taskspace_router
+            .model_visible_specs()
+            .into_iter()
+            .map(|spec| spec.name().to_string())
+            .collect::<Vec<_>>(),
+        vec!["taskspace_exec".to_string()]
+    );
+    let declaration = serde_json::to_string(&taskspace_router.specs()).unwrap();
+    assert!(declaration.contains("exec_command"));
+    assert!(declaration.contains("exec tool declaration"));
+}

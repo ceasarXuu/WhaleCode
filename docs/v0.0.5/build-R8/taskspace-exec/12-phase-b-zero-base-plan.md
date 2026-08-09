@@ -175,8 +175,8 @@ process host。Codex JS Exec 可以在同一 cell 中等待 A 的结果后动态
 | ID-01 | 收敛 I10 唯一能力身份 | Exec catalog、Router、request metadata、provider/Exec trace、performance observer | 从同一最终声明序列机械派生 Runtime-only identity，沿既有请求和报告链传播；不进入 Agent schema、Provider payload、Map 或普通 Tool | 能力变化可与任务行为、缓存和成本变化分开归因 | Complexity: 一个只读身份字段和既有事件可选字段；Reach: TaskSpace Router/trace/report，Standard 为 null | 语义变化敏感性、HTTP/WS、dispatch、报告冲突 fixture；zero-base/cache gate | verified |
 | VA-02 | 申请并执行最终生产路径 Provider shape 验证 | Docker 中当前 Whale 二进制、最终 TaskSpace Exec declaration、run ledger | 另行申请 1 sample × 1 arm × repeat 1、最多 2 requests；通过正式生产入口验证最终结构化 Function schema，禁止复用含 `version/capability_id` 的旧 A2 source-only probe | 在四臂评测前证明目标 Provider/Agent 可生成当前真实合同 | Complexity: 零新协议代码；Reach: 有界付费 API | 原始 response、最终 schema 指纹和 ledger 可复算；首个结构失败即停，未批准不得运行 | failed / decision required |
 | VA-02R | 收敛 outer Exec 操作合同 | `taskspace_exec/protocol.rs`、catalog declaration、合同测试 | 参考最新 Codex `exec`，把外层调用方式、序列、归属和最小示例集中在 outer Tool description；内容由同一 catalog 装配，不改 base instructions、普通 Tool schema 或 Runtime 行为 | Agent 从唯一 Tool 声明同时获得结构语法和操作方法，不再依赖散落 prompt 猜测外层 envelope | Complexity: 一个 86 行协议渲染模块；Reach: TaskSpace Tool declaration 与缓存指纹 | 首次示例反向通过同一 decoder/preflight；TaskSpace Exec 定向测试、缓存门禁；真实遵循只由新预算复验 | verified offline / provider revalidation pending |
-| CP-01 | 坐实有效能力与延迟暴露事实 | Registry plan、Router、deferred Tool Search、目标 DeepSeek Tool config | 参数化列出 Standard 与 TaskSpace 中 enabled/deferred/hidden/hosted/client/Code Mode/LocalShell 的 effective surface，不改生产行为 | 后续 Catalog 只基于已证明的当前事实收敛 | Complexity: 静态追踪与离线 fixture；Reach: 解锁 CP-04/05 | 集合逐项可解释；若需要第二 Registry 或产品取舍立即停 | planned |
-| CP-02 | 坐实原生 Tool identity | ToolName、Function/Freeform/Namespace fixtures | 对所有当前合法名称做 encode/decode/collision 测试，确定 Namespace 最小可逆表示 | Agent-visible identity 可无歧义恢复到原生 ToolName | Complexity: tests first；Reach: schema/decoder/cache | 未证明前不改 wire；不得沿用 JS normalization 假设 | planned |
+| CP-01 | 坐实有效能力与延迟暴露事实 | Registry plan、Router、deferred Tool Search、目标 DeepSeek Tool config | 参数化列出 Standard 与 TaskSpace 中 enabled/deferred/hidden/hosted/client/Code Mode/LocalShell 的 effective surface，不改生产行为 | 后续 Catalog 只基于已证明的当前事实收敛 | Complexity: 静态追踪与离线 fixture；Reach: 解锁 CP-04/05 | 集合逐项可解释；若需要第二 Registry 或产品取舍立即停 | verified |
+| CP-02 | 坐实原生 Tool identity | ToolName、Function/Freeform/Namespace fixtures | 对所有当前合法名称做 encode/decode/collision 测试，确定 Namespace 最小可逆表示 | Agent-visible identity 可无歧义恢复到原生 ToolName | Complexity: tests first；Reach: schema/decoder/cache | 未证明前不改 wire；不得沿用 JS normalization 假设 | in progress |
 | CP-03 | 坐实公共结果转换覆盖 | `ToolOutput`、Function/Freeform/MCP/Tool Search 输出 fixtures | 对照 Standard/Code Mode 验证 `code_mode_result()` 覆盖当前内层 Tool 结果与错误 | TaskSpace 无需私有反馈语义转换层 | Complexity: tests first；Reach: 解锁 CP-08 | 公共转换有缺口时只修公共边界，不建 TaskSpace converter | planned |
 | CP-04 | 让 Catalog 消费 effective capability view | Registry projection、`router.rs`、`catalog.rs` | 从 CP-01 证明的既有有效视图生成 request-local immutable Catalog，并同时驱动 declaration、decoder、identity 和 dispatch lookup | 模型可见、可解码、可执行能力一致 | Complexity: 中性抽取既有事实；Reach: TaskSpace schema/cache | exposure matrix、Standard zero-diff；不得增加第二注册系统 | planned |
 | CP-05 | 闭合 deferred 与 surface-specific description | Catalog builder、Code Mode augmentation、LocalShell seam | 按 Standard 生命周期暴露 deferred 能力；TaskSpace 读取未被 Code Mode 改写的原生描述；LocalShell 仅在 CP-01 证明适用时接原生 payload | 首轮不提前展开动态 schema，内层只有一套调用语法 | Complexity: 小范围 projection；Reach: MCP/apps/shell | deferred lifecycle 与组合 declaration tests；需要字符串清洗或 fallback 即停 | planned |
@@ -244,6 +244,17 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 - Stop: 需要第二 Registry、TaskSpace 私有结果语义、字符串清洗 Tool description、Runtime 补写 Agent 动作、未确认 Provider/deferred/
   LocalShell 产品取舍、未获预算、首个结构性失败、usage 不可信，或异常需要扩大 repeat 才能解释。
 
+#### 预授权真实运行预算
+
+用户于 2026-08-10 将两项预算各批准为原申请的两倍，额外额度只用于取得明确失败证据后的针对性修复复验，不允许盲目重试：
+
+| Gate | Scope | Hard Budget | Retry Boundary | Activation |
+|---|---|---|---|---|
+| VA-02 | `deepseek-v4-flash`；`single-file-fast-fix`；`map-request`；每次 repeat 1 | 最多 2 次顺序 sample run、4 requests、100K input、24K output、USD 0.04、24 分钟 | 首次失败后必须先完成证据归因和离线修复；最多使用第二次，任一结构/业务/usage/证据异常即停 | CP-13 全部通过后登记 planned ledger |
+| VA-03 | `deepseek-v4-flash`；同一 `single-file-fast-fix`；Standard、map-always、map-append、map-request；每臂每轮 repeat 1 | 最多 2 轮、8 sample runs、120 requests、2M input、120K output、USD 0.36、60 分钟 | 首轮失败后必须先完成证据归因和针对性修复；不增加 arm/sample/repeat，单臂业务失败不自动重试 | VA-02 成功后登记 planned ledger |
+
+预算批准不绕过 cache gate、账本和前置门禁；未启动前不创建伪 `planned` 记录，未使用余额不转移到其他测试。
+
 ## 5. 执行记录
 
 | Unit | Date | Evidence | Conclusion | Next |
@@ -289,6 +300,7 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 | VA-02 | 2026-08-09 | [`24-phase-b5-va02-first-result.md`](24-phase-b5-va02-first-result.md)；`WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5`；观测修复 `cca76e921` | 获批的 map-request 单样本在首个响应失败：模型把 Exec 内部 `exec_command` 提升为非法顶层 call；Runtime 在零副作用边界正确拒绝。原 v11 parser 漂移已修复并从原始 trace 恢复 1 request / 11,715 input / 108 output / USD 0.00167034 | 停止 VA-03；用户确认 Agent 可见工作协议方向后再实施并另行申请复验预算 |
 | VA-02R | 2026-08-09 | [`25-phase-b5-protocol-authority-repair.md`](25-phase-b5-protocol-authority-repair.md)；最新 Codex 主线 `646f7c0a9`；TaskSpace Exec 60/60 PASS | outer Tool description 成为唯一模型可见操作合同；base instructions、普通 Tool 与 Runtime 语义均未改变；首次示例由同一 catalog 生成并通过 decoder/preflight | 运行缓存门禁；通过后提交。真实 VA-02 复验必须另行申请预算，未复验前不启动 VA-03 |
 | Phase B5 Codex parity replanning | 2026-08-09 | OpenAI Codex `646f7c0a91b8e327d263335da68ae8ef212895ce` 的 registry、protocol、ToolSpec projection、delegate、ToolOutput 与测试链；当前 Whale production call graph | VA-02R 只完成 outer description 局部修复，不能代表完整 Codex 对照闭环；CP-G01～CP-G13 已合并进本唯一活动计划，不另建决策或阶段体系 | CP-01；CP-13 通过前保持 VA-02 blocked |
+| CP-01 | 2026-08-10 | [`26-phase-b5-cp01-effective-surface-result.md`](26-phase-b5-cp01-effective-surface-result.md)；DeepSeek/default/deferred/Code Mode 参数化测试 2 条；既有 Registry/Catalog 回归 14 条 | 目标使用 UnifiedExec 与 hosted web search；LocalShell 不适用；raw specs、Standard model-visible 与 TaskSpace inner effective surface 不能互相替代；deferred 和 Code Mode 差异已精确落到 CP-04/05 | CP-02；不改生产行为 |
 
 ## 6. 证据校准
 
