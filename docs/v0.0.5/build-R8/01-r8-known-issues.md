@@ -29,7 +29,10 @@
 > **VA-02 零 Hosted 复验（2026-08-10）**：首响应已省略 `hosted_bindings` 并一次完成 Map 初始化与嵌套
 > `exec_command`，证明局部合同修复在线成立。第二响应却生成了未声明的顶层 `exec_command`；两次 Provider 请求实际
 > 声明的顶层 Tool 均只有 `taskspace_exec + web_search`，因此不是 Runtime 重新暴露普通 Tool。Runtime 在副作用前拒绝
-> 符合硬边界。I03 继续 verifying，VA-03 继续阻断；本轮 2 个 Provider 请求、完整 usage 与账本均已结算。
+> 符合硬边界。后续静态数据流与四次既有生产 rollout 对账已确认根因：TaskSpace 实际复用 Standard base instructions，
+> 顶层工作说明仍按普通 Function Call 描述终端、补丁和 `update_plan`；outer Exec 合同和反馈又反复出现同名内层能力，
+> 形成相互冲突的调用层级。Chat Completions 适配和 Runtime 没有改写名称，也没有反馈丢失。I03 继续 verifying，VA-03
+> 继续阻断；本轮 2 个 Provider 请求、完整 usage 与账本均已结算。
 
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
@@ -80,7 +83,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | VA-02 已在线完整结算 boundary usage；零 Hosted 运行又发现通用性能报告读取早期空 metrics，现已统一在 canonical usage 可用时复用 request facts，并修复省略 Hosted 字段的动作误报；待下一次获批运行验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 零 Hosted 首响应已合法执行；第二响应生成 Provider 未声明的顶层 client Tool。Tool 暴露面没有变化，Runtime 正确拒绝，当前需归因 Agent 为何从 outer schema 内部能力名生成顶层调用 | [verifying](taskspace-exec/39-phase-b5-va02-revalidation-result.md) | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 根因已确认：TaskSpace 复用的 Standard base 与 outer Exec 对同一原生 Tool 给出不同调用层级；模型会把内层能力名提升为未声明顶层 call。Runtime 暴露、名称透传和 fail-closed 均正确；修复尚未设计和验证 | [verifying](taskspace-exec/39-phase-b5-va02-revalidation-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 当前 DAG/readiness 硬规则确定性通过；是否仍有错误选择只能由 E3 判断 | queued | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 零 Hosted 单臂第二请求缓存命中 54.69%，首个差异位于 `messages[3].message`，Tool shape 未变；尚无同 commit 四臂证据，不能判断是 TaskSpace 结构回归还是本次失败路径特征 | queued | GI-008 |
 
@@ -94,7 +97,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 静态关闭候选 | I01、I02、I05、I06 | 旧根因和旧生产路径为零，新 Exec 的唯一反馈、内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试、误读拒绝或非法组合 |
 | 工程完成待生产验收 | I10 | catalog、dispatch、request scope、Provider/Exec trace 和报告共用同一 Runtime-only identity；Standard request 不变 | 当前 Provider trace 是否完整携带且逐 request 一致 |
 | 工程修复后待复验 | I07 | v11 producer/consumer 漂移已由 `cca76e921` 修复，VA-02 原始 trace 可完整重算 | 新生产 run 是否可在运行结束时直接完成可信结算 |
-| 当前行为待复验 | I03 | Runtime 对非法顶层 client call 正确零副作用拒绝；Router 没有顶层暴露普通 client Tool；outer Tool 已获得唯一、自包含且与 decoder/preflight 同源的操作合同 | 目标模型能否在正式生产入口稳定遵循 outer Exec |
+| 根因已确认、修复待设计 | I03 | Runtime 对非法顶层 client call 正确零副作用拒绝；Router 没有顶层暴露普通 client Tool；Provider/Runtime 没有改写 Function name | 消除 base instructions 与 outer Exec 的调用层级冲突后，目标模型能否稳定遵循 outer Exec |
 | 行为/成本待验证 | I04、I08 | 当前 DAG 和测量工具已具备验证条件 | 节点选择、三种 projection 成本与业务收益；VA-03 尚未开始 |
 
 本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server

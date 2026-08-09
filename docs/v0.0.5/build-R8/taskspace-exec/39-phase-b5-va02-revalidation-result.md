@@ -14,7 +14,7 @@
 
 随后获批的最小零 Hosted 复验证明该局部修复在线生效：首响应省略 `hosted_bindings`，严格解码、Map 初始化和嵌套 `exec_command` 均一次成功。VA-02 仍未通过，因为第二个响应生成了未声明的顶层 `exec_command`；Provider 实际收到的顶层 Tool 始终只有 `taskspace_exec` 与 `web_search`，Runtime 没有重新暴露普通 client Tool，并在执行前按合同拒绝。
 
-因此当前阻塞从“是否会使用顶层 Exec”收敛为“首次 Exec 参数是否稳定合法”。VA-03 四臂测量继续阻断，不能用第二响应可自愈替代首响应稳定性验收。
+零 Hosted 修复后，此前两轮已知的空字段参数失败未再出现；当前直接阻塞收敛为 Agent 不能稳定维持 outer/inner 调用层级。VA-03 四臂测量继续阻断，不能把 Runtime 对非法顶层调用的拒绝当作 Agent 遵循通过。
 
 ## 2. 请求路径
 
@@ -113,7 +113,18 @@ Runtime 当前行为正确：原始错误忠实返回、候选 Map 未提交、c
 | Runner elapsed | 29.649 s |
 | Estimated cost | USD 0.0023529632 |
 
-VA-03 继续阻断。下一步应先把“已声明 outer Tool 下仍生成未声明内层 Tool 名”作为 I03 的当前生产表现归因；没有新预算不得再次运行真实 Agent。
+VA-03 继续阻断。“已声明 outer Tool 下仍生成未声明内层 Tool 名”已归入 I03 并完成根因确认；没有新预算不得再次运行真实 Agent。
+
+## 9. 顶层调用越界根因确认
+
+本轮只使用现有 trace、候选 final-wire 和源码静态数据流，没有追加真实 Agent 运行。根因已满足两条独立证据链：
+
+1. **实际输入合同**：TaskSpace 与 Standard 的生产 `session_meta` base 文本和 SHA-256 完全相同。该文本要求 Agent 发出终端、补丁 Function Call，并显式宣称可使用 `update_plan`；TaskSpace 顶层实际只暴露 `taskspace_exec + web_search`。与此同时 outer description、17 个 `calls[]` 分支、首次调用参数和 outer result 都反复出现 `exec_command` 等原生 Tool 名。Agent 因此同时收到“原生 Tool 是顶层 Function Call”和“原生 Tool 是 outer Exec 内层条目”两种层级模型。
+2. **历史与数据流**：四次现有 VA-02 生产 rollout 中，两次发生 `exec_command` 顶层提升，一次在完善 outer description 前，一次在合法 outer 调用成功后的下一请求。Chat Completions adapter 直接把 Provider delta 的 `function.name` 写入 `ResponseItem::FunctionCall.name`，TaskSpace response scope 直接读取该字段；不存在从 arguments 提取内层名称并覆盖 outer 名称的代码路径。
+
+因此已排除：第二请求动态重新暴露普通 Tool、Provider/Runtime 改名、合法 outer feedback 丢失、Map 状态机驱动错误。确认的根因是 **Agent 可见合同在 Function Call 层级上不一致**。outer Tool description 的增强改善了首次选择，但不能抵消复用 Standard base 形成的跨层冲突。
+
+本结论只确认根因，不预设修复。后续设计必须保持：详细 Tool wire 仍以 Tool schema/description 为唯一权威；Runtime 不自动包装、补全或接受非法顶层调用；Standard 行为不受影响。
 
 新增证据：
 
@@ -121,7 +132,7 @@ VA-03 继续阻断。下一步应先把“已声明 outer Tool 下仍生成未�
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0/`
 - Local trace: `target/cache-hit-regression/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0/`
 
-## 9. 第二轮证据
+## 10. 第二轮证据
 
 - Result: `benchmarks/cache-regression/results/WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4.json`
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4/`

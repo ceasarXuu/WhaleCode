@@ -1,7 +1,7 @@
 # Problem P-001: VA-02 首轮证据链未能如实结算
 - Status: verifying
 - Created: 2026-08-10 06:00
-- Updated: 2026-08-10 06:52
+- Updated: 2026-08-10 07:36
 - Objective: 保留 VA-02 首轮的真实协议、Map 和成本证据，并在不放宽 TaskSpace 硬约束的前提下修复确定的观测缺陷。
 - Symptoms:
   - 首次 `taskspace_exec` 参数多出一个右花括号，被严格 JSON 解码拒绝。
@@ -30,13 +30,16 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过；第二响应生成了 Provider 未声明的顶层 `exec_command`，而两次 wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`。Runtime 正确 fail closed。性能观测器对缺省 `hosted_bindings` 的 StrictMode 误报，以及通用报告读取 request facts 生成前空 token metrics 的断层均已按 canonical facts 收敛并离线回归；VA-02 仍因 I03 当前生产表现未关闭。
+- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过。第二响应失败的根因已确认：TaskSpace 实际复用 Standard base instructions，仍以顶层 Function Call 语义描述终端、补丁和 `update_plan`；与此同时唯一 outer `taskspace_exec` 的 description、schema、首次调用参数和执行结果又反复暴露 `exec_command` 等内层能力名。Agent 可见合同因此在调用层级上自相矛盾，DeepSeek 将内层 `exec_command` 提升为未声明的顶层 call。两次 wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`，Chat Completions 适配层和 Runtime 均原样透传 Provider Function name，Runtime 正确 fail closed；不是 Tool 重新暴露、名称改写、反馈丢失或 Map 状态机问题。VA-02 仍因 I03 当前生产表现未关闭。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
+  - H-005
+  - H-006
 - Resolution basis:
-  - E-001 至 E-006；真实稳定性验证待完成
+  - E-001 至 E-015；H-005 已通过两条独立证据链确认，H-004/H-006 已排除
 - Close reason:
   - not closed
 
@@ -367,3 +370,235 @@
   ```
 - Interpretation: 修复只移除无意义的空字段填写成本，没有放宽 Hosted 事实的完整绑定硬约束。
 - Time: 2026-08-10
+
+## Hypothesis H-004: 第二请求重新暴露了顶层 client Tool
+- Status: refuted
+- Parent: P-001
+- Claim: Runtime 在 Map 初始化后改变 Provider Tool 集合，把 `exec_command` 重新加入第二请求顶层声明，Agent 因而合法选择它。
+- Layer: alternative-cause
+- Factor relation: competing
+- Depends on:
+  - none
+- Rationale:
+  - 如果顶层能力集合发生变化，第二响应不能归因于 Agent 违反静态合同。
+- Falsifiable predictions:
+  - If true: 第二请求 `tools_hash`、`tools_count` 或 exact final-wire Tool name 集合应包含 `exec_command`，并与第一请求不同。
+  - If false: 两次请求的 Tool identity 完全相同，且都只有 `taskspace_exec` 与 Hosted Tool。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对齐两次 provider-wire identity、candidate final-wire 和 Router TaskSpace 可见性代码。
+  - Signal: `tools_hash`、`tools_count`、`tool_choice`、Tool names。
+  - Capture method: 只读生产 trace、候选 final-wire report 和源码调用链。
+  - Event name or marker:
+    - `provider.chat_wire_shape_recorded`
+    - `provider.chat_wire_prefix_broken`
+  - Correlation keys:
+    - `provider-wire:019fe896-1e71-7321-9930-bc5d0921294b:0:logical-1:attempt-1`
+    - `provider-wire:019fe896-1e71-7321-9930-bc5d0921294b:0:logical-2:attempt-1`
+  - Differentiates from:
+    - 模型把内层能力名提升为未声明顶层调用。
+  - Supports if:
+    - 第二请求 Tool 集合新增 `exec_command`。
+  - Refutes if:
+    - 两次 Tool 集合和 identity 完全一致且不含 `exec_command`。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-011
+- Conclusion: refuted；两次 Provider wire 的 Tool identity 完全相同，均只有 `taskspace_exec + web_search`，第二请求没有新增 `exec_command`。
+- Repair design readiness: no
+- Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-005: Agent 可见合同同时鼓励顶层直调和 outer Exec
+- Status: confirmed
+- Parent: P-001
+- Claim: TaskSpace 复用了 Standard 基础指令，其中明确描述直接终端、补丁和 `update_plan` Function Call；与此同时 `taskspace_exec` schema、示例和结果又以 `tool: exec_command` 等原生名称暴露内层能力。两个高显著性合同对同一能力给出不同层级，模型在成功首轮后按熟悉的顶层 Tool prior 提升了内层名称。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-004 refuted
+- Rationale:
+  - 当前症状不是参数错误，而是 outer/inner 层级错误；重复出现的名称恰好来自 Standard 指令与 outer 内层 catalog。
+- Falsifiable predictions:
+  - If true: TaskSpace 实际 base profile 文本与 Standard 完全相同并描述直接工具调用；outer declaration 和首轮历史多次出现精确字符串 `exec_command`；原始第二响应直接命名 `exec_command`，不存在 Runtime 改名步骤。
+  - If false: TaskSpace base 已明确统一 outer Exec 工作方式，或 `exec_command` 在 Agent 可见 schema/history 中不存在，或原始响应实际仍命名 `taskspace_exec`。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对齐实际 session base、base resolver、candidate declaration、第一轮 call/result 和第二轮原始 response item。
+  - Signal: 精确文本、Tool name、call ID、出现顺序和层级。
+  - Capture method: 只读源码、final-wire、rollout；用离线 fixture 固定可见合同矛盾。
+  - Event name or marker:
+    - `session_meta`
+    - `function_call`
+    - `function_call_output`
+  - Correlation keys:
+    - `call_00_JShrk8S4aS5DgNLGsELi8006`
+    - `call_00_4ssfdJl0vRuVI5nkcRfr9385`
+  - Differentiates from:
+    - Provider Tool 集合变化、Runtime Function 名转换、反馈丢失。
+  - Supports if:
+    - Standard base 与 outer nested catalog 的冲突同时存在，且泄漏名称直接来自模型原始输出。
+  - Refutes if:
+    - 任一必要链条不存在，或存在其他层把合法 outer call 改名。
+  - Instrumentation status: diagnostic-offline
+  - Instrumentation lifecycle:
+    - 若确认，转为 base/profile 与 final-wire 的永久一致性门禁。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-012
+  - E-013
+  - E-014
+  - E-015
+- Conclusion: confirmed。直接证据链证明 TaskSpace 实际输入同时包含 Standard 顶层 Function Call 工作方式和 outer Exec 内层工具目录；独立历史证据链证明同一模型在四次现有生产运行中两次把 `exec_command` 提升为顶层调用，且一次发生在完善 outer description 前、一次发生在合法 outer 调用成功后。outer description 能改善首次选择，但不能消除跨层合同冲突。
+- Repair design readiness: no
+- Next step: 在用户确认后单独设计最小修复；不得把详细 Tool wire 复制进 base instructions，也不得放宽 Runtime 硬约束或自动包裹非法调用。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-006: Provider 或 Runtime 把合法 outer call 改名为内层 Tool
+- Status: refuted
+- Parent: P-001
+- Claim: 模型原始响应仍是 `taskspace_exec`，但 Responses API 适配、反序列化或 Runtime reconciliation 根据嵌套 `tool` 字段把它错误转换为顶层 `exec_command`。
+- Layer: alternative-cause
+- Factor relation: competing
+- Depends on:
+  - none
+- Rationale:
+  - 如果适配层改名，则修复 Agent 协议不会解决问题。
+- Falsifiable predictions:
+  - If true: Provider 原始 response item 与 rollout/runtime item 的 Function name 不同，或转换代码从 arguments 读取 `tool` 并覆盖 outer name。
+  - If false: 原始 rollout 已直接记录顶层 `name=exec_command`，转换链只透传 Provider Function name，reconciliation 随后拒绝。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 追踪 Responses output item 到 `ResponseItem::FunctionCall` 和 response scope 的 name 数据流。
+  - Signal: Function name 的唯一赋值点与生产原始 item。
+  - Capture method: 源码静态数据流、现有 provider response/rollout evidence、离线 parser fixture。
+  - Event name or marker:
+    - `response_item`
+    - `taskspace.exec.response_finalized`
+  - Correlation keys:
+    - Provider response `4ed8d4e9-92b7-42fb-8378-0eb5023ab37c`
+  - Differentiates from:
+    - Agent 直接生成未声明 Function name。
+  - Supports if:
+    - 发现 name 覆盖或原始/运行时 name 不一致。
+  - Refutes if:
+    - name 逐层原样透传且原始 item 已为 `exec_command`。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-014
+- Conclusion: refuted；DeepSeek Chat Completions delta 的 `function.name` 被直接保存为 `ResponseItem::FunctionCall.name`，TaskSpace response scope 读取同一字段。生产 rollout 在进入 reconciliation 前已经是 `name=exec_command`，没有 arguments 驱动的重命名路径。
+- Repair design readiness: no
+- Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-011: 两次请求的顶层 Tool 集合完全相同
+- Related hypotheses:
+  - H-004
+- Direction: refutes
+- Type: diagnostic-log
+- Source: `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` provider wire 与候选 final-wire report
+- Prediction or plan link:
+  - H-004 的 Tool identity 变化预测。
+- Matched signal:
+  - 两次请求均为 `tools_count=2`、相同 `tools_hash`、`tool_choice=auto`；候选 payload 的精确顶层名称只有 `taskspace_exec` 和 `web_search`。
+- Correlation keys:
+  - logical request 1、2
+- Raw content:
+  ```text
+  ["taskspace_exec","web_search"]
+  ```
+- Interpretation: 第二响应的 `exec_command` 不是 Runtime 重新暴露后的合法选择。
+- Time: 2026-08-10 07:20
+
+## Evidence E-012: TaskSpace 实际复用 Standard base instructions
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: static-dataflow
+- Source: `base_instructions_profile.rs`、生产 `session_meta`、`whalecode_standard.md`
+- Prediction or plan link:
+  - H-005 的 base profile 一致性预测。
+- Matched signal:
+  - `Standard` 与 `TaskSpace` 均解析为 `standard_instructions`；源码文件和生产 session 文本 SHA-256 同为 `5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382`。
+- Correlation keys:
+  - session `019fe896-1e71-7321-9930-bc5d0921294b`
+- Raw content:
+  ```text
+  Emit function calls to run terminal commands and apply patches.
+  You have access to an `update_plan` tool...
+  ```
+- Interpretation: TaskSpace 顶层实际不暴露普通 client Tool 和 `update_plan`，但最高层工作说明仍按 Standard 的顶层调用模型描述能力。
+- Time: 2026-08-10 07:22
+
+## Evidence E-013: outer 合同和反馈反复暴露内层原生 Tool 名
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: contract-inspection
+- Source: 候选 `taskspace_exec` final-wire declaration 与首响应 outer result
+- Prediction or plan link:
+  - H-005 的内层名称显著性预测。
+- Matched signal:
+  - declaration 明确给出 `{"tool":"exec_command",...}` 示例，17 个 `calls[]` union 分支和结果合同继续列出原生 Tool identity；首响应结果再次返回 `tool=exec_command`。
+- Correlation keys:
+  - outer call `call_00_JShrk8S4aS5DgNLGsELi8006`
+- Raw content:
+  ```text
+  taskspace_exec_result.client_results[0].tool=exec_command
+  ```
+- Interpretation: 内层能力名必须可见，但在缺少一致宏观调用层级说明时，会与 Standard 的顶层 Function Call prior 组合成歧义。
+- Time: 2026-08-10 07:25
+
+## Evidence E-014: Function name 从 Provider delta 到 Runtime 原样透传
+- Related hypotheses:
+  - H-005
+  - H-006
+- Direction: supports H-005 / refutes H-006
+- Type: static-dataflow
+- Source: Chat Completions SSE adapter、TaskSpace response scope、生产 rollout
+- Prediction or plan link:
+  - H-006 的名称覆盖预测。
+- Matched signal:
+  - adapter 在 delta 到达时执行 `state.name = Some(name)`，结束时直接构造 `ResponseItem::FunctionCall { name, ... }`；response scope 直接按该 `name` 判断 forbidden top-level client Tool。生产 response item 已记录 `name=exec_command`。
+- Correlation keys:
+  - `call_00_4ssfdJl0vRuVI5nkcRfr9385`
+  - Provider response `4ed8d4e9-92b7-42fb-8378-0eb5023ab37c`
+- Raw content:
+  ```text
+  {"type":"function_call","name":"exec_command",...}
+  ```
+- Interpretation: 非法层级由模型响应产生；Provider 适配和 Runtime 没有根据嵌套参数改名，也没有丢失合法 outer call。
+- Time: 2026-08-10 07:28
+
+## Evidence E-015: inner-name 顶层提升跨协议版本重复出现
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: historical-reproduction
+- Source: 现有四次 VA-02 生产 rollout 的离线枚举
+- Prediction or plan link:
+  - H-005 的历史一致性预测。
+- Matched signal:
+  - 首次旧 description 运行直接生成 `exec_command`；协议增强后的零 Hosted 运行先成功生成 `taskspace_exec`，下一请求又生成 `exec_command`。另外两次运行生成 outer Exec，但因独立 JSON 结构错误终止。
+- Correlation keys:
+  - `WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5`
+  - `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0`
+- Raw content:
+  ```text
+  run 1: exec_command
+  run 4: taskspace_exec,exec_command
+  ```
+- Interpretation: 这不是单次传输损坏。Tool description 增强改善了首次 outer 选择，但当前 Agent 输入仍不能稳定维持 outer/inner 层级。
+- Time: 2026-08-10 07:31
