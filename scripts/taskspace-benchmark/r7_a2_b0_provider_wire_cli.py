@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed CLI boundary for the paid provider-wire probe."""
+"""Workspace-gated CLI boundary for the provider-wire probe."""
 
 from __future__ import annotations
 
@@ -38,7 +38,10 @@ def main() -> int:
         require_ready(REPO_ROOT)
     except WorkspacePreflightError as exc:
         raise SystemExit(str(exc)) from exc
-    raise SystemExit("run_ledger_authorization_unavailable")
+    result = probe.run_probe(args)
+    print(f"A2B0Result: {args.output}")
+    print(f"A2B0Decision: {result['decision']['overall']}")
+    return 0 if result["decision"]["b1_allowed"] else 2
 
 
 if __name__ == "__main__":

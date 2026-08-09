@@ -308,8 +308,6 @@ def main() -> int:
         require_ready(REPO_ROOT)
     except WorkspacePreflightError as exc:
         raise SystemExit(str(exc)) from exc
-    if not args.plan_only:
-        raise SystemExit("run_ledger_authorization_unavailable")
     contract = read_json(SAMPLE_DIR / "sample.json")
     assert_sample_contract(contract)
     candidate = REPO_ROOT / args.candidate_app_server

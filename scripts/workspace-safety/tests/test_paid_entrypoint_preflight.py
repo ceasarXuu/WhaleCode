@@ -40,13 +40,23 @@ class PaidEntrypointPreflightTest(unittest.TestCase):
                 self.active.main()
             self.assertFalse(run_root.exists())
 
-    def test_active_prefix_live_run_fails_before_inputs_and_writes(self) -> None:
+    def test_active_prefix_ready_workspace_continues_to_input_validation(self) -> None:
         with tempfile.TemporaryDirectory() as raw_temp:
             run_root = Path(raw_temp) / "run"
-            argv = ["runner", "--run-root", str(run_root)]
+            argv = [
+                "runner",
+                "--run-root",
+                str(run_root),
+                "--candidate-app-server",
+                "does-not-exist",
+                "--previous-app-server",
+                "does-not-exist",
+                "--env-file",
+                "does-not-exist",
+            ]
             with mock.patch.object(self.active, "require_ready"), mock.patch.object(
                 sys, "argv", argv
-            ), self.assertRaisesRegex(SystemExit, "run_ledger_authorization_unavailable"):
+            ), self.assertRaisesRegex(SystemExit, "required input missing"):
                 self.active.main()
             self.assertFalse(run_root.exists())
 
@@ -69,7 +79,7 @@ class PaidEntrypointPreflightTest(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertFalse(raw_dir.exists())
 
-    def test_provider_live_run_fails_before_request_and_writes(self) -> None:
+    def test_provider_ready_workspace_delegates_to_probe(self) -> None:
         with tempfile.TemporaryDirectory() as raw_temp:
             output = Path(raw_temp) / "result.json"
             raw_dir = Path(raw_temp) / "raw"
@@ -81,12 +91,12 @@ class PaidEntrypointPreflightTest(unittest.TestCase):
                 str(raw_dir),
             ]
             with mock.patch.object(self.provider, "require_ready"), mock.patch.object(
-                self.provider.probe, "run_probe"
-            ) as run_probe, mock.patch.object(sys, "argv", argv), self.assertRaisesRegex(
-                SystemExit, "run_ledger_authorization_unavailable"
-            ):
-                self.provider.main()
-            run_probe.assert_not_called()
+                self.provider.probe,
+                "run_probe",
+                return_value={"decision": {"overall": "proceed", "b1_allowed": True}},
+            ) as run_probe, mock.patch.object(sys, "argv", argv):
+                self.assertEqual(self.provider.main(), 0)
+            run_probe.assert_called_once()
             self.assertFalse(output.exists())
             self.assertFalse(raw_dir.exists())
 
