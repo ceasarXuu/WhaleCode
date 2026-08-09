@@ -75,6 +75,36 @@ fn expands_namespace_and_preserves_native_identity() {
 }
 
 #[test]
+fn current_nested_public_name_is_not_a_reversible_identity() {
+    let namespaced_left = ToolName::namespaced("alpha", "beta_gamma");
+    let namespaced_right = ToolName::namespaced("alpha_beta", "gamma");
+    let plain = ToolName::plain("alpha_beta_gamma");
+
+    assert_ne!(namespaced_left, namespaced_right);
+    assert_ne!(namespaced_left, plain);
+    assert_eq!(
+        nested_tool_public_name(&namespaced_left),
+        nested_tool_public_name(&namespaced_right)
+    );
+    assert_eq!(
+        nested_tool_public_name(&namespaced_left),
+        nested_tool_public_name(&plain)
+    );
+}
+
+#[test]
+fn current_boundary_heuristic_also_collides() {
+    let namespace_ends_with_separator = ToolName::namespaced("alpha_", "beta");
+    let tool_starts_with_separator = ToolName::namespaced("alpha", "_beta");
+
+    assert_ne!(namespace_ends_with_separator, tool_starts_with_separator);
+    assert_eq!(
+        nested_tool_public_name(&namespace_ends_with_separator),
+        nested_tool_public_name(&tool_starts_with_separator)
+    );
+}
+
+#[test]
 fn projects_schema_backed_client_tool_search() {
     let parameters = JsonSchema::object(
         BTreeMap::from([("query".to_string(), JsonSchema::string(None))]),

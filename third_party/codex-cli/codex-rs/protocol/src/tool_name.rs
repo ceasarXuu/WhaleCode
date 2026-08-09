@@ -60,3 +60,26 @@ impl From<&str> for ToolName {
         Self::plain(name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn serde_round_trips_plain_and_namespaced_identity_without_flattening() {
+        let identities = [
+            ToolName::plain("alpha_beta_gamma"),
+            ToolName::namespaced("alpha", "beta_gamma"),
+            ToolName::namespaced("alpha_beta", "gamma"),
+            ToolName::namespaced("namespace:/with:_separators", "tool:/with:_separators"),
+        ];
+
+        for identity in identities {
+            let encoded = serde_json::to_string(&identity).expect("ToolName should serialize");
+            let decoded =
+                serde_json::from_str::<ToolName>(&encoded).expect("ToolName should deserialize");
+            assert_eq!(decoded, identity);
+        }
+    }
+}
