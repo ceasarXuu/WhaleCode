@@ -78,6 +78,34 @@ try {
     Assert-Equal $identity.valid $true 'R8 count identity fell back to legacy fields'
     Assert-Equal $identity.values.tool_call_count 3 'R8 action total used outer Tool count'
 
+    $zeroHostedArguments = [pscustomobject]@{
+        calls = @(
+            [pscustomobject]@{ tool = 'initialize_map'; arguments = [pscustomobject]@{} },
+            [pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; arguments = [pscustomobject]@{ cmd = 'pwd' } }
+        )
+    }
+    $zeroHostedResult = [pscustomobject]@{
+        kind = 'taskspace_exec_result'; status = 'completed'; outer_call_id = 'outer-1'
+        client_results = @([pscustomobject]@{ outcome = 'succeeded' })
+        hosted_results = @()
+    }
+    @(
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'outer-1'
+                arguments = ($zeroHostedArguments | ConvertTo-Json -Compress -Depth 12)
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'outer-1'
+                output = ($zeroHostedResult | ConvertTo-Json -Compress -Depth 12)
+            } }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
+        Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8
+    $zeroHostedFacts = Get-TaskspaceExecObservation $temp $null
+    Assert-Equal $zeroHostedFacts.availability 'measured' 'omitted Hosted bindings were treated as invalid'
+    Assert-Equal $zeroHostedFacts.nested_action_count 2 'zero-Hosted nested action count drifted'
+    Assert-Equal $zeroHostedFacts.hosted_binding_count 0 'omitted Hosted bindings were not empty'
+    Assert-Equal $zeroHostedFacts.node_binding_count 1 'zero-Hosted node binding count drifted'
+
     $wire = Get-Content -Raw -Encoding UTF8 (Join-Path $temp 'provider-wire-trace.jsonl') | ConvertFrom-Json
     $wire.taskspace_capability_identity = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
     $wire | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $temp 'provider-wire-trace.jsonl') -Encoding UTF8

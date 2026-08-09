@@ -95,9 +95,12 @@ function Get-TaskspaceExecObservation {
                         default { $other++ }
                     }
                 }
-                foreach ($binding in @($arguments.hosted_bindings)) {
-                    $hostedBindings++
-                    $nodeBindings += @($binding.node_ids).Count
+                $hostedBindingValues = Get-TaskspaceExecProperty $arguments 'hosted_bindings'
+                if ($null -ne $hostedBindingValues) {
+                    foreach ($binding in @($hostedBindingValues)) {
+                        $hostedBindings++
+                        $nodeBindings += @($binding.node_ids).Count
+                    }
                 }
             } catch {
                 $findings.Add("exec_arguments_invalid:$callId")
