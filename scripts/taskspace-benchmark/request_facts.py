@@ -18,7 +18,7 @@ from request_fact_validation import validate_attempt_sequences
 
 SCHEMA_VERSION = "whalecode-request-facts-v1"
 ANALYZER_VERSION = "i07-review-fixes-v3"
-WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v10"
+WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v11"
 TERMINAL_STATUSES = {"response_completed", "response_failed", "cancelled", "response_cancelled", "retry_unauthorized"}
 TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens")
 

@@ -11,12 +11,12 @@ $factsPath = Join-Path $artifactDir "request-facts.json"
 $digest = ("a" * 64) -join ""
 @(
     [ordered]@{
-        schema_version = "provider-chat-wire-trace-v10"; status = "payload_captured"
+        schema_version = "provider-chat-wire-trace-v11"; status = "payload_captured"
         request_id = "request-1"; logical_request_id = "logical-1"; attempt_seq = 1
         request_index = 1; provider_payload_sha256 = $digest
     },
     [ordered]@{
-        schema_version = "provider-chat-wire-trace-v10"; status = "response_completed"
+        schema_version = "provider-chat-wire-trace-v11"; status = "response_completed"
         request_id = "request-1"; logical_request_id = "logical-1"; attempt_seq = 1
         input_tokens = 100; cached_input_tokens = 20; output_tokens = 10
         reasoning_output_tokens = 2; total_tokens = 110

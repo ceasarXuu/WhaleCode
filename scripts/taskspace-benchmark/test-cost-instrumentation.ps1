@@ -855,10 +855,10 @@ New-Item -ItemType Directory -Path $wireTraceDir -Force | Out-Null
 $wireTraceJsonl = Join-Path $RunRoot "provider-wire-trace-whale-exec.jsonl"
 '{"type":"turn.completed","usage":{"input_tokens":300,"cached_input_tokens":200,"output_tokens":20}}' | Set-Content -LiteralPath $wireTraceJsonl -Encoding UTF8
 @(
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_shape_recorded","request_id":"wire-1","logical_request_id":"wire-logical-1","attempt_seq":1,"epoch_id":"epoch-1","request_index":1,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-1","provider_payload_sha256":"0000000000000000000000000000000000000000000000000000000000000001","provider_payload_bytes":100,"messages_hash":"messages-1","tools_hash":"tools-1","cache_shape_hash":"shape-named","tools_count":2,"tool_choice_kind":"named_function","tool_choice_name":"taskspace_control","message_count":2,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"}],"previous_request_id":null,"lcp_message_count":0,"lcp_message_bytes":0,"message_prefix_preserved":null,"tool_choice_preserved":null,"tool_choice_changed":null,"prefix_preserved":null,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_request_terminal","request_id":"wire-1","logical_request_id":"wire-logical-1","attempt_seq":1,"status":"response_completed","input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":110}',
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_prefix_broken","request_id":"wire-2","logical_request_id":"wire-logical-2","attempt_seq":1,"epoch_id":"epoch-1","request_index":2,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-2","provider_payload_sha256":"0000000000000000000000000000000000000000000000000000000000000002","provider_payload_bytes":140,"messages_hash":"messages-2","tools_hash":"tools-1","cache_shape_hash":"shape-auto","tools_count":2,"tool_choice_kind":"auto","tool_choice_name":null,"message_count":3,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"},{"index":2,"role":"assistant","bytes":30,"message_sha256":"m2","content_sha256":"c2"}],"previous_request_id":"wire-1","lcp_message_count":2,"lcp_message_bytes":60,"message_prefix_preserved":true,"tool_choice_preserved":false,"tool_choice_changed":true,"prefix_preserved":false,"first_diff_index":null,"first_diff_path":"tool_choice","status":"payload_captured"}',
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_request_terminal","request_id":"wire-2","logical_request_id":"wire-logical-2","attempt_seq":1,"status":"response_completed","input_tokens":200,"cached_input_tokens":180,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":210}'
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_shape_recorded","request_id":"wire-1","logical_request_id":"wire-logical-1","attempt_seq":1,"epoch_id":"epoch-1","request_index":1,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-1","provider_payload_sha256":"0000000000000000000000000000000000000000000000000000000000000001","provider_payload_bytes":100,"messages_hash":"messages-1","tools_hash":"tools-1","cache_shape_hash":"shape-named","tools_count":2,"tool_choice_kind":"named_function","tool_choice_name":"taskspace_control","message_count":2,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"}],"previous_request_id":null,"lcp_message_count":0,"lcp_message_bytes":0,"message_prefix_preserved":null,"tool_choice_preserved":null,"tool_choice_changed":null,"prefix_preserved":null,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_request_terminal","request_id":"wire-1","logical_request_id":"wire-logical-1","attempt_seq":1,"status":"response_completed","input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":110}',
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_prefix_broken","request_id":"wire-2","logical_request_id":"wire-logical-2","attempt_seq":1,"epoch_id":"epoch-1","request_index":2,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-2","provider_payload_sha256":"0000000000000000000000000000000000000000000000000000000000000002","provider_payload_bytes":140,"messages_hash":"messages-2","tools_hash":"tools-1","cache_shape_hash":"shape-auto","tools_count":2,"tool_choice_kind":"auto","tool_choice_name":null,"message_count":3,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"},{"index":2,"role":"assistant","bytes":30,"message_sha256":"m2","content_sha256":"c2"}],"previous_request_id":"wire-1","lcp_message_count":2,"lcp_message_bytes":60,"message_prefix_preserved":true,"tool_choice_preserved":false,"tool_choice_changed":true,"prefix_preserved":false,"first_diff_index":null,"first_diff_path":"tool_choice","status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_request_terminal","request_id":"wire-2","logical_request_id":"wire-logical-2","attempt_seq":1,"status":"response_completed","input_tokens":200,"cached_input_tokens":180,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":210}'
 ) | Set-Content -LiteralPath (Join-Path $wireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
 $wireTraceInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $wireTraceDir -JsonlPath $wireTraceJsonl -ObservabilityJsonPath ""
 $wireTraceSummary = $wireTraceInstrumentation.provider_cache_trace_summary
@@ -914,7 +914,7 @@ $v3Sections = @(
     [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 50; estimated_tokens = 12; sha256 = "other-hash" }
 )
 $v3Shape = [pscustomobject]@{
-    schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_shape_recorded"
+    schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"
     request_id = "wire-v3-1"; request_index = 1; provider_wire_api = "ChatCompletions"; status = "payload_captured"
     provider_payload_sha256 = "wire-v3-hash"; provider_payload_bytes = 500; cache_shape_hash = "wire-v3-shape"
     messages_hash = "wire-v3-messages"; tools_hash = "wire-v3-tools"; tools_count = 2; message_count = 4
@@ -934,7 +934,7 @@ $v3Shape = [pscustomobject]@{
 }
 @(
     $v3Shape,
-    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v3-1"; status = "response_completed"; input_tokens = 500; cached_input_tokens = 0; output_tokens = 20 }
+    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v3-1"; status = "response_completed"; input_tokens = 500; cached_input_tokens = 0; output_tokens = 20 }
 ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath (Join-Path $v3WireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
 $v3Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v3WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
 $v3Summary = $v3Instrumentation.provider_cache_trace_summary.section_cost_summary
@@ -950,7 +950,7 @@ Assert-True ([int]$v3ProjectionSection.request_sample_count -eq 1 -and [double]$
 $v5WireTraceDir = Join-Path $RunRoot "provider-wire-trace-v5-artifacts"
 New-Item -ItemType Directory -Path $v5WireTraceDir -Force | Out-Null
 $v5Shape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
-$v5Shape.schema_version = "provider-chat-wire-trace-v10"
+$v5Shape.schema_version = "provider-chat-wire-trace-v11"
 $v5Shape.request_id = "wire-v5-1"
 $v5Shape | Add-Member -NotePropertyName base_instructions_identity -NotePropertyValue ([pscustomobject]@{
     count = 1; message_index = 0; wire_role = "system"; message_bytes = 21727; estimated_tokens = 5432
@@ -960,7 +960,7 @@ $v5Shape | Add-Member -NotePropertyName base_instructions_identity -NoteProperty
 })
 @(
     $v5Shape,
-    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v5-1"; status = "response_completed"; input_tokens = 6000; cached_input_tokens = 0; output_tokens = 20 }
+    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v5-1"; status = "response_completed"; input_tokens = 6000; cached_input_tokens = 0; output_tokens = 20 }
 ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath (Join-Path $v5WireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
 $v5Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v5WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
 $v5BaseEvent = @($v5Instrumentation.provider_cache_trace_events)[0].base_instructions_identity

@@ -68,7 +68,7 @@ def write_provider_wire_trace(
         lines.extend(
             (
                 {
-                    "schema_version": "provider-chat-wire-trace-v10",
+                    "schema_version": "provider-chat-wire-trace-v11",
                     "status": "payload_captured",
                     "request_id": request_id,
                     "logical_request_id": request_id,
@@ -77,7 +77,7 @@ def write_provider_wire_trace(
                     "provider_payload_sha256": digest,
                 },
                 {
-                    "schema_version": "provider-chat-wire-trace-v10",
+                    "schema_version": "provider-chat-wire-trace-v11",
                     "status": "response_completed",
                     "request_id": request_id,
                     "logical_request_id": request_id,

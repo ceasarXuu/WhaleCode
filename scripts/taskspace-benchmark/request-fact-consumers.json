@@ -22,7 +22,7 @@
     {"path":"scripts/taskspace-benchmark/lib/cost-instrumentation.ps1","role":"consumer","observed_sources":["canonical","terminal"]},
     {"path":"scripts/taskspace-benchmark/lib/provider-cache-summary-contract.ps1","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/taskspace-benchmark/lib/performance-observation.ps1","role":"consumer","observed_sources":["canonical"]},
-    {"path":"scripts/taskspace-benchmark/lib/taskspace-exec-observation.ps1","role":"consumer","observed_sources":["canonical"]},
+    {"path":"scripts/taskspace-benchmark/lib/taskspace-exec-observation.ps1","role":"consumer","observed_sources":["canonical","local_attempt"]},
     {"path":"scripts/taskspace-benchmark/docker/provider_boundary_proxy.py","role":"producer","observed_sources":["boundary"]},
     {"path":"scripts/taskspace-benchmark/docker/verify_provider_boundary.py","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/cache-regression/recover_cache_run_ledger.py","role":"consumer","observed_sources":["canonical"]},

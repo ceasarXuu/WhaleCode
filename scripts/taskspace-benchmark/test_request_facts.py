@@ -219,10 +219,10 @@ class RequestFactsTests(unittest.TestCase):
 
     @staticmethod
     def _shape(request: str, logical: str, attempt: int, index: int, digest: str) -> dict:
-        return {"schema_version": "provider-chat-wire-trace-v10", "request_id": request, "logical_request_id": logical, "attempt_seq": attempt, "request_index": index, "status": "payload_captured", "provider_payload_sha256": digest}
+        return {"schema_version": "provider-chat-wire-trace-v11", "request_id": request, "logical_request_id": logical, "attempt_seq": attempt, "request_index": index, "status": "payload_captured", "provider_payload_sha256": digest}
 
     def _terminal(self, request: str, logical: str, attempt: int, status: str) -> dict:
-        event = {"schema_version": "provider-chat-wire-trace-v10", "request_id": request, "logical_request_id": logical, "attempt_seq": attempt, "status": status}
+        event = {"schema_version": "provider-chat-wire-trace-v11", "request_id": request, "logical_request_id": logical, "attempt_seq": attempt, "status": status}
         if status == "response_completed":
             event.update(self._usage(10))
         return event

@@ -51,7 +51,7 @@ $resolved = [pscustomobject]@{
     selected_sides = @("right")
 }
 $wire = [pscustomobject]@{
-    schema_version = "provider-chat-wire-trace-v10"
+    schema_version = "provider-chat-wire-trace-v11"
     provider_wire_api = $authority.provider_wire_api
     transport = $authority.provider_transport
     tools_hash = $authority.tool_capability_profiles.taskspace.tools_hash

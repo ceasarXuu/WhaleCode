@@ -316,7 +316,7 @@ function Get-R7ProviderWireCapabilityIdentity {
         }
         $identity[$field] = $values[0]
     }
-    if ([string]$identity.schema_version -ne "provider-chat-wire-trace-v10" -or
+    if ([string]$identity.schema_version -ne "provider-chat-wire-trace-v11" -or
         [string]$identity.tools_hash -notmatch '^[a-fA-F0-9]{64}$' -or
         $identity.tools_count -isnot [int64] -or [int64]$identity.tools_count -lt 1) {
         throw "Provider wire capability identity is malformed"

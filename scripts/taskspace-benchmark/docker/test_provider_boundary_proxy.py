@@ -178,7 +178,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         )
         wire_events = [
             {
-                "schema_version": "provider-chat-wire-trace-v10",
+                "schema_version": "provider-chat-wire-trace-v11",
                 "status": "payload_captured",
                 "request_id": "request-1",
                 "logical_request_id": "logical-1",
@@ -187,7 +187,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
                 "provider_payload_sha256": digest,
             },
             {
-                "schema_version": "provider-chat-wire-trace-v10",
+                "schema_version": "provider-chat-wire-trace-v11",
                 "status": "response_completed",
                 "request_id": "request-1",
                 "logical_request_id": "logical-1",
@@ -284,8 +284,8 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         wire_events = []
         for index, terminal in ((1, "response_failed"), (2, "response_completed")):
             request_id = f"retry-{index}"
-            wire_events.append({"schema_version": "provider-chat-wire-trace-v10", "status": "payload_captured", "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index, "request_index": index, "provider_payload_sha256": digest})
-            event = {"schema_version": "provider-chat-wire-trace-v10", "status": terminal, "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index}
+            wire_events.append({"schema_version": "provider-chat-wire-trace-v11", "status": "payload_captured", "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index, "request_index": index, "provider_payload_sha256": digest})
+            event = {"schema_version": "provider-chat-wire-trace-v11", "status": terminal, "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index}
             if terminal == "response_completed":
                 event.update({"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 2, "reasoning_output_tokens": 1, "total_tokens": 12})
             wire_events.append(event)

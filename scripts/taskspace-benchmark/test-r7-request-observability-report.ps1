@@ -33,7 +33,7 @@ function New-WireShape(
     [object[]]$FinalControlResults = @()
 ) {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = if ($Index -eq 1) { "provider.chat_wire_shape_recorded" } else { "provider.chat_wire_prefix_broken" }
         status = "payload_captured"
         request_id = $RequestId
@@ -62,7 +62,7 @@ function New-WireShape(
 
 function New-WireTerminal([string]$RequestId, [int]$InputTokens, [int]$CachedInputTokens) {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_request_terminal"
         request_id = $RequestId
         logical_request_id = "$RequestId-logical"

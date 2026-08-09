@@ -6,7 +6,7 @@ New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 
 function Write-WireFixture([string]$Path, $Terminal) {
     $shape = [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_shape_recorded"
         request_id = "request-1"
         logical_request_id = "logical-1"
@@ -29,7 +29,7 @@ function Write-WireFixture([string]$Path, $Terminal) {
 
 function New-Terminal {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_request_terminal"
         request_id = "request-1"
         logical_request_id = "logical-1"
@@ -105,7 +105,7 @@ try {
     $stringIdentity.attempt_seq = "1"
     $identityPath = Join-Path $tempRoot "string-identity.jsonl"
     $shape = [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_shape_recorded"
         request_id = "request-1"
         logical_request_id = "logical-1"

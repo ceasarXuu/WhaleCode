@@ -144,7 +144,7 @@ function Get-R7WireRequestInventory {
     }
     $unordered = @($facts.Values | ForEach-Object { [pscustomobject]$_ })
     $incomplete = @($unordered | Where-Object {
-            [string]$_.trace_schema -ne "provider-chat-wire-trace-v10" -or
+            [string]$_.trace_schema -ne "provider-chat-wire-trace-v11" -or
             [string]::IsNullOrWhiteSpace([string]$_.logical_request_id) -or
             [string]$_.logical_request_id -ne [string]$_.terminal_logical_request_id -or
             [string]::IsNullOrWhiteSpace([string]$_.transport) -or
