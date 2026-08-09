@@ -67,9 +67,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   protocol description，并用同一首次示例反向通过 decoder 与 preflight；未修改 base instructions、普通 Tool、Router 或
   Runtime 语义。VA-03 仍未启动，VA-02 真实复验需重新申请预算。同期发现的 wire v11 consumer 漂移已由
   `cca76e921` 修复，运行 usage 已从原始 trace 完整恢复。
-- Phase B5 CP-01～CP-11 已完成当前依赖顺序中的离线建设：Catalog、原生 Tool identity、deferred 生命周期、输入/输出合同、
+- Phase B5 CP-01～CP-12 已完成当前依赖顺序中的离线建设：Catalog、原生 Tool identity、deferred 生命周期、输入/输出合同、
   中性 nested result、内层请求来源和 Hosted 逐项对账已统一到生产事实源。由于 Provider Function Tool 不发送 output
-  schema，返回合同按最新 Codex 做法由同一 schema 渲染进唯一 outer Tool description；Standard 与普通 Tool 不变。
+  schema，返回合同按最新 Codex 做法由同一 schema 渲染进唯一 outer Tool description；当前 TaskSpace Tool final-wire 已进入
+  免费门禁，Standard 与普通 Tool 不变。
 
 ## 3. 文档
 
@@ -114,6 +115,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 35. [`34-phase-b5-cp08-output-contract.md`](34-phase-b5-cp08-output-contract.md)：typed outer result、canonical Map read、原生 nested result 与模型可见返回合同的同源证据。
 36. [`35-phase-b5-cp10-dispatch-requester.md`](35-phase-b5-cp10-dispatch-requester.md)：Direct、Code Mode 与 TaskSpace 内层 Tool requester 的机械身份和 rollout 回放证据。
 37. [`36-phase-b5-cp11-hosted-reconciliation.md`](36-phase-b5-cp11-hosted-reconciliation.md)：Hosted 类型同源分类、真实 Provider output 与 Agent 多节点归属的逐项核对证据。
+38. [`37-phase-b5-cp12-final-wire-gate.md`](37-phase-b5-cp12-final-wire-gate.md)：详细协议单一权威、TaskSpace Tool final-wire 和精确缓存敏感面证据。
 
 ## 4. 推进规则
 

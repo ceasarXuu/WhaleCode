@@ -42,6 +42,22 @@ class FreeCacheContractsTest(unittest.TestCase):
         self.assertEqual(result["commands"][0]["status"], "pass")
         self.assertEqual(result["commands"][0]["output_tail"], ["wire stable"])
 
+    def test_commands_do_not_scan_the_host_home(self) -> None:
+        script = (
+            "import os, pathlib; "
+            "home=pathlib.Path(os.environ['HOME']); "
+            "assert home.name.startswith('whale-cache-home-'); "
+            "assert os.environ['USERPROFILE'] == str(home); "
+            "assert pathlib.Path(os.environ['CARGO_HOME']).name == '.cargo'"
+        )
+
+        result = run_free_validation(
+            self.repo,
+            command_config(["python3", "-c", script]),
+        )
+
+        self.assertTrue(result["passed"])
+
     def test_failure_does_not_hide_later_independent_results(self) -> None:
         config = command_config(["python3", "-c", "raise SystemExit(9)"])
         config["commands"].append(

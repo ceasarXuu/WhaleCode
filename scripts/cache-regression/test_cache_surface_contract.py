@@ -27,7 +27,11 @@ KNOWN_PRODUCTION_ENTRIES = [
     "third_party/codex-cli/codex-rs/core/src/tools/spec.rs",
     "third_party/codex-cli/codex-rs/core/src/tools/router.rs",
     "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/catalog.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/deferred.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/hosted.rs",
     "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/map_operations.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/protocol.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/result.rs",
     "third_party/codex-cli/codex-rs/core/src/mcp_tool_exposure.rs",
     "third_party/codex-cli/codex-rs/core/src/plugins/injection.rs",
     "third_party/codex-cli/codex-rs/core/src/skills.rs",
@@ -81,6 +85,7 @@ class CacheSurfaceContractTest(unittest.TestCase):
         paths = [
             "third_party/codex-cli/codex-rs/core/tests/common/cache_payload.rs",
             "third_party/codex-cli/codex-rs/core/tests/suite/cache_final_wire.rs",
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
             "third_party/codex-cli/codex-rs/core/tests/suite/cache_payload_mcp_contract.rs",
         ]
         self.assertTrue(all(is_cache_control_plane_path(path) for path in paths))
@@ -117,7 +122,7 @@ class CacheSurfaceContractTest(unittest.TestCase):
         self.assertTrue(is_cache_evidence_path(path))
         self.assertFalse(is_cache_control_plane_path(path))
 
-    def test_zero_base_final_wire_matrix_tracks_standard_only(self) -> None:
+    def test_zero_base_final_wire_matrix_tracks_standard_and_taskspace(self) -> None:
         commands = {
             command["id"]: command
             for command in self.contract["free_validation"]["commands"]
@@ -129,6 +134,10 @@ class CacheSurfaceContractTest(unittest.TestCase):
             "standard_request_pair_preserves_the_complete_prefix",
         )
         self.assertEqual(matrix["change_report"]["type"], "final_wire_snapshot_set")
+        taskspace = commands["taskspace_final_wire"]
+        self.assertEqual(taskspace["argv"][-1], "taskspace_production_tool_wire")
+        self.assertNotIn("change_report", taskspace)
+        self.assertEqual(commands["taskspace_contract"]["argv"][-1], "taskspace_exec")
         self.assertNotIn("tool_wire_contract", commands)
         baseline_patterns = self.contract["free_validation"]["semantic_baseline_globs"]
         protected = {
