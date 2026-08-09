@@ -84,6 +84,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 19. [`19-phase-b4-observability-audit.md`](19-phase-b4-observability-audit.md)：OB-01A～OB-01B 现有事件、身份断点和最小补齐结果。
 20. [`20-phase-b4-cache-surface-result.md`](20-phase-b4-cache-surface-result.md)：OB-02A 最终声明构建链、缓存敏感面和正反门禁证据。
 21. [`21-phase-b4-performance-observer-result.md`](21-phase-b4-performance-observer-result.md)：OB-02B R8 Exec 动作、I07 成本事实和跨层身份消费证据。
+22. [`22-phase-b4-offline-acceptance.md`](22-phase-b4-offline-acceptance.md)：VA-01 Docker、Rust、CLI/Viewer、Standard 与门禁的固定离线验收证据。
 
 ## 4. 推进规则
 
