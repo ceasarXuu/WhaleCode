@@ -46,5 +46,6 @@ Core 全库首轮另有 9 项 Guardian/模型刷新测试失败，日志均显�
 
 ## 4. 结论
 
-当前生产链、持久化事实、消费者和 Standard final wire 均通过固定离线验收。VA-01 完成，Phase B4 只剩 VA-04A：
-基于当前源码和确定性证据重新映射 R8 的 I01～I10，不用静态测试提前关闭必须等待真实 trace 的行为问题。
+当前生产链、持久化事实、消费者和 Standard final wire 均通过固定离线验收。VA-01 完成；后续 VA-04A 已基于当前
+源码和确定性证据重新映射 R8 的 I01～I10，结果见
+[`23-phase-b4-issue-remap-result.md`](23-phase-b4-issue-remap-result.md)。

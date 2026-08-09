@@ -5,14 +5,14 @@
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
-> **推进暂停（2026-08-09 更新）**：TaskSpace Exec Phase B3 已完成离线工程闭环；原问题执行序继续暂停到 Phase B4
-> 完成观测、离线门禁和静态重映射。此前的 Tool schema 入侵、顶层结构化容器和 sibling 配对路线已降级并封存在
-> [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。B4 的 VA-04A 只清理旧根因和标记待验证项；行为与成本问题
-> 必须等待获批的 Phase B5 真实证据，不能因新架构落地自动关闭。
+> **VA-04A 离线重映射（2026-08-09）**：TaskSpace Exec Phase B4 已完成观测、固定离线门禁和当前源码重映射。
+> 此前的 Tool schema 入侵、顶层结构化容器和 sibling 配对路线已封存在
+> [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。I01/I02/I05/I06 的旧根因已由新架构删除，列为静态关闭候选；
+> I10 仍有当前静态缺口；I03/I04/I07/I08 必须等待获批的 Phase B5 真实证据。离线候选不等于问题关闭。
 
-TaskSpace Exec Phase B3 已完成正式 schema、原生 client dispatch、关系化 canonical Store、Hosted 逐项多节点绑定、唯一
-outer feedback 和可靠 Action 结算的离线集成。该结果证明生产工程链成立，但尚未证明目标 Provider 下的 Agent 行为、三种
-projection 的效果和不可约成本；本表 I01～I10 的状态仍不自动改变，按 VA-04A/VA-04B 两步重评。
+TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
+不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
+VA-04B 使用 Phase B5 当前 trace 重评。
 
 TaskSpace Exec 与全局问题的处理边界统一记录在
 [`taskspace-exec/03-global-issue-prerequisite-review.md`](taskspace-exec/03-global-issue-prerequisite-review.md)：I07 已确认的
@@ -50,116 +50,55 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 
 本表只描述产品问题，不在问题名称中预设技术根因。具体机制、证据和修复方案进入各问题专项文档。
 
-| 执行序 | ID | 层级 | 严重度 | 产品问题 | 用户或 Agent 的实际影响 | 产品应有表现 | 状态 | Source |
+| 执行序 | ID | 层级 | 严重度 | 产品问题 | 产品应有表现 | VA-04A 离线结论 | 状态 | Source |
 |---:|---|---:|---:|---|---|---|---|---|
-| 1 | R8-I09 | F0 | P0 | 恢复旧任务时，产品可能接受一份内部关系已经损坏的任务地图 | Agent 看到的任务、依赖和完成状态不再可信，后续所有推进都可能建立在错误事实之上 | 只恢复结构完整的任务地图；损坏时明确停止，且不改变当前任务或子 Agent 关系 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
-| 2 | R8-I01 | F1 | P0 | 一轮工作完成后，Agent 可能同时收到新旧两个任务进度版本 | Agent 容易拿旧版本继续提交，明明刚完成的工作却被判定为过期，引发额外读取和重试 | 每轮推进结束只给 Agent 一个可继续使用的最新任务版本；中间版本不能与最终版本竞争 | [verifying](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
-| 3 | R8-I06 | F2 | P0 | 通过组合工具间接发起的动作，可能绕过 TaskSpace 对动作归属和修改次数的统一检查 | 某些真实操作可能没有归属任务节点，或在同一轮执行多个代码补丁，破坏可追踪性和原子边界 | 无论动作从哪一层工具发起，都经过同一套请求级硬检查；普通工具本身保持原生 | queued | GI-006 |
-| 4 | R8-I05 | F3 | P1 | 动作被拒绝时，Agent 收到的原因可能重复、被包在字符串里，或混淆“尝试中的状态”和“真正保存的状态” | Agent 无法确认哪份状态已经生效，容易重复同一错误或额外读取任务地图自证 | 一次、结构化、忠实地返回拒绝原因，并明确区分已保存状态与失败尝试中的临时状态 | queued | GI-005 |
-| 5 | R8-I02 | F3 | P1 | TaskSpace 的工具结果会被再次包装成高优先级上下文消息 | 同一事实重复占用上下文、破坏缓存，还可能让包装内容与原始工具结果产生竞争 | 工具事实通过原工具反馈完整传递一次；不得为了强调而另造 system/developer 消息副本 | queued | GI-002 |
-| 6 | R8-I10 | F4 | P1 | 会话中可用工具发生变化时，产品没有一个稳定、可识别的能力版本 | Agent、缓存和性能报告无法判断是任务变化还是工具能力变化，跨请求结果难以可靠比较 | 只有实际可用工具集合变化时才切换能力版本，并让执行、缓存和观测使用同一身份 | queued | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 性能观察工具可能漏掉执行记录、把一次失败重复统计，或把过期证据当成当前结果 | 团队可能基于错误报告判断根因、关闭问题或选择版本，测试数字看似完整但不可复算 | 每个请求和失败只计算一次；证据缺失、身份不一致或已过期时明确判为不可比较 | [queued](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定地把任务地图操作和实际工作动作组织在同一轮正确提交 | 初始化、推进或完成任务时频繁触发协议拒绝，本来一次能完成的工作被拆成多次请求 | Agent 能稳定使用少量明确的合法动作组合，如初始化并执行、完成并继续、完成并结束 | queued | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 有时会提前执行依赖尚未满足的任务，或继续操作已经完成的节点 | 状态机只能拒绝这些动作，造成无效请求；严重时 Agent 会误判当前可做的工作 | Agent 能准确识别当前可执行节点，并稳定完成“结束前一步后继续下一步”的合法连续动作 | queued | GI-004 |
-| 10 | R8-I08 | F6 | P3 | TaskSpace 完成同类任务所需的请求、输入、时间和未缓存成本仍明显高于 Standard | 即使任务质量有收益，也可能因成本过高而缺乏商业可用性 | 在不删减语义和硬约束的前提下，把额外成本收敛到可解释、稳定且与产品收益匹配的范围 | queued | GI-008 |
+| 1 | R8-I09 | F0 | P0 | 恢复旧任务时可能接受内部关系损坏的任务地图 | 只恢复结构完整的地图；损坏时停止且不改变当前事实 | 当前关系 Store、hydrate 校验和 State 回归继续成立 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
+| 2 | R8-I01 | F1 | P0 | 一轮工作后 Agent 可能收到互相竞争的新旧进度 | 每轮只有一个可继续使用的结果，revision 不成为 Agent 填表负担 | 旧 receipt/control 双版本链已删除；Exec 只返回一个 outer 结果，request revision 由 Runtime 内部维护。静态关闭候选，待 E3 排除 stale 重试 | [verifying](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
+| 3 | R8-I06 | F2 | P0 | 组合工具内部动作可能绕过归属和单 Patch 硬门 | 所有 TaskSpace client 动作先过同一请求级预检，普通 Tool 保持原生 | 生产顶层仅 Exec+Hosted；完整 plan 在副作用前校验，顶层绕过和多 Patch 有确定性拒绝。静态关闭候选 | verifying | GI-006 |
+| 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆临时候选与已保存事实 | 忠实返回一次失败；未提交候选不得表现为已保存状态 | 旧 pairing/developer 双反馈已删除；preflight 拒绝零提交，单一 Tool pairing 返回原始阶段错误。静态关闭候选，待 E3 检查模型可见效果 | verifying | GI-005 |
+| 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
+| 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | catalog 在单请求内共用同一快照且 declaration 确定，但尚无 provider wire、dispatch、cache/report 共用的 capability identity；当前缺口仍成立 | queued | GI-010 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | 双计、freshness、provenance 已修复；OB-01/OB-02 已接入 Exec 身份和动作消费。只差授权生产 trace 验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 历史 control+sibling 失败不再代表当前协议；结构化 Exec 合同已就绪，但没有当前 Provider 行为证据 | queued | GI-003 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 当前 DAG/readiness 硬规则确定性通过；是否仍有错误选择只能由 E3 判断 | queued | GI-004 |
+| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 新协议尚无同 commit 四臂真实成本；历史 sibling 数字失效，不能离线关闭或量化 | queued | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec 主方案**；原问题队列暂停。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 验证准备**。
 
-I01 暂停前计划：
-[`I01/00-i01-response-final-revision-repair-plan.md`](I01/00-i01-response-final-revision-repair-plan.md)。
+## 4. VA-04A 证据边界
 
-I01 暂停前进展：
+| 分类 | 问题 | 当前可下结论 | 当前不能下结论 |
+|---|---|---|---|
+| 确定性关闭 | I09 | 关系 Store hydrate 仍拒绝非法图，State 134 项通过 | 无 |
+| 静态关闭候选 | I01、I02、I05、I06 | 旧根因和旧生产路径为零，新 Exec 的唯一反馈、内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试、误读拒绝或非法组合 |
+| 当前静态缺口 | I10 | catalog 快照保证本请求声明与 dispatch 一致，声明字节确定 | 尚无跨 provider wire、dispatch、cache/report 的同一 capability identity |
+| 工程完成待生产验收 | I07 | canonical request facts 和 Exec 动作身份消费均通过离线 fixture | 当前生产 trace 的 completeness/freshness |
+| 纯行为/成本待验证 | I03、I04、I08 | 当前协议、DAG 和测量工具已具备验证条件 | Agent 遵循、节点选择、三种 projection 成本与业务收益 |
 
-- W0-W8 工程实现和离线验证完成：`3fbfbe6dc`、`ae36f0cbe`、`dbce3402e`、`d46b19479`、
-  `9e64a3ddc`、`ad117ce24`、`cb91900c3`、`d2be70030`、`cec426afd`；
-- 三种 TaskSpace policy 只保留原 control call 的唯一最终结果，Standard 和普通 Tool final wire 未变；
-- 正式缓存快照未自行晋升；W9 真实行为验证和 W10 真实缓存证据仍需分别获得用户预算授权，因此 I01 保持 open。
-- W9 的 `map-always` repeat 1 未复现 stale，成功 revision 链为 `2 -> 4 -> 6 -> 8 -> 10`；代码和两层验证均
-  通过，但 5 次零执行协议/状态拒绝耗尽请求预算，Agent 未提交 `finish_map`。该运行停止并结算，阻塞归入既有
-  I03，详见 [`I01/02-i01-w9-map-always-repeat1-result.md`](I01/02-i01-w9-map-always-repeat1-result.md)。
+本轮证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server
+Protocol 183、workspace、zero-base 和 cache gate 全部通过，详见
+[`22-phase-b4-offline-acceptance.md`](taskspace-exec/22-phase-b4-offline-acceptance.md)。OB-01/OB-02 的身份链和报告消费见
+[`19-phase-b4-observability-audit.md`](taskspace-exec/19-phase-b4-observability-audit.md) 与
+[`21-phase-b4-performance-observer-result.md`](taskspace-exec/21-phase-b4-performance-observer-result.md)。完整重映射结论见
+[`23-phase-b4-issue-remap-result.md`](taskspace-exec/23-phase-b4-issue-remap-result.md)。
 
-I03 当前新增证据：
+旧 control/sibling 真实运行、旧 developer carrier 缓存结果和旧请求放大数字只保留在各专题历史文档中，不再作为当前
+问题的产品证据。VA-04B 只使用最终生产入口的获批 trace 更新状态。
 
-- `map-always` 单次简单样本中先后出现 1 次缺少 control、2 次 control manifest 缺少 sibling、1 次初始化后
-  普通动作仍缺少 control，以及 1 次完成节点与动作归属冲突；所有错误均被零执行拒绝，但使 Agent 在业务验证通过后
-  仍无法在 10 次上游请求内闭合 Map。
-
-I05/I07 当前新增证据：
-
-- 同一 preflight/state rejection 同时以 Tool pairing output 和 developer factual message 暴露，属于 I05 待收敛的
-  重复反馈；rollout observer 将 10 次 completed provider 请求统计为 19 次并近似双计 token，provider boundary
-  verifier 又把 1 次本地 pre-dispatch reject 当成 upstream mismatch，属于 I07 待修复的证据口径问题。
-
-I07 最新确定性根因证据（2026-08-05）：
-
-- `WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002` 中，provider boundary 与 final-wire 均证明实际完成
-  8 次请求，但 Harness `request-summary.json` 和 `metrics.json` 报告 15 次；原始 rollout 恰好是前 7 个请求各有
-  2 条带 usage 的 `token_count`，最终请求只有 1 条，即 `7 × 2 + 1 = 15`。
-- 每个重复对由一条带唯一 `provider_request_id` 的 response-completed token 事件，和一条不带请求 ID、重复携带
-  `last_token_usage` 的 rate-limit 状态事件组成。后者由提交 `e9d705a235` 增加；调用处注释声明应延迟发送以避免
-  重复，但 `update_rate_limits()` 实际仍发送了第二条 `TokenCount`。
-- Harness `New-TaskspaceRolloutRequestTraceSummary` 当前把每条带 `last_token_usage` 的 `token_count` 都计作请求，
-  不检查 `provider_request_id`，也不按请求身份去重。因此 rollout input 被重复累计为 `213,460`，而 sample 聚合
-  又用正确累计 input `114,476` 除以错误请求数 15，派生的平均每请求 token 同样失真。
-- 现有合成测试只构造“一次请求对应一条 token 事件”，没有覆盖同一次请求同时出现 provider usage 事件与无 ID
-  rate-limit 广播的真实形态，因此未能阻止该回归。
-- 本轮费用账本不受影响：结算使用 reconciled provider boundary 和 8 个唯一 final-wire terminal，而不是错误的
-  Harness 聚合值。完整证据见
-  [`WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002.json`](../../../benchmarks/taskspace/r8/evidence/WAR-20260805-063652-R8-NESTED-RESULT-VISIBILITY-002.json)。
-
-I07 独立修复状态（2026-08-05）：
-
-- `I07-W0`～`W8`、`W10` 已完成，基础提交为 `6ad058e10`～`63b0336d3`，对抗性收敛提交截至
-  `8acd79b76`，结果见
-  [`I07/01-i07-independent-repair-result.md`](I07/01-i07-independent-repair-result.md)；
-- 8/15 双计已修正为 8 completed/usage + 7 snapshots，10/11 阶段误判已修正为 11 local attempts +
-  10 boundary requests + 1 local-only failure；
-- 性能、成本、缓存、freshness 和 provenance 已共用 canonical request facts，严格 mode-map 合同在四条路径一致生效，
-  24-run 离线报表通过，最终空白复审无 blocking finding；
-- 全局 I07 不关闭，仍等待 TaskSpace Exec item/node 身份接入（W9）和经授权生产验收（W11）。
-
-已关闭问题：
-[`I09/00-i09-store-hydrate-repair-plan.md`](I09/00-i09-store-hydrate-repair-plan.md)。
-[`I09/01-i09-store-hydrate-repair-result.md`](I09/01-i09-store-hydrate-repair-result.md)。
-
-I09 提交索引：
-
-- 核心修复：`e92241ed6`、`6a31eeb96`
-- 生命周期回归：`c7ec19d0b`
-- 拒绝日志：`923e8c945`
-- 问题关闭与结果归档：`6cd61face`
-
-I02 当前缓存证据：
-
-- [缓存回归门禁首次验证](cache-regression/01-first-validation-result.md)：同一最简样本中 Standard request 2+
-  命中率为 96.62%，map-request 为 35.79%；两臂业务均通过，provider usage 覆盖率均为 100%。
-- [缓存命中回归门禁子主题](cache-regression/README.md)：门禁自身的覆盖、误报、证据身份和修复计划独立维护，
-  不重复增加 R8 产品问题编号。
-- [MVT-0 accepted baseline](cache-regression/21-mvt0-accepted-baseline-result.md)：最新同批次 Standard/map-request
-  request 2+ 命中率为 97.90%/67.85%，两臂业务与 usage 均通过；一次 state rejection 仍被复制到 control output、
-  普通 Tool output 和 developer message，因此 I02/I05 保持 open。
-
-## 4. 依赖与重评关系
+## 5. 依赖与重评关系
 
 | 上游问题 | 关闭后必须重评 | 原因 |
 |---|---|---|
 | I09 旧任务恢复可信性 | I01、I04 | 先确保恢复出的任务地图可信，才有资格评价后续进度版本和节点选择 |
-| I01 唯一最新进度 | I02、I03、I08 | Agent 先能获得唯一最终状态，才能安全删除重复消息并评价动作与成本 |
-| I06 所有动作统一过门 | I03、I08 | 先保证任何入口都不能绕过硬规则，行为和成本统计才完整 |
-| I05 清晰的拒绝反馈 | I02、I03、I04 | 先让 Agent 准确知道失败事实，再删除副本并评价它是否会正确纠错 |
-| I02 工具事实只传递一次 | I03、I04、I08 | 先消除重复上下文和缓存干扰，再评价 Agent 行为与不可约成本 |
+| I01/I02/I05/I06 静态候选 | I03、I04、I08 | Phase B5 同一 trace 同时确认旧根因未复现，再评价 Agent 行为与成本 |
 | I10 稳定的工具能力版本 | I07、I08 | 性能报告必须能区分“工具变了”和“任务变了” |
 | I03 稳定的动作组合 | I04 | 先解决通用动作组织问题，再判断节点顺序错误是否仍是独立问题 |
 | I01～I07、I09～I10 | I08 | 成本是最终验收，不作为底层设计的先验优化目标 |
 
-I07 不作为所有问题的整体前置。每个底层问题先建设自身所需的最小、可重算证据；I07 随后只负责收敛跨问题
-共用的观测身份和报告口径，避免再次形成长期 Observer 专项。
+I07 不作为所有问题的整体前置。其 request/usage 双计、local attempt/boundary 对账和 Exec 动作身份已完成离线修复；
+后续只负责用当前生产 trace 验收，不再扩展为长期 Observer 专项。
 
-例外仅限 I07 中已经由同一真实 trace 和当前源码同时证明的 request/usage 双计：它作为 TaskSpace Exec TX-00 在
-Phase A 前修复。I07 的 local attempt/boundary 对账由 [专题计划](I07/00-i07-observability-trust-repair-plan.md) 收敛，
-新协议 item/node 关联再进入 TX-14A/B；TX-00 通过不关闭完整 I07。
-
-## 5. 已知但不作为独立问题迁移
+## 6. 已知但不作为独立问题迁移
 
 | 事项 | R8 处理方式 |
 |---|---|
@@ -170,7 +109,7 @@ Phase A 前修复。I07 的 local attempt/boundary 对账由 [专题计划](I07/
 | 历史兼容与旧 Map 数据 | 无保留价值，不建立兼容工作 |
 | 未证明的“Agent 智能不足” | 不登记；优先检查上下文和 Tool 反馈 |
 
-## 6. 关闭要求
+## 7. 关闭要求
 
 每个问题关闭时必须在本表更新状态，并链接一份问题结果文档。结果文档必须包含：
 

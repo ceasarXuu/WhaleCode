@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B2 verified offline / Phase B3 MS-03 engineering closure completed-qualified
+- Status: Phase B0～B4 verified offline / Phase B5 requires separate authorized Provider budget
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -53,9 +53,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   入口已经落地。提交 `aba41ff04`、`4d7387a86` 已按 Session producer tracking + 现有 FIFO barrier 修复首轮审查发现的
   cancellation、graceful shutdown 和组合持久化生产链缺口；`24c54333b` 进一步关闭 admission-before-abort、shutdown
   error submission-loop exit 和 pending-turn restart。Focused review 确认 B01/B02 PASS；B03 以三层确定性证据
-  qualified closure，不为单体 mega-test 增加生产 hook。未新增持久化队列或产品语义；Phase B4 不自动启动。
-- B3 后复审已将 Phase B4 收敛为现有事件关联审计、最小字段补齐、缓存敏感面、性能消费、固定离线验收和离线问题
-  重映射；Phase B5 只使用正式生产路径进行 Provider shape 与四臂测量，旧 A2 source-only probe 不得复用。
+  qualified closure，不为单体 mega-test 增加生产 hook。未新增持久化队列或产品语义。
+- Phase B4 已完成现有事件关联审计、最小字段补齐、缓存敏感面、性能消费、固定离线验收和 I01～I10 离线重映射。
+  I10 仍有当前静态缺口；I01/I02/I05/I06 仅为静态关闭候选。Phase B5 只使用正式生产路径进行 Provider shape 与
+  四臂测量，旧 A2 source-only probe 不得复用。
 
 ## 3. 文档
 
@@ -85,6 +86,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 20. [`20-phase-b4-cache-surface-result.md`](20-phase-b4-cache-surface-result.md)：OB-02A 最终声明构建链、缓存敏感面和正反门禁证据。
 21. [`21-phase-b4-performance-observer-result.md`](21-phase-b4-performance-observer-result.md)：OB-02B R8 Exec 动作、I07 成本事实和跨层身份消费证据。
 22. [`22-phase-b4-offline-acceptance.md`](22-phase-b4-offline-acceptance.md)：VA-01 Docker、Rust、CLI/Viewer、Standard 与门禁的固定离线验收证据。
+23. [`23-phase-b4-issue-remap-result.md`](23-phase-b4-issue-remap-result.md)：VA-04A 对 I01～I10 的当前源码重映射、证据边界和 B5 观察点。
 
 ## 4. 推进规则
 
