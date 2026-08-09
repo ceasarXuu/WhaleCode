@@ -7,6 +7,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "performance-token-identity.ps1")
 . (Join-Path $PSScriptRoot "performance-count-identity.ps1")
 . (Join-Path $PSScriptRoot "logical-mode-map.ps1")
+. (Join-Path $PSScriptRoot "taskspace-exec-observation.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
     if ($null -ne $Object) {
@@ -60,67 +61,6 @@ function Get-PerformanceWireRequestCount {
         }
     }
     [pscustomobject]@{ value = $null; source = "unavailable"; logical = $null; attempts = $null; boundary = $null; completed = $null; failed_or_cancelled = $null }
-}
-function Get-PerformanceActionCounts {
-    param([string]$ArtifactDir, [System.Collections.Generic.List[object]]$Events)
-    $shell = 0; $patch = 0; $control = 0; $other = 0
-    $providerOuterCalls = 0; $nestedActions = 0
-    $rolloutPath = Join-Path $ArtifactDir "rollout.jsonl"
-    if (Test-Path -LiteralPath $rolloutPath) {
-        foreach ($line in [System.IO.File]::ReadLines($rolloutPath)) {
-            if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            try {
-                $row = $line | ConvertFrom-Json
-                $payload = Get-TaskspaceCanonicalResponseItem $row
-                if ($null -eq $payload) { continue }
-                if ([string](Get-PerformanceProperty $payload "type") -notin @("function_call", "custom_tool_call")) { continue }
-                $providerOuterCalls++
-                $name = [string](Get-PerformanceProperty $payload "name")
-                switch ($name) {
-                    "exec_command" { $shell++ }
-                    "apply_patch" { $patch++ }
-                    "taskspace_control" { $control++ }
-                    default { $other++ }
-                }
-            } catch {
-                if ($null -ne $Events) {
-                    $Events.Add([pscustomobject]@{ event = "rollout_line_parse_failed"; path = $rolloutPath; error = [string]$_.Exception.Message })
-                }
-            }
-        }
-        return [pscustomobject]@{
-            shell = $shell; patch = $patch; control = $control; other = $other
-            provider_outer_tool_calls = $providerOuterCalls; nested_action_count = $nestedActions
-            source = "rollout"
-        }
-    }
-    $execPath = Join-Path $ArtifactDir "whale-exec.jsonl"
-    if (Test-Path -LiteralPath $execPath) {
-        foreach ($line in [System.IO.File]::ReadLines($execPath)) {
-            if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            try {
-                $row = $line | ConvertFrom-Json
-                if ([string](Get-PerformanceProperty $row "type") -ne "item.completed") { continue }
-                $item = Get-PerformanceProperty $row "item"
-                switch ([string](Get-PerformanceProperty $item "type")) {
-                    "command_execution" { $shell++ }
-                    "file_change" { $patch++ }
-                }
-            } catch {
-                if ($null -ne $Events) {
-                    $Events.Add([pscustomobject]@{ event = "exec_line_parse_failed"; path = $execPath; error = [string]$_.Exception.Message })
-                }
-            }
-        }
-        return [pscustomobject]@{
-            shell = $shell; patch = $patch; control = 0; other = 0
-            provider_outer_tool_calls = $null; nested_action_count = 0; source = "whale_exec"
-        }
-    }
-    [pscustomobject]@{
-        shell = $null; patch = $null; control = $null; other = $null
-        provider_outer_tool_calls = $null; nested_action_count = $null; source = "unavailable"
-    }
 }
 function Get-PerformanceMapFacts {
     param([string]$ArtifactDir, $Metrics, [System.Collections.Generic.List[string]]$Warnings)
@@ -241,6 +181,10 @@ function Get-PerformanceSideObservation {
     $cadence = Get-TaskspaceNativeCadenceFacts $artifactDir $Events
     $patchObservation = Get-TaskspacePatchObservability $artifactDir $Events
     $warnings = New-Object System.Collections.Generic.List[string]
+    if ([string]$actions.protocol -eq "taskspace_exec" -and [string]$actions.availability -ne "measured") {
+        $warnings.Add("taskspace_exec_observation_incomparable")
+        foreach ($finding in @($actions.findings)) { $warnings.Add("taskspace_exec:$finding") }
+    }
     $taints = @((Get-PerformanceProperty $metrics "metrics_taints" @()))
     $skipped = @($taints | Where-Object { [string]$_ -match '^side_selection_skipped:' }).Count -gt 0
     if (-not $modeMapValid) {
@@ -341,11 +285,28 @@ function Get-PerformanceSideObservation {
             provider_boundary_requests = $requests.boundary
             provider_completed_responses = $requests.completed
             provider_failed_or_cancelled_attempts = $requests.failed_or_cancelled
-            ordinary_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "tool_call_count")
-            failed_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "failed_tool_call_count")
+            ordinary_tools = if ([string]$actions.protocol -eq "taskspace_exec") {
+                [int64]$actions.client_action_count + [int64]$actions.hosted_binding_count
+            } else { Get-PerformanceCount (Get-PerformanceProperty $metrics "tool_call_count") }
+            failed_tools = if ([string]$actions.protocol -eq "taskspace_exec") {
+                $actions.failed_action_count
+            } else { Get-PerformanceCount (Get-PerformanceProperty $metrics "failed_tool_call_count") }
+            action_protocol = $actions.protocol
+            exec_observation_status = Get-PerformanceProperty $actions "availability"
             provider_outer_tool_calls = $actions.provider_outer_tool_calls
             nested_actions = $actions.nested_action_count
             shell = $actions.shell; patch = $actions.patch; taskspace_control = $map.control_count
+            taskspace_exec = Get-PerformanceCount (Get-PerformanceProperty $actions "exec_count")
+            map_operations = Get-PerformanceCount (Get-PerformanceProperty $actions "map_operation_count")
+            client_actions = Get-PerformanceCount (Get-PerformanceProperty $actions "client_action_count")
+            hosted_bindings = Get-PerformanceCount (Get-PerformanceProperty $actions "hosted_binding_count")
+            node_bindings = Get-PerformanceCount (Get-PerformanceProperty $actions "node_binding_count")
+            client_results = Get-PerformanceCount (Get-PerformanceProperty $actions "client_result_count")
+            hosted_results = Get-PerformanceCount (Get-PerformanceProperty $actions "hosted_result_count")
+            exec_trace_events = Get-PerformanceCount (Get-PerformanceProperty $actions "trace_event_count")
+            correlated_requests = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_request_count")
+            correlated_outer_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_outer_call_count")
+            exec_findings = @((Get-PerformanceProperty $actions "findings" @()))
             action_manifests = $map.action_manifest_count
             declared_actions = $map.declared_action_count
             initialize_and_execute = $map.initialize_and_execute_count
@@ -426,7 +387,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "provider_logical_requests", "provider_local_attempts", "provider_boundary_requests", "provider_completed_responses", "provider_failed_or_cancelled_attempts", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
+    foreach ($field in @("provider_requests", "provider_logical_requests", "provider_local_attempts", "provider_boundary_requests", "provider_completed_responses", "provider_failed_or_cancelled_attempts", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_exec", "map_operations", "client_actions", "hosted_bindings", "node_bindings", "client_results", "hosted_results", "exec_trace_events", "correlated_requests", "correlated_outer_calls", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
         $values = @($selected | ForEach-Object { $_.actions.$field })
         $sum[$field] = Get-PerformanceOptionalExactInt64Sum $values $field
     }

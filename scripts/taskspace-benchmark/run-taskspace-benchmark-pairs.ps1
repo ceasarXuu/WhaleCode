@@ -204,6 +204,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             if ($side.LogicalMode -eq "taskspace") {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
                 $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
+                $childEnvironment["RUST_LOG"] = "error,codex_core::taskspace_exec=info"
             }
             $treatmentDelta = if ($side.LogicalMode -eq "taskspace") {
                 @("--taskspace", "-c taskspace_projection_policy=`"$TaskSpaceProjectionPolicy`"")

@@ -91,10 +91,24 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("| Repeat | Mode | Tool responses | Control responses | Mixed responses | Multi-control | Manifests | Paired | Violations | Orphan siblings | Declared actions | Owned siblings | Init pairs | Execute pairs | Reopen pairs | Finish Map | Final Work close | Standalone control | Protocol failures | State failures | Parse errors | Source |")
     $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     foreach ($row in $rows) {
-        if ($row.observation_status -in @("skipped", "invalid")) {
+        if ($row.observation_status -in @("skipped", "invalid") -or
+            $row.actions.action_protocol -eq "taskspace_exec") {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.provider_tool_responses) | $(Format-PerformanceValue $row.actions.control_responses) | $(Format-PerformanceValue $row.actions.mixed_control_action_responses) | $(Format-PerformanceValue $row.actions.multi_control_responses) | $(Format-PerformanceValue $row.actions.action_manifest_count) | $(Format-PerformanceValue $row.actions.action_manifest_pairs) | $(Format-PerformanceValue $row.actions.action_manifest_violations) | $(Format-PerformanceValue $row.actions.orphan_siblings) | $(Format-PerformanceValue $row.actions.cadence_declared_actions) | $(Format-PerformanceValue $row.actions.cadence_owned_siblings) | $(Format-PerformanceValue $row.actions.initialize_and_execute_pairs) | $(Format-PerformanceValue $row.actions.execute_pairs) | $(Format-PerformanceValue $row.actions.reopen_pairs) | $(Format-PerformanceValue $row.actions.finish_maps) | $(Format-PerformanceValue $row.actions.finish_map_final_work) | $(Format-PerformanceValue $row.actions.standalone_control_responses) | $(Format-PerformanceValue $row.actions.control_protocol_failures) | $(Format-PerformanceValue $row.actions.control_state_failures) | $(Format-PerformanceValue $row.actions.cadence_parse_errors) | $(Format-PerformanceValue $row.actions.cadence_source) |")
+        }
+    }
+    $lines.Add("")
+    $lines.Add("## TaskSpace Exec")
+    $lines.Add("")
+    $lines.Add("| Repeat | Mode | Exec | Map ops | Client | Hosted | Node bindings | Client results | Hosted results | Failed | Trace events | Request links | Outer links | Status |")
+    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+    foreach ($row in $rows) {
+        if ($row.observation_status -in @("skipped", "invalid") -or
+            $row.actions.action_protocol -ne "taskspace_exec") {
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+        } else {
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.taskspace_exec) | $(Format-PerformanceValue $row.actions.map_operations) | $(Format-PerformanceValue $row.actions.client_actions) | $(Format-PerformanceValue $row.actions.hosted_bindings) | $(Format-PerformanceValue $row.actions.node_bindings) | $(Format-PerformanceValue $row.actions.client_results) | $(Format-PerformanceValue $row.actions.hosted_results) | $(Format-PerformanceValue $row.actions.failed_tools) | $(Format-PerformanceValue $row.actions.exec_trace_events) | $(Format-PerformanceValue $row.actions.correlated_requests) | $(Format-PerformanceValue $row.actions.correlated_outer_calls) | $(Format-PerformanceValue $row.actions.exec_observation_status) |")
         }
     }
     $lines.Add("")

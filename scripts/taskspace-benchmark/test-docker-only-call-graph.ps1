@@ -12,6 +12,7 @@ $workspacePath = Join-Path $benchmarkRoot 'lib/workspace.ps1'
 $bootstrapPath = Join-Path $benchmarkRoot 'lib/bootstrap.ps1'
 $productionPaths = @(
     $runnerPath,
+    (Join-Path $benchmarkRoot 'run-taskspace-benchmark-pairs.ps1'),
     (Join-Path $benchmarkRoot 'run-taskspace-e2-matrix.ps1'),
     (Join-Path $benchmarkRoot 'run-taskspace-e3-suite.ps1'),
     (Join-Path $benchmarkRoot 'run-taskspace-e3-external.ps1'),
@@ -21,12 +22,11 @@ $productionPaths = @(
     $bootstrapPath
 )
 $productionText = @($productionPaths | ForEach-Object { Get-Content -Raw -Encoding UTF8 -LiteralPath $_ }) -join "`n"
-$runnerText = Get-Content -Raw -Encoding UTF8 -LiteralPath $runnerPath
 $workspaceText = Get-Content -Raw -Encoding UTF8 -LiteralPath $workspacePath
 
-Assert-DockerOnly ($runnerText.Contains('Invoke-TaskspaceDockerAgent')) 'primary runner does not use Docker Agent execution'
-Assert-DockerOnly ($runnerText.Contains('Invoke-TaskspaceDockerValidation')) 'primary runner does not use Docker validation'
-Assert-DockerOnly ($runnerText.Contains('Invoke-TaskspaceDockerOracle')) 'primary runner does not use Docker oracle'
+Assert-DockerOnly ($productionText.Contains('Invoke-TaskspaceDockerAgent')) 'primary runner does not use Docker Agent execution'
+Assert-DockerOnly ($productionText.Contains('Invoke-TaskspaceDockerValidation')) 'primary runner does not use Docker validation'
+Assert-DockerOnly ($productionText.Contains('Invoke-TaskspaceDockerOracle')) 'primary runner does not use Docker oracle'
 Assert-DockerOnly (-not $productionText.Contains('SandboxMode')) 'configurable nested sandbox compatibility remains reachable'
 Assert-DockerOnly (-not $productionText.Contains('Invoke-TaskspaceProbeProcess')) 'host Agent probe remains reachable'
 Assert-DockerOnly (-not $productionText.Contains('Invoke-TaskspaceValidationCommand')) 'host validator remains reachable'
