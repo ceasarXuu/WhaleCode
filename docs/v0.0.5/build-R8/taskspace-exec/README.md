@@ -5,6 +5,10 @@
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
+> 当前正式产品决策基线与后续实施计划已收敛到
+> [`docs/releases/v0.0.5/taskspace-exec-completion/`](../../../releases/v0.0.5/taskspace-exec-completion/plan.md)。
+> 本目录继续保存 R8 已实施事实和历史证据；后续生产改动不得只依据历史 Phase 文档启动。
+
 ## 1. 路线决策
 
 R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯一主方案：
