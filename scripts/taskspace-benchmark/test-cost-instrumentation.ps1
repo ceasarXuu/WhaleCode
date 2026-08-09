@@ -876,6 +876,35 @@ Assert-True ([int]$wireTraceSummary.section_cost_summary.unavailable_reason_coun
 Assert-True (@($wireTraceEvents | Where-Object { $_.section_cost.availability -eq "unavailable" -and $_.section_cost.unavailable_reason -eq "provider_wire_v3_section_cost_missing" }).Count -eq 2) "provider wire without section cost cache events omitted section-cost provenance"
 Assert-True ([int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unavailable_count -eq 2 -and [int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 0) "provider wire without section cost projection identity should be explicitly unavailable"
 
+$localOnlyTracePath = Join-Path $wireTraceDir "provider-wire-local-only.jsonl"
+Copy-Item -LiteralPath (Join-Path $wireTraceDir "provider-wire-trace.jsonl") -Destination $localOnlyTracePath
+$localOnlyShape = (Get-Content -Encoding UTF8 -LiteralPath $localOnlyTracePath | Select-Object -First 1) | ConvertFrom-Json
+$localOnlyShape.request_id = "wire-3"
+$localOnlyShape.logical_request_id = "wire-logical-3"
+$localOnlyShape.request_index = 3
+$localOnlyShape.provider_payload_sha256 = "0000000000000000000000000000000000000000000000000000000000000003"
+$localOnlyShape.pre_wire_payload_sha256 = "pre-3"
+$localOnlyShape.previous_request_id = "wire-2"
+$localOnlyTerminal = [pscustomobject]@{
+    schema_version = "provider-chat-wire-trace-v11"
+    event_name = "provider.chat_wire_request_terminal"
+    request_id = "wire-3"
+    logical_request_id = "wire-logical-3"
+    attempt_seq = 1
+    status = "response_failed"
+}
+@($localOnlyShape, $localOnlyTerminal) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 } | Add-Content -LiteralPath $localOnlyTracePath -Encoding UTF8
+$localOnlyFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath $localOnlyTracePath
+$localOnlyFacts.availability.boundary = "measured"
+$localOnlyFacts.summary.boundary_request_count = 2
+foreach ($row in @($localOnlyFacts.rows)) {
+    $row.boundary_status = if ([string]$row.request_id -eq "wire-3") { "not_observed" } else { "observed" }
+}
+$localOnlyCache = New-TaskspaceProviderWireCacheTraceArtifacts $localOnlyTracePath $localOnlyFacts
+Assert-True ([bool]$localOnlyCache.provider_cache_trace_summary.comparison_eligible) "a local-only failed attempt invalidated complete provider cache evidence"
+Assert-True ([int]$localOnlyCache.provider_cache_trace_summary.provider_request_count -eq 2 -and [int]$localOnlyCache.provider_cache_trace_summary.provider_attempt_count -eq 3) "provider boundary count and local attempt count were conflated"
+Assert-True (@($localOnlyCache.provider_cache_trace_events).Count -eq 2 -and [double]$localOnlyCache.provider_cache_trace_summary.request_2_plus_hit_rate -eq 0.9) "local-only attempt entered provider cache aggregation"
+
 $conflictFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath (Join-Path $wireTraceDir "provider-wire-trace.jsonl")
 $conflictFacts.availability.usage = "incomparable"
 $conflictFacts.findings = @([pscustomobject]@{ code = "usage_source_conflict"; source = "reconcile" })

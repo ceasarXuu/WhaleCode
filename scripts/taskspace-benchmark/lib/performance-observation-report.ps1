@@ -155,18 +155,6 @@ function Write-TaskspacePerformanceObservation {
         }
     }
     $lines.Add("")
-    $lines.Add("## Map 语义保存")
-    $lines.Add("")
-    $lines.Add("| Repeat | Mode | Retention | Salience | Semantic replace | Protected miss | Compaction | Runtime events | Snapshot updates |")
-    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|")
-    foreach ($row in $rows) {
-        if ($row.observation_status -in @("skipped", "invalid")) {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
-        } else {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.map.retention_coverage_ratio percent) | $(Format-PerformanceValue $row.map.salience_coverage_ratio percent) | $(Format-PerformanceValue $row.map.semantic_replacement_rate percent) | $(Format-PerformanceValue $row.map.protected_miss_count) | $(Format-PerformanceValue $row.map.compaction_event_count) | $(Format-PerformanceValue $row.map.runtime_event_count) | $(Format-PerformanceValue $row.map.snapshot_update_count) |")
-        }
-    }
-    $lines.Add("")
     $lines.Add("## Map 节点")
     $lines.Add("")
     $lines.Add("| Repeat | Mode | Node | Kind | Status | Results | Dependencies |")

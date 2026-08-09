@@ -65,7 +65,6 @@ function Get-PerformanceWireRequestCount {
 function Get-PerformanceMapFacts {
     param([string]$ArtifactDir, $Metrics, [System.Collections.Generic.List[string]]$Warnings)
     $graph = Read-PerformanceJson (Join-Path $ArtifactDir "graph-health.json")
-    $managed = Read-PerformanceJson (Join-Path $ArtifactDir "map-management-summary.json")
     $control = Read-PerformanceJson (Join-Path $ArtifactDir "taskspace-control-usage.json")
     $observability = Read-PerformanceJson (Join-Path $ArtifactDir "observability/action-map-observability.json")
     $nodes = @()
@@ -122,11 +121,6 @@ function Get-PerformanceMapFacts {
         root_task_status = $taskStatus
         accepted_result_count = Get-PerformanceCount (Get-PerformanceProperty $graph "accepted_result_count")
         unreviewed_result_count = $unreviewed
-        retention_coverage_ratio = Get-PerformanceNumber (Get-PerformanceProperty $managed "retention_coverage_ratio")
-        salience_coverage_ratio = Get-PerformanceNumber (Get-PerformanceProperty $managed "salience_coverage_ratio")
-        semantic_replacement_rate = Get-PerformanceNumber (Get-PerformanceProperty $managed "semantic_replacement_rate")
-        protected_miss_count = Get-PerformanceCount (Get-PerformanceProperty $managed "protected_miss_count")
-        compaction_event_count = Get-PerformanceCount (Get-PerformanceProperty $managed "compaction_event_count")
         control_count = Get-PerformanceCount (Get-PerformanceProperty $control "taskspace_control_count")
         action_manifest_count = Get-PerformanceCount (Get-PerformanceProperty $control "action_manifest_count")
         declared_action_count = Get-PerformanceCount (Get-PerformanceProperty $control "declared_action_count")

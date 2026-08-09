@@ -147,10 +147,6 @@ function New-SideFixture {
                 node_count = 3; edge_count = 2; result_count = 3; accepted_result_count = 0; unreviewed_result_count = 3
             }) (Join-Path $artifactDir "graph-health.json")
         Write-Json ([pscustomobject]@{
-                retention_coverage_ratio = 1.0; salience_coverage_ratio = 1.0; semantic_replacement_rate = 0.0
-                protected_miss_count = 0; compaction_event_count = 0
-            }) (Join-Path $artifactDir "map-management-summary.json")
-        Write-Json ([pscustomobject]@{
                 taskspace_control_count = 3
                 action_manifest_count = 1
                 declared_action_count = 1
@@ -420,7 +416,6 @@ Assert-True (Test-Path -LiteralPath $result.markdown_path) "markdown report was 
 Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not written"
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
-Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
 Assert-True ($markdown -match "## Map 显式读取") "markdown omitted explicit map read metrics"
 Assert-True ($markdown -match "## 精确重复载体") "markdown omitted exact carrier duplication details"
 Assert-True ($markdown -match "## Cross carrier lineage") "markdown omitted cross carrier lineage details"

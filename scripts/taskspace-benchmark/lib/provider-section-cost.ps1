@@ -30,7 +30,6 @@ function New-TaskspaceUnavailableProviderSectionCost {
         sections = @()
     }
 }
-
 function ConvertTo-TaskspaceProviderSectionInt64 {
     param($Value)
     if ($null -eq $Value -or $Value -is [bool] -or $Value -is [double] -or $Value -is [decimal] -or $Value -is [single] -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
@@ -367,6 +366,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     foreach ($shape in @($shapes.Values | Sort-Object -Property request_index)) {
         $requestId = [string]$shape.request_id
         $fact = if ($factsById.ContainsKey($requestId)) { $factsById[$requestId] } else { $null }
+        if ($boundaryMeasured -and ($null -eq $fact -or [string]$fact.boundary_status -ne "observed")) { continue }
         $usage = if ($cacheSourceEligible -and $null -ne $fact -and [string]$fact.usage_source -in @("wire", "wire_and_rollout")) { Get-TaskspaceCostProperty $fact @("usage") } else { $null }
         $inputTokens = if ($null -ne $usage) { Get-TaskspaceCostProperty $usage @("input_tokens") } else { $null }
         $cachedTokens = if ($null -ne $usage) { Get-TaskspaceCostProperty $usage @("cached_input_tokens") } else { $null }
@@ -458,7 +458,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
         -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256) -and [string]$_.status -ne "terminal_missing"
     }).Count
     $request2PlusDenominator = [double]$request2PlusHit + [double]$request2PlusMiss
-    $cacheMeasured = $cacheSourceEligible -and $missingUsage -eq 0
+    $cacheMeasured = $cacheSourceEligible -and $missingUsage -eq 0 -and (-not $boundaryMeasured -or $count -eq [int]$facts.summary.boundary_request_count)
     $findingCodes = @($facts.findings | ForEach-Object { [string]$_.code } | Sort-Object -Unique)
     [pscustomobject]@{
         provider_cache_trace_events = @($events.ToArray())

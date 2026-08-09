@@ -180,15 +180,5 @@ function New-TaskspaceSideSelectionSkipMetrics {
         model_timing_source_path = ""
         model_timing_parse_errors = @()
         process_launch_wait_ms = 0
-        map_management_summary_path = ""
-        compaction_events_path = ""
-        map_management_availability = "skipped"
-        map_retention_coverage_ratio = 0
-        map_salience_coverage_ratio = 0
-        map_protected_miss_count = 0
-        map_archived_item_count = 0
-        map_audit_only_item_count = 0
-        map_semantic_replacement_rate = 0
-        map_compaction_event_count = 0
     }
 }

@@ -69,7 +69,6 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         call_id = "call-fixture"
         timestamp_ms = 1
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "output-ref-events.jsonl") -Encoding UTF8
-    Set-Content -LiteralPath (Join-Path $dir "compaction-events.jsonl") -Encoding UTF8 -Value "{}"
     ([pscustomobject]@{
         schema_version = "taskspace-provider-request-event-v1"
         request_id = "provider-request-1"
@@ -403,10 +402,6 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             active_projection_count = 1
             shadow_projection_count = 0
         }) (Join-Path $dir "context-projection-summary.json")
-    Write-Json ([pscustomobject]@{
-            availability = "measured"
-            protected_miss_count = 0
-        }) (Join-Path $dir "suite-map-management-summary.json")
     Write-Json ([pscustomobject]@{
             availability = "measured"
             routing_mistake_count = $RoutingMistakes
