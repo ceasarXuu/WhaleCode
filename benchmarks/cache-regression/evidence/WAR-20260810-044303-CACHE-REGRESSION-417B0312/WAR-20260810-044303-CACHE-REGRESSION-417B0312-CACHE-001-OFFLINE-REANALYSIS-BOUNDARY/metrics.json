@@ -1,0 +1,10 @@
+{
+  "schema_version": "whalecode-cache-offline-business-evidence-v1",
+  "logical_mode": "taskspace",
+  "business_success": false,
+  "reconstruction_scope": "minimum fields required for deterministic cache usage reanalysis",
+  "source_run_id": "WAR-20260810-044303-CACHE-REGRESSION-417B0312-CACHE-001",
+  "source_runner_exit_code": 1,
+  "provider_requests_performed": 2,
+  "provider_requests_not_replayed": true
+}

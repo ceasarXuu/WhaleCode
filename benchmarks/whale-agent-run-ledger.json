@@ -1,7 +1,132 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-09T20:10:15+08:00",
+  "updated_at": "2026-08-10T05:12:28+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260810-044303-CACHE-REGRESSION-417B0312",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-10T04:43:12+08:00",
+      "ended_at": "2026-08-10T04:43:52+08:00",
+      "elapsed_calendar_seconds": 39.988,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户于 2026-08-10 批准 Phase B5 VA-02 双倍总预算；本提案只激活第一轮 single-file-fast-fix × map-request × repeat=1，最多 2 requests，出现任何结构、业务、usage 或预算异常立即停止，不自动使用第二轮。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260810-B5-VA02-8457C804A289B674",
+        "reference": "用户于 2026-08-10 明确回复“每个预算批准2倍，用于修复，开始”，批准 Phase B5 VA-02 最多两轮顺序运行；本授权文件仅激活第一轮 single-file-fast-fix × map-request × repeat=1，最多 2 requests，50K input、12K output、USD 0.02 观察上限和 12 分钟执行上限，异常立即停止。",
+        "budget_summary": {
+          "provider_requests": 2,
+          "input_tokens": 2000000,
+          "output_tokens": 768000,
+          "elapsed_seconds": 840,
+          "estimated_cost": 0.49504,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-8457C804A289B674。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "9cf4a42b451af3835ba8a5f94395a37b8210b7c6533cf1d961e723c7b621e2da",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 2,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 28060,
+        "cached_input": 7936,
+        "uncached_input": 20124,
+        "output": 588
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.0030042208,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 2.22208e-05,
+          "uncached_input": 0.00281736,
+          "output": 0.00016464000000000002
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260810-044303-CACHE-REGRESSION-417B0312",
+        "subject_commit": "982131f279696ba184fc385ee26ef4afff6ac6b5",
+        "surface_sha256": "f57b99a6fc1fcc888ffd8c314ed201bd622d170577c3767745f7a04a745b2c7b",
+        "proposal_id": "CBP-8457C804A289B674",
+        "proposal_contract_sha256": "c2c5be77a971c04aa7683bec5b463873de0873fe94c3eaa899b51bb02fec4f38",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-8457C804A289B674.json",
+        "proposal_sha256": "6b804337a57fcded096cf5b62a54237fc94c31d93c8489c776dd997cf4154dd0",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260810-B5-VA02-8457C804A289B674.json",
+        "authorization_sha256": "f38bd9414ae1fb6f89dedf949fefcb0cf0f8de41fa323229516e713070a4e4b2",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户于 2026-08-10 批准 Phase B5 VA-02 双倍总预算；本提案只激活第一轮 single-file-fast-fix × map-request × repeat=1，最多 2 requests，出现任何结构、业务、usage 或预算异常立即停止，不自动使用第二轮。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260810-044303-CACHE-REGRESSION-417B0312/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "031cd102ab4e27fd398a855e173b41fc0096fe825483766027877923a9daa522",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260810-044303-CACHE-REGRESSION-417B0312",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260810-044303-CACHE-REGRESSION-417B0312.json",
+        "runner_exit_code": 3,
+        "outcome": "partial",
+        "post_run_reanalysis": {
+          "status": "usage_recovered_run_failure_confirmed",
+          "reason": "Existing immutable run artifacts were deterministically reanalyzed after provider-boundary-scoped usage accounting and removal of the obsolete map-management observer; no provider request was made.",
+          "original_evidence_error": "ValueError: provider wire request did not complete successfully",
+          "corrected_stop_classification": "run_failure",
+          "business_success": false,
+          "local_wire_attempt_count": 3,
+          "provider_boundary_request_count": 2,
+          "reanalysis_artifact_prefix": "benchmarks/cache-regression/evidence/WAR-20260810-044303-CACHE-REGRESSION-417B0312/WAR-20260810-044303-CACHE-REGRESSION-417B0312-CACHE-001-OFFLINE-REANALYSIS-BOUNDARY"
+        }
+      }
+    },
     {
       "record_id": "WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5",
       "record_type": "run_batch",
