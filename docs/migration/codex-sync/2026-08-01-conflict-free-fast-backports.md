@@ -1,12 +1,14 @@
 # 2026-08-01 Codex 无冲突快速 Backport
 
+> 历史执行报告：本文中的工作单元标签只用于追溯当时的提交，不属于当前计划编号。当前唯一计划见 [Codex CLI 主线融合执行计划](../../v0.0.5/codex-upstream-sync/plan.md)。
+
 ## 范围
 
 - 前一 Codex vendor 基线：`fed0a8f4faa58db3138488cca77628c1d54a2cd8`
 - 新 Codex vendor 基线：不变；本次不是整仓刷新
 - 上游稳定目标：`rust-v0.146.0`
 - 导入方式：六个上游提交按原始 hunk 回移，分别提交、验证和推送
-- 计划文档：[第一批无冲突快速 backport 合入方案](../../v0.0.5/codex-upstream-sync/01-conflict-free-fast-backports-plan.md)
+- 文档角色：已完成工作的历史执行证据
 
 ## 已 Backport
 

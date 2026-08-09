@@ -2,7 +2,7 @@
 
 - 文档状态：有效，待执行
 - Plan Validity：`valid-with-qualifications`
-- 计划性质：承接第一至第三批成果的剩余执行计划，不是从零重启
+- 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
 - 工作空间：仅 `/home/zhangxu/whalecode-codex`
 - Product Authority：[./decisions.md](decisions.md)
@@ -26,10 +26,10 @@
 
 | 已完成范围 | 完成度 | 已交付结果 | 对剩余计划的直接输入 | 状态解释 |
 | --- | ---: | --- | --- | --- |
-| 第一批：快速 backport | 6/6 verified | 6 个独立安全/通用上游修复已合入 | 当前 vendor 已包含这些补丁，后续不得重复回移 | 已完成 |
-| 第二批：基线与门禁 | 12/15 verified；3 deferred | upstream 基线、overlay inventory、测试门禁；DeepSeek Responses 兼容、Flash 默认/Pro 隐藏已经落到当前 vendor | U4–U9 迁移的是这些既有行为在新 substrate 上的重放，不是重新设计或首次实现 | 已收口；W9、W12、W13 保持延期 |
-| 第三批：0.146 资格与差异证据 | W0–W8，9/9 completed | 候选身份、4,355 条 upstream delta、730 路径索引、qualification 日志；得出当时的 no-go | U1 只复核四个失败中的 harness/environment 因素；U2–U16 复用已有差异证据 | 证据工作已完成；候选方向为 `direction-rejected`，等待增量复核 |
-| 本轮计划治理 | 1/1 verified | 唯一产品权威、唯一有效计划、历史工件降级和闭环工作单元 | 约束后续 U1–U16 的范围和停止条件 | 已完成 |
+| 安全与通用 backport | 6/6 verified | 6 个独立上游修复已合入 | 当前 vendor 已包含这些补丁，后续不得重复回移 | 已完成 |
+| 同步基线与测试门禁 | 12/15 verified；3 deferred | upstream 基线、overlay inventory、测试门禁；DeepSeek Responses 兼容、Flash 默认/Pro 隐藏已经落到当前 vendor | U4–U9 迁移的是这些既有行为在新 substrate 上的重放，不是重新设计或首次实现 | 已收口；TaskSpace TUI 已知夹具问题、Windows runner、Windows 终端 smoke 保持延期 |
+| 0.146 资格与差异证据 | 9/9 completed | 候选身份、4,355 条 upstream delta、730 路径索引、qualification 日志；得出当时的 no-go | U1 只复核四个失败中的 harness/environment 因素；U2–U16 复用已有差异证据 | 证据工作已完成；候选方向为 `direction-rejected`，等待增量复核 |
+| 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U16 的范围和停止条件 | 已完成 |
 
 因此，`U1–U16 not-started` 只表示“剩余 vendor cutover/replay 工作尚未执行”，不表示整个 Codex 主线追赶从零开始。历史工作与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
 
@@ -49,7 +49,7 @@
 | `upstream-candidate.json` 与 qualification 日志 | 候选事实证据 | 当时的候选身份和命令结果 | 失败一定属于上游产品缺陷 |
 | `overlay-inventory.json`、`upstream-delta-inventory.json` | 路径查询索引 | 路径、hash、双方是否变化 | 文件的产品语义或处理方式 |
 | `overlay-replay-ledger.json` | 非权威路由提示 | 自动分类结果和待人工检查热点 | `adapt`、`drop`、owner 或 cutover 的最终决定 |
-| 第一至第三批计划/报告 | 历史执行记录 | 当时做过什么、得到什么证据 | 当前或未来执行授权 |
+| 历史执行报告与 ledger | 已完成工作证据 | 当时做过什么、得到什么结果 | 当前或未来执行授权 |
 | 本 `plan.md` | 唯一有效工程计划 | 当前单元、门禁和停止边界 | 修改 `decisions.md` 的产品行为 |
 
 ### 2.3 停止扩张的做法
@@ -74,7 +74,7 @@
 
 - 不重新设计 TaskSpace、Multi-Agent、Create/Debug Primitive 或模型分层。
 - 不启用 Apps、Plugins、remote Code Mode、audio/image/realtime 等新增产品能力。
-- 不主动修复 W9，也不把 W12/W13 Windows 延期项表述为通过。
+- 不主动修复已登记的 TaskSpace TUI 夹具问题，也不把 Windows runner/终端 smoke 延期项表述为通过。
 - 不访问、检查或管理其他分支和工作空间。
 - 不进行真实 Whale Agent run；缓存门禁若要求真实回归，另按预算规则申请。
 
@@ -151,9 +151,9 @@
 | U12 | 接回 tool identity/sequence | tool-runtime | core/tools registry、handler、sequence seam | control tool、call identity、preflight/terminal carrier | 在上游 seam 注册现有 handler，适配 call identity/response index | TaskSpace 控制调用恢复 | 从 session 生命周期中隔离工具冲突 | Complexity：窄 adapter/hook；Reach/Cost：registry、parallel calls、错误传播 | schema/handler、sequence、parallel、terminal tests | 不改 session/store 语义；所需内容留给 U13 | not-started |
 | U13 | 接回 session/resume/fork | lifecycle | core/session、rollout reconstruction seam | projection、resume/fork/replay integration | 通过上游 session seam 投影 U11 状态，适配 resume/fork/compaction | 跨轮次行为可恢复和回放 | 完成核心生命周期并保持单一权威 | Complexity：session adapter；Reach/Cost：history、compaction、agent identity | resume/fork/replay/compaction/terminal tests；权威断言 | 若需并列状态权威，标 conflict 并请示 | not-started |
 | U14 | 恢复 app-server 协议 | API | protocol、app-server TaskSpace adapter | RPC、JSON/TS schema、compatibility surface | 将 U10–U13 暴露到现有 RPC；schema/TS 与源同单元生成 | 外部客户端可通过版本化协议访问 TaskSpace | 单独验证协议兼容，不混 TUI 路由 | Complexity：现有 RPC adapter；Reach/Cost：schema generation 和 app-server tests | protocol/app-server tests；generation clean；兼容 fixtures | 独立 revert；不得引入 TUI fallback | not-started |
-| U15 | 恢复 TUI 路由与 viewer | client | TUI TaskSpace route/viewer | route state、Action Map viewer、快照 | 按新 TUI seam 接入已验证 RPC/core 行为；快照同单元更新 | TaskSpace 在终端中保持现有可见交互 | 完成用户可见闭环并隔离 W9 | Complexity：现有 TUI adapter；Reach/Cost：route tests 和快照 | route/viewer tests；snapshot review；W9 按已知基线记录 | 不得为消除 W9 改业务路由规则 | not-started |
+| U15 | 恢复 TUI 路由与 viewer | client | TUI TaskSpace route/viewer | route state、Action Map viewer、快照 | 按新 TUI seam 接入已验证 RPC/core 行为；快照同单元更新 | TaskSpace 在终端中保持现有可见交互 | 完成用户可见闭环并隔离已知夹具问题 | Complexity：现有 TUI adapter；Reach/Cost：route tests 和快照 | route/viewer tests；snapshot review；已知 TaskSpace 夹具失败按基线记录 | 不得为消除既有失败而改变业务路由规则 | not-started |
 
-退出条件：U10–U15 verified；状态权威无冲突；W9 未新增回归且继续明确延期。
+退出条件：U10–U15 verified；状态权威无冲突；TaskSpace TUI 已知夹具失败未新增回归且继续明确延期。
 
 ### Phase E：发布收口
 
@@ -161,7 +161,7 @@
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U16 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、migration report、CI/release config | 来源、剩余生成物、支持矩阵 | 刷新机械生成物和来源记录，跑 Linux 全量无模型回归，明确 Windows/W9 deferred | 形成可追溯新 vendor 和真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：无新生产抽象；Reach/Cost：全 workspace build/CI | fmt/check/test、CLI smoke、schema/lock clean、cache gate、provenance、Git clean | 跨产品失败回到归属 U 单元，不在收口阶段扩张 | not-started |
+| U16 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、migration report、CI/release config | 来源、剩余生成物、支持矩阵 | 刷新机械生成物和来源记录，跑 Linux 全量无模型回归，明确 TaskSpace TUI/Windows deferred | 形成可追溯新 vendor 和真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：无新生产抽象；Reach/Cost：全 workspace build/CI | fmt/check/test、CLI smoke、schema/lock clean、cache gate、provenance、Git clean | 跨产品失败回到归属 U 单元，不在收口阶段扩张 | not-started |
 
 退出条件：U16 verified；所有修改已提交并 push；工作树 clean；延期项未被表述为通过。
 
@@ -171,9 +171,9 @@
 
 | Phase | Decision Surface | Implemented / Observed Semantics | Authority Coverage | Classification | Required Action |
 | --- | --- | --- | --- | --- | --- |
-| 历史第一批 | 无产品语义 | 独立安全/通用 backport | none | engineering-only | 已收口 |
-| 历史第二批 | 模型默认值与 Responses | Flash 默认、Pro 隐藏；Responses 按能力处理 | D1、D2 | covered | 保留为现行为证据，不作未来授权 |
-| 历史第三批 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
+| 已完成：安全 backport | 无产品语义 | 独立安全/通用修复 | none | engineering-only | 已收口 |
+| 已完成：基线与门禁 | 模型默认值与 Responses | Flash 默认、Pro 隐藏；Responses 按能力处理 | D1、D2 | covered | 保留为现行为证据，不作未来授权 |
+| 已完成：资格与差异证据 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
 | Phase A | 待执行 | 待记录 | D2 | 待分类 | U1/U2 后审计 |
 | Phase B | 待执行 | 待记录 | D2 | 待分类 | U3 后审计 |
 | Phase C | 待执行 | 待记录 | D1、D2 | 待分类 | U4–U9 后审计 |
@@ -207,5 +207,5 @@
 - [x] DeepSeek provider/catalog、Responses wire、cache 分开验证。
 - [x] TaskSpace domain/data、tool、session、client surface 分开验证。
 - [x] 生成物与对应源变化同单元处理。
-- [x] W9/Windows 延期不阻塞 Linux 主线融合，也不被误报为通过。
+- [x] TaskSpace TUI 已知夹具问题和 Windows 延期不阻塞 Linux 主线融合，也不被误报为通过。
 - [x] 不新增运行时框架、双 vendor、双状态权威或同步专用业务逻辑。

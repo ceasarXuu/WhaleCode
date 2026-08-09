@@ -1,9 +1,10 @@
 # 第二批上游基线与测试门禁实施结果
 
 > 本报告记录截至 2026-08-01 的阶段结果；最终 disposition 与收口证据见 [2026-08-02 最终实施报告](2026-08-02-upstream-baseline-and-test-gates-closeout.md)。
+> 本文中的 W/Phase 标签只用于追溯当时的执行记录，不属于当前计划编号；当前唯一计划为 `docs/v0.0.5/codex-upstream-sync/plan.md`。
 
 - 报告日期：2026-08-01
-- 来源计划：`docs/v0.0.5/codex-upstream-sync/02-upstream-baseline-and-test-gates-plan.md`
+- 文档角色：阶段性历史执行证据
 - 检查范围：`whalecode-codex` 分支，起始提交 `3e0cedd34f2fbd56d206b65357784a922c896ddc`
 - Phase 1 实现提交：`4d9777610`（已推送）
 - W5 TUI runner 提交：`77f6e0e95`（已推送）

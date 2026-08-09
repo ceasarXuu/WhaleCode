@@ -1,7 +1,9 @@
 # 第二批上游基线与测试门禁最终实施报告
 
+> 历史执行报告：本文中的 W/Phase 标签只用于追溯当时的执行记录，不属于当前计划编号；当前唯一计划为 `docs/v0.0.5/codex-upstream-sync/plan.md`。
+
 - 报告日期：2026-08-02
-- 来源计划：`docs/v0.0.5/codex-upstream-sync/02-upstream-baseline-and-test-gates-plan.md`
+- 文档角色：最终历史执行证据
 - 检查范围：`whalecode-codex` 分支，`3e0cedd34` 至本收口提交
 - 收口方式：12 个工作单元 verified，W9/W12/W13 经用户决策 deferred
 - 费用边界：未运行真实 Whale Agent，模型请求数为 0

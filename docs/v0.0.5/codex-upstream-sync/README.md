@@ -1,8 +1,8 @@
 # Codex CLI 上游追赶差异分析与合并策略
 
-> 计划治理说明（2026-08-09）：本文件是总体分析和历史证据索引，不再作为执行计划。唯一有效工程计划为 [plan.md](plan.md)，唯一产品决策权威源为 [decisions.md](decisions.md)。第一至第三批文档保留为历史记录；自动 replay disposition 与五批路径桶只可用于查询，不具有语义迁移决策权。
+> 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：当前 `plan.md` 是承接前三批成果的剩余执行计划，不是从零重启。第一批 6/6、第二批 12/15（3 deferred）、第三批 W0–W8 均已完成并作为 U1–U16 的输入；U1–U16 尚未开始仅表示生产 vendor cutover/replay 尚未执行。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 资格与差异证据 9/9 均已完成并作为 U1–U16 的输入；U1–U16 尚未开始仅表示生产 vendor cutover/replay 尚未执行。
 
 - 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成并作出 0.146 no-go 结论
 - 分析日期：2026-08-01
@@ -16,21 +16,19 @@
 
 - [当前唯一有效执行计划](plan.md)
 - [受保护的产品决策基线](decisions.md)
-- [第一批：完全无文本冲突的快速 backport 合入方案](01-conflict-free-fast-backports-plan.md)
-- [第二批：上游基线、overlay 账本与测试门禁工程计划](02-upstream-baseline-and-test-gates-plan.md)
-- [第三批：Codex 0.146 候选基底资格审查与 Overlay 重放计划](03-rust-0.146-candidate-qualification-plan.md)
-- [第三批执行报告：0.146 candidate qualification no-go](../../migration/codex-sync/2026-08-02-rust-0.146-candidate-qualification.md)
-- [第二批最终实施报告](../../migration/codex-sync/2026-08-02-upstream-baseline-and-test-gates-closeout.md)
+- [安全 backport 执行报告](../../migration/codex-sync/2026-08-01-conflict-free-fast-backports.md)
+- [基线与门禁最终实施报告](../../migration/codex-sync/2026-08-02-upstream-baseline-and-test-gates-closeout.md)
+- [0.146 candidate qualification no-go 执行报告](../../migration/codex-sync/2026-08-02-rust-0.146-candidate-qualification.md)
 
 ## 当前批次状态
 
 - 第一批六个无文本冲突 backport 已独立提交并推送；
-- 第二批 W0–W8、W10、W11、W14 已验证；
-- W9 已定位并延期到 TaskSpace 专项分支；
-- W12/W13 Windows 自动与实机验证按用户决策延期到 Windows 专项；
+- 基线、inventory、测试门禁、DeepSeek Responses 和模型可见性工作已验证；
+- TaskSpace TUI 已知夹具问题已定位并延期；
+- Windows 自动与实机验证按用户决策延期；
 - 第二批以 12/15 verified、3/15 deferred 收口，不把延期项表述为通过。
-- 第三批 W0–W8 已完成：候选身份、4,355 条无 rename 推断的 upstream delta、730 路径 replay ledger 和五批 DAG 已落地；纯上游资格矩阵为 1 passed / 4 failed，因此 0.146 当前 no-go，未替换当前 vendor。
-- 2026-08-09 计划治理已将第三批 replay ledger 和五批 DAG 降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U16 语义闭环推进。
+- 0.146 资格与差异证据已完成：候选身份、4,355 条无 rename 推断的 upstream delta、730 路径 replay ledger 和五批 DAG 已落地；纯上游资格矩阵为 1 passed / 4 failed，因此 0.146 当前 no-go，未替换当前 vendor。
+- replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U16 语义闭环推进。
 
 ## 1. 执行摘要
 
