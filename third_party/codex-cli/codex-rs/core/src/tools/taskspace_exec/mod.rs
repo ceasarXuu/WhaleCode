@@ -39,7 +39,11 @@ pub(crate) use preflight::PreparedHostedBinding;
 pub(crate) use preflight::TaskSpaceExecPreflightError;
 pub(crate) use preflight::preflight_taskspace_exec;
 #[cfg(test)]
+pub(crate) use protocol::canonical_finish_example;
+#[cfg(test)]
 pub(crate) use protocol::canonical_first_turn_example;
+#[cfg(test)]
+pub(crate) use protocol::canonical_read_example;
 pub(crate) use response_scope::TaskSpaceExecResponseIdentity;
 pub(crate) use response_scope::TaskSpaceExecResponseScope;
 

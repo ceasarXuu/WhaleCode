@@ -292,23 +292,27 @@ pub(crate) fn map_operation_capabilities() -> Vec<ToolSpecCapability> {
     vec![
         map_capability(
             INITIALIZE_MAP,
-            "Initialize the TaskSpace Map declared by the current task.",
+            "Initialize one rooted TaskSpace Map with at least one Work node and one unique Finish node. This operation is first and accompanies real work.",
             initialize_schema(),
         ),
         map_capability(
             UPDATE_MAP,
-            "Add or update TaskSpace Map work nodes.",
+            "Add Work nodes or explicitly patch existing node goal, state, content, or parents. Completing a Work node accompanies later work or finish_map.",
             update_schema(),
         ),
-        map_capability(READ_MAP, "Read the current TaskSpace Map.", empty_schema()),
+        map_capability(
+            READ_MAP,
+            "Read the complete current TaskSpace Map as the only call in this batch.",
+            empty_schema(),
+        ),
         map_capability(
             REOPEN_MAP,
-            "Reopen the current finished TaskSpace Map after new user work.",
+            "Reopen the current finished TaskSpace Map after user follow-up. This operation is first and accompanies real work.",
             empty_schema(),
         ),
         map_capability(
             FINISH_MAP,
-            "Explicitly finish the TaskSpace Map with the final task summary.",
+            "Explicitly close the TaskSpace Map after all Work nodes complete. This operation is last and writes the final task summary.",
             object_schema(
                 [(
                     "content",

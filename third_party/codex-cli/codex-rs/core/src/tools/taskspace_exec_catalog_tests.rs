@@ -131,9 +131,43 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(description.contains("single top-level entry point"));
     assert!(description.contains("First-turn initialization and work example"));
     assert!(description.contains("node_id` is TaskSpace ownership metadata"));
+    assert!(description.contains("not a second dependency graph"));
+    assert!(description.contains("explicit Map finish example"));
     assert!(description.contains("The Runtime does not add, infer, reorder, or repair"));
     assert_eq!(description.matches("First-turn initialization").count(), 1);
     assert!(!description.contains(r#"{\"tool\""#));
+}
+
+#[test]
+fn rendered_map_examples_use_the_same_catalog_contract() {
+    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    let read = catalog
+        .decode_plan(&canonical_read_example().to_string())
+        .unwrap();
+    assert_eq!(read.calls.len(), 1);
+    assert!(matches!(
+        read.calls[0],
+        ExecCall::Map(MapOperation::ReadMap(_))
+    ));
+
+    let finish = catalog
+        .decode_plan(&canonical_finish_example().to_string())
+        .unwrap();
+    assert_eq!(finish.calls.len(), 2);
+    assert!(matches!(
+        finish.calls[0],
+        ExecCall::Map(MapOperation::UpdateMap(_))
+    ));
+    assert!(matches!(
+        finish.calls[1],
+        ExecCall::Map(MapOperation::FinishMap(_))
+    ));
+
+    let declaration = serde_json::to_value(catalog.declaration()).unwrap();
+    let calls = declaration["parameters"]["properties"]["calls"]["items"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(calls.contains("ordinary work dependencies come from Map node parents"));
 }
 
 #[test]

@@ -198,6 +198,39 @@ fn rendered_first_turn_example_passes_the_real_preflight_contract() {
 }
 
 #[test]
+fn rendered_read_and_finish_examples_pass_the_real_preflight_contract() {
+    let current = open_map();
+    let read = envelope(canonical_read_example(), Some(&current));
+    let read = preflight_taskspace_exec(&read, Some(&current), &[]).unwrap();
+    assert_eq!(read.read_maps.len(), 1);
+
+    let final_work_map = new_map(
+        "map-1".into(),
+        map_node("root", "deliver", NodeState::InFlight, "", vec![]),
+        vec![map_node(
+            "implement",
+            "implement",
+            NodeState::Ready,
+            "",
+            vec!["root".into()],
+        )],
+        map_node(
+            "finish",
+            "close",
+            NodeState::Waiting,
+            "",
+            vec!["implement".into()],
+        ),
+    );
+    let finish = envelope(canonical_finish_example(), Some(&final_work_map));
+    let finish = preflight_taskspace_exec(&finish, Some(&final_work_map), &[]).unwrap();
+    let finished = finish.candidate_map.unwrap();
+    assert_eq!(finished.root.state, NodeState::Completed);
+    assert_eq!(finished.finish.state, NodeState::Completed);
+    assert_eq!(finished.finish.content, "Task completed and verified.");
+}
+
+#[test]
 fn read_only_plan_returns_the_complete_agent_visible_map() {
     let current = open_map();
     let envelope = envelope(

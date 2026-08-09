@@ -3,10 +3,22 @@ use std::collections::BTreeSet;
 use serde_json::Value;
 use serde_json::json;
 
+use crate::action_map::rooted_dag::NodeState;
+
+use super::MapOperation;
+use super::map_operations::BoundaryNodeArgs;
+use super::map_operations::EmptyArgs;
+use super::map_operations::FinishMapArgs;
+use super::map_operations::InitializeMapArgs;
+use super::map_operations::NodePatchArgs;
+use super::map_operations::UpdateMapArgs;
+use super::map_operations::WorkNodeArgs;
+
 const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry point for TaskSpace Map operations and client Tool calls. Submit one Agent-authored batch; the Runtime only validates and executes it.
 
 Call contract:
 - Put every Map operation and client Tool invocation in `calls`, in the order you declare.
+- `calls` order defines Map boundaries, not a second dependency graph for ordinary work. Work dependencies come only from Map node `parents`; independent client calls may use native parallel execution, while result-dependent work waits for a later request.
 - A plain function client Tool call is `{"tool":"<name>","node_id":"<work-node>","arguments":{...}}`; a namespaced function call also has `"namespace":"<namespace>"` and keeps only the leaf Tool name in `tool`. A freeform client Tool uses `input` instead of `arguments`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
 - A Map operation is `{"tool":"<map-operation>","arguments":{...}}` and has no outer `node_id`.
 - `hosted_bindings` contains one binding for each provider-hosted output, in provider output order. One hosted output may name multiple owner work nodes. Use an empty array when there is no hosted output.
@@ -35,10 +47,11 @@ pub(super) fn build_description<'a>(
     }
     sections.push(format!(
         "Read-only example:\n```json\n{}\n```",
-        json!({
-            "calls": [{"tool": "read_map", "arguments": {}}],
-            "hosted_bindings": []
-        })
+        canonical_read_example()
+    ));
+    sections.push(format!(
+        "Final work-node completion and explicit Map finish example:\n```json\n{}\n```",
+        canonical_finish_example()
     ));
     if !hosted_tools.is_empty() {
         sections.push(format!(
@@ -50,31 +63,29 @@ pub(super) fn build_description<'a>(
 }
 
 pub(crate) fn canonical_first_turn_example() -> Value {
+    let initialize = MapOperation::InitializeMap(InitializeMapArgs {
+        root: BoundaryNodeArgs {
+            node_id: "root".into(),
+            goal: "Complete the user task".into(),
+            content: String::new(),
+            parents: Vec::new(),
+        },
+        work_nodes: vec![WorkNodeArgs {
+            node_id: "inspect".into(),
+            goal: "Inspect the workspace".into(),
+            content: String::new(),
+            parents: vec!["root".into()],
+        }],
+        finish: BoundaryNodeArgs {
+            node_id: "finish".into(),
+            goal: "Deliver the completed task".into(),
+            content: String::new(),
+            parents: vec!["inspect".into()],
+        },
+    });
     json!({
         "calls": [
-            {
-                "tool": "initialize_map",
-                "arguments": {
-                    "root": {
-                        "node_id": "root",
-                        "goal": "Complete the user task",
-                        "content": "",
-                        "parents": []
-                    },
-                    "work_nodes": [{
-                        "node_id": "inspect",
-                        "goal": "Inspect the workspace",
-                        "content": "",
-                        "parents": ["root"]
-                    }],
-                    "finish": {
-                        "node_id": "finish",
-                        "goal": "Deliver the completed task",
-                        "content": "",
-                        "parents": ["inspect"]
-                    }
-                }
-            },
+            map_call(initialize),
             {
                 "tool": "exec_command",
                 "node_id": "inspect",
@@ -83,4 +94,35 @@ pub(crate) fn canonical_first_turn_example() -> Value {
         ],
         "hosted_bindings": []
     })
+}
+
+pub(crate) fn canonical_read_example() -> Value {
+    json!({
+        "calls": [map_call(MapOperation::ReadMap(EmptyArgs::default()))],
+        "hosted_bindings": []
+    })
+}
+
+pub(crate) fn canonical_finish_example() -> Value {
+    let complete = MapOperation::UpdateMap(UpdateMapArgs {
+        add_work_nodes: Vec::new(),
+        node_patches: vec![NodePatchArgs {
+            node_id: "implement".into(),
+            goal: None,
+            state: Some(NodeState::Completed),
+            content: Some("Implementation and verification complete.".into()),
+            parents: None,
+        }],
+    });
+    let finish = MapOperation::FinishMap(FinishMapArgs {
+        content: "Task completed and verified.".into(),
+    });
+    json!({
+        "calls": [map_call(complete), map_call(finish)],
+        "hosted_bindings": []
+    })
+}
+
+fn map_call(operation: MapOperation) -> Value {
+    serde_json::to_value(operation).expect("canonical Map operation must serialize")
 }
