@@ -41,6 +41,21 @@ PROVIDER_USAGE_FIXTURE = (
 
 
 class CacheHitRegressionAnalysisTest(unittest.TestCase):
+    def test_historical_v1_provider_boundary_evidence_remains_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            boundary_path = Path(root) / "provider-boundary-evidence.json"
+            write_provider_boundary_evidence(boundary_path, 1)
+            boundary = json.loads(boundary_path.read_text(encoding="utf-8"))
+            boundary["schema_version"] = "whalecode-provider-boundary-evidence-v1"
+            boundary["wire_requests"][0]["request_count_after"] = None
+
+            self.assertEqual(
+                validate_provider_boundary_evidence(
+                    boundary, 1, "deepseek-v4-flash"
+                ),
+                None,
+            )
+
     def test_rejects_boolean_provider_boundary_counts(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             boundary_path = Path(root) / "provider-boundary-evidence.json"

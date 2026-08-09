@@ -14,6 +14,10 @@ from cache_usage_contract import load_provider_wire_usage
 from cache_usage_contract import validate_cache_artifacts
 
 PROVIDER_BOUNDARY_SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v2"
+READABLE_PROVIDER_BOUNDARY_SCHEMA_VERSIONS = {
+    "whalecode-provider-boundary-evidence-v1",
+    PROVIDER_BOUNDARY_SCHEMA_VERSION,
+}
 CACHE_OBSERVATION_KEYS = (
     "arm",
     "provider_usage_contract_version",
@@ -182,8 +186,14 @@ def validate_provider_boundary_evidence(
         wire_requests
     ):
         raise ValueError("provider boundary wire request count is invalid")
+    boundary_schema = boundary.get("schema_version")
     for index, request in enumerate(wire_requests, 1):
         request_count_after = request.get("request_count_after")
+        if (
+            boundary_schema == "whalecode-provider-boundary-evidence-v1"
+            and request_count_after is None
+        ):
+            continue
         if (
             not _is_nonnegative_int(request_count_after)
             or request_count_after != index
@@ -211,7 +221,7 @@ def validate_provider_boundary_accounting(
 ) -> int:
     if not isinstance(boundary, dict):
         raise ValueError("provider boundary evidence must be an object")
-    if boundary.get("schema_version") != PROVIDER_BOUNDARY_SCHEMA_VERSION:
+    if boundary.get("schema_version") not in READABLE_PROVIDER_BOUNDARY_SCHEMA_VERSIONS:
         raise ValueError("provider boundary evidence schema is invalid")
     if (
         boundary.get("expected_model") != expected_model

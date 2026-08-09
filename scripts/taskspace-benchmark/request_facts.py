@@ -19,6 +19,10 @@ from request_fact_validation import validate_attempt_sequences
 SCHEMA_VERSION = "whalecode-request-facts-v1"
 ANALYZER_VERSION = "i07-review-fixes-v3"
 WIRE_SCHEMA_VERSION = "provider-chat-wire-trace-v11"
+READABLE_WIRE_SCHEMA_VERSIONS = {
+    "provider-chat-wire-trace-v10",
+    WIRE_SCHEMA_VERSION,
+}
 TERMINAL_STATUSES = {"response_completed", "response_failed", "cancelled", "response_cancelled", "retry_unauthorized"}
 TOKEN_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens")
 
@@ -174,7 +178,7 @@ def _parse_wire(
         except ValueError:
             findings.append(_finding("identity_incomplete", "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
             continue
-        if event.get("schema_version") != WIRE_SCHEMA_VERSION:
+        if event.get("schema_version") not in READABLE_WIRE_SCHEMA_VERSIONS:
             findings.append(_finding("wire_schema_unsupported", "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
             continue
         if identity is None:

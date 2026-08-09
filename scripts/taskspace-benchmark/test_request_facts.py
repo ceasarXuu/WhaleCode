@@ -44,6 +44,18 @@ class RequestFactsTests(unittest.TestCase):
         self.assertEqual(facts["summary"]["local_only_attempt_count"], 1)
         self.assertEqual(facts["findings"], [])
 
+    def test_historical_v10_wire_evidence_remains_readable(self) -> None:
+        shape = self._shape("r1", "l1", 1, 1, "a" * 64)
+        terminal = self._terminal("r1", "l1", 1, "response_completed")
+        shape["schema_version"] = "provider-chat-wire-trace-v10"
+        terminal["schema_version"] = "provider-chat-wire-trace-v10"
+        wire = self._write("historical-v10.jsonl", [shape, terminal])
+
+        facts = build_request_facts(wire_path=wire)
+
+        self.assertNotIn("wire_schema_unsupported", self._codes(facts))
+        self.assertEqual(facts["summary"]["completed_response_count"], 1)
+
     def test_partial_identity_and_conflicting_duplicate_fail_closed(self) -> None:
         partial = self._write(
             "rollout.jsonl",
