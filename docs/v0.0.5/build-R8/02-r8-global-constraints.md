@@ -54,9 +54,11 @@
    从同一原生 ToolSpec 机械派生，不手写第二套协议。
 9. Client Tool 能力合同在一次请求中只能向 Agent 暴露一次：Standard 在顶层暴露原生 Tool schema；TaskSpace
    必须移除顶层普通 client Tool 和独立 Map Tool，改由 `taskspace_exec` 从同一 ToolSpec 快照在内部暴露。禁止
-   顶层与内部双重暴露，也禁止在 L1/L2、Tool description 或其他消息中重复完整 Tool 合同。
+   顶层与内部双重暴露。`taskspace_exec` 自身的 description 是外层调用方式、序列规则和节点归属规则的唯一模型可见
+   操作合同；L1/L2、developer message 和其他 context 不得再复制 JSON 形状、合法序列或普通 Tool 参数合同。
 10. 内部 Tool catalog、Function/Freeform/Namespace 转换、嵌套调用和原 Router dispatch 必须直接复用或中性抽取 Codex
-    `exec/code-mode` 已有基建，TaskSpace 只增加合法序列和节点绑定 metadata。
+    `exec/code-mode` 已有基建，TaskSpace 只增加合法序列和节点绑定 metadata。外层 description、内部 schema、Runtime
+    catalog 和 dispatch 必须从同一确定性能力快照生成或消费；不得维护平行的手写能力清单。
 11. `taskspace_exec` schema 必须是静态能力合同，只能由确定排序的 ToolSpec 能力快照和协议版本机械生成。Map revision、
     node、调用计划、Provider output、Session 状态及其他运行时数据只能进入 Function Call 参数、Tool result、自然上下文或
     canonical Store，严禁写入 Tool schema/description。相同能力集合和协议版本必须生成逐字稳定的 Tool declaration。

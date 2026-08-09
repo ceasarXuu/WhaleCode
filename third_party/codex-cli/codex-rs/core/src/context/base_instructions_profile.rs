@@ -101,6 +101,9 @@ mod tests {
         const FORBIDDEN_TOOL_WIRE_FRAGMENTS: &[&str] = &[
             "*** Begin Patch",
             "*** Update File:",
+            "taskspace_exec",
+            "initialize_map",
+            "hosted_bindings",
             "{\"command\"",
             "{\"input\"",
             "\"arguments\"",

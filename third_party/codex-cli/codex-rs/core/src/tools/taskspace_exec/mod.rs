@@ -5,6 +5,7 @@ mod handler;
 mod map_operations;
 mod plan;
 mod preflight;
+mod protocol;
 mod response_scope;
 mod schema_validation;
 
@@ -34,6 +35,8 @@ pub(crate) use preflight::PreparedHostedBinding;
 #[cfg(test)]
 pub(crate) use preflight::TaskSpaceExecPreflightError;
 pub(crate) use preflight::preflight_taskspace_exec;
+#[cfg(test)]
+pub(crate) use protocol::canonical_first_turn_example;
 pub(crate) use response_scope::TaskSpaceExecResponseIdentity;
 pub(crate) use response_scope::TaskSpaceExecResponseScope;
 

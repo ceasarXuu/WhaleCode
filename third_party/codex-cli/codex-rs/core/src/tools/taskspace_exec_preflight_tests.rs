@@ -20,6 +20,18 @@ fn catalog() -> Arc<TaskSpaceExecCatalog> {
     Arc::new(
         TaskSpaceExecCatalog::build(&[
             ToolSpec::Function(ResponsesApiTool {
+                name: "exec_command".into(),
+                description: "Run a shell command.".into(),
+                strict: false,
+                parameters: JsonSchema::object(
+                    BTreeMap::from([("cmd".into(), JsonSchema::string(None))]),
+                    Some(vec!["cmd".into()]),
+                    Some(AdditionalProperties::Boolean(false)),
+                ),
+                output_schema: None,
+                defer_loading: None,
+            }),
+            ToolSpec::Function(ResponsesApiTool {
                 name: "read_file".into(),
                 description: "Read a file.".into(),
                 strict: false,
@@ -171,6 +183,18 @@ fn initialize_and_work_are_admitted_in_one_plan() {
     let prepared = preflight_taskspace_exec(&envelope, None, &[]).unwrap();
     assert_eq!(prepared.candidate_map.unwrap().map_id, "map-1");
     assert_eq!(prepared.client_calls.len(), 1);
+}
+
+#[test]
+fn rendered_first_turn_example_passes_the_real_preflight_contract() {
+    let example = canonical_first_turn_example();
+    let envelope = envelope(example, None);
+
+    let prepared = preflight_taskspace_exec(&envelope, None, &[]).unwrap();
+    assert_eq!(prepared.client_calls.len(), 1);
+    assert_eq!(prepared.client_calls[0].call.public_name, "exec_command");
+    assert_eq!(prepared.client_calls[0].call.node_id, "inspect");
+    assert_eq!(prepared.candidate_map.unwrap().map_id, "map-1");
 }
 
 #[test]

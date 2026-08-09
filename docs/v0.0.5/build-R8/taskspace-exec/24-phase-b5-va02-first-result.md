@@ -102,3 +102,10 @@ VA-02 已触发 Phase B5 的“首个结构性失败即停”。VA-03 四臂测�
 - Authorization: `benchmarks/cache-regression/authorizations/CBA-20260809-B5-VA02-46EACBE1F82A5403.json`
 - Original evidence: `benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/`
 - Offline v11 reanalysis: `benchmarks/cache-regression/evidence/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5/WAR-20260809-195732-CACHE-REGRESSION-4E4DA2D5-CACHE-001-OFFLINE-REANALYSIS-V11/`
+
+## 7. 后续修复状态
+
+用户确认继续参考最新 Codex 主线收敛协议后，VA-02R 已完成离线实现。修复没有向 base instructions 再增加一份
+TaskSpace 调用说明，而是让 `taskspace_exec` 自身的 model-visible description 成为唯一外层操作合同；具体证据见
+[`25-phase-b5-protocol-authority-repair.md`](25-phase-b5-protocol-authority-repair.md)。本文仍保留首次失败事实，不把离线修复
+改写成真实 Provider 已通过。VA-02 只有在新预算下复验成功后才能关闭。

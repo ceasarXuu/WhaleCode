@@ -18,6 +18,7 @@ use std::sync::Arc;
 use super::TaskSpaceExecPlan;
 use super::TaskSpaceExecPlanDecodeError;
 use super::map_operation_capabilities;
+use super::protocol::build_description;
 
 pub(crate) const TASKSPACE_EXEC_TOOL_NAME: &str = "taskspace_exec";
 const RECURSIVE_TOOL_NAMES: [&str; 3] = [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait"];
@@ -214,9 +215,10 @@ fn build_declaration<'a>(
     map_operations: impl Iterator<Item = &'a ToolSpecCapability>,
     hosted_tools: &BTreeSet<String>,
 ) -> ResponsesApiTool {
+    let clients = clients.collect::<Vec<_>>();
     let call_variants = map_operations
         .map(map_call_schema)
-        .chain(clients.map(client_call_schema))
+        .chain(clients.iter().copied().map(client_call_schema))
         .collect::<Vec<_>>();
     let calls = JsonSchema::array(
         JsonSchema::object_any_of(
@@ -231,14 +233,12 @@ fn build_declaration<'a>(
     );
     ResponsesApiTool {
         name: TASKSPACE_EXEC_TOOL_NAME.to_string(),
-        description: concat!(
-            "Submit one TaskSpace action batch. The Agent chooses calls, arguments, order, ",
-            "and node ownership. Client calls require node_id. Map calls reference nodes only ",
-            "inside their own arguments. hosted_bindings records provider-hosted outputs in ",
-            "provider output order. The complete batch is mechanically validated before any ",
-            "client Tool or Map side effect."
-        )
-        .to_string(),
+        description: build_description(
+            clients
+                .iter()
+                .map(|capability| capability.public_name.as_str()),
+            hosted_tools,
+        ),
         strict: false,
         parameters: strict_object(
             [("calls", calls), ("hosted_bindings", hosted_bindings)],

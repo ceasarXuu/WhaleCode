@@ -28,8 +28,24 @@ fn function(name: &str) -> ResponsesApiTool {
     }
 }
 
+fn exec_command() -> ResponsesApiTool {
+    ResponsesApiTool {
+        name: "exec_command".into(),
+        description: "Run a shell command.".into(),
+        strict: false,
+        parameters: JsonSchema::object(
+            BTreeMap::from([("cmd".into(), JsonSchema::string(None))]),
+            Some(vec!["cmd".into()]),
+            Some(AdditionalProperties::Boolean(false)),
+        ),
+        output_schema: None,
+        defer_loading: None,
+    }
+}
+
 fn specs() -> Vec<ToolSpec> {
     vec![
+        ToolSpec::Function(exec_command()),
         ToolSpec::Function(function("read_file")),
         ToolSpec::Freeform(FreeformTool {
             name: "apply_patch".into(),
@@ -100,6 +116,33 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(!rendered.contains("version"));
     assert!(!rendered.contains("capability_id"));
     assert!(!rendered.contains("revision"));
+
+    let description = value["description"].as_str().unwrap();
+    assert!(description.contains("single top-level entry point"));
+    assert!(description.contains("First-turn initialization and work example"));
+    assert!(description.contains("node_id` is TaskSpace ownership metadata"));
+    assert!(description.contains("The Runtime does not add, infer, reorder, or repair"));
+    assert_eq!(description.matches("First-turn initialization").count(), 1);
+    assert!(!description.contains(r#"{\"tool\""#));
+}
+
+#[test]
+fn rendered_first_turn_example_uses_the_same_catalog_contract() {
+    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    let example = canonical_first_turn_example();
+    let plan = catalog.decode_plan(&example.to_string()).unwrap();
+
+    assert_eq!(plan.calls.len(), 2);
+    assert!(matches!(plan.calls[0], ExecCall::Map(_)));
+    let ExecCall::Client(client) = &plan.calls[1] else {
+        panic!("expected client work after map initialization")
+    };
+    assert_eq!(client.public_name, "exec_command");
+    assert_eq!(client.node_id, "inspect");
+    assert_eq!(
+        client.input,
+        ClientCallInput::Function(json!({"cmd": "pwd"}))
+    );
 }
 
 #[test]
@@ -118,7 +161,11 @@ fn capability_identity_changes_with_dispatch_or_hosted_semantics() {
     );
 
     let mut changed_hosted = specs();
-    let ToolSpec::ImageGeneration { output_format } = &mut changed_hosted[5] else {
+    let ToolSpec::ImageGeneration { output_format } = changed_hosted
+        .iter_mut()
+        .find(|spec| matches!(spec, ToolSpec::ImageGeneration { .. }))
+        .unwrap()
+    else {
         panic!("expected image generation")
     };
     *output_format = "jpeg".into();

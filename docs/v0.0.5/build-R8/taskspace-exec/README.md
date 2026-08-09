@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 stopped at VA-02 structural failure
+- Status: Phase B0～B4 verified offline / Phase B5 protocol repair verified offline / VA-02 revalidation pending budget
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -58,8 +58,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   I10 的 Runtime-only 能力身份已完成离线闭环；I01/I02/I05/I06 仅为静态关闭候选。Phase B5 只使用正式生产路径进行 Provider shape 与
   四臂测量，旧 A2 source-only probe 不得复用。
 - Phase B5 的首次获批 VA-02 已在首个响应按结构门禁停止：模型把 Exec 内部 `exec_command` 作为非法顶层 Tool call，
-  Runtime 零副作用拒绝。VA-03 未启动；下一步需先确认 Agent 可见 TaskSpace 工作协议的最小修复方向。同期发现的 wire v11
-  观测 consumer 漂移已由 `cca76e921` 修复，运行 usage 已从原始 trace 完整恢复。
+  Runtime 零副作用拒绝。随后对照 OpenAI Codex 2026-08-09 最新主线，确认缺口不是 base prompt 提醒不足，而是 outer
+  Tool declaration 只有 schema、没有自包含的操作合同。当前已新增由同一 catalog 生成的唯一 `taskspace_exec`
+  protocol description，并用同一首次示例反向通过 decoder 与 preflight；未修改 base instructions、普通 Tool、Router 或
+  Runtime 语义。VA-03 仍未启动，VA-02 真实复验需重新申请预算。同期发现的 wire v11 consumer 漂移已由
+  `cca76e921` 修复，运行 usage 已从原始 trace 完整恢复。
 
 ## 3. 文档
 
@@ -92,6 +95,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 23. [`23-phase-b4-issue-remap-result.md`](23-phase-b4-issue-remap-result.md)：VA-04A 对 I01～I10 的当前源码重映射、证据边界和 B5 观察点。
 24. [`../I10/00-i10-capability-identity-repair-plan.md`](../I10/00-i10-capability-identity-repair-plan.md)：B5 前置的 Runtime-only 能力身份闭环。
 25. [`24-phase-b5-va02-first-result.md`](24-phase-b5-va02-first-result.md)：首次正式 Provider shape 验证、实际成本、结构失败和停点。
+26. [`25-phase-b5-protocol-authority-repair.md`](25-phase-b5-protocol-authority-repair.md)：最新 Codex `exec` 对照、协议单一权威修复和离线验证。
 
 ## 4. 推进规则
 
