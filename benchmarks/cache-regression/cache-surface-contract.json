@@ -193,9 +193,9 @@
       {
         "id": "final_wire_matrix",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": [
-          "cargo",
-          "test",
+      "argv": [
+        "cargo",
+        "test",
           "-q",
           "-p",
           "codex-core",
@@ -222,10 +222,16 @@
           "codex-core",
           "--test",
           "all",
-          "taskspace_production_tool_wire"
-        ],
-        "timeout_seconds": 600
-      },
+        "taskspace_production_tool_wire"
+      ],
+      "timeout_seconds": 600,
+      "change_report": {
+        "type": "final_wire_snapshot_set",
+        "baseline_globs": [
+          "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
+        ]
+      }
+    },
       {
         "id": "taskspace_contract",
         "cwd": "third_party/codex-cli/codex-rs",
