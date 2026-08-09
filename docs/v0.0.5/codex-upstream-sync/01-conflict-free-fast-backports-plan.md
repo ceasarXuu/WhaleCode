@@ -1,5 +1,7 @@
 # 第一批：完全无文本冲突的快速 backport 合入方案
 
+> 历史计划：本批已完成，仅保留执行证据，不再授权后续工作。当前唯一有效计划见 [plan.md](plan.md)。
+
 - 文档状态：代码 backport 已完成；Linux 验证完成，Windows 动态验证与 TUI 基线债务待关闭
 - 计划模式：Execution Tracking
 - 创建日期：2026-08-01

@@ -1,5 +1,7 @@
 # 第二批：上游基线、overlay 账本与测试门禁工程计划
 
+> 历史计划：本批已按 12 verified / 3 deferred 收口，仅保留执行证据，不再授权后续工作。当前唯一有效计划见 [plan.md](plan.md)。
+
 - 文档状态：已收口；12/15 工作单元 verified，W9/W12/W13 经用户决策 deferred
 - 计划模式：Execution Tracking
 - 创建日期：2026-08-01

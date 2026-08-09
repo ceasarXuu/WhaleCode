@@ -1,5 +1,7 @@
 # Codex CLI 上游追赶差异分析与合并策略
 
+> 计划治理说明（2026-08-09）：本文件是总体分析和历史证据索引，不再作为执行计划。唯一有效工程计划为 [plan.md](plan.md)，唯一产品决策权威源为 [decisions.md](decisions.md)。第一至第三批文档保留为历史记录；自动 replay disposition 与五批路径桶只可用于查询，不具有语义迁移决策权。
+
 - 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成并作出 0.146 no-go 结论
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
@@ -10,6 +12,8 @@
 
 ## 专题文档
 
+- [当前唯一有效执行计划](plan.md)
+- [受保护的产品决策基线](decisions.md)
 - [第一批：完全无文本冲突的快速 backport 合入方案](01-conflict-free-fast-backports-plan.md)
 - [第二批：上游基线、overlay 账本与测试门禁工程计划](02-upstream-baseline-and-test-gates-plan.md)
 - [第三批：Codex 0.146 候选基底资格审查与 Overlay 重放计划](03-rust-0.146-candidate-qualification-plan.md)
@@ -24,6 +28,7 @@
 - W12/W13 Windows 自动与实机验证按用户决策延期到 Windows 专项；
 - 第二批以 12/15 verified、3/15 deferred 收口，不把延期项表述为通过。
 - 第三批 W0–W8 已完成：候选身份、4,355 条无 rename 推断的 upstream delta、730 路径 replay ledger 和五批 DAG 已落地；纯上游资格矩阵为 1 passed / 4 failed，因此 0.146 当前 no-go，未替换当前 vendor。
+- 2026-08-09 计划治理已将第三批 replay ledger 和五批 DAG 降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U16 语义闭环推进。
 
 ## 1. 执行摘要
 

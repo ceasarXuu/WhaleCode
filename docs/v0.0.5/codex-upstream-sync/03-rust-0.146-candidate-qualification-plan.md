@@ -1,5 +1,7 @@
 # 第三批：Codex 0.146 候选基底资格审查与 Overlay 重放工程计划
 
+> 历史计划：本批 no-go 结论和生成工件作为证据保留，但自动 replay disposition、owner 和五批路径 DAG 不再具有执行或产品决策权。当前唯一有效计划见 [plan.md](plan.md)。
+
 - 文档状态：实施完成（W0–W8 completed；0.146 candidate no-go）
 - 计划模式：Execution Tracking
 - 创建日期：2026-08-02
