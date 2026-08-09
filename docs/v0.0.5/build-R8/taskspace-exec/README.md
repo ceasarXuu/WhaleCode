@@ -1,13 +1,13 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 protocol repair verified offline / VA-02 revalidation pending budget
+- Status: Phase B0～B4 verified offline / Phase B5 Codex parity completion planned / VA-02 revalidation blocked
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
-> 当前正式产品决策基线与后续实施计划已收敛到
-> [`docs/releases/v0.0.5/taskspace-exec-completion/`](../../../releases/v0.0.5/taskspace-exec-completion/plan.md)。
-> 本目录继续保存 R8 已实施事实和历史证据；后续生产改动不得只依据历史 Phase 文档启动。
+> [`00-product-contract.md`](00-product-contract.md) 是唯一产品决策基线，
+> [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md) 是唯一活动工程计划。
+> Phase B5 的 Codex 对照、缺口、实施单元和停点均直接维护在该计划中，不另建平行路线。
 
 ## 1. 路线决策
 
