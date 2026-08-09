@@ -1,10 +1,19 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B2 verified offline / Phase B3 MS-03 completed-qualified / Phase B4 not started
+- Status: Active / Phase B0～B2 verified offline / Phase B3 completed-qualified / Phase B4 ready
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
+- Product Authority: [`00-product-contract.md`](00-product-contract.md)
+- Applicable Decisions: 当前产品合同全部已确认规则；本计划只安排工程实现和验证，不新增产品语义
+
+### 执行合同
+
+1. `00-product-contract.md` 是本专题唯一产品权威；R8 全局约束是其必须遵守的项目级边界，不构成第二套 TaskSpace Exec 产品合同。
+2. 已确认产品规则只能由用户明确修改；工程证据只能调整工作单元、状态和验证顺序，不能静默改写产品规则。
+3. 每个阶段结束只审计本阶段实际产生的产品决策增量，并标记为已覆盖、纯工程、临时或冲突；存在未确认的临时行为或冲突时不得进入依赖阶段。
+4. 后续工作采用最小充分建设：先复用 B3 已有事件、I07 request facts、缓存门禁和测试链，不建立第二观测事实源、平行日志系统或旧协议兼容路径。
 
 ## 1. 决策
 
@@ -114,14 +123,17 @@ Agent 只声明 parents，Runtime 机械反算 children；Map 不再拥有顶层
 | EX-06 | 接入 Hosted 逐项核对 | response envelope、provider reconciliation、Node actions | 按真实 output index/ID/Tool 类型核对 Agent node_ids 并写入 Node actions；不重执行、不默认绑定、不复制结果 | Hosted action 获得可靠节点归属 | Complexity: 一个 response-local reconciler；Reach: Web/Image/provider route | 0/1/N、多节点、漏绑/错绑/重复/failed fixtures；不增加 provider result store | verified |
 | EX-07 | 收敛唯一反馈 | outer FunctionCallOutput、context history | 返回一次机械的 Map commit、各内部 Tool 原生结果和失败范围；删除重复 developer carrier 或 TaskSpace 结果重写 | Agent 获得忠实、无污染反馈 | Complexity: 一个 outer output formatter；Reach: context/token | pairing、failure semantics、large output 与 Standard 一致性 tests | verified |
 | EX-08 | 注册生产入口并清理临时接缝 | Tool registry/provider request builder、所有 prototype/fixture | 只注册正式 Exec 路径，删除实施期 spike、未使用 helper 和候选 schema；TaskSpace 顶层仅 Exec+Hosted | 生产只有一条协议路径 | Complexity: 净删除后单入口；Reach: payload/cache | registry/payload snapshots、zero-base gate、cache source gate | verified |
-| OB-01 | 建立可追踪日志 | Exec/Map/Hosted transaction trace | 记录 request revision、preflight verdict、内部 action identity、node attribution、commit revision 和失败码，不记录敏感 Tool body | 新链路可诊断且不靠猜测 | Complexity: 增加结构化事件；Reach: logs/report | fixture 逐 ID 对账、敏感字段审计 | planned |
-| OB-02 | 更新缓存与性能观测 | cache regression gate、benchmark parser、performance skill fixture | 让新稳定 Tool declaration 进入敏感面，报告 Map/Exec 动作而不解析旧字段 | Prompt/schema 变化可阻断，成本数据可复算 | Complexity: 更新既有工具；Reach: CI/benchmark | policy-only cache gate、fixture report；不运行真实 Agent | planned |
-| VA-01 | 完成离线集成验收 | Docker build、core/protocol/state/CLI/Viewer suites | 执行新 Map、Exec、Standard 回归、零残留和缓存门禁，逐项修复后再进入真实验证 | 先消除确定性缺陷，避免付费调试 | Complexity: 测试执行；Reach: build time | 全套指定测试通过；任一旧符号或 Standard diff 阻断 | planned |
-| VA-02 | 申请并执行最小 Provider shape 验证 | disposable probe、run ledger | 另行申请 1 sample × 1 arm × repeat 1、最多 2 requests 的预算，验证最终结构化 Function schema | 在完整 benchmark 前验证 Provider/Agent 可生成合同 | Complexity: 零新生产代码；Reach: 付费 API | 首个结构失败即停；未批准不得运行 | planned |
-| VA-03 | 申请并执行产品对比 | Docker benchmark、run ledger、performance report | 根据 VA-02 结果单独申请 Standard + 三种 projection policy 的 sample/arm/repeat 预算，比较正确性、路径、Map、request/token/cache/time/cost | 判断新 Map/Exec 是否产生真实收益 | Complexity: 零协议变化；Reach: 付费与耗时 | 逐 run/逐 request trace；异常先归因，不自动扩大 repeat | planned |
-| VA-04 | 重排 R8 已知问题 | `01-r8-known-issues.md`、各主题计划 | 用新架构证据重新判定 I01～I10：已消失则关闭，仍存在则重写根因和依赖，新问题只在证据成立时新增 | 已暂停的问题队列不再继承旧架构假设 | Complexity: 文档状态更新；Reach: R8 后续 | 唯一问题全集与 commit/evidence 对应；用户确认后继续 | planned |
+| OB-01A | 审计现有观测身份链 | B3 tracing events、I07 canonical request facts、Provider boundary facts | 逐事件列出 request/response/outer call/action/node/revision 身份及权威来源，区分已有字段与无法机械关联的缺口 | 后续只修真实缺口，不重复建设 B3 已有日志 | Complexity: 只读盘点和短证据矩阵；Reach: 决定 OB-01B 最小改动面 | 每个生产事件有唯一事实来源和关联路径；发现需要第二事实源时停止 | planned |
+| OB-01B | 补齐最小跨层关联 | 现有 Exec/Map/Hosted/settlement tracing 点及其 fixture | 只为 OB-01A 证明无法关联的事件补充 Runtime 已持有的机械身份和稳定失败码；不记录 Tool body，不建立聚合数据库或平行事件流 | 同一请求可沿 response、outer call、action、node 和 revision 复算执行链 | Complexity: 修改现有事件字段和 fixture，不新增日志框架；Reach: tracing consumers | 成功、拒绝、结算失败 fixture 逐 ID 对账；敏感字段审计；无重复事实 | planned |
+| OB-02A | 接入新合同缓存敏感面 | cache surface contract、TaskSpace request declaration/prompt/provider payload builder | 审计最终 Exec declaration 的真实构建入口，只把尚未覆盖且能改变 Provider 稳定前缀的生产路径纳入现有门禁 | 未知 schema/prompt/payload 变化可在付费运行前被发现 | Complexity: 扩展既有规则，不新增门禁；Reach: staged commit 与 CI | 正反 fixture、policy-only gate、Standard 独立比较；普通执行代码变化不得误报 | planned |
+| OB-02B | 迁移性能观察消费 | I07 request facts、TaskSpace benchmark parser、performance skill fixture | 使用 canonical request facts 统计请求/token/cache/time/cost，使用 OB-01 事件统计 Exec/Map/action；删除 active 报告路径对旧 control/sibling 字段的依赖 | 新协议成本和动作路径可复算，旧协议解析器不再污染结论 | Complexity: 更新既有消费端，不改 Runtime；Reach: benchmark/report fixtures | 合成 trace 逐 ID 对账、缺失身份判不可比较、旧字段不参与 active 结果；不运行真实 Agent | planned |
+| VA-01 | 完成固定离线验收 | Docker build、TaskSpace Exec、Map/Store/settlement、Standard final-wire、CLI/Viewer、zero-base/cache gates | 按冻结清单执行已有测试和构建，不在该单元临时扩建测试体系；失败回到对应实现单元修复 | 在付费验证前确认生产链、消费者和 Standard 基线一致 | Complexity: 主要是测试执行和证据汇总；Reach: build time，无 Provider 请求 | 冻结清单全部 PASS，证据记录命令、结果和 commit；旧符号、Standard diff 或不可复算观测均阻断 | planned |
+| VA-04A | 离线重映射 R8 问题 | `01-r8-known-issues.md`、当前源码与确定性测试 | 识别 I01～I10 中已被新架构删除的旧根因、仍可静态复现的缺陷和必须等待真实 trace 的行为问题 | 不把已淘汰架构假设带入付费验证，也不靠静态证据误关行为问题 | Complexity: 文档证据重排；Reach: 决定 B5 观察重点 | 每项标记为静态关闭候选、仍成立或待运行验证；只在确定性证据充分时关闭 | planned |
+| VA-02 | 申请并执行最终生产路径 Provider shape 验证 | Docker 中当前 Whale 二进制、最终 TaskSpace Exec declaration、run ledger | 另行申请 1 sample × 1 arm × repeat 1、最多 2 requests；通过正式生产入口验证最终结构化 Function schema，禁止复用含 `version/capability_id` 的旧 A2 source-only probe | 在四臂评测前证明目标 Provider/Agent 可生成当前真实合同 | Complexity: 零新协议代码；Reach: 有界付费 API | 原始 response、最终 schema 指纹和 ledger 可复算；首个结构失败即停，未批准不得运行 | planned |
+| VA-03 | 申请并执行首轮四臂产品测量 | Docker benchmark、run ledger、performance report | VA-02 通过后单独申请 Standard、map-always、map-append、map-request 的同版本同样本预算，比较业务结果、动作路径、Map、request/token/cache/time/cost | 获得新协议的首轮产品事实，而不是用旧 benchmark 推断收益 | Complexity: 零协议变化；Reach: 付费与耗时 | 逐 run/逐 request trace；首轮仅测量，不自动作发布判断、不自动扩大 repeat；异常先归因 | planned |
+| VA-04B | 最终重排 R8 已知问题 | `01-r8-known-issues.md`、VA-02/03 trace、各专题计划 | 将 VA-04A 候选与真实证据合并：已消失则关闭，仍存在则重写根因和依赖，新问题只在独立证据成立时新增 | R8 恢复到基于新架构证据的唯一问题队列 | Complexity: 文档状态变化；Reach: 决定 R8 后续顺序 | 每项有当前 commit 和证据路径；成本阈值未获用户确认时只报告测量结果，不自行判定发布 | planned |
 
-MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实运行。旧 NX-00A～NX-04 以及
+MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通过前不得申请真实运行。旧 NX-00A～NX-04 以及
 `02-engineering-plan.md` 中 TX-07～TX-19 的未执行部分全部 invalidated，不改名继承；只有已完成 B0 证据继续有效。
 
 ## 4. 阶段门禁
@@ -160,14 +172,14 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 ### Phase B4：Observability And Offline Gate
 
 - Entry: EX-08 正式入口通过静态和单元验收。
-- Units: OB-01～OB-02、VA-01。
-- Exit: 新链路日志可逐动作对账，缓存/性能工具识别新合同，Docker 离线回归和零残留门禁全部通过。
+- Units: OB-01A～OB-01B、OB-02A～OB-02B、VA-01、VA-04A。
+- Exit: 新链路日志可逐动作对账，缓存/性能工具识别新合同，Docker 离线回归和零残留门禁全部通过；旧问题已完成离线重映射。
 - Stop: 日志需要记录敏感 Tool body、观测依赖旧字段，或缓存门禁无法区分 Standard output-ref 与禁止的 Map ref。
 
 ### Phase B5：Authorized Provider And Product Validation
 
 - Entry: VA-01 通过；每次真实运行另有明确预算和 planned ledger。
-- Units: VA-02～VA-04。
+- Units: VA-02、VA-03、VA-04B。
 - Exit: Provider shape、产品效果和成本有逐 run 证据，R8 唯一问题全集按新架构重新排序。
 - Stop: 未获预算、首个结构性失败、usage 不可信，或异常需要扩大 repeat 才能解释。
 
@@ -205,6 +217,7 @@ MM-10 通过前不得开始 EX-01；EX-08 和 OB-02 通过前不得申请真实�
 | MS-03 producer/shutdown closure | 2026-08-09 | `aba41ff04`；Tokio `TaskTracker` + admission gate；TaskSpace Exec 56、settlement 8 | producer 持有 Tool 到 enqueue；shutdown 先关闭并等待 producer，再 drain 既有 FIFO；永久错误不报告 `ShutdownComplete` | B01/B02 fixed，B03 待组合测试 |
 | MS-03 composed production proof | 2026-08-09 | `4d7387a86`；TaskSpace Exec 57、settlement 9；workspace、zero-base/cache gate PASS | persisted handler、原生 Router、SQLite outcome、Standard rollout/output-ref、provider preparation 串成一条离线生产链；错误归属在 transport 前阻断 | B01～B03 implementation fixed；focused closure review pending，暂不进入 OB-01/B4 |
 | MS-03 focused engineering closure | 2026-08-09 | `24c54333b`；[`vs_review/2026-08-09-r8-ms03-settlement-review.md`](../../../../vs_review/2026-08-09-r8-ms03-settlement-review.md)；TaskSpace Exec 57、settlement/recovery 11、workspace、zero-base/cache gate PASS | admission-before-abort、shutdown error 退出 submission loop、pending turn shutdown guard 均由 focused reviewer 复核 PASS；B03 采用 production chain + output-ref recovery + preparation failure 三层证据，不为单体 mega-test 增加生产 hook | MS-03 离线工程闭环；0 production blocker；Phase B4 不自动启动 |
+| B3 后续计划复审 | 2026-08-09 | B3 生产事件、I07 canonical request facts、缓存门禁和当前 benchmark 调用面静态审计 | B4 从新建观测层收敛为关联审计与最小补缺；缓存和性能消费拆分；离线问题重映射前置；B5 禁止复用旧 A2 source-only probe | OB-01A |
 
 ## 6. 证据校准
 

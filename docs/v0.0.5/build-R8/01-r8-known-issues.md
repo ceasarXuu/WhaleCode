@@ -1,19 +1,18 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-06
+- Updated: 2026-08-09
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
-> **推进暂停（2026-08-05 更新）**：当前发现的问题共同依赖更底层的 TaskSpace 顶层动作承载方式。原执行序暂停，
-> 先完成 [`taskspace-exec/`](taskspace-exec/README.md) 主方案。此前的 Tool schema 入侵、顶层结构化容器和 sibling
-> 配对路线已降级并封存在 [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。主方案实施并验证后重新盘点
-> 本表；现有问题不得因暂停自动关闭，也不得按旧根因或旧方案继续实施。
+> **推进暂停（2026-08-09 更新）**：TaskSpace Exec Phase B3 已完成离线工程闭环；原问题执行序继续暂停到 Phase B4
+> 完成观测、离线门禁和静态重映射。此前的 Tool schema 入侵、顶层结构化容器和 sibling 配对路线已降级并封存在
+> [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。B4 的 VA-04A 只清理旧根因和标记待验证项；行为与成本问题
+> 必须等待获批的 Phase B5 真实证据，不能因新架构落地自动关闭。
 
-TaskSpace Exec Phase A 已完成方向验证：Runtime 可直接读取 Provider output 的 `id/item_id`，同一响应中的多项 Hosted
-动作可由 Agent 逐项绑定到一个或多个节点，整响应单节点和 Root/unbound 降级合同已被否定。该证据只支持继续投资，
-不代表生产集成完成。2026-08-06 的计划复审进一步确认，当前 Event Store 只有单 owner，多节点持久化必须在 Phase B2
-先完成有界发现再实施；本表 I01～I10 的状态不变。
+TaskSpace Exec Phase B3 已完成正式 schema、原生 client dispatch、关系化 canonical Store、Hosted 逐项多节点绑定、唯一
+outer feedback 和可靠 Action 结算的离线集成。该结果证明生产工程链成立，但尚未证明目标 Provider 下的 Agent 行为、三种
+projection 的效果和不可约成本；本表 I01～I10 的状态仍不自动改变，按 VA-04A/VA-04B 两步重评。
 
 TaskSpace Exec 与全局问题的处理边界统一记录在
 [`taskspace-exec/03-global-issue-prerequisite-review.md`](taskspace-exec/03-global-issue-prerequisite-review.md)：I07 已确认的

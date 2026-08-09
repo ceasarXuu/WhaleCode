@@ -54,6 +54,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   cancellation、graceful shutdown 和组合持久化生产链缺口；`24c54333b` 进一步关闭 admission-before-abort、shutdown
   error submission-loop exit 和 pending-turn restart。Focused review 确认 B01/B02 PASS；B03 以三层确定性证据
   qualified closure，不为单体 mega-test 增加生产 hook。未新增持久化队列或产品语义；Phase B4 不自动启动。
+- B3 后复审已将 Phase B4 收敛为现有事件关联审计、最小字段补齐、缓存敏感面、性能消费、固定离线验收和离线问题
+  重映射；Phase B5 只使用正式生产路径进行 Provider shape 与四臂测量，旧 A2 source-only probe 不得复用。
 
 ## 3. 文档
 
