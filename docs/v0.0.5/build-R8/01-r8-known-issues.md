@@ -8,7 +8,8 @@
 > **VA-04A 离线重映射（2026-08-09）**：TaskSpace Exec Phase B4 已完成观测、固定离线门禁和当前源码重映射。
 > 此前的 Tool schema 入侵、顶层结构化容器和 sibling 配对路线已封存在
 > [`tool-sequence-protocol/`](tool-sequence-protocol/README.md)。I01/I02/I05/I06 的旧根因已由新架构删除，列为静态关闭候选；
-> I10 仍有当前静态缺口；I03/I04/I07/I08 必须等待获批的 Phase B5 真实证据。离线候选不等于问题关闭。
+> I10 的 Runtime-only capability identity 已完成离线闭环；I03/I04/I07/I08 与 I10 的生产验收必须等待获批的
+> Phase B5 真实证据。离线候选不等于问题关闭。
 
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
@@ -57,7 +58,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 3 | R8-I06 | F2 | P0 | 组合工具内部动作可能绕过归属和单 Patch 硬门 | 所有 TaskSpace client 动作先过同一请求级预检，普通 Tool 保持原生 | 生产顶层仅 Exec+Hosted；完整 plan 在副作用前校验，顶层绕过和多 Patch 有确定性拒绝。静态关闭候选 | verifying | GI-006 |
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆临时候选与已保存事实 | 忠实返回一次失败；未提交候选不得表现为已保存状态 | 旧 pairing/developer 双反馈已删除；preflight 拒绝零提交，单一 Tool pairing 返回原始阶段错误。静态关闭候选，待 E3 检查模型可见效果 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
-| 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | catalog 在单请求内共用同一快照且 declaration 确定，但尚无 provider wire、dispatch、cache/report 共用的 capability identity；当前缺口仍成立 | queued | GI-010 |
+| 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | 双计、freshness、provenance 已修复；OB-01/OB-02 已接入 Exec 身份和动作消费。只差授权生产 trace 验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 历史 control+sibling 失败不再代表当前协议；结构化 Exec 合同已就绪，但没有当前 Provider 行为证据 | queued | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 当前 DAG/readiness 硬规则确定性通过；是否仍有错误选择只能由 E3 判断 | queued | GI-004 |
@@ -71,16 +72,19 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 |---|---|---|---|
 | 确定性关闭 | I09 | 关系 Store hydrate 仍拒绝非法图，State 134 项通过 | 无 |
 | 静态关闭候选 | I01、I02、I05、I06 | 旧根因和旧生产路径为零，新 Exec 的唯一反馈、内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试、误读拒绝或非法组合 |
-| 当前静态缺口 | I10 | catalog 快照保证本请求声明与 dispatch 一致，声明字节确定 | 尚无跨 provider wire、dispatch、cache/report 的同一 capability identity |
+| 工程完成待生产验收 | I10 | catalog、dispatch、request scope、Provider/Exec trace 和报告共用同一 Runtime-only identity；Standard request 不变 | 当前 Provider trace 是否完整携带且逐 request 一致 |
 | 工程完成待生产验收 | I07 | canonical request facts 和 Exec 动作身份消费均通过离线 fixture | 当前生产 trace 的 completeness/freshness |
 | 纯行为/成本待验证 | I03、I04、I08 | 当前协议、DAG 和测量工具已具备验证条件 | Agent 遵循、节点选择、三种 projection 成本与业务收益 |
 
-本轮证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server
+本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server
 Protocol 183、workspace、zero-base 和 cache gate 全部通过，详见
 [`22-phase-b4-offline-acceptance.md`](taskspace-exec/22-phase-b4-offline-acceptance.md)。OB-01/OB-02 的身份链和报告消费见
 [`19-phase-b4-observability-audit.md`](taskspace-exec/19-phase-b4-observability-audit.md) 与
 [`21-phase-b4-performance-observer-result.md`](taskspace-exec/21-phase-b4-performance-observer-result.md)。完整重映射结论见
 [`23-phase-b4-issue-remap-result.md`](taskspace-exec/23-phase-b4-issue-remap-result.md)。
+
+I10 后续离线补证为 TaskSpace Exec 58、Core 1857/3、workspace、zero-base、性能观察 fixture 和缓存门禁通过，见
+[`I10 修复计划与结果`](I10/00-i10-capability-identity-repair-plan.md)。
 
 旧 control/sibling 真实运行、旧 developer carrier 缓存结果和旧请求放大数字只保留在各专题历史文档中，不再作为当前
 问题的产品证据。VA-04B 只使用最终生产入口的获批 trace 更新状态。

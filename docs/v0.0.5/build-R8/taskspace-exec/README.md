@@ -55,7 +55,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   error submission-loop exit 和 pending-turn restart。Focused review 确认 B01/B02 PASS；B03 以三层确定性证据
   qualified closure，不为单体 mega-test 增加生产 hook。未新增持久化队列或产品语义。
 - Phase B4 已完成现有事件关联审计、最小字段补齐、缓存敏感面、性能消费、固定离线验收和 I01～I10 离线重映射。
-  I10 仍有当前静态缺口；I01/I02/I05/I06 仅为静态关闭候选。Phase B5 只使用正式生产路径进行 Provider shape 与
+  I10 的 Runtime-only 能力身份已完成离线闭环；I01/I02/I05/I06 仅为静态关闭候选。Phase B5 只使用正式生产路径进行 Provider shape 与
   四臂测量，旧 A2 source-only probe 不得复用。
 
 ## 3. 文档

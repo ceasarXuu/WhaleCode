@@ -1,7 +1,7 @@
 # I10 TaskSpace 能力身份修复计划
 
 - Created: 2026-08-09
-- Status: in-progress
+- Status: implementation-verified；production trace pending
 - Product Authority: [`../taskspace-exec/00-product-contract.md`](../taskspace-exec/00-product-contract.md)
 - Applicable decisions: Runtime 维护机械身份；Agent 不回显 `capability_id`；普通 Tool 和 Standard 保持原生
 - Parent plan: [`../taskspace-exec/12-phase-b-zero-base-plan.md`](../taskspace-exec/12-phase-b-zero-base-plan.md)
@@ -34,10 +34,10 @@ Provider wire 独立记录最终 `tools_hash`，Exec 日志和性能报告无法
 
 | ID | 目标 | 修改位置 | 动作 | 收益 | 副作用 | 验证 | 状态 |
 |---|---|---|---|---|---|---|---|
-| ID-01A | 建立唯一身份 | `taskspace_exec/catalog.rs`、Router | 从最终声明序列计算并保存 identity，由 TaskSpace Router 暴露同一值 | declaration 与 dispatch 可证明来自同一快照 | 增加一个只读字符串字段；无新状态机 | 顺序确定性、语义变更、Hosted 变更、Agent schema 无字段测试 | in-progress |
-| ID-01B | 沿请求链传播 | Prompt metadata、response scope、Exec tracing、provider wire tracing | 从 Router 机械传递 identity，并在 handler 使用前核对 | wire 与执行可逐 request 对账 | Provider trace schema 增加可选字段；Standard 为 null | HTTP/WS、成功/拒绝、Standard fixtures | planned |
-| ID-01C | 接入报告消费 | TaskSpace Exec observer 与 fixture | 汇总唯一 identity；缺失、多个值或与 wire 事件不一致时判不可比较 | I07/I08 不再把能力变化误判为任务变化 | 旧 artifact 无该字段时只作为历史，不伪造身份 | 正常、缺失、冲突 fixture | planned |
-| ID-01D | 离线收口 | 定向测试、zero-base、cache gate、文档 | 固化证据并重映射 I10 | 为 VA-02/VA-03 提供可信前置 | 不产生 Provider 成本 | 全部 PASS；缓存指纹变化需按门禁处理 | planned |
+| ID-01A | 建立唯一身份 | `taskspace_exec/catalog.rs`、Router | 从最终声明序列计算并保存 identity，由 TaskSpace Router 暴露同一值 | declaration 与 dispatch 可证明来自同一快照 | 增加一个只读字符串字段；无新状态机 | 顺序确定性、语义变更、Hosted 变更、Agent schema 无字段测试 | verified |
+| ID-01B | 沿请求链传播 | Prompt metadata、response scope、Exec tracing、provider wire tracing | 从 Router 机械传递 identity，并在 handler 使用前核对 | wire 与执行可逐 request 对账 | Provider trace schema 增加可选字段；Standard 为 null | HTTP/WS、成功/拒绝、Standard fixtures | verified |
+| ID-01C | 接入报告消费 | TaskSpace Exec observer 与 fixture | 汇总唯一 identity；缺失、多个值或与 wire 事件不一致时判不可比较 | I07/I08 不再把能力变化误判为任务变化 | 旧 artifact 无该字段时只作为历史，不伪造身份 | 正常、缺失、冲突 fixture | verified |
+| ID-01D | 离线收口 | 定向测试、zero-base、cache gate、文档 | 固化证据并重映射 I10 | 为 VA-02/VA-03 提供可信前置 | 不产生 Provider 成本 | 全部 PASS；缓存指纹变化需按门禁处理 | verified |
 
 ## 5. 产品决策增量
 
@@ -48,3 +48,12 @@ Provider wire 独立记录最终 `tools_hash`，Exec 日志和性能报告无法
 ## 6. 后续顺序
 
 `ID-01A -> ID-01B -> ID-01C -> ID-01D -> VA-02 -> VA-03 -> VA-04B`。真实 Provider 验证仍需独立预算。
+
+## 7. 离线结果
+
+- Runtime 身份链提交：`8481d24bc`；观察器提交：`d669c62a0`。
+- TaskSpace Exec `58/58`、Core `1857 passed / 3 ignored`、workspace check、zero-base、性能观察 fixture 全部通过。
+- `ResponsesApiRequest` 等值测试证明 identity 只进入 Runtime metadata 与 trace，不改变实际 provider request。
+- 缓存门禁发现 accepted snapshot 的 Standard Skills developer 内容相对当前环境已漂移，并将提交标记为可比较候选、
+  发布继续阻断；该差异不在 TaskSpace identity 或 Tool payload。是否晋升缓存基线仍需用户批准的专用真实回归。
+- I10 的静态缺口已修复，但在 VA-02/VA-03 取得当前生产 trace 前保持 `verifying`，不提前关闭。
