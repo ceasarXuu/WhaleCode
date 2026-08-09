@@ -104,6 +104,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 28. [`27-phase-b5-cp02-tool-identity-result.md`](27-phase-b5-cp02-tool-identity-result.md)：原生 `ToolName` 往返、当前 Namespace 扁平别名碰撞证据和最小 wire 决策停点。
 29. [`28-phase-b5-cp03-result-conversion.md`](28-phase-b5-cp03-result-conversion.md)：Function、Freeform、MCP、Tool Search、错误与大输出的公共结果转换覆盖和 CP-09 实施约束。
 30. [`29-phase-b5-cp04-effective-capability-result.md`](29-phase-b5-cp04-effective-capability-result.md)：同一 Registry 条目的 Provider/native ToolSpec 双视图和 TaskSpace effective Catalog 接入证据。
+31. [`30-phase-b5-cp06-tool-identity-result.md`](30-phase-b5-cp06-tool-identity-result.md)：结构化 Namespace wire、原生二元身份查找和旧扁平 alias 零兼容证据。
 
 ## 4. 推进规则
 

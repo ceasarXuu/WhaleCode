@@ -241,7 +241,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                     outer_call_id = %invocation.call_id,
                     action_id = %result.identity.transport_id(),
                     node_id = %result.node_id,
-                    tool = %result.public_name,
+                    tool = %result.display_name,
                     outcome = outcome_name(outcome),
                     capability_identity = self.catalog.capability_identity(),
                     error = %error,
@@ -255,7 +255,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                 call_index: result.identity.index,
                 action_id: result.identity.transport_id(),
                 node_id: result.node_id,
-                tool: result.public_name,
+                tool: result.display_name,
                 outcome: outcome_name(outcome),
                 response,
                 error,
@@ -349,7 +349,7 @@ fn client_action_bindings(calls: &[super::PreparedClientCall]) -> Vec<ActionBind
         .iter()
         .map(|call| ActionBinding {
             action_id: call.identity.transport_id(),
-            tool_name: call.call.public_name.clone(),
+            tool_name: call.call.display_name.clone(),
             outcome: ActionOutcome::Pending,
             node_ids: vec![call.call.node_id.clone()],
         })

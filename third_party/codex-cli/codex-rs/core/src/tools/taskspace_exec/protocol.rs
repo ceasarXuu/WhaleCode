@@ -7,7 +7,7 @@ const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry poi
 
 Call contract:
 - Put every Map operation and client Tool invocation in `calls`, in the order you declare.
-- A function client Tool call is `{"tool":"<name>","node_id":"<work-node>","arguments":{...}}`; a freeform client Tool uses `input` instead of `arguments`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
+- A plain function client Tool call is `{"tool":"<name>","node_id":"<work-node>","arguments":{...}}`; a namespaced function call also has `"namespace":"<namespace>"` and keeps only the leaf Tool name in `tool`. A freeform client Tool uses `input` instead of `arguments`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
 - A Map operation is `{"tool":"<map-operation>","arguments":{...}}` and has no outer `node_id`.
 - `hosted_bindings` contains one binding for each provider-hosted output, in provider output order. One hosted output may name multiple owner work nodes. Use an empty array when there is no hosted output.
 

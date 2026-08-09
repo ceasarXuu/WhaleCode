@@ -283,10 +283,10 @@ fn validate_client_call(
     let capability = envelope
         .request()
         .catalog()
-        .client_capability(&call.public_name)
+        .client_capability(&call.tool_name)
         .ok_or_else(|| TaskSpaceExecPreflightError::ClientCapabilityMismatch {
             index,
-            tool: call.public_name.clone(),
+            tool: call.display_name.clone(),
         })?;
     match (&call.input, &capability.capability.input) {
         (ClientCallInput::Function(value), ToolSpecCapabilityInput::Function(schema)) => {
@@ -301,7 +301,7 @@ fn validate_client_call(
         (ClientCallInput::Freeform(_), ToolSpecCapabilityInput::Freeform(_)) => Ok(()),
         _ => Err(TaskSpaceExecPreflightError::ClientCapabilityMismatch {
             index,
-            tool: call.public_name.clone(),
+            tool: call.display_name.clone(),
         }),
     }
 }

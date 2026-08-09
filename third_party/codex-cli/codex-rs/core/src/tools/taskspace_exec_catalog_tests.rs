@@ -7,6 +7,7 @@ use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiNamespace;
 use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ResponsesApiTool;
+use codex_tools::ToolName;
 use codex_tools::ToolSpec;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -106,13 +107,15 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
         "finish_map",
         "read_file",
         "apply_patch",
-        "mcp__sample__lookup",
+        "mcp__sample__",
+        "lookup",
         "tool_search",
     ] {
         assert!(rendered.contains(name), "missing {name} from {rendered}");
     }
     assert!(!rendered.contains("\"exec\""));
     assert!(!rendered.contains("\"wait\""));
+    assert!(!rendered.contains("mcp__sample__lookup"));
     assert!(!rendered.contains("version"));
     assert!(!rendered.contains("capability_id"));
     assert!(!rendered.contains("revision"));
@@ -137,7 +140,7 @@ fn rendered_first_turn_example_uses_the_same_catalog_contract() {
     let ExecCall::Client(client) = &plan.calls[1] else {
         panic!("expected client work after map initialization")
     };
-    assert_eq!(client.public_name, "exec_command");
+    assert_eq!(client.display_name, "exec_command");
     assert_eq!(client.node_id, "inspect");
     assert_eq!(
         client.input,
@@ -186,7 +189,7 @@ fn decoder_preserves_mixed_map_function_freeform_and_namespace_calls() {
                     {"tool": "read_map", "arguments": {}},
                     {"tool": "read_file", "node_id": "inspect", "arguments": {"value": "a"}},
                     {"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"},
-                    {"tool": "mcp__sample__lookup", "node_id": "inspect", "arguments": {"value": "b"}}
+                    {"tool": "lookup", "namespace": "mcp__sample__", "node_id": "inspect", "arguments": {"value": "b"}}
                 ],
                 "hosted_bindings": [
                     {"tool": "web_search", "node_ids": ["inspect", "fix"]},
@@ -201,7 +204,7 @@ fn decoder_preserves_mixed_map_function_freeform_and_namespace_calls() {
     let ExecCall::Client(function) = &plan.calls[1] else {
         panic!("expected function call")
     };
-    assert_eq!(function.public_name, "read_file");
+    assert_eq!(function.display_name, "read_file");
     assert_eq!(function.node_id, "inspect");
     assert_eq!(
         function.input,
@@ -223,6 +226,87 @@ fn decoder_preserves_mixed_map_function_freeform_and_namespace_calls() {
     );
     assert_eq!(namespace.tool_name.name, "lookup");
     assert_eq!(plan.hosted_bindings[0].node_ids, vec!["inspect", "fix"]);
+}
+
+#[test]
+fn native_identity_allows_same_leaf_across_plain_and_namespaced_tools() {
+    let catalog = TaskSpaceExecCatalog::build(&[
+        ToolSpec::Function(function("lookup")),
+        ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "alpha".into(),
+            description: "Alpha namespace.".into(),
+            tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
+        }),
+        ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "beta".into(),
+            description: "Beta namespace.".into(),
+            tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
+        }),
+        ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "map_tools".into(),
+            description: "Map-named namespace child.".into(),
+            tools: vec![ResponsesApiNamespaceTool::Function(function("read_map"))],
+        }),
+    ])
+    .unwrap();
+
+    let plan = catalog
+        .decode_plan(
+            &json!({
+                "calls": [
+                    {"tool": "lookup", "node_id": "plain", "arguments": {"value": "p"}},
+                    {"tool": "lookup", "namespace": "alpha", "node_id": "a", "arguments": {"value": "a"}},
+                    {"tool": "lookup", "namespace": "beta", "node_id": "b", "arguments": {"value": "b"}},
+                    {"tool": "read_map", "namespace": "map_tools", "node_id": "m", "arguments": {"value": "m"}}
+                ],
+                "hosted_bindings": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let identities = plan
+        .calls
+        .into_iter()
+        .map(|call| match call {
+            ExecCall::Client(call) => call.tool_name,
+            ExecCall::Map(_) => panic!("namespaced read_map must remain a client Tool"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        identities,
+        vec![
+            ToolName::plain("lookup"),
+            ToolName::namespaced("alpha", "lookup"),
+            ToolName::namespaced("beta", "lookup"),
+            ToolName::namespaced("map_tools", "read_map"),
+        ]
+    );
+}
+
+#[test]
+fn decoder_rejects_flattened_namespace_alias_and_inexact_namespace_shape() {
+    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    let flattened = catalog
+        .decode_plan(
+            r#"{"calls":[{"tool":"mcp__sample__lookup","node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
+        )
+        .unwrap_err();
+    assert_eq!(
+        flattened,
+        TaskSpaceExecPlanDecodeError::UnknownTool {
+            index: 0,
+            tool: "mcp__sample__lookup".into(),
+        }
+    );
+
+    for invalid in [
+        r#"{"calls":[{"tool":"lookup","node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"tool":"lookup","namespace":"wrong","node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"tool":"read_file","namespace":null,"node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
+    ] {
+        assert!(catalog.decode_plan(invalid).is_err(), "accepted {invalid}");
+    }
 }
 
 #[test]
@@ -297,6 +381,25 @@ fn catalog_rejects_collisions_and_unprojectable_client_specs() {
         TaskSpaceExecCatalog::build(&collision).unwrap_err(),
         TaskSpaceExecCatalogError::MapCapabilityCollision {
             public_name: "read_map".into()
+        }
+    );
+
+    let duplicate_namespace = vec![
+        ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "same".into(),
+            description: String::new(),
+            tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
+        }),
+        ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "same".into(),
+            description: String::new(),
+            tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
+        }),
+    ];
+    assert_eq!(
+        TaskSpaceExecCatalog::build(&duplicate_namespace).unwrap_err(),
+        TaskSpaceExecCatalogError::DuplicateCapability {
+            tool_name: ToolName::namespaced("same", "lookup"),
         }
     );
 

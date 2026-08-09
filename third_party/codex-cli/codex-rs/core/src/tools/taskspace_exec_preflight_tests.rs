@@ -192,7 +192,7 @@ fn rendered_first_turn_example_passes_the_real_preflight_contract() {
 
     let prepared = preflight_taskspace_exec(&envelope, None, &[]).unwrap();
     assert_eq!(prepared.client_calls.len(), 1);
-    assert_eq!(prepared.client_calls[0].call.public_name, "exec_command");
+    assert_eq!(prepared.client_calls[0].call.display_name, "exec_command");
     assert_eq!(prepared.client_calls[0].call.node_id, "inspect");
     assert_eq!(prepared.candidate_map.unwrap().map_id, "map-1");
 }

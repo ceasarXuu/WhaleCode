@@ -1,9 +1,9 @@
-# Phase B5 CP-02：Tool identity 证据与决策停点
+# Phase B5 CP-02：Tool identity 证据与决策结果
 
 - Date: 2026-08-10
 - Scope: `ToolName`、Function / Freeform / Namespace 的 Agent 可见身份
-- Status: 静态证据完成；Namespace wire 选择待确认
-- Production behavior: 未改变
+- Status: verified；Namespace wire 已确认并由 CP-06 落实
+- Production behavior: CP-02 只提供证据，生产变更见 CP-06
 
 ## 1. 结论
 
@@ -68,12 +68,11 @@ Codex Runtime 已用 `ToolName { namespace: Option<String>, name: String }` 保�
 | 根据当前 Catalog 为碰撞项追加 hash | 新增 Tool 会改变已有别名和缓存前缀；身份依赖集合而非 Tool 自身 |
 | 所有 Tool 都改成 `tool: {namespace, name}` | 可逆但扩大普通 Function、Freeform 和 Map operation 的 Agent 可见结构及 token 成本 |
 
-## 5. 决策停点
+## 5. 决策结果
 
-推荐方案会改变 Namespace 调用的 Agent 可见结构，属于产品协议选择。用户确认前：
+用户于 2026-08-10 确认采用上述结构化 Namespace wire：
 
-1. 不修改 TaskSpace Exec declaration、decoder 或 wire fixture；
-2. CP-06 保持阻塞；
-3. CP-03 可独立推进，但不得以新的 Namespace wire 作为前提。
-
-确认后，CP-06 直接破坏性替换旧扁平 alias，不保留兼容 reader、旧字段或双协议。
+1. CP-06 直接破坏性替换旧扁平 alias；
+2. 不保留兼容 reader、旧字段或双协议；
+3. Code Mode 的 JS 别名属于独立传输协议，不因 TaskSpace wire 改动；
+4. TaskSpace Catalog、decoder 和 dispatch lookup 必须始终使用原生二元 `ToolName`。

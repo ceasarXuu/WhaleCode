@@ -22,7 +22,7 @@ pub(crate) enum ExecCall {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ClientCall {
-    pub(crate) public_name: String,
+    pub(crate) display_name: String,
     pub(crate) tool_name: ToolName,
     pub(crate) node_id: String,
     pub(crate) input: ClientCallInput,
@@ -67,6 +67,15 @@ struct ToolDiscriminator {
 #[serde(deny_unknown_fields)]
 struct RawFunctionCall {
     tool: String,
+    node_id: String,
+    arguments: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNamespacedFunctionCall {
+    tool: String,
+    namespace: String,
     node_id: String,
     arguments: Value,
 }
@@ -120,7 +129,17 @@ fn decode_call(
                 reason: error.to_string(),
             }
         })?;
-    if catalog.is_map_operation(&discriminator.tool) {
+    let namespace = match value.get("namespace") {
+        None => None,
+        Some(Value::String(namespace)) => Some(namespace.clone()),
+        Some(_) => {
+            return Err(TaskSpaceExecPlanDecodeError::InvalidCall {
+                index,
+                reason: "namespace must be a string when present".to_string(),
+            });
+        }
+    };
+    if namespace.is_none() && catalog.is_map_operation(&discriminator.tool) {
         return serde_json::from_value(value)
             .map(ExecCall::Map)
             .map_err(|error| TaskSpaceExecPlanDecodeError::InvalidCall {
@@ -128,44 +147,68 @@ fn decode_call(
                 reason: error.to_string(),
             });
     }
-    let Some(capability) = catalog.client_capability(&discriminator.tool) else {
+    let tool_name = ToolName::new(namespace, discriminator.tool.clone());
+    let Some(capability) = catalog.client_capability(&tool_name) else {
         return Err(TaskSpaceExecPlanDecodeError::UnknownTool {
             index,
-            tool: discriminator.tool,
+            tool: tool_label(&tool_name),
         });
     };
     let projected = &capability.capability;
-    let (public_name, node_id, input) = match &projected.input {
-        ToolSpecCapabilityInput::Function(_) => {
+    let (node_id, input) = match (&projected.tool_name.namespace, &projected.input) {
+        (None, ToolSpecCapabilityInput::Function(_)) => {
             let raw = serde_json::from_value::<RawFunctionCall>(value).map_err(|error| {
                 TaskSpaceExecPlanDecodeError::InvalidCall {
                     index,
                     reason: error.to_string(),
                 }
             })?;
-            (
-                raw.tool,
-                raw.node_id,
-                ClientCallInput::Function(raw.arguments),
-            )
+            debug_assert_eq!(raw.tool, projected.tool_name.name);
+            (raw.node_id, ClientCallInput::Function(raw.arguments))
         }
-        ToolSpecCapabilityInput::Freeform(_) => {
+        (Some(_), ToolSpecCapabilityInput::Function(_)) => {
+            let raw =
+                serde_json::from_value::<RawNamespacedFunctionCall>(value).map_err(|error| {
+                    TaskSpaceExecPlanDecodeError::InvalidCall {
+                        index,
+                        reason: error.to_string(),
+                    }
+                })?;
+            debug_assert_eq!(raw.tool, projected.tool_name.name);
+            debug_assert_eq!(
+                Some(raw.namespace.as_str()),
+                projected.tool_name.namespace.as_deref()
+            );
+            (raw.node_id, ClientCallInput::Function(raw.arguments))
+        }
+        (None, ToolSpecCapabilityInput::Freeform(_)) => {
             let raw = serde_json::from_value::<RawFreeformCall>(value).map_err(|error| {
                 TaskSpaceExecPlanDecodeError::InvalidCall {
                     index,
                     reason: error.to_string(),
                 }
             })?;
-            (raw.tool, raw.node_id, ClientCallInput::Freeform(raw.input))
+            debug_assert_eq!(raw.tool, projected.tool_name.name);
+            (raw.node_id, ClientCallInput::Freeform(raw.input))
+        }
+        (Some(_), ToolSpecCapabilityInput::Freeform(_)) => {
+            unreachable!("namespaced freeform Tool")
         }
     };
     Ok(ExecCall::Client(ClientCall {
-        public_name,
+        display_name: tool_label(&projected.tool_name),
         tool_name: projected.tool_name.clone(),
         node_id,
         input,
         transport: capability.transport,
     }))
+}
+
+fn tool_label(tool_name: &ToolName) -> String {
+    match tool_name.namespace.as_deref() {
+        Some(namespace) => format!("{namespace} / {}", tool_name.name),
+        None => tool_name.name.clone(),
+    }
 }
 
 fn decode_hosted_binding(

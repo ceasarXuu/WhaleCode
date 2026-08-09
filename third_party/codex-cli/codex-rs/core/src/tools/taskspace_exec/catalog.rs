@@ -27,7 +27,7 @@ const RECURSIVE_TOOL_NAMES: [&str; 3] = [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait
 pub(crate) struct TaskSpaceExecCatalog {
     declaration: ResponsesApiTool,
     capability_identity: Arc<str>,
-    client_capabilities: BTreeMap<String, TaskSpaceClientCapability>,
+    client_capabilities: BTreeMap<codex_tools::ToolName, TaskSpaceClientCapability>,
     map_capabilities: BTreeMap<String, ToolSpecCapability>,
     hosted_tools: BTreeSet<String>,
 }
@@ -48,7 +48,7 @@ pub(super) struct TaskSpaceClientCapability {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TaskSpaceExecCatalogError {
-    DuplicateCapability { public_name: String },
+    DuplicateCapability { tool_name: codex_tools::ToolName },
     MapCapabilityCollision { public_name: String },
     UnsupportedToolSpec { tool_name: String },
     CapabilityIdentitySerialization { message: String },
@@ -78,13 +78,15 @@ impl TaskSpaceExecCatalog {
                         _ => unreachable!("matched client ToolSpec"),
                     };
                     for capability in project_tool_spec_capabilities(spec) {
-                        if RECURSIVE_TOOL_NAMES.contains(&capability.public_name.as_str()) {
+                        if capability.tool_name.namespace.is_none()
+                            && RECURSIVE_TOOL_NAMES.contains(&capability.tool_name.name.as_str())
+                        {
                             continue;
                         }
-                        let public_name = capability.public_name.clone();
+                        let tool_name = capability.tool_name.clone();
                         if client_capabilities
                             .insert(
-                                public_name.clone(),
+                                tool_name.clone(),
                                 TaskSpaceClientCapability {
                                     capability,
                                     transport,
@@ -93,7 +95,7 @@ impl TaskSpaceExecCatalog {
                             .is_some()
                         {
                             return Err(TaskSpaceExecCatalogError::DuplicateCapability {
-                                public_name,
+                                tool_name,
                             });
                         }
                     }
@@ -110,19 +112,16 @@ impl TaskSpaceExecCatalog {
             .into_iter()
             .map(|capability| (capability.public_name.clone(), capability))
             .collect::<BTreeMap<_, _>>();
-        if let Some(public_name) = map_capabilities
-            .keys()
-            .find(|name| client_capabilities.contains_key(*name))
-        {
+        if let Some(public_name) = map_capabilities.keys().find(|name| {
+            client_capabilities.contains_key(&codex_tools::ToolName::plain((*name).clone()))
+        }) {
             return Err(TaskSpaceExecCatalogError::MapCapabilityCollision {
                 public_name: public_name.clone(),
             });
         }
 
         let declaration = build_declaration(
-            client_capabilities
-                .values()
-                .map(|client| &client.capability),
+            client_capabilities.values(),
             map_capabilities.values(),
             &hosted_tools,
         );
@@ -160,8 +159,11 @@ impl TaskSpaceExecCatalog {
         TaskSpaceExecPlan::decode(arguments, self)
     }
 
-    pub(super) fn client_capability(&self, name: &str) -> Option<&TaskSpaceClientCapability> {
-        self.client_capabilities.get(name)
+    pub(super) fn client_capability(
+        &self,
+        tool_name: &codex_tools::ToolName,
+    ) -> Option<&TaskSpaceClientCapability> {
+        self.client_capabilities.get(tool_name)
     }
 
     pub(super) fn is_map_operation(&self, name: &str) -> bool {
@@ -177,14 +179,14 @@ impl TaskSpaceExecCatalog {
 struct CapabilityIdentityInput<'a> {
     schema: &'static str,
     provider_declarations: Vec<serde_json::Value>,
-    client_capabilities: &'a BTreeMap<String, TaskSpaceClientCapability>,
+    client_capabilities: Vec<&'a TaskSpaceClientCapability>,
     map_capabilities: &'a BTreeMap<String, ToolSpecCapability>,
 }
 
 fn build_capability_identity(
     declaration: &ResponsesApiTool,
     hosted_specs: &[ToolSpec],
-    client_capabilities: &BTreeMap<String, TaskSpaceClientCapability>,
+    client_capabilities: &BTreeMap<codex_tools::ToolName, TaskSpaceClientCapability>,
     map_capabilities: &BTreeMap<String, ToolSpecCapability>,
 ) -> Result<Arc<str>, TaskSpaceExecCatalogError> {
     let provider_specs = std::iter::once(ToolSpec::Function(declaration.clone()))
@@ -197,9 +199,9 @@ fn build_capability_identity(
             }
         })?;
     let bytes = serde_json::to_vec(&CapabilityIdentityInput {
-        schema: "taskspace-capability-identity-v1",
+        schema: "taskspace-capability-identity-v2",
         provider_declarations,
-        client_capabilities,
+        client_capabilities: client_capabilities.values().collect(),
         map_capabilities,
     })
     .map_err(
@@ -211,11 +213,15 @@ fn build_capability_identity(
 }
 
 fn build_declaration<'a>(
-    clients: impl Iterator<Item = &'a ToolSpecCapability>,
+    clients: impl Iterator<Item = &'a TaskSpaceClientCapability>,
     map_operations: impl Iterator<Item = &'a ToolSpecCapability>,
     hosted_tools: &BTreeSet<String>,
 ) -> ResponsesApiTool {
     let clients = clients.collect::<Vec<_>>();
+    let client_labels = clients
+        .iter()
+        .map(|client| client_tool_label(&client.capability.tool_name))
+        .collect::<Vec<_>>();
     let call_variants = map_operations
         .map(map_call_schema)
         .chain(clients.iter().copied().map(client_call_schema))
@@ -233,12 +239,7 @@ fn build_declaration<'a>(
     );
     ResponsesApiTool {
         name: TASKSPACE_EXEC_TOOL_NAME.to_string(),
-        description: build_description(
-            clients
-                .iter()
-                .map(|capability| capability.public_name.as_str()),
-            hosted_tools,
-        ),
+        description: build_description(client_labels.iter().map(String::as_str), hosted_tools),
         strict: false,
         parameters: strict_object(
             [("calls", calls), ("hosted_bindings", hosted_bindings)],
@@ -265,7 +266,8 @@ fn map_call_schema(capability: &ToolSpecCapability) -> JsonSchema {
     )
 }
 
-fn client_call_schema(capability: &ToolSpecCapability) -> JsonSchema {
+fn client_call_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
+    let capability = &client.capability;
     let (input_name, input_schema) = match &capability.input {
         ToolSpecCapabilityInput::Function(arguments) => ("arguments", arguments.clone()),
         ToolSpecCapabilityInput::Freeform(format) => (
@@ -276,20 +278,34 @@ fn client_call_schema(capability: &ToolSpecCapability) -> JsonSchema {
             ))),
         ),
     };
-    described(
-        strict_object(
+    let node_id = JsonSchema::string(Some("Agent-declared owner node.".into()));
+    let schema = match capability.tool_name.namespace.as_deref() {
+        Some(namespace) => strict_object(
             [
-                ("tool", exact_name_schema(&capability.public_name)),
-                (
-                    "node_id",
-                    JsonSchema::string(Some("Agent-declared owner node.".into())),
-                ),
+                ("tool", exact_name_schema(&capability.tool_name.name)),
+                ("namespace", exact_name_schema(namespace)),
+                ("node_id", node_id),
+                (input_name, input_schema),
+            ],
+            &["tool", "namespace", "node_id", input_name],
+        ),
+        None => strict_object(
+            [
+                ("tool", exact_name_schema(&capability.tool_name.name)),
+                ("node_id", node_id),
                 (input_name, input_schema),
             ],
             &["tool", "node_id", input_name],
         ),
-        &capability.description,
-    )
+    };
+    described(schema, &capability.description)
+}
+
+fn client_tool_label(tool_name: &codex_tools::ToolName) -> String {
+    match tool_name.namespace.as_deref() {
+        Some(namespace) => format!("{namespace} / {}", tool_name.name),
+        None => tool_name.name.clone(),
+    }
 }
 
 fn hosted_binding_schema(hosted_tools: &BTreeSet<String>) -> JsonSchema {

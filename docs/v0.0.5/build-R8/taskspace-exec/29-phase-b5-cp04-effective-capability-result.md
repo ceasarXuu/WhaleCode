@@ -40,7 +40,7 @@
 - TaskSpace 不从 `model_visible_specs()` 反推 client 能力，因为 Code Mode Only 会隐藏应由 Exec 承载的普通 Tool；
 - TaskSpace 不从 raw Provider `specs()` 复制描述，因为该描述可能已被 Code Mode 增强；
 - deferred Tool 的首轮展开与搜索后安装仍由 CP-05 处理，本单元只保证其原始标记和合同不丢失；
-- Namespace identity 的 Agent-visible wire 仍等待 CP-02 决策，不在本单元修改。
+- Namespace identity 的 Agent-visible wire 已在 CP-02 确认，由 CP-06 独立修改；本单元不混入该变化。
 
 ## 4. 验证
 
