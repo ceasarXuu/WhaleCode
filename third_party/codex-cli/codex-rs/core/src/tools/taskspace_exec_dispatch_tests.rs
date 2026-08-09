@@ -20,6 +20,7 @@ use crate::function_tool::FunctionCallError;
 use crate::session::tests::make_session_and_context;
 use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
+use crate::tools::context::ToolCallSource;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallRuntime;
@@ -140,6 +141,7 @@ struct TimingHandler {
     active: AtomicUsize,
     max_active: AtomicUsize,
     calls: Mutex<Vec<String>>,
+    sources: Mutex<Vec<ToolCallSource>>,
 }
 
 impl ToolHandler for TimingHandler {
@@ -150,6 +152,7 @@ impl ToolHandler for TimingHandler {
     }
 
     async fn handle(&self, invocation: ToolInvocation) -> Result<Self::Output, FunctionCallError> {
+        self.sources.lock().await.push(invocation.source.clone());
         let ToolPayload::Function { arguments } = invocation.payload else {
             return Err(FunctionCallError::RespondToModel(
                 "wrong payload".to_string(),
@@ -212,6 +215,23 @@ async fn dispatch_preserves_native_parallel_policy_and_completion_order() {
     assert_eq!(first.identity.index, 1);
     assert_eq!(second.identity.index, 0);
     assert!(handler.max_active.load(Ordering::SeqCst) >= 2);
+    let sources = handler.sources.lock().await;
+    assert!(sources.iter().any(|source| matches!(
+        source,
+        ToolCallSource::TaskSpaceExec {
+            outer_call_id,
+            call_index: 0,
+            node_id,
+        } if outer_call_id == "outer" && node_id == "work"
+    )));
+    assert!(sources.iter().any(|source| matches!(
+        source,
+        ToolCallSource::TaskSpaceExec {
+            outer_call_id,
+            call_index: 1,
+            node_id,
+        } if outer_call_id == "outer" && node_id == "work"
+    )));
 }
 
 #[tokio::test]

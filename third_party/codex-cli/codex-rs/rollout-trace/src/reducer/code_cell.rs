@@ -627,6 +627,15 @@ impl TraceReducer {
     ) -> Result<ToolCallRequester> {
         match requester {
             RawToolCallRequester::Model => Ok(ToolCallRequester::Model),
+            RawToolCallRequester::TaskSpaceExec {
+                outer_call_id,
+                call_index,
+                node_id,
+            } => Ok(ToolCallRequester::TaskSpaceExec {
+                outer_call_id,
+                call_index,
+                node_id,
+            }),
             RawToolCallRequester::CodeCell { runtime_cell_id } => Ok(ToolCallRequester::CodeCell {
                 code_cell_id: self.code_cell_id_for_runtime_cell_id(
                     thread_id,

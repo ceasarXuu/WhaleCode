@@ -67,6 +67,11 @@ pub enum ToolDispatchRequester {
     Model {
         model_visible_call_id: ModelVisibleCallId,
     },
+    TaskSpaceExec {
+        outer_call_id: ModelVisibleCallId,
+        call_index: usize,
+        node_id: String,
+    },
     CodeCell {
         runtime_cell_id: String,
         runtime_tool_call_id: CodeModeRuntimeToolId,
@@ -105,6 +110,7 @@ pub enum ToolDispatchPayload {
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ToolDispatchResult {
     DirectResponse { response_item: ResponseInputItem },
+    NestedResponse { value: JsonValue },
     CodeModeResponse { value: JsonValue },
 }
 
@@ -122,6 +128,9 @@ struct DispatchedToolTraceRequest<'a> {
 enum DispatchedToolTraceResponse<'a> {
     DirectResponse {
         response_item: &'a ResponseInputItem,
+    },
+    NestedResponse {
+        value: &'a JsonValue,
     },
     CodeModeResponse {
         value: &'a JsonValue,
@@ -173,6 +182,9 @@ impl ToolDispatchTraceContext {
         let response = match &result {
             ToolDispatchResult::DirectResponse { response_item } => {
                 DispatchedToolTraceResponse::DirectResponse { response_item }
+            }
+            ToolDispatchResult::NestedResponse { value } => {
+                DispatchedToolTraceResponse::NestedResponse { value }
             }
             ToolDispatchResult::CodeModeResponse { value } => {
                 DispatchedToolTraceResponse::CodeModeResponse { value }
@@ -251,6 +263,19 @@ fn requester_fields(
             Some(model_visible_call_id),
             None,
             RawToolCallRequester::Model,
+        ),
+        ToolDispatchRequester::TaskSpaceExec {
+            outer_call_id,
+            call_index,
+            node_id,
+        } => (
+            None,
+            None,
+            RawToolCallRequester::TaskSpaceExec {
+                outer_call_id,
+                call_index,
+                node_id,
+            },
         ),
         ToolDispatchRequester::CodeCell {
             runtime_cell_id,

@@ -138,13 +138,10 @@ impl ToolCallRuntime {
     pub(crate) fn handle_tool_call_with_nested_result_and_status(
         self,
         call: ToolCall,
+        source: ToolCallSource,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = NestedToolCallResponse> {
-        let future = self.handle_tool_call_with_source_and_status(
-            call,
-            ToolCallSource::Direct,
-            cancellation_token,
-        );
+        let future = self.handle_tool_call_with_source_and_status(call, source, cancellation_token);
         async move {
             match future.await {
                 Ok(response) => NestedToolCallResponse {

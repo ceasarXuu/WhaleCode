@@ -112,6 +112,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 33. [`32-phase-b5-cp05-deferred-lifecycle.md`](32-phase-b5-cp05-deferred-lifecycle.md)：首轮隐藏、自然历史恢复、dynamic/MCP 展开与失效能力 fail-closed 证据。
 34. [`33-phase-b5-cp07-input-contract.md`](33-phase-b5-cp07-input-contract.md)：Map 边界与 Work 依赖分离、canonical 操作说明和可反解示例证据。
 35. [`34-phase-b5-cp08-output-contract.md`](34-phase-b5-cp08-output-contract.md)：typed outer result、canonical Map read、原生 nested result 与模型可见返回合同的同源证据。
+36. [`35-phase-b5-cp10-dispatch-requester.md`](35-phase-b5-cp10-dispatch-requester.md)：Direct、Code Mode 与 TaskSpace 内层 Tool requester 的机械身份和 rollout 回放证据。
 
 ## 4. 推进规则
 

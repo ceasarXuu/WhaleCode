@@ -8,6 +8,7 @@ use crate::function_tool::FunctionCallError;
 use crate::session::TaskSpaceActionSettlementFact;
 use crate::session::session::Session;
 use crate::tools::context::NestedToolResult;
+use crate::tools::context::ToolCallSource;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolRouter;
@@ -112,7 +113,15 @@ pub(crate) fn dispatch_client_calls(
                     tool = item.display_name,
                 );
                 let handled = runtime
-                    .handle_tool_call_with_nested_result_and_status(item.call, cancellation_token)
+                    .handle_tool_call_with_nested_result_and_status(
+                        item.call,
+                        ToolCallSource::TaskSpaceExec {
+                            outer_call_id: item.identity.outer_call_id.clone(),
+                            call_index: item.identity.index,
+                            node_id: item.node_id.clone(),
+                        },
+                        cancellation_token,
+                    )
                     .await;
                 let mut result = DispatchedClientCall {
                     identity: item.identity,

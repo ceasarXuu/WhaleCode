@@ -41,6 +41,11 @@ const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES: usize = 320;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
+    TaskSpaceExec {
+        outer_call_id: String,
+        call_index: usize,
+        node_id: String,
+    },
     CodeMode {
         /// Runtime cell that issued the nested tool request.
         cell_id: String,
