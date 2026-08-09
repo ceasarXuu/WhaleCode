@@ -198,7 +198,8 @@
 - Related evidence:
   - E-004
   - E-009
-- Conclusion: The tag declares workspace version `0.146.0`, but its committed snapshot still expects `0.0.0`; the exact mismatch persists in a scrubbed environment.
+  - E-011
+- Conclusion: The snapshot was created at commit `e212cc95b0fa` while the workspace development version was `0.0.0`. Release commit `e363b08c9175` changed only `Cargo.toml` to `0.146.0` and did not regenerate the version-bearing snapshots; the exact mismatch therefore persists in a scrubbed environment.
 - Repair design readiness: not applicable in U1; changing the candidate or accepting the snapshot would weaken immutable qualification
 - Next step: preserve the failure in the full rerun and keep the 0.146 candidate no-go
 - Blocker:
@@ -414,3 +415,26 @@
   ```
 - Interpretation: Runner defects identified by U1 are corrected without candidate edits, but V1's all-entrypoint acceptance threshold is not met. This validates the no-go decision rather than authorizing cutover.
 - Time: 2026-08-10 04:20
+
+## Evidence E-011: Snapshot predates the release-version bump
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: regression-window
+- Source: immutable Git objects `e212cc95b0faf340474b821cee431bddbf2003e6` and `e363b08c9175ac1cbe5893615dd2cb9ddf95043b`
+- Prediction or plan link:
+  - H-004 prediction that the committed expected value belongs to development-version state rather than runner injection
+- Matched signal:
+  - commit `e212cc95b0fa` introduced the pnpm snapshot when `[workspace.package].version` was `0.0.0`; release commit `e363b08c9175` changed that field to `0.146.0` but did not modify the history-cell snapshots
+- Correlation keys:
+  - snapshot `pnpm_update_available_history_cell_snapshot`
+  - release commit `e363b08c9175`
+- Raw content:
+  ```text
+  e212cc95b0fa Cargo.toml: version = "0.0.0"
+  e212cc95b0fa snapshot: Update available! 0.0.0 -> 9.9.9
+  e363b08c9175 Cargo.toml: version = "0.0.0" -> "0.146.0"
+  e363b08c9175 changed version-bearing history snapshots: none
+  ```
+- Interpretation: `0.0.0` is a stale development-time snapshot value. Runtime rendering correctly uses `CODEX_CLI_VERSION`, which is compiled from `CARGO_PKG_VERSION` and becomes `0.146.0` in the release tree.
+- Time: 2026-08-10 04:45
