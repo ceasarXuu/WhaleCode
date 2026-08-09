@@ -1,7 +1,7 @@
 # Problem P-001: VA-02 首轮证据链未能如实结算
 - Status: verifying
 - Created: 2026-08-10 06:00
-- Updated: 2026-08-10 06:12
+- Updated: 2026-08-10 06:52
 - Objective: 保留 VA-02 首轮的真实协议、Map 和成本证据，并在不放宽 TaskSpace 硬约束的前提下修复确定的观测缺陷。
 - Symptoms:
   - 首次 `taskspace_exec` 参数多出一个右花括号，被严格 JSON 解码拒绝。
@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: 两项工程根因已修复并通过离线回归及原始 artifact 复算；首次多余花括号属于模型输出事实，目前没有证据支持 Runtime 容错，剩余一次真实运行用于稳定性验证。
+- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过；第二响应生成了 Provider 未声明的顶层 `exec_command`，而两次 wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`。Runtime 正确 fail closed。性能观测器对缺省 `hosted_bindings` 的 StrictMode 误报已修复并离线回归；VA-02 仍因 I03 当前生产表现未关闭。
 - Related hypotheses:
   - H-001
   - H-002
