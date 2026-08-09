@@ -13,6 +13,7 @@ use crate::function_tool::FunctionCallError;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::AbortedToolOutput;
+use crate::tools::context::NestedToolResult;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolPayload;
 use crate::tools::registry::AnyToolResult;
@@ -36,6 +37,13 @@ pub(crate) struct ToolCallRuntime {
 
 pub(crate) struct ToolCallResponse {
     pub(crate) response: Result<ResponseInputItem, CodexErr>,
+    pub(crate) cancelled: bool,
+    pub(crate) execution_failed: bool,
+}
+
+pub(crate) struct NestedToolCallResponse {
+    pub(crate) result: Option<NestedToolResult>,
+    pub(crate) error: Option<String>,
     pub(crate) cancelled: bool,
     pub(crate) execution_failed: bool,
 }
@@ -119,6 +127,41 @@ impl ToolCallRuntime {
                 },
                 Err(other) => ToolCallResponse {
                     response: Ok(Self::failure_response(error_call, other)),
+                    cancelled: false,
+                    execution_failed: true,
+                },
+            }
+        }
+        .in_current_span()
+    }
+
+    pub(crate) fn handle_tool_call_with_nested_result_and_status(
+        self,
+        call: ToolCall,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = NestedToolCallResponse> {
+        let future = self.handle_tool_call_with_source_and_status(
+            call,
+            ToolCallSource::Direct,
+            cancellation_token,
+        );
+        async move {
+            match future.await {
+                Ok(response) => NestedToolCallResponse {
+                    result: Some(response.result.into_nested_result()),
+                    error: None,
+                    cancelled: response.cancelled,
+                    execution_failed: false,
+                },
+                Err(FunctionCallError::Fatal(message)) => NestedToolCallResponse {
+                    result: None,
+                    error: Some(CodexErr::Fatal(message).to_string()),
+                    cancelled: false,
+                    execution_failed: true,
+                },
+                Err(other) => NestedToolCallResponse {
+                    result: None,
+                    error: Some(function_call_error_model_visible_message(&other)),
                     cancelled: false,
                     execution_failed: true,
                 },

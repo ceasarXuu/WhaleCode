@@ -12,6 +12,7 @@ use crate::memories::usage::emit_metric_for_tool_read;
 use crate::sandbox_tags::sandbox_tag;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::FunctionToolOutput;
+use crate::tools::context::NestedToolResult;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
@@ -127,6 +128,13 @@ impl AnyToolResult {
             payload, result, ..
         } = self;
         result.code_mode_result(&payload)
+    }
+
+    pub(crate) fn into_nested_result(self) -> NestedToolResult {
+        let Self {
+            payload, result, ..
+        } = self;
+        result.nested_result(&payload)
     }
 }
 

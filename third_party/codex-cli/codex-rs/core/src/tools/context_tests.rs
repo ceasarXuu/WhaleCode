@@ -259,11 +259,18 @@ fn mcp_tool_output_code_mode_result_stays_raw_call_tool_result() {
         truncation_policy: TruncationPolicy::Bytes(64),
     };
 
-    let result = output.code_mode_result(&ToolPayload::Mcp {
+    let payload = ToolPayload::Mcp {
         server: "server".to_string(),
         tool: "tool".to_string(),
         raw_arguments: "{}".to_string(),
-    });
+    };
+    let nested = output.nested_result(&payload);
+    let result = output.code_mode_result(&payload);
+
+    let NestedToolResult::Mcp { output: nested } = nested else {
+        panic!("MCP nested result must preserve the raw CallToolResult")
+    };
+    assert_eq!(nested, output.result);
 
     assert_eq!(
         result,
@@ -404,6 +411,26 @@ fn tool_search_code_mode_result_preserves_loadable_specs() {
     };
 
     assert_eq!(
+        serde_json::to_value(output.nested_result(&payload)).unwrap(),
+        json!({
+            "type": "tool_search",
+            "status": "completed",
+            "execution": "client",
+            "tools": [{
+                "type": "function",
+                "name": "create_event",
+                "description": "Create an event.",
+                "strict": false,
+                "defer_loading": true,
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }]
+        })
+    );
+
+    assert_eq!(
         output.code_mode_result(&payload),
         json!([{
             "type": "function",
@@ -427,6 +454,10 @@ fn apply_patch_code_mode_policy_drops_feedback_preserved_by_standard_output() {
     let output = ApplyPatchToolOutput::from_text("Success. Updated files.".to_string());
 
     assert_eq!(output.code_mode_result(&payload), json!({}));
+    assert_eq!(
+        serde_json::to_value(output.nested_result(&payload)).unwrap(),
+        json!({"type": "custom", "output": "Success. Updated files."})
+    );
     let response = output.to_response_item("patch-1", &payload);
     assert_eq!(
         response_input_to_code_mode_result(response),
@@ -718,7 +749,7 @@ fn exec_command_tool_output_referenceizes_large_response() {
     raw_output.extend_from_slice("middle-secret-marker\n".repeat(4_000).as_bytes());
     raw_output.extend_from_slice(b"tail-visible\n");
 
-    let response = ExecCommandToolOutput {
+    let output = ExecCommandToolOutput {
         event_call_id: "call-large".to_string(),
         chunk_id: "chunk-large".to_string(),
         wall_time: std::time::Duration::from_millis(250),
@@ -729,8 +760,16 @@ fn exec_command_tool_output_referenceizes_large_response() {
         exit_code: Some(0),
         original_token_count: Some(12_000),
         hook_command: None,
-    }
-    .to_response_item("call-large", &payload);
+    };
+    let nested = output.nested_result(&payload);
+    let response = output.to_response_item("call-large", &payload);
+
+    let NestedToolResult::Function { output } = nested else {
+        panic!("exec nested result must use the neutral function result")
+    };
+    let nested_text = output.body.to_text().unwrap();
+    assert!(nested_text.contains("OutputReferenceV1:"));
+    assert!(nested_text.contains("artifact_ref: output-ref://sha256/test-large"));
 
     match response {
         ResponseInputItem::FunctionCallOutput { call_id, output } => {

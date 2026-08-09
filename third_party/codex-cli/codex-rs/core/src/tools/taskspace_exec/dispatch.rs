@@ -1,5 +1,4 @@
 use codex_protocol::error::CodexErr;
-use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
@@ -8,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use crate::function_tool::FunctionCallError;
 use crate::session::TaskSpaceActionSettlementFact;
 use crate::session::session::Session;
+use crate::tools::context::NestedToolResult;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolRouter;
@@ -30,7 +30,8 @@ pub(crate) struct DispatchedClientCall {
     pub(crate) identity: TaskSpaceExecInternalCallId,
     pub(crate) node_id: String,
     pub(crate) display_name: String,
-    pub(crate) response: Result<ResponseInputItem, CodexErr>,
+    pub(crate) result: Option<NestedToolResult>,
+    pub(crate) error: Option<String>,
     pub(crate) cancelled: bool,
     pub(crate) execution_failed: bool,
     pub(crate) settlement_error: Option<String>,
@@ -111,13 +112,14 @@ pub(crate) fn dispatch_client_calls(
                     tool = item.display_name,
                 );
                 let handled = runtime
-                    .handle_tool_call_with_status(item.call, cancellation_token)
+                    .handle_tool_call_with_nested_result_and_status(item.call, cancellation_token)
                     .await;
                 let mut result = DispatchedClientCall {
                     identity: item.identity,
                     node_id: item.node_id,
                     display_name: item.display_name,
-                    response: handled.response,
+                    result: handled.result,
+                    error: handled.error,
                     cancelled: handled.cancelled,
                     execution_failed: handled.execution_failed,
                     settlement_error: None,
@@ -139,7 +141,7 @@ pub(crate) fn dispatch_client_calls(
                     call_index = result.identity.index,
                     node_id = result.node_id,
                     tool = result.display_name,
-                    fatal = result.response.is_err(),
+                    failed = result.error.is_some(),
                     cancelled = result.cancelled,
                     execution_failed = result.execution_failed,
                     settlement_queued = result.settlement_error.is_none(),
@@ -153,9 +155,11 @@ pub(crate) fn dispatch_client_calls(
                         identity,
                         node_id,
                         display_name,
-                        response: Err(CodexErr::Fatal(format!(
-                            "TaskSpace Action producer failed: {error}"
-                        ))),
+                        result: None,
+                        error: Some(
+                            CodexErr::Fatal(format!("TaskSpace Action producer failed: {error}"))
+                                .to_string(),
+                        ),
                         cancelled: false,
                         execution_failed: true,
                         settlement_error: Some(
@@ -166,7 +170,8 @@ pub(crate) fn dispatch_client_calls(
                         identity,
                         node_id,
                         display_name,
-                        response: Err(CodexErr::Fatal(error.clone())),
+                        result: None,
+                        error: Some(CodexErr::Fatal(error.clone()).to_string()),
                         cancelled: false,
                         execution_failed: true,
                         settlement_error: Some(error),
@@ -188,15 +193,15 @@ pub(crate) fn dispatched_outcome(
     if result.execution_failed {
         return Outcome::Failed;
     }
-    match &result.response {
-        Err(_) => Outcome::Failed,
-        Ok(ResponseInputItem::FunctionCallOutput { output, .. })
-        | Ok(ResponseInputItem::CustomToolCallOutput { output, .. })
-            if output.success == Some(false) =>
-        {
-            Outcome::Failed
-        }
-        Ok(_) => Outcome::Succeeded,
+    if result.error.is_some()
+        || result
+            .result
+            .as_ref()
+            .is_some_and(|result| !result.succeeded())
+    {
+        Outcome::Failed
+    } else {
+        Outcome::Succeeded
     }
 }
 

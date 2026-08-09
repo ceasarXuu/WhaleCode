@@ -385,10 +385,11 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
         "outer/taskspace/call/1"
     );
     assert_eq!(
-        feedback["client_results"][0]["response"]["call_id"],
-        "outer/taskspace/call/1"
+        feedback["client_results"][0]["result"],
+        json!({"type": "function", "output": "native-result"})
     );
     assert_eq!(feedback["client_results"][1]["outcome"], "failed");
+    assert_eq!(feedback["client_results"][1]["error"], "expected failure");
     assert!(
         harness
             .client_handler
@@ -446,8 +447,8 @@ async fn internal_fatal_is_returned_once_with_successful_sibling_feedback() {
     assert_eq!(feedback["client_results"].as_array().unwrap().len(), 2);
     assert_eq!(feedback["client_results"][0]["outcome"], "succeeded");
     assert_eq!(
-        feedback["client_results"][0]["response"]["call_id"],
-        "outer/taskspace/call/1"
+        feedback["client_results"][0]["result"],
+        json!({"type": "function", "output": "native-result"})
     );
     assert_eq!(feedback["client_results"][1]["outcome"], "failed");
     assert_eq!(

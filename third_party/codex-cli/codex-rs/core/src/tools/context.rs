@@ -9,6 +9,7 @@ use crate::tools::output_reference::reference_text_for_raw_output;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::unified_exec::resolve_max_tokens;
 use codex_protocol::mcp::CallToolResult;
+use codex_protocol::models::ContentItem;
 use codex_protocol::models::DEFAULT_IMAGE_DETAIL;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputContentItem;
@@ -83,6 +84,64 @@ pub enum ToolPayload {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum NestedToolResult {
+    Message {
+        role: String,
+        content: Vec<ContentItem>,
+    },
+    Function {
+        output: FunctionCallOutputPayload,
+    },
+    Mcp {
+        output: CallToolResult,
+    },
+    Custom {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        output: FunctionCallOutputPayload,
+    },
+    ToolSearch {
+        status: String,
+        execution: String,
+        tools: Vec<JsonValue>,
+    },
+}
+
+impl NestedToolResult {
+    pub(crate) fn from_response_input(response: ResponseInputItem) -> Self {
+        match response {
+            ResponseInputItem::Message { role, content } => Self::Message { role, content },
+            ResponseInputItem::FunctionCallOutput { output, .. } => Self::Function { output },
+            ResponseInputItem::McpToolCallOutput { output, .. } => Self::Mcp { output },
+            ResponseInputItem::CustomToolCallOutput { name, output, .. } => {
+                Self::Custom { name, output }
+            }
+            ResponseInputItem::ToolSearchOutput {
+                status,
+                execution,
+                tools,
+                ..
+            } => Self::ToolSearch {
+                status,
+                execution,
+                tools,
+            },
+        }
+    }
+
+    pub(crate) fn succeeded(&self) -> bool {
+        match self {
+            Self::Function { output } | Self::Custom { output, .. } => {
+                output.success.unwrap_or(true)
+            }
+            Self::Mcp { output } => output.success(),
+            Self::Message { .. } | Self::ToolSearch { .. } => true,
+        }
+    }
+}
+
 impl ToolPayload {
     pub fn log_payload(&self) -> Cow<'_, str> {
         match self {
@@ -105,6 +164,10 @@ pub trait ToolOutput: Send {
     fn success_for_logging(&self) -> bool;
 
     fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem;
+
+    fn nested_result(&self, payload: &ToolPayload) -> NestedToolResult {
+        NestedToolResult::from_response_input(self.to_response_item("", payload))
+    }
 
     /// Returns the stable value exposed to `PostToolUse` hooks for this tool output.
     ///
@@ -247,6 +310,12 @@ impl ToolOutput for McpToolOutput {
         ResponseInputItem::FunctionCallOutput {
             call_id: call_id.to_string(),
             output: self.response_payload(),
+        }
+    }
+
+    fn nested_result(&self, _payload: &ToolPayload) -> NestedToolResult {
+        NestedToolResult::Mcp {
+            output: self.result.clone(),
         }
     }
 

@@ -4,8 +4,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use codex_protocol::models::FunctionCallOutputBody;
-use codex_protocol::models::ResponseInputItem;
 use codex_tools::AdditionalProperties;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
@@ -243,14 +241,8 @@ async fn dispatch_preserves_native_serial_policy_and_failure_payload() {
         .iter()
         .find(|result| result.identity.index == 0)
         .unwrap();
-    let ResponseInputItem::FunctionCallOutput { output, .. } = failed.response.as_ref().unwrap()
-    else {
-        panic!("expected native function output");
-    };
-    assert_eq!(output.success, Some(false));
-    assert!(
-        matches!(output.body, FunctionCallOutputBody::Text(ref text) if text == "expected failure")
-    );
+    assert!(failed.result.is_none());
+    assert_eq!(failed.error.as_deref(), Some("expected failure"));
 }
 
 #[tokio::test]
@@ -306,9 +298,6 @@ async fn tool_search_pairing_completion_preserves_execution_failure_status() {
 
     assert!(result.execution_failed);
     assert!(!result.cancelled);
-    let ResponseInputItem::ToolSearchOutput { status, tools, .. } = result.response.unwrap() else {
-        panic!("ToolSearch failure must preserve its native pairing output")
-    };
-    assert_eq!(status, "completed");
-    assert!(tools.is_empty());
+    assert!(result.result.is_none());
+    assert_eq!(result.error.as_deref(), Some("wrong payload"));
 }

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use codex_protocol::models::ResponseInputItem;
 use futures::StreamExt;
 use serde::Serialize;
 
@@ -41,7 +40,7 @@ struct ClientResult {
     tool: String,
     outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    response: Option<ResponseInputItem>,
+    result: Option<crate::tools::context::NestedToolResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -247,18 +246,14 @@ impl ToolHandler for TaskSpaceExecHandler {
                     error = %error,
                 );
             }
-            let (response, error) = match result.response {
-                Ok(response) => (Some(response), None),
-                Err(error) => (None, Some(error.to_string())),
-            };
             client_results.push(ClientResult {
                 call_index: result.identity.index,
                 action_id: result.identity.transport_id(),
                 node_id: result.node_id,
                 tool: result.display_name,
                 outcome: outcome_name(outcome),
-                response,
-                error,
+                result: result.result,
+                error: result.error,
                 settlement_error,
             });
         }
