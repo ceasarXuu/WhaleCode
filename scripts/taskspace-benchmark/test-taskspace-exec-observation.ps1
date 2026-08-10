@@ -13,9 +13,9 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 try {
     $arguments = [pscustomobject]@{
         calls = @(
-            [pscustomobject]@{ tool = 'initialize_map'; arguments = [pscustomobject]@{} },
-            [pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; arguments = [pscustomobject]@{ cmd = 'pwd' } },
-            [pscustomobject]@{ tool = 'apply_patch'; node_id = 'fix'; arguments = [pscustomobject]@{ patch = 'x' } }
+            [pscustomobject]@{ map = [pscustomobject]@{ operation = 'initialize_map'; input = [pscustomobject]@{} } },
+            [pscustomobject]@{ client = [pscustomobject]@{ name = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } } },
+            [pscustomobject]@{ client = [pscustomobject]@{ name = 'apply_patch'; node_id = 'fix'; input = 'x' } }
         )
         hosted_bindings = @(
             [pscustomobject]@{ tool = 'web_search'; node_ids = @('inspect', 'fix') }
@@ -80,8 +80,8 @@ try {
 
     $zeroHostedArguments = [pscustomobject]@{
         calls = @(
-            [pscustomobject]@{ tool = 'initialize_map'; arguments = [pscustomobject]@{} },
-            [pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; arguments = [pscustomobject]@{ cmd = 'pwd' } }
+            [pscustomobject]@{ map = [pscustomobject]@{ operation = 'initialize_map'; input = [pscustomobject]@{} } },
+            [pscustomobject]@{ client = [pscustomobject]@{ name = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } } }
         )
     }
     $zeroHostedResult = [pscustomobject]@{
@@ -105,6 +105,21 @@ try {
     Assert-Equal $zeroHostedFacts.nested_action_count 2 'zero-Hosted nested action count drifted'
     Assert-Equal $zeroHostedFacts.hosted_binding_count 0 'omitted Hosted bindings were not empty'
     Assert-Equal $zeroHostedFacts.node_binding_count 1 'zero-Hosted node binding count drifted'
+
+    @(
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'outer-1'
+                arguments = ($zeroHostedArguments | ConvertTo-Json -Compress -Depth 12)
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'outer-1'
+                output = 'taskspace_exec rejected: preflight: invalid_map_boundary'
+            } }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
+        Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8
+    $rejectedFacts = Get-TaskspaceExecObservation $temp $null
+    Assert-Equal $rejectedFacts.availability 'measured' 'canonical rejection was treated as malformed output'
+    Assert-Equal $rejectedFacts.failed_action_count 1 'outer Exec rejection was not counted as failure'
 
     $wire = Get-Content -Raw -Encoding UTF8 (Join-Path $temp 'provider-wire-trace.jsonl') | ConvertFrom-Json
     $wire.taskspace_capability_identity = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

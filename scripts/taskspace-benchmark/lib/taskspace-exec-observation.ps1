@@ -84,16 +84,33 @@ function Get-TaskspaceExecObservation {
                 $arguments = if ($payload.arguments -is [string]) {
                     ([string]$payload.arguments) | ConvertFrom-Json
                 } else { $payload.arguments }
+                $callIndex = 0
                 foreach ($call in @($arguments.calls)) {
-                    $tool = [string]$call.tool
-                    if ($tool -in $mapTools) { $mapCalls++; continue }
+                    $map = Get-TaskspaceExecProperty $call 'map'
+                    $client = Get-TaskspaceExecProperty $call 'client'
+                    if (($null -eq $map) -eq ($null -eq $client)) {
+                        $findings.Add("exec_call_shape_invalid:${callId}:$callIndex")
+                        $callIndex++
+                        continue
+                    }
+                    if ($null -ne $map) {
+                        $operation = [string](Get-TaskspaceExecProperty $map 'operation')
+                        if ($operation -notin $mapTools) {
+                            $findings.Add("exec_map_operation_unknown:${callId}:$callIndex")
+                        }
+                        $mapCalls++
+                        $callIndex++
+                        continue
+                    }
+                    $tool = [string](Get-TaskspaceExecProperty $client 'name')
                     $clientCalls++
-                    if (-not [string]::IsNullOrWhiteSpace([string]$call.node_id)) { $nodeBindings++ }
+                    if (-not [string]::IsNullOrWhiteSpace([string](Get-TaskspaceExecProperty $client 'node_id'))) { $nodeBindings++ }
                     switch ($tool) {
                         'exec_command' { $shell++ }
                         'apply_patch' { $patch++ }
                         default { $other++ }
                     }
+                    $callIndex++
                 }
                 $hostedBindingValues = Get-TaskspaceExecProperty $arguments 'hosted_bindings'
                 if ($null -ne $hostedBindingValues) {
@@ -111,8 +128,16 @@ function Get-TaskspaceExecObservation {
         if ($type -eq 'function_call_output' -and $execCalls.ContainsKey($outputCallId)) {
             $callId = $outputCallId
             $execCalls[$callId] = $true
+            $rawOutput = [string]$payload.output
+            if ($rawOutput.StartsWith('taskspace_exec rejected:')) {
+                $failedActions++
+                continue
+            }
             try {
-                $result = ([string]$payload.output) | ConvertFrom-Json
+                $result = $rawOutput | ConvertFrom-Json
+                if ([string]$result.kind -ne 'taskspace_exec_result') {
+                    throw 'unexpected taskspace_exec result kind'
+                }
                 if ([string]$result.outer_call_id -ne $callId) {
                     $findings.Add("exec_result_outer_call_mismatch:$callId")
                 }
