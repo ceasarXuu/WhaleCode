@@ -1,7 +1,7 @@
 # VA-02 Source 与 Structured Carrier A/B 实验计划
 
 - Created: 2026-08-10
-- Status: 2-run Provider smoke completed / directional evidence only, selection pending
+- Status: repeat-3 matrix completed / top-level escape repaired / carrier selection still blocked
 - Product Authority: [`00-product-contract.md`](00-product-contract.md)
 - Active Plan: [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md)
 - Applicable Decisions: TaskSpace Exec 只负责合法序列与节点归属；Agent 声明动作；Runtime 机械预检和执行；Standard 零变化
@@ -293,3 +293,54 @@ Structured binary `f0a43b7f...bd6f6`、`deepseek-v4-flash`、`map-request` 和�
    “拒绝非法调用”符合硬边界；“直接终止而不反馈”是否符合反馈层原则需要单独决策，不能与 Provider 违约合并成一个问题。
 6. 当前性能 observer 把本轮 Structured outer arguments 标为 `exec_arguments_invalid`，与原始 rollout 和 Runtime 成功结果
    冲突；因此派生报告仍不适合作为 VA-02 carrier 判定依据。该观测缺口与模型执行问题分开记录。
+
+## 12. 合同修复后的三臂 repeat-3 结果
+
+2026-08-10 用户批准 `single-file-fast-fix × standard/structured/source × repeat=3`，用于验证 TaskSpace 专用完整
+base instructions 是否消除顶层 client Tool 逃逸，并比较两个 carrier 与 Standard 的实际路径。运行使用产品 commit
+`85f14967c5ad2a1ea47f65bdd84d5b6ee6e375a5`、`deepseek-v4-flash`、`map-request`、每个样本最多 6 个 Provider
+请求且不自动重试；账本记录为 `WAR-20260810-230951-R8-E01-ESCAPE-R3`。
+
+### 12.1 结果与成本
+
+| Arm | 成功 | 请求总和 / 均值 / 中位数 | Input 总和 / 均值 / 中位数 | Cached 总和 / 均值 / 中位数 | Uncached 总和 / 均值 / 中位数 | Output 总和 / 均值 / 中位数 | Wall ms 总和 / 均值 / 中位数 | 聚合缓存命中 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Standard | 3/3 | 17 / 5.67 / 6 | 205,377 / 68,459 / 71,555 | 201,088 / 67,029 / 70,400 | 4,289 / 1,430 / 1,490 | 3,251 / 1,084 / 1,132 | 35,211 / 11,737 / 12,714 | 97.91% |
+| Structured | 0/3 | 18 / 6 / 6 | 278,135 / 92,712 / 93,877 | 247,424 / 82,475 / 84,608 | 30,711 / 10,237 / 6,581 | 8,305 / 2,768 / 2,198 | 74,278 / 24,759 / 20,604 | 88.96% |
+| Source | 0/3 | 18 / 6 / 6 | 338,032 / 112,677 / 113,101 | 251,648 / 83,883 / 83,456 | 86,384 / 28,795 / 28,109 | 8,181 / 2,727 / 2,666 | 73,156 / 24,385 / 23,899 | 74.45% |
+
+九次样本共完成 53 个 Provider 请求、821,544 input、700,160 cached input、121,384 uncached input 和
+19,737 output；估算成本 USD 0.024480568，总 Agent wall time 182,645 ms。六次 TaskSpace 运行都在第 7 次本地
+请求尝试前被 hard limit 阻断，没有 Provider 级自动重试。
+
+### 12.2 逃逸修复验收
+
+1. 六次 TaskSpace 运行、36 个 Provider 响应中，顶层 client Tool 逃逸为 **0 次**；所有 client work 都通过
+   `taskspace_exec` 声明。相较修复前 Structured 的同型逃逸可复现，本轮合同冲突修复在线成立。
+2. Provider 首请求的 `other_payload` 为 20,049 bytes；TaskSpace base 的 JSON 序列化为 19,902 bytes，差值为固定
+   请求字段。Standard 对照分别为 21,386 / 21,258 bytes。该尺寸与源码请求构造链共同证明 TaskSpace 专用 base 实际
+   进入 Provider；rollout `session_meta` 中的 Standard base 只是模式切换前的静态会话元数据。
+3. TaskSpace final wire 顶层保持 `taskspace_exec + web_search`，`update_plan`、普通 client Tool、`exec` 和 `wait`
+   都未重新暴露。Runtime 没有通过拒绝后重写、补全或重排 Agent 动作来获得上述结果。
+
+### 12.3 当前阻塞
+
+1. Structured 两次成功推进到 patch 前，都先在 Waiting 的后继节点执行 `apply_patch`；收到准确拒绝后，又把“完成前置
+   节点”和“将后继节点改为 in_flight”放在同一个 `update_map`，触发 `TransitionInvalid`。合法机制实际是只完成前置
+   节点，并在同一 batch 把 client work 归属到机械变为 Ready 的后继节点。现有 Tool 合同没有把这个交接规则表达清楚，
+   属于 I03，而不是反馈丢失或 Agent 无视已返回内容。
+2. Structured 有 8/18 个 outer calls 在 decode 阶段失败；其中一轮首请求少一个 wrapper 闭合括号，随后改用错误的
+   `arguments` wrapper。Source 有 7/18 个 decode reject，且三轮首请求都不合法。两臂都没有达到可选型的结构稳定性。
+3. Structured 另有 4 次 preflight reject，Source 有 3 次；所有拒绝都在副作用前发生并原样进入下一请求。Runtime 硬边界
+   正确，但预算被协议试错耗尽，六轮均未修改任务文件。
+4. 当前 performance observer 不能解码最新 Structured/Source outer arguments，并且 Responses API 的 base instructions
+   位于顶层 `instructions`，现有 identity scanner 只扫描 `input` messages。因此派生报告会把有效 TaskSpace call 标成
+   invalid，也无法直接识别实际 base profile；该缺口归入 I07。
+
+### 12.4 判定
+
+- 顶层逃逸修复通过，已确认根因“Standard 与 TaskSpace 完整合同冲突”被移除。
+- VA-02 的端到端业务验收仍未通过；不能因为逃逸消失就宣称 Structured 可用。
+- Source 在本轮没有复现早期 repeat-1 的方向性优势，且静态 Tool section 和 uncached input 成本继续更高。
+- 下一轮真实运行前应先离线补清 I03 的父子节点交接合同，并修复 I07 对 Responses `instructions` 和当前 carrier 的观测；
+  任何真实复验都需要新的独立预算。

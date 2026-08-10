@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / VA-02 zero-Hosted verified online, top-level client escape blocked
+- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / top-level client escape repaired / VA-02 end-to-end blocked
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -77,6 +77,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   首响应已合法执行。第二响应仍生成了 Provider 未声明的顶层 `exec_command`，Runtime 在零副作用边界拒绝；两次请求的
   顶层 Tool 集合始终只有 `taskspace_exec + web_search`。VA-03 继续阻断，详见
   [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)。
+- TaskSpace 专用完整 base instructions 已在 `standard/structured/source × repeat=3` 中完成在线验证：六次 TaskSpace
+  运行没有再次出现顶层 client Tool 逃逸，说明 Standard/TaskSpace 合同冲突修复成立。但 Structured 与 Source 都是
+  0/3 业务成功；当前阻塞转为父子节点交接合同不清、outer arguments 结构不稳定，以及 observer 尚不能识别最新 carrier
+  和 Responses 顶层 `instructions`。完整逐臂成本与 trace 见
+  [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)。
 
 ## 3. 文档
 

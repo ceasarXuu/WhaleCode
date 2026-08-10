@@ -51,6 +51,14 @@
 > 协议表现待决策；I04 已获得当前生产观察。6 requests 共 97,584 input、91,392 cached、2,056 output，request 2+ 缓存命中
 > 92.68%，排除缓存和预算过早截止为本轮根因。VA-03 继续阻断。
 
+> **TaskSpace 专用合同三臂复验（2026-08-10）**：`standard/structured/source × repeat=3` 已完成。Standard 3/3，
+> Structured 0/3，Source 0/3；六次 TaskSpace 运行均只使用顶层 `taskspace_exec`，未再发生 client Tool 逃逸，证明
+> Standard/TaskSpace 完整 base 冲突修复在线成立。当前 I03 阻塞转为父子节点交接规则表达不足与 outer arguments 结构
+> 不稳定；I07 新确认 Responses 顶层 `instructions` 未被 wire identity scanner 识别，且 observer 不能解码最新两种
+> carrier；I08 获得同 commit 三臂成本事实。详见
+> [`taskspace-exec/40-va02-source-structured-ab-plan.md`](taskspace-exec/40-va02-source-structured-ab-plan.md) 与账本
+> `WAR-20260810-230951-R8-E01-ESCAPE-R3`。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -99,10 +107,10 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆临时候选与已保存事实 | 忠实返回一次失败；未提交候选不得表现为已保存状态 | 旧 pairing/developer 双反馈已删除；preflight 拒绝零提交，单一 Tool pairing 返回原始阶段错误。静态关闭候选，待 E3 检查模型可见效果 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | 新 wire 运行已直接结算 2 requests、usage、缓存、费用和账本，旧计数漂移未复现；但 section cost unavailable、base-instructions identity unrecognized 仍待收敛 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | outer 层级修复在线成立；但 `update_map + client(apply_patch)` 连续两次少一个 map wrapper 闭合括号，当前候选为同源 mixed 示例或进一步简化 wire，待产品决策 | [verifying](taskspace-exec/39-phase-b5-va02-revalidation-result.md) | GI-003 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | request/usage/cost 可结算；但 observer 不能解码最新 Structured/Source carrier，Responses 顶层 `instructions` 也未进入 base identity scanner，派生结果不能判定 TaskSpace call 或实际 base profile | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 专用 base 后顶层逃逸 0/6；新阻塞为父节点完成后后继节点 Ready 的交接规则表达不足，以及 Structured 8/18、Source 7/18 outer calls decode reject | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 六请求复验中首次直接在 waiting `fix` 节点 patch，Runtime 零副作用拒绝；Agent随后理解需先完成 inspect，问题已真实观察但尚未归因是否稳定 | verifying | GI-004 |
-| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 新 wire 单臂第二请求缓存命中 94.69%，证明此前 54.69% 不是当前稳定必现；尚无同 commit 四臂证据，不能评价相对 Standard 成本 | queued | GI-008 |
+| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 同 commit repeat-3 中 Standard/Structured/Source input 为 205,377/278,135/338,032，缓存为 97.91%/88.96%/74.45%；两种 TaskSpace 均业务失败，尚不能评价收益是否抵偿成本 | queued | GI-008 |
 
 问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。
 
