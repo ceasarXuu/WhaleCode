@@ -291,7 +291,7 @@ fn invocation_raw_with_token(
 }
 
 #[tokio::test]
-async fn malformed_json_feedback_preserves_the_error_and_direct_shape() {
+async fn malformed_json_feedback_preserves_only_the_syntax_error() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
     finalize_scope(&harness);
@@ -308,8 +308,8 @@ async fn malformed_json_feedback_preserves_the_error_and_direct_shape() {
     let message = error.to_string();
 
     assert!(message.contains("invalid JSON syntax:"));
-    assert!(message.contains("top-level input must directly contain `calls`"));
-    assert!(message.contains("do not wrap it in an `arguments` field"));
+    assert!(!message.contains("top-level input must directly contain `calls`"));
+    assert!(!message.contains("do not wrap it in an `arguments` field"));
     assert!(message.contains("No Map or client calls were executed"));
     assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
     assert!(
@@ -338,8 +338,29 @@ async fn wrapped_arguments_feedback_distinguishes_contract_from_json_syntax() {
     let message = error.to_string();
 
     assert!(message.contains("invalid top-level contract:"));
-    assert!(message.contains("unknown field `arguments`"));
+    assert!(message.contains("unexpected field `arguments`"));
     assert!(message.contains("do not wrap it in an `arguments` field"));
+    assert!(!message.contains("invalid JSON syntax:"));
+    assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn other_top_level_contract_errors_do_not_inject_wrapper_guidance() {
+    let harness = harness(false).await;
+    begin_scope(&harness).await;
+    finalize_scope(&harness);
+    let unknown = json!({"calls": [initialize_call()], "unexpected": true});
+
+    let result = harness.handler.handle(invocation(&harness, unknown)).await;
+    let error = match result {
+        Ok(_) => panic!("unknown top-level field must be rejected"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+
+    assert!(message.contains("invalid top-level contract:"));
+    assert!(message.contains("unknown field `unexpected`"));
+    assert!(!message.contains("do not wrap it in an `arguments` field"));
     assert!(!message.contains("invalid JSON syntax:"));
     assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
 }

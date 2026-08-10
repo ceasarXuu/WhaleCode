@@ -413,14 +413,19 @@ fn taskspace_rejection(
 }
 
 fn render_envelope_rejection(error: &TaskSpaceExecEnvelopeError) -> String {
-    const DIRECT_CALLS: &str = "The top-level input must directly contain `calls` and may contain `hosted_bindings`; do not wrap it in an `arguments` field. No Map or client calls were executed.";
+    const NOTHING_EXECUTED: &str = "No Map or client calls were executed.";
     match error {
         TaskSpaceExecEnvelopeError::PlanDecode(TaskSpaceExecPlanDecodeError::InvalidJson(
             detail,
-        )) => format!("invalid JSON syntax: {detail}. {DIRECT_CALLS}"),
+        )) => format!("invalid JSON syntax: {detail}. {NOTHING_EXECUTED}"),
+        TaskSpaceExecEnvelopeError::PlanDecode(
+            TaskSpaceExecPlanDecodeError::UnexpectedArgumentsField,
+        ) => format!(
+            "invalid top-level contract: unexpected field `arguments`. The top-level input must directly contain `calls` and may contain `hosted_bindings`; do not wrap it in an `arguments` field. {NOTHING_EXECUTED}"
+        ),
         TaskSpaceExecEnvelopeError::PlanDecode(TaskSpaceExecPlanDecodeError::InvalidEnvelope(
             detail,
-        )) => format!("invalid top-level contract: {detail}. {DIRECT_CALLS}"),
+        )) => format!("invalid top-level contract: {detail}. {NOTHING_EXECUTED}"),
         _ => format!("invalid envelope: {error:?}. No Map or client calls were executed."),
     }
 }

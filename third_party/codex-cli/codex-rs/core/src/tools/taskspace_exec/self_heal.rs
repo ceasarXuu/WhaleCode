@@ -119,11 +119,9 @@ fn json_error_byte_offset(arguments: &str, line: usize, column: usize) -> usize 
         .find('\n')
         .map(|offset| line_start + offset)
         .unwrap_or(arguments.len());
-    arguments[line_start..line_end]
-        .char_indices()
-        .nth(column.saturating_sub(1))
-        .map(|(offset, _)| line_start + offset)
-        .unwrap_or(line_end)
+    line_start
+        .saturating_add(column.saturating_sub(1))
+        .min(line_end)
 }
 
 fn is_inside_json_string(arguments: &str, byte_index: usize) -> bool {
@@ -218,6 +216,41 @@ mod tests {
         let valid = serde_json::json!({
             "calls": [
                 {"map": {"operation": "read_map", "input": {}}},
+                {"client": {"name": "exec_command", "node_id": "work", "input": {}}}
+            ]
+        })
+        .to_string();
+        let boundary = valid.find(",{\"client\"").expect("client boundary");
+        assert_eq!(valid.as_bytes()[boundary - 1], b'}');
+        let mut malformed = valid.clone();
+        malformed.remove(boundary - 1);
+        let mut item = call(malformed);
+
+        self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
+
+        let ResponseItem::FunctionCall { arguments, .. } = item else {
+            panic!("function call")
+        };
+        assert_eq!(arguments, valid);
+    }
+
+    #[test]
+    fn repairs_missing_call_envelope_after_non_ascii_content() {
+        let valid = serde_json::json!({
+            "calls": [
+                {
+                    "map": {
+                        "operation": "update_map",
+                        "input": {
+                            "add_work_nodes": [],
+                            "node_patches": [{
+                                "node_id": "work",
+                                "state": "completed",
+                                "content": "已定位到实现中的舍入精度问题，需要修改并验证。"
+                            }]
+                        }
+                    }
+                },
                 {"client": {"name": "exec_command", "node_id": "work", "input": {}}}
             ]
         })

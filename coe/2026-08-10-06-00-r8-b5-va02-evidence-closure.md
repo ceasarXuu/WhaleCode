@@ -1446,3 +1446,101 @@
   - 三个 observer self-test 通过；当前 Exec 主 observer 与 patch 专项共用 canonical calls decoder。
 - Interpretation: 历史零 patch 是消费者漏计，不是 Runtime 未执行；坏 JSON 单列为不可解析，不再静默混入零声明。
 - Time: 2026-08-11
+
+## Hypothesis H-019: 中文 arguments 使单闭合符自愈候选窗口偏离真实错误
+- Status: confirmed
+- Parent: P-001
+- Claim: `serde_json` 的错误 `column` 是 UTF-8 字节列号，而 SR-01 用 Unicode 字符序号换算 byte offset；中文 Map content 使偏差超过 24-byte 候选窗口，因此原本唯一可修复的缺 `}` 没有进入 Catalog decode。
+- Layer: context-fidelity
+- Factor relation: single
+- Depends on:
+  - H-016 confirmed
+- Rationale:
+  - 最新 production 首请求与既有 ASCII fixtures 的结构相同，差异是错误点之前存在中文节点目标和内容。
+- Falsifiable predictions:
+  - If true: Rust parser column 与 UTF-8 byte offset 一致、与 Unicode character offset 不一致；改为 byte-column 后同形中文 fixture 唯一修复，ASCII 与拒绝边界不变。
+  - If false: 候选窗口已覆盖缺符号位置，失败应来自多个合法 Catalog plan 或 hook 未进入。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-035
+  - E-037
+- Conclusion: confirmed。缺口只在 parser 坐标换算，不在 response hook、Catalog 或 DAG；修复不得扩大到逗号、开括号、字段或动作猜测。
+- Repair design readiness: implemented and verified offline as SR-04
+- Next step: 新真实预算获批前不得宣称在线通过。
+- Blocker:
+  - provider revalidation requires separate approval
+- Close reason:
+  - not closed
+
+## Evidence E-035: 最新中文 payload 的 Rust/Python 错误位置差异符合 UTF-8 byte column
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: production-trace-analysis
+- Source: `WAR-20260811-052713-CACHE-REGRESSION-AD3C808C` rollout requests 1 and 4
+- Prediction or plan link:
+  - SR-04 byte-column coordinate。
+- Matched signal:
+  - Request 1 Runtime 报 column 426，而 Unicode character position 为 351；Request 4 报 column 513，而 character position 为 462。偏差来自错误点前的中文 UTF-8 多字节内容。
+  - 整轮没有 `taskspace.exec.arguments_self_healed`，首请求保持 parser reject。
+- Correlation keys:
+  - `WAR-20260811-052713-CACHE-REGRESSION-AD3C808C`
+- Interpretation: ASCII 测试无法覆盖该坐标语义；候选搜索逻辑本身没有被 production 调用绕过。
+- Time: 2026-08-11
+
+## Hypothesis H-020: syntax reject 的无条件 wrapper 提示扭曲了实际失败语义
+- Status: confirmed
+- Parent: P-001
+- Claim: `render_envelope_rejection` 对所有 `InvalidJson` 都追加“不要包 arguments”，即使输入没有 wrapper；Agent 把该无关提示当成主修复方向，并在第 9 请求实际生成 `{"arguments":"..."}`。
+- Layer: tool-feedback
+- Factor relation: single
+- Depends on:
+  - H-015 verified
+- Rationale:
+  - 错误反馈应忠实区分 syntax 与合法 JSON contract，不应给纯 parser failure 注入另一类错误的解释。
+- Falsifiable predictions:
+  - If true: Requests 1/4～8 均无顶层 `arguments` 却收到 no-wrapper 提示；Request 9 首次引入 wrapper，并被 typed envelope reject。
+  - If false: wrapper 在提示前已存在，或提示只在 decoder 确认该字段后出现。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-036
+  - E-037
+- Conclusion: confirmed。反馈层造成了语义注入和错误方向强化；修复只做 typed error 分流，不提供 Agent 下一步建议。
+- Repair design readiness: implemented and verified offline as FF-01
+- Next step: 后续获批 trace 只观察是否仍出现 wrapper，不自动扩大 Runtime 约束。
+- Blocker:
+  - provider revalidation requires separate approval
+- Close reason:
+  - not closed
+
+## Evidence E-036: Agent 在错误提示后由无 wrapper 转为真实 wrapper
+- Related hypotheses:
+  - H-020
+- Direction: supports
+- Type: production-trace-analysis
+- Source: `WAR-20260811-052713-CACHE-REGRESSION-AD3C808C` rollout requests 4～9
+- Prediction or plan link:
+  - FF-01 feedback fidelity。
+- Matched signal:
+  - Requests 4～8 的原始 arguments 没有顶层 `arguments`，反馈却每次附带 no-wrapper 文本；reasoning 持续围绕 wrapper 自我纠正。
+  - Request 9 首次提交合法 JSON 的顶层 `arguments` 字段，随后才收到与实际错误匹配的 contract reject。
+- Correlation keys:
+  - `WAR-20260811-052713-CACHE-REGRESSION-AD3C808C`
+- Interpretation: 这是反馈层把另一类错误注入当前上下文后的可观测行为放大，不应归因于缓存、waiting 或 patch Tool。
+- Time: 2026-08-11
+
+## Evidence E-037: UTF-8 坐标与 typed feedback 修复通过确定性回归
+- Related hypotheses:
+  - H-019
+  - H-020
+- Direction: supports
+- Type: deterministic-test
+- Source: `self_heal.rs`、`plan.rs`、`handler.rs`、TaskSpace Exec tests
+- Prediction or plan link:
+  - SR-04、FF-01。
+- Matched signal:
+  - 中文 content 后缺一个 call-envelope `}` 的 fixture 被修复为原合法 arguments；多缺符号、非法 plan、合法输入边界保持不变。
+  - syntax reject 不再包含 direct-calls/no-wrapper；只有实际顶层 `arguments` 字段触发该机械事实。
+  - `cargo test -p codex-core --lib taskspace_exec --locked`：81 passed。
+- Interpretation: 两个工程机制均已离线闭合；当前 production business failure 仍不能标记为在线修复。
+- Time: 2026-08-11

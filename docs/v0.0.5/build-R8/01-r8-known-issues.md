@@ -86,6 +86,13 @@
 > patch 专项消费者仍只识别顶层 Tool 和旧 `taskspace_control`，没有消费当前 `calls[].client`。修复已作为 SR-01～SR-03、
 > WF-01、OB-03 写入唯一 Phase B5 计划；未启动新的真实运行。
 
+> **SR/WF/OB 在线复验（2026-08-11）**：获批的 `single-file-fast-fix × map-request × repeat=1` 完整结算
+> 10 个 Provider 请求，缓存从第 2 请求起命中 91.20%，usage 和 Patch parse-failure 观测完整，但业务失败且没有 patch。
+> 首请求是可由单个 `}` 修复的中文 arguments，自愈却未触发：`serde_json` 的错误列号是 UTF-8 byte column，SR-01
+> 错按 Unicode 字符序号换算，候选窗口因中文内容偏离。后续 syntax reject 又无条件附加 no-wrapper 提示，Agent 被错误反馈
+> 带向一次真实 `arguments` wrapper。两项确定工程缺口已纳入并完成 SR-04、FF-01 离线修复。其余 mixed batch 同时破坏
+> map/client call envelope，超出单闭合符自愈边界，继续归 I03 在线稳定性；本轮未进入 waiting preflight，不能作为 I04 在线验收。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -131,15 +138,15 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 1 | R8-I09 | F0 | P0 | 恢复旧任务时可能接受内部关系损坏的任务地图 | 只恢复结构完整的地图；损坏时停止且不改变当前事实 | 当前关系 Store、hydrate 校验和 State 回归继续成立 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
 | 2 | R8-I01 | F1 | P0 | 一轮工作后 Agent 可能收到互相竞争的新旧进度 | 每轮只有一个可继续使用的结果，revision 不成为 Agent 填表负担 | 旧 receipt/control 双版本链已删除；Exec 只返回一个 outer 结果，request revision 由 Runtime 内部维护。静态关闭候选，待 E3 排除 stale 重试 | [verifying](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
 | 3 | R8-I06 | F2 | P0 | 组合工具内部动作可能绕过归属和单 Patch 硬门 | 所有 TaskSpace client 动作先过同一请求级预检，普通 Tool 保持原生 | 生产顶层仅 Exec+Hosted；完整 plan 在副作用前校验，顶层绕过和多 Patch 有确定性拒绝。静态关闭候选 | verifying | GI-006 |
-| 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | 最新在线复验再次触发 syntax reject；反馈准确说明 direct `calls` 与零执行，Agent 下一请求立即纠正且未再出现 wrapper 放大 | closed | GI-005 |
+| 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | 最新 trace 发现 syntax reject 无条件注入 no-wrapper 提示并实际带偏 Agent；现已改为只有检测到顶层 `arguments` 才返回该事实，离线通过，待在线复核 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | Patch lifecycle 已消费共享的当前 Exec calls 与 outer result；原 rollout 离线复算为 2 次声明、1 次 preflight reject、1 次 dispatch result，并把首轮坏 JSON 单列为 1 次 parse failure。完整 I07 仍待生产验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 单 `}`/`]` 且唯一通过严格 JSON+当前 Catalog 的错误已在正式落账前机械修复；history、scope 与 dispatch 只接收修正版，合法/多错误/非 Exec 输入不改写。离线通过，Agent 在线稳定性待复验 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 自愈的 UTF-8 byte-column 缺口已离线修正；当前 trace 仍有超出单闭合符边界的 mixed map/client envelope 错误，严格零副作用拒绝正确，在线稳定性未通过 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | `waiting` 继续由依赖机械派生；拒绝现会忠实列出未完成直接父节点和整批零执行范围，不自动完成、选点或建议动作。反馈缺口离线关闭，Agent 行为待复验 | verifying | GI-004 |
-| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新 TaskSpace-only 复验为 8 请求、132,555 input、94.02% request-2+ cache；代码、测试与 Map 已完成，但最终回复被第 9 次本地预算门禁截断。增量含 1 次 syntax 和 1 次 state preflight 拒绝 | queued | GI-008 |
+| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新 TaskSpace-only 复验为 10 请求、171,324 input、91.20% request-2+ cache、48.97s Agent wall；8 次 parse/contract reject 导致未执行 patch，当前成本仍被已确认反馈缺口放大 | queued | GI-008 |
 
-问题总数：**10**；Open：**8**；Closed：**2**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。
 
 ## 4. VA-04A 证据边界
 
@@ -147,12 +154,12 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 |---|---|---|---|
 | 确定性关闭 | I09 | 关系 Store hydrate 仍拒绝非法图，State 134 项通过 | 无 |
 | 静态关闭候选 | I01、I02、I06 | 旧根因和旧生产路径为零，新 Exec 的内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试或非法组合 |
-| 在线关闭 | I05 | syntax 错误被准确反馈后，Agent 下一请求一次纠正为 direct `calls`；无 wrapper 重复、无副作用、无错误状态反馈 | 其他独立协议错误仍分别归 I03/I04，不重开 I05 |
+| 工程修复待生产验收 | I05 | syntax 与顶层 `arguments` 已由 typed error 分流，纯 syntax 不再附带 wrapper 恢复提示；零副作用合同不变 | 当前修复是否在线消除错误反馈诱发的 wrapper 行为 |
 | 工程完成待生产验收 | I10 | catalog、dispatch、request scope、Provider/Exec trace 和报告共用同一 Runtime-only identity；Standard request 不变 | 当前 Provider trace 是否完整携带且逐 request 一致 |
 | 工程修复待生产验收 | I07 | 当前生产 trace 已原生完整计量 Exec、Map、client 和拒绝 | nested patch lifecycle 仍漏计，不能宣称完整关闭 |
-| outer wire 与 handoff 在线观察 | I03 | 旧顶层提升未复现；canonical handoff 已在线执行成功 | 非 strict Structured arguments 的首请求闭合是否稳定 |
-| 当前行为已观察 | I04 | Agent 再次选择 waiting 节点，Runtime 按 DAG 正确拒绝且 Agent 下一请求恢复 | 如何减少该额外请求，同时不让 Runtime 替 Agent 选择节点 |
-| 成本待验证 | I08 | 最新 TaskSpace request-2+ 缓存为 94.02%，修复工作与 Map 均完成 | 去除 I03/I04 拒绝和最终回复预算中断后的不可约成本；VA-03 尚未开始 |
+| outer wire 与 handoff 在线观察 | I03 | 旧顶层提升未复现；单闭合符自愈的 UTF-8 坐标缺口已确定性修复 | mixed map/client envelope 的在线稳定性，以及自愈后的真实首请求表现 |
+| 当前行为已观察 | I04 | 历史 run 中 waiting 拒绝符合 DAG，新的父节点事实反馈已离线通过 | 最新 run 未进入 waiting preflight，尚未在线验收新反馈 |
+| 成本待验证 | I08 | 最新 TaskSpace request-2+ 缓存为 91.20%，排除缓存失效 | 去除已确认 syntax/feedback 放大后的不可约请求、token 和时间成本；VA-03 尚未开始 |
 
 本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server
 Protocol 183、workspace、zero-base 和 cache gate 全部通过，详见
