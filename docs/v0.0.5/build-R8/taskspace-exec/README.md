@@ -124,6 +124,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 38. [`37-phase-b5-cp12-final-wire-gate.md`](37-phase-b5-cp12-final-wire-gate.md)：详细协议单一权威、TaskSpace Tool final-wire 和精确缓存敏感面证据。
 39. [`38-phase-b5-cp13-offline-acceptance.md`](38-phase-b5-cp13-offline-acceptance.md)：CP-01～CP-12 生产链、workspace、zero-base 与缓存合同的离线总验收。
 40. [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)：第二轮与零 Hosted 正式复验、顶层 Tool 越界、在线观测结算与缓存证据。
+41. [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)：使用同一当前 typed plan 和 Runtime，对 structured 与 source carrier 做单变量 A/B 的实验合同、门禁、指标与预算阶段。
 
 ## 4. 推进规则
 

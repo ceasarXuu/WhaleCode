@@ -11,6 +11,7 @@ mod protocol;
 mod response_scope;
 mod result;
 mod schema_validation;
+mod source_carrier;
 
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;
 pub(crate) use catalog::TaskSpaceExecCatalog;

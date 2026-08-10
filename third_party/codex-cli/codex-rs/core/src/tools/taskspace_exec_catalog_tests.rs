@@ -339,6 +339,119 @@ fn decoder_preserves_mixed_map_function_freeform_and_namespace_calls() {
 }
 
 #[test]
+fn source_and_structured_carriers_decode_to_the_same_current_plan() {
+    let structured = TaskSpaceExecCatalog::build_test_carrier(
+        &specs(),
+        catalog::TaskSpaceExecCarrier::Structured,
+    )
+    .unwrap();
+    let source =
+        TaskSpaceExecCatalog::build_test_carrier(&specs(), catalog::TaskSpaceExecCarrier::Source)
+            .unwrap();
+    let plans = [
+        canonical_first_turn_example(),
+        canonical_read_example(),
+        canonical_finish_example(),
+        json!({
+            "calls": [
+                {
+                    "map": {
+                        "operation": "update_map",
+                        "input": {
+                            "add_work_nodes": [],
+                            "node_patches": [{"node_id": "inspect", "state": "completed"}]
+                        }
+                    }
+                },
+                {
+                    "client": {
+                        "name": "apply_patch",
+                        "node_id": "fix",
+                        "input": "*** Begin Patch\n*** End Patch"
+                    }
+                },
+                {
+                    "client": {
+                        "name": "lookup",
+                        "namespace": "mcp__sample__",
+                        "node_id": "verify",
+                        "input": {"value": "status"}
+                    }
+                }
+            ],
+            "hosted_bindings": [
+                {"tool": "web_search", "node_ids": ["inspect", "verify"]}
+            ]
+        }),
+    ];
+
+    for plan in plans {
+        let structured_plan = structured.decode_plan(&plan.to_string()).unwrap();
+        let source_arguments = source_carrier::encode(&plan);
+        let source_plan = source.decode_plan(&source_arguments.to_string()).unwrap();
+        assert_eq!(source_plan, structured_plan);
+    }
+}
+
+#[test]
+fn source_carrier_changes_only_the_outer_contract() {
+    let structured = TaskSpaceExecCatalog::build_test_carrier(
+        &specs(),
+        catalog::TaskSpaceExecCarrier::Structured,
+    )
+    .unwrap();
+    let source =
+        TaskSpaceExecCatalog::build_test_carrier(&specs(), catalog::TaskSpaceExecCarrier::Source)
+            .unwrap();
+    let structured = serde_json::to_value(structured.declaration()).unwrap();
+    let source = serde_json::to_value(source.declaration()).unwrap();
+
+    assert_eq!(structured["name"], source["name"]);
+    assert_eq!(structured["strict"], source["strict"]);
+    assert_eq!(structured.get("output_schema"), source.get("output_schema"));
+    assert_eq!(structured["parameters"]["required"], json!(["calls"]));
+    assert_eq!(source["parameters"]["required"], json!(["source"]));
+    assert_eq!(
+        source["parameters"]["properties"]
+            .as_object()
+            .unwrap()
+            .len(),
+        1
+    );
+    let description = source["description"].as_str().unwrap();
+    assert!(description.contains("taskspace.plan(<plan-json>);"));
+    assert!(description.contains(r#"{"source":"taskspace.plan("#));
+    assert!(description.contains("Generated inner plan JSON Schema"));
+    for current_field in ["calls", "hosted_bindings", "map", "client", "node_id"] {
+        assert!(description.contains(current_field));
+    }
+    for removed_field in ["capability_id", "item_id", "hosted_records"] {
+        assert!(!description.contains(removed_field));
+    }
+}
+
+#[test]
+fn source_carrier_fails_closed_without_dynamic_javascript_or_compatibility() {
+    let catalog =
+        TaskSpaceExecCatalog::build_test_carrier(&specs(), catalog::TaskSpaceExecCarrier::Source)
+            .unwrap();
+    for invalid in [
+        json!({"source": ""}),
+        json!({"source": "```json\ntaskspace.plan({});\n```"}),
+        json!({"source": "const plan = {}; taskspace.plan(plan);"}),
+        json!({"source": "taskspace.plan({\"calls\":[]}); cleanup();"}),
+        json!({"source": "taskspace.plan({\"calls\":[],\"version\":\"v1\"});"}),
+        json!({"source": "taskspace.plan({\"calls\":[);"}),
+        json!({"source": "taskspace.plan({\"calls\":[]});", "extra": true}),
+    ] {
+        assert!(
+            catalog.decode_plan(&invalid.to_string()).is_err(),
+            "accepted {invalid}"
+        );
+    }
+}
+
+#[test]
 fn native_identity_allows_same_leaf_across_plain_and_namespaced_tools() {
     let catalog = TaskSpaceExecCatalog::build(&[
         ToolSpec::Function(function("lookup")),

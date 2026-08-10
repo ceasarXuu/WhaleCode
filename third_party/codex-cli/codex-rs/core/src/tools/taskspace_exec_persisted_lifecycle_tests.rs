@@ -122,6 +122,27 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
             }),
         )
         .unwrap();
+    let plan = json!({
+        "calls": [
+            {
+                "map": {
+                    "operation": "initialize_map",
+                    "input": {
+                        "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+                        "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
+                        "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+                    }
+                }
+            },
+            {"client": {"name": "inspect", "node_id": "work", "input": {}}}
+        ],
+        "hosted_bindings": []
+    });
+    let arguments = if cfg!(feature = "taskspace-exec-source-ab") {
+        source_carrier::encode(&plan)
+    } else {
+        plan
+    };
     let output = router
         .dispatch_tool_call_with_code_mode_result(
             Arc::clone(&session),
@@ -133,23 +154,7 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
                 dispatch_tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
                 call_id: "outer".into(),
                 payload: ToolPayload::Function {
-                    arguments: json!({
-                        "calls": [
-                            {
-                                "map": {
-                                    "operation": "initialize_map",
-                                    "input": {
-                                        "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-                                        "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
-                                        "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
-                                    }
-                                }
-                            },
-                            {"client": {"name": "inspect", "node_id": "work", "input": {}}}
-                        ],
-                        "hosted_bindings": []
-                    })
-                    .to_string(),
+                    arguments: arguments.to_string(),
                 },
             },
             ToolCallSource::Direct,
