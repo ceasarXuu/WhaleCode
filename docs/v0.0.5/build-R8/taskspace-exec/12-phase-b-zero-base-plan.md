@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / VA-02 first-response stability blocked
+- Status: Active / Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / VA-02 wire online verified, end-to-end budget-limited
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -173,7 +173,7 @@ process host。Codex JS Exec 可以在同一 cell 中等待 A 的结果后动态
 | VA-01 | 完成固定离线验收 | Docker build、TaskSpace Exec、Map/Store/settlement、Standard final-wire、CLI/Viewer、zero-base/cache gates | 按冻结清单执行已有测试和构建，不在该单元临时扩建测试体系；失败回到对应实现单元修复 | 在付费验证前确认生产链、消费者和 Standard 基线一致 | Complexity: 主要是测试执行和证据汇总；Reach: build time，无 Provider 请求 | 冻结清单全部 PASS，证据记录命令、结果和 commit；旧符号、Standard diff 或不可复算观测均阻断 | verified |
 | VA-04A | 离线重映射 R8 问题 | `01-r8-known-issues.md`、当前源码与确定性测试 | 识别 I01～I10 中已被新架构删除的旧根因、仍可静态复现的缺陷和必须等待真实 trace 的行为问题 | 不把已淘汰架构假设带入付费验证，也不靠静态证据误关行为问题 | Complexity: 文档证据重排；Reach: 决定 B5 观察重点 | 每项标记为静态关闭候选、仍成立或待运行验证；只在确定性证据充分时关闭 | verified |
 | ID-01 | 收敛 I10 唯一能力身份 | Exec catalog、Router、request metadata、provider/Exec trace、performance observer | 从同一最终声明序列机械派生 Runtime-only identity，沿既有请求和报告链传播；不进入 Agent schema、Provider payload、Map 或普通 Tool | 能力变化可与任务行为、缓存和成本变化分开归因 | Complexity: 一个只读身份字段和既有事件可选字段；Reach: TaskSpace Router/trace/report，Standard 为 null | 语义变化敏感性、HTTP/WS、dispatch、报告冲突 fixture；zero-base/cache gate | verified |
-| VA-02 | 申请并执行最终生产路径 Provider shape 验证 | Docker 中当前 Whale 二进制、最终 TaskSpace Exec declaration、run ledger | 1 sample × 1 arm × repeat 1、每轮最多 2 requests；通过正式生产入口验证最终结构化 Function schema，禁止复用含 `version/capability_id` 的旧 A2 source-only probe | 在四臂评测前证明目标 Provider/Agent 可生成当前真实合同 | Complexity: 零新协议代码；Reach: 有界付费 API | 零 Hosted 首响应已合法执行；第二响应生成未声明的顶层 client Tool，Runtime 零副作用拒绝；Provider 顶层声明始终只有 Exec+Hosted | blocked / I03 top-level client escape requires analysis |
+| VA-02 | 申请并执行最终生产路径 Provider shape 验证 | Docker 中当前 Whale 二进制、最终 TaskSpace Exec declaration、run ledger | 1 sample × 1 arm × repeat 1；通过正式生产入口验证最终结构化 Function schema，禁止复用含 `version/capability_id` 的旧 A2 source-only probe | 在四臂评测前证明目标 Provider/Agent 可生成当前真实合同并完成最小任务闭环 | Complexity: 零新协议代码；Reach: 有界付费 API | 新 `map/client` wire 已连续两次正确执行，旧顶层提升未复现；两请求上限在 patch 前截止，端到端未验收 | wire verified online / end-to-end revalidation requires new budget |
 | VA-02R | 收敛 outer Exec 操作合同 | `taskspace_exec/protocol.rs`、catalog declaration、合同测试 | 参考最新 Codex `exec`，把外层调用方式、序列、归属和最小示例集中在 outer Tool description；内容由同一 catalog 装配，不改 base instructions、普通 Tool schema 或 Runtime 行为 | Agent 从唯一 Tool 声明同时获得结构语法和操作方法，不再依赖散落 prompt 猜测外层 envelope | Complexity: 一个 86 行协议渲染模块；Reach: TaskSpace Tool declaration 与缓存指纹 | 首次示例反向通过同一 decoder/preflight；TaskSpace Exec 定向测试、缓存门禁；真实遵循只由新预算复验 | verified offline / provider revalidation pending |
 | CP-01 | 坐实有效能力与延迟暴露事实 | Registry plan、Router、deferred Tool Search、目标 DeepSeek Tool config | 参数化列出 Standard 与 TaskSpace 中 enabled/deferred/hidden/hosted/client/Code Mode/LocalShell 的 effective surface，不改生产行为 | 后续 Catalog 只基于已证明的当前事实收敛 | Complexity: 静态追踪与离线 fixture；Reach: 解锁 CP-04/05 | 集合逐项可解释；若需要第二 Registry 或产品取舍立即停 | verified |
 | CP-02 | 坐实原生 Tool identity | ToolName、Function/Freeform/Namespace fixtures | 对所有当前合法名称做 encode/decode/collision 测试，确定 Namespace 最小可逆表示 | Agent-visible identity 可无歧义恢复到原生 ToolName | Complexity: tests first；Reach: schema/decoder/cache | 未证明前不改 wire；不得沿用 JS normalization 假设 | verified；wire confirmed |
@@ -315,6 +315,7 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 | CP-13 | 2026-08-10 | [`38-phase-b5-cp13-offline-acceptance.md`](38-phase-b5-cp13-offline-acceptance.md)；Core 1873/3、State 134、CLI 5、Viewer 4、Protocol 183；workspace、zero-base、8 项免费缓存合同与 cache gate PASS | CP-01～CP-12 的生产调用链和冻结门禁整体通过；没有新增产品决策、协议分叉或真实 Provider 请求。候选缓存敏感面仍保持发布阻断，等待已批准的 VA-02 真实复验 | VA-02 |
 | VA-02 second run | 2026-08-10 | [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)；`WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4` | 第二响应合法执行 `initialize_map + exec_command`；在线结算 2 provider requests / 3 local attempts，request 2+ cache hit 96.20%。首响应再次在无 Hosted output 的机械空字段附近生成非法 JSON；该字段现已改为可省略并完成离线验证 | 申请最小 VA-02 复验预算；通过前 VA-03 保持 blocked |
 | VA-02 zero-Hosted revalidation | 2026-08-10 | [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)；`WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` | 首响应省略 `hosted_bindings` 后合法初始化 Map 并执行 client Tool，局部修复在线成立；第二响应生成未声明的顶层 `exec_command`。两次 wire 的 Tool 集合均为 `taskspace_exec + web_search`，Runtime 未重暴露普通 Tool 并正确拒绝 | VA-03 保持 blocked；先归因 I03 当前生产表现，不自动再跑 Agent |
+| VA-02 map-client wire revalidation | 2026-08-10 | [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)；`WAR-20260810-174818-CACHE-REGRESSION-0EF76553` | 目标模型连续两次正确使用 outer `taskspace_exec` 和新 `map/client` wire；初始化与两个 client Action 成功，第二请求缓存命中 94.69%。第三请求在 Provider 前被批准的两请求上限截止，故没有 patch | 不自动重试；重新申请足够覆盖最小任务闭环的 VA-02 预算，完成前 VA-03 保持 blocked |
 
 ## 6. 证据校准
 

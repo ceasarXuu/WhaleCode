@@ -1,12 +1,13 @@
 # Phase B5 VA-02 复验结果
 
 - Date: 2026-08-10
-- Status: evidence complete / zero-Hosted contract verified online / VA-02 still blocked
+- Status: evidence complete / new map-client wire verified online / end-to-end VA-02 budget-limited
 - Model: `deepseek-v4-flash`
 - Scope: `single-file-fast-fix` × `map-request` × repeat 1
 - Record: `WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4`
 - Zero-Hosted revalidation: `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0`
-- Subject: `98d0e52efe66c6ae09e781a39ba30d5ded151349`
+- Map-client wire revalidation: `WAR-20260810-174818-CACHE-REGRESSION-0EF76553`
+- Subject: `7cbaa46a2627214c2fb891edc3844b3cc0c30c37`
 
 ## 1. 结论
 
@@ -15,6 +16,8 @@
 随后获批的最小零 Hosted 复验证明该局部修复在线生效：首响应省略 `hosted_bindings`，严格解码、Map 初始化和嵌套 `exec_command` 均一次成功。VA-02 仍未通过，因为第二个响应生成了未声明的顶层 `exec_command`；Provider 实际收到的顶层 Tool 始终只有 `taskspace_exec` 与 `web_search`，Runtime 没有重新暴露普通 client Tool，并在执行前按合同拒绝。
 
 零 Hosted 修复后，此前两轮已知的空字段参数失败未再出现；当前直接阻塞收敛为 Agent 不能稳定维持 outer/inner 调用层级。VA-03 四臂测量继续阻断，不能把 Runtime 对非法顶层调用的拒绝当作 Agent 遵循通过。
+
+新的 `map/client` wire 最小复验中，模型连续两次选择顶层 `taskspace_exec`，首次完成 `initialize_map + exec_command`，第二次继续执行嵌套 `exec_command`。旧 inner Tool 顶层提升未复现，且第二请求缓存命中率恢复到 94.69%。但本轮最多只允许两个 Provider 请求，Agent 在读取实现和测试后发起第三次请求时被预算代理以 429 截止，尚未来得及 patch。因此本轮验证了新 wire 的在线可用性和缓存表现，没有验证完整任务闭环，也不能把业务失败归因于 TaskSpace Exec。
 
 ## 2. 请求路径
 
@@ -143,9 +146,51 @@ VA-03 继续阻断。“已声明 outer Tool 下仍生成未声明内层 Tool �
 该修复只完成离线工程验收。由于 Tool declaration 属于缓存敏感面，必须通过缓存门禁；目标 DeepSeek 是否不再提升内层调用，
 仍需新的最小真实运行预算验证，不能从单元测试推断为 VA-02 已通过。
 
-## 11. 证据路径
+## 11. Map-client wire 最小复验
+
+本轮严格执行 `single-file-fast-fix × map-request × repeat=1`，最多两个 Provider 请求且不重试。运行前缓存门禁只发现预期的 TaskSpace final-wire 变化；Standard final-wire 保持不变。
+
+正式运行前曾有一次二进制 attestation 预检失败：安装目录中的 Whale 仍对应上一提交。该预检在 ledger claim 和 Provider 路由之前停止，未启动 Agent、未产生 Provider 请求；重新构建当前 HEAD 并生成匹配证明后，才进入本表记录的正式运行。预检证据保存在 `benchmarks/cache-regression/evidence/WAR-20260810-174548-CACHE-REGRESSION-0D72C5E6/`。
+
+| Request | Agent 行为 | Runtime 结果 |
+|---:|---|---|
+| 1 | 顶层 `taskspace_exec`；内部 `initialize_map + client(exec_command)` | 严格解码、预检、Map 提交和命令执行全部成功 |
+| 2 | 顶层 `taskspace_exec`；内部继续 `client(exec_command)` 读取 README、实现和测试 | 严格解码、预检、Action 结算和原始结果反馈全部成功 |
+| 3 | Agent 已取得修复所需事实，准备继续工作 | 本地预算代理在 Provider 执行前返回 429；无第三次计费请求、无 patch |
+
+关键事实：
+
+1. 两个模型响应均保持 outer `taskspace_exec`，旧顶层 `exec_command` 提升和旧 `tool + arguments` 形状均未出现。
+2. 新 `map/client` wire 没有被 Runtime 补全或改写；Agent 直接生成，Runtime 机械解析并走原生 client Tool 路径。
+3. Map 为 `root -> inspect -> finish`，`inspect` 下记录两次成功 `exec_command` Action；不存在孤立节点、错边或自动闭合。
+4. 业务失败的直接原因是两请求预算不足。测试未通过是因为目标代码尚未被修改，不是 patch 失败或 Tool 反馈丢失。
+5. I07 的 provider boundary、usage、缓存和账本结算完整；但 section cost 与 base-instructions identity 仍显示 unavailable/unrecognized，继续归入 I07 观测缺口。
+
+| 指标 | 数值 |
+|---|---:|
+| Provider requests | 2 |
+| Provider attempts | 3（第 3 次在本地预算边界失败） |
+| Input tokens | 29,311 |
+| Cached input | 18,816 |
+| Uncached input | 10,495 |
+| Output tokens | 358 |
+| Request 2+ cache hit | 94.69% |
+| Agent sample elapsed | 35.782 s |
+| Runner elapsed | 40.010 s |
+| Estimated known cost | USD 0.0016222248 |
+
+本轮不自动重试。若要完成 VA-02 的端到端业务验收，需要重新申请能够覆盖“初始化/发现、读取、修改、验证、结束”的请求预算；这只是验证预算调整，不改变 TaskSpace 产品协议。
+
+## 12. 证据路径
 
 新增证据：
+
+- Result: `benchmarks/cache-regression/results/WAR-20260810-174818-CACHE-REGRESSION-0EF76553.json`
+- Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-174818-CACHE-REGRESSION-0EF76553/`
+- Local trace: `target/cache-hit-regression/WAR-20260810-174818-CACHE-REGRESSION-0EF76553/`
+- Ledger: `benchmarks/whale-agent-run-ledger.json`
+
+### 零 Hosted 证据
 
 - Result: `benchmarks/cache-regression/results/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0.json`
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0/`

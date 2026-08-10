@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "status": "fail",
+  "run_validity": "invalid_harness",
+  "whale_bin_requested": "/home/zhangxu/.whale/bin/whale",
+  "whale_bin_resolved": "/home/zhangxu/.whale/bin/whale",
+  "whale_binary_exists": true,
+  "whale_binary_last_write_utc": "2026-08-09T22:12:06.0486570Z",
+  "whale_binary_sha256": "f1a13dd21cbf057790e880b2ee3e6ae13749e2ef4313db17887118e602ca20b4",
+  "whale_binary_epoch": 1786313526,
+  "current_git_head": "7cbaa46a2627214c2fb891edc3844b3cc0c30c37",
+  "codex_source_latest_commit": {
+    "hash": "7cbaa46a2627214c2fb891edc3844b3cc0c30c37",
+    "epoch": 1786353894,
+    "time_utc": "2026-08-10T09:24:54.0000000Z",
+    "pathspec": "third_party/codex-cli"
+  },
+  "stale_for_codex_source": true,
+  "stale_allowed": false,
+  "build_attestation_path": "/home/zhangxu/.whale/bin/whale.build-attestation.json",
+  "build_attestation_status": "invalid",
+  "build_attestation_reason": "codex_source_commit_mismatch,git_build_identity_mismatch",
+  "findings": [
+    {
+      "severity": "fail",
+      "stable_code": "whale_binary_attestation_invalid",
+      "message": "Whale binary provenance is not proven by a matching build attestation.",
+      "path": "/home/zhangxu/.whale/bin/whale",
+      "stage": "whale_binary_preflight",
+      "source_commit": "7cbaa46a2627214c2fb891edc3844b3cc0c30c37",
+      "attestation_path": "/home/zhangxu/.whale/bin/whale.build-attestation.json",
+      "attestation_status": "invalid",
+      "attestation_reason": "codex_source_commit_mismatch,git_build_identity_mismatch"
+    },
+    {
+      "severity": "warn",
+      "stable_code": "whale_binary_stale_for_codex_source",
+      "message": "Whale binary mtime is older than the latest codex source commit; the provenance failure is reported by whale_binary_attestation_invalid.",
+      "path": "/home/zhangxu/.whale/bin/whale",
+      "stage": "whale_binary_preflight",
+      "binary_last_write_utc": "2026-08-09T22:12:06.0486570Z",
+      "source_commit": "7cbaa46a2627214c2fb891edc3844b3cc0c30c37",
+      "source_commit_time_utc": "2026-08-10T09:24:54.0000000Z",
+      "attestation_path": "/home/zhangxu/.whale/bin/whale.build-attestation.json",
+      "attestation_status": "invalid",
+      "attestation_reason": "codex_source_commit_mismatch,git_build_identity_mismatch"
+    }
+  ],
+  "generated_at": "2026-08-10T17:45:49.6442732+08:00"
+}

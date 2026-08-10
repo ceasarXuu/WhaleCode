@@ -1,7 +1,122 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T06:13:19+08:00",
+  "updated_at": "2026-08-10T17:49:07+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260810-174818-CACHE-REGRESSION-0EF76553",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-10T17:48:27+08:00",
+      "ended_at": "2026-08-10T17:49:07+08:00",
+      "elapsed_calendar_seconds": 40.01,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Validate the new TaskSpace Exec map/client wire on one minimal map-request sample without retries.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260810-B5-VA02-AE1DC14E3CE2A796",
+        "reference": "用户于 2026-08-10 明确回复‘批准预算’，批准新 map/client wire 的最小 VA-02 复验：single-file-fast-fix × map-request × repeat=1，最多 2 个 Provider 请求，50K input、12K output 和 USD 0.02 观察上限，最长 12 分钟，不允许重试。",
+        "budget_summary": {
+          "provider_requests": 2,
+          "input_tokens": 2000000,
+          "output_tokens": 768000,
+          "elapsed_seconds": 840,
+          "estimated_cost": 0.49504,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-AE1DC14E3CE2A796。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "9ad9d9157fa7e7888acffbc6d47f6263d72cc2d533cb1610a64af1490872b42b",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 2,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 29311,
+        "cached_input": 18816,
+        "uncached_input": 10495,
+        "output": 358
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.0016222248,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 5.26848e-05,
+          "uncached_input": 0.0014693000000000002,
+          "output": 0.00010024
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260810-174818-CACHE-REGRESSION-0EF76553",
+        "subject_commit": "7cbaa46a2627214c2fb891edc3844b3cc0c30c37",
+        "surface_sha256": "071c2c2f9f33e9fd2b08b11f502bb9132c18f670650ba6d1512ccd2cebfa0c0e",
+        "proposal_id": "CBP-AE1DC14E3CE2A796",
+        "proposal_contract_sha256": "7a292424aa5653e3ade1f9d2b0098f4d8370018350ccbebbb742dcd56f23a4e8",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-AE1DC14E3CE2A796.json",
+        "proposal_sha256": "8602add76ac22066ef78e12cdd0e700f8dd7ded3a73b612f10eaac1adbd7199d",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260810-B5-VA02-AE1DC14E3CE2A796.json",
+        "authorization_sha256": "512e2c835f2af19a75e1aabb37651fbedcd6e0144930c4991f7dd7153cbf8bda",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Validate the new TaskSpace Exec map/client wire on one minimal map-request sample without retries."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260810-174818-CACHE-REGRESSION-0EF76553/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "99122df4bbe54e054013b89d00bb51f2b8ec3da4c60918e001b6d5a9a7ba5bfe",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260810-174818-CACHE-REGRESSION-0EF76553",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260810-174818-CACHE-REGRESSION-0EF76553.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
     {
       "record_id": "WAR-20260810-061241-CACHE-REGRESSION-A143B6F0",
       "record_type": "run_batch",
