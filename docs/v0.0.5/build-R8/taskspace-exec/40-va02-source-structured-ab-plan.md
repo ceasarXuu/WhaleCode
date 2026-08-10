@@ -215,3 +215,61 @@ Source 的首请求与 request 2 缓存率受到新 Tool shape 首次出现影�
 
 本轮只提供方向性证据，不自动选择 carrier。是否执行两臂各 repeat 3、是否先优化 Source wire/observer，均需新的用户决策和
 独立预算。
+
+## 11. Structured 重复观测
+
+2026-08-10 用户批准同一 Structured 配置和同一 sample `repeat=5`，用于复核未声明顶层 Tool escape。执行使用冻结
+Structured binary `f0a43b7f...bd6f6`、`deepseek-v4-flash`、`map-request` 和每次最多 6 个 Provider 请求；账本记录为
+`WAR-20260810-212032-R8-VA02-STRUCTURED-R5`。
+
+本次 runner 的 `RunSide=right` 会按 pair 的去偏置映射交替逻辑模式，实际得到 3 次 TaskSpace 和 2 次 Standard，而不是
+5 次 Structured。该编排偏差必须保留：两次 Standard 不能改名或并入 Structured 统计，也不能在未追加预算时静默补跑。
+
+| Pair | 实际模式 | Provider 请求 | Input / Cached / Output | 全请求缓存 | Request 2+ | 业务结果 | 关键路径 |
+|---|---|---:|---:|---:|---:|---|---|
+| 001 | Structured TaskSpace | 2 | 29,363 / 28,416 / 431 | 96.77% | 94.36% | FAIL | 请求 1 合法初始化并探索；请求 2 返回未声明顶层 `exec_command`，Runtime 拒绝，未修改文件 |
+| 002 | Standard | 6 | 72,908 / 65,024 / 1,164 | 89.19% | 97.66% | interrupted | 修复与测试通过；第 7 个最终回复请求在 Provider 前被限额阻断 |
+| 003 | Structured TaskSpace | 6 | 99,262 / 92,032 / 1,902 | 92.72% | 91.61% | task complete / harness interrupted | 无顶层逃逸；修复、测试、Map 闭合完成；第 7 个最终回复请求在 Provider 前被限额阻断 |
+| 004 | Standard | 6 | 71,626 / 70,528 / 1,014 | 98.47% | 98.24% | PASS | 正常修复、验证并回复 |
+| 005 | Structured TaskSpace | 6 | 96,395 / 89,984 / 2,083 | 93.35% | 92.31% | FAIL | 无顶层逃逸；发现根因后连续 4 次 envelope/preflight 失败，未应用补丁 |
+
+五次实际运行合计 26 个 Provider 请求、369,554 input、345,984 cached input、23,570 uncached input、6,594 output，按冻结
+单价估算 USD 0.0061148752。TaskSpace 三次合计 14 个请求、225,020 input、210,432 cached input、4,416 output，整体缓存
+命中 93.52%。
+
+### 11.1 顶层逃逸结论
+
+1. 本轮 TaskSpace 的顶层工具集合在每个请求都保持 `tools_count=2`、同一 `tools_hash=e1f823...bd83`、
+   `tool_choice=auto`；普通 `exec_command` 从未重新加入顶层声明。
+2. Pair 001 复现了 smoke 的精确错误签名：先正确使用 `taskspace_exec` 初始化并执行探索，然后在下一请求返回顶层
+   `exec_command`，且参数混入只属于 TaskSpace 归属层的 `node_id`。
+3. 当前 Structured 独立运行合并 smoke 后共 4 次，其中 2 次发生同型逃逸；本轮自身为 1/3。它是可复现但非必现的
+   Provider/模型输出违约，不是 Runtime 将内层调用提升到顶层，也不是第二请求改变了 Tool 暴露。
+4. 静态代码审计发现一个更直接的合同冲突：`resolve_base_instructions` 给 TaskSpace 和 Standard 返回同一份 Standard base。
+   该 base 明确教授 Agent 直接发出终端/补丁 Function Call，并宣称 `update_plan` 可用；TaskSpace Tool description 同时要求
+   所有 client Tool 只能经 `taskspace_exec`。因此 Agent 面对的是两个互相矛盾的高优先级行为合同，而不是“只声明一个
+   Exec 所以约束应天然一致”。
+5. `node_id + exec_command` 的混合输出与该冲突吻合：模型保留了 TaskSpace 的节点归属信息，却采用 Standard 教授的顶层
+   Tool 调用形态。当前 Provider 输出通道又未把顶层 Function 名称硬限制在已声明集合，最终使矛盾输出成为可接受的
+   Provider response。Runtime 之后正确拒绝，但已无法挽回本次请求。
+6. 因此当前因果层级应写为：**已确认的上下文合同冲突 + 已确认的 Provider 名称约束缺口 + 随机采样下偶发选择错误合同**。
+   Structured 内层 schema 是否独立提高逃逸概率仍未隔离，不能继续作为根因表述。
+
+### 11.2 同轮暴露的独立问题
+
+1. Pair 003 在同一个 batch 中声明 `apply_patch` 后立即执行依赖补丁结果的测试。Runtime 按 client action 原生并行能力执行，
+   测试先观察到旧文件而失败；下一请求确认补丁已生效且测试通过。协议已经说明结果依赖动作应等待下一请求，但 Agent 没有
+   遵守。这不是顶层逃逸，也不能用 Map 状态解释掉。
+2. Pair 003 第 5 请求生成一次非法 JSON，收到准确拒绝后第 6 请求纠正，并完成 Map。说明 Structured 仍存在参数结构偶发错误，
+   但反馈链本身有效。
+3. Pair 005 依次发生 waiting 节点执行、使用不存在的 `in_progress` 状态、单独生命周期操作、非法状态迁移四次失败。错误反馈
+   均忠实进入下一请求，Agent也逐次理解前一错误，但协议知识呈点状试错，最终预算耗尽。这是 Tool schema/协议可用性问题，
+   不是反馈丢失。
+4. `in_progress` 并非无来源幻觉：复用的 Standard base 两处明确规定 `update_plan` 状态为
+   `pending/in_progress/completed`，而 Map schema 使用 `waiting/ready/in_flight/blocked/completed`。当前 TaskSpace Exec catalog
+   还机械收入了 `update_plan` client capability，与 R8 已写明的“TaskSpace 隐藏线性 plan”约束不一致。状态词冲突是 Pair 005
+   第二次失败的明确上下文诱因。
+5. Pair 001 的顶层违约被 response scope 作为终止错误处理，没有生成可进入下一请求的错误反馈，所以 Agent没有自纠机会。
+   “拒绝非法调用”符合硬边界；“直接终止而不反馈”是否符合反馈层原则需要单独决策，不能与 Provider 违约合并成一个问题。
+6. 当前性能 observer 把本轮 Structured outer arguments 标为 `exec_arguments_invalid`，与原始 rollout 和 Runtime 成功结果
+   冲突；因此派生报告仍不适合作为 VA-02 carrier 判定依据。该观测缺口与模型执行问题分开记录。

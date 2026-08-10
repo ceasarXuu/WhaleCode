@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T21:20:32+08:00",
+  "updated_at": "2026-08-10T21:31:58+08:00",
   "entries": [
     {
       "record_id": "WAR-20260810-212032-R8-VA02-STRUCTURED-R5",
       "record_type": "run_batch",
-      "status": "planned",
+      "status": "settled",
       "started_at": "2026-08-10T21:20:32+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-10T21:31:58+08:00",
+      "elapsed_calendar_seconds": 686.0,
+      "aggregate_agent_wall_time_ms": 79492,
       "reason": "Repeat the current structured TaskSpace Exec carrier five times on the frozen single-file-fast-fix sample to determine whether undeclared top-level client Tool escape is reproducible and to inspect the complete request paths.",
       "authorization": {
         "required": true,
@@ -39,21 +39,41 @@
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 5,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "planned"
+        "actual_sample_runs": 5,
+        "api_requests": 26,
+        "api_requests_evidence_status": "complete",
+        "actual_mode_runs": {
+          "taskspace": 3,
+          "standard": 2
+        },
+        "mode_assignment_note": "RunSide=right followed the benchmark's alternating logical-mode map, so repeats 1/3/5 were TaskSpace and 2/4 were Standard. This is an experiment orchestration mismatch; the two Standard runs are retained and not relabeled."
       },
       "tokens": {
-        "input": null,
-        "cached_input": null,
-        "uncached_input": null,
-        "output": null
+        "input": 369554,
+        "cached_input": 345984,
+        "uncached_input": 23570,
+        "output": 6594
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "USD",
-        "amount": null,
-        "actual_billed_amount": null
+        "amount": 0.0061148752,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0009687552,
+          "uncached_input": 0.0032998,
+          "output": 0.00184632
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "345984/1e6*0.0028 + 23570/1e6*0.14 + 6594/1e6*0.28 = 0.0061148752 USD",
+        "note": "按冻结 DeepSeek 单价和 canonical request facts 估算；不等同账户实扣金额。"
       },
       "evidence": {
         "planned_run_root": "target/r8-va02-r5/runs",
@@ -67,7 +87,55 @@
           "stop on infrastructure, credential, binary identity, artifact, or observer failure",
           "retain carrier protocol failures as experiment outcomes",
           "no automatic retry"
-        ]
+        ],
+        "pre_provider_harness_attempt": "target/r8-va02-r5/runs/single-file-fast-fix/20260810-212232-926",
+        "pre_provider_harness_outcome": "DEEPSEEK_API_KEY was not loaded into the initiating shell; rejected before Provider with zero API requests.",
+        "actual_run_root": "target/r8-va02-r5/runs/single-file-fast-fix/20260810-212305-344",
+        "taskspace_results": {
+          "pair-001": {
+            "provider_requests": 2,
+            "input_tokens": 29363,
+            "cached_input_tokens": 28416,
+            "output_tokens": 431,
+            "wall_time_ms": 6203,
+            "outcome": "undeclared top-level exec_command on request 2; response contract rejected; no patch"
+          },
+          "pair-003": {
+            "provider_requests": 6,
+            "input_tokens": 99262,
+            "cached_input_tokens": 92032,
+            "output_tokens": 1902,
+            "wall_time_ms": 20386,
+            "outcome": "no top-level escape; patch and validation passed; Map finished; final natural-language response blocked before Provider request 7"
+          },
+          "pair-005": {
+            "provider_requests": 6,
+            "input_tokens": 96395,
+            "cached_input_tokens": 89984,
+            "output_tokens": 2083,
+            "wall_time_ms": 22408,
+            "outcome": "no top-level escape; four consecutive preflight/decode failures after discovery; no patch committed"
+          }
+        },
+        "standard_results": {
+          "pair-002": {
+            "provider_requests": 6,
+            "input_tokens": 72908,
+            "cached_input_tokens": 65024,
+            "output_tokens": 1164,
+            "wall_time_ms": 15844,
+            "outcome": "patch and validation passed; final response blocked before Provider request 7"
+          },
+          "pair-004": {
+            "provider_requests": 6,
+            "input_tokens": 71626,
+            "cached_input_tokens": 70528,
+            "output_tokens": 1014,
+            "wall_time_ms": 14651,
+            "outcome": "business success"
+          }
+        },
+        "outcome": "completed_with_mode_assignment_mismatch; three Structured TaskSpace observations and two contemporaneous Standard observations retained"
       }
     },
     {
