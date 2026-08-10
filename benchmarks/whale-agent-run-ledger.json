@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T23:09:51+08:00",
+  "updated_at": "2026-08-10T23:17:02+08:00",
   "entries": [
     {
       "record_id": "WAR-20260810-230951-R8-E01-ESCAPE-R3",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-10T23:13:12.445312+08:00",
+      "ended_at": "2026-08-10T23:17:02.181863+08:00",
+      "elapsed_calendar_seconds": 229.736551,
+      "aggregate_agent_wall_time_ms": 182645,
       "reason": "验证 TaskSpace Exec 顶层 client Tool 逃逸合同修复，并在同一提交上比较 Standard、Structured 和 Source 三种执行路径。",
       "authorization": {
         "required": true,
@@ -41,25 +41,36 @@
         ],
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 9,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 9,
+        "api_requests": 53,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 821544,
+        "cached_input": 700160,
+        "uncached_input": 121384,
+        "output": 19737
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "USD",
-        "amount": null,
+        "amount": 0.024481,
         "actual_billed_amount": null,
-        "components": null,
-        "pricing_snapshot": null,
-        "formula": null,
-        "note": "运行结束后按 canonical request facts 和冻结 DeepSeek 单价结算。"
+        "components": {
+          "cached_input": 0.001960448,
+          "uncached_input": 0.01699376,
+          "output": 0.00552636
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "700160/1e6*0.0028 + 121384/1e6*0.14 + 19737/1e6*0.28 = 0.024480568 USD",
+        "note": "按 canonical request facts 和运行前冻结价格估算，不等同于账户实扣金额。"
       },
       "evidence": {
         "planned_run_root": "target/r8-e01/runs",
@@ -68,7 +79,14 @@
         "subject_commit": "85f14967c5ad2a1ea47f65bdd84d5b6ee6e375a5",
         "structured_binary_sha256": "068bc0149afae05a704570078699f36da783e5bdb84afbffd4763b864c6b2a64",
         "source_binary_sha256": "c64212b48cab877efa49e02547ebb5e3bd4d5e825a99682a0276f2a201fced90",
-        "stop_conditions": "9 个预定样本各执行一次；任一结果无论成功、失败、超时或取消均消耗对应配额；达到预算上限或出现基础设施级阻塞立即停止；禁止自动重试。"
+        "stop_conditions": "9 个预定样本各执行一次；任一结果无论成功、失败、超时或取消均消耗对应配额；达到预算上限或出现基础设施级阻塞立即停止；禁止自动重试。",
+        "actual_run_roots": [
+          "target/r8-e01/runs/a0/single-file-fast-fix/r1",
+          "target/r8-e01/runs/a2/single-file-fast-fix/r1",
+          "target/r8-e01/runs/a3/single-file-fast-fix/r1",
+          "target/r8-e01/runs/a4/single-file-fast-fix/r1"
+        ],
+        "outcome": "Standard 3/3 通过；Structured 0/3、Source 0/3，均未修改文件。53 次 Provider 请求内无自动重试；六次 TaskSpace 运行均在第 7 次本地请求尝试前被 hard limit 阻断。现有 performance observer 无法解码当前 TaskSpace Exec 参数，TaskSpace 结果以 canonical request facts、rollout、stderr 和 map store 为准。"
       }
     },
     {
