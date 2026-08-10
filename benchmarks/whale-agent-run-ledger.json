@@ -56,7 +56,7 @@
         "actual_billed_amount": null
       },
       "evidence": {
-        "planned_run_root": "target/r8-va02-structured-r5/runs",
+        "planned_run_root": "target/r8-va02-r5/runs",
         "subject_commit": "2bae4f063b191679b0328d81e137d39e25419449",
         "experiment_contract": "docs/v0.0.5/build-R8/taskspace-exec/40-va02-source-structured-ab-plan.md",
         "projection_policy": "map-request",
