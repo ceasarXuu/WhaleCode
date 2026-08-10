@@ -1,12 +1,12 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T19:37:21+08:00",
+  "updated_at": "2026-08-10T19:38:16+08:00",
   "entries": [
     {
       "record_id": "WAR-20260810-193648-R8-VA02-CARRIER-AB",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-08-10T19:38:16+08:00",
       "ended_at": null,
       "elapsed_calendar_seconds": null,
       "aggregate_agent_wall_time_ms": null,
@@ -82,7 +82,8 @@
           "carrier protocol failure is retained as an experiment result",
           "no automatic retry"
         ],
-        "usage_evidence_status": "pending"
+        "usage_evidence_status": "pending",
+        "current_arm": "structured"
       }
     },
     {
