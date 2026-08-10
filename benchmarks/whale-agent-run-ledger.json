@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T19:39:45+08:00",
+  "updated_at": "2026-08-10T19:41:31+08:00",
   "entries": [
     {
       "record_id": "WAR-20260810-193648-R8-VA02-CARRIER-AB",
@@ -40,15 +40,15 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 2,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 1,
+        "api_requests": 2,
+        "api_requests_evidence_status": "partial"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 29370,
+        "cached_input": 28416,
+        "uncached_input": 954,
+        "output": 423
       },
       "monetary_cost": {
         "status": "planned",
@@ -83,9 +83,24 @@
           "no automatic retry"
         ],
         "usage_evidence_status": "pending",
-        "current_arm": "structured",
+        "current_arm": "source",
         "pre_provider_harness_attempt": "target/r8-taskspace-exec-carrier-ab/runs/structured/single-file-fast-fix/structured-r1",
-        "pre_provider_harness_outcome": "rejected before Provider because the run root contained a forbidden treatment token; zero API requests"
+        "pre_provider_harness_outcome": "rejected before Provider because the run root contained a forbidden treatment token; zero API requests",
+        "arm_results": {
+          "structured": {
+            "run_root": "target/r8-va02-ab/runs/a1/single-file-fast-fix/r1",
+            "status": "completed",
+            "business_success": false,
+            "api_requests": 2,
+            "input_tokens": 29370,
+            "cached_input_tokens": 28416,
+            "uncached_input_tokens": 954,
+            "output_tokens": 423,
+            "wall_time_ms": 5006,
+            "exec_exit_code": 1,
+            "agent_completion_status": "interrupted"
+          }
+        }
       }
     },
     {
