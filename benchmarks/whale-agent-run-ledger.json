@@ -1,7 +1,124 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T23:17:02+08:00",
+  "updated_at": "2026-08-11T01:45:22+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260811-014315-CACHE-REGRESSION-99053528",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-11T01:43:23+08:00",
+      "ended_at": "2026-08-11T01:45:22+08:00",
+      "elapsed_calendar_seconds": 118.711,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Validate the intentional Structured TaskSpace handoff Tool-description change against Standard with one no-retry cache smoke per arm.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260811-R8-EXEC-HANDOFF-A40B4DF03D979866",
+        "reference": "用户于 2026-08-11 在收到完整预算说明后明确回复‘批准’：single-file-fast-fix × standard/map-request × repeat=1，共 2 个 sample run，最多 16 个 Provider 请求，300K input、20K output、USD 0.0476 观察停止线，12 分钟总时限，不允许自动重试；同时已披露 USD 3.96032 Provider 协议级理论极端上限。",
+        "budget_summary": {
+          "provider_requests": 16,
+          "input_tokens": 16000000,
+          "output_tokens": 6144000,
+          "elapsed_seconds": 720,
+          "estimated_cost": 3.96032,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-A40B4DF03D979866。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "422bc2194a00b4751e201e7c3f13eaea05298bad8cd910dcd5a7d7c7415e8105",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 14,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 199809,
+        "cached_input": 176000,
+        "uncached_input": 23809,
+        "output": 5227
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.00528962,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0004927999999999999,
+          "uncached_input": 0.00333326,
+          "output": 0.00146356
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260811-014315-CACHE-REGRESSION-99053528",
+        "subject_commit": "b907af9085849406182fdde790ef556f267c7a2a",
+        "surface_sha256": "869be65194486d2ec51b0e4275fc1ed1e38d090b7b614d44404e796ea203dd75",
+        "proposal_id": "CBP-A40B4DF03D979866",
+        "proposal_contract_sha256": "bcbf0bd72a63015d811f9225e575f44508294886782f4be52fc128ecb37adae6",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-A40B4DF03D979866.json",
+        "proposal_sha256": "3634adc33462e0a27be8997a2a912279675e5401e2fc320ebea80fa6ec2f950a",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260811-R8-EXEC-HANDOFF-A40B4DF03D979866.json",
+        "authorization_sha256": "0c1eacc130f8082b7a231188bca345a46b4cabacc2876c6449b1f24b24bc634c",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Validate the intentional Structured TaskSpace handoff Tool-description change against Standard with one no-retry cache smoke per arm."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260811-014315-CACHE-REGRESSION-99053528/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "9dbdbd82dda78ae08a8a8632cc7d7399673d220ea7e1e2ad5b745c9d1f2e3812",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260811-014315-CACHE-REGRESSION-99053528",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260811-014315-CACHE-REGRESSION-99053528.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
     {
       "record_id": "WAR-20260810-230951-R8-E01-ESCAPE-R3",
       "record_type": "run_batch",

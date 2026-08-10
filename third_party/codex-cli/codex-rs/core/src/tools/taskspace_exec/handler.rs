@@ -17,6 +17,8 @@ use futures::StreamExt;
 
 use super::PreparedHostedBinding;
 use super::TaskSpaceExecCatalog;
+use super::TaskSpaceExecEnvelopeError;
+use super::TaskSpaceExecPlanDecodeError;
 use super::TaskSpaceExecRequestContext;
 use super::TaskSpaceExecResponseScope;
 use super::dispatch::dispatched_outcome;
@@ -99,7 +101,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                 taskspace_rejection(
                     "envelope_rejected",
                     Some(&invocation.call_id),
-                    format!("invalid envelope: {error:?}"),
+                    render_envelope_rejection(&error),
                 )
             })?;
         let prepared =
@@ -407,6 +409,19 @@ fn taskspace_rejection(
         reason = %message,
     );
     FunctionCallError::RespondToModel(format!("taskspace_exec rejected: {message}"))
+}
+
+fn render_envelope_rejection(error: &TaskSpaceExecEnvelopeError) -> String {
+    const DIRECT_CALLS: &str = "The top-level input must directly contain `calls` and may contain `hosted_bindings`; do not wrap it in an `arguments` field. No Map or client calls were executed.";
+    match error {
+        TaskSpaceExecEnvelopeError::PlanDecode(TaskSpaceExecPlanDecodeError::InvalidJson(
+            detail,
+        )) => format!("invalid JSON syntax: {detail}. {DIRECT_CALLS}"),
+        TaskSpaceExecEnvelopeError::PlanDecode(TaskSpaceExecPlanDecodeError::InvalidEnvelope(
+            detail,
+        )) => format!("invalid top-level contract: {detail}. {DIRECT_CALLS}"),
+        _ => format!("invalid envelope: {error:?}. No Map or client calls were executed."),
+    }
 }
 
 fn taskspace_fatal(

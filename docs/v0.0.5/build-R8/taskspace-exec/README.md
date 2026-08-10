@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / I03-I07 offline repair complete / VA-02 online validation pending
+- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / Structured online revalidation failed / I05-I07 feedback and observer repair verified offline
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -83,6 +83,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   和 Responses 顶层 `instructions` identity 已完成离线修复；outer arguments 的目标模型稳定性仍待新的真实预算验证。完整
   历史逐臂成本与 trace 见
   [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)。
+- 最新 `standard/map-request × repeat=1` 复验中，Standard 6 请求成功；TaskSpace 首次 JSON 少一个闭合括号，随后因旧反馈
+  未区分 syntax 与 top-level contract，连续四次使用错误 `arguments` wrapper，第 6～8 请求恢复并准确定位业务根因，但在
+  patch 前触及请求上限。当前 parser 已离线拆分错误类型并明确 direct `calls` 恢复合同，observer 也能同时计量有效动作与
+  协议拒绝；没有 JSON 修补或 Runtime 语义接管。在线复验仍需新预算。
 
 ## 3. 文档
 

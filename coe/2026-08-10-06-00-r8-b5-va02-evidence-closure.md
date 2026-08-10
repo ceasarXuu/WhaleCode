@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: Dedicated TaskSpace base 已在 repeat-3 中消除顶层 client Tool 逃逸。Source 没有稳定性或成本优势，已按用户决策退役并从 active code 删除。Structured 的父子节点交接缺口已收敛为唯一 Tool 合同中的明确机械规则和 canonical handoff，生产 decoder/preflight 离线通过；Runtime 没有修复 JSON、推断节点或替 Agent 改状态。observer 已对齐当前 `map/client` wire 与 canonical rejection，Responses base identity 已改读顶层 `instructions`。整体问题仍保持 verifying，因为 Structured 的真实端到端稳定性尚未在修复后复验。
+- Current conclusion: Dedicated TaskSpace base 已消除顶层 client Tool 逃逸，Source 已退役。最新 Structured 在线复验仍在首个初始化 batch 生成少一个闭合括号的 JSON；随后旧反馈把语法错误与合法 JSON 的顶层合同错误都标为 `InvalidJson`，Agent 四次逐字重复错误 `arguments` wrapper。第 6～8 请求恢复正确 wire、完整读取代码和测试并定位业务根因，但在 patch 前触及请求上限。当前 parser 已离线区分 syntax/contract 并明确 direct `calls` 与零执行，observer 也可完整计量同一失败 run；不修补 JSON、不推断节点、不替 Agent 决策。整体保持 verifying，修复后的在线行为及原 canonical handoff 仍待新预算。
 - Related hypotheses:
   - H-001
   - H-002
@@ -46,8 +46,9 @@
   - H-012
   - H-013
   - H-014
+  - H-015
 - Resolution basis:
-  - E-001 至 E-025；H-012 确认顶层逃逸消失，H-013 确认交接合同缺口并完成离线修复，H-014 确认两处观测实现漂移并完成离线修复。
+  - E-001 至 E-026；H-012 确认顶层逃逸消失，H-013 确认交接合同缺口并完成离线修复，H-014 确认观测实现漂移，H-015 确认解析反馈层级扭曲并完成离线修复。
 - Close reason:
   - not closed
 
@@ -1156,4 +1157,70 @@
   scanner:    input[].role in {developer, system}
   ```
 - Interpretation: 这是确定的观测实现漂移，不应据此推导 Agent 语义或缓存行为。
+- Time: 2026-08-11
+
+## Hypothesis H-015: 解析反馈把语法错误和顶层合同错误扭曲成同一种错误
+- Status: verified
+- Parent: P-001
+- Claim: `TaskSpaceExecPlan::decode` 直接反序列化 `RawPlan`，使非法 JSON 与合法 JSON 的错误顶层字段都进入 `InvalidJson`；反馈又只给 parser 文本，没有明确 Function 参数已位于顶层，诱发 Agent 把完整计划重复包进 `arguments`。
+- Layer: feedback
+- Factor relation: single
+- Depends on:
+  - H-014 verified
+- Rationale:
+  - 最新 run 的 Request 1 是语法错误；Request 2～5 是可被 JSON parser 接受的同一个 `{"arguments":"..."}`，却收到同类 `PlanDecode(InvalidJson)` 文本并逐字重复。
+- Falsifiable predictions:
+  - If true: 两类输入可由严格两阶段 parser 确定区分，且 handler 能在零副作用下分别返回 syntax/contract 与 direct-calls 恢复合同。
+  - If false: wrapper 本身也不是合法 JSON，或错误来自 Provider/Runtime 的参数改写。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对原始 arguments 独立 JSON parse、hash，并用生产 handler fixture 验证两类反馈与零副作用。
+  - Signal: parse verdict、top-level keys、arguments SHA、handler message、Map/client side effects。
+  - Capture method: rollout 只读分析 + Rust 定向测试。
+  - Event name or marker:
+    - `malformed_json_feedback_preserves_the_error_and_direct_shape`
+    - `wrapped_arguments_feedback_distinguishes_contract_from_json_syntax`
+  - Correlation keys:
+    - `WAR-20260811-014315-CACHE-REGRESSION-99053528`
+  - Differentiates from:
+    - JSON 自动修复、schema 放宽、Agent 无视准确反馈、Map 状态错误。
+  - Supports if:
+    - Request 1 仅 syntax parse 失败；Request 2～5 JSON 合法且顶层只有 `arguments`；修复后两类反馈不同并均零执行。
+  - Refutes if:
+    - 原始 arguments 被 Runtime 改写或两类无法机械区分。
+  - Instrumentation status: implemented
+  - Instrumentation lifecycle:
+    - permanent regression tests
+- Evidence gate: satisfied
+- Related evidence:
+  - E-026
+- Conclusion: confirmed。parser 现先解析通用 JSON，再校验 `RawPlan`；handler 忠实区分 syntax 与 top-level contract，明确 direct `calls`、禁止 `arguments` wrapper 和零执行。未增加容错执行。
+- Repair design readiness: implemented offline
+- Next step: 新预算下验证错误发生时 Agent 是否一次纠正，并继续观察首个 JSON syntax 失败率。
+- Blocker:
+  - 真实 Provider 预算。
+- Close reason:
+  - verified offline
+
+## Evidence E-026: 最新 Structured run 的五次协议拒绝由两类错误组成
+- Related hypotheses:
+  - H-011
+  - H-013
+  - H-014
+  - H-015
+- Direction: supports
+- Type: benchmark
+- Source: `WAR-20260811-014315-CACHE-REGRESSION-99053528` result、rollout、provider boundary 与 sanitized diagnosis
+- Prediction or plan link:
+  - 验证 canonical handoff 后的 Structured 生产表现，并区分生成、反馈、预算和观测问题。
+- Matched signal:
+  - Standard 6 请求成功；TaskSpace 8 请求失败。TaskSpace Request 1 syntax invalid；Request 2～5 的 arguments SHA 相同且均为合法 JSON `arguments` wrapper；Request 6～8 正确执行初始化、读取和测试。无 patch，业务根因已由 Agent 准确识别。
+- Correlation keys:
+  - `WAR-20260811-014315-CACHE-REGRESSION-99053528`
+- Raw content:
+  ```text
+  standard: requests=6 input=75195 request2+cache=97.37% success=true
+  taskspace: requests=8 input=124614 request2+cache=88.75% success=false
+  taskspace_exec: rejected=5 executed_map=1 executed_client=3 patch=0
+  ```
+- Interpretation: 本轮没有抵达 handoff，不能验证或否定 H-013。首个非 strict Function arguments 语法稳定性仍属 I03；四次后续放大由 H-015 的反馈分类缺陷解释。请求上限是终止点，不是首因。
 - Time: 2026-08-11

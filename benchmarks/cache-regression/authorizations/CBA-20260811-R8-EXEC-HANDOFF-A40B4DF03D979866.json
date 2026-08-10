@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-11T01:38:39+08:00",
+  "authorization_id": "CBA-20260811-R8-EXEC-HANDOFF-A40B4DF03D979866",
+  "approval_reference": "用户于 2026-08-11 在收到完整预算说明后明确回复‘批准’：single-file-fast-fix × standard/map-request × repeat=1，共 2 个 sample run，最多 16 个 Provider 请求，300K input、20K output、USD 0.0476 观察停止线，12 分钟总时限，不允许自动重试；同时已披露 USD 3.96032 Provider 协议级理论极端上限。",
+  "proposal_id": "CBP-A40B4DF03D979866",
+  "proposal_sha256": "bcbf0bd72a63015d811f9225e575f44508294886782f4be52fc128ecb37adae6",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Validate the intentional Structured TaskSpace handoff Tool-description change against Standard with one no-retry cache smoke per arm."
+  },
+  "approved_maximums": {
+    "provider_requests": 16,
+    "input_tokens": 16000000,
+    "output_tokens": 6144000,
+    "elapsed_seconds": 720,
+    "estimated_cost": 3.96032,
+    "currency": "USD"
+  }
+}

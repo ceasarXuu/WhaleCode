@@ -46,6 +46,7 @@ pub(crate) struct HostedBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TaskSpaceExecPlanDecodeError {
     InvalidJson(String),
+    InvalidEnvelope(String),
     EmptyPlan,
     UnknownTool { index: usize, tool: String },
     InvalidCall { index: usize, reason: String },
@@ -108,8 +109,10 @@ impl TaskSpaceExecPlan {
         arguments: &str,
         catalog: &TaskSpaceExecCatalog,
     ) -> Result<Self, TaskSpaceExecPlanDecodeError> {
-        let raw: RawPlan = serde_json::from_str(arguments)
+        let value: Value = serde_json::from_str(arguments)
             .map_err(|error| TaskSpaceExecPlanDecodeError::InvalidJson(error.to_string()))?;
+        let raw: RawPlan = serde_json::from_value(value)
+            .map_err(|error| TaskSpaceExecPlanDecodeError::InvalidEnvelope(error.to_string()))?;
         if raw.calls.is_empty() && raw.hosted_bindings.is_empty() {
             return Err(TaskSpaceExecPlanDecodeError::EmptyPlan);
         }

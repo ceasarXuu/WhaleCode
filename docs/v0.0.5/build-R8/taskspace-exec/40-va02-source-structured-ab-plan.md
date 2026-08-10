@@ -363,3 +363,39 @@ base instructions 是否消除顶层 client Tool 逃逸，并比较两个 carrie
 
 离线结果：TaskSpace Exec 71 PASS、provider wire trace 19 PASS、PowerShell observer fixture PASS、CLI compile PASS。
 这些结果关闭工程缺口，不代表 VA-02 在线业务验收通过；下一次 Structured 真实复验仍需单独预算。
+
+## 14. Structured 收口在线复验与反馈修复
+
+2026-08-11 用户批准 `single-file-fast-fix × standard/map-request × repeat=1`，最多 16 个 Provider 请求、无重试。
+运行绑定产品提交 `b907af9085849406182fdde790ef556f267c7a2a`，账本记录为
+`WAR-20260811-014315-CACHE-REGRESSION-99053528`。
+
+| 指标 | Standard | map-request |
+|---|---:|---:|
+| Business result | success | failed before patch |
+| Provider requests | 6 | 8 |
+| Input / cached / uncached | 75,195 / 73,472 / 1,723 | 124,614 / 102,528 / 22,086 |
+| Output | 1,196 | 4,031 |
+| Request 2+ cache hit | 97.37% | 88.75% |
+| Sample elapsed | 42.397 s | 67.908 s |
+
+两臂合计 14 个请求、199,809 input、176,000 cached、23,809 uncached、5,227 output，估算成本
+USD 0.00528962。运行没有超出授权，也没有自动重试。
+
+TaskSpace 的逐请求链为：
+
+1. Request 1 已选择正确 outer Tool，但 `initialize_map` 的 map envelope 少一个闭合 `}`，严格 JSON parser 在零副作用边界拒绝。
+2. Request 2～5 均生成同一个合法 JSON，但错误地把完整计划放入顶层 `arguments` 字符串；Runtime 正确拒绝，四次参数 SHA-256
+   完全相同。
+3. Request 6 恢复直接顶层 `calls`，初始化 `root -> inspect -> fix -> verify -> finish` 并执行发现命令。
+4. Request 7 读取 README、实现和测试；Request 8 运行测试并准确识别 `round(..., 1)` 应改为两位小数。
+5. 8-request 上限在下一次模型请求前终止，因此没有 patch；这不是 Agent 未取得代码或测试反馈。
+
+本轮没有验证到父节点 handoff，因为五次协议拒绝先消耗了预算。根因拆成两个既有问题：首个 JSON 闭合错误继续属于 I03；
+后续四次恢复放大属于 I05。旧 decoder 把 `serde_json::from_str` 的语法失败和 `RawPlan` 顶层合同失败都映射为
+`PlanDecode(InvalidJson)`，反馈没有明确 `calls` 已经是 Function 参数顶层、不得再包 `arguments`。
+
+当前离线修复保持 fail-closed：parser 先区分 JSON syntax 与 top-level contract，再返回原始错误、直接顶层合同和“本批次零执行”；
+不补括号、不解析 reasoning、不执行嵌套字符串。observer 同时区分协议拒绝与证据链损坏，重放本轮 artifact 后可计量 8 个 outer
+Exec、5 次拒绝、1 个 Map operation 和 3 个成功 client action，不再整轮 N/A。定向结果为 TaskSpace Exec 73 PASS、observer
+fixture PASS。在线行为改善尚未验证，必须另行申请预算。

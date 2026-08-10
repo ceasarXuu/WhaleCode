@@ -65,6 +65,8 @@ function Get-TaskspaceExecObservation {
     $nodeBindings = 0; $shell = 0; $patch = 0; $other = 0
     $clientResults = 0; $hostedResults = 0; $failedActions = 0
     $findings = [Collections.Generic.List[string]]::new()
+    $integrityFindings = [Collections.Generic.List[string]]::new()
+    $rejectedCalls = @{}
 
     foreach ($line in [IO.File]::ReadLines($rolloutPath)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -77,6 +79,7 @@ function Get-TaskspaceExecObservation {
             if ([string]::IsNullOrWhiteSpace($callId)) {
                 $callId = "missing-call-$execCount"
                 $findings.Add('exec_call_id_missing')
+                $integrityFindings.Add('exec_call_id_missing')
             }
             $execCalls[$callId] = $false
             $execCount++
@@ -131,6 +134,7 @@ function Get-TaskspaceExecObservation {
             $rawOutput = [string]$payload.output
             if ($rawOutput.StartsWith('taskspace_exec rejected:')) {
                 $failedActions++
+                $rejectedCalls[$callId] = $true
                 continue
             }
             try {
@@ -147,12 +151,17 @@ function Get-TaskspaceExecObservation {
                 $failedActions += @($result.hosted_results | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
             } catch {
                 $findings.Add("exec_result_invalid:$callId")
+                $integrityFindings.Add("exec_result_invalid:$callId")
             }
         }
     }
     if ($execCount -eq 0) { return New-TaskspaceExecObservation }
     foreach ($callId in $execCalls.Keys) {
-        if (-not [bool]$execCalls[$callId]) { $findings.Add("exec_result_missing:$callId") }
+        if (-not [bool]$execCalls[$callId]) {
+            $finding = "exec_result_missing:$callId"
+            $findings.Add($finding)
+            $integrityFindings.Add($finding)
+        }
     }
 
     $requestIds = @{}
@@ -161,8 +170,14 @@ function Get-TaskspaceExecObservation {
         try {
             $requestFacts = Get-Content -Raw -Encoding UTF8 -LiteralPath $requestFactsPath | ConvertFrom-Json
             foreach ($request in @($requestFacts.rows)) { $requestIds[[string]$request.request_id] = $true }
-        } catch { $findings.Add('request_facts_invalid') }
-    } else { $findings.Add('request_facts_missing') }
+        } catch {
+            $findings.Add('request_facts_invalid')
+            $integrityFindings.Add('request_facts_invalid')
+        }
+    } else {
+        $findings.Add('request_facts_missing')
+        $integrityFindings.Add('request_facts_missing')
+    }
 
     $traceEvents = 0
     $correlatedRequests = @{}
@@ -178,36 +193,52 @@ function Get-TaskspaceExecObservation {
             $requestId = [string]$fields['provider_request_id']
             if (-not [string]::IsNullOrWhiteSpace($requestId) -and -not $requestIds.ContainsKey($requestId)) {
                 $findings.Add("trace_request_missing_from_canonical:$requestId")
+                $integrityFindings.Add("trace_request_missing_from_canonical:$requestId")
             } elseif (-not [string]::IsNullOrWhiteSpace($requestId)) { $correlatedRequests[$requestId] = $true }
             $outerCallId = [string]$fields['outer_call_id']
             if (-not [string]::IsNullOrWhiteSpace($outerCallId) -and -not $execCalls.ContainsKey($outerCallId)) {
                 $findings.Add("trace_outer_call_missing_from_rollout:$outerCallId")
+                $integrityFindings.Add("trace_outer_call_missing_from_rollout:$outerCallId")
             } elseif (-not [string]::IsNullOrWhiteSpace($outerCallId)) { $correlatedOuterCalls[$outerCallId] = $true }
             if ($eventName -eq 'taskspace.exec.completed') {
                 if ([string]::IsNullOrWhiteSpace([string]$fields['provider_response_id'])) {
                     $findings.Add("trace_response_id_missing:$outerCallId")
+                    $integrityFindings.Add("trace_response_id_missing:$outerCallId")
                 }
                 if (-not $fields.ContainsKey('map_revision')) {
                     $findings.Add("trace_map_revision_missing:$outerCallId")
+                    $integrityFindings.Add("trace_map_revision_missing:$outerCallId")
                 }
             }
             if ($eventName -in @('taskspace.exec.response_finalized', 'taskspace.exec.completed')) {
                 $capabilityIdentity = [string]$fields['capability_identity']
                 if ($capabilityIdentity -notmatch '^[a-fA-F0-9]{64}$') {
                     $findings.Add("trace_capability_identity_missing_or_invalid:$requestId")
+                    $integrityFindings.Add("trace_capability_identity_missing_or_invalid:$requestId")
                 } elseif (-not [string]::IsNullOrWhiteSpace($requestId)) {
                     if ($traceCapabilityByRequest.ContainsKey($requestId) -and
                         [string]$traceCapabilityByRequest[$requestId] -ne $capabilityIdentity) {
                         $findings.Add("trace_capability_identity_conflict:$requestId")
+                        $integrityFindings.Add("trace_capability_identity_conflict:$requestId")
                     } else { $traceCapabilityByRequest[$requestId] = $capabilityIdentity }
                 }
             }
         }
     }
-    if ($traceEvents -eq 0) { $findings.Add('taskspace_exec_trace_missing') }
-    if ($correlatedRequests.Count -eq 0) { $findings.Add('trace_request_identity_missing') }
+    if ($traceEvents -eq 0) {
+        $findings.Add('taskspace_exec_trace_missing')
+        $integrityFindings.Add('taskspace_exec_trace_missing')
+    }
+    if ($correlatedRequests.Count -eq 0) {
+        $findings.Add('trace_request_identity_missing')
+        $integrityFindings.Add('trace_request_identity_missing')
+    }
     foreach ($callId in $execCalls.Keys) {
-        if (-not $correlatedOuterCalls.ContainsKey($callId)) { $findings.Add("trace_outer_call_missing:$callId") }
+        if (-not $rejectedCalls.ContainsKey($callId) -and -not $correlatedOuterCalls.ContainsKey($callId)) {
+            $finding = "trace_outer_call_missing:$callId"
+            $findings.Add($finding)
+            $integrityFindings.Add($finding)
+        }
     }
 
     $wireCapabilityByRequest = @{}
@@ -222,31 +253,44 @@ function Get-TaskspaceExecObservation {
             $identity = [string](Get-TaskspaceExecProperty $wire 'taskspace_capability_identity')
             if ($identity -notmatch '^[a-fA-F0-9]{64}$') {
                 $findings.Add("wire_capability_identity_missing_or_invalid:$requestId")
+                $integrityFindings.Add("wire_capability_identity_missing_or_invalid:$requestId")
                 continue
             }
             $wireCapabilityByRequest[$requestId] = $identity
         }
-    } else { $findings.Add('provider_wire_trace_missing') }
+    } else {
+        $findings.Add('provider_wire_trace_missing')
+        $integrityFindings.Add('provider_wire_trace_missing')
+    }
     foreach ($requestId in $correlatedRequests.Keys) {
         if (-not $traceCapabilityByRequest.ContainsKey($requestId)) {
             $findings.Add("trace_capability_identity_missing:$requestId")
+            $integrityFindings.Add("trace_capability_identity_missing:$requestId")
             continue
         }
         if (-not $wireCapabilityByRequest.ContainsKey($requestId)) {
             $findings.Add("wire_capability_identity_missing:$requestId")
+            $integrityFindings.Add("wire_capability_identity_missing:$requestId")
             continue
         }
         if ([string]$traceCapabilityByRequest[$requestId] -ne [string]$wireCapabilityByRequest[$requestId]) {
             $findings.Add("capability_identity_mismatch:$requestId")
+            $integrityFindings.Add("capability_identity_mismatch:$requestId")
         }
     }
     $traceIdentities = @($traceCapabilityByRequest.Values | Sort-Object -Unique)
     $wireIdentities = @($wireCapabilityByRequest.Values | Sort-Object -Unique)
-    if ($traceIdentities.Count -gt 1) { $findings.Add('trace_capability_identity_changed') }
-    if ($wireIdentities.Count -gt 1) { $findings.Add('wire_capability_identity_changed') }
+    if ($traceIdentities.Count -gt 1) {
+        $findings.Add('trace_capability_identity_changed')
+        $integrityFindings.Add('trace_capability_identity_changed')
+    }
+    if ($wireIdentities.Count -gt 1) {
+        $findings.Add('wire_capability_identity_changed')
+        $integrityFindings.Add('wire_capability_identity_changed')
+    }
 
     [pscustomobject]@{
-        protocol = 'taskspace_exec'; availability = if ($findings.Count) { 'incomparable' } else { 'measured' }
+        protocol = 'taskspace_exec'; availability = if ($integrityFindings.Count) { 'incomparable' } else { 'measured' }
         source = 'rollout+taskspace_exec_trace+request_facts'
         provider_outer_tool_calls = [int]$execCount
         nested_action_count = [int]($mapCalls + $clientCalls + $hostedBindings)

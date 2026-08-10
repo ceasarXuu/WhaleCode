@@ -240,12 +240,24 @@ async fn begin_scope(harness: &Harness) {
 }
 
 fn invocation(harness: &Harness, arguments: Value) -> ToolInvocation {
-    invocation_with_token(harness, arguments, CancellationToken::new())
+    invocation_raw_with_token(harness, arguments.to_string(), CancellationToken::new())
 }
 
 fn invocation_with_token(
     harness: &Harness,
     arguments: Value,
+    cancellation_token: CancellationToken,
+) -> ToolInvocation {
+    invocation_raw_with_token(harness, arguments.to_string(), cancellation_token)
+}
+
+fn invocation_raw(harness: &Harness, arguments: impl Into<String>) -> ToolInvocation {
+    invocation_raw_with_token(harness, arguments.into(), CancellationToken::new())
+}
+
+fn invocation_raw_with_token(
+    harness: &Harness,
+    arguments: String,
     cancellation_token: CancellationToken,
 ) -> ToolInvocation {
     ToolInvocation {
@@ -256,10 +268,62 @@ fn invocation_with_token(
         call_id: "outer".into(),
         tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
         source: ToolCallSource::Direct,
-        payload: ToolPayload::Function {
-            arguments: arguments.to_string(),
-        },
+        payload: ToolPayload::Function { arguments },
     }
+}
+
+#[tokio::test]
+async fn malformed_json_feedback_preserves_the_error_and_direct_shape() {
+    let harness = harness(false).await;
+    begin_scope(&harness).await;
+    finalize_scope(&harness);
+    let malformed = r#"{"calls":[{"map":{"operation":"initialize_map","input":{}}},{"client":{"name":"inspect","node_id":"work","input":{}}}]"#;
+
+    let result = harness
+        .handler
+        .handle(invocation_raw(&harness, malformed))
+        .await;
+    let error = match result {
+        Ok(_) => panic!("malformed JSON must be rejected"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+
+    assert!(message.contains("invalid JSON syntax:"));
+    assert!(message.contains("top-level input must directly contain `calls`"));
+    assert!(message.contains("do not wrap it in an `arguments` field"));
+    assert!(message.contains("No Map or client calls were executed"));
+    assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
+    assert!(
+        harness
+            .session
+            .canonical_action_map_snapshot()
+            .await
+            .unwrap()
+            .map
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn wrapped_arguments_feedback_distinguishes_contract_from_json_syntax() {
+    let harness = harness(false).await;
+    begin_scope(&harness).await;
+    finalize_scope(&harness);
+    let wrapped = json!({"arguments": json!({"calls": [initialize_call()]}).to_string()});
+
+    let result = harness.handler.handle(invocation(&harness, wrapped)).await;
+    let error = match result {
+        Ok(_) => panic!("wrapped arguments must be rejected"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+
+    assert!(message.contains("invalid top-level contract:"));
+    assert!(message.contains("unknown field `arguments`"));
+    assert!(message.contains("do not wrap it in an `arguments` field"));
+    assert!(!message.contains("invalid JSON syntax:"));
+    assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

@@ -121,6 +121,26 @@ try {
     Assert-Equal $rejectedFacts.availability 'measured' 'canonical rejection was treated as malformed output'
     Assert-Equal $rejectedFacts.failed_action_count 1 'outer Exec rejection was not counted as failure'
 
+    @(
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'outer-1'
+                arguments = '{"calls":['
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'outer-1'
+                output = 'taskspace_exec rejected: invalid JSON syntax; no calls executed'
+            } }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
+        Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8
+    $invalidArgumentsFacts = Get-TaskspaceExecObservation $temp $null
+    Assert-Equal $invalidArgumentsFacts.availability 'measured' 'protocol rejection invalidated intact observation evidence'
+    Assert-Equal $invalidArgumentsFacts.exec_count 1 'malformed outer Exec was not counted'
+    Assert-Equal $invalidArgumentsFacts.nested_action_count 0 'unparsed calls were counted as executed actions'
+    Assert-Equal $invalidArgumentsFacts.failed_action_count 1 'malformed outer Exec rejection was not counted'
+    if (@($invalidArgumentsFacts.findings | Where-Object { $_ -eq 'exec_arguments_invalid:outer-1' }).Count -ne 1) {
+        throw 'malformed outer Exec diagnostic finding missing'
+    }
+
     $wire = Get-Content -Raw -Encoding UTF8 (Join-Path $temp 'provider-wire-trace.jsonl') | ConvertFrom-Json
     $wire.taskspace_capability_identity = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
     $wire | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $temp 'provider-wire-trace.jsonl') -Encoding UTF8

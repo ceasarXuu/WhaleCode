@@ -1,0 +1,51 @@
+{
+  "schema_version": "whalecode-taskspace-exec-diagnosis-v1",
+  "record_id": "WAR-20260811-014315-CACHE-REGRESSION-99053528",
+  "sample": "single-file-fast-fix",
+  "arm": "map-request",
+  "business_success": false,
+  "provider_requests": 8,
+  "outer_exec_calls": 8,
+  "protocol_rejections": 5,
+  "executed_map_operations": 1,
+  "executed_client_calls": 3,
+  "executed_patch_calls": 0,
+  "cause_chain": [
+    "The first taskspace_exec arguments string was invalid JSON because the first map envelope was missing one closing brace.",
+    "The existing feedback classified both JSON syntax failures and valid-JSON envelope failures under PlanDecode(InvalidJson), without explicitly saying that calls must be the direct top-level field.",
+    "The next four responses repeated one identical valid JSON object whose only top-level field was arguments; each was correctly rejected with zero side effects but the feedback did not distinguish this contract error from syntax failure.",
+    "Responses 6 through 8 restored the direct calls shape, initialized the Map, read the workspace, and reproduced the test failure.",
+    "The eight-request limit ended the run before the Agent could apply the already identified one-line fix."
+  ],
+  "call_classification": [
+    {
+      "call_id": "call_00_EVOt0WGD83nvld4Zrrcy0006",
+      "arguments_bytes": 686,
+      "arguments_sha256": "0284fc26b3958055a8553561f37a0a7ec9380b293f2238418e83365a8f65517f",
+      "classification": "json_syntax_invalid"
+    },
+    {
+      "call_ids": [
+        "call_00_WcvretnNr2aQ12NIoQP95804",
+        "call_00_nHyuQTeAXDeJmaVZ4XmE4070",
+        "call_00_lzVY99S8GrjfObj5bdvF6430",
+        "call_00_HjMrme81aupI40fRtNxe4328"
+      ],
+      "arguments_bytes_each": 761,
+      "arguments_sha256": "7aeb9cf18fd66b1fda8c3567d2b446d955bf86b8853e88a334b60133c6a50c9d",
+      "classification": "valid_json_wrong_top_level_arguments_wrapper"
+    },
+    {
+      "call_ids": [
+        "call_00_nGtaeJwE43dDUYcZL5BG6040",
+        "call_00_xdWdh4dPX8P8Gdyfqcfr1001",
+        "call_00_m8mPBg5nRtGVvaio1n1H8057"
+      ],
+      "classification": "valid_direct_calls_executed"
+    }
+  ],
+  "source_rollout_sha256": "199269f035429cfbbba0e0a0c76e877e1795f8f862e6ad8cc524b8d44d797df6",
+  "result_sha256": "eeabb89f9e2117690026eceecec6fabab72a1645aa44188dc73f96535b49cc96",
+  "provider_boundary_evidence_sha256": "26d024f6c7e012f23f9dd4cd6cccd29b807868a3817ebf5ae2a5842256160871",
+  "evidence_boundary": "This artifact classifies recorded wire arguments and outcomes. It does not claim that the offline feedback repair changes future model behavior."
+}
