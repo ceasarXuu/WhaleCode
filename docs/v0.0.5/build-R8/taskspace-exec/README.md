@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / I05 verified online / I03-I04-I07 remain open
+- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / SR-04/FF-01 simple sample 3/3 / I03-I04-I07 remain open
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -91,6 +91,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   下一请求立即纠正，未再产生 wrapper 放大，I05 在线关闭。Agent 随后完成正确 patch、3 项测试和完整 Map，并在线使用
   canonical parent handoff；最终自然语言回复所需的第 9 次本地请求被批准的 8-request 边界截断，因此端到端结果仍为 partial。
   I03 首请求 JSON、I04 waiting-node 误选与 I07 nested patch 漏计继续开放。
+- SR-04 / FF-01 后续预算包完成 3 次有效 `map-request` 复验，全部正确修复并闭合 Map；没有 syntax、wrapper 或顶层
+  client 逃逸。三轮参数均原生合法，故只证明生产路径 3/3 稳定，不宣称真实自愈事件已触发。第三轮的两次 waiting
+  拒绝准确返回未完成父节点并由 Agent 下一请求纠正，I04 行为仍开放。
 
 ## 3. 文档
 
@@ -139,6 +142,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 39. [`38-phase-b5-cp13-offline-acceptance.md`](38-phase-b5-cp13-offline-acceptance.md)：CP-01～CP-12 生产链、workspace、zero-base 与缓存合同的离线总验收。
 40. [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)：第二轮与零 Hosted 正式复验、顶层 Tool 越界、在线观测结算与缓存证据。
 41. [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)：已结束并封存的 structured/source 单变量实验、选型证据与后续离线修复结果。
+42. [`41-phase-b5-sr04-ff01-revalidation-result.md`](41-phase-b5-sr04-ff01-revalidation-result.md)：UTF-8 自愈与忠实反馈修复后的三轮在线稳定性、waiting 观察及预算结算。
 
 ## 4. 推进规则
 

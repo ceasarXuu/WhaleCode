@@ -1,7 +1,388 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-11T05:28:35+08:00",
+  "updated_at": "2026-08-11T06:22:57+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260811-061935-R8-SELFHEAL-PKG-R04",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-11T06:19:36+08:00",
+      "ended_at": "2026-08-11T06:20:25+08:00",
+      "elapsed_calendar_seconds": 49,
+      "aggregate_agent_wall_time_ms": 28588,
+      "reason": "Third provider-backed stability validation for the UTF-8 TaskSpace Exec self-heal and faithful syntax feedback fix under the approved USD 0.50 package.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "R8-SELFHEAL-USD050-20260811-R04",
+        "reference": "用户于 2026-08-11 明确批准该问题修复的 USD 0.50 总预算包，并允许预算内多轮验证。",
+        "budget_summary": {
+          "package_cost_limit": 0.5,
+          "package_spent_before": 0.0031160976,
+          "run_observation_cost_limit": 0.1,
+          "currency": "USD",
+          "provider_requests": 10,
+          "input_token_observation_limit": 200000,
+          "output_token_observation_limit": 15000,
+          "elapsed_seconds": 480,
+          "retry_sample_runs": 0
+        },
+        "note": "第 4 条账本记录、实际第 3 个 provider 样本；单 sample、单 arm、repeat=1，无自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 9,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 152127,
+        "cached_input": 142208,
+        "uncached_input": 9919,
+        "output": 2994
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.0026251624,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0003981824,
+          "uncached_input": 0.00138866,
+          "output": 0.00083832
+        },
+        "pricing_snapshot": {
+          "captured_at": "2026-07-31",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "142208/1e6*0.0028 + 9919/1e6*0.14 + 2994/1e6*0.28 = 0.0026251624 USD",
+        "note": "按 provider token 遥测和运行前冻结价格估算，不等同于账户实扣金额。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061935-R8-SELFHEAL-PKG-R04",
+        "subject_commit": "6673c6d4cf76fc247e79cb33a6a078d2e1aec129",
+        "budget_package_id": "R8-SELFHEAL-USD050-20260811",
+        "package_round": 4,
+        "approved_scope": "single-file-fast-fix × map-request × repeat=1; no retry",
+        "stop_conditions": [
+          "business_failure",
+          "usage_gap",
+          "run_observation_cost_limit",
+          "package_cost_limit"
+        ],
+        "actual_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/single-file-fast-fix/WAR-20260811-061935-R8-SELFHEAL-PKG-R04",
+        "metrics_path": "target/r8-selfheal-budget-package/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/single-file-fast-fix/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/pair-001/right/artifacts/metrics.json",
+        "request_summary_path": "target/r8-selfheal-budget-package/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/single-file-fast-fix/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/pair-001/right/artifacts/request-summary.json",
+        "rollout_path": "target/r8-selfheal-budget-package/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/single-file-fast-fix/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/pair-001/right/artifacts/rollout.jsonl",
+        "run_status_path": "target/r8-selfheal-budget-package/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/single-file-fast-fix/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/run-status.json",
+        "performance_observation_path": "target/r8-selfheal-budget-package/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/single-file-fast-fix/WAR-20260811-061935-R8-SELFHEAL-PKG-R04/performance-observation.json",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "run_side": "right",
+        "repeat": 1,
+        "business_success": true,
+        "self_heal_event_count": 0,
+        "waiting_rejection_count": 2,
+        "package_spent_after": 0.00574126,
+        "package_remaining": 0.49425874,
+        "outcome": "业务验证与隐藏 oracle 均通过；9 次 provider 请求。无 syntax/wrapper 错误；两次 waiting 子节点 work 被硬约束零副作用拒绝，反馈均列出未完成直接父节点，Agent 下一请求完成父节点并继续。"
+      }
+    },
+    {
+      "record_id": "WAR-20260811-061753-R8-SELFHEAL-PKG-R03",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-11T06:17:54+08:00",
+      "ended_at": "2026-08-11T06:18:34+08:00",
+      "elapsed_calendar_seconds": 40,
+      "aggregate_agent_wall_time_ms": 19271,
+      "reason": "Replacement for invalid-harness round 2; validate the UTF-8 TaskSpace Exec self-heal and faithful syntax feedback fix under the approved USD 0.50 package.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "R8-SELFHEAL-USD050-20260811-R03",
+        "reference": "用户于 2026-08-11 明确批准该问题修复的 USD 0.50 总预算包，并允许预算内多轮验证。",
+        "budget_summary": {
+          "package_cost_limit": 0.5,
+          "package_spent_before": 0.0012626264,
+          "run_observation_cost_limit": 0.1,
+          "currency": "USD",
+          "provider_requests": 10,
+          "input_token_observation_limit": 200000,
+          "output_token_observation_limit": 15000,
+          "elapsed_seconds": 480,
+          "retry_sample_runs": 0
+        },
+        "note": "第 3 条账本记录；替代未调用 provider 的 invalid-harness 轮次；单 sample、单 arm、repeat=1，无自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 7,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 114793,
+        "cached_input": 107904,
+        "uncached_input": 6889,
+        "output": 2096
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.0018534712,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0003021312,
+          "uncached_input": 0.00096446,
+          "output": 0.00058688
+        },
+        "pricing_snapshot": {
+          "captured_at": "2026-07-31",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "107904/1e6*0.0028 + 6889/1e6*0.14 + 2096/1e6*0.28 = 0.0018534712 USD",
+        "note": "按 provider token 遥测和运行前冻结价格估算，不等同于账户实扣金额。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061753-R8-SELFHEAL-PKG-R03",
+        "subject_commit": "6673c6d4cf76fc247e79cb33a6a078d2e1aec129",
+        "budget_package_id": "R8-SELFHEAL-USD050-20260811",
+        "package_round": 3,
+        "replaces_invalid_record": "WAR-20260811-061657-R8-SELFHEAL-PKG-R02",
+        "approved_scope": "single-file-fast-fix × map-request × repeat=1; no retry",
+        "stop_conditions": [
+          "business_failure",
+          "usage_gap",
+          "run_observation_cost_limit",
+          "package_cost_limit"
+        ],
+        "actual_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/single-file-fast-fix/WAR-20260811-061753-R8-SELFHEAL-PKG-R03",
+        "metrics_path": "target/r8-selfheal-budget-package/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/single-file-fast-fix/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/pair-001/right/artifacts/metrics.json",
+        "request_summary_path": "target/r8-selfheal-budget-package/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/single-file-fast-fix/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/pair-001/right/artifacts/request-summary.json",
+        "rollout_path": "target/r8-selfheal-budget-package/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/single-file-fast-fix/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/pair-001/right/artifacts/rollout.jsonl",
+        "run_status_path": "target/r8-selfheal-budget-package/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/single-file-fast-fix/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/run-status.json",
+        "performance_observation_path": "target/r8-selfheal-budget-package/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/single-file-fast-fix/WAR-20260811-061753-R8-SELFHEAL-PKG-R03/performance-observation.json",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "run_side": "right",
+        "repeat": 1,
+        "business_success": true,
+        "self_heal_event_count": 0,
+        "package_spent_after": 0.0031160976,
+        "package_remaining": 0.4968839024,
+        "outcome": "业务验证与隐藏 oracle 均通过；7 次 provider 请求；无拒绝、无 waiting、无错误 wrapper。该轮参数原生合法，未触发 UTF-8 自愈分支。"
+      }
+    },
+    {
+      "record_id": "WAR-20260811-061657-R8-SELFHEAL-PKG-R02",
+      "record_type": "run_batch",
+      "status": "cancelled",
+      "started_at": "2026-08-11T06:16:57+08:00",
+      "ended_at": "2026-08-11T06:17:06+08:00",
+      "elapsed_calendar_seconds": 9,
+      "aggregate_agent_wall_time_ms": 0,
+      "reason": "Second sequential validation round for the UTF-8 TaskSpace Exec self-heal and faithful syntax feedback fix under the approved USD 0.50 package.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "R8-SELFHEAL-USD050-20260811-R02",
+        "reference": "用户于 2026-08-11 明确批准该问题修复的 USD 0.50 总预算包，并允许预算内多轮验证。",
+        "budget_summary": {
+          "package_cost_limit": 0.5,
+          "package_spent_before": 0.0012626264,
+          "run_observation_cost_limit": 0.1,
+          "currency": "USD",
+          "provider_requests": 10,
+          "input_token_observation_limit": 200000,
+          "output_token_observation_limit": 15000,
+          "elapsed_seconds": 480,
+          "retry_sample_runs": 0
+        },
+        "note": "第 2 轮；单 sample、单 arm、repeat=1，按真实 provider usage 结算后才允许下一轮。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0,
+          "uncached_input": 0.0,
+          "output": 0.0
+        },
+        "pricing_snapshot": {
+          "captured_at": "2026-07-31",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "no provider request = 0 USD",
+        "note": "provider credential preflight 在调用 provider 前中止；无 token、无费用。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061657-R8-SELFHEAL-PKG-R02",
+        "subject_commit": "6673c6d4cf76fc247e79cb33a6a078d2e1aec129",
+        "budget_package_id": "R8-SELFHEAL-USD050-20260811",
+        "package_round": 2,
+        "approved_scope": "single-file-fast-fix × map-request × repeat=1; no retry",
+        "stop_conditions": [
+          "business_failure",
+          "usage_gap",
+          "run_observation_cost_limit",
+          "package_cost_limit"
+        ],
+        "actual_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061657-R8-SELFHEAL-PKG-R02/single-file-fast-fix/WAR-20260811-061657-R8-SELFHEAL-PKG-R02",
+        "run_status_path": "target/r8-selfheal-budget-package/WAR-20260811-061657-R8-SELFHEAL-PKG-R02/single-file-fast-fix/WAR-20260811-061657-R8-SELFHEAL-PKG-R02/run-status.json",
+        "business_success": null,
+        "package_spent_after": 0.0012626264,
+        "package_remaining": 0.4987373736,
+        "outcome": "invalid_harness：启动 shell 未加载 .env.local；provider 请求数 0。"
+      }
+    },
+    {
+      "record_id": "WAR-20260811-061236-R8-SELFHEAL-PKG-R01",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-11T06:12:51+08:00",
+      "ended_at": "2026-08-11T06:13:28+08:00",
+      "elapsed_calendar_seconds": 37,
+      "aggregate_agent_wall_time_ms": 14234,
+      "reason": "Validate the UTF-8 TaskSpace Exec self-heal and faithful syntax feedback fix under the user-approved USD 0.50 cumulative package.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "R8-SELFHEAL-USD050-20260811",
+        "reference": "用户于 2026-08-11 明确批准该问题修复的 USD 0.50 总预算包，并允许预算内多轮验证。",
+        "budget_summary": {
+          "package_cost_limit": 0.5,
+          "package_spent_before": 0.0,
+          "run_observation_cost_limit": 0.1,
+          "currency": "USD",
+          "provider_requests": 10,
+          "input_token_observation_limit": 200000,
+          "output_token_observation_limit": 15000,
+          "elapsed_seconds": 480,
+          "retry_sample_runs": 0
+        },
+        "note": "第 1 轮；单 sample、单 arm、repeat=1，按真实 provider usage 结算后才允许下一轮。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 5,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 77715,
+        "cached_input": 73088,
+        "uncached_input": 4627,
+        "output": 1465
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.0012626264,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0002046464,
+          "uncached_input": 0.00064778,
+          "output": 0.0004102
+        },
+        "pricing_snapshot": {
+          "captured_at": "2026-07-31",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "73088/1e6*0.0028 + 4627/1e6*0.14 + 1465/1e6*0.28 = 0.0012626264 USD",
+        "note": "按 provider token 遥测和运行前冻结价格估算，不等同于账户实扣金额。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061236-R8-SELFHEAL-PKG-R01",
+        "subject_commit": "6673c6d4cf76fc247e79cb33a6a078d2e1aec129",
+        "budget_package_id": "R8-SELFHEAL-USD050-20260811",
+        "package_round": 1,
+        "approved_scope": "single-file-fast-fix × map-request × repeat=1; no retry",
+        "stop_conditions": [
+          "business_failure",
+          "usage_gap",
+          "run_observation_cost_limit",
+          "package_cost_limit"
+        ],
+        "actual_run_root": "target/r8-selfheal-budget-package/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/single-file-fast-fix/WAR-20260811-061236-R8-SELFHEAL-PKG-R01",
+        "metrics_path": "target/r8-selfheal-budget-package/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/single-file-fast-fix/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/pair-001/right/artifacts/metrics.json",
+        "request_summary_path": "target/r8-selfheal-budget-package/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/single-file-fast-fix/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/pair-001/right/artifacts/request-summary.json",
+        "rollout_path": "target/r8-selfheal-budget-package/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/single-file-fast-fix/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/pair-001/right/artifacts/rollout.jsonl",
+        "run_status_path": "target/r8-selfheal-budget-package/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/single-file-fast-fix/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/run-status.json",
+        "performance_observation_path": "target/r8-selfheal-budget-package/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/single-file-fast-fix/WAR-20260811-061236-R8-SELFHEAL-PKG-R01/performance-observation.json",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "run_side": "right",
+        "repeat": 1,
+        "business_success": true,
+        "self_heal_event_count": 0,
+        "package_spent_after": 0.0012626264,
+        "package_remaining": 0.4987373736,
+        "outcome": "业务验证与隐藏 oracle 均通过；5 次 provider 请求；无拒绝、无 waiting、无错误 wrapper。该轮参数原生合法，未触发 UTF-8 自愈分支。"
+      }
+    },
     {
       "record_id": "WAR-20260811-052713-CACHE-REGRESSION-AD3C808C",
       "record_type": "run_batch",

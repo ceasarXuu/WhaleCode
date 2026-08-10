@@ -1544,3 +1544,38 @@
   - `cargo test -p codex-core --lib taskspace_exec --locked`：81 passed。
 - Interpretation: 两个工程机制均已离线闭合；当前 production business failure 仍不能标记为在线修复。
 - Time: 2026-08-11
+
+## Evidence E-038: SR-04 / FF-01 后简单样本三次端到端通过
+- Related hypotheses:
+  - H-019
+  - H-020
+- Direction: supports
+- Type: production-revalidation
+- Source: `WAR-20260811-061236-R8-SELFHEAL-PKG-R01`、`WAR-20260811-061753-R8-SELFHEAL-PKG-R03`、`WAR-20260811-061935-R8-SELFHEAL-PKG-R04`
+- Prediction or plan link:
+  - SR-04 / FF-01 修复后生产路径不再放大为 syntax/wrapper 死循环。
+- Matched signal:
+  - 三次有效运行均完成正确 patch、公开验证、隐藏 oracle、Map 闭合和最终答复。
+  - 共 21 个 Provider 请求；没有 syntax reject、顶层 `arguments` wrapper、顶层 client Tool 逃逸或错误 patch。
+  - 三次均没有 `taskspace.exec.arguments_self_healed`，因为模型直接生成了合法 arguments。
+- Correlation keys:
+  - `R8-SELFHEAL-USD050-20260811`
+- Interpretation: 修复后生产路径稳定性获得 3/3 支持；由于真实输入没有触发自愈条件，本证据对“自愈 hook 在线命中”保持中性，不能用未发生的事件反向宣称已动态验证。
+- Time: 2026-08-11
+
+## Evidence E-039: waiting 父节点反馈在线支持一次请求恢复
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: production-revalidation
+- Source: `WAR-20260811-061935-R8-SELFHEAL-PKG-R04` requests 4～7
+- Prediction or plan link:
+  - WF-01 waiting rejection fidelity。
+- Matched signal:
+  - `apply_patch@fix` 和 `exec_command@verify` 分别在直接父节点 `explore`、`fix` 未完成时被零副作用拒绝。
+  - 两次反馈均返回目标节点、`waiting` 状态、未完成直接父节点和整批零执行范围。
+  - Agent 均在下一请求先完成父节点，再执行原子节点工作并成功；最终 Map 5 节点、4 边全部闭合。
+- Correlation keys:
+  - `WAR-20260811-061935-R8-SELFHEAL-PKG-R04`
+- Interpretation: WF-01 的反馈缺口已在线闭合；Agent 仍可能误选 waiting 节点，属于 I04 行为观察，不应通过 Runtime 自动完成、选点或放宽 DAG 来掩盖。
+- Time: 2026-08-11

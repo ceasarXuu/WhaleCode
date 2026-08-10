@@ -330,6 +330,7 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 | Phase B5 latest-gap replanning | 2026-08-11 | 用户确认受限自愈产品规则；`session/turn`、preflight、patch observer 静态调用链 | 自愈必须发生在正式 ResponseItem 落账前，修正版成为唯一上下文；waiting 是正确派生状态，缺口是父节点事实未在拒绝中展开；Patch 专项仍解析旧载体 | SR-01；不新建平行计划，不运行真实 Agent |
 | Phase B5 SR/WF/OB offline closure | 2026-08-11 | 80 个 TaskSpace Exec tests、9 个 Router tests、3 个 observer self-tests；`WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7` 原 rollout 离线复算 | 唯一单闭合符自愈发生在正式落账前；waiting 拒绝列出未完成直接父节点并保持零执行；Patch 专项复算为 2 声明/1 预检拒绝/1 执行结果/1 无法解析 | 原离线闭环被后续中文 production payload 暴露的 byte-column 缺口限定；读取下一条 |
 | VA-02 SR/WF/OB production revalidation | 2026-08-11 | `WAR-20260811-052713-CACHE-REGRESSION-AD3C808C`；10 requests；171,324 input / 157,312 cached / 14,012 uncached / 6,409 output；request 2+ hit 91.20%；USD 0.0041966736 | 缓存和 usage 完整，但业务失败。自愈未触发的直接工程根因是把 `serde_json` UTF-8 byte column 当字符列号；syntax reject 又无条件注入 no-wrapper 提示，Agent 随后实际生成 wrapper。后续 mixed batch 还存在超出单闭合符范围的结构错误，未执行 patch；本轮没有 waiting preflight | 已实施 SR-04、FF-01 并通过 81 个 TaskSpace Exec tests；不得据此宣称 I03 在线稳定，也不得未经新预算再跑 Provider |
+| SR-04 / FF-01 authorized package | 2026-08-11 | [`41-phase-b5-sr04-ff01-revalidation-result.md`](41-phase-b5-sr04-ff01-revalidation-result.md)；`R8-SELFHEAL-USD050-20260811` | 3 次有效 Provider 运行全部业务成功；21 requests，344,635 input / 323,200 cached / 21,435 uncached / 6,555 output，估算 USD 0.00574126。无 syntax、wrapper 或逃逸；参数均原生合法，未自然触发自愈。R04 两次 waiting 拒绝均忠实列出未完成父节点并由 Agent 下一请求纠正 | 简单样本生产路径通过；I04 行为继续观察；不为等待偶发自愈触发继续消耗预算；VA-03 仍按原计划单独决策 |
 
 ## 6. 证据校准
 
