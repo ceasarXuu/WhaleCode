@@ -127,13 +127,31 @@ VA-03 继续阻断。“已声明 outer Tool 下仍生成未声明内层 Tool �
 
 本结论只确认根因，不预设具体 wire。后续设计必须保持：优先从结构上区分 inner/outer，不把问题退化为只增加 prompt；详细 Tool wire 仍以 Tool schema/description 为唯一权威；Runtime 不自动包装、补全或接受非法顶层调用；Standard 行为不受影响。
 
+## 10. I03 离线修复
+
+已按上述边界完成最小协议修复：
+
+1. `calls[]` 仍是 Agent 声明的唯一有序数组，没有新增第二套序列或依赖图。
+2. 每项只允许 `{"map":{...}}` 或 `{"client":{...}}`；Map 使用 `operation + input`，Client 使用
+   `name + node_id + input`。
+3. 旧 `tool + arguments` 内层 wire 已从 schema、description、示例和 decoder 删除，且不提供兼容读取。
+4. decoder 只把新 wire 机械还原为既有内部 plan；原生 Tool 输入值、Router、Map transaction、Hosted binding、结果反馈和
+   Standard 路径均未改变。
+5. 70 项 TaskSpace Exec 测试通过，包含旧同构形状拒绝、Map/Client schema 分支、Namespace、Freeform、Hosted、持久化和
+   失败零副作用验证。
+
+该修复只完成离线工程验收。由于 Tool declaration 属于缓存敏感面，必须通过缓存门禁；目标 DeepSeek 是否不再提升内层调用，
+仍需新的最小真实运行预算验证，不能从单元测试推断为 VA-02 已通过。
+
+## 11. 证据路径
+
 新增证据：
 
 - Result: `benchmarks/cache-regression/results/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0.json`
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0/`
 - Local trace: `target/cache-hit-regression/WAR-20260810-061241-CACHE-REGRESSION-A143B6F0/`
 
-## 10. 第二轮证据
+### 第二轮证据
 
 - Result: `benchmarks/cache-regression/results/WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4.json`
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4/`

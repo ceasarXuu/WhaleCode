@@ -105,31 +105,35 @@ fn envelope(arguments: serde_json::Value, map: Option<&TaskSpaceMap>) -> TaskSpa
 }
 
 fn read_call(node_id: &str) -> serde_json::Value {
-    json!({"tool": "read_file", "node_id": node_id, "arguments": {"path": "src/lib.rs"}})
+    json!({"client": {"name": "read_file", "node_id": node_id, "input": {"path": "src/lib.rs"}}})
 }
 
 fn update_completed(node_id: &str) -> serde_json::Value {
     json!({
-        "tool": "update_map",
-        "arguments": {
-            "add_work_nodes": [],
-            "node_patches": [{"node_id": node_id, "state": "completed"}]
+        "map": {
+            "operation": "update_map",
+            "input": {
+                "add_work_nodes": [],
+                "node_patches": [{"node_id": node_id, "state": "completed"}]
+            }
         }
     })
 }
 
 fn initialize_call() -> serde_json::Value {
     json!({
-        "tool": "initialize_map",
-        "arguments": {
-            "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-            "work_nodes": [{
-                "node_id": "work",
-                "goal": "implement",
-                "content": "",
-                "parents": ["root"]
-            }],
-            "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+        "map": {
+            "operation": "initialize_map",
+            "input": {
+                "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+                "work_nodes": [{
+                    "node_id": "work",
+                    "goal": "implement",
+                    "content": "",
+                    "parents": ["root"]
+                }],
+                "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+            }
         }
     })
 }
@@ -149,7 +153,7 @@ fn valid_work_update_and_finish_builds_one_side_effect_free_candidate() {
             "calls": [
                 read_call("work"),
                 update_completed("work"),
-                {"tool": "finish_map", "arguments": {"content": "Delivered."}}
+                {"map": {"operation": "finish_map", "input": {"content": "Delivered."}}}
             ],
             "hosted_bindings": []
         }),
@@ -235,7 +239,7 @@ fn read_only_plan_returns_the_complete_agent_visible_map() {
     let current = open_map();
     let envelope = envelope(
         json!({
-            "calls": [{"tool": "read_map", "arguments": {}}],
+            "calls": [{"map": {"operation": "read_map", "input": {}}}],
             "hosted_bindings": []
         }),
         Some(&current),
@@ -274,7 +278,7 @@ fn stale_request_and_invalid_map_boundaries_are_rejected() {
 
     let invalid = envelope(
         json!({
-            "calls": [read_call("work"), {"tool": "read_map", "arguments": {}}],
+            "calls": [read_call("work"), {"map": {"operation": "read_map", "input": {}}}],
             "hosted_bindings": []
         }),
         Some(&requested),
@@ -289,7 +293,7 @@ fn stale_request_and_invalid_map_boundaries_are_rejected() {
 
     let read_then_work = envelope(
         json!({
-            "calls": [{"tool": "read_map", "arguments": {}}, read_call("work")],
+            "calls": [{"map": {"operation": "read_map", "input": {}}}, read_call("work")],
             "hosted_bindings": []
         }),
         Some(&requested),
@@ -321,7 +325,7 @@ fn lifecycle_transitions_require_work_and_finish_must_be_last() {
         json!({
             "calls": [
                 initialize_call(),
-                {"tool": "finish_map", "arguments": {"content": "Done."}}
+                {"map": {"operation": "finish_map", "input": {"content": "Done."}}}
             ],
             "hosted_bindings": []
         }),
@@ -342,7 +346,7 @@ fn lifecycle_transitions_require_work_and_finish_must_be_last() {
     let finish_then_work = envelope(
         json!({
             "calls": [
-                {"tool": "finish_map", "arguments": {"content": "Done."}},
+                {"map": {"operation": "finish_map", "input": {"content": "Done."}}},
                 read_call("root")
             ],
             "hosted_bindings": []
@@ -370,17 +374,19 @@ fn reopen_requires_and_accepts_real_followup_work() {
     let envelope = envelope(
         json!({
             "calls": [
-                {"tool": "reopen_map", "arguments": {}},
+                {"map": {"operation": "reopen_map", "input": {}}},
                 {
-                    "tool": "update_map",
-                    "arguments": {
-                        "add_work_nodes": [{
-                            "node_id": "followup",
-                            "goal": "handle user follow-up",
-                            "content": "",
-                            "parents": ["work", "blocked"]
-                        }],
-                        "node_patches": [{"node_id": "finish", "parents": ["followup"]}]
+                    "map": {
+                        "operation": "update_map",
+                        "input": {
+                            "add_work_nodes": [{
+                                "node_id": "followup",
+                                "goal": "handle user follow-up",
+                                "content": "",
+                                "parents": ["work", "blocked"]
+                            }],
+                            "node_patches": [{"node_id": "finish", "parents": ["followup"]}]
+                        }
                     }
                 },
                 read_call("followup")
@@ -404,7 +410,7 @@ fn noop_update_and_canonical_dag_errors_are_rejected_without_mutation() {
     let before = current.clone();
     let noop = envelope(
         json!({
-            "calls": [{"tool": "update_map", "arguments": {"add_work_nodes": [], "node_patches": []}}],
+            "calls": [{"map": {"operation": "update_map", "input": {"add_work_nodes": [], "node_patches": []}}}],
             "hosted_bindings": []
         }),
         Some(&current),
@@ -416,7 +422,7 @@ fn noop_update_and_canonical_dag_errors_are_rejected_without_mutation() {
     assert_eq!(current, before);
 
     let mut invalid_init = initialize_call();
-    invalid_init["arguments"]["finish"]["parents"] = json!(["missing"]);
+    invalid_init["map"]["input"]["finish"]["parents"] = json!(["missing"]);
     let invalid = envelope(
         json!({"calls": [invalid_init, read_call("work")], "hosted_bindings": []}),
         None,
@@ -488,7 +494,7 @@ fn client_node_state_and_function_schema_are_checked_before_dispatch() {
     for arguments in [json!({}), json!({"path": "a", "extra": true})] {
         let envelope = envelope(
             json!({
-                "calls": [{"tool": "read_file", "node_id": "work", "arguments": arguments}],
+                "calls": [{"client": {"name": "read_file", "node_id": "work", "input": arguments}}],
                 "hosted_bindings": []
             }),
             Some(&current),
@@ -506,8 +512,8 @@ fn one_response_cannot_prepare_multiple_apply_patch_calls() {
     let envelope = envelope(
         json!({
             "calls": [
-                {"tool": "apply_patch", "node_id": "work", "input": "patch-a"},
-                {"tool": "apply_patch", "node_id": "work", "input": "patch-b"}
+                {"client": {"name": "apply_patch", "node_id": "work", "input": "patch-a"}},
+                {"client": {"name": "apply_patch", "node_id": "work", "input": "patch-b"}}
             ],
             "hosted_bindings": []
         }),

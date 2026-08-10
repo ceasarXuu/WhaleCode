@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase B0～B2 verified offline / Phase B3 completed-qualified / Phase B4 ready
+- Status: Phase B0～B4 verified offline / Phase B5 I03 wire repair verified offline
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -44,6 +44,17 @@ model-visible tools
 普通 client Tool 在 TaskSpace 顶层不再重复暴露。Map 操作从 canonical Action Map transaction 原语直接生成，与 client call
 同为 `calls[]` 中的平级 variant；它们不注册旧控制 Tool、不复用旧 handler，也不拥有 Runtime 控制器地位。
 
+`calls[]` 的两类 Agent-visible wire 必须保持结构分离：
+
+```json
+{"map":{"operation":"update_map","input":{"add_work_nodes":[],"node_patches":[]}}}
+{"client":{"name":"exec_command","node_id":"inspect","input":{"cmd":"pwd"}}}
+```
+
+外层 variant 只能是 `map` 或 `client`。不得恢复旧的
+`{"tool":"...","node_id":"...","arguments":...}` 内层形状；它与 Provider 顶层 Function Call 过于同形，已由生产 trace
+证明会诱发模型把内层 Tool 名提升为非法顶层调用。
+
 ## 3. 一次调用表达什么
 
 `taskspace_exec` 的外层是一个结构化 Function Call。静态 schema 固定顶层字段、数组元素、可用 Tool 及各 Tool 原生参数
@@ -66,11 +77,11 @@ Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这�
 
 | 类别 | Agent 声明 | Runtime 权限 | 权威执行事实 |
 |---|---|---|---|
-| Map call | Map operation variant、canonical 参数和序列位置；不声明外层 owner | 调用 canonical transaction validator/commit | canonical Map transaction |
-| Client call | 原生 Tool 名、原生输入、`node_id` | 预检后调用原 Router 一次 | 原生 Tool result |
+| Map call | `map.operation`、canonical `map.input` 和序列位置；不声明外层 owner | 调用 canonical transaction validator/commit | canonical Map transaction |
+| Client call | `client.name`、原生 `client.input`、`client.node_id` | 预检后调用原 Router 一次 | 原生 Tool result |
 | Hosted binding | 每项 Hosted 动作的非空 `node_ids[]` 与可机械核对的逐项声明 | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
 
-内部语法不是第二份业务 Tool schema：Tool 名、描述、输入和输出合同都从原 ToolSpec 派生；`node_id` 和序列位置属于
+内部语法不是第二份业务 Tool schema：Tool 名、描述、`input` 的值域和输出合同都从原 ToolSpec 派生；`node_id` 和序列位置属于
 外层 TaskSpace invocation metadata，不能写回普通 Tool 参数。
 
 ## 4. 合法序列

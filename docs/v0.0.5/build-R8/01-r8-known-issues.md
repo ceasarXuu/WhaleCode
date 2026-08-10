@@ -34,6 +34,11 @@
 > 原生参数。复用 Standard base 是放大因素而非充分根因；同一模型/base/Function outer 使用 JavaScript `tools.*` 内层语法
 > 时连续 15 次保持正确 outer `exec`。适配层和 Runtime 没有改写名称，也没有反馈丢失。I03 继续 verifying，VA-03 继续阻断。
 
+> **I03 离线修复（2026-08-10）**：`calls[]` 已破坏性替换为互斥的 `map` / `client` envelope：Map 使用
+> `operation + input`，Client 使用 `name + node_id + input`。旧 `tool + arguments` wire 不再兼容，并有负向测试阻止回流。
+> 内部 plan、原生 Tool 输入、Router、Map transaction、Hosted binding 和 Standard 均未改变；TaskSpace Exec 70 项测试通过。
+> 该结果证明工程修复完整，不等于目标模型在线稳定性已通过；VA-02 仍需另行批准最小复验，VA-03 继续阻断。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -83,7 +88,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | VA-02 已在线完整结算 boundary usage；零 Hosted 运行又发现通用性能报告读取早期空 metrics，现已统一在 canonical usage 可用时复用 request facts，并修复省略 Hosted 字段的动作误报；待下一次获批运行验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 主根因已确认：`calls[]` 内层调用与 Provider 顶层 Function Call 过于同形，模型会提升 inner name 并扁平化 `node_id`；Standard base 是放大因素。Runtime 暴露、名称透传和 fail-closed 均正确；修复尚未设计和验证 | [verifying](taskspace-exec/39-phase-b5-va02-revalidation-result.md) | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 已破坏性替换为 `map/client` envelope，消除旧 `tool + arguments` 同形 wire；旧形状拒绝、70 项 Exec 测试和 Standard 零改动离线成立，待最小生产复验 | [verifying](taskspace-exec/39-phase-b5-va02-revalidation-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 当前 DAG/readiness 硬规则确定性通过；是否仍有错误选择只能由 E3 判断 | queued | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 零 Hosted 单臂第二请求缓存命中 54.69%，首个差异位于 `messages[3].message`，Tool shape 未变；尚无同 commit 四臂证据，不能判断是 TaskSpace 结构回归还是本次失败路径特征 | queued | GI-008 |
 
@@ -97,7 +102,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 静态关闭候选 | I01、I02、I05、I06 | 旧根因和旧生产路径为零，新 Exec 的唯一反馈、内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试、误读拒绝或非法组合 |
 | 工程完成待生产验收 | I10 | catalog、dispatch、request scope、Provider/Exec trace 和报告共用同一 Runtime-only identity；Standard request 不变 | 当前 Provider trace 是否完整携带且逐 request 一致 |
 | 工程修复后待复验 | I07 | v11 producer/consumer 漂移已由 `cca76e921` 修复，VA-02 原始 trace 可完整重算 | 新生产 run 是否可在运行结束时直接完成可信结算 |
-| 根因已确认、修复待设计 | I03 | Runtime 对非法顶层 client call 正确零副作用拒绝；Router 没有顶层暴露普通 client Tool；Provider/Runtime 没有改写 Function name；Function Exec 语法分离对照 15/15 保持 outer | 消除 TaskSpace inner/outer wire 同形性并校正宏观 base 后，目标模型能否稳定遵循 outer Exec |
+| 根因已确认、离线修复待生产复验 | I03 | Runtime 对非法顶层 client call 正确零副作用拒绝；Router 没有顶层暴露普通 client Tool；新 `map/client` wire 已消除旧同形结构并通过 70 项 Exec 测试 | 目标模型能否稳定生成新 outer Exec wire；通过前不能关闭 I03 |
 | 行为/成本待验证 | I04、I08 | 当前 DAG 和测量工具已具备验证条件 | 节点选择、三种 projection 成本与业务收益；VA-03 尚未开始 |
 
 本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server

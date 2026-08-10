@@ -54,7 +54,7 @@ fn map(revision: u64) -> crate::action_map::rooted_dag::TaskSpaceMap {
 }
 
 fn arguments() -> &'static str {
-    r#"{"calls":[{"tool":"read_file","node_id":"work","arguments":{"path":"a.rs"}}],"hosted_bindings":[]}"#
+    r#"{"calls":[{"client":{"name":"read_file","node_id":"work","input":{"path":"a.rs"}}}],"hosted_bindings":[]}"#
 }
 
 #[test]

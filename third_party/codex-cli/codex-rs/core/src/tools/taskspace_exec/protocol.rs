@@ -19,8 +19,8 @@ const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry poi
 Call contract:
 - Put every Map operation and client Tool invocation in `calls`, in the order you declare.
 - `calls` order defines Map boundaries, not a second dependency graph for ordinary work. Work dependencies come only from Map node `parents`; independent client calls may use native parallel execution, while result-dependent work waits for a later request.
-- A plain function client Tool call is `{"tool":"<name>","node_id":"<work-node>","arguments":{...}}`; a namespaced function call also has `"namespace":"<namespace>"` and keeps only the leaf Tool name in `tool`. A freeform client Tool uses `input` instead of `arguments`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
-- A Map operation is `{"tool":"<map-operation>","arguments":{...}}` and has no outer `node_id`.
+- A client Tool call is `{"client":{"name":"<name>","node_id":"<work-node>","input":<native-input>}}`. A namespaced function call also has `"namespace":"<namespace>"` and keeps only the leaf Tool name in `name`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
+- A Map operation is `{"map":{"operation":"<map-operation>","input":{...}}}` and has no owner `node_id`.
 - Include `hosted_bindings` only when the response contains provider-hosted output. It contains one binding for each hosted output, in provider output order; one output may name multiple owner work nodes.
 
 Sequence contract:
@@ -89,9 +89,11 @@ pub(crate) fn canonical_first_turn_example() -> Value {
         "calls": [
             map_call(initialize),
             {
-                "tool": "exec_command",
-                "node_id": "inspect",
-                "arguments": {"cmd": "pwd"}
+                "client": {
+                    "name": "exec_command",
+                    "node_id": "inspect",
+                    "input": {"cmd": "pwd"}
+                }
             }
         ]
     })
@@ -123,5 +125,12 @@ pub(crate) fn canonical_finish_example() -> Value {
 }
 
 fn map_call(operation: MapOperation) -> Value {
-    serde_json::to_value(operation).expect("canonical Map operation must serialize")
+    let serialized =
+        serde_json::to_value(operation).expect("canonical Map operation must serialize");
+    json!({
+        "map": {
+            "operation": serialized["tool"],
+            "input": serialized["arguments"]
+        }
+    })
 }

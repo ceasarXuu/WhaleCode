@@ -67,16 +67,18 @@ fn envelope(arguments: serde_json::Value, map: Option<&TaskSpaceMap>) -> TaskSpa
 
 fn initialize_call() -> serde_json::Value {
     json!({
-        "tool": "initialize_map",
-        "arguments": {
-            "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-            "work_nodes": [{
-                "node_id": "work",
-                "goal": "implement",
-                "content": "",
-                "parents": ["root"]
-            }],
-            "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+        "map": {
+            "operation": "initialize_map",
+            "input": {
+                "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+                "work_nodes": [{
+                    "node_id": "work",
+                    "goal": "implement",
+                    "content": "",
+                    "parents": ["root"]
+                }],
+                "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+            }
         }
     })
 }
@@ -144,7 +146,7 @@ fn read_map_cannot_share_a_response_with_hosted_work() {
     let current = open_map();
     let envelope = envelope(
         json!({
-            "calls": [{"tool": "read_map", "arguments": {}}],
+            "calls": [{"map": {"operation": "read_map", "input": {}}}],
             "hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]
         }),
         Some(&current),

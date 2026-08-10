@@ -136,14 +136,16 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
                     arguments: json!({
                         "calls": [
                             {
-                                "tool": "initialize_map",
-                                "arguments": {
-                                    "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-                                    "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
-                                    "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+                                "map": {
+                                    "operation": "initialize_map",
+                                    "input": {
+                                        "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+                                        "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
+                                        "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+                                    }
                                 }
                             },
-                            {"tool": "inspect", "node_id": "work", "arguments": {}}
+                            {"client": {"name": "inspect", "node_id": "work", "input": {}}}
                         ],
                         "hosted_bindings": []
                     })

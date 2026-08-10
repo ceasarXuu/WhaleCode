@@ -64,20 +64,21 @@ fn hosted_spec() -> ToolSpec {
     }
 }
 
-fn initialize_call() -> Value {
+fn initialize_input() -> Value {
     json!({
-        "tool": "initialize_map",
-        "arguments": {
-            "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-            "work_nodes": [{
-                "node_id": "work",
-                "goal": "implement",
-                "content": "",
-                "parents": ["root"]
-            }],
-            "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
-        }
+        "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+        "work_nodes": [{
+            "node_id": "work",
+            "goal": "implement",
+            "content": "",
+            "parents": ["root"]
+        }],
+        "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
     })
+}
+
+fn initialize_call() -> Value {
+    json!({"map": {"operation": "initialize_map", "input": initialize_input()}})
 }
 
 #[derive(Default)]
@@ -275,7 +276,7 @@ async fn cancelled_native_call_is_settled_without_changing_node_state() {
             json!({
                 "calls": [
                     initialize_call(),
-                    {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 60}}
+                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 60}}}
                 ],
                 "hosted_bindings": []
             }),
@@ -327,7 +328,7 @@ async fn interrupted_outer_exec_does_not_cancel_registered_action_producer() {
                     arguments: json!({
                         "calls": [
                             initialize_call(),
-                            {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 60}}
+                            {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 60}}}
                         ],
                         "hosted_bindings": []
                     })
@@ -384,8 +385,8 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
             json!({
                 "calls": [
                     initialize_call(),
-                    {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 5}},
-                    {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 60, "fail": true}}
+                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 5}}},
+                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 60, "fail": true}}}
                 ],
                 "hosted_bindings": []
             }),
@@ -451,8 +452,8 @@ async fn internal_fatal_is_returned_once_with_successful_sibling_feedback() {
             json!({
                 "calls": [
                     initialize_call(),
-                    {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": 5}},
-                    {"tool": "inspect", "node_id": "work", "arguments": {"fatal": true}}
+                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 5}}},
+                    {"client": {"name": "inspect", "node_id": "work", "input": {"fatal": true}}}
                 ],
                 "hosted_bindings": []
             }),
@@ -504,7 +505,7 @@ async fn failed_preflight_has_no_map_or_client_tool_side_effect() {
             json!({
                 "calls": [
                     initialize_call(),
-                    {"tool": "inspect", "node_id": "work", "arguments": {"delay_ms": "invalid"}}
+                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": "invalid"}}}
                 ],
                 "hosted_bindings": []
             }),
@@ -547,7 +548,11 @@ async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
         .await
         .unwrap();
     assert!(current.is_none());
-    let operation: MapOperation = serde_json::from_value(initialize_call()).unwrap();
+    let operation: MapOperation = serde_json::from_value(json!({
+        "tool": "initialize_map",
+        "arguments": initialize_input()
+    }))
+    .unwrap();
     let MapOperationEffect::Candidate(candidate) =
         apply_map_operation(None, &map_id, operation).unwrap()
     else {
@@ -573,7 +578,7 @@ async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
             json!({
                 "calls": [
                     initialize_call(),
-                    {"tool": "inspect", "node_id": "work", "arguments": {}}
+                    {"client": {"name": "inspect", "node_id": "work", "input": {}}}
                 ],
                 "hosted_bindings": []
             }),

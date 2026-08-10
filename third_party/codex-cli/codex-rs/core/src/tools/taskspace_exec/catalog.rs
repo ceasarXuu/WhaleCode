@@ -318,11 +318,17 @@ fn map_call_schema(capability: &ToolSpecCapability) -> JsonSchema {
     };
     described(
         strict_object(
-            [
-                ("tool", exact_name_schema(&capability.public_name)),
-                ("arguments", arguments.clone()),
-            ],
-            &["tool", "arguments"],
+            [(
+                "map",
+                strict_object(
+                    [
+                        ("operation", exact_name_schema(&capability.public_name)),
+                        ("input", arguments.clone()),
+                    ],
+                    &["operation", "input"],
+                ),
+            )],
+            &["map"],
         ),
         &capability.description,
     )
@@ -330,37 +336,37 @@ fn map_call_schema(capability: &ToolSpecCapability) -> JsonSchema {
 
 fn client_call_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
     let capability = &client.capability;
-    let (input_name, input_schema) = match &capability.input {
-        ToolSpecCapabilityInput::Function(arguments) => ("arguments", arguments.clone()),
-        ToolSpecCapabilityInput::Freeform(format) => (
-            "input",
-            JsonSchema::string(Some(format!(
-                "Freeform {} input using {} syntax.\n{}",
-                format.r#type, format.syntax, format.definition
-            ))),
-        ),
+    let input_schema = match &capability.input {
+        ToolSpecCapabilityInput::Function(arguments) => arguments.clone(),
+        ToolSpecCapabilityInput::Freeform(format) => JsonSchema::string(Some(format!(
+            "Freeform {} input using {} syntax.\n{}",
+            format.r#type, format.syntax, format.definition
+        ))),
     };
     let node_id = JsonSchema::string(Some("Agent-declared owner node.".into()));
-    let schema = match capability.tool_name.namespace.as_deref() {
+    let invocation = match capability.tool_name.namespace.as_deref() {
         Some(namespace) => strict_object(
             [
-                ("tool", exact_name_schema(&capability.tool_name.name)),
+                ("name", exact_name_schema(&capability.tool_name.name)),
                 ("namespace", exact_name_schema(namespace)),
                 ("node_id", node_id),
-                (input_name, input_schema),
+                ("input", input_schema),
             ],
-            &["tool", "namespace", "node_id", input_name],
+            &["name", "namespace", "node_id", "input"],
         ),
         None => strict_object(
             [
-                ("tool", exact_name_schema(&capability.tool_name.name)),
+                ("name", exact_name_schema(&capability.tool_name.name)),
                 ("node_id", node_id),
-                (input_name, input_schema),
+                ("input", input_schema),
             ],
-            &["tool", "node_id", input_name],
+            &["name", "node_id", "input"],
         ),
     };
-    described(schema, &capability.description)
+    described(
+        strict_object([("client", invocation)], &["client"]),
+        &capability.description,
+    )
 }
 
 fn client_tool_label(tool_name: &codex_tools::ToolName) -> String {

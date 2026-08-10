@@ -1,7 +1,7 @@
 # Problem P-001: VA-02 首轮证据链未能如实结算
 - Status: verifying
 - Created: 2026-08-10 06:00
-- Updated: 2026-08-10 08:18
+- Updated: 2026-08-10 09:05
 - Objective: 保留 VA-02 首轮的真实协议、Map 和成本证据，并在不放宽 TaskSpace 硬约束的前提下修复确定的观测缺陷。
 - Symptoms:
   - 首次 `taskspace_exec` 参数多出一个右花括号，被严格 JSON 解码拒绝。
@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过。第二响应失败的主根因已确认：`taskspace_exec.calls[]` 用原生 Tool 名、`arguments` 和 TaskSpace-only `node_id` 描述内层调用，与 Provider 顶层 Function Call 的语义和结构过于同形；DeepSeek 会把整个内层分支提升并扁平化成顶层 `exec_command`。两次非法调用都携带原生 `exec_command` schema 不接受的 `node_id`，直接留下内层 wire 来源指纹。TaskSpace 复用 Standard base instructions 是放大该歧义的已确认诱因，但不是充分根因：历史 Function Exec 使用同一模型、同一 base、同样的 Function 外层，只把内层改为明显不同的 JavaScript `tools.*` 语法，连续 15 次均保持顶层 `exec`。两次 Provider wire 的顶层 Tool 集合始终为 `taskspace_exec + web_search`，适配层和 Runtime 均原样透传 Function name，Runtime 正确 fail closed；不是 Tool 重新暴露、名称改写、反馈丢失、总 schema 大小或 Map 状态机问题。VA-02 仍因 I03 当前生产表现未关闭。
+- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过。第二响应失败的主根因已确认：`taskspace_exec.calls[]` 用原生 Tool 名、`arguments` 和 TaskSpace-only `node_id` 描述内层调用，与 Provider 顶层 Function Call 的语义和结构过于同形；DeepSeek 会把整个内层分支提升并扁平化成顶层 `exec_command`。两次非法调用都携带原生 `exec_command` schema 不接受的 `node_id`，直接留下内层 wire 来源指纹。TaskSpace 复用 Standard base instructions 是放大该歧义的已确认诱因，但不是充分根因。离线修复已将 Agent-visible wire 破坏性替换为互斥 `map/client` envelope，删除旧 `tool + arguments` 兼容入口，并通过 70 项 TaskSpace Exec 测试；内部执行和 Standard 未改。VA-02 仍因缺少目标 Provider 修复后复验而未关闭。
 - Related hypotheses:
   - H-001
   - H-002
@@ -42,7 +42,7 @@
   - H-008
   - H-009
 - Resolution basis:
-  - E-001 至 E-018；H-007 已通过来源指纹与历史对照两条独立证据链确认；H-005 降为促成因素，H-004/H-006/H-008/H-009 已排除
+  - E-001 至 E-019；H-007 已通过来源指纹与历史对照两条独立证据链确认，并完成离线协议修复；H-005 降为促成因素，H-004/H-006/H-008/H-009 已排除
 - Close reason:
   - not closed
 
@@ -644,8 +644,8 @@
   - E-017
   - E-018
 - Conclusion: confirmed。错误输出逐字段保留了 TaskSpace inner branch 的身份和归属语义；相同模型/base/Function outer 的语法分离对照没有发生提升。当前证据能确认到“内层结构化调用表达未形成稳健层级边界”，但尚不能把微观原因进一步唯一归结为字段名 `tool`、17 分支 union 或 Map 操作复杂度中的某一个。
-- Repair design readiness: yes
-- Next step: 单独设计最小候选 wire，并用离线合同先消除同形性；真实稳定性验证需另行预算。
+- Repair design readiness: implemented offline
+- Next step: 缓存门禁通过后另行申请最小真实预算，验证目标模型是否稳定保持 outer `taskspace_exec`。
 - Blocker:
   - none
 - Close reason:
@@ -799,3 +799,25 @@
   ```
 - Interpretation: Standard prior 能解释旧参数名泄漏，但不能解释 TaskSpace 的 outer name 提升；后者需要 inner wire 作为信息来源。
 - Time: 2026-08-10 08:12
+
+## Evidence E-019: 新 wire 已在离线合同中消除 inner/outer 同形性
+- Related hypotheses:
+  - H-007
+- Direction: fix-validation
+- Type: code-and-test
+- Source: TaskSpace Exec catalog、decoder、protocol 和定向测试
+- Prediction or plan link:
+  - H-007 的最小修复必须删除 Agent-visible `tool + arguments` 内层形状，同时不改内部 dispatch 和 Standard。
+- Matched signal:
+  - `calls[]` schema 的每个分支现在只有一个 `map` 或 `client` envelope；Map 使用 `operation + input`，Client 使用 `name + node_id + input`。decoder 明确拒绝旧 Map/Client wire；70 项 TaskSpace Exec 测试覆盖 Map、Function、Freeform、Namespace、Hosted、持久化和零副作用失败路径。生产改动局限于 TaskSpace Exec catalog/decoder/protocol，Standard 路径没有条件分支或 schema 修改。
+- Correlation keys:
+  - `taskspace_exec_catalog_tests::decoder_rejects_the_provider_shaped_legacy_inner_wire`
+  - `cargo test -p codex-core taskspace_exec --lib --quiet`
+- Raw content:
+  ```text
+  calls[].map    = {operation, input}
+  calls[].client = {name, node_id, input}
+  70 passed; 0 failed
+  ```
+- Interpretation: 根因对应的协议结构已完成离线修复，且没有通过 Runtime 推断、兼容解析或修改普通 Tool 来规避问题。该证据不能替代目标 Provider 的 Agent 行为复验。
+- Time: 2026-08-10 09:05

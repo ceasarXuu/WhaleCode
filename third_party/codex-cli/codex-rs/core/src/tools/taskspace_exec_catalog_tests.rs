@@ -129,6 +129,15 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(!input.contains("revision"));
     assert_eq!(value["parameters"]["required"], json!(["calls"]));
     assert!(value.get("output_schema").is_none());
+    let call_variants = value["parameters"]["properties"]["calls"]["items"]["anyOf"]
+        .as_array()
+        .unwrap();
+    assert_eq!(call_variants.len(), 10);
+    for variant in call_variants {
+        let properties = variant["properties"].as_object().unwrap();
+        assert_eq!(properties.len(), 1);
+        assert!(properties.contains_key("map") || properties.contains_key("client"));
+    }
 
     let description = value["description"].as_str().unwrap();
     assert!(description.contains("single top-level entry point"));
@@ -287,10 +296,10 @@ fn decoder_preserves_mixed_map_function_freeform_and_namespace_calls() {
         .decode_plan(
             &json!({
                 "calls": [
-                    {"tool": "read_map", "arguments": {}},
-                    {"tool": "read_file", "node_id": "inspect", "arguments": {"value": "a"}},
-                    {"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"},
-                    {"tool": "lookup", "namespace": "mcp__sample__", "node_id": "inspect", "arguments": {"value": "b"}}
+                    {"map": {"operation": "read_map", "input": {}}},
+                    {"client": {"name": "read_file", "node_id": "inspect", "input": {"value": "a"}}},
+                    {"client": {"name": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"}},
+                    {"client": {"name": "lookup", "namespace": "mcp__sample__", "node_id": "inspect", "input": {"value": "b"}}}
                 ],
                 "hosted_bindings": [
                     {"tool": "web_search", "node_ids": ["inspect", "fix"]},
@@ -355,10 +364,10 @@ fn native_identity_allows_same_leaf_across_plain_and_namespaced_tools() {
         .decode_plan(
             &json!({
                 "calls": [
-                    {"tool": "lookup", "node_id": "plain", "arguments": {"value": "p"}},
-                    {"tool": "lookup", "namespace": "alpha", "node_id": "a", "arguments": {"value": "a"}},
-                    {"tool": "lookup", "namespace": "beta", "node_id": "b", "arguments": {"value": "b"}},
-                    {"tool": "read_map", "namespace": "map_tools", "node_id": "m", "arguments": {"value": "m"}}
+                    {"client": {"name": "lookup", "node_id": "plain", "input": {"value": "p"}}},
+                    {"client": {"name": "lookup", "namespace": "alpha", "node_id": "a", "input": {"value": "a"}}},
+                    {"client": {"name": "lookup", "namespace": "beta", "node_id": "b", "input": {"value": "b"}}},
+                    {"client": {"name": "read_map", "namespace": "map_tools", "node_id": "m", "input": {"value": "m"}}}
                 ],
                 "hosted_bindings": []
             })
@@ -390,7 +399,7 @@ fn decoder_rejects_flattened_namespace_alias_and_inexact_namespace_shape() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let flattened = catalog
         .decode_plan(
-            r#"{"calls":[{"tool":"mcp__sample__lookup","node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
+            r#"{"calls":[{"client":{"name":"mcp__sample__lookup","node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
         )
         .unwrap_err();
     assert_eq!(
@@ -402,9 +411,9 @@ fn decoder_rejects_flattened_namespace_alias_and_inexact_namespace_shape() {
     );
 
     for invalid in [
-        r#"{"calls":[{"tool":"lookup","node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
-        r#"{"calls":[{"tool":"lookup","namespace":"wrong","node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
-        r#"{"calls":[{"tool":"read_file","namespace":null,"node_id":"n","arguments":{"value":"v"}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"client":{"name":"lookup","node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"client":{"name":"lookup","namespace":"wrong","node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"client":{"name":"read_file","namespace":null,"node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
     ] {
         assert!(catalog.decode_plan(invalid).is_err(), "accepted {invalid}");
     }
@@ -415,7 +424,7 @@ fn decoder_preserves_client_tool_search_as_a_native_identity() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let plan = catalog
         .decode_plan(
-            r#"{"calls":[{"tool":"tool_search","node_id":"inspect","arguments":{"query":"calendar"}}],"hosted_bindings":[]}"#,
+            r#"{"calls":[{"client":{"name":"tool_search","node_id":"inspect","input":{"query":"calendar"}}}],"hosted_bindings":[]}"#,
         )
         .unwrap();
 
@@ -454,7 +463,7 @@ fn decoder_rejects_unknown_tools_and_shape_drift() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let unknown = catalog
         .decode_plan(
-            r#"{"calls":[{"tool":"missing","node_id":"n","arguments":{}}],"hosted_bindings":[]}"#,
+            r#"{"calls":[{"client":{"name":"missing","node_id":"n","input":{}}}],"hosted_bindings":[]}"#,
         )
         .unwrap_err();
     assert_eq!(
@@ -466,12 +475,30 @@ fn decoder_rejects_unknown_tools_and_shape_drift() {
     );
 
     for invalid in [
-        r#"{"calls":[{"tool":"read_file","node_id":"n","arguments":{},"revision":1}],"hosted_bindings":[]}"#,
-        r#"{"calls":[{"tool":"apply_patch","node_id":"n","arguments":{}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"client":{"name":"read_file","node_id":"n","input":{},"revision":1}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"client":{"name":"apply_patch","node_id":"n","input":{}}}],"hosted_bindings":[]}"#,
+        r#"{"calls":[{"tool":"read_file","node_id":"n","arguments":{}}],"hosted_bindings":[]}"#,
         r#"{"calls":[],"hosted_bindings":[{"tool":"unknown","node_ids":["n"]}]}"#,
         r#"{"calls":[],"hosted_bindings":[],"version":"v1"}"#,
     ] {
         assert!(catalog.decode_plan(invalid).is_err(), "accepted {invalid}");
+    }
+}
+
+#[test]
+fn decoder_rejects_the_provider_shaped_legacy_inner_wire() {
+    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    for legacy in [
+        r#"{"calls":[{"tool":"read_map","arguments":{}}]}"#,
+        r#"{"calls":[{"tool":"read_file","node_id":"n","arguments":{"value":"v"}}]}"#,
+    ] {
+        assert!(
+            matches!(
+                catalog.decode_plan(legacy),
+                Err(TaskSpaceExecPlanDecodeError::InvalidCall { index: 0, .. })
+            ),
+            "accepted legacy wire: {legacy}"
+        );
     }
 }
 
