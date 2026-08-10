@@ -1,7 +1,7 @@
 # Problem P-001: VA-02 首轮证据链未能如实结算
 - Status: verifying
 - Created: 2026-08-10 06:00
-- Updated: 2026-08-10 09:05
+- Updated: 2026-08-10 18:10
 - Objective: 保留 VA-02 首轮的真实协议、Map 和成本证据，并在不放宽 TaskSpace 硬约束的前提下修复确定的观测缺陷。
 - Symptoms:
   - 首次 `taskspace_exec` 参数多出一个右花括号，被严格 JSON 解码拒绝。
@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: 零 Hosted 合同已在 `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0` 首响应在线通过。第二响应失败的主根因已确认：`taskspace_exec.calls[]` 用原生 Tool 名、`arguments` 和 TaskSpace-only `node_id` 描述内层调用，与 Provider 顶层 Function Call 的语义和结构过于同形；DeepSeek 会把整个内层分支提升并扁平化成顶层 `exec_command`。两次非法调用都携带原生 `exec_command` schema 不接受的 `node_id`，直接留下内层 wire 来源指纹。TaskSpace 复用 Standard base instructions 是放大该歧义的已确认诱因，但不是充分根因。离线修复已将 Agent-visible wire 破坏性替换为互斥 `map/client` envelope，删除旧 `tool + arguments` 兼容入口，并通过 70 项 TaskSpace Exec 测试；内部执行和 Standard 未改。VA-02 仍因缺少目标 Provider 修复后复验而未关闭。
+- Current conclusion: 新 `map/client` wire 已在两次在线运行的前五个有效调用中保持顶层 `taskspace_exec`，旧 inner-name 顶层提升未复现；初始化、读取、测试和原生 client Tool 反馈均正常。完整 VA-02 运行暴露新的 I03 表现：Agent 首次直接在 waiting `fix` 节点执行 patch，被 DAG 正确拒绝；随后两次生成“完成 inspect + patch”的 mixed batch 时，都在 map call 与 client call 交界处少一个右花括号。多行 Freeform patch 已正确 JSON 转义，缺失字符来自 map envelope 边界；Runtime 原样返回解析错误且未提交 Map 或执行 patch。当前不能继续用增加预算掩盖该结构错误，也不能由 Runtime 修复 JSON；需要在保持 Standard、原生 Tool 和 Agent-owned Map 不变的前提下，选择最小 Agent-visible wire/示例收敛方案。
 - Related hypotheses:
   - H-001
   - H-002
@@ -41,8 +41,10 @@
   - H-007
   - H-008
   - H-009
+  - H-010
+  - H-011
 - Resolution basis:
-  - E-001 至 E-019；H-007 已通过来源指纹与历史对照两条独立证据链确认，并完成离线协议修复；H-005 降为促成因素，H-004/H-006/H-008/H-009 已排除
+  - E-001 至 E-022；H-007 的旧同形 wire 根因已修复并获在线证据，H-010 确认当前 mixed batch 的实际失败字节；H-011 尚未完成修复方向证据门
 - Close reason:
   - not closed
 
@@ -821,3 +823,148 @@
   ```
 - Interpretation: 根因对应的协议结构已完成离线修复，且没有通过 Runtime 推断、兼容解析或修改普通 Tool 来规避问题。该证据不能替代目标 Provider 的 Agent 行为复验。
 - Time: 2026-08-10 09:05
+
+## Evidence E-020: 新 map-client wire 连续保持正确 outer 层级
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source: `WAR-20260810-174818-CACHE-REGRESSION-0EF76553` 与 `WAR-20260810-180151-CACHE-REGRESSION-7E11A055` rollout
+- Prediction or plan link:
+  - H-007 修复后不再把 inner client name 提升到 Provider 顶层。
+- Matched signal:
+  - 两轮共 8 个已完成 Function Call 全部命名 `taskspace_exec`；Agent 直接生成 `map/client`，Runtime 未包装或改名。
+- Correlation keys:
+  - 两个 WAR record ID
+- Raw content:
+  ```text
+  completed outer calls: taskspace_exec × 8
+  top-level exec_command: 0
+  ```
+- Interpretation: 旧 inner/outer 同形根因对应的协议修复在线成立；后续 mixed batch JSON 错误是不同表现，不能回写成旧顶层提升仍存在。
+- Time: 2026-08-10 18:10
+
+## Hypothesis H-010: 当前 patch 阻塞来自 mixed batch 的 map envelope 少一个闭合花括号
+- Status: confirmed
+- Parent: P-001
+- Claim: 两次 `update_map + apply_patch` arguments 在 map call 外层少一个 `}`，导致整个 outer Function arguments 不是合法 JSON；Freeform patch 内容和转义不是失败原因。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - 错误稳定发生在 map/client 边界，且两个失败 arguments 字节完全一致。
+- Falsifiable predictions:
+  - If true: `node_patches`、中文 content 和 patch 的 `\n` 均合法；在 `}, {"client"` 前只关闭 input 与 map，没有关闭 call wrapper。
+  - If false: 补齐 map wrapper 后仍不能解析，或错误点位于 patch 字符串转义。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对原始 `.payload.arguments` 做严格 `fromjson` 并分段检查 map/client 边界。
+  - Signal: 原始长度、解析错误、边界字符和重复参数身份。
+  - Capture method: 只读 rollout 结构化查询，不修改输入。
+  - Event name or marker:
+    - `function_call`
+  - Correlation keys:
+    - `call_00_zzRV83dFip0rdFZLH6NV6981`
+    - `call_00_qzT6ULnKUawDrIJ1B1H19727`
+  - Differentiates from:
+    - Freeform 多行输入未转义、Runtime 参数重写、Provider 截断。
+  - Supports if:
+    - 两次参数相同且只缺 map call wrapper 的一个 `}`。
+  - Refutes if:
+    - 原始参数可解析或 patch 字符串包含未转义换行。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-021
+- Conclusion: confirmed。严格解码和零副作用拒绝正确；不得由 Runtime 补括号或猜测 Agent 意图。
+- Repair design readiness: blocked pending H-011 and product decision
+- Next step: 比较“补充同源 mixed transition 示例”与“进一步扁平化 call discriminator”的最小性、稳定性和旧根因回归风险。
+- Blocker:
+  - 需要用户确认 Agent-visible 协议修复方向。
+- Close reason:
+  - not closed
+
+## Evidence E-021: 两次失败参数相同且只缺 map call wrapper
+- Related hypotheses:
+  - H-010
+- Direction: supports
+- Type: diagnostic-log
+- Source: 完整 VA-02 `rollout.jsonl`
+- Prediction or plan link:
+  - H-010 的边界字符预测。
+- Matched signal:
+  - 两次 arguments 长度均为 533，严格解析均失败；边界为 `..."content":"修复..."}]}}, {"client":...`，完整合法结构应在逗号前再有一个 `}`。patch 内部换行以 `\n` 表达。
+- Correlation keys:
+  - 两个失败 call ID
+- Raw content:
+  ```text
+  actual:   ... node_patches:[...]}}, {"client":...}}
+  required: ... node_patches:[...]}}}, {"client":...}}
+  ```
+- Interpretation: 失败是 Agent 输出的 outer JSON 结构错误；Freeform Tool 本身未进入 decoder 或执行路径。
+- Time: 2026-08-10 18:10
+
+## Hypothesis H-011: 缺少同源 mixed transition 示例使 Agent 只能手工拼装高嵌套边界
+- Status: unverified
+- Parent: P-001
+- Claim: 当前 Tool description 有初始化+client 和 update+finish 示例，但没有“完成前置节点 + 后续 client work”的 canonical 示例；增加由同一类型生成并由 decoder/preflight 反向验证的最小示例，可能在不改 wire 和 Runtime 语义的情况下消除当前重复括号错误。
+- Layer: interaction
+- Factor relation: unknown
+- Depends on:
+  - H-010 confirmed
+- Rationale:
+  - Agent 已理解需要先完成 inspect 再 patch，但两次在未覆盖的 mixed 组合上复制同一结构错误；首轮初始化 mixed 示例对应的调用则一次合法。
+- Falsifiable predictions:
+  - If true: 静态协议可加入不绑定具体业务路径的 canonical mixed 示例，且同一示例通过 decoder/preflight；后续真实复验不再在该边界缺括号。
+  - If false: 示例无法保持通用、显著增加歧义/成本，或复验仍产生同一错误。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 先完成静态示例设计、schema 成本和旧根因回归审查；只有用户批准后才实施并申请真实复验。
+  - Signal: 示例来源唯一性、反向解析、description 增量、旧 inner-name 禁止扫描和缓存门禁。
+  - Capture method: 离线设计对比和定向测试；真实行为另行预算。
+  - Event name or marker:
+    - `canonical_transition_example`
+  - Correlation keys:
+    - none
+  - Differentiates from:
+    - 直接改 wire、Runtime JSON 修复、单纯增加请求预算。
+  - Supports if:
+    - 最小示例不复制协议、不引入具体路径/命令，且覆盖 exact mixed shape。
+  - Refutes if:
+    - 必须引入第二套说明或仍无法降低结构歧义。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: pending
+- Related evidence:
+  - E-022
+- Conclusion: unverified；这是当前最小候选，不得在真实验证前宣称修复。
+- Repair design readiness: blocked pending user decision
+- Next step: 向用户说明两个候选及风险。
+- Blocker:
+  - 用户产品协议选择。
+- Close reason:
+  - not closed
+
+## Evidence E-022: 完整运行成本、缓存和 DAG 行为已可信结算
+- Related hypotheses:
+  - H-010
+  - H-011
+- Direction: neutral
+- Type: observation
+- Source: `WAR-20260810-180151-CACHE-REGRESSION-7E11A055` result、ledger、Map Store 和 provider cache trace
+- Prediction or plan link:
+  - 区分协议失败与预算、缓存、反馈或 Map 持久化异常。
+- Matched signal:
+  - 6 requests；input 97,584、cached 91,392、output 2,056、request 2+ hit 92.68%、USD 0.0016984576。第一次 patch 因 `fix=waiting` 被 DAG 拒绝；两次非法 mixed batch 均零提交、零 patch，Map revision 7 保持完整。
+- Correlation keys:
+  - `WAR-20260810-180151-CACHE-REGRESSION-7E11A055`
+- Raw content:
+  ```text
+  provider_requests=6 business_success=false cache_hit_2_plus=0.926835
+  first patch: ClientNodeNotExecutable(fix, Waiting)
+  next two batches: InvalidJson; git diff empty
+  ```
+- Interpretation: 本轮不是缓存坍缩、usage 缺失、Runtime 自动状态推进或预算过早终止；继续增加请求不能替代协议修复。
+- Time: 2026-08-10 18:10

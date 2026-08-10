@@ -45,6 +45,12 @@
 > 第三次请求在 Provider 执行前被预算代理以 429 截止，因此没有 patch。I03 的新 wire 在线可用性已通过，但端到端动作闭环仍待新预算；
 > VA-03 继续阻断。详见 [`taskspace-exec/39-phase-b5-va02-revalidation-result.md`](taskspace-exec/39-phase-b5-va02-revalidation-result.md)。
 
+> **VA-02 六请求端到端复验（2026-08-10）**：前三次 outer Exec 完成初始化、读取和失败测试；第 4 次在依赖未满足的
+> `fix` 节点 patch，被 DAG 正确拒绝。第 5、6 次都尝试 `update_map + client(apply_patch)`，但 Agent 在 map/client 边界少一个
+> `}`，第二次收到解析错误后仍逐字重复。patch 字符串转义正确，Runtime 未改写、补括号或产生副作用。I03 转为 mixed transition
+> 协议表现待决策；I04 已获得当前生产观察。6 requests 共 97,584 input、91,392 cached、2,056 output，request 2+ 缓存命中
+> 92.68%，排除缓存和预算过早截止为本轮根因。VA-03 继续阻断。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -94,11 +100,11 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | 新 wire 运行已直接结算 2 requests、usage、缓存、费用和账本，旧计数漂移未复现；但 section cost unavailable、base-instructions identity unrecognized 仍待收敛 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 新 `map/client` wire 在线连续两次保持 outer Exec，初始化与两个 client Action 均成功；两请求预算在 patch 前截止，尚未验证完成并结束 | [verifying](taskspace-exec/39-phase-b5-va02-revalidation-result.md) | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 当前 DAG/readiness 硬规则确定性通过；是否仍有错误选择只能由 E3 判断 | queued | GI-004 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | outer 层级修复在线成立；但 `update_map + client(apply_patch)` 连续两次少一个 map wrapper 闭合括号，当前候选为同源 mixed 示例或进一步简化 wire，待产品决策 | [verifying](taskspace-exec/39-phase-b5-va02-revalidation-result.md) | GI-003 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 六请求复验中首次直接在 waiting `fix` 节点 patch，Runtime 零副作用拒绝；Agent随后理解需先完成 inspect，问题已真实观察但尚未归因是否稳定 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 新 wire 单臂第二请求缓存命中 94.69%，证明此前 54.69% 不是当前稳定必现；尚无同 commit 四臂证据，不能评价相对 Standard 成本 | queued | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 端到端在线验收**。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。
 
 ## 4. VA-04A 证据边界
 
@@ -108,8 +114,9 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 静态关闭候选 | I01、I02、I05、I06 | 旧根因和旧生产路径为零，新 Exec 的唯一反馈、内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试、误读拒绝或非法组合 |
 | 工程完成待生产验收 | I10 | catalog、dispatch、request scope、Provider/Exec trace 和报告共用同一 Runtime-only identity；Standard request 不变 | 当前 Provider trace 是否完整携带且逐 request 一致 |
 | 工程修复后待补齐观测 | I07 | 新生产 run 已直接完成 request/usage/cache/cost/ledger 可信结算 | section cost 与 base-instructions identity 为什么仍不可用 |
-| 新 wire 在线通过、端到端待验 | I03 | 目标模型连续两次正确生成 outer Exec，初始化与嵌套 client Action 均成功，旧提升未复现 | 允许足够请求后能否继续生成 patch、验证和 finish 组合；通过前不关闭 I03 |
-| 行为/成本待验证 | I04、I08 | 当前 DAG 和测量工具已具备验证条件 | 节点选择、三种 projection 成本与业务收益；VA-03 尚未开始 |
+| outer wire 在线通过、mixed transition 待修 | I03 | 旧顶层提升未复现；初始化、读取和测试均走合法 outer Exec | 如何最小收敛 `update_map + client` 的重复 JSON 边界错误 |
+| 当前行为已观察 | I04 | Agent 一次选择 waiting 节点，Runtime 按 DAG 正确拒绝且反馈未丢失 | 该错误是否稳定，以及 I03 收敛后是否自然消失 |
+| 成本待验证 | I08 | map-request 后续请求缓存命中 92.68%，当前无缓存回归 | 三种 projection 相对 Standard 的业务收益和不可约成本；VA-03 尚未开始 |
 
 本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server
 Protocol 183、workspace、zero-base 和 cache gate 全部通过，详见

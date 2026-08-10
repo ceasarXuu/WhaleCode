@@ -1,12 +1,13 @@
 # Phase B5 VA-02 复验结果
 
 - Date: 2026-08-10
-- Status: evidence complete / new map-client wire verified online / end-to-end VA-02 budget-limited
+- Status: evidence complete / outer map-client wire verified / mixed transition blocked
 - Model: `deepseek-v4-flash`
 - Scope: `single-file-fast-fix` × `map-request` × repeat 1
 - Record: `WAR-20260810-051702-CACHE-REGRESSION-EEF1DDF4`
 - Zero-Hosted revalidation: `WAR-20260810-061241-CACHE-REGRESSION-A143B6F0`
 - Map-client wire revalidation: `WAR-20260810-174818-CACHE-REGRESSION-0EF76553`
+- End-to-end revalidation: `WAR-20260810-180151-CACHE-REGRESSION-7E11A055`
 - Subject: `7cbaa46a2627214c2fb891edc3844b3cc0c30c37`
 
 ## 1. 结论
@@ -181,9 +182,55 @@ VA-03 继续阻断。“已声明 outer Tool 下仍生成未声明内层 Tool �
 
 本轮不自动重试。若要完成 VA-02 的端到端业务验收，需要重新申请能够覆盖“初始化/发现、读取、修改、验证、结束”的请求预算；这只是验证预算调整，不改变 TaskSpace 产品协议。
 
-## 12. 证据路径
+## 12. 六请求端到端复验
+
+用户批准 `single-file-fast-fix × map-request × repeat=1`、最多 6 个 Provider 请求、无重试。本轮不再受两请求预算过早截止影响，但仍未完成业务任务。
+
+| Request | Agent 行为 | 结果 |
+|---:|---|---|
+| 1 | 初始化 `root -> inspect -> fix -> verify -> finish`，并发现文件 | 合法 outer Exec；成功 |
+| 2 | 读取 README、实现和测试 | 合法 outer Exec；成功 |
+| 3 | 运行失败测试确认根因 | 合法 outer Exec；成功 |
+| 4 | 直接在 `fix` 节点调用 `apply_patch` | DAG 正确拒绝：`fix` 仍为 waiting |
+| 5 | 尝试同批完成 `inspect`、激活 `fix` 并 patch | arguments 少一个 map call 闭合 `}`；严格拒绝 |
+| 6 | 明确表示修正 envelope，但逐字重复 Request 5 | 同一 JSON 错误；严格拒绝 |
+
+严格解析证明多行 patch 已正确使用 `\n`，错误不在 Freeform 输入。实际边界是：
+
+```text
+actual:   ... node_patches:[...]}}, {"client":...}}
+required: ... node_patches:[...]}}}, {"client":...}}
+```
+
+因此本轮结论是：
+
+1. 新 wire 的 outer/inner 分离在线成立，前五个有效新 wire 调用均保持顶层 `taskspace_exec`，未复现顶层 client Tool 提升。
+2. I04 当前表现被真实观察到：Agent 首次选择了依赖未满足的 `fix`；Runtime 只按 DAG 硬规则拒绝，边界正确。
+3. I03 尚未关闭：Agent 在未提供 canonical 示例的 `update_map + client(apply_patch)` mixed 组合中连续生成同一非法 JSON。
+4. Runtime 没有修复括号、自动完成节点或执行 patch；Map 与工作区保持无副作用一致。
+5. 继续增加请求预算不是修复方案。下一步需要在“同源 mixed transition 示例”与“进一步简化 call wire”之间做产品协议选择，之后才能实施并另行复验。
+
+| 指标 | 数值 |
+|---|---:|
+| Provider requests | 6 |
+| Input tokens | 97,584 |
+| Cached input | 91,392 |
+| Uncached input | 6,192 |
+| Output tokens | 2,056 |
+| Request 2+ cache hit | 92.68% |
+| Agent sample elapsed | 51.777 s |
+| Runner elapsed | 56.004 s |
+| Estimated known cost | USD 0.0016984576 |
+
+## 13. 证据路径
 
 新增证据：
+
+- Result: `benchmarks/cache-regression/results/WAR-20260810-180151-CACHE-REGRESSION-7E11A055.json`
+- Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-180151-CACHE-REGRESSION-7E11A055/`
+- Local trace: `target/cache-hit-regression/WAR-20260810-180151-CACHE-REGRESSION-7E11A055/`
+
+### 两请求 map-client wire 证据
 
 - Result: `benchmarks/cache-regression/results/WAR-20260810-174818-CACHE-REGRESSION-0EF76553.json`
 - Durable evidence: `benchmarks/cache-regression/evidence/WAR-20260810-174818-CACHE-REGRESSION-0EF76553/`
