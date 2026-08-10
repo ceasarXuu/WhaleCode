@@ -434,6 +434,7 @@ async fn nested_native_calls_reuse_original_router_in_declared_order() -> anyhow
         specs,
         parallel_mcp_server_names: HashSet::new(),
         taskspace_response_scope: None,
+        taskspace_catalog: None,
     };
     let (session, turn) = make_session_and_context().await;
     let session = Arc::new(session);

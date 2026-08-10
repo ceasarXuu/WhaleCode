@@ -535,6 +535,7 @@ fn client_node_state_and_function_schema_are_checked_before_dispatch() {
             index: 0,
             node_id: "waiting".into(),
             state: NodeState::Waiting,
+            incomplete_parent_ids: vec!["work".into()],
         })
     );
 

@@ -15,7 +15,9 @@ use crate::tools::taskspace_exec::TaskSpaceExecCatalog;
 use crate::tools::taskspace_exec::TaskSpaceExecCatalogError;
 use crate::tools::taskspace_exec::TaskSpaceExecHandler;
 use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
+use crate::tools::taskspace_exec::TaskSpaceExecSelfHeal;
 use crate::tools::taskspace_exec::retain_available_deferred_specs;
+use crate::tools::taskspace_exec::self_heal_taskspace_exec_response_item;
 use codex_mcp::ToolInfo;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::LocalShellAction;
@@ -63,6 +65,7 @@ pub struct ToolRouter {
     model_visible_specs: Vec<ToolSpec>,
     parallel_mcp_server_names: HashSet<String>,
     taskspace_response_scope: Option<Arc<TaskSpaceExecResponseScope>>,
+    taskspace_catalog: Option<Arc<TaskSpaceExecCatalog>>,
 }
 
 pub(crate) struct ToolRouterParams<'a> {
@@ -86,6 +89,7 @@ impl ToolRouter {
             model_visible_specs,
             parallel_mcp_server_names: HashSet::new(),
             taskspace_response_scope: None,
+            taskspace_catalog: None,
         }
     }
 
@@ -131,6 +135,7 @@ impl ToolRouter {
             model_visible_specs,
             parallel_mcp_server_names,
             taskspace_response_scope: None,
+            taskspace_catalog: None,
         }
     }
 
@@ -167,7 +172,7 @@ impl ToolRouter {
         builder.register_handler(
             TASKSPACE_EXEC_TOOL_NAME,
             Arc::new(TaskSpaceExecHandler::new(
-                catalog,
+                Arc::clone(&catalog),
                 client_router,
                 Arc::clone(&response_scope),
             )),
@@ -180,6 +185,7 @@ impl ToolRouter {
             model_visible_specs,
             parallel_mcp_server_names: HashSet::new(),
             taskspace_response_scope: Some(response_scope),
+            taskspace_catalog: Some(catalog),
         })
     }
 
@@ -191,6 +197,14 @@ impl ToolRouter {
         self.taskspace_response_scope
             .as_ref()
             .map(|scope| scope.capability_identity())
+    }
+
+    pub(crate) fn self_heal_taskspace_response_item(
+        &self,
+        item: &mut ResponseItem,
+    ) -> Option<TaskSpaceExecSelfHeal> {
+        let catalog = self.taskspace_catalog.as_deref()?;
+        self_heal_taskspace_exec_response_item(item, catalog)
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {

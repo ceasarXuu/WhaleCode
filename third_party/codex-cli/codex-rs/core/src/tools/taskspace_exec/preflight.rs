@@ -74,6 +74,7 @@ pub(crate) enum TaskSpaceExecPreflightError {
         index: usize,
         node_id: String,
         state: NodeState,
+        incomplete_parent_ids: Vec<String>,
     },
     ClientNodeNotWork {
         index: usize,
@@ -267,10 +268,21 @@ fn validate_client_call(
         node.state,
         NodeState::Ready | NodeState::InFlight | NodeState::Blocked
     ) {
+        let incomplete_parent_ids = node
+            .parents
+            .iter()
+            .filter(|parent_id| {
+                *parent_id != &map.root.node_id
+                    && rooted_dag::node(map, parent_id)
+                        .is_none_or(|parent| parent.state != NodeState::Completed)
+            })
+            .cloned()
+            .collect();
         return Err(TaskSpaceExecPreflightError::ClientNodeNotExecutable {
             index,
             node_id: node.node_id.clone(),
             state: node.state,
+            incomplete_parent_ids,
         });
     }
     let capability = envelope

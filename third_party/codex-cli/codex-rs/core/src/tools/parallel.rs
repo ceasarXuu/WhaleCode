@@ -22,6 +22,7 @@ use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
 use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
+use crate::tools::taskspace_exec::TaskSpaceExecSelfHeal;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
 use codex_tools::ToolSpec;
@@ -86,6 +87,13 @@ impl ToolCallRuntime {
 
     pub(crate) fn taskspace_capability_identity(&self) -> Option<Arc<str>> {
         self.router.taskspace_capability_identity()
+    }
+
+    pub(crate) fn self_heal_taskspace_response_item(
+        &self,
+        item: &mut codex_protocol::models::ResponseItem,
+    ) -> Option<TaskSpaceExecSelfHeal> {
+        self.router.self_heal_taskspace_response_item(item)
     }
 
     #[instrument(level = "trace", skip_all)]

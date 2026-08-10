@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use tracing_test::traced_test;
 
 use super::*;
+use crate::action_map::rooted_dag::NodeState;
 use crate::function_tool::FunctionCallError;
 use crate::session::session::Session;
 use crate::session::tests::make_session_and_context;
@@ -28,6 +29,23 @@ use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::ToolCallSource;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
+
+#[test]
+fn waiting_preflight_feedback_names_incomplete_parents_without_prescribing_work() {
+    let feedback = super::handler::render_preflight_rejection(
+        &TaskSpaceExecPreflightError::ClientNodeNotExecutable {
+            index: 2,
+            node_id: "implement".into(),
+            state: NodeState::Waiting,
+            incomplete_parent_ids: vec!["inspect".into(), "design".into()],
+        },
+    );
+
+    assert_eq!(
+        feedback,
+        "client call 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. No Map or client calls were executed."
+    );
+}
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::tools::registry::ToolRegistryBuilder;

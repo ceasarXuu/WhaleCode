@@ -1293,8 +1293,8 @@
 - Related evidence:
   - E-029
 - Conclusion: confirmed。唯一正确接缝是 `session/turn` 收到完成 ResponseItem 后、response scope/history/rollout/dispatch 之前；Provider raw wire 可以保留原始 transport 证据，但不得成为 Agent 后续正式上下文。
-- Repair design readiness: planned as SR-01～SR-03
-- Next step: 实施唯一候选的单 `}`/`]` 修复和落账前替换，不建设通用 JSON 猜测层。
+- Repair design readiness: implemented and verified offline as SR-01～SR-03
+- Next step: 只在获得新预算后复验 Provider 行为；不得用离线修复宣称 Agent 已稳定。
 - Blocker:
   - none
 - Close reason:
@@ -1339,8 +1339,8 @@
   - E-027
   - E-030
 - Conclusion: confirmed。DAG 和零副作用拒绝正确；明确工程缺口是 `ClientNodeNotExecutable` 只以 Debug 枚举返回状态，没有机械列出未完成父节点，增加了 Agent 重新推断成本。
-- Repair design readiness: planned as WF-01
-- Next step: 反馈增加 candidate Map 中未完成直接父节点和零执行范围，不自动选点、完成节点或建议下一动作。
+- Repair design readiness: implemented and verified offline as WF-01
+- Next step: 只在获得新预算后观察 Agent 是否减少一次 waiting 误用；不再扩大 Runtime 状态控制。
 - Blocker:
   - none
 - Close reason:
@@ -1384,8 +1384,8 @@
   - E-028
   - E-031
 - Conclusion: confirmed。缺口只在 benchmark consumer，不在 Runtime 执行、Map action 或 outer result；修复应复用当前 Exec action 解码事实，不增加第二 Runtime 事件源。
-- Repair design readiness: planned as OB-03
-- Next step: 分开计量声明、preflight reject、真实执行和结果；非法 outer JSON 标为不可解析，不能静默计零。
+- Repair design readiness: implemented and verified offline as OB-03
+- Next step: 完整 I07 仍随下一次生产验收结算；Patch 专项缺口不再阻塞离线报告。
 - Blocker:
   - none
 - Close reason:
@@ -1409,4 +1409,40 @@
   exec observer:  taskspace_exec -> calls[].client.name
   ```
 - Interpretation: 两个消费者对同一当前协议使用了不同解析口径，导致 patch 指标与 Exec 主计数矛盾。
+- Time: 2026-08-11
+
+## Evidence E-032: 自愈后的 FunctionCall 在正式落账前替换原项
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: deterministic-test
+- Source: `taskspace_exec/self_heal.rs`、`session/turn.rs`、`session/tests.rs`
+- Matched signal:
+  - 单个缺失 `}` 或 `]` 只有唯一候选通过严格 JSON 与当前 Catalog 时才改写；缺多个闭合符、合法输入和非 Exec 输入保持原样。
+  - session test 证明 history 只记录修正版，错误参数串不进入正式历史。
+- Interpretation: 执行、Map response scope 和后续上下文使用同一个修正版；自愈未下沉到 handler 形成双重事实。
+- Time: 2026-08-11
+
+## Evidence E-033: waiting 拒绝只增加机械父节点事实
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: deterministic-test
+- Source: `taskspace_exec/preflight.rs`、`handler.rs`、preflight/handler tests
+- Matched signal:
+  - `ClientNodeNotExecutable` 携带 waiting 节点的未完成直接父节点；反馈同时声明整批 Map/client calls 零执行。
+  - 80 个 TaskSpace Exec tests 全部通过，节点状态仍只由 Agent 的显式 Map operation 改变。
+- Interpretation: Runtime 没有自动完成父节点、替 Agent 选点或注入下一步建议，只忠实暴露硬规则拒绝事实。
+- Time: 2026-08-11
+
+## Evidence E-034: 原始 VA-02 rollout 的 patch 专项复算与执行事实一致
+- Related hypotheses:
+  - H-018
+- Direction: supports
+- Type: artifact-replay
+- Source: `target/cache-hit-regression/WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7/.../artifacts/rollout.jsonl`
+- Matched signal:
+  - 修复后的 observer 输出 `declarations=2`、`preflight_rejects=1`、`dispatch_results=1`、`parse_failures=1`。
+  - 三个 observer self-test 通过；当前 Exec 主 observer 与 patch 专项共用 canonical calls decoder。
+- Interpretation: 历史零 patch 是消费者漏计，不是 Runtime 未执行；坏 JSON 单列为不可解析，不再静默混入零声明。
 - Time: 2026-08-11

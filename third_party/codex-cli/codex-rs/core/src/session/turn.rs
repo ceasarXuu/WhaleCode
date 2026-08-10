@@ -2110,7 +2110,8 @@ async fn try_run_sampling_request(
 
         match event {
             ResponseEvent::Created => {}
-            ResponseEvent::OutputItemDone(item, output_index) => {
+            ResponseEvent::OutputItemDone(mut item, output_index) => {
+                self_heal_completed_response_item(&tool_runtime, &mut item);
                 if let Some(scope) = taskspace_response_scope.as_ref() {
                     scope.record_completed_item(output_index, &item);
                 }
@@ -2504,6 +2505,25 @@ async fn try_run_sampling_request(
     }
 
     outcome
+}
+
+pub(super) fn self_heal_completed_response_item(
+    tool_runtime: &ToolCallRuntime,
+    item: &mut ResponseItem,
+) -> bool {
+    let Some(repair) = tool_runtime.self_heal_taskspace_response_item(item) else {
+        return false;
+    };
+    tracing::info!(
+        target: "codex_core::taskspace_exec",
+        event_name = "taskspace.exec.arguments_self_healed",
+        call_id = %repair.call_id,
+        inserted_delimiter = %repair.inserted_delimiter,
+        insertion_byte_index = repair.insertion_byte_index,
+        original_arguments_sha256 = %repair.original_arguments_sha256,
+        repaired_arguments_sha256 = %repair.repaired_arguments_sha256,
+    );
+    true
 }
 
 fn taskspace_response_reconciliation_error(message: String) -> CodexErr {

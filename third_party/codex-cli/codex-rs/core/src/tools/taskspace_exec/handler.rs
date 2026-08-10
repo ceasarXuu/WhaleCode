@@ -23,6 +23,7 @@ use super::TaskSpaceExecRequestContext;
 use super::TaskSpaceExecResponseScope;
 use super::dispatch::dispatched_outcome;
 use super::dispatch_client_calls;
+use super::preflight::TaskSpaceExecPreflightError;
 use super::preflight_taskspace_exec;
 use super::prepare_client_calls;
 use super::result::ClientResult;
@@ -110,7 +111,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                     taskspace_rejection(
                         "preflight_rejected",
                         Some(&invocation.call_id),
-                        format!("preflight: {error:?}"),
+                        render_preflight_rejection(&error),
                     )
                 })?;
         tracing::info!(
@@ -421,6 +422,31 @@ fn render_envelope_rejection(error: &TaskSpaceExecEnvelopeError) -> String {
             detail,
         )) => format!("invalid top-level contract: {detail}. {DIRECT_CALLS}"),
         _ => format!("invalid envelope: {error:?}. No Map or client calls were executed."),
+    }
+}
+
+pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) -> String {
+    match error {
+        TaskSpaceExecPreflightError::ClientNodeNotExecutable {
+            index,
+            node_id,
+            state,
+            incomplete_parent_ids,
+        } => format!(
+            "client call {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. No Map or client calls were executed.",
+            node_state_label(*state)
+        ),
+        _ => format!("preflight: {error:?}. No Map or client calls were executed."),
+    }
+}
+
+fn node_state_label(state: rooted_dag::NodeState) -> &'static str {
+    match state {
+        rooted_dag::NodeState::Waiting => "waiting",
+        rooted_dag::NodeState::Ready => "ready",
+        rooted_dag::NodeState::InFlight => "in_flight",
+        rooted_dag::NodeState::Blocked => "blocked",
+        rooted_dag::NodeState::Completed => "completed",
     }
 }
 

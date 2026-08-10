@@ -11,6 +11,7 @@ mod protocol;
 mod response_scope;
 mod result;
 mod schema_validation;
+mod self_heal;
 
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;
 pub(crate) use catalog::TaskSpaceExecCatalog;
@@ -50,6 +51,8 @@ pub(crate) use protocol::canonical_handoff_example;
 pub(crate) use protocol::canonical_read_example;
 pub(crate) use response_scope::TaskSpaceExecResponseIdentity;
 pub(crate) use response_scope::TaskSpaceExecResponseScope;
+pub(crate) use self_heal::TaskSpaceExecSelfHeal;
+pub(crate) use self_heal::self_heal_taskspace_exec_response_item;
 
 #[cfg(test)]
 #[path = "../taskspace_exec_tests.rs"]
