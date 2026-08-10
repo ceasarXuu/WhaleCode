@@ -1739,7 +1739,7 @@ async fn runtime_mode_selects_the_matching_complete_base_instructions() {
     assert_eq!(taskspace.profile.as_str(), "taskspace");
     assert_eq!(
         taskspace.instructions.text,
-        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD
+        codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
     );
 }
 

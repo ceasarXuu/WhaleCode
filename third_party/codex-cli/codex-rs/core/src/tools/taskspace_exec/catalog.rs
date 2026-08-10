@@ -26,7 +26,8 @@ use super::result::result_schema;
 use super::source_carrier;
 
 pub(crate) const TASKSPACE_EXEC_TOOL_NAME: &str = "taskspace_exec";
-const RECURSIVE_TOOL_NAMES: [&str; 3] = [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait"];
+const EXCLUDED_CLIENT_TOOL_NAMES: [&str; 4] =
+    [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait", "update_plan"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TaskSpaceExecCarrier {
@@ -128,7 +129,7 @@ impl TaskSpaceExecCatalog {
                         _ => unreachable!("matched client ToolSpec"),
                     };
                     for capability in project_tool_spec_capabilities(spec) {
-                        if is_recursive_capability(&capability)
+                        if is_excluded_client_capability(&capability)
                             || (capability.deferred
                                 && !loaded_deferred_names.contains(&capability.tool_name))
                         {
@@ -164,7 +165,7 @@ impl TaskSpaceExecCatalog {
         for spec in loaded_deferred_specs {
             for capability in project_tool_spec_capabilities(spec) {
                 if !capability.deferred
-                    || is_recursive_capability(&capability)
+                    || is_excluded_client_capability(&capability)
                     || registered_spec_names.contains(&capability.tool_name)
                 {
                     continue;
@@ -259,9 +260,9 @@ impl TaskSpaceExecCatalog {
     }
 }
 
-fn is_recursive_capability(capability: &ToolSpecCapability) -> bool {
+fn is_excluded_client_capability(capability: &ToolSpecCapability) -> bool {
     capability.tool_name.namespace.is_none()
-        && RECURSIVE_TOOL_NAMES.contains(&capability.tool_name.name.as_str())
+        && EXCLUDED_CLIENT_TOOL_NAMES.contains(&capability.tool_name.name.as_str())
 }
 
 #[derive(Serialize)]

@@ -33,6 +33,8 @@ pub(crate) use available_skills_instructions::AvailableSkillsInstructions;
 pub(crate) use base_instructions_profile::ResolvedBaseInstructions;
 pub(crate) use base_instructions_profile::WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256;
 pub(crate) use base_instructions_profile::WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION;
+pub(crate) use base_instructions_profile::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256;
+pub(crate) use base_instructions_profile::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION;
 pub(crate) use base_instructions_profile::resolve_base_instructions;
 pub(crate) use collaboration_mode_instructions::CollaborationModeInstructions;
 pub(crate) use contextual_user_message::is_contextual_user_fragment;

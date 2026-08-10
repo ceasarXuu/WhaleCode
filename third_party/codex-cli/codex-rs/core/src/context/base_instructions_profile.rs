@@ -1,5 +1,6 @@
 #[cfg(test)]
 use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD;
+use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::protocol::MapRuntimeMode;
 use sha2::Digest;
@@ -8,6 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.0";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
+    "db2095e88dd61fb2a7118526be3f43b1aa729f7db89d494700d55b4989810286";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -26,14 +30,14 @@ impl WhaleCodeBaseInstructionsProfile {
     pub(crate) fn version(self) -> &'static str {
         match self {
             Self::Standard => WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
-            Self::TaskSpace => WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
+            Self::TaskSpace => WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
         }
     }
 
     pub(crate) fn expected_sha256(self) -> &'static str {
         match self {
             Self::Standard => WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
-            Self::TaskSpace => WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
+            Self::TaskSpace => WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
         }
     }
 }
@@ -58,7 +62,7 @@ pub(crate) fn resolve_base_instructions(
     };
     let text = match profile {
         WhaleCodeBaseInstructionsProfile::Standard => standard_instructions,
-        WhaleCodeBaseInstructionsProfile::TaskSpace => standard_instructions,
+        WhaleCodeBaseInstructionsProfile::TaskSpace => BASE_INSTRUCTIONS_WHALECODE_TASKSPACE,
     };
     let sha256 = sha256(text);
     let matches_current_contract = sha256 == profile.expected_sha256();
@@ -94,6 +98,10 @@ mod tests {
             sha256(BASE_INSTRUCTIONS_WHALECODE_STANDARD),
             WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256
         );
+        assert_eq!(
+            sha256(BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256
+        );
     }
 
     #[test]
@@ -109,7 +117,10 @@ mod tests {
             "\"arguments\"",
         ];
 
-        for (profile, prompt) in [("standard", BASE_INSTRUCTIONS_WHALECODE_STANDARD)] {
+        for (profile, prompt) in [
+            ("standard", BASE_INSTRUCTIONS_WHALECODE_STANDARD),
+            ("taskspace", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+        ] {
             for fragment in FORBIDDEN_TOOL_WIRE_FRAGMENTS {
                 assert!(
                     !prompt.contains(fragment),
@@ -142,9 +153,30 @@ mod tests {
         );
         assert_eq!(
             taskspace.instructions.text,
-            BASE_INSTRUCTIONS_WHALECODE_STANDARD
+            BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
         );
         assert!(taskspace.matches_current_contract);
+    }
+
+    #[test]
+    fn taskspace_base_excludes_standard_plan_and_direct_client_tool_contracts() {
+        for forbidden in [
+            "update_plan",
+            "in_progress",
+            "Emit function calls to run terminal commands and apply patches",
+            "`apply_patch`",
+            "`exec_command`",
+            "`taskspace_control`",
+        ] {
+            assert!(
+                !BASE_INSTRUCTIONS_WHALECODE_TASKSPACE.contains(forbidden),
+                "TaskSpace Base contains conflicting contract fragment: {forbidden}"
+            );
+        }
+        assert!(
+            BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
+                .contains("sole top-level entry point for Map operations and client Tool calls")
+        );
     }
 
     #[test]

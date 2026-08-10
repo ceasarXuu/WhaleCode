@@ -216,6 +216,26 @@ Source 的首请求与 request 2 缓存率受到新 Tool shape 首次出现影�
 本轮只提供方向性证据，不自动选择 carrier。是否执行两臂各 repeat 3、是否先优化 Source wire/observer，均需新的用户决策和
 独立预算。
 
+## 10.4 顶层 Tool 逃逸根因与修复
+
+2026-08-10 对 Structured 重复 trace 和当前请求构造链做了交叉核对，确认逃逸不是 Structured decoder 随机失效，也不是
+Runtime 应当通过更多事后惩罚纠正 Agent。TaskSpace 当时直接复用了 Standard base instructions；其中同时存在直接调用普通
+client Tool 和使用线性 `update_plan` 的工作说明，而 TaskSpace 请求面只允许顶层 `taskspace_exec`。因此 Agent 收到的完整
+行为合同自相矛盾：Tool schema 要求使用 Exec，base 却持续强化 Standard 的顶层工具习惯。Pair 005 使用 `in_progress` 等
+线性计划状态也属于同一冲突的另一表现。
+
+修复保持在合同构造边界内：
+
+1. Standard base 和 Standard Tool 面保持不变；
+2. TaskSpace 选择独立完整 base，继承同一成熟通用框架，只替换与 Map/Exec 工作方式冲突的段落；
+3. TaskSpace base 只说明宏观工作协议，不复制 Tool wire、具体调用示例或 Runtime 决策；
+4. TaskSpace Exec 的内部 capability catalog 排除线性 `update_plan`，避免通过超级工具重新暴露第二套计划机制；
+5. Provider wire trace 为 TaskSpace base 记录独立 version/hash，便于后续确认实际生效前缀。
+
+本修复不改变 Map schema、DAG 状态、preflight、Router、client Tool handler、Provider hosted 处理或 Standard 路径。离线
+Structured 与 Source TaskSpace Exec 测试均为 73 PASS，base 选择、wire identity 和 catalog 排除有独立定向测试。真实修复
+收益由后续 `standard / structured / source × repeat=3` 同样本矩阵判断，不用离线测试替代稳定性结论。
+
 ## 11. Structured 重复观测
 
 2026-08-10 用户批准同一 Structured 配置和同一 sample `repeat=5`，用于复核未声明顶层 Tool escape。执行使用冻结

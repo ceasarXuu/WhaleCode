@@ -2,6 +2,7 @@ use codex_api::ResponsesApiRequest;
 use codex_api::WireApi;
 use codex_api::build_chat_completions_body;
 use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD;
+use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE;
 use codex_protocol::protocol::TokenUsage;
 use serde::Serialize;
 use serde_json::Value;
@@ -16,6 +17,8 @@ use tracing::warn;
 
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256;
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION;
+use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256;
+use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION;
 
 #[path = "provider_wire_sections.rs"]
 mod provider_wire_sections;
@@ -361,6 +364,12 @@ fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentit
                     WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
                     WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
                 ))
+            } else if text == BASE_INSTRUCTIONS_WHALECODE_TASKSPACE {
+                Some((
+                    "taskspace",
+                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
+                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
+                ))
             } else {
                 None
             };
@@ -703,6 +712,30 @@ mod tests {
         assert_eq!(
             identity.sha256,
             Some(WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256)
+        );
+        assert!(identity.matches_current_contract);
+        assert_eq!(identity.unavailable_reason, None);
+    }
+
+    #[test]
+    fn taskspace_base_identity_tracks_version_hash_and_position() {
+        let messages = vec![
+            message("developer", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            message("user", "task"),
+        ];
+
+        let identity = base_instructions_identity(&messages);
+        assert_eq!(identity.count, 1);
+        assert_eq!(identity.message_index, Some(0));
+        assert_eq!(identity.wire_role.as_deref(), Some("developer"));
+        assert_eq!(identity.profile, Some("taskspace"));
+        assert_eq!(
+            identity.version,
+            Some(WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION)
+        );
+        assert_eq!(
+            identity.sha256,
+            Some(WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256)
         );
         assert!(identity.matches_current_contract);
         assert_eq!(identity.unavailable_reason, None);

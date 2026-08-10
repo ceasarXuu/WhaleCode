@@ -90,6 +90,7 @@ fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec::Function(function("exec")),
         ToolSpec::Function(function("wait")),
+        ToolSpec::Function(function("update_plan")),
     ]
 }
 
@@ -122,6 +123,7 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     }
     assert!(!rendered.contains("\"exec\""));
     assert!(!rendered.contains("\"wait\""));
+    assert!(!rendered.contains("update_plan"));
     assert!(!rendered.contains("mcp__sample__lookup"));
     let input = serde_json::to_string(&first.declaration().parameters).unwrap();
     assert!(!input.contains("version"));

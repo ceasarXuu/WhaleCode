@@ -44,6 +44,15 @@ model-visible tools
 普通 client Tool 在 TaskSpace 顶层不再重复暴露。Map 操作从 canonical Action Map transaction 原语直接生成，与 client call
 同为 `calls[]` 中的平级 variant；它们不注册旧控制 Tool、不复用旧 handler，也不拥有 Runtime 控制器地位。
 
+TaskSpace 使用独立的完整 base instructions，但继续继承 Standard 已验证的通用编码 Agent 框架。两者只在工作协议上分流：
+TaskSpace base 说明 Map 的作用、Agent 对图结构和节点归属的责任，以及 `taskspace_exec` 是 client/map 动作的唯一顶层入口；
+它不得同时保留 Standard 的线性 `update_plan` 工作流或直接调用普通 client Tool 的行为说明。具体 Tool 名、参数、Map
+状态值和合法 wire 形状仍以本轮静态 `taskspace_exec` schema 为唯一权威，base 不复制第二份调用语法。
+
+TaskSpace 内部 client capability catalog 从原生 ToolSpec 机械派生，但必须排除协议本身、Codex code-mode 的递归执行入口、
+其配套等待入口和线性 `update_plan`。这些能力不属于 TaskSpace 的可执行工作面；排除只发生在 TaskSpace catalog，不改变
+Standard 的 Tool 注册或行为。
+
 `calls[]` 的两类 Agent-visible wire 必须保持结构分离：
 
 ```json
@@ -289,6 +298,7 @@ fallback 或兼容读取。
 ## 9. 验收标准
 
 1. TaskSpace 请求只顶层暴露 `taskspace_exec` 和 provider 必需的 hosted capability；Standard payload 无变化。
+   TaskSpace base 与该请求面一致，不同时教 Agent 直接调用普通 client Tool 或使用线性 `update_plan`。
 2. 同一静态 schema 支持 Agent 构造可变数量和顺序的调用；Agent 可在一个 `taskspace_exec` 中提交初始化并工作、多个
    独立 work、完成并继续、完成并结束。
 3. 每个 client call 的 `node_id` 由 Agent 声明，但原 Tool schema 和 handler 完全不知道 TaskSpace。
