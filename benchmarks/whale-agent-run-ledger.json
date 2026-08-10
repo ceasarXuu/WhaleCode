@@ -1,7 +1,76 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T21:31:58+08:00",
+  "updated_at": "2026-08-10T23:09:51+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260810-230951-R8-E01-ESCAPE-R3",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 TaskSpace Exec 顶层 client Tool 逃逸合同修复，并在同一提交上比较 Standard、Structured 和 Source 三种执行路径。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260810-R8-E01-ESCAPE-R3",
+        "reference": "用户于 2026-08-10 明确要求：先修复本轮逃逸问题，然后执行 standard、structured、source 三臂各 repeat=3。",
+        "budget_summary": {
+          "provider_requests": 54,
+          "input_tokens": 1200000,
+          "output_tokens": 50000,
+          "elapsed_seconds": 2700,
+          "estimated_cost": 0.25,
+          "currency": "USD"
+        },
+        "note": "仅限 single-file-fast-fix；每个样本最多 6 个 Provider 请求；总计 9 次样本；不自动重试，不扩展样本、arm 或 repeat。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "model": "deepseek-v4-flash",
+        "batch_count": 4,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "structured",
+          "source"
+        ],
+        "repeats_per_arm_per_sample": 3,
+        "planned_sample_runs": 9,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "USD",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "运行结束后按 canonical request facts 和冻结 DeepSeek 单价结算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-e01/runs",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "subject_commit": "85f14967c5ad2a1ea47f65bdd84d5b6ee6e375a5",
+        "structured_binary_sha256": "068bc0149afae05a704570078699f36da783e5bdb84afbffd4763b864c6b2a64",
+        "source_binary_sha256": "c64212b48cab877efa49e02547ebb5e3bd4d5e825a99682a0276f2a201fced90",
+        "stop_conditions": "9 个预定样本各执行一次；任一结果无论成功、失败、超时或取消均消耗对应配额；达到预算上限或出现基础设施级阻塞立即停止；禁止自动重试。"
+      }
+    },
     {
       "record_id": "WAR-20260810-212032-R8-VA02-STRUCTURED-R5",
       "record_type": "run_batch",
