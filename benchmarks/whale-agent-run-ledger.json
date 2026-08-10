@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T19:38:16+08:00",
+  "updated_at": "2026-08-10T19:39:45+08:00",
   "entries": [
     {
       "record_id": "WAR-20260810-193648-R8-VA02-CARRIER-AB",
@@ -68,7 +68,7 @@
         "note": "运行后按 provider token 遥测估算。"
       },
       "evidence": {
-        "planned_run_root": "target/r8-taskspace-exec-carrier-ab/runs",
+        "planned_run_root": "target/r8-va02-ab/runs",
         "subject_commit": "2bae4f063b191679b0328d81e137d39e25419449",
         "experiment_contract": "docs/v0.0.5/build-R8/taskspace-exec/40-va02-source-structured-ab-plan.md",
         "projection_policy": "map-request",
@@ -83,7 +83,9 @@
           "no automatic retry"
         ],
         "usage_evidence_status": "pending",
-        "current_arm": "structured"
+        "current_arm": "structured",
+        "pre_provider_harness_attempt": "target/r8-taskspace-exec-carrier-ab/runs/structured/single-file-fast-fix/structured-r1",
+        "pre_provider_harness_outcome": "rejected before Provider because the run root contained a forbidden treatment token; zero API requests"
       }
     },
     {
