@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: Dedicated TaskSpace base 已消除顶层 client Tool 逃逸，Source 已退役。最新 Structured 在线复验仍在首个初始化 batch 生成少一个闭合括号的 JSON；随后旧反馈把语法错误与合法 JSON 的顶层合同错误都标为 `InvalidJson`，Agent 四次逐字重复错误 `arguments` wrapper。第 6～8 请求恢复正确 wire、完整读取代码和测试并定位业务根因，但在 patch 前触及请求上限。当前 parser 已离线区分 syntax/contract 并明确 direct `calls` 与零执行，observer 也可完整计量同一失败 run；不修补 JSON、不推断节点、不替 Agent 决策。整体保持 verifying，修复后的在线行为及原 canonical handoff 仍待新预算。
+- Current conclusion: Dedicated TaskSpace base 已消除顶层 client Tool 逃逸，Source 已退役。I05 修复后的在线复验再次出现首请求少一个闭合括号，但新反馈准确说明 syntax、direct `calls` 和零执行，Agent 下一请求立即纠正且未再产生 wrapper 重复。随后正确 patch、3 项测试和完整 Map 均完成，canonical parent handoff 在线可执行。最终自然语言回复所需的第 9 次本地请求被 8-request 授权边界在 Provider 前截断，因此端到端仍为 partial。I03、I04 继续开放；I07 新发现 nested patch 漏计。整体保持 verifying。
 - Related hypotheses:
   - H-001
   - H-002
@@ -48,7 +48,7 @@
   - H-014
   - H-015
 - Resolution basis:
-  - E-001 至 E-026；H-012 确认顶层逃逸消失，H-013 确认交接合同缺口并完成离线修复，H-014 确认观测实现漂移，H-015 确认解析反馈层级扭曲并完成离线修复。
+  - E-001 至 E-028；H-012 确认顶层逃逸消失，H-013 的交接合同已在线走通，H-015 的反馈修复已在线验证，H-014 新增 nested patch 观测缺口。
 - Close reason:
   - not closed
 
@@ -1129,13 +1129,13 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-025
-- Conclusion: 两个观测缺陷已修复；当前 Structured fixture、canonical rejection 和 Responses 顶层 instructions 测试通过。
+- Conclusion: 原两个观测缺陷已修复，当前 Structured fixture、canonical rejection 和 Responses 顶层 instructions 测试通过；E-028 又坐实 patch 专项消费者仍未读取 Exec 内部 `client.name=apply_patch`，因此整体观测问题继续开放。
 - Repair design readiness: implemented offline
-- Next step: 用下一次获批生产 trace 验收真实数据完整性。
+- Next step: 在 I07 内修复 nested patch lifecycle 消费，不改 Exec、Router 或 Agent 协议。
 - Blocker:
   - none
 - Close reason:
-  - verified offline
+  - not closed
 
 ## Evidence E-025: 生产 wire 与观测代码字段逐项不一致
 - Related hypotheses:
@@ -1195,11 +1195,11 @@
   - E-026
 - Conclusion: confirmed。parser 现先解析通用 JSON，再校验 `RawPlan`；handler 忠实区分 syntax 与 top-level contract，明确 direct `calls`、禁止 `arguments` wrapper 和零执行。未增加容错执行。
 - Repair design readiness: implemented offline
-- Next step: 新预算下验证错误发生时 Agent 是否一次纠正，并继续观察首个 JSON syntax 失败率。
+- Next step: 在线目标已满足；后续 syntax 生成稳定性归 I03，不再以 I05 名义重复验证。
 - Blocker:
-  - 真实 Provider 预算。
+  - none
 - Close reason:
-  - verified offline
+  - verified online
 
 ## Evidence E-026: 最新 Structured run 的五次协议拒绝由两类错误组成
 - Related hypotheses:
@@ -1223,4 +1223,52 @@
   taskspace_exec: rejected=5 executed_map=1 executed_client=3 patch=0
   ```
 - Interpretation: 本轮没有抵达 handoff，不能验证或否定 H-013。首个非 strict Function arguments 语法稳定性仍属 I03；四次后续放大由 H-015 的反馈分类缺陷解释。请求上限是终止点，不是首因。
+- Time: 2026-08-11
+
+## Evidence E-027: 新反馈使 Agent 在下一请求一次恢复并完成工作
+- Related hypotheses:
+  - H-013
+  - H-015
+- Direction: supports
+- Type: benchmark
+- Source: `WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7` result、rollout、Map export 和 oracle
+- Prediction or plan link:
+  - H-015 的在线恢复预测；H-013 的 canonical handoff 预测。
+- Matched signal:
+  - Request 1 syntax reject 后，Request 2 立即使用 direct `calls` 并成功初始化；没有 `arguments` wrapper 重复。
+  - Request 6 只完成父节点 `inspect`，随后同批 `apply_patch@fix` 成功，无显式子节点状态跳转。
+  - Request 7 测试 `3 passed`；Request 8 完成 `finish_map`；最终 Map revision 15 全部 completed，hidden oracle passed。
+- Correlation keys:
+  - `WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7`
+- Raw content:
+  ```text
+  provider requests=8, input=132555, cached=125312, output=2835
+  request2+ cache=94.02%
+  request1=syntax reject; request2=corrected initialize+inspect
+  request6=complete inspect + apply_patch@fix
+  request7=3 passed; request8=finish_map
+  ```
+- Interpretation: I05 的反馈扭曲已修复并在线验证；I03 的首次 JSON 生成错误仍独立存在。最终回复缺失由第 9 次本地请求超过授权边界造成，不能把该 run 晋升为端到端成功。
+- Time: 2026-08-11
+
+## Evidence E-028: 当前 observer 仍漏计 Exec 内部 patch 生命周期
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: artifact-replay
+- Source: 同一 run 的 performance observation、rollout 和 Exec trace
+- Prediction or plan link:
+  - I07 当前生产 trace 完整性检查。
+- Matched signal:
+  - TaskSpace Exec 表正确计量 8 outer Exec、5 Map operations、6 client actions 和 3 failures。
+  - rollout 明确包含两次 `client.name=apply_patch`：一次 preflight reject、一次 succeeded；性能报告 Patch lifecycle 却显示 declarations=0。
+- Correlation keys:
+  - `WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7-CACHE-001`
+- Raw content:
+  ```text
+  exec nested apply_patch declarations=2
+  executed nested apply_patch=1
+  performance patch declarations=0
+  ```
+- Interpretation: 请求、Exec 和 client 主计数已可信，但 patch 专项消费者仍只识别旧/顶层载体。该缺口归入既有 I07，不新增全局问题。
 - Time: 2026-08-11

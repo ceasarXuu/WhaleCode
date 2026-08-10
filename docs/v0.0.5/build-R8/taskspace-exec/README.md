@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / Structured online revalidation failed / I05-I07 feedback and observer repair verified offline
+- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / I05 verified online / I03-I04-I07 remain open
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -86,7 +86,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - 最新 `standard/map-request × repeat=1` 复验中，Standard 6 请求成功；TaskSpace 首次 JSON 少一个闭合括号，随后因旧反馈
   未区分 syntax 与 top-level contract，连续四次使用错误 `arguments` wrapper，第 6～8 请求恢复并准确定位业务根因，但在
   patch 前触及请求上限。当前 parser 已离线拆分错误类型并明确 direct `calls` 恢复合同，observer 也能同时计量有效动作与
-  协议拒绝；没有 JSON 修补或 Runtime 语义接管。在线复验仍需新预算。
+  协议拒绝；没有 JSON 修补或 Runtime 语义接管。
+- 修复后的 `map-request × repeat=1` 在线复验再次在首请求少一个闭合括号，但 Agent 收到新 syntax/direct-calls/零执行反馈后，
+  下一请求立即纠正，未再产生 wrapper 放大，I05 在线关闭。Agent 随后完成正确 patch、3 项测试和完整 Map，并在线使用
+  canonical parent handoff；最终自然语言回复所需的第 9 次本地请求被批准的 8-request 边界截断，因此端到端结果仍为 partial。
+  I03 首请求 JSON、I04 waiting-node 误选与 I07 nested patch 漏计继续开放。
 
 ## 3. 文档
 

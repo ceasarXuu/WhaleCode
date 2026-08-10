@@ -1,0 +1,50 @@
+{
+  "schema_version": "r8-taskspace-exec-diagnosis-v1",
+  "record_id": "WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7",
+  "subject_commit": "2c290de81f61775602d66e5a79bd45fed5b1238c",
+  "scope": {
+    "model": "deepseek-v4-flash",
+    "sample": "single-file-fast-fix",
+    "arm": "map-request",
+    "repeat": 1,
+    "automatic_retries": 0
+  },
+  "provider_usage": {
+    "requests": 8,
+    "input_tokens": 132555,
+    "cached_input_tokens": 125312,
+    "uncached_input_tokens": 7243,
+    "output_tokens": 2835,
+    "request_2_plus_cache_hit_rate": 0.940241,
+    "estimated_cost_usd": 0.0021586936
+  },
+  "request_path": [
+    "request 1: taskspace_exec selected; arguments omitted the closing brace for the first map call; strict syntax rejection; zero execution",
+    "request 2: corrected direct calls envelope; initialize_map plus inspect exec_command succeeded",
+    "request 3: inspect exec_command read README, tests, and implementation",
+    "request 4: inspect exec_command ran pytest; two expected failures exposed the rounding defect",
+    "request 5: apply_patch targeted waiting node fix; preflight rejected before side effects",
+    "request 6: completed inspect and applied the patch to fix in the same ordered envelope; patch succeeded",
+    "request 7: completed fix and ran pytest on verify; three tests passed",
+    "request 8: completed verify and finish_map; canonical Map revision 15 is fully completed",
+    "local attempt 9: final natural-language response request was stopped by the approved eight-request boundary before reaching the provider"
+  ],
+  "outcome": {
+    "runner_status": "partial",
+    "business_success": false,
+    "workspace_patch_correct": true,
+    "public_validation_passed": true,
+    "hidden_oracle_passed": true,
+    "map_completed": true,
+    "final_agent_response_observed": false,
+    "terminal_reason": "the final response request exceeded the authorized provider-request boundary"
+  },
+  "conclusions": [
+    "The syntax/contract feedback repair is validated online: after the syntax rejection, the next provider response used the correct direct calls envelope.",
+    "Structured function arguments remain unstable on the first request: one closing brace was still omitted, so R8-I03 remains open.",
+    "The canonical parent handoff is executable online: completing inspect followed by work bound to fix succeeded in one envelope without an explicit child-state transition.",
+    "The Agent again attempted work on a waiting node once, then corrected after accurate preflight feedback; R8-I04 remains open.",
+    "The performance observer counted the Exec and nested client actions but reported zero patch declarations despite one rejected and one executed nested apply_patch; this remains an R8-I07 observation gap.",
+    "The run cannot be promoted as an end-to-end success because no final Agent response was produced."
+  ]
+}

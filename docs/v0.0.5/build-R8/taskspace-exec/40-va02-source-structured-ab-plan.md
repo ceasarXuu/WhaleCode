@@ -399,3 +399,29 @@ TaskSpace 的逐请求链为：
 不补括号、不解析 reasoning、不执行嵌套字符串。observer 同时区分协议拒绝与证据链损坏，重放本轮 artifact 后可计量 8 个 outer
 Exec、5 次拒绝、1 个 Map operation 和 3 个成功 client action，不再整轮 N/A。定向结果为 TaskSpace Exec 73 PASS、observer
 fixture PASS。在线行为改善尚未验证，必须另行申请预算。
+
+## 15. I05 修复在线复验
+
+2026-08-11 用户批准 `single-file-fast-fix × map-request × repeat=1`，最多 8 个 Provider 请求、无重试。运行绑定提交
+`2c290de81f61775602d66e5a79bd45fed5b1238c`，账本记录为 `WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7`。
+
+| 指标 | map-request |
+|---|---:|
+| Runner result | partial / final Agent response missing |
+| Workspace / public / hidden oracle | correct / pass / pass |
+| Provider requests | 8 |
+| Input / cached / uncached | 132,555 / 125,312 / 7,243 |
+| Output | 2,835 |
+| Request 2+ cache hit | 94.02% |
+| Sample elapsed | 47.966 s |
+| Estimated cost | USD 0.0021586936 |
+
+逐请求路径：首请求的第一个 map call 少一个闭合括号，被新 syntax 反馈零副作用拒绝；第二请求立即使用正确 direct `calls`，
+一次完成 Map 初始化和 inspect 命令。第三、四请求读取代码并复现测试。第五请求在 waiting `fix` 上 patch，被 preflight
+零副作用拒绝；第六请求使用 canonical handoff，同批完成 `inspect` 并在 `fix` 执行 patch。第七请求完成 `fix` 并在 `verify`
+运行测试，3 项全部通过。第八请求完成 `verify` 和 `finish_map`，最终 Map 的 5 节点、4 边全部闭合。
+
+随后 CLI 为生成最终自然语言回复发起第九次本地请求，预算代理在 Provider 前返回 429。它不计入 8 个真实 Provider 请求，
+但导致 Agent turn 为 interrupted，因此本轮不能晋升端到端成功基线。I05 的目标机制已经在线验证：准确反馈后只用一次请求恢复，
+没有 `arguments` wrapper 重复。I03 与 I04 仍开放；I07 新确认 performance observer 虽能计量 nested client action，却仍把
+两次 nested `apply_patch` 声明计为 0。
