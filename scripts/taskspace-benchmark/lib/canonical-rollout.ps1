@@ -20,3 +20,36 @@ function Get-TaskspaceCanonicalResponseItem {
     }
     return $null
 }
+
+function Get-TaskspaceExecDeclaredCalls {
+    param($Payload)
+    if ($null -eq $Payload -or [string]$Payload.type -ne "function_call" -or
+        [string]$Payload.name -ne "taskspace_exec") {
+        return @()
+    }
+    $arguments = if ($Payload.arguments -is [string]) {
+        ([string]$Payload.arguments) | ConvertFrom-Json
+    } else {
+        $Payload.arguments
+    }
+    $declared = New-Object System.Collections.Generic.List[object]
+    $index = 0
+    foreach ($call in @($arguments.calls)) {
+        $map = $call.PSObject.Properties["map"]
+        $client = $call.PSObject.Properties["client"]
+        $kind = if ($null -ne $map -and $null -eq $client) {
+            "map"
+        } elseif ($null -ne $client -and $null -eq $map) {
+            "client"
+        } else {
+            "invalid"
+        }
+        $declared.Add([pscustomobject]@{
+                call_index = $index
+                kind = $kind
+                value = if ($kind -eq "map") { $map.Value } elseif ($kind -eq "client") { $client.Value } else { $call }
+            })
+        $index++
+    }
+    @($declared.ToArray())
+}

@@ -130,8 +130,10 @@ function Get-TaskspacePatchObservability {
     $calls = New-Object System.Collections.Generic.List[object]
     $callById = @{}
     $requestRows = New-Object System.Collections.Generic.List[object]
+    $nestedCallsByOuterId = @{}
     $singlePatchCarrierCount = 0
     $multiPatchCarrierAttemptCount = 0
+    $taskspaceExecParseFailureCount = 0
     $totalRequestPatchCount = 0
     $maxRequestPatchCount = 0
     for ($batchIndex = 0; $batchIndex -lt $batches.Count; $batchIndex++) {
@@ -141,6 +143,33 @@ function Get-TaskspacePatchObservability {
             $payload = $record.payload
             $name = if ([string]$payload.type -eq "local_shell_call") { "local_shell" } else { [string]$payload.name }
             $callId = [string](Get-PatchObservationProperty $payload "call_id" "")
+            if ($name -eq "taskspace_exec") {
+                try {
+                    $nested = @(Get-TaskspaceExecDeclaredCalls $payload | Where-Object { $_.kind -eq "client" })
+                } catch {
+                    $taskspaceExecParseFailureCount++
+                    $nested = @()
+                }
+                $nestedPatchCount = @($nested | Where-Object { [string]$_.value.name -eq "apply_patch" }).Count
+                if ($nestedPatchCount -eq 1) { $singlePatchCarrierCount++ }
+                if ($nestedPatchCount -gt 1) { $multiPatchCarrierAttemptCount++ }
+                $nestedRecords = New-Object System.Collections.Generic.List[object]
+                foreach ($item in $nested) {
+                    $action = [pscustomobject]@{
+                        tool_name = [string]$item.value.name
+                        arguments = $item.value.input
+                    }
+                    $nestedCall = [pscustomobject]@{
+                        call_id = "${callId}:nested:$($item.call_index)"; name = [string]$item.value.name
+                        action = $action; row = [int]$record.row; source = "taskspace_exec"
+                        batch_index = $batchIndex; post_patch = $false
+                    }
+                    $declared.Add($nestedCall)
+                    $nestedRecords.Add($nestedCall)
+                }
+                $nestedCallsByOuterId[$callId] = @($nestedRecords.ToArray())
+                continue
+            }
             if ($name -eq "taskspace_control") {
                 $nested = @(Get-PatchObservationNestedActions $payload)
                 $nestedPatchCount = @($nested | Where-Object {
@@ -198,9 +227,30 @@ function Get-TaskspacePatchObservability {
             }
         }
     }
+    foreach ($outerCallId in $nestedCallsByOuterId.Keys) {
+        if (-not $outputById.ContainsKey($outerCallId)) { continue }
+        $outerOutput = $outputById[$outerCallId]
+        if ([string]$outerOutput.text -match '^taskspace_exec rejected:') { continue }
+        try { $result = ([string]$outerOutput.text) | ConvertFrom-Json } catch { continue }
+        foreach ($clientResult in @($result.client_results)) {
+            $nestedCallId = "${outerCallId}:nested:$([int]$clientResult.call_index)"
+            $resultValue = Get-PatchObservationProperty $clientResult "result"
+            $resultText = if ($null -ne $resultValue) {
+                $resultValue | ConvertTo-Json -Compress -Depth 20
+            } else {
+                [string](Get-PatchObservationProperty $clientResult "error" "")
+            }
+            $outputById[$nestedCallId] = [pscustomobject]@{
+                row = [int]$outerOutput.row
+                text = $resultText
+                success = [string]$clientResult.outcome -eq 'succeeded'
+            }
+        }
+    }
 
     $prepareFailures = 0; $commitFailures = 0; $partialCommits = 0
     $multiFilePatches = 0; $postActions = 0; $postSkipped = 0
+    $patchDispatchResultCount = 0
     foreach ($call in $calls) {
         if ($call.patch_file_count -gt 1) { $multiFilePatches++ }
         if ($call.post_patch) {
@@ -209,6 +259,10 @@ function Get-TaskspacePatchObservability {
         }
         if (-not $call.is_patch -or -not $outputById.ContainsKey($call.call_id)) { continue }
         $text = [string]$outputById[$call.call_id].text
+        if ($text -notmatch 'request_multiple_apply_patch_calls_not_allowed' -and
+            $text -notmatch 'skipped_due_to_') {
+            $patchDispatchResultCount++
+        }
         if ($text -match 'patch commit failed') {
             $commitFailures++
             if ($text -match 'rollback_status=best_effort_partial') { $partialCommits++ }
@@ -220,11 +274,17 @@ function Get-TaskspacePatchObservability {
     }
 
     $rejectedRequests = 0
+    $patchPreflightRejectCount = 0
     foreach ($request in $requestRows) {
         $batchCallIds = @($batches[$request.request_index - 1] | ForEach-Object { [string](Get-PatchObservationProperty $_.payload "call_id" "") })
-        $rejected = @($batchCallIds | Where-Object {
+        $legacyRejected = @($batchCallIds | Where-Object {
                 $outputById.ContainsKey($_) -and $outputById[$_].text -match 'request_multiple_apply_patch_calls_not_allowed'
             }).Count -gt 0
+        $execRejected = @($batchCallIds | Where-Object {
+                $outputById.ContainsKey($_) -and $outputById[$_].text -match '^taskspace_exec rejected:'
+            }).Count -gt 0
+        if ($execRejected) { $patchPreflightRejectCount += $request.patch_count }
+        $rejected = $legacyRejected -or ($execRejected -and $request.patch_count -gt 1)
         $request.rejected = $rejected
         if ($rejected) { $rejectedRequests++ }
     }
@@ -249,7 +309,10 @@ function Get-TaskspacePatchObservability {
         availability = "measured"
         single_patch_carrier_count = [int]$singlePatchCarrierCount
         multi_patch_carrier_attempt_count = [int]$multiPatchCarrierAttemptCount
+        taskspace_exec_parse_failure_count = [int]$taskspaceExecParseFailureCount
         request_patch_count = [int]$totalRequestPatchCount
+        patch_preflight_reject_count = [int]$patchPreflightRejectCount
+        patch_dispatch_result_count = [int]$patchDispatchResultCount
         max_request_patch_count = [int]$maxRequestPatchCount
         request_multi_patch_attempt_count = [int]@($requestRows | Where-Object { $_.patch_count -gt 1 }).Count
         request_multi_patch_preflight_reject_count = [int]$rejectedRequests
@@ -268,7 +331,7 @@ function Get-TaskspacePatchObservability {
 
 function Add-TaskspacePatchAggregateFields {
     param([System.Collections.IDictionary]$Sum, [object[]]$Selected)
-    foreach ($field in @("single_patch_carrier_count", "multi_patch_carrier_attempt_count", "request_patch_count", "request_multi_patch_attempt_count", "request_multi_patch_preflight_reject_count", "multi_file_patch_count", "patch_prepare_failure_count", "patch_commit_failure_count", "patch_partial_commit_count", "post_patch_action_count", "post_patch_skipped_count")) {
+    foreach ($field in @("single_patch_carrier_count", "multi_patch_carrier_attempt_count", "taskspace_exec_parse_failure_count", "request_patch_count", "patch_preflight_reject_count", "patch_dispatch_result_count", "request_multi_patch_attempt_count", "request_multi_patch_preflight_reject_count", "multi_file_patch_count", "patch_prepare_failure_count", "patch_commit_failure_count", "patch_partial_commit_count", "post_patch_action_count", "post_patch_skipped_count")) {
         $values = @($Selected | ForEach-Object { Get-PerformanceNumber (Get-PatchObservationProperty $_.patch $field) } | Where-Object { $null -ne $_ })
         $Sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }
@@ -278,13 +341,13 @@ function Add-TaskspacePatchObservationMarkdown {
     param([System.Collections.Generic.List[string]]$Lines, [object[]]$Rows)
     $Lines.Add("## Patch lifecycle")
     $Lines.Add("")
-    $Lines.Add("| Repeat | Mode | Patch declarations | Max/request | Single carrier | Multi carrier | Multi request | Preflight rejects | Multi-file | Prepare fail | Commit fail | Partial commit | Post actions | Post skipped | Unique reads | Exact repeat reads | Read feedback |")
-    $Lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    $Lines.Add("| Repeat | Mode | Patch declarations | Patch preflight rejects | Patch results | Exec parse fail | Max/request | Single carrier | Multi carrier | Multi request | Multi-patch rejects | Multi-file | Prepare fail | Commit fail | Partial commit | Post actions | Post skipped | Unique reads | Exact repeat reads | Read feedback |")
+    $Lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $Rows) {
         if ($row.observation_status -eq "skipped" -or $row.patch.availability -ne "measured") {
-            $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+            $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
-            $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.patch.request_patch_count) | $(Format-PerformanceValue $row.patch.max_request_patch_count) | $(Format-PerformanceValue $row.patch.single_patch_carrier_count) | $(Format-PerformanceValue $row.patch.multi_patch_carrier_attempt_count) | $(Format-PerformanceValue $row.patch.request_multi_patch_attempt_count) | $(Format-PerformanceValue $row.patch.request_multi_patch_preflight_reject_count) | $(Format-PerformanceValue $row.patch.multi_file_patch_count) | $(Format-PerformanceValue $row.patch.patch_prepare_failure_count) | $(Format-PerformanceValue $row.patch.patch_commit_failure_count) | $(Format-PerformanceValue $row.patch.patch_partial_commit_count) | $(Format-PerformanceValue $row.patch.post_patch_action_count) | $(Format-PerformanceValue $row.patch.post_patch_skipped_count) | $(Format-PerformanceValue $row.patch.unique_read_target_count) | $(Format-PerformanceValue $row.patch.exact_repeat_read_after_visible_feedback_count) | $(Format-PerformanceValue $row.patch.read_feedback_visibility_coverage percent) |")
+            $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.patch.request_patch_count) | $(Format-PerformanceValue $row.patch.patch_preflight_reject_count) | $(Format-PerformanceValue $row.patch.patch_dispatch_result_count) | $(Format-PerformanceValue $row.patch.taskspace_exec_parse_failure_count) | $(Format-PerformanceValue $row.patch.max_request_patch_count) | $(Format-PerformanceValue $row.patch.single_patch_carrier_count) | $(Format-PerformanceValue $row.patch.multi_patch_carrier_attempt_count) | $(Format-PerformanceValue $row.patch.request_multi_patch_attempt_count) | $(Format-PerformanceValue $row.patch.request_multi_patch_preflight_reject_count) | $(Format-PerformanceValue $row.patch.multi_file_patch_count) | $(Format-PerformanceValue $row.patch.patch_prepare_failure_count) | $(Format-PerformanceValue $row.patch.patch_commit_failure_count) | $(Format-PerformanceValue $row.patch.patch_partial_commit_count) | $(Format-PerformanceValue $row.patch.post_patch_action_count) | $(Format-PerformanceValue $row.patch.post_patch_skipped_count) | $(Format-PerformanceValue $row.patch.unique_read_target_count) | $(Format-PerformanceValue $row.patch.exact_repeat_read_after_visible_feedback_count) | $(Format-PerformanceValue $row.patch.read_feedback_visibility_coverage percent) |")
         }
     }
     $Lines.Add("")

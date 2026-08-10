@@ -87,24 +87,20 @@ function Get-TaskspaceExecObservation {
                 $arguments = if ($payload.arguments -is [string]) {
                     ([string]$payload.arguments) | ConvertFrom-Json
                 } else { $payload.arguments }
-                $callIndex = 0
-                foreach ($call in @($arguments.calls)) {
-                    $map = Get-TaskspaceExecProperty $call 'map'
-                    $client = Get-TaskspaceExecProperty $call 'client'
-                    if (($null -eq $map) -eq ($null -eq $client)) {
-                        $findings.Add("exec_call_shape_invalid:${callId}:$callIndex")
-                        $callIndex++
+                foreach ($declared in @(Get-TaskspaceExecDeclaredCalls $payload)) {
+                    if ([string]$declared.kind -eq 'invalid') {
+                        $findings.Add("exec_call_shape_invalid:${callId}:$($declared.call_index)")
                         continue
                     }
-                    if ($null -ne $map) {
-                        $operation = [string](Get-TaskspaceExecProperty $map 'operation')
+                    if ([string]$declared.kind -eq 'map') {
+                        $operation = [string](Get-TaskspaceExecProperty $declared.value 'operation')
                         if ($operation -notin $mapTools) {
-                            $findings.Add("exec_map_operation_unknown:${callId}:$callIndex")
+                            $findings.Add("exec_map_operation_unknown:${callId}:$($declared.call_index)")
                         }
                         $mapCalls++
-                        $callIndex++
                         continue
                     }
+                    $client = $declared.value
                     $tool = [string](Get-TaskspaceExecProperty $client 'name')
                     $clientCalls++
                     if (-not [string]::IsNullOrWhiteSpace([string](Get-TaskspaceExecProperty $client 'node_id'))) { $nodeBindings++ }
@@ -113,7 +109,6 @@ function Get-TaskspaceExecObservation {
                         'apply_patch' { $patch++ }
                         default { $other++ }
                     }
-                    $callIndex++
                 }
                 $hostedBindingValues = Get-TaskspaceExecProperty $arguments 'hosted_bindings'
                 if ($null -ne $hostedBindingValues) {
