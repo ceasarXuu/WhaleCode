@@ -1,7 +1,7 @@
 # VA-02 Source 与 Structured Carrier A/B 实验计划
 
 - Created: 2026-08-10
-- Status: offline carrier and shared-runtime gates passed / binary materialization and real runs require separate budget
+- Status: 2-run Provider smoke completed / directional evidence only, selection pending
 - Product Authority: [`00-product-contract.md`](00-product-contract.md)
 - Active Plan: [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md)
 - Applicable Decisions: TaskSpace Exec 只负责合法序列与节点归属；Agent 声明动作；Runtime 机械预检和执行；Standard 零变化
@@ -144,4 +144,74 @@ AB-06 最终 staged cache-sensitive gate PASS，敏感面 SHA 为
 `3e6f1602ab3a1a2349420afafca95570b25ce7eca1faad07de1d7c649a956c08`。默认 TaskSpace final-wire 为
 `deb51ae4615d3f9c5076d6713cae574c7c21b0473c9f510d928ee2115b8b7a49`，与本实验前已提交的
 `2026-08-10-r8-b5-va02-e2e-revalidation.json` 相同；它相对更早 accepted snapshot `8e58e2...` 的既有差异继续保持发布
-阻断，但本实验没有再次改变默认 wire。真实 binary 构建与 2-run smoke 必须另行获批。
+阻断，但本实验没有再次改变默认 wire。
+
+## 10. 真实 Smoke 结果
+
+2026-08-10 用户批准 `single-file-fast-fix × structured/source × repeat=1`。两臂从同一产品 commit
+`2bae4f063b191679b0328d81e137d39e25419449` 构建，均使用 `deepseek-v4-flash`、`map-request`、右侧 TaskSpace、
+最多 6 个 Provider 请求且不自动重试。账本记录为 `WAR-20260810-193648-R8-VA02-CARRIER-AB`。
+
+最初运行目录包含 `taskspace/structured` 等处理标签，被中立路径门禁在 Provider 前拒绝；确认零 API 请求后改为
+`target/r8-va02-ab/runs/a1|a2`。该次 pre-provider harness 尝试不是模型样本，也不计入两臂结果。
+
+### 10.1 汇总
+
+| 指标 | Structured | Source |
+|---|---:|---:|
+| binary SHA-256 | `f0a43b7f...bd6f6` | `0c9832ba...ad0e` |
+| Provider 已完成请求 | 2 | 6 |
+| 本地 logical request | 2 | 7（第 7 次被 hard limit 在 Provider 前阻断） |
+| 任务文件是否正确修改 | 否 | 是，`src/tax_calc.py` |
+| public / hidden validator | FAIL / FAIL | PASS / PASS |
+| Map | revision 3；root active；work 未闭合 | revision 13；root/work/finish 全部 completed |
+| Agent 最终状态 | interrupted | interrupted（缺最终自然语言总结） |
+| harness business success | false | false |
+| Agent wall time | 5,006 ms | 19,146 ms |
+| sample 总时长 | 9,224 ms | 23,456 ms |
+| input / cached / uncached | 29,370 / 28,416 / 954 | 117,196 / 92,544 / 24,652 |
+| output | 423 | 1,785 |
+| 全请求 cache hit | 96.75% | 78.97% |
+| request 2+ cache hit | 94.31% | 88.71% |
+| 稳态参考 | 仅 request 2：94.31% | request 3+：93.82% |
+| Tool section 首请求 | 30,627 bytes / 7,657 estimated tokens | 57,882 bytes / 14,471 estimated tokens |
+| 按冻结单价估算成本 | USD 0.0003316 | USD 0.0042102 |
+
+两臂合计 8 个 Provider 请求、146,566 input、120,960 cached、25,606 uncached、2,208 output，估算成本
+USD 0.0045418，未超过批准上限。
+
+Source 的首请求与 request 2 缓存率受到新 Tool shape 首次出现影响，而 Structured shape 在本次之前已有历史运行，不能把
+78.97% 与 96.75% 直接解释为稳态 carrier 差异。Source request 3+ 为 93.82%，与 Structured request 2 的 94.31% 接近。
+但是 Source 将完整 inner schema 作为 description 字符串传输，JSON 转义使首请求 Tool section 实际增加 27,255 bytes；这是
+当前 Source arm 的明确静态 wire 成本，不能用缓存冷启动完全解释。
+
+### 10.2 逐请求路径
+
+| Arm | Request | Agent 动作 | Runtime / 结果 | Input | Cached | Output |
+|---|---:|---|---|---:|---:|---:|
+| Structured | 1 | `initialize_map + exec_command(ls/find)` | 合法；Map 初始化和 inspect action 成功 | 14,305 | 14,208 | 292 |
+| Structured | 2 | 顶层直接调用 `exec_command` | 响应合同拒绝；该普通 Tool 不在顶层声明中，零执行 | 15,065 | 14,208 | 131 |
+| Source | 1 | `taskspace.plan({...`，遗漏结尾 `);` | source envelope 忠实拒绝；Map 未创建 | 18,067 | 4,608 | 250 |
+| Source | 2 | 修正为 `taskspace.plan({...});`，初始化 + ls/find | 合法；Map 和 inspect action 成功 | 18,361 | 12,160 | 262 |
+| Source | 3 | 读取 README、源码和测试 | 合法；读取结果完整返回 | 19,089 | 17,920 | 169 |
+| Source | 4 | 完成 inspect + patch fix | 合法；patch 成功 | 19,929 | 18,176 | 565 |
+| Source | 5 | 在 fix 未完成时直接执行 waiting verify，并预声明完成/finish | preflight 忠实拒绝，零副作用 | 20,738 | 19,840 | 233 |
+| Source | 6 | 完成 fix + 执行 verify + 完成 verify + `finish_map` | 合法；pytest 3 PASS；Map 全闭合 | 21,012 | 19,840 | 306 |
+| Source | 7 | 读取 request 6 结果后准备最终响应 | Provider hard limit 前阻断，无 API/usage | N/A | N/A | N/A |
+
+### 10.3 当前结论
+
+1. 本轮不是“两臂都失败所以没有结论”。Structured 在第 2 请求发生顶层 Tool escape，未读取任务内容也未修改文件；Source
+   虽有一次 wrapper 语法错误和一次 DAG 顺序错误，但均收到准确反馈并自行纠正，最终完成代码、验证和 Map 闭合。
+2. Source 对本样本表现出明显更好的实际可用性；Structured 的 schema 约束没有阻止模型在后续请求生成未声明的顶层普通
+   Tool call。Runtime 的拒绝符合产品合同，没有代替 Agent 修复或执行。
+3. Source 当前仍不能直接晋升：repeat 1 不证明稳定性；首请求仍漏写 wrapper 结尾；完整 schema 嵌入 description 带来明显
+   静态 wire 膨胀；第 5 请求仍出现可由 Agent 纠正的 DAG 顺序错误。
+4. 两臂的 `business_success=false` 原因不同。Structured 没有完成业务工作；Source 已完成业务结果和 Map，只因 6-request
+   上限不允许第 7 次最终自然语言总结而被 lifecycle gate 标记 interrupted。
+5. 现有 performance observer 只按 Structured outer arguments 解析 `taskspace_exec`，因此把全部 Source calls 误报为
+   `exec_arguments_invalid`/`exec_result_invalid`。真实判断以 canonical request facts、原始 rollout、Runtime event 和持久化
+   Map 为准；该派生报告不参与本轮 carrier 结论。
+
+本轮只提供方向性证据，不自动选择 carrier。是否执行两臂各 repeat 3、是否先优化 Source wire/observer，均需新的用户决策和
+独立预算。

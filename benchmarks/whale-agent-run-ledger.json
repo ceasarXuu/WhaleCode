@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-10T19:41:31+08:00",
+  "updated_at": "2026-08-10T19:49:40+08:00",
   "entries": [
     {
       "record_id": "WAR-20260810-193648-R8-VA02-CARRIER-AB",
       "record_type": "run_batch",
-      "status": "running",
+      "status": "settled",
       "started_at": "2026-08-10T19:38:16+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-10T19:49:40+08:00",
+      "elapsed_calendar_seconds": 684.0,
+      "aggregate_agent_wall_time_ms": 24152,
       "reason": "VA-02 single-variable A/B smoke comparing the current structured and source TaskSpace Exec carriers over the same typed plan and Runtime.",
       "authorization": {
         "required": true,
@@ -40,22 +40,26 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 2,
-        "actual_sample_runs": 1,
-        "api_requests": 2,
-        "api_requests_evidence_status": "partial"
+        "actual_sample_runs": 2,
+        "api_requests": 8,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 29370,
-        "cached_input": 28416,
-        "uncached_input": 954,
-        "output": 423
+        "input": 146566,
+        "cached_input": 120960,
+        "uncached_input": 25606,
+        "output": 2208
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "USD",
-        "amount": null,
+        "amount": 0.004541768,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.000338688,
+          "uncached_input": 0.00358484,
+          "output": 0.00061824
+        },
         "pricing_snapshot": {
           "currency": "USD",
           "captured_at": "2026-07-31",
@@ -64,8 +68,8 @@
           "uncached_input_per_million": 0.14,
           "output_per_million": 0.28
         },
-        "formula": null,
-        "note": "运行后按 provider token 遥测估算。"
+        "formula": "cached_input/1e6*0.0028 + uncached_input/1e6*0.14 + output/1e6*0.28",
+        "note": "按冻结 DeepSeek 单价和 canonical request facts 估算；不等同账户实扣金额。"
       },
       "evidence": {
         "planned_run_root": "target/r8-va02-ab/runs",
@@ -82,8 +86,7 @@
           "carrier protocol failure is retained as an experiment result",
           "no automatic retry"
         ],
-        "usage_evidence_status": "pending",
-        "current_arm": "source",
+        "usage_evidence_status": "complete",
         "pre_provider_harness_attempt": "target/r8-taskspace-exec-carrier-ab/runs/structured/single-file-fast-fix/structured-r1",
         "pre_provider_harness_outcome": "rejected before Provider because the run root contained a forbidden treatment token; zero API requests",
         "arm_results": {
@@ -99,7 +102,38 @@
             "wall_time_ms": 5006,
             "exec_exit_code": 1,
             "agent_completion_status": "interrupted"
+          },
+          "source": {
+            "run_root": "target/r8-va02-ab/runs/a2/single-file-fast-fix/r1",
+            "status": "completed",
+            "business_success": false,
+            "task_result_complete": true,
+            "map_complete": true,
+            "public_validation_exit_code": 0,
+            "hidden_oracle_exit_code": 0,
+            "api_requests": 6,
+            "logical_requests": 7,
+            "input_tokens": 117196,
+            "cached_input_tokens": 92544,
+            "uncached_input_tokens": 24652,
+            "output_tokens": 1785,
+            "wall_time_ms": 19146,
+            "exec_exit_code": 1,
+            "agent_completion_status": "interrupted",
+            "interruption_reason": "provider hard limit blocked the final natural-language response after finish_map committed"
           }
+        },
+        "actual_run_root": "target/r8-va02-ab/runs",
+        "outcome": "experiment_complete_source_directionally_better_selection_pending",
+        "comparison": {
+          "structured_request_2_plus_cache_hit_percent": 94.31,
+          "source_request_2_plus_cache_hit_percent": 88.71,
+          "source_request_3_plus_cache_hit_percent": 93.82,
+          "structured_tool_section_bytes": 30627,
+          "source_tool_section_bytes": 57882,
+          "structured_terminal_issue": "request 2 emitted undeclared top-level exec_command; response contract rejected",
+          "source_terminal_issue": "request 6 completed task and Map; request 7 was blocked before Provider by the approved hard limit",
+          "observer_gap": "active performance observer assumes structured outer arguments and misclassifies source calls; canonical facts and raw rollout remain authoritative"
         }
       }
     },
