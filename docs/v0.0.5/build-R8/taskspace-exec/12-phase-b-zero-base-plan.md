@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / VA-02 Structured online validation pending
+- Status: Active / Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / latest VA-02 gaps planned for repair
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -175,6 +175,11 @@ process host。Codex JS Exec 可以在同一 cell 中等待 A 的结果后动态
 | ID-01 | 收敛 I10 唯一能力身份 | Exec catalog、Router、request metadata、provider/Exec trace、performance observer | 从同一最终声明序列机械派生 Runtime-only identity，沿既有请求和报告链传播；不进入 Agent schema、Provider payload、Map 或普通 Tool | 能力变化可与任务行为、缓存和成本变化分开归因 | Complexity: 一个只读身份字段和既有事件可选字段；Reach: TaskSpace Router/trace/report，Standard 为 null | 语义变化敏感性、HTTP/WS、dispatch、报告冲突 fixture；zero-base/cache gate | verified |
 | VA-02 | 申请并执行最终生产路径 Provider shape 验证 | Docker 中当前 Whale 二进制、最终 Structured TaskSpace Exec declaration、run ledger | 只验证当前 Structured 生产合同；Source A/B 已结束且实现删除 | 确认目标模型能稳定生成初始化、父子节点交接、修改、验证和结束的合法 Structured batch | Complexity: 测量，不增加协议分支；Reach: 真实 Provider 成本 | Source active symbol 为零；父子节点 handoff、observer 和 Responses base identity 离线通过；真实复验必须新预算 | offline repair complete / provider revalidation pending |
 | VA-02R | 收敛 outer Exec 操作合同 | `taskspace_exec/protocol.rs`、catalog declaration、合同测试 | 把外层调用方式、序列、归属和最小示例集中在 outer Tool description；补清父节点完成后子节点 readiness 机械派生的交接方式，不改状态机、普通 Tool schema 或 Runtime 行为 | Agent 从唯一 Tool 声明获得结构语法和正确交接方法，不再重复声明派生状态 | Complexity: 一个协议渲染模块和 canonical handoff；Reach: TaskSpace Tool declaration 与缓存指纹 | 初始化、读取、交接、结束示例均反向通过同一 decoder/preflight；真实遵循只由新预算复验 | verified offline / provider revalidation pending |
+| SR-01 | 建立单闭合符号自愈原语 | `taskspace_exec` plan decoder、当前 request Catalog、确定性 fixtures | 原始参数严格解析失败后，只在 parser 首个失败位置的有界候选与 EOF 尝试插入一个 `}`/`]`；仅一个候选通过严格 JSON 与当前 Catalog plan decode 时返回修正版 | 明确可修复的序列化闭合错误不再浪费一次 Agent 请求 | Complexity: 一个纯函数和有界候选集；Reach: 仅 `taskspace_exec.arguments` | 真实历史坏例、缺 `}`、缺 `]`、歧义、多错误、合法输入、超界输入；不得修逗号/引号/字段/值/动作 | planned |
+| SR-02 | 在正式上下文入口替换自愈结果 | `session/turn` 的 `OutputItemDone`、TaskSpace Router/Catalog、conversation/rollout/raw-item 路径 | 在 response scope、history、rollout 和 dispatch 之前替换同一个 FunctionCall；保留 call identity；Provider raw wire 仅作诊断，并记录无参数正文的 repair event | 后续请求、恢复和回放只看到修正版，不持续强化原错误 | Complexity: 一个 pre-record response hook；Reach: TaskSpace FunctionCall 落账边界 | scope/history/rollout/dispatch 字节一致；原错误串不进入正式历史；WebSocket 增量基线不一致时退回完整请求；Standard 零差异 | planned |
+| SR-03 | 关闭自愈边界回归 | response/session/rollout tests、TaskSpace Exec tests、zero-base/cache gates | 串联唯一修复、正常 preflight、拒绝、取消和恢复；证明修复不跳过任何硬约束，也不改变 Provider 固定请求前缀 | 自愈是可审计的机械规范化，不演变成语义容错层 | Complexity: 定向 fixture 与既有门禁；Reach: 无真实 Provider 请求 | 修复后仍可触发 waiting/多 Patch/DAG 拒绝；合法输入零改写；模糊输入原样拒绝；缓存敏感面门禁 PASS | planned |
+| WF-01 | 忠实表达 waiting 节点拒绝 | `preflight.rs`、typed rejection formatter、TaskSpace feedback tests | `ClientNodeNotExecutable` 携带并输出当前状态、未完成直接父节点和整批零执行范围；删除 `Debug` 枚举直出，不加入下一步动作建议 | Agent 能看到为什么目标节点尚不可执行，不需要猜 Map 的缺口 | Complexity: 扩展一个机械错误事实；Reach: TaskSpace preflight feedback | chain/fork/join 的未完成父节点精确；状态和父节点来自 candidate Map；Runtime 不自动完成、选点或重试 | planned |
+| OB-03 | 修复 Exec 内嵌 patch 生命周期观测 | `patch-observability.ps1`、canonical Exec action decoder、observer fixtures | Patch 专项消费当前 `calls[].client` 事实与 outer result，不再只识别顶层 Tool 和旧 `taskspace_control`；声明、preflight reject、执行和结果分别计数 | I07 不再把已声明/已执行 patch 报为零 | Complexity: 复用当前 Exec 解码事实，不增加第二 Runtime 事件源；Reach: benchmark/report only | 最新 artifact 离线复算为 2 次声明、1 次 preflight reject、1 次执行；非法 JSON 标记不可解析而非静默计零；Standard 结果不变 | planned |
 | CP-01 | 坐实有效能力与延迟暴露事实 | Registry plan、Router、deferred Tool Search、目标 DeepSeek Tool config | 参数化列出 Standard 与 TaskSpace 中 enabled/deferred/hidden/hosted/client/Code Mode/LocalShell 的 effective surface，不改生产行为 | 后续 Catalog 只基于已证明的当前事实收敛 | Complexity: 静态追踪与离线 fixture；Reach: 解锁 CP-04/05 | 集合逐项可解释；若需要第二 Registry 或产品取舍立即停 | verified |
 | CP-02 | 坐实原生 Tool identity | ToolName、Function/Freeform/Namespace fixtures | 对所有当前合法名称做 encode/decode/collision 测试，确定 Namespace 最小可逆表示 | Agent-visible identity 可无歧义恢复到原生 ToolName | Complexity: tests first；Reach: schema/decoder/cache | 未证明前不改 wire；不得沿用 JS normalization 假设 | verified；wire confirmed |
 | CP-03 | 坐实公共结果转换覆盖 | `ToolOutput`、Function/Freeform/MCP/Tool Search 输出 fixtures | 对照 Standard/Code Mode 验证 `code_mode_result()` 覆盖当前内层 Tool 结果与错误 | TaskSpace 无需私有反馈语义转换层 | Complexity: tests first；Reach: 解锁 CP-08 | 公共转换有缺口时只修公共边界，不建 TaskSpace converter | verified |
@@ -237,8 +242,8 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 ### Phase B5：Codex Parity Completion And Authorized Product Validation
 
 - Entry: VA-01 通过；每次真实运行另有明确预算和 planned ledger。
-- Units: ID-01、VA-02（首次失败证据）、VA-02R（局部修复）、CP-01～CP-13、VA-02（重新验证）、VA-03、VA-04B。
-- Order: CP-01～CP-03 先做轻量事实验证；CP-04～CP-12 按依赖逐单元实施和提交；CP-13 全部通过后才可重新申请 VA-02。
+- Units: ID-01、VA-02（历史生产证据）、VA-02R、CP-01～CP-13、SR-01～SR-03、WF-01、OB-03、VA-02（再次验证）、VA-03、VA-04B。
+- Order: 当前先按 `SR-01 -> SR-02 -> SR-03 -> WF-01 -> OB-03` 完成离线修复；全部通过后才可重新申请 VA-02。VA-02 通过前不得启动 VA-03。
 - Exit: effective capability、输入/输出合同、原生 dispatch/result、Hosted 对账、观测和门禁形成同一生产闭环；随后 Provider shape、
   产品效果和成本有逐 run 证据，R8 唯一问题全集按新架构重新排序。
 - Stop: 需要第二 Registry、TaskSpace 私有结果语义、字符串清洗 Tool description、Runtime 补写 Agent 动作、未确认 Provider/deferred/
@@ -319,6 +324,8 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 | VA-02 end-to-end revalidation | 2026-08-10 | [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)；`WAR-20260810-180151-CACHE-REGRESSION-7E11A055`；[`coe case`](../../../../coe/2026-08-10-06-00-r8-b5-va02-evidence-closure.md) | 6 requests 完整结算；outer Exec 与缓存健康。一次 waiting 节点误选后，Agent 两次在 `update_map + apply_patch` map/client 边界少一个 `}`，没有 patch 或 Map 副作用 | 停止增加预算；用户决定最小协议收敛方向后实施，VA-03 保持 blocked |
 | TaskSpace base escape repair matrix | 2026-08-10 | [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)；`WAR-20260810-230951-R8-E01-ESCAPE-R3`；commit `85f14967c` | Standard/Structured/Source 各 repeat 3；TaskSpace 顶层 client escape 0/6，专用 base 实际进入 Provider。Standard 3/3，Structured 与 Source 均 0/3；父子节点 handoff 未被 Tool 合同清楚表达，outer decode reject 分别 8/18 和 7/18；observer 不能识别当前 carrier 和 Responses `instructions` | 先离线修复 I03 handoff 合同与 I07 观测，再申请新的最小真实预算；VA-03 继续 blocked |
 | VA-02 Structured 收口修复 | 2026-08-11 | [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)；COE H-012～H-014 | Source 路线退役并从 active code 删除；Tool 合同补清父子节点 handoff，canonical 示例通过生产 preflight；observer 与 Responses base identity 对齐当前 wire | 运行缓存门禁并提交；VA-02 Structured 真实复验另行申请预算，VA-03 继续 blocked |
+| VA-02 latest revalidation | 2026-08-11 | `219e1bb1d`；`WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7`；[`coe case`](../../../../coe/2026-08-10-06-00-r8-b5-va02-evidence-closure.md) | 8 个 Provider 请求完成代码修复、3 项测试和 Map；I05 在线关闭。首请求仍少一个闭合括号；一次 patch 绑定 waiting `fix` 被正确拒绝；Patch lifecycle 把两次内嵌声明误报为 0；最终回复在第 9 次本地尝试被预算门禁截断 | 不增加运行；先实施 SR-01～SR-03、WF-01、OB-03，VA-03 继续 blocked |
+| Phase B5 latest-gap replanning | 2026-08-11 | 用户确认受限自愈产品规则；`session/turn`、preflight、patch observer 静态调用链 | 自愈必须发生在正式 ResponseItem 落账前，修正版成为唯一上下文；waiting 是正确派生状态，缺口是父节点事实未在拒绝中展开；Patch 专项仍解析旧载体 | SR-01；不新建平行计划，不运行真实 Agent |
 
 ## 6. 证据校准
 

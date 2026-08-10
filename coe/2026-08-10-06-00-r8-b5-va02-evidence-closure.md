@@ -47,8 +47,11 @@
   - H-013
   - H-014
   - H-015
+  - H-016
+  - H-017
+  - H-018
 - Resolution basis:
-  - E-001 至 E-028；H-012 确认顶层逃逸消失，H-013 的交接合同已在线走通，H-015 的反馈修复已在线验证，H-014 新增 nested patch 观测缺口。
+  - E-001 至 E-031；H-012 确认顶层逃逸消失，H-013 的交接合同已在线走通，H-015 的反馈修复已在线验证；H-016～H-018 分别坐实正式上下文自愈接缝、waiting 事实反馈和 nested patch 观测缺口。
 - Close reason:
   - not closed
 
@@ -1271,4 +1274,139 @@
   performance patch declarations=0
   ```
 - Interpretation: 请求、Exec 和 client 主计数已可信，但 patch 专项消费者仍只识别旧/顶层载体。该缺口归入既有 I07，不新增全局问题。
+- Time: 2026-08-11
+
+## Hypothesis H-016: 只在 Exec decoder 中修补参数会保留错误的正式上下文
+- Status: confirmed
+- Parent: P-001
+- Claim: 当前 `OutputItemDone` 链先把同一个原始 FunctionCall 交给 response scope，再由 `handle_output_item_done` 写入会话与 rollout；若只在 `TaskSpaceExecPlan::decode` 或 handler 内修补缺失闭合符号，执行可使用修正版，但后续 Agent context 和恢复仍保留错误版。
+- Layer: context-fidelity
+- Factor relation: single
+- Depends on:
+  - H-001 confirmed
+- Rationale:
+  - 用户要求自愈后的输出成为后续唯一正式上下文；当前 decoder 位于正式 ResponseItem 落账链之后，无法满足该合同。
+- Falsifiable predictions:
+  - If true: `record_completed_response_item` 接收 handler 尚未修补的原始 `item`。
+  - If false: decoder 返回的修正版会反向替换 response scope、history 和 rollout 中的 FunctionCall。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-029
+- Conclusion: confirmed。唯一正确接缝是 `session/turn` 收到完成 ResponseItem 后、response scope/history/rollout/dispatch 之前；Provider raw wire 可以保留原始 transport 证据，但不得成为 Agent 后续正式上下文。
+- Repair design readiness: planned as SR-01～SR-03
+- Next step: 实施唯一候选的单 `}`/`]` 修复和落账前替换，不建设通用 JSON 猜测层。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-029: FunctionCall 原文先于 Exec decoder 进入正式落账链
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: code-inspection
+- Source: `session/turn.rs`、`stream_events_utils.rs`、`taskspace_exec/handler.rs`
+- Prediction or plan link:
+  - SR-02 canonical response replacement。
+- Matched signal:
+  - `OutputItemDone(item)` 先调用 response scope；`handle_output_item_done` 在 Tool dispatch 前调用 `record_completed_response_item(&item)`；TaskSpace plan decode 随后才在 handler 中发生。
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  OutputItemDone -> response_scope -> handle_output_item_done
+                 -> record_completed_response_item(original item)
+                 -> TaskSpaceExecHandler::decode_outer_call(arguments)
+  ```
+- Interpretation: handler-only 修补会制造执行事实与上下文事实分叉，必须在最早公共 ResponseItem 边界替换。
+- Time: 2026-08-11
+
+## Hypothesis H-017: waiting 失败来自 Agent 未先闭合父节点，而不是调用了 waiting 动作
+- Status: confirmed
+- Parent: P-001
+- Claim: `waiting` 是 Map 根据未完成 parents 机械派生的节点状态，不是 Agent 可调用动作；本轮 Agent 在语义检查完成后直接提交 `apply_patch@fix`，但 Map 中 `inspect` 尚未被显式标为 completed，因此 `fix` 仍不可执行。
+- Layer: agent-protocol-behavior
+- Factor relation: single
+- Depends on:
+  - H-013 verified
+- Rationale:
+  - 节点生命周期只由 Agent 的显式 Map operation 改变，Tool 完成不自动完成节点；Runtime 不应替 Agent 推断 inspection 已完成。
+- Falsifiable predictions:
+  - If true: 拒绝前 Map 中 `fix.parents=[inspect]`、`inspect!=completed`、`fix=waiting`，且后续“complete inspect + apply_patch@fix”同批通过。
+  - If false: `inspect` 已 completed，或 Agent 实际调用了名为 waiting 的 Tool/Map operation。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-027
+  - E-030
+- Conclusion: confirmed。DAG 和零副作用拒绝正确；明确工程缺口是 `ClientNodeNotExecutable` 只以 Debug 枚举返回状态，没有机械列出未完成父节点，增加了 Agent 重新推断成本。
+- Repair design readiness: planned as WF-01
+- Next step: 反馈增加 candidate Map 中未完成直接父节点和零执行范围，不自动选点、完成节点或建议下一动作。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-030: 同一 Map 的父节点闭合后 fix 立即可执行
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: artifact-replay
+- Source: `WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7` diagnosis、Map export 和 outer results
+- Prediction or plan link:
+  - WF-01 waiting rejection fidelity。
+- Matched signal:
+  - Request 5 的 `apply_patch@fix` 在 `fix=waiting` 时零副作用拒绝；Request 6 先将 `inspect` completed，再在同批执行同一节点的 patch 并成功。
+- Correlation keys:
+  - `WAR-20260811-042531-CACHE-REGRESSION-4BB46AE7`
+- Raw content:
+  ```text
+  request 5: apply_patch@fix -> ClientNodeNotExecutable Waiting
+  request 6: complete inspect -> apply_patch@fix -> succeeded
+  ```
+- Interpretation: 不是 Tool 结果丢失、Map 推导错误或 Runtime 过度拒绝，而是 Agent 声明的节点生命周期落后于它已经完成的实际工作。
+- Time: 2026-08-11
+
+## Hypothesis H-018: patch 生命周期漏计来自专项消费者仍解析旧载体
+- Status: confirmed
+- Parent: P-001
+- Claim: `patch-observability.ps1` 只把顶层 `apply_patch` 和旧 `taskspace_control` continuation 展开为 patch 声明，没有解析当前 `taskspace_exec.arguments.calls[].client`；因此主 Exec observer 能计量 client action，patch 专项却稳定报零。
+- Layer: observability
+- Factor relation: single
+- Depends on:
+  - H-014 verified
+- Rationale:
+  - 同一 rollout 中当前 wire 的两个 `client.name=apply_patch` 对主 observer 可见，对 patch 专项的两个旧分支均不可见。
+- Falsifiable predictions:
+  - If true: 静态代码只有 `provider_top_level` 和 `taskspace_control` 两种声明源；当前 artifact 离线复算补入 Exec client 后得到 2 次声明。
+  - If false: patch 专项已经消费 `calls[].client`，零计数来自 rollout 缺失。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-028
+  - E-031
+- Conclusion: confirmed。缺口只在 benchmark consumer，不在 Runtime 执行、Map action 或 outer result；修复应复用当前 Exec action 解码事实，不增加第二 Runtime 事件源。
+- Repair design readiness: planned as OB-03
+- Next step: 分开计量声明、preflight reject、真实执行和结果；非法 outer JSON 标为不可解析，不能静默计零。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-031: patch 专项代码没有当前 Exec client 分支
+- Related hypotheses:
+  - H-018
+- Direction: supports
+- Type: code-inspection
+- Source: `scripts/taskspace-benchmark/lib/patch-observability.ps1` 与 `taskspace-exec-observation.ps1`
+- Prediction or plan link:
+  - OB-03 current-protocol patch observation。
+- Matched signal:
+  - patch 专项只展开 `name=taskspace_control` 的 legacy actions，其余按 provider 顶层 name 计数；主 Exec observer 已独立读取 `arguments.calls[].client.name`。
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  patch observer: provider top-level | taskspace_control continuation
+  exec observer:  taskspace_exec -> calls[].client.name
+  ```
+- Interpretation: 两个消费者对同一当前协议使用了不同解析口径，导致 patch 指标与 Exec 主计数矛盾。
 - Time: 2026-08-11

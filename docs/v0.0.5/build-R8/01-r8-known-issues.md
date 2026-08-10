@@ -79,6 +79,13 @@
 > 边界拦截，因此 runner 仍为 partial，不能晋升端到端基线。I03 的首请求 JSON 稳定性和 I04 的一次 waiting-node 误选继续开放。
 > I07 同时发现 nested `apply_patch` 已执行但 patch lifecycle 仍计为 0 的观测缺口。
 
+> **最新根因收敛与计划（2026-08-11）**：用户确认对唯一可证明的单闭合符号缺失执行 Runtime 机械自愈，且修正版必须在
+> `OutputItemDone` 落账前替换原 FunctionCall，成为 history、rollout、RawResponseItem 和 dispatch 共用的唯一正式事实；只在
+> handler/decoder 中修补会保留错误上下文，已判定为错误实现方向。I04 中 Agent 并未“调用 waiting”，而是把 `apply_patch`
+> 绑定到仍依赖未完成 `inspect` 的 `fix`；DAG 拒绝正确，当前反馈缺口是只输出内部状态枚举、没有展开未完成父节点。I07 的
+> patch 专项消费者仍只识别顶层 Tool 和旧 `taskspace_control`，没有消费当前 `calls[].client`。修复已作为 SR-01～SR-03、
+> WF-01、OB-03 写入唯一 Phase B5 计划；未启动新的真实运行。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -127,9 +134,9 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | 最新在线复验再次触发 syntax reject；反馈准确说明 direct `calls` 与零执行，Agent 下一请求立即纠正且未再出现 wrapper 放大 | closed | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新生产 artifact 可原生计量 8 outer Exec、5 Map operations、6 client actions 和 3 failures；但 nested `apply_patch` 一次拒绝、一次执行仍被 patch lifecycle 计为 0 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 最新单轮首个初始化 batch 仍少一个 call-envelope 闭合括号；准确反馈后下一请求立即恢复。canonical parent handoff 已在线成功，但首次 Structured arguments 稳定性未关闭 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 最新复验再次先在 waiting `fix` 节点 patch，零副作用拒绝后下一请求用“完成 inspect + 在 fix 执行 patch”正确恢复；反馈无丢失，但一次额外请求仍稳定可见 | verifying | GI-004 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 主 Exec observer 已准确计量；Patch lifecycle 仍只解析顶层 Tool/旧 control，未消费当前 `calls[].client`，故把一次拒绝和一次执行的两次 patch 声明报为 0；OB-03 已规划 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 最新首个 batch 仍只缺一个闭合括号；现有落账顺序会把错误 FunctionCall 写入正式上下文。用户已确认唯一候选的单闭合符号自愈，SR-01～SR-03 将在落账前替换为唯一修正版 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | Agent 完成了检查工作但未先声明 `inspect=completed`，随后把 patch 绑定到其子节点 `fix`；Map 因依赖未闭合将 `fix` 机械保持为 waiting。拒绝正确，反馈缺少未完成父节点明细；WF-01 已规划 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新 TaskSpace-only 复验为 8 请求、132,555 input、94.02% request-2+ cache；代码、测试与 Map 已完成，但最终回复被第 9 次本地预算门禁截断。增量含 1 次 syntax 和 1 次 state preflight 拒绝 | queued | GI-008 |
 
 问题总数：**10**；Open：**8**；Closed：**2**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。

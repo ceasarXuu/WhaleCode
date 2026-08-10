@@ -75,8 +75,9 @@ Standard 的 Tool 注册或行为。
 - 每个 client/map call 的节点归属；
 - 仅当本响应存在 Provider-hosted 事实时，`hosted_bindings[]` 中逐项声明其节点归属；没有 Hosted 事实时省略该字段。
 
-Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这些实例数据。收到 Function Call 后，Runtime 才解析 Agent
-声明，对结构化 schema 之外的 TaskSpace 硬规则执行 preflight，并将通过的 client/map call 机械交给原生 Router。
+Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这些实例数据。收到 Function Call 后，Runtime 先执行
+5.0.1 定义的唯一受限语法自愈，再解析 Agent 声明，对结构化 schema 之外的 TaskSpace 硬规则执行 preflight，并将通过的
+client/map call 机械交给原生 Router。语法自愈不得新增、删除或改变任何动作语义。
 
 协议版本、能力快照身份和内部调用传输身份不是 Agent 的工作内容。Runtime 已经持有本次 request 使用的协议和 ToolSpec
 快照，并可用 outer `call_id + calls[] index` 生成稳定的内部调用身份，因此最终 Agent-visible 参数不得要求 Agent 回显
@@ -142,6 +143,26 @@ response.completed(response_id) -> 冻结 envelope 并开始 TaskSpace Exec 处�
 TaskSpace response 只允许一个 outer `taskspace_exec`。Hosted facts 可以是 0～N 项；顶层普通 client Tool 和顶层 Map
 operation 均非法。Provider 返回完成前不执行任何尚未发生的 client/map 调用。
 
+### 5.0.1 响应落账前的受限语法自愈
+
+目标模型返回的 `taskspace_exec.arguments` 若只缺少一个明确可恢复的闭合 `}` 或 `]`，Runtime 可以在该
+`ResponseItem::FunctionCall` 进入 response scope、会话历史、rollout 和 Tool dispatch 之前机械补全。补全后的
+Function Call 是后续正式上下文中的唯一版本；不得一边执行修正版，一边把错误版继续写入 Agent 历史。
+
+自愈边界必须同时满足：
+
+1. 只处理 TaskSpace 模式下名称精确为 `taskspace_exec` 的 Function Call；Standard 和普通 Tool 零变化；
+2. 原始参数必须先被严格 JSON parser 判为语法错误；
+3. 候选与原文相比只能插入一个 `}` 或 `]`，不得补逗号、引号、字段、值、动作、节点或顺序；
+4. 只有一个候选同时通过严格 JSON parse 和当前 request Catalog 的 TaskSpace Exec plan decode 时才接受；零个或多个候选
+   都保持原始拒绝；
+5. 自愈只恢复序列化闭合，不跳过 envelope、preflight、DAG、节点状态、单 Patch、权限、sandbox 或原生 Tool 校验；
+6. `name`、`namespace`、`call_id` 和其他 ResponseItem 字段原样保留；
+7. Provider 原始 wire 只作为 transport 诊断证据保留；会话历史、rollout、RawResponseItem 和恢复输入使用同一个修正版；
+8. 记录不含原始敏感参数的机械审计事实，包括 call identity、插入符号、位置以及修复前后摘要，禁止增加 Agent-visible 提示词。
+
+这是一条序列化层的确定性规范化规则，不是 Runtime 对 Agent 计划的语义解释、补救或自动决策。
+
 ### 5.1 Client Tool
 
 Runtime 负责：
@@ -152,7 +173,8 @@ Runtime 负责：
 4. 交给现有 ToolRouter、权限、sandbox、hook 和 handler；
 5. 原样收集结果并以对应内部调用身份返回。
 
-Runtime 不负责决定应调用什么、选择哪个节点、补调用、改参数、重试或解释结果。
+Runtime 不负责决定应调用什么、选择哪个节点、补调用、改业务参数、重试或解释结果；5.0.1 的单闭合符号语法自愈是唯一
+机械例外，不得扩展为通用 JSON 猜测或动作修复。
 
 整个 Exec 的结构、Map、DAG、节点、Tool 参数和 Hosted 声明必须在任何未发生的 client/Map
 副作用前一次性完成预检。预检通过后，Runtime 先将候选 Map 与 client action 的 `Pending` 归属持久化；
@@ -194,7 +216,8 @@ Hosted action 记到 Root、Finish、未知节点或空归属中。
 
 | 响应事实 | Hosted 事实 | 尚未发生的 client/map | 原因 |
 |---|---|---|---|
-| 缺少 outer exec 或 outer plan 无法解码 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 没有可信的 Agent 节点与动作声明 |
+| 缺少 outer exec，或 outer plan 在 5.0.1 唯一候选检查后仍无法解码 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 没有可信的 Agent 节点与动作声明 |
+| outer plan 仅缺一个可唯一恢复的闭合符号 | 原始 wire 留在 transport 诊断，修正版成为唯一正式 ResponseItem | 修正版继续通过完整 preflight；通过后正常执行，不通过则按具体硬规则拒绝 | 只恢复序列化闭合，不改变 Agent 声明的动作语义 |
 | plan 可解码但违反 Agent 合同或 canonical Map 硬规则 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 不从被拒绝的计划中选择性接受状态或归属声明 |
 | plan 合法，全部 Hosted 声明一一对应，节点存在或由合法 prelude 创建 | 用真实 Provider ID 逐项记录为各自节点事件 | 按预检计划执行 | Agent 逐项决定节点，Runtime 机械核验落账 |
 | 声明漏项、多项、歧义、节点非法，或 Provider fact 缺失/重复 ID | 保留在 provider 原始响应和诊断日志中，不默认写 Root 或未绑定池 | 整批拒绝，零执行、Map 零提交 | 未完整归属的响应不是可接受的 TaskSpace 事务 |
@@ -265,6 +288,8 @@ fallback 或兼容读取。
 - `taskspace_exec` 只汇总调用身份、节点归属、机械校验状态和原生 Tool 结果。
 - 同一事实只出现一个 Agent-visible 权威表达；不得再注入 developer factual carrier。
 - preflight 拒绝必须指出具体条目、违反的硬规则和零执行范围，不加入下一步建议。
+- work call 命中 `waiting` 节点时，拒绝必须机械列出该节点当前状态和未完成的直接父节点 ID；不得只返回内部枚举，也不得
+  替 Agent 完成父节点、选择可执行节点或改变状态。
 - provider reconciliation 失败必须区分“provider 动作已发生”和“TaskSpace 绑定未成立”。
 - 结果裁剪沿用原生 Tool 与上下文底线，不因 TaskSpace 额外摘要、改写或隐藏关键失败。
 
@@ -277,7 +302,7 @@ fallback 或兼容读取。
 - 不解析 reasoning 或自然语言来恢复动作；
 - 不为旧 wire、旧 parser 或实验数据做兼容；
 - 不让旧候选方案与主方案长期双轨运行；
-- 不因 Agent 偶发错误增加任务语义判断或惩罚式重试。
+- 不因 Agent 偶发错误增加任务语义判断或惩罚式重试；5.0.1 只允许唯一可证明的序列化闭合修复。
 
 ## 8. 已确认与待证明
 
