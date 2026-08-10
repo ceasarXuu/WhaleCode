@@ -237,7 +237,8 @@ impl ProviderWireTrace {
             Some(false) => "provider.chat_wire_prefix_broken",
             None => "provider.chat_wire_shape_recorded",
         };
-        let base_instructions_identity = base_instructions_identity(&messages);
+        let base_instructions_identity =
+            base_instructions_identity(&wire, provider_wire_api, &messages);
         let event = WireShapeEvent {
             schema_version: "provider-chat-wire-trace-v11",
             event_name,
@@ -348,40 +349,48 @@ fn reset_epoch_if_needed(state: &mut ProviderWireTraceState, epoch_id: &str) {
     state.active_request_identity = None;
 }
 
-fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentity {
+fn base_instructions_identity(
+    wire: &Value,
+    provider_wire_api: WireApi,
+    messages: &[Value],
+) -> BaseInstructionsWireIdentity {
     let mut matches = Vec::new();
-    for (index, message) in messages.iter().enumerate() {
-        let Some(role @ ("developer" | "system")) = message.get("role").and_then(Value::as_str)
-        else {
-            continue;
-        };
-        let mut strings = Vec::new();
-        collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
-        for text in strings {
-            let identity = if text == BASE_INSTRUCTIONS_WHALECODE_STANDARD {
-                Some((
-                    "standard",
-                    WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
-                    WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
-                ))
-            } else if text == BASE_INSTRUCTIONS_WHALECODE_TASKSPACE {
-                Some((
-                    "taskspace",
-                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
-                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
-                ))
-            } else {
-                None
-            };
-            if let Some((profile, version, sha256)) = identity {
+    match provider_wire_api {
+        WireApi::Responses => {
+            if let Some(instructions) = wire.get("instructions").and_then(Value::as_str)
+                && let Some((profile, version, sha256)) = known_base_instructions(instructions)
+            {
                 matches.push((
-                    index,
-                    role,
+                    None,
+                    "instructions",
                     profile,
                     version,
                     sha256,
-                    json_bytes(message).len(),
+                    json_bytes(&Value::String(instructions.to_string())).len(),
                 ));
+            }
+        }
+        WireApi::ChatCompletions => {
+            for (index, message) in messages.iter().enumerate() {
+                let Some(role @ ("developer" | "system")) =
+                    message.get("role").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let mut strings = Vec::new();
+                collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
+                for text in strings {
+                    if let Some((profile, version, sha256)) = known_base_instructions(text) {
+                        matches.push((
+                            Some(index),
+                            role,
+                            profile,
+                            version,
+                            sha256,
+                            json_bytes(message).len(),
+                        ));
+                    }
+                }
             }
         }
     }
@@ -397,7 +406,7 @@ fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentit
     let (message_index, wire_role, profile, version, sha256, message_bytes) = matches[0];
     BaseInstructionsWireIdentity {
         count: 1,
-        message_index: Some(message_index),
+        message_index,
         wire_role: Some(wire_role.to_string()),
         message_bytes: Some(message_bytes),
         estimated_tokens: Some(message_bytes.div_ceil(4)),
@@ -406,6 +415,24 @@ fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentit
         sha256: Some(sha256),
         matches_current_contract: true,
         unavailable_reason: None,
+    }
+}
+
+fn known_base_instructions(text: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    if text == BASE_INSTRUCTIONS_WHALECODE_STANDARD {
+        Some((
+            "standard",
+            WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
+            WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
+        ))
+    } else if text == BASE_INSTRUCTIONS_WHALECODE_TASKSPACE {
+        Some((
+            "taskspace",
+            WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
+            WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
+        ))
+    } else {
+        None
     }
 }
 
@@ -700,7 +727,11 @@ mod tests {
             message("user", "task"),
         ];
 
-        let identity = base_instructions_identity(&messages);
+        let identity = base_instructions_identity(
+            &serde_json::json!({"messages": messages}),
+            WireApi::ChatCompletions,
+            &messages,
+        );
         assert_eq!(identity.count, 1);
         assert_eq!(identity.message_index, Some(0));
         assert_eq!(identity.wire_role.as_deref(), Some("developer"));
@@ -724,7 +755,11 @@ mod tests {
             message("user", "task"),
         ];
 
-        let identity = base_instructions_identity(&messages);
+        let identity = base_instructions_identity(
+            &serde_json::json!({"messages": messages}),
+            WireApi::ChatCompletions,
+            &messages,
+        );
         assert_eq!(identity.count, 1);
         assert_eq!(identity.message_index, Some(0));
         assert_eq!(identity.wire_role.as_deref(), Some("developer"));
@@ -745,12 +780,37 @@ mod tests {
     fn unknown_or_user_quoted_base_is_not_counted() {
         let messages = vec![message("user", BASE_INSTRUCTIONS_WHALECODE_STANDARD)];
 
-        let identity = base_instructions_identity(&messages);
+        let identity = base_instructions_identity(
+            &serde_json::json!({"messages": messages}),
+            WireApi::ChatCompletions,
+            &messages,
+        );
         assert_eq!(identity.count, 0);
         assert_eq!(
             identity.unavailable_reason,
             Some("base_instructions_unrecognized")
         );
+    }
+
+    #[test]
+    fn responses_base_identity_uses_top_level_instructions() {
+        let messages = vec![message("user", "task")];
+        let wire = serde_json::json!({
+            "instructions": BASE_INSTRUCTIONS_WHALECODE_TASKSPACE,
+            "input": messages,
+        });
+
+        let identity = base_instructions_identity(&wire, WireApi::Responses, &messages);
+
+        assert_eq!(identity.count, 1);
+        assert_eq!(identity.message_index, None);
+        assert_eq!(identity.wire_role.as_deref(), Some("instructions"));
+        assert_eq!(identity.profile, Some("taskspace"));
+        assert_eq!(
+            identity.version,
+            Some(WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION)
+        );
+        assert!(identity.matches_current_contract);
     }
 
     #[test]

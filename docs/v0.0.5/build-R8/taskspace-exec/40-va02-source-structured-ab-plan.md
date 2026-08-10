@@ -1,10 +1,13 @@
 # VA-02 Source 与 Structured Carrier A/B 实验计划
 
 - Created: 2026-08-10
-- Status: repeat-3 matrix completed / top-level escape repaired / carrier selection still blocked
+- Status: Historical experiment completed / Source retired and removed / Structured remains the sole active carrier
 - Product Authority: [`00-product-contract.md`](00-product-contract.md)
 - Active Plan: [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md)
 - Applicable Decisions: TaskSpace Exec 只负责合法序列与节点归属；Agent 声明动作；Runtime 机械预检和执行；Standard 零变化
+
+> 2026-08-11 用户决定不再继续 Source 路线。该文档只保留 A/B 历史证据，不再是活动选型计划；Source feature、decoder、
+> declaration 分支及专属测试已从 active code 删除。后续 VA-02 只验证 Structured 当前生产合同。
 
 ## 1. 要回答的问题
 
@@ -344,3 +347,19 @@ base instructions 是否消除顶层 client Tool 逃逸，并比较两个 carrie
 - Source 在本轮没有复现早期 repeat-1 的方向性优势，且静态 Tool section 和 uncached input 成本继续更高。
 - 下一轮真实运行前应先离线补清 I03 的父子节点交接合同，并修复 I07 对 Responses `instructions` 和当前 carrier 的观测；
   任何真实复验都需要新的独立预算。
+
+## 13. 选型收口与离线修复
+
+2026-08-11 最终选择 Structured 作为唯一 carrier。原因不是 Structured 已通过端到端验收，而是 Source 在 repeat-3 中没有
+稳定性或业务收益，且明确增加 Tool wire 和未缓存输入成本。代码不保留实验 feature 或兼容 decoder。
+
+本轮同时完成两个已知缺口的最小修复：
+
+1. outer Tool 合同明确父节点完成后由 Map 机械派生子节点 readiness；Agent 只完成父节点，并在同批后续位置声明绑定
+   子节点的 client work，不再显式把 `waiting` 子节点跳到 `ready/in_flight`。canonical handoff 由同一类型生成并通过
+   生产 decoder/preflight。
+2. performance observer 改为读取当前 `calls[].map` / `calls[].client` wire，并把 canonical outer rejection 计为失败
+   而非损坏证据；Responses base identity 改为读取顶层 `instructions`。
+
+离线结果：TaskSpace Exec 71 PASS、provider wire trace 19 PASS、PowerShell observer fixture PASS、CLI compile PASS。
+这些结果关闭工程缺口，不代表 VA-02 在线业务验收通过；下一次 Structured 真实复验仍需单独预算。

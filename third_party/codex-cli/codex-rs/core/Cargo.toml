@@ -10,7 +10,6 @@ name = "codex_core"
 path = "src/lib.rs"
 
 [features]
-taskspace-exec-source-ab = []
 
 [[bin]]
 name = "codex-write-config-schema"

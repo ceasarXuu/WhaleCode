@@ -28,6 +28,7 @@ Sequence contract:
 - `read_map` is the only call in its batch and cannot accompany hosted output.
 - `finish_map` is last.
 - An `update_map` that completes a work node shares the batch with later client work, hosted work, or `finish_map`.
+- When parent completion unlocks a dependent Work node, patch only the parent to `completed` and put the dependent node's client work later in the same batch. The Map derives the dependent node's readiness after the update; do not also patch that `waiting` node to `ready` or `in_flight`.
 - A batch contains at most one `apply_patch` call.
 - The complete batch is preflighted before side effects. The Runtime does not add, infer, reorder, or repair Agent actions."#;
 
@@ -44,6 +45,10 @@ pub(super) fn build_description<'a>(
         sections.push(format!(
             "First-turn initialization and work example:\n```json\n{}\n```",
             canonical_first_turn_example()
+        ));
+        sections.push(format!(
+            "Parent completion and dependent-node work example:\n```json\n{}\n```",
+            canonical_handoff_example()
         ));
     }
     sections.push(format!(
@@ -102,6 +107,31 @@ pub(crate) fn canonical_first_turn_example() -> Value {
 pub(crate) fn canonical_read_example() -> Value {
     json!({
         "calls": [map_call(MapOperation::ReadMap(EmptyArgs::default()))]
+    })
+}
+
+pub(crate) fn canonical_handoff_example() -> Value {
+    let complete = MapOperation::UpdateMap(UpdateMapArgs {
+        add_work_nodes: Vec::new(),
+        node_patches: vec![NodePatchArgs {
+            node_id: "inspect".into(),
+            goal: None,
+            state: Some(NodeState::Completed),
+            content: Some("Inspection complete.".into()),
+            parents: None,
+        }],
+    });
+    json!({
+        "calls": [
+            map_call(complete),
+            {
+                "client": {
+                    "name": "exec_command",
+                    "node_id": "implement",
+                    "input": {"cmd": "test -f README.md"}
+                }
+            }
+        ]
     })
 }
 

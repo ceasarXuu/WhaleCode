@@ -11,6 +11,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::*;
+use crate::action_map::rooted_dag;
 use crate::action_map::rooted_dag::NodeState;
 use crate::action_map::rooted_dag::TaskSpaceMap;
 use crate::action_map::rooted_dag::map_node;
@@ -199,6 +200,52 @@ fn rendered_first_turn_example_passes_the_real_preflight_contract() {
     assert_eq!(prepared.client_calls[0].call.display_name, "exec_command");
     assert_eq!(prepared.client_calls[0].call.node_id, "inspect");
     assert_eq!(prepared.candidate_map.unwrap().map_id, "map-1");
+}
+
+#[test]
+fn rendered_parent_handoff_example_derives_child_readiness_before_work() {
+    let current = new_map(
+        "map-1".into(),
+        map_node("root", "deliver", NodeState::InFlight, "", vec![]),
+        vec![
+            map_node(
+                "inspect",
+                "inspect",
+                NodeState::InFlight,
+                "",
+                vec!["root".into()],
+            ),
+            map_node(
+                "implement",
+                "implement",
+                NodeState::Waiting,
+                "",
+                vec!["inspect".into()],
+            ),
+        ],
+        map_node(
+            "finish",
+            "close",
+            NodeState::Waiting,
+            "",
+            vec!["implement".into()],
+        ),
+    );
+    let handoff = envelope(canonical_handoff_example(), Some(&current));
+
+    let prepared = preflight_taskspace_exec(&handoff, Some(&current), &[]).unwrap();
+
+    assert_eq!(prepared.client_calls.len(), 1);
+    assert_eq!(prepared.client_calls[0].call.node_id, "implement");
+    let candidate = prepared.candidate_map.unwrap();
+    assert_eq!(
+        rooted_dag::node(&candidate, "inspect").unwrap().state,
+        NodeState::Completed
+    );
+    assert_eq!(
+        rooted_dag::node(&candidate, "implement").unwrap().state,
+        NodeState::Ready
+    );
 }
 
 #[test]

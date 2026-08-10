@@ -1,7 +1,7 @@
 # Problem P-001: VA-02 首轮证据链未能如实结算
 - Status: verifying
 - Created: 2026-08-10 06:00
-- Updated: 2026-08-10 18:10
+- Updated: 2026-08-11
 - Objective: 保留 VA-02 首轮的真实协议、Map 和成本证据，并在不放宽 TaskSpace 硬约束的前提下修复确定的观测缺陷。
 - Symptoms:
   - 首次 `taskspace_exec` 参数多出一个右花括号，被严格 JSON 解码拒绝。
@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: 新 `map/client` wire 已在两次在线运行的前五个有效调用中保持顶层 `taskspace_exec`，旧 inner-name 顶层提升未复现；初始化、读取、测试和原生 client Tool 反馈均正常。完整 VA-02 运行暴露新的 I03 表现：Agent 首次直接在 waiting `fix` 节点执行 patch，被 DAG 正确拒绝；随后两次生成“完成 inspect + patch”的 mixed batch 时，都在 map call 与 client call 交界处少一个右花括号。多行 Freeform patch 已正确 JSON 转义，缺失字符来自 map envelope 边界；Runtime 原样返回解析错误且未提交 Map 或执行 patch。当前不能继续用增加预算掩盖该结构错误，也不能由 Runtime 修复 JSON；需要在保持 Standard、原生 Tool 和 Agent-owned Map 不变的前提下，选择最小 Agent-visible wire/示例收敛方案。
+- Current conclusion: Dedicated TaskSpace base 已在 repeat-3 中消除顶层 client Tool 逃逸。Source 没有稳定性或成本优势，已按用户决策退役并从 active code 删除。Structured 的父子节点交接缺口已收敛为唯一 Tool 合同中的明确机械规则和 canonical handoff，生产 decoder/preflight 离线通过；Runtime 没有修复 JSON、推断节点或替 Agent 改状态。observer 已对齐当前 `map/client` wire 与 canonical rejection，Responses base identity 已改读顶层 `instructions`。整体问题仍保持 verifying，因为 Structured 的真实端到端稳定性尚未在修复后复验。
 - Related hypotheses:
   - H-001
   - H-002
@@ -43,8 +43,11 @@
   - H-009
   - H-010
   - H-011
+  - H-012
+  - H-013
+  - H-014
 - Resolution basis:
-  - E-001 至 E-022；H-007 的旧同形 wire 根因已修复并获在线证据，H-010 确认当前 mixed batch 的实际失败字节；H-011 尚未完成修复方向证据门
+  - E-001 至 E-025；H-012 确认顶层逃逸消失，H-013 确认交接合同缺口并完成离线修复，H-014 确认两处观测实现漂移并完成离线修复。
 - Close reason:
   - not closed
 
@@ -907,7 +910,7 @@
 - Time: 2026-08-10 18:10
 
 ## Hypothesis H-011: 缺少同源 mixed transition 示例使 Agent 只能手工拼装高嵌套边界
-- Status: unverified
+- Status: verified
 - Parent: P-001
 - Claim: 当前 Tool description 有初始化+client 和 update+finish 示例，但没有“完成前置节点 + 后续 client work”的 canonical 示例；增加由同一类型生成并由 decoder/preflight 反向验证的最小示例，可能在不改 wire 和 Runtime 语义的情况下消除当前重复括号错误。
 - Layer: interaction
@@ -936,16 +939,16 @@
   - Instrumentation status: none
   - Instrumentation lifecycle:
     - none
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-022
-- Conclusion: unverified；这是当前最小候选，不得在真实验证前宣称修复。
-- Repair design readiness: blocked pending user decision
-- Next step: 向用户说明两个候选及风险。
+- Conclusion: confirmed and refined by H-013。canonical handoff 已由同一 typed contract 生成并通过生产 decoder/preflight；真实 Agent 效果仍待预算复验。
+- Repair design readiness: implemented offline
+- Next step: 在新预算下只复验 Structured 当前生产路径。
 - Blocker:
-  - 用户产品协议选择。
+  - 真实 Provider 预算。
 - Close reason:
-  - not closed
+  - verified offline
 
 ## Evidence E-022: 完整运行成本、缓存和 DAG 行为已可信结算
 - Related hypotheses:
@@ -968,3 +971,189 @@
   ```
 - Interpretation: 本轮不是缓存坍缩、usage 缺失、Runtime 自动状态推进或预算过早终止；继续增加请求不能替代协议修复。
 - Time: 2026-08-10 18:10
+
+## Hypothesis H-012: Dedicated TaskSpace base 已消除顶层 client Tool 逃逸
+- Status: verified
+- Parent: P-001
+- Claim: 移除与 TaskSpace Exec 冲突的 Standard Tool 使用说明后，Agent 不再绕过 `taskspace_exec` 直接调用顶层 client Tool。
+- Layer: interaction
+- Factor relation: single
+- Depends on:
+  - H-009
+- Rationale:
+  - Structured 与 Source 共 6 次当前版本运行均未出现顶层 client Tool call。
+- Falsifiable predictions:
+  - If true: 当前版本 TaskSpace 运行只暴露并调用 `taskspace_exec` 与 provider-hosted Tool。
+  - If false: rollout 中再次出现顶层 `exec_command`、`apply_patch` 或其他 client Tool。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 扫描 3x2 TaskSpace rollout 的所有顶层 Tool call。
+  - Signal: 顶层 Tool name。
+  - Capture method: benchmark rollout 结构化查询。
+  - Event name or marker:
+    - `function_call`
+  - Correlation keys:
+    - `target/r8-e01/runs/a0/single-file-fast-fix/r1/pair-001`
+  - Differentiates from:
+    - TaskSpace Exec 内部 client call。
+  - Supports if:
+    - 6 次运行均为零逃逸。
+  - Refutes if:
+    - 任一运行出现顶层 client Tool。
+  - Instrumentation status: existing
+  - Instrumentation lifecycle:
+    - benchmark evidence
+- Evidence gate: satisfied
+- Related evidence:
+  - E-023
+- Conclusion: confirmed。逃逸修复成立，不解释后续状态交接失败。
+- Repair design readiness: not applicable
+- Next step: 保留静态 Tool 暴露门禁。
+- Blocker:
+  - none
+- Close reason:
+  - verified
+
+## Evidence E-023: 当前 TaskSpace 六次运行均无顶层 client Tool 逃逸
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: benchmark
+- Source: 3-arm x repeat-3 matrix 的 Structured/Source rollout
+- Prediction or plan link:
+  - H-012 顶层 Tool name 扫描。
+- Matched signal:
+  - 6 次 TaskSpace rollout 中，顶层 client Tool call 计数为 0。
+- Correlation keys:
+  - `target/r8-e01/runs/a0/single-file-fast-fix/r1/pair-001`
+- Raw content:
+  ```text
+  taskspace_runs=6 top_level_client_tool_escape=0
+  ```
+- Interpretation: Dedicated TaskSpace base 的目标修复已生效；本轮失败来自 Exec 参数和状态交接，不是顶层逃逸复发。
+- Time: 2026-08-11
+
+## Hypothesis H-013: 父节点完成后的子节点交接合同表达缺失
+- Status: verified
+- Parent: P-001
+- Claim: 当前协议只要求 complete 后携带后续工作，却没有明确说明子节点 readiness 会在父节点更新后机械派生；Agent 因而额外把 `waiting` 子节点直接 patch 为 `in_flight`，触发正确的硬约束拒绝。
+- Layer: interaction
+- Factor relation: single
+- Depends on:
+  - H-012 confirmed
+- Rationale:
+  - 两次 Structured 运行都先正确识别父子依赖，随后生成同一种多余状态跳转；preflight 已按 call 顺序先应用父节点完成，再检查后续 client work。
+- Falsifiable predictions:
+  - If true: 仅 patch 父节点为 completed，并把绑定子节点的 client work 放在同批后续位置，可通过真实 decoder/preflight；无需 Runtime 推断或修改 Agent 声明。
+  - If false: 子节点在后续 client work 检查时仍为 waiting，或必须由 Agent 显式 patch 状态。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 用 canonical handoff 经生产 decoder 和 preflight 验证 candidate Map。
+  - Signal: 父节点 completed、子节点 mechanically ready、client call admitted。
+  - Capture method: Rust 定向测试。
+  - Event name or marker:
+    - `rendered_parent_handoff_example_derives_child_readiness_before_work`
+  - Correlation keys:
+    - none
+  - Differentiates from:
+    - 放宽 `waiting -> in_flight`、Runtime 自动绑定、Runtime 修复 Agent batch。
+  - Supports if:
+    - canonical batch 在不显式 patch 子节点状态时通过。
+  - Refutes if:
+    - preflight 拒绝或 candidate 子节点不为 ready。
+  - Instrumentation status: implemented pending test
+  - Instrumentation lifecycle:
+    - permanent regression test
+- Evidence gate: satisfied
+- Related evidence:
+  - E-024
+- Conclusion: confirmed。canonical handoff 不显式 patch 子节点状态即可通过生产 decoder/preflight，candidate 中父节点 completed、子节点 ready。
+- Repair design readiness: implemented offline
+- Next step: 在新预算下验证目标模型遵循。
+- Blocker:
+  - none
+- Close reason:
+  - verified offline
+
+## Evidence E-024: Structured 重复生成 waiting 子节点的非法显式跃迁
+- Related hypotheses:
+  - H-013
+- Direction: supports
+- Type: diagnostic-log
+- Source: Structured repeat-3 rollout
+- Prediction or plan link:
+  - H-013 的重复行为与生产 preflight 顺序核对。
+- Matched signal:
+  - pair-001 与 pair-002 均先遇到 `ClientNodeNotExecutable Waiting`；后续 batch 同时完成 inspect、显式将 fix 设为 in_flight 并调用 patch，因 `TransitionInvalid ["fix"]` 被拒绝。生产 preflight 会先应用 update_map，并在该操作内部派生 readiness，然后才检查后续 client call。
+- Correlation keys:
+  - `pair-001/right`
+  - `pair-002/right`
+- Raw content:
+  ```text
+  update_map: inspect -> completed, fix -> in_flight
+  preflight: TransitionInvalid ["fix"]
+  ```
+- Interpretation: 硬约束行为正确；缺口在 Agent-visible Tool 合同，没有明确告诉 Agent 不要重复声明机械派生状态。
+- Time: 2026-08-11
+
+## Hypothesis H-014: 当前观测器仍消费旧 Exec wire，Responses base 扫描字段错误
+- Status: verified
+- Parent: P-001
+- Claim: benchmark 观测器仍读取扁平 `call.tool/call.node_id`，而生产 wire 已是互斥 `call.map/call.client`；provider wire trace 又只从 Responses `input` 消息寻找 base，漏掉顶层 `instructions`。
+- Layer: observability
+- Factor relation: independent
+- Depends on:
+  - none
+- Rationale:
+  - 代码静态核对可直接坐实字段错位；两者均不改变 Agent 或 Runtime 行为，只会扭曲诊断数据。
+- Falsifiable predictions:
+  - If true: 当前 fixture 改为真实 Structured wire 后，旧解析器会把 map/client 误计为普通 client；Responses identity 会报告 unrecognized。
+  - If false: 解析器已读取嵌套 discriminator，或 Responses base 实际位于 input。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 更新 fixture 后执行 PowerShell 测试；增加 Responses 顶层 instructions 单测。
+  - Signal: map/client/node/failure 计数与 base profile。
+  - Capture method: 离线单元测试。
+  - Event name or marker:
+    - `test-taskspace-exec-observation.ps1`
+    - `responses_base_identity_uses_top_level_instructions`
+  - Correlation keys:
+    - none
+  - Differentiates from:
+    - Provider usage 缺失、真实缓存未命中、TaskSpace 执行失败。
+  - Supports if:
+    - 修复后的测试准确消费当前 wire 并识别 top-level instructions。
+  - Refutes if:
+    - 生产 wire 与静态模型不一致。
+  - Instrumentation status: implemented pending test
+  - Instrumentation lifecycle:
+    - permanent regression tests
+- Evidence gate: satisfied
+- Related evidence:
+  - E-025
+- Conclusion: 两个观测缺陷已修复；当前 Structured fixture、canonical rejection 和 Responses 顶层 instructions 测试通过。
+- Repair design readiness: implemented offline
+- Next step: 用下一次获批生产 trace 验收真实数据完整性。
+- Blocker:
+  - none
+- Close reason:
+  - verified offline
+
+## Evidence E-025: 生产 wire 与观测代码字段逐项不一致
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: code-inspection
+- Source: `taskspace_exec/catalog.rs`、`taskspace-exec-observation.ps1`、`provider_wire_trace.rs`、`codex-api/common.rs`
+- Prediction or plan link:
+  - H-014 的静态字段核对。
+- Matched signal:
+  - 生产 schema 使用 `map.operation/map.input` 与 `client.name/client.node_id/client.input`；观测器读取 `tool/node_id`。Responses request 将 base 放在顶层 `instructions`，identity 函数仅扫描 `input` 中 developer/system message。
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  production: calls[].map | calls[].client
+  observer:   calls[].tool
+  responses:  instructions + input[]
+  scanner:    input[].role in {developer, system}
+  ```
+- Interpretation: 这是确定的观测实现漂移，不应据此推导 Agent 语义或缓存行为。
+- Time: 2026-08-11

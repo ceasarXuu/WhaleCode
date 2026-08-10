@@ -297,7 +297,7 @@ pub(crate) fn map_operation_capabilities() -> Vec<ToolSpecCapability> {
         ),
         map_capability(
             UPDATE_MAP,
-            "Add Work nodes or explicitly patch existing node goal, state, content, or parents. Completing a Work node accompanies later work or finish_map.",
+            "Add Work nodes or explicitly patch existing node goal, state, content, or parents. Completing a Work node accompanies later work or finish_map. Parent completion mechanically derives dependent-node readiness; do not also patch a waiting dependent to ready or in_flight.",
             update_schema(),
         ),
         map_capability(

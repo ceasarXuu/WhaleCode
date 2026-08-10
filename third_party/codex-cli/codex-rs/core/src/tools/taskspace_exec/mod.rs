@@ -11,7 +11,6 @@ mod protocol;
 mod response_scope;
 mod result;
 mod schema_validation;
-mod source_carrier;
 
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;
 pub(crate) use catalog::TaskSpaceExecCatalog;
@@ -45,6 +44,8 @@ pub(crate) use preflight::preflight_taskspace_exec;
 pub(crate) use protocol::canonical_finish_example;
 #[cfg(test)]
 pub(crate) use protocol::canonical_first_turn_example;
+#[cfg(test)]
+pub(crate) use protocol::canonical_handoff_example;
 #[cfg(test)]
 pub(crate) use protocol::canonical_read_example;
 pub(crate) use response_scope::TaskSpaceExecResponseIdentity;

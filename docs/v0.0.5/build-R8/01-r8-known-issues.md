@@ -1,7 +1,7 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-10
+- Updated: 2026-08-11
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
@@ -59,6 +59,11 @@
 > [`taskspace-exec/40-va02-source-structured-ab-plan.md`](taskspace-exec/40-va02-source-structured-ab-plan.md) 与账本
 > `WAR-20260810-230951-R8-E01-ESCAPE-R3`。
 
+> **Structured 收口修复（2026-08-11）**：用户决定停止 Source，实验 feature、decoder、declaration 分支和专属测试已从
+> active code 删除。I03 已在唯一 outer Tool 合同中明确父节点完成后子节点 readiness 由 Map 机械派生，并增加同源
+> canonical handoff 反向通过生产 decoder/preflight；Runtime 没有替 Agent 改状态。I07 已对齐当前 `map/client` wire、
+> canonical rejection 和 Responses 顶层 `instructions`。两项均完成离线修复，真实 Agent 稳定性仍待新预算复验。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -107,8 +112,8 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆临时候选与已保存事实 | 忠实返回一次失败；未提交候选不得表现为已保存状态 | 旧 pairing/developer 双反馈已删除；preflight 拒绝零提交，单一 Tool pairing 返回原始阶段错误。静态关闭候选，待 E3 检查模型可见效果 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | request/usage/cost 可结算；但 observer 不能解码最新 Structured/Source carrier，Responses 顶层 `instructions` 也未进入 base identity scanner，派生结果不能判定 TaskSpace call 或实际 base profile | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 专用 base 后顶层逃逸 0/6；新阻塞为父节点完成后后继节点 Ready 的交接规则表达不足，以及 Structured 8/18、Source 7/18 outer calls decode reject | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；身份不一致时明确不可比较 | 当前 Structured `map/client`、outer rejection 和 Responses `instructions` 解析已离线修复；历史损坏 arguments 仍正确判为不可比较，待下一次生产 trace 验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 专用 base 后顶层逃逸 0/6；父子节点 handoff 合同已离线补清并由生产 preflight 验证。Source 已退役；Structured outer arguments 稳定性待真实复验 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 六请求复验中首次直接在 waiting `fix` 节点 patch，Runtime 零副作用拒绝；Agent随后理解需先完成 inspect，问题已真实观察但尚未归因是否稳定 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 同 commit repeat-3 中 Standard/Structured/Source input 为 205,377/278,135/338,032，缓存为 97.91%/88.96%/74.45%；两种 TaskSpace 均业务失败，尚不能评价收益是否抵偿成本 | queued | GI-008 |
 
@@ -121,8 +126,8 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 确定性关闭 | I09 | 关系 Store hydrate 仍拒绝非法图，State 134 项通过 | 无 |
 | 静态关闭候选 | I01、I02、I05、I06 | 旧根因和旧生产路径为零，新 Exec 的唯一反馈、内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试、误读拒绝或非法组合 |
 | 工程完成待生产验收 | I10 | catalog、dispatch、request scope、Provider/Exec trace 和报告共用同一 Runtime-only identity；Standard request 不变 | 当前 Provider trace 是否完整携带且逐 request 一致 |
-| 工程修复后待补齐观测 | I07 | 新生产 run 已直接完成 request/usage/cache/cost/ledger 可信结算 | section cost 与 base-instructions identity 为什么仍不可用 |
-| outer wire 在线通过、mixed transition 待修 | I03 | 旧顶层提升未复现；初始化、读取和测试均走合法 outer Exec | 如何最小收敛 `update_map + client` 的重复 JSON 边界错误 |
+| 工程修复待生产验收 | I07 | 当前 Structured call、outer rejection 和 Responses base identity 的离线 fixture 已通过 | 下一次生产 trace 是否完整且可比较 |
+| outer wire 与 handoff 离线收口 | I03 | 旧顶层提升未复现；交接方式已在唯一 Tool 合同中明确并通过生产 preflight | 目标模型是否稳定生成合法 Structured arguments 并完成业务闭环 |
 | 当前行为已观察 | I04 | Agent 一次选择 waiting 节点，Runtime 按 DAG 正确拒绝且反馈未丢失 | 该错误是否稳定，以及 I03 收敛后是否自然消失 |
 | 成本待验证 | I08 | map-request 后续请求缓存命中 92.68%，当前无缓存回归 | 三种 projection 相对 Standard 的业务收益和不可约成本；VA-03 尚未开始 |
 

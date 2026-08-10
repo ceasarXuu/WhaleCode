@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / top-level client escape repaired / VA-02 end-to-end blocked
+- Status: Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 verified offline / Source retired / I03-I07 offline repair complete / VA-02 online validation pending
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -77,10 +77,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   首响应已合法执行。第二响应仍生成了 Provider 未声明的顶层 `exec_command`，Runtime 在零副作用边界拒绝；两次请求的
   顶层 Tool 集合始终只有 `taskspace_exec + web_search`。VA-03 继续阻断，详见
   [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)。
-- TaskSpace 专用完整 base instructions 已在 `standard/structured/source × repeat=3` 中完成在线验证：六次 TaskSpace
+- TaskSpace 专用完整 base instructions 已在 `standard/structured/source × repeat=3` 历史矩阵中完成在线验证：六次 TaskSpace
   运行没有再次出现顶层 client Tool 逃逸，说明 Standard/TaskSpace 合同冲突修复成立。但 Structured 与 Source 都是
-  0/3 业务成功；当前阻塞转为父子节点交接合同不清、outer arguments 结构不稳定，以及 observer 尚不能识别最新 carrier
-  和 Responses 顶层 `instructions`。完整逐臂成本与 trace 见
+  0/3 业务成功。用户已决定停止 Source，active code 只保留 Structured。父子节点交接合同、当前 Structured observer
+  和 Responses 顶层 `instructions` identity 已完成离线修复；outer arguments 的目标模型稳定性仍待新的真实预算验证。完整
+  历史逐臂成本与 trace 见
   [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)。
 
 ## 3. 文档
@@ -129,7 +130,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 38. [`37-phase-b5-cp12-final-wire-gate.md`](37-phase-b5-cp12-final-wire-gate.md)：详细协议单一权威、TaskSpace Tool final-wire 和精确缓存敏感面证据。
 39. [`38-phase-b5-cp13-offline-acceptance.md`](38-phase-b5-cp13-offline-acceptance.md)：CP-01～CP-12 生产链、workspace、zero-base 与缓存合同的离线总验收。
 40. [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)：第二轮与零 Hosted 正式复验、顶层 Tool 越界、在线观测结算与缓存证据。
-41. [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)：使用同一当前 typed plan 和 Runtime，对 structured 与 source carrier 做单变量 A/B 的实验合同、门禁、指标与预算阶段。
+41. [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)：已结束并封存的 structured/source 单变量实验、选型证据与后续离线修复结果。
 
 ## 4. 推进规则
 

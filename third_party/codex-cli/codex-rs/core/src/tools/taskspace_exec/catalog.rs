@@ -20,36 +20,17 @@ use super::TaskSpaceExecPlanDecodeError;
 use super::hosted::HostedToolKind;
 use super::map_operation_capabilities;
 use super::protocol::build_description;
-use super::protocol::canonical_read_example;
 use super::result::render_result_contract;
 use super::result::result_schema;
-use super::source_carrier;
 
 pub(crate) const TASKSPACE_EXEC_TOOL_NAME: &str = "taskspace_exec";
 const EXCLUDED_CLIENT_TOOL_NAMES: [&str; 4] =
     [TASKSPACE_EXEC_TOOL_NAME, "exec", "wait", "update_plan"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TaskSpaceExecCarrier {
-    Structured,
-    Source,
-}
-
-impl TaskSpaceExecCarrier {
-    const fn active() -> Self {
-        if cfg!(feature = "taskspace-exec-source-ab") {
-            Self::Source
-        } else {
-            Self::Structured
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecCatalog {
     declaration: ResponsesApiTool,
     capability_identity: Arc<str>,
-    carrier: TaskSpaceExecCarrier,
     client_capabilities: BTreeMap<codex_tools::ToolName, TaskSpaceClientCapability>,
     map_capabilities: BTreeMap<String, ToolSpecCapability>,
     hosted_tools: BTreeSet<String>,
@@ -80,20 +61,19 @@ pub(crate) enum TaskSpaceExecCatalogError {
 impl TaskSpaceExecCatalog {
     #[cfg(test)]
     pub(crate) fn build(specs: &[ToolSpec]) -> Result<Self, TaskSpaceExecCatalogError> {
-        Self::build_for_carrier(specs, &[], TaskSpaceExecCarrier::Structured)
+        Self::build_catalog(specs, &[])
     }
 
     pub(crate) fn build_with_loaded_deferred(
         specs: &[ToolSpec],
         loaded_deferred_specs: &[ToolSpec],
     ) -> Result<Self, TaskSpaceExecCatalogError> {
-        Self::build_for_carrier(specs, loaded_deferred_specs, TaskSpaceExecCarrier::active())
+        Self::build_catalog(specs, loaded_deferred_specs)
     }
 
-    fn build_for_carrier(
+    fn build_catalog(
         specs: &[ToolSpec],
         loaded_deferred_specs: &[ToolSpec],
-        carrier: TaskSpaceExecCarrier,
     ) -> Result<Self, TaskSpaceExecCatalogError> {
         let loaded_deferred_names = loaded_deferred_specs
             .iter()
@@ -196,7 +176,6 @@ impl TaskSpaceExecCatalog {
             client_capabilities.values(),
             map_capabilities.values(),
             &hosted_tools,
-            carrier,
         );
         let capability_identity = build_capability_identity(
             &declaration,
@@ -207,7 +186,6 @@ impl TaskSpaceExecCatalog {
         Ok(Self {
             declaration,
             capability_identity,
-            carrier,
             client_capabilities,
             map_capabilities,
             hosted_tools,
@@ -230,18 +208,7 @@ impl TaskSpaceExecCatalog {
         &self,
         arguments: &str,
     ) -> Result<TaskSpaceExecPlan, TaskSpaceExecPlanDecodeError> {
-        match self.carrier {
-            TaskSpaceExecCarrier::Structured => TaskSpaceExecPlan::decode(arguments, self),
-            TaskSpaceExecCarrier::Source => source_carrier::decode(arguments, self),
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn build_test_carrier(
-        specs: &[ToolSpec],
-        carrier: TaskSpaceExecCarrier,
-    ) -> Result<Self, TaskSpaceExecCatalogError> {
-        Self::build_for_carrier(specs, &[], carrier)
+        TaskSpaceExecPlan::decode(arguments, self)
     }
 
     pub(super) fn client_capability(
@@ -308,7 +275,6 @@ fn build_declaration<'a>(
     clients: impl Iterator<Item = &'a TaskSpaceClientCapability>,
     map_operations: impl Iterator<Item = &'a ToolSpecCapability>,
     hosted_tools: &BTreeSet<String>,
-    carrier: TaskSpaceExecCarrier,
 ) -> ResponsesApiTool {
     let clients = clients.collect::<Vec<_>>();
     let client_labels = clients
@@ -346,34 +312,11 @@ fn build_declaration<'a>(
         [("calls", calls), ("hosted_bindings", hosted_bindings)],
         &["calls"],
     );
-    let (description, parameters) = match carrier {
-        TaskSpaceExecCarrier::Structured => (description, structured_parameters),
-        TaskSpaceExecCarrier::Source => {
-            let schema = serde_json::to_string_pretty(&structured_parameters)
-                .expect("TaskSpace Exec parameters must serialize");
-            let outer_example = source_carrier::encode(&canonical_read_example());
-            (
-                format!(
-                    "Use the source carrier for the same TaskSpace plan described below. Call `taskspace.plan(<plan-json>);` exactly once; the argument must be strict JSON matching the generated schema. Variables, conditions, loops, dynamic JavaScript, Markdown fences, and trailing statements are not allowed. Examples in the shared contract show the inner plan JSON. A complete outer Function argument looks like:\n```json\n{outer_example}\n```\n\n{description}\n\nGenerated inner plan JSON Schema:\n```json\n{schema}\n```"
-                ),
-                strict_object(
-                    [(
-                        "source",
-                        JsonSchema::string(Some(
-                            "Exactly one `taskspace.plan(<strict-plan-json>);` expression."
-                                .to_string(),
-                        )),
-                    )],
-                    &["source"],
-                ),
-            )
-        }
-    };
     ResponsesApiTool {
         name: TASKSPACE_EXEC_TOOL_NAME.to_string(),
         description,
         strict: false,
-        parameters,
+        parameters: structured_parameters,
         output_schema: Some(output_schema),
         defer_loading: None,
     }

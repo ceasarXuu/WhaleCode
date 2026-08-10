@@ -138,11 +138,7 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
         ],
         "hosted_bindings": []
     });
-    let arguments = if cfg!(feature = "taskspace-exec-source-ab") {
-        source_carrier::encode(&plan)
-    } else {
-        plan
-    };
+    let arguments = plan;
     let output = router
         .dispatch_tool_call_with_code_mode_result(
             Arc::clone(&session),
