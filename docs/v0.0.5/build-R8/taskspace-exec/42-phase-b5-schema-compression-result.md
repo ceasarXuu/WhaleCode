@@ -45,7 +45,16 @@
 启动期间有两个 Provider-zero 事件：第一次相对 `RunRoot` 在账本创建前失败；第二次证据目录名含 `taskspace`，触发 neutral-cwd 门禁并以
 `provider_boundary_requests_minimum=0` 结算。二者均未消耗 API token，不计入有效样本和预算费用。
 
-## 4. 下一因素
+## 4. SC-02：协议示例去重
 
 `SC-02` 只处理协议示例重复：保留首次 `initialize_map + client work` 与父节点完成后交接两个高价值示例，评估删除可由输入 schema 和硬规则直接
 表达的 `read_map`、最终 finish 两个示例。不得同时修改协议规则、schema、Map、Runtime 或结果反馈。
+
+静态 candidate 只减少 `439 bytes/request`，约 `110 token/request`，不足当前简单样本单请求 input 的 1%。其中最终示例是历史上用于表达
+`update_map + finish_map` 合批的直接证据，移除后的潜在请求放大或单独 finish 回归会轻易抵消全部收益。该候选在付费运行前按风险收益比证伪，代码已
+恢复到 SC-01 基线，预算消耗为零。
+
+## 5. 下一因素
+
+`SC-03` 只做输入 schema 的静态重复审计。只有找到不改变原生 Tool 参数、不降低 Map/序列/node binding 硬约束、且能明显缩短 production wire
+的同义结构时才进入实现和在线验证；否则直接结束本轮压缩，不用弱约束换 token。
