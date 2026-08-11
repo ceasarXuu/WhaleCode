@@ -18,7 +18,7 @@ const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry poi
 
 Call contract:
 - Put every Map operation and client Tool invocation in `calls`, in the order you declare.
-- `calls` order defines Map boundaries, not a second dependency graph for ordinary work. Work dependencies come only from Map node `parents`; independent client calls may use native parallel execution, while result-dependent work waits for a later request.
+- Map operations affect later calls in the batch. Client calls may execute in parallel, do not change node state, and cannot unlock descendants until a later request.
 - A client Tool call is `{"client":{"name":"<name>","node_id":"<work-node>","input":<native-input>}}`. A namespaced function call also has `"namespace":"<namespace>"` and keeps only the leaf Tool name in `name`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
 - A Map operation is `{"map":{"operation":"<map-operation>","input":{...}}}` and has no owner `node_id`.
 - Include `hosted_bindings` only when the response contains provider-hosted output. It contains one binding for each hosted output, in provider output order; one output may name multiple owner work nodes.
@@ -28,12 +28,12 @@ Sequence contract:
 - `read_map` is the only call in its batch and cannot accompany hosted output.
 - `finish_map` is last.
 - An `update_map` that completes a work node shares the batch with later client work, hosted work, or `finish_map`.
-- When parent completion unlocks a dependent Work node, patch only the parent to `completed` and put the dependent node's client work later in the same batch. The Map derives the dependent node's readiness after the update; do not also patch that `waiting` node to `ready` or `in_flight`.
+- To unlock dependent work, patch only its parent to `completed`; readiness is derived from Map node `parents`.
 - A batch contains at most one `apply_patch` call.
 - The complete batch is preflighted before side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
 Feedback contract:
-- The outer result reports every client and hosted action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`. Tool outcomes do not change node state."#;
+- The outer result reports every client and hosted action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`."#;
 
 pub(super) fn build_description<'a>(
     client_tool_names: impl Iterator<Item = &'a str>,
@@ -49,7 +49,7 @@ pub(super) fn build_description<'a>(
             canonical_first_turn_example()
         ));
         sections.push(format!(
-            "Parent completion and dependent-node work example:\n```json\n{}\n```",
+            "Parent completion and direct-child work example:\n```json\n{}\n```",
             canonical_handoff_example()
         ));
     }

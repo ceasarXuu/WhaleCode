@@ -288,7 +288,7 @@ fn build_declaration<'a>(
         JsonSchema::object_any_of(
             call_variants,
             Some(
-                "Map operations and client Tool calls. Array order defines Map boundaries; ordinary work dependencies come from Map node parents."
+                "Map operations take effect before later calls; client outcomes do not change node state. Dependencies come from Map node parents."
                     .into(),
             ),
         ),

@@ -438,7 +438,7 @@ pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) ->
             state,
             incomplete_parent_ids,
         } => format!(
-            "client call {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. No Map or client calls were executed.",
+            "client call {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. Only preceding Map operations can unlock work in this batch; client Tool outcomes do not change node state. No Map or client calls were executed.",
             node_state_label(*state)
         ),
         _ => format!("preflight: {error:?}. No Map or client calls were executed."),

@@ -77,3 +77,17 @@ schema、协议、Map 和 Runtime 均未改变。静态 candidate 减少 `473 by
 
 因此本轮停止继续付费迭代，不为用完预算制造新候选。最终生产代码为 SC-01；缓存正式基线仍按第 3 节保持发布阻断，后续应作为门禁能力范围的独立
 主题处理，不和 Tool 合同压缩混做。
+
+## 7. Waiting 批次合同清晰度修复
+
+2026-08-12 针对最新暖缓存轮的两次 waiting 拒绝完成最小合同修复，不改变 DAG、状态迁移、preflight 原子性、client 原生并行或
+Standard 路径：
+
+1. `calls` 直接说明只有排在前面的 Map 操作会改变后续调用可执行性；client outcome 不改变节点状态，也不能在同批解锁后代；
+2. handoff 示例明确为父节点完成后执行 direct-child，不再使用含糊的 dependent-node 标题；
+3. state schema 明确 `waiting/ready` 由 parents 派生，不能绕过依赖；保留全部既有合法生命周期能力；
+4. waiting 拒绝除准确列出未完成直接父节点外，返回同一机械批次边界，不规定 Agent 应选择什么工作。
+
+TaskSpace Exec `82/82` 通过。同一 production final-wire fixture 的紧凑 Tool JSON 从 `29,578` 降到 `29,263 bytes`，减少
+`315 bytes`（`1.06%`）；其中 description 减少 `309 bytes`。因此没有以固定上下文膨胀换取显著性。本轮未运行真实 Whale
+Agent，不能宣称 waiting 触发频率已经下降；I04 保持验证态。

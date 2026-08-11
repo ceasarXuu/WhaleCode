@@ -79,6 +79,12 @@
 > 边界拦截，因此 runner 仍为 partial，不能晋升端到端基线。I03 的首请求 JSON 稳定性和 I04 的一次 waiting-node 误选继续开放。
 > I07 同时发现 nested `apply_patch` 已执行但 patch lifecycle 仍计为 0 的观测缺口。
 
+> **I04 批次合同清晰度修复（2026-08-12）**：确认 waiting 规则并非完全缺失，而是“Map 操作改变状态、client outcome
+> 不改变状态、client 可并行、整批预检”分散表达，且 handoff 示例没有突出只能解锁直接子节点。当前 Tool 合同已收敛为一条机械规则：
+> 只有批次中排在前面的 Map 操作能解锁后续工作，client outcome 不能在同批继续解锁后代；handoff 明确为 direct-child，
+> waiting 拒绝返回同一机械边界。Runtime 未自动选点、改状态或重排动作。TaskSpace Exec 82 项测试通过；同一 final-wire fixture
+> 的 Tool 段由 29,578 降至 29,263 bytes。尚未运行真实 Agent，I04 保持 verifying。
+
 > **最新根因收敛与计划（2026-08-11）**：用户确认对唯一可证明的单闭合符号缺失执行 Runtime 机械自愈，且修正版必须在
 > `OutputItemDone` 落账前替换原 FunctionCall，成为 history、rollout、RawResponseItem 和 dispatch 共用的唯一正式事实；只在
 > handler/decoder 中修补会保留错误上下文，已判定为错误实现方向。I04 中 Agent 并未“调用 waiting”，而是把 `apply_patch`
@@ -150,7 +156,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | SR-04 后简单样本 3/3 端到端通过且无 syntax/wrapper；三轮参数均原生合法，自愈分支未自然命中，复杂组合稳定性仍待正常样本观察 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | WF-01 已在线验证反馈准确且零副作用；1/3 运行仍发生两次 waiting 子节点误选，Agent 均在下一请求完成父节点并继续，行为问题保持开放 | verifying | GI-004 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | waiting 的机械批次边界已集中到 calls、handoff 和拒绝反馈；82 项测试通过且 Tool wire 减少 315 bytes。真实行为复验未执行 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 
 问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。

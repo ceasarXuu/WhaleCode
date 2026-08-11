@@ -145,7 +145,9 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(description.contains("single top-level entry point"));
     assert!(description.contains("First-turn initialization and work example"));
     assert!(description.contains("node_id` is TaskSpace ownership metadata"));
-    assert!(description.contains("not a second dependency graph"));
+    assert!(description.contains("Client calls may execute in parallel"));
+    assert!(description.contains("cannot unlock descendants until a later request"));
+    assert!(description.contains("direct-child work example"));
     assert!(description.contains("explicit Map finish example"));
     assert!(description.contains("The Runtime does not add, infer, reorder, or repair"));
     assert!(
@@ -192,7 +194,8 @@ fn rendered_map_examples_use_the_same_catalog_contract() {
     let calls = declaration["parameters"]["properties"]["calls"]["items"]["description"]
         .as_str()
         .unwrap();
-    assert!(calls.contains("ordinary work dependencies come from Map node parents"));
+    assert!(calls.contains("client outcomes do not change node state"));
+    assert!(calls.contains("Dependencies come from Map node parents"));
 }
 
 #[test]

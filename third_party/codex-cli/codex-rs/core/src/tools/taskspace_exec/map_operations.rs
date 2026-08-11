@@ -297,7 +297,7 @@ pub(crate) fn map_operation_capabilities() -> Vec<ToolSpecCapability> {
         ),
         map_capability(
             UPDATE_MAP,
-            "Add Work nodes or explicitly patch existing node goal, state, content, or parents. Completing a Work node accompanies later work or finish_map. Parent completion mechanically derives dependent-node readiness; do not also patch a waiting dependent to ready or in_flight.",
+            "Add Work nodes or patch existing node goal, state, content, or parents. Complete a parent before later direct-child work; readiness is derived.",
             update_schema(),
         ),
         map_capability(
@@ -417,7 +417,10 @@ fn node_state_schema() -> JsonSchema {
             .into_iter()
             .map(|value| json!(value))
             .collect(),
-        None,
+        Some(
+            "Lifecycle target. waiting and ready are derived from parents; setting them cannot bypass dependencies."
+                .into(),
+        ),
     )
 }
 
@@ -453,6 +456,11 @@ mod schema_tests {
             update["properties"]["node_patches"]["items"]["properties"]
                 .get("state")
                 .is_some()
+        );
+        let state = &update["properties"]["node_patches"]["items"]["properties"]["state"];
+        assert_eq!(
+            state["description"],
+            "Lifecycle target. waiting and ready are derived from parents; setting them cannot bypass dependencies."
         );
     }
 }

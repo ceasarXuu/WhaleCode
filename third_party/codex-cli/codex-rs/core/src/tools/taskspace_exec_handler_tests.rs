@@ -31,7 +31,7 @@ use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 
 #[test]
-fn waiting_preflight_feedback_names_incomplete_parents_without_prescribing_work() {
+fn waiting_preflight_feedback_names_parents_and_mechanical_batch_boundary() {
     let feedback = super::handler::render_preflight_rejection(
         &TaskSpaceExecPreflightError::ClientNodeNotExecutable {
             index: 2,
@@ -43,7 +43,7 @@ fn waiting_preflight_feedback_names_incomplete_parents_without_prescribing_work(
 
     assert_eq!(
         feedback,
-        "client call 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. No Map or client calls were executed."
+        "client call 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. Only preceding Map operations can unlock work in this batch; client Tool outcomes do not change node state. No Map or client calls were executed."
     );
 }
 use crate::tools::registry::ToolHandler;
