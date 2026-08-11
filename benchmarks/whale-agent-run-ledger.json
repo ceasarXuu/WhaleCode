@@ -1,7 +1,122 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-11T18:37:24+08:00",
+  "updated_at": "2026-08-11T18:55:45+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260811-185507-CACHE-REGRESSION-508F6FC2",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-11T18:55:16+08:00",
+      "ended_at": "2026-08-11T18:55:45+08:00",
+      "elapsed_calendar_seconds": 29.467,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Validate SC-03 as one isolated schema-description deduplication factor; verify required node bindings remain stable, no retry, under the approved USD 1.00 package.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260811-R8-EXEC-SCHEMA-SC03-4FF6450E8D6713B9",
+        "reference": "用户于 2026-08-11 批准 TaskSpace Exec 单变量压缩优化的 USD 1.00 总预算包。SC-03 只移除 client node_id 字段在 11 个 schema variant 中重复的说明文字，字段和 outer 协议保持不变；本授权为一个 sample、一个 map-request arm、repeat=1、无自动重试，前序有效运行累计 USD 0.0048342。",
+        "budget_summary": {
+          "provider_requests": 10,
+          "input_tokens": 10000000,
+          "output_tokens": 3840000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 2.4752,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-4FF6450E8D6713B9。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "3dbf7a6b406c05bffc9c13aa55e85391f94772a9c925e57eed87810911c1e6ab",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 2,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 25382,
+        "cached_input": 17024,
+        "uncached_input": 8358,
+        "output": 363
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.0013194272,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 4.76672e-05,
+          "uncached_input": 0.0011701200000000002,
+          "output": 0.00010164000000000001
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-sc03",
+        "subject_commit": "a07dfd11e89c9f33984f3bb11f47cd7e4b140511",
+        "surface_sha256": "72044a1a1233c14f5acb7c2a628c92cc31a2c622e581623068cde25fecec04fd",
+        "proposal_id": "CBP-4FF6450E8D6713B9",
+        "proposal_contract_sha256": "df7862d0050adb8172ea95a23849777506f348501e8fa6471a2eafa58d6d18d3",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-4FF6450E8D6713B9.json",
+        "proposal_sha256": "ff618b3c1b193bd841b62c08ab1c74d4b22ab50ca3d8b18e960678c696ff0487",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260811-R8-EXEC-SCHEMA-SC03-4FF6450E8D6713B9.json",
+        "authorization_sha256": "4f45022f73ee540e249a483feb2ce44ca1b67d8c730e230f02c0bc132e145f48",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Validate SC-03 as one isolated schema-description deduplication factor; verify required node bindings remain stable, no retry, under the approved USD 1.00 package."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260811-185507-CACHE-REGRESSION-508F6FC2/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "c82f3bcd77d9a2592a23bff71a9189427862d0e7d3b042802253c0e8e62efee2",
+        "actual_run_root": "target/r8-sc03",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260811-185507-CACHE-REGRESSION-508F6FC2.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
     {
       "record_id": "WAR-20260811-183627-CACHE-REGRESSION-0A1511B5",
       "record_type": "run_batch",

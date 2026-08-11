@@ -1,6 +1,6 @@
 # Phase B5 TaskSpace Exec 单变量压缩记录
 
-- Status: SC-01 accepted as experiment baseline / SC-02 pending
+- Status: Complete / SC-01 retained / SC-02 and SC-03 rejected
 - Budget package: `R8-EXEC-SCHEMA-USD100-20260811`
 - Subject commit: `95579125c805be645a64b5f938a63bcba647f177`
 
@@ -56,5 +56,24 @@
 
 ## 5. 下一因素
 
-`SC-03` 只做输入 schema 的静态重复审计。只有找到不改变原生 Tool 参数、不降低 Map/序列/node binding 硬约束、且能明显缩短 production wire
-的同义结构时才进入实现和在线验证；否则直接结束本轮压缩，不用弱约束换 token。
+`SC-03` 只移除 11 个 client variant 中重复的 `node_id` 字段描述。字段仍是 required string，outer 协议仍保留唯一 ownership 说明；其他
+schema、协议、Map 和 Runtime 均未改变。静态 candidate 减少 `473 bytes/request`，约 `118 token/request`。
+
+在线运行在 2 个 Provider 请求后业务失败：首请求正确生成 `initialize_map + exec_command`，`node_id=inspect` 绑定和执行均成功；第二请求把
+`exec_command` 提升为非法顶层 Tool，未继续修改代码。该失败不是漏填 `node_id`，单次证据不足以证明字段描述删除与顶层逃逸存在因果；但相对于
+不足 0.5% 的 wire 收益，结构失败使继续复验的风险收益不成立。commit `a07dfd11e` 已由 `a58666eb1` 整体回退，不保留部分实现。
+
+本轮 SC-03 使用 2 requests、25,382 input / 17,024 cached / 8,358 uncached / 363 output，估算 `$0.0013194`。压缩预算包累计
+消耗 `$0.0061536`，剩余约 `$0.9938464`。
+
+## 6. 收口结论
+
+当前可证明的高价值、低风险压缩只有 SC-01。继续减少固定 Tool wire 主要只有四条路径，均不进入实现：
+
+1. 用 `$defs`/`$ref` 或条件 schema 合并 `calls[].anyOf`：会改变 Provider schema 兼容面和模型对每个 native input 的直接可见性；
+2. 删除 client Tool 原生 description/input schema：TaskSpace 顶层不再暴露这些 Tool，会直接丢失能力合同；
+3. 按任务语义隐藏 `spawn_agent` 等大 Tool：需要 Runtime 代替 Agent 判断能力需求；
+4. 继续删初始化、handoff 或 finish 规则与示例：历史失败已经证明它们承担真实行为约束，节省量不足以覆盖请求放大风险。
+
+因此本轮停止继续付费迭代，不为用完预算制造新候选。最终生产代码为 SC-01；缓存正式基线仍按第 3 节保持发布阻断，后续应作为门禁能力范围的独立
+主题处理，不和 Tool 合同压缩混做。
