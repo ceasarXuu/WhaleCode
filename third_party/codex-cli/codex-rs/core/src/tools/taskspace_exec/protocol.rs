@@ -30,12 +30,14 @@ Sequence contract:
 - An `update_map` that completes a work node shares the batch with later client work, hosted work, or `finish_map`.
 - When parent completion unlocks a dependent Work node, patch only the parent to `completed` and put the dependent node's client work later in the same batch. The Map derives the dependent node's readiness after the update; do not also patch that `waiting` node to `ready` or `in_flight`.
 - A batch contains at most one `apply_patch` call.
-- The complete batch is preflighted before side effects. The Runtime does not add, infer, reorder, or repair Agent actions."#;
+- The complete batch is preflighted before side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
+
+Feedback contract:
+- The outer result reports every client and hosted action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`. Tool outcomes do not change node state."#;
 
 pub(super) fn build_description<'a>(
     client_tool_names: impl Iterator<Item = &'a str>,
     hosted_tools: &BTreeSet<String>,
-    result_contract: &str,
 ) -> String {
     let has_exec_command = client_tool_names
         .into_iter()
@@ -65,7 +67,6 @@ pub(super) fn build_description<'a>(
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", ")
         ));
     }
-    sections.push(result_contract.to_string());
     sections.join("\n\n")
 }
 

@@ -262,6 +262,21 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 
 预算批准不绕过 cache gate、账本和前置门禁；未启动前不创建伪 `planned` 记录，未使用余额不转移到其他测试。
 
+#### TaskSpace Exec 输入压缩预算包
+
+用户于 2026-08-11 批准总额 USD 1.00 的顺序优化预算包。该预算只用于 `taskspace_exec` 模型可见合同的单变量压缩：
+
+1. 每轮只改变一个可准确命名的因素；离线合同、final-wire 和缓存敏感面门禁通过后，才允许一次
+   `single-file-fast-fix × map-request × repeat=1` 真实运行。
+2. 每轮先判断业务结果、结构错误、请求数、input/cached/uncached/output token、耗时和费用；结论明确后才保留并进入下一因素。
+   失败或收益无法与行为波动区分时，回退或跳过该因素，禁止把未验证变化叠入下一轮。
+3. 第一因素 `SC-01` 只移除模型可见的完整 outer result TypeScript 展开；内部 typed result、实际 JSON 反馈、能力身份、输入
+   schema、Map、序列、示例和 Runtime 均保持不变。
+4. 后续候选依次为 `SC-02` 协议示例去重，以及仅在不削弱硬合同前提下评估的 `SC-03` 输入 schema 表达压缩。没有明确安全
+   方案的候选直接证伪跳过，不为消耗预算而运行。
+5. 每次真实运行必须先登记独立 `planned` ledger，单轮无自动重试；累计估算费用达到 USD 1.00 立即停止。预算授权不允许扩大
+   sample、arm 或 repeat，也不绕过缓存门禁和付费运行证据要求。
+
 ## 5. 执行记录
 
 | Unit | Date | Evidence | Conclusion | Next |

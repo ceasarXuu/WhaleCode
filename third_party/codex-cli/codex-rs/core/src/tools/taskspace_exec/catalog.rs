@@ -20,7 +20,6 @@ use super::TaskSpaceExecPlanDecodeError;
 use super::hosted::HostedToolKind;
 use super::map_operation_capabilities;
 use super::protocol::build_description;
-use super::result::render_result_contract;
 use super::result::result_schema;
 
 pub(crate) const TASKSPACE_EXEC_TOOL_NAME: &str = "taskspace_exec";
@@ -300,14 +299,9 @@ fn build_declaration<'a>(
         Some("Bindings for provider-hosted outputs in provider output order.".into()),
     );
     let output_schema = result_schema(clients.iter().map(|client| &client.capability));
-    let result_contract = render_result_contract(&output_schema);
     let output_schema =
         serde_json::to_value(output_schema).expect("TaskSpace Exec output schema must serialize");
-    let description = build_description(
-        client_labels.iter().map(String::as_str),
-        hosted_tools,
-        &result_contract,
-    );
+    let description = build_description(client_labels.iter().map(String::as_str), hosted_tools);
     let structured_parameters = strict_object(
         [("calls", calls), ("hosted_bindings", hosted_bindings)],
         &["calls"],

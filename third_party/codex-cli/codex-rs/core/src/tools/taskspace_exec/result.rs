@@ -120,14 +120,6 @@ pub(super) fn result_schema<'a>(
     )
 }
 
-pub(super) fn render_result_contract(schema: &JsonSchema) -> String {
-    let value = serde_json::to_value(schema).expect("TaskSpace result schema must serialize");
-    format!(
-        "Result contract (returned as JSON text):\n```ts\ntype TaskSpaceExecResult = {};\n```",
-        render_json_schema_to_typescript(&value)
-    )
-}
-
 fn map_read_result_schema() -> JsonSchema {
     strict_object(
         [

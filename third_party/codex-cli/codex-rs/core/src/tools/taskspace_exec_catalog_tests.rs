@@ -148,8 +148,11 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(description.contains("not a second dependency graph"));
     assert!(description.contains("explicit Map finish example"));
     assert!(description.contains("The Runtime does not add, infer, reorder, or repair"));
-    assert!(description.contains("type TaskSpaceExecResult"));
-    assert!(description.contains("map_revision_at_dispatch"));
+    assert!(
+        description.contains("preserves native client results and errors without summarization")
+    );
+    assert!(!description.contains("type TaskSpaceExecResult"));
+    assert!(!description.contains("map_revision_at_dispatch"));
     assert_eq!(description.matches("First-turn initialization").count(), 1);
     assert!(!description.contains(r#"{\"tool\""#));
 
@@ -228,7 +231,7 @@ fn capability_identity_changes_with_dispatch_or_hosted_semantics() {
         changed_output.declaration().output_schema
     );
     assert!(
-        changed_output
+        !changed_output
             .declaration()
             .description
             .contains("`exec_command` logical output: string")
