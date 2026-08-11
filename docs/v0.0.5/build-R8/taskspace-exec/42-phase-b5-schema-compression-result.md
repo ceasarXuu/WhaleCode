@@ -118,3 +118,26 @@ waiting 的 `fix` 改为 `in_flight`，触发一次 `TransitionInvalid`。读取
 首轮 input 超过提案的 125,000 单轮观察阈值，专用 runner 按 `after_any_budget_observation_exceeded` 停止，第二轮未执行。
 全局账本记录为 `WAR-20260812-042203-CACHE-REGRESSION-D7FE72F8`，状态 `partial`，usage 完整。I04 继续保持 verifying；后续若
 再调整，应优先检查拒绝反馈对“整批 Map 也未提交”的显著性，不增加 Runtime 选点、自动重放或状态推断。
+
+## 9. 两轮确认与保留决策
+
+用户针对第 8 节全面较差的数据追加批准同配置 `repeat=2`，要求若效果仍明确更差则回滚。本轮两次运行均完整结算：
+
+| Run | 结果 | Requests | Input | Cached | Uncached | Output | Req 2+ hit | Agent wall | 估算费用 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Confirm-1 | PASS | 7 | 103,483 | 97,536 | 5,947 | 2,192 | 93.64% | 21.27s | $0.0017194408 |
+| Confirm-2 | PASS | 8 | 118,841 | 110,848 | 7,993 | 2,085 | 92.63% | 24.55s | $0.0020131944 |
+| 两轮均值 | PASS | 7.5 | 111,162 | 104,192 | 6,970 | 2,138.5 | 93.13% | 22.91s | $0.0018663176 |
+| 修改前暖缓存 | PASS | 8 | 120,306 | 113,792 | 6,514 | 2,728 | 94.04% | 23.2s | $0.0019944 |
+
+确认两轮相对修改前暖缓存基线：平均 requests 减少 6.25%，input 减少 7.60%，output 减少 21.61%，费用减少 6.42%，
+Agent wall 减少 1.25%；request 2+ cache hit 低 0.91 个百分点，uncached input 高 7.00%。因此缓存尚未完全等价，但整体数据
+不支持“当前实现持续全面变差”，也不满足用户设定的回滚条件。
+
+行为上，Confirm-1 有一次非法状态迁移拒绝，随后完成 `inspect + patch`、`fix completed + verify` 和 finish；Confirm-2 先主动
+运行失败测试，随后一次 patch 命中 waiting `fix` 被拒绝，再完成父节点并继续。两轮各有一次协议/state 拒绝，低于修改前暖缓存
+单轮的两次 waiting 拒绝，但样本数不足以宣称行为问题关闭。第 8 节的 9-request 首轮仍作为冷前缀与异常动作路径的真实成本保留。
+
+决策：保留 `bb85e108c`，不回滚；I04 继续 verifying。确认批次账本为
+`WAR-20260812-052311-CACHE-REGRESSION-08BB8620`，15 requests、222,324 input、208,384 cached、13,940 uncached、
+4,277 output，估算总费用 USD 0.0037326352。

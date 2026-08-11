@@ -1,0 +1,260 @@
+{
+  "schema_version": "whalecode-cache-hit-regression-v6",
+  "record_id": "WAR-20260812-052311-CACHE-REGRESSION-08BB8620",
+  "status": "completed",
+  "started_at": "2026-08-12T05:23:20+08:00",
+  "subject_commit": "9688d8f5f3b2f9204f0be97557b4dc93ac23d7f1",
+  "surface_sha256": "7aabf66aebf75120734e4f0a7fdda9cf798c5a10742b99bd5a0ecf5c701e4449",
+  "proposal_id": "CBP-7322171537156704",
+  "proposal_sha256": "60ff4f204a599e876ed912d71d31bbf33931ef5f122c2e3aa883fc55a5c246fe",
+  "authorization_reference": "用户于 2026-08-12 明确批准当前 waiting 合同实现再运行 2 轮；若效果确实不如之前则总结分析并回滚。本授权限定 deepseek-v4-flash、single-file-fast-fix、map-request、repeat=2、无自动重试。",
+  "authorization_sha256": "e8f535132d8b49a8aa5077d6e7a853914ffb629c6435937826afe715347fe6d8",
+  "observed_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 2,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "User-approved two-run confirmation of the current waiting batch-boundary implementation before deciding whether to retain or roll it back; same simple sample and map-request arm, no retry."
+  },
+  "unverified_scope": [],
+  "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+  "actual_sample_runs": 2,
+  "credential_source": ".env.local",
+  "provider_route_attestation": {
+    "schema_version": "whalecode-provider-route-preflight-v1",
+    "status": "passed",
+    "model": "deepseek-v4-flash",
+    "provider_routing": {
+      "route_kind": "custom_provider_transport_alias",
+      "logical_provider_id": "deepseek",
+      "transport_provider_id": "deepseek-boundary",
+      "provider_name": "DeepSeek",
+      "base_url": "http://provider-proxy:8080",
+      "env_key": "DEEPSEEK_API_KEY",
+      "wire_api": "responses",
+      "intentional_differences": [
+        "provider_id",
+        "base_url"
+      ]
+    },
+    "provider_descriptor_sha256": "3ed9431b4cae6f7f53aec942d6f76976fb1ee8d7a3dd9bebb2db7919e0635583",
+    "whale_binary_sha256": "22ffc79c59285f8028ce7b0a44d0fce0003888b2d6ee104287fc9b11f8cd1190",
+    "preflight_started_at": "2026-08-11T21:23:13.4441380Z",
+    "preflight_completed_at": "2026-08-11T21:23:16.3493867Z",
+    "artifact_path": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/provider-route-preflight/provider-route-preflight.json",
+    "artifact_sha256": "00f09705da1857de65be7a2b793a3c7b21724e12019ef5344504ae397a0dc664"
+  },
+  "run_root": "target/r8-waiting-confirm-r2",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260812-052311-CACHE-REGRESSION-08BB8620.json",
+  "attempts": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "map-request",
+      "repeat": 1,
+      "run_id": "WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001",
+      "status": "completed",
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 42.098,
+      "post_run_cleanup": {
+        "status": "verified_absent",
+        "container_ids": [],
+        "stable_empty_polls": 3,
+        "network_cleanup_status": "verified_absent",
+        "network_ids": [],
+        "secret_cleanup_status": "verified_absent",
+        "secret_paths": [],
+        "error": ""
+      },
+      "provider_boundary_request_count": 7,
+      "provider_boundary_evidence_path": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/provider-boundary-evidence.json",
+      "provider_boundary_evidence_sha256": "811671248bef9abb15fa7befbb7c31d042c8b382b713b47044be05248eb6ed84",
+      "run_dir": "target/r8-waiting-confirm-r2/single-file-fast-fix/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001"
+    },
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "map-request",
+      "repeat": 2,
+      "run_id": "WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002",
+      "status": "completed",
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 46.806,
+      "post_run_cleanup": {
+        "status": "verified_absent",
+        "container_ids": [],
+        "stable_empty_polls": 3,
+        "network_cleanup_status": "verified_absent",
+        "network_ids": [],
+        "secret_cleanup_status": "verified_absent",
+        "secret_paths": [],
+        "error": ""
+      },
+      "provider_boundary_request_count": 8,
+      "provider_boundary_evidence_path": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/provider-boundary-evidence.json",
+      "provider_boundary_evidence_sha256": "90e0b5997623fc355e5344d8d20aca3ea89177bb145a036c305f167b1b826e56",
+      "run_dir": "target/r8-waiting-confirm-r2/single-file-fast-fix/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002"
+    }
+  ],
+  "observations": [
+    {
+      "arm": "map-request",
+      "provider_usage_contract_version": "whalecode-provider-usage-v1",
+      "logical_mode": "taskspace",
+      "provider_model": "deepseek-v4-flash",
+      "provider_requests": 7,
+      "provider_payload_sha256": [
+        "54580f9c755b4e12e95b26b940df4958fa5adc6c8e5a030365cda62268ce13f4",
+        "f955c5583289ae252f329bffd6228b7b0af828981db3406de5724d3638ccc43e",
+        "da7dae067bfc85a0eae959ff0c9a5bcd7d0811a2080f4cf36169e028e781bcdb",
+        "75b2e16fcb1a58a9e26470bffef5f2bdfdef332b47f0fe10c37266f3817a4ac0",
+        "ef20b1ee9f748a874dd1c2cbcdc44b6f755d26a72efaee00e477266328be3282",
+        "070f3d0433d7464fedd7efc2079a08139c560fd0cce6c43a555c1aea9c8ca6f6",
+        "a4cbe8cf326e95f39f589eeb77f8cb17f02db9048f45fe00590c433ea86bda56"
+      ],
+      "request_2_plus_count": 6,
+      "request_2_plus_hit_rate": 0.936359,
+      "request_2_plus_cached_input_tokens": 85248,
+      "request_2_plus_uncached_input_tokens": 5794,
+      "trace_coverage": 1.0,
+      "cache_usage_missing_count": 0,
+      "input_tokens": 103483,
+      "cached_input_tokens": 97536,
+      "uncached_input_tokens": 5947,
+      "output_tokens": 2192,
+      "business_success": true,
+      "artifacts": {
+        "cache_summary": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/provider-cache-trace-summary.json",
+        "provider_wire": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/provider-wire-trace.jsonl",
+        "request_summary": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/request-summary.json",
+        "metrics": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/metrics.json",
+        "provider_boundary": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/provider-boundary-evidence.json",
+        "execution_argv": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/whale-argv.json",
+        "logical_mode_map": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001/logical-mode-map.json"
+      },
+      "artifact_sha256": {
+        "cache_summary": "569c094e782a17e04980eafc434378194cd8bc6f18de2fa5cfd6b61cc106d799",
+        "provider_wire": "2a5efde60f6150cc488a2e163dfcdd9cc8cd018f74a547c87850f6bcba1af637",
+        "request_summary": "edf307ae093ce20a1855a615b14fc1b8ce91226c7709b873e3d7b69df10f11d4",
+        "metrics": "104f7c17af6eaebeee9a71f53b1397dc7160370d9a91032916de9012966fb508",
+        "provider_boundary": "811671248bef9abb15fa7befbb7c31d042c8b382b713b47044be05248eb6ed84",
+        "execution_argv": "f525de6961d87ebd909db816fd53ac5ddfec442a9e7b116fce93ed0cc9d57152",
+        "logical_mode_map": "dc2f8d74d92ace494db7d206ef7dc93fb4e0f1196a851b3f0e7462783d83163d"
+      },
+      "provider_routing": {
+        "route_kind": "custom_provider_transport_alias",
+        "logical_provider_id": "deepseek",
+        "transport_provider_id": "deepseek-boundary",
+        "provider_name": "DeepSeek",
+        "base_url": "http://provider-proxy:8080",
+        "env_key": "DEEPSEEK_API_KEY",
+        "wire_api": "responses",
+        "intentional_differences": [
+          "provider_id",
+          "base_url"
+        ]
+      },
+      "sample": "single-file-fast-fix",
+      "repeat": 1,
+      "run_id": "WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-001",
+      "elapsed_seconds": 42.098,
+      "provider_route_profile": {
+        "profile": "taskspace",
+        "attestation_path": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/provider-route-preflight/provider-route-preflight.json",
+        "attestation_sha256": "00f09705da1857de65be7a2b793a3c7b21724e12019ef5344504ae397a0dc664",
+        "provider_descriptor_sha256": "3ed9431b4cae6f7f53aec942d6f76976fb1ee8d7a3dd9bebb2db7919e0635583"
+      },
+      "budget_observation_exceeded": []
+    },
+    {
+      "arm": "map-request",
+      "provider_usage_contract_version": "whalecode-provider-usage-v1",
+      "logical_mode": "taskspace",
+      "provider_model": "deepseek-v4-flash",
+      "provider_requests": 8,
+      "provider_payload_sha256": [
+        "5c1b9998bc5ef20a9dca22cc0e3ae68755f8fc10ca6db400a924746ee2a189e4",
+        "54a67902416c6a8912c19d8d4fee29a8cb6f43cae4ecc5c1e31579bc887e4541",
+        "6908a688610e671bc8fa85a2c0fd3e9ff95a200ae9c828325b1ec91c4ca46135",
+        "6dee76ca5374f99a43e9050ce8f5301bdb3d43a1eb2426e272dba59870bb50ff",
+        "4e9b8a9ffd31c1368977bcb2fa00e39820612c80024a94edc1dcfb70c719fb26",
+        "bf1256da55ee39710eb0aec4c2439346baab9f3235dd5f2cea64adcd7f5c8046",
+        "cf357f122e82d539e4da221f73c8d31fcc7d88050c7663fc6a91db9548aef4f1",
+        "b52ec97a2f3ce5641e402344d2066a4d7bbf3091be76dd0e1810b219b7d3b3de"
+      ],
+      "request_2_plus_count": 7,
+      "request_2_plus_hit_rate": 0.926307,
+      "request_2_plus_cached_input_tokens": 98560,
+      "request_2_plus_uncached_input_tokens": 7841,
+      "trace_coverage": 1.0,
+      "cache_usage_missing_count": 0,
+      "input_tokens": 118841,
+      "cached_input_tokens": 110848,
+      "uncached_input_tokens": 7993,
+      "output_tokens": 2085,
+      "business_success": true,
+      "artifacts": {
+        "cache_summary": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/provider-cache-trace-summary.json",
+        "provider_wire": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/provider-wire-trace.jsonl",
+        "request_summary": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/request-summary.json",
+        "metrics": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/metrics.json",
+        "provider_boundary": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/provider-boundary-evidence.json",
+        "execution_argv": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/whale-argv.json",
+        "logical_mode_map": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002/logical-mode-map.json"
+      },
+      "artifact_sha256": {
+        "cache_summary": "ec19d5e4d657162a5c8de4854b2a0f16a74543c9eaad4ebadf6287526aa0f6ef",
+        "provider_wire": "44d8e3f4349a90426ad8f0070314a1af7eb01c5fd7365ef2316eaee1fde4fcc8",
+        "request_summary": "f049b9c8ef4783ed80f639358ada6aa94df9b501ceab5958aede38cb3bde9b93",
+        "metrics": "69fb48952d0d0484436f5bf4380fc96c936d9d236f45d55de7ee3f271a84d8c8",
+        "provider_boundary": "90e0b5997623fc355e5344d8d20aca3ea89177bb145a036c305f167b1b826e56",
+        "execution_argv": "546e6749971ad615943a96639f0b43391aeff9b8e6b8faf0586fe88cf176894e",
+        "logical_mode_map": "dc2f8d74d92ace494db7d206ef7dc93fb4e0f1196a851b3f0e7462783d83163d"
+      },
+      "provider_routing": {
+        "route_kind": "custom_provider_transport_alias",
+        "logical_provider_id": "deepseek",
+        "transport_provider_id": "deepseek-boundary",
+        "provider_name": "DeepSeek",
+        "base_url": "http://provider-proxy:8080",
+        "env_key": "DEEPSEEK_API_KEY",
+        "wire_api": "responses",
+        "intentional_differences": [
+          "provider_id",
+          "base_url"
+        ]
+      },
+      "sample": "single-file-fast-fix",
+      "repeat": 2,
+      "run_id": "WAR-20260812-052311-CACHE-REGRESSION-08BB8620-CACHE-002",
+      "elapsed_seconds": 46.806,
+      "provider_route_profile": {
+        "profile": "taskspace",
+        "attestation_path": "benchmarks/cache-regression/evidence/WAR-20260812-052311-CACHE-REGRESSION-08BB8620/provider-route-preflight/provider-route-preflight.json",
+        "attestation_sha256": "00f09705da1857de65be7a2b793a3c7b21724e12019ef5344504ae397a0dc664",
+        "provider_descriptor_sha256": "3ed9431b4cae6f7f53aec942d6f76976fb1ee8d7a3dd9bebb2db7919e0635583"
+      },
+      "budget_observation_exceeded": []
+    }
+  ],
+  "stop_reason": null,
+  "provider_boundary_requests_minimum": 15,
+  "provider_boundary_accounting_status": "complete",
+  "evidence_sha256": "59a4c68fada5cee28f0724888a43cc6b66c74c0b321fe6b8eb603a06f840ff2c",
+  "runner_exit_code": 0,
+  "ended_at": "2026-08-12T05:24:57+08:00",
+  "elapsed_seconds": 97.287
+}

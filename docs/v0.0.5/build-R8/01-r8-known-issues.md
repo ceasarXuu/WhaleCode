@@ -92,6 +92,13 @@
 > `inspect completed`，又触发一次 `TransitionInvalid`，读取 Map 后才纠正。首轮 input 超过 125,000 单轮观察阈值，runner
 > 按授权停止，第二轮未执行。因此 I04 保持 verifying：当前证据支持反馈清晰度改善，不支持 waiting 频率或总成本已下降。
 
+> **I04 两轮确认复验（2026-08-12）**：用户追加批准同配置 repeat=2，两轮均完成业务、验证和 Map，分别使用 7 / 8
+> requests、103,483 / 118,841 input、93.64% / 92.63% request 2+ cache hit；平均 input 111,162、平均费用
+> USD 0.0018663176、平均 Agent wall 22.91s，分别优于修改前暖缓存基线的 120,306、USD 0.0019944、23.2s。
+> 平均 request 2+ cache hit 93.13%，仍比旧基线低 0.91 个百分点；两轮各有一次协议/state 拒绝，说明 waiting/frontier
+> 行为尚未关闭，但没有复现首轮的 9-request 放大。当前证据不支持回滚合同修复；首轮较差结果按新前缀冷启动叠加异常动作路径保留，
+> 不从账本删除，也不据此宣称缓存已经完全等价。
+
 > **最新根因收敛与计划（2026-08-11）**：用户确认对唯一可证明的单闭合符号缺失执行 Runtime 机械自愈，且修正版必须在
 > `OutputItemDone` 落账前替换原 FunctionCall，成为 history、rollout、RawResponseItem 和 dispatch 共用的唯一正式事实；只在
 > handler/decoder 中修补会保留错误上下文，已判定为错误实现方向。I04 中 Agent 并未“调用 waiting”，而是把 `apply_patch`
@@ -163,7 +170,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | SR-04 后简单样本 3/3 端到端通过且无 syntax/wrapper；三轮参数均原生合法，自愈分支未自然命中，复杂组合稳定性仍待正常样本观察 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 新合同首轮在线生效：Agent 能准确复述批次边界，但仍有 1 次 waiting 误选，并因未重放整批拒绝中的 Map 操作新增 1 次状态失败；第二轮被预算阈值停止 | verifying | GI-004 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 新合同 3 次在线运行均业务成功；追加两轮为 7/8 requests 且平均成本优于旧暖缓存基线，但每轮仍有 1 次协议/state 拒绝，缓存低 0.91pp | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 
 问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。
@@ -178,7 +185,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 工程完成待生产验收 | I10 | catalog、dispatch、request scope、Provider/Exec trace 和报告共用同一 Runtime-only identity；Standard request 不变 | 当前 Provider trace 是否完整携带且逐 request 一致 |
 | 工程修复待生产验收 | I07 | 当前生产 trace 已原生完整计量 Exec、Map、client 和拒绝 | nested patch lifecycle 仍漏计，不能宣称完整关闭 |
 | outer wire 与 handoff 在线观察 | I03 | 旧顶层提升未复现；单闭合符自愈的 UTF-8 坐标缺口已确定性修复 | mixed map/client envelope 的在线稳定性，以及自愈后的真实首请求表现 |
-| 当前行为已观察 | I04 | 新 waiting 反馈已在线命中，Agent 正确理解 client outcome 不能同批解锁后代；Runtime 保持零副作用 | 单轮仍有 waiting 误选和一次拒绝原子性误读，尚不能证明频率或请求成本下降 |
+| 当前行为已观察 | I04 | 新 waiting 反馈已在线命中；追加两轮请求、input、费用和时间均不差于旧暖缓存基线，Runtime 保持零副作用 | 每轮仍有一次协议/state 拒绝；缓存平均低 0.91pp，尚不能关闭 frontier 行为问题 |
 | 成本待验证 | I08 | 最新 TaskSpace request-2+ 缓存为 91.20%，排除缓存失效 | 去除已确认 syntax/feedback 放大后的不可约请求、token 和时间成本；VA-03 尚未开始 |
 
 本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server
