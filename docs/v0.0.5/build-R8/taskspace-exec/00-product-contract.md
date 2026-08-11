@@ -1,7 +1,7 @@
 # TaskSpace Exec 产品合同
 
 - Created: 2026-08-05
-- Status: Phase B0～B4 verified offline / Phase B5 I03 wire repair verified offline
+- Status: Closed legal-sequence redesign in progress / existing `calls[]` implementation remains current code only
 - Authority: R8 TaskSpace 顶层动作协议主方案
 - Supersedes: 普通 Tool schema 入侵、顶层结构化序列容器、control manifest + sibling calls 作为目标产品模型
 
@@ -41,8 +41,9 @@ model-visible tools
 - 延迟加载后实际可用的 client Tool；
 - provider-hosted Tool 的结果登记与节点绑定语法，但不伪装为本地可执行 Tool。
 
-普通 client Tool 在 TaskSpace 顶层不再重复暴露。Map 操作从 canonical Action Map transaction 原语直接生成，与 client call
-同为 `calls[]` 中的平级 variant；它们不注册旧控制 Tool、不复用旧 handler，也不拥有 Runtime 控制器地位。
+普通 client Tool 在 TaskSpace 顶层不再重复暴露。Map 操作继续复用 canonical Action Map transaction 原语，client Tool
+继续复用原生 ToolSpec 和 Router；二者由 Agent 选择的合法序列类型组织，不注册旧控制 Tool、不复用旧 handler，也不拥有
+Runtime 控制器地位。
 
 TaskSpace 使用独立的完整 base instructions，但继续继承 Standard 已验证的通用编码 Agent 框架。两者只在工作协议上分流：
 TaskSpace base 说明 Map 的作用、Agent 对图结构和节点归属的责任，以及 `taskspace_exec` 是 client/map 动作的唯一顶层入口；
@@ -53,62 +54,66 @@ TaskSpace 内部 client capability catalog 从原生 ToolSpec 机械派生，但
 其配套等待入口和线性 `update_plan`。这些能力不属于 TaskSpace 的可执行工作面；排除只发生在 TaskSpace catalog，不改变
 Standard 的 Tool 注册或行为。
 
-`calls[]` 的两类 Agent-visible wire 必须保持结构分离：
+合法序列内部的 Map 声明与 client work 必须保持结构分离：
 
 ```json
 {"map":{"operation":"update_map","input":{"add_work_nodes":[],"node_patches":[]}}}
 {"client":{"name":"exec_command","node_id":"inspect","input":{"cmd":"pwd"}}}
 ```
 
-外层 variant 只能是 `map` 或 `client`。不得恢复旧的
+普通 Tool 的 `node_id` 仍是 TaskSpace 外层归属信息，不得进入原生 Tool input。不得恢复旧的
 `{"tool":"...","node_id":"...","arguments":...}` 内层形状；它与 Provider 顶层 Function Call 过于同形，已由生产 trace
 证明会诱发模型把内层 Tool 名提升为非法顶层调用。
 
 ## 3. 一次调用表达什么
 
-`taskspace_exec` 的外层是一个结构化 Function Call。静态 schema 固定顶层字段、数组元素、可用 Tool 及各 Tool 原生参数
-的合法形状；它不固定一次响应实际调用哪些 Tool、调用数量、数组顺序或节点归属。
+`taskspace_exec` 的外层是一个结构化 Function Call。静态 schema 提供一组带稳定判别值的合法序列类型；Agent 每次必须且
+只能选择其中一个。每种序列固定允许出现的 Map 阶段、work 集合和终态边界，但不替 Agent 决定具体节点、Tool、原生参数或
+节点归属。
 
-每个调用实例完全由 Agent 构造：
+每个调用实例仍由 Agent 构造：
 
-- `calls[]` 中实际出现的 Tool、数量、原生参数和数组顺序；
-- 每个 client/map call 的节点归属；
-- 仅当本响应存在 Provider-hosted 事实时，`hosted_bindings[]` 中逐项声明其节点归属；没有 Hosted 事实时省略该字段。
+- 一个已暴露的合法序列类型；
+- 该序列允许范围内的 Map 声明、Tool、数量、原生参数和节点归属；
+- 仅当本响应存在 Provider-hosted 事实时，在该序列允许的 `hosted_work[]` 中逐项声明其节点归属；
+  没有 Hosted 事实时省略该字段。
 
 Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这些实例数据。收到 Function Call 后，Runtime 先执行
-5.0.1 定义的唯一受限语法自愈，再解析 Agent 声明，对结构化 schema 之外的 TaskSpace 硬规则执行 preflight，并将通过的
-client/map call 机械交给原生 Router。语法自愈不得新增、删除或改变任何动作语义。
+5.0.1 定义的唯一受限语法自愈，再解析 Agent 选择的序列，对动态 Map/DAG 硬规则执行 preflight，将合法序列机械归一化为
+现有 Map transaction 与原生 client dispatch 输入。语法自愈不得新增、删除或改变任何动作语义。
 
 协议版本、能力快照身份和内部调用传输身份不是 Agent 的工作内容。Runtime 已经持有本次 request 使用的协议和 ToolSpec
-快照，并可用 outer `call_id + calls[] index` 生成稳定的内部调用身份，因此最终 Agent-visible 参数不得要求 Agent 回显
+快照，并可用 outer `call_id + normalized work index` 生成稳定的内部调用身份，因此最终 Agent-visible 参数不得要求 Agent 回显
 `version`、`capability_id` 或 `item_id`。这些机械身份只进入 response-local envelope、日志、持久化关联和 outer result。
 
 结构化 Function Call 必须包含三类事实：
 
 | 类别 | Agent 声明 | Runtime 权限 | 权威执行事实 |
 |---|---|---|---|
-| Map call | `map.operation`、canonical `map.input` 和序列位置；不声明外层 owner | 调用 canonical transaction validator/commit | canonical Map transaction |
+| Map declaration | 合法序列允许的 canonical Map input；不声明外层 owner | 机械归一化后调用 canonical transaction validator/commit | canonical Map transaction |
 | Client call | `client.name`、原生 `client.input`、`client.node_id` | 预检后调用原 Router 一次 | 原生 Tool result |
-| Hosted binding | 每项 Hosted 动作的非空 `node_ids[]` 与可机械核对的逐项声明 | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
+| Hosted work | 在已选序列中声明每项 Hosted 动作的非空 `node_ids[]` | 从原始 output item 读取真实身份、逐项核对并登记，不执行 | provider 原始 output item |
 
 内部语法不是第二份业务 Tool schema：Tool 名、描述、`input` 的值域和输出合同都从原 ToolSpec 派生；`node_id` 和序列位置属于
 外层 TaskSpace invocation metadata，不能写回普通 Tool 参数。
 
 ## 4. 合法序列
 
-`taskspace_exec` 只表达 Map 边界，不建立第二份 Work DAG。普通 Work B、C 的前置关系来自 Map 中的节点依赖；它们在
-同一批次中可以并行，也可以按结果依赖拆到后续请求。
+`taskspace_exec` 只表达 Map 边界，不建立第二份 Work DAG。普通 Work B、C 的前置关系来自 Map 中的节点依赖；同一序列的
+client work 是一个没有额外执行顺序承诺的集合，可以按原生能力并行。结果依赖工作必须等待结果进入上下文后，在后续请求中
+选择新的合法序列。
 
-合法形状沿用已确认的产品规则：
+Agent-visible schema 不再接受任意 `MapCall | ClientCall` 数组。每种合法序列必须同时具备：
 
-| 形状 | 用途 | 规则 |
-|---|---|---|
-| `map-prelude + work` | 初始化、reopen 或先完成前置节点后继续工作 | prelude 必须位于首个 client call 之前 |
-| `work list` | 在现有多个可执行节点上推进 | 每个 call 都有 Agent 声明的 `node_id` |
-| `work + map-epilogue + next work` | 完成节点并继续独立后续工作 | epilogue 与后续 prelude 的边界必须可机械判定 |
-| `work + terminal map` | 完成最后工作并显式关闭 Map | `finish_map` 只能位于终态边界 |
-| `read-only work` | 读取事实，等待结果后再决定下一步 | 允许单个读取或多个无结果依赖读取 |
-| `hosted_bindings[] + 其他合法形状` | 逐项登记同一 provider response 已完成的 hosted 动作 | 有 Hosted 事实时必须逐项完整声明；没有时省略；声明不改变 client/map 的先后关系 |
+1. 唯一、稳定、模型可见的类型判别；
+2. 该场景最小充分的 Map 声明和 work 字段；
+3. 从原生 ToolSpec 派生的 client input，以及 TaskSpace 外层 `node_id`；
+4. 一个确定性的内部归一化结果，供现有 Map transaction、preflight、Router 和结果链消费；
+5. 对结构合法性和动态 Map 合法性的分层验证。
+
+首批序列只纳入已有生产 trace 或核心生命周期证明必要的场景。新增序列必须有独立场景证据、明确的不重叠职责和正反合同
+测试；不得用 `custom`、`raw_calls`、`other` 或通用 Map/client 数组作为逃生口。具体候选和待确认边界维护在
+[`43-closed-legal-sequence-design.md`](43-closed-legal-sequence-design.md)。
 
 以下行为非法：
 
@@ -116,8 +121,8 @@ client/map call 机械交给原生 Router。语法自愈不得新增、删除或
 - client Tool 绕过 `taskspace_exec` 顶层调用；
 - client call 缺少 `node_id`、绑定未知节点、绑定 Root/Finish，或把节点写入原生 Tool 参数；
 - Hosted 事实缺少节点声明、Provider ID 缺失或同一真实 ID 重复；
-- Map 操作出现在不合法边界；
-- `read_map` 与任何其他 client/map call 或 Hosted binding 混合；
+- 未选择已声明的合法序列类型，或在该序列中提交不允许的 Map/work 字段；
+- `read_map` 与任何其他 client/map work 或 Hosted work 混合；
 - 一个 exec 实际提交多个 `apply_patch`；
 - Runtime 根据 Tool 内容、结果或自然语言推断节点归属。
 
@@ -204,7 +209,7 @@ Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作分别声明
 - 检查声明与事实是否一一对应、节点是否存在、Provider ID 是否缺失或重复；
 - 保留 Provider 状态，但不以成功或失败改变节点状态。
 
-Agent 不得回显、复制或另造 Provider 传输身份。`hosted_bindings[]` 按 Provider 原始 `output_index` 排序后的 Hosted item
+Agent 不得回显、复制或另造 Provider 传输身份。序列内 `hosted_work[]` 按 Provider 原始 `output_index` 排序后的 Hosted item
 顺序逐项声明；每项只包含模型可见的 Hosted Tool 名和 Agent 选择的非空 `node_ids[]`。Runtime 使用 `output_index` 恢复顺序，
 再核对数量和 Tool 类型，不得用事件完成顺序、URL、结果内容或语义相似度猜配。缺少声明、无法唯一对应、节点非法、
 Provider ID/`output_index` 缺失或冲突时，该响应不被 TaskSpace 接受，不能把事实标记为已结算的 `unbound`，也不能
@@ -311,9 +316,9 @@ fallback 或兼容读取。
 | Function Call 外层 | 已确认 | DeepSeek 不使用 Codex Freeform wire，TaskSpace 采用 Function Call 外层 |
 | 内部 ToolSpec 派生 | 已确认 | 复用 Codex 主线机制，不手写第二份 Tool 合同 |
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
-| 合法序列 + node binding | 已确认 | `taskspace_exec` 仅有的 TaskSpace 新职责 |
+| 闭集合法序列 + node binding | 方向已确认 / 设计中 | Agent 只能选择显式合法序列；不再自由拼装任意 `calls[]` |
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| 静态 schema + Agent 动态实例 | EX-02 离线通过 | schema 固定合法形状；Agent 决定本次 Tool、数量、参数、顺序和节点归属 |
+| 静态 schema + Agent 动态实例 | 旧 `calls[]` 证据不再代表目标合同 | schema 固定序列类型；Agent 决定序列内的节点、Tool、参数和归属 |
 | 完整批次预检边界 | EX-04 离线通过 | 结构、能力、node 声明、Map/DAG 边界和单 Patch 在 dispatch 前判定；失败只返回机械错误且零副作用 |
 | Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
 | Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；节点 `actions[]`、完整链路和集成行为由新 Phase B 单元验收 |
@@ -324,8 +329,8 @@ fallback 或兼容读取。
 
 1. TaskSpace 请求只顶层暴露 `taskspace_exec` 和 provider 必需的 hosted capability；Standard payload 无变化。
    TaskSpace base 与该请求面一致，不同时教 Agent 直接调用普通 client Tool 或使用线性 `update_plan`。
-2. 同一静态 schema 支持 Agent 构造可变数量和顺序的调用；Agent 可在一个 `taskspace_exec` 中提交初始化并工作、多个
-   独立 work、完成并继续、完成并结束。
+2. 同一静态 schema 只接受已声明的合法序列类型；Agent 可选择初始化并工作、多个独立 work、完成并继续、完成并结束等
+   已纳入场景，但不能提交任意 Map/client 排列或通用逃生分支。
 3. 每个 client call 的 `node_id` 由 Agent 声明，但原 Tool schema 和 handler 完全不知道 TaskSpace。
 4. 非法 client/map 序列在明确边界内零执行、Map 零提交；边界由 TX-04 的可证伪结果冻结。
 5. provider 原始 output 的真实 ID 与 Agent 逐项节点声明一一核对；同响应可绑定多个节点，任何缺失、歧义、错配、
@@ -335,3 +340,15 @@ fallback 或兼容读取。
 8. 确定性测试、日志、缓存门禁和获批真实样本共同证明正确性；真实样本不以一次成功宣称稳定。
 9. 每个 Agent 可见 Node 同时展示 `parents[]` 和 `children[]`；Agent 只声明 parents，Runtime 不推断新关系，只机械生成
    children。Map 序列化和所有消费面不存在顶层 `edges[]`、任何 `*_ref` 或旧生命周期 ledger。
+
+## Confirmed Product Decisions
+
+> PROTECTED USER-AUTHORITY SECTION
+> Rows in this section MUST NOT be created, modified, deleted, reinterpreted,
+> or superseded without explicit user approval for that specific decision change.
+> Agent self-approval is forbidden.
+
+| ID | Confirmed Decision | Must Do | Must Not Do | Rationale | Violation Signal | Confirmation | Status |
+|---|---|---|---|---|---|---|---|
+| PD1 | TaskSpace Exec 的 Agent-visible 输入改为合法序列闭集 | Agent 每次只能选择一个明确合法的序列类型；Runtime 对结构和动态 Map 硬规则分层校验 | 不再允许 Agent 自由拼装任意 `calls[]`；不得保留 generic/raw/custom 逃生口 | 让正确动作在生成时就被协议结构表达，而不是生成任意组合后依赖事后拒绝 | schema 或 decoder 仍接受任意 Map/client 排列 | user-confirmed-direct: “应该改为只能选择合法序列” | active |
+| PD2 | 合法序列按真实场景证据渐进扩展 | 首批只纳入已探明场景；每个新增类型有场景证据、明确边界和正反验收 | 不为假设中的未来需求预建大量序列，不把偶发错误直接升级为新类型 | 保持模型简单并可逐项归因收益或回归 | 无当前证据仍新增序列，或多个类型职责重叠 | user-confirmed-direct: “把我们启发式探明的场景逐步加入进去” | active |

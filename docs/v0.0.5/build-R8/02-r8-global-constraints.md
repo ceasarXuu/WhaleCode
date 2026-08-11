@@ -62,9 +62,12 @@
 11. `taskspace_exec` schema 必须是静态能力合同，只能由确定排序的 ToolSpec 能力快照和协议版本机械生成。Map revision、
     node、调用计划、Provider output、Session 状态及其他运行时数据只能进入 Function Call 参数、Tool result、自然上下文或
     canonical Store，严禁写入 Tool schema/description。相同能力集合和协议版本必须生成逐字稳定的 Tool declaration。
-12. 静态 schema 只定义 `calls[]`、`hosted_bindings[]` 及各 Tool 参数的合法结构。每次调用中实际使用的 Tool、数量、参数、
-    数组顺序和节点归属全部由 Agent 构造；Runtime 在收到调用前不预设这些实例数据，收到后只解析、验证硬规则并机械执行。
-13. 协议版本、能力快照身份和内部调用传输身份由 Runtime 从本次 request、outer `call_id` 与数组位置机械维护，不要求
+12. 静态 schema 必须把 Agent-visible 输入表达为带稳定判别值的合法序列闭集；Agent 每次只能选择一个已声明类型，并在该
+    类型允许的字段内声明节点、Tool、参数和归属。禁止任意 `calls[]`、raw/custom/other 或其他通用逃生分支。新增序列必须
+    来自已探明场景，具备不重叠职责、正反合同和独立收益/回归证据；Runtime 只做机械归一化与硬规则验证。
+    原生 client Tool catalog 必须在最终 declaration 中只定义一次，由各 work-bearing sequence 机械引用；禁止按序列数量
+    重复展开整份 Tool schema。
+13. 协议版本、能力快照身份和内部调用传输身份由 Runtime 从本次 request、outer `call_id` 与归一化 work 位置机械维护，不要求
     Agent 回显。它们可以进入内部 envelope、日志和结果关联字段，但不得成为 Agent-visible 必填参数。
 14. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
    只有主方案被证据否定且用户重新决策后才能恢复评估。

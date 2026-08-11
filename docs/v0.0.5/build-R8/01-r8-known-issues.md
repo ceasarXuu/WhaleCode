@@ -120,6 +120,12 @@
 > Agent 下一请求完成父节点并继续；WF-01 在线成立，I04 的 Agent 行为仍开放。详见
 > [`taskspace-exec/41-phase-b5-sr04-ff01-revalidation-result.md`](taskspace-exec/41-phase-b5-sr04-ff01-revalidation-result.md)。
 
+> **I03/I04 表达模型重评（2026-08-12）**：最新静态盘点确认，当前 `calls[]` 要求 Agent 自行组合 Map
+> 边界、状态转移和 client work，而 schema 本身没有把“完成前置并继续”等合法场景表达为一等类型。
+> 用户已确认转向闭集合法序列，并按已探明场景逐项扩展。该方向同时是 I03 的直接修复路径和 I04 的
+> 上游重评前置；当前只完成设计草案，不等于两问题已修复。见
+> [`taskspace-exec/43-closed-legal-sequence-design.md`](taskspace-exec/43-closed-legal-sequence-design.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -173,7 +179,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 新合同 3 次在线运行均业务成功；追加两轮为 7/8 requests 且平均成本优于旧暖缓存基线，但每轮仍有 1 次协议/state 拒绝，缓存低 0.91pp | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B5 mixed transition 协议收敛**。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B6 闭集合法序列设计**。
 
 ## 4. VA-04A 证据边界
 

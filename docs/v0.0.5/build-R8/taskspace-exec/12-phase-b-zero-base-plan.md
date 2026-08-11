@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B4 verified offline / Phase B5 CP-01～CP-13 and SR/WF/OB repairs verified offline / Source retired / Provider revalidation pending
+- Status: Active / Phase B0～B4 verified offline / Phase B5 engineering complete / Phase B6 closed legal-sequence design pending user review
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -195,6 +195,14 @@ process host。Codex JS Exec 可以在同一 cell 中等待 A 的结果后动态
 | CP-11 | 收敛 Hosted 分类与逐项核对 | Catalog、response scope、Hosted reconciler | 复用最小共享 Hosted 分类边界，覆盖真实 item identity、顺序、多节点、失败、漏绑和错绑 | Provider 已执行事实与 Agent 归属声明机械一致 | Complexity: 删除重复 match；Reach: Web/Image | fault matrix；不得重执行、猜配、默认 Root 或改变节点状态 | verified offline |
 | CP-12 | 加固单一协议与 final-wire 门禁 | active provider-visible context builders、cache regression、contract tests | 检查所有活动固定层只由 outer declaration 承载详细协议；覆盖 deferred/namespace/output/surface 变化 | 协议漂移和缓存敏感变更在付费运行前被发现 | Complexity: 精确 allowlist；Reach: commit/CI | 正反 fixture、Standard exact diff、cache gate；普通词汇与历史 docs 不误报 | verified offline |
 | CP-13 | 完成 Codex parity 离线总验收 | TaskSpace Exec、Router、ToolOutput、Hosted、Map、workspace/gates | 汇总 CP-01～CP-12 的最小相关测试，再运行冻结的 workspace、zero-base 和 cache gates | 生产链完整后才重新打开真实 Provider 验证 | Complexity: tests only；Reach: build time | 任一缺口或未确认产品选择阻断 VA-02；不运行模型 | verified offline |
+| LS-00 | 冻结闭集序列产品合同 | `00-product-contract.md`、`43-closed-legal-sequence-design.md` | 由用户复核首批 sequence types、work/`in_flight` 关系、Map 演化最小能力、blocked 生命周期和 Hosted 组合矩阵；只把明确确认项写入产品权威 | 实现不会暗中决定 Agent 可用动作、删减现有能力或恢复 generic escape | Complexity: 文档决策；Reach: 阻断全部 LS 实现 | Q1～Q5 无 material provisional；Product Decision Delta covered | in-progress / user review required |
+| LS-01 | 替换 Agent-visible sequence schema | `catalog.rs`、新 typed sequence structs | 用 exact `type` 判别的 disjoint `anyOf` 生成用户确认的序列；client Tool catalog从同一 ToolSpec派生一次，由 local reference复用；删除 Agent-visible `calls[]` schema | Agent只能选择一个合法场景，普通 Tool仍只暴露一次，不按 sequence倍增固定 input | Complexity: 一个判别联合，预计少于 180 行生产改动；Reach: TaskSpace declaration/cache | 每类正反 schema、deterministic bytes、Standard final wire 0-diff、按模块 wire bytes；Provider `$def/$defs` 形状只保留一种，Catalog重复展开直接阻断 | planned |
+| LS-02 | 建立单向机械归一化 | `plan.rs`、`envelope.rs` | typed sequence 解析为一个内部 `NormalizedExecPlan`；completion机械生成 canonical update，work保留原生 Tool identity/input/node_id；直接删除 RawPlan/calls decoder | Runtime继续复用 Map transaction与Router，不维护第二执行系统 | Complexity: 替换 parser，净删除旧 decoder；Reach: envelope/internal IDs | 每类 normalization snapshot；unknown type/field拒绝；无旧 wire fallback | planned |
+| LS-03 | 按序列阶段重写 preflight | `preflight.rs`、Map operation adapter | 固定执行 pre-map -> work validation -> optional terminal map；S3一次应用全部 completion 后推导 readiness；S5独占；单 Patch和动态 DAG保持 | waiting 子节点和跨两层解锁在副作用前准确拒绝，合法 join/fork交接通过 | Complexity: 删除任意边界扫描，改为 typed branch；Reach: candidate Map | 单父、多父 join、独立 Ready work、waiting/grandchild/finished/stale矩阵；Runtime不选 sequence/node | planned |
+| LS-04 | 对齐 Hosted 与 action identity | response scope、Hosted reconcile、internal call identity | 按 LS-00 确认的组合矩阵将 Hosted facts 放入允许的 sequence `hosted_work[]`；内部 client action ID改用 normalized work index，继续逐项核对真实 Provider身份 | Hosted不成为闭集外的逃生口，已验证执行与结算链保持不变 | Complexity: 小型索引适配；Reach: Hosted/client observability | hosted-only/mixed/missing/wrong-order/multi-node fixtures；不重执行、不默认绑定 | blocked on LS-00 Q3 |
+| LS-05 | 替换唯一模型合同和反馈 | `protocol.rs`、canonical examples、typed rejection、observer decoder | description只解释闭集类型和work无序语义；每类示例反向通过正式 decoder/preflight；错误按 type/field/DAG事实返回；observer读取新 type | Agent不再从文字拼任意调用数组，反馈和测量识别同一合同 | Complexity: 删除旧 calls规则和示例；Reach: prompt/tool wire/report | 协议唯一性、反馈无建议、旧 terminology audit、observer self-test | planned |
+| LS-06 | 清除旧序列并完成离线门禁 | 旧 parser/preflight/tests/docs、zero-base/cache gate、TaskSpace suites | 删除 Agent-visible `calls[]`、任意 interleaving测试和无消费者 helper；运行 focused tests、Standard exact wire、TaskSpace final-wire和缓存门禁 | active code只有闭集序列路径，无兼容、双轨或失效奖励 | Complexity: 预期净删除/小幅替换；Reach: build与缓存基线 | forbidden symbols、focused suites、workspace check；缓存门禁阻断时按全局预算规则申请 | planned |
+| LS-07 | 最小 Provider 行为复验 | Docker benchmark、run ledger、逐 request trace | 离线通过且单独获批后，用简单 handoff sample 验证 sequence选择、waiting拒绝、请求/token/cache/time；不自动扩大 repeat | 判断闭集是否真正减少协议试错，而非仅离线结构正确 | Complexity: 测量，无代码；Reach: 真实 API成本 | 预算申请后 repeat=1 起步；首个异常停下归因；不得沿用旧预算余额 | blocked on LS-06 and budget |
 | VA-03 | 申请并执行首轮四臂产品测量 | Docker benchmark、run ledger、performance report | VA-02 通过后单独申请 Standard、map-always、map-append、map-request 的同版本同样本预算，比较业务结果、动作路径、Map、request/token/cache/time/cost | 获得新协议的首轮产品事实，而不是用旧 benchmark 推断收益 | Complexity: 零协议变化；Reach: 付费与耗时 | 逐 run/逐 request trace；首轮仅测量，不自动作发布判断、不自动扩大 repeat；异常先归因 | planned |
 | VA-04B | 最终重排 R8 已知问题 | `01-r8-known-issues.md`、VA-02/03 trace、各专题计划 | 将 VA-04A 候选与真实证据合并：已消失则关闭，仍存在则重写根因和依赖，新问题只在独立证据成立时新增 | R8 恢复到基于新架构证据的唯一问题队列 | Complexity: 文档状态变化；Reach: 决定 R8 后续顺序 | 每项有当前 commit 和证据路径；成本阈值未获用户确认时只报告测量结果，不自行判定发布 | planned |
 
@@ -250,6 +258,16 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
   产品效果和成本有逐 run 证据，R8 唯一问题全集按新架构重新排序。
 - Stop: 需要第二 Registry、TaskSpace 私有结果语义、字符串清洗 Tool description、Runtime 补写 Agent 动作、未确认 Provider/deferred/
   LocalShell 产品取舍、未获预算、首个结构性失败、usage 不可信，或异常需要扩大 repeat 才能解释。
+
+### Phase B6：Closed Legal Sequence Model
+
+- Entry: PD1/PD2 已写入唯一产品合同；现有 `calls[]` trace 只作为场景证据，不再作为目标 wire。
+- Units: LS-00 -> LS-01 -> LS-02 -> LS-03 -> LS-04 -> LS-05 -> LS-06 -> LS-07。
+- Exit: Agent-visible schema 只包含用户确认的闭集序列；旧 calls decoder、规则和测试归零；Standard 无变化；当前 Tool/Map/Hosted
+  生产链全部复用；最小获批 trace 证明 Agent能直接选择 handoff 而不是依赖 waiting reject学习。
+- Stop: 任一 sequence需要 generic escape、Runtime语义推断、普通 Tool schema修改、Hosted能力静默缩减、超过当前阶段 500 行手写生产
+  代码、缓存门禁未获授权，或 Q1～Q5 仍存在 material provisional。
+- Downstream: 旧 VA-02/VA-03 运行只保留历史证据；LS-07 通过后重新核定四臂测量计划和预算，不沿用旧协议结论。
 
 #### 预授权真实运行预算
 
