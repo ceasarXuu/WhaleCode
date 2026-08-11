@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-11T18:35:56+08:00",
+  "authorization_id": "CBA-20260811-R8-EXEC-SCHEMA-SC01-WARM-9CCE253951310EA4",
+  "approval_reference": "用户于 2026-08-11 批准 TaskSpace Exec 单变量压缩优化的 USD 1.00 总预算包。本授权在 SC-01 首轮成功后只验证同一 Tool 前缀的暖缓存表现，不改代码、不增加变量、不自动重试；前轮实际费用 USD 0.0028397824，所有实际费用继续计入同一 USD 1.00 总包。",
+  "proposal_id": "CBP-9CCE253951310EA4",
+  "proposal_sha256": "d001eb458f00a4ad054a3080e94a793551e0c4c89ff10047160f4e751b5d1ab2",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Warm-cache confirmation of the already validated SC-01 factor; same sample and arm, no code change, no retry, under the approved USD 1.00 package."
+  },
+  "approved_maximums": {
+    "provider_requests": 10,
+    "input_tokens": 10000000,
+    "output_tokens": 3840000,
+    "elapsed_seconds": 600,
+    "estimated_cost": 2.4752,
+    "currency": "USD"
+  }
+}

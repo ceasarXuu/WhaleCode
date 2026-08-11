@@ -143,6 +143,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 40. [`39-phase-b5-va02-revalidation-result.md`](39-phase-b5-va02-revalidation-result.md)：第二轮与零 Hosted 正式复验、顶层 Tool 越界、在线观测结算与缓存证据。
 41. [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)：已结束并封存的 structured/source 单变量实验、选型证据与后续离线修复结果。
 42. [`41-phase-b5-sr04-ff01-revalidation-result.md`](41-phase-b5-sr04-ff01-revalidation-result.md)：UTF-8 自愈与忠实反馈修复后的三轮在线稳定性、waiting 观察及预算结算。
+43. [`42-phase-b5-schema-compression-result.md`](42-phase-b5-schema-compression-result.md)：TaskSpace Exec 固定合同单变量压缩、SC-01 两轮在线结果和预算结算。
 
 ## 4. 推进规则
 
