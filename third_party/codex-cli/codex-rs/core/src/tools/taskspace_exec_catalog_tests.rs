@@ -155,6 +155,11 @@ fn declaration_is_deterministic_and_exposes_each_contract_once() {
     assert!(!description.contains("map_revision_at_dispatch"));
     assert_eq!(description.matches("First-turn initialization").count(), 1);
     assert!(!description.contains(r#"{\"tool\""#));
+    assert!(
+        !value["parameters"]
+            .to_string()
+            .contains("Agent-declared owner node.")
+    );
 
     let output_schema = first.declaration().output_schema.as_ref().unwrap();
     let decoded: JsonSchema = serde_json::from_value(output_schema.clone()).unwrap();

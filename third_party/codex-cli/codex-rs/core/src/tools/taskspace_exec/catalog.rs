@@ -347,7 +347,7 @@ fn client_call_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
             format.r#type, format.syntax, format.definition
         ))),
     };
-    let node_id = JsonSchema::string(Some("Agent-declared owner node.".into()));
+    let node_id = JsonSchema::string(None);
     let invocation = match capability.tool_name.namespace.as_deref() {
         Some(namespace) => strict_object(
             [
