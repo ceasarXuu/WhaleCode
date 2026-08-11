@@ -91,3 +91,30 @@ Standard 路径：
 TaskSpace Exec `82/82` 通过。同一 production final-wire fixture 的紧凑 Tool JSON 从 `29,578` 降到 `29,263 bytes`，减少
 `315 bytes`（`1.06%`）；其中 description 减少 `309 bytes`。因此没有以固定上下文膨胀换取显著性。本轮未运行真实 Whale
 Agent，不能宣称 waiting 触发频率已经下降；I04 保持验证态。
+
+## 8. Waiting 批次合同在线复验
+
+本轮授权范围为 `deepseek-v4-flash`、`single-file-fast-fix × map-request × repeat=2`，总计最多 20 requests、250,000 input、
+8,000 output、USD 0.05，禁止自动重试。正式运行前发生两个 Provider-zero harness 事件：首次构建后的二进制 attestation
+未更新；补齐后，runner 因相对 `run-root` 无法转换为仓库相对路径而在账本 claim 前退出。两者都没有启动 Agent 或消耗 API
+预算，保留原始证据但不计入有效 sample。
+
+首个有效 sample 完成业务、公开测试、隐藏 oracle 和 5 节点 / 4 边 Map：
+
+| 结果 | Requests | Input | Cached | Uncached | Output | Req 2+ hit | Agent wall | 估算费用 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| PASS | 9 | 139,221 | 116,992 | 22,229 | 2,759 | 88.95% | 26.98s | $0.0042121576 |
+
+动作路径为：初始化 Map 并查看目录；读取需求、测试和实现；尝试 `inspect completed + patch fix + test verify`。第三步因
+`verify` 仍依赖未完成的 `fix` 被整批零副作用拒绝。Agent 随后准确复述“client Tool outcome 不改变节点状态，也不能在同批
+解锁后代”，说明新增批次边界已进入上下文并被理解；但它没有重放同一拒绝批次中未提交的 `inspect completed`，直接尝试把仍为
+waiting 的 `fix` 改为 `in_flight`，触发一次 `TransitionInvalid`。读取 Map 后，Agent 依次完成 `inspect + patch`、
+`fix completed + pytest`、`verify completed + finish_map`，最终成功。
+
+与同一提交前最近一次暖缓存 run 相比，请求从 8 增至 9，input 从 120,306 增至 139,221，request 2+ cache hit 从 94.04%
+降至 88.95%；两次运行均有 2 次 preflight/state 失败，只是本轮由“两次 waiting”变为“一次 waiting + 一次未重放原子回滚的
+状态迁移”。单样本存在随机性，不能据此归因成本回归，但也不能宣称本次文字修复已降低请求数。
+
+首轮 input 超过提案的 125,000 单轮观察阈值，专用 runner 按 `after_any_budget_observation_exceeded` 停止，第二轮未执行。
+全局账本记录为 `WAR-20260812-042203-CACHE-REGRESSION-D7FE72F8`，状态 `partial`，usage 完整。I04 继续保持 verifying；后续若
+再调整，应优先检查拒绝反馈对“整批 Map 也未提交”的显著性，不增加 Runtime 选点、自动重放或状态推断。
