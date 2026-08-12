@@ -127,6 +127,13 @@
 > I03 的直接修复路径和 I04 的上游重评前置；当前完成产品合同，不等于两问题已修复。见
 > [`taskspace-exec/43-closed-legal-sequence-design.md`](taskspace-exec/43-closed-legal-sequence-design.md)。
 
+> **LS-09 闭集序列在线验收（2026-08-12）**：Run A/B 均完成业务、隐藏验证和 Map 闭合，且没有普通 client Tool
+> 顶层逃逸。复杂 Run B 使用 12 requests；一次嵌套 `apply_patch` 参数含裸换行而成为非法 JSON，两次 L2 `work` 选择
+> Waiting 后继并被零副作用拒绝，下一请求才改用 L4 完成父节点后继续。最终 Map 是 5 节点线性链，没有覆盖预定的
+> fork/join 与 Map 调整。该证据不否定 Runtime DAG 硬边界，但证明闭集的分支适用条件尚未让 Agent 稳定选对序列，I03/I04
+> 继续 verifying。Run B 请求 3+ cache hit 92.28%，Tool schema 与 `tool_choice` 无变化，缓存结构回归已排除。按批准停点
+> 暂停 provider-hosted Run C，不新增问题编号。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -176,8 +183,8 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | SR-04 后简单样本 3/3 端到端通过且无 syntax/wrapper；三轮参数均原生合法，自愈分支未自然命中，复杂组合稳定性仍待正常样本观察 | [verifying](taskspace-exec/40-va02-source-structured-ab-plan.md) | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 新合同 3 次在线运行均业务成功；追加两轮为 7/8 requests 且平均成本优于旧暖缓存基线，但每轮仍有 1 次协议/state 拒绝，缓存低 0.91pp | verifying | GI-004 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | LS-09 Run B 业务通过且无顶层 Tool 逃逸，但一次嵌套 Patch JSON 非法；闭集结构成立，复杂参数稳定性未通过 | [verifying](taskspace-exec/43-closed-legal-sequence-design.md) | GI-003 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | LS-09 Run B 两次选择 Waiting 后继并由硬门零副作用拒绝；L2/L4 适用条件仍未形成稳定选择，保持验证态 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 
 问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B6 闭集合法顺序实施**。

@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 authorized
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 paused after Run B
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -96,6 +96,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - SR-04 / FF-01 后续预算包完成 3 次有效 `map-request` 复验，全部正确修复并闭合 Map；没有 syntax、wrapper 或顶层
   client 逃逸。三轮参数均原生合法，故只证明生产路径 3/3 稳定，不宣称真实自愈事件已触发。第三轮的两次 waiting
   拒绝准确返回未完成父节点并由 Agent 下一请求纠正，I04 行为仍开放。
+- LS-09 Run A 与 Run B 均完成业务、隐藏验证和 Map 闭合，且全部顶层 client 动作保持在 `taskspace_exec` 内；但 Run B
+  一次长 `apply_patch` 参数生成了含裸换行的非法 JSON，并两次用 L2 `work` 选择仍为 Waiting 的后继节点，均在零副作用
+  边界被拒绝后才恢复。最终 Map 为 5 节点线性链，没有实际覆盖预定的 fork/join 或 Map 调整。Run B 请求 3+ 缓存命中
+  92.28%，同一 Tool schema 与 `tool_choice` 全程稳定，因此不构成缓存结构回归。按批准的异常停点暂停 Run C；LS-09
+  不能据业务通过宣称协议验收完成。
 
 ## 3. 文档
 
