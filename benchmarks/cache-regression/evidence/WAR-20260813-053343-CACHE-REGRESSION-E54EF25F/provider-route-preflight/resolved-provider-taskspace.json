@@ -1,0 +1,26 @@
+{
+  "schema_version": "whalecode-resolved-provider-v1",
+  "model_provider_id": "deepseek-boundary",
+  "model": "deepseek-v4-flash",
+  "provider": {
+    "name": "DeepSeek",
+    "base_url_hmac_sha256": "f55032201b53952477b3d7707f4ed77f52d1c73aec931466862c084398ed179f",
+    "env_key": "DEEPSEEK_API_KEY",
+    "env_key_instructions_hmac_sha256": "1757532cccf766c7163251d982a0d5d6f711ff2442eb3c5a6dcb6a6fea9ab245",
+    "experimental_bearer_token_hmac_sha256": null,
+    "auth_hmac_sha256": null,
+    "aws_hmac_sha256": null,
+    "wire_api": "responses",
+    "query_params_hmac_sha256": null,
+    "http_headers_hmac_sha256": null,
+    "env_http_headers_hmac_sha256": null,
+    "request_max_retries": null,
+    "stream_max_retries": null,
+    "stream_idle_timeout_ms": null,
+    "websocket_connect_timeout_ms": null,
+    "requires_openai_auth": false,
+    "supports_websockets": false,
+    "is_deepseek": true
+  },
+  "provider_descriptor_sha256": "4b89af91b8eba1f71fe6eb1b352c81488317985fa1ef4b4eccc1871d2e87255c"
+}

@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 branch contract repaired offline, provider revalidation pending
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Run C failed, Hosted action contract gap pending repair
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -157,6 +157,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 43. [`42-phase-b5-schema-compression-result.md`](42-phase-b5-schema-compression-result.md)：TaskSpace Exec 固定合同单变量压缩、SC-01 两轮在线结果和预算结算。
 44. [`43-closed-legal-sequence-design.md`](43-closed-legal-sequence-design.md)：Phase B6 闭集合法顺序的场景证据、L1～L8、
     统一 Tool action、Ready 启动、纯 Map update 和 blocked 移除决策。
+45. [`44-ls09-run-c-result.md`](44-ls09-run-c-result.md)：分支适用合同修复后的 Provider-hosted 真实验收、请求路径、成本、
+    Map 中断状态和 Hosted action 操作合同缺口。
 
 ## 4. 推进规则
 

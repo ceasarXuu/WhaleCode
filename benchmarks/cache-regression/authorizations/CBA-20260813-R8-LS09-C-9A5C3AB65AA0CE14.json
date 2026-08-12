@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-13T05:33:31+08:00",
+  "authorization_id": "CBA-20260813-R8-LS09-C-9A5C3AB65AA0CE14",
+  "approval_reference": "用户于 2026-08-13 明确批准执行真实运行验收；本授权只认领 LS-09 Run C provider-web-search-probe × map-request × repeat=1，最多 12 Provider requests、220,000 input 与 8,000 output 观测阈值、720 秒、零重试；沿用 R8-LS09-LIVE-ACCEPT 总包的异常即停规则。",
+  "proposal_id": "CBP-9A5C3AB65AA0CE14",
+  "proposal_sha256": "45a9b0e2b53fd48c16dbc3b1f044190a904b94e049c91856a19808668b4625c4",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "LS-09 Run C: verify the repaired closed-sequence contract with one provider-hosted web-search action, explicit node ownership, reconciliation without re-execution, complete Map closure, and no retry."
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 840,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}
