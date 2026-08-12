@@ -251,6 +251,8 @@ Provider Tool 的执行事实不可回滚；若 Exec 序列或绑定非法，Run
 8. 普通 Tool 原生 input、Router、权限、sandbox、hook 和结果语义不变。
 9. Standard final wire 逐字不变；TaskSpace declaration 变更通过缓存敏感面门禁后才申请真实预算。
 10. 旧 `RawPlan.calls`、`hosted_bindings`、blocked 规则和无消费者 helper 直接删除，不做兼容、双写或 migration。
+11. LS-01～LS-08 离线通过后，按已批准的 `R8-LS09-LIVE-ACCEPT-20260812` 顺序执行 3 个真实 sample run；预算、停止条件和
+    账本规则以唯一活动计划为准，不沿用旧协议预算。
 
 ## 14. 参考依据
 

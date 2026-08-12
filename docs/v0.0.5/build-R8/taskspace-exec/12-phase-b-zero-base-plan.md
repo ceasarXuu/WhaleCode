@@ -271,7 +271,7 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
   500 行手写生产代码、缓存门禁未获授权，或出现与 PD1～PD7 冲突的产品行为。
 - Downstream: 旧 VA-02/VA-03 运行只保留历史证据；LS-09 通过后重新核定四臂测量计划和预算，不沿用旧协议结论。
 
-#### 预授权真实运行预算
+#### 历史预授权真实运行预算（已失效）
 
 用户于 2026-08-10 将两项预算各批准为原申请的两倍，额外额度只用于取得明确失败证据后的针对性修复复验，不允许盲目重试：
 
@@ -280,7 +280,36 @@ MM-10 通过前不得开始 EX-01；EX-08、OB-01B、OB-02A、OB-02B、VA-01 通
 | VA-02 | `deepseek-v4-flash`；`single-file-fast-fix`；`map-request`；每次 repeat 1 | 最多 2 次顺序 sample run、4 requests、100K input、24K output、USD 0.04、24 分钟 | 首次失败后必须先完成证据归因和离线修复；最多使用第二次，任一结构/业务/usage/证据异常即停 | CP-13 全部通过后登记 planned ledger |
 | VA-03 | `deepseek-v4-flash`；同一 `single-file-fast-fix`；Standard、map-always、map-append、map-request；每臂每轮 repeat 1 | 最多 2 轮、8 sample runs、120 requests、2M input、120K output、USD 0.36、60 分钟 | 首轮失败后必须先完成证据归因和针对性修复；不增加 arm/sample/repeat，单臂业务失败不自动重试 | VA-02 成功后登记 planned ledger |
 
-预算批准不绕过 cache gate、账本和前置门禁；未启动前不创建伪 `planned` 记录，未使用余额不转移到其他测试。
+上述预算只适用于已废弃的 `calls[]` 协议，未使用余额不迁移到 Phase B6，也不得作为 LS-09 或后续四臂测量授权。
+
+#### LS-09 真实运行验收预算（已批准，待激活）
+
+- Authorization: 用户于 2026-08-12 明确批准 `R8-LS09-LIVE-ACCEPT-20260812`。
+- Activation: LS-01～LS-08 全部完成；focused/workspace/zero-base/Standard exact-wire/cache gate 全部通过；最终提交已推送。
+- Model: `deepseek-v4-flash`。
+- Projection: `map-request`。
+- Retry: 0；任何复验必须先完成根因分析和离线修复，再申请新预算。
+
+| Run | Sample | Repeat | 验收重点 |
+|---|---|---:|---|
+| A | `single-file-fast-fix` | 1 | 初始化、连续 Tool、handoff、Ready -> InFlight、finish |
+| B | `subscription-billing-repair` | 1 | 复杂 DAG、fork/join、多节点推进、Map 调整和闭合 |
+| C | 最小 Provider-hosted probe | 1 | Provider Tool 位于统一 `tools[]`、节点绑定、顶层事实对账且不重复执行 |
+
+硬上限：3 sample runs、52 Provider requests、1,180,000 input tokens、80,000 output tokens、60 分钟、
+USD 0.19 / CNY 1.35。费用采用运行前冻结的 DeepSeek 官方价格结算；任一硬上限先到即停止。
+
+运行必须顺序执行。每个 run 启动前在 `benchmarks/whale-agent-run-ledger.json` 创建独立 `planned` 记录，结束、失败或取消后
+立即结算；不得先创建三条伪记录，也不得用包装脚本自动重试。出现顶层 client 逃逸、Provider 重执行/漏绑/错绑被接受、
+Map/DAG 损坏、同一拒绝重复、业务失败伴随协议/反馈/状态异常、usage/trace 不可信或同形暖请求零缓存命中时，立即停止
+剩余 run。纯 Agent 业务判断错误且 Runtime 与反馈正确时只记录行为事实，不自动修复或重跑。
+
+通过条件：三个样本均通过业务验证和隐藏 oracle；Agent 只使用 L1～L8；全部 Tool 有合法归属；Provider Tool 只执行一次；
+Ready -> InFlight 只由 Agent 声明的 Tool action 触发；Runtime 不选节点、不补动作、不自动 completion；反馈无重复、丢失或
+语义改写；目标 wire 不含旧 `calls[]`、独立 Hosted binding 或 `blocked`。request 2+ 缓存低于 90% 不自动判业务失败，
+但必须暂停后续产品测量并完成前缀归因。
+
+预算批准不绕过缓存门禁、账本和前置门禁；LS-09 激活前不创建 `planned` 记录，未使用余额不转移到 VA-03。
 
 #### TaskSpace Exec 输入压缩预算包
 
