@@ -141,6 +141,24 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .len(),
         7
     );
+    let web_search = parameters["$defs"]["tool_action"]["anyOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|variant| variant["properties"]["tool"]["enum"][0].as_str() == Some("web_search"))
+        .unwrap();
+    let hosted_contract = web_search["description"].as_str().unwrap();
+    for required in [
+        "already produced in this same response",
+        "Do not include native Tool input",
+        "one action for every output item in provider output order",
+        "including failed items and action subtypes",
+        "public Tool name `web_search`",
+    ] {
+        assert!(hosted_contract.contains(required), "missing {required}");
+    }
+    assert_eq!(web_search["required"], json!(["tool", "node_ids"]));
+    assert_eq!(web_search["additionalProperties"], false);
     let rendered = declaration.to_string();
     for name in [
         "initialize_and_work",

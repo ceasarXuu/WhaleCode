@@ -129,20 +129,31 @@ fn map_definition_name(operation: &str) -> String {
 fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
     match capability {
         TaskSpaceToolCapability::Client(client) => client_action_schema(client),
-        TaskSpaceToolCapability::Hosted(kind) => strict_object(
-            [
-                ("tool", exact_name(kind.name())),
-                (
-                    "node_ids",
-                    JsonSchema::array(
-                        JsonSchema::string(None),
-                        Some("Agent-declared owner work nodes.".into()),
-                    )
-                    .with_min_items(1),
-                ),
-            ],
-            &["tool", "node_ids"],
-        ),
+        TaskSpaceToolCapability::Hosted(kind) => {
+            let mut schema = strict_object(
+                [
+                    ("tool", exact_name(kind.name())),
+                    (
+                        "node_ids",
+                        JsonSchema::array(
+                            JsonSchema::string(None),
+                            Some(
+                                "One or more Agent-declared owner work nodes for this output item."
+                                    .into(),
+                            ),
+                        )
+                        .with_min_items(1),
+                    ),
+                ],
+                &["tool", "node_ids"],
+            );
+            schema.description = Some(format!(
+                "Ownership declaration for exactly one `{}` provider-hosted output item already produced in this same response. Do not include native Tool input or use this action to request execution. Declare one action for every output item in provider output order, including failed items and action subtypes, and always use the public Tool name `{}`.",
+                kind.name(),
+                kind.name()
+            ));
+            schema
+        }
     }
 }
 

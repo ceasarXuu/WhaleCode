@@ -19,7 +19,7 @@ const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry poi
 Tool contract:
 - Put client and provider-hosted Tool actions in the sequence's single `tools` array.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
-- Each provider-hosted action declares its Tool name and non-empty owner `node_ids`; the Runtime reconciles the already executed provider facts and does not execute them again.
+- Each provider-hosted action is the node-ownership declaration for one same-response output item already executed by the Provider; its schema defines complete per-item coverage and it carries no native Tool input.
 - Tool array order supplies stable action identity and provider-fact pairing. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
 Map contract:

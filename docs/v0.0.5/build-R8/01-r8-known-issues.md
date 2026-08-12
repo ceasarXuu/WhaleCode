@@ -146,6 +146,11 @@
 > 失败 output 也必须声明”的操作语义。该缺口归入 I03，不新增问题；I04 保持 verifying，不能由单次无 Waiting 拒绝关闭。
 > 详见 [`taskspace-exec/44-ls09-run-c-result.md`](taskspace-exec/44-ls09-run-c-result.md)。
 
+> **Hosted action 合同针对性修复（2026-08-13）**：统一 `tools[]` 的 Hosted schema 已补回旧结构迁移时丢失的操作合同：
+> 每项只归属同响应已经执行的一个 Provider output，不携带原生 Tool input；全部 output 按序逐项声明，失败项和 action
+> subtype 也不例外，并始终使用公开 Tool 名。修复直接落在最终 Provider-visible variant，未增加提示层、Runtime 推断、
+> 对账分支或状态语义。TaskSpace Exec 72/72 通过；I03 保持 verifying，等待已批准的单次真实复验。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
