@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A 等待 0.147 资格验证
+- 文档状态：有效，Phase A rebase gate ready，下一单元 U2
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -17,6 +17,8 @@
 - 已验证的代码、测试、日志和上游事实可以修订本计划，但不能静默改写产品权威。
 - 新出现的实质产品选择必须延期、局部 provisional，或交由用户确认；不得把工程实现倒推成产品决定。
 - 每个实质阶段结束后，只审计该阶段的 Product Decision Delta，分类为 `covered`、`engineering-only`、`provisional` 或 `conflict`。
+- 每个实质阶段开始前，必须根据已完成实现和验证证据重基剩余计划，并在该 Phase 的 `Pre-Phase Plan Rebase Gate` 中持久化结论。
+- Phase gate 为 `pending` 或 `blocked-on-plan-approval` 时不得开始；material Plan Delta 必须记录并获得用户直接批准后才能应用和继续执行。
 - 存在未解决的 material `provisional` 或 `conflict` 时，不得进入依赖它的下一阶段。
 - 每个工作单元独立提交并 push；生成物必须与其权威源在同一单元生成和验证。
 - 单元开始触及另一个产品域时立即停止并拆分，不通过新框架、双实现或临时业务分支维持进度。
@@ -29,8 +31,8 @@
 | --- | ---: | --- | --- | --- |
 | 安全与通用 backport | 6/6 verified | 6 个独立上游修复已合入 | 当前 vendor 已包含这些补丁，后续不得重复回移 | 已完成 |
 | 同步基线与测试门禁 | 12/15 verified；3 deferred | upstream 基线、overlay inventory、测试门禁；DeepSeek Responses 兼容、Flash 默认/Pro 隐藏已经落到当前 vendor | U5–U10 迁移的是这些既有行为在新 substrate 上的重放，不是重新设计或首次实现 | 已收口；TaskSpace TUI 已知夹具问题、Windows runner、Windows 终端 smoke 保持延期 |
-| 0.146 资格与差异证据 | 9/9 completed；U1 verified-no-go | 候选身份、4,355 条 upstream delta、730 路径索引、两轮 qualification 日志；U1 修正 3 个 runner 问题并确认完整矩阵未通过 | 仅作为历史归因和 0.147 增量比较输入；不得充当 0.147 的身份、delta 或 qualification 证据 | 0.146 方向保持 `direction-rejected` |
-| 0.147 只读预检 | discovery completed | 官方 tag commit 已核验；相对 0.146 有 344 个提交、1,504 个变化路径；snapshot/Cargo.lock 仍保留开发版本 `0.0.0` | U2 必须重新生成 target-dependent manifest、delta 和 replay 路由，并复用 U1 已修 runner | 只证明值得进入 U2，不证明候选合格或可 cutover |
+| 0.146 资格与差异证据 | 9/9 completed；U1 verified | 候选身份、4,355 条 upstream delta、730 路径索引、两轮 qualification 日志；U1 修正 3 个 runner 问题并确认完整矩阵未通过 | 仅作为历史归因和 0.147 增量比较输入；不得充当 0.147 的身份、delta 或 qualification 证据 | U1 execution=`verified`；V1 validation=`direction-rejected` |
+| 0.147 只读预检 | discovery completed | 官方 tag commit 已核验；相对 0.146 有 344 个提交、1,504 个变化路径；snapshot/Cargo.lock 仍保留开发版本 `0.0.0` | U2 checkpoint A 先复用 U1 runner 验证资格；仅 direction-supported 后由 checkpoint B 重算 target-dependent manifest、delta 和 replay 路由 | 只证明值得进入 U2，不证明候选合格或可 cutover |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U17 的范围和停止条件 | 已完成 |
 
 因此，`U2–U17` 尚未执行只表示 0.147 正式资格、vendor cutover 和 replay 尚未开始，不表示整个 Codex 主线追赶从零开始。历史工作、已完成的 U1 与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
@@ -99,29 +101,53 @@
 
 默认修改现有 seam 或使用局部 adapter。只有证据证明上游没有稳定 seam，且重复宿主侵入会造成状态不一致时，才规划新抽象；若扩大当前单元，先停下重新审查。
 
+### 3.4 Plan Delta 历史
+
+| ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PLD-001 | Phase A | 继续以 0.146 为候选；U2 验证 overlay；U3 替换 vendor | 0.147 已于 2026-08-07 发布，固定 commit 为 `be6e8eac029b183056b7e4402879f15d2c85f61b`；0.146 工件不能证明 0.147 | 当前候选改为 0.147；新增候选资格单元 U2；原后续单元顺延 | target-dependent 工件和资格证据必须重算；生产替换推迟到 U4 | `user-approved-plan-direct: “根据147正式更新计划”` | approved-applied |
+| PLD-002 | Phase A | 无 phase rebase gate；U2 同时执行资格与全部工件重算；完整包测试未做环境能力预检 | 新版 `se-good-plan` 要求每个 material Phase 先重基；U1 已证明本机 sandbox/network 能力会制造同源噪声；0.147 新能力可能随整仓替换进入默认产品面 | 补齐五个 phase gate；U2 增加资格优先 checkpoint 和 sandbox preflight；U3 增加新能力默认暴露审计；校正 execution/validation 状态 | 不增加运行时架构；候选失败可更早停止；U4 前新增明确的权限/持久化/协议冲突门禁 | `user-approved-plan-direct: “根据审查结果先治理方案”` | approved-applied |
+
 ## 4. 最低成本预投资验证
 
 | ID | Critical Assumption | Decision Unlocked | Cheapest Credible Method | Enough Evidence / Not Proven | Budget / Isolation | Stop / Cleanup | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | V1 | 0.146 的四项失败是否主要来自错误命令、ambient proxy 或过严 `--locked` | 是否继续以 0.146 为候选 | 在临时官方树读取该 tag 自带 README/justfile/CI，清空非必要代理和 Whale 环境，执行官方入口 | 三个 runner 问题已证实并修正；完整 core/app-server/TUI 入口未全部完成 | 独立临时树和 target；0 模型请求 | 日志已保留；0.146 不再作为当前候选 | direction-rejected |
-| V2 | 0.147 是否在复用 U1 runner 修正后具备进入 overlay 验证的资格 | 是否执行 U3 | 固定官方 commit；刷新 candidate/delta/replay target；执行 fmt、offline CLI、helper build、focused regressions 和包级测试；逐项归因剩余失败 | Enough：身份/工件一致；原 U1 runner 签名消失；版本 snapshot 仅允许精确的 `0.0.0 -> 0.147.0` 机械差异；其他失败有可复现实证和明确环境归属。Not proven：修改候选业务源码、接受未知 snapshot 或忽略未归因失败才通过 | 独立临时树和 target；0 模型请求；不写生产 vendor | 保留规范化日志并删除临时树；任何未归因产品失败则停止 U3 | planned |
+| V2 | 0.147 是否在复用 U1 runner 修正后具备进入 overlay 验证的资格 | 是否执行 U2 checkpoint B 和 U3 | 固定官方 commit；先探测 user namespace/bwrap loopback、sandbox helper、loopback proxy、PTY/IPC socket 和 sibling binary 条件，再执行 fmt、offline CLI、helper build、focused regressions；环境能力满足时才执行包级测试 | Enough：身份一致；原 U1 runner 签名消失；版本 snapshot 仅允许精确的 `0.0.0 -> 0.147.0` 机械差异；其他失败有可复现实证和明确归属；完整包测试在能力匹配环境通过。Not proven：修改候选业务源码、接受未知 snapshot、忽略未归因失败，或只在能力不足主机得到大量同源失败 | 独立临时树和 target；0 模型请求；不写生产 vendor | 能力不足则包级测试记 `not-run`/`inconclusive`，保留 focused 证据并等待合格 CI/主机；资格 direction-rejected 时不重算 delta/replay、不执行 U3 | planned |
 | V3 | 0.147 substrate 能以很薄的 identity/home overlay 支撑 Whale CLI | 是否替换生产 vendor | 一次性临时候选树只应用品牌、二进制身份、`WHALE_HOME`、auth 隔离 patch | Enough：CLI build、version、home/keyring/auth 隔离测试通过；Not proven：需要 DeepSeek/TaskSpace stub | 不提交第二份 vendor；0 模型请求 | 删除临时树；失败则回到 seam 识别 | planned |
+| V4 | 0.147 新增用户可见能力不会在整仓替换时静默改变 Whale 默认权限、持久化或协议行为 | 是否执行 U4 | 在临时 0.147 tree 检查 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 的 CLI help、配置 schema、feature/default、protocol 和持久化入口 | Enough：能力仅显式 opt-in、默认关闭或与现有语义等价；Not proven：默认开启、改变权限/持久化/模型可见性，或依赖 Whale 专用禁用框架 | 只读源码/生成 schema 和本地无模型 smoke；不改候选 | material 默认行为变化标 `conflict` 并请用户决定；不得用专用兼容层掩盖 | planned |
 
 ## 5. 可执行工作单元
 
 ### Phase A：候选方向验证
 
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope：已完成 U1、0.147 官方身份和只读预检、当前同步脚本/metadata/schema、Phase A–E 剩余计划。
+- Material plan delta：`material`
+- Plan delta record：PLD-001、PLD-002
+- User approval：`user-approved-plan-direct: “根据147正式更新计划”；“根据审查结果先治理方案”`
+- Gate status：`ready`
+
 进入条件：工作树 clean；生产 vendor 未变化；0.147 官方 commit `be6e8eac029b183056b7e4402879f15d2c85f61b` 可读取。适用决策：D2。
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 已修 runner 的 offline lock 处理、代理隔离、local nextest 参数和显式 helper build；候选源码未改 | 三个初始失败归入 runner，TUI 归入不可变上游 fixture；完整矩阵仍失败 | 排除假 blocker，同时保留真实 no-go | 仅 runner、契约、日志、manifest 和报告；无生产影响 | 36 个 runner/metadata 单测；6 命令矩阵；vendor diff 为零；0 模型请求 | 已按失败停止条件收口 | verified-no-go |
-| U2 | 正式验证 0.147 候选 | compatibility/evidence | `scripts/codex-upstream/**`、target-dependent JSON、临时 0.147 tree | candidate identity、qualification、0.147 delta/replay routing | 将固定 target 更新到 0.147，执行 V2，机械重算 target-dependent 工件；沿用 U1 环境隔离，不修改生产 vendor 或候选业务源码 | 0.147 得到独立、可复现的 go/no-go 结论，旧 0.146 证据不再冒充当前证据 | 在 overlay 和 vendor 投资前消除候选不确定性 | Complexity：只改同步脚本常量/metadata 和生成证据；Reach/Cost：重跑 Rust 包级测试与 target delta/replay 工件，0 生产影响 | commit/tree/license；工件 schema/reproducibility；6 命令矩阵；focused proxy/helper/version tests；vendor diff 为零；0 模型请求 | 未归因失败即 `direction-rejected` 并停止 U3；所有临时树清理 | not-started |
-| U3 | 验证最小 Whale overlay | compatibility | 一次性临时 0.147 candidate tree | brand、binary identity、`WHALE_HOME`、auth isolation | 执行 V3；提取最小 patch，不带 DeepSeek/TaskSpace/cache | 候选可构建身份与数据目录隔离正确的 Whale CLI | 生产替换前验证关键 seam | Complexity：不得新增框架/双 vendor；Reach/Cost：临时构建和少量测试 | CLI build、version、home/keyring/auth tests；patch 清单可审阅 | 任一能力需要业务 stub 即停止并删临时树 | not-started |
+| U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 已修 runner 的 offline lock 处理、代理隔离、local nextest 参数和显式 helper build；候选源码未改 | 三个初始失败归入 runner，TUI 归入不可变上游 fixture；完整矩阵仍失败 | 排除假 blocker，同时保留真实 no-go | 仅 runner、契约、日志、manifest 和报告；无生产影响 | 36 个 runner/metadata 单测；6 命令矩阵；vendor diff 为零；0 模型请求 | 已按失败停止条件收口 | verified |
+| U2 | 正式验证 0.147 候选 | compatibility/evidence | `generate_overlay_inventory.py`、`qualify_candidate.py`、`metadata_contract.py`、candidate schema/单测、candidate/delta/overlay/replay JSON 与 0.147 evidence、临时 0.147 tree | candidate identity、qualification、0.147 target-dependent routing | Checkpoint A：更新固定 target 和 candidate metadata，执行 sandbox capability preflight 与 V2 资格命令并完成归因。只有 validation=`direction-supported` 才进入 Checkpoint B：机械重算 overlay、delta、replay 工件及联合校验 | 0.147 得到独立、可复现的 go/no-go 结论；失败候选不会触发无价值的全量工件重算 | 在 overlay 和 vendor 投资前消除候选不确定性并降低失败成本 | Complexity：只改列明的同步常量/契约/生成证据，不新增框架；Reach/Cost：Checkpoint A 为 Rust focused/包级测试，B 为大 JSON 机械重算，0 生产影响 | A：commit/tree/license、preflight、6 命令/focused matrix、vendor diff、0 模型请求；B：四类工件 schema/reproducibility 与联合 metadata 校验 | A 为 `direction-rejected`/`inconclusive` 即提交证据并停止，不执行 B/U3；能力不足须等待合格 CI/主机；临时树清理 | not-started |
+| U3 | 验证最小 Whale substrate 兼容边界 | compatibility | 一次性临时 0.147 candidate tree；CLI/config/protocol feature surfaces | brand、binary identity、`WHALE_HOME`、auth isolation；0.147 新能力默认状态 | 执行 V3 与 V4：只应用最小 identity/home patch，并审计 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 是否改变默认产品面 | Whale 身份与数据隔离正确；0.147 新能力不会未经决策静默改变默认权限、持久化或协议行为 | 在生产替换前同时验证最小 overlay 和用户可见兼容边界 | Complexity：临时 patch 与只读/default smoke，不建禁用框架；Reach/Cost：CLI/config/schema/protocol 定向测试，0 模型请求 | CLI build/version、home/keyring/auth tests；patch 清单；CLI help/config schema/feature defaults/protocol smoke | 需要 DeepSeek/TaskSpace stub 即停止；material 默认变化标 `conflict` 并请示；删除临时树 | not-started |
 
 退出条件：U2、U3 均 verified；否则停在当前 vendor。U1 保留为历史已完成单元。结束时审计本阶段 Product Decision Delta。
 
 ### Phase B：上游 substrate 落地
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope：Phase A 的 0.147 qualification、target-dependent 工件、最小 overlay 和默认产品面审计 + Phase B–E 剩余计划。
+- Material plan delta：`pending`
+- Plan delta record：`pending`
+- User approval：`pending-if-material`
+- Gate status：`pending`
 
 进入条件：Phase A verified，用户已看到 0.147 资格结论。适用决策：D2。
 
@@ -132,6 +158,14 @@
 退出条件：U4 verified。不得在本阶段顺手修 DeepSeek/TaskSpace；其编译缺口只作为后续输入。
 
 ### Phase C：DeepSeek 闭环
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope：U4 实际 vendor substrate、编译缺口、上游 provider/catalog/Responses/cache seam + Phase C–E 剩余计划。
+- Material plan delta：`pending`
+- Plan delta record：`pending`
+- User approval：`pending-if-material`
+- Gate status：`pending`
 
 进入条件：U4 verified。适用决策：D1、D2。
 
@@ -148,6 +182,14 @@
 
 ### Phase D：TaskSpace 闭环
 
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope：U4 substrate 与 U5–U10 DeepSeek 实现、TaskSpace 实际编译/测试状态、上游 domain/data/tool/session/client seam + Phase D–E 剩余计划。
+- Material plan delta：`pending`
+- Plan delta record：`pending`
+- User approval：`pending-if-material`
+- Gate status：`pending`
+
 进入条件：Phase C verified。适用决策：D2。
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
@@ -162,6 +204,14 @@
 退出条件：U11–U16 verified；状态权威无冲突；TaskSpace TUI 已知夹具失败未新增回归且继续明确延期。
 
 ### Phase E：发布收口
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope：U4–U16 实际实现、生成物、Linux/Windows 延期、缓存门禁和剩余发布风险 + Phase E 计划。
+- Material plan delta：`pending`
+- Plan delta record：`pending`
+- User approval：`pending-if-material`
+- Gate status：`pending`
 
 进入条件：Phase D verified。适用决策：D1、D2。
 
@@ -180,7 +230,8 @@
 | 已完成：安全 backport | 无产品语义 | 独立安全/通用修复 | none | engineering-only | 已收口 |
 | 已完成：基线与门禁 | 模型默认值与 Responses | Flash 默认、Pro 隐藏；Responses 按能力处理 | D1、D2 | covered | 保留为现行为证据，不作未来授权 |
 | 已完成：资格与差异证据 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
-| Phase A | 无产品语义 | U1 确认 0.146 no-go；0.147 已成为当前工程候选，U2/U3 待执行 | D2 | engineering-only | 只有 U2、U3 均 verified 才进入生产替换 |
+| 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
+| Phase A | 待执行 | 0.147 U2/U3 尚未执行 | D2 | 待分类 | U2、U3 verified 后审计；当前不得预判为 engineering-only |
 | Phase B | 待执行 | 待记录 | D2 | 待分类 | U4 后审计 |
 | Phase C | 待执行 | 待记录 | D1、D2 | 待分类 | U5–U10 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
@@ -203,6 +254,7 @@
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
 - 本计划不授权新分支、真实模型请求、跨工作空间操作或超过仓库规模门禁的实现。
 - 每阶段完成后先更新状态、证据链接和 Product Decision Delta，再进入下一阶段。
+- 每个 Phase 开始前先完成其 `Pre-Phase Plan Rebase Gate`；若 delta=`none`，记录 `User approval: not-required` 并置 `ready`；若为 `material`，先记录 delta、置 `blocked-on-plan-approval`，获得用户直接批准后再应用修订并置 `ready`。
 
 ## 9. 计划验收
 
@@ -215,3 +267,6 @@
 - [x] 生成物与对应源变化同单元处理。
 - [x] TaskSpace TUI 已知夹具问题和 Windows 延期不阻塞 Linux 主线融合，也不被误报为通过。
 - [x] 不新增运行时框架、双 vendor、双状态权威或同步专用业务逻辑。
+- [x] 每个 material Phase 持久化 Pre-Phase Plan Rebase Gate；Phase A 已获直接批准并 ready，后续 Phase 保持 pending。
+- [x] 0.146→0.147 及本轮治理的 material Plan Delta 已保留用户批准记录。
+- [x] U2 按资格优先 checkpoint 执行，候选不支持时不重算 target-dependent 大工件。
