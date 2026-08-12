@@ -109,6 +109,30 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     let declaration = serde_json::to_value(first.declaration()).unwrap();
     let parameters = &declaration["parameters"];
     assert_eq!(parameters["anyOf"].as_array().unwrap().len(), 8);
+    let sequence_descriptions = parameters["anyOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|branch| {
+            (
+                branch["properties"]["type"]["enum"][0].as_str().unwrap(),
+                branch["description"].as_str().unwrap(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(sequence_descriptions.len(), 8);
+    assert!(sequence_descriptions["initialize_and_work"].contains("Map is blank"));
+    assert!(sequence_descriptions["work"].contains("already Ready or InFlight"));
+    assert!(sequence_descriptions["work"].contains("does not complete its owner"));
+    assert!(sequence_descriptions["work"].contains("use update_and_work instead"));
+    assert!(sequence_descriptions["update_map"].contains("without Tool work"));
+    assert!(sequence_descriptions["update_and_work"].contains("Update the Map first"));
+    assert!(sequence_descriptions["update_and_work"].contains("direct dependents"));
+    assert!(sequence_descriptions["update_and_work"].contains("do not unlock descendants"));
+    assert!(sequence_descriptions["update_and_finish"].contains("Finish node Ready"));
+    assert!(sequence_descriptions["read_map"].contains("without changing it"));
+    assert!(sequence_descriptions["reopen_update_and_work"].contains("user feedback"));
+    assert!(sequence_descriptions["finish_map"].contains("already Ready"));
     assert!(parameters["$defs"]["tool_action"].is_object());
     assert_eq!(
         parameters["$defs"]["tool_action"]["anyOf"]

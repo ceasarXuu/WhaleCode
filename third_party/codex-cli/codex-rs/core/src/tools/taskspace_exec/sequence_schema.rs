@@ -37,15 +37,25 @@ pub(super) fn build_sequence_schema(
         vec![
             sequence(
                 "initialize_and_work",
+                "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first Tool work on nodes made Ready by that initialization.",
                 [
                     ("initialize_map", map_ref("initialize_map")),
                     ("tools", tools_ref()),
                 ],
             ),
-            sequence("work", [("tools", tools_ref())]),
-            sequence("update_map", [("update_map", map_ref("update_map"))]),
+            sequence(
+                "work",
+                "Use only when every Tool owner is already Ready or InFlight in the current Map. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
+                [("tools", tools_ref())],
+            ),
+            sequence(
+                "update_map",
+                "Update the current Map without Tool work or Map finish.",
+                [("update_map", map_ref("update_map"))],
+            ),
             sequence(
                 "update_and_work",
+                "Update the Map first, then perform Tool work that is executable in the resulting Map. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock Tool owners; Tool outcomes in this sequence do not unlock descendants.",
                 [
                     ("update_map", map_ref("update_map")),
                     ("tools", tools_ref()),
@@ -53,21 +63,31 @@ pub(super) fn build_sequence_schema(
             ),
             sequence(
                 "update_and_finish",
+                "Update the Map first, then finish it. Use only when that update completes the remaining work and makes the Finish node Ready.",
                 [
                     ("update_map", map_ref("update_map")),
                     ("finish_map", map_ref("finish_map")),
                 ],
             ),
-            sequence("read_map", [("read_map", map_ref("read_map"))]),
+            sequence(
+                "read_map",
+                "Read the complete current Map without changing it or performing Tool work.",
+                [("read_map", map_ref("read_map"))],
+            ),
             sequence(
                 "reopen_update_and_work",
+                "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform executable Tool work.",
                 [
                     ("reopen_map", map_ref("reopen_map")),
                     ("update_map", map_ref("update_map")),
                     ("tools", tools_ref()),
                 ],
             ),
-            sequence("finish_map", [("finish_map", map_ref("finish_map"))]),
+            sequence(
+                "finish_map",
+                "Finish an open Map whose Finish node is already Ready; use update_and_finish when a preceding Map update is still required.",
+                [("finish_map", map_ref("finish_map"))],
+            ),
         ],
         Some("Choose exactly one legal TaskSpace sequence shape.".into()),
     )
@@ -76,6 +96,7 @@ pub(super) fn build_sequence_schema(
 
 fn sequence<const N: usize>(
     sequence_type: &str,
+    description: &str,
     fields: [(&'static str, JsonSchema); N],
 ) -> JsonSchema {
     let mut properties = BTreeMap::from([("type".into(), exact_name(sequence_type))]);
@@ -84,11 +105,13 @@ fn sequence<const N: usize>(
         properties.insert(name.into(), schema);
         required.push(name.into());
     }
-    JsonSchema::object(
+    let mut schema = JsonSchema::object(
         properties,
         Some(required),
         Some(AdditionalProperties::Boolean(false)),
-    )
+    );
+    schema.description = Some(description.into());
+    schema
 }
 
 fn tools_ref() -> JsonSchema {

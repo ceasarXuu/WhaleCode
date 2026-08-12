@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 paused after Run B
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 branch contract repaired offline, provider revalidation pending
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -101,6 +101,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   边界被拒绝后才恢复。最终 Map 为 5 节点线性链，没有实际覆盖预定的 fork/join 或 Map 调整。Run B 请求 3+ 缓存命中
   92.28%，同一 Tool schema 与 `tool_choice` 全程稳定，因此不构成缓存结构回归。按批准的异常停点暂停 Run C；LS-09
   不能据业务通过宣称协议验收完成。
+- Run B 后确认实现缺口不在 Runtime 的八分支解码或 DAG 硬门，而在每个 `anyOf` 分支没有自包含地说明适用条件。
+  当前 L1～L8 均已在自身 schema 分支声明选择边界；L2 明确既有 Tool outcome 不会完成 owner，L4 明确只有前置
+  Map update 能解锁本批 Tool owner，且本批 Tool outcome 不会解锁后继。72 项 TaskSpace Exec 测试、zero-base 和缓存
+  敏感面门禁通过。该记录只证明 Agent-visible 合同已完整落线，不把尚未执行的真实 Provider 复验写成行为收益。
 
 ## 3. 文档
 
